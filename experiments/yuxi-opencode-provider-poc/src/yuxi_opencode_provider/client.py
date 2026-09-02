@@ -1,7 +1,7 @@
 """Minimal OpenCode HTTP client for the Yuxi provider feasibility PoC.
 
 The client deliberately treats every model invocation as an ephemeral OpenCode
-session.  Session IDs are transport diagnostics only and MUST NOT be promoted to
+session. Session IDs are transport diagnostics only and MUST NOT be promoted to
 Yuxi Mission/Run/Thread truth.
 """
 
@@ -11,6 +11,7 @@ import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -27,7 +28,7 @@ class OpenCodeProtocolError(OpenCodeGatewayError):
 class OpenCodeInvocation:
     """One completed ephemeral invocation.
 
-    ``session_id`` exists only so a caller can correlate transport logs.  The
+    ``session_id`` exists only so a caller can correlate transport logs. The
     session is deleted before this object is returned.
     """
 
@@ -57,9 +58,10 @@ class OpenCodeClient:
     def _http(self) -> httpx.AsyncClient:
         headers = dict(self.headers)
         if self.directory:
-            # Current OpenCode server routing accepts this header and falls back
-            # to the server process cwd when it is absent.
-            headers.setdefault("x-opencode-directory", self.directory)
+            # Match the exact OpenCode v1.14.22 SDK contract: the directory
+            # header is URI-encoded before transport. This matters for Windows
+            # drive letters, spaces, non-ASCII paths, and other reserved chars.
+            headers.setdefault("x-opencode-directory", quote(self.directory, safe=""))
         return httpx.AsyncClient(
             base_url=self.base_url,
             timeout=self.timeout,
@@ -86,7 +88,7 @@ class OpenCodeClient:
     async def _tool_ids(http: httpx.AsyncClient) -> list[str]:
         """Return every OpenCode-owned tool id so the adapter can disable it.
 
-        Failing to enumerate tools is a hard failure.  Silently continuing would
+        Failing to enumerate tools is a hard failure. Silently continuing would
         allow the OpenCode agent loop to become an unexpected second tool/runtime
         owner, which this PoC explicitly forbids.
         """
@@ -185,7 +187,6 @@ class OpenCodeClient:
                 try:
                     await self._delete_session(http, session_id)
                 except BaseException:
-                    # Never mask the real model/protocol error with cleanup noise.
                     if primary_error is None:
                         raise
 
@@ -215,8 +216,6 @@ class OpenCodeClient:
                     disabled_tools=disabled_tools,
                 )
 
-                # Open the event stream before submitting the async prompt so an
-                # early first-token event cannot be missed.
                 async with http.stream("GET", "/event") as event_response:
                     event_response.raise_for_status()
                     submitted = await http.post(f"/session/{session_id}/prompt_async", json=payload)
@@ -226,17 +225,14 @@ class OpenCodeClient:
                         event_type, properties = self._event_fields(event)
                         if properties.get("sessionID") != session_id:
                             continue
-
                         if event_type == "message.part.delta":
                             if properties.get("field") == "text" and isinstance(properties.get("delta"), str):
                                 yield properties["delta"]
                             continue
-
                         if event_type == "session.error":
                             raise OpenCodeGatewayError(
                                 f"OpenCode session failed: {properties.get('error') or properties}"
                             )
-
                         if event_type == "session.idle":
                             break
             except BaseException as exc:
@@ -280,7 +276,6 @@ class OpenCodeClient:
 
     @staticmethod
     def _event_fields(event: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
-        # Some OpenCode event surfaces wrap the bus event in ``payload``.
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else event
         event_type = payload.get("type") if isinstance(payload, dict) else None
         properties = payload.get("properties", {}) if isinstance(payload, dict) else {}
