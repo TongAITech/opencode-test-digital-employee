@@ -26,8 +26,11 @@ This workspace runs the generic AI Test Runtime. Project identity comes only fro
 - Never expose configured secret values.
 
 
-## V1.11.1 Code Intelligence Provider
-- Default offline provider: CodeGraph v1.5.0 Windows x64.
-- `codegraph_*` MCP tools are read-only code intelligence; they do not authorize test execution or repository writes.
-- Mission Runtime and Capability Broker remain the execution authority.
-- GitNexus remains pluggable but is not a hard dependency of this bank-reuse distribution.
+## G3 Code / Change Intelligence Providers
+- Git is the mandatory and sole authority for exact repository/base/head, changed files and changed lines.
+- Structural enrichment is provider-neutral. The selected offline CodeGraph payload is pinned only by repository-root `runtime-lock.json`; the current pin is `codegraph-ai/CodeGraph` v0.20.1, Windows x64, `graph-only`.
+- CodeGraph/GitNexus-class providers may add enclosing-symbol, caller/callee, dependency and reference evidence, but they never replace Git Change Truth and never become Actual Coverage authority.
+- Runtime binaries, graph indexes and provider caches are derived offline payloads and must not be committed to Git. Missing or invalid providers remain explicit `UNAVAILABLE`/`BLOCKED`; they must never be faked as `AVAILABLE`.
+- Language structural providers are fallback/corroboration. Regex is last-resort `PARTIAL`; every relevant changed executable line must be `MAPPED_TO_SYMBOL` or remain an exact `MISSING_SYMBOL_MAPPING` coverage/risk obligation.
+- ripgrep is best-effort reference enrichment only. Mission Runtime and Capability Broker remain the execution authority.
+- GitNexus is not an active provider in this canonical source baseline; no GitNexus activation path is implied.

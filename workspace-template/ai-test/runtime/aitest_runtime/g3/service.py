@@ -11,7 +11,7 @@ from aitest_runtime.r3_3.engine import build_risk_vector
 from aitest_runtime.r3_3.service import R33ApplicationService
 from aitest_runtime.r3_4.service import R34ApplicationService
 
-from .code_intelligence import analyze_repository
+from .code_intelligence import ChangeIntelligenceBroker, analyze_repository
 from .contracts import (
     EXTENSION_ID, G3State, HOLD_INTENTS, RECORD_FACT, validate_defect_hypothesis,
     validate_detailed_case, validate_test_intent,
@@ -70,11 +70,12 @@ def recommended_plan(intent_type: str) -> dict[str, Any]:
 
 
 class G3TestingIntelligenceService:
-    def __init__(self, runtime: RuntimeService, *, coverage_provider: CoveragePlatformProvider | None = None, orchestration: Any | None = None, actor: ActorRef | None = None) -> None:
+    def __init__(self, runtime: RuntimeService, *, coverage_provider: CoveragePlatformProvider | None = None, orchestration: Any | None = None, actor: ActorRef | None = None, change_intelligence_broker: ChangeIntelligenceBroker | None = None) -> None:
         runtime.extension_registry.manifest(EXTENSION_ID)
         self.runtime = runtime
         self.coverage_provider = coverage_provider or BankCoveragePlatformProvider()
         self.orchestration = orchestration
+        self.change_intelligence_broker = change_intelligence_broker
         self.actor = actor or ActorRef("SYSTEM", "g3-testing-intelligence")
 
     def state(self, mission_id: str) -> G3State:
@@ -154,7 +155,7 @@ class G3TestingIntelligenceService:
         r31 = R31Reference.from_dict(r3_1_reference)
         analyses = []; refs = []
         for spec in repositories:
-            repo_request, envelope, meta = analyze_repository(spec)
+            repo_request, envelope, meta = analyze_repository(spec, broker=self.change_intelligence_broker)
             ci = {"provider_id": envelope.provider_id, "provider_version": envelope.provider_version, "requested_capabilities": list(envelope.requested_capabilities), "provider_input_digest": envelope.provider_input_digest}
             request = ChangeImpactRequest(mission_id, scope_identity, repo_request, ci, r31, "g3.change-policy.v1", f"g3-r32:{envelope.provider_input_digest[:24]}", {"type": "AGENT", "id": "aitest-code-analyst"}, f"g3-r32:{meta['repository_id']}")
             result = R32ApplicationService(self.runtime, provider=MappingCodeIntelligenceProvider(envelope)).derive(request)
@@ -166,17 +167,29 @@ class G3TestingIntelligenceService:
         fact = self._record(mission_id, "MULTI_REPO_CHANGE_ANALYSIS", {"scope_identity": scope_identity, "repositories": analyses, "r3_1_reference": dict(r3_1_reference)}, provenance_refs=tuple(f"r3.2:{x['derivation_version_id']}" for x in refs))
         symbol_truth_obligations = []
         for analysis in analyses:
+            explicit = list(analysis.get("mapping_obligations") or [])
+            if explicit:
+                for obligation in explicit:
+                    symbol_truth_obligations.append({
+                        **dict(obligation),
+                        "application_id": analysis["application_id"],
+                        "repository_id": analysis["repository_id"],
+                    })
+                continue
+            # Backward-compatible guard for historical provider envelopes.
             for warning in analysis.get("warnings") or []:
                 if not str(warning).startswith("MISSING_SYMBOL_MAPPING:"):
                     continue
-                path = str(warning).split(":", 1)[1]
+                raw_ref = str(warning).split(":", 1)[1]
+                path = raw_ref.rsplit(":L", 1)[0] if ":L" in raw_ref else raw_ref
                 changed_file = next((item for item in analysis.get("changed_files") or [] if item.get("file_path") == path), None)
+                refs = [raw_ref] if ":L" in raw_ref else list((changed_file or {}).get("diff_hunk_refs") or [])
                 symbol_truth_obligations.append({
                     "obligation_kind": "MISSING_SYMBOL_MAPPING", "status": "OPEN",
                     "application_id": analysis["application_id"], "repository_id": analysis["repository_id"], "file_path": path,
-                    "changed_line_refs": list((changed_file or {}).get("diff_hunk_refs") or []),
-                    "risk_semantics": "FILE_LEVEL_CHANGE_REMAINS_COVERAGE_AND_RISK_OBLIGATION",
-                    "resolution_requirement": "RESOLVE_ENCLOSING_SYMBOL_OR_RETAIN_FILE_LINE_LEVEL_TEST_OBLIGATION",
+                    "changed_line_refs": refs,
+                    "risk_semantics": "CHANGED_EXECUTABLE_LINE_REMAINS_COVERAGE_AND_RISK_OBLIGATION",
+                    "resolution_requirement": "RESOLVE_ENCLOSING_SYMBOL_OR_RETAIN_EXACT_LINE_LEVEL_TEST_OBLIGATION",
                 })
         objective = self._record(mission_id, "CODE_COVERAGE_OBJECTIVE", {
             "scope_identity": scope_identity, "source": "STATIC_CHANGE_TRUTH_ONLY", "actual_coverage": "NOT_ASSERTED",
