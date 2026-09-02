@@ -51,6 +51,18 @@ def parse_last_json(text: str) -> dict[str, Any] | None:
     return candidates[-1] if candidates else None
 
 
+def reported_counts(parsed: dict[str, Any] | None) -> tuple[int | None, int | None]:
+    if not isinstance(parsed, dict):
+        return None, None
+    passed = parsed.get("passed")
+    total = parsed.get("total")
+    checks = parsed.get("checks")
+    if (passed is None or total is None) and isinstance(checks, dict):
+        total = len(checks)
+        passed = sum(bool(value) for value in checks.values())
+    return (int(passed) if isinstance(passed, int) else None, int(total) if isinstance(total, int) else None)
+
+
 def run_suite(test_dir: Path, name: str, filename: str, expected: int) -> dict[str, Any]:
     started = time.monotonic()
     proc = subprocess.run(
@@ -64,8 +76,7 @@ def run_suite(test_dir: Path, name: str, filename: str, expected: int) -> dict[s
     )
     duration = round(time.monotonic() - started, 3)
     parsed = parse_last_json(proc.stdout)
-    passed = parsed.get("passed") if isinstance(parsed, dict) else None
-    total = parsed.get("total") if isinstance(parsed, dict) else None
+    passed, total = reported_counts(parsed)
     status = "PASS" if proc.returncode == 0 and passed == expected and total == expected else "FAIL"
     return {
         "name": name,

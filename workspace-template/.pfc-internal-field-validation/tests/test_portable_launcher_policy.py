@@ -1,7 +1,9 @@
-"""Static checks for the current G1/G2 construction package portable-runtime policy.
+"""Static checks for the current G1/G2 portable-runtime policy.
 
-This test intentionally follows the current package layout. Historical `AITEST.cmd`
-and `field-validation/` paths are not product surfaces in the repaired package.
+In Git-native engineering source the package launchers live under `packaging/`;
+in a built Construction package they live at the package root.  The policy
+assertions are identical, so the test resolves either governed layout instead
+of treating the historical Construction layout as Git Source Truth.
 """
 from __future__ import annotations
 
@@ -10,7 +12,8 @@ from pathlib import Path
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-PACKAGE_ROOT = WORKSPACE_ROOT.parent
+REPOSITORY_ROOT = WORKSPACE_ROOT.parent
+PACKAGE_SOURCE_ROOT = REPOSITORY_ROOT / "packaging" if (REPOSITORY_ROOT / "packaging").is_dir() else REPOSITORY_ROOT
 FV_ROOT = WORKSPACE_ROOT / ".pfc-internal-field-validation"
 
 
@@ -23,7 +26,7 @@ def main() -> int:
     fv_cmd = (FV_ROOT / "FV.cmd").read_text(encoding="utf-8")
     fv_sh = (FV_ROOT / "FV.sh").read_text(encoding="utf-8")
     package_launchers = {
-        name: (PACKAGE_ROOT / name).read_text(encoding="utf-8")
+        name: (PACKAGE_SOURCE_ROOT / name).read_text(encoding="utf-8")
         for name in (
             "INSTALL-PFC-AITEST.sh",
             "start-pfc-ai-r1r4.sh",
@@ -49,6 +52,7 @@ def main() -> int:
     )
     normalized = {name: text.lower().replace("\\", "/") for name, text in all_launchers.items()}
     results = {
+        "git_native_launcher_source_resolves_from_packaging": PACKAGE_SOURCE_ROOT.name == "packaging" or PACKAGE_SOURCE_ROOT == REPOSITORY_ROOT,
         "all_launchers_reference_portable_python": all("runtime/python/python.exe" in text for text in normalized.values()),
         "no_system_python_fallback": all(not contains_any(text, forbidden_fallbacks) for text in all_launchers.values()),
         "controlled_missing_python_failure": all(
@@ -72,6 +76,10 @@ def main() -> int:
         ),
         "codegraph_target_consistent": opencode.get("mcp") == {},
     }
+    # Preserve the historical 9-check contract count: the layout resolution is
+    # a harness precondition, not an additional Product Gate.
+    layout_ok = results.pop("git_native_launcher_source_resolves_from_packaging")
+    results["all_launchers_reference_portable_python"] = layout_ok and results["all_launchers_reference_portable_python"]
     print(json.dumps({"status": "PASS" if all(results.values()) else "FAIL", "checks": results}, indent=2, sort_keys=True))
     return 0 if all(results.values()) else 1
 

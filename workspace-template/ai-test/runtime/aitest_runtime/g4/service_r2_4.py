@@ -8,8 +8,8 @@ from .service_r2_3 import *  # noqa: F401,F403
 from .service_r2_3 import (
     G4RealExecutionService as _R2_3_G4RealExecutionService,
     TestObjectiveController as _R2_3_TestObjectiveController,
-    _human_state,
 )
+from .service_base import _human_state
 
 
 class G4RealExecutionService(_R2_3_G4RealExecutionService):
