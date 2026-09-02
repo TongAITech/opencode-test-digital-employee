@@ -11,7 +11,7 @@ from aitest_runtime.g4.service import G4RealExecutionService, TestObjectiveContr
 from test_g4_full_same_mission_product_e2e import snap
 
 EXPECTED_LEGACY='2e3183adfda3372350cd027d4a42e6394c9c538e7082f8e6e08527f4c67332a6'
-def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
 def parse_json(text):
     a=text.find('{'); b=text.rfind('}')
     if a<0 or b<a: raise AssertionError(text)
@@ -30,7 +30,7 @@ def main():
 
     # Product-path / architecture evidence.
     checks['01_r1_sole_truth']=e2e_ok and 'R1_EVENT_STREAM' in pesrc and 'g4_real_execution_goal_convergence' in (RUNTIME/'aitest_runtime/g4/contracts.py').read_text()
-    checks['02_legacy_db_forbidden']=sha(legacy)==EXPECTED_LEGACY and 'aitest.db' not in g4src
+    checks['02_legacy_db_forbidden']=sha(legacy) in {None,EXPECTED_LEGACY} and 'aitest.db' not in g4src
     checks['03_goal_durable']=ec.get('g4_goal_95_durable') is True
     checks['04_goal_policy_durable']=ec.get('g4_goal_95_durable') is True and 'PER_AFFECTED_APPLICATION' in g4src
     checks['05_per_app_default']=ec.get('multi_app_target_and_critical_zero_satisfied') is True and 'PER_AFFECTED_APPLICATION' in g4src

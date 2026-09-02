@@ -72,7 +72,7 @@ def boot_mission(root, db, *, mission_id, goal_id, goal):
         if olddb is None: os.environ.pop('AITEST_RUNTIME_SPINE_DB',None)
         else: os.environ['AITEST_RUNTIME_SPINE_DB']=olddb
 
-def govern_focused_case(g4, rt, mid, binding_data, case_id, case_version="1"):
+def govern_focused_case(g4, rt, mid, binding_data, case_id, *, goal_id, case_version="1", target_application="cfg-data"):
     """Legacy adversarial setup adapter for the frozen R2-2 governed execution contract."""
     g3=G3TestingIntelligenceService(rt)
     strategy_id=f"strategy:{case_id}"
@@ -90,7 +90,7 @@ def govern_focused_case(g4, rt, mid, binding_data, case_id, case_version="1"):
         mid, "CASE_VALUE_LINK", {"case_version_id":case_version,"value":"ADVERSARIAL_SETUP"},
         provenance_refs=(case["fact_id"],portfolio["fact_id"]), fact_id=f"g3:adv-link:{case_id}:{case_version}",
     )
-    focused=g4.create_focused_execution_binding(mid,{**binding_data,"case_id":case_id,"case_version":case_version,"case_spec_fact_id":case["fact_id"],"binding_id":f"adv-focus:{case_id}:{binding_data['root_attempt_id']}"})
+    focused=g4.create_focused_execution_binding(mid,{**binding_data,"goal_id":goal_id,"target_application":target_application,"case_id":case_id,"case_version":case_version,"case_spec_fact_id":case["fact_id"],"binding_id":f"adv-focus:{case_id}:{binding_data['root_attempt_id']}"})
     return {"case_spec_fact_id":case["fact_id"],"focused_execution_binding_id":focused["binding"]["payload"]["binding_id"]}
 
 def bootstrap_goal(tag='goal', *, target=95.0):
@@ -177,7 +177,7 @@ def main():
     root,rt,p,orch,mid,dispatch=setup('human-adv',[task('A'),task('B')]); b=bind(dispatch)
     g4=G4RealExecutionService(rt,orchestration=orch)
     g4.create_goal(mid,{'goal_id':'human-goal','project_id':'PFC','release_id':'V2','requirement_scope':['REQ'],'affected_applications':['cfg-data'],'affected_application_target_versions':{'cfg-data':'V2'},'coverage_policy':{'target_pct':95}})
-    human_case=govern_focused_case(g4,rt,mid,b,'TC-H')
+    human_case=govern_focused_case(g4,rt,mid,b,'TC-H',goal_id='human-goal')
     g4.record_cursor(mid,{**b,**human_case,'case_id':'TC-H','case_version':'1','current_step_index':0,'completed_step_ids':[],'pending_step_id':'login','last_safe_checkpoint':'before'})
     ref=BrowserContextRef('browser-h','ctx-h',canonical_sha256({'ctx':'h'}),'AI','2026-09-02T12:02:00Z'); browser=BrowserProbe(ref,resume_safe=False)
     g4=G4RealExecutionService(rt,orchestration=orch,browser_provider=browser)
@@ -202,7 +202,7 @@ def main():
 
     # R-5D: transfer failure leaves a durable recoverable state, then reconcile succeeds.
     root,rt,p,orch,mid,dispatch=setup('lease-adv',[task('A')]); b=bind(dispatch); ref=BrowserContextRef('browser-f','ctx-f',canonical_sha256({'ctx':'f'}),'AI','2026-09-02T12:03:00Z'); browser=BrowserProbe(ref,resume_safe=True,fail_ai_to_human_once=True)
-    g4=G4RealExecutionService(rt,orchestration=orch,browser_provider=browser); lease_case=govern_focused_case(g4,rt,mid,b,'TC-F'); g4.record_cursor(mid,{**b,**lease_case,'case_id':'TC-F','case_version':'1','current_step_index':0,'completed_step_ids':[],'pending_step_id':'login','last_safe_checkpoint':'before'})
+    g4=G4RealExecutionService(rt,orchestration=orch,browser_provider=browser); g4.create_goal(mid,{'goal_id':'lease-goal','project_id':'PFC','release_id':'V2','requirement_scope':['REQ'],'affected_applications':['cfg-data'],'affected_application_target_versions':{'cfg-data':'V2'},'coverage_policy':{'target_pct':95}}); lease_case=govern_focused_case(g4,rt,mid,b,'TC-F',goal_id='lease-goal'); g4.record_cursor(mid,{**b,**lease_case,'case_id':'TC-F','case_version':'1','current_step_index':0,'completed_step_ids':[],'pending_step_id':'login','last_safe_checkpoint':'before'})
     blocked=g4.request_human_takeover(mid,{**b,'human_gate_id':'gate-f','takeover_id':'tk-f','case_id':'TC-F','browser_context_ref':ref.to_dict(),'required_action':'login','reason':'AUTH','allowed_scope':{'environment':'TEST'},'resume_mode':'AUTO_OR_EXPLICIT','resume_condition':{'auth':'required'}})
     recon=g4.reconcile_human_takeover(mid,{'human_gate_id':'gate-f'})
     checks['lease_transfer_failure_reconciles_without_split_truth']=blocked['status']=='BLOCKED' and blocked['reconciliation']['payload']['recoverable'] is True and recon['status']=='WAITING_HUMAN' and browser.owner=='HUMAN'
