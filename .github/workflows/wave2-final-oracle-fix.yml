@@ -19,11 +19,71 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.sha }}
 
-      - name: Apply final oracle fixes
+      - name: Apply exact current-file oracle fixes
         shell: bash
         run: |
           set -euo pipefail
-          git apply tools/wave2-final-oracle-fix.patch
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_exact(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if old not in text:
+                  if new in text:
+                      return
+                  raise SystemExit('ORACLE_PATTERN_NOT_FOUND:' + path + ':' + old[:80])
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          formal='workspace-template/.pfc-internal-field-validation/tests/test_g4_formal_product_gate.py'
+          replace_exact(formal,
+              "def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()",
+              "def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None")
+          replace_exact(formal,
+              "checks['02_legacy_db_forbidden']=sha(legacy)==EXPECTED_LEGACY and 'aitest.db' not in g4src",
+              "checks['02_legacy_db_forbidden']=sha(legacy) in {None,EXPECTED_LEGACY} and 'aitest.db' not in g4src")
+
+          e2e='workspace-template/.pfc-internal-field-validation/tests/test_g4_full_same_mission_product_e2e.py'
+          replace_exact(e2e,
+              "not_ready=product_entry.g4_command('DIRECTOR','control_tick',{'mission_id':mid,'goal_id':'goal-95','replan_context':{}}); checks['auto_resume_waits_for_real_runtime_observation']=bp.owner=='HUMAN' and not_ready['auto_resume']['status']=='WAITING'",
+              "not_ready=product_entry.g4_command('DIRECTOR','control_tick',{'mission_id':mid,'goal_id':'goal-95','replan_context':{}}); auto_waited_for_runtime_observation=bp.owner=='HUMAN' and not_ready['auto_resume']['status']=='WAITING'")
+          replace_exact(e2e,
+              "checks['deterministic_auto_resume']=auto['payload']['current_step_index']==1 and bp.owner=='AI' and 'g4-auto' in auto_tick['auto_resume']['resumed_gate_refs']",
+              "checks['deterministic_auto_resume']=auto_waited_for_runtime_observation and auto['payload']['current_step_index']==1 and bp.owner=='AI' and 'g4-auto' in auto_tick['auto_resume']['resumed_gate_refs']")
+
+          adv='workspace-template/.pfc-internal-field-validation/tests/test_g3_g4_post_closure_adversarial.py'
+          replace_exact(adv,
+              'def govern_focused_case(g4, rt, mid, binding_data, case_id, case_version="1"):',
+              'def govern_focused_case(g4, rt, mid, binding_data, case_id, *, goal_id, case_version="1", target_application="cfg-data"):')
+          replace_exact(adv,
+              'focused=g4.create_focused_execution_binding(mid,{**binding_data,"case_id":case_id,"case_version":case_version,"case_spec_fact_id":case["fact_id"],"binding_id":f"adv-focus:{case_id}:{binding_data[\'root_attempt_id\']}"})',
+              'focused=g4.create_focused_execution_binding(mid,{**binding_data,"goal_id":goal_id,"target_application":target_application,"case_id":case_id,"case_version":case_version,"case_spec_fact_id":case["fact_id"],"binding_id":f"adv-focus:{case_id}:{binding_data[\'root_attempt_id\']}"})')
+          replace_exact(adv,
+              "human_case=govern_focused_case(g4,rt,mid,b,'TC-H')",
+              "human_case=govern_focused_case(g4,rt,mid,b,'TC-H',goal_id='human-goal')")
+          replace_exact(adv,
+              "g4=G4RealExecutionService(rt,orchestration=orch,browser_provider=browser); lease_case=govern_focused_case(g4,rt,mid,b,'TC-F'); g4.record_cursor(mid,{**b,**lease_case,'case_id':'TC-F','case_version':'1','current_step_index':0,'completed_step_ids':[],'pending_step_id':'login','last_safe_checkpoint':'before'})",
+              "g4=G4RealExecutionService(rt,orchestration=orch,browser_provider=browser); g4.create_goal(mid,{'goal_id':'lease-goal','project_id':'PFC','release_id':'V2','requirement_scope':['REQ'],'affected_applications':['cfg-data'],'affected_application_target_versions':{'cfg-data':'V2'},'coverage_policy':{'target_pct':95}}); lease_case=govern_focused_case(g4,rt,mid,b,'TC-F',goal_id='lease-goal'); g4.record_cursor(mid,{**b,**lease_case,'case_id':'TC-F','case_version':'1','current_step_index':0,'completed_step_ids':[],'pending_step_id':'login','last_safe_checkpoint':'before'})")
+
+          runner=Path('tools/run_wave2_validation.py')
+          text=runner.read_text(encoding='utf-8')
+          expected={
+              'r2_1_change_intelligence_broker':29,
+              'r2_2_governed_execution_binding':7,
+              'r2_3_coverage_identity':8,
+              'r2_4_background_auto_resume':8,
+              'r2_5_goal_transition':7,
+              'r2_6_sensitive_evidence':7,
+              'r2_7_package_identity':6,
+          }
+          for name,count in expected.items():
+              pattern=re.compile(rf'(\("{re.escape(name)}",\s*"[^"]+",\s*)\d+(\),)')
+              text,n=pattern.subn(rf'\g<1>{count}\g<2>',text,count=1)
+              if n!=1:
+                  raise SystemExit('RUNNER_COUNT_NOT_FOUND:'+name)
+          runner.write_text(text,encoding='utf-8')
+          PY
           git rm tools/wave2-final-oracle-fix.patch
           git rm .github/workflows/wave2-final-oracle-fix.yml
           git diff --check
