@@ -1,0 +1,74 @@
+--- a/workspace-template/.pfc-internal-field-validation/tests/test_g4_full_same_mission_product_e2e.py
++++ b/workspace-template/.pfc-internal-field-validation/tests/test_g4_full_same_mission_product_e2e.py
+@@ -200,9 +206,9 @@
+    stage('execute governed batch2: mark running')
+    g4r.create_batch(mid,{'batch_id':'batch-2','goal_id':'goal-95','case_refs':[newcase['fact_id']],'strategy_version_id':strategy2,'target_application':'cfg-data','status':'RUNNING'})
+    stage('execute governed batch2: cursor')
+-   g4r.record_cursor(mid,{'task_id':cb['task_id'],'attempt_id':cb['attempt_id'],'case_id':str(ncp['tc_id']),'case_version':str(ncp['case_version_id']),'current_step_index':0,'completed_step_ids':[],'pending_step_id':'execute','last_safe_checkpoint':'ready'})
++   g4r.record_cursor(mid,{'task_id':cb['task_id'],'attempt_id':cb['attempt_id'],'case_id':str(ncp['tc_id']),'case_version':str(ncp['case_version_id']),'current_step_index':0,'completed_step_ids':[],'pending_step_id':'execute','last_safe_checkpoint':'ready','case_spec_fact_id':newcase['fact_id'],'execution_batch_id':'batch-2'})
+    stage('execute governed batch2: capability')
+-   product_entry.g4_command('EXECUTOR','execute_capability',{**cb,'capability_id':'API','case_id':str(ncp['tc_id']),'case_version':str(ncp['case_version_id']),'executor_request':{'url':'https://sut.test/limits','method':'POST','authorized_scope':{'environment':'TEST'}},'step':{'step_id':'execute','expected':'critical line reached + invariant pass','fixture_actual':'critical line reached + invariant pass'},'execution_node':'node-c'})
++   product_entry.g4_command('EXECUTOR','execute_capability',{**cb,'capability_id':'API','case_id':str(ncp['tc_id']),'case_version':str(ncp['case_version_id']),'case_spec_fact_id':newcase['fact_id'],'execution_batch_id':'batch-2','executor_request':{'url':'https://sut.test/limits','method':'POST','authorized_scope':{'environment':'TEST'}},'step':{'step_id':'execute','expected':'critical line reached + invariant pass','fixture_actual':'critical line reached + invariant pass'},'execution_node':'node-c'})
+    stage('execute governed batch2: outcome')
+    cout=orch_restart.report_task_outcome(mid,task_id=cb['task_id'],attempt_id=cb['attempt_id'],session_id=cb['session_id'],outcome='SUCCEEDED',summary='replan case complete')
+    stage('execute governed batch2: complete')
+--- a/workspace-template/.pfc-internal-field-validation/tests/test_g3_g4_post_closure_adversarial.py
++++ b/workspace-template/.pfc-internal-field-validation/tests/test_g3_g4_post_closure_adversarial.py
+@@ -22,7 +22,7 @@
+ 
+ EXPECTED_LEGACY='2e3183adfda3372350cd027d4a42e6394c9c538e7082f8e6e08527f4c67332a6'
+ LEGACY=WORKSPACE/'ai-test/state/aitest.db'
+-def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
++def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
+ def errcode(fn):
+     try: fn(); return None
+     except Exception as exc: return str(getattr(exc,'code',type(exc).__name__)) + ':' + str(exc)
+--- a/workspace-template/.pfc-internal-field-validation/tests/test_g3_g4_post_closure_adversarial.py
++++ b/workspace-template/.pfc-internal-field-validation/tests/test_g3_g4_post_closure_adversarial.py
+@@ -72,11 +72,32 @@
+         if olddb is None: os.environ.pop('AITEST_RUNTIME_SPINE_DB',None)
+         else: os.environ['AITEST_RUNTIME_SPINE_DB']=olddb
+ 
++def govern_focused_case(g4, rt, mid, binding_data, case_id, case_version="1"):
++    """Legacy adversarial setup adapter for the frozen R2-2 governed execution contract."""
++    g3=G3TestingIntelligenceService(rt)
++    strategy_id=f"strategy:{case_id}"
++    portfolio=g3._record(
++        mid, "TEST_STRATEGY_PORTFOLIO",
++        {"r3_3_strategy":{"strategy_version_id":strategy_id,"strategy_fingerprint":canonical_sha256({"strategy":strategy_id})}},
++        fact_id=f"g3:adv-strategy:{case_id}",
++    )
++    case=g3._record(
++        mid, "CASE_SPECIFICATION",
++        {"r3_3_case":{"tc_id":case_id,"case_version_id":case_version,"strategy_version_id":strategy_id}},
++        provenance_refs=(portfolio["fact_id"],), fact_id=f"g3:adv-case:{case_id}:{case_version}",
++    )
++    g3._record(
++        mid, "CASE_VALUE_LINK", {"case_version_id":case_version,"value":"ADVERSARIAL_SETUP"},
++        provenance_refs=(case["fact_id"],portfolio["fact_id"]), fact_id=f"g3:adv-link:{case_id}:{case_version}",
++    )
++    focused=g4.create_focused_execution_binding(mid,{**binding_data,"case_id":case_id,"case_version":case_version,"case_spec_fact_id":case["fact_id"],"binding_id":f"adv-focus:{case_id}:{binding_data['root_attempt_id']}"})
++    return {"case_spec_fact_id":case["fact_id"],"focused_execution_binding_id":focused["binding"]["payload"]["binding_id"]}
++
+ def bootstrap_goal(tag='goal', *, target=95.0):
+     root=Path(tempfile.mkdtemp(prefix='g4-adv-goal-')); db=root/'runtime-spine.db'; mid='m-'+tag
+     boot_mission(root,db,mission_id=mid,goal_id='core-'+tag,goal={'objective':'adversarial '+tag,'scope_digest':tag})
+     rt=create_canonical_runtime(root,db_path=db); g4=G4RealExecutionService(rt)
+-    g4.create_goal(mid,{'goal_id':tag,'project_id':'PFC','release_id':'V2','requirement_scope':['REQ'],'affected_applications':['cfg-data'],'coverage_policy':{'target_pct':target}})
++    g4.create_goal(mid,{'goal_id':tag,'project_id':'PFC','release_id':'V2','requirement_scope':['REQ'],'affected_applications':['cfg-data'],'affected_application_target_versions':{'cfg-data':'V2'},'coverage_policy':{'target_pct':target}})
+     return root,db,mid,rt,g4
+ 
+ def bank_available(rt, mid, g4, goal_id, pct, seq, measurement_id):
+--- a/workspace-template/.pfc-internal-field-validation/tests/test_g3_g4_post_closure_adversarial.py
++++ b/workspace-template/.pfc-internal-field-validation/tests/test_g3_g4_post_closure_adversarial.py
+@@ -120,8 +141,8 @@
+             repo,base,head=make_body_repo(r,name,path,before,after)
+             spec={'repository_path':str(repo),'repository_id':name,'application_id':name,'base_ref':base,'head_ref':head}; repo_specs.append(spec)
+             _,env,meta=analyze_repository(spec)
+-            warning='MISSING_SYMBOL_MAPPING:'+path
+-            checks['multilang_body_'+name]=env.code_intelligence_status=='PARTIAL' and meta['provider_capabilities'].get(lang)=='PARTIAL' and warning in env.warnings and not env.changed_symbols
++            warning_prefix='MISSING_SYMBOL_MAPPING:'+path+':'
++            checks['multilang_body_'+name]=env.code_intelligence_status=='PARTIAL' and meta['provider_capabilities'].get(lang)=='PARTIAL' and any(str(w).startswith(warning_prefix) for w in env.warnings) and not env.changed_symbols
+             details['multilang_'+name]={'status':env.code_intelligence_status,'caps':meta['provider_capabilities'],'warnings':list(env.warnings),'symbols':[x.to_dict() for x in env.changed_symbols]}
+         # G3 product semantics must carry the unresolved symbol truth into a durable coverage/risk obligation.
+         db=r/'runtime-spine.db'; mid='multilang-mission'; boot_mission(r,db,mission_id=mid,goal_id='multi-core',goal={'objective':'multilang obligations','scope_digest':'multi'})
