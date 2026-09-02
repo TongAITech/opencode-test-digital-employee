@@ -134,6 +134,7 @@ def main() -> int:
         case_fact, strategy_id = seed_g3(runtime, mission_id)
         plan = orch.propose_plan(mission_id, {"objective": "auto resume", "tasks": [task()], "dependencies": []})
         attempt = binding(plan["next"])
+        attempt["root_attempt_id"] = str(plan["next"]["attempt"]["root_attempt_id"])
         ref = BrowserContextRef("browser-auto", "epoch-auto", canonical_sha256({"ctx": "auto"}), "AI", "2026-09-03T01:00:00Z")
         browser = BrowserPort(ref)
         g4 = G4RealExecutionService(runtime, orchestration=orch, browser_provider=browser)
