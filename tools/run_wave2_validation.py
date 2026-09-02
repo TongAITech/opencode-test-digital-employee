@@ -33,6 +33,7 @@ WAVE2 = [
     ("r2_4_background_auto_resume", "test_g4_background_auto_resume_wave2.py", 8),
     ("r2_5_goal_transition", "test_g4_goal_transition_wave2.py", 7),
     ("r2_6_sensitive_evidence", "test_g4_sensitive_evidence_wave2.py", 6),
+    ("r2_7_package_identity", "test_package_identity_wave2.py", 6),
 ]
 
 
