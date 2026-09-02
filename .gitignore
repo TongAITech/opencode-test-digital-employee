@@ -1,0 +1,44 @@
+# Derived offline runtime payloads
+workspace-template/runtime/
+offline-payload-cache/
+artifacts/
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.tar.xz
+
+# Mutable runtime truth/state
+workspace-template/ai-test/state/
+*.db
+*.sqlite
+*.sqlite3
+
+# Browser/session/code-intelligence caches
+**/browser-profile/
+**/browser-profiles/
+**/.codegraph/
+**/codegraph-index/
+**/.gitnexus/
+**/__pycache__/
+**/.pytest_cache/
+*.pyc
+*.pyo
+
+# Credentials/secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# Generated evidence/output
+workspace-template/ai-test/evidence/**
+!workspace-template/ai-test/evidence/**/README.md
+*.log
+.DS_Store
+__MACOSX/

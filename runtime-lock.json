@@ -1,0 +1,48 @@
+{
+  "schema_version": "aitest.offline-runtime-lock.v1",
+  "source_truth": "GIT_COMMIT",
+  "payload_policy": {
+    "bundled_at_release_build": true,
+    "stored_in_git": false,
+    "internet_required_on_bank_host": false,
+    "dependency_install_allowed_on_bank_host": false,
+    "verify_sha256_before_use": true
+  },
+  "payloads": {
+    "python": {
+      "role": "PORTABLE_RUNTIME",
+      "version": "3.12.10",
+      "platform": "windows-x64",
+      "relative_target": "workspace-template/runtime/python/python.exe",
+      "status": "PINNED_VERSION_FROM_CURRENT_CONSTRUCTION",
+      "sha256": "TO_BE_PINNED_FROM_CANONICAL_PAYLOAD_REGISTRY"
+    },
+    "chromium": {
+      "role": "CONTROLLED_BROWSER",
+      "version": "151.0.7922.34",
+      "platform": "windows-x64",
+      "relative_target": "workspace-template/runtime/browser/chrome-win64/chrome.exe",
+      "status": "PINNED_VERSION_FROM_CURRENT_CONSTRUCTION",
+      "sha256": "TO_BE_PINNED_FROM_CANONICAL_PAYLOAD_REGISTRY"
+    },
+    "codegraph": {
+      "role": "STRUCTURAL_CODE_INTELLIGENCE",
+      "provider": "codegraph-ai/CodeGraph",
+      "version": "0.20.1",
+      "platform": "windows-x64",
+      "mode": "graph-only",
+      "relative_target": "workspace-template/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe",
+      "release_asset": "codegraph-server-win32-x64.exe",
+      "sha256": "aa1b6108217c119af6ac444b8652a0eadcfe2c343bff78ead2edd15b6b7b15b1",
+      "status": "SELECTED_FOR_REPAIR_WAVE_2_INTEGRATION",
+      "change_truth_authority": false,
+      "actual_coverage_authority": false
+    },
+    "ripgrep": {
+      "role": "REFERENCE_SEARCH_ENRICHMENT",
+      "platform": "windows-x64",
+      "status": "CAPABILITY_REQUIRED_WHERE_AVAILABLE_VERSION_NOT_YET_PINNED",
+      "sha256": "TO_BE_PINNED_FROM_CANONICAL_PAYLOAD_REGISTRY"
+    }
+  }
+}
