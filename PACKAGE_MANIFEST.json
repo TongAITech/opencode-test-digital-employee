@@ -1,30 +1,52 @@
 {
   "schema_version": "aitest.git-native-package-manifest.v2",
+  "status": "PASS_CANDIDATE",
   "source_truth": "GIT_COMMIT",
   "baseline_commit": "725457e5b475019072ac936fd55756c995ddf69a",
   "candidate_branch": "repair/g3-g4-wave2",
-  "candidate_commit": "PENDING_FINALIZATION",
+  "candidate_commit": "152979751d237d653dc93372befd580a8fd476d7",
+  "candidate_commit_semantics": "VALIDATED_SOURCE_BEARING_COMMIT; PACKAGE_MANIFEST.json is excluded from Source Content Identity and may be finalized by a later manifest-only branch-head commit",
   "source_identity_formula": "sha256(UTF-8 sorted `<file_sha256>  <path>` lines, exactly one final newline; tracked files from `git ls-files`; excludes PACKAGE_MANIFEST.json)",
-  "source_content_identity": "PENDING_FINALIZATION",
+  "source_content_identity": "d876eea58c3cecfcfbef017b47b80df46e9b6edd5fccf31b6b45011b813bd6fd",
+  "source_file_count": 512,
   "historical_source_manifests": [
     "docs/history/source-manifests/SOURCE_BASELINE_MANIFEST_725457e5.json"
   ],
   "runtime_payload_policy": {
     "lock_file": "runtime-lock.json",
     "runtime_binaries_stored_in_git": false,
-    "codegraph_binary_stored_in_git": false
+    "codegraph_binary_stored_in_git": false,
+    "codegraph_provider": "codegraph-ai/CodeGraph",
+    "codegraph_version": "0.20.1",
+    "codegraph_platform": "windows-x64",
+    "codegraph_mode": "graph-only"
   },
   "validation": {
-    "status": "PENDING",
-    "original_267": "PENDING",
-    "post_closure_22": "PENDING",
-    "wave2_new": "PENDING",
-    "same_mission_e2e": "PENDING",
-    "runtime_verify_projection": "PENDING",
-    "static_source_audit": "PENDING",
-    "identity_self_check": "PENDING"
+    "status": "PASS",
+    "fresh": true,
+    "workflow": "Repair Wave 2 Validation",
+    "workflow_run_id": 33669583211,
+    "validated_commit": "152979751d237d653dc93372befd580a8fd476d7",
+    "artifact_name": "wave2-validation-152979751d237d653dc93372befd580a8fd476d7",
+    "artifact_digest": "sha256:0ce3b0c129df63e8e130e72c9e56c537ef2bf4b91d38afcbade57a2388866015",
+    "original_267": "267/267 PASS",
+    "post_closure_22": "22/22 PASS",
+    "wave2_new": "72/72 PASS",
+    "combined_executable": "361/361 PASS",
+    "same_mission_e2e": "20/20 PASS",
+    "g4_formal_product_gate": "52/52 PASS",
+    "runtime_verify_projection": "PASS",
+    "static_source_audit": "18/18 PASS",
+    "identity_self_check": "PASS"
   },
+  "architecture_baseline": "v7/FROZEN/UNCHANGED",
+  "architecture_drift": "NO",
+  "g1": "PASS/FROZEN",
+  "g2": "PASS/FROZEN",
+  "g2_1": "PASS/FROZEN",
+  "g3_g4_repair_wave_2": "PASS_CANDIDATE",
   "g5_defect_truth": "HOLD",
   "g6_closed_loop": "HOLD",
-  "bank_internal_pilot_ready": "NO"
+  "bank_internal_pilot_ready": "NO",
+  "closure_authority": "00.8"
 }
