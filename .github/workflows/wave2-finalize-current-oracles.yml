@@ -19,15 +19,10 @@ jobs:
           fetch-depth: 0
           ref: repair/g3-g4-wave2
 
-      - name: Apply frozen-contract oracle migrations
+      - name: Finalize current oracle counts only
         shell: bash
         run: |
           set -euo pipefail
-          HIST=81414d190677681d8c3e33e96e23a9c005bfde0c
-          for n in 1 2 3 4; do
-            git show "$HIST:tools/wave2-oracle-patches/oracle-$n.patch" > "/tmp/oracle-$n.patch"
-            git apply "/tmp/oracle-$n.patch"
-          done
           python - <<'PY'
           from pathlib import Path
           import re
