@@ -1,0 +1,30 @@
+{
+  "schema_version": "aitest.git-native-package-manifest.v2",
+  "source_truth": "GIT_COMMIT",
+  "baseline_commit": "725457e5b475019072ac936fd55756c995ddf69a",
+  "candidate_branch": "repair/g3-g4-wave2",
+  "candidate_commit": "PENDING_FINALIZATION",
+  "source_identity_formula": "sha256(UTF-8 sorted `<file_sha256>  <path>` lines, exactly one final newline; tracked files from `git ls-files`; excludes PACKAGE_MANIFEST.json)",
+  "source_content_identity": "PENDING_FINALIZATION",
+  "historical_source_manifests": [
+    "docs/history/source-manifests/SOURCE_BASELINE_MANIFEST_725457e5.json"
+  ],
+  "runtime_payload_policy": {
+    "lock_file": "runtime-lock.json",
+    "runtime_binaries_stored_in_git": false,
+    "codegraph_binary_stored_in_git": false
+  },
+  "validation": {
+    "status": "PENDING",
+    "original_267": "PENDING",
+    "post_closure_22": "PENDING",
+    "wave2_new": "PENDING",
+    "same_mission_e2e": "PENDING",
+    "runtime_verify_projection": "PENDING",
+    "static_source_audit": "PENDING",
+    "identity_self_check": "PENDING"
+  },
+  "g5_defect_truth": "HOLD",
+  "g6_closed_loop": "HOLD",
+  "bank_internal_pilot_ready": "NO"
+}

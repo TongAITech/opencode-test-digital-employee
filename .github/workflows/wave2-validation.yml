@@ -1,0 +1,53 @@
+name: Repair Wave 2 Validation
+
+on:
+  push:
+    branches:
+      - repair/g3-g4-wave2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Show Git source identity
+        run: |
+          git rev-parse HEAD
+          git status --short
+
+      - name: Fresh original, post-closure and Wave2 executable regression
+        run: python tools/run_wave2_validation.py --root . --output WAVE2_VALIDATION_RESULT.json
+
+      - name: Static and source audit
+        run: python tools/wave2_static_audit.py --root . --output WAVE2_STATIC_AUDIT_RESULT.json
+
+      - name: Compute Source Content Identity
+        run: python tools/source_identity.py compute --root . --output SOURCE_CONTENT_IDENTITY.json
+
+      - name: Verify canonical root identity layout
+        run: python tools/source_identity.py verify --root .
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wave2-validation-${{ github.sha }}
+          path: |
+            WAVE2_VALIDATION_RESULT.json
+            WAVE2_STATIC_AUDIT_RESULT.json
+            SOURCE_CONTENT_IDENTITY.json
+          if-no-files-found: warn
