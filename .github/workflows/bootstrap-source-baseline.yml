@@ -1,0 +1,47 @@
+name: Bootstrap canonical source baseline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bootstrap/source-baseline.tar.xz'
+      - '.github/workflows/bootstrap-source-baseline.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    if: github.repository == 'TongAITech/opencode-test-digital-employee'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify bootstrap archive
+        shell: bash
+        run: |
+          echo "f9598ed5ecfedf978e93ffe07c3eed1e70977858c1d9a91a11f30bea8f65cd84  bootstrap/source-baseline.tar.xz" | sha256sum -c -
+
+      - name: Extract canonical source baseline
+        shell: bash
+        run: |
+          tar -xJf bootstrap/source-baseline.tar.xz -C .
+          rm -rf bootstrap
+          rm -f .github/workflows/bootstrap-source-baseline.yml
+          git status --short
+
+      - name: Commit canonical source baseline
+        shell: bash
+        run: |
+          git config user.name "TongAITech Source Bootstrap"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No source changes to commit"
+            exit 0
+          fi
+          git commit -m "chore: import canonical source baseline"
+          git push origin HEAD:main
