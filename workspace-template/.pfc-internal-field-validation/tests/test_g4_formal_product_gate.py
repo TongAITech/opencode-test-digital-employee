@@ -99,7 +99,7 @@ def main():
         checks['38_plateau_no_blind_rerun']=plat['status']=='PLATEAU' and plat['iteration']['payload']['coverage_delta']['cfg-data']==0.0
         checks['40_risk_human_authorized']=raises(lambda:s.record_risk_acceptance(mid,{'acceptance_id':'bad','goal_id':'g95','target_pct':95,'actual_pct':93.8,'risk':'x','accepted_at':'2026-09-02T00:00:00Z'}))
         # Accepted-gap truth requires a fresh comparable Bank measurement and exact residual gap refs.
-        s.create_goal(mid,{'goal_id':'g-accepted','project_id':'PFC','release_id':'V2','requirement_scope':['REQ-018'],'affected_applications':['cfg-data'],'coverage_policy':{'target_pct':95}})
+        s.create_goal(mid,{'goal_id':'g-accepted','project_id':'PFC','release_id':'V2','requirement_scope':['REQ-018'],'affected_applications':['cfg-data'],'affected_application_target_versions':{'cfg-data':'V2'},'coverage_policy':{'target_pct':95}})
         cv_accept=G3TestingIntelligenceService(rt,coverage_provider=MappingCoveragePlatformProvider(CoverageProviderResult('AVAILABLE',('AGGREGATE',),snapshot=snap('cfg-data',93.8,74,'head-formal')))).acquire_coverage(mid,{'platform_profile_id':'bankcov','authenticated_context_ref':'auth','method':'API'},{'application_id':'cfg-data','target_version':'V2','baseline_label':'master'})
         m_accept=s.record_coverage_from_g3(mid,{'measurement_id':'m-accepted','goal_id':'g-accepted','state':'AVAILABLE','g3_snapshot_fact_id':cv_accept['snapshot']['fact_id']})
         g_accept=s.record_blocker_gap(mid,{'gap_id':'accepted-gap','goal_id':'g-accepted','gap_kind':'POSSIBLY_UNREACHABLE','severity':'MEDIUM','status':'OPEN','application_id':'cfg-data','reason':'external system unavailable'})
@@ -107,7 +107,7 @@ def main():
         accepted_eval=s.evaluate_goal(mid,'g-accepted')
         checks['41_accepted_gap_truthful']=risk['risk_acceptance']['payload']['actual_by_application']['cfg-data']==93.8 and risk['risk_acceptance']['payload']['target_pct']==95.0 and accepted_eval['status']=='COMPLETED_WITH_ACCEPTED_GAP'
         # Secret persistence is rejected centrally by G4 fact schema.
-        checks['23_sensitive_not_durable']=checks['23_sensitive_not_durable'] and raises(lambda:s.create_goal(mid,{'goal_id':'secret-goal','project_id':'PFC','release_id':'V2','requirement_scope':[],'affected_applications':['cfg-data'],'coverage_policy':{'target_pct':95},'execution_policy':{'password':'never'}}))
+        checks['23_sensitive_not_durable']=checks['23_sensitive_not_durable'] and raises(lambda:s.create_goal(mid,{'goal_id':'secret-goal','project_id':'PFC','release_id':'V2','requirement_scope':[],'affected_applications':['cfg-data'],'affected_application_target_versions':{'cfg-data':'V2'},'coverage_policy':{'target_pct':95},'execution_policy':{'password':'never'}}))
         # Resolve latest critical gap and supersede stale measurement with fresh bank truth, then default per-app policy may satisfy.
         cv=G3TestingIntelligenceService(rt,coverage_provider=MappingCoveragePlatformProvider(CoverageProviderResult('AVAILABLE',('AGGREGATE',),snapshot=snap('cfg-data',96,73,'head-formal')))).acquire_coverage(mid,{'platform_profile_id':'bankcov','authenticated_context_ref':'auth','method':'API'},{'application_id':'cfg-data','target_version':'V2','baseline_label':'master'})
         s.record_coverage_from_g3(mid,{'measurement_id':'m-cfg-data-fresh','goal_id':'g95','state':'AVAILABLE','g3_snapshot_fact_id':cv['snapshot']['fact_id']})
