@@ -31,3 +31,33 @@ jobs:
         run: python -m pip install -e '.[test]'
       - name: Run protocol tests
         run: pytest
+
+  yuxi-upstream-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Checkout reviewed Yuxi baseline
+        run: |
+          git clone --filter=blob:none https://github.com/xerrors/Yuxi.git /tmp/yuxi
+          git -C /tmp/yuxi checkout --detach bd07ab4ac4faa2e5452507580b1c841543bbec61
+          test "$(git -C /tmp/yuxi rev-parse HEAD)" = "bd07ab4ac4faa2e5452507580b1c841543bbec61"
+      - name: Apply provider overlay twice (idempotence)
+        run: |
+          python experiments/yuxi-opencode-provider-poc/tools/apply_to_yuxi.py --yuxi-root /tmp/yuxi
+          python experiments/yuxi-opencode-provider-poc/tools/apply_to_yuxi.py --yuxi-root /tmp/yuxi
+      - name: Validate patched Yuxi source
+        run: |
+          git -C /tmp/yuxi diff --check
+          python -m py_compile \
+            /tmp/yuxi/backend/package/yuxi/models/opencode/__init__.py \
+            /tmp/yuxi/backend/package/yuxi/models/opencode/client.py \
+            /tmp/yuxi/backend/package/yuxi/models/opencode/chat_model.py \
+            /tmp/yuxi/backend/package/yuxi/agents/models.py \
+            /tmp/yuxi/backend/package/yuxi/models/providers/service.py
+          grep -q 'info.provider_type == "opencode"' /tmp/yuxi/backend/package/yuxi/agents/models.py
+          grep -q '"opencode"' /tmp/yuxi/backend/package/yuxi/models/providers/service.py
+          grep -q "OpenCode Session Gateway" /tmp/yuxi/web/src/components/model-management/ModelProviderManagePanel.vue
+          test -f /tmp/yuxi/backend/package/yuxi/models/opencode/chat_model.py
