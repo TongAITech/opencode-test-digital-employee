@@ -32,6 +32,7 @@ _DEFENSE_PATTERNS = (
     re.compile(r"(?i)^Bearer\s+\S+$"),
     re.compile(r"^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$"),
 )
+_GENERIC_OTP = re.compile(r"^\d{4,8}$")
 
 
 def _norm(key: str) -> str:
@@ -70,15 +71,19 @@ def sanitize_evidence_ingress(
     path: str = "evidence",
     sensitive_entry_mode: bool = False,
 ) -> EvidenceSanitization:
+    """Classify and remove secret-bearing channels before a durable G4 write.
+
+    Known credential channels are dropped entirely instead of persisting even a
+    redacted value under a forbidden secret key. Generic evidence values are
+    redacted when they are observed during sensitive-entry mode or match a
+    conservative defense-in-depth credential pattern.
+    """
+
     classifications: set[str] = set()
     redactions = 0
 
-    def walk(item: Any, current_path: str, forced_class: str | None = None) -> Any:
+    def walk(item: Any, current_path: str) -> Any:
         nonlocal redactions
-        if forced_class is not None:
-            classifications.add(forced_class)
-            redactions += 1
-            return REDACTED
         if item is None or isinstance(item, bool):
             return item
         if isinstance(item, (int, float)):
@@ -92,6 +97,12 @@ def sanitize_evidence_ingress(
                 classifications.add("SENSITIVE_ENTRY")
                 redactions += 1
                 return REDACTED
+            if _GENERIC_OTP.fullmatch(item.strip()) and any(
+                token in current_path.lower() for token in ("actual", "body", "metadata", "evidence", "credential")
+            ):
+                classifications.add("OTP_GENERIC_VALUE")
+                redactions += 1
+                return REDACTED
             if any(pattern.search(item) for pattern in _DEFENSE_PATTERNS):
                 classifications.add("DEFENSE_IN_DEPTH_PATTERN")
                 redactions += 1
@@ -103,7 +114,12 @@ def sanitize_evidence_ingress(
                 if not isinstance(key, str):
                     raise RuntimeError("G4_SCHEMA_INVALID", f"{current_path} object keys must be strings")
                 classification = _channel(key)
-                result[key] = walk(child, f"{current_path}.{key}", classification)
+                if classification is not None:
+                    classifications.add(classification)
+                    redactions += 1
+                    # Drop the credential-bearing channel before durable ingress.
+                    continue
+                result[key] = walk(child, f"{current_path}.{key}")
             return result
         if isinstance(item, (list, tuple)):
             return [walk(child, f"{current_path}[]") for child in item]

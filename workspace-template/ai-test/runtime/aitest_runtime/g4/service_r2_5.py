@@ -8,6 +8,7 @@ from aitest_runtime.durable_core import RuntimeError
 from .goal_transitions import LEGAL_GOAL_TRANSITIONS, TERMINAL_GOAL_STATUSES
 from .service_r2_4 import *  # noqa: F401,F403
 from .service_r2_4 import G4RealExecutionService as _R2_4_G4RealExecutionService
+from .service_base import _dict, _text
 
 
 class G4RealExecutionService(_R2_4_G4RealExecutionService):
