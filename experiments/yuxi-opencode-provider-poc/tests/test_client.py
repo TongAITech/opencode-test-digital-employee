@@ -44,7 +44,7 @@ async def test_invoke_is_ephemeral_and_disables_every_opencode_tool():
     transport = RecordingTransport(handler)
     client = OpenCodeClient(
         base_url="http://opencode.test",
-        directory="C:/bank/pfc",
+        directory="C:/bank/PFC test/测试",
         transport=transport,
     )
 
@@ -59,7 +59,10 @@ async def test_invoke_is_ephemeral_and_disables_every_opencode_tool():
     assert result.text == "world"
     assert result.session_id == "ses-1"
     assert transport.requests[-1].method == "DELETE"
-    assert all(request.headers.get("x-opencode-directory") == "C:/bank/pfc" for request in transport.requests)
+    assert all(
+        request.headers.get("x-opencode-directory") == "C%3A%2Fbank%2FPFC%20test%2F%E6%B5%8B%E8%AF%95"
+        for request in transport.requests
+    )
 
 
 @pytest.mark.asyncio
