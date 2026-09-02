@@ -194,6 +194,9 @@ def main():
     checks['goal_lifecycle_human_wait_and_resume_durable']='WAITING_HUMAN' in statuses and 'EXECUTING' in statuses
 
     # Unrelated pending R2.6 gate is not a current TestingGoal blocker.
+    # Finish this test's own governed focused batch first so the only injected pending condition is the unrelated gate.
+    focused_batch=next(f for f in reversed(g4new.state(mid).by_kind('EXECUTION_BATCH')) if f.payload.get('batch_id')==human_case['execution_batch_id'])
+    g4new.create_batch(mid,{**dict(focused_batch.payload),'status':'COMPLETED'})
     bank_available(rt2,mid,g4new,'human-goal',96.0,33,'human-m')
     # The unrelated gate is canonical and exact-bound to a real Attempt, but lacks any G4 mandatory goal binding.
     open_gate(rt2,mid,dispatch,'unrelated-gate')

@@ -79,7 +79,7 @@ def main():
         os.environ['AITEST_WORKSPACE_ROOT']=str(root); os.environ['AITEST_RUNTIME_SPINE_DB']=str(db)
         bootstrap_mission(root,mission_id=mid,goal_id='core-goal',goal={'objective':'formal G4 gate','scope_digest':'formal'})
         rt=create_canonical_runtime(root,db_path=db); s=G4RealExecutionService(rt)
-        s.create_goal(mid,{'goal_id':'g95','project_id':'PFC','release_id':'V2','requirement_scope':['REQ-018'],'affected_applications':['cfg-data','cfg-admin'],'coverage_policy':{'target_pct':95}})
+        s.create_goal(mid,{'goal_id':'g95','project_id':'PFC','release_id':'V2','requirement_scope':['REQ-018'],'affected_applications':['cfg-data','cfg-admin'],'affected_application_target_versions':{'cfg-data':'V2','cfg-admin':'V2'},'coverage_policy':{'target_pct':95}})
         refs=[]
         for app,pct,seq in [('cfg-data',96,71),('cfg-admin',97,72)]:
             cv=G3TestingIntelligenceService(rt,coverage_provider=MappingCoveragePlatformProvider(CoverageProviderResult('AVAILABLE',('AGGREGATE',),snapshot=snap(app,pct,seq,'head-formal')))).acquire_coverage(mid,{'platform_profile_id':'bankcov','authenticated_context_ref':'auth','method':'API'},{'application_id':app,'target_version':'V2','baseline_label':'master'})
