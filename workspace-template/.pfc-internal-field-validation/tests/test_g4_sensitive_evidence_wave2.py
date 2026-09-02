@@ -98,11 +98,12 @@ def main() -> int:
         payload = api["result"]["payload"]
         classes = set(payload["evidence_taint"]["classifications"])
         checks["typed_channels_classified"] = {"AUTHORIZATION", "COOKIE", "TOKEN", "SESSION", "PASSWORD", "OTP", "CAPTCHA"}.issubset(classes)
-        checks["typed_channels_redacted_before_fact"] = all(value == "[REDACTED:SENSITIVE]" for value in [
-            payload["actual"]["headers"]["Authorization"], payload["actual"]["headers"]["Cookie"], payload["actual"]["headers"]["Set-Cookie"],
-            payload["actual"]["body"]["access_token"], payload["actual"]["body"]["refresh_token"], payload["actual"]["body"]["session_id"], payload["actual"]["body"]["JSESSIONID"],
-            payload["actual"]["body"]["nested"]["password"], payload["actual"]["body"]["nested"]["otp"], payload["actual"]["body"]["nested"]["captcha"], payload["auth_context_ref"],
-        ])
+        checks["typed_channels_dropped_before_fact"] = (
+            payload["actual"]["headers"] == {}
+            and payload["actual"]["body"] == {"nested": {}}
+            and payload.get("evidence_metadata") == {"transport": {}, "nested": {}}
+            and payload["auth_context_ref"] == "[REDACTED:SENSITIVE]"
+        )
         browser = g4.record_step_result(mission_id, {
             **common,
             "step_id": "browser-sensitive-entry",
