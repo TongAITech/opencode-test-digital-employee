@@ -1,0 +1,39 @@
+name: Wave2 Final Oracle Fix
+
+on:
+  push:
+    branches:
+      - repair/g3-g4-wave2
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: ${{ !contains(github.event.head_commit.message, '[wave2-final-oracle-fix]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact triggering commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Apply final oracle fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply tools/wave2-final-oracle-fix.patch
+          git rm tools/wave2-final-oracle-fix.patch
+          git rm .github/workflows/wave2-final-oracle-fix.yml
+          git diff --check
+
+      - name: Commit and push clean tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'test(wave2): fix final Git-native validation oracles [wave2-final-oracle-fix]'
+          git push origin HEAD:repair/g3-g4-wave2
