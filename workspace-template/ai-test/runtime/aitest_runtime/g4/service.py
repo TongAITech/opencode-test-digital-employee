@@ -1,273 +1,146 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Mapping
 
-from aitest_runtime.durable_core import RuntimeError, canonical_sha256
-from aitest_runtime.execution_resume.contracts import ExecutionAttemptRecord
+from aitest_runtime.durable_core import RuntimeError
 
-# Wave 2 keeps the already-reviewed G4 implementation byte-for-byte as the base
-# and applies only the authorized governed-execution hardening in this module.
-from .service_base import *  # noqa: F401,F403
-from .service_base import (
-    G4RealExecutionService as _BaseG4RealExecutionService,
-    _dict,
-    _g3_state,
-    _text,
-)
+from .service_r2_2 import *  # noqa: F401,F403
+from .service_r2_2 import G4RealExecutionService as _R2_2_G4RealExecutionService, _dict, _g3_state, _text
 
 
-@dataclass(frozen=True)
-class GovernedExecutionBinding:
-    case_spec_fact_id: str
-    case_id: str
-    case_version_id: str
-    case_value_link_fact_id: str
-    strategy_version_id: str
-    strategy_fingerprint: str
-    execution_batch_fact_id: str
-    batch_id: str
+class G4RealExecutionService(_R2_2_G4RealExecutionService):
+    """R2-3: bind every bank coverage measurement to exact goal/app target identity."""
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "case_spec_fact_id": self.case_spec_fact_id,
-            "case_id": self.case_id,
-            "case_version_id": self.case_version_id,
-            "case_value_link_fact_id": self.case_value_link_fact_id,
-            "strategy_version_id": self.strategy_version_id,
-            "strategy_fingerprint": self.strategy_fingerprint,
-            "binding_kind": "EXECUTION_BATCH",
-            "binding_ref": self.execution_batch_fact_id,
-            "batch_id": self.batch_id,
+    def create_goal(self, mission_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
+        data = _dict(request, "request")
+        goal_id = _text(data.get("goal_id"), "goal_id")
+        affected = [str(value) for value in (data.get("affected_applications") or []) if str(value)]
+        if not affected:
+            raise RuntimeError("G4_AFFECTED_APPLICATIONS_REQUIRED", goal_id)
+        policy = _dict(data.get("coverage_policy") or {}, "coverage_policy")
+        target = require_percentage(policy.get("target_pct"))
+        source = str(policy.get("source") or "BANK_INCREMENTAL_COVERAGE_PLATFORM")
+        if source != "BANK_INCREMENTAL_COVERAGE_PLATFORM":
+            raise RuntimeError("G4_ACTUAL_COVERAGE_SOURCE_INVALID", source)
+        aggregation = str(policy.get("aggregation_policy") or "PER_AFFECTED_APPLICATION").upper()
+        if aggregation != "PER_AFFECTED_APPLICATION" and not bool(policy.get("explicit_override")):
+            raise RuntimeError("G4_COVERAGE_AGGREGATION_OVERRIDE_REQUIRED", aggregation)
+        target_versions_raw = data.get("affected_application_target_versions")
+        if not isinstance(target_versions_raw, Mapping):
+            raise RuntimeError("G4_AFFECTED_APPLICATION_TARGET_VERSIONS_REQUIRED", goal_id)
+        target_versions = {
+            str(app): _text(version, f"affected_application_target_versions.{app}")
+            for app, version in target_versions_raw.items()
         }
-
-
-class G4RealExecutionService(_BaseG4RealExecutionService):
-    """Wave-2 hardened G4 service.
-
-    R2-2 invariant: no cursor, provider execution or durable step result may be
-    created for caller-only case identity.  Every execution must resolve exact
-    governed G3 Case/CaseValueLink/Strategy truth and one active ExecutionBatch.
-    """
-
-    def _resolve_governed_case(
-        self, mission_id: str, case_id: str, case_version_id: str,
-    ) -> tuple[Any, Any, str, str]:
-        g3 = _g3_state(self.runtime, mission_id)
-        if g3 is None or not hasattr(g3, "by_kind"):
-            raise RuntimeError("G4_G3_GOVERNED_CASE_REQUIRED", case_version_id)
-        matches: list[tuple[Any, dict[str, Any]]] = []
-        for fact in g3.by_kind("CASE_SPECIFICATION"):
-            case = dict(fact.payload.get("r3_3_case") or {})
-            if str(case.get("tc_id") or "") == case_id and str(case.get("case_version_id") or "") == case_version_id:
-                matches.append((fact, case))
-        if len(matches) != 1:
-            raise RuntimeError("G4_G3_GOVERNED_CASE_REQUIRED", f"{case_id}:{case_version_id}")
-        case_fact, case = matches[0]
-        links = [
-            fact for fact in g3.by_kind("CASE_VALUE_LINK")
-            if str(fact.payload.get("case_version_id") or "") == case_version_id
-            and case_fact.fact_id in tuple(fact.provenance_refs)
-        ]
-        if len(links) != 1:
-            raise RuntimeError("G4_CASE_VALUE_LINK_REQUIRED", case_fact.fact_id)
-        strategy_version_id = _text(case.get("strategy_version_id"), "strategy_version_id")
-        portfolios = [
-            fact for fact in g3.by_kind("TEST_STRATEGY_PORTFOLIO")
-            if str((fact.payload.get("r3_3_strategy") or {}).get("strategy_version_id") or "") == strategy_version_id
-        ]
-        if not portfolios:
-            raise RuntimeError("G4_G3_STRATEGY_IDENTITY_REQUIRED", strategy_version_id)
-        strategy = dict(portfolios[-1].payload.get("r3_3_strategy") or {})
-        fingerprint = _text(strategy.get("strategy_fingerprint"), "strategy_fingerprint")
-        return case_fact, links[0], strategy_version_id, fingerprint
-
-    def _validate_governed_execution(
-        self,
-        mission_id: str,
-        request: Mapping[str, Any],
-        *,
-        attempt: ExecutionAttemptRecord | None = None,
-    ) -> GovernedExecutionBinding:
-        data = _dict(request, "request")
-        case_id = _text(data.get("case_id"), "case_id")
-        case_version_id = _text(data.get("case_version") or data.get("case_version_id"), "case_version")
-        case_fact, link_fact, strategy_version_id, fingerprint = self._resolve_governed_case(
-            mission_id, case_id, case_version_id,
-        )
-        if data.get("case_spec_fact_id") and str(data["case_spec_fact_id"]) != case_fact.fact_id:
-            raise RuntimeError("G4_CASE_SPEC_BINDING_MISMATCH", str(data["case_spec_fact_id"]))
-        if data.get("strategy_version_id") and str(data["strategy_version_id"]) != strategy_version_id:
-            raise RuntimeError("G4_CASE_STRATEGY_BINDING_MISMATCH", case_fact.fact_id)
-
-        latest: dict[str, Any] = {}
-        for fact in self.state(mission_id).by_kind("EXECUTION_BATCH"):
-            batch_id = str(fact.payload.get("batch_id") or "")
-            if batch_id:
-                latest[batch_id] = fact
-        requested_batch_id = str(data.get("execution_batch_id") or "")
-        candidates = []
-        for batch_id, fact in latest.items():
-            payload = fact.payload
-            if requested_batch_id and batch_id != requested_batch_id:
-                continue
-            if str(payload.get("status") or "").upper() not in {"READY", "RUNNING"}:
-                continue
-            if case_fact.fact_id not in tuple(payload.get("case_refs") or ()):
-                continue
-            if str(payload.get("strategy_version_id") or "") != strategy_version_id:
-                continue
-            candidates.append(fact)
-        if len(candidates) != 1:
-            raise RuntimeError("G4_EXECUTION_BINDING_REQUIRED", f"{case_fact.fact_id}:matches={len(candidates)}")
-        batch = candidates[0]
-        return GovernedExecutionBinding(
-            case_fact.fact_id,
-            case_id,
-            case_version_id,
-            link_fact.fact_id,
-            strategy_version_id,
-            fingerprint,
-            batch.fact_id,
-            str(batch.payload.get("batch_id")),
-        )
-
-    def create_batch(self, mission_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
-        data = _dict(request, "request")
-        case_refs = [str(value) for value in (data.get("case_refs") or []) if str(value)]
-        if not case_refs:
-            raise RuntimeError("G4_EXECUTION_BATCH_CASES_REQUIRED", "case_refs")
-        expected_strategy = _text(data.get("strategy_version_id"), "strategy_version_id")
-        g3 = _g3_state(self.runtime, mission_id)
-        for case_ref in case_refs:
-            case_fact = g3.by_id(case_ref) if g3 is not None and hasattr(g3, "by_id") else None
-            if case_fact is None or case_fact.fact_kind != "CASE_SPECIFICATION":
-                raise RuntimeError("G4_G3_GOVERNED_CASE_REQUIRED", case_ref)
-            case = dict(case_fact.payload.get("r3_3_case") or {})
-            case_id = _text(case.get("tc_id"), "case_id")
-            case_version = _text(case.get("case_version_id"), "case_version_id")
-            resolved_fact, _, strategy_version_id, _ = self._resolve_governed_case(mission_id, case_id, case_version)
-            if resolved_fact.fact_id != case_ref or strategy_version_id != expected_strategy:
-                raise RuntimeError("G4_CASE_STRATEGY_BINDING_MISMATCH", case_ref)
-        return super().create_batch(mission_id, data)
-
-    def create_focused_execution_binding(self, mission_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
-        """Focused execution is a one-case governed ExecutionBatch, not a second truth model."""
-        data = _dict(request, "request")
-        case_id = _text(data.get("case_id"), "case_id")
-        case_version = _text(data.get("case_version") or data.get("case_version_id"), "case_version")
-        case_fact, _, strategy_version_id, _ = self._resolve_governed_case(mission_id, case_id, case_version)
-        binding_id = _text(data.get("binding_id"), "binding_id")
-        batch = self.create_batch(mission_id, {
-            "batch_id": f"focused:{binding_id}",
-            "goal_id": _text(data.get("goal_id"), "goal_id"),
-            "case_refs": [case_fact.fact_id],
-            "strategy_version_id": strategy_version_id,
-            "target_application": _text(data.get("target_application"), "target_application"),
-            "target_coverage_gaps": list(data.get("target_coverage_gaps") or []),
-            "target_hypotheses": list(data.get("target_hypotheses") or []),
-            "expected_value": {"focused_execution_binding_id": binding_id},
-            "status": "RUNNING",
-        })
-        return {
-            "status": "ACTIVE",
-            "truth_source": "R1_EVENT_STREAM",
-            "binding_kind": "EXECUTION_BATCH",
-            "binding_id": binding_id,
-            "execution_batch_id": batch["batch"]["payload"]["batch_id"],
-            "batch": batch["batch"],
-        }
-
-    def record_cursor(self, mission_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
-        data = _dict(request, "request")
-        task_id = _text(data.get("task_id"), "task_id")
-        attempt = self._canonical_attempt(mission_id, _text(data.get("attempt_id"), "attempt_id"), task_id)
-        case_id = _text(data.get("case_id"), "case_id")
-        case_version = _text(data.get("case_version"), "case_version")
-        binding = self._validate_governed_execution(mission_id, data, attempt=attempt)
-        current_step_index = int(data.get("current_step_index", 0))
-        if current_step_index < 0:
-            raise RuntimeError("G4_STEP_CURSOR_INVALID", "current_step_index must be non-negative")
+        if set(target_versions) != set(affected):
+            raise RuntimeError("G4_AFFECTED_APPLICATION_TARGET_VERSION_BINDING_MISMATCH", goal_id)
         payload = {
-            "cursor_id": str(data.get("cursor_id") or f"cursor:{attempt.root_attempt_id}:{case_id}:{case_version}"),
-            "case_id": case_id,
-            "case_version": case_version,
-            "task_id": task_id,
-            "attempt_id": attempt.attempt_id,
-            "root_attempt_id": attempt.root_attempt_id,
-            "current_step_index": current_step_index,
-            "completed_step_ids": list(data.get("completed_step_ids") or []),
-            "pending_step_id": data.get("pending_step_id"),
-            "last_safe_checkpoint": data.get("last_safe_checkpoint"),
-            "status": str(data.get("status") or "RUNNING").upper(),
-            "governed_execution_binding": binding.to_dict(),
+            "goal_id": goal_id,
+            "mission_id": mission_id,
+            "project_id": _text(data.get("project_id"), "project_id"),
+            "release_id": _text(data.get("release_id"), "release_id"),
+            "requirement_scope": list(data.get("requirement_scope") or []),
+            "affected_applications": affected,
+            "affected_application_target_versions": target_versions,
+            "goal_type": str(data.get("goal_type") or "COVERAGE_CONVERGENCE").upper(),
+            "coverage_policy": {
+                "source": source,
+                "target_pct": target,
+                "aggregation_policy": aggregation,
+                "critical_gap_policy": str(policy.get("critical_gap_policy") or "ZERO_UNRESOLVED_CRITICAL"),
+            },
+            "execution_policy": dict(data.get("execution_policy") or {}),
+            "defect_discovery_objective": dict(data.get("defect_discovery_objective") or {"enabled": True, "high_value_hypothesis_refs": []}),
+            "status": str(data.get("status") or "ACTIVE").upper(),
         }
-        fact_id = f"g4:step-cursor:{canonical_sha256({key: payload[key] for key in ('cursor_id','attempt_id','current_step_index','status','pending_step_id')})[:24]}"
+        if payload["status"] not in GOAL_STATUSES:
+            raise RuntimeError("G4_GOAL_STATUS_INVALID", payload["status"])
         fact = self._record(
             mission_id,
-            "STEP_CURSOR",
+            "TESTING_GOAL",
             payload,
-            provenance_refs=(f"r1.3b:{attempt.attempt_id}", binding.case_spec_fact_id, binding.case_value_link_fact_id, binding.execution_batch_fact_id),
-            fact_id=fact_id,
+            provenance_refs=("user:testing-goal",),
+            fact_id=f"g4:testing-goal:{goal_id}",
         )
-        return {"status": "PASS", "truth_source": "R1_EVENT_STREAM", "cursor": fact}
-
-    def execute_capability(self, mission_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
-        data = _dict(request, "request")
-        task_id = _text(data.get("task_id"), "task_id")
-        attempt = self._canonical_attempt(mission_id, _text(data.get("attempt_id"), "attempt_id"), task_id)
-        # Validate before provider lookup/prepare/execute so fake caller cases cannot create side effects.
-        self._validate_governed_execution(mission_id, data, attempt=attempt)
-        return super().execute_capability(mission_id, data)
-
-    def record_step_result(self, mission_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
-        data = _dict(request, "request")
-        attempt = self._canonical_attempt(mission_id, _text(data.get("attempt_id"), "attempt_id"), _text(data.get("task_id"), "task_id"))
-        binding = self._validate_governed_execution(mission_id, data, attempt=attempt)
-        oracle = str(data.get("oracle_result") or "").upper()
-        if oracle not in ORACLE_STATUSES:
-            raise RuntimeError("G4_ORACLE_STATUS_INVALID", oracle)
-        if data.get("confirmed_defect") or str(data.get("defect_status") or "").upper() == "CONFIRMED_DEFECT":
-            raise RuntimeError("G4_G5_DEFECT_TRUTH_BOUNDARY", "G4 cannot confirm defects")
-        evidence = data.get("evidence_refs")
-        if not isinstance(evidence, list) or not evidence:
-            raise RuntimeError("G4_EVIDENCE_REQUIRED", "every executed step requires evidence_refs")
-        for name in ("step_id", "expected", "actual", "oracle_reason", "source_identity"):
-            if data.get(name) in (None, ""):
-                raise RuntimeError("G4_STEP_RESULT_INCOMPLETE", name)
-        payload = {
-            "step_id": str(data["step_id"]),
-            "attempt_id": attempt.attempt_id,
-            "root_attempt_id": attempt.root_attempt_id,
-            "task_id": attempt.task_id,
-            "case_id": binding.case_id,
-            "case_version": binding.case_version_id,
-            "executor_capability": _text(data.get("executor_capability"), "executor_capability").upper(),
-            "input_ref": data.get("input_ref"),
-            "expected": data["expected"],
-            "actual": data["actual"],
-            "oracle_result": oracle,
-            "oracle_reason": str(data["oracle_reason"]),
-            "evidence_refs": list(evidence),
-            "source_identity": str(data["source_identity"]),
-            "execution_node": data.get("execution_node"),
-            "auth_context_ref": data.get("auth_context_ref"),
-            "side_effect_summary": data.get("side_effect_summary"),
-            "test_fail_is_confirmed_defect": False,
-            "governed_execution_binding": binding.to_dict(),
-        }
-        fact = self._record(
+        status_fact = self._set_goal_status(
             mission_id,
-            "EXECUTION_STEP_RESULT",
-            payload,
-            provenance_refs=tuple(str(value) for value in evidence)
-            + (binding.case_spec_fact_id, binding.case_value_link_fact_id, binding.execution_batch_fact_id),
+            goal_id,
+            payload["status"],
+            reason="GOAL_CREATED",
+            provenance_refs=(fact["fact_id"],),
         )
-        if oracle in {"FAIL", "INCONCLUSIVE", "ERROR"}:
-            self._record(
-                mission_id,
-                "UNEXPECTED_OBSERVATION",
-                {"step_result_ref": fact["fact_id"], "oracle_result": oracle, "status": "OBSERVATION_ONLY", "g5_defect_truth": "HOLD"},
-                provenance_refs=(fact["fact_id"],),
+        return {"schema_version": G4_SCHEMA, "status": payload["status"], "truth_source": "R1_EVENT_STREAM", "goal": fact, "goal_status": status_fact}
+
+    def record_coverage_from_g3(self, mission_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
+        data = _dict(request, "request")
+        state = str(data.get("state") or "AVAILABLE").upper()
+        if state not in COVERAGE_STATES:
+            raise RuntimeError("G4_COVERAGE_STATE_INVALID", state)
+        goal_id = _text(data.get("goal_id"), "goal_id")
+        goal = self.goal(mission_id, goal_id)["payload"]
+        target_versions = dict(goal.get("affected_application_target_versions") or {})
+        payload: dict[str, Any] = {
+            "measurement_id": _text(data.get("measurement_id"), "measurement_id"),
+            "goal_id": goal_id,
+            "goal_revision_ref": self._goal_revision_ref(mission_id, goal_id),
+            "batch_id": data.get("batch_id"),
+            "state": state,
+            "source": "BANK_INCREMENTAL_COVERAGE_PLATFORM",
+        }
+        provenance: list[str] = []
+        snapshot_ref = data.get("g3_snapshot_fact_id")
+        if state == "AVAILABLE":
+            if not snapshot_ref:
+                raise RuntimeError("G4_BANK_COVERAGE_SNAPSHOT_REQUIRED", state)
+            g3 = _g3_state(self.runtime, mission_id)
+            snap = g3.by_id(str(snapshot_ref)) if g3 is not None and hasattr(g3, "by_id") else None
+            if snap is None or snap.fact_kind != "INCREMENTAL_COVERAGE_SNAPSHOT":
+                raise RuntimeError("G4_G3_BANK_COVERAGE_FACT_REQUIRED", str(snapshot_ref))
+            snapshot = dict(snap.payload)
+            if snapshot.get("coverage_semantics") != "BANK_EFFECTIVE_INCREMENTAL":
+                raise RuntimeError("G4_ACTUAL_COVERAGE_SEMANTICS_INVALID", str(snapshot.get("coverage_semantics")))
+            application_id = str(snapshot.get("application_id") or "")
+            observed_target = str(snapshot.get("target_version") or "")
+            expected_target = str(target_versions.get(application_id) or "")
+            identity_ok = (
+                application_id in set(str(value) for value in goal.get("affected_applications") or [])
+                and bool(expected_target)
+                and observed_target == expected_target
+                and bool(snapshot.get("source_identity"))
+                and snapshot.get("baseline_identity_status") in {"COMMIT_PINNED", "MASTER_ALIAS_ONLY"}
             )
-        return {"status": oracle, "truth_source": "R1_EVENT_STREAM", "result": fact, "g5_defect_truth": "HOLD"}
+            state = "AVAILABLE" if identity_ok else "SOURCE_IDENTITY_MISMATCH"
+            payload.update({
+                "state": state,
+                "g3_snapshot_fact_id": snap.fact_id,
+                "application_id": application_id,
+                "target_version": observed_target,
+                "expected_target_version": expected_target or None,
+                "baseline_identity_status": snapshot.get("baseline_identity_status"),
+                "baseline_label": snapshot.get("baseline_label"),
+                "source_identity": snapshot.get("source_identity"),
+                "observed_at": snapshot.get("observed_at"),
+                "provider_profile_ref": next((str(ref) for ref in snap.provenance_refs if str(ref).startswith("g3:coverage_platform_profile:")), None),
+                "effective_incremental_coverage_pct": snapshot.get("effective_incremental_coverage_pct") if identity_ok else None,
+                "details": list(snapshot.get("details") or []) if identity_ok else [],
+                "identity_mismatch_reason": None if identity_ok else "GOAL_APPLICATION_TARGET_VERSION_OR_SOURCE_IDENTITY_MISMATCH",
+            })
+            provenance.append(snap.fact_id)
+        else:
+            payload.update({
+                "application_id": data.get("application_id"),
+                "source_identity": data.get("source_identity"),
+                "reason": data.get("reason"),
+                "observed_at": str(data.get("observed_at") or now_iso()),
+            })
+        fact = self._record(
+            mission_id,
+            "COVERAGE_MEASUREMENT",
+            payload,
+            provenance_refs=provenance or ("bank-coverage-provider",),
+        )
+        if state in {"WAITING_REFRESH", "STALE", "SOURCE_IDENTITY_MISMATCH", "SOURCE_UNAVAILABLE", "AUTH_REQUIRED"}:
+            self._set_goal_status(mission_id, goal_id, "WAITING_COVERAGE_REFRESH", reason=f"COVERAGE_{state}", provenance_refs=(fact["fact_id"],))
+        else:
+            self._set_goal_status(mission_id, goal_id, "MEASURING", reason=f"COVERAGE_{state}", provenance_refs=(fact["fact_id"],))
+        return {"status": state, "truth_source": "R1_EVENT_STREAM", "measurement": fact, "actual_coverage": payload.get("effective_incremental_coverage_pct") if state == "AVAILABLE" else None}
