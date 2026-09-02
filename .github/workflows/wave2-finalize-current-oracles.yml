@@ -1,0 +1,74 @@
+name: Wave2 Finalize Current Validation Oracles
+
+on:
+  push:
+    branches:
+      - repair/g3-g4-wave2
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: ${{ !contains(github.event.head_commit.message, '[wave2-oracles-finalized]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: repair/g3-g4-wave2
+
+      - name: Apply frozen-contract oracle migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          HIST=81414d190677681d8c3e33e96e23a9c005bfde0c
+          for n in 1 2 3 4; do
+            git show "$HIST:tools/wave2-oracle-patches/oracle-$n.patch" > "/tmp/oracle-$n.patch"
+            git apply "/tmp/oracle-$n.patch"
+          done
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          e2e = Path('workspace-template/.pfc-internal-field-validation/tests/test_g4_full_same_mission_product_e2e.py')
+          text = e2e.read_text(encoding='utf-8')
+          old_wait = "not_ready=product_entry.g4_command('DIRECTOR','control_tick',{'mission_id':mid,'goal_id':'goal-95','replan_context':{}}); checks['auto_resume_waits_for_real_runtime_observation']=bp.owner=='HUMAN' and not_ready['auto_resume']['status']=='WAITING'"
+          new_wait = "not_ready=product_entry.g4_command('DIRECTOR','control_tick',{'mission_id':mid,'goal_id':'goal-95','replan_context':{}}); auto_waited=bp.owner=='HUMAN' and not_ready['auto_resume']['status']=='WAITING'"
+          old_resume = "checks['deterministic_auto_resume']=auto['payload']['current_step_index']==1 and bp.owner=='AI' and 'g4-auto' in auto_tick['auto_resume']['resumed_gate_refs']"
+          new_resume = "checks['deterministic_auto_resume']=auto_waited and auto['payload']['current_step_index']==1 and bp.owner=='AI' and 'g4-auto' in auto_tick['auto_resume']['resumed_gate_refs']"
+          if old_wait not in text or old_resume not in text:
+              raise SystemExit('SAME_MISSION_AUTO_RESUME_ORACLE_NOT_FOUND')
+          e2e.write_text(text.replace(old_wait, new_wait).replace(old_resume, new_resume), encoding='utf-8')
+
+          runner = Path('tools/run_wave2_validation.py')
+          text = runner.read_text(encoding='utf-8')
+          expected = {
+              'r2_1_change_intelligence_broker': 29,
+              'r2_2_governed_execution_binding': 7,
+              'r2_3_coverage_identity': 8,
+              'r2_4_background_auto_resume': 8,
+              'r2_5_goal_transition': 7,
+              'r2_6_sensitive_evidence': 7,
+              'r2_7_package_identity': 6,
+          }
+          for name, count in expected.items():
+              pattern = re.compile(rf'(\("{re.escape(name)}",\s*"[^"]+",\s*)\d+(\),)')
+              text, changed = pattern.subn(rf'\g<1>{count}\g<2>', text, count=1)
+              if changed != 1:
+                  raise SystemExit(f'RUNNER_COUNT_ORACLE_NOT_FOUND:{name}')
+          runner.write_text(text, encoding='utf-8')
+          PY
+          git rm .github/workflows/wave2-finalize-current-oracles.yml
+          git diff --check
+
+      - name: Commit oracle-only migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'test(wave2): align frozen-contract validation oracles [wave2-oracles-finalized]'
+          git push origin HEAD:repair/g3-g4-wave2
