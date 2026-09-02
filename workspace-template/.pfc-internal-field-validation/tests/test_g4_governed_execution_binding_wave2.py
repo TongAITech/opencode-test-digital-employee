@@ -70,7 +70,7 @@ def main() -> int:
             case = case_fact["payload"]["r3_3_case"]
             strategy = cycle["strategy"]["strategy"]["strategy_version_id"]
             g4 = G4RealExecutionService(runtime, orchestration=orch, capability_executors={"API": executor})
-            g4.create_goal(mission_id, {"goal_id": "goal-bind", "project_id": "PFC", "release_id": "V2", "affected_applications": ["cfg-data"], "coverage_policy": {"target_pct": 95}})
+            g4.create_goal(mission_id, {"goal_id": "goal-bind", "project_id": "PFC", "release_id": "V2", "affected_applications": ["cfg-data"], "affected_application_target_versions": {"cfg-data": "V2"}, "coverage_policy": {"target_pct": 95}})
             plan = orch.propose_plan(mission_id, {"objective": "binding negative", "tasks": [exec_task("BIND-A", case_fact["fact_id"])], "dependencies": []})
             attempt = binding(plan["next"])
             before_cursor = len(g4.state(mission_id).by_kind("STEP_CURSOR"))
