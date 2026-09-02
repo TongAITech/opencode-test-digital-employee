@@ -91,7 +91,7 @@ def govern_focused_case(g4, rt, mid, binding_data, case_id, *, goal_id, case_ver
         provenance_refs=(case["fact_id"],portfolio["fact_id"]), fact_id=f"g3:adv-link:{case_id}:{case_version}",
     )
     focused=g4.create_focused_execution_binding(mid,{**binding_data,"goal_id":goal_id,"target_application":target_application,"case_id":case_id,"case_version":case_version,"case_spec_fact_id":case["fact_id"],"binding_id":f"adv-focus:{case_id}:{binding_data['root_attempt_id']}"})
-    return {"case_spec_fact_id":case["fact_id"],"focused_execution_binding_id":focused["binding"]["payload"]["binding_id"]}
+    return {"case_spec_fact_id":case["fact_id"],"focused_execution_binding_id":focused["binding_id"],"execution_batch_id":focused["execution_batch_id"]}
 
 def bootstrap_goal(tag='goal', *, target=95.0):
     root=Path(tempfile.mkdtemp(prefix='g4-adv-goal-')); db=root/'runtime-spine.db'; mid='m-'+tag
