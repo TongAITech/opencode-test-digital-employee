@@ -1,0 +1,2468 @@
+{
+  "schema_version": "aitest.engineering-source-baseline.v1",
+  "identity_formula": "sha256(UTF-8 sorted `<file_sha256>  <path>` lines, exactly one final newline; excludes SOURCE_BASELINE_MANIFEST.json)",
+  "file_count": 492,
+  "source_content_identity": "7943456a1046e5133f1865b276aa6651864a01a5bf235ff327b1809ce85540b4",
+  "files": [
+    {
+      "path": ".gitignore",
+      "sha256": "98218093a067c2ea0952ebadcfa9556d2fc88a7af203342518f53f7af6df85d8",
+      "size": 608
+    },
+    {
+      "path": "README.md",
+      "sha256": "1e3e3a5e9c1b510dc36d66383240aebfe76ac19871a425c3d8b22747f30be18a",
+      "size": 969
+    },
+    {
+      "path": "docs/governance/00.8_PLANNING_ALIGNMENT_AND_G3_G4_REPAIR_WAVE_2_AUTHORIZATION.md",
+      "sha256": "a92ef3259aa21c11681a9c5e01815813f9a94a00931acee3f49665ecfec83fbe",
+      "size": 13718
+    },
+    {
+      "path": "docs/governance/ENGINEERING_SOURCE_GOVERNANCE.md",
+      "sha256": "1a288ec056f3ddb5d812692c7cf7a769c7988cd37ee1ddc45678e66ad96877a0",
+      "size": 960
+    },
+    {
+      "path": "docs/governance/G4_REAL_EXECUTION_AND_TEST_GOAL_CONVERGENCE_FORMAL_DETAILED_DESIGN_V1.md",
+      "sha256": "ebc2942f12eeaf1cf3faf7d3f820add4d09b3d0a4fcabb961530750582f952f7",
+      "size": 31871
+    },
+    {
+      "path": "docs/reviews/00.8_POST_CLOSURE_REPAIR_ADVERSARIAL_REPRODUCTIONS.json",
+      "sha256": "bcb255042f85a831058fec26dc3c9abf51494416c94537150eaa23e0cf8eb147",
+      "size": 3193
+    },
+    {
+      "path": "docs/reviews/00.8_POST_CLOSURE_REPAIR_INDEPENDENT_RAW_SOURCE_REVIEW.md",
+      "sha256": "858f90b629e2d61920ba15e2dd3cc348858bf3af70acfaa43b1f66370b230926",
+      "size": 21654
+    },
+    {
+      "path": "packaging/INSTALL-PFC-AITEST.sh",
+      "sha256": "475cc0433bfe8fc8bd1bcf0bad42637c459e31ff6ddcfe5b21c8955f88851cd1",
+      "size": 21801
+    },
+    {
+      "path": "packaging/start-pfc-ai-r1r4.sh",
+      "sha256": "48546ff34b74835144a409a0490db26c637f5d31ced68675b5288fdba612f3f5",
+      "size": 4743
+    },
+    {
+      "path": "packaging/status-pfc-ai-r1r4.sh",
+      "sha256": "90a66b80a98b379255fc8faa2fe1a09391dd270430750b8ad2da77c233a6036c",
+      "size": 4746
+    },
+    {
+      "path": "packaging/stop-pfc-ai-r1r4.sh",
+      "sha256": "2524037925ff1267535e6e16a8d889cb037955f1792a0a245bc86adb6ec7327c",
+      "size": 4740
+    },
+    {
+      "path": "runtime-lock.json",
+      "sha256": "045d95a60e67e42333f0e5cc6f3877d3fe729ec398b3d2dc142c2aee435771b7",
+      "size": 1830
+    },
+    {
+      "path": "workspace-template/.opencode/agents/aitest-case-designer.md",
+      "sha256": "2f57b6c2e9f585e224cb275a08d16a472c433f271217b63e15b6cd7ce2049ee2",
+      "size": 963
+    },
+    {
+      "path": "workspace-template/.opencode/agents/aitest-code-analyst.md",
+      "sha256": "da704166ee7d1a53cc10d41fa78534d068fd3ea99bff9707b3b26008319bb258",
+      "size": 1124
+    },
+    {
+      "path": "workspace-template/.opencode/agents/aitest-diagnosis.md",
+      "sha256": "fb68efe23c8f19d26379d2316629ff408bd377fdcccb147aeed94f1a7f70337e",
+      "size": 543
+    },
+    {
+      "path": "workspace-template/.opencode/agents/aitest-director.md",
+      "sha256": "d7c302c17e4be911ca8132bb1587fb555936c133df4c75e16be4e76ebea79245",
+      "size": 2420
+    },
+    {
+      "path": "workspace-template/.opencode/agents/aitest-evaluator.md",
+      "sha256": "dce9c29a9cc46c23554097d67cee429310f268f69e285000dad1ec91a6f3d8f8",
+      "size": 747
+    },
+    {
+      "path": "workspace-template/.opencode/agents/aitest-executor.md",
+      "sha256": "cea734923b51c0cf56aa80e351ab880875bafa772e95e0ba3d34909c7a7cb60b",
+      "size": 1731
+    },
+    {
+      "path": "workspace-template/.opencode/agents/aitest-knowledge.md",
+      "sha256": "369c7653c8b9c0da705b06b47876e35439fb42a2f13f0c2dce52fbc8ceca627c",
+      "size": 419
+    },
+    {
+      "path": "workspace-template/.opencode/agents/aitest-planner.md",
+      "sha256": "36aee1baf3ce8b7b188bc2edf2452aa9c12a5e55eef7416c067ab45c3d5a7485",
+      "size": 1817
+    },
+    {
+      "path": "workspace-template/.opencode/agents/aitest-requirement-analyst.md",
+      "sha256": "2f22282633d35af1cfc35bce857cc14bc121b3bd06de63e8908adfed11e020d1",
+      "size": 1315
+    },
+    {
+      "path": "workspace-template/.opencode/agents/aitest-scheduler.md",
+      "sha256": "84acb4aec1a2e5849585e0ddf0047785ab7d16d568e5d7434a33fb245a7e18ae",
+      "size": 1365
+    },
+    {
+      "path": "workspace-template/.opencode/agents/aitest-test-strategist.md",
+      "sha256": "c07cba04fa3679f2dc05a84132dccff5b7d5bcec8d1a1ab2423d4346d8c95baf",
+      "size": 1405
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-api-test-design.md",
+      "sha256": "3fae12dad91e5f37061a0067a7b13b467252c56cb987efe235a4443fe07b62ed",
+      "size": 416
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-browser-teach.md",
+      "sha256": "f8b33452de5ba1e0462ada22fc16e1fd10f2a20a18c879afb31d0e255483712f",
+      "size": 407
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-case-design.md",
+      "sha256": "34a70ff2f2d8542668852894309b6c3ce304c9f35177176c4361b76a6001d4f8",
+      "size": 315
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-change-impact.md",
+      "sha256": "60876bf796f46aa89847efa938cf32042be87fbd267b61ca024660937add2e92",
+      "size": 256
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-continue.md",
+      "sha256": "e68c7b2cb6163f5a29a6495ebe4ce46684ee1f3b31f2a45c09f46a858d31f342",
+      "size": 309
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-coverage-gap.md",
+      "sha256": "b67d80f87b10b2f9c8ddb5d2050ac968e4f4858e66f436a1a01f6a2288217602",
+      "size": 381
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-defect.md",
+      "sha256": "b8e36b76f5ebb9179ed3faf30373f93a25bcd3a02b4ae65708c85c957b5760cc",
+      "size": 217
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-diagnose.md",
+      "sha256": "ff743da373d51e745ee2b5c4a9d3e3b2eaf11cca0dc8ef2b3d83bca6e857ba1d",
+      "size": 206
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-doctor.md",
+      "sha256": "1eef3e21eee49d944c18326075c95b9ef7f42183e5f0519a3304030e64b4b993",
+      "size": 212
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-evaluate.md",
+      "sha256": "44376b7495917b0a20029fe791d24cb7a9f8df6c24eb21a917ac0d2c68b56b5c",
+      "size": 419
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-execute.md",
+      "sha256": "6c1ef8644026f5d136a066dc50415c5816a2fa1ef402170e5245c22d4f05d2d7",
+      "size": 719
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-finalize.md",
+      "sha256": "579b6a895fe31d4045b74599327f0d088ce6715a60962859b6d15c5360f648d9",
+      "size": 216
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-human-inbox.md",
+      "sha256": "b02ac1e35cbc85d257333004dc70cd118f4424bca0836b369953ff6519602626",
+      "size": 261
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-knowledge.md",
+      "sha256": "aa301e41a851d2e71f04158c0cbaf233c1cbf8b9c0d04f85f9430a0a396e980c",
+      "size": 222
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-mission-create.md",
+      "sha256": "6f8ed55a8b3133cd1ec25d82ba7f1953a3928ca6bc17daa219c49cd83d948c39",
+      "size": 330
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-performance-test-design.md",
+      "sha256": "7a63f703cca613120b1b639193ceb5430948e9688370515c0b9272db9020e95d",
+      "size": 447
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-plan.md",
+      "sha256": "5022b8ac8c17f88c8c1d33011b76e2ac8fe55a5ac3a3041713ef1bb66b7c1382",
+      "size": 334
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-preflight.md",
+      "sha256": "79ee1798f98077bf90a412f1c99db393882e4496a9ea7b0dc4467c72c8697d37",
+      "size": 457
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-project-init.md",
+      "sha256": "06a2224f947bef584b31cff03c6247b1e2b942576ebdcb6453a2145b2f001249",
+      "size": 366
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-requirement-analyze.md",
+      "sha256": "28c69e3bc06fe08ef525dcad1b398aaa2899c48b777aae7f274167a16b92b324",
+      "size": 222
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-schedule.md",
+      "sha256": "554dc6a2db0815b326d01e323b503ae579a6dafbb7e89c4fc2a18ff8bb3760dc",
+      "size": 249
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-security-test-design.md",
+      "sha256": "d4e3501e4fb6b57aaba22616f920ebf24fc07351c3612535cc2ca46bee70874f",
+      "size": 464
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-start.md",
+      "sha256": "f3c3cf9d58114d8d657610e0dcc11633b89994b8c99dceb8bf2177b48eb72949",
+      "size": 357
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-status.md",
+      "sha256": "7279046093564514c60978f6c7ad8d28aad606820dec9d1a32c4ed726cb6dd1f",
+      "size": 259
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-teach.md",
+      "sha256": "28cfe42ac48e2a1a2577e336e0b71db30e59f21ad8a5f21b8ff66c31370bd84b",
+      "size": 214
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-test-intent.md",
+      "sha256": "85cc87f396b6212b36bff9882d2b6bad3fcb1ef1087a5be43516c2b379ae56d8",
+      "size": 437
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-test-strategy.md",
+      "sha256": "77b384e3232a710b649c7a83a6341ba252c238271a86b69acef423879abcac22",
+      "size": 258
+    },
+    {
+      "path": "workspace-template/.opencode/commands/aitest-ui-test-design.md",
+      "sha256": "323f0cae6a32b6169a3cd7b6cd59a759b7609eed08be3808e3cc465bfff7beda",
+      "size": 467
+    },
+    {
+      "path": "workspace-template/.opencode/commands/kyb-start.md",
+      "sha256": "96ae70ac6e8b1457b72824d825bb272e76ca803007183fd882df312949857436",
+      "size": 276
+    },
+    {
+      "path": "workspace-template/.opencode/commands/pfc-start.md",
+      "sha256": "fa6fc863c0bac0d26be49d099e33d4739728e6e56d7075662e9f84ecd392fded",
+      "size": 276
+    },
+    {
+      "path": "workspace-template/.opencode/skills/admin-control-plane/SKILL.md",
+      "sha256": "2714d797787503c65a6b8072e20148d75653c25625d371e1e03873dc96c5bb56",
+      "size": 659
+    },
+    {
+      "path": "workspace-template/.opencode/skills/cat-diagnosis/SKILL.md",
+      "sha256": "349891183b55d66c40f2f49982f7ad42d9d610282a73efbcd17bcb2e9cecd6fd",
+      "size": 668
+    },
+    {
+      "path": "workspace-template/.opencode/skills/defect-lifecycle/SKILL.md",
+      "sha256": "12589b516f37bf38f6ace6ae213a89b6f3587f07aaaed18f54f3bc370aabded0",
+      "size": 717
+    },
+    {
+      "path": "workspace-template/.opencode/skills/execution-boundary/SKILL.md",
+      "sha256": "4dfdef6f062b4b66c28e0f987a9b9e341196b3b98b28f492fc10cbedc29f61b1",
+      "size": 682
+    },
+    {
+      "path": "workspace-template/.opencode/skills/human-browser/SKILL.md",
+      "sha256": "4717a6d249a75b3acd25402b184a097693404bedbfecdb33a5a4c4f54e0138d8",
+      "size": 642
+    },
+    {
+      "path": "workspace-template/.opencode/skills/knowledge-teaching/SKILL.md",
+      "sha256": "4137249271bd90b16be91960590720ec74fd05f4da470dd1134f667b880b8f3f",
+      "size": 626
+    },
+    {
+      "path": "workspace-template/.opencode/skills/legacy-migration/SKILL.md",
+      "sha256": "a2a0ed74c678a94c34afbfeb78b618e847a5bbc32d87756a1ef7a0f39487f297",
+      "size": 615
+    },
+    {
+      "path": "workspace-template/.opencode/skills/mission-runtime/SKILL.md",
+      "sha256": "8be71f39bfa0d801e870733ab28207c0e344415b916f4b830c4e701b88bdd124",
+      "size": 613
+    },
+    {
+      "path": "workspace-template/.opencode/skills/project-bootstrap/SKILL.md",
+      "sha256": "0138712f3ab4e0eaf7e3c18d7f5899866bda7c0fb30f3c586a301788f44f3836",
+      "size": 618
+    },
+    {
+      "path": "workspace-template/.opencode/skills/quality-scheduler/SKILL.md",
+      "sha256": "1d3a7b25f2f86f4b8095998707d34f09ec1926879e359addee9854b59f546ba9",
+      "size": 649
+    },
+    {
+      "path": "workspace-template/.opencode/skills/release-truth/SKILL.md",
+      "sha256": "76afd4391b91ab5c28ea8fb51f2eab2143a663405cf0150ff9aa5244d496c822",
+      "size": 636
+    },
+    {
+      "path": "workspace-template/.opencode/skills/session-recovery/SKILL.md",
+      "sha256": "211499d220be09ce17b9e159b013eaac24c0d057e70f95cfd8d432854c798591",
+      "size": 613
+    },
+    {
+      "path": "workspace-template/.opencode/tools/aitest.ts",
+      "sha256": "a456b2150ed5a8c364cc3d34a14c778a667b678c284e2a2864f5e6559208084c",
+      "size": 14251
+    },
+    {
+      "path": "workspace-template/.opencode/tools/pfc.ts",
+      "sha256": "6e9fd23e2944462210eca4229a73267659debb7ede845d76878eadeacd2e4dd9",
+      "size": 5312
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/FV-0.cmd",
+      "sha256": "99543ab6b776381dcf1a2b1ea1ecd800aed73d2e8f0ba99277204cdc2adad8d2",
+      "size": 37
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/FV-1.cmd",
+      "sha256": "8d04758dfce570dcc129e250ceea672ad6fa9623895bae29f3fbc0613953585e",
+      "size": 37
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/FV-2.cmd",
+      "sha256": "2054d5e9d7041732022238a58014b180048b4110047f87a50527566f234b1936",
+      "size": 37
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/FV-2_INPUT.template.json",
+      "sha256": "bdfa21bff862da667b4da8f2052cd7ea2ead5fccfa59d646a763d4157fe237b7",
+      "size": 191
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/FV-3.cmd",
+      "sha256": "f04ab0e3ddf0770f1afbd3128e2a32db33b9ca2062a3568516294717854d9a37",
+      "size": 37
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/FV-3_INPUT.template.json",
+      "sha256": "32d33136ad80d316c794bf578f85d1de62b212013414f2b548147f5218f9367a",
+      "size": 166
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/FV-4.cmd",
+      "sha256": "f37425fa070ff9686c22ba3ca961bce1eacd9aa1d4705122326fbc5a29ed07f8",
+      "size": 37
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/FV-4_INPUT.template.json",
+      "sha256": "33947a6cbac3b897d3a6d57900cb49ccc138b1e4222cca2bab4717f79b9b2178",
+      "size": 136
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/FV.cmd",
+      "sha256": "a7933ebc5d677b21867ceb5cc1cf16b50d484cee26be04f5191bb9e3ff676a14",
+      "size": 379
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/FV.sh",
+      "sha256": "43823f10d68d84c200f10c3c6f6c77b42e2254d662dc4619380f5ab9297fb407",
+      "size": 423
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/README.md",
+      "sha256": "8d49b01043d30e8fcfce50c6d36840a1564a6aef8d25a596a01b4a5a0dd74f84",
+      "size": 979
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/RUNBOOK.md",
+      "sha256": "91dc1bb174f63c2cf3abf18b8769cb7039cc156bb1554d8e0c776bb65645ad2f",
+      "size": 1922
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/WINDOWS_REALITY_AUDIT.md",
+      "sha256": "328fa7e84c3074ba9052b95127b542c8ecf39b517ac1cbb95db4bf4d7d6b986e",
+      "size": 2795
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/bindings/bank-binding.env.example",
+      "sha256": "722a42c090bb2282e9ac18871478672772c0f0b3a2dfb2aae8fc0ef043e71752",
+      "size": 640
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/bindings/bank-binding.template.json",
+      "sha256": "153dd4810bff77a8ec8c6452b219fb3fab499710ec245a229fbb8963e22eca0a",
+      "size": 2305
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/offline-runtime-plan.v3.json",
+      "sha256": "fd7f8951daf3e747bb3ebe308f4d318934a9e3fda7c008dbba7d9d5cc285fae5",
+      "size": 1771
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/runtime-profile.json",
+      "sha256": "df9a11e8cd37ce317fa0bb4dafc7e2705344df17b5cdb30137bd60d6c3bfcd01",
+      "size": 2676
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/schema/fv-output.schema.json",
+      "sha256": "8914e698bcf1b840dfa7ca305439d56788787f90aaa54c1b2d6694927e14990f",
+      "size": 691
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/tests/test_autonomous_orchestration.py",
+      "sha256": "4524470326f3480769852b14fd3703f5a082583c6e8ed9644059f7f9e412b370",
+      "size": 14178
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/tests/test_g1_g2_1_launch_auth_decoupling.py",
+      "sha256": "44a319fcec451bf50dc92a16a71eafeb230b2724eba5a18dfac8b28abd734f10",
+      "size": 6043
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/tests/test_g1_g2_product_path_subprocess.py",
+      "sha256": "e91fe1ce2d47fca5ad38c8d5ce2d4647970b57f45877158e1187389125394a9d",
+      "size": 10557
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/tests/test_g2_1_background_control_loop_subprocess.py",
+      "sha256": "7051eae15530b9e2a5c5c2b17092f55e8a2e9b1a44077f222f2a3f36579fe677",
+      "size": 9680
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/tests/test_g2_1_control_loop_process_lifecycle.py",
+      "sha256": "7a468396d297b2f06caa43490990023a6a228497758f2cfe8137733110babf59",
+      "size": 4361
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/tests/test_g2_1_session_router_control_loop.py",
+      "sha256": "d976a4fd3fc0de3194984e63654d685d09d3ad4e9b90c45d27d2c239f81e3a5d",
+      "size": 31700
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/tests/test_g2_waiting_human_nonblocking_scheduler_repair.py",
+      "sha256": "9a0ff754bbb602de1664205e92943fd82ab2f0e128f38d1e220ad920b5064cee",
+      "size": 6231
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/tests/test_g3_g4_post_closure_adversarial.py",
+      "sha256": "94bf10d28efe8ca2d2341ed1a1d15ebad59b438da7368f02fc86211d37825f4c",
+      "size": 19341
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/tests/test_g3_testing_intelligence_product_path.py",
+      "sha256": "8b4877d5797de7e1df0202c74130810c3458c411268c459469f91dd696b0c73a",
+      "size": 45622
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/tests/test_g4_capability_human_gate_product_path.py",
+      "sha256": "65d233922f4f3a4b7f9f767cb77ec289b90b103a2fc139202ab0c8bdb3edf580",
+      "size": 5090
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/tests/test_g4_formal_product_gate.py",
+      "sha256": "669e9db18200593aeca11962a2a80fb0e9053b9722f83f234c9fbcc3b924eef4",
+      "size": 14877
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/tests/test_g4_full_same_mission_product_e2e.py",
+      "sha256": "3287d3254aa8c3cbbb474b1b9216ed1e301fee3117172f6af8bfd01388d23e7b",
+      "size": 36272
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/tests/test_g4_opencode_product_surface.py",
+      "sha256": "26fffd89499503b8833882001c95451f1e7d8859ba759bed2c40282ff717fa0f",
+      "size": 6669
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/tests/test_g4_repair_focused_integration.py",
+      "sha256": "1cda0e4d3caed6e46026a7eb43608a0e186b137fd10b5dea80746fabe774b4ce",
+      "size": 4918
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/tests/test_portable_launcher_policy.py",
+      "sha256": "1a44b0b7d3696daa7be2e9155e75409f903341343539e7edee59419941f155ce",
+      "size": 3706
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/tests/test_runtime_convergence.py",
+      "sha256": "cfed4ff44821b4565afb4ecb822771c1e8ec074c801abf8eae90d4dc336d3f54",
+      "size": 8793
+    },
+    {
+      "path": "workspace-template/.pfc-internal-field-validation/tools/fv_tool.py",
+      "sha256": "98237fa798ded0ba427f017d315f92789944060342fa2d1d2d214d27c1b0c0cc",
+      "size": 8298
+    },
+    {
+      "path": "workspace-template/AGENTS.md",
+      "sha256": "e3097322bfa1f138318376eb32ad8665571d215ea3d7391c47540670b13f2ba9",
+      "size": 2699
+    },
+    {
+      "path": "workspace-template/PFC_INTERACTIVE_WEB_CONTRACT.md",
+      "sha256": "a5a3e7e27d1f016596690ef173459cf9e95268a00d0bf7a80d6bd5c0dca764fc",
+      "size": 3035
+    },
+    {
+      "path": "workspace-template/PFC_OPENCODE_GIT_BASH_PROVEN_COMMAND_CONTRACT.md",
+      "sha256": "3e06a7bf86dbe732e1ebcb569ccf4e7a0e7b4604c97c6dbb5d2123c690ef1761",
+      "size": 517
+    },
+    {
+      "path": "workspace-template/PFC_OPENCODE_GIT_BASH_PROVEN_COMMAND_FINAL_REPAIR.md",
+      "sha256": "edfc0ebe9b56c1ae172d02ab4111ca4376d68da697388202c16706765d015fd0",
+      "size": 1797
+    },
+    {
+      "path": "workspace-template/PFC_OPENCODE_LAUNCH_AND_AI_RUNTIME_ADMISSION_DECOUPLING_COMPARISON.md",
+      "sha256": "c43146a000b206e992f6806ac0b8ea9f867f2b64e359b0280a542b1cc3556927",
+      "size": 2196
+    },
+    {
+      "path": "workspace-template/PFC_OPENCODE_POST_AUTH_PROCESS_LIFECYCLE_CONTRACT.md",
+      "sha256": "a2e70d8822a5e91316cc52767a51af55ab952f10f40703c59e044b9e2b995d22",
+      "size": 453
+    },
+    {
+      "path": "workspace-template/PFC_OPENCODE_POST_AUTH_RESUME_AND_PROCESS_LIFECYCLE_REPAIR.md",
+      "sha256": "df3e455804828c31c5ccf041ccb0915421f9083a5505dc5afc69daf9393b7f43",
+      "size": 1259
+    },
+    {
+      "path": "workspace-template/PFC_OPENCODE_PROCESS_AI_MISSION_STATE_CONTRACT.md",
+      "sha256": "ce0930e92d02174ab4130a25af2902a286c0cfb11c00ec062a5a5162fff978be",
+      "size": 615
+    },
+    {
+      "path": "workspace-template/PFC_OPENCODE_RUNTIME_INSTANCE_IDENTITY_CONTRACT.md",
+      "sha256": "aeb72fefa23933b1ea1f36454bff4469f40a4084eb5f9f8354f26d67256eccd6",
+      "size": 777
+    },
+    {
+      "path": "workspace-template/PFC_OPENCODE_RUNTIME_LAUNCH_AND_AI_RUNTIME_DECOUPLING_CONTRACT.md",
+      "sha256": "54f4ccc553c37c03aadfd11148b045c74f9f53d44e18f9bbc52e204bfb3e1f69",
+      "size": 659
+    },
+    {
+      "path": "workspace-template/PFC_OPENCODE_RUNTIME_LAUNCH_AND_AUTH_CONTRACT.md",
+      "sha256": "d2db6862aaee9ddb79628dbff165e1dd4a08749b4173bd45e5353171f4f81527",
+      "size": 825
+    },
+    {
+      "path": "workspace-template/PFC_OPENCODE_STARTUP_TERMINAL_DIAGNOSTIC_CONTRACT.md",
+      "sha256": "7ab6e33ee320dcf459eda19f63ce2fd454fa3a90954dda19d59c8fbc415e2031",
+      "size": 621
+    },
+    {
+      "path": "workspace-template/PFC_OPENCODE_WEB_EXPLICIT_PROJECT_BINDING_CONTRACT.md",
+      "sha256": "6aec9f99c7cdeb6d86bc86ae59c356fd682410bda8b7fd4c43b8192652167d8e",
+      "size": 1224
+    },
+    {
+      "path": "workspace-template/PFC_R1_R4_FINAL_INSTALL_PROVISION_RUN_CONTRACT.md",
+      "sha256": "b7c39c55cb64416b099c82b2a4289e1ce4e93a120fa87ea1ad5b95efef424bc6",
+      "size": 2383
+    },
+    {
+      "path": "workspace-template/PFC_R1_R4_USABILITY_COMPLETION_CONTRACT.md",
+      "sha256": "a25d5b0650cba32b9e081f507f3813e6d06b38e560a77f8d02974b6be670494f",
+      "size": 2437
+    },
+    {
+      "path": "workspace-template/PFC_V1_9_4_PROVEN_USAGE_BEHAVIOR.md",
+      "sha256": "3262fda8dea0364ebcb23d33f7f9c0219b9f4825ba67296c261bea6a3a16ad83",
+      "size": 3405
+    },
+    {
+      "path": "workspace-template/PFC_WINDOWS_OPENCODE_CMD_SHIM_RESOLUTION_AND_REAL_WEB_LAUNCH_CONTRACT.md",
+      "sha256": "87d5c49cb38036434f0b884d9282357cab8020853db2e9a03a8d08a51279c3d1",
+      "size": 1779
+    },
+    {
+      "path": "workspace-template/VERSION",
+      "sha256": "4f9416d650bd28343244b868dfebdb11e70d7b32423536cb87b8c31fde62f993",
+      "size": 7
+    },
+    {
+      "path": "workspace-template/ai-test/config/capabilities.json",
+      "sha256": "51788e1000618365a0ee1b114a5323179e786e9124bd1eb6fbf6ba99dadc33d3",
+      "size": 2275
+    },
+    {
+      "path": "workspace-template/ai-test/config/environments/environment.template.json",
+      "sha256": "e44c1392865e7c58f08ee354f70d1af7bf9cc771237e73868692f415e3f70f5d",
+      "size": 272
+    },
+    {
+      "path": "workspace-template/ai-test/config/profiles/GENERIC.json",
+      "sha256": "b8536d720181428668fce833ea2ff127871ad52258da85b53322574bc61ea6ca",
+      "size": 307
+    },
+    {
+      "path": "workspace-template/ai-test/config/profiles/KYB.json",
+      "sha256": "7edf1b5606be3cd18c3c8d385ddd2aadecf4ca6997fe8e29d5aa072a562954a0",
+      "size": 372
+    },
+    {
+      "path": "workspace-template/ai-test/config/profiles/PFC.json",
+      "sha256": "4d3c775907146bdd68e4d6026ea836f5cdd7675d363e8c044cbe2222157fbdc8",
+      "size": 372
+    },
+    {
+      "path": "workspace-template/ai-test/config/test-layers.json",
+      "sha256": "8257bb916a1a59d6a13d2b6629b0ce0256cd4c6ed981c24f8a3f7f96eed86a02",
+      "size": 1880
+    },
+    {
+      "path": "workspace-template/ai-test/control-plane/browser-extension/README.md",
+      "sha256": "5834f2d79fc906e265803c782d3503a3a916e502475d88528dbc004418f19247",
+      "size": 540
+    },
+    {
+      "path": "workspace-template/ai-test/control-plane/browser-extension/background.js",
+      "sha256": "18a7e4d7f1c62ed0ffef0c6294f35b7c99fe8e219553cb839e1f4e99339e0a8d",
+      "size": 1661
+    },
+    {
+      "path": "workspace-template/ai-test/control-plane/browser-extension/content.js",
+      "sha256": "f89e867337a7bdc366f183f78644c73211ec026a0e38ee185684e783b018d35d",
+      "size": 2544
+    },
+    {
+      "path": "workspace-template/ai-test/control-plane/browser-extension/manifest.json",
+      "sha256": "38de143b3a97f51091cd38259bb0168d2bf865312f869b41204653c9141aa553",
+      "size": 554
+    },
+    {
+      "path": "workspace-template/ai-test/control-plane/web/app.css",
+      "sha256": "c229ad606fa45bb98109bd05b4145918e5b2643072fe7a78aefe5efbae8b4b3e",
+      "size": 4327
+    },
+    {
+      "path": "workspace-template/ai-test/control-plane/web/app.js",
+      "sha256": "ff126867d336732919ddefea382e4ec05ae9e9d8a2f8e42db3283b026fd2766b",
+      "size": 8549
+    },
+    {
+      "path": "workspace-template/ai-test/control-plane/web/index.html",
+      "sha256": "e09182ab19d3a9fe16b65cc372937c16b66f238846225927a826bc0c58ab6a65",
+      "size": 1426
+    },
+    {
+      "path": "workspace-template/ai-test/evidence/field-validation/README.md",
+      "sha256": "d31ad23595ace1e95d0bb72ab1a71306302cc4565a60c168911175c08c6d3f2a",
+      "size": 508
+    },
+    {
+      "path": "workspace-template/ai-test/local/adapters/browser-action.py",
+      "sha256": "20f5f1021bf27b106962d5e8499ec4e029bdd2376f068c90b3d189367561f816",
+      "size": 1976
+    },
+    {
+      "path": "workspace-template/ai-test/local/adapters/cat-log-query.py",
+      "sha256": "75cef63348feeb72041376b529fef05ed6e3bf8fedc4a1c76d871512c63763a1",
+      "size": 1162
+    },
+    {
+      "path": "workspace-template/ai-test/local/adapters/code-intelligence.py",
+      "sha256": "df90c90d283155061a84496b2649eee43683229e177505bc9b12f53636bf9c78",
+      "size": 1738
+    },
+    {
+      "path": "workspace-template/ai-test/local/adapters/db-change.py",
+      "sha256": "6ccc388eec44adf00e244e2c34a293136a3c816d093df7848f7ff488b93dec59",
+      "size": 535
+    },
+    {
+      "path": "workspace-template/ai-test/local/adapters/db-select.py",
+      "sha256": "8903583e29633e34faa6ef8a1c03dd8dc08b0e0c96ff39b248a69d59f3c89cf5",
+      "size": 697
+    },
+    {
+      "path": "workspace-template/ai-test/local/adapters/deployment-query.py",
+      "sha256": "a2ec2ba95573aaa0ccd33ba0c052f437e1e83ac4bcc020babb8a7c38da38f0b5",
+      "size": 820
+    },
+    {
+      "path": "workspace-template/ai-test/local/adapters/release-truth.py",
+      "sha256": "99e6af863df7ec289bfb6d08b50b620d3a374765e35de263b042746fdf69dc52",
+      "size": 814
+    },
+    {
+      "path": "workspace-template/ai-test/local/adapters/submission-query.py",
+      "sha256": "5cb78c4401ff24155586703a9f984b383f31120f8297d3202006906a0cee70bc",
+      "size": 820
+    },
+    {
+      "path": "workspace-template/ai-test/local-templates/api-http.py",
+      "sha256": "b0574c2e94ac5c7eef18594e355112f9d763493f0b62d1df33123c2014f6ee5d",
+      "size": 3866
+    },
+    {
+      "path": "workspace-template/ai-test/local-templates/browser-action.py",
+      "sha256": "9bff84ea384e73ecf9d80fe6248b4c474a598bfdb58964b737efe3074d05b82c",
+      "size": 636
+    },
+    {
+      "path": "workspace-template/ai-test/local-templates/cat-log-query.py",
+      "sha256": "75cef63348feeb72041376b529fef05ed6e3bf8fedc4a1c76d871512c63763a1",
+      "size": 1162
+    },
+    {
+      "path": "workspace-template/ai-test/local-templates/code-intelligence.py",
+      "sha256": "df90c90d283155061a84496b2649eee43683229e177505bc9b12f53636bf9c78",
+      "size": 1738
+    },
+    {
+      "path": "workspace-template/ai-test/local-templates/credit-data-provider.py",
+      "sha256": "6659db2933b5c1f411b5af4a2fb2a3bb63dbac45ca471ea76b587cb918bec08f",
+      "size": 683
+    },
+    {
+      "path": "workspace-template/ai-test/local-templates/db-change.py",
+      "sha256": "6ccc388eec44adf00e244e2c34a293136a3c816d093df7848f7ff488b93dec59",
+      "size": 535
+    },
+    {
+      "path": "workspace-template/ai-test/local-templates/db-select.py",
+      "sha256": "8903583e29633e34faa6ef8a1c03dd8dc08b0e0c96ff39b248a69d59f3c89cf5",
+      "size": 697
+    },
+    {
+      "path": "workspace-template/ai-test/local-templates/deployment-query.py",
+      "sha256": "a2ec2ba95573aaa0ccd33ba0c052f437e1e83ac4bcc020babb8a7c38da38f0b5",
+      "size": 820
+    },
+    {
+      "path": "workspace-template/ai-test/local-templates/release-truth.py",
+      "sha256": "99e6af863df7ec289bfb6d08b50b620d3a374765e35de263b042746fdf69dc52",
+      "size": 814
+    },
+    {
+      "path": "workspace-template/ai-test/local-templates/sms-provider.py",
+      "sha256": "5cd3ac19427b3b658482a165c5d1122c60a2d0147be90c6289255d04c1f6a02f",
+      "size": 566
+    },
+    {
+      "path": "workspace-template/ai-test/local-templates/submission-query.py",
+      "sha256": "5cb78c4401ff24155586703a9f984b383f31120f8297d3202006906a0cee70bc",
+      "size": 820
+    },
+    {
+      "path": "workspace-template/ai-test/local-templates/task-resolver.py",
+      "sha256": "5e6b8d4359dfe5ef76910a1c1fed9dac3961001ab4fb07530fa6a217eee2a352",
+      "size": 609
+    },
+    {
+      "path": "workspace-template/ai-test/protocols/HUMAN_TEACHING.md",
+      "sha256": "4f742ba3319bf2c703d25f373deedd739d0e238fa6a1948931b01553aa96dde9",
+      "size": 444
+    },
+    {
+      "path": "workspace-template/ai-test/protocols/MISSION_RUNTIME.md",
+      "sha256": "6de116035444c262fa2ec974cd336aa1cfe2625ed81b9c6a1200dde78540531e",
+      "size": 645
+    },
+    {
+      "path": "workspace-template/ai-test/protocols/QUALITY_SCHEDULING.md",
+      "sha256": "1397f399c6cdf97c9dfca7e90d37f2bfd8c6c826a2e525cfe8c18a27d533e1de",
+      "size": 524
+    },
+    {
+      "path": "workspace-template/ai-test/protocols/SECURITY_BOUNDARY.md",
+      "sha256": "c36e3c56d34e296974c85dd587a44e4eec6e9ee3eb619abfafcefbeaee6a9906",
+      "size": 531
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/__init__.py",
+      "sha256": "7662707d5cfc76b5f5632ba6b36c1348a5545b7ac37da3273e7abccdd526cf8f",
+      "size": 271
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/__main__.py",
+      "sha256": "935a1c1166b0c1ea35a82256345000bf2c73ded718d77773bc27a71ecce28f7d",
+      "size": 48
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/artifacts.py",
+      "sha256": "9f89a62e6f3d5518facb9fbd5f3cf85bbe54b4a521b2641658888083af2d03ca",
+      "size": 6424
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/autonomous_orchestration.py",
+      "sha256": "5637a751b38b81762952f0cf398451c952a448780521479fc18b379fbc71ea5e",
+      "size": 68353
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/bootstrap.py",
+      "sha256": "208549813b6b225aea1aacfa516a499e266243430fe0071c91644066441fb270",
+      "size": 2014
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/browser.py",
+      "sha256": "65e5ff12baaf9f2612f963263b563263fd26dcb08a0d5ceb0868c051eb5102e5",
+      "size": 8576
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/canonical_runtime.py",
+      "sha256": "a324b0245acaefa5d3fcde751374d0c83811baeea2ab6e305b5cb605def007d5",
+      "size": 11860
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/capability.py",
+      "sha256": "62410d70e00abddcff3dceef95fc514f5d3e0ac91790b4dfebb70d44d6aa1cde",
+      "size": 11077
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/cli.py",
+      "sha256": "bb23dd958bb0db61dd1a852f88c4093e9a2ba49f34611e48da5de20e35738e12",
+      "size": 34015
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/common.py",
+      "sha256": "73b53c859b8e39e88e3c66a1525eaf271f0f0893dccc9eaba32cf2a5467e5a85",
+      "size": 6101
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/connectors.py",
+      "sha256": "ecc96c41f2b8005b127e72af07401633cb1ef74aa3297153481f80df4abef70c",
+      "size": 2128
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/control_loop.py",
+      "sha256": "c00e96c39bb4acfa2a4c309b5ba3afb99f7a91a7aff3b7840ac5d4e25b8acee3",
+      "size": 4821
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/defects.py",
+      "sha256": "65741945df76163ca6d6e9836ad1ecffc623302a323acca4de982dde834a3e90",
+      "size": 16546
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/doctor.py",
+      "sha256": "0ef420c458f6279fe9863d59b4c3ab015dcd43b4495b8f0ddcfe285b37cc7e49",
+      "size": 15237
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/durable_core/__init__.py",
+      "sha256": "3f7b29b9388f95978e83ab56df1aaee262a8183a1aa8877becf8cd52932c027a",
+      "size": 1295
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/durable_core/canonical.py",
+      "sha256": "fbfce309d36499da0064856a2c9f4b3a99cfa4925756c79708e082b7aa9f93a3",
+      "size": 1608
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/durable_core/command_bus.py",
+      "sha256": "47007abd80a9969505a5ee35d464364b56caa0764a4c4da6f8671103650e361b",
+      "size": 14127
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/durable_core/contracts.py",
+      "sha256": "c86bef0230094e4ed431b8f15f8e28697a3d2a27c5b0fadf0c31b8894aff5380",
+      "size": 22099
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/durable_core/event_store.py",
+      "sha256": "00236ce682d1027e2d76a7e9d56619dba22afd92b95a7c883756ccc7b6887e54",
+      "size": 2771
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/durable_core/handlers.py",
+      "sha256": "4d2309808e1c090fe6d76b4a1fc13e51826fd923bf3ef44dfe14bd0f8faeed36",
+      "size": 9997
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/durable_core/projections.py",
+      "sha256": "ed76685e2478a67465ddfda2d476f8ca568de2c08f5d1281e1911da16ba1b0ae",
+      "size": 13053
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/durable_core/reducer.py",
+      "sha256": "b76a88b1ce4ab26cf99cb40ca2cf27a3b2a2fb14c91d5b74d9c8f1c145eba036",
+      "size": 11471
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/durable_core/schema.py",
+      "sha256": "affc22d485364df7de34f275706fa029020c531f2df571cc0122a0c49873e8eb",
+      "size": 10323
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/durable_core/service.py",
+      "sha256": "d50c483578aefe6a03da41af30266784622896cc1f4a73cf3005481c3b2c9a84",
+      "size": 5192
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/execution_context/__init__.py",
+      "sha256": "b1ffd97630a632125abc365165050f94b62be017225e9ef987c7f0f59b64cef0",
+      "size": 1580
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/execution_context/builder.py",
+      "sha256": "314bfd4554524dbe5d7ed04a3e425f95a9e3bcc177511c065a0620a7faa583c5",
+      "size": 23153
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/execution_context/contracts.py",
+      "sha256": "1b73f72c837a2ade956ab18bcc515a648d0930a42d67d9fa8e069dbf081f68ec",
+      "size": 33776
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/execution_context/policy.py",
+      "sha256": "8313b5bc63d8b8383543379ed6c830d19d4d00951e4947798293118ab29e2421",
+      "size": 5332
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/execution_context/service.py",
+      "sha256": "c7f00bde0a89d8ec8ba9cea4da0e6cd19f0ed176f02b1732552d5c52774f5ff4",
+      "size": 2492
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/execution_resume/__init__.py",
+      "sha256": "82a7e804f14d0aaada4150801f13c727bca05396a47712b39b12d7cbd6985f20",
+      "size": 938
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/execution_resume/contracts.py",
+      "sha256": "2f3a794524330a5f62229a15cb30355cecee4e3c77b903ff9745541b6f15e362",
+      "size": 18076
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/execution_resume/extension.py",
+      "sha256": "718fbab7dee2e6648c76d6fef00aeb19dc408697f61d9117f371573427029dcd",
+      "size": 1500
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/execution_resume/handlers.py",
+      "sha256": "07fc8e417b92361adec4ee13f3e67ac0b0cff4c2028549aa336846df0ed248ab",
+      "size": 9542
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/execution_resume/projections.py",
+      "sha256": "8c97fa73c7330af998acb1e3df2cff92bf738a06ba25e6aae64651a96854a7f2",
+      "size": 5464
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/execution_resume/reducer.py",
+      "sha256": "69e0bc21b533cdbd661108d407044504d3e724fe4871410ba8c28f38df01b995",
+      "size": 8163
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/execution_resume/service.py",
+      "sha256": "5e1e83b42ce1da5ee6df190e72cc04e4f19b07ea432ebd08e228d5b2cb607cf7",
+      "size": 14705
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g2_1/__init__.py",
+      "sha256": "d76c1909a019629a98b98e8f4dd5c21a6976b5f56202bffb2b362a1d44ed85cc",
+      "size": 643
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g2_1/contracts.py",
+      "sha256": "7c8aaab2c6645efe527a64a579ab0c8ebf4630ee3d1dae4e5271429cb9d64806",
+      "size": 9388
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g2_1/extension.py",
+      "sha256": "e2cffd670f165442ef481a7a9883a9250847c06a172d561078b6013792df0e88",
+      "size": 1028
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g2_1/handlers.py",
+      "sha256": "442a7e50365aaeac75db5e7301b633fac663d5560b39745e5db99dc9ae069331",
+      "size": 3562
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g2_1/managed_orchestration.py",
+      "sha256": "a06015b71fb0bb93ad9e24ad774173b4b7ccbe7cb89a4f76779fb168e9df15d7",
+      "size": 58893
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g2_1/projections.py",
+      "sha256": "eb6ba561bdda6e7240477e07cd1084274c047a3be953bb420fe43e0bde8aaf60",
+      "size": 2430
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g2_1/reducer.py",
+      "sha256": "b26be193562a2ea0b126e79fe28812489191fdb3b9ef4ee648ca5db772b12d17",
+      "size": 4222
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g2_1/router.py",
+      "sha256": "44f24788612a4aa4031a6ff74d4a0a26fb7c5e94ac8450bc05b6eee71c338bc6",
+      "size": 4793
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g2_1/service.py",
+      "sha256": "86171fc2fa34455a9c12743bdd67c2a19f69154ae3ff588d4bef4f70ba72f26d",
+      "size": 3685
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g2_1/supervisor.py",
+      "sha256": "0d392b402caf87e8b11eeb84644f081adb0507db745b95c109173767e7eb6d20",
+      "size": 3049
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g3/__init__.py",
+      "sha256": "9fee5dfd24beb115373d001a63d1dcf1dd74ac849c392150dfd2c82ef4c99fb8",
+      "size": 171
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g3/code_intelligence.py",
+      "sha256": "41eaab1a40a8d0e38300c7b3399dfcba6df0bf26a82c8d2f89aa7dc56114dcad",
+      "size": 12682
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g3/contracts.py",
+      "sha256": "1fdd04b29096c06a3833041160aced33593a8f1197ffa31b467905aa986fcbf5",
+      "size": 11808
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g3/coverage.py",
+      "sha256": "7232b0c73de4a6ee79b37c9479d7a54aa36218a357a6c64e62fdfe53e5f06ce9",
+      "size": 9226
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g3/extension.py",
+      "sha256": "308cf6bd1298af56875ed1fd1f06d15c75894822bb739891ea153097809b33e5",
+      "size": 1180
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g3/handlers.py",
+      "sha256": "fe2f0e715706649d5ea7113e46086c286c38c21da5038f81fce92c3d912b8212",
+      "size": 1615
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g3/projections.py",
+      "sha256": "70671aa075433818acf09a73f8bfcea77f660f8e4beeca08323a2597fdf4166a",
+      "size": 3040
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g3/reducer.py",
+      "sha256": "c4001775ec285589e88e958321d106bb8c2023ca923b5602837ddccfcfc0407f",
+      "size": 1067
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g3/requirement.py",
+      "sha256": "111af3239241a94868ac8814235cd270924fd15c59d0c86db4b788d3f101afdb",
+      "size": 6658
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g3/service.py",
+      "sha256": "e18f6489115c1e1247308a83701b847389a440368c67244f67374614c9923ca9",
+      "size": 33478
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g4/__init__.py",
+      "sha256": "7913a229b17d88471ff05e9a6940444d0173afa02950ee79dd4f8e5cc7c1ead9",
+      "size": 453
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g4/composition.py",
+      "sha256": "5a75dc1b046161a1a4050545a581e17cfe3d9ff36894c71338c23cb10a064e8e",
+      "size": 3536
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g4/contracts.py",
+      "sha256": "af5cd55a563cfec729baffec43b9bd0667fa57ed7f6dc50ba76a9a9008127bfe",
+      "size": 8922
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g4/executors.py",
+      "sha256": "8f3e7864e6881774e72d9d13589f65278726b00f82f9f0e00b5ed7463e3fa3b3",
+      "size": 4243
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g4/extension.py",
+      "sha256": "1220ce5b5adb8ed6b62b55367dee0ce335294fec6b0d295e1cfc4a59a8c3b7bf",
+      "size": 1180
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g4/handlers.py",
+      "sha256": "f0733a4b8d3a5b63060bd1facfad3680c2fdbd7406b757161112de951f970d73",
+      "size": 1585
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g4/projections.py",
+      "sha256": "1eedf35871516ae5f857b6fc2ca627d575c4729459f57cbfe7bf2835293c4e26",
+      "size": 3028
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g4/reducer.py",
+      "sha256": "d6105df4e6300d1c64a764b39c9744a141879748aeca709de66225059fc85606",
+      "size": 1052
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/g4/service.py",
+      "sha256": "c5742228e65e72ec7ab48bee9fa0c6cd07b022036fecca9f199bd9c23431cec6",
+      "size": 78620
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/human.py",
+      "sha256": "94becbab87d6238de5cd56a6d0abe8ff3efdd491bd4f213c629cec54f56bc8ae",
+      "size": 5472
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/knowledge.py",
+      "sha256": "ea4a04ae38864564d0557b0f5eb7498f3015b307e9a39fa33c6329d653ebb2e1",
+      "size": 5051
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/ledger.py",
+      "sha256": "809b848cd6b1ebf563aae1d66617f01725a5625d6e22a332dd474eb9f2f45a21",
+      "size": 3848
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/migration.py",
+      "sha256": "db74973dd60f33c2f94ae26191f45bb5db3acaad7b0331ab4f89f388cce4e80c",
+      "size": 5165
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/mission.py",
+      "sha256": "9fa6637663b430c67319699c6d453353779235eeae13d1b42969648bf71fd977",
+      "size": 16306
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/opencode_bridge/__init__.py",
+      "sha256": "ffa95c0f5add7e0c0a53182f532039e5ca7bd1eee09eeb92b265966fd70116d1",
+      "size": 2297
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/opencode_bridge/contracts.py",
+      "sha256": "aabcec929997e4ce7423dfd83f56b0affe3a58ee2bfb2040dd907819e92c75e8",
+      "size": 22183
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/opencode_bridge/extension.py",
+      "sha256": "be5d465bc3938b6d2be4f9691d2efe40ba4e3360b9cd4356a4f04ffd67c7037c",
+      "size": 1646
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/opencode_bridge/handlers.py",
+      "sha256": "5e2345aafc3942d5d1e298cc608103848f2d0f48426c64bacd72081c446dfccc",
+      "size": 9378
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/opencode_bridge/projections.py",
+      "sha256": "cf127fcfb92df5c0a2e61fe652a36fb504b445e36532b9827c0613ff9d91c16b",
+      "size": 5549
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/opencode_bridge/reducer.py",
+      "sha256": "2409f82a87d13ad7448241d617e9b2ccc664ac71689717919951fffdc69d0424",
+      "size": 6439
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/opencode_bridge/service.py",
+      "sha256": "115a6356a9e162ac453ce9524389d8ea0b0dc87f44a606a36b1de14b1615269b",
+      "size": 19213
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/opencode_bridge/transport.py",
+      "sha256": "1a4dac999ca3f20b18dcb54ee8a6e29d21c780606bf47cc3f93bb6c9160e9d93",
+      "size": 4643
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/opencode_client.py",
+      "sha256": "c60b852e608c675611bbfd24c7ab94a3df04897d9a7c6f73b2b499b4022c5072",
+      "size": 3498
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/product_entry.py",
+      "sha256": "0e661ba172b3db5133cb781f11e976b2a1b3257dc7601417f5de8a5cda708c09",
+      "size": 26666
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/project.py",
+      "sha256": "0465f0040059b2a6fdb9785e15523b3c5d6cbfbbf910938fd300766b72796a78",
+      "size": 7831
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/provider_binding/__init__.py",
+      "sha256": "c171507a16468e0590aee2bd0d2b01837613c367250df214d63e17e4d3f92127",
+      "size": 1084
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/provider_binding/contracts.py",
+      "sha256": "049b8e971458881bb9f969328d5f11f06d7332417e719e4113251cfb130eb4d4",
+      "size": 16264
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/provider_binding/extension.py",
+      "sha256": "92e100a13b667df81c8c5880977ffe00d3fc1f0873de13af66117454ddeaa0d7",
+      "size": 1579
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/provider_binding/handlers.py",
+      "sha256": "cd1b46ef15d13ec0f684ed31793d41a5b034a6f53a380684886a34f4ee83f361",
+      "size": 5477
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/provider_binding/projections.py",
+      "sha256": "ed7d3fc9881b83c7416b103e00a0fa2c701b76b69a1b46fa95be6f9f548c9a41",
+      "size": 5251
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/provider_binding/reducer.py",
+      "sha256": "1692b26b6316f19bd472c51e98e442c5959e6f628c73923d01adb8c0b91534dc",
+      "size": 3605
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/provider_binding/service.py",
+      "sha256": "a249a14d3f1094d788a3158633544983d1e75755ae70a9c77a8e98555f3e816b",
+      "size": 9684
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/quality.py",
+      "sha256": "ebd7220c308bdca5db750295e469f0d667fa7bf86a6c12e6db1e5d9405bfb424",
+      "size": 14281
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r1_5/__init__.py",
+      "sha256": "9a545f4b10ccb81b0f8e391126ede94c5d314c9ed963619ed2ec04956bb1c0c7",
+      "size": 2198
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r1_5/capabilities.py",
+      "sha256": "5d1b8f6761ec849c47a4d7c4cbc1d91f12a5eb8333f37e0cf119ef2c67d42680",
+      "size": 2978
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r1_5/configuration.py",
+      "sha256": "c577267526408c5c665f9bd7313de8d9915d7cfadd985676342ea61cd00eb433",
+      "size": 9931
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r1_5/contracts.py",
+      "sha256": "b8e4ffad2c2b378f990b38f878eb36e5e1db3ba9d19729ca098f48ebe51afdb3",
+      "size": 10035
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r1_5/control_plane.py",
+      "sha256": "f92b6d19be9049104e153fff952fac926a8763dd9bd39532791f0fd6425a4832",
+      "size": 1852
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r1_5/diagnostics.py",
+      "sha256": "e1b7c682d653bfe6c5de0f11305e76582272c29ae15eeba893c47dcd64832250",
+      "size": 2320
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r1_5/health.py",
+      "sha256": "357cd4128b52e2104d94aae7aa9f68ee9dcc16bbd1335ec3c3036e26aada2c0c",
+      "size": 2499
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r1_5/install.py",
+      "sha256": "9138e1f93c24378f592f26e0e8b9d6d86c97f32549f2b6545673c286ef031f5a",
+      "size": 12133
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r1_5/launch.py",
+      "sha256": "56ab531ff66c40c2d8c9d422f0bd80af1752c5561eb7a76926d7b6ac063d196e",
+      "size": 2666
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r1_5/projections.py",
+      "sha256": "2b51ff8d7b032be73294d0b9cf3cfdd0ab311aacf4e5cc8e34ac042de459ec77",
+      "size": 1849
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r1_5/recovery.py",
+      "sha256": "0604e9b0761b05daa194ec38074efca5f66cab5b685dd6693a3e9904003a337c",
+      "size": 3803
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r1_5/validate.py",
+      "sha256": "6c693bf3d91eef4df58461a0acbf40bf2362f28ab5c758d4ace0cfc4fb1d0df2",
+      "size": 5985
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_1/__init__.py",
+      "sha256": "c04df5f07ebea24dbb9542b05309fab11e63ffb5b3fe7a7219aaf2cf364decff",
+      "size": 1483
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_1/contracts.py",
+      "sha256": "c5ba808e2459886608d2d707699b5b8d34dee1d2226e5a63c4c990c4cf771ed0",
+      "size": 7917
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_1/resolver.py",
+      "sha256": "b08a610892434931c59a0fd691e91558f7c045731cf071a3cff362db0a6ed593",
+      "size": 20255
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_2/__init__.py",
+      "sha256": "44e0dfefeb67087e3c026c59301579d867e761c088b8bdb12fb2aeaa8de4c484",
+      "size": 1940
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_2/contracts.py",
+      "sha256": "7c40fcfe5167169eb277fd8e8c90eec39a4aec1f58b890427a2874ec2e9fe10e",
+      "size": 22913
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_2/normalizer.py",
+      "sha256": "dc92dc53af6843bc3b315fddc9498b68a104d50b4017f71aa7e259eed76b2e15",
+      "size": 7210
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_2/orchestrator.py",
+      "sha256": "b8cd81fa247cd1e7ef3f4296ce249141ac2d9144555b8c15784b70a2e8ccebcc",
+      "size": 19197
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_3/__init__.py",
+      "sha256": "78075423441a35e81f688e5c136e1a03f762cc5eb247d5c578352c4f35bfd9fb",
+      "size": 1138
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_3/contracts.py",
+      "sha256": "2b1b23e39417d755a816b05dfec1706d322bb7165b469000dab3dfa063531bbf",
+      "size": 19643
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_3/orchestrator.py",
+      "sha256": "9ac6ea6fdf1478529c3c06aa716d81dbe434d4a10f4420723e913fcf4e7836f0",
+      "size": 17547
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_3/planner.py",
+      "sha256": "f1ed352f215ce729ca6e3e193e638a0d2197f8b07dda4169a483b6b7f7dd3b43",
+      "size": 11241
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_4/__init__.py",
+      "sha256": "21edf121f9ca1a6a373bfa314e258439e4cc5aaec39f3e97c51f4019ad6779a8",
+      "size": 3061
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_4/contracts.py",
+      "sha256": "176f8eae924fd534932f2bd413011187c6e2fb9643efab5af00d8c12bd972109",
+      "size": 35326
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_4/dispatcher.py",
+      "sha256": "629a2659ffdc6942b955f0c6dd5dddb91bc89a76a4e6dfe1c05dc42844c0fba7",
+      "size": 7089
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_4/orchestrator.py",
+      "sha256": "49929c153de9aad7501fef6f9d1dfcd76dd1f6bc77c647395303bfe130f30b55",
+      "size": 31011
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_4/readiness.py",
+      "sha256": "ad72a518d3c2c3af9a3dc68c1e345622f8facf963df6a81ee39d243b19d2c7ea",
+      "size": 16723
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_5/__init__.py",
+      "sha256": "8e09b7b089c08b46560a9f9905d399b4e6f19c09d55d607224afcbd24c2cfd8f",
+      "size": 2414
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_5/contracts.py",
+      "sha256": "a794caa2c7485e16ce48bc342b3ef35c741ab33e67e1c2d7c64bb93b317b779e",
+      "size": 20988
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_5/extension.py",
+      "sha256": "2d039fe4cc55469d573d06a9a72654c116e86705b09ec154698a880f9cae02f2",
+      "size": 1443
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_5/handlers.py",
+      "sha256": "5ed1142c4338bdcb4acf69ce2053839cc95cc4edeed0aea8a84f0463d858d216",
+      "size": 21339
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_5/projections.py",
+      "sha256": "d89c699a11ad660a59c25ba6f46eff0a3dced8d241a1389a39bd9d1b093f45b4",
+      "size": 5506
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_5/reducer.py",
+      "sha256": "beb1da17499d1022dd5f72dd12ca64c0a09b2d291366179bfb272be7ccbac9d9",
+      "size": 8098
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_5/service.py",
+      "sha256": "68ff76c66d3dcd3a1bee9a123645fb837180228cba2a5c1b86cbdda89bb60fd7",
+      "size": 38054
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_6/__init__.py",
+      "sha256": "dc42aebcf896c19c99b4846e03b0b3b1ca0c11d4a783df74401b45fbc2bf7d0e",
+      "size": 805
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_6/boundary.py",
+      "sha256": "b5cf7c5d11534e93c639b7d575504ad318ea46e89a2f20f3e0819891c2585d42",
+      "size": 4078
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_6/composition.py",
+      "sha256": "9a9346a41a70cdd9fa734f360bf8cf3edeb7ef4bf66e0f243615dfca62258d09",
+      "size": 1026
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_6/contracts.py",
+      "sha256": "0c532b636a7bc4a1def4b4f4f609a5f37f00b57c89c004d7d57dfc4a9c36e88d",
+      "size": 18275
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_6/extension.py",
+      "sha256": "68d6f45f462be03825aa067ba49128c25ebb61dda519c8573c97f91514977a14",
+      "size": 1355
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_6/handlers.py",
+      "sha256": "ccef853b6894117dfeaac5b78255c342a95becf37a41d66bf98f2be2c1af4f39",
+      "size": 24940
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_6/projections.py",
+      "sha256": "9ab7de6442357039485f3f127d2963c426712b87c2c8150d6688d4f54bd47746",
+      "size": 3490
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_6/reducer.py",
+      "sha256": "5b47988e004137cccd73a02e33fa64b5bb7cab6a58dfcc79cd391be0ea701bfb",
+      "size": 13560
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_6/service.py",
+      "sha256": "46177b0f443f818d86aae2e00775dc5957384936957cd130c38423f8147ff75c",
+      "size": 20077
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_7/__init__.py",
+      "sha256": "ec318ffa1d15261a02859077d5c2e1509c9f639c308aea8c8d06eecb9f743e9e",
+      "size": 1239
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_7/actions.py",
+      "sha256": "f0fbf03d565873b623ce3aceb86417cc5af4c233704f882eba1dde852a4b808a",
+      "size": 9698
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_7/composition.py",
+      "sha256": "6bd99b2a91941c5e7ecaf088dc3fe590d92ed5307987d045388882b4913dffc0",
+      "size": 2189
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_7/contracts.py",
+      "sha256": "5d695fc270488d4ed9af4f2ed6a126efa9d15960cae39a565f43e805b06fd8f1",
+      "size": 17368
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_7/queries.py",
+      "sha256": "5222cfac6a5b180338a39fb6d28fad808b67ee4b032389d94c890f80fa868504",
+      "size": 17789
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r2_7/timeline.py",
+      "sha256": "81beaf16d7660afc6f4e52ab213e515877d0d3af7d009f4a7dcba286a4686241",
+      "size": 4743
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_1/__init__.py",
+      "sha256": "86f5ddb0e673e24820f800eed0ea6467de478f6714d092ad23d521ce795a9551",
+      "size": 710
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_1/contracts.py",
+      "sha256": "f1497efbef2ff3f0a869282b59c9e7df32a7ba21c98c88d3be905a5650d49881",
+      "size": 24113
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_1/extension.py",
+      "sha256": "9d582a2e66cdbf85f827241fb28914e587f253d995ca1893553d0dc61ed99568",
+      "size": 1273
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_1/handlers.py",
+      "sha256": "c20b50b5c3944896ba7b26598e7bd367e8dff5520a7a653c9539fc839fc19a80",
+      "size": 15166
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_1/projections.py",
+      "sha256": "6a8dd0f61c8369c18b3e032d1686b91201963a5d0f40320f7d2f5f590ab33c63",
+      "size": 5719
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_1/reducer.py",
+      "sha256": "48ca5aa49ddce3e222392c297c727760c1250179b8d734d03b68b6dc67ce7590",
+      "size": 4372
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_1/service.py",
+      "sha256": "2deeddc4866a74723c603d57fbb482d76c1ddcbd5c0da8b1a0dc940d4e1f35bb",
+      "size": 3571
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_2/__init__.py",
+      "sha256": "e4639a673c1ac36fd645de2b2572f097153142a46efd495018e219b9fefe5852",
+      "size": 1993
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_2/contracts.py",
+      "sha256": "84b96d1c91cc01981e94643beedad5be12e7cff72bc6ba3bd250f5d0f840c307",
+      "size": 45121
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_2/engine.py",
+      "sha256": "620cea7559bd0efa83ff16e853f07c0b2c8203b5e1556dd157ec8348d32659ff",
+      "size": 14529
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_2/extension.py",
+      "sha256": "c68319ed95405c3f84a229a903eadc69126231e1cc896306f592684565070f0a",
+      "size": 1273
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_2/handlers.py",
+      "sha256": "35240b12bd98f665600c26be5195ffd370a51d2eb3d4cfee1d9d2728210290fc",
+      "size": 3680
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_2/projections.py",
+      "sha256": "1c4ffa98c9161e58fb2e781d10b9a7aed4182e3b4506c0b02bdc66523125e568",
+      "size": 5760
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_2/providers.py",
+      "sha256": "5302af562fb5ba2d532aa3bcf9c7646027d18ee2e5edd3798d4575587f92791e",
+      "size": 23677
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_2/reducer.py",
+      "sha256": "e5ae4692449745a0270ddac8500102f3c59d1a1038c643b40a30bb45d72efc71",
+      "size": 4413
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_2/service.py",
+      "sha256": "235ddb215566c3ac4504c8dd36172f51742d8e9fe6bb8f80fad9ec79640c6de8",
+      "size": 4540
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_3/__init__.py",
+      "sha256": "c5e69da7ba0ae3011234bd5fa0354cde3c7ae1a25f7eb05515569f2cd088a7f6",
+      "size": 1537
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_3/contracts.py",
+      "sha256": "dd9059f1d5881bccc2f5168391e36d1b48de6c152dada1cd9f217110f97f87b6",
+      "size": 49242
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_3/engine.py",
+      "sha256": "c133188cecdbc95ed9568ec816eaaf5fc4a5a160c98853097ad12256b40f5f64",
+      "size": 40722
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_3/extension.py",
+      "sha256": "8a0d1b0ab712b7427958d5ef56a9bae2709278b4249f77da66e53403af4f3a0e",
+      "size": 1274
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_3/handlers.py",
+      "sha256": "2dbba7225e6c13726f7f3f39384399991db7ef9b24fc6004ef0fd907e27adf1c",
+      "size": 5533
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_3/projections.py",
+      "sha256": "573fdf716e1e686e33564e71d6cb9eee67f7f40c02653673f584e243686d4bb7",
+      "size": 6709
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_3/reducer.py",
+      "sha256": "8b985d7126036a25a35fa7e59323d4024a009dd51a51a90dfdf724b904eadc0e",
+      "size": 7287
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_3/service.py",
+      "sha256": "b04e9d77c28949fe4b60b3bcfd8bc0be347193d684478aff0fc3d4a13a52c5f6",
+      "size": 6811
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_4/__init__.py",
+      "sha256": "65c4fc12b13eff0e6fa3f34e3c85e928872c80eb8bf2e77ad3749b6d6c6881e8",
+      "size": 297
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_4/contracts.py",
+      "sha256": "89c9455a2e29fdd7ab6f9b862c84bdda569aaae92c053dd1e13011aaf5377dc8",
+      "size": 52070
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_4/extension.py",
+      "sha256": "18af0f127fa780c5cbdf836dfaedbc8835e8a7474ec2b4758f0c86f2a801e93e",
+      "size": 1273
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_4/handlers.py",
+      "sha256": "e03214b21d30f230ecaceb2d06eb50e90a25ad3cb2bcccae8467b154208b6450",
+      "size": 55000
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_4/projections.py",
+      "sha256": "7879f795b93cc8ac6c023357b1198e5f72f2298e7de5bce3f228e4da9c1955ee",
+      "size": 10559
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_4/reducer.py",
+      "sha256": "032b23cc204acd2fae721c63d73547c5950c81b986811ac890a644d8666da2fa",
+      "size": 13502
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_4/service.py",
+      "sha256": "eae82db349804be1c76eea69f0f897581e16d26ee25e76ec9ae60c3136aa401a",
+      "size": 8173
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_5/__init__.py",
+      "sha256": "0d9198c4c62fab4d3ccf8a414bfec890a4763de221bb2d2bfa71da3b8e85182a",
+      "size": 3046
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_5/contracts.py",
+      "sha256": "87270704df98453652e1b048b1155ced37e1ca4ae3c7eca6e4748568225e0537",
+      "size": 49846
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_5/e2e.py",
+      "sha256": "a5d00ebd3c3462cefae370e04f2b41fd3d04433b3daae1c1c81b69b89d74f7e8",
+      "size": 6409
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_5/errors.py",
+      "sha256": "2e6faf278842e4e10f6745068869f0e0765b57a87ddbe6a2aa72fc332be7709e",
+      "size": 378
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_5/extension.py",
+      "sha256": "c6168884e747422a83471be7e189d009e1bd55cd12ae2ed34186dc1331314613",
+      "size": 879
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_5/handlers.py",
+      "sha256": "9a5ea9129f1c341246d32afa33636cf96175369f278de53a2dc49a58b71d4d84",
+      "size": 5954
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_5/journey.py",
+      "sha256": "4a4797e7479581ccd68ad44d48c916a72eb3e7afa038c831b59e09e71c32099d",
+      "size": 5457
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_5/knowledge.py",
+      "sha256": "20d088a12de76ad80e33e834950268bd99d7def3cf7baf47067435e548d97989",
+      "size": 2008
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_5/page_intelligence.py",
+      "sha256": "69a7a64daedb2034254e73b91f32d2a7485046916dbd02c61701a34625a49eb1",
+      "size": 16363
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_5/projections.py",
+      "sha256": "c19a6b515b3b6782311667187529ec3b32c23fe1bceeaec97222e95fa1f49c57",
+      "size": 6845
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_5/reconciliation.py",
+      "sha256": "fc714d74ae3e2deaadf70803de782fcff96a568093d17833ab305e402e8b6ca3",
+      "size": 10874
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_5/reducer.py",
+      "sha256": "ea12dc1122c8d2cb64a763c96d4f5e2137788f4d81583111c58696b9f7cfabf8",
+      "size": 5334
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_5/service.py",
+      "sha256": "0f7fb3246c3764f7deec833dd409e050cee5a9faf4910910b0c738f4bcca4ef5",
+      "size": 8372
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_5/workset.py",
+      "sha256": "12ef8449945eca589df6a1db2fe0409050b791f89bd471113466fa382fb3f82c",
+      "size": 10455
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_6/__init__.py",
+      "sha256": "b34bdefd3580a91dabd862caf9b8030a02218448d2be839927f0e0beae6afe5c",
+      "size": 2724
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_6/contracts.py",
+      "sha256": "c86f2f5d97e395c126d5cae46b343a4b3138e412bac7c1aaf6a75d533305f92b",
+      "size": 53198
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_6/errors.py",
+      "sha256": "9b79d493f6ffbc4e564e79e335b7d41f0c0493dd6aaa53961d0c88b5906ed514",
+      "size": 393
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_6/extension.py",
+      "sha256": "6ec4c1287b91db9e85d370416416ad8aa3bf3283477f9d7caeaf4b8badc7ec8d",
+      "size": 878
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_6/handlers.py",
+      "sha256": "e2bd4a2543c4c315a6c7493de6e3afc15d6a6e49b3653e0858c26de9d2438ddc",
+      "size": 10111
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_6/projections.py",
+      "sha256": "b41732459502ab10d7f541a5daaf2b3be84fa327abb2a4d4850a49a26e5e0e65",
+      "size": 8123
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_6/reducer.py",
+      "sha256": "13fddcc2946d8f6442c19d0e83df7c6c676166f3c8fdb9193d3e2500108b5847",
+      "size": 9744
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_6/service.py",
+      "sha256": "4ce8e17fbc9bd12f2ba5f97bf73f33d9ec261b093887bbffc2de78866861d200",
+      "size": 8924
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_6/workset.py",
+      "sha256": "aa440a51a07400bf6a2f4759ab159830faa34dc7a583a64fbd9ac4844af41010",
+      "size": 4123
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_7/__init__.py",
+      "sha256": "8f6b1634b33916dfc0f3b8c6bf22d54286e3d6cf9366f89b6ae3f927582e597f",
+      "size": 2058
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_7/contracts.py",
+      "sha256": "5fa7f64a3a15c68aec85d9a35496b8d471e4a60be463ba20f3cc9eb602e03480",
+      "size": 44938
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_7/errors.py",
+      "sha256": "a0598a443619fc42c113812cd4143afc48e21bc6edfccf1066793315e9aee887",
+      "size": 498
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_7/evaluator.py",
+      "sha256": "1670fa4927b5452a408179684fdad8f2691a6952d762cf2396c15407cab932ef",
+      "size": 23090
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_7/extension.py",
+      "sha256": "32de9d8c7ce6b8c1f45cec1f54761fa620228c05088eccf8740d3a51f6987a99",
+      "size": 906
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_7/handlers.py",
+      "sha256": "1f092201e16de61ccfe2adc313355673fba51c9ded0982211dd3bedf8213cad7",
+      "size": 4117
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_7/projections.py",
+      "sha256": "046c344c6c6d5f6e705d46c80332df86a94be253fe29d9948fab83caa4708afa",
+      "size": 11157
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_7/reducer.py",
+      "sha256": "505c3ac0872cfadc713ba09d70f3c739e4617712bd58044eea41a56518f1a5f8",
+      "size": 4137
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_7/service.py",
+      "sha256": "635cd1760983a2356731c69138b696411a47c02a3c79fd8482255979ad5db2cb",
+      "size": 6504
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_7/workset.py",
+      "sha256": "143d30c3114b15829578cc3e6aee2641c9baca5c7e67b76480a482923c71edc7",
+      "size": 4237
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e1/__init__.py",
+      "sha256": "8596189ae2d0e1c66d1dda1cbdff8f2e7746e69cd6f0ce0fc7457e3b3e175243",
+      "size": 2369
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e1/context.py",
+      "sha256": "43cf7238b7b3363c5dd62aa2b0d76e21708f3a0eb847eeb4f350e38dfc1f4f7b",
+      "size": 2804
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e1/contracts.py",
+      "sha256": "f25a2475bab20f3cb4bbe4c4a510a613e19da7bf70bb1181102f35d591922f7c",
+      "size": 32703
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e1/extension.py",
+      "sha256": "e7122342dec1cf61fad6facddab59a8e3feac2ba7ad1236bf41913238545e477",
+      "size": 889
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e1/handlers.py",
+      "sha256": "bfceb3ba440dfe6fb489f377ec04936d105a42a5d646125b9ef7454fd21a4279",
+      "size": 12980
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e1/projections.py",
+      "sha256": "61e7b33b70602fd4c2f91497325cc7cb255767ce45c353a753efc28caee792e1",
+      "size": 20735
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e1/reducer.py",
+      "sha256": "1cd4fe9189b77e0161bfa762194b1fc2ed3da52ee24a4c94c0d7c8196aba2e2d",
+      "size": 12802
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e1/retrieval.py",
+      "sha256": "81a909934c58bd3f0918c05d7456021a6614f1dd7dd1d06a627b96056a737c8a",
+      "size": 27098
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e1/service.py",
+      "sha256": "ae3e1d9f099aeed9fb4fde615cfb2fc6eb1791da79afe9256b01715efb3f181c",
+      "size": 11696
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e1/vertical_slice.py",
+      "sha256": "22776c600c016bacb8caab2e6ba61f506960d2148b03e1f459c8845b603a423a",
+      "size": 6474
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e2/__init__.py",
+      "sha256": "74175143279bb75c55320106457d77e90da075cc6ad9c906071b87bdbb30367f",
+      "size": 2122
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e2/contracts.py",
+      "sha256": "a49a81ef67fa971d76694b5e4dc535a164d479ca57c393d2ad1005451b54c387",
+      "size": 25843
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e2/extension.py",
+      "sha256": "e4d59e9ed8299b0ed9f2457679be0cf5a16e1766df16cc280adc025d2cc8ff42",
+      "size": 889
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e2/handlers.py",
+      "sha256": "c129810180718c8deb1f14bdbc0edea21f842780f46ce9c1e26ce318d327d09c",
+      "size": 11941
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e2/ports.py",
+      "sha256": "ffc10c3a3a26271787673e6c868a038879420770a8fd6d7e5bea02978b8a124a",
+      "size": 3245
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e2/projections.py",
+      "sha256": "fc4fe48365905ecdcaf5b059b343e19b5171a59cd1461f533bfb7bdc5eaf277e",
+      "size": 10300
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e2/reducer.py",
+      "sha256": "36a3ea65f25715ab59b720c367e6c10eda90df5e71a800564936b3b036d17222",
+      "size": 4054
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e2/service.py",
+      "sha256": "e244bea1eb6af73a1f5922aa742d1d228d35e36ce18e35e46ef843b256518c41",
+      "size": 19524
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e2/vertical_slice.py",
+      "sha256": "94403565578ef1d8698ace015d39dc35dca863a4fb3f5bed09f65356dcea3811",
+      "size": 6813
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e3/__init__.py",
+      "sha256": "9f35497a62bb7c4470e5eb6c80f1179813088569f00d0f239ac195e9c201244f",
+      "size": 1061
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e3/backend.py",
+      "sha256": "0903b3c317723a454f74dfd19f041ce6dd4ec400c89b63c0d510a0b51daac1bb",
+      "size": 11771
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e3/contracts.py",
+      "sha256": "9155d4c9ceb4c4c7a48d5b7e2c83dd0638030e2bad3c22a3b52620134ae8dab3",
+      "size": 15130
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e3/controlled_browser_runtime.mjs",
+      "sha256": "9d5b5db8e55c28bd380c70806c8c21ab8c831412c020cda02caf2a41d64c68bf",
+      "size": 1914
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e3/human_gate.py",
+      "sha256": "535a472acdb2a61ac69b8726628b9fff5b07381e96529316cf30268d5508fe59",
+      "size": 7534
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e3/runtime.py",
+      "sha256": "fcb1f07eef326ac1a5b1bf538bb7d95dc80319e8cd1367e340122f0fd94091c1",
+      "size": 27772
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r3_e3/vertical_slice.py",
+      "sha256": "58de1fb53057b325af2876210ffa4383956c583d0fe94fd66f670663d9cd8664",
+      "size": 2425
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_1/__init__.py",
+      "sha256": "2fa8aa8633ecc4d4e752a5ff7d0859e5bfb363cab044bf1b19f7995ef87d8803",
+      "size": 941
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_1/contracts.py",
+      "sha256": "d6211228e99c09cba629dc1351bf0f84ff5fbe01efc657c3670eb90a19392947",
+      "size": 37491
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_1/errors.py",
+      "sha256": "ffea795602487a7dbd9eb08dd0d899748c3c54722c0d454c9b1a1bd12ebfd513",
+      "size": 657
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_1/extension.py",
+      "sha256": "47dd1237807e866de74043e31d15d53708bf47a42bc42476f29053ff6d784592",
+      "size": 1382
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_1/handlers.py",
+      "sha256": "4104d26230e422f4fb2b5575a79d44e43965066f8a1e1657eed90ba201b78c48",
+      "size": 8517
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_1/projections.py",
+      "sha256": "d9d7ba1045542f5ec2dfafab8473a8f60f600f91b481d3dabdfede896bcd7636",
+      "size": 7139
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_1/reducer.py",
+      "sha256": "34386c204a8242646be6cea16f615cd9d3c30e7f30e560fb5fbb1f0436019586",
+      "size": 11747
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_1/service.py",
+      "sha256": "0f1364b525e7286a6924cc701db111cf0c914ae7153b1e0a55a1eb4151320aa2",
+      "size": 7937
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_2/__init__.py",
+      "sha256": "532b87cbaba611a10a69c72ad279a7979273b45d6381900fb79afccbc1fe947f",
+      "size": 743
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_2/contracts.py",
+      "sha256": "edbdea1091f3ef2a7dabe0ab0f21e59fbb106a66b91cea8f373c3ad59ec2ad4a",
+      "size": 53069
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_2/errors.py",
+      "sha256": "ac70dff1b482e1982133ede691cea460089df14abf89d1408da635b764eec2f4",
+      "size": 1396
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_2/extension.py",
+      "sha256": "9d27d27cf5928e5271f0ce272fffd94555b3a7dadd9a293da79e40649b810eff",
+      "size": 1437
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_2/handlers.py",
+      "sha256": "1f5bf765bd0c7cee7fe3e71c07ca431c16f9ec1db16dfc18eb3fb1e0aee51b41",
+      "size": 6630
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_2/projections.py",
+      "sha256": "b4e90f73e03942208cfc8a6ceb7817d9d69d9ac83f082a470c80c48a4caddab1",
+      "size": 9876
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_2/r2_bridge.py",
+      "sha256": "e9e525d5cd9b88c10e7a867ed80cb2c98839b14af345e3d923a10e0129976deb",
+      "size": 6881
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_2/reducer.py",
+      "sha256": "bcd6fdeb925266c8ce406376351227a5bcfb34f52622c37d09737ee65fe1b6a9",
+      "size": 13103
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_2/service.py",
+      "sha256": "c506cc3a01fd0c40932a2a7f4c8b5dd501175cf437d0bcf0f732ecfa64d52292",
+      "size": 35189
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_2/source_adapters.py",
+      "sha256": "86cffc01e1976e5bb87b5d7b4a2d92026cf9bd03a24a599cb8bfdb2fbacb5ce8",
+      "size": 5647
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_3/__init__.py",
+      "sha256": "8254553d1b5380241817f10ab28789e7fdba24af0952c1c67856147f74f7e42a",
+      "size": 850
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_3/contracts.py",
+      "sha256": "c94afd9388832604f6e9f78699ab202a108b747bec86f696104d9f281e4cc5f0",
+      "size": 59913
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_3/errors.py",
+      "sha256": "1ba856e09f86bee79188b6974737c27006f7b7e26264e5f91ed821de760edc1d",
+      "size": 1109
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_3/extension.py",
+      "sha256": "a0a6ee7adbc711fc2cf60e5d5c662464bb6566ea146c7e1ddadb8e4eb1b11217",
+      "size": 1455
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_3/handlers.py",
+      "sha256": "80b10dfabcd1f11bda3c63704938bbff3d9738e8f486882cdee35c6e1aeb8825",
+      "size": 13449
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_3/projections.py",
+      "sha256": "f65345466355784f3ed6dc9aa229b5ba1929b9b4b222d7cca9c4a62edb56bb61",
+      "size": 10706
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_3/r3_6_adapter.py",
+      "sha256": "4099d8f97f104ea3392b30a9b129e31dac0927cc2ded4e7382a21a00896e5935",
+      "size": 12221
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_3/reducer.py",
+      "sha256": "cfbe9a81ddbccb83f3beca2e0e9306cb43b7c8e7e6fd8cb2318f2f040be33df5",
+      "size": 17105
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_3/service.py",
+      "sha256": "3588211ea0bdc126c81238b27faf064b869e28d763060aa5afc2ecd3014d0333",
+      "size": 15403
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_3/source_adapters.py",
+      "sha256": "890ad9c2a11828c07be858ce012eb44a294d314cf8bc5dad27e2540703738433",
+      "size": 5577
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_4/__init__.py",
+      "sha256": "171036b5435428eb4bc74184048128f332de2ccfba70b31a2458edb574862a6f",
+      "size": 777
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_4/contracts.py",
+      "sha256": "c912fba29e53f005ffb25c562b056f4492013de9c789de1c5af15003009b92ac",
+      "size": 48936
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_4/errors.py",
+      "sha256": "07e088a9a691f18246d281714f96d0fda021ddc57414d1b4eeda4ee107878770",
+      "size": 1623
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_4/execution_bridge.py",
+      "sha256": "87cf0abbb30ac32cee26c2a2bafa32b7f24de02ca218826fbe96e321bd26e9ed",
+      "size": 9909
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_4/extension.py",
+      "sha256": "0503b24e4287ced9fef1d07b98365ad2fab56a18c938901d65cfe5576400870e",
+      "size": 1404
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_4/handlers.py",
+      "sha256": "2063a996a63d74fd63e89aa1f39ef99686fc2ad8ac837d35033f196972ac2215",
+      "size": 13741
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_4/projections.py",
+      "sha256": "7d47008a73bd6502a2264fae96d5168f4b1598cec6350090b5fc9ac7b17648cb",
+      "size": 11630
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_4/reducer.py",
+      "sha256": "99692df9a4c59ca3fc16a0270ff984fe57ca3d84b6f279af43b96a89ce3d3354",
+      "size": 19141
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_4/service.py",
+      "sha256": "18c04ad6639c739dd8fb1cd3ab8a86c3ddf20bb178d7b8c49065c4bcc2c21686",
+      "size": 16771
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_5/__init__.py",
+      "sha256": "ef0a70eeaaf55930d323198256317abf41e5a2b4e641dd3ddf1d83eb30b13b2b",
+      "size": 1111
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_5/contracts.py",
+      "sha256": "8fa553c78012550bce94fe68de145884af982ed7f53d0a8fc03af5ba9c20c515",
+      "size": 65444
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_5/errors.py",
+      "sha256": "c46568164af36310fef302d2cf4d15a78219f1a2707b9dafc310ea9a850250e9",
+      "size": 1504
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_5/extension.py",
+      "sha256": "8354a0fba5241c1bda757ba8190c41a23f3f70a7ff47b8403821995b55202d26",
+      "size": 1372
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_5/handlers.py",
+      "sha256": "33fe0a98b505db9b59e6b5a6fb1490dfcfb436418805859b3318bfe9eae52e44",
+      "size": 27426
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_5/projections.py",
+      "sha256": "e5cd60ac7bf386be46374e2af12ba2a9e97abe8290e76bb30c2a293024d6c813",
+      "size": 8584
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_5/reducer.py",
+      "sha256": "c54b56473abebcdccab8dd5ad14ff38db776d8ba3eb4958b7279ff992e3ce716",
+      "size": 21801
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_5/resume_bridge.py",
+      "sha256": "04002d62f50e764cecdfcf75aa74069fd4f142d844748ec2f52d8576cc78de6d",
+      "size": 9743
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_5/service.py",
+      "sha256": "0353e3e5b2c1e3bcf2c4aa1cd7cb15531d711133eebea9af9cf7bc44109027c1",
+      "size": 14555
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_6/__init__.py",
+      "sha256": "2c65b4185f88b8ddede7cf3ab00a10546764c863fcfd7a9c1d2bc83e6a9c1200",
+      "size": 3530
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_6/contracts.py",
+      "sha256": "a6794900c643f57d8d95fe68dc9d2f75361cb4e5152dcbf84f2c04b8c18c92ba",
+      "size": 58377
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_6/errors.py",
+      "sha256": "ee882534d2d110b1e40eddb3af48ae4c5b6be280783c8d51df2e5aede5767deb",
+      "size": 1777
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_6/extension.py",
+      "sha256": "0ef75c0375a95433e30a67ac61497356a147fec2683c47e300871c4f914fd67b",
+      "size": 1377
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_6/handlers.py",
+      "sha256": "6c9ca68a2d32c2f7664a619333fe1635da2b4d0d6ce95ff989549bc4a7c670fa",
+      "size": 9019
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_6/knowledge_promotion_bridge.py",
+      "sha256": "432420f9453c74e537839d4a460843fc76cd0ab36428a1da74353d3a1919e0a1",
+      "size": 13382
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_6/projections.py",
+      "sha256": "43f70c0867579ab6a0dae528b8d284219612b8933ab7069a2453b648f22f51dc",
+      "size": 7880
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_6/reducer.py",
+      "sha256": "f291db4125944b814cd9a053f471e94382df2d4cf7c3c5fa272d2c04b6bd1c1e",
+      "size": 7780
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_6/service.py",
+      "sha256": "ff4cd869362614860a67cef3846886dfcff75a4f55addbd8e48e04d3a54340cb",
+      "size": 23784
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_7/__init__.py",
+      "sha256": "4358186966b4c1f758bb10cb9032bf43c037d2fc9df608e06d17c4a9536d74e0",
+      "size": 2580
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_7/canonical_handoff_bridge.py",
+      "sha256": "7d5bec790539db3e3390246f748becaa178751fefdd8ede5dfb353d9e5151ca4",
+      "size": 29155
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_7/contracts.py",
+      "sha256": "b58cd8666f42cab927443ec3bdecc6c2f0b001ace1f3ce13eb9b5110d8c3b377",
+      "size": 61266
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_7/errors.py",
+      "sha256": "e93dba55febf31cb54d32e175e394a3608daf53060b181695b218ca26c92c882",
+      "size": 2349
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_7/extension.py",
+      "sha256": "f4d426fb03b336d7ef00198de74035af3795179684bfb46e86a02ff459215fb5",
+      "size": 1372
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_7/handlers.py",
+      "sha256": "442a89b2e2b260a09c062e5c4b972865d5ab4eb1202b3874bd65c5650057bc94",
+      "size": 11584
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_7/projections.py",
+      "sha256": "7557cac69b7b81e6dfdf502078897081d1f6a8748c7dfc345014bc80d46268f0",
+      "size": 9710
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_7/reducer.py",
+      "sha256": "a6fe9d15784fdf5af37ff19975837a21a87e7b527dcca242f1a090a8cd0d53d8",
+      "size": 9023
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_7/service.py",
+      "sha256": "4bcd52474377ae72573274258260106a589fe0bbed8680152d7e9daf3a168f80",
+      "size": 28390
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_7/source_adapters.py",
+      "sha256": "501d2eadecfa2b0a3886aea8d2147e258e662446f0833d6a8780ea8c7bc70f07",
+      "size": 5698
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_8/__init__.py",
+      "sha256": "45e44fcbd0f6e4de1eec7376385a55c3cd93060d205d844f5219752a390db0ff",
+      "size": 1373
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_8/authority_ports.py",
+      "sha256": "8073791fedabbd8076190e9837a1652684cfec27f3f4a106fc1ea3442555ea82",
+      "size": 591
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_8/composition.py",
+      "sha256": "5bbfc10bcd86bf617d61ebbfac24163ff81d191629861682a24c86c362f5fa22",
+      "size": 3383
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_8/contracts.py",
+      "sha256": "3241b17515ae58106e5168f9f364793b1e9f1fae7a8faada7b6ba30792d936b0",
+      "size": 24475
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_8/errors.py",
+      "sha256": "0cc77745841b438862cf5f5066676ff8eaf1c4eca2c2070a2044a972e99e65e0",
+      "size": 1735
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_8/extension.py",
+      "sha256": "6df3a41c0cb3862342fe2fb1f85abb37c8c6a775a7d09d35a3c268a8fc4e212e",
+      "size": 1072
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_8/handlers.py",
+      "sha256": "1175436d997726cb7d65866551459cd9671b1eecdb7fa77ac9a25ba11852afef",
+      "size": 18562
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_8/projections.py",
+      "sha256": "e6ffacb84c3e3b0bd5ab16fe65a042aafc56990fea18975a4e9496fe1e94aa79",
+      "size": 11740
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_8/reducer.py",
+      "sha256": "c852a3f694bf0ea12ddc6cb665ad6d8a238167a24ff4ab37b226f6c3bb9816ac",
+      "size": 11247
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/r4_8/service.py",
+      "sha256": "e0cf3e112fec98080103dc6646010e82de980cd140584be51d275d4902bc0249",
+      "size": 25426
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/reporting.py",
+      "sha256": "2cb212965f1b9b15f914c9979b878e2e48a4bb9197ace2267c19fa6e86ad96a1",
+      "size": 1419
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/repository.py",
+      "sha256": "e79dcb06a6c195ef2a218053f929c4892f6aba4f4be1904c84b60e68ef252de3",
+      "size": 3875
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/scheduler.py",
+      "sha256": "e9daae58a173902a7502d99452b3042b462f2fa38e129ff8249e3b2e0ad788bf",
+      "size": 17816
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/server.py",
+      "sha256": "b48a3149b88e2d1bc6708b49b91d038309fb2eee0244817c62b868836224472e",
+      "size": 11735
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/session.py",
+      "sha256": "7592a5ce78cb49791fbf874d249d64f8a1aa737d899b64951b823d7a3aebfbe7",
+      "size": 6934
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/skills.py",
+      "sha256": "416c143076334da817286bcc2861e706050e637f52cb485c07ca0917ef19644f",
+      "size": 3814
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/storage.py",
+      "sha256": "6dd9e43da2d62f805e6cbe10a1afe5967b167e887ae21742a86c8446ff1781eb",
+      "size": 19014
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/teaching.py",
+      "sha256": "bdf4d076165fc9768cf8e6ebaaca2e7dad0450a40dab9aebde18bd19bea21842",
+      "size": 3951
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/tool_execution/__init__.py",
+      "sha256": "ff345d63a7720f301fe6d237977d429b6561ee66eaca043ca181643c99266bbb",
+      "size": 2897
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/tool_execution/adapter.py",
+      "sha256": "23306f91b63457341e68625dd813c96a1a83b9b866c1d84351b2e66c76b7f69c",
+      "size": 4042
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/tool_execution/contracts.py",
+      "sha256": "c74f9b453c7f96cfce0397244116f7faa23455397c37f2055b8c00aba9f95b6f",
+      "size": 41951
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/tool_execution/evidence.py",
+      "sha256": "cbf7c221009c6718838c9ff5e1e6d8a4641558c5b30ed42172e781e56139f14d",
+      "size": 2854
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/tool_execution/extension.py",
+      "sha256": "34d730487e1be01e64f3ab54b6e972c0d5d538ffae2d73db8c0c48a8a6aae9b0",
+      "size": 1746
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/tool_execution/handlers.py",
+      "sha256": "b1967dbf9e75264e2f18421fa9ef6941aaa74087255e471483c32d73d8cd17b9",
+      "size": 15803
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/tool_execution/projections.py",
+      "sha256": "b1e901456523ca2fcd51220cff34bd1968382bd0f770c25d9b924142c1b0d75a",
+      "size": 4705
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/tool_execution/reducer.py",
+      "sha256": "d48102368f7d089c8feff91fb0ffedfea8770dae190eeda9167961c04fd11de9",
+      "size": 11260
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/tool_execution/service.py",
+      "sha256": "af67c1212c32d8d15b3ea5fbaf78c80d5abd7966d7109990c62413c352e8a762",
+      "size": 24707
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/truth.py",
+      "sha256": "2263a384fe263f3148c1b7155752e22eb5cdc7f4a1c8fc59b938e021dd92a93a",
+      "size": 18166
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/work_graph/__init__.py",
+      "sha256": "be7aa4320616d8c1ad2275dcfd9c8536d8fbc4d5c1168e1713a0843b87c22e48",
+      "size": 596
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/work_graph/contracts.py",
+      "sha256": "4b7b3c51e459aa43351e879b917efbf502c0d2c3e4440b16bd578ed2264f5ef5",
+      "size": 12790
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/work_graph/extension.py",
+      "sha256": "b8cd1c768140197517f50538ceccb9ecb5f0cbf97200d0addab5749a15cee86d",
+      "size": 1359
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/work_graph/handlers.py",
+      "sha256": "aab8190352783845c5a4645b9d3936a324314f709f2b0b420390e79ac3d46d1b",
+      "size": 21166
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/work_graph/projections.py",
+      "sha256": "d8f2b10bb7e284c63c1da1715e996b760f0fe8c9c1599573d59f6873e2ad3cf9",
+      "size": 8320
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/work_graph/queries.py",
+      "sha256": "bf8c9a9cd7a4ef93c7a383224d97fce5ab53368d598be6799a38bb8b3ce41528",
+      "size": 12084
+    },
+    {
+      "path": "workspace-template/ai-test/runtime/aitest_runtime/work_graph/reducer.py",
+      "sha256": "0da83c2785ca84f57330e9db0db8903e00995e138da1f0a5efda7f89b1619560",
+      "size": 16928
+    },
+    {
+      "path": "workspace-template/opencode.json",
+      "sha256": "83752ca020d1a49934c8c3935c86f34f02649d39d366526ea1e76fcddb977439",
+      "size": 911
+    },
+    {
+      "path": "workspace-template/pfc-field-validation/pfc_control_loop_process.py",
+      "sha256": "b5b75eb7db718f0be82d22331390e007c52f689123d2e9742599901f2cb2a5a4",
+      "size": 11532
+    },
+    {
+      "path": "workspace-template/pfc-field-validation/pfc_harness.py",
+      "sha256": "50882bbd04e705e81d4d22ac8672aa108d906963608178db1bfd8fbfc4e9f670",
+      "size": 356914
+    },
+    {
+      "path": "workspace-template/pfc-field-validation/pfc_opencode_process.py",
+      "sha256": "a1d024f98a22a6586cff8be7367a42a8bb470bc7e9de16c33288f874c9621d19",
+      "size": 12292
+    },
+    {
+      "path": "workspace-template/pfc-field-validation/pfc_web_runtime.py",
+      "sha256": "c458e795d7399bd468654dd5eb1fc55b718fcc51212012138dace1ae06461659",
+      "size": 2941
+    }
+  ]
+}

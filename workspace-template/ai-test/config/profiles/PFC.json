@@ -1,0 +1,10 @@
+{
+  "profile": "PFC",
+  "description": "PFC compatibility profile. Canonical project name is PFC, never PCC. Repository names remain full Git names.",
+  "project_identity_source": "PROJECT_REGISTRY",
+  "current_release_truth": "STARLINK_OR_APPROVED_CONNECTOR",
+  "multi_system": true,
+  "multi_sst": true,
+  "secret_policy": "REFERENCE_ONLY",
+  "showcase_default": true
+}

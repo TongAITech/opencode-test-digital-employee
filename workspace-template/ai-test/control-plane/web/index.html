@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AI Test Runtime V1.11</title>
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand"><span class="mark">A</span><div><strong>AI Test</strong><small>Runtime V1.11</small></div></div>
+      <nav>
+        <button class="active" data-view="overview">总览</button>
+        <button data-view="missions">Missions</button>
+        <button data-view="human">待我处理</button>
+        <button data-view="defects">缺陷</button>
+        <button data-view="campaigns">L1–L7 调度</button>
+        <button data-view="connectors">连接器</button>
+      </nav>
+      <div class="aside-foot"><span id="healthDot" class="dot"></span><span id="healthText">正在连接 Runtime</span></div>
+    </aside>
+    <main>
+      <header>
+        <div><h1 id="title">研发质量总览</h1><p id="subtitle">Mission、人工任务、缺陷与质量调度统一状态面板</p></div>
+        <div class="toolbar">
+          <select id="projectSelect"></select>
+          <button id="refreshBtn" class="secondary">刷新</button>
+        </div>
+      </header>
+      <section id="notice" class="notice hidden"></section>
+      <section id="content"></section>
+    </main>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

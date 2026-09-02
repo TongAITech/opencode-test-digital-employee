@@ -6,7 +6,6 @@ artifacts/
 *.7z
 *.tar
 *.tar.gz
-*.tar.xz
 
 # Mutable runtime truth/state
 workspace-template/ai-test/state/
@@ -14,7 +13,7 @@ workspace-template/ai-test/state/
 *.sqlite
 *.sqlite3
 
-# Browser/session/code-intelligence caches
+# Browser/session/cache
 **/browser-profile/
 **/browser-profiles/
 **/.codegraph/

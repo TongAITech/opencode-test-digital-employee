@@ -1,0 +1,35 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "aitest-director",
+  "instructions": [
+    "AGENTS.md",
+    "PFC_V1_9_4_PROVEN_USAGE_BEHAVIOR.md",
+    "PFC_R1_R4_FINAL_INSTALL_PROVISION_RUN_CONTRACT.md",
+    "PFC_OPENCODE_PROCESS_AI_MISSION_STATE_CONTRACT.md",
+    "PFC_OPENCODE_STARTUP_TERMINAL_DIAGNOSTIC_CONTRACT.md",
+    "PFC_OPENCODE_WEB_EXPLICIT_PROJECT_BINDING_CONTRACT.md",
+    "PFC_R1_R4_USABILITY_COMPLETION_CONTRACT.md"
+  ],
+  "mcp": {},
+  "permission": {
+    "*": "deny",
+    "bash": "deny",
+    "codegraph_*": "allow",
+    "doom_loop": "ask",
+    "edit": "deny",
+    "external_directory": "deny",
+    "glob": "deny",
+    "grep": "deny",
+    "list": "deny",
+    "pfc_command": "allow",
+    "pfc_truth": "allow",
+    "question": "allow",
+    "read": "deny",
+    "task": "deny",
+    "webfetch": "deny",
+    "websearch": "deny"
+  },
+  "server": {
+    "hostname": "127.0.0.1"
+  }
+}

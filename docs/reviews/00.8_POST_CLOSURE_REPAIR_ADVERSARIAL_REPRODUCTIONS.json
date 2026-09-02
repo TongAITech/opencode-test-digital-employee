@@ -1,0 +1,126 @@
+{
+  "artifact": {
+    "observed_archive_sha256": "cc384d6c4867d7484f19ac6782c036c637d52568a60fccbe1b81854719c04f54",
+    "post_closure_package_manifest": {
+      "entries": 914,
+      "bad_entries": 0
+    },
+    "post_closure_source_manifest": {
+      "entries": 760,
+      "bad_entries": 0
+    },
+    "source_content_identity_claimed": "fa6fbc7f51822a9ea942383067e6cf1e48d6fc17d77b3256a0bf7ac73af82069",
+    "source_content_identity_recomputed_no_final_newline": "28fe7d76c7220cffefb1347e4b003f3bae69da3349e4bee055cf01870051baf7",
+    "source_content_identity_recomputed_with_final_newline": "3db2bbf1cde13bb4cb6de5227fa706a9ae4b82ae11beef37e2353e0f8c48fcb7",
+    "old_g4_final_package_manifest_mismatched_entries": 30
+  },
+  "execution_governance_bypass": {
+    "record_step_result_fake_case": {
+      "accepted": true,
+      "case_id": "FAKE-CASE",
+      "g3_case_exists": false,
+      "execution_batch_exists": false
+    },
+    "execute_capability_fake_case": {
+      "accepted": true,
+      "execution": "COMPLETED",
+      "oracle": "PASS",
+      "case_id": "FAKE-CASE-2",
+      "g3_case_exists": false,
+      "execution_batch_exists": false
+    }
+  },
+  "wrong_target_version_coverage": {
+    "goal_release_id": "V2",
+    "bank_snapshot_target_version": "V1",
+    "coverage_pct": 99.0,
+    "g4_goal_evaluation": "SATISFIED"
+  },
+  "goal_terminal_transition": {
+    "initial_terminal_evaluation": "SATISFIED",
+    "goal_status_after_terminal": "SATISFIED",
+    "goal_status_after_later_measurement": "MEASURING"
+  },
+  "mixed_language_symbol_mapping": {
+    "java": {
+      "status": "COMPLETE",
+      "capability": "AVAILABLE",
+      "changed_lines": [
+        2,
+        6
+      ],
+      "mapped_symbol_lines": [
+        2
+      ],
+      "unmapped_changed_line": 6
+    },
+    "typescript": {
+      "status": "COMPLETE",
+      "capability": "AVAILABLE",
+      "changed_lines": [
+        1,
+        5
+      ],
+      "mapped_symbol_lines": [
+        1
+      ],
+      "unmapped_changed_line": 5
+    },
+    "vue": {
+      "status": "COMPLETE",
+      "capability": "AVAILABLE",
+      "changed_lines": [
+        2,
+        6
+      ],
+      "mapped_symbol_lines": [
+        2
+      ],
+      "unmapped_changed_line": 6
+    }
+  },
+  "secret_sanitization": {
+    "generic_token": {
+      "input": {
+        "actual": {
+          "token": "abc123XYZ"
+        }
+      },
+      "redacted": false
+    },
+    "cookie": {
+      "input": {
+        "evidence_metadata": {
+          "cookie": "JSESSIONID=abcd1234"
+        }
+      },
+      "redacted": false
+    },
+    "session_id": {
+      "input": {
+        "actual": {
+          "session_id": "abcdef123456"
+        }
+      },
+      "redacted": false
+    },
+    "raw_password_like_value": {
+      "input": {
+        "actual": "hunter2"
+      },
+      "redacted": false
+    },
+    "labeled_cookie": {
+      "input": {
+        "actual": "cookie=JSESSIONIDabcd"
+      },
+      "redacted": true
+    }
+  },
+  "auto_resume": {
+    "runtime_verifier_present": true,
+    "caller_verification_no_longer_authority": true,
+    "background_auto_gate_observer_found": false,
+    "same_mission_e2e_auto_path_still_calls_complete_human_takeover_explicitly": true
+  }
+}

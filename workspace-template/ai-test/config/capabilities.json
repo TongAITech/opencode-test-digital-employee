@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.11.0",
+  "capabilities": [
+    {"id":"project.status","risk":"READ_ONLY","roles":["DIRECTOR","PLANNER","EXECUTOR","EVALUATOR","DIAGNOSIS","KNOWLEDGE","SCHEDULER"],"handler":"builtin"},
+    {"id":"repo.read","risk":"READ_ONLY","roles":["PLANNER","EXECUTOR","DIAGNOSIS"],"handler":"builtin"},
+    {"id":"repo.search","risk":"READ_ONLY","roles":["PLANNER","EXECUTOR","DIAGNOSIS"],"handler":"builtin"},
+    {"id":"git.status","risk":"READ_ONLY","roles":["PLANNER","EXECUTOR","DIAGNOSIS"],"handler":"builtin"},
+    {"id":"git.diff","risk":"READ_ONLY","roles":["PLANNER","EXECUTOR","DIAGNOSIS"],"handler":"builtin"},
+    {"id":"git.show","risk":"READ_ONLY","roles":["PLANNER","EXECUTOR","DIAGNOSIS"],"handler":"builtin"},
+    {"id":"code.impact","risk":"READ_ONLY","roles":["PLANNER","DIAGNOSIS"],"handler":"adapter","adapter":"code-intelligence.py"},
+    {"id":"truth.query","risk":"READ_ONLY","roles":["DIRECTOR","PLANNER","DIAGNOSIS","SCHEDULER"],"handler":"adapter","adapter":"release-truth.py"},
+    {"id":"submission.query","risk":"READ_ONLY","roles":["DIRECTOR","PLANNER","DIAGNOSIS"],"handler":"adapter","adapter":"submission-query.py"},
+    {"id":"deployment.query","risk":"READ_ONLY","roles":["DIRECTOR","PLANNER","DIAGNOSIS"],"handler":"adapter","adapter":"deployment-query.py"},
+    {"id":"cat.query","risk":"READ_ONLY","roles":["DIAGNOSIS","EXECUTOR"],"handler":"adapter","adapter":"cat-log-query.py"},
+    {"id":"db.select","risk":"READ_ONLY","roles":["EXECUTOR","DIAGNOSIS"],"handler":"adapter","adapter":"db-select.py"},
+    {"id":"api.request","risk":"TEST_WRITE","roles":["EXECUTOR"],"handler":"builtin","requires_gate":"H3"},
+    {"id":"browser.launch","risk":"HUMAN_ASSISTED","roles":["EXECUTOR","DIRECTOR"],"handler":"builtin"},
+    {"id":"browser.action","risk":"TEST_WRITE","roles":["EXECUTOR"],"handler":"adapter","adapter":"browser-action.py","requires_gate":"H3"},
+    {"id":"db.change","risk":"HIGH_RISK_WRITE","roles":["EXECUTOR"],"handler":"adapter","adapter":"db-change.py","requires_gate":"H3","requires_human":true},
+    {"id":"mock.echo","risk":"READ_ONLY","roles":["PLANNER","EXECUTOR","EVALUATOR","DIAGNOSIS"],"handler":"builtin"},
+    {"id":"mock.fail","risk":"READ_ONLY","roles":["EXECUTOR"],"handler":"builtin"}
+  ]
+}

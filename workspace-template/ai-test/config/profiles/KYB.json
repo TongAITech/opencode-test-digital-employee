@@ -1,0 +1,11 @@
+{
+  "profile": "KYB",
+  "description": "Credit-system pilot profile. No repository, environment or credential is hard-coded.",
+  "project_identity_source": "PROJECT_REGISTRY",
+  "current_release_truth": "STARLINK_OR_APPROVED_CONNECTOR",
+  "long_journey": true,
+  "multi_system": true,
+  "multi_sst": true,
+  "secret_policy": "REFERENCE_ONLY",
+  "showcase_default": true
+}

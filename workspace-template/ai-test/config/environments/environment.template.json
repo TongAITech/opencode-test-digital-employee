@@ -1,0 +1,13 @@
+{
+  "environment_id": "FAT1",
+  "name": "FAT1",
+  "environment_type": "TEST",
+  "config": {
+    "allowed_hosts": [],
+    "page_urls": {},
+    "service_endpoints": {},
+    "cat_environment_ref": "connector://CAT",
+    "database_refs": [],
+    "auth_profile_refs": []
+  }
+}

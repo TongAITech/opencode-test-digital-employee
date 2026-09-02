@@ -1,0 +1,41 @@
+{
+  "schema_version": "r1-r4.field-validation.offline-runtime-plan.v3",
+  "profile_id": "R1_R4_FIELD_VALIDATION",
+  "scope": "V3 final content repair package profile only; bank OpenCode configuration is out of scope",
+  "offline_startup": {
+    "internet_required": false,
+    "dependency_install_allowed": false,
+    "portable_python_required": true,
+    "portable_python_relative_path": "workspace-template/runtime/python/python.exe",
+    "runtime_python_command_policy": "EXE_ONLY",
+    "missing_portable_python_result": "PORTABLE_PYTHON_NOT_FOUND"
+  },
+  "field_validation_helpers": {
+    "local_template_interpreter_fallback": "NONE",
+    "local_template_invocation_contract": "Invoke Python helpers through the package runtime adapter using the package-relative executable.",
+    "fv_shell_helper": {
+      "path": "workspace-template/field-validation/FV.sh",
+      "status": "NOT_PART_OF_WINDOWS_FIELD_VALIDATION_RUNTIME",
+      "bank_runbook_referenced": false,
+      "missing_runtime_result": "PORTABLE_PYTHON_NOT_FOUND"
+    }
+  },
+  "codegraph": {
+    "disposition": "OPTIONAL_DISABLED_IN_FV_PROFILE",
+    "required_for_r1_r4_field_validation": false,
+    "package_relative_target_declared": false,
+    "payload_bundled": false,
+    "bank_opencode_affected": false,
+    "reason": "FV-0 through FV-4 inspect package-local runtime and receipts; CodeGraph is not required to execute the bounded field-validation package path."
+  },
+  "browser": {
+    "payload_relative_path": "workspace-template/runtime/browser/chrome-win64/chrome.exe",
+    "playwright_install_allowed": false,
+    "windows_execution_proof": "REQUIRED"
+  },
+  "evidence": {
+    "secrets_bundled": false,
+    "real_bank_validation_executed": false,
+    "windows_execution_proof": "REQUIRED"
+  }
+}

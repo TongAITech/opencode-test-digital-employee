@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.11.0",
+  "layers": [
+    {"id":"L1","name":"Unit","ordinal":1,"description":"Changed functions, rules, boundaries and exception paths","default_dimensions":["FUNCTIONAL"],"triggers":["CODE_COMMITTED","CODE_MERGED","DEFECT_FIXED"],"blocking":true},
+    {"id":"L2","name":"Component","ordinal":2,"description":"Service-internal collaboration, DAO, cache and configuration","default_dimensions":["FUNCTIONAL","DATA"],"triggers":["CODE_COMMITTED","BUILD_SUCCEEDED","DEFECT_FIXED"],"blocking":true},
+    {"id":"L3","name":"API/Integration","ordinal":3,"description":"Contract, auth, idempotency, timeout, downstream, DB and MQ effects","default_dimensions":["FUNCTIONAL","DATA","RESILIENCE"],"triggers":["BUILD_SUCCEEDED","DEPLOYMENT_COMPLETED","DEFECT_FIXED"],"blocking":true},
+    {"id":"L4","name":"UI/E2E","ordinal":4,"description":"Page, network, role and visible/functional assertions","default_dimensions":["FUNCTIONAL","COMPATIBILITY"],"triggers":["DEPLOYMENT_COMPLETED","SHOWCASE_COMPLETED","DEFECT_FIXED"],"blocking":true},
+    {"id":"L5","name":"Business Journey","ordinal":5,"description":"Requirement-level cross-system stages, business keys and handoffs","default_dimensions":["FUNCTIONAL","DATA","RESILIENCE"],"triggers":["DEPLOYMENT_COMPLETED","H3_APPROVED","DEFECT_FIXED"],"blocking":true},
+    {"id":"L6","name":"Performance","ordinal":6,"description":"Risk-selected only; thresholds from requirement, SLA or approved baseline","default_dimensions":["PERFORMANCE"],"triggers":["DEPLOYMENT_COMPLETED","PERFORMANCE_SCOPE_APPROVED","DEFECT_FIXED"],"blocking":false},
+    {"id":"L7","name":"Security","ordinal":7,"description":"Static and negative by default; active scanning requires explicit approval","default_dimensions":["SECURITY"],"triggers":["SECURITY_DESIGN_REVIEW_APPROVED","DEPLOYMENT_COMPLETED","DEFECT_FIXED"],"blocking":true}
+  ]
+}

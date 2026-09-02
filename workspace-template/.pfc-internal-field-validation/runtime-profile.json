@@ -1,0 +1,69 @@
+{
+  "bindings": {
+    "4a": {
+      "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING",
+      "env": "AITEST_4A_GATE_REF",
+      "required_for": "FIELD_VALIDATION_GATE"
+    },
+    "api": {
+      "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING",
+      "env": "AITEST_TARGET_API_URL",
+      "required_for": "FIELD_VALIDATION_TARGET"
+    },
+    "browser_client_module": {
+      "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING",
+      "env": "AITEST_BROWSER_CLIENT_MODULE",
+      "relative_path": "runtime/browser-client/browser-client.mjs",
+      "required_for": "R3.E3_JS_SEAM"
+    },
+    "browser_executable": {
+      "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING",
+      "env": "AITEST_BROWSER_EXECUTABLE",
+      "relative_path": "runtime/browser/chrome-win64/chrome.exe",
+      "required_for": "FIELD_VALIDATION_BROWSER"
+    },
+    "cat": {
+      "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING",
+      "env": "AITEST_CAT_ADAPTER",
+      "relative_path": "ai-test/local/adapters/cat-log-query.py",
+      "required_for": "FIELD_VALIDATION_DIAGNOSTICS"
+    },
+    "cdp_endpoint": {
+      "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING",
+      "default": "http://127.0.0.1:{debug_port}",
+      "env": "AITEST_BROWSER_CDP_ENDPOINT",
+      "required_for": "FIELD_VALIDATION_BROWSER"
+    },
+    "db": {
+      "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING",
+      "env": "AITEST_TARGET_DB_REF",
+      "required_for": "FIELD_VALIDATION_TARGET"
+    },
+    "opencode": {
+      "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING",
+      "env": "AITEST_OPENCODE_BIN",
+      "relative_path": "runtime/opencode/opencode.exe",
+      "required_for": "OPENCODE_RUNTIME"
+    },
+    "starlink": {
+      "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING",
+      "env": "AITEST_STARLINK_ENDPOINT",
+      "required_for": "FIELD_VALIDATION_EXTERNAL_ADAPTER"
+    },
+    "target_repositories": {
+      "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING",
+      "env": "AITEST_TARGET_REPOSITORIES",
+      "required_for": "FIELD_VALIDATION_TARGET"
+    },
+    "target_url": {
+      "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING",
+      "env": "AITEST_TARGET_URL",
+      "required_for": "FIELD_VALIDATION_TARGET"
+    }
+  },
+  "package_version": "1.11.1",
+  "profile_id": "R1_R4_FIELD_VALIDATION",
+  "schema_version": "r1-r4.field-validation.runtime-profile.v1",
+  "scope": "FV-0 Doctor binding parse and later field-validation environment binding; no true bank values",
+  "secret_policy": "Values are not required for package preparation and are never written to evidence; Doctor reports only configured/unconfigured metadata."
+}

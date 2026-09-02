@@ -1,0 +1,24 @@
+{
+  "schema_version": "r1-r4.field-validation.bank-binding.v1",
+  "binding_status": "UNBOUND_TEMPLATE",
+  "package_scope": "R1-R4_FIELD_VALIDATION_ONLY",
+  "bank_prerequisites": {
+    "OpenCode": "PRE_EXISTING_BANK_PREREQUISITE",
+    "Git": "PRE_EXISTING_BANK_PREREQUISITE",
+    "Git Bash": "PRE_EXISTING_BANK_PREREQUISITE"
+  },
+  "bindings": {
+    "starlink": {"env": "AITEST_STARLINK_ENDPOINT", "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING", "required_for": "FIELD_VALIDATION_EXTERNAL_ADAPTER"},
+    "four_a": {"env": "AITEST_4A_GATE_REF", "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING", "required_for": "FIELD_VALIDATION_GATE"},
+    "target_url": {"env": "AITEST_TARGET_URL", "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING", "required_for": "FIELD_VALIDATION_TARGET"},
+    "target_api": {"env": "AITEST_TARGET_API_URL", "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING", "required_for": "FIELD_VALIDATION_TARGET"},
+    "target_db": {"env": "AITEST_TARGET_DB_REF", "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING", "required_for": "FIELD_VALIDATION_TARGET"},
+    "cat": {"env": "AITEST_CAT_ADAPTER", "relative_path": "ai-test/local/adapters/cat-log-query.py", "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING", "required_for": "FIELD_VALIDATION_DIAGNOSTICS"},
+    "target_repositories": {"env": "AITEST_TARGET_REPOSITORIES", "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING", "required_for": "FIELD_VALIDATION_TARGET"},
+    "browser_executable": {"env": "AITEST_BROWSER_EXECUTABLE", "relative_path": "runtime/browser/chrome-win64/chrome.exe", "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING", "required_for": "FIELD_VALIDATION_BROWSER"},
+    "browser_cdp": {"env": "AITEST_BROWSER_CDP_ENDPOINT", "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING", "required_for": "FIELD_VALIDATION_BROWSER"},
+    "opencode": {"env": "AITEST_OPENCODE_BIN", "binding_class": "FIELD_VALIDATION_ENVIRONMENT_BINDING", "required_for": "OPENCODE_RUNTIME"}
+  },
+  "secret_policy": "Use env://, secret:// or approved auth references. Never put passwords, tokens, cookies, OTP/MFA, or database credentials in this file or evidence.",
+  "truth_policy": "Unbound bank resources remain UNAVAILABLE/HUMAN_ACTION_REQUIRED; package build does not mark them AVAILABLE."
+}

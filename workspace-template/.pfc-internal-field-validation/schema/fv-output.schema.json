@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "r1-r4.field-validation.output.v1",
+  "type": "object",
+  "required": ["schema_version", "fv_id", "generated_at", "status", "execution_class", "real_field_validation_executed", "bank_contacted"],
+  "properties": {
+    "schema_version": {"const": "r1-r4.field-validation.output.v1"},
+    "fv_id": {"enum": ["FV-0", "FV-1", "FV-2", "FV-3", "FV-4"]},
+    "status": {"type": "string"},
+    "execution_class": {"const": "PACKAGE_STATIC_OR_RECEIPT_REVIEW"},
+    "real_field_validation_executed": {"const": false},
+    "bank_contacted": {"const": false},
+    "detail": {"type": "object"}
+  },
+  "additionalProperties": true
+}

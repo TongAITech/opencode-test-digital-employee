@@ -1,0 +1,9 @@
+{
+  "profile": "GENERIC",
+  "description": "Generic enterprise AI testing profile",
+  "project_identity_source": "PROJECT_REGISTRY",
+  "current_release_truth": "CONNECTOR_REQUIRED",
+  "quality_layers": ["L1","L2","L3","L4","L5","L6","L7"],
+  "secret_policy": "REFERENCE_ONLY",
+  "showcase_default": false
+}
