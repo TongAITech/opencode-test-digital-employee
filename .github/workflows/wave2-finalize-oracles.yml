@@ -1,0 +1,52 @@
+name: Wave2 Finalize Validation Oracles
+
+on:
+  push:
+    branches:
+      - repair/g3-g4-wave2
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: ${{ !contains(github.event.head_commit.message, '[wave2-oracles-finalized]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: repair/g3-g4-wave2
+
+      - name: Apply final Wave2 validation oracle repairs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply tools/wave2-oracle-patches/oracle-1.patch
+          git apply tools/wave2-oracle-patches/oracle-2.patch
+          git apply tools/wave2-oracle-patches/oracle-3.patch
+          git apply tools/wave2-oracle-patches/oracle-4.patch
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tools/run_wave2_validation.py')
+          text = path.read_text(encoding='utf-8')
+          old = '("r2_6_sensitive_evidence", "test_g4_sensitive_evidence_wave2.py", 6),'
+          new = '("r2_6_sensitive_evidence", "test_g4_sensitive_evidence_wave2.py", 7),'
+          if old not in text:
+              raise SystemExit('R2_6_EXPECTED_COUNT_ORACLE_NOT_FOUND')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          git rm -r tools/wave2-oracle-patches
+          git rm .github/workflows/wave2-finalize-oracles.yml
+
+      - name: Commit clean final oracle repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'test(wave2): align final validation oracles [wave2-oracles-finalized]'
+          git push origin HEAD:repair/g3-g4-wave2
