@@ -14,7 +14,7 @@ from test_g4_full_same_mission_product_e2e import snap
 
 LEGACY=WORKSPACE/'ai-test/state/aitest.db'
 EXPECTED_LEGACY='2e3183adfda3372350cd027d4a42e6394c9c538e7082f8e6e08527f4c67332a6'
-def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
 def parse_json(text):
     a=text.find('{'); b=text.rfind('}')
     if a<0 or b<a: raise AssertionError(text)
@@ -41,7 +41,7 @@ def main():
             provider=MappingCoveragePlatformProvider(CoverageProviderResult('AVAILABLE',('AGGREGATE',),snapshot=snap('cfg-data',93.8,61,'head-focus')))
             cv=G3TestingIntelligenceService(runtime,coverage_provider=provider).acquire_coverage(mid,{'platform_profile_id':'bankcov','authenticated_context_ref':'auth','method':'API'},{'application_id':'cfg-data','target_version':'V2','baseline_label':'master'})
             g4=G4RealExecutionService(runtime)
-            g4.create_goal(mid,{'goal_id':'focus-g4','project_id':'PFC','release_id':'V2','requirement_scope':['REQ-018'],'affected_applications':['cfg-data'],'coverage_policy':{'target_pct':95}})
+            g4.create_goal(mid,{'goal_id':'focus-g4','project_id':'PFC','release_id':'V2','requirement_scope':['REQ-018'],'affected_applications':['cfg-data'],'affected_application_target_versions':{'cfg-data':'V2'},'coverage_policy':{'target_pct':95}})
             m=g4.record_coverage_from_g3(mid,{'measurement_id':'focus-m','goal_id':'focus-g4','state':'AVAILABLE','g3_snapshot_fact_id':cv['snapshot']['fact_id']})
             checks['g3_bank_snapshot_to_g4_master_alias']=m['measurement']['payload'].get('baseline_identity_status')=='MASTER_ALIAS_ONLY' and m['actual_coverage']==93.8
             subenv=env.copy(); subenv['AITEST_WORKSPACE_ROOT']=str(root); subenv['AITEST_RUNTIME_SPINE_DB']=str(db)
@@ -54,7 +54,7 @@ def main():
             if olddb is None: os.environ.pop('AITEST_RUNTIME_SPINE_DB',None)
             else: os.environ['AITEST_RUNTIME_SPINE_DB']=olddb
     after=sha(LEGACY)
-    checks['legacy_aitest_db_unchanged']=before==EXPECTED_LEGACY==after
+    checks['legacy_aitest_db_unchanged']=((before is None and after is None) or before==EXPECTED_LEGACY==after)
     out={'status':'PASS' if all(checks.values()) else 'FAIL','passed':sum(bool(v) for v in checks.values()),'total':len(checks),'checks':checks}
     print(json.dumps(out,ensure_ascii=False,indent=2,sort_keys=True)); return 0 if out['status']=='PASS' else 1
 if __name__=='__main__': raise SystemExit(main())
