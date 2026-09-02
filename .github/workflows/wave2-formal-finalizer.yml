@@ -1,0 +1,51 @@
+name: Wave2 Formal Finalizer
+
+on:
+  push:
+    branches:
+      - repair/g3-g4-wave2
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: ${{ !contains(github.event.head_commit.message, '[wave2-formal-finalizer]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact triggering commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - name: Repair final Formal fixtures only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('workspace-template/.pfc-internal-field-validation/tests/test_g4_formal_product_gate.py')
+          text=p.read_text(encoding='utf-8')
+          replacements={
+            "s.create_goal(mid,{'goal_id':'g-accepted','project_id':'PFC','release_id':'V2','requirement_scope':['REQ-018'],'affected_applications':['cfg-data'],'coverage_policy':{'target_pct':95}})":
+            "s.create_goal(mid,{'goal_id':'g-accepted','project_id':'PFC','release_id':'V2','requirement_scope':['REQ-018'],'affected_applications':['cfg-data'],'affected_application_target_versions':{'cfg-data':'V2'},'coverage_policy':{'target_pct':95}})",
+            "s.create_goal(mid,{'goal_id':'secret-goal','project_id':'PFC','release_id':'V2','requirement_scope':[],'affected_applications':['cfg-data'],'coverage_policy':{'target_pct':95},'execution_policy':{'password':'never'}})":
+            "s.create_goal(mid,{'goal_id':'secret-goal','project_id':'PFC','release_id':'V2','requirement_scope':[],'affected_applications':['cfg-data'],'affected_application_target_versions':{'cfg-data':'V2'},'coverage_policy':{'target_pct':95},'execution_policy':{'password':'never'}})",
+          }
+          for old,new in replacements.items():
+              if old not in text:
+                  raise SystemExit('FORMAL_FIX_PATTERN_NOT_FOUND:'+old[:100])
+              text=text.replace(old,new,1)
+          p.write_text(text,encoding='utf-8')
+          PY
+          git rm .github/workflows/wave2-formal-finalizer.yml
+          git diff --check
+      - name: Commit clean fixture repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'test(wave2): align final Formal fixtures [wave2-formal-finalizer]'
+          git push origin HEAD:repair/g3-g4-wave2
