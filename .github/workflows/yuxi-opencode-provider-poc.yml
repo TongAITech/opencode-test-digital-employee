@@ -1,0 +1,33 @@
+name: Yuxi OpenCode Provider PoC
+
+on:
+  push:
+    branches:
+      - experiment/yuxi-opencode-provider-poc
+    paths:
+      - "experiments/yuxi-opencode-provider-poc/**"
+      - "workspace-template/.opencode/agents/yuxi-model-provider-proxy.md"
+      - ".github/workflows/yuxi-opencode-provider-poc.yml"
+  pull_request:
+    paths:
+      - "experiments/yuxi-opencode-provider-poc/**"
+      - "workspace-template/.opencode/agents/yuxi-model-provider-proxy.md"
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: experiments/yuxi-opencode-provider-poc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PoC
+        run: python -m pip install -e '.[test]'
+      - name: Run protocol tests
+        run: pytest
