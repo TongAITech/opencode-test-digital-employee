@@ -25,7 +25,7 @@ def main():
     env=os.environ.copy(); env['PYTHONPATH']=str(RUNTIME)+os.pathsep+str(TESTS)
     p=subprocess.run([sys.executable,str(TESTS/'test_g4_full_same_mission_product_e2e.py')],cwd=WORKSPACE,env=env,text=True,capture_output=True,timeout=300)
     e2e=parse_json(p.stdout); ec=e2e.get('checks') or {}; e2e_ok=p.returncode==0 and e2e.get('status')=='PASS'
-    g4src=(RUNTIME/'aitest_runtime/g4/service.py').read_text(); csrc=(RUNTIME/'aitest_runtime/g4/contracts.py').read_text(); pesrc=(RUNTIME/'aitest_runtime/product_entry.py').read_text(); tool=(WORKSPACE/'.opencode/tools/aitest.ts').read_text(); g2src=(RUNTIME/'aitest_runtime/autonomous_orchestration.py').read_text()
+    g4src='\n'.join(p.read_text(encoding='utf-8') for p in sorted((RUNTIME/'aitest_runtime/g4').glob('*.py'))); csrc=(RUNTIME/'aitest_runtime/g4/contracts.py').read_text(); pesrc=(RUNTIME/'aitest_runtime/product_entry.py').read_text(); tool=(WORKSPACE/'.opencode/tools/aitest.ts').read_text(); g2src=(RUNTIME/'aitest_runtime/autonomous_orchestration.py').read_text()
     legacy=WORKSPACE/'ai-test/state/aitest.db'
 
     # Product-path / architecture evidence.
