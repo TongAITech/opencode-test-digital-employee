@@ -1,0 +1,54 @@
+name: Wave2 Final Scenario Fix
+
+on:
+  push:
+    branches:
+      - repair/g3-g4-wave2
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: ${{ !contains(github.event.head_commit.message, '[wave2-final-scenario-fix]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact triggering commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - name: Repair only stale test scenarios
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          def replace_exact(path, old, new):
+              p=Path(path); text=p.read_text(encoding='utf-8')
+              if old not in text:
+                  if new in text: return
+                  raise SystemExit('PATTERN_NOT_FOUND:'+path+':'+old[:100])
+              p.write_text(text.replace(old,new,1),encoding='utf-8')
+
+          formal='workspace-template/.pfc-internal-field-validation/tests/test_g4_formal_product_gate.py'
+          replace_exact(formal,
+              "s.create_goal(mid,{'goal_id':'g95','project_id':'PFC','release_id':'V2','requirement_scope':['REQ-018'],'affected_applications':['cfg-data','cfg-admin'],'coverage_policy':{'target_pct':95}})",
+              "s.create_goal(mid,{'goal_id':'g95','project_id':'PFC','release_id':'V2','requirement_scope':['REQ-018'],'affected_applications':['cfg-data','cfg-admin'],'affected_application_target_versions':{'cfg-data':'V2','cfg-admin':'V2'},'coverage_policy':{'target_pct':95}})")
+
+          adv='workspace-template/.pfc-internal-field-validation/tests/test_g3_g4_post_closure_adversarial.py'
+          replace_exact(adv,
+              "    # Unrelated pending R2.6 gate is not a current TestingGoal blocker.\n    bank_available(rt2,mid,g4new,'human-goal',96.0,33,'human-m')",
+              "    # Unrelated pending R2.6 gate is not a current TestingGoal blocker.\n    # Complete this scenario's own governed focused batch first; the only pending condition below is the unrelated gate.\n    focused_batch=next(f for f in reversed(g4new.state(mid).by_kind('EXECUTION_BATCH')) if f.payload.get('batch_id')==human_case['execution_batch_id'])\n    g4new.create_batch(mid,{**dict(focused_batch.payload),'status':'COMPLETED'})\n    bank_available(rt2,mid,g4new,'human-goal',96.0,33,'human-m')")
+          PY
+          git rm .github/workflows/wave2-final-scenario-fix.yml
+          git diff --check
+      - name: Commit clean scenario repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'test(wave2): align R2-2/R2-3 legacy scenarios [wave2-final-scenario-fix]'
+          git push origin HEAD:repair/g3-g4-wave2
