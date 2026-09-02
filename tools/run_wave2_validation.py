@@ -28,11 +28,11 @@ ORIGINAL_267 = [
 POST_CLOSURE_22 = [("post_closure_adversarial", "test_g3_g4_post_closure_adversarial.py", 22)]
 WAVE2 = [
     ("r2_1_change_intelligence_broker", "test_g3_change_intelligence_broker_wave2.py", 29),
-    ("r2_2_governed_execution_binding", "test_g4_governed_execution_binding_wave2.py", 11),
+    ("r2_2_governed_execution_binding", "test_g4_governed_execution_binding_wave2.py", 7),
     ("r2_3_coverage_identity", "test_g4_coverage_identity_wave2.py", 8),
-    ("r2_4_background_auto_resume", "test_g4_background_auto_resume_wave2.py", 6),
-    ("r2_5_goal_transition", "test_g4_goal_transition_wave2.py", 5),
-    ("r2_6_sensitive_evidence", "test_g4_sensitive_evidence_wave2.py", 10),
+    ("r2_4_background_auto_resume", "test_g4_background_auto_resume_wave2.py", 8),
+    ("r2_5_goal_transition", "test_g4_goal_transition_wave2.py", 7),
+    ("r2_6_sensitive_evidence", "test_g4_sensitive_evidence_wave2.py", 7),
     ("r2_7_package_identity", "test_package_identity_wave2.py", 6),
 ]
 
