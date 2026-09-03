@@ -7,6 +7,7 @@ from .contracts import (
     G5WorkerBinding,
     GovernedEvidenceRequest,
 )
+from .service import G5Service, require_g5_worker_binding
 
 __all__ = [
     "DuplicateCorrelationDecision",
@@ -14,4 +15,6 @@ __all__ = [
     "G5OperationResult",
     "G5WorkerBinding",
     "GovernedEvidenceRequest",
+    "G5Service",
+    "require_g5_worker_binding",
 ]
