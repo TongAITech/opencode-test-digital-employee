@@ -8,6 +8,7 @@ COMMANDS=WORKSPACE/'.opencode/commands'
 TOOL=(WORKSPACE/'.opencode/tools/aitest.ts').read_text(encoding='utf-8')
 ENTRY=(WORKSPACE/'ai-test/runtime/aitest_runtime/product_entry.py').read_text(encoding='utf-8')
 G4=(WORKSPACE/'ai-test/runtime/aitest_runtime/g4/service.py').read_text(encoding='utf-8')
+G4_CORE=(WORKSPACE/'ai-test/runtime/aitest_runtime/g4/service_base.py').read_text(encoding='utf-8')
 
 def txt(path: Path)->str: return path.read_text(encoding='utf-8')
 
@@ -31,7 +32,7 @@ def main()->int:
     checks['09_tool_g4_wrapper_calls_product_entry_and_r1']='aitest_runtime.product_entry", "g4"' in TOOL and 'AITEST_G4_TRUTH_CONTRACT_FAILED' in TOOL and 'R1_EVENT_STREAM' in TOOL
     checks['10_tool_executor_and_director_expose_authorized_g4_actions']='request_human_takeover|reconcile_human_takeover|complete_human_takeover' in TOOL and 'execute_capability' in TOOL and 'create_goal|control_tick|coverage_from_g3' in TOOL and 'return g4(context as ToolContext, "EXECUTOR"' in TOOL
     checks['11_product_entry_g4_enabled_g5_g6_hold']='G4_PRODUCT_ENTRY' in ENTRY and 'G4 real-execution tools' in ENTRY and 'G5 defect truth and G6 closed-loop mutations remain HOLD' in ENTRY and '"g4"' in ENTRY
-    checks['12_command_tool_entry_r1_chain']='agent: aitest-executor' in execute and 'return g4(context as ToolContext, "EXECUTOR"' in TOOL and 'def g4_command(' in ENTRY and 'self.runtime.execute({' in G4 and '"truth_source": "R1_EVENT_STREAM"' in G4
+    checks['12_command_tool_entry_r1_chain']='agent: aitest-executor' in execute and 'return g4(context as ToolContext, "EXECUTOR"' in TOOL and 'def g4_command(' in ENTRY and 'self.runtime.execute({' in G4_CORE and '"truth_source": "R1_EVENT_STREAM"' in (G4+G4_CORE)
     # Product subprocess must be able to load an explicitly configured provider factory;
     # in-process monkeypatch injection is not a valid OpenCode composition mechanism.
     with tempfile.TemporaryDirectory(prefix='g4-provider-factory-') as td:

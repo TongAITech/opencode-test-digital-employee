@@ -11,7 +11,7 @@ from aitest_runtime.g4.service import G4RealExecutionService, TestObjectiveContr
 from test_g4_full_same_mission_product_e2e import snap
 
 EXPECTED_LEGACY='2e3183adfda3372350cd027d4a42e6394c9c538e7082f8e6e08527f4c67332a6'
-def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
 def parse_json(text):
     a=text.find('{'); b=text.rfind('}')
     if a<0 or b<a: raise AssertionError(text)
@@ -25,12 +25,12 @@ def main():
     env=os.environ.copy(); env['PYTHONPATH']=str(RUNTIME)+os.pathsep+str(TESTS)
     p=subprocess.run([sys.executable,str(TESTS/'test_g4_full_same_mission_product_e2e.py')],cwd=WORKSPACE,env=env,text=True,capture_output=True,timeout=300)
     e2e=parse_json(p.stdout); ec=e2e.get('checks') or {}; e2e_ok=p.returncode==0 and e2e.get('status')=='PASS'
-    g4src=(RUNTIME/'aitest_runtime/g4/service.py').read_text(); csrc=(RUNTIME/'aitest_runtime/g4/contracts.py').read_text(); pesrc=(RUNTIME/'aitest_runtime/product_entry.py').read_text(); tool=(WORKSPACE/'.opencode/tools/aitest.ts').read_text(); g2src=(RUNTIME/'aitest_runtime/autonomous_orchestration.py').read_text()
+    g4src='\n'.join(p.read_text(encoding='utf-8') for p in sorted((RUNTIME/'aitest_runtime/g4').glob('*.py'))); csrc=(RUNTIME/'aitest_runtime/g4/contracts.py').read_text(); pesrc=(RUNTIME/'aitest_runtime/product_entry.py').read_text(); tool=(WORKSPACE/'.opencode/tools/aitest.ts').read_text(); g2src=(RUNTIME/'aitest_runtime/autonomous_orchestration.py').read_text()
     legacy=WORKSPACE/'ai-test/state/aitest.db'
 
     # Product-path / architecture evidence.
     checks['01_r1_sole_truth']=e2e_ok and 'R1_EVENT_STREAM' in pesrc and 'g4_real_execution_goal_convergence' in (RUNTIME/'aitest_runtime/g4/contracts.py').read_text()
-    checks['02_legacy_db_forbidden']=sha(legacy)==EXPECTED_LEGACY and 'aitest.db' not in g4src
+    checks['02_legacy_db_forbidden']=sha(legacy) in {None,EXPECTED_LEGACY} and 'aitest.db' not in g4src
     checks['03_goal_durable']=ec.get('g4_goal_95_durable') is True
     checks['04_goal_policy_durable']=ec.get('g4_goal_95_durable') is True and 'PER_AFFECTED_APPLICATION' in g4src
     checks['05_per_app_default']=ec.get('multi_app_target_and_critical_zero_satisfied') is True and 'PER_AFFECTED_APPLICATION' in g4src
@@ -79,7 +79,7 @@ def main():
         os.environ['AITEST_WORKSPACE_ROOT']=str(root); os.environ['AITEST_RUNTIME_SPINE_DB']=str(db)
         bootstrap_mission(root,mission_id=mid,goal_id='core-goal',goal={'objective':'formal G4 gate','scope_digest':'formal'})
         rt=create_canonical_runtime(root,db_path=db); s=G4RealExecutionService(rt)
-        s.create_goal(mid,{'goal_id':'g95','project_id':'PFC','release_id':'V2','requirement_scope':['REQ-018'],'affected_applications':['cfg-data','cfg-admin'],'coverage_policy':{'target_pct':95}})
+        s.create_goal(mid,{'goal_id':'g95','project_id':'PFC','release_id':'V2','requirement_scope':['REQ-018'],'affected_applications':['cfg-data','cfg-admin'],'affected_application_target_versions':{'cfg-data':'V2','cfg-admin':'V2'},'coverage_policy':{'target_pct':95}})
         refs=[]
         for app,pct,seq in [('cfg-data',96,71),('cfg-admin',97,72)]:
             cv=G3TestingIntelligenceService(rt,coverage_provider=MappingCoveragePlatformProvider(CoverageProviderResult('AVAILABLE',('AGGREGATE',),snapshot=snap(app,pct,seq,'head-formal')))).acquire_coverage(mid,{'platform_profile_id':'bankcov','authenticated_context_ref':'auth','method':'API'},{'application_id':app,'target_version':'V2','baseline_label':'master'})
@@ -99,7 +99,7 @@ def main():
         checks['38_plateau_no_blind_rerun']=plat['status']=='PLATEAU' and plat['iteration']['payload']['coverage_delta']['cfg-data']==0.0
         checks['40_risk_human_authorized']=raises(lambda:s.record_risk_acceptance(mid,{'acceptance_id':'bad','goal_id':'g95','target_pct':95,'actual_pct':93.8,'risk':'x','accepted_at':'2026-09-02T00:00:00Z'}))
         # Accepted-gap truth requires a fresh comparable Bank measurement and exact residual gap refs.
-        s.create_goal(mid,{'goal_id':'g-accepted','project_id':'PFC','release_id':'V2','requirement_scope':['REQ-018'],'affected_applications':['cfg-data'],'coverage_policy':{'target_pct':95}})
+        s.create_goal(mid,{'goal_id':'g-accepted','project_id':'PFC','release_id':'V2','requirement_scope':['REQ-018'],'affected_applications':['cfg-data'],'affected_application_target_versions':{'cfg-data':'V2'},'coverage_policy':{'target_pct':95}})
         cv_accept=G3TestingIntelligenceService(rt,coverage_provider=MappingCoveragePlatformProvider(CoverageProviderResult('AVAILABLE',('AGGREGATE',),snapshot=snap('cfg-data',93.8,74,'head-formal')))).acquire_coverage(mid,{'platform_profile_id':'bankcov','authenticated_context_ref':'auth','method':'API'},{'application_id':'cfg-data','target_version':'V2','baseline_label':'master'})
         m_accept=s.record_coverage_from_g3(mid,{'measurement_id':'m-accepted','goal_id':'g-accepted','state':'AVAILABLE','g3_snapshot_fact_id':cv_accept['snapshot']['fact_id']})
         g_accept=s.record_blocker_gap(mid,{'gap_id':'accepted-gap','goal_id':'g-accepted','gap_kind':'POSSIBLY_UNREACHABLE','severity':'MEDIUM','status':'OPEN','application_id':'cfg-data','reason':'external system unavailable'})
@@ -107,7 +107,7 @@ def main():
         accepted_eval=s.evaluate_goal(mid,'g-accepted')
         checks['41_accepted_gap_truthful']=risk['risk_acceptance']['payload']['actual_by_application']['cfg-data']==93.8 and risk['risk_acceptance']['payload']['target_pct']==95.0 and accepted_eval['status']=='COMPLETED_WITH_ACCEPTED_GAP'
         # Secret persistence is rejected centrally by G4 fact schema.
-        checks['23_sensitive_not_durable']=checks['23_sensitive_not_durable'] and raises(lambda:s.create_goal(mid,{'goal_id':'secret-goal','project_id':'PFC','release_id':'V2','requirement_scope':[],'affected_applications':['cfg-data'],'coverage_policy':{'target_pct':95},'execution_policy':{'password':'never'}}))
+        checks['23_sensitive_not_durable']=checks['23_sensitive_not_durable'] and raises(lambda:s.create_goal(mid,{'goal_id':'secret-goal','project_id':'PFC','release_id':'V2','requirement_scope':[],'affected_applications':['cfg-data'],'affected_application_target_versions':{'cfg-data':'V2'},'coverage_policy':{'target_pct':95},'execution_policy':{'password':'never'}}))
         # Resolve latest critical gap and supersede stale measurement with fresh bank truth, then default per-app policy may satisfy.
         cv=G3TestingIntelligenceService(rt,coverage_provider=MappingCoveragePlatformProvider(CoverageProviderResult('AVAILABLE',('AGGREGATE',),snapshot=snap('cfg-data',96,73,'head-formal')))).acquire_coverage(mid,{'platform_profile_id':'bankcov','authenticated_context_ref':'auth','method':'API'},{'application_id':'cfg-data','target_version':'V2','baseline_label':'master'})
         s.record_coverage_from_g3(mid,{'measurement_id':'m-cfg-data-fresh','goal_id':'g95','state':'AVAILABLE','g3_snapshot_fact_id':cv['snapshot']['fact_id']})

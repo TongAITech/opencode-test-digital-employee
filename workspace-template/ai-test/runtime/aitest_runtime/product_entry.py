@@ -46,6 +46,7 @@ _G4_BROWSER_PROVIDER = None
 _G4_CAPABILITY_EXECUTORS = None
 _G4_RESUME_CONDITION_VERIFIER = None
 
+
 def g4_service(root: Path | None = None) -> G4RealExecutionService:
     root = (root or workspace_root()).resolve()
     runtime = create_canonical_runtime(root)
@@ -58,6 +59,7 @@ def g4_service(root: Path | None = None) -> G4RealExecutionService:
     capability_executors = _G4_CAPABILITY_EXECUTORS if _G4_CAPABILITY_EXECUTORS is not None else bundle.capability_executors
     resume_verifier = _G4_RESUME_CONDITION_VERIFIER if _G4_RESUME_CONDITION_VERIFIER is not None else bundle.resume_condition_verifier
     return G4RealExecutionService(runtime, orchestration=default_service(runtime, root), browser_provider=browser_provider, capability_executors=capability_executors, resume_condition_verifier=resume_verifier)
+
 
 def orchestration_service(root: Path | None = None) -> AutonomousOrchestrationService:
     root = (root or workspace_root()).resolve()
@@ -267,7 +269,6 @@ def orchestration_command(role: str, action: str, payload: Mapping[str, Any]) ->
     raise AssertionError(action)
 
 
-
 def g3_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     root = workspace_root()
     role = (role or "").strip().upper()
@@ -345,7 +346,7 @@ def g4_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
     service = g4_service(root)
     runtime = service.runtime
     allowed = {
-        "DIRECTOR": {"status", "create_goal", "control_tick", "coverage_from_g3", "blocker_gap", "risk_acceptance", "record_iteration"},
+        "DIRECTOR": {"status", "create_goal", "control_tick", "coverage_from_g3", "blocker_gap", "risk_acceptance", "record_iteration", "human_gate_user_turn_resume"},
         "EXECUTOR": {"status", "record_cursor", "recover_cursor", "register_capability", "validate_executor", "execute_capability", "capability_human_gate", "request_human_takeover", "reconcile_human_takeover", "complete_human_takeover", "record_step_result", "create_batch"},
     }
     if role not in allowed or action not in allowed[role]:
@@ -363,6 +364,7 @@ def g4_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
         attempt = ex.attempt(attempt_id) if ex is not None and hasattr(ex, "attempt") else None
         if attempt is None or attempt.task_id != task_id or attempt.runtime_session_id != session_id: raise RuntimeError("G4_R2_5_ATTEMPT_SESSION_BINDING_MISMATCH")
     if action == "create_goal": return service.create_goal(mission_id, data)
+    if action == "human_gate_user_turn_resume": return service.resolve_human_gate_user_turn(mission_id, data)
     if action == "record_cursor": return service.record_cursor(mission_id, data)
     if action == "recover_cursor": return service.recover_cursor(mission_id, attempt_id=data.get("attempt_id"), root_attempt_id=data.get("root_attempt_id"), case_id=data.get("case_id"))
     if action == "register_capability": return service.register_capability(mission_id, str(data.get("capability_id") or ""), str(data.get("capability_status") or data.get("status") or ""), provider_ref=data.get("provider_ref"), metadata=_object(data.get("metadata") or {}, "metadata"))
@@ -382,6 +384,7 @@ def g4_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
     if action == "record_iteration": return service.record_iteration(mission_id, data)
     if action == "control_tick": return TestObjectiveController(service).tick(mission_id, str(data.get("goal_id") or ""), replan_context=_object(data.get("replan_context") or {}, "replan_context"))
     raise AssertionError(action)
+
 
 def emit(value: Any) -> None:
     data = (json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")

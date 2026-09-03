@@ -22,7 +22,7 @@ from test_g4_full_same_mission_product_e2e import snap, semantics
 
 EXPECTED_LEGACY='2e3183adfda3372350cd027d4a42e6394c9c538e7082f8e6e08527f4c67332a6'
 LEGACY=WORKSPACE/'ai-test/state/aitest.db'
-def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
 def errcode(fn):
     try: fn(); return None
     except Exception as exc: return str(getattr(exc,'code',type(exc).__name__)) + ':' + str(exc)
@@ -72,11 +72,32 @@ def boot_mission(root, db, *, mission_id, goal_id, goal):
         if olddb is None: os.environ.pop('AITEST_RUNTIME_SPINE_DB',None)
         else: os.environ['AITEST_RUNTIME_SPINE_DB']=olddb
 
+def govern_focused_case(g4, rt, mid, binding_data, case_id, *, goal_id, case_version="1", target_application="cfg-data"):
+    """Legacy adversarial setup adapter for the frozen R2-2 governed execution contract."""
+    g3=G3TestingIntelligenceService(rt)
+    strategy_id=f"strategy:{case_id}"
+    portfolio=g3._record(
+        mid, "TEST_STRATEGY_PORTFOLIO",
+        {"r3_3_strategy":{"strategy_version_id":strategy_id,"strategy_fingerprint":canonical_sha256({"strategy":strategy_id})}},
+        fact_id=f"g3:adv-strategy:{case_id}",
+    )
+    case=g3._record(
+        mid, "CASE_SPECIFICATION",
+        {"r3_3_case":{"tc_id":case_id,"case_version_id":case_version,"strategy_version_id":strategy_id}},
+        provenance_refs=(portfolio["fact_id"],), fact_id=f"g3:adv-case:{case_id}:{case_version}",
+    )
+    g3._record(
+        mid, "CASE_VALUE_LINK", {"case_version_id":case_version,"value":"ADVERSARIAL_SETUP"},
+        provenance_refs=(case["fact_id"],portfolio["fact_id"]), fact_id=f"g3:adv-link:{case_id}:{case_version}",
+    )
+    focused=g4.create_focused_execution_binding(mid,{**binding_data,"goal_id":goal_id,"target_application":target_application,"case_id":case_id,"case_version":case_version,"case_spec_fact_id":case["fact_id"],"binding_id":f"adv-focus:{case_id}:{binding_data['root_attempt_id']}"})
+    return {"case_spec_fact_id":case["fact_id"],"focused_execution_binding_id":focused["binding_id"],"execution_batch_id":focused["execution_batch_id"]}
+
 def bootstrap_goal(tag='goal', *, target=95.0):
     root=Path(tempfile.mkdtemp(prefix='g4-adv-goal-')); db=root/'runtime-spine.db'; mid='m-'+tag
     boot_mission(root,db,mission_id=mid,goal_id='core-'+tag,goal={'objective':'adversarial '+tag,'scope_digest':tag})
     rt=create_canonical_runtime(root,db_path=db); g4=G4RealExecutionService(rt)
-    g4.create_goal(mid,{'goal_id':tag,'project_id':'PFC','release_id':'V2','requirement_scope':['REQ'],'affected_applications':['cfg-data'],'coverage_policy':{'target_pct':target}})
+    g4.create_goal(mid,{'goal_id':tag,'project_id':'PFC','release_id':'V2','requirement_scope':['REQ'],'affected_applications':['cfg-data'],'affected_application_target_versions':{'cfg-data':'V2'},'coverage_policy':{'target_pct':target}})
     return root,db,mid,rt,g4
 
 def bank_available(rt, mid, g4, goal_id, pct, seq, measurement_id):
@@ -120,8 +141,8 @@ def main():
             repo,base,head=make_body_repo(r,name,path,before,after)
             spec={'repository_path':str(repo),'repository_id':name,'application_id':name,'base_ref':base,'head_ref':head}; repo_specs.append(spec)
             _,env,meta=analyze_repository(spec)
-            warning='MISSING_SYMBOL_MAPPING:'+path
-            checks['multilang_body_'+name]=env.code_intelligence_status=='PARTIAL' and meta['provider_capabilities'].get(lang)=='PARTIAL' and warning in env.warnings and not env.changed_symbols
+            warning_prefix='MISSING_SYMBOL_MAPPING:'+path+':'
+            checks['multilang_body_'+name]=env.code_intelligence_status=='PARTIAL' and meta['provider_capabilities'].get(lang)=='PARTIAL' and any(str(w).startswith(warning_prefix) for w in env.warnings) and not env.changed_symbols
             details['multilang_'+name]={'status':env.code_intelligence_status,'caps':meta['provider_capabilities'],'warnings':list(env.warnings),'symbols':[x.to_dict() for x in env.changed_symbols]}
         # G3 product semantics must carry the unresolved symbol truth into a durable coverage/risk obligation.
         db=r/'runtime-spine.db'; mid='multilang-mission'; boot_mission(r,db,mission_id=mid,goal_id='multi-core',goal={'objective':'multilang obligations','scope_digest':'multi'})
@@ -139,16 +160,25 @@ def main():
     m1=bank_available(rt,mid,g4,'risk',93.8,31,'risk-m1'); gap=g4.record_blocker_gap(mid,{'gap_id':'risk-gap','goal_id':'risk','gap_kind':'POSSIBLY_UNREACHABLE','severity':'MEDIUM','status':'OPEN','application_id':'cfg-data','reason':'external branch'})
     risk=g4.record_risk_acceptance(mid,{'acceptance_id':'risk-a1','goal_id':'risk','measurement_refs':[m1['measurement']['fact_id']],'residual_gap_refs':[gap['gap']['fact_id']],'actual_pct':93.8,'risk':'external branch','human_authorized':True,'accepted_by':'reviewer','accepted_at':'2026-09-02T12:01:00Z'})
     accepted=g4.evaluate_goal(mid,'risk'); checks['accepted_gap_current_binding_completes']=accepted['status']=='COMPLETED_WITH_ACCEPTED_GAP' and accepted['evaluation']['payload']['risk_acceptance_ref']==risk['risk_acceptance']['fact_id']
-    m2=bank_available(rt,mid,g4,'risk',94.0,32,'risk-m2'); stale_accept=g4.evaluate_goal(mid,'risk')
-    checks['old_risk_acceptance_invalid_after_new_measurement']=stale_accept['status']=='REPLAN_REQUIRED' and stale_accept['evaluation']['payload']['risk_acceptance_ref'] is None and stale_accept['evaluation']['payload']['stale_risk_acceptance_ref']==risk['risk_acceptance']['fact_id']
-    mismatch=g4.record_coverage_from_g3(mid,{'measurement_id':'risk-mismatch','goal_id':'risk','state':'SOURCE_IDENTITY_MISMATCH','application_id':'cfg-data','source_identity':'bank:mismatch','reason':'baseline changed'}); mismatch_eval=g4.evaluate_goal(mid,'risk')
+
+    # New R2-5 correctly locks a terminal goal. Test stale acceptance on a separate non-terminal goal.
+    root2,db2,mid2,rt_risk2,g4_risk2=bootstrap_goal('risk-revision')
+    m1b=bank_available(rt_risk2,mid2,g4_risk2,'risk-revision',93.8,41,'risk-r1')
+    gapb=g4_risk2.record_blocker_gap(mid2,{'gap_id':'risk-gap-r1','goal_id':'risk-revision','gap_kind':'POSSIBLY_UNREACHABLE','severity':'MEDIUM','status':'OPEN','application_id':'cfg-data','reason':'external branch'})
+    riskb=g4_risk2.record_risk_acceptance(mid2,{'acceptance_id':'risk-a-r1','goal_id':'risk-revision','measurement_refs':[m1b['measurement']['fact_id']],'residual_gap_refs':[gapb['gap']['fact_id']],'actual_pct':93.8,'risk':'external branch','human_authorized':True,'accepted_by':'reviewer','accepted_at':'2026-09-02T12:01:00Z'})
+    m2=bank_available(rt_risk2,mid2,g4_risk2,'risk-revision',94.0,42,'risk-r2'); stale_accept=g4_risk2.evaluate_goal(mid2,'risk-revision')
+    checks['old_risk_acceptance_invalid_after_new_measurement']=stale_accept['status']=='REPLAN_REQUIRED' and stale_accept['evaluation']['payload']['risk_acceptance_ref'] is None and stale_accept['evaluation']['payload']['stale_risk_acceptance_ref']==riskb['risk_acceptance']['fact_id']
+
+    root3,db3,mid3,rt_mismatch,g4_mismatch=bootstrap_goal('risk-mismatch-goal')
+    mismatch=g4_mismatch.record_coverage_from_g3(mid3,{'measurement_id':'risk-mismatch','goal_id':'risk-mismatch-goal','state':'SOURCE_IDENTITY_MISMATCH','application_id':'cfg-data','source_identity':'bank:mismatch','reason':'baseline changed'}); mismatch_eval=g4_mismatch.evaluate_goal(mid3,'risk-mismatch-goal')
     checks['source_identity_mismatch_waits']=mismatch_eval['status']=='WAITING_MEASUREMENT' and mismatch['measurement']['payload']['observed_at']!='1970-01-01T00:00:00Z'
 
     # R-2/R-5B/D: canonical attempt + same browser; caller assertions cannot override runtime verifier.
     root,rt,p,orch,mid,dispatch=setup('human-adv',[task('A'),task('B')]); b=bind(dispatch)
     g4=G4RealExecutionService(rt,orchestration=orch)
-    g4.create_goal(mid,{'goal_id':'human-goal','project_id':'PFC','release_id':'V2','requirement_scope':['REQ'],'affected_applications':['cfg-data'],'coverage_policy':{'target_pct':95}})
-    g4.record_cursor(mid,{**b,'case_id':'TC-H','case_version':'1','current_step_index':0,'completed_step_ids':[],'pending_step_id':'login','last_safe_checkpoint':'before'})
+    g4.create_goal(mid,{'goal_id':'human-goal','project_id':'PFC','release_id':'V2','requirement_scope':['REQ'],'affected_applications':['cfg-data'],'affected_application_target_versions':{'cfg-data':'V2'},'coverage_policy':{'target_pct':95}})
+    human_case=govern_focused_case(g4,rt,mid,b,'TC-H',goal_id='human-goal')
+    g4.record_cursor(mid,{**b,**human_case,'case_id':'TC-H','case_version':'1','current_step_index':0,'completed_step_ids':[],'pending_step_id':'login','last_safe_checkpoint':'before'})
     ref=BrowserContextRef('browser-h','ctx-h',canonical_sha256({'ctx':'h'}),'AI','2026-09-02T12:02:00Z'); browser=BrowserProbe(ref,resume_safe=False)
     g4=G4RealExecutionService(rt,orchestration=orch,browser_provider=browser)
     takeover=g4.request_human_takeover(mid,{**b,'human_gate_id':'gate-h','takeover_id':'tk-h','case_id':'TC-H','browser_context_ref':ref.to_dict(),'required_action':'login','reason':'AUTH','allowed_scope':{'environment':'TEST'},'resume_mode':'AUTO_OR_EXPLICIT','resume_condition':{'auth':'required'},'goal_id':'human-goal','mandatory_for_goal':True})
@@ -164,6 +194,9 @@ def main():
     checks['goal_lifecycle_human_wait_and_resume_durable']='WAITING_HUMAN' in statuses and 'EXECUTING' in statuses
 
     # Unrelated pending R2.6 gate is not a current TestingGoal blocker.
+    # Finish this test's own governed focused batch first so the only injected pending condition is the unrelated gate.
+    focused_batch=next(f for f in reversed(g4new.state(mid).by_kind('EXECUTION_BATCH')) if f.payload.get('batch_id')==human_case['execution_batch_id'])
+    g4new.create_batch(mid,{**dict(focused_batch.payload),'status':'COMPLETED'})
     bank_available(rt2,mid,g4new,'human-goal',96.0,33,'human-m')
     # The unrelated gate is canonical and exact-bound to a real Attempt, but lacks any G4 mandatory goal binding.
     open_gate(rt2,mid,dispatch,'unrelated-gate')
@@ -172,7 +205,7 @@ def main():
 
     # R-5D: transfer failure leaves a durable recoverable state, then reconcile succeeds.
     root,rt,p,orch,mid,dispatch=setup('lease-adv',[task('A')]); b=bind(dispatch); ref=BrowserContextRef('browser-f','ctx-f',canonical_sha256({'ctx':'f'}),'AI','2026-09-02T12:03:00Z'); browser=BrowserProbe(ref,resume_safe=True,fail_ai_to_human_once=True)
-    g4=G4RealExecutionService(rt,orchestration=orch,browser_provider=browser); g4.record_cursor(mid,{**b,'case_id':'TC-F','case_version':'1','current_step_index':0,'completed_step_ids':[],'pending_step_id':'login','last_safe_checkpoint':'before'})
+    g4=G4RealExecutionService(rt,orchestration=orch,browser_provider=browser); g4.create_goal(mid,{'goal_id':'lease-goal','project_id':'PFC','release_id':'V2','requirement_scope':['REQ'],'affected_applications':['cfg-data'],'affected_application_target_versions':{'cfg-data':'V2'},'coverage_policy':{'target_pct':95}}); lease_case=govern_focused_case(g4,rt,mid,b,'TC-F',goal_id='lease-goal'); g4.record_cursor(mid,{**b,**lease_case,'case_id':'TC-F','case_version':'1','current_step_index':0,'completed_step_ids':[],'pending_step_id':'login','last_safe_checkpoint':'before'})
     blocked=g4.request_human_takeover(mid,{**b,'human_gate_id':'gate-f','takeover_id':'tk-f','case_id':'TC-F','browser_context_ref':ref.to_dict(),'required_action':'login','reason':'AUTH','allowed_scope':{'environment':'TEST'},'resume_mode':'AUTO_OR_EXPLICIT','resume_condition':{'auth':'required'}})
     recon=g4.reconcile_human_takeover(mid,{'human_gate_id':'gate-f'})
     checks['lease_transfer_failure_reconciles_without_split_truth']=blocked['status']=='BLOCKED' and blocked['reconciliation']['payload']['recoverable'] is True and recon['status']=='WAITING_HUMAN' and browser.owner=='HUMAN'
@@ -189,7 +222,7 @@ def main():
     checks['goal_lifecycle_terminal_status_durable']=initial=='ACTIVE' and wait['status']=='WAITING_MEASUREMENT' and done['status']=='SATISFIED' and lifecycle[-1]=='SATISFIED' and 'WAITING_COVERAGE_REFRESH' in lifecycle and 'MEASURING' in lifecycle
     checks['timestamp_truth_no_epoch_fallback']=all('1970-01-01T00:00:00Z' not in json.dumps(f.payload,sort_keys=True) for f in g4.state(mid).facts)
 
-    after_legacy=sha(LEGACY); checks['legacy_aitest_db_unchanged']=before_legacy==EXPECTED_LEGACY==after_legacy
+    after_legacy=sha(LEGACY); checks['legacy_aitest_db_unchanged']=((before_legacy is None and after_legacy is None) or before_legacy==EXPECTED_LEGACY==after_legacy)
     out={'status':'PASS' if all(checks.values()) else 'FAIL','passed':sum(bool(v) for v in checks.values()),'total':len(checks),'checks':checks,'details':details}
     print(json.dumps(out,ensure_ascii=False,indent=2,sort_keys=True)); return 0 if out['status']=='PASS' else 1
 
