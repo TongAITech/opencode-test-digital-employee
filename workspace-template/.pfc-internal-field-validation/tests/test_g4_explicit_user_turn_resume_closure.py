@@ -25,14 +25,19 @@ from test_g3_testing_intelligence_product_path import binding, intake_request
 from test_g4_background_auto_resume_wave2 import BrowserPort, seed_g3, task
 
 
-def open_ambiguous_gate(g4: G4RealExecutionService, mission_id: str, gate_id: str) -> None:
-    # Reuse exact canonical lineage from the already exercised HumanGate. The
-    # adversarial fixture must not invent plan/session fields from conversation
-    # or test-local dictionaries.
-    human_state = g4.runtime.replay_composed(mission_id).extension_state("r2_6_human_gate")
-    lineage = human_state.gate("gate-explicit") if human_state is not None and hasattr(human_state, "gate") else None
-    if lineage is None:
-        raise AssertionError("canonical gate-explicit lineage unavailable")
+def parallel_task(task_key: str) -> dict:
+    value = task()
+    value["task_key"] = task_key
+    value["intent"] = f"execute governed case after browser auth on {task_key}"
+    value["routing"] = {**value["routing"], "parallelism_policy": "PARALLEL_SAFE"}
+    return value
+
+
+def open_ambiguous_gate(g4: G4RealExecutionService, mission_id: str, gate_id: str, dispatch: dict) -> None:
+    # Use an exact scheduler-produced lineage. Two ambiguity gates must belong to
+    # two distinct active lineages in the same Mission; inventing a second gate
+    # on one lineage would correctly violate frozen R2.6 concurrency safety.
+    attempt = dispatch["attempt"]
     routes = {
         outcome: (("BLOCK",) if outcome == "REJECTED" else ("NONE",))
         for outcome in OUTCOMES
@@ -42,12 +47,12 @@ def open_ambiguous_gate(g4: G4RealExecutionService, mission_id: str, gate_id: st
     g4.human_gates.open_gate({
         "mission_id": mission_id,
         "gate_id": gate_id,
-        "plan_id": lineage.plan_id,
-        "plan_revision_id": lineage.plan_revision_id,
-        "task_id": lineage.task_id,
-        "root_attempt_id": lineage.root_attempt_id,
-        "origin_attempt_id": lineage.origin_attempt_id,
-        "origin_session_id": lineage.origin_session_id,
+        "plan_id": attempt["plan_id"],
+        "plan_revision_id": attempt["plan_revision_id"],
+        "task_id": dispatch["task_id"],
+        "root_attempt_id": attempt["root_attempt_id"],
+        "origin_attempt_id": attempt["attempt_id"],
+        "origin_session_id": dispatch["external_session"]["session_id"],
         "gate_kind": "EXTERNAL_ACTION",
         "request_payload": {"action": "ambiguous durable human action", "reason": "CLOSURE_ADVERSARIAL"},
         "response_schema": {"type": "object"},
@@ -90,9 +95,17 @@ def main() -> int:
         orch = G21AutonomousOrchestrationService(runtime, root, session_provider=provider)
         mission_id = orch.start_test(intake_request())["intake"]["intake"]["mission_id"]
         case_fact, strategy_id = seed_g3(runtime, mission_id)
-        plan = orch.propose_plan(mission_id, {"objective": "explicit user-turn resume", "tasks": [task()], "dependencies": []})
-        attempt = binding(plan["next"])
-        attempt["root_attempt_id"] = str(plan["next"]["attempt"]["root_attempt_id"])
+        plan = orch.propose_plan(
+            mission_id,
+            {
+                "objective": "explicit user-turn resume",
+                "tasks": [parallel_task("AUTO-A"), parallel_task("AUTO-B")],
+                "dependencies": [],
+            },
+        )
+        dispatch_a = plan["next"]
+        attempt = binding(dispatch_a)
+        attempt["root_attempt_id"] = str(dispatch_a["attempt"]["root_attempt_id"])
         ref = BrowserContextRef("browser-explicit", "epoch-explicit", canonical_sha256({"ctx": "explicit"}), "AI", "2026-09-03T02:00:00Z")
         browser = BrowserPort(ref)
         g4 = G4RealExecutionService(runtime, orchestration=orch, browser_provider=browser)
@@ -174,12 +187,15 @@ def main() -> int:
         checks["runtime_rebuild_replays_resume_truth_from_r1"] = restarted.verify_projection(mission_id).get("ok") is True and g4_restart.state(mission_id).latest("HUMAN_GATE_USER_TURN_RESUME_REQUEST") is not None
         checks["user_completion_phrase_not_present_in_r1_storage_bytes"] = "完成".encode("utf-8") not in db.read_bytes()
 
-        # Adversarial R1 truth: two compatible durable pending gates must never be guessed.
-        open_ambiguous_gate(g4_restart, mission_id, "gate-ambiguous-a")
-        open_ambiguous_gate(g4_restart, mission_id, "gate-ambiguous-b")
+        # Adversarial R1 truth: same Mission, two real scheduler lineages, two
+        # compatible pending gates. Resolver must fail closed instead of guessing.
+        open_ambiguous_gate(g4_restart, mission_id, "gate-ambiguous-a", dispatch_a)
+        orch_restart = G21AutonomousOrchestrationService(restarted, root, session_provider=provider)
+        dispatch_b = orch_restart.dispatch_next(mission_id)
+        open_ambiguous_gate(g4_restart, mission_id, "gate-ambiguous-b", dispatch_b)
         ambiguous = g4_restart.resolve_human_gate_user_turn(mission_id, {"user_text": "好了"})
         rebuilt_human = restarted.replay_composed(mission_id).extension_state("r2_6_human_gate")
-        checks["multiple_compatible_pending_gates_fail_closed"] = ambiguous["status"] == "CLARIFICATION_REQUIRED" and ambiguous["reason"] == "MULTIPLE_COMPATIBLE_PENDING_HUMAN_GATES" and set(ambiguous["compatible_gate_refs"]) == {"gate-ambiguous-a", "gate-ambiguous-b"}
+        checks["multiple_compatible_pending_gates_fail_closed"] = dispatch_b["status"] == "DISPATCHED" and dispatch_b["task_id"] != dispatch_a["task_id"] and ambiguous["status"] == "CLARIFICATION_REQUIRED" and ambiguous["reason"] == "MULTIPLE_COMPATIBLE_PENDING_HUMAN_GATES" and set(ambiguous["compatible_gate_refs"]) == {"gate-ambiguous-a", "gate-ambiguous-b"}
         checks["ambiguity_does_not_resolve_any_gate"] = rebuilt_human.gate("gate-ambiguous-a").status == "PENDING" and rebuilt_human.gate("gate-ambiguous-b").status == "PENDING"
 
     failed = [key for key, value in checks.items() if not value]
