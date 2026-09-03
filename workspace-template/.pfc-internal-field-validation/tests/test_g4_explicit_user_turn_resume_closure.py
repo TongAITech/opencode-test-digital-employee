@@ -25,7 +25,14 @@ from test_g3_testing_intelligence_product_path import binding, intake_request
 from test_g4_background_auto_resume_wave2 import BrowserPort, seed_g3, task
 
 
-def open_ambiguous_gate(g4: G4RealExecutionService, mission_id: str, attempt: dict, gate_id: str) -> None:
+def open_ambiguous_gate(g4: G4RealExecutionService, mission_id: str, gate_id: str) -> None:
+    # Reuse exact canonical lineage from the already exercised HumanGate. The
+    # adversarial fixture must not invent plan/session fields from conversation
+    # or test-local dictionaries.
+    human_state = g4.runtime.replay_composed(mission_id).extension_state("r2_6_human_gate")
+    lineage = human_state.gate("gate-explicit") if human_state is not None and hasattr(human_state, "gate") else None
+    if lineage is None:
+        raise AssertionError("canonical gate-explicit lineage unavailable")
     routes = {
         outcome: (("BLOCK",) if outcome == "REJECTED" else ("NONE",))
         for outcome in OUTCOMES
@@ -35,12 +42,12 @@ def open_ambiguous_gate(g4: G4RealExecutionService, mission_id: str, attempt: di
     g4.human_gates.open_gate({
         "mission_id": mission_id,
         "gate_id": gate_id,
-        "plan_id": attempt["plan_id"],
-        "plan_revision_id": attempt["plan_revision_id"],
-        "task_id": attempt["task_id"],
-        "root_attempt_id": attempt["root_attempt_id"],
-        "origin_attempt_id": attempt["attempt_id"],
-        "origin_session_id": attempt["session_id"],
+        "plan_id": lineage.plan_id,
+        "plan_revision_id": lineage.plan_revision_id,
+        "task_id": lineage.task_id,
+        "root_attempt_id": lineage.root_attempt_id,
+        "origin_attempt_id": lineage.origin_attempt_id,
+        "origin_session_id": lineage.origin_session_id,
         "gate_kind": "EXTERNAL_ACTION",
         "request_payload": {"action": "ambiguous durable human action", "reason": "CLOSURE_ADVERSARIAL"},
         "response_schema": {"type": "object"},
@@ -168,8 +175,8 @@ def main() -> int:
         checks["user_completion_phrase_not_present_in_r1_storage_bytes"] = "完成".encode("utf-8") not in db.read_bytes()
 
         # Adversarial R1 truth: two compatible durable pending gates must never be guessed.
-        open_ambiguous_gate(g4_restart, mission_id, attempt, "gate-ambiguous-a")
-        open_ambiguous_gate(g4_restart, mission_id, attempt, "gate-ambiguous-b")
+        open_ambiguous_gate(g4_restart, mission_id, "gate-ambiguous-a")
+        open_ambiguous_gate(g4_restart, mission_id, "gate-ambiguous-b")
         ambiguous = g4_restart.resolve_human_gate_user_turn(mission_id, {"user_text": "好了"})
         rebuilt_human = restarted.replay_composed(mission_id).extension_state("r2_6_human_gate")
         checks["multiple_compatible_pending_gates_fail_closed"] = ambiguous["status"] == "CLARIFICATION_REQUIRED" and ambiguous["reason"] == "MULTIPLE_COMPATIBLE_PENDING_HUMAN_GATES" and set(ambiguous["compatible_gate_refs"]) == {"gate-ambiguous-a", "gate-ambiguous-b"}
