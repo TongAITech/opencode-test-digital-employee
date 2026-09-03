@@ -96,6 +96,7 @@ def main() -> int:
 
         # F3: CodeGraph structural enrichment is real and incomplete queries remain obligations.
         "f3_real_codegraph_relationship_tools_present": all(tool in codegraph for tool in ("codegraph_get_callers", "codegraph_get_callees", "codegraph_get_dependency_graph", "codegraph_analyze_impact")),
+        "f3_reference_relationship_semantics_normalized": "impact_type" in codegraph and 'normalized_kinds.append("REFERENCE")' in codegraph and "codegraph-tool:{tool}" in codegraph,
         "f3_relationship_edges_keep_tool_provenance": "codegraph-tool:{tool}" in codegraph and "ImpactEdge(" in codegraph,
         "f3_failed_relationship_query_downgrades_partial": "CODEGRAPH_RELATIONSHIP_QUERY_FAILED" in codegraph and 'status = "AVAILABLE" if mapping_complete and structural_complete else "PARTIAL"' in codegraph,
         "f3_explicit_structural_relationship_obligation": "CODEGRAPH_STRUCTURAL_RELATIONSHIPS_PARTIAL" in broker,
