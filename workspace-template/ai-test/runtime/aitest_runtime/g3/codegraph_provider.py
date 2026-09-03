@@ -7,6 +7,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
+from urllib.parse import unquote, urlparse
 
 from aitest_runtime.durable_core import canonical_sha256
 from aitest_runtime.r3_2.contracts import ImpactEdge, RepositoryCompareRequest
@@ -189,12 +190,11 @@ def _extract_symbol(payload: Any, file_path: str, line_number: int, provider_ref
             if isinstance(symbol_obj, Mapping):
                 name = _first_text(symbol_obj, ("name", "symbolName", "qualifiedName"))
                 if name:
-                    item = {**item, **{f"symbol_{k}": v for k, v in symbol_obj.items()}}
+                    item = {**item, **{f"symbol_{key}": value for key, value in symbol_obj.items()}}
         if not name:
             continue
         start = _first_int(item, ("startLine", "start_line", "lineStart", "line_start", "line"))
         end = _first_int(item, ("endLine", "end_line", "lineEnd", "line_end"))
-        # CodeGraph tool inputs are zero-indexed; outputs may be zero- or one-indexed.
         score = 0
         for candidate_line in (line_number, line_number - 1):
             if start is not None and end is not None and start <= candidate_line <= end:
@@ -213,15 +213,88 @@ def _extract_symbol(payload: Any, file_path: str, line_number: int, provider_ref
     kind = (_first_text(best, ("symbolKind", "symbol_kind", "kind", "type")) or "SYMBOL").upper()
     node_id = _first_text(best, ("nodeId", "node_id", "symbolId", "symbol_id", "id"))
     symbol_id = f"{file_path}:{node_id or name}"
-    provenance = (provider_ref, f"file:{file_path}:L{line_number}")
+    provenance = (provider_ref, f"file:{file_path}:L{line_number}", "codegraph-tool:codegraph_get_ai_context")
     return StructuralLineMapping(file_path, line_number, symbol_id, name, kind, 0.95, provider_ref, provenance)
+
+
+def _relative_file(raw: str | None, repo: Path) -> str | None:
+    if not raw:
+        return None
+    value = raw
+    if raw.startswith("file:"):
+        parsed = urlparse(raw)
+        value = unquote(parsed.path)
+        if os.name == "nt" and value.startswith("/") and len(value) > 2 and value[2] == ":":
+            value = value[1:]
+    try:
+        path = Path(value)
+        if path.is_absolute():
+            return path.resolve().relative_to(repo.resolve()).as_posix()
+    except (OSError, ValueError):
+        pass
+    normalized = str(value).replace("\\", "/")
+    marker = repo.name.replace("\\", "/") + "/"
+    if marker in normalized:
+        normalized = normalized.split(marker, 1)[1]
+    return normalized.lstrip("/") or None
+
+
+def _relationship_edges(
+    payload: Any,
+    *,
+    repository_path: Path,
+    source: StructuralLineMapping,
+    edge_kind: str,
+    direction: str,
+    provider_ref: str,
+    tool: str,
+) -> list[ImpactEdge]:
+    edges: list[ImpactEdge] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in _walk_mappings(payload):
+        location = item.get("location") if isinstance(item.get("location"), Mapping) else {}
+        name = _first_text(item, ("symbolName", "symbol_name", "qualifiedName", "qualified_name", "name", "module", "dependency"))
+        raw_path = _first_text(item, ("uri", "file", "filePath", "file_path", "path", "modulePath", "module_path"))
+        if isinstance(location, Mapping):
+            name = name or _first_text(location, ("name",))
+            raw_path = raw_path or _first_text(location, ("uri", "file", "filePath", "file_path", "path"))
+        node_id = _first_text(item, ("nodeId", "node_id", "symbolId", "symbol_id", "id"))
+        rel = _relative_file(raw_path, repository_path)
+        if not name and not rel and not node_id:
+            continue
+        line = _first_int(location if isinstance(location, Mapping) else item, ("line", "startLine", "start_line", "lineStart", "line_start"))
+        stable = f"{rel}:{node_id or name or ('L' + str(line or 0))}" if rel else f"codegraph:{node_id or name}"
+        if stable == source.symbol_id or (rel == source.file_path and name == source.symbol_name):
+            continue
+        depth = _first_int(item, ("depth", "distance")) or 1
+        key = (source.symbol_id, stable, edge_kind)
+        if key in seen:
+            continue
+        seen.add(key)
+        provenance = [provider_ref, f"codegraph-tool:{tool}"]
+        if rel:
+            provenance.append(f"file:{rel}" + (f":L{line + 1}" if line is not None else ""))
+        edges.append(
+            ImpactEdge(
+                source.symbol_id,
+                stable,
+                edge_kind,
+                direction,
+                depth,
+                0.98,
+                provider_ref,
+                tuple(provenance),
+            )
+        )
+    return edges
 
 
 class CodeGraphExecutableProvider:
     """Offline CodeGraph graph-only adapter.
 
-    Git remains the change-truth authority.  This adapter only attempts structural
-    enrichment for exact changed lines already established by Git.
+    Git remains the sole changed-file/line authority. CodeGraph is structural
+    enrichment only and is considered fully available only when all requested
+    graph queries execute successfully.
     """
 
     PROVIDER_ID = "codegraph-ai/CodeGraph"
@@ -291,12 +364,15 @@ class CodeGraphExecutableProvider:
         if self._health.status != "AVAILABLE":
             return CodeGraphContribution(self._health, warnings=(f"CODEGRAPH_{self._health.status}:{self._health.reason}",))
         mappings: list[StructuralLineMapping] = []
+        edges: list[ImpactEdge] = []
         warnings: list[str] = []
+        source_refs: list[str] = []
         provider_ref = (
             f"codegraph:{self.PROVIDER_ID}:{self._health.version}:{self._health.mode}:"
             f"sha256={self._health.binary_sha256}"
         )
-        successful_calls = 0
+        source_refs.append(provider_ref)
+        successful_mapping_calls = 0
         for file_path, line_number in changed_executable_lines:
             uri = (repository_path / file_path).resolve().as_uri()
             ok, payload, error = self._run_tool(
@@ -305,37 +381,87 @@ class CodeGraphExecutableProvider:
                 {"uri": uri, "line": max(0, line_number - 1), "intent": "explain"},
             )
             if not ok:
-                warnings.append(f"CODEGRAPH_QUERY_FAILED:{file_path}:L{line_number}:{error}")
+                warnings.append(f"CODEGRAPH_QUERY_FAILED:get_ai_context:{file_path}:L{line_number}:{error}")
                 continue
-            successful_calls += 1
+            successful_mapping_calls += 1
             mapping = _extract_symbol(payload, file_path, line_number, provider_ref)
             if mapping is None:
                 warnings.append(f"CODEGRAPH_SYMBOL_UNRESOLVED:{file_path}:L{line_number}")
             else:
                 mappings.append(mapping)
-        status = "AVAILABLE" if successful_calls == len(changed_executable_lines) else "PARTIAL"
-        if changed_executable_lines and successful_calls == 0:
-            status = "PARTIAL"
+
+        unique: dict[str, StructuralLineMapping] = {}
+        for mapping in mappings:
+            unique.setdefault(mapping.symbol_id, mapping)
+
+        structural_expected = 0
+        structural_succeeded = 0
+        structural_tools = (
+            ("codegraph_get_callers", "CALLER", "INBOUND", lambda uri, line: {"uri": uri, "line": line, "depth": 1}),
+            ("codegraph_get_callees", "CALLEE", "OUTBOUND", lambda uri, line: {"uri": uri, "line": line, "depth": 1}),
+            ("codegraph_get_dependency_graph", "DEPENDENCY", "BOTH", lambda uri, line: {"uri": uri, "direction": "both", "depth": 1}),
+            ("codegraph_analyze_impact", "IMPACT", "OUTBOUND", lambda uri, line: {"uri": uri, "line": line, "changeType": "modify"}),
+        )
+        for mapping in unique.values():
+            uri = (repository_path / mapping.file_path).resolve().as_uri()
+            line = max(0, mapping.line_number - 1)
+            for tool, edge_kind, direction, args_factory in structural_tools:
+                structural_expected += 1
+                ok, payload, error = self._run_tool(repository_path, tool, args_factory(uri, line))
+                if not ok:
+                    warnings.append(f"CODEGRAPH_RELATIONSHIP_QUERY_FAILED:{tool}:{mapping.file_path}:L{mapping.line_number}:{error}")
+                    continue
+                structural_succeeded += 1
+                source_refs.append(f"{provider_ref}:{tool}:{mapping.file_path}:L{mapping.line_number}")
+                edges.extend(
+                    _relationship_edges(
+                        payload,
+                        repository_path=repository_path,
+                        source=mapping,
+                        edge_kind=edge_kind,
+                        direction=direction,
+                        provider_ref=provider_ref,
+                        tool=tool,
+                    )
+                )
+
+        # A successful empty graph query is valid structural truth. A failed query
+        # is not: it makes CodeGraph PARTIAL even when line->symbol mapping succeeded.
+        mapping_complete = successful_mapping_calls == len(changed_executable_lines)
+        structural_complete = structural_succeeded == structural_expected
+        status = "AVAILABLE" if mapping_complete and structural_complete else "PARTIAL"
+        reason = None if status == "AVAILABLE" else "ONE_OR_MORE_STRUCTURAL_OR_RELATIONSHIP_QUERIES_FAILED"
         health = ProviderHealth(
             self._health.provider_id,
             status,
             self._health.version,
             self._health.mode,
-            None if status == "AVAILABLE" else "ONE_OR_MORE_STRUCTURAL_QUERIES_FAILED",
+            reason,
             self._health.binary_sha256,
             self._health.profile_digest,
         )
-        graph_digest = canonical_sha256({
-            "provider": health.to_dict(),
-            "compare": compare_request.to_dict(),
-            "mappings": [item.to_dict() for item in mappings],
-        })
+        merged_edges: dict[tuple[str, str, str, str], ImpactEdge] = {}
+        for edge in edges:
+            merged_edges[(edge.from_node, edge.to_node, edge.edge_kind, edge.direction)] = edge
+        graph_digest = canonical_sha256(
+            {
+                "provider": health.to_dict(),
+                "compare": compare_request.to_dict(),
+                "mappings": [item.to_dict() for item in mappings],
+                "impact_edges": [item.to_dict() for item in merged_edges.values()],
+                "relationship_queries": {
+                    "expected": structural_expected,
+                    "succeeded": structural_succeeded,
+                    "tools": [item[0] for item in structural_tools],
+                },
+            }
+        )
         return CodeGraphContribution(
             health,
             tuple(mappings),
-            (),
+            tuple(merged_edges.values()),
             tuple(dict.fromkeys(warnings)),
-            (provider_ref,),
+            tuple(dict.fromkeys(source_refs)),
             graph_digest,
         )
 
