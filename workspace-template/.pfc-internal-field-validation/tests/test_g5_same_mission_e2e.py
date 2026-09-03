@@ -415,7 +415,7 @@ def main():
                 behavior["g5_exact_admission_creates_r36_anomaly"] = (
                     anomaly is not None
                     and anomaly.origin_lineage.get("mission_id") == mission_id
-                    and anomaly.origin_lineage.get("g4_observation_ref")
+                    and bool(anomaly.origin_lineage.get("g4_observation_ref"))
                 )
                 behavior["g5_originated_r36_lineage_v7"] = (
                     anomaly is not None
