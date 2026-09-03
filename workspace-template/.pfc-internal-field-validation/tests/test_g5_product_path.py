@@ -31,6 +31,13 @@ REQUIRED_WORKER_ACTIONS = {
     "evaluate_reproducibility", "assess_false_positive", "assess_defect_truth",
     "record_rca", "record_checkpoint", "handoff_confirmed_defect",
 }
+REQUIRED_NON_DURABLE_CONTRACTS = {
+    "G5WorkerBinding",
+    "G4ObservationAdmission",
+    "GovernedEvidenceRequest",
+    "DuplicateCorrelationDecision",
+    "G5OperationResult",
+}
 
 
 def parse_json(text: str) -> dict:
@@ -129,6 +136,10 @@ def main() -> int:
 
     contract = {
         "g5_package_importable": g5_module is not None and g5_import_error is None,
+        "g5_non_durable_contracts_present": g5_module is not None and all(
+            getattr(g5_module, name, None) is not None
+            for name in REQUIRED_NON_DURABLE_CONTRACTS
+        ),
         "g5_command_callable": callable(command),
         "g5_cli_registered": parser_has_g5(),
         "director_status_is_r1_truth": isinstance(direct_status, dict) and direct_exc is None and direct_status.get("truth_source") == "R1_EVENT_STREAM",

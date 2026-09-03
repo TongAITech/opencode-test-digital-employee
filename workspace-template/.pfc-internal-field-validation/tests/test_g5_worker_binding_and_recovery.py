@@ -66,7 +66,7 @@ def task(role: str, capabilities: list[str]) -> dict:
 
 def binding(envelope: dict) -> dict:
     return {
-        "mission_id": envelope["mission_id"],
+        "mission_id": envelope.get("mission_id") or envelope["attempt"]["mission_id"],
         "task_id": envelope["task_id"],
         "attempt_id": envelope["attempt"]["attempt_id"],
         "session_id": envelope["external_session"]["session_id"],
