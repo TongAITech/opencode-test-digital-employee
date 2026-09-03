@@ -1,6 +1,6 @@
 # G5 — Execution Contract Candidate
 
-**Status:** `EXECUTION_CONTRACT_CANDIDATE / REVIEW_REQUIRED / NOT_FROZEN`  
+**Status:** `EXECUTION_CONTRACT_CANDIDATE / REPAIRED_AFTER_00.9_REVIEW / REVIEW_REQUIRED / NOT_FROZEN`  
 **WorkItem:** `10.G5｜Defect Truth & Autonomous Defect Hunter`  
 **Governance Authority:** `00.9｜ChatGPT Harness 总控与架构治理｜G5-G6` as successor to all still-effective `00.8` Governance Authority  
 **Canonical repository:** `TongAITech/opencode-test-digital-employee`  
@@ -9,29 +9,40 @@
 **Draft PR:** `#2 / MUST_REMAIN_DRAFT_OPEN_UNMERGED`  
 **ArchitectureBaseline:** `v7 / FROZEN / UNCHANGED`  
 **Frozen G5 CodeContract identity:** `584b86980c7b0ce93353a37f4e1b76891ca639e0`  
+**Frozen CodeContract blob:** `fd0c85ef7ecbe01e990609b3e7e6f7f6490d5842`  
 **Frozen CodeContract file:** `docs/governance/G5_DEFECT_TRUTH_AND_AUTONOMOUS_DEFECT_HUNTER_CODE_CONTRACT_CANDIDATE_V2.md`  
-**Contract Review evidence:** PR #2 comment `00.9 — G5 CONTRACT REVIEW PASS / CODE CONTRACT FROZEN`  
-**Reviewed pre-Execution-Contract branch head:** `296b9408c2a11261ea4541454a4b88347cc7d05d`  
+**CodeContract Review evidence:** PR #2 comment `00.9 — G5 CONTRACT REVIEW PASS / CODE CONTRACT FROZEN`  
+**Execution Contract review evidence:** PR #2 comment `00.9 — G5 EXECUTION CONTRACT REVIEW / REPAIR REQUIRED`  
+**Reviewed Execution Contract candidate head:** `ed405ae6dad2bf72ee0dafb3cecde734c23005b9`  
 
 ```text
 G5_CONTRACT_REVIEW = PASS
 G5_CODE_CONTRACT_FROZEN = YES
 FROZEN_CODE_CONTRACT_IDENTITY = 584b86980c7b0ce93353a37f4e1b76891ca639e0
-EXECUTION_CONTRACT = AUTHORIZED_TO_DRAFT
-IMPLEMENTATION_STARTED = NO
+FROZEN_CODE_CONTRACT_BLOB = fd0c85ef7ecbe01e990609b3e7e6f7f6490d5842
+G5_EXECUTION_CONTRACT_REVIEW = REPAIR_REQUIRED
+EXECUTION_CONTRACT_FROZEN = NO
 PRE_EXECUTION_DRIFT_CHECK = NOT_STARTED
 READY_FOR_CODEX = NO
+IMPLEMENTATION_STARTED = NO
+EC0_RED_ORACLE = NOT_STARTED
 G6 = HOLD
 BANK_INTERNAL_PILOT_READY = NO
 ```
 
-> This Execution Contract Candidate may sequence and operationalize the frozen CodeContract. It MUST NOT reinterpret, weaken, extend, or replace any frozen G5 CodeContract requirement. Construction remains forbidden until this Execution Contract is reviewed/frozen and the subsequent Pre-Execution Drift Check passes.
+This repaired candidate addresses only the three blocking precision/ordering issues identified by 00.9:
+
+1. confirmation sequencing between EC3 and EC5;
+2. exact G5 validation runner and immutable G1-G4 regression runner authority;
+3. exact implementation/evidence path allowlist.
+
+It does **not** modify, reinterpret, weaken, extend, or reopen the Frozen G5 CodeContract. It does **not** authorize runtime construction, test construction, EC0, Pre-Execution Drift Check, or Codex execution.
 
 ---
 
 # 1. Execution objective
 
-The implementation objective is to realize the frozen G5 integration/application layer exactly as contracted:
+The implementation objective remains the frozen G5 integration/application layer:
 
 ```text
 G2/G2.1 governed Task + Router + Session
@@ -57,17 +68,20 @@ RCA
 R4.3 ConfirmedDefectLifecycle
 ```
 
-When frozen policy requires human confirmation, canonical R2.6 HumanGate is inserted before the R3.6 `CONFIRMED_DEFECT` write and must become canonically allowing before G5 continues.
+When frozen policy requires human confirmation, canonical R2.6 HumanGate is inserted **before** the R3.6 `CONFIRMED_DEFECT` write and must become canonically allowing before G5 continues.
 
-This Execution Contract is specifically designed to prevent the previously observed failure mode where runtime code, tests, and frozen contract drift apart. The execution order is therefore:
+Execution order:
 
 ```text
 freeze truthful RED oracle
 -> add minimum authorized integration surfaces
--> make each frozen behavior GREEN in dependency order
+-> make pre-confirmation investigation GREEN
+-> make confirmation policy + ordinary autonomous confirmation + mandatory HumanGate confirmation GREEN together
+-> make exact R4.3 handoff GREEN
 -> prove negative/adversarial boundaries
 -> prove same-Mission E2E
--> run full frozen regression
+-> run additive G5 validation
+-> run immutable frozen G1-G4 regression separately
 -> return Engineering PASS candidate for independent closure review
 ```
 
@@ -109,7 +123,7 @@ Any implementation pressure to weaken these rules is `STOP / REPLAN_REQUIRED`, n
 
 ---
 
-# 3. Authorized construction surface
+# 3. Exact construction allowlist and immutable regression authority
 
 ## 3.1 New G5 integration package
 
@@ -134,32 +148,129 @@ Responsibilities remain frozen:
 
 ## 3.2 Existing product/integration files allowed to change
 
+Only:
+
 ```text
 workspace-template/ai-test/runtime/aitest_runtime/product_entry.py
 workspace-template/ai-test/runtime/aitest_runtime/g2_1/router.py
 workspace-template/.opencode/tools/aitest.ts
-workspace-template/.opencode/agents/aitest-diagnosis.md   # wording only if required
-workspace-template/.pfc-internal-field-validation/tests/test_g5_*.py
-tools/<additive G5 validation runner or additive canonical-runner extension>
+workspace-template/.opencode/agents/aitest-diagnosis.md   # wording/actions only if required by Frozen CodeContract
 ```
 
-Governance/review evidence files under `docs/governance/` and `docs/reviews/` may be added as non-runtime evidence.
+## 3.3 Exact G5 test allowlist
 
-## 3.3 Frozen source that is not authorized for semantic change
+Only these additive G5 suites are authorized during EC0-EC7:
+
+```text
+workspace-template/.pfc-internal-field-validation/tests/test_g5_product_path.py
+workspace-template/.pfc-internal-field-validation/tests/test_g5_worker_binding_and_recovery.py
+workspace-template/.pfc-internal-field-validation/tests/test_g5_adversarial_defect_truth.py
+workspace-template/.pfc-internal-field-validation/tests/test_g5_human_gate_and_duplicate_correlation.py
+workspace-template/.pfc-internal-field-validation/tests/test_g5_same_mission_e2e.py
+workspace-template/.pfc-internal-field-validation/tests/test_g5_opencode_surface.py
+```
+
+No existing G1-G4 test file may be modified, removed, renamed, weakened, skipped, or replaced.
+
+## 3.4 Exact additive G5 validation runner
+
+The only G5 validation runner authorized for construction is:
+
+```text
+tools/run_g5_validation.py
+```
+
+It is additive and G5-owned. EC0-EC7 G5 focused/adversarial/E2E orchestration MUST go through this runner.
+
+No placeholder runner path remains authorized. No alternative `tools/run_*g5*` runner may be created.
+
+## 3.5 Immutable G1-G4 regression runner
+
+The canonical frozen G1-G4 regression authority is pinned exactly as:
+
+```text
+path = tools/run_wave2_validation.py
+canonical_main = 4edd78536633d4258705c6083fe55b44e51f54bb
+blob = b006cecb48673a5b8735dda9e1b645ebafe7f1fc
+authority = G1_G4_REGRESSION_ONLY
+mutation = FORBIDDEN
+```
+
+Rules:
+
+1. `tools/run_wave2_validation.py` is **read/execute only** throughout G5.
+2. Its blob MUST remain exactly `b006cecb48673a5b8735dda9e1b645ebafe7f1fc`.
+3. EC0-EC7 MUST NOT modify, replace, extend, wrap by source rewrite, or add G5 suites into this runner.
+4. The historical result field `g5_defect_truth = "HOLD"` inside this runner is frozen historical G1-G4 runner metadata only.
+5. That literal is **not** G5 gate truth, MUST NOT be changed to `PASS`, and MUST NOT be used to decide G5 Engineering PASS.
+6. EC7 invokes this runner separately from the additive G5 runner.
+7. Any diff in this file is immediate `STOP / EXECUTION_CONTRACT_VIOLATION`.
+
+## 3.6 Exact docs/evidence allowlist
+
+This present repair is a governance-candidate repair before Execution Contract freeze and may modify only:
+
+```text
+docs/governance/G5_EXECUTION_CONTRACT_CANDIDATE.md
+```
+
+After the repaired Execution Contract is independently frozen:
+
+- **no EC0-EC7 implementation-wave addition/modification is allowed under `docs/governance/**`;**
+- no arbitrary `docs/reviews/**` file is allowed;
+- Codex engineering evidence output is pinned exactly to:
+
+```text
+docs/reviews/G5_ENGINEERING_EXECUTION_EVIDENCE.md
+docs/reviews/G5_ENGINEERING_VALIDATION_RESULT.json
+```
+
+These two files may be created/updated only as the G5 engineering evidence package. They are not Runtime/Defect Truth.
+
+Any additional governance/review record is a `00.9` governance action outside Codex implementation scope.
+
+## 3.7 Frozen source not authorized for semantic change
 
 No semantic rewrite is authorized in:
 
 ```text
-aitest_runtime/r3_6/**
-aitest_runtime/r4_3/**
-aitest_runtime/r2_6/**
-aitest_runtime/g3/**
-aitest_runtime/g4/**
+workspace-template/ai-test/runtime/aitest_runtime/r3_6/**
+workspace-template/ai-test/runtime/aitest_runtime/r4_3/**
+workspace-template/ai-test/runtime/aitest_runtime/r2_6/**
+workspace-template/ai-test/runtime/aitest_runtime/g3/**
+workspace-template/ai-test/runtime/aitest_runtime/g4/**
 canonical Runtime/Event Stream truth semantics
 existing G1-G4 test oracle semantics
 ```
 
-If an implementation cannot satisfy the frozen CodeContract without changing any of these semantics, construction MUST stop and report exact source conflict for governance review.
+If implementation cannot satisfy the Frozen CodeContract without changing these semantics, construction MUST stop and report exact source conflict for governance review.
+
+## 3.8 Closed construction-path union
+
+After `READY_FOR_CODEX = YES`, a Git diff outside the following union is forbidden unless 00.9 explicitly reopens the Execution Contract:
+
+```text
+workspace-template/ai-test/runtime/aitest_runtime/g5/__init__.py
+workspace-template/ai-test/runtime/aitest_runtime/g5/contracts.py
+workspace-template/ai-test/runtime/aitest_runtime/g5/admission.py
+workspace-template/ai-test/runtime/aitest_runtime/g5/policy.py
+workspace-template/ai-test/runtime/aitest_runtime/g5/service.py
+workspace-template/ai-test/runtime/aitest_runtime/product_entry.py
+workspace-template/ai-test/runtime/aitest_runtime/g2_1/router.py
+workspace-template/.opencode/tools/aitest.ts
+workspace-template/.opencode/agents/aitest-diagnosis.md
+workspace-template/.pfc-internal-field-validation/tests/test_g5_product_path.py
+workspace-template/.pfc-internal-field-validation/tests/test_g5_worker_binding_and_recovery.py
+workspace-template/.pfc-internal-field-validation/tests/test_g5_adversarial_defect_truth.py
+workspace-template/.pfc-internal-field-validation/tests/test_g5_human_gate_and_duplicate_correlation.py
+workspace-template/.pfc-internal-field-validation/tests/test_g5_same_mission_e2e.py
+workspace-template/.pfc-internal-field-validation/tests/test_g5_opencode_surface.py
+tools/run_g5_validation.py
+docs/reviews/G5_ENGINEERING_EXECUTION_EVIDENCE.md
+docs/reviews/G5_ENGINEERING_VALIDATION_RESULT.json
+```
+
+`tools/run_wave2_validation.py` is deliberately excluded from the mutable union because it is immutable regression authority.
 
 ---
 
@@ -175,18 +286,25 @@ Rules:
 2. PR #2 MUST remain Draft / OPEN / UNMERGED.
 3. Do not create or switch to another engineering/planning branch.
 4. Do not merge, rebase onto a changed main, or rewrite frozen governance history during implementation.
-5. Each execution wave below MUST end in an independently auditable commit.
+5. Each execution wave MUST end in an independently auditable commit.
 6. A repair may be a separate follow-up commit for the same wave; it MUST NOT silently rewrite or weaken the frozen test oracle.
 7. No wave may include unrelated cleanup/refactoring.
-8. No generated package/ZIP or local Construction copy becomes Engineering Truth; Git commit/diff remains the sole engineering source truth.
+8. No generated package/ZIP or local Construction copy becomes Engineering Truth; Git commit/diff remains sole engineering source truth.
+9. Every wave diff MUST be checked against Section 3.8 before advancing.
+10. `tools/run_wave2_validation.py` blob identity MUST be rechecked before EC0 and again at EC7 closure.
 
-Recommended commit prefixes:
+Recommended implementation commit prefixes:
 
 ```text
 test(g5): freeze ...
 feat(g5): add ...
 fix(g5): repair ...
-docs(g5): record ...
+```
+
+Only the final exact engineering evidence package may use:
+
+```text
+docs(g5): record engineering evidence
 ```
 
 ---
@@ -204,9 +322,9 @@ EXECUTION_CONTRACT_CANDIDATE
 -> EC0_RED_ORACLE
 -> EC1_ROUTER_AND_CONTRACTS
 -> EC2_PRODUCT_SEAM_AND_WORKER_BINDING
--> EC3_G4_ADMISSION_AND_R3_6_PIPELINE
+-> EC3_G4_ADMISSION_AND_R3_6_PRECONFIRMATION
 -> EC4_GOVERNED_EVIDENCE_AND_RECOVERY
--> EC5_HUMAN_GATE_DUPLICATE_R4_3
+-> EC5_CONFIRMATION_HUMAN_GATE_DUPLICATE_R4_3
 -> EC6_OPENCODE_DIAGNOSIS_SURFACE
 -> EC7_E2E_ADVERSARIAL_FULL_REGRESSION
 -> ENGINEERING_EVIDENCE_REVIEW
@@ -215,15 +333,27 @@ EXECUTION_CONTRACT_CANDIDATE
 
 The WorkItem MUST NOT skip directly from Execution Contract drafting to implementation.
 
+Current state remains:
+
+```text
+EXECUTION_CONTRACT_FROZEN = NO
+PRE_EXECUTION_DRIFT_CHECK = NOT_STARTED
+READY_FOR_CODEX = NO
+EC0_RED_ORACLE = NOT_STARTED
+IMPLEMENTATION_STARTED = NO
+```
+
 ---
 
 # 6. EC0 — Freeze truthful RED oracle before product construction
 
-**Purpose:** make the frozen CodeContract executable as tests before product implementation, preventing stale-oracle drift.
+**Purpose:** make the Frozen CodeContract executable as tests before product implementation, preventing stale-oracle drift.
 
-## Allowed changes
+**Important:** this section defines a future execution wave only. This repair commit does **not** start EC0 and does not create/modify tests.
 
-Only additive tests and, if needed solely to invoke those tests, additive test helpers/runner registration:
+## Allowed EC0 changes
+
+Only:
 
 ```text
 workspace-template/.pfc-internal-field-validation/tests/test_g5_product_path.py
@@ -232,19 +362,23 @@ workspace-template/.pfc-internal-field-validation/tests/test_g5_adversarial_defe
 workspace-template/.pfc-internal-field-validation/tests/test_g5_human_gate_and_duplicate_correlation.py
 workspace-template/.pfc-internal-field-validation/tests/test_g5_same_mission_e2e.py
 workspace-template/.pfc-internal-field-validation/tests/test_g5_opencode_surface.py
+tools/run_g5_validation.py
 ```
 
 No G5 runtime/product implementation is allowed in EC0.
 
+`tools/run_wave2_validation.py` is immutable and is not an EC0 change surface.
+
 ## Required RED truth
 
-The fresh tests MUST fail for real missing G5 product integration, not because of syntax/import-fixture mistakes. At minimum the RED suite must demonstrate current HOLD/missing behavior for:
+The six fresh suites, orchestrated by `tools/run_g5_validation.py`, MUST fail for real missing G5 integration rather than syntax/import-fixture mistakes. At minimum RED must demonstrate current missing/HOLD behavior for:
 
 - canonical `g5_command` product seam;
 - Router-persisted `DEFECT_HUNTER` role;
 - exact current Task/Attempt/Session + root R2.5 binding admission;
 - G4 `UNEXPECTED_OBSERVATION` -> R3.6 TestAnomaly mapping;
 - governed evidence request path;
+- confirmation sequencing that cannot write `CONFIRMED_DEFECT` without EC5 policy;
 - exact R2.6 G5 confirmation policy;
 - exact R4.3 handoff;
 - OpenCode diagnosis canonical G5 wiring;
@@ -255,11 +389,13 @@ The fresh tests MUST fail for real missing G5 product integration, not because o
 ```text
 G5_RED_ORACLE_PRESENT = YES
 RED_FAILURES_MATCH_MISSING_G5_INTEGRATION = YES
+G5_RUNNER = tools/run_g5_validation.py
 FROZEN_G1_G4_TESTS_MODIFIED = NO
+FROZEN_WAVE2_RUNNER_BLOB = b006cecb48673a5b8735dda9e1b645ebafe7f1fc
 RUNTIME_PRODUCT_CODE_MODIFIED = NO
 ```
 
-If tests encode behavior different from the frozen CodeContract, repair the tests before any implementation.
+If tests encode behavior different from the Frozen CodeContract, repair the tests before any implementation.
 
 ---
 
@@ -312,7 +448,7 @@ DUPLICATE_CORRELATION
 
 ## EC1 evidence gate
 
-Focused tests must prove Router resolution and envelope validation while all unavailable later-stage actions still fail closed.
+Focused tests through `tools/run_g5_validation.py` must prove Router resolution and envelope validation while unavailable later-stage actions fail closed.
 
 ---
 
@@ -365,9 +501,9 @@ Require:
 
 1. expected logical agent = `SessionRouter.logical_agent_id("aitest-diagnosis", task_id)`;
 2. current root Attempt resolves;
-3. immutable R2.5 binding exists for the same root;
+3. immutable R2.5 binding exists for same root;
 4. binding Mission/Task/root/logical_agent_id are exact;
-5. anchor Attempt/Session belong to that same execution lineage.
+5. anchor Attempt/Session belong to the same execution lineage.
 
 Do not create a successor R2.5 binding merely to equal a rotated current Session.
 
@@ -389,13 +525,13 @@ G5_LOGICAL_AGENT_BINDING_MISMATCH
 G5_SESSION_NOT_OPEN
 ```
 
-No defect mutation is considered accepted until worker binding tests are GREEN.
+No defect mutation is considered accepted until worker-binding tests are GREEN.
 
 ---
 
-# 9. EC3 — Exact G4 admission and frozen R3.6 investigation pipeline
+# 9. EC3 — Exact G4 admission and frozen R3.6 pre-confirmation investigation
 
-**Purpose:** make G5 form Defect Truth only from exact governed G4 evidence and frozen R3.6 objects.
+**Purpose:** make G5 build exact pre-confirmation investigation truth from governed G4 evidence and frozen R3.6 objects **without enabling a `CONFIRMED_DEFECT` write path**.
 
 ## 9.1 G4 -> TestAnomaly admission
 
@@ -426,9 +562,9 @@ Do not fabricate upstream G4 facts.
 
 G5-originated R3.6 commands must carry explicit `architecture_baseline_ref = v7`; frozen R3.6 historical `v5` constant remains untouched.
 
-## 9.2 Candidate/investigation stages
+## 9.2 Pre-confirmation candidate/investigation stages
 
-Implement thin mappings only to frozen `R36ApplicationService` operations:
+EC3 may enable only thin mappings for:
 
 ```text
 record_anomaly
@@ -438,32 +574,52 @@ record_evidence_assessment
 correlate_sources
 evaluate_reproducibility
 assess_false_positive
-assess_defect_truth
 record_rca
 record_checkpoint
 ```
 
+`assess_defect_truth` is deliberately **not enabled as a G5 product mutation in EC3**.
+
 No G5 shadow entity schema is permitted.
+
+## 9.3 Hard confirmation barrier in EC3
+
+Until EC5 is complete:
+
+```text
+G5_CONFIRMATION_WRITE_ENABLED = NO
+R3_6_CONFIRMED_DEFECT_WRITE_VIA_G5 = FORBIDDEN
+R4_3_CONFIRMED_LIFECYCLE_OPEN_VIA_G5 = FORBIDDEN
+```
+
+Rules:
+
+1. no EC3 product path may call frozen `R36ApplicationService.assess_defect_truth(...)` in a way that can persist `CONFIRMED_DEFECT`;
+2. no highest-severity/Security/Performance/Regulatory-sensitive path may become confirmable before EC5 policy exists;
+3. no ordinary functional path may become confirmable before EC5 either;
+4. both ordinary autonomous confirmation and policy-mandatory HumanGate confirmation are intentionally deferred to EC5 and become GREEN together;
+5. frozen R3.6 handlers/semantics are not changed to implement this barrier — G5 simply does not expose the confirmation write yet.
 
 ## EC3 GREEN gate
 
-Tests must prove:
+Tests through `tools/run_g5_validation.py` must prove:
 
 - G4 FAIL is still observation only;
 - missing/incorrect lineage cannot create TestAnomaly;
 - `PRODUCT_DEFECT_CANDIDATE` remains hypothesis;
 - applicable alternative classifications remain explicit;
-- insufficient/conflicted evidence cannot confirm;
-- `NOT_FALSE_POSITIVE` is required;
-- reproduction or typed causal basis is required;
-- unresolved contradictions block confirmation;
-- single 500/error string/LLM confidence/static suspicion cannot confirm.
+- bounded evidence/correlation/reproducibility/false-positive facts can be constructed only through frozen R3.6 authority;
+- single 500/error string/LLM confidence/static suspicion remain insufficient investigation signals;
+- **no G5 `CONFIRMED_DEFECT` exists after EC3 tests;**
+- **all G5 confirmation attempts remain fail-closed until EC5.**
+
+EC3 PASS is invalid if any G5 path can persist `CONFIRMED_DEFECT`.
 
 ---
 
 # 10. EC4 — Governed evidence work and restart/rotation recovery
 
-**Purpose:** ensure Defect Hunter deepens evidence without becoming Executor/Planner/Session owner.
+**Purpose:** ensure Defect Hunter deepens evidence without becoming Executor/Planner/Session owner while the EC3 confirmation barrier remains active.
 
 ## 10.1 Existing typed evidence
 
@@ -487,8 +643,9 @@ Rules:
 3. Existing dependency-valid Task may be referenced.
 4. Otherwise existing G2 Planner must create/revise Plan/Task.
 5. Scheduler/Router provisions Session.
-6. G3/G4 executes under its existing authority/safety/HumanGate contracts.
+6. G3/G4 executes under existing authority/safety/HumanGate contracts.
 7. G5 resumes only after resulting durable refs exist and are re-admitted.
+8. EC4 does not lift the EC3 confirmation barrier.
 
 Required bypass failure: `G5_DIRECT_EXECUTION_FORBIDDEN`.
 
@@ -509,17 +666,38 @@ R2.6 gate state
 provider/evidence availability statuses
 ```
 
-Recovery must select latest valid checkpoint by Event order, validate WorkSet digest/cursor, treat historical checkpoint Session as provenance only, then continue in the current Router-assigned Session.
+Recovery must select latest valid checkpoint by Event order, validate WorkSet digest/cursor, treat historical checkpoint Session as provenance only, then continue in current Router-assigned Session.
 
 Conversation history is never recovery truth.
 
 ---
 
-# 11. EC5 — Human confirmation, duplicate/canonical-defect correlation, exact R4.3 handoff
+# 11. EC5 — Confirmation policy, HumanGate, duplicate/canonical-defect correlation, exact R4.3 handoff
 
-**Purpose:** complete Defect Truth without inventing confirmation/fix authority.
+**Purpose:** enable the G5 confirmation write for the first time, with ordinary autonomous confirmation and all mandatory-human confirmation rules becoming GREEN in the same wave.
 
-## 11.1 Human review policy
+EC5 is the **only** wave that may lift the EC3/EC4 confirmation barrier.
+
+## 11.1 Confirmation sequencing invariant
+
+The required order for every requested `CONFIRMED_DEFECT` outcome is:
+
+```text
+current worker binding
+-> exact candidate/evidence/reproducibility/false-positive/contradiction facts
+-> G5 confirmation-policy classification
+-> [mandatory HumanGate if policy requires]
+-> continuation APPLIED / is_allowing when required
+-> revalidate current worker binding after continuation
+-> frozen R36ApplicationService.assess_defect_truth(...)
+-> exact persisted DefectAssessment == CONFIRMED_DEFECT
+-> duplicate/canonical correlation decision
+-> exact R4.3 handoff
+```
+
+No step may reorder the R2.6 policy gate after the R3.6 `CONFIRMED_DEFECT` write.
+
+## 11.2 Human review policy
 
 Add `g5/policy.py` and service integration.
 
@@ -539,7 +717,7 @@ explicit project confirmation policy
 
 Human approval is additional policy only; it never bypasses frozen R3.6 evidence rules.
 
-## 11.2 Exact R2.6 encoding
+## 11.3 Exact R2.6 encoding
 
 Use only frozen R2.6 values:
 
@@ -568,9 +746,63 @@ REQUEST_MORE_EVIDENCE
 REJECT_DEFECT
 ```
 
-Continuation requiring `RESUME_EXECUTION` or `PLAN_REVISION` must become canonically APPLIED / `HumanGateRecord.is_allowing == True` before G5 continues. A resumed worker must again pass current EC2 binding.
+No custom R2.6 gate kind, outcome, route, or durable G5 decision enum is authorized.
 
-## 11.3 Duplicate/canonical identity
+## 11.4 Mandatory-human confirmation path
+
+For a policy-mandatory case:
+
+1. evaluate mandatory-review triggers **before** invoking R3.6 `assess_defect_truth` for a requested confirmed outcome;
+2. absent required gate -> return `G5_HUMAN_GATE_REQUIRED`; do not write confirmed assessment;
+3. pending/non-allowing gate -> return `G5_HUMAN_GATE_PENDING`; do not write confirmed assessment;
+4. `REJECTED + BLOCK + REJECT_DEFECT` -> return `G5_HUMAN_GATE_REJECTED`; do not write confirmed assessment;
+5. `CHOICE_SELECTED + PLAN_REVISION + REQUEST_MORE_EVIDENCE` -> return to governed evidence work; do not write confirmed assessment;
+6. `CHOICE_SELECTED + RESUME_EXECUTION + CONFIRM_DEFECT` still does not permit immediate write while continuation is pending;
+7. canonical continuation must become APPLIED and `HumanGateRecord.is_allowing == True`;
+8. resumed DEFECT_HUNTER must pass EC2 binding against the new current Attempt/Session;
+9. revalidate frozen R3.6 prerequisites and contradiction state;
+10. only then invoke frozen `R36ApplicationService.assess_defect_truth(...)`.
+
+## 11.5 Ordinary autonomous confirmation path
+
+For an evidence-complete ordinary functional case that matches **none** of the mandatory-human triggers:
+
+1. current worker binding passes;
+2. exact R3.6 evidence/reproducibility/false-positive/contradiction prerequisites are present;
+3. G5 policy explicitly determines no mandatory HumanGate applies;
+4. only then invoke frozen `R36ApplicationService.assess_defect_truth(...)`;
+5. frozen R3.6 handler remains final truth authority and may still reject confirmation.
+
+HumanGate bypass is permitted only because frozen policy does not require the gate for that exact ordinary case, not because G5 weakens R3.6.
+
+## 11.6 Frozen R3.6 confirmation requirements remain exact
+
+A `CONFIRMED_DEFECT` write remains valid only when frozen R3.6 requirements pass, including:
+
+```text
+final_classification = PRODUCT_DEFECT
+>= 1 SUFFICIENT EvidenceAssessment
+false_positive.status = NOT_FALSE_POSITIVE
+reproducibility = REPRODUCED OR causal_basis_refs not empty
+unresolved_contradiction_refs = empty
+```
+
+Human approval cannot override these requirements.
+
+## 11.7 Atomic EC5 wave gate
+
+Ordinary autonomous confirmation and policy-mandatory HumanGate confirmation MUST become GREEN together.
+
+No intermediate EC5 commit may be treated as an advanceable wave state if it enables ordinary confirmation but not mandatory policy, or enables mandatory policy but exposes another confirmation bypass.
+
+Until the complete EC5 gate passes:
+
+```text
+EC5_CONFIRMATION_POLICY_COMPLETE = NO
+G5_CONFIRMATION_WRITE_AUTHORIZED_FOR_NEXT_WAVE = NO
+```
+
+## 11.8 Duplicate/canonical identity
 
 Never deduplicate by HTTP code, exception/error text, stack trace, component name, or model similarity/confidence.
 
@@ -580,13 +812,23 @@ Automatic `SAME_CONFIRMED_LIFECYCLE` reuse requires same Mission + exact lifecyc
 
 Cross-Mission silent lifecycle merge remains forbidden.
 
-## 11.4 Exact R4.3 handoff
+## 11.9 Exact R4.3 handoff
 
 Only:
 
-`R43ApplicationService.open_confirmed_defect_lifecycle(...)`
+```text
+R43ApplicationService.open_confirmed_defect_lifecycle(...)
+```
 
-may open the lifecycle after exact R3.6 assessment/digest, QV/Campaign scope, worker binding, any mandatory HumanGate, and duplicate policy pass.
+may open a lifecycle after all of the following:
+
+1. exact EC2 worker binding;
+2. exact persisted R3.6 assessment/digest resolves;
+3. assessment outcome is `CONFIRMED_DEFECT`;
+4. frozen R4.3 R3.6 adapter revalidates candidate/evidence/reproducibility/false-positive facts;
+5. exact QV/Campaign scope resolves;
+6. any mandatory HumanGate is canonically allowing;
+7. duplicate policy passes.
 
 G5 must never call:
 
@@ -598,13 +840,28 @@ record_fix_detection_assessment
 
 ## EC5 GREEN gate
 
-Prove autonomous ordinary functional confirmation, mandatory-human cases, continuation semantics, exact handoff/idempotency, same-Mission reuse and ambiguous/cross-Mission blocking.
+Through `tools/run_g5_validation.py`, prove together:
+
+- insufficient/conflicted evidence cannot confirm;
+- `NOT_FALSE_POSITIVE` is required;
+- reproduction or typed causal basis is required;
+- unresolved contradiction blocks confirmation even with HumanGate approval;
+- single 500/error string/LLM confidence/static suspicion cannot confirm;
+- ordinary evidence-complete functional defect may autonomously confirm only after policy says no HumanGate is mandatory;
+- highest/Security/Performance/Regulatory-sensitive confirmation uses exact R2.6 `CHOICE` policy;
+- HumanGate decision without required continuation proof cannot confirm;
+- `REQUEST_MORE_EVIDENCE` returns to governed work rather than confirming;
+- resumed confirmation revalidates successor current Attempt/Session;
+- exact confirmed assessment opens R4.3 lifecycle;
+- exact handoff is idempotent;
+- same-Mission typed reuse works only when exact proof exists;
+- ambiguous/cross-Mission silent merge is blocked.
 
 ---
 
 # 12. EC6 — OpenCode Diagnosis canonical surface
 
-**Purpose:** remove the pre-G5 HOLD only after canonical Python/runtime path is real and tested.
+**Purpose:** remove the pre-G5 HOLD only after canonical Python/runtime path and EC5 confirmation policy are real and tested.
 
 In `workspace-template/.opencode/tools/aitest.ts`, add G5 helper following existing G3/G4 subprocess pattern:
 
@@ -626,9 +883,9 @@ Requirements:
 - no TypeScript provider execution;
 - no TypeScript confirmation heuristic.
 
-The existing diagnosis tool may stop returning G5 HOLD only when the canonical runtime path is available.
+The existing diagnosis tool may stop returning G5 HOLD only when the canonical runtime path including EC5 confirmation policy is available.
 
-`aitest-diagnosis.md` may be edited only to align wording/actions with the frozen contract; it cannot create new runtime semantics.
+`aitest-diagnosis.md` may be edited only to align wording/actions with the Frozen CodeContract; it cannot create new runtime semantics.
 
 ---
 
@@ -650,13 +907,14 @@ Fresh tests must prove all frozen positive gates, including:
 10. NOT_FALSE_POSITIVE required.
 11. reproduction or causal basis required.
 12. contradiction blocks confirmation even with human approval.
-13. ordinary evidence-complete functional defect can autonomously confirm.
-14. highest/Security/Performance/Regulatory confirmation uses exact R2.6 CHOICE policy.
+13. ordinary evidence-complete functional defect can autonomously confirm only after EC5 policy evaluation.
+14. highest/Security/Performance/Regulatory confirmation uses exact R2.6 CHOICE policy before R3.6 confirmed write.
 15. R2.6 continuation must be APPLIED.
 16. exact R3.6 assessment opens R4.3 lifecycle.
 17. restart/rotation recovers from durable checkpoint.
 18. exact assessment/QV/Campaign handoff is idempotent.
 19. same proven same-Mission root cause can reuse lifecycle; ambiguous/cross-Mission silent merge is blocked.
+20. no EC3/EC4 intermediate path can write `CONFIRMED_DEFECT`.
 
 ## 13.2 Mandatory adversarial contract
 
@@ -673,7 +931,7 @@ stale/wrong expected result
 automation selector failure
 auth/session expiry
 CAT unavailable
-reproduction blocked without causal proof
+repro blocked without causal proof
 conflicted DB vs API evidence
 same error text from different components
 ambiguous duplicate merge
@@ -691,6 +949,7 @@ direct G4/provider bypass
 G3 Standard Case mutation from G5
 R4.3 fix mutation from G5
 G6 action from G5
+confirmation attempt before EC5 policy is complete
 ```
 
 ## 13.3 Same-Mission E2E
@@ -709,6 +968,8 @@ G2 Plan/Task + DEFECT_HUNTER route
 -> EvidenceAssessment
 -> reproducibility
 -> false-positive exclusion
+-> EC5 confirmation-policy evaluation
+-> [R2.6 HumanGate + APPLIED continuation when required]
 -> DefectAssessment CONFIRMED_DEFECT
 -> RCA
 -> exact R4.3 ConfirmedDefectLifecycle
@@ -718,24 +979,56 @@ Companion same-Mission path must first return `GOVERNED_WORK_REQUIRED`, route ev
 
 ---
 
-# 14. Test execution policy
+# 14. Exact validation-runner policy
 
-## 14.1 Targeted tests by wave
+## 14.1 G5 runner authority
 
-- EC0: all six G5 suites must demonstrate truthful RED.
-- EC1: Router/contracts portions of product-path and worker-binding suites.
-- EC2: complete worker-binding/rotation negative matrix.
-- EC3: product-path + adversarial defect-truth suites.
-- EC4: worker recovery + governed-evidence tests.
-- EC5: HumanGate/duplicate + relevant adversarial tests.
-- EC6: OpenCode surface suite.
-- EC7: all G5 suites + same-Mission E2E + full frozen regression.
+All G5-focused execution is orchestrated only by:
 
-## 14.2 Existing frozen regression
+```text
+tools/run_g5_validation.py
+```
 
-Run the repository's canonical existing G1-G4 validation runner from the actual branch source. Do not hard-code a stale historical count into G5; the Pre-Execution Drift Check must pin the exact current canonical runner/source identity, and EC7 must prove every existing frozen suite still passes.
+It owns only G5 validation orchestration for the six exact G5 test files. It must not mutate product truth, invoke legacy defect stores, or rewrite G1-G4 regression authority.
 
-No existing G1-G4 test may be removed, skipped, weakened, renamed out of the canonical runner, or replaced with static-source assertions merely to obtain GREEN.
+Wave expectations:
+
+- EC0: all six G5 suites demonstrate truthful RED.
+- EC1: Router/contracts relevant assertions become GREEN.
+- EC2: worker-binding/rotation matrix becomes GREEN.
+- EC3: admission + pre-confirmation investigation becomes GREEN while all confirmation remains blocked.
+- EC4: governed-evidence + recovery becomes GREEN while confirmation remains blocked.
+- EC5: ordinary autonomous confirmation + mandatory HumanGate confirmation + duplicate/R4.3 handoff become GREEN together.
+- EC6: OpenCode surface becomes GREEN.
+- EC7: all six G5 suites + adversarial + same-Mission E2E are GREEN.
+
+The G5 runner's final structured result MUST be written exactly to:
+
+```text
+docs/reviews/G5_ENGINEERING_VALIDATION_RESULT.json
+```
+
+No alternate committed G5 validation-result path is authorized.
+
+## 14.2 Frozen G1-G4 regression command/authority
+
+EC7 MUST separately execute the immutable runner:
+
+```text
+python tools/run_wave2_validation.py --root . --output G5_WAVE2_VALIDATION_RESULT.tmp.json
+```
+
+Requirements:
+
+1. before execution, verify blob = `b006cecb48673a5b8735dda9e1b645ebafe7f1fc`;
+2. `G5_WAVE2_VALIDATION_RESULT.tmp.json` is ephemeral/untracked only;
+3. capture its structured PASS/failure evidence into the exact engineering evidence package;
+4. delete the temporary file before the final Git diff/closure check;
+5. do not interpret historical `g5_defect_truth = HOLD` as G5 failure or G5 PASS;
+6. G1-G4 regression PASS is determined only by that runner's own canonical regression `status/groups/combined` result;
+7. any source diff in `tools/run_wave2_validation.py` is failure even if regression output is green.
+
+No existing G1-G4 test may be removed, skipped, weakened, renamed out of this runner, or replaced with static-source assertions merely to obtain GREEN.
 
 ## 14.3 Runtime integrity
 
@@ -747,6 +1040,7 @@ all existing frozen G1-G4 suites = PASS
 all G5 focused suites = PASS
 all G5 adversarial suites = PASS
 G5 same-Mission E2E = PASS
+FROZEN_WAVE2_RUNNER_BLOB = b006cecb48673a5b8735dda9e1b645ebafe7f1fc
 ```
 
 ---
@@ -770,8 +1064,10 @@ Also prove:
 
 - no new G5 durable extension is registered;
 - `canonical_runtime.canonical_extension_manifests()` has no new G5 extension;
-- frozen R3.6/R4.3 semantics were not modified;
-- errors and test output do not leak raw secrets/evidence.
+- frozen R3.6/R4.3/R2.6/G3/G4 semantics were not modified;
+- errors and test output do not leak raw secrets/evidence;
+- `tools/run_wave2_validation.py` blob remains pinned exactly;
+- no changed path escapes Section 3.8.
 
 ---
 
@@ -791,22 +1087,31 @@ If the legacy file already exists as migration/reference material, its identity 
 
 ---
 
-# 17. Engineering evidence package
+# 17. Exact engineering evidence package
 
-Before returning an Engineering PASS candidate, create auditable non-authoritative evidence containing at minimum:
+Before returning an Engineering PASS candidate, the only Codex-created/modified documentation evidence files are:
+
+```text
+docs/reviews/G5_ENGINEERING_EXECUTION_EVIDENCE.md
+docs/reviews/G5_ENGINEERING_VALIDATION_RESULT.json
+```
+
+`G5_ENGINEERING_EXECUTION_EVIDENCE.md` must record at minimum:
 
 ```text
 canonical main identity
 active branch
 PR identity/state
-frozen CodeContract identity
-frozen ExecutionContract identity
-implementation commit list in wave order
+Frozen CodeContract commit/blob identity
+Frozen ExecutionContract identity
+implementation commit list in EC0-EC7 order
 changed-file list by wave
-test command + result for each wave
-full frozen regression result
-G5 focused/adversarial/E2E result
+Section 3.8 allowlist audit
+G5 runner path and result
+immutable wave2 runner path/blob proof
+wave2 regression command + canonical PASS/failure result
 runtime.verify_projection result
+G5 focused/adversarial/E2E result
 static-negative audit result
 legacy-store before/after identity
 main unchanged proof
@@ -814,27 +1119,42 @@ PR Draft/UNMERGED proof
 G6 HOLD proof
 ```
 
-Recommended evidence files:
+`G5_ENGINEERING_VALIDATION_RESULT.json` is the single committed structured G5 validation result and must contain/correlate:
 
 ```text
-docs/reviews/G5_ENGINEERING_EXECUTION_EVIDENCE.md
-docs/reviews/G5_ENGINEERING_VALIDATION_RESULT.json
+frozen_code_contract_identity
+frozen_execution_contract_identity
+branch_head
+G5 suite results
+same-Mission E2E result
+adversarial result
+runtime projection result
+wave2 runner path
+wave2 runner blob
+wave2 canonical regression status/groups/combined summary
+legacy-store immutability result
+allowlist audit result
+main/PR/G6 closure state
 ```
 
-These are review evidence only; they do not become Runtime/Defect Truth.
+These files are review evidence only; they do not become Runtime/Defect Truth.
+
+Any further governance record remains a 00.9 action outside Codex scope.
 
 ---
 
 # 18. Repair and STOP policy
 
-A failed targeted test may enter an in-scope repair only when the repair stays within this frozen Execution Contract and CodeContract.
+A failed targeted test may enter an in-scope repair only when the repair stays within this Frozen Execution Contract and Frozen CodeContract.
 
 Immediate `STOP / REPLAN_REQUIRED` when any repair would require:
 
-- modifying the frozen CodeContract content;
+- modifying Frozen CodeContract content/blob;
 - changing ArchitectureBaseline v7;
 - weakening R3.6 confirmation rules;
+- enabling a G5 confirmation write before EC5 policy is complete;
 - rewriting R4.3 lifecycle admission/fix authority;
+- changing R2.6 frozen enums/routes/continuation semantics;
 - changing G3/G4 frozen domain semantics;
 - creating second Defect/Fix/durable truth;
 - adding a G5 Session lifecycle owner;
@@ -842,6 +1162,10 @@ Immediate `STOP / REPLAN_REQUIRED` when any repair would require:
 - custom R2.6 enums/semantics;
 - silent cross-Mission canonical defect identity;
 - weakening/removing existing frozen regression;
+- modifying `tools/run_wave2_validation.py` from blob `b006cecb48673a5b8735dda9e1b645ebafe7f1fc`;
+- creating an alternate G5 validation runner;
+- writing implementation docs outside the two exact evidence files;
+- modifying any path outside Section 3.8;
 - opening G6.
 
 Codex must report the exact file/symbol/contract conflict instead of improvising a workaround.
@@ -850,20 +1174,22 @@ Codex must report the exact file/symbol/contract conflict instead of improvising
 
 # 19. Pre-Execution Drift Check required after ExecutionContract freeze
 
-After this Candidate is independently reviewed/frozen, construction is still forbidden until a fresh Git-native Pre-Execution Drift Check proves all of the following:
+After this repaired Candidate is independently reviewed/frozen, construction is still forbidden until a fresh Git-native Pre-Execution Drift Check proves all of the following:
 
 1. `main == 4edd78536633d4258705c6083fe55b44e51f54bb`.
 2. PR #2 is Draft / OPEN / UNMERGED and base remains `main` at the canonical baseline.
 3. active engineering branch remains `work/g5-defect-truth`.
-4. frozen CodeContract identity remains exactly `584b86980c7b0ce93353a37f4e1b76891ca639e0`.
-5. frozen CodeContract file content/blob remains unchanged from that identity.
-6. 00.9 Contract Review freeze evidence remains present.
-7. no runtime/source/test construction occurred before authorization; changes since reviewed head are governance/review evidence only.
-8. G1/G2/G2R-1/G2.1/G3/G4 remain PASS/FROZEN and no reopen authority exists.
-9. ArchitectureBaseline remains v7 / FROZEN / UNCHANGED.
-10. canonical existing G1-G4 validation runner and source topology are pinned for regression.
-11. no alternative engineering branch or planning/design branch has become Engineering Truth.
-12. G6 remains HOLD.
+4. Frozen CodeContract identity remains exactly `584b86980c7b0ce93353a37f4e1b76891ca639e0`.
+5. Frozen CodeContract blob remains exactly `fd0c85ef7ecbe01e990609b3e7e6f7f6490d5842`.
+6. 00.9 CodeContract freeze evidence remains present.
+7. this repaired Execution Contract has been independently reviewed/frozen by 00.9.
+8. no runtime/source/test construction occurred before authorization; changes since reviewed Execution Contract head are governance/review evidence only.
+9. G1/G2/G2R-1/G2.1/G3/G4 remain PASS/FROZEN and no reopen authority exists.
+10. ArchitectureBaseline remains v7 / FROZEN / UNCHANGED.
+11. `tools/run_wave2_validation.py` exists at blob `b006cecb48673a5b8735dda9e1b645ebafe7f1fc`.
+12. exact mutable construction union is Section 3.8; no open-ended paths remain.
+13. no alternative engineering/planning branch has become Engineering Truth.
+14. G6 remains HOLD.
 
 Only after all checks pass may governance set:
 
@@ -876,20 +1202,25 @@ READY_FOR_CODEX = YES
 
 # 20. Codex execution authority after READY_FOR_CODEX
 
-Only after `READY_FOR_CODEX = YES`, Codex is authorized to implement the frozen contract on `work/g5-defect-truth`.
+Only after `READY_FOR_CODEX = YES`, Codex is authorized to implement on `work/g5-defect-truth`.
 
 Codex execution rules:
 
 1. execute EC0 -> EC7 in order;
-2. do not skip RED-oracle freeze;
-3. use exact frozen file/action/role/failure semantics;
+2. do not skip truthful RED-oracle freeze;
+3. use exact Frozen CodeContract file/action/role/failure semantics;
 4. keep changes minimal and wave-scoped;
-5. run mandatory targeted tests before proceeding to the next wave;
-6. never modify main;
-7. never mark PR ready-for-review/merge without separate governance authority;
-8. never freeze G5 or open G6;
-9. if source reality contradicts the frozen contract, STOP and return evidence rather than changing the contract;
-10. final result is only an `ENGINEERING_PASS_CANDIDATE`, not canonical closure.
+5. run mandatory G5 targeted validation through `tools/run_g5_validation.py` before proceeding to the next wave;
+6. keep EC3 and EC4 confirmation barrier closed until EC5;
+7. make ordinary autonomous confirmation and mandatory HumanGate confirmation GREEN together in EC5;
+8. never modify `tools/run_wave2_validation.py`;
+9. invoke the immutable wave2 runner separately at EC7;
+10. never modify main;
+11. never mark PR ready-for-review/merge without separate governance authority;
+12. never freeze G5 or open G6;
+13. never write docs outside the two exact engineering evidence paths;
+14. if source reality contradicts Frozen CodeContract/ExecutionContract, STOP and return evidence rather than changing contract;
+15. final result is only an `ENGINEERING_PASS_CANDIDATE`, not canonical closure.
 
 ---
 
@@ -901,13 +1232,19 @@ Codex execution rules:
 EC0_RED_ORACLE = PASS
 EC1_ROUTER_AND_CONTRACTS = PASS
 EC2_PRODUCT_SEAM_AND_WORKER_BINDING = PASS
-EC3_G4_ADMISSION_AND_R3_6_PIPELINE = PASS
+EC3_G4_ADMISSION_AND_R3_6_PRECONFIRMATION = PASS
+EC3_G5_CONFIRMATION_WRITE_ENABLED = NO
 EC4_GOVERNED_EVIDENCE_AND_RECOVERY = PASS
-EC5_HUMAN_GATE_DUPLICATE_R4_3 = PASS
+EC5_CONFIRMATION_HUMAN_GATE_DUPLICATE_R4_3 = PASS
+EC5_ORDINARY_AND_MANDATORY_CONFIRMATION_GREEN_TOGETHER = YES
 EC6_OPENCODE_DIAGNOSIS_SURFACE = PASS
 EC7_E2E_ADVERSARIAL_FULL_REGRESSION = PASS
+G5_VALIDATION_RUNNER = tools/run_g5_validation.py
+G1_G4_REGRESSION_RUNNER = tools/run_wave2_validation.py
+G1_G4_REGRESSION_RUNNER_BLOB = b006cecb48673a5b8735dda9e1b645ebafe7f1fc
 RUNTIME_VERIFY_PROJECTION = PASS
 LEGACY_TRUTH_BYPASS = NONE
+EXECUTION_ALLOWLIST_VIOLATION = NONE
 ARCHITECTURE_DRIFT = NO
 MAIN_UNCHANGED = YES
 PR_2 = DRAFT / OPEN / UNMERGED
@@ -918,22 +1255,29 @@ The result must then return to `00.9` for independent Git-native Raw Source Clos
 
 ---
 
-# 22. Candidate decision
+# 22. Repaired candidate decision
 
 ```text
 G5_CODE_CONTRACT_FROZEN = YES
 FROZEN_CODE_CONTRACT_IDENTITY = 584b86980c7b0ce93353a37f4e1b76891ca639e0
-G5_EXECUTION_CONTRACT_CANDIDATE = FORMED
+FROZEN_CODE_CONTRACT_BLOB = fd0c85ef7ecbe01e990609b3e7e6f7f6490d5842
+G5_EXECUTION_CONTRACT_CANDIDATE = REPAIRED
+REPAIR_1_CONFIRMATION_SEQUENCE = APPLIED
+REPAIR_2_G5_RUNNER_PATH = tools/run_g5_validation.py / PINNED
+REPAIR_2_G1_G4_RUNNER = tools/run_wave2_validation.py@b006cecb48673a5b8735dda9e1b645ebafe7f1fc / IMMUTABLE
+REPAIR_3_DOCS_ALLOWLIST = CLOSED
 EXECUTION_CONTRACT_REVIEW = REQUIRED
 EXECUTION_CONTRACT_FROZEN = NO
 PRE_EXECUTION_DRIFT_CHECK = NOT_STARTED
 READY_FOR_CODEX = NO
+EC0_RED_ORACLE = NOT_STARTED
 IMPLEMENTATION_STARTED = NO
 ARCHITECTURE_DRIFT = NO
+CODE_CONTRACT_REOPEN_REQUIRED = NO
 G1_G2_G2R1_G2_1_G3_G4_REOPEN_REQUIRED = NO
 PR_2 = MUST_REMAIN_DRAFT_OPEN_UNMERGED
 MAIN = MUST_REMAIN_4edd78536633d4258705c6083fe55b44e51f54bb
 G6 = HOLD
 BANK_INTERNAL_PILOT_READY = NO
-NEXT_GATE = EXECUTION_CONTRACT_REVIEW
+NEXT_GATE = 00.9_EXECUTION_CONTRACT_REVIEW
 ```
