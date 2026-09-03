@@ -32,6 +32,11 @@ jobs:
       - name: Fresh original, post-closure and Wave2 executable regression
         run: python tools/run_wave2_validation.py --root . --output WAVE2_VALIDATION_RESULT.json
 
+      - name: F1A OpenCode HumanGate product-surface adversarial closure
+        run: |
+          set -o pipefail
+          python workspace-template/.pfc-internal-field-validation/tests/test_g4_humangate_opencode_surface_closure.py | tee F1A_PRODUCT_SURFACE_RESULT.json
+
       - name: Static and source audit
         run: python tools/wave2_static_audit.py --root . --output WAVE2_STATIC_AUDIT_RESULT.json
 
@@ -48,6 +53,7 @@ jobs:
           name: wave2-validation-${{ github.sha }}
           path: |
             WAVE2_VALIDATION_RESULT.json
+            F1A_PRODUCT_SURFACE_RESULT.json
             WAVE2_STATIC_AUDIT_RESULT.json
             SOURCE_CONTENT_IDENTITY.json
           if-no-files-found: warn
