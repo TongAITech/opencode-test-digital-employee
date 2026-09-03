@@ -267,25 +267,33 @@ def _relationship_edges(
         if stable == source.symbol_id or (rel == source.file_path and name == source.symbol_name):
             continue
         depth = _first_int(item, ("depth", "distance")) or 1
-        key = (source.symbol_id, stable, edge_kind)
-        if key in seen:
-            continue
-        seen.add(key)
-        provenance = [provider_ref, f"codegraph-tool:{tool}"]
-        if rel:
-            provenance.append(f"file:{rel}" + (f":L{line + 1}" if line is not None else ""))
-        edges.append(
-            ImpactEdge(
-                source.symbol_id,
-                stable,
-                edge_kind,
-                direction,
-                depth,
-                0.98,
-                provider_ref,
-                tuple(provenance),
+        normalized_kinds = [edge_kind]
+        impact_type = _first_text(item, ("impact_type", "impactType", "edge_type", "edgeType"))
+        if edge_kind == "IMPACT" and impact_type and impact_type.strip().lower() in {"reference", "references"}:
+            # CodeGraph v0.20.1 analyze_impact computes direct impact from all
+            # incoming edge types and emits References as impact_type=reference.
+            # Preserve IMPACT while also exposing the real REFERENCE relation.
+            normalized_kinds.append("REFERENCE")
+        for normalized_kind in normalized_kinds:
+            key = (source.symbol_id, stable, normalized_kind)
+            if key in seen:
+                continue
+            seen.add(key)
+            provenance = [provider_ref, f"codegraph-tool:{tool}"]
+            if rel:
+                provenance.append(f"file:{rel}" + (f":L{line + 1}" if line is not None else ""))
+            edges.append(
+                ImpactEdge(
+                    source.symbol_id,
+                    stable,
+                    normalized_kind,
+                    direction,
+                    depth,
+                    0.98,
+                    provider_ref,
+                    tuple(provenance),
+                )
             )
-        )
     return edges
 
 
