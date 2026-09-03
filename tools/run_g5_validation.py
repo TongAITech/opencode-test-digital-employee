@@ -55,6 +55,114 @@ WORKER_BINDING_CHECKS = {
     "root_logical_agent_binding_survives_rotation",
     "restart_work_context_uses_durable_truth",
 }
+EC3_PRECONFIRMATION_CHECKS = {
+    "g4_fail_creates_durable_unexpected_observation",
+    "g4_fail_remains_observation_only",
+    "missing_g4_lineage_rejected",
+    "wrong_g4_lineage_rejected",
+    "g5_exact_admission_creates_r36_anomaly",
+    "g5_originated_r36_lineage_v7",
+    "r36_candidate_created",
+    "candidate_hypothesis_and_alternatives_explicit",
+    "existing_typed_refs_deepening_durable_ec3",
+    "evidence_assessment_durable_ec3",
+    "cross_source_correlation_durable_ec3",
+    "reproducibility_durable_ec3",
+    "false_positive_assessment_durable_ec3",
+    "rca_durable_ec3",
+    "checkpoint_durable_ec3",
+}
+EC3_SAFETY_CHECKS = {
+    "single_api_500_safe_non_confirmed",
+    "error_string_only_safe_non_confirmed",
+    "llm_99_confidence_safe_non_confirmed",
+    "static_code_suspicion_safe_non_confirmed",
+}
+CONFIRMATION_BARRIER_CHECKS = {
+    "confirmation_action_blocked_before_ec5",
+    "no_confirmed_defect_persisted_after_ec3",
+    "no_r43_lifecycle_opened_after_ec3",
+}
+EC4_GOVERNED_EVIDENCE_CHECKS = {
+    "new_evidence_gap_returns_governed_work_required",
+    "governed_work_truth_is_r1",
+    "governed_work_request_is_contract",
+    "g5_does_not_execute_provider_directly",
+    "g5_does_not_create_workgraph_task_directly",
+    "g2_planner_scheduler_router_creates_governed_work",
+    "g2_g4_governed_reproduction_creates_durable_evidence",
+    "g5_resumes_from_durable_typed_refs",
+    "bounded_deepening_is_raw_payload_free",
+    "companion_governed_work_path",
+}
+EC4_RECOVERY_CHECKS = {
+    "multiple_checkpoints_event_ordered",
+    "checkpoint_workset_digest_cursor_revalidated",
+    "historical_checkpoint_session_is_provenance_only",
+    "session_rotation_occurs_for_recovery",
+    "stale_predecessor_rejected_during_recovery",
+    "successor_current_binding_accepted_during_recovery",
+    "restart_reconstructs_investigation_from_durable_truth",
+    "conversation_history_not_recovery_truth",
+    "no_confirmed_defect_persisted_after_ec4",
+    "no_r43_lifecycle_opened_after_ec4",
+}
+EC5_ADVERSARIAL_CHECKS = {
+    "auth_session_expiry_safe_non_confirmed",
+    "cat_unavailable_safe_non_confirmed",
+    "conflicted_evidence_safe_non_confirmed",
+    "direct_provider_action_rejected_canonically",
+    "error_string_only_safe_non_confirmed",
+    "g6_mutation_rejected_canonically",
+    "llm_99_confidence_safe_non_confirmed",
+    "no_probe_persisted_confirmed_defect",
+    "raw_secret_injection_rejected_canonically",
+    "single_api_500_safe_non_confirmed",
+    "stale_expected_safe_non_confirmed",
+    "static_code_suspicion_safe_non_confirmed",
+    "wrong_test_data_safe_non_confirmed",
+}
+EC5_ATOMIC_CONFIRMATION_CHECKS = {
+    "ordinary_needs_no_gate",
+    "ordinary_autonomous_confirm",
+    "no_gate_blocks_confirmation",
+    "successor_binding_confirms",
+}
+EC5_HUMAN_GATE_CHECKS = {
+    "no_gate_blocks_confirmation",
+    "pending_gate_blocks_confirmation",
+    "choice_gate_exact_frozen_shape",
+    "confirm_without_continuation_blocks",
+    "applied_continuation_is_allowing",
+    "stale_binding_rejected_after_continuation",
+    "successor_binding_confirms",
+    "rejected_block_blocks",
+    "plan_revision_more_evidence_blocks",
+    "human_cannot_bypass_r36",
+}
+EC5_DUPLICATE_CHECKS = {
+    "same_mission_typed_reuse_one_lifecycle",
+    "ambiguous_requires_review",
+    "cross_mission_merge_forbidden",
+}
+EC5_R43_HANDOFF_CHECKS = {
+    "r43_real_service_called",
+    "r43_exact_handoff_idempotent",
+}
+EC6_OPENCODE_CHECKS = {
+    "g5_subprocess_helper_present",
+    "g5_helper_calls_product_entry_g5",
+    "g5_helper_uses_diagnosis_role",
+    "g5_helper_requires_json",
+    "g5_helper_requires_r1_truth",
+    "diagnosis_calls_canonical_g5_helper",
+    "diagnosis_no_longer_returns_pending_g5_hold",
+    "diagnosis_exposes_frozen_worker_actions",
+    "g5_helper_does_not_own_provider_or_session_lifecycle",
+    "product_entry_registers_g5_cli",
+    "agent_requires_governed_new_evidence_path",
+    "agent_does_not_claim_direct_cat_db_api_ui_authority",
+}
 PROGRAMMING_FAILURE_MARKERS = (
     "Traceback (most recent call last):",
     "SyntaxError:",
@@ -265,6 +373,131 @@ def structured_or_green(suite: dict[str, Any]) -> bool:
     )
 
 
+def suite_is_green(suite: dict[str, Any]) -> bool:
+    parsed = suite.get("parsed")
+    return (
+        suite.get("returncode") == 0
+        and suite.get("programming_exception") is False
+        and suite.get("future_green_requires_real_runtime") is True
+        and suite.get("runtime_green_evidence") is True
+        and isinstance(parsed, dict)
+        and parsed.get("status") == "PASS"
+        and parsed.get("fixture_ok") is True
+        and not parsed.get("missing_contract_checks")
+    )
+
+
+def named_checks(parsed: dict[str, Any] | None, required: set[str]) -> bool:
+    return required.issubset(checks(parsed))
+
+
+def named_checks_green(parsed: dict[str, Any] | None, required: set[str]) -> bool:
+    observed = checks(parsed)
+    return required.issubset(observed) and all(observed.get(name) is True for name in required)
+
+
+def progressive_oracle_conditions(
+    suites: list[dict[str, Any]], frozen_runner_unchanged: bool
+) -> dict[str, bool]:
+    same_mission = suite_by_name(suites, "test_g5_same_mission_e2e.py").get("parsed")
+    adversarial = suite_by_name(suites, "test_g5_adversarial_defect_truth.py").get("parsed")
+    human = suite_by_name(suites, "test_g5_human_gate_and_duplicate_correlation.py").get("parsed")
+    opencode = suite_by_name(suites, "test_g5_opencode_surface.py").get("parsed")
+    same_foundation = (same_mission or {}).get("foundation_checks") or {}
+    return {
+        "frozen_g1_g4_runner_exact": frozen_runner_unchanged,
+        "six_exact_g5_suites_present": len(suites) == 6 and {item["file"] for item in suites} == set(SUITES),
+        "all_suites_structured_or_green": all(structured_or_green(suite) for suite in suites),
+        "future_green_requires_runtime_behavior": all(
+            suite.get("future_green_requires_real_runtime") is True for suite in suites
+        ),
+        "no_programming_exceptions": all(not suite["programming_exception"] for suite in suites),
+        "ec3_preconfirmation_matrix_complete": (
+            named_checks(same_mission, EC3_PRECONFIRMATION_CHECKS)
+            and named_checks(adversarial, EC3_SAFETY_CHECKS)
+            and same_foundation.get("r36_historical_baseline_v5_unchanged") is True
+        ),
+        "confirmation_barrier_matrix_complete": named_checks(
+            same_mission, CONFIRMATION_BARRIER_CHECKS
+        ),
+        "ec4_governed_evidence_matrix_complete": named_checks(
+            same_mission, EC4_GOVERNED_EVIDENCE_CHECKS
+        ),
+        "ec4_recovery_matrix_complete": named_checks(same_mission, EC4_RECOVERY_CHECKS),
+        "ec5_adversarial_matrix_complete": named_checks(adversarial, EC5_ADVERSARIAL_CHECKS),
+        "ec5_atomic_confirmation_matrix_complete": named_checks(
+            human, EC5_ATOMIC_CONFIRMATION_CHECKS
+        ),
+        "ec5_human_gate_matrix_complete": named_checks(human, EC5_HUMAN_GATE_CHECKS),
+        "ec5_duplicate_matrix_complete": named_checks(human, EC5_DUPLICATE_CHECKS),
+        "ec5_r43_handoff_matrix_complete": named_checks(human, EC5_R43_HANDOFF_CHECKS),
+        "ec6_opencode_matrix_complete": named_checks(opencode, EC6_OPENCODE_CHECKS),
+        "ec7_full_green_matrix_complete": all(
+            isinstance(suite.get("parsed"), dict)
+            and "fixture_ok" in suite["parsed"]
+            and "missing_contract_checks" in suite["parsed"]
+            for suite in suites
+        ),
+    }
+
+
+def progressive_milestones(suites: list[dict[str, Any]]) -> dict[str, bool]:
+    product = suite_by_name(suites, "test_g5_product_path.py")
+    worker = suite_by_name(suites, "test_g5_worker_binding_and_recovery.py")
+    adversarial = suite_by_name(suites, "test_g5_adversarial_defect_truth.py")
+    human = suite_by_name(suites, "test_g5_human_gate_and_duplicate_correlation.py")
+    same_mission = suite_by_name(suites, "test_g5_same_mission_e2e.py")
+    opencode = suite_by_name(suites, "test_g5_opencode_surface.py")
+    same_foundation = (same_mission.get("parsed") or {}).get("foundation_checks") or {}
+    milestones = {
+        "product_seam_green": all_checks(product.get("parsed"), PRODUCT_SEAM_CHECKS),
+        "worker_binding_green": all_checks(worker.get("parsed"), WORKER_BINDING_CHECKS),
+        "ec3_preconfirmation_green": (
+            named_checks_green(same_mission.get("parsed"), EC3_PRECONFIRMATION_CHECKS)
+            and named_checks_green(adversarial.get("parsed"), EC3_SAFETY_CHECKS)
+            and same_foundation.get("r36_historical_baseline_v5_unchanged") is True
+        ),
+        "confirmation_barrier_green": named_checks_green(
+            same_mission.get("parsed"), CONFIRMATION_BARRIER_CHECKS
+        ),
+        "ec4_governed_evidence_green": named_checks_green(
+            same_mission.get("parsed"), EC4_GOVERNED_EVIDENCE_CHECKS
+        ),
+        "ec4_recovery_green": named_checks_green(
+            same_mission.get("parsed"), EC4_RECOVERY_CHECKS
+        ),
+        "ec5_confirmation_policy_green": named_checks_green(
+            adversarial.get("parsed"), EC5_ADVERSARIAL_CHECKS
+        ),
+        "ec5_atomic_confirmation_green": named_checks_green(
+            human.get("parsed"), EC5_ATOMIC_CONFIRMATION_CHECKS
+        ),
+        "ec5_human_gate_green": named_checks_green(
+            human.get("parsed"), EC5_HUMAN_GATE_CHECKS
+        ),
+        "ec5_duplicate_green": named_checks_green(human.get("parsed"), EC5_DUPLICATE_CHECKS),
+        "ec5_r43_handoff_green": named_checks_green(
+            human.get("parsed"), EC5_R43_HANDOFF_CHECKS
+        ),
+        "opencode_surface_green": (
+            named_checks_green(opencode.get("parsed"), EC6_OPENCODE_CHECKS)
+            and opencode.get("runtime_green_evidence") is True
+        ),
+        "g5_full_green": all(suite_is_green(suite) for suite in suites),
+    }
+    milestones["ec5_green"] = all(
+        milestones[name]
+        for name in (
+            "ec5_confirmation_policy_green",
+            "ec5_atomic_confirmation_green",
+            "ec5_human_gate_green",
+            "ec5_duplicate_green",
+            "ec5_r43_handoff_green",
+        )
+    )
+    return milestones
+
+
 def ec1_verdict(
     suites: list[dict[str, Any]], frozen_runner_unchanged: bool
 ) -> tuple[bool, dict[str, bool], list[str]]:
@@ -289,10 +522,11 @@ def ec1_verdict(
         "no_g5_durable_extension_registered": product_foundation.get("no_g5_durable_extension_registered") is True,
         "no_second_store_files": static_checks.get("no_second_store_files") is True,
         "no_session_owner": static_checks.get("fix_and_session_mutation_attrs_absent") is True,
-        "g5_command_unavailable": product_checks.get("g5_command_callable") is False,
-        "g5_cli_unavailable": product_checks.get("g5_cli_registered") is False,
-        "worker_binding_unavailable": all(worker_checks.get(name) is False for name in WORKER_BINDING_CHECKS),
-        "all_unavailable_stages_are_structured": all(structured_missing(suite) for suite in suites),
+        "product_stage_structured_or_green": structured_or_green(product),
+        "worker_stage_structured_or_green": structured_or_green(worker),
+        "all_progressive_stages_structured_or_green": all(
+            structured_or_green(suite) for suite in suites
+        ),
         "no_programming_exceptions": all(not suite["programming_exception"] for suite in suites),
     }
     failures = [name for name, passed in conditions.items() if not passed]
@@ -313,7 +547,7 @@ def ec2_verdict(
         "product_suite_structured": structured_or_green(product),
         "worker_suite_structured": structured_or_green(worker),
         "worker_binding_matrix_complete": WORKER_BINDING_CHECKS.issubset(worker_checks),
-        "later_waves_fail_closed": all(structured_missing(suite) for suite in later),
+        "later_waves_structured_or_green": all(structured_or_green(suite) for suite in later),
         "no_programming_exceptions": all(not suite["programming_exception"] for suite in suites),
     }
     oracle_ready = all(conditions.values())
@@ -327,6 +561,61 @@ def ec2_verdict(
     return oracle_ready and not wave_failures, oracle_ready, conditions, wave_failures
 
 
+def progressive_wave_verdict(
+    wave: str,
+    suites: list[dict[str, Any]],
+    frozen_runner_unchanged: bool,
+) -> tuple[bool, bool, dict[str, bool], dict[str, bool], list[str]]:
+    oracle_conditions = progressive_oracle_conditions(suites, frozen_runner_unchanged)
+    oracle_ready = all(oracle_conditions.values())
+    milestones = progressive_milestones(suites)
+
+    requirements = {
+        "EC3": (
+            "product_seam_green",
+            "worker_binding_green",
+            "ec3_preconfirmation_green",
+            "confirmation_barrier_green",
+        ),
+        "EC4": (
+            "product_seam_green",
+            "worker_binding_green",
+            "ec3_preconfirmation_green",
+            "confirmation_barrier_green",
+            "ec4_governed_evidence_green",
+            "ec4_recovery_green",
+        ),
+        "EC5": (
+            "product_seam_green",
+            "worker_binding_green",
+            "ec3_preconfirmation_green",
+            "ec4_governed_evidence_green",
+            "ec4_recovery_green",
+            "ec5_confirmation_policy_green",
+            "ec5_atomic_confirmation_green",
+            "ec5_human_gate_green",
+            "ec5_duplicate_green",
+            "ec5_r43_handoff_green",
+        ),
+        "EC6": (
+            "product_seam_green",
+            "worker_binding_green",
+            "ec3_preconfirmation_green",
+            "ec4_governed_evidence_green",
+            "ec4_recovery_green",
+            "ec5_green",
+            "opencode_surface_green",
+        ),
+        "EC7": ("g5_full_green",),
+    }[wave]
+    failures = [name for name in requirements if not milestones[name]]
+    if not oracle_ready:
+        failures.extend(
+            f"oracle:{name}" for name, passed in oracle_conditions.items() if not passed
+        )
+    return oracle_ready and not failures, oracle_ready, oracle_conditions, milestones, failures
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Canonical additive G5 EC0-EC7 validation runner"
@@ -334,7 +623,7 @@ def main() -> int:
     parser.add_argument("--root", default=".")
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument("--mode", choices=("red", "green"))
-    selection.add_argument("--wave", choices=("EC1", "EC2"))
+    selection.add_argument("--wave", choices=("EC1", "EC2", "EC3", "EC4", "EC5", "EC6", "EC7"))
     parser.add_argument("--output", default=None)
     args = parser.parse_args()
 
@@ -360,6 +649,8 @@ def main() -> int:
         "all_g5_suites_accepted": all_suites_accepted,
         "ec0_truthful_red_frozen": mode == "red" and legacy_status == "PASS",
         "g5_green": mode == "green" and legacy_status == "PASS",
+        "no_programming_exceptions": all(not suite["programming_exception"] for suite in suites),
+        "frozen_g1_g4_runner_exact": frozen_runner_unchanged,
         "green_requires_runtime_behavior_in_every_suite": all(
             suite["future_green_requires_real_runtime"] for suite in suites
         ),
@@ -377,11 +668,13 @@ def main() -> int:
 
     if args.wave == "EC1":
         passed, conditions, failures = ec1_verdict(suites, frozen_runner_unchanged)
+        oracle_ready = all(conditions.values())
         result.update(
             {
                 "status": "PASS" if passed else "FAIL",
                 "wave": "EC1",
                 "wave_expectation_satisfied": passed,
+                "wave_oracle_ready": oracle_ready,
                 "wave_conditions": conditions,
                 "wave_failures": failures,
             }
@@ -399,7 +692,11 @@ def main() -> int:
                 "wave_expectation_satisfied": passed,
                 "product_seam_green": "product_seam_green" not in failures,
                 "worker_binding_green": "worker_binding_green" not in failures,
-                "later_waves_fail_closed": conditions["later_waves_fail_closed"],
+                "later_waves_fail_closed": all(
+                    structured_missing(suite)
+                    for suite in suites
+                    if suite["file"] in LATER_WAVE_SUITES
+                ),
                 "ec2_r2_5_missing_oracle_present": "logical_agent_binding_missing_rejected" in worker_checks,
                 "ec2_r2_5_mismatch_oracle_present": "logical_agent_binding_mismatch_rejected" in worker_checks,
                 "wave_oracle_ready": oracle_ready,
@@ -407,6 +704,32 @@ def main() -> int:
                 "wave_failures": failures,
             }
         )
+    elif args.wave in {"EC3", "EC4", "EC5", "EC6", "EC7"}:
+        passed, oracle_ready, conditions, milestones, failures = progressive_wave_verdict(
+            args.wave, suites, frozen_runner_unchanged
+        )
+        result.update(
+            {
+                "status": "PASS" if passed else "FAIL",
+                "wave": args.wave,
+                "wave_expectation_satisfied": passed,
+                "wave_oracle_ready": oracle_ready,
+                "wave_conditions": conditions,
+                "wave_failures": failures,
+                "later_waves_fail_closed": all(
+                    structured_missing(suite) or suite_is_green(suite)
+                    for suite in suites
+                    if suite["file"] in LATER_WAVE_SUITES
+                ),
+                **milestones,
+            }
+        )
+        if args.wave == "EC7":
+            # EC7 uses the exact green-mode suite requirements even though wave
+            # invocations retain the progressive runner execution mode.
+            result["g5_green"] = milestones["g5_full_green"]
+            result["all_g5_suites_accepted"] = milestones["g5_full_green"]
+            result["ec7_g5_focused_gate"] = "PASS" if milestones["g5_full_green"] else "FAIL"
 
     text = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if args.output:
