@@ -40,6 +40,27 @@ _LANG = {
     ".vue": "VUE",
 }
 _CONFIG = {".yml", ".yaml", ".json", ".properties", ".toml", ".ini", ".xml", ".sql"}
+_CAPABILITY_RANK = {
+    "AVAILABLE": 0,
+    "PARTIAL": 1,
+    "UNAVAILABLE": 1,
+    "BLOCKED": 2,
+}
+
+
+def _merge_capability_status(previous: str | None, candidate: str) -> str:
+    """Monotonically aggregate repository/file/hunk capability truth.
+
+    A later easy file must never erase an earlier partial/unavailable/blocked
+    observation for the same language capability.
+    """
+    if candidate not in _CAPABILITY_RANK:
+        raise RuntimeError("G3_CAPABILITY_STATUS_INVALID", candidate)
+    if previous is None:
+        return candidate
+    if previous not in _CAPABILITY_RANK:
+        raise RuntimeError("G3_CAPABILITY_STATUS_INVALID", previous)
+    return candidate if _CAPABILITY_RANK[candidate] > _CAPABILITY_RANK[previous] else previous
 
 
 @dataclass(frozen=True)
@@ -321,6 +342,10 @@ class LanguageStructuralProvider:
         mapping_rows: list[dict[str, Any]] = []
         obligations: list[dict[str, Any]] = []
         warnings: list[str] = []
+
+        def set_capability(key: str, value: str) -> None:
+            caps[key] = _merge_capability_status(caps.get(key), value)
+
         graph_by_line = {(item.file_path, item.line_number): item for item in codegraph_mappings}
         graph_symbol_lines: dict[tuple[str, str], list[int]] = {}
         graph_symbol_meta: dict[tuple[str, str], StructuralLineMapping] = {}
@@ -351,20 +376,20 @@ class LanguageStructuralProvider:
             suffix = Path(path).suffix.lower()
             if not lang:
                 if suffix in _CONFIG:
-                    caps[f"CONFIG:{suffix or 'none'}"] = "AVAILABLE"
+                    set_capability(f"CONFIG:{suffix or 'none'}", "AVAILABLE")
                 else:
-                    caps[f"UNSUPPORTED:{suffix or '<none>'}"] = "UNAVAILABLE"
+                    set_capability(f"UNSUPPORTED:{suffix or '<none>'}", "UNAVAILABLE")
                     warnings.append(f"UNSUPPORTED_LANGUAGE:{path}")
                 continue
             relevant = _relevant_executable_lines(text, changed, lang)
             native_symbols: list[ChangedSymbolFact]
             if lang == "PYTHON":
                 native_symbols = _symbols_python(text, path, changed, git_truth.change_kinds[path])
-                caps[lang] = "AVAILABLE"
+                set_capability(lang, "AVAILABLE")
             else:
                 native_symbols = _symbols_regex(text, path, changed, git_truth.change_kinds[path], lang)
                 # Regex is last-resort and can never self-certify complete structural truth.
-                caps[lang] = "PARTIAL" if relevant else "AVAILABLE"
+                set_capability(lang, "PARTIAL" if relevant else "AVAILABLE")
             symbols.extend(native_symbols)
             native_by_line: dict[int, ChangedSymbolFact] = {}
             for symbol in native_symbols:
@@ -532,6 +557,20 @@ class ChangeIntelligenceBroker:
             **language_caps,
         }
         warnings = list(codegraph.warnings) + language_warnings
+        relationship_failures = [
+            warning for warning in codegraph.warnings
+            if warning.startswith("CODEGRAPH_RELATIONSHIP_QUERY_FAILED:")
+        ]
+        if relationship_failures:
+            obligations.append({
+                "obligation_kind": "CODEGRAPH_STRUCTURAL_RELATIONSHIPS_PARTIAL",
+                "status": "OPEN",
+                "provider": "codegraph-ai/CodeGraph",
+                "relationship_classes": ["CALLER", "CALLEE", "DEPENDENCY", "IMPACT"],
+                "failure_refs": list(relationship_failures),
+                "risk_semantics": "STRUCTURAL_IMPACT_ENRICHMENT_INCOMPLETE; GIT_CHANGED_FILE_LINE_TRUTH_UNCHANGED",
+                "resolution_requirement": "RESTORE_PINNED_CODEGRAPH_GRAPH_ONLY_RELATIONSHIP_QUERIES_OR_RETAIN_PARTIAL_CAPABILITY",
+            })
         if codegraph.health.status == "UNAVAILABLE":
             warnings.append("CODEGRAPH_UNAVAILABLE")
         elif codegraph.health.status == "BLOCKED":
@@ -543,8 +582,12 @@ class ChangeIntelligenceBroker:
 
         regex_only = any(row.get("provider") == "LANGUAGE_REGEX_LAST_RESORT" for row in line_mapping)
         unsupported = any(key.startswith("UNSUPPORTED:") and value == "UNAVAILABLE" for key, value in provider_caps.items())
-        mapping_complete = not obligations
-        structural_complete = mapping_complete and not regex_only and not unsupported
+        symbol_mapping_complete = not any(
+            item.get("obligation_kind") == "MISSING_SYMBOL_MAPPING" for item in obligations
+        )
+        codegraph_used = any(row.get("provider") == "CODEGRAPH" for row in line_mapping)
+        relationship_complete = not codegraph_used or codegraph.health.status == "AVAILABLE"
+        structural_complete = symbol_mapping_complete and not regex_only and not unsupported and relationship_complete
         if not git_truth.changed_files:
             status = "COMPLETE"
             structural_complete = True
