@@ -46,6 +46,10 @@ WORKER_BINDING_CHECKS = {
     "wrong_task_rejected",
     "wrong_attempt_rejected",
     "wrong_session_rejected",
+    "logical_agent_binding_missing_rejected",
+    "logical_agent_binding_mismatch_rejected",
+    "route_role_mismatch_rejected",
+    "current_session_not_open_rejected",
     "stale_predecessor_rejected_after_rotation",
     "successor_binding_accepted_after_rotation",
     "root_logical_agent_binding_survives_rotation",
@@ -303,10 +307,12 @@ def ec2_verdict(
     later = [suite for suite in suites if suite["file"] in LATER_WAVE_SUITES]
     product_green = all_checks(product.get("parsed"), PRODUCT_SEAM_CHECKS)
     worker_green = all_checks(worker.get("parsed"), WORKER_BINDING_CHECKS)
+    worker_checks = checks(worker.get("parsed"))
     conditions = {
         "frozen_g1_g4_runner_exact": frozen_runner_unchanged,
         "product_suite_structured": structured_or_green(product),
         "worker_suite_structured": structured_or_green(worker),
+        "worker_binding_matrix_complete": WORKER_BINDING_CHECKS.issubset(worker_checks),
         "later_waves_fail_closed": all(structured_missing(suite) for suite in later),
         "no_programming_exceptions": all(not suite["programming_exception"] for suite in suites),
     }
@@ -384,6 +390,8 @@ def main() -> int:
         passed, oracle_ready, conditions, failures = ec2_verdict(
             suites, frozen_runner_unchanged
         )
+        worker = suite_by_name(suites, "test_g5_worker_binding_and_recovery.py")
+        worker_checks = checks(worker.get("parsed"))
         result.update(
             {
                 "status": "PASS" if passed else "FAIL",
@@ -392,6 +400,8 @@ def main() -> int:
                 "product_seam_green": "product_seam_green" not in failures,
                 "worker_binding_green": "worker_binding_green" not in failures,
                 "later_waves_fail_closed": conditions["later_waves_fail_closed"],
+                "ec2_r2_5_missing_oracle_present": "logical_agent_binding_missing_rejected" in worker_checks,
+                "ec2_r2_5_mismatch_oracle_present": "logical_agent_binding_mismatch_rejected" in worker_checks,
                 "wave_oracle_ready": oracle_ready,
                 "wave_conditions": conditions,
                 "wave_failures": failures,
