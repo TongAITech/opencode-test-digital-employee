@@ -33,6 +33,7 @@ def make_repo(root: Path) -> tuple[Path, str, str]:
     (repo / "src/Callee.java").write_text("class Callee { void target() {} }\n", encoding="utf-8")
     (repo / "src/Dependency.java").write_text("class Dependency {}\n", encoding="utf-8")
     (repo / "src/Impact.java").write_text("class Impact {}\n", encoding="utf-8")
+    (repo / "src/Reference.java").write_text("class Reference { void use() {} }\n", encoding="utf-8")
     git(repo, "add", ".")
     git(repo, "commit", "-m", "base")
     base = git(repo, "rev-parse", "HEAD")
@@ -64,7 +65,10 @@ elif tool == "codegraph_get_callees":
 elif tool == "codegraph_get_dependency_graph":
     value = {{"dependencies": [node("Dependency", "Dependency.java", "dependency-1")]}}
 elif tool == "codegraph_analyze_impact":
-    value = {{"affected": [node("Impact", "Impact.java", "impact-1")]}}
+    reference = node("Reference.use", "Reference.java", "reference-1")
+    reference["impact_type"] = "reference"
+    reference["edge_type"] = "References"
+    value = {{"affected": [node("Impact", "Impact.java", "impact-1"), reference]}}
 else:
     print("unsupported tool", file=sys.stderr)
     raise SystemExit(11)
@@ -108,9 +112,9 @@ def main() -> int:
         checks["pinned_graph_only_provider_is_available"] = meta["provider_capabilities"]["CODEGRAPH"] == "AVAILABLE" and meta["provider_health"]["CODEGRAPH"]["binary_sha256"] == sha
         checks["real_caller_relationship_normalized"] = "CALLER" in kinds
         checks["real_callee_relationship_normalized"] = "CALLEE" in kinds
-        checks["real_dependency_relationship_normalized"] = "DEPENDENCY" in kinds
+        checks["real_dependency_and_reference_relationships_normalized"] = "DEPENDENCY" in kinds and "REFERENCE" in kinds
         checks["real_impact_relationship_normalized"] = "IMPACT" in kinds
-        checks["relationship_edges_keep_exact_tool_provenance"] = all(any(ref.startswith("codegraph-tool:") for ref in edge.source_provenance) for edge in cg_edges) and "codegraph-tool:codegraph_get_callers" in provenance
+        checks["relationship_edges_keep_exact_tool_provenance"] = all(any(ref.startswith("codegraph-tool:") for ref in edge.source_provenance) for edge in cg_edges) and "codegraph-tool:codegraph_get_callers" in provenance and "codegraph-tool:codegraph_analyze_impact" in provenance
         git_refs_before = {ref for item in env.changed_files for ref in item.diff_hunk_refs}
         checks["git_remains_only_changed_line_truth"] = bool(git_refs_before) and all(ref.startswith("src/Service.java:L") for ref in git_refs_before)
         checks["complete_structural_truth_requires_successful_relationship_queries"] = env.code_intelligence_status == "COMPLETE" and not meta["mapping_obligations"]
