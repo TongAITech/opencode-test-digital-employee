@@ -35,6 +35,14 @@ WAVE2 = [
     ("r2_6_sensitive_evidence", "test_g4_sensitive_evidence_wave2.py", 7),
     ("r2_7_package_identity", "test_package_identity_wave2.py", 6),
 ]
+CLOSURE_REPAIR = [
+    ("closure_f1_explicit_user_turn_resume", "test_g4_explicit_user_turn_resume_closure.py", 15),
+    ("closure_f1_background_auto_resume", "test_g4_package_background_auto_resume_closure.py", 9),
+    ("closure_f2_terminal_prewrite_guard", "test_g4_terminal_prewrite_guard_closure.py", 18),
+    ("closure_f3_codegraph_relationships", "test_g3_codegraph_relationships_closure.py", 12),
+    ("closure_f4_sensitive_ingress", "test_g4_sensitive_ingress_closure.py", 14),
+    ("closure_f5_language_capability_aggregation", "test_g3_language_capability_aggregation_closure.py", 5),
+]
 
 
 def parse_last_json(text: str) -> dict[str, Any] | None:
@@ -104,6 +112,7 @@ def main() -> int:
         ("original_267", ORIGINAL_267, 267),
         ("post_closure_22", POST_CLOSURE_22, 22),
         ("wave2_new", WAVE2, sum(item[2] for item in WAVE2)),
+        ("closure_repair_new", CLOSURE_REPAIR, sum(item[2] for item in CLOSURE_REPAIR)),
     ]
     suites: list[dict[str, Any]] = []
     group_results: dict[str, Any] = {}
@@ -122,12 +131,16 @@ def main() -> int:
     combined_expected = sum(group[2] for group in groups)
     combined_passed = sum(value["passed"] for value in group_results.values())
     same_e2e = next(item for item in suites if item["name"] == "g4_same_mission_e2e")
+    explicit_resume = next(item for item in suites if item["name"] == "closure_f1_explicit_user_turn_resume")
+    background_auto = next(item for item in suites if item["name"] == "closure_f1_background_auto_resume")
     result = {
         "status": "PASS" if combined_passed == combined_expected and all(value["status"] == "PASS" for value in group_results.values()) else "FAIL",
         "fresh": True,
         "groups": group_results,
         "combined": {"passed": combined_passed, "total": combined_expected},
         "same_mission_e2e": {"status": same_e2e["status"], "passed": same_e2e["reported_passed"], "total": same_e2e["reported_total"]},
+        "explicit_user_turn_resume": {"status": explicit_resume["status"], "passed": explicit_resume["reported_passed"], "total": explicit_resume["reported_total"]},
+        "background_auto_resume": {"status": background_auto["status"], "passed": background_auto["reported_passed"], "total": background_auto["reported_total"]},
         "suites": suites,
         "g5_defect_truth": "HOLD",
         "g6_closed_loop": "HOLD",
