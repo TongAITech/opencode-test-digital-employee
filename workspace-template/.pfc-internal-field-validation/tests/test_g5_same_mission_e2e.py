@@ -1,192 +1,64 @@
 from __future__ import annotations
-
-import json
-import os
-import subprocess
-import sys
-import tempfile
+import json, os, subprocess, sys, tempfile
 from pathlib import Path
-
-WORKSPACE = Path(__file__).resolve().parents[2]
-RUNTIME = WORKSPACE / "ai-test" / "runtime"
-TESTS = Path(__file__).parent
-sys.path.insert(0, str(RUNTIME))
-sys.path.insert(0, str(TESTS))
-
+WORKSPACE=Path(__file__).resolve().parents[2]; RUNTIME=WORKSPACE/'ai-test/runtime'; TESTS=Path(__file__).parent
+sys.path[:0]=[str(RUNTIME),str(TESTS)]
 from aitest_runtime import product_entry
 from aitest_runtime.autonomous_orchestration import FakeOpenCodeSessionProvider
 from aitest_runtime.canonical_runtime import create_canonical_runtime
-from aitest_runtime.durable_core import canonical_sha256
 from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
+from aitest_runtime.g2_1.router import AgentRoleRegistry
+from aitest_runtime.g3.coverage import CoverageProviderResult, MappingCoveragePlatformProvider
+from aitest_runtime.g3.service import G3TestingIntelligenceService
+from aitest_runtime.g4.service import G4RealExecutionService
+from aitest_runtime.r3_6.service import R36ApplicationService
+from aitest_runtime.r4_3.service import R43ApplicationService
+from test_g4_full_same_mission_product_e2e import DeterministicExecutor, binding, exec_task, g3_cycle, intake_request, make_repo
+from test_g5_human_gate_and_duplicate_correlation import ALT, exact_ref, r41
+from test_g5_worker_binding_and_recovery import G5_CAPABILITIES
 
-REQUIRED_R36_STAGES = (
-    "record_test_anomaly",
-    "create_defect_candidate",
-    "request_evidence_deepening",
-    "record_evidence_assessment",
-    "record_cross_source_correlation",
-    "evaluate_reproducibility",
-    "assess_false_positive",
-    "assess_defect_truth",
-    "record_rca",
-    "record_investigation_checkpoint",
-)
+def finish(orch,b,summary): return orch.report_task_outcome(b['mission_id'],task_id=b['task_id'],attempt_id=b['attempt_id'],session_id=b['session_id'],outcome='SUCCEEDED',summary=summary)
+def hunter_task(k): return {'task_key':k,'intent':'investigate governed anomaly','acceptance_criteria':[{'id':'truth','description':'defect truth investigated'}],'routing':{'role':'DEFECT_HUNTER','required_capabilities':sorted(G5_CAPABILITIES),'isolation_policy':'DEDICATED_TASK_SESSION','parallelism_policy':'SERIAL'}}
+def parse(text):
+ a=text.find('{'); b=text.rfind('}')
+ try: return json.loads(text[a:b+1]) if a>=0 and b>=a else {}
+ except Exception: return {}
 
-
-def parse_last_json(text: str) -> dict:
-    decoder = json.JSONDecoder()
-    found: list[dict] = []
-    for index, char in enumerate(text):
-        if char != "{":
-            continue
-        try:
-            value, end = decoder.raw_decode(text[index:])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict) and not text[index + end :].strip():
-            found.append(value)
-    return found[-1] if found else {}
-
-
-def read(path: Path) -> str:
-    return path.read_text(encoding="utf-8") if path.is_file() else ""
-
-
-def request(intake_id: str) -> dict:
-    return {
-        "intake_id": intake_id,
-        "operation": "CREATE",
-        "scope": {"mode": "EXPLICIT_SET", "project_id": "PFC", "version": "G5-EC0", "requirements": ["REQ-G5-E2E"]},
-        "goal": {"title": "G5 EC0 same mission", "intent": "prove G5 continues one durable Mission", "constraints": []},
-        "source": {
-            "kind": "USER",
-            "source_ref": f"g5-e2e:{intake_id}",
-            "source_digest": canonical_sha256({"id": intake_id}),
-            "observed_at": "2026-09-03T10:00:00Z",
-            "valid_until": None,
-            "source_precedence": 1,
-        },
-        "actor": {"type": "USER", "id": "g5-ec0"},
-        "resolution": {
-            "resolution_id": f"resolution:{intake_id}",
-            "request_digest": canonical_sha256({"resolution": intake_id}),
-            "snapshot_id": f"snapshot:{intake_id}",
-            "fact_set_digest": canonical_sha256({"facts": []}),
-            "status": "RESOLVED",
-            "reason_code": None,
-            "source_refs": [f"g5-e2e:{intake_id}"],
-            "valid_until": "2026-09-04T10:00:00Z",
-        },
-    }
-
-
-def main() -> int:
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(RUNTIME) + os.pathsep + str(TESTS) + os.pathsep + env.get("PYTHONPATH", "")
-    upstream = subprocess.run(
-        [sys.executable, str(TESTS / "test_g4_full_same_mission_product_e2e.py")],
-        cwd=str(WORKSPACE), env=env, text=True, capture_output=True, timeout=420,
-    )
-    upstream_json = parse_last_json(upstream.stdout)
-    upstream_checks = upstream_json.get("checks") if isinstance(upstream_json.get("checks"), dict) else {}
-
-    # Independent lightweight Mission proves the canonical Runtime/G2.1 fixture can
-    # still create one durable Mission before any G5-specific product path exists.
-    with tempfile.TemporaryDirectory(prefix="g5-same-mission-foundation-") as td:
-        root = Path(td)
-        runtime = create_canonical_runtime(root, db_path=root / "runtime-spine.db")
-        provider = FakeOpenCodeSessionProvider(root)
-        orch = G21AutonomousOrchestrationService(runtime, root, session_provider=provider)
-        started = orch.start_test(request("foundation"))
-        durable_mid = started["intake"]["intake"]["mission_id"]
-        durable_head = runtime.get_head_seq(durable_mid)
-
-    foundation = {
-        "existing_g4_same_mission_e2e_is_green": upstream.returncode == 0 and upstream_json.get("status") == "PASS",
-        "existing_g4_e2e_uses_r1_truth": bool(upstream_checks.get("same_user_opencode_mission")) or upstream_json.get("truth_source") == "R1_EVENT_STREAM" or upstream_json.get("status") == "PASS",
-        "durable_mission_fixture_created": isinstance(durable_mid, str) and bool(durable_mid) and durable_head > 0,
-    }
-
-    g5_root = RUNTIME / "aitest_runtime" / "g5"
-    service = read(g5_root / "service.py")
-    admission = read(g5_root / "admission.py")
-    policy = read(g5_root / "policy.py")
-    combined = "\n".join((service, admission, policy))
-    command = getattr(product_entry, "g5_command", None)
-
-    director_status_ok = False
-    intake_ok = False
-    if callable(command):
-        with tempfile.TemporaryDirectory(prefix="g5-same-mission-surface-") as td:
-            root = Path(td)
-            old_root = os.environ.get("AITEST_WORKSPACE_ROOT")
-            old_db = os.environ.get("AITEST_RUNTIME_SPINE_DB")
-            os.environ["AITEST_WORKSPACE_ROOT"] = str(root)
-            os.environ["AITEST_RUNTIME_SPINE_DB"] = str(root / "runtime-spine.db")
-            runtime = create_canonical_runtime(root, db_path=root / "runtime-spine.db")
-            provider = FakeOpenCodeSessionProvider(root)
-            orch = G21AutonomousOrchestrationService(runtime, root, session_provider=provider)
-            old_orch = product_entry.orchestration_service
-            old_default = product_entry.default_service
-            product_entry.orchestration_service = lambda _root=None: orch
-            product_entry.default_service = lambda _rt, _root: orch
-            try:
-                started = orch.start_test(request("g5-director"))
-                mid = started["intake"]["intake"]["mission_id"]
-                try:
-                    status_value = command("DIRECTOR", "status", {"mission_id": mid})
-                    director_status_ok = isinstance(status_value, dict) and status_value.get("truth_source") == "R1_EVENT_STREAM" and status_value.get("mission_id") in {None, mid}
-                except Exception:
-                    director_status_ok = False
-                try:
-                    intake_value = command("DIRECTOR", "intake_observations", {"mission_id": mid})
-                    intake_ok = isinstance(intake_value, dict) and intake_value.get("truth_source") == "R1_EVENT_STREAM" and intake_value.get("mission_id") in {None, mid}
-                except Exception:
-                    intake_ok = False
-            finally:
-                product_entry.orchestration_service = old_orch
-                product_entry.default_service = old_default
-                if old_root is None: os.environ.pop("AITEST_WORKSPACE_ROOT", None)
-                else: os.environ["AITEST_WORKSPACE_ROOT"] = old_root
-                if old_db is None: os.environ.pop("AITEST_RUNTIME_SPINE_DB", None)
-                else: os.environ["AITEST_RUNTIME_SPINE_DB"] = old_db
-
-    contract = {
-        "g5_service_present": bool(service),
-        "same_mission_director_status_available": director_status_ok,
-        "same_mission_observation_intake_available": intake_ok,
-        "g4_to_r36_admission_present": bool(admission) and "UNEXPECTED_OBSERVATION" in admission and "OBSERVATION_ONLY" in admission and "record_test_anomaly" in combined,
-        "g5_v7_origin_lineage_present": bool(combined) and "architecture_baseline_ref" in combined and "v7" in combined,
-        "r36_investigation_chain_present": bool(service) and all(stage in service for stage in REQUIRED_R36_STAGES),
-        "governed_work_gap_path_present": bool(combined) and "GOVERNED_WORK_REQUIRED" in combined and "G2_PLAN_REVISION_REQUIRED" in combined,
-        "r43_exact_handoff_present": bool(service) and "open_confirmed_defect_lifecycle" in service,
-        "same_mission_scope_is_explicit": bool(combined) and "mission_id" in combined and "R1_EVENT_STREAM" in combined,
-        "no_cross_mission_silent_merge": bool(combined) and "AMBIGUOUS_REVIEW_REQUIRED" in combined and "SAME_CONFIRMED_LIFECYCLE" in combined,
-        "full_product_chain_markers_present": bool(combined) and all(marker in combined for marker in (
-            "TestAnomaly", "DefectCandidate", "EvidenceAssessment", "Reproducibility", "FalsePositive", "DefectAssessment", "RCA",
-        )),
-    }
-
-    fixture_ok = all(foundation.values())
-    missing = [name for name, value in contract.items() if not value]
-    status = "PASS" if fixture_ok and not missing else "FAIL"
-    truthful_red = fixture_ok and status == "FAIL" and bool(missing)
-    out = {
-        "suite": "test_g5_same_mission_e2e",
-        "status": status,
-        "passed": sum(bool(v) for v in {**foundation, **contract}.values()),
-        "total": len(foundation) + len(contract),
-        "fixture_ok": fixture_ok,
-        "truthful_red": truthful_red,
-        "red_kind": "MISSING_G5_INTEGRATION" if truthful_red else None,
-        "foundation_checks": foundation,
-        "contract_checks": contract,
-        "missing_contract_checks": missing,
-        "upstream_g4_same_mission_status": upstream_json.get("status"),
-    }
-    print(json.dumps(out, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0 if status == "PASS" else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+def main():
+ env=os.environ.copy(); env['PYTHONPATH']=str(RUNTIME)+os.pathsep+str(TESTS); p=subprocess.run([sys.executable,str(TESTS/'test_g4_governed_execution_binding_wave2.py')],cwd=str(WORKSPACE),env=env,text=True,capture_output=True,timeout=300); base=parse(p.stdout)
+ foundation={'existing_g2_g4_runtime_fixture_executes':p.returncode==0 and base.get('status')=='PASS','diagnosis_router_fixture':AgentRoleRegistry.default().resolve('DIAGNOSIS').agent_name=='aitest-diagnosis','r36_service_real':callable(R36ApplicationService),'r43_service_real':callable(R43ApplicationService.open_confirmed_defect_lifecycle)}
+ supplemental={'static_markers_are_not_green_authority':True}
+ names=['g2_plan_defect_hunter_router_current_binding','g4_fail_creates_durable_unexpected_observation','g5_exact_admission_creates_r36_anomaly','r36_candidate_created','new_evidence_gap_returns_governed_work_required','g2_g4_governed_reproduction_creates_durable_evidence','g5_resumes_from_durable_typed_refs','bounded_deepening_is_raw_payload_free','cross_source_correlation_durable','evidence_assessment_durable','reproducibility_durable','false_positive_exclusion_durable','ordinary_confirmation_is_r36_confirmed_defect','rca_durable','r43_exact_lifecycle_durable','single_same_mission_chain','companion_governed_work_path']
+ behavior={n:False for n in names}; command=getattr(product_entry,'g5_command',None); hunter=None
+ try: hunter=AgentRoleRegistry.default().resolve('DEFECT_HUNTER')
+ except Exception: pass
+ if callable(command) and hunter is not None:
+  with tempfile.TemporaryDirectory(prefix='g5-same-mission-') as td:
+   root=Path(td); db=root/'runtime-spine.db'; old=(os.environ.get('AITEST_WORKSPACE_ROOT'),os.environ.get('AITEST_RUNTIME_SPINE_DB')); os.environ['AITEST_WORKSPACE_ROOT']=str(root); os.environ['AITEST_RUNTIME_SPINE_DB']=str(db)
+   repo,base_ref,head_ref=make_repo(root,'cfg-data',{'src/CreditLimitService.java':'class C{boolean ok(long r,long a){return r<a;}}\n'},{'src/CreditLimitService.java':'class C{boolean ok(long r,long a){return r<=a;}}\n'}); repos=[{'repository_id':'cfg-data','application_id':'cfg-data','repository_path':str(repo),'base_ref':base_ref,'head_ref':head_ref}]
+   rt=create_canonical_runtime(root,db_path=db); orch=G21AutonomousOrchestrationService(rt,root,session_provider=FakeOpenCodeSessionProvider(root)); coverage={'provider':MappingCoveragePlatformProvider(CoverageProviderResult('SOURCE_UNAVAILABLE',()))}; executor=DeterministicExecutor('API'); saved=(product_entry.orchestration_service,product_entry.default_service,product_entry.G3TestingIntelligenceService,product_entry._G4_CAPABILITY_EXECUTORS); product_entry.orchestration_service=lambda _root=None:orch; product_entry.default_service=lambda _rt,_root:orch; product_entry.G3TestingIntelligenceService=lambda r,orchestration=None:G3TestingIntelligenceService(r,coverage_provider=coverage['provider'],orchestration=orchestration or orch); product_entry._G4_CAPABILITY_EXECUTORS={'API':executor}
+   try:
+    started=product_entry.orchestration_command('DIRECTOR','start_test',{'request':intake_request()}); mid=started['intake']['intake']['mission_id']; cycle=g3_cycle(mid,orch,coverage,repos,1); case_fact=cycle['cases']['ready_cases'][0]['case']; case=case_fact['payload']['r3_3_case']; strategy=cycle['strategy']['strategy']['strategy_version_id']; qv,camps=r41(rt,mid,'e2e')
+    g4=G4RealExecutionService(rt,orchestration=orch,capability_executors={'API':executor}); g4.create_goal(mid,{'goal_id':'g5-e2e','project_id':'PFC','release_id':'G5-EC0','requirement_scope':['REQ-018'],'affected_applications':['cfg-data'],'affected_application_target_versions':{'cfg-data':'G5-EC0'},'coverage_policy':{'target_pct':95}}); g4.create_batch(mid,{'batch_id':'b1','goal_id':'g5-e2e','case_refs':[case_fact['fact_id']],'strategy_version_id':strategy,'target_application':'cfg-data','status':'RUNNING'}); first=orch.propose_plan(mid,{'objective':'create governed failure','tasks':[exec_task('G5-FAIL',case_fact['fact_id'])],'dependencies':[]})['next']; eb=binding(first); real={**eb,'case_id':str(case['tc_id']),'case_version':str(case['case_version_id']),'case_spec_fact_id':case_fact['fact_id'],'execution_batch_id':'b1'}; g4.record_cursor(mid,{**real,'current_step_index':0,'pending_step_id':'fail'}); out=g4.execute_capability(mid,{**real,'capability_id':'API','executor_request':{'url':'https://sut.test/limits','method':'POST','authorized_scope':{'environment':'TEST'}},'step':{'step_id':'fail','expected':'INVARIANT_OK','fixture_actual':'INVARIANT_BROKEN'},'execution_node':'node-e2e'}); obs=g4.state(mid).by_kind('UNEXPECTED_OBSERVATION')[-1]; behavior['g4_fail_creates_durable_unexpected_observation']=out['status']=='FAIL' and obs.payload.get('status')=='OBSERVATION_ONLY' and obs.payload.get('g5_defect_truth')=='HOLD'; finish(orch,eb,'governed failure captured')
+    hf=orch.propose_plan(mid,{'objective':'diagnose durable observation','tasks':[hunter_task('H1')],'dependencies':[]})['next']; hb=binding(hf); behavior['g2_plan_defect_hunter_router_current_binding']=hf['agent']=='aitest-diagnosis' and hf['route']['role']=='DEFECT_HUNTER'
+    command('DEFECT_HUNTER','record_anomaly',{**hb,'g4_observation_ref':obs.to_dict()}); rs=R36ApplicationService(rt).state(mid); anomaly=rs.anomalies[-1] if rs.anomalies else None; behavior['g5_exact_admission_creates_r36_anomaly']=anomaly is not None and anomaly.origin_lineage.get('architecture_baseline_ref')=='v7' and anomaly.origin_lineage.get('mission_id')==mid
+    cid='candidate-e2e'; command('DEFECT_HUNTER','create_candidate',{**hb,'candidate_id':cid,'anomaly_refs':[anomaly.anomaly_id] if anomaly else [],'classification':'PRODUCT_DEFECT_CANDIDATE','alternative_classifications':ALT,'hypothesis':'same invariant fails under governed execution'}); behavior['r36_candidate_created']=R36ApplicationService(rt).state(mid).candidate(cid) is not None
+    governed=command('DEFECT_HUNTER','request_evidence_deepening',{**hb,'candidate_id':cid,'mode':'NEW_GOVERNED_ACTION','requested_channels':['API'],'evidence_gap':'reproduce governed failure'}); behavior['new_evidence_gap_returns_governed_work_required']=governed.get('status')=='GOVERNED_WORK_REQUIRED'; behavior['companion_governed_work_path']=behavior['new_evidence_gap_returns_governed_work_required']; finish(orch,hb,'need governed evidence')
+    g4.create_batch(mid,{'batch_id':'b2','goal_id':'g5-e2e','case_refs':[case_fact['fact_id']],'strategy_version_id':strategy,'target_application':'cfg-data','status':'RUNNING'}); second=orch.propose_plan(mid,{'objective':'governed reproduction','tasks':[exec_task('G5-REPRO',case_fact['fact_id'])],'dependencies':[]})['next']; rb=binding(second); rr={**rb,'case_id':str(case['tc_id']),'case_version':str(case['case_version_id']),'case_spec_fact_id':case_fact['fact_id'],'execution_batch_id':'b2'}; g4.record_cursor(mid,{**rr,'current_step_index':0,'pending_step_id':'repro'}); rout=g4.execute_capability(mid,{**rr,'capability_id':'API','executor_request':{'url':'https://sut.test/limits','method':'POST','authorized_scope':{'environment':'TEST'}},'step':{'step_id':'repro','expected':'INVARIANT_OK','fixture_actual':'INVARIANT_BROKEN'},'execution_node':'node-e2e'}); obs2=g4.state(mid).by_kind('UNEXPECTED_OBSERVATION')[-1]; behavior['g2_g4_governed_reproduction_creates_durable_evidence']=rout['status']=='FAIL' and obs2.fact_id!=obs.fact_id; finish(orch,rb,'reproduced')
+    hf2=orch.propose_plan(mid,{'objective':'resume defect investigation','tasks':[hunter_task('H2')],'dependencies':[]})['next']; h2=binding(hf2); command('DEFECT_HUNTER','request_evidence_deepening',{**h2,'candidate_id':cid,'mode':'EXISTING_TYPED_REFS','evidence_refs':[obs.fact_id,obs2.fact_id],'requested_channels':['API']}); rstate=R36ApplicationService(rt).state(mid); d=rstate.deepenings[-1] if rstate.deepenings else None; behavior['g5_resumes_from_durable_typed_refs']=d is not None and set(d.evidence_refs)>={obs.fact_id,obs2.fact_id}; behavior['bounded_deepening_is_raw_payload_free']=d is not None and 'password' not in json.dumps(d.to_dict()).lower() and 'raw_payload' not in json.dumps(d.to_dict()).lower()
+    eid='ea-e2e'; command('DEFECT_HUNTER','record_evidence_assessment',{**h2,'candidate_id':cid,'assessment_id':eid,'evidence_refs':[obs.fact_id,obs2.fact_id],'evidence_role':'PRIMARY','evidence_sufficiency':'SUFFICIENT','relevance':'DIRECT','verification_method':'GOVERNED_REPRODUCTION','freshness':'CURRENT','scope_match':'EXACT','conflict_refs':[],'evidence_class':'ENGINEERING_EVIDENCE'}); behavior['evidence_assessment_durable']=R36ApplicationService(rt).state(mid).evidence_assessment(eid) is not None
+    corr='corr-e2e'; command('DEFECT_HUNTER','correlate_sources',{**h2,'candidate_id':cid,'correlation_id':corr,'source_refs':[{'ref_id':obs.fact_id,'digest':obs.digest},{'ref_id':obs2.fact_id,'digest':obs2.digest}],'correlation_keys':{'business_rule':'REQ-018','mechanism':'same-boundary'},'method':'TYPED_RUNTIME_CORRELATION','match_quality':'EXACT','confidence':1.0,'time_window':{},'conflict_refs':[]}); behavior['cross_source_correlation_durable']=R36ApplicationService(rt).state(mid).correlation(corr) is not None
+    rid='repro-e2e'; command('DEFECT_HUNTER','evaluate_reproducibility',{**h2,'candidate_id':cid,'reproducibility_id':rid,'status':'REPRODUCED','attempt_refs':[eb['attempt_id'],rb['attempt_id']],'evidence_refs':[obs.fact_id,obs2.fact_id],'controlled_variables':{'build':'same'},'signature':'same-failure','comparison':'same invariant reproduced','blocking_basis':None}); behavior['reproducibility_durable']=R36ApplicationService(rt).state(mid).reproducibility(rid) is not None
+    fid='fp-e2e'; command('DEFECT_HUNTER','assess_false_positive',{**h2,'candidate_id':cid,'false_positive_id':fid,'status':'NOT_FALSE_POSITIVE','alternatives_considered':ALT,'evidence_refs':[obs.fact_id,obs2.fact_id],'unresolved_refs':[],'decision_basis':'alternatives excluded'}); behavior['false_positive_exclusion_durable']=R36ApplicationService(rt).state(mid).false_positive(fid) is not None
+    did='defect-e2e'; command('DEFECT_HUNTER','assess_defect_truth',{**h2,'candidate_id':cid,'defect_assessment':{'assessment_id':did,'candidate_id':cid,'outcome':'CONFIRMED_DEFECT','final_classification':'PRODUCT_DEFECT','evidence_assessment_refs':[eid],'reproducibility_ref':rid,'false_positive_ref':fid,'causal_basis_refs':[],'unresolved_contradiction_refs':[],'evidence_class':'ENGINEERING_EVIDENCE','decision_basis':'same-mission governed runtime evidence'},'policy_context':{'severity':'S3','security_sensitive':False,'performance_sensitive':False,'regulatory_sensitive':False}}); ass=R36ApplicationService(rt).state(mid).defect_assessment(did); behavior['ordinary_confirmation_is_r36_confirmed_defect']=ass is not None and ass.outcome=='CONFIRMED_DEFECT'
+    rca='rca-e2e'; command('DEFECT_HUNTER','record_rca',{**h2,'candidate_id':cid,'rca_id':rca,'cause_class':'CODE_LOGIC','status':'ESTABLISHED','causal_chain_refs':[{'ref_id':corr,'digest':R36ApplicationService(rt).state(mid).correlation(corr).correlation_digest}],'root_component':'cfg-data','contradiction_refs':[],'decision_basis':'typed reproduction chain'}); behavior['rca_durable']=R36ApplicationService(rt).state(mid).rca(rca) is not None
+    command('DEFECT_HUNTER','handoff_confirmed_defect',{**h2,'candidate_id':cid,'defect_assessment_ref':exact_ref(rt,mid,did),'defect_assessment_digest':ass.defect_assessment_digest,'quality_version_ref':qv,'campaign_refs':camps,'rca_refs':[rca],'evidence_refs':[eid]}); behavior['r43_exact_lifecycle_durable']=len(R43ApplicationService(rt).state(mid).confirmed_defect_lifecycles)==1
+    behavior['single_same_mission_chain']=all(x.mission_id==mid for x in g4.state(mid).facts) and R36ApplicationService(rt).state(mid).mission_id==mid and R43ApplicationService(rt).state(mid).mission_id==mid
+   finally:
+    product_entry.orchestration_service,product_entry.default_service,product_entry.G3TestingIntelligenceService,product_entry._G4_CAPABILITY_EXECUTORS=saved
+    if old[0] is None: os.environ.pop('AITEST_WORKSPACE_ROOT',None)
+    else: os.environ['AITEST_WORKSPACE_ROOT']=old[0]
+    if old[1] is None: os.environ.pop('AITEST_RUNTIME_SPINE_DB',None)
+    else: os.environ['AITEST_RUNTIME_SPINE_DB']=old[1]
+ fixture_ok=all(foundation.values()); runtime_green=all(behavior.values()); contract={**behavior,**supplemental}; missing=[k for k,v in contract.items() if not v]; status='PASS' if fixture_ok and runtime_green and not missing else 'FAIL'; red=fixture_ok and status=='FAIL' and bool(missing); out={'suite':'test_g5_same_mission_e2e','status':status,'fixture_ok':fixture_ok,'truthful_red':red,'red_kind':'MISSING_G5_INTEGRATION' if red else None,'foundation_checks':foundation,'runtime_behavior_checks':behavior,'supplemental_checks':supplemental,'contract_checks':contract,'runtime_green_evidence':runtime_green,'oracle_contract':{'current_red_is_truthful':red,'future_green_requires_real_runtime':True,'static_markers_can_satisfy_e2e_green':False},'missing_contract_checks':missing}; print(json.dumps(out,ensure_ascii=False,indent=2,sort_keys=True)); return 0 if status=='PASS' else 1
+if __name__=='__main__': raise SystemExit(main())
