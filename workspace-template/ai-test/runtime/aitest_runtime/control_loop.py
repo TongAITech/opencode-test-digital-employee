@@ -2,8 +2,9 @@
 
 The loop owns no authoritative memory. Every tick reconstructs the canonical
 Runtime from the R1 Event Stream, reconciles Session provisioning, observes all
-active Sessions, and applies Runtime rotation policy. Restarting this process is
-therefore a normal recovery path rather than a loss of orchestration state.
+active Sessions, applies Runtime rotation policy, and invokes package-owned G4
+AUTO HumanGate observation. Restarting this process is therefore a normal
+recovery path rather than a loss of orchestration state.
 """
 from __future__ import annotations
 
@@ -17,8 +18,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .canonical_runtime import create_canonical_runtime
+from .canonical_runtime import create_canonical_runtime, runtime_status
 from .g2_1.managed_orchestration import default_g21_service
+from .g4.composition import load_provider_bundle
+from .g4.service import G4RealExecutionService
 
 _STOP = False
 
@@ -54,12 +57,76 @@ def _heartbeat(value: dict[str, Any]) -> None:
     os.replace(tmp, path)
 
 
+def _profile(root: Path) -> dict[str, Any]:
+    path = root / "PFC_PROJECT_PROFILE.json"
+    if not path.is_file():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _g4_background_human_gate_tick(runtime: Any, root: Path) -> dict[str, Any]:
+    """Observe AUTO/AUTO_OR_EXPLICIT gates without an LLM or G4 objective tick."""
+    try:
+        bundle = load_provider_bundle(root, _profile(root))
+        service = G4RealExecutionService(
+            runtime,
+            browser_provider=bundle.browser_provider,
+            capability_executors=bundle.capability_executors,
+            resume_condition_verifier=bundle.resume_condition_verifier,
+        )
+        missions = [
+            str(item.get("mission_id"))
+            for item in (runtime_status(root).get("missions") or [])
+            if item.get("mission_id")
+        ]
+        results = {mission_id: service.auto_resume_human_gates(mission_id) for mission_id in missions}
+        resumed = sorted(
+            gate_id
+            for value in results.values()
+            for gate_id in (value.get("resumed_gate_refs") or [])
+        )
+        waiting = sorted(
+            str(item.get("gate_id"))
+            for value in results.values()
+            for item in (value.get("pending_gate_refs") or [])
+            if item.get("gate_id")
+        )
+        return {
+            "status": "RESUMED" if resumed else ("WAITING" if waiting else "PASS"),
+            "truth_source": "R1_EVENT_STREAM",
+            "component": "G4_HUMAN_GATE_BACKGROUND_OBSERVER",
+            "non_llm": True,
+            "package_owned": True,
+            "objective_control_tick_dependency": False,
+            "mission_results": results,
+            "resumed_gate_refs": resumed,
+            "pending_gate_refs": waiting,
+        }
+    except Exception as exc:
+        return {
+            "status": "BLOCKED",
+            "truth_source": "R1_EVENT_STREAM",
+            "component": "G4_HUMAN_GATE_BACKGROUND_OBSERVER",
+            "non_llm": True,
+            "package_owned": True,
+            "objective_control_tick_dependency": False,
+            "error": type(exc).__name__,
+            "message": str(exc),
+        }
+
+
 def run_tick(workspace_root: Path) -> dict[str, Any]:
-    # Rebuild per tick on purpose: no in-memory Session/Mission state can become
-    # a second authority or survive independently of the Event Stream.
+    # Rebuild per tick on purpose: no in-memory Session/Mission/HumanGate state can
+    # become a second authority or survive independently of the Event Stream.
     runtime = create_canonical_runtime(workspace_root)
     service = default_g21_service(runtime, workspace_root)
-    return service.supervise_once()
+    result = service.supervise_once()
+    g4_background = _g4_background_human_gate_tick(runtime, workspace_root)
+    return {**result, "g4_human_gate_background": g4_background}
 
 
 def parser() -> argparse.ArgumentParser:
