@@ -62,3 +62,45 @@ jobs:
 
       - name: Validate Mac shell syntax
         run: bash -n packaging/local-mac/local-mac.sh
+
+  package-build:
+    needs:
+      - source-contract
+      - mac-shell-contract
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14
+            uname_arch: arm64
+          - arch: x64
+            runner: macos-15-intel
+            uname_arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify runner architecture
+        run: |
+          test "$(uname -s)" = "Darwin"
+          test "$(uname -m)" = "${{ matrix.uname_arch }}"
+
+      - name: Build real offline package
+        env:
+          PFC_MAC_OUTPUT_DIR: ${{ runner.temp }}/local-mac-dist
+        run: |
+          mkdir -p "$PFC_MAC_OUTPUT_DIR"
+          ./packaging/local-mac/local-mac.sh build
+          ls -lh "$PFC_MAC_OUTPUT_DIR"
+
+      - name: Upload offline package
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-mac-offline-package-${{ matrix.arch }}-${{ github.sha }}
+          path: ${{ runner.temp }}/local-mac-dist/*
+          if-no-files-found: error
