@@ -5,7 +5,11 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from ..durable_core import RuntimeError, RuntimeService, SessionStatus, canonical_sha256
-from ..g2_1.router import AgentRoleRegistry, SessionRouter
+from ..g2_1.router import (
+    G5_DEFECT_HUNTER_CAPABILITIES,
+    AgentRoleRegistry,
+    SessionRouter,
+)
 from ..g3.contracts import EXTENSION_ID as G3_EXTENSION_ID
 from ..g4.contracts import EXTENSION_ID as G4_EXTENSION_ID
 from ..r3_6.contracts import (
@@ -48,8 +52,8 @@ DEFECT_HUNTER = "DEFECT_HUNTER"
 DIAGNOSIS = "DIAGNOSIS"
 DEFECT_HUNTER_AGENT = "aitest-diagnosis"
 
-# These registries reserve the frozen product vocabulary. EC2 only opens status
-# and work_context; every later-wave action remains recognized but fail-closed.
+# These registries are the complete frozen product vocabulary. Preflight opens
+# only the role/action pairs implemented by the authorized engineering waves.
 DIRECTOR_ACTIONS = frozenset(
     {
         "status",
@@ -434,6 +438,110 @@ def _latest_valid_checkpoint(
     }
 
 
+def _surface_ref(ref_type: str, ref_id: str, digest: str) -> dict[str, str]:
+    return {"ref_type": ref_type, "ref_id": ref_id, "digest": digest}
+
+
+def _investigation_anomalies(
+    state: Any,
+    candidate: Any,
+    values: Any,
+) -> tuple[Any, ...]:
+    if not isinstance(values, (list, tuple)) or not values:
+        _fail("G5_EVIDENCE_REF_INVALID", "open_investigation requires anomaly_refs")
+    selected = []
+    selected_ids = set()
+    candidate_anomaly_ids = set(candidate.anomaly_refs)
+    for value in values:
+        if isinstance(value, str):
+            anomaly_id = value.strip()
+            supplied_digest = None
+        elif isinstance(value, Mapping):
+            ref_type = value.get("ref_type")
+            if ref_type is not None and ref_type != "R3_6_TEST_ANOMALY":
+                _fail(
+                    "G5_EVIDENCE_REF_INVALID",
+                    "anomaly_refs must be R3.6 TestAnomaly references",
+                )
+            anomaly_id = str(value.get("ref_id") or value.get("anomaly_id") or "").strip()
+            supplied_digest = value.get("digest") or value.get("anomaly_digest")
+        else:
+            anomaly_id = ""
+            supplied_digest = None
+        anomaly = state.anomaly(anomaly_id) if anomaly_id else None
+        if (
+            anomaly is None
+            or anomaly_id not in candidate_anomaly_ids
+            or anomaly_id in selected_ids
+            or (
+                supplied_digest is not None
+                and supplied_digest != anomaly.anomaly_digest
+            )
+        ):
+            _fail(
+                "G5_EVIDENCE_REF_INVALID",
+                "anomaly_refs must resolve unique exact anomalies in the candidate lineage",
+                anomaly_id=anomaly_id,
+            )
+        selected.append(anomaly)
+        selected_ids.add(anomaly_id)
+    return tuple(selected)
+
+
+def _task_dependencies_satisfied(work_graph: Any, task: Any) -> bool:
+    predecessors = (
+        dependency.predecessor_task_id
+        for dependency in work_graph.revision_dependencies(task.plan_revision_id)
+        if dependency.successor_task_id == task.task_id
+    )
+    return all(
+        work_graph.task(task_id) is not None
+        and work_graph.task(task_id).lifecycle_state.value == "SUCCEEDED"
+        for task_id in predecessors
+    )
+
+
+def _revision_matches_investigation(
+    revision: Any,
+    task: Any,
+    *,
+    candidate_id: str,
+    anomaly_ids: tuple[str, ...],
+    objective: str,
+) -> bool:
+    candidate_values = []
+    anomaly_values = []
+    for constraint in revision.constraints:
+        if not isinstance(constraint, Mapping):
+            continue
+        kind = str(constraint.get("kind") or "")
+        value = constraint.get("value")
+        if kind == "candidate_id":
+            if not isinstance(value, str):
+                return False
+            candidate_values.append(value)
+        elif kind == "anomaly_id":
+            if not isinstance(value, str):
+                return False
+            anomaly_values.append(value)
+        elif kind == "anomaly_refs":
+            if (
+                not isinstance(value, (list, tuple))
+                or not all(isinstance(item, str) for item in value)
+            ):
+                return False
+            anomaly_values.extend(value)
+    return (
+        revision.objective == objective
+        and candidate_values == [candidate_id]
+        and len(anomaly_values) == len(anomaly_ids)
+        and set(anomaly_values) == set(anomaly_ids)
+        and candidate_id in task.intent
+        and all(anomaly_id in task.intent for anomaly_id in anomaly_ids)
+        and bool(task.acceptance_criteria)
+    )
+
+
 @dataclass(frozen=True)
 class _WorkerAdmission:
     binding: G5WorkerBinding
@@ -629,7 +737,10 @@ class G5Service:
             )
         executable = (
             normalized_action == "status"
-            or (normalized_role == DIRECTOR and normalized_action == "request_human_review")
+            or (
+                normalized_role == DIRECTOR
+                and normalized_action in DIRECTOR_ACTIONS
+            )
             or (
                 normalized_role == DEFECT_HUNTER
                 and (
@@ -664,6 +775,293 @@ class G5Service:
             "conversation_is_not_truth": True,
             "role": role,
             "read_only": True,
+        }
+
+    def intake_observations(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        mission_id = _payload_text(payload, "mission_id", "G5_EVIDENCE_REF_INVALID")
+        composed = self.runtime.replay_composed(mission_id)
+        g4_state = composed.extension_state(G4_EXTENSION_ID)
+        r36_state = R36ApplicationService(self.runtime).state(mission_id)
+        observations = []
+        facts = tuple(getattr(g4_state, "facts", ()) or ())
+        for fact in sorted(facts, key=lambda item: item.created_seq):
+            if (
+                fact.fact_kind != "UNEXPECTED_OBSERVATION"
+                or fact.mission_id != mission_id
+                or fact.payload.get("status") != "OBSERVATION_ONLY"
+                or fact.payload.get("g5_defect_truth") != "HOLD"
+            ):
+                continue
+            admitted = [
+                anomaly
+                for anomaly in r36_state.anomalies
+                if anomaly.origin_lineage.get("source") == "G5_G4_ADMISSION"
+                and isinstance(
+                    anomaly.origin_lineage.get("g4_observation_ref"), Mapping
+                )
+                and anomaly.origin_lineage["g4_observation_ref"].get("ref_id")
+                == fact.fact_id
+                and anomaly.origin_lineage["g4_observation_ref"].get("digest")
+                == fact.digest
+            ]
+            if len(admitted) > 1:
+                _fail(
+                    "G5_EVIDENCE_REF_INVALID",
+                    "G4 observation resolves multiple durable R3.6 admissions",
+                    observation_id=fact.fact_id,
+                )
+            anomaly = admitted[0] if admitted else None
+            observations.append(
+                {
+                    "observation_ref": _surface_ref(
+                        "G4_UNEXPECTED_OBSERVATION", fact.fact_id, fact.digest
+                    ),
+                    "admission_status": "ADMITTED" if anomaly is not None else "NOT_ADMITTED",
+                    "r3_6_anomaly_ref": (
+                        _surface_ref(
+                            "R3_6_TEST_ANOMALY",
+                            anomaly.anomaly_id,
+                            anomaly.anomaly_digest,
+                        )
+                        if anomaly is not None
+                        else None
+                    ),
+                }
+            )
+        return {
+            "status": "PASS",
+            "truth_source": TRUTH_SOURCE,
+            "mission_id": mission_id,
+            "head_seq": composed.core_state.seq,
+            "read_only": True,
+            "observations": observations,
+        }
+
+    def investigation_status(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        mission_id = _payload_text(payload, "mission_id", "G5_EVIDENCE_REF_INVALID")
+        composed = self.runtime.replay_composed(mission_id)
+        r36_state = R36ApplicationService(self.runtime).state(mission_id)
+        requested_candidate = payload.get("candidate_id")
+        candidate_ids = (
+            (_payload_text(payload, "candidate_id", "G5_EVIDENCE_REF_INVALID"),)
+            if requested_candidate is not None
+            else tuple(candidate.candidate_id for candidate in r36_state.candidates)
+        )
+        investigations = [
+            {
+                **_candidate_stage(r36_state, candidate_id),
+                "latest_valid_checkpoint": _latest_valid_checkpoint(
+                    self.runtime, composed, r36_state, candidate_id
+                ),
+            }
+            for candidate_id in candidate_ids
+        ]
+        gates = HumanGateApplicationService(self.runtime).state(mission_id).gates
+        lifecycles = R43ApplicationService(self.runtime).state(
+            mission_id
+        ).confirmed_defect_lifecycles
+        return {
+            "status": "PASS",
+            "truth_source": TRUTH_SOURCE,
+            "conversation_is_not_truth": True,
+            "read_only": True,
+            "mission_id": mission_id,
+            "head_seq": composed.core_state.seq,
+            "r3_6_investigations": investigations,
+            "r2_6_gate_state": [gate.to_dict() for gate in gates],
+            "r4_3_lifecycle_refs": [
+                _surface_ref(
+                    "R4_3_CONFIRMED_DEFECT_LIFECYCLE",
+                    lifecycle.lifecycle_id,
+                    lifecycle.lifecycle_digest,
+                )
+                for lifecycle in lifecycles
+            ],
+        }
+
+    def _existing_investigation_task(
+        self,
+        composed: Any,
+        *,
+        candidate_id: str,
+        anomaly_ids: tuple[str, ...],
+        objective: str,
+    ) -> dict[str, Any] | None:
+        work_graph = composed.extension_state("r1_2_work_graph")
+        session_control = composed.extension_state("g2_1_session_control")
+        if work_graph is None or session_control is None:
+            return None
+        matches = []
+        capabilities = set(G5_DEFECT_HUNTER_CAPABILITIES)
+        for task in work_graph.tasks:
+            plan = work_graph.plan(task.plan_id)
+            revision = work_graph.revision(task.plan_revision_id)
+            route = session_control.route(task.task_id)
+            task_state = task.lifecycle_state.value
+            reusable_state = task_state == "ACTIVE" or (
+                task_state == "PENDING"
+                and work_graph.task_availability(task.task_id).value == "READY"
+            )
+            if (
+                plan is None
+                or plan.lifecycle_state.value != "OPEN"
+                or plan.current_revision_id != task.plan_revision_id
+                or revision is None
+                or not reusable_state
+                or not _task_dependencies_satisfied(work_graph, task)
+                or not _revision_matches_investigation(
+                    revision,
+                    task,
+                    candidate_id=candidate_id,
+                    anomaly_ids=anomaly_ids,
+                    objective=objective,
+                )
+                or route is None
+                or route.role != DEFECT_HUNTER
+                or route.agent_name != DEFECT_HUNTER_AGENT
+                or set(route.required_capabilities) != capabilities
+                or len(route.required_capabilities) != len(capabilities)
+                or route.isolation_policy != "DEDICATED_TASK_SESSION"
+                or route.parallelism_policy != "SERIAL"
+            ):
+                continue
+            matches.append((plan, revision, task, route))
+        if len(matches) > 1:
+            _fail(
+                "G5_ROUTE_REQUIRED",
+                "Multiple exact governed investigation Tasks are ambiguous",
+                candidate_id=candidate_id,
+            )
+        if not matches:
+            return None
+        plan, revision, task, route = matches[0]
+        return {
+            "plan_ref": _surface_ref(
+                "R1_PLAN", plan.plan_id, canonical_sha256(plan.to_dict())
+            ),
+            "plan_revision_ref": _surface_ref(
+                "R1_PLAN_REVISION",
+                revision.revision_id,
+                canonical_sha256(revision.to_dict()),
+            ),
+            "task_ref": _surface_ref(
+                "R1_TASK", task.task_id, canonical_sha256(task.to_dict())
+            ),
+            "route_ref": _surface_ref(
+                "G2_1_TASK_ROUTE", task.task_id, route.route_digest
+            ),
+        }
+
+    def open_investigation(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        mission_id = _payload_text(payload, "mission_id", "G5_EVIDENCE_REF_INVALID")
+        candidate_id = _payload_text(
+            payload, "candidate_id", "G5_EVIDENCE_REF_INVALID"
+        )
+        objective = _payload_text(payload, "objective", "G5_EVIDENCE_REF_INVALID")
+        if len(objective) > 512:
+            _fail(
+                "G5_EVIDENCE_REF_INVALID",
+                "open_investigation objective must be bounded to 512 characters",
+            )
+        composed = self.runtime.replay_composed(mission_id)
+        r36_state = R36ApplicationService(self.runtime).state(mission_id)
+        candidate = _candidate(self.runtime, mission_id, candidate_id)
+        anomalies = _investigation_anomalies(
+            r36_state, candidate, payload.get("anomaly_refs")
+        )
+        anomaly_ids = tuple(anomaly.anomaly_id for anomaly in anomalies)
+        existing = self._existing_investigation_task(
+            composed,
+            candidate_id=candidate_id,
+            anomaly_ids=anomaly_ids,
+            objective=objective,
+        )
+        result = G5OperationResult(
+            status="GOVERNED_WORK_REQUIRED",
+            mission_id=mission_id,
+            head_seq=composed.core_state.seq,
+            next_required_action=(
+                "EXISTING_GOVERNED_TASK"
+                if existing is not None
+                else "G2_PLAN_REVISION_REQUIRED"
+            ),
+        ).to_dict()
+        if existing is not None:
+            return {
+                **result,
+                "read_only": True,
+                "existing_governed_task": existing,
+                "planner_proposal": None,
+            }
+
+        constraints = [
+            {"kind": "candidate_id", "value": candidate_id},
+            {"kind": "anomaly_refs", "value": list(anomaly_ids)},
+        ]
+        identity = {
+            "mission_id": mission_id,
+            "candidate_id": candidate_id,
+            "anomaly_refs": anomaly_ids,
+            "objective": objective,
+        }
+        task_key = f"g5-investigate-{canonical_sha256(identity)[:24]}"
+        intent = (
+            f"Investigate candidate {candidate_id} from exact anomalies "
+            + ", ".join(anomaly_ids)
+        )
+        planner_proposal = {
+            "objective": objective,
+            "constraints": constraints,
+            "tasks": [
+                {
+                    "task_key": task_key,
+                    "intent": intent,
+                    "acceptance_criteria": [
+                        {
+                            "id": "defect-truth",
+                            "description": (
+                                f"Resolve durable defect truth for candidate {candidate_id}"
+                            ),
+                        }
+                    ],
+                    "routing": {
+                        "role": DEFECT_HUNTER,
+                        "agent_name": DEFECT_HUNTER_AGENT,
+                        "required_capabilities": sorted(
+                            G5_DEFECT_HUNTER_CAPABILITIES
+                        ),
+                        "isolation_policy": "DEDICATED_TASK_SESSION",
+                        "parallelism_policy": "SERIAL",
+                    },
+                }
+            ],
+            "dependencies": [],
+        }
+        return {
+            **result,
+            "read_only": True,
+            "existing_governed_task": None,
+            "planner_proposal": planner_proposal,
+        }
+
+    def canonical_defects(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        mission_id = _payload_text(payload, "mission_id", "G5_EVIDENCE_REF_INVALID")
+        composed = self.runtime.replay_composed(mission_id)
+        lifecycles = R43ApplicationService(self.runtime).state(
+            mission_id
+        ).confirmed_defect_lifecycles
+        return {
+            "status": "PASS",
+            "truth_source": TRUTH_SOURCE,
+            "mission_id": mission_id,
+            "head_seq": composed.core_state.seq,
+            "read_only": True,
+            "canonical_defects": [
+                lifecycle.to_dict()
+                for lifecycle in sorted(
+                    lifecycles, key=lambda item: item.lifecycle_id
+                )
+            ],
         }
 
     def work_context(self, payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -1757,8 +2155,16 @@ class G5Service:
 
         if normalized_role == DIRECTOR and normalized_action == "status":
             return self.status(normalized_role, payload)
+        if normalized_role == DIRECTOR and normalized_action == "intake_observations":
+            return self.intake_observations(payload)
+        if normalized_role == DIRECTOR and normalized_action == "investigation_status":
+            return self.investigation_status(payload)
+        if normalized_role == DIRECTOR and normalized_action == "open_investigation":
+            return self.open_investigation(payload)
         if normalized_role == DIRECTOR and normalized_action == "request_human_review":
             return self.request_human_review(payload)
+        if normalized_role == DIRECTOR and normalized_action == "canonical_defects":
+            return self.canonical_defects(payload)
         if normalized_role == DEFECT_HUNTER and normalized_action == "status":
             # A payload carrying worker identity makes status Mission-scoped and
             # therefore subject to the same composite authority as work_context.
