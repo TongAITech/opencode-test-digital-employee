@@ -36,7 +36,7 @@
       "version": "151.0.7922.34",
       "platform": "mac-arm64",
       "relative_target": "runtime/browser/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
-      "sha256_policy": "VERIFY_IF_PFC_MAC_CHROME_SHA256_SET_AND_ALWAYS_RECORD_AT_ASSEMBLY"
+      "archive_sha256": "01a23ef9501b2745e0c2944c2e583207e6f6132d8d91c3a87ff65b5079e438ef"
     },
     "codegraph": {
       "role": "STRUCTURAL_CODE_INTELLIGENCE",

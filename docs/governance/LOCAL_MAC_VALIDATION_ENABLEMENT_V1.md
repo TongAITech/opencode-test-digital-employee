@@ -53,6 +53,16 @@ The assembly profile pins:
 
 Both Apple Silicon and Intel lock profiles are present.
 
+Chrome archive identities were first observed from successful real builds on
+GitHub-hosted native Mac runners and then promoted into the lock profiles:
+
+- arm64: `01a23ef9501b2745e0c2944c2e583207e6f6132d8d91c3a87ff65b5079e438ef`
+- x64: `69bcc853db975a2380767e9ff36da17f1d7b782fbbe191a210f676d2d5967d3e`
+
+The canonical package assembly entry is `packaging/local-mac/pinned-build.sh`.
+A subsequent independent build must re-download Chrome and verify the archive
+against these already-recorded digests before LMV-0 can be accepted.
+
 ## Compatibility model
 
 No product-source rewrite is required.
@@ -81,7 +91,8 @@ Source/CI can establish:
 - platform contracts,
 - unchanged bank packaging,
 - shell syntax,
-- existing G3/G4 regression preservation.
+- existing G3/G4 regression preservation,
+- native arm64/x64 package assembly and pinned payload identity verification.
 
 Source inspection cannot establish:
 - offline package actually runs on the user's Mac,

@@ -8,6 +8,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]
 BASELINE = "4edd78536633d4258705c6083fe55b44e51f54bb"
+ARM_CHROME_SHA = "01a23ef9501b2745e0c2944c2e583207e6f6132d8d91c3a87ff65b5079e438ef"
+X64_CHROME_SHA = "69bcc853db975a2380767e9ff36da17f1d7b782fbbe191a210f676d2d5967d3e"
 PROTECTED = (
     "packaging/INSTALL-PFC-AITEST.sh",
     "packaging/start-pfc-ai-r1r4.sh",
@@ -34,7 +36,9 @@ def unchanged(*paths: str) -> bool:
 
 def main() -> int:
     script = (HERE / "local-mac.sh").read_text(encoding="utf-8")
+    pinned = (HERE / "pinned-build.sh").read_text(encoding="utf-8")
     readme = (HERE / "README.md").read_text(encoding="utf-8")
+    workflow = (REPO_ROOT / ".github/workflows/local-mac-validation.yml").read_text(encoding="utf-8")
     arm = load("runtime-lock.mac-arm64.json")
     x64 = load("runtime-lock.mac-x64.json")
     profiles = (arm, x64)
@@ -60,10 +64,20 @@ def main() -> int:
             p["payloads"]["chromium"]["version"] == "151.0.7922.34"
             for p in profiles
         ),
-        "chrome_supply_chain_limitation_explicit": all(
-            "VERIFY_IF_PFC_MAC_CHROME_SHA256_SET"
-            in p["payloads"]["chromium"]["sha256_policy"]
-            for p in profiles
+        "chrome_digests_pinned_in_locks": (
+            arm["payloads"]["chromium"].get("archive_sha256") == ARM_CHROME_SHA
+            and x64["payloads"]["chromium"].get("archive_sha256") == X64_CHROME_SHA
+        ),
+        "canonical_build_wrapper_pins_chrome": (
+            ARM_CHROME_SHA in pinned
+            and X64_CHROME_SHA in pinned
+            and 'export PFC_MAC_CHROME_SHA256=' in pinned
+            and 'exec "$HERE/local-mac.sh" build' in pinned
+        ),
+        "official_build_surfaces_use_pinned_wrapper": (
+            "./pinned-build.sh" in readme
+            and "./packaging/local-mac/pinned-build.sh" in workflow
+            and "./packaging/local-mac/local-mac.sh build" not in workflow
         ),
         "codegraph_0_20_1": all(
             p["payloads"]["codegraph"]["version"] == "0.20.1" for p in profiles

@@ -65,7 +65,9 @@ jobs:
         run: python packaging/local-mac/test_local_mac_contract.py
 
       - name: Validate Mac shell syntax
-        run: bash -n packaging/local-mac/local-mac.sh
+        run: |
+          bash -n packaging/local-mac/local-mac.sh
+          bash -n packaging/local-mac/pinned-build.sh
 
   package-build:
     needs:
@@ -93,12 +95,12 @@ jobs:
           test "$(uname -s)" = "Darwin"
           test "$(uname -m)" = "${{ matrix.uname_arch }}"
 
-      - name: Build real offline package
+      - name: Build real pinned offline package
         env:
           PFC_MAC_OUTPUT_DIR: ${{ runner.temp }}/local-mac-dist
         run: |
           mkdir -p "$PFC_MAC_OUTPUT_DIR"
-          ./packaging/local-mac/local-mac.sh build
+          ./packaging/local-mac/pinned-build.sh
           ls -lh "$PFC_MAC_OUTPUT_DIR"
 
       - name: Upload offline package

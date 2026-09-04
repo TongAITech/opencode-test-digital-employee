@@ -1,6 +1,7 @@
 # Local Mac Offline Validation
 
-The only entry is `local-mac.sh`.
+The canonical online assembly entry is `pinned-build.sh`; target-host runtime
+operations use `local-mac.sh`.
 
 ## 1. Build the offline package
 
@@ -8,17 +9,19 @@ Run this once on an online Mac with the same architecture as the target Mac:
 
 ```bash
 cd packaging/local-mac
-./local-mac.sh build
+./pinned-build.sh
 ```
 
 Optional output directory:
 
 ```bash
-PFC_MAC_OUTPUT_DIR="$HOME/Downloads" ./local-mac.sh build
+PFC_MAC_OUTPUT_DIR="$HOME/Downloads" ./pinned-build.sh
 ```
 
-The build step is the **only** step allowed to download/install dependencies.
-It produces `PFC-LOCAL-MAC-R1R4-<arch>-<sha>.tar.gz` plus `.sha256`.
+`pinned-build.sh` freezes the Chrome for Testing archive SHA for the detected Mac
+architecture before invoking the lower-level builder. The build step is the
+**only** step allowed to download/install dependencies. It produces
+`PFC-LOCAL-MAC-R1R4-<arch>-<sha>.tar.gz` plus `.sha256`.
 
 ## 2. Verify and install offline
 
