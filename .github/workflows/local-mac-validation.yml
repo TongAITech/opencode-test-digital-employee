@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: local-mac-validation-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   source-contract:
     runs-on: ubuntu-latest
@@ -65,7 +69,6 @@ jobs:
 
   package-build:
     needs:
-      - source-contract
       - mac-shell-contract
     strategy:
       fail-fast: false
