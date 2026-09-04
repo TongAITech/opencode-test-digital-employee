@@ -768,7 +768,6 @@ class G5Service:
             status="PASS",
             mission_id=mission_id,
             head_seq=self.runtime.get_head_seq(mission_id) if mission_id is not None else None,
-            next_required_action="EC4_CONFIRMATION_REMAINS_GOVERNANCE_HOLD",
         ).to_dict()
         return {
             **result,
