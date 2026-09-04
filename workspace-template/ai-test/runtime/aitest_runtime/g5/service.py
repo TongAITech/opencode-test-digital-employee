@@ -15,8 +15,31 @@ from ..r3_6.contracts import (
     InvestigationWorkSetRequest,
 )
 from ..r3_6.service import R36ApplicationService
+from ..r2_6.contracts import (
+    APPLIED,
+    BLOCK,
+    CHOICE_SELECTED,
+    EXTERNAL_ACTION_COMPLETED,
+    INFORMATION_PROVIDED,
+    NONE,
+    PLAN_REVISION,
+    REJECTED,
+    RESUME_EXECUTION,
+    policy_digest,
+)
+from ..r2_6.service import HumanGateApplicationService
+from ..r4_1.contracts import TypedReference
+from ..r4_3.contracts import make_lifecycle
+from ..r4_3.r3_6_adapter import validate_r3_6_reference
+from ..r4_3.service import R43ApplicationService
 from .admission import admit_g4_observation
-from .contracts import G5OperationResult, G5WorkerBinding, GovernedEvidenceRequest
+from .contracts import (
+    DuplicateCorrelationDecision,
+    G5OperationResult,
+    G5WorkerBinding,
+    GovernedEvidenceRequest,
+)
+from .policy import ConfirmationPolicyDecision, classify_confirmation_policy
 
 
 TRUTH_SOURCE = "R1_EVENT_STREAM"
@@ -67,6 +90,18 @@ EC3_WORKER_ACTIONS = frozenset(
         "record_checkpoint",
     }
 )
+EC5_WORKER_ACTIONS = frozenset({"assess_defect_truth", "handoff_confirmed_defect"})
+_CONFIRMATION_POLICY_ID = "g5-defect-confirmation-policy"
+_CONFIRMATION_POLICY_VERSION = 1
+_CONFIRMATION_CHOICES = ("CONFIRM_DEFECT", "REQUEST_MORE_EVIDENCE", "REJECT_DEFECT")
+_CONFIRMATION_OUTCOMES = (CHOICE_SELECTED, REJECTED)
+_CONFIRMATION_ROUTES = {
+    "APPROVED": (RESUME_EXECUTION,),
+    REJECTED: (BLOCK,),
+    CHOICE_SELECTED: (RESUME_EXECUTION, PLAN_REVISION),
+    INFORMATION_PROVIDED: (NONE,),
+    EXTERNAL_ACTION_COMPLETED: (NONE,),
+}
 _ALTERNATIVE_CLASSIFICATIONS = frozenset(
     {
         "ENVIRONMENT_PROBLEM",
@@ -232,7 +267,10 @@ def _known_ref(runtime: RuntimeService, mission_id: str, value: Mapping[str, Any
     if not ref_id:
         _fail("G5_EVIDENCE_REF_INVALID", "Existing evidence reference requires a stable identity")
 
-    composed = runtime.replay_composed(mission_id)
+    try:
+        composed = runtime.replay_composed(mission_id)
+    except RuntimeError as exc:
+        _fail("G5_ROUTE_REQUIRED", "Mission-scoped worker route cannot be resolved", mission_id=mission_id)
     for extension_id in (G4_EXTENSION_ID, G3_EXTENSION_ID):
         state = composed.extension_state(extension_id)
         fact = state.by_id(ref_id) if state is not None and hasattr(state, "by_id") else None
@@ -552,7 +590,7 @@ def require_g5_worker_binding(
 
 
 class G5Service:
-    """EC3 product service over exact G4 admission and frozen R3.6 truth."""
+    """G5 facade over exact G4 admission and frozen R2.6/R3.6/R4.3 truth."""
 
     def __init__(self, runtime: RuntimeService) -> None:
         self.runtime = runtime
@@ -575,7 +613,7 @@ class G5Service:
 
     @classmethod
     def preflight(cls, role: str, action: str) -> tuple[str, str]:
-        """Validate the EC4 product vocabulary before runtime composition."""
+        """Validate the authorized product vocabulary before runtime composition."""
 
         normalized_role = cls.normalize_role(role)
         normalized_action = cls._normalize_action(action)
@@ -591,9 +629,14 @@ class G5Service:
             )
         executable = (
             normalized_action == "status"
+            or (normalized_role == DIRECTOR and normalized_action == "request_human_review")
             or (
                 normalized_role == DEFECT_HUNTER
-                and (normalized_action == "work_context" or normalized_action in EC3_WORKER_ACTIONS)
+                and (
+                    normalized_action == "work_context"
+                    or normalized_action in EC3_WORKER_ACTIONS
+                    or normalized_action in EC5_WORKER_ACTIONS
+                )
             )
         )
         if not executable:
@@ -1286,12 +1329,436 @@ class G5Service:
             R36ApplicationService(self.runtime).record_investigation_checkpoint(request),
         )
 
+    def _confirmation_facts(
+        self,
+        admission: _WorkerAdmission,
+        payload: Mapping[str, Any],
+    ) -> tuple[Any, Any, dict[str, Any]]:
+        mission_id = admission.binding.mission_id
+        candidate_id = _payload_text(payload, "candidate_id", "G5_CONFIRMATION_UNSUPPORTED")
+        state = R36ApplicationService(self.runtime).state(mission_id)
+        candidate = state.candidate(candidate_id)
+        raw = payload.get("defect_assessment")
+        if candidate is None or not isinstance(raw, Mapping):
+            _fail("G5_CONFIRMATION_UNSUPPORTED", "Confirmation requires an exact same-Mission candidate and assessment")
+        assessment = dict(raw)
+        if assessment.get("candidate_id") != candidate_id or assessment.get("outcome") != "CONFIRMED_DEFECT":
+            _fail("G5_CONFIRMATION_UNSUPPORTED", "G5 EC5 only opens the governed CONFIRMED_DEFECT path")
+        evidence_ids = assessment.get("evidence_assessment_refs")
+        if not isinstance(evidence_ids, (list, tuple)) or not evidence_ids:
+            _fail("G5_CONFIRMATION_UNSUPPORTED", "Confirmation requires exact evidence assessment references")
+        evidence = tuple(state.evidence_assessment(str(value)) for value in evidence_ids)
+        reproducibility = state.reproducibility(str(assessment.get("reproducibility_ref") or ""))
+        false_positive = state.false_positive(str(assessment.get("false_positive_ref") or ""))
+        if (
+            any(item is None or item.candidate_id != candidate_id for item in evidence)
+            or reproducibility is None
+            or reproducibility.candidate_id != candidate_id
+            or false_positive is None
+            or false_positive.candidate_id != candidate_id
+        ):
+            _fail("G5_CONFIRMATION_UNSUPPORTED", "Confirmation facts are missing or cross-candidate")
+        contradictions = assessment.get("unresolved_contradiction_refs")
+        if not isinstance(contradictions, (list, tuple)):
+            _fail("G5_CONFIRMATION_UNSUPPORTED", "Confirmation contradiction state must be explicit")
+        return state, candidate, assessment
+
+    @staticmethod
+    def _confirmation_policy(payload: Mapping[str, Any]) -> ConfirmationPolicyDecision:
+        context = payload.get("policy_context")
+        if not isinstance(context, Mapping) or not str(context.get("severity") or "").strip():
+            _fail("G5_CONFIRMATION_UNSUPPORTED", "Confirmation requires an explicit policy_context and severity")
+        try:
+            return classify_confirmation_policy(
+                context,
+                duplicate_decision=payload.get("duplicate_correlation_decision"),
+            )
+        except ValueError as exc:
+            _fail("G5_CONFIRMATION_UNSUPPORTED", str(exc))
+
+    @staticmethod
+    def _gate_has_exact_policy(gate: Any) -> bool:
+        return (
+            gate.gate_kind == "CHOICE"
+            and gate.decision_policy_id == _CONFIRMATION_POLICY_ID
+            and gate.decision_policy_version == _CONFIRMATION_POLICY_VERSION
+            and tuple(gate.allowed_outcomes) == _CONFIRMATION_OUTCOMES
+            and {key: tuple(value) for key, value in gate.allowed_routes_by_outcome.items()}
+            == _CONFIRMATION_ROUTES
+        )
+
+    def _confirmation_gate(self, admission: _WorkerAdmission, candidate_id: str) -> Any | None:
+        gates = HumanGateApplicationService(self.runtime).state(admission.binding.mission_id).gates
+        matching = [
+            gate
+            for gate in gates
+            if gate.binding
+            == (
+                admission.binding.mission_id,
+                admission.binding.task_id,
+                admission.binding.root_attempt_id,
+            )
+            and gate.decision_policy_id == _CONFIRMATION_POLICY_ID
+            and isinstance(gate.request_payload, Mapping)
+            and gate.request_payload.get("candidate_id") == candidate_id
+        ]
+        return max(matching, key=lambda gate: gate.created_seq) if matching else None
+
+    def request_human_review(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        admission = _admit_g5_worker(self.runtime, payload)
+        mission_id = admission.binding.mission_id
+        candidate_id = _payload_text(payload, "candidate_id", "G5_CONFIRMATION_UNSUPPORTED")
+        _candidate(self.runtime, mission_id, candidate_id)
+        decision = self._confirmation_policy(payload)
+        if not decision.mandatory_human_gate:
+            _fail("G5_CONFIRMATION_UNSUPPORTED", "The frozen policy does not require a HumanGate for this case")
+
+        existing = self._confirmation_gate(admission, candidate_id)
+        if existing is not None:
+            if not self._gate_has_exact_policy(existing):
+                _fail("G5_HUMAN_GATE_PENDING", "Existing confirmation gate does not match the frozen policy")
+            return {
+                **G5OperationResult(
+                    status="WAITING_HUMAN",
+                    mission_id=mission_id,
+                    head_seq=self.runtime.get_head_seq(mission_id),
+                    next_required_action="R2_6_HUMAN_DECISION",
+                ).to_dict(),
+                "gate": existing.to_dict(),
+                "confirmation_policy": decision.to_dict(),
+            }
+
+        composed = self.runtime.replay_composed(mission_id)
+        work_graph = composed.extension_state("r1_2_work_graph")
+        task = work_graph.task(admission.binding.task_id) if work_graph is not None else None
+        if task is None:
+            _fail("G5_ROUTE_REQUIRED", "HumanGate requires the current canonical Task")
+        gate_id = str(
+            payload.get("gate_id")
+            or f"g5-confirm-{canonical_sha256([mission_id, candidate_id, admission.binding.root_attempt_id])[:24]}"
+        )
+        request_payload = {
+            "candidate_id": candidate_id,
+            "policy_context": dict(payload["policy_context"]),
+            "mandatory_triggers": list(decision.triggers),
+            "semantic_choices": list(_CONFIRMATION_CHOICES),
+        }
+        result = HumanGateApplicationService(self.runtime).open_gate(
+            {
+                "mission_id": mission_id,
+                "gate_id": gate_id,
+                "plan_id": task.plan_id,
+                "plan_revision_id": task.plan_revision_id,
+                "task_id": admission.binding.task_id,
+                "root_attempt_id": admission.binding.root_attempt_id,
+                "origin_attempt_id": admission.binding.current_attempt_id,
+                "origin_session_id": admission.binding.current_session_id,
+                "gate_kind": "CHOICE",
+                "request_payload": request_payload,
+                "response_schema": {
+                    "type": "object",
+                    "required": ["choice"],
+                    "properties": {"choice": {"enum": list(_CONFIRMATION_CHOICES)}},
+                },
+                "decision_policy_id": _CONFIRMATION_POLICY_ID,
+                "decision_policy_version": _CONFIRMATION_POLICY_VERSION,
+                "decision_policy_digest": policy_digest(
+                    _CONFIRMATION_POLICY_ID,
+                    _CONFIRMATION_POLICY_VERSION,
+                    _CONFIRMATION_OUTCOMES,
+                    _CONFIRMATION_ROUTES,
+                ),
+                "allowed_outcomes": list(_CONFIRMATION_OUTCOMES),
+                "allowed_routes_by_outcome": {
+                    key: list(value) for key, value in _CONFIRMATION_ROUTES.items()
+                },
+                "actor": {"type": "SYSTEM", "id": "g5-confirmation-policy"},
+            }
+        )
+        gate = result.gate
+        if gate is None or not self._gate_has_exact_policy(gate):
+            _fail("G5_HUMAN_GATE_PENDING", "Canonical R2.6 confirmation gate was not opened exactly")
+        return {
+            **G5OperationResult(
+                status="WAITING_HUMAN",
+                mission_id=mission_id,
+                head_seq=self.runtime.get_head_seq(mission_id),
+                next_required_action="R2_6_HUMAN_DECISION",
+            ).to_dict(),
+            "gate": gate.to_dict(),
+            "confirmation_policy": decision.to_dict(),
+        }
+
+    def _apply_confirmation_gate(
+        self,
+        admission: _WorkerAdmission,
+        candidate_id: str,
+    ) -> tuple[Any | None, dict[str, Any] | None]:
+        gate = self._confirmation_gate(admission, candidate_id)
+        if gate is None or not self._gate_has_exact_policy(gate):
+            _fail("G5_HUMAN_GATE_REQUIRED", "Frozen confirmation policy requires a canonical R2.6 HumanGate")
+        choice = gate.decision_payload.get("choice") if isinstance(gate.decision_payload, Mapping) else None
+        if gate.decision_outcome == REJECTED and gate.continuation_route == BLOCK and choice == "REJECT_DEFECT":
+            _fail("G5_HUMAN_GATE_REJECTED", "Human reviewer rejected defect confirmation")
+        if (
+            gate.decision_outcome == CHOICE_SELECTED
+            and gate.continuation_route == PLAN_REVISION
+            and choice == "REQUEST_MORE_EVIDENCE"
+        ):
+            return gate, {
+                **G5OperationResult(
+                    status="GOVERNED_WORK_REQUIRED",
+                    mission_id=admission.binding.mission_id,
+                    head_seq=self.runtime.get_head_seq(admission.binding.mission_id),
+                    next_required_action="G2_PLAN_REVISION_REQUIRED",
+                ).to_dict(),
+                "provider_execution_performed": False,
+                "workgraph_mutation_performed": False,
+                "human_gate": gate.to_dict(),
+            }
+        if (
+            not gate.is_allowing
+            or gate.continuation_state != APPLIED
+            or gate.decision_outcome != CHOICE_SELECTED
+            or gate.continuation_route != RESUME_EXECUTION
+            or choice != "CONFIRM_DEFECT"
+        ):
+            _fail("G5_HUMAN_GATE_PENDING", "HumanGate is not canonically allowing confirmation")
+        return gate, None
+
+    def assess_defect_truth(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        admission = _admit_g5_worker(self.runtime, payload)
+        _, candidate, assessment = self._confirmation_facts(admission, payload)
+        decision = self._confirmation_policy(payload)
+        gate = self._confirmation_gate(admission, candidate.candidate_id)
+        # Once a canonical mandatory-review cycle exists for this candidate and
+        # execution root, caller-supplied policy context cannot downgrade it.
+        if gate is not None and not decision.mandatory_human_gate:
+            _fail("G5_HUMAN_GATE_PENDING", "Existing mandatory HumanGate cannot be bypassed by policy reclassification")
+        if decision.mandatory_human_gate:
+            gate, governed = self._apply_confirmation_gate(admission, candidate.candidate_id)
+            if governed is not None:
+                return governed
+            # Continuation may rotate the Session. Re-run the complete EC2 binding
+            # immediately before invoking the frozen R3.6 truth authority.
+            admission = _admit_g5_worker(self.runtime, payload)
+            self._confirmation_facts(admission, payload)
+
+        origin = {
+            **_origin(admission, source="G5_CONFIRMATION"),
+            "confirmation_policy": decision.to_dict(),
+            "human_gate_id": gate.gate_id if gate is not None else None,
+        }
+        entity = {**assessment, "origin_lineage": origin}
+        assessment_id = _payload_text(entity, "assessment_id", "G5_CONFIRMATION_UNSUPPORTED")
+        request = self._request(
+            admission,
+            "assess_defect_truth",
+            assessment_id,
+            "defect_assessment",
+            entity,
+            source="G5_CONFIRMATION",
+        )
+        result = R36ApplicationService(self.runtime).assess_defect_truth(request)
+        if not result.ok or result.entity is None:
+            _fail(
+                "G5_CONFIRMATION_UNSUPPORTED",
+                "Frozen R3.6 rejected defect confirmation",
+                r3_6_error_code=result.error_code,
+            )
+        persisted = R36ApplicationService(self.runtime).state(admission.binding.mission_id).defect_assessment(
+            assessment_id
+        )
+        if persisted is None or persisted.outcome != "CONFIRMED_DEFECT":
+            _fail("G5_CONFIRMATION_UNSUPPORTED", "R3.6 did not persist exact CONFIRMED_DEFECT truth")
+        response = _r36_result(
+            self.runtime,
+            admission.binding.mission_id,
+            "assess_defect_truth",
+            result,
+        )
+        return {
+            **response,
+            "confirmation_policy": decision.to_dict(),
+            "human_gate": gate.to_dict() if gate is not None else None,
+        }
+
+    @staticmethod
+    def _typed_reference(value: Any, name: str) -> TypedReference:
+        try:
+            return value if isinstance(value, TypedReference) else TypedReference.from_dict(value)
+        except Exception as exc:
+            _fail("G5_R4_3_HANDOFF_REJECTED", f"{name} must be an exact TypedReference")
+
+    @classmethod
+    def _select_admitted_refs(
+        cls,
+        requested: Any,
+        admitted: tuple[TypedReference, ...],
+        name: str,
+    ) -> tuple[TypedReference, ...]:
+        if requested is None:
+            return ()
+        if not isinstance(requested, (list, tuple)):
+            _fail("G5_R4_3_HANDOFF_REJECTED", f"{name} must be an array")
+        by_id = {item.object_id: item for item in admitted}
+        selected = []
+        for value in requested:
+            if isinstance(value, str):
+                item = by_id.get(value)
+            else:
+                supplied = cls._typed_reference(value, f"{name}[]")
+                item = by_id.get(supplied.object_id)
+                if item is not None and item.source_digest != supplied.source_digest:
+                    item = None
+            if item is None:
+                _fail("G5_R4_3_HANDOFF_REJECTED", f"{name} contains a ref not admitted by frozen R4.3")
+            selected.append(item)
+        return tuple(selected)
+
+    def _require_assessment_gate(self, admission: _WorkerAdmission, assessment: Any) -> Any | None:
+        gate_id = assessment.origin_lineage.get("human_gate_id")
+        if gate_id is None:
+            return None
+        gate = HumanGateApplicationService(self.runtime).state(admission.binding.mission_id).gate(gate_id)
+        choice = gate.decision_payload.get("choice") if gate is not None and isinstance(gate.decision_payload, Mapping) else None
+        if (
+            gate is None
+            or not self._gate_has_exact_policy(gate)
+            or gate.binding
+            != (
+                admission.binding.mission_id,
+                admission.binding.task_id,
+                admission.binding.root_attempt_id,
+            )
+            or not gate.is_allowing
+            or gate.continuation_state != APPLIED
+            or gate.decision_outcome != CHOICE_SELECTED
+            or gate.continuation_route != RESUME_EXECUTION
+            or choice != "CONFIRM_DEFECT"
+        ):
+            _fail("G5_HUMAN_GATE_PENDING", "Assessment HumanGate is no longer canonically allowing")
+        return gate
+
+    def handoff_confirmed_defect(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        admission = _admit_g5_worker(self.runtime, payload)
+        mission_id = admission.binding.mission_id
+        candidate_id = _payload_text(payload, "candidate_id", "G5_R4_3_HANDOFF_REJECTED")
+        assessment_ref = self._typed_reference(
+            payload.get("defect_assessment_ref"), "defect_assessment_ref"
+        )
+        supplied_digest = _payload_text(
+            payload, "defect_assessment_digest", "G5_R4_3_HANDOFF_REJECTED"
+        )
+        try:
+            exact = validate_r3_6_reference(self.runtime, mission_id, assessment_ref)
+        except Exception as exc:
+            _fail("G5_R4_3_HANDOFF_REJECTED", "Frozen R4.3 rejected R3.6 admission", reason=str(exc))
+        state = R36ApplicationService(self.runtime).state(mission_id)
+        assessment = state.defect_assessment(assessment_ref.object_id)
+        if (
+            assessment is None
+            or assessment.candidate_id != candidate_id
+            or assessment.outcome != "CONFIRMED_DEFECT"
+            or assessment.origin_lineage.get("source") != "G5_CONFIRMATION"
+            or exact.assessment_digest != supplied_digest
+            or assessment_ref.source_digest != supplied_digest
+        ):
+            _fail("G5_R4_3_HANDOFF_REJECTED", "Handoff requires the exact persisted confirmed assessment")
+        gate = self._require_assessment_gate(admission, assessment)
+
+        quality_ref = self._typed_reference(payload.get("quality_version_ref"), "quality_version_ref")
+        campaign_values = payload.get("campaign_refs")
+        if not isinstance(campaign_values, (list, tuple)) or not campaign_values:
+            _fail("G5_R4_3_HANDOFF_REJECTED", "campaign_refs must contain exact Campaign references")
+        campaign_refs = tuple(self._typed_reference(value, "campaign_refs[]") for value in campaign_values)
+        rca_refs = self._select_admitted_refs(payload.get("rca_refs"), exact.rca_refs, "rca_refs")
+        evidence_refs = self._select_admitted_refs(
+            payload.get("evidence_refs"), exact.evidence_refs, "evidence_refs"
+        )
+        severity_refs = tuple(
+            self._typed_reference(value, "severity_refs[]") for value in payload.get("severity_refs") or ()
+        )
+        priority_refs = tuple(
+            self._typed_reference(value, "priority_refs[]") for value in payload.get("priority_refs") or ()
+        )
+        lifecycle = make_lifecycle(
+            owner_mission_id=mission_id,
+            r3_6_defect_assessment_ref=exact.assessment_ref,
+            r3_6_assessment_digest=exact.assessment_digest,
+            quality_version_ref=quality_ref,
+            campaign_refs=campaign_refs,
+            correlation_id=f"g5:r4.3:{assessment.assessment_id}",
+            severity_refs=severity_refs,
+            priority_refs=priority_refs,
+            rca_refs=rca_refs,
+            evidence_refs=evidence_refs,
+            origin_lineage={
+                "mission_id": mission_id,
+                "source": "G5_EXACT_R4_3_HANDOFF",
+                "candidate_id": candidate_id,
+                "human_gate_id": gate.gate_id if gate is not None else None,
+            },
+        )
+
+        raw_decision = str(payload.get("duplicate_correlation_decision") or "NONE").upper()
+        try:
+            duplicate = DuplicateCorrelationDecision(raw_decision)
+        except ValueError:
+            _fail("G5_DUPLICATE_AMBIGUOUS", "Duplicate correlation decision is not frozen")
+        if duplicate is DuplicateCorrelationDecision.AMBIGUOUS_REVIEW_REQUIRED:
+            _fail("G5_DUPLICATE_AMBIGUOUS", "Ambiguous canonical lifecycle correlation requires review")
+        if duplicate is DuplicateCorrelationDecision.SAME_OPEN_CANDIDATE:
+            _fail("G5_DUPLICATE_AMBIGUOUS", "Open-candidate reuse cannot substitute for confirmed lifecycle proof")
+        if duplicate is DuplicateCorrelationDecision.SAME_CONFIRMED_LIFECYCLE:
+            existing_ref = self._typed_reference(
+                payload.get("existing_lifecycle_ref"), "existing_lifecycle_ref"
+            )
+            existing = R43ApplicationService(self.runtime).state(mission_id).lifecycle(existing_ref.object_id)
+            if (
+                existing is None
+                or existing.stream_owner_mission_id != mission_id
+                or existing.lifecycle_id != lifecycle.lifecycle_id
+                or existing.lifecycle_digest != lifecycle.lifecycle_digest
+                or existing_ref.source_digest != existing.lifecycle_digest
+                or assessment.unresolved_contradiction_refs
+            ):
+                _fail("G5_DUPLICATE_AMBIGUOUS", "Lifecycle reuse lacks exact same-Mission typed causal proof")
+            selected = existing
+            handoff_outcome = "REUSED"
+        else:
+            result = R43ApplicationService(self.runtime).open_confirmed_defect_lifecycle(lifecycle)
+            if not result.ok or result.entity is None:
+                _fail(
+                    "G5_R4_3_HANDOFF_REJECTED",
+                    "Frozen R4.3 rejected confirmed lifecycle handoff",
+                    r4_3_error_code=result.error_code,
+                )
+            selected = result.entity
+            handoff_outcome = result.outcome
+        return {
+            **G5OperationResult(
+                status="PASS",
+                mission_id=mission_id,
+                head_seq=self.runtime.get_head_seq(mission_id),
+                canonical_refs=(
+                    {"ref_id": selected.lifecycle_id, "digest": selected.lifecycle_digest},
+                ),
+            ).to_dict(),
+            "operation": "handoff_confirmed_defect",
+            "handoff_outcome": handoff_outcome,
+            "duplicate_correlation_decision": duplicate.value,
+            "lifecycle": selected.to_dict(),
+        }
+
     def command(self, role: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
         _reject_sensitive(payload)
         normalized_role, normalized_action = self.preflight(role, action)
 
         if normalized_role == DIRECTOR and normalized_action == "status":
             return self.status(normalized_role, payload)
+        if normalized_role == DIRECTOR and normalized_action == "request_human_review":
+            return self.request_human_review(payload)
         if normalized_role == DEFECT_HUNTER and normalized_action == "status":
             # A payload carrying worker identity makes status Mission-scoped and
             # therefore subject to the same composite authority as work_context.
@@ -1312,6 +1779,12 @@ class G5Service:
                 "assess_false_positive": self.assess_false_positive,
                 "record_rca": self.record_rca,
                 "record_checkpoint": self.record_checkpoint,
+            }[normalized_action]
+            return handler(payload)
+        if normalized_role == DEFECT_HUNTER and normalized_action in EC5_WORKER_ACTIONS:
+            handler = {
+                "assess_defect_truth": self.assess_defect_truth,
+                "handoff_confirmed_defect": self.handoff_confirmed_defect,
             }[normalized_action]
             return handler(payload)
 
