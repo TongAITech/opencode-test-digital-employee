@@ -1,0 +1,60 @@
+{
+  "schema_version": "aitest.offline-runtime-lock.v1",
+  "source_truth": "GIT_COMMIT",
+  "profile": "local-mac-arm64",
+  "payload_policy": {
+    "bundled_at_release_build": true,
+    "stored_in_git": false,
+    "internet_required_on_target_host": false,
+    "dependency_install_allowed_on_target_host": false,
+    "verify_sha256_before_use": true
+  },
+  "payloads": {
+    "python": {
+      "role": "PORTABLE_RUNTIME",
+      "version": "3.12.10",
+      "platform": "macos-arm64",
+      "relative_target": "runtime/python/bin/python3",
+      "assembly_source": "astral-sh/python-build-standalone@20250529",
+      "sha256_policy": "UPSTREAM_SHA256_SIDECAR"
+    },
+    "playwright_python": {
+      "role": "BROWSER_AUTOMATION_CLIENT",
+      "version": "1.62.0",
+      "platform": "macos-arm64",
+      "install_phase": "ASSEMBLY_ONLY"
+    },
+    "opencode": {
+      "role": "OPENCODE_CLI",
+      "version": "1.18.3",
+      "platform": "macos-arm64",
+      "relative_target": "runtime/opencode/opencode",
+      "archive_sha256": "946f62b155638b911144b7bef520ee4a6442f696297907873463bca3524e40ef"
+    },
+    "chromium": {
+      "role": "CONTROLLED_BROWSER",
+      "version": "151.0.7922.34",
+      "platform": "mac-arm64",
+      "relative_target": "runtime/browser/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+      "sha256_policy": "VERIFY_IF_PFC_MAC_CHROME_SHA256_SET_AND_ALWAYS_RECORD_AT_ASSEMBLY"
+    },
+    "codegraph": {
+      "role": "STRUCTURAL_CODE_INTELLIGENCE",
+      "provider": "codegraph-ai/CodeGraph",
+      "version": "0.20.1",
+      "platform": "macos-arm64",
+      "mode": "graph-only",
+      "relative_target": "runtime/code-intelligence/codegraph/codegraph-server-darwin-arm64",
+      "sha256": "460d830e93467efb9270bfe6ac01f34e32d3369041e3a93699a9887053d18cc3",
+      "change_truth_authority": false,
+      "actual_coverage_authority": false
+    },
+    "ripgrep": {
+      "role": "REFERENCE_SEARCH_ENRICHMENT",
+      "version": "15.1.0",
+      "platform": "macos-arm64",
+      "relative_target": "runtime/ripgrep/rg",
+      "archive_sha256": "378e973289176ca0c6054054ee7f631a065874a352bf43f0fa60ef079b6ba715"
+    }
+  }
+}

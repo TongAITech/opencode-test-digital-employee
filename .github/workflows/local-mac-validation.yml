@@ -1,0 +1,64 @@
+name: Local Mac Validation Enablement
+
+on:
+  push:
+    branches:
+      - work/local-mac-validation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate local Mac source contract
+        run: python packaging/local-mac/test_local_mac_contract.py
+
+      - name: Preserve G3/G4 executable regression
+        run: python tools/run_wave2_validation.py --root . --output LOCAL_MAC_BASELINE_REGRESSION.json
+
+      - name: Preserve Git-native static audit
+        run: python tools/wave2_static_audit.py --root . --output LOCAL_MAC_STATIC_AUDIT.json
+
+      - name: Upload source-contract evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-mac-source-contract-${{ github.sha }}
+          path: |
+            LOCAL_MAC_BASELINE_REGRESSION.json
+            LOCAL_MAC_STATIC_AUDIT.json
+          if-no-files-found: warn
+
+  mac-shell-contract:
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate local Mac source contract
+        run: python packaging/local-mac/test_local_mac_contract.py
+
+      - name: Validate Mac shell syntax
+        run: bash -n packaging/local-mac/local-mac.sh
