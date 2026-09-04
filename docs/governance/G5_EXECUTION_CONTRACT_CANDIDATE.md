@@ -1,6 +1,6 @@
 # G5 — Execution Contract Candidate
 
-**Status:** `EXECUTION_CONTRACT_CANDIDATE / REPAIRED_AFTER_00.9_REVIEW / REVIEW_REQUIRED / NOT_FROZEN`  
+**Status:** `NARROW_REOPEN / DIRECTOR_SURFACE_COVERAGE_REPAIR_CANDIDATE / REVIEW_REQUIRED / NOT_FROZEN`
 **WorkItem:** `10.G5｜Defect Truth & Autonomous Defect Hunter`  
 **Governance Authority:** `00.9｜ChatGPT Harness 总控与架构治理｜G5-G6` as successor to all still-effective `00.8` Governance Authority  
 **Canonical repository:** `TongAITech/opencode-test-digital-employee`  
@@ -12,31 +12,43 @@
 **Frozen CodeContract blob:** `fd0c85ef7ecbe01e990609b3e7e6f7f6490d5842`  
 **Frozen CodeContract file:** `docs/governance/G5_DEFECT_TRUTH_AND_AUTONOMOUS_DEFECT_HUNTER_CODE_CONTRACT_CANDIDATE_V2.md`  
 **CodeContract Review evidence:** PR #2 comment `00.9 — G5 CONTRACT REVIEW PASS / CODE CONTRACT FROZEN`  
-**Execution Contract review evidence:** PR #2 comment `00.9 — G5 EXECUTION CONTRACT REVIEW / REPAIR REQUIRED`  
-**Reviewed Execution Contract candidate head:** `ed405ae6dad2bf72ee0dafb3cecde734c23005b9`  
+**Previous frozen ExecutionContract blob:** `8d72d6de65b0fe026ea61b8850ddf6603d71e126`
+**Narrow reopen authority:** PR #2 comment `5536501544 — EC5 REVIEW PASS STANDS / EC6 PRE-START CODECONTRACT COVERAGE GAP / EXECUTION CONTRACT REOPEN REQUIRED`
+**Narrow reopen starting head:** `160e4931a3dbd88ea1378e556d6aab31f279447e`
 
 ```text
 G5_CONTRACT_REVIEW = PASS
 G5_CODE_CONTRACT_FROZEN = YES
 FROZEN_CODE_CONTRACT_IDENTITY = 584b86980c7b0ce93353a37f4e1b76891ca639e0
 FROZEN_CODE_CONTRACT_BLOB = fd0c85ef7ecbe01e990609b3e7e6f7f6490d5842
-G5_EXECUTION_CONTRACT_REVIEW = REPAIR_REQUIRED
+PREVIOUS_EXECUTION_CONTRACT_BLOB = 8d72d6de65b0fe026ea61b8850ddf6603d71e126
+REOPEN_REASON = FROZEN_CODECONTRACT_DIRECTOR_SURFACE_COVERAGE_GAP
+ARCHITECTURE_REOPENED = NO
+CODE_CONTRACT_REOPENED = NO
+EC0_EC5_REOPENED = NO
+EC0_EC5 = ALREADY_EXECUTED / PASS
+EC5 = PASS / FROZEN
+EC6_EC7_REMAINING_EXECUTION_COVERAGE = REPAIRED / REVIEW_REQUIRED
+G5_EXECUTION_CONTRACT_REVIEW = REVIEW_REQUIRED
 EXECUTION_CONTRACT_FROZEN = NO
-PRE_EXECUTION_DRIFT_CHECK = NOT_STARTED
-READY_FOR_CODEX = NO
-IMPLEMENTATION_STARTED = NO
-EC0_RED_ORACLE = NOT_STARTED
+EC6_PRODUCT_IMPLEMENTATION = NOT_STARTED / HOLD
+EC7 = HOLD
 G6 = HOLD
 BANK_INTERNAL_PILOT_READY = NO
 ```
 
-This repaired candidate addresses only the three blocking precision/ordering issues identified by 00.9:
+This candidate is a narrow, explicitly authorized reopen of the previously frozen Execution Contract. It repairs only the confirmed gap where Frozen CodeContract Section 6.1 defines six `DIRECTOR` actions but the execution waves and runtime-driven oracle covered only `status` and `request_human_review`.
 
-1. confirmation sequencing between EC3 and EC5;
-2. exact G5 validation runner and immutable G1-G4 regression runner authority;
-3. exact implementation/evidence path allowlist.
+The omitted actions assigned by this repair are:
 
-It does **not** modify, reinterpret, weaken, extend, or reopen the Frozen G5 CodeContract. It does **not** authorize runtime construction, test construction, EC0, Pre-Execution Drift Check, or Codex execution.
+```text
+intake_observations
+investigation_status
+open_investigation
+canonical_defects
+```
+
+It does **not** modify, reinterpret, weaken, extend, or reopen the Frozen G5 CodeContract, ArchitectureBaseline, EC0-EC5 semantics, or EC5 PASS. This document remains `NOT_FROZEN / REVIEW_REQUIRED`; this repair commit does not authorize oracle modification, product construction, OpenCode construction, EC6, or EC7.
 
 ---
 
@@ -84,6 +96,21 @@ freeze truthful RED oracle
 -> run immutable frozen G1-G4 regression separately
 -> return Engineering PASS candidate for independent closure review
 ```
+
+The remaining post-EC5 construction order is now pinned exactly as:
+
+```text
+EXECUTION_CONTRACT_REFREEZE
+-> PRE-EC6_ORACLE_COVERAGE_REPAIR
+-> 00.9_ORACLE_REVIEW
+-> EC6A_DIRECTOR_PRODUCT_IMPLEMENTATION
+-> 00.9_EC6A_REVIEW
+-> EC6B_OPENCODE_DIAGNOSIS
+-> EC6_WAVE_REVIEW
+-> EC7
+```
+
+No later step authorizes an earlier step. In particular, the oracle repair must precede EC6A product construction, EC6A does not independently authorize EC7, and this candidate repair performs none of those steps.
 
 ---
 
@@ -183,6 +210,15 @@ tools/run_g5_validation.py
 It is additive and G5-owned. EC0-EC7 G5 focused/adversarial/E2E orchestration MUST go through this runner.
 
 No placeholder runner path remains authorized. No alternative `tools/run_*g5*` runner may be created.
+
+For the future, separately authorized pre-EC6 oracle coverage repair, the only mutable oracle paths are:
+
+```text
+workspace-template/.pfc-internal-field-validation/tests/test_g5_product_path.py
+tools/run_g5_validation.py
+```
+
+That repair MUST upgrade the four omitted `DIRECTOR` actions from static source-registry checks to typed, runtime-driven behavior checks. It MUST use the existing `test_g5_product_path.py` suite and MUST NOT add a seventh G5 suite. This paragraph is future construction authority only after Execution Contract refreeze; it is not authority to modify either path in this repair commit.
 
 ## 3.5 Immutable G1-G4 regression runner
 
@@ -325,7 +361,9 @@ EXECUTION_CONTRACT_CANDIDATE
 -> EC3_G4_ADMISSION_AND_R3_6_PRECONFIRMATION
 -> EC4_GOVERNED_EVIDENCE_AND_RECOVERY
 -> EC5_CONFIRMATION_HUMAN_GATE_DUPLICATE_R4_3
--> EC6_OPENCODE_DIAGNOSIS_SURFACE
+-> EC6_REMAINING_SURFACE_CLOSURE
+   [EC6A_FROZEN_DIRECTOR_PRODUCT_SURFACE_COMPLETION
+    -> EC6B_OPENCODE_DIAGNOSIS_CANONICAL_SURFACE]
 -> EC7_E2E_ADVERSARIAL_FULL_REGRESSION
 -> ENGINEERING_EVIDENCE_REVIEW
 -> ENGINEERING_PASS_CANDIDATE
@@ -333,14 +371,19 @@ EXECUTION_CONTRACT_CANDIDATE
 
 The WorkItem MUST NOT skip directly from Execution Contract drafting to implementation.
 
-Current state remains:
+Current state after the narrow reopen is:
 
 ```text
+EC0 = PASS
+EC1 = PASS
+EC2 = PASS
+EC3 = PASS
+EC4 = PASS
+EC5 = PASS / FROZEN
 EXECUTION_CONTRACT_FROZEN = NO
-PRE_EXECUTION_DRIFT_CHECK = NOT_STARTED
-READY_FOR_CODEX = NO
-EC0_RED_ORACLE = NOT_STARTED
-IMPLEMENTATION_STARTED = NO
+EC6_PRODUCT_IMPLEMENTATION = NOT_STARTED / HOLD
+EC7 = HOLD
+G6 = HOLD
 ```
 
 ---
@@ -859,11 +902,197 @@ Through `tools/run_g5_validation.py`, prove together:
 
 ---
 
-# 12. EC6 — OpenCode Diagnosis canonical surface
+# 12. EC6 — Remaining frozen product and OpenCode surface closure
 
-**Purpose:** remove the pre-G5 HOLD only after canonical Python/runtime path and EC5 confirmation policy are real and tested.
+**Purpose:** close the remaining Frozen CodeContract surface without reopening EC0-EC5. EC6 remains one wave with two ordered substages:
 
-In `workspace-template/.opencode/tools/aitest.ts`, add G5 helper following existing G3/G4 subprocess pattern:
+```text
+EC6A — Frozen G5 DIRECTOR Product Surface Completion
+EC6B — OpenCode Diagnosis Canonical Surface
+```
+
+EC6 cannot PASS, and EC7 cannot start, until both EC6A and EC6B pass independent review. EC6A is not a separate wave and cannot independently authorize EC7.
+
+## 12.1 EC6 pre-start oracle coverage repair
+
+After this Execution Contract is independently refrozen, but before any EC6A product diff, a separately authorized oracle repair MUST modify only:
+
+```text
+workspace-template/.pfc-internal-field-validation/tests/test_g5_product_path.py
+tools/run_g5_validation.py
+```
+
+It MUST retain the existing six-suite topology and dynamically invoke these exact runtime paths:
+
+```text
+DIRECTOR / intake_observations
+DIRECTOR / investigation_status
+DIRECTOR / open_investigation
+DIRECTOR / canonical_defects
+```
+
+The old static `director_action_registry_present` source-name check is not sufficient proof. Runtime checks must be mechanical, typed, and behavior-driven. Stable check semantics include at least:
+
+```text
+director_intake_observations_is_r1_read_only
+director_intake_reports_admitted_status
+director_investigation_status_is_durable_truth
+director_investigation_status_uses_latest_valid_checkpoint
+director_open_investigation_returns_governed_work
+director_open_investigation_does_not_create_plan
+director_open_investigation_does_not_create_task
+director_existing_hunter_task_reused_only_if_exact
+director_canonical_defects_reads_r43
+director_canonical_defects_is_same_mission_read_only
+```
+
+Exact result field names may be normalized to the existing suite structure during that oracle repair, but the semantics above cannot be replaced by string-presence assertions. The repaired oracle must receive independent 00.9 review before EC6A starts.
+
+## 12.2 EC6A — `intake_observations`
+
+This `DIRECTOR` action is a read-only, same-Mission `R1_EVENT_STREAM` view. It enumerates eligible exact G4 facts where:
+
+```text
+fact_kind = UNEXPECTED_OBSERVATION
+status = OBSERVATION_ONLY
+g5_defect_truth = HOLD
+```
+
+For each exact G4 fact, it reports whether an already durable, G5-originated R3.6 `TestAnomaly` carries the matching typed G4 fact identity/digest in its origin lineage. It does not infer admission from text similarity.
+
+It MUST NOT mutate R3.6, call `record_anomaly`, execute a provider, or intake from conversation memory.
+
+## 12.3 EC6A — `investigation_status`
+
+This `DIRECTOR` action is a read-only, same-Mission `R1_EVENT_STREAM` view. It composes existing durable projections only:
+
+```text
+R3.6 candidate/investigation state
+latest valid checkpoint
+EvidenceAssessment
+CrossSourceCorrelation
+Reproducibility
+FalsePositive
+DefectAssessment
+RCA
+R2.6 HumanGate state
+R4.3 ConfirmedDefectLifecycle state
+```
+
+It MUST reuse the EC4 durable recovery/read-only rules, including latest-valid-checkpoint selection and successor-current identity validation. Conversation history, a local G5 cache, a new G5 store, or a second projection cannot supply truth.
+
+## 12.4 EC6A — `open_investigation`
+
+This `DIRECTOR` action prepares bounded governed work for a `DEFECT_HUNTER`; it does not mutate Plan, Task, Route, Attempt, or Session state.
+
+Repository reality pins the existing planner mutation API as:
+
+```python
+G21AutonomousOrchestrationService.propose_plan(
+    mission_id: str,
+    proposal: Mapping[str, Any],
+) -> dict[str, Any]
+```
+
+Calling that API performs frozen R2.3 Plan/Revision mutation, registers G2.1 routes, closes accepted planning sessions, and advances the Scheduler. Therefore G5 MUST NOT call it. G5 may only return a bounded, non-durable proposal candidate shaped for an existing Planner authority to pass to that API:
+
+```text
+mission_id = exact current Mission identity supplied outside proposal
+proposal = {
+  "objective": <bounded investigation objective>,
+  "constraints": [<bounded non-secret constraints>],
+  "tasks": [{
+    "task_key": <stable investigation task key>,
+    "intent": <bounded investigation intent>,
+    "acceptance_criteria": [{"id": <id>, "description": <typed criterion>}],
+    "routing": {
+      "role": "DEFECT_HUNTER",
+      "agent_name": "aitest-diagnosis",
+      "required_capabilities": [
+        "OPENCODE_AGENT_SESSION",
+        "TASK_OUTCOME_REPORT",
+        "DEFECT_ANOMALY_INTAKE",
+        "DEFECT_CANDIDATE_FORMATION",
+        "EVIDENCE_GAP_ANALYSIS",
+        "CROSS_SOURCE_CORRELATION",
+        "REPRODUCIBILITY_REASONING",
+        "FALSE_POSITIVE_EXCLUSION",
+        "DEFECT_TRUTH_ASSESSMENT",
+        "RCA_ANALYSIS",
+        "DUPLICATE_CORRELATION"
+      ],
+      "isolation_policy": "DEDICATED_TASK_SESSION",
+      "parallelism_policy": "SERIAL"
+    }
+  }],
+  "dependencies": [<existing WorkGraph dependency objects or empty>],
+  "planner_request_id": <optional stable idempotency identity>,
+  "actor": <optional existing Planner actor identity>
+}
+```
+
+`objective`, `constraints`, `tasks`, and `dependencies` are the stable proposal content accepted by current source. Routing metadata is validated by G2.1 and stripped before frozen R2.3 WorkGraph content is written. G2.1 derives current Goal, planning cursor, current Plan/Revision, and operation (`PLAN` or `REPLAN`); G5 must not invent those durable values.
+
+Before returning a proposal candidate, the action MUST inspect the same-Mission existing R1 WorkGraph and G2.1 route projection. An existing Task may be reused only when all are mechanically true:
+
+1. its Plan is `OPEN` and its `plan_revision_id` equals that Plan's `current_revision_id`;
+2. every predecessor dependency in the current revision is `SUCCEEDED`, and its lifecycle is `ACTIVE`, or it is `PENDING` with `WorkGraphState.task_availability(task_id) == READY`;
+3. its task definition is explicitly correlated to the requested investigation's typed anomaly/candidate refs and bounded objective;
+4. its route exists and resolves exactly to `role = DEFECT_HUNTER`, `agent_name = aitest-diagnosis`;
+5. its required capabilities equal the frozen `DEFECT_HUNTER` capability set exactly;
+6. all identities belong to the same Mission and no fuzzy or cross-Mission reuse occurs.
+
+When all conditions hold, return the exact typed existing Plan/Revision/Task and route references. Otherwise return only:
+
+```text
+GOVERNED_WORK_REQUIRED
+G2_PLAN_REVISION_REQUIRED
+bounded non-durable Planner proposal candidate
+```
+
+No `G5InvestigationPlan`, `G5Task`, `G5WorkGraph`, or other durable G5 planning identity may be introduced. If current source can no longer express this candidate without a new durable contract, the required outcome is `STOP / SOURCE_CONTRACT_CONFLICT`.
+
+## 12.5 EC6A — `canonical_defects`
+
+This `DIRECTOR` action is a read-only, same-Mission `R1_EVENT_STREAM` truth view of R4.3 lifecycle state backed by:
+
+```text
+R43State.confirmed_defect_lifecycles
+```
+
+It returns exact typed lifecycle identity/digest and existing durable references only. It MUST NOT perform cross-Mission merge, create a defect store, or mutate FixLink/FixDetection state.
+
+## 12.6 EC6A progressive milestone
+
+The runner MUST define a new check group and aggregate milestone:
+
+```text
+DIRECTOR_SURFACE_CHECKS
+director_surface_green
+```
+
+These checks MUST NOT be added to the existing `PRODUCT_SEAM_CHECKS`; EC2-EC5 semantics and their already-reviewed results remain unchanged. With the repaired oracle and current EC5 product source:
+
+```text
+--wave EC5 = PASS
+--wave EC6 = EXPECTED FAIL
+missing milestones include director_surface_green and opencode_surface_green
+```
+
+After EC6A implementation and before EC6B:
+
+```text
+--wave EC6 = EXPECTED FAIL
+director_surface_green = true
+only remaining milestone failure = opencode_surface_green
+EC7 = HOLD
+```
+
+EC6A product implementation may begin only after Execution Contract refreeze, pre-EC6 oracle repair, and 00.9 oracle review. EC6A completion itself requires independent 00.9 review before EC6B begins.
+
+## 12.7 EC6B — OpenCode Diagnosis canonical surface
+
+Only after EC6A review, add the G5 helper in `workspace-template/.opencode/tools/aitest.ts` following the existing G3/G4 subprocess pattern:
 
 ```text
 canonical workspace
@@ -871,7 +1100,7 @@ portable Python
 -m aitest_runtime.product_entry g5
 --role DIAGNOSIS
 --action <action>
---payload <json>
+--payload <JSON>
 ```
 
 Requirements:
@@ -879,17 +1108,34 @@ Requirements:
 - require JSON output;
 - require `truth_source = R1_EVENT_STREAM`;
 - fail closed on subprocess/JSON/truth-source error;
+- expose the Frozen CodeContract worker actions through the canonical G5 helper;
+- remove the diagnosis agent's G5 HOLD only when the canonical runtime path, including frozen EC5 confirmation policy, is available;
 - no TypeScript defect storage;
-- no TypeScript provider execution;
-- no TypeScript confirmation heuristic.
-
-The existing diagnosis tool may stop returning G5 HOLD only when the canonical runtime path including EC5 confirmation policy is available.
+- no TypeScript provider execution or direct CAT/DB/API/UI authority;
+- no TypeScript confirmation heuristic;
+- no Session lifecycle ownership.
 
 `aitest-diagnosis.md` may be edited only to align wording/actions with the Frozen CodeContract; it cannot create new runtime semantics.
+
+## 12.8 EC6 final gate
+
+EC6 passes only when:
+
+```text
+EC6A = PASS / INDEPENDENTLY_REVIEWED
+EC6B = PASS
+director_surface_green = true
+opencode_surface_green = true
+EC0_EC5_MILESTONES_REMAIN_GREEN = true
+```
+
+Only an independent EC6 wave review may then authorize EC7. Neither EC6A nor EC6B self-authorizes the next wave.
 
 ---
 
 # 13. EC7 — Adversarial, same-Mission E2E, full regression and closure evidence
+
+EC7 adds **no new product semantics**. All six Frozen CodeContract `DIRECTOR` actions, including `intake_observations`, `investigation_status`, `open_investigation`, and `canonical_defects`, MUST already be runtime GREEN through EC6A before EC7 starts. EC7 MUST NOT implement or repair those actions.
 
 ## 13.1 Positive contract
 
@@ -915,6 +1161,9 @@ Fresh tests must prove all frozen positive gates, including:
 18. exact assessment/QV/Campaign handoff is idempotent.
 19. same proven same-Mission root cause can reuse lifecycle; ambiguous/cross-Mission silent merge is blocked.
 20. no EC3/EC4 intermediate path can write `CONFIRMED_DEFECT`.
+21. all Frozen CodeContract `DIRECTOR` actions execute through canonical runtime behavior.
+22. `open_investigation` never creates a Plan, Task, Route, Attempt, or Session from G5 authority.
+23. `canonical_defects` is an exact same-Mission R4.3 lifecycle view.
 
 ## 13.2 Mandatory adversarial contract
 
@@ -977,6 +1226,16 @@ G2 Plan/Task + DEFECT_HUNTER route
 
 Companion same-Mission path must first return `GOVERNED_WORK_REQUIRED`, route evidence work through existing G2/G3/G4, then resume G5 from durable refs.
 
+At closure, `g5_full_green` means all of the following, not merely source-registry presence:
+
+```text
+Frozen CodeContract complete
+worker surface complete
+Director surface complete
+OpenCode surface complete
+adversarial and same-Mission E2E complete
+```
+
 ---
 
 # 14. Exact validation-runner policy
@@ -999,8 +1258,11 @@ Wave expectations:
 - EC3: admission + pre-confirmation investigation becomes GREEN while all confirmation remains blocked.
 - EC4: governed-evidence + recovery becomes GREEN while confirmation remains blocked.
 - EC5: ordinary autonomous confirmation + mandatory HumanGate confirmation + duplicate/R4.3 handoff become GREEN together.
-- EC6: OpenCode surface becomes GREEN.
-- EC7: all six G5 suites + adversarial + same-Mission E2E are GREEN.
+- Pre-EC6 oracle repair: existing product-path suite dynamically exercises all four omitted Director actions; a distinct `DIRECTOR_SURFACE_CHECKS` group produces `director_surface_green` without changing `PRODUCT_SEAM_CHECKS` or EC2-EC5 milestones.
+- EC6 before EC6A: `director_surface_green` and `opencode_surface_green` are both expected false while EC5 remains PASS.
+- EC6 after EC6A and before EC6B: `director_surface_green = true`; only `opencode_surface_green` remains false, so EC6 remains expected FAIL.
+- EC6 after EC6B: Director and OpenCode surface milestones both become GREEN while every EC0-EC5 milestone remains GREEN.
+- EC7: all six G5 suites + Director surface + OpenCode surface + adversarial + same-Mission E2E are GREEN; no new product semantics are added.
 
 The G5 runner's final structured result MUST be written exactly to:
 
@@ -1172,9 +1434,9 @@ Codex must report the exact file/symbol/contract conflict instead of improvising
 
 ---
 
-# 19. Pre-Execution Drift Check required after ExecutionContract freeze
+# 19. Refreeze and pre-EC6 drift check
 
-After this repaired Candidate is independently reviewed/frozen, construction is still forbidden until a fresh Git-native Pre-Execution Drift Check proves all of the following:
+After this narrow repair candidate is independently reviewed/refrozen, EC6 construction is still forbidden until a fresh Git-native pre-EC6 drift check proves all of the following:
 
 1. `main == 4edd78536633d4258705c6083fe55b44e51f54bb`.
 2. PR #2 is Draft / OPEN / UNMERGED and base remains `main` at the canonical baseline.
@@ -1183,7 +1445,7 @@ After this repaired Candidate is independently reviewed/frozen, construction is 
 5. Frozen CodeContract blob remains exactly `fd0c85ef7ecbe01e990609b3e7e6f7f6490d5842`.
 6. 00.9 CodeContract freeze evidence remains present.
 7. this repaired Execution Contract has been independently reviewed/frozen by 00.9.
-8. no runtime/source/test construction occurred before authorization; changes since reviewed Execution Contract head are governance/review evidence only.
+8. EC0-EC5 remain at their reviewed commits and semantics; no oracle, EC6 product, or OpenCode diff occurred under this narrow repair authority.
 9. G1/G2/G2R-1/G2.1/G3/G4 remain PASS/FROZEN and no reopen authority exists.
 10. ArchitectureBaseline remains v7 / FROZEN / UNCHANGED.
 11. `tools/run_wave2_validation.py` exists at blob `b006cecb48673a5b8735dda9e1b645ebafe7f1fc`.
@@ -1191,23 +1453,25 @@ After this repaired Candidate is independently reviewed/frozen, construction is 
 13. no alternative engineering/planning branch has become Engineering Truth.
 14. G6 remains HOLD.
 
-Only after all checks pass may governance set:
+Only after all checks pass may governance authorize the separate pre-EC6 oracle coverage repair. EC6A still remains blocked until that oracle repair is independently reviewed:
 
 ```text
-PRE_EXECUTION_DRIFT_CHECK = PASS
-READY_FOR_CODEX = YES
+EXECUTION_CONTRACT_REFREEZE = PASS
+PRE_EC6_DRIFT_CHECK = PASS
+PRE_EC6_ORACLE_COVERAGE_REPAIR = AUTHORIZED_TO_START
+EC6A_PRODUCT_IMPLEMENTATION = HOLD
 ```
 
 ---
 
-# 20. Codex execution authority after READY_FOR_CODEX
+# 20. Codex remaining execution authority
 
-Only after `READY_FOR_CODEX = YES`, Codex is authorized to implement on `work/g5-defect-truth`.
+EC0-EC5 were executed under the previously frozen contract and remain unchanged. For the remaining work on `work/g5-defect-truth`, authority advances only through the Section 1 post-EC5 ordering.
 
 Codex execution rules:
 
-1. execute EC0 -> EC7 in order;
-2. do not skip truthful RED-oracle freeze;
+1. preserve the independently reviewed EC0-EC5 results and semantics;
+2. execute pre-EC6 oracle repair -> EC6A -> EC6B -> EC7 only after each stated governance gate;
 3. use exact Frozen CodeContract file/action/role/failure semantics;
 4. keep changes minimal and wave-scoped;
 5. run mandatory G5 targeted validation through `tools/run_g5_validation.py` before proceeding to the next wave;
@@ -1220,7 +1484,8 @@ Codex execution rules:
 12. never freeze G5 or open G6;
 13. never write docs outside the two exact engineering evidence paths;
 14. if source reality contradicts Frozen CodeContract/ExecutionContract, STOP and return evidence rather than changing contract;
-15. final result is only an `ENGINEERING_PASS_CANDIDATE`, not canonical closure.
+15. final result is only an `ENGINEERING_PASS_CANDIDATE`, not canonical closure;
+16. never implement `intake_observations`, `investigation_status`, `open_investigation`, or `canonical_defects` in EC7; they belong to EC6A.
 
 ---
 
@@ -1237,7 +1502,11 @@ EC3_G5_CONFIRMATION_WRITE_ENABLED = NO
 EC4_GOVERNED_EVIDENCE_AND_RECOVERY = PASS
 EC5_CONFIRMATION_HUMAN_GATE_DUPLICATE_R4_3 = PASS
 EC5_ORDINARY_AND_MANDATORY_CONFIRMATION_GREEN_TOGETHER = YES
-EC6_OPENCODE_DIAGNOSIS_SURFACE = PASS
+EC6A_FROZEN_DIRECTOR_PRODUCT_SURFACE_COMPLETION = PASS
+EC6B_OPENCODE_DIAGNOSIS_CANONICAL_SURFACE = PASS
+EC6_DIRECTOR_SURFACE_GREEN = true
+EC6_OPENCODE_SURFACE_GREEN = true
+EC6 = PASS
 EC7_E2E_ADVERSARIAL_FULL_REGRESSION = PASS
 G5_VALIDATION_RUNNER = tools/run_g5_validation.py
 G1_G4_REGRESSION_RUNNER = tools/run_wave2_validation.py
@@ -1255,29 +1524,39 @@ The result must then return to `00.9` for independent Git-native Raw Source Clos
 
 ---
 
-# 22. Repaired candidate decision
+# 22. Narrow reopen repair candidate decision
 
 ```text
 G5_CODE_CONTRACT_FROZEN = YES
 FROZEN_CODE_CONTRACT_IDENTITY = 584b86980c7b0ce93353a37f4e1b76891ca639e0
 FROZEN_CODE_CONTRACT_BLOB = fd0c85ef7ecbe01e990609b3e7e6f7f6490d5842
-G5_EXECUTION_CONTRACT_CANDIDATE = REPAIRED
-REPAIR_1_CONFIRMATION_SEQUENCE = APPLIED
-REPAIR_2_G5_RUNNER_PATH = tools/run_g5_validation.py / PINNED
-REPAIR_2_G1_G4_RUNNER = tools/run_wave2_validation.py@b006cecb48673a5b8735dda9e1b645ebafe7f1fc / IMMUTABLE
-REPAIR_3_DOCS_ALLOWLIST = CLOSED
+PREVIOUS_EXECUTION_CONTRACT_BLOB = 8d72d6de65b0fe026ea61b8850ddf6603d71e126
+REOPEN_REASON = FROZEN_CODECONTRACT_DIRECTOR_SURFACE_COVERAGE_GAP
+G5_EXECUTION_CONTRACT_DIRECTOR_SURFACE_COVERAGE_REPAIR = REVIEW_REQUESTED
+EC6A_DIRECTOR_SURFACE_DEFINED = YES
+EC6_PRESTART_ORACLE_REPAIR_DEFINED = YES
+DIRECTOR_SURFACE_GREEN_MILESTONE_DEFINED = YES
+EC6B_OPENCODE_SCOPE_PRESERVED = YES
+EC7_NO_NEW_PRODUCT_SEMANTICS_PRESERVED = YES
+EC0_EC5_REOPENED = NO
+EC0_EC5_SEMANTICS_CHANGED = NO
 EXECUTION_CONTRACT_REVIEW = REQUIRED
 EXECUTION_CONTRACT_FROZEN = NO
-PRE_EXECUTION_DRIFT_CHECK = NOT_STARTED
-READY_FOR_CODEX = NO
-EC0_RED_ORACLE = NOT_STARTED
-IMPLEMENTATION_STARTED = NO
+EC6_EC7_REMAINING_EXECUTION_COVERAGE = REPAIRED / REVIEW_REQUIRED
 ARCHITECTURE_DRIFT = NO
+ARCHITECTURE_REOPENED = NO
+CODE_CONTRACT_REOPENED = NO
 CODE_CONTRACT_REOPEN_REQUIRED = NO
 G1_G2_G2R1_G2_1_G3_G4_REOPEN_REQUIRED = NO
+PRODUCT_RUNTIME_SOURCE_MODIFIED = NO
+TEST_ORACLE_MODIFIED = NO
+RUNNER_MODIFIED = NO
+EC5 = PASS / FROZEN
+EC6_PRODUCT_IMPLEMENTATION = NOT_STARTED / HOLD
+EC7 = HOLD
 PR_2 = MUST_REMAIN_DRAFT_OPEN_UNMERGED
 MAIN = MUST_REMAIN_4edd78536633d4258705c6083fe55b44e51f54bb
 G6 = HOLD
 BANK_INTERNAL_PILOT_READY = NO
-NEXT_GATE = 00.9_EXECUTION_CONTRACT_REVIEW
+NEXT_GATE = 00.9_EXECUTION_CONTRACT_REFREEZE_REVIEW
 ```
