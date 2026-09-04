@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -239,44 +240,72 @@ def worker_runtime_green(parsed: dict[str, Any]) -> bool:
     return all_checks(parsed, WORKER_BINDING_CHECKS)
 
 
-def opencode_runtime_green(root: Path, parsed: dict[str, Any]) -> bool:
+def opencode_runtime_green(
+    root: Path, parsed: dict[str, Any]
+) -> tuple[bool, dict[str, Any]]:
+    canonical_substrate = "ISOLATED_TEMP_RUNTIME_SPINE"
     contract = parsed.get("contract_checks") or {}
     if not isinstance(contract, dict) or not all(bool(value) for value in contract.values()):
-        return False
+        return False, {
+            "returncode": None,
+            "parsed": None,
+            "output_tail": "OPENCODE_SUITE_CONTRACT_CHECKS_INCOMPLETE",
+            "canonical_substrate": canonical_substrate,
+        }
     runtime = root / "workspace-template" / "ai-test" / "runtime"
-    env = {**os.environ, "PYTHONPATH": str(runtime)}
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "aitest_runtime.product_entry",
-            "g5",
-            "--role",
-            "DIAGNOSIS",
-            "--action",
-            "status",
-            "--payload",
-            "{}",
-        ],
-        cwd=str(root / "workspace-template"),
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
+    with tempfile.TemporaryDirectory(prefix="g5-opencode-runtime-") as temp:
+        durable_root = Path(temp)
+        runtime_spine_db = durable_root / "state" / "runtime-spine.db"
+        runtime_spine_db.parent.mkdir(parents=True, exist_ok=True)
+        env = {
+            **os.environ,
+            "AITEST_RUNTIME_SPINE_DB": str(runtime_spine_db),
+            "AITEST_WORKSPACE_ROOT": str(root / "workspace-template"),
+            "PYTHONPATH": str(runtime),
+        }
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "aitest_runtime.product_entry",
+                "g5",
+                "--role",
+                "DIAGNOSIS",
+                "--action",
+                "status",
+                "--payload",
+                "{}",
+            ],
+            cwd=str(root / "workspace-template"),
+            env=env,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
     result = parse_last_json(proc.stdout)
+    probe = {
+        "returncode": proc.returncode,
+        "parsed": result,
+        "output_tail": proc.stdout[-6000:],
+        "canonical_substrate": canonical_substrate,
+    }
     return (
         proc.returncode == 0
         and isinstance(result, dict)
+        and result.get("status") == "PASS"
         and result.get("truth_source") == "R1_EVENT_STREAM"
+        and result.get("next_required_action") is None,
+        probe,
     )
 
 
 def oracle_shape(
     root: Path, filename: str, parsed: dict[str, Any] | None
-) -> tuple[bool, bool, bool]:
+) -> tuple[bool, bool, bool, dict[str, Any] | None]:
     if not isinstance(parsed, dict):
-        return False, False, False
+        return False, False, False, None
     current_truth = (
         parsed.get("truthful_red") is True
         and parsed.get("red_kind") == "MISSING_G5_INTEGRATION"
@@ -288,14 +317,15 @@ def oracle_shape(
             and contract.get("future_green_requires_real_runtime") is True
         )
         runtime_green = parsed.get("runtime_green_evidence") is True
-        return future_runtime, current_truth, runtime_green
+        return future_runtime, current_truth, runtime_green, None
     if filename == "test_g5_product_path.py":
-        return True, current_truth, product_runtime_green(parsed)
+        return True, current_truth, product_runtime_green(parsed), None
     if filename == "test_g5_worker_binding_and_recovery.py":
-        return True, current_truth, worker_runtime_green(parsed)
+        return True, current_truth, worker_runtime_green(parsed), None
     if filename == "test_g5_opencode_surface.py":
-        return True, current_truth, opencode_runtime_green(root, parsed)
-    return False, current_truth, False
+        runtime_green, probe = opencode_runtime_green(root, parsed)
+        return True, current_truth, runtime_green, probe
+    return False, current_truth, False, None
 
 
 def run_suite(root: Path, test_dir: Path, filename: str, mode: str) -> dict[str, Any]:
@@ -311,7 +341,9 @@ def run_suite(root: Path, test_dir: Path, filename: str, mode: str) -> dict[str,
     )
     duration = round(time.monotonic() - started, 3)
     parsed = parse_last_json(proc.stdout)
-    future_runtime, current_truth, runtime_green = oracle_shape(root, filename, parsed)
+    future_runtime, current_truth, runtime_green, runtime_probe = oracle_shape(
+        root, filename, parsed
+    )
     programming_exception = any(
         marker in proc.stdout for marker in PROGRAMMING_FAILURE_MARKERS
     )
@@ -340,7 +372,7 @@ def run_suite(root: Path, test_dir: Path, filename: str, mode: str) -> dict[str,
             and runtime_green
             and not programming_exception
         )
-    return {
+    result = {
         "file": filename,
         "mode": mode,
         "returncode": proc.returncode,
@@ -353,6 +385,9 @@ def run_suite(root: Path, test_dir: Path, filename: str, mode: str) -> dict[str,
         "parsed": parsed,
         "output_tail": proc.stdout[-6000:],
     }
+    if runtime_probe is not None:
+        result["opencode_runtime_probe"] = runtime_probe
+    return result
 
 
 def suite_by_name(suites: list[dict[str, Any]], filename: str) -> dict[str, Any]:
