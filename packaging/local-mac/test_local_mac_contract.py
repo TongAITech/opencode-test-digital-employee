@@ -37,6 +37,7 @@ def unchanged(*paths: str) -> bool:
 def main() -> int:
     script = (HERE / "local-mac.sh").read_text(encoding="utf-8")
     pinned = (HERE / "pinned-build.sh").read_text(encoding="utf-8")
+    runtime_shell = (HERE / "runtime-shell-bash").read_text(encoding="utf-8")
     readme = (HERE / "README.md").read_text(encoding="utf-8")
     workflow = (REPO_ROOT / ".github/workflows/local-mac-validation.yml").read_text(encoding="utf-8")
     arm = load("runtime-lock.mac-arm64.json")
@@ -72,7 +73,17 @@ def main() -> int:
             ARM_CHROME_SHA in pinned
             and X64_CHROME_SHA in pinned
             and 'export PFC_MAC_CHROME_SHA256=' in pinned
-            and 'exec "$HERE/local-mac.sh" build' in pinned
+            and '"$HERE/local-mac.sh" build "$@" | tee' in pinned
+        ),
+        "owned_pid_wrapper_is_packaged": (
+            "runtime-shell-bash" in pinned
+            and "POSIX_EXEC_OWNED_PID" in pinned
+            and 'exec /bin/bash -c "exec $CMD"' in runtime_shell
+        ),
+        "canonical_build_repins_runtime_identity": (
+            'payload["runtime_tree_sha256"] = sys.argv[2]' in pinned
+            and "offline runtime tree identity" in script
+            and "installed runtime tree identity" in script
         ),
         "official_build_surfaces_use_pinned_wrapper": (
             "./pinned-build.sh" in readme
