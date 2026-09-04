@@ -40,6 +40,18 @@ PRODUCT_SEAM_CHECKS = {
     "invalid_role_fails_with_g5_role_forbidden",
     "invalid_action_fails_closed",
 }
+DIRECTOR_SURFACE_CHECKS = {
+    "director_intake_observations_is_r1_read_only",
+    "director_intake_reports_admitted_status",
+    "director_investigation_status_is_durable_truth",
+    "director_investigation_status_uses_latest_valid_checkpoint",
+    "director_open_investigation_returns_governed_work",
+    "director_open_investigation_does_not_create_plan",
+    "director_open_investigation_does_not_create_task",
+    "director_existing_hunter_task_reused_only_if_exact",
+    "director_canonical_defects_reads_r43",
+    "director_canonical_defects_is_same_mission_read_only",
+}
 WORKER_BINDING_CHECKS = {
     "defect_hunter_task_dispatches",
     "current_binding_accepted",
@@ -218,7 +230,9 @@ def all_checks(parsed: dict[str, Any] | None, required: set[str]) -> bool:
 
 
 def product_runtime_green(parsed: dict[str, Any]) -> bool:
-    return all_checks(parsed, PRODUCT_SEAM_CHECKS)
+    return all_checks(parsed, PRODUCT_SEAM_CHECKS) and all_checks(
+        parsed, DIRECTOR_SURFACE_CHECKS
+    )
 
 
 def worker_runtime_green(parsed: dict[str, Any]) -> bool:
@@ -402,6 +416,7 @@ def progressive_oracle_conditions(
     same_mission = suite_by_name(suites, "test_g5_same_mission_e2e.py").get("parsed")
     adversarial = suite_by_name(suites, "test_g5_adversarial_defect_truth.py").get("parsed")
     human = suite_by_name(suites, "test_g5_human_gate_and_duplicate_correlation.py").get("parsed")
+    product = suite_by_name(suites, "test_g5_product_path.py").get("parsed")
     opencode = suite_by_name(suites, "test_g5_opencode_surface.py").get("parsed")
     same_foundation = (same_mission or {}).get("foundation_checks") or {}
     return {
@@ -431,6 +446,9 @@ def progressive_oracle_conditions(
         "ec5_human_gate_matrix_complete": named_checks(human, EC5_HUMAN_GATE_CHECKS),
         "ec5_duplicate_matrix_complete": named_checks(human, EC5_DUPLICATE_CHECKS),
         "ec5_r43_handoff_matrix_complete": named_checks(human, EC5_R43_HANDOFF_CHECKS),
+        "director_surface_matrix_complete": named_checks(
+            product, DIRECTOR_SURFACE_CHECKS
+        ),
         "ec6_opencode_matrix_complete": named_checks(opencode, EC6_OPENCODE_CHECKS),
         "ec7_full_green_matrix_complete": all(
             isinstance(suite.get("parsed"), dict)
@@ -478,6 +496,9 @@ def progressive_milestones(suites: list[dict[str, Any]]) -> dict[str, bool]:
         "ec5_duplicate_green": named_checks_green(human.get("parsed"), EC5_DUPLICATE_CHECKS),
         "ec5_r43_handoff_green": named_checks_green(
             human.get("parsed"), EC5_R43_HANDOFF_CHECKS
+        ),
+        "director_surface_green": named_checks_green(
+            product.get("parsed"), DIRECTOR_SURFACE_CHECKS
         ),
         "opencode_surface_green": (
             named_checks_green(opencode.get("parsed"), EC6_OPENCODE_CHECKS)
@@ -604,6 +625,7 @@ def progressive_wave_verdict(
             "ec4_governed_evidence_green",
             "ec4_recovery_green",
             "ec5_green",
+            "director_surface_green",
             "opencode_surface_green",
         ),
         "EC7": ("g5_full_green",),
