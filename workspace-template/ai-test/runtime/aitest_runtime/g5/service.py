@@ -1,21 +1,22 @@
-"""EC2 read-only G5 product seam over existing durable runtime truth."""
+"""G5 pre-confirmation service over existing durable runtime truth."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Mapping
 
 from ..durable_core import RuntimeError, RuntimeService, SessionStatus, canonical_sha256
-from ..g2_1.router import SessionRouter
+from ..g2_1.router import AgentRoleRegistry, SessionRouter
 from ..g3.contracts import EXTENSION_ID as G3_EXTENSION_ID
 from ..g4.contracts import EXTENSION_ID as G4_EXTENSION_ID
 from ..r3_6.contracts import (
+    CHECKPOINT_RECORDED,
     EvidenceDeepeningReceipt,
     InvestigationWorkSetReceipt,
     InvestigationWorkSetRequest,
 )
 from ..r3_6.service import R36ApplicationService
 from .admission import admit_g4_observation
-from .contracts import G5OperationResult, G5WorkerBinding
+from .contracts import G5OperationResult, G5WorkerBinding, GovernedEvidenceRequest
 
 
 TRUTH_SOURCE = "R1_EVENT_STREAM"
@@ -97,6 +98,53 @@ _SENSITIVE_KEYS = frozenset(
         "refresh_token",
     }
 )
+_DIRECT_EXECUTION_ACTIONS = frozenset(
+    {
+        "execute_api",
+        "execute_browser",
+        "execute_capability",
+        "execute_cat",
+        "execute_db",
+        "execute_provider",
+        "execute_ui",
+        "query_cat",
+        "query_db",
+    }
+)
+_DIRECT_EXECUTION_KEYS = frozenset(
+    {
+        "browser_action",
+        "cat_query",
+        "db_query",
+        "executor_request",
+        "provider_request",
+        "sql",
+        "url",
+    }
+)
+_CHANNEL_ROLES = {
+    "API": "EXECUTOR",
+    "BROWSER": "EXECUTOR",
+    "CAT": "EXECUTOR",
+    "DB": "EXECUTOR",
+    "DEPLOYMENT": "EXECUTOR",
+    "G4": "EXECUTOR",
+    "G4_FACT": "EXECUTOR",
+    "LOG": "EXECUTOR",
+    "REPRODUCTION": "EXECUTOR",
+    "UI": "EXECUTOR",
+    "CASE": "CASE_DESIGNER",
+    "CASE_DESIGN": "CASE_DESIGNER",
+    "G3_CASE": "CASE_DESIGNER",
+    "CODE": "CODE_ANALYST",
+    "CODEGRAPH": "CODE_ANALYST",
+    "COVERAGE": "CODE_ANALYST",
+    "G3_CODE": "CODE_ANALYST",
+    "G3_REQUIREMENT": "REQUIREMENT_ANALYST",
+    "REQUIREMENT": "REQUIREMENT_ANALYST",
+    "G3_STRATEGY": "TEST_STRATEGIST",
+    "STRATEGY": "TEST_STRATEGIST",
+}
 
 
 def _fail(code: str, message: str, **details: Any) -> None:
@@ -214,6 +262,138 @@ def _known_ref(runtime: RuntimeService, mission_id: str, value: Mapping[str, Any
                     _fail("G5_EVIDENCE_REF_INVALID", "R3.6 reference digest does not match durable truth", ref_id=ref_id)
                 return {"ref_id": ref_id, "digest": digest, "entity_kind": type(entity).__name__}
     _fail("G5_EVIDENCE_REF_INVALID", "Reference is not existing same-Mission typed truth", ref_id=ref_id)
+
+
+def _fact_refs(state: Any) -> list[dict[str, Any]]:
+    return [
+        {
+            "ref_id": fact.fact_id,
+            "digest": fact.digest,
+            "fact_kind": fact.fact_kind,
+            "created_seq": fact.created_seq,
+        }
+        for fact in sorted(tuple(getattr(state, "facts", ()) or ()), key=lambda item: item.created_seq)
+    ]
+
+
+def _durable_ref(entity: Any) -> dict[str, Any]:
+    fields = getattr(entity, "__dataclass_fields__", {})
+    identity = next((getattr(entity, name) for name in fields if name.endswith("_id")), None)
+    digests = [getattr(entity, name) for name in fields if name.endswith("_digest")]
+    digest = digests[-1] if digests else None
+    if not isinstance(identity, str) or not isinstance(digest, str):
+        _fail("G5_EVIDENCE_REF_INVALID", "Durable entity lacks exact identity/digest lineage")
+    result = {"ref_id": identity, "digest": digest, "entity_kind": type(entity).__name__}
+    created_seq = getattr(entity, "created_seq", None)
+    if isinstance(created_seq, int):
+        result["created_seq"] = created_seq
+    return result
+
+
+def _candidate_stage(state: Any, candidate_id: str) -> dict[str, Any]:
+    candidate = state.candidate(candidate_id)
+    if candidate is None:
+        _fail("G5_EVIDENCE_REF_INVALID", "Recovery candidate does not exist", candidate_id=candidate_id)
+    anomaly_ids = set(candidate.anomaly_refs)
+    return {
+        "candidate": candidate.to_dict(),
+        "anomalies": [item.to_dict() for item in state.anomalies if item.anomaly_id in anomaly_ids],
+        "deepenings": [item.to_dict() for item in state.deepenings if item.candidate_id == candidate_id],
+        "evidence_assessments": [
+            item.to_dict() for item in state.evidence_assessments if item.candidate_id == candidate_id
+        ],
+        "correlations": [item.to_dict() for item in state.correlations if item.candidate_id == candidate_id],
+        "reproducibility_assessments": [
+            item.to_dict()
+            for item in state.reproducibility_assessments
+            if item.candidate_id == candidate_id
+        ],
+        "false_positive_assessments": [
+            item.to_dict()
+            for item in state.false_positive_assessments
+            if item.candidate_id == candidate_id
+        ],
+        "defect_assessments": [
+            item.to_dict() for item in state.defect_assessments if item.candidate_id == candidate_id
+        ],
+        "rca_records": [item.to_dict() for item in state.rca_records if item.candidate_id == candidate_id],
+    }
+
+
+def _latest_valid_checkpoint(
+    runtime: RuntimeService,
+    composed: Any,
+    state: Any,
+    candidate_id: str,
+) -> dict[str, Any] | None:
+    checkpoint_events = [
+        event
+        for event in runtime.list_events(state.mission_id)
+        if event.event_type == CHECKPOINT_RECORDED
+        and isinstance(event.payload.get("entity"), Mapping)
+        and event.payload["entity"].get("candidate_id") == candidate_id
+    ]
+    if not checkpoint_events:
+        return None
+
+    event = max(checkpoint_events, key=lambda item: item.seq)
+    checkpoint = state.checkpoint(event.entity_id)
+    if checkpoint is None or checkpoint.to_dict() != dict(event.payload["entity"]):
+        _fail(
+            "G5_CHECKPOINT_INVALID",
+            "Latest checkpoint projection does not match its R1 Event",
+            checkpoint_id=event.entity_id,
+            event_seq=event.seq,
+        )
+    if state.candidate(checkpoint.candidate_id) is None:
+        _fail("G5_CHECKPOINT_INVALID", "Checkpoint candidate no longer exists")
+
+    receipts = [
+        item.workset_receipt
+        for item in state.deepenings
+        if item.candidate_id == candidate_id
+        and item.workset_receipt.receipt_digest == checkpoint.workset_digest
+    ]
+    if len(receipts) != 1:
+        _fail(
+            "G5_CHECKPOINT_INVALID",
+            "Checkpoint must resolve exactly one candidate WorkSet receipt",
+            checkpoint_id=checkpoint.checkpoint_id,
+        )
+    receipt = receipts[0]
+    if receipt.next_cursor != checkpoint.cursor or receipt.omitted_refs != checkpoint.omitted_refs:
+        _fail(
+            "G5_CHECKPOINT_INVALID",
+            "Checkpoint cursor or omitted refs do not match its WorkSet receipt",
+            checkpoint_id=checkpoint.checkpoint_id,
+        )
+    selected = tuple(_known_ref(runtime, state.mission_id, value) for value in receipt.selected_items)
+    if (
+        tuple(dict(value) for value in receipt.selected_items) != selected
+        or canonical_sha256([dict(value) for value in selected]) != receipt.result_digest
+    ):
+        _fail(
+            "G5_CHECKPOINT_INVALID",
+            "Checkpoint WorkSet no longer resolves exact durable typed refs",
+            checkpoint_id=checkpoint.checkpoint_id,
+        )
+    historical_session = (
+        composed.core_state.session(checkpoint.session_ref)
+        if checkpoint.session_ref is not None
+        else None
+    )
+    if historical_session is None or historical_session.mission_id != state.mission_id:
+        _fail(
+            "G5_CHECKPOINT_INVALID",
+            "Checkpoint Session provenance is outside the Mission",
+            checkpoint_id=checkpoint.checkpoint_id,
+        )
+    return {
+        "event_seq": event.seq,
+        "checkpoint": checkpoint.to_dict(),
+        "workset_receipt": receipt.to_dict(),
+        "session_is_historical_provenance_only": True,
+    }
 
 
 @dataclass(frozen=True)
@@ -395,10 +575,20 @@ class G5Service:
 
     @classmethod
     def preflight(cls, role: str, action: str) -> tuple[str, str]:
-        """Validate the EC3 product vocabulary before runtime composition."""
+        """Validate the EC4 product vocabulary before runtime composition."""
 
         normalized_role = cls.normalize_role(role)
         normalized_action = cls._normalize_action(action)
+        if (
+            normalized_action in _DIRECT_EXECUTION_ACTIONS
+            or normalized_action.startswith(("execute_", "query_", "provider_", "browser_", "db_", "cat_", "g3_", "g4_"))
+        ):
+            _fail(
+                "G5_DIRECT_EXECUTION_FORBIDDEN",
+                "G5 requests governed work and never executes provider or specialist work directly",
+                role=normalized_role,
+                action=normalized_action,
+            )
         executable = (
             normalized_action == "status"
             or (
@@ -410,7 +600,7 @@ class G5Service:
             allowed_registry = DIRECTOR_ACTIONS if normalized_role == DIRECTOR else WORKER_ACTIONS
             _fail(
                 "G5_ACTION_FORBIDDEN",
-                "G5 action is not executable in EC3",
+                "G5 action is not executable before its authorized engineering wave",
                 role=normalized_role,
                 action=normalized_action,
                 recognized=normalized_action in allowed_registry,
@@ -424,7 +614,7 @@ class G5Service:
             status="PASS",
             mission_id=mission_id,
             head_seq=self.runtime.get_head_seq(mission_id) if mission_id is not None else None,
-            next_required_action="EC3_REMAINS_GOVERNANCE_HOLD",
+            next_required_action="EC4_CONFIRMATION_REMAINS_GOVERNANCE_HOLD",
         ).to_dict()
         return {
             **result,
@@ -435,6 +625,61 @@ class G5Service:
 
     def work_context(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         admission = _admit_g5_worker(self.runtime, payload)
+        mission_id = admission.binding.mission_id
+        composed = self.runtime.replay_composed(mission_id)
+        core = composed.core_state
+        work_graph = composed.extension_state("r1_2_work_graph")
+        task = work_graph.task(admission.binding.task_id) if work_graph is not None else None
+        if task is None:
+            _fail("G5_RECOVERY_INVALID", "Current worker Task is absent from R1 WorkGraph truth")
+        plan = work_graph.plan(task.plan_id)
+        revision = work_graph.revision(task.plan_revision_id)
+        if plan is None or revision is None:
+            _fail("G5_RECOVERY_INVALID", "Current worker Plan lineage is incomplete")
+
+        r36_state = R36ApplicationService(self.runtime).state(mission_id)
+        requested_candidate = payload.get("candidate_id")
+        candidate_ids = (
+            (_payload_text(payload, "candidate_id", "G5_EVIDENCE_REF_INVALID"),)
+            if requested_candidate is not None
+            else tuple(item.candidate_id for item in r36_state.candidates)
+        )
+        investigations = []
+        for candidate_id in candidate_ids:
+            investigations.append(
+                {
+                    **_candidate_stage(r36_state, candidate_id),
+                    "latest_valid_checkpoint": _latest_valid_checkpoint(
+                        self.runtime, composed, r36_state, candidate_id
+                    ),
+                }
+            )
+
+        g3_state = composed.extension_state(G3_EXTENSION_ID)
+        g4_state = composed.extension_state(G4_EXTENSION_ID)
+        r41_state = composed.extension_state("r4_1_quality_version_campaign_foundation")
+        r26_state = composed.extension_state("r2_6_human_gate")
+        r43_state = composed.extension_state("r4_3_confirmed_defect_fix_resolution_lifecycle")
+        session_control = composed.extension_state("g2_1_session_control")
+        observation = (
+            session_control.observation(admission.binding.current_session_id)
+            if session_control is not None
+            else None
+        )
+        quality_versions = tuple(getattr(r41_state, "quality_versions", ()) or ())
+        campaigns = tuple(getattr(r41_state, "test_campaigns", ()) or ())
+        lifecycles = tuple(getattr(r43_state, "confirmed_defect_lifecycles", ()) or ())
+        gates = [
+            gate
+            for gate in tuple(getattr(r26_state, "gates", ()) or ())
+            if gate.binding
+            == (mission_id, admission.binding.task_id, admission.binding.root_attempt_id)
+        ]
+        active_goal = (
+            core.goal(core.mission.active_goal_id)
+            if core.mission is not None and core.mission.active_goal_id is not None
+            else None
+        )
         return {
             "status": "PASS",
             "truth_source": TRUTH_SOURCE,
@@ -442,10 +687,227 @@ class G5Service:
             "read_only": True,
             "worker_binding": admission.binding.to_dict(),
             "head_seq": admission.head_seq,
+            "mission": core.mission.to_dict() if core.mission is not None else None,
+            "active_goal": active_goal.to_dict() if active_goal is not None else None,
+            "plan": plan.to_dict(),
+            "plan_revision": revision.to_dict(),
+            "task": task.to_dict(),
             "route": admission.route.to_dict(),
             "current_attempt": admission.current_attempt.to_dict(),
             "current_session": admission.current_session.to_dict(),
             "r2_5_binding": admission.durable_binding.to_dict(),
+            "g3_refs": _fact_refs(g3_state),
+            "g4_refs": _fact_refs(g4_state),
+            "r3_6_investigations": investigations,
+            "r4_1_quality_version_refs": [_durable_ref(item) for item in quality_versions],
+            "r4_1_campaign_refs": [_durable_ref(item) for item in campaigns],
+            "r2_6_gate_state": [
+                {
+                    "gate_id": gate.gate_id,
+                    "status": gate.status,
+                    "continuation_state": gate.continuation_state,
+                    "continuation_route": gate.continuation_route,
+                    "gate_revision": gate.gate_revision,
+                    "continuation_revision": gate.continuation_revision,
+                    "created_seq": gate.created_seq,
+                }
+                for gate in gates
+            ],
+            "r4_3_lifecycle_refs": [_durable_ref(item) for item in lifecycles],
+            "availability": {
+                "current_session_reachable": getattr(observation, "reachable", None),
+                "current_session_healthy": getattr(observation, "healthy", None),
+                "evidence_sources": [
+                    {
+                        "candidate_id": item.candidate_id,
+                        "deepening_id": item.deepening_id,
+                        "channel_statuses": dict(item.channel_statuses),
+                        "source_statuses": dict(item.workset_receipt.source_statuses),
+                    }
+                    for item in r36_state.deepenings
+                ],
+            },
+        }
+
+    @staticmethod
+    def _governed_constraints(
+        channels: tuple[str, ...],
+        required_scope: Mapping[str, Any],
+    ) -> tuple[str, tuple[dict[str, Any], ...]]:
+        registry = AgentRoleRegistry.default()
+        constraints = []
+        roles = []
+        for channel in channels:
+            role_name = _CHANNEL_ROLES.get(channel)
+            if role_name is None:
+                _fail(
+                    "G5_EVIDENCE_REF_INVALID",
+                    "Requested evidence channel has no registered governed worker role",
+                    channel=channel,
+                )
+            role = registry.resolve(role_name)
+            roles.append(role.role)
+            constraints.append(
+                {
+                    "channel": channel,
+                    "required_scope": dict(required_scope),
+                    "role": role.role,
+                    "agent_name": role.agent_name,
+                    "required_capabilities": sorted(role.capabilities),
+                    "isolation_policy": "DEDICATED_TASK_SESSION",
+                    "parallelism_policy": "SERIAL",
+                }
+            )
+        preferred_role = roles[0] if len(set(roles)) == 1 else registry.resolve("PLANNER").role
+        return preferred_role, tuple(constraints)
+
+    def _existing_governed_tasks(
+        self,
+        admission: _WorkerAdmission,
+        required_scope: Mapping[str, Any],
+        constraints: tuple[Mapping[str, Any], ...],
+        requested_refs: Any,
+    ) -> tuple[dict[str, Any], ...]:
+        if requested_refs is not None and not isinstance(requested_refs, (list, tuple)):
+            _fail("G5_EVIDENCE_REF_INVALID", "existing_task_refs must be an array")
+        supplied = {}
+        for value in requested_refs or ():
+            if not isinstance(value, Mapping):
+                _fail("G5_EVIDENCE_REF_INVALID", "Existing Task refs require typed identity and digest")
+            task_id = str(value.get("task_id") or value.get("ref_id") or "").strip()
+            digest = value.get("task_digest") or value.get("digest")
+            if not task_id or not isinstance(digest, str):
+                _fail("G5_EVIDENCE_REF_INVALID", "Existing Task refs require typed identity and digest")
+            supplied[task_id] = digest
+
+        composed = self.runtime.replay_composed(admission.binding.mission_id)
+        work_graph = composed.extension_state("r1_2_work_graph")
+        session_control = composed.extension_state("g2_1_session_control")
+        if work_graph is None or session_control is None:
+            return ()
+        required_roles = {str(item["role"]) for item in constraints}
+        if len(required_roles) != 1:
+            return ()
+        result = []
+        registry = AgentRoleRegistry.default()
+        for task in work_graph.tasks:
+            if task.task_id == admission.binding.task_id or task.lifecycle_state.value not in {"PENDING", "ACTIVE"}:
+                continue
+            if supplied and task.task_id not in supplied:
+                continue
+            plan = work_graph.plan(task.plan_id)
+            revision = work_graph.revision(task.plan_revision_id)
+            route = session_control.route(task.task_id)
+            if (
+                plan is None
+                or revision is None
+                or plan.current_revision_id != task.plan_revision_id
+                or route is None
+                or route.role not in required_roles
+            ):
+                continue
+            role = registry.resolve(route.role)
+            if route.agent_name != role.agent_name or not set(route.required_capabilities).issubset(role.capabilities):
+                continue
+            if task.lifecycle_state.value == "PENDING" and work_graph.task_availability(task.task_id).value != "READY":
+                continue
+            scope_constraints = {
+                str(item.get("kind")): item.get("value")
+                for item in revision.constraints
+                if isinstance(item, Mapping)
+            }
+            if any(scope_constraints.get(str(key)) != value for key, value in required_scope.items()):
+                continue
+            task_digest = canonical_sha256(task.to_dict())
+            if supplied and supplied[task.task_id] != task_digest:
+                _fail(
+                    "G5_EVIDENCE_REF_INVALID",
+                    "Existing governed Task digest does not match R1 truth",
+                    task_id=task.task_id,
+                )
+            result.append(
+                {
+                    "task_id": task.task_id,
+                    "task_digest": task_digest,
+                    "plan_revision_id": task.plan_revision_id,
+                    "route_digest": route.route_digest,
+                }
+            )
+        if supplied and set(supplied) != {item["task_id"] for item in result}:
+            _fail(
+                "G5_EVIDENCE_REF_INVALID",
+                "Supplied governed Task is stale, terminal, blocked, scope-incompatible, or wrongly routed",
+            )
+        return tuple(result)
+
+    def _new_governed_evidence(
+        self,
+        admission: _WorkerAdmission,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        direct_fields = sorted(_DIRECT_EXECUTION_KEYS.intersection(payload))
+        if direct_fields:
+            _fail(
+                "G5_DIRECT_EXECUTION_FORBIDDEN",
+                "Provider execution payloads cannot cross the G5 product seam",
+                fields=direct_fields,
+            )
+        mission_id = admission.binding.mission_id
+        candidate_id = _payload_text(payload, "candidate_id", "G5_EVIDENCE_REF_INVALID")
+        _candidate(self.runtime, mission_id, candidate_id)
+        channels = tuple(
+            dict.fromkeys(str(value).strip().upper() for value in payload.get("requested_channels") or ())
+        )
+        if not channels or any(not channel for channel in channels):
+            _fail("G5_EVIDENCE_REF_INVALID", "Governed evidence work requires requested_channels")
+        required_scope = payload.get("required_scope")
+        if not isinstance(required_scope, Mapping) or not required_scope:
+            _fail("G5_EVIDENCE_REF_INVALID", "Governed evidence work requires a bounded required_scope")
+        required_scope = dict(required_scope)
+        preferred_role, constraints = self._governed_constraints(channels, required_scope)
+        existing_tasks = self._existing_governed_tasks(
+            admission,
+            required_scope,
+            constraints,
+            payload.get("existing_task_refs"),
+        )
+        evidence_gap = _payload_text(payload, "evidence_gap", "G5_EVIDENCE_REF_INVALID")
+        risk_class = _payload_text(payload, "risk_class", "G5_EVIDENCE_REF_INVALID").upper()
+        identity = {
+            "mission_id": mission_id,
+            "candidate_id": candidate_id,
+            "channels": channels,
+            "evidence_gap": evidence_gap,
+            "required_scope": required_scope,
+            "risk_class": risk_class,
+            "existing_task_refs": existing_tasks,
+        }
+        requested = GovernedEvidenceRequest(
+            request_id=f"g5-governed-{canonical_sha256(identity)[:24]}",
+            mission_id=mission_id,
+            candidate_id=candidate_id,
+            mode="NEW_GOVERNED_ACTION",
+            requested_channels=channels,
+            evidence_gap=evidence_gap,
+            required_scope=required_scope,
+            risk_class=risk_class,
+            preferred_role=preferred_role,
+            existing_task_refs=existing_tasks,
+            planner_constraints=constraints,
+        )
+        result = G5OperationResult(
+            status="GOVERNED_WORK_REQUIRED",
+            mission_id=mission_id,
+            head_seq=admission.head_seq,
+            next_required_action=(
+                "EXISTING_GOVERNED_TASK" if existing_tasks else "G2_PLAN_REVISION_REQUIRED"
+            ),
+        ).to_dict()
+        return {
+            **result,
+            "requested_work": requested.to_dict(),
+            "provider_execution_performed": False,
+            "workgraph_mutation_performed": False,
         }
 
     @staticmethod
@@ -574,10 +1036,12 @@ class G5Service:
         candidate_id = _payload_text(payload, "candidate_id", "G5_EVIDENCE_REF_INVALID")
         candidate = _candidate(self.runtime, mission_id, candidate_id)
         mode = str(payload.get("mode") or "").upper()
+        if mode == "NEW_GOVERNED_ACTION":
+            return self._new_governed_evidence(admission, payload)
         if mode != "EXISTING_TYPED_REFS":
             _fail(
                 "G5_ACTION_FORBIDDEN",
-                "EC3 evidence deepening permits only EXISTING_TYPED_REFS",
+                "Evidence deepening mode is not part of the frozen G5 contract",
                 mode=mode,
             )
         evidence = payload.get("evidence_refs")
@@ -786,6 +1250,12 @@ class G5Service:
         workset_digest = _payload_text(payload, "workset_digest", "G5_EVIDENCE_REF_INVALID")
         cursor = payload.get("cursor")
         omitted_refs = tuple(str(value) for value in payload.get("omitted_refs") or ())
+        session_ref = payload.get("session_ref")
+        if session_ref is not None and session_ref != admission.binding.current_session_id:
+            _fail(
+                "G5_EVIDENCE_REF_INVALID",
+                "Checkpoint Session provenance must be the current admitted Session",
+            )
         state = R36ApplicationService(self.runtime).state(mission_id)
         receipts = tuple(
             value.workset_receipt
@@ -847,7 +1317,7 @@ class G5Service:
 
         _fail(
             "G5_ACTION_FORBIDDEN",
-            "G5 action is not executable in EC3",
+            "G5 action is not executable before its authorized engineering wave",
             role=normalized_role,
             action=normalized_action,
         )
