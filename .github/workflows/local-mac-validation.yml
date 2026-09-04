@@ -69,7 +69,7 @@ jobs:
           bash -n packaging/local-mac/local-mac.sh
           bash -n packaging/local-mac/pinned-build.sh
 
-  package-build:
+  package-build-and-runtime-smoke:
     needs:
       - mac-shell-contract
     strategy:
@@ -83,7 +83,7 @@ jobs:
             runner: macos-15-intel
             uname_arch: x86_64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: Checkout exact candidate
         uses: actions/checkout@v4
@@ -103,9 +103,38 @@ jobs:
           ./packaging/local-mac/pinned-build.sh
           ls -lh "$PFC_MAC_OUTPUT_DIR"
 
-      - name: Upload offline package
+      - name: Verify, install and boot packaged runtime offline
+        env:
+          PFC_MAC_OUTPUT_DIR: ${{ runner.temp }}/local-mac-dist
+          PFC_LOCAL_VALIDATION_ROOT: ${{ runner.temp }}/local-mac-runtime
+        run: |
+          set -euo pipefail
+          cd "$PFC_MAC_OUTPUT_DIR"
+          shasum -a 256 -c PFC-LOCAL-MAC-R1R4-*.tar.gz.sha256
+          mkdir -p "$RUNNER_TEMP/local-mac-extracted"
+          tar -xzf PFC-LOCAL-MAC-R1R4-*.tar.gz -C "$RUNNER_TEMP/local-mac-extracted"
+          PACKAGE_DIR="$(find "$RUNNER_TEMP/local-mac-extracted" -mindepth 1 -maxdepth 1 -type d -name 'PFC-LOCAL-MAC-R1R4-*' | head -n 1)"
+          test -n "$PACKAGE_DIR"
+          "$PACKAGE_DIR/local-mac.sh" install
+          mkdir -p "$RUNNER_TEMP/local-pfc-fixture"
+          "$PFC_LOCAL_VALIDATION_ROOT/local-mac.sh" bind "$RUNNER_TEMP/local-pfc-fixture"
+          "$PFC_LOCAL_VALIDATION_ROOT/local-mac.sh" doctor
+          trap '"$PFC_LOCAL_VALIDATION_ROOT/local-mac.sh" stop >/dev/null 2>&1 || true' EXIT
+          "$PFC_LOCAL_VALIDATION_ROOT/local-mac.sh" start | tee "$RUNNER_TEMP/local-mac-start.jsonl"
+          "$PFC_LOCAL_VALIDATION_ROOT/local-mac.sh" status | tee "$RUNNER_TEMP/local-mac-status.jsonl"
+          "$PFC_LOCAL_VALIDATION_ROOT/local-mac.sh" stop | tee "$RUNNER_TEMP/local-mac-stop.jsonl"
+          trap - EXIT
+          test -f "$PFC_LOCAL_VALIDATION_ROOT/durable/state/runtime-spine.db"
+          test -f "$PFC_LOCAL_VALIDATION_ROOT/workspace/.PFC_READY"
+          printf 'LOCAL_MAC_PACKAGED_RUNTIME_SMOKE=PASS\n'
+
+      - name: Upload offline package and smoke evidence
         uses: actions/upload-artifact@v4
         with:
           name: local-mac-offline-package-${{ matrix.arch }}-${{ github.sha }}
-          path: ${{ runner.temp }}/local-mac-dist/*
+          path: |
+            ${{ runner.temp }}/local-mac-dist/*
+            ${{ runner.temp }}/local-mac-start.jsonl
+            ${{ runner.temp }}/local-mac-status.jsonl
+            ${{ runner.temp }}/local-mac-stop.jsonl
           if-no-files-found: error
