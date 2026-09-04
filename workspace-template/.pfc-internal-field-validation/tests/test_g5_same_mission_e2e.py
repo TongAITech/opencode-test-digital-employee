@@ -191,6 +191,7 @@ def main():
         "r36_service_real": callable(R36ApplicationService),
         "r36_historical_baseline_v5_unchanged": ARCHITECTURE_BASELINE_REF == "v5",
         "r43_service_real": callable(R43ApplicationService.open_confirmed_defect_lifecycle),
+        "initial_execution_batch_completed_before_reproduction": False,
     }
     supplemental = {"static_markers_are_not_green_authority": True}
     original_names = (
@@ -363,6 +364,20 @@ def main():
                     and "CONFIRMED_DEFECT" not in json.dumps(observation.to_dict(), sort_keys=True)
                 )
                 finish(orchestration, executor_binding, "governed failure captured")
+                b1_completed = g4.create_batch(
+                    mission_id,
+                    {
+                        "batch_id": "b1",
+                        "goal_id": "g5-e2e",
+                        "case_refs": [case_fact["fact_id"]],
+                        "strategy_version_id": strategy,
+                        "target_application": "cfg-data",
+                        "status": "COMPLETED",
+                    },
+                )
+                foundation["initial_execution_batch_completed_before_reproduction"] = (
+                    b1_completed["batch"]["payload"].get("status") == "COMPLETED"
+                )
 
                 hunter_first = orchestration.propose_plan(
                     mission_id,
