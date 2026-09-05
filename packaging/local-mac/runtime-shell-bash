@@ -1,0 +1,23 @@
+#!/bin/bash
+set -euo pipefail
+
+RUNTIME_ROOT="$(cd -- "$(dirname -- "$0")/.." && pwd)"
+export PATH="$RUNTIME_ROOT/opencode:$RUNTIME_ROOT/ripgrep:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+
+if [[ "${1:-}" == "-lc" && $# -ge 2 ]]; then
+  CMD="$2"
+  case "$CMD" in
+    opencode|opencode\ *)
+      # pfc_opencode_process records the PID returned by Popen and later owns
+      # lifecycle/stop authority for exactly that PID. Ensure the wrapper and
+      # intermediate shell are replaced by the real OpenCode process instead
+      # of leaving OpenCode as an orphanable child on POSIX.
+      exec /bin/bash -c "exec $CMD"
+      ;;
+    *)
+      exec /bin/bash -c "$CMD"
+      ;;
+  esac
+fi
+
+exec /bin/bash "$@"

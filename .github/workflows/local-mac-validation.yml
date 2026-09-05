@@ -1,0 +1,140 @@
+name: Local Mac Validation Enablement
+
+on:
+  push:
+    branches:
+      - work/local-mac-validation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-mac-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate local Mac source contract
+        run: python packaging/local-mac/test_local_mac_contract.py
+
+      - name: Preserve G3/G4 executable regression
+        run: python tools/run_wave2_validation.py --root . --output LOCAL_MAC_BASELINE_REGRESSION.json
+
+      - name: Preserve Git-native static audit
+        run: python tools/wave2_static_audit.py --root . --output LOCAL_MAC_STATIC_AUDIT.json
+
+      - name: Upload source-contract evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-mac-source-contract-${{ github.sha }}
+          path: |
+            LOCAL_MAC_BASELINE_REGRESSION.json
+            LOCAL_MAC_STATIC_AUDIT.json
+          if-no-files-found: warn
+
+  mac-shell-contract:
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate local Mac source contract
+        run: python packaging/local-mac/test_local_mac_contract.py
+
+      - name: Validate Mac shell syntax
+        run: |
+          bash -n packaging/local-mac/local-mac.sh
+          bash -n packaging/local-mac/pinned-build.sh
+
+  package-build-and-runtime-smoke:
+    needs:
+      - mac-shell-contract
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14
+            uname_arch: arm64
+          - arch: x64
+            runner: macos-15-intel
+            uname_arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify runner architecture
+        run: |
+          test "$(uname -s)" = "Darwin"
+          test "$(uname -m)" = "${{ matrix.uname_arch }}"
+
+      - name: Build real pinned offline package
+        env:
+          PFC_MAC_OUTPUT_DIR: ${{ runner.temp }}/local-mac-dist
+        run: |
+          mkdir -p "$PFC_MAC_OUTPUT_DIR"
+          ./packaging/local-mac/pinned-build.sh
+          ls -lh "$PFC_MAC_OUTPUT_DIR"
+
+      - name: Verify, install and boot packaged runtime offline
+        env:
+          PFC_MAC_OUTPUT_DIR: ${{ runner.temp }}/local-mac-dist
+          PFC_LOCAL_VALIDATION_ROOT: ${{ runner.temp }}/local-mac-runtime
+        run: |
+          set -euo pipefail
+          cd "$PFC_MAC_OUTPUT_DIR"
+          shasum -a 256 -c PFC-LOCAL-MAC-R1R4-*.tar.gz.sha256
+          mkdir -p "$RUNNER_TEMP/local-mac-extracted"
+          tar -xzf PFC-LOCAL-MAC-R1R4-*.tar.gz -C "$RUNNER_TEMP/local-mac-extracted"
+          PACKAGE_DIR="$(find "$RUNNER_TEMP/local-mac-extracted" -mindepth 1 -maxdepth 1 -type d -name 'PFC-LOCAL-MAC-R1R4-*' | head -n 1)"
+          test -n "$PACKAGE_DIR"
+          "$PACKAGE_DIR/local-mac.sh" install
+          mkdir -p "$RUNNER_TEMP/local-pfc-fixture"
+          "$PFC_LOCAL_VALIDATION_ROOT/local-mac.sh" bind "$RUNNER_TEMP/local-pfc-fixture"
+          "$PFC_LOCAL_VALIDATION_ROOT/local-mac.sh" doctor
+          trap '"$PFC_LOCAL_VALIDATION_ROOT/local-mac.sh" stop >/dev/null 2>&1 || true' EXIT
+          "$PFC_LOCAL_VALIDATION_ROOT/local-mac.sh" start | tee "$RUNNER_TEMP/local-mac-start.jsonl"
+          "$PFC_LOCAL_VALIDATION_ROOT/local-mac.sh" status | tee "$RUNNER_TEMP/local-mac-status.jsonl"
+          "$PFC_LOCAL_VALIDATION_ROOT/local-mac.sh" stop | tee "$RUNNER_TEMP/local-mac-stop.jsonl"
+          trap - EXIT
+          test -f "$PFC_LOCAL_VALIDATION_ROOT/durable/state/runtime-spine.db"
+          test -f "$PFC_LOCAL_VALIDATION_ROOT/workspace/.PFC_READY"
+          printf 'LOCAL_MAC_PACKAGED_RUNTIME_SMOKE=PASS\n'
+
+      - name: Upload offline package and smoke evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-mac-offline-package-${{ matrix.arch }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/local-mac-dist/*
+            ${{ runner.temp }}/local-mac-start.jsonl
+            ${{ runner.temp }}/local-mac-status.jsonl
+            ${{ runner.temp }}/local-mac-stop.jsonl
+          if-no-files-found: error

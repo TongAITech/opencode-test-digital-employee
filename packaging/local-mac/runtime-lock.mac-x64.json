@@ -1,0 +1,60 @@
+{
+  "schema_version": "aitest.offline-runtime-lock.v1",
+  "source_truth": "GIT_COMMIT",
+  "profile": "local-mac-x64",
+  "payload_policy": {
+    "bundled_at_release_build": true,
+    "stored_in_git": false,
+    "internet_required_on_target_host": false,
+    "dependency_install_allowed_on_target_host": false,
+    "verify_sha256_before_use": true
+  },
+  "payloads": {
+    "python": {
+      "role": "PORTABLE_RUNTIME",
+      "version": "3.12.10",
+      "platform": "macos-x64",
+      "relative_target": "runtime/python/bin/python3",
+      "assembly_source": "astral-sh/python-build-standalone@20250529",
+      "sha256_policy": "UPSTREAM_SHA256_SIDECAR"
+    },
+    "playwright_python": {
+      "role": "BROWSER_AUTOMATION_CLIENT",
+      "version": "1.62.0",
+      "platform": "macos-x64",
+      "install_phase": "ASSEMBLY_ONLY"
+    },
+    "opencode": {
+      "role": "OPENCODE_CLI",
+      "version": "1.18.3",
+      "platform": "macos-x64",
+      "relative_target": "runtime/opencode/opencode",
+      "archive_sha256": "4ea147867ba19e4ec03559df557811f1674f40788aea4d10326dc563b7667c6d"
+    },
+    "chromium": {
+      "role": "CONTROLLED_BROWSER",
+      "version": "151.0.7922.34",
+      "platform": "mac-x64",
+      "relative_target": "runtime/browser/chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+      "archive_sha256": "69bcc853db975a2380767e9ff36da17f1d7b782fbbe191a210f676d2d5967d3e"
+    },
+    "codegraph": {
+      "role": "STRUCTURAL_CODE_INTELLIGENCE",
+      "provider": "codegraph-ai/CodeGraph",
+      "version": "0.20.1",
+      "platform": "macos-x64",
+      "mode": "graph-only",
+      "relative_target": "runtime/code-intelligence/codegraph/codegraph-server-darwin-x64",
+      "sha256": "5aa863ea529afcf6664cf40fcd7079d4121e8348acc1c9e0ebbc0c4675246ddd",
+      "change_truth_authority": false,
+      "actual_coverage_authority": false
+    },
+    "ripgrep": {
+      "role": "REFERENCE_SEARCH_ENRICHMENT",
+      "version": "15.1.0",
+      "platform": "macos-x64",
+      "relative_target": "runtime/ripgrep/rg",
+      "archive_sha256": "64811cb24e77cac3057d6c40b63ac9becf9082eedd54ca411b475b755d334882"
+    }
+  }
+}
