@@ -6,6 +6,19 @@ from .contracts import SessionControlState, TaskRouteRequirement
 
 OPENCODE_AGENT_SESSION = "OPENCODE_AGENT_SESSION"
 TASK_OUTCOME_REPORT = "TASK_OUTCOME_REPORT"
+G5_DEFECT_HUNTER_CAPABILITIES = frozenset({
+    OPENCODE_AGENT_SESSION,
+    TASK_OUTCOME_REPORT,
+    "DEFECT_ANOMALY_INTAKE",
+    "DEFECT_CANDIDATE_FORMATION",
+    "EVIDENCE_GAP_ANALYSIS",
+    "CROSS_SOURCE_CORRELATION",
+    "REPRODUCIBILITY_REASONING",
+    "FALSE_POSITIVE_EXCLUSION",
+    "DEFECT_TRUTH_ASSESSMENT",
+    "RCA_ANALYSIS",
+    "DUPLICATE_CORRELATION",
+})
 
 @dataclass(frozen=True)
 class AgentRole:
@@ -24,6 +37,7 @@ class AgentRoleRegistry:
             AgentRole("EXECUTOR","aitest-executor",worker),
             AgentRole("EVALUATOR","aitest-evaluator",worker),
             AgentRole("DIAGNOSIS","aitest-diagnosis",worker),
+            AgentRole("DEFECT_HUNTER","aitest-diagnosis",G5_DEFECT_HUNTER_CAPABILITIES),
             AgentRole("KNOWLEDGE","aitest-knowledge",worker),
             # G3 specialists are additive role/capability registrations only.
             # Session lifecycle remains exclusively owned by this Router/R2.5/Supervisor.

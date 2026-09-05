@@ -6,9 +6,10 @@ Runtime responsibility: agents cannot create, rotate, or monitor their own
 Sessions; the background Control Loop does so from durable R1 truth.
 
 G3 Requirement/Code/Testing Intelligence and G4 real execution/test-goal
-convergence are wired through this canonical boundary. Defect Hunter +
-sufficiency (G5) and the continuous closed loop (G6) remain later gates.
-Unsupported operations fail closed; no command falls back to ``aitest.db``.
+convergence are wired through this canonical boundary. G5 exposes its EC2
+read-only seam while defect mutation/confirmation and the G6 continuous loop
+remain later gates. Unsupported operations fail closed; no command falls back
+to ``aitest.db``.
 """
 from __future__ import annotations
 
@@ -24,6 +25,7 @@ from .canonical_runtime import bootstrap_mission, create_canonical_runtime, runt
 from .g3.service import G3TestingIntelligenceService
 from .g4.service import G4RealExecutionService, TestObjectiveController
 from .g4.composition import load_provider_bundle
+from .g5.service import G5Service, require_g5_worker_binding
 
 
 def workspace_root() -> Path:
@@ -174,6 +176,21 @@ def _object(value: Any, name: str) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{name} must be an object")
     return dict(value)
+
+
+def _require_g5_worker_binding(runtime: Any, payload: Mapping[str, Any]):
+    """Canonical product-boundary admission over existing G2.1/R1.3B/R2.5 truth."""
+
+    return require_g5_worker_binding(runtime, payload)
+
+
+def g5_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Execute the EC2 G5 read-only seam; all later-wave actions fail closed."""
+
+    normalized_role, normalized_action = G5Service.preflight(role, action)
+    root = workspace_root()
+    runtime = create_canonical_runtime(root)
+    return G5Service(runtime).command(normalized_role, normalized_action, _object(payload, "payload"))
 
 
 def orchestration_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -428,6 +445,11 @@ def parser() -> argparse.ArgumentParser:
     x.add_argument("--action", required=True)
     x.add_argument("--payload", default="{}")
 
+    x = sp.add_parser("g5")
+    x.add_argument("--role", required=True)
+    x.add_argument("--action", required=True)
+    x.add_argument("--payload", default="{}")
+
     # Internal construction/migration boundary. Normal product Mission creation
     # goes through R2.2 ``start_test``/``intake_mission``.
     x = sp.add_parser("bootstrap-mission")
@@ -463,6 +485,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "g4":
             payload = json.loads(args.payload)
             emit(g4_command(args.role, args.action, _object(payload, "payload")))
+            return 0
+        if args.command == "g5":
+            payload = json.loads(args.payload)
+            emit(g5_command(args.role, args.action, _object(payload, "payload")))
             return 0
         if args.command == "bootstrap-mission":
             goal = json.loads(args.goal)

@@ -126,6 +126,34 @@ async function g4(
   return result
 }
 
+
+async function g5(
+  context: ToolContext,
+  role: "DIAGNOSIS",
+  action: string,
+  payload: Record<string, unknown>,
+): Promise<unknown> {
+  const workspace = await canonicalWorkspace(context)
+  const python = await portablePython(workspace)
+  const runtime = path.join(workspace, "ai-test", "runtime")
+  const env = {
+    ...process.env,
+    AITEST_WORKSPACE_ROOT: workspace,
+    ...(process.env.AITEST_RUNTIME_SPINE_DB ? { AITEST_RUNTIME_SPINE_DB: process.env.AITEST_RUNTIME_SPINE_DB } : {}),
+    PYTHONPATH: [runtime, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
+  }
+  const proc = Bun.spawn([python, "-m", "aitest_runtime.product_entry", "g5", "--role", role, "--action", action, "--payload", JSON.stringify(payload ?? {})],
+    { cwd: workspace, env, stdout: "pipe", stderr: "pipe" })
+  const stdout = await new Response(proc.stdout).text()
+  const stderr = await new Response(proc.stderr).text()
+  const code = await proc.exited
+  if (code !== 0) throw new Error((stderr || stdout || `AITEST G5 exited ${code}`).trim().slice(0, 6000))
+  let result: unknown
+  try { result = JSON.parse(stdout) } catch { throw new Error("AITEST_G5_NOT_JSON") }
+  if ((result as Record<string, unknown>).truth_source !== "R1_EVENT_STREAM") throw new Error("AITEST_G5_TRUTH_CONTRACT_FAILED")
+  return result
+}
+
 const pending = (role: string, action: string, payload: unknown, nextGate: string) => ({
   status: "HOLD",
   runtime_truth: "R1_EVENT_STREAM",
@@ -239,9 +267,12 @@ export const evaluator = tool({
 })
 
 export const diagnosis = tool({
-  description: "Canonical Diagnosis/Defect Hunter surface. Autonomous deepening and false-positive exclusion remain HOLD until G5.",
-  args: { action: tool.schema.string(), payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}) },
-  async execute(args) { return pending("DIAGNOSIS", args.action, args.payload, "G5_DEFECT_HUNTER") },
+  description: "Canonical G5 Diagnosis/Defect Hunter surface. Test failures remain Observations until durable investigation confirms defect truth. New evidence must return through governed G2/G3/G4 work.",
+  args: {
+    action: tool.schema.string().describe("status|work_context|record_anomaly|create_candidate|request_evidence_deepening|record_evidence_assessment|correlate_sources|evaluate_reproducibility|assess_false_positive|assess_defect_truth|record_rca|record_checkpoint|handoff_confirmed_defect"),
+    payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}),
+  },
+  async execute(args, context) { return g5(context as ToolContext, "DIAGNOSIS", args.action, args.payload) },
 })
 
 export const knowledge = tool({
