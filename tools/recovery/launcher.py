@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 import base64
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import getpass
 import hashlib
@@ -201,7 +202,8 @@ def start_conversation(check_only=False):
 def evidence_export():
     target = DATA / 'exports' / ('AITest-Evidence-' + time.strftime('%Y%m%d-%H%M%S') + '.zip')
     snapshot = DATA / 'exports/runtime-spine.snapshot.db'
-    with sqlite3.connect(DATA / 'state/runtime-spine.db') as source, sqlite3.connect(snapshot) as dest: source.backup(dest)
+    with closing(sqlite3.connect(DATA / 'state/runtime-spine.db')) as source, closing(sqlite3.connect(snapshot)) as dest:
+        source.backup(dest)
     with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as archive:
         archive.write(snapshot, 'state/runtime-spine.db')
         for path in (DATA / 'evidence').rglob('*'):

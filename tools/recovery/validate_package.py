@@ -114,6 +114,7 @@ def main():
         jars = list((runtime / 'tools/zap').glob('zap-*.jar'))
         payloads['zap_engine'] = run([str(runtime / 'tools/java/bin/java.exe'), '-jar', str(jars[0]), '-cmd', '-version'], runtime / 'tools/zap', env, timeout=120) if jars else {'status': 'FAIL', 'reason': 'ZAP_JAR_MISSING'}
         payloads['single_entry_server_control_loop'] = run([sys.executable, '-X', 'utf8', str(bundle / 'tools/recovery/launcher.py'), '--self-check'], bundle, env, timeout=150)
+        payloads['single_entry_evidence_export'] = run([sys.executable, '-X', 'utf8', str(bundle / 'tools/recovery/launcher.py'), '--export-evidence'], bundle, env, timeout=90)
     passed = all(result['status'] == 'PASS' for result in results.values())
     payload_pass = bool(payloads) and all(result['status'] == 'PASS' for result in payloads.values())
     result = {'schema_version': 'aitest.machine-validation.v1', 'product_version': '1.12.0',
