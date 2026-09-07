@@ -11,7 +11,7 @@
   "candidate_commit": "FINALIZED_BY_BUILD_PROVENANCE",
   "candidate_commit_semantics": "BUILD_PROVENANCE.json records exact assembled Git HEAD; this root manifest is excluded from Source Content Identity",
   "source_identity_formula": "sha256(UTF-8 sorted `<file_sha256>  <path>` lines, exactly one final newline; tracked files from `git ls-files`; excludes PACKAGE_MANIFEST.json)",
-  "source_content_identity": "f6de79ddd0ad09880a4b39bbaac4ef0dcf2de242a064fc93d6c3846dbc73d4e1",
+  "source_content_identity": "08fd4655c091255f8c3bdefc27e3a2d17a4d367943bcc78a286bba06fa66f240",
   "runtime_payload_policy": {
     "lock_file": "runtime-lock.json",
     "registry": "OFFLINE_PAYLOAD_REGISTRY.json",
@@ -29,11 +29,11 @@
   "g4": "CLOSED/FROZEN",
   "g5_defect_truth": "CLOSED/FROZEN",
   "g6_closed_loop": "HOLD",
-  "recovery_change_validation": "PENDING",
+  "recovery_change_validation": "LOCAL_VALIDATION_PASS",
   "bank_internal_pilot_ready": "BANK_FIELD_VALIDATION_REQUIRED",
   "validation": {
-    "status": "PENDING",
-    "local": "PENDING",
+    "status": "LOCAL_VALIDATION_PASS_WINDOWS_PENDING",
+    "local": "LOCAL_VALIDATION_PASS",
     "windows_ci": "PENDING",
     "bank": "BANK_FIELD_VALIDATION_REQUIRED"
   },

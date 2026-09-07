@@ -1,0 +1,8 @@
+{
+  "draft_release_tag": "v1.12.0-recovery-validation-ci",
+  "asset_name": "CI-53cac7880b63-AITest-V1.12.0-Recovery-Turnkey-Windows-x64.zip",
+  "expected_sha256": "3f3f2dac3f705433fe4d2c2ac068a86620699db974e47f494ccc7d9132254ba6",
+  "source_head": "53cac7880b634f0326e9bbb1d00fa16806638785",
+  "local_validation_asset": "LOCAL-53cac7880b63.json",
+  "local_validation_sha256": "475b283062c004f38063f3a049f7aa54716a6718d888cd5da1d4e31955b82035"
+}
