@@ -195,7 +195,11 @@ class CDPBrowserProvider:
         profile = operational / "browser-profile"
         profile.mkdir(parents=True, exist_ok=True)
         port = urlsplit(self.endpoint).port or 9222
-        args = [str(chrome), f"--remote-debugging-port={port}", "--remote-debugging-address=127.0.0.1",
+        # Match pinned Playwright's CDP compatibility switches. In particular
+        # RenderDocument can leave existing-page attachment awaiting a target;
+        # AutoDeElevate may relaunch Windows Chrome and detach the transport.
+        args = [str(chrome), "--disable-features=RenderDocument,AutoDeElevate,OptimizationHints",
+                f"--remote-debugging-port={port}", "--remote-debugging-address=127.0.0.1",
                 f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check", start_url]
         process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         deadline = time.monotonic() + 15

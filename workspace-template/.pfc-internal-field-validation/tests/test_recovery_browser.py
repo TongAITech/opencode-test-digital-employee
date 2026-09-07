@@ -118,6 +118,7 @@ class BrowserTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), PageServer)
         server_thread = threading.Thread(target=server.serve_forever, daemon=True); server_thread.start()
         browser_process = None
+        browser_log = None
         try:
             with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
                 root = Path(directory)
@@ -126,7 +127,7 @@ class BrowserTests(unittest.TestCase):
                 origin = f"http://127.0.0.1:{server.server_port}"
                 endpoint = f"http://127.0.0.1:{port}"
                 browser_log = (root / "browser.log").open("w")
-                browser_process = subprocess.Popen([os.environ["AITEST_BROWSER_SMOKE_CHROMIUM"], "--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", f"--remote-debugging-port={port}", f"--user-data-dir={root / 'profile'}", "--no-first-run", origin], stdout=browser_log, stderr=browser_log)
+                browser_process = subprocess.Popen([os.environ["AITEST_BROWSER_SMOKE_CHROMIUM"], "--headless=new", "--disable-features=RenderDocument,AutoDeElevate,OptimizationHints", "--disable-extensions", "--disable-background-networking", "--disable-component-update", f"--remote-debugging-port={port}", f"--user-data-dir={root / 'profile'}", "--no-first-run", "--no-default-browser-check", origin], stdout=browser_log, stderr=browser_log)
                 runtime = create_canonical_runtime(root, db_path=root / "runtime-spine.db")
                 service = G21AutonomousOrchestrationService(runtime, root, session_provider=FakeOpenCodeSessionProvider(root))
                 mission = service.start_test(request("browser-real", "BROWSER-REAL"))["intake"]["intake"]["mission_id"]
@@ -148,7 +149,7 @@ class BrowserTests(unittest.TestCase):
                 self.assertEqual(provider.launch_browser()["status"], "READY")
                 observer = TeachingObserver(provider, mission)
                 with sync_playwright() as driver:
-                    browser = driver.chromium.connect_over_cdp(endpoint)
+                    browser = driver.chromium.connect_over_cdp(endpoint, timeout=45000)
                     page = browser.contexts[0].pages[0]
                     page.wait_for_load_state("domcontentloaded")
                     page.set_viewport_size({"width": 1000, "height": 700})
@@ -176,7 +177,7 @@ class BrowserTests(unittest.TestCase):
                 with self.assertRaises(Exception):
                     g4.complete_human_takeover(mission, {"human_gate_id": "local-human-gate", "completion_mode": "EXPLICIT", "authenticated": True})
                 with sync_playwright() as driver:
-                    browser = driver.chromium.connect_over_cdp(endpoint)
+                    browser = driver.chromium.connect_over_cdp(endpoint, timeout=45000)
                     page = browser.contexts[0].pages[0]
                     page.click("#finish")
                 completed = g4.complete_human_takeover(mission, {"human_gate_id": "local-human-gate", "completion_mode": "EXPLICIT"})
@@ -196,7 +197,7 @@ class BrowserTests(unittest.TestCase):
                     if previous_db is None: os.environ.pop('AITEST_RUNTIME_SPINE_DB', None)
                     else: os.environ['AITEST_RUNTIME_SPINE_DB'] = previous_db
                 with sync_playwright() as driver:
-                    browser = driver.chromium.connect_over_cdp(endpoint)
+                    browser = driver.chromium.connect_over_cdp(endpoint, timeout=45000)
                     page = browser.contexts[0].pages[0]
                     # Crash the renderer while retaining the actual browser
                     # profile/context. The observer must reload and keep recording.
@@ -216,6 +217,7 @@ class BrowserTests(unittest.TestCase):
                 browser_process.terminate()
                 try: browser_process.wait(timeout=5)
                 except subprocess.TimeoutExpired: browser_process.kill()
+            if browser_log is not None: browser_log.close()
             server.shutdown(); server.server_close(); server_thread.join(timeout=2)
 
 
