@@ -13,8 +13,56 @@ permissions:
   contents: read
 
 jobs:
+  temporary-ref-cleanup:
+    name: Exact-identity temporary ref cleanup
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # 00.9 authorized only these four refs. Qualification remains read-only.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify every identity then atomically delete only authorized refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=de326fa4b35186a6acbdfc2bf8ed98549b2130c2
+          expected_main=58e5e1259cd26846b31ea21a8a87df0bcf071edc
+          branch_ref=refs/heads/work/local-validation-package
+          current=$(git ls-remote --heads origin "$branch_ref" | awk '{print $1}')
+          test "$current" = "$GITHUB_SHA" || { echo 'STOP / PACKAGING_HEAD_DRIFT'; exit 1; }
+          current_main=$(git ls-remote --heads origin refs/heads/main | awk '{print $1}')
+          test "$current_main" = "$expected_main" || { echo 'STOP / CANONICAL_MAIN_DRIFT'; exit 1; }
+          refs=(refs/heads/tmp-b1-should-not-exist refs/heads/tmp-do-not-use-2 refs/heads/tmp-do-not-use-3 refs/heads/tmp-do-not-use-4)
+          leases=()
+          deletes=()
+          # No deletion occurs until all present refs pass the exact SHA check.
+          for ref in "${refs[@]}"; do
+            actual=$(git ls-remote --heads origin "$ref" | awk '{print $1}')
+            if [ -z "$actual" ]; then
+              echo "TEMP_REF_IDENTITY $ref=ALREADY_ABSENT; no deletion requested"
+              continue
+            fi
+            echo "TEMP_REF_IDENTITY $ref=$actual"
+            test "$actual" = "$expected" || { echo 'STOP / TEMP_REF_IDENTITY_DRIFT'; exit 1; }
+            leases+=("--force-with-lease=$ref:$expected")
+            deletes+=(":$ref")
+          done
+          if [ "${#deletes[@]}" -gt 0 ]; then
+            # The exact leases close the check/delete race; atomic means all-or-none.
+            git push --atomic "${leases[@]}" origin "${deletes[@]}"
+          fi
+          for ref in "${refs[@]}"; do
+            actual=$(git ls-remote --heads origin "$ref" | awk '{print $1}')
+            test -z "$actual" || { echo 'STOP / TEMP_REF_CLEANUP_NOT_CONFIRMED'; exit 1; }
+            echo "TEMP_REF_DELETION_CONFIRMED $ref=ABSENT"
+          done
+          echo 'TEMP_REFS_CLEANUP=PASS'
+          echo 'TEMP_REFS_CLEANUP=PASS; exact identities checked; atomic exact-lease deletion; four remote refs confirmed absent' >> "$GITHUB_STEP_SUMMARY"
+
   windows-package-qualification:
     name: Windows package qualification
+    needs: temporary-ref-cleanup
     runs-on: windows-latest
     timeout-minutes: 50
 
@@ -79,5 +127,8 @@ jobs:
             throw "PKG0.6B1 qualification assertions failed"
           }
           if ($result.gate_status -eq "BLOCKED") {
-            throw "PKG0.6B1 blocked by execution substrate"
+            throw "PKG0.6B1 blocked by execution substrate or upstream qualification"
+          }
+          if ($result.gate_status -ne "PASS_CANDIDATE") {
+            throw "PKG0.6B1 unknown qualification conclusion"
           }

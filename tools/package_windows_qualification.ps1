@@ -10,7 +10,9 @@ if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyCo
   $PSNativeCommandUseErrorActionPreference = $false
 }
 
-$ExpectedStartingHead = "de326fa4b35186a6acbdfc2bf8ed98549b2130c2"
+$ExpectedStartingHead = "b2556de9a3a0dfc3e3028fb168284688ef3a24fc"
+$DependencyCandidateHead = "de326fa4b35186a6acbdfc2bf8ed98549b2130c2"
+$ExpectedMain = "58e5e1259cd26846b31ea21a8a87df0bcf071edc"
 $ExpectedBranch = "work/local-validation-package"
 $WorkflowPath = ".github/workflows/g1-g5-package-windows-qualification.yml"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -35,16 +37,78 @@ $script:Measured = [ordered]@{
 }
 $script:Paths = [ordered]@{}
 $script:pluginLayoutReady = $false
+$script:StopReason = $null
+$script:SelfTestMode = $false
+# Carry-forward observations from diagnostic run 34075744762; not a new selection.
+$script:ChromiumIdentity = [ordered]@{
+  sha256 = "045621e45a9dd27002c7fc1d8e10fe9f5f71f4cadbf44ec6f397f56f0179725c"
+  size = [long]201068834
+  version = "151.0.7922.34"
+}
+# A file existing on disk is not proof that its upstream qualification succeeded.
+$script:Prerequisites = [ordered]@{
+  GIT_WORKFLOW_IDENTITY = @()
+  QUALIFICATION_RUNNER_SELF_TEST = @("GIT_WORKFLOW_IDENTITY")
+  OPENCODE_ARCHIVE_IDENTITY = @()
+  PYTHON_ARCHIVE_IDENTITY = @()
+  CHROMIUM_ARCHIVE_DOWNLOAD_AND_MEASURE = @()
+  RIPGREP_ARCHIVE_IDENTITY = @()
+  CODEGRAPH_BINARY_IDENTITY = @()
+  PYTHON_ARCHIVE_EXTRACT = @("PYTHON_ARCHIVE_IDENTITY")
+  PYTHON_WINDOWS_EXECUTION = @("PYTHON_ARCHIVE_EXTRACT")
+  PYTHON_VC_RUNTIME_REALITY = @("PYTHON_ARCHIVE_EXTRACT")
+  PLAYWRIGHT_WHEEL_CLOSURE_DOWNLOAD = @()
+  PLAYWRIGHT_OFFLINE_MATERIALIZATION = @("PYTHON_WINDOWS_EXECUTION","PLAYWRIGHT_WHEEL_CLOSURE_DOWNLOAD")
+  PLAYWRIGHT_WINDOWS_IMPORT = @("PLAYWRIGHT_OFFLINE_MATERIALIZATION")
+  CHROMIUM_ARCHIVE_EXTRACT_AND_VERSION = @("CHROMIUM_ARCHIVE_DOWNLOAD_AND_MEASURE")
+  PLAYWRIGHT_CDP_EXTERNAL_CHROMIUM = @("PLAYWRIGHT_WINDOWS_IMPORT","CHROMIUM_ARCHIVE_EXTRACT_AND_VERSION")
+  RIPGREP_WINDOWS_EXECUTION = @("RIPGREP_ARCHIVE_IDENTITY")
+  CODEGRAPH_WINDOWS_EXECUTION = @("CODEGRAPH_BINARY_IDENTITY")
+  OPENCODE_VERSION = @("OPENCODE_ARCHIVE_IDENTITY")
+  OPENCODE_PLUGIN_RELEASE_BUILD_MATERIALIZATION = @()
+  OPENCODE_QUALIFICATION_WORKSPACE_STAGE = @("PYTHON_WINDOWS_EXECUTION","PLAYWRIGHT_WINDOWS_IMPORT","CHROMIUM_ARCHIVE_EXTRACT_AND_VERSION","RIPGREP_WINDOWS_EXECUTION","CODEGRAPH_BINARY_IDENTITY","CODEGRAPH_WINDOWS_EXECUTION","OPENCODE_PLUGIN_RELEASE_BUILD_MATERIALIZATION")
+  OPENCODE_WORKSPACE_LOAD = @("OPENCODE_VERSION","OPENCODE_QUALIFICATION_WORKSPACE_STAGE")
+  OPENCODE_AGENT_DISCOVERY = @("OPENCODE_WORKSPACE_LOAD")
+  OPENCODE_TOOL_LOAD = @("OPENCODE_WORKSPACE_LOAD")
+  OPENCODE_PLUGIN_OFFLINE_LAYOUT = @("OPENCODE_QUALIFICATION_WORKSPACE_STAGE","OPENCODE_WORKSPACE_LOAD")
+}
 
 function Add-Check {
   param([string]$Name, [string]$Status, [string]$Detail)
   $script:Checks[$Name] = [ordered]@{ status = $Status; detail = $Detail }
-  Write-Host ("QUAL_CHECK {0}={1} :: {2}" -f $Name, $Status, $Detail)
+  $prefix = if ($script:SelfTestMode) { "RUNNER_SELFTEST_CHECK" } else { "QUAL_CHECK" }
+  Write-Host ("{0} {1}={2} :: {3}" -f $prefix, $Name, $Status, $Detail)
+}
+
+function Test-CheckPrerequisites {
+  param([string]$Name)
+  if ($script:StopReason) {
+    Add-Check $Name "BLOCKED_BY_UPSTREAM_QUALIFICATION" ("STOP / " + $script:StopReason)
+    return $false
+  }
+  $dependencies = @()
+  if ($Name -notin @("GIT_WORKFLOW_IDENTITY","QUALIFICATION_RUNNER_SELF_TEST")) {
+    $dependencies += @("GIT_WORKFLOW_IDENTITY","QUALIFICATION_RUNNER_SELF_TEST")
+  }
+  if ($script:Prerequisites.Contains($Name)) { $dependencies += $script:Prerequisites[$Name] }
+  $blocked = @(foreach ($dependency in $dependencies) {
+    if (-not $script:Checks.Contains($dependency)) {
+      "$dependency=NOT_EXECUTED"
+    } elseif ([string]$script:Checks[$dependency].status -ne "PASS") {
+      "$dependency=$($script:Checks[$dependency].status)"
+    }
+  })
+  if ($blocked.Count -gt 0) {
+    Add-Check $Name "BLOCKED_BY_UPSTREAM_QUALIFICATION" ("prerequisites=" + ($blocked -join "; ") + "; check_body=NOT_EXECUTED; downstream_product_failure=NOT_ESTABLISHED")
+    return $false
+  }
+  return $true
 }
 
 function Classify-Exception {
   param([System.Management.Automation.ErrorRecord]$ErrorRecord)
   $message = [string]$ErrorRecord.Exception.Message
+  if ($message.StartsWith("CHROMIUM_ARTIFACT_IDENTITY_CONFLICT")) { $script:StopReason = $message }
   if ($message.StartsWith("EXECUTION_SUBSTRATE_")) {
     return [ordered]@{ status = "BLOCKED_BY_EXECUTION_SUBSTRATE"; detail = $message }
   }
@@ -53,6 +117,7 @@ function Classify-Exception {
 
 function Invoke-Checked {
   param([string]$Name, [scriptblock]$Body)
+  if (-not (Test-CheckPrerequisites $Name)) { return $false }
   try {
     $detail = & $Body
     if ($null -eq $detail) { $detail = "assertion passed" }
@@ -63,6 +128,13 @@ function Invoke-Checked {
     Add-Check -Name $Name -Status $c.status -Detail $c.detail
     return $false
   }
+}
+
+function Get-QualificationGate {
+  param([string[]]$Statuses)
+  if ($Statuses -contains "FAIL") { return "FAIL" }
+  if (@($Statuses | Where-Object { $_.StartsWith("BLOCKED_") }).Count -gt 0) { return "BLOCKED" }
+  return "PASS_CANDIDATE"
 }
 
 function Invoke-NativeCapture {
@@ -91,8 +163,9 @@ function Download-Exact {
     [string]$Url,
     [string]$Destination,
     [string]$ExpectedSha256 = "",
-    [Nullable[long]]$ExpectedSize = $null
+    [long]$ExpectedSize = 0
   )
+  $hasExpectedSize = $PSBoundParameters.ContainsKey("ExpectedSize")
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Destination) | Out-Null
   $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
   if (-not $curl) { throw "EXECUTION_SUBSTRATE_CURL_NOT_AVAILABLE" }
@@ -101,12 +174,12 @@ function Download-Exact {
     throw "EXECUTION_SUBSTRATE_DOWNLOAD_FAILED|url=$Url|exit=$($r.exit_code)|output=$($r.output)"
   }
   $sha = Get-Sha256 $Destination
-  $size = (Get-Item -LiteralPath $Destination).Length
+  $size = [long](Get-Item -LiteralPath $Destination).Length
   if ($ExpectedSha256 -and $sha -ne $ExpectedSha256.ToLowerInvariant()) {
     throw "SHA256_MISMATCH|file=$Destination|expected=$ExpectedSha256|actual=$sha"
   }
-  if ($null -ne $ExpectedSize -and $size -ne $ExpectedSize.Value) {
-    throw "SIZE_MISMATCH|file=$Destination|expected=$($ExpectedSize.Value)|actual=$size"
+  if ($hasExpectedSize -and $size -ne [long]$ExpectedSize) {
+    throw "SIZE_MISMATCH|file=$Destination|expected=$ExpectedSize|actual=$size"
   }
   return [ordered]@{ path=$Destination; sha256=$sha; size=$size; url=$Url }
 }
@@ -151,6 +224,90 @@ function Assert-VersionMatch {
   }
 }
 
+function Invoke-RunnerSelfTests {
+  # Exercise the actual downloader with local file:// fixtures, not network mocks.
+  $fixtureDir = Join-Path $WorkRoot "runner-self-tests"
+  New-Item -ItemType Directory -Force -Path $fixtureDir | Out-Null
+  $fixture = Join-Path $fixtureDir "three-bytes.bin"
+  $empty = Join-Path $fixtureDir "empty.bin"
+  [IO.File]::WriteAllBytes($fixture, [byte[]]@(1,2,3))
+  [IO.File]::WriteAllBytes($empty, [byte[]]@())
+  $uri = ([Uri]::new($fixture)).AbsoluteUri
+  $emptyUri = ([Uri]::new($empty)).AbsoluteUri
+  $destination = Join-Path $fixtureDir "download.bin"
+  $sha = Get-Sha256 $fixture
+  function Assert-Rejected {
+    param([scriptblock]$Body, [string]$Prefix)
+    try { & $Body | Out-Null } catch {
+      if (-not $_.Exception.Message.StartsWith($Prefix)) { throw }
+      return
+    }
+    throw "RUNNER_SELF_TEST_EXPECTED_REJECTION_MISSING|$Prefix"
+  }
+  $r = Download-Exact $uri $destination -ExpectedSha256 $sha
+  if ($r.size -ne 3) { throw "RUNNER_SELF_TEST_UNBOUND_SIZE_FAILED" }
+  $r = Download-Exact $uri $destination -ExpectedSha256 $sha -ExpectedSize ([long]3)
+  if ($r.size -ne 3) { throw "RUNNER_SELF_TEST_EXACT_SIZE_FAILED" }
+  Assert-Rejected { Download-Exact $uri $destination -ExpectedSize ([long]2) } "SIZE_MISMATCH|"
+  Assert-Rejected { Download-Exact $uri $destination -ExpectedSize ([long]0) } "SIZE_MISMATCH|"
+  Assert-Rejected { Download-Exact $uri $destination -ExpectedSize ([long]4294967296) } "SIZE_MISMATCH|"
+  $r = Download-Exact $emptyUri $destination -ExpectedSize ([long]0)
+  if ($r.size -ne 0) { throw "RUNNER_SELF_TEST_EMPTY_SIZE_FAILED" }
+  Assert-Rejected { Download-Exact $uri $destination -ExpectedSha256 ('0' * 64) -ExpectedSize 3 } "SHA256_MISMATCH|"
+
+  # Isolate injected failures from the formal matrix and label their console output.
+  $savedChecks = $script:Checks
+  $savedStop = $script:StopReason
+  $savedMode = $script:SelfTestMode
+  try {
+    $script:SelfTestMode = $true
+    $script:StopReason = $null
+    function Reset-SelfTestChecks {
+      $script:Checks = [ordered]@{}
+      foreach ($name in $script:Prerequisites.Keys) {
+        $script:Checks[$name] = [ordered]@{ status="PASS"; detail="SELF_TEST_FIXTURE_ONLY" }
+      }
+    }
+    function Assert-BodyBlocked {
+      param([string]$Name)
+      Invoke-Checked $Name { throw "RUNNER_SELF_TEST_DOWNSTREAM_BODY_EXECUTED" } | Out-Null
+      if ($script:Checks[$Name].status -ne "BLOCKED_BY_UPSTREAM_QUALIFICATION") {
+        throw "RUNNER_SELF_TEST_CASCADE_NOT_BLOCKED|$Name"
+      }
+    }
+    Reset-SelfTestChecks
+    $script:Checks["PLAYWRIGHT_WHEEL_CLOSURE_DOWNLOAD"].status = "FAIL"
+    foreach ($name in @("PLAYWRIGHT_OFFLINE_MATERIALIZATION","PLAYWRIGHT_WINDOWS_IMPORT","PLAYWRIGHT_CDP_EXTERNAL_CHROMIUM")) { Assert-BodyBlocked $name }
+    Reset-SelfTestChecks
+    $script:Checks["CODEGRAPH_BINARY_IDENTITY"].status = "FAIL"
+    foreach ($name in @("CODEGRAPH_WINDOWS_EXECUTION","OPENCODE_QUALIFICATION_WORKSPACE_STAGE","OPENCODE_WORKSPACE_LOAD","OPENCODE_AGENT_DISCOVERY","OPENCODE_TOOL_LOAD","OPENCODE_PLUGIN_OFFLINE_LAYOUT")) { Assert-BodyBlocked $name }
+    Reset-SelfTestChecks
+    $script:Checks.Remove("PYTHON_ARCHIVE_IDENTITY")
+    Assert-BodyBlocked "PYTHON_ARCHIVE_EXTRACT"
+    Reset-SelfTestChecks
+    $ok = Invoke-Checked "PYTHON_WINDOWS_EXECUTION" { "real body reached after PASS prerequisites" }
+    if (-not $ok -or $script:Checks["PYTHON_WINDOWS_EXECUTION"].status -ne "PASS") { throw "RUNNER_SELF_TEST_POSITIVE_BODY_SKIPPED" }
+    $script:StopReason = "CHROMIUM_ARTIFACT_IDENTITY_CONFLICT|SELF_TEST_ONLY"
+    Assert-BodyBlocked "RIPGREP_ARCHIVE_IDENTITY"
+    if ((Get-QualificationGate @("PASS","BLOCKED_BY_UPSTREAM_QUALIFICATION")) -ne "BLOCKED") { throw "RUNNER_SELF_TEST_BLOCKED_GATE_GREEN" }
+    if ((Get-QualificationGate @("FAIL","BLOCKED_BY_UPSTREAM_QUALIFICATION")) -ne "FAIL") { throw "RUNNER_SELF_TEST_ROOT_FAILURE_HIDDEN" }
+    if ((Get-QualificationGate @("PASS","DEFERRED_TO_B2","NOT_EXECUTED")) -ne "PASS_CANDIDATE") { throw "RUNNER_SELF_TEST_PASS_GATE_FAILED" }
+  } finally {
+    $script:Checks = $savedChecks
+    $script:StopReason = $savedStop
+    $script:SelfTestMode = $savedMode
+  }
+  $script:Details.runner_self_tests = [ordered]@{
+    expected_size_cases=7
+    blocked_body_cases=11
+    positive_body_cases=1
+    aggregate_gate_cases=3
+    actual_download_exact_function="EXECUTED_ON_WINDOWS"
+    injected_results_in_formal_matrix="NO"
+  }
+  "22/22 runner self-test cases; ExpectedSize omitted/exact/mismatch/zero/Int64/empty/SHA; upstream cascade and STOP block bodies; aggregate BLOCKED is not green"
+}
+
 Invoke-Checked "GIT_WORKFLOW_IDENTITY" {
   $head = Invoke-NativeCapture "git.exe" @("rev-parse","HEAD") $RepoRoot
   if ($head.exit_code -ne 0) { throw "GIT_HEAD_UNREADABLE|$($head.output)" }
@@ -160,8 +317,16 @@ Invoke-Checked "GIT_WORKFLOW_IDENTITY" {
   if ($env:GITHUB_REF_NAME -and $env:GITHUB_REF_NAME -ne $ExpectedBranch) {
     throw "BRANCH_MISMATCH|expected=$ExpectedBranch|actual=$env:GITHUB_REF_NAME"
   }
-  "branch=$env:GITHUB_REF_NAME; sha=$($head.output.Trim()); starting_head=$ExpectedStartingHead"
+  $parent = Invoke-NativeCapture "git.exe" @("rev-parse","HEAD^") $RepoRoot
+  if ($parent.exit_code -ne 0 -or $parent.output.Trim() -ne $ExpectedStartingHead) {
+    throw "REPAIR_PARENT_MISMATCH|expected=$ExpectedStartingHead|actual=$($parent.output)"
+  }
+  $main = Invoke-NativeCapture "git.exe" @("rev-parse","refs/remotes/origin/main") $RepoRoot
+  if ($main.exit_code -ne 0 -or $main.output.Trim() -ne $ExpectedMain) { throw "CANONICAL_MAIN_DRIFT|$($main.output)" }
+  "branch=$env:GITHUB_REF_NAME; sha=$($head.output.Trim()); starting_head=$ExpectedStartingHead; main=$ExpectedMain"
 } | Out-Null
+
+Invoke-Checked "QUALIFICATION_RUNNER_SELF_TEST" { Invoke-RunnerSelfTests } | Out-Null
 
 $downloads = Join-Path $WorkRoot "downloads"
 $extract = Join-Path $WorkRoot "extract"
@@ -191,7 +356,10 @@ Invoke-Checked "CHROMIUM_ARCHIVE_DOWNLOAD_AND_MEASURE" {
   $script:Measured.chromium_archive_sha256 = $a.sha256
   $script:Measured.chromium_archive_size = $a.size
   $script:Details.chromium_archive = $a
-  "sha256=$($a.sha256); size=$($a.size)"
+  if ($a.sha256 -cne $script:ChromiumIdentity.sha256 -or [long]$a.size -ne $script:ChromiumIdentity.size) {
+    throw "CHROMIUM_ARTIFACT_IDENTITY_CONFLICT|expected_sha256=$($script:ChromiumIdentity.sha256)|actual_sha256=$($a.sha256)|expected_size=$($script:ChromiumIdentity.size)|actual_size=$($a.size)"
+  }
+  "sha256=$($a.sha256); size=$($a.size); carry_forward_identity=EXACT_MATCH"
 } | Out-Null
 
 Invoke-Checked "RIPGREP_ARCHIVE_IDENTITY" {
@@ -328,10 +496,12 @@ Invoke-Checked "CHROMIUM_ARCHIVE_EXTRACT_AND_VERSION" {
   if (-not (Test-Path $chromeExe)) { throw "CHROMIUM_EXE_MISSING|expected=$chromeExe" }
   $version = (Get-Item $chromeExe).VersionInfo.ProductVersion
   if (-not $version) { $version = (Get-Item $chromeExe).VersionInfo.FileVersion }
-  Assert-VersionMatch $version "151.0.7922.34" "CHROMIUM"
-  $script:Measured.chromium_exe_version = "151.0.7922.34"
+  $script:Measured.chromium_exe_version = [string]$version
   $script:Details.chromium_exe = [ordered]@{ path=$chromeExe; product_version=$version; sha256=(Get-Sha256 $chromeExe) }
-  "chrome.exe=$chromeExe; version=$version"
+  if ([string]$version -cne $script:ChromiumIdentity.version) {
+    throw "CHROMIUM_ARTIFACT_IDENTITY_CONFLICT|expected_version=$($script:ChromiumIdentity.version)|actual_version=$version"
+  }
+  "chrome.exe=$chromeExe; version=$version; carry_forward_identity=EXACT_MATCH"
 } | Out-Null
 
 Invoke-Checked "PLAYWRIGHT_CDP_EXTERNAL_CHROMIUM" {
@@ -521,18 +691,20 @@ Invoke-Checked "OPENCODE_AGENT_DISCOVERY" {
   "aitest-director=DISCOVERED; aitest-diagnosis=DISCOVERED"
 } | Out-Null
 
-if ($openCodeExe) {
-  $probe = Invoke-NativeCapture $openCodeExe @("debug","agent","aitest-director") $ocWorkspace
-  if ($probe.exit_code -eq 0 -and $probe.output -match "aitest_director" -and $probe.output -match "aitest_human_gate_resume") {
-    Add-Check "OPENCODE_TOOL_LOAD" "PASS" "ToolRegistry exposed aitest_director and aitest_human_gate_resume without an LLM turn"
-  } elseif ($probe.output -match "No providers found|No models found|Model not found|provider") {
-    Add-Check "OPENCODE_TOOL_LOAD" "DEFERRED_TO_B2" ("ToolRegistry requires provider/model binding unavailable in generic CI; no interactive PASS claimed :: " + $probe.output)
+if (Test-CheckPrerequisites "OPENCODE_TOOL_LOAD") {
+  if ($openCodeExe) {
+    $probe = Invoke-NativeCapture $openCodeExe @("debug","agent","aitest-director") $ocWorkspace
+    if ($probe.exit_code -eq 0 -and $probe.output -match "aitest_director" -and $probe.output -match "aitest_human_gate_resume") {
+      Add-Check "OPENCODE_TOOL_LOAD" "PASS" "ToolRegistry exposed aitest_director and aitest_human_gate_resume without an LLM turn"
+    } elseif ($probe.output -match "No providers found|No models found|Model not found|provider") {
+      Add-Check "OPENCODE_TOOL_LOAD" "DEFERRED_TO_B2" ("ToolRegistry requires provider/model binding unavailable in generic CI; no interactive PASS claimed :: " + $probe.output)
+    } else {
+      Add-Check "OPENCODE_TOOL_LOAD" "DEFERRED_TO_B2" ("CI could not prove ToolRegistry load without target provider/runtime; no interactive PASS claimed :: " + $probe.output)
+    }
+    $script:Details.opencode_tool_probe = [ordered]@{ exit_code=$probe.exit_code; output=$probe.output }
   } else {
-    Add-Check "OPENCODE_TOOL_LOAD" "DEFERRED_TO_B2" ("CI could not prove ToolRegistry load without target provider/runtime; no interactive PASS claimed :: " + $probe.output)
+    Add-Check "OPENCODE_TOOL_LOAD" "BLOCKED_BY_EXECUTION_SUBSTRATE" "OpenCode executable unavailable"
   }
-  $script:Details.opencode_tool_probe = [ordered]@{ exit_code=$probe.exit_code; output=$probe.output }
-} else {
-  Add-Check "OPENCODE_TOOL_LOAD" "BLOCKED_BY_EXECUTION_SUBSTRATE" "OpenCode executable unavailable"
 }
 
 Invoke-Checked "OPENCODE_PLUGIN_OFFLINE_LAYOUT" {
@@ -560,19 +732,23 @@ $script:Gaps.Add("OPENCODE_PLUGIN_FINAL_OFFLINE_MATERIALIZATION=PKG1_REQUIRED")
 $script:Gaps.Add("OPENCODE_WEB_AND_SIDECAR_INTERACTIVE_REQUIREMENT=UNRESOLVED_B2")
 
 $statuses = @($script:Checks.Values | ForEach-Object { [string]$_.status })
-$gateStatus = if ($statuses -contains "FAIL") {
-  "FAIL"
-} elseif ($statuses -contains "BLOCKED_BY_EXECUTION_SUBSTRATE") {
-  "BLOCKED"
-} else {
-  "PASS_CANDIDATE"
-}
+$gateStatus = Get-QualificationGate $statuses
 
 $result = [ordered]@{
-  schema_version = "pkg0.6b1.windows-qualification.v1"
+  schema_version = "pkg0.6b1.windows-qualification.v2"
   gate = "PKG0.6B1"
+  work_item = "PKG0.6B1R"
   gate_status = $gateStatus
+  stop_reason = $script:StopReason
   starting_head = $ExpectedStartingHead
+  dependency_candidate_head = $DependencyCandidateHead
+  first_run = [ordered]@{
+    run_id="34075744762"
+    workflow_commit="b2556de9a3a0dfc3e3028fb168284688ef3a24fc"
+    classification="QUALIFICATION_RUNNER_DEFECT"
+    authority="DIAGNOSTIC_EVIDENCE_VALID / NOT_FINAL_QUALIFICATION"
+    valid_observations="RETAINED_IN_FIRST_RUN_ARTIFACT; FRESH_RECONFIRMATION_RECORDED_PER_CHECK_STATUS"
+  }
   repository = "TongAITech/opencode-test-digital-employee"
   branch = if($env:GITHUB_REF_NAME){$env:GITHUB_REF_NAME}else{$ExpectedBranch}
   workflow_path = $WorkflowPath
@@ -585,12 +761,17 @@ $result = [ordered]@{
   chromium_archive_sha256 = $script:Measured.chromium_archive_sha256
   chromium_archive_size = $script:Measured.chromium_archive_size
   chromium_exe_version = $script:Measured.chromium_exe_version
+  python_archive_identity = [string]$script:Checks["PYTHON_ARCHIVE_IDENTITY"].status
   python_windows_execution = [string]$script:Checks["PYTHON_WINDOWS_EXECUTION"].status
   python_vc_runtime_reality = $script:Measured.python_vc_runtime_reality
+  playwright_wheel_closure = [string]$script:Checks["PLAYWRIGHT_WHEEL_CLOSURE_DOWNLOAD"].status
   playwright_windows_import = [string]$script:Checks["PLAYWRIGHT_WINDOWS_IMPORT"].status
   playwright_cdp_external_chromium = [string]$script:Checks["PLAYWRIGHT_CDP_EXTERNAL_CHROMIUM"].status
+  ripgrep_archive_identity = [string]$script:Checks["RIPGREP_ARCHIVE_IDENTITY"].status
   ripgrep_windows_execution = [string]$script:Checks["RIPGREP_WINDOWS_EXECUTION"].status
+  codegraph_binary_identity = [string]$script:Checks["CODEGRAPH_BINARY_IDENTITY"].status
   codegraph_windows_execution = [string]$script:Checks["CODEGRAPH_WINDOWS_EXECUTION"].status
+  opencode_archive_identity = [string]$script:Checks["OPENCODE_ARCHIVE_IDENTITY"].status
   opencode_version = $script:Measured.opencode_version
   opencode_workspace_load = [string]$script:Checks["OPENCODE_WORKSPACE_LOAD"].status
   opencode_agent_discovery = [string]$script:Checks["OPENCODE_AGENT_DISCOVERY"].status
@@ -604,6 +785,7 @@ $result = [ordered]@{
   runtime_lock_modified = "NO"
   package_manifest_modified = "NO"
   checks = $script:Checks
+  prerequisite_graph = $script:Prerequisites
   details = $script:Details
 }
 
