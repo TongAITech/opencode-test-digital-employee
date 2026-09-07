@@ -5,11 +5,12 @@ from typing import Any, Mapping, Protocol
 from aitest_runtime.durable_core import RuntimeError
 
 EXECUTOR_CAPABILITIES = frozenset({
-    'BROWSER_UI','API','DB_DATA','CAT_LOG','MANUAL','SECURITY','PERFORMANCE'
+    'BROWSER_UI','API','UNIT','DB_DATA','CAT_LOG','MANUAL','SECURITY','PERFORMANCE'
 })
 ALIASES = {
     'BROWSER':'BROWSER_UI','UI':'BROWSER_UI','BROWSER_UI':'BROWSER_UI',
     'API':'API',
+    'UNIT':'UNIT',
     'DB':'DB_DATA','DATA':'DB_DATA','DB_DATA':'DB_DATA',
     'CAT':'CAT_LOG','LOG':'CAT_LOG','CAT_LOG':'CAT_LOG',
     'MANUAL':'MANUAL','SECURITY':'SECURITY','PERFORMANCE':'PERFORMANCE',
