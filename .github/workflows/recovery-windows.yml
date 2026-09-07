@@ -60,6 +60,13 @@ jobs:
           Expand-Archive -Path $zip -DestinationPath unpacked
           $bundle = Get-ChildItem unpacked -Directory | Select-Object -First 1
           "AITEST_BUNDLE=$($bundle.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          if ($env:GITHUB_EVENT_NAME -eq 'push' -and $config.local_validation_asset) {
+            gh release download $env:RELEASE_TAG --repo $env:GH_REPO --pattern $config.local_validation_asset --dir incoming
+            if ($LASTEXITCODE -ne 0) { throw 'Local validation evidence download failed' }
+            $localReport = Join-Path (Get-Location) (Join-Path incoming $config.local_validation_asset)
+            if ((Get-FileHash $localReport -Algorithm SHA256).Hash.ToLowerInvariant() -ne $config.local_validation_sha256) { throw 'Local validation evidence SHA256 mismatch' }
+            "AITEST_LOCAL_REPORT=$localReport" | Out-File -FilePath $env:GITHUB_ENV -Append
+          }
       - name: Validate offline bundle with its packaged Python
         shell: pwsh
         run: |
@@ -90,7 +97,9 @@ jobs:
       - name: Seal verified source and payload with Windows evidence
         shell: pwsh
         run: |
-          & "$env:AITEST_BUNDLE/workspace-template/runtime/python/python.exe" -X utf8 "$env:AITEST_BUNDLE/tools/recovery/qualify_package.py" --bundle $env:AITEST_BUNDLE --output qualified
+          $qualificationArgs = @('--bundle', $env:AITEST_BUNDLE, '--output', 'qualified')
+          if ($env:AITEST_LOCAL_REPORT) { $qualificationArgs += @('--local-report', $env:AITEST_LOCAL_REPORT) }
+          & "$env:AITEST_BUNDLE/workspace-template/runtime/python/python.exe" -X utf8 "$env:AITEST_BUNDLE/tools/recovery/qualify_package.py" @qualificationArgs
           if ($LASTEXITCODE -ne 0) { throw 'Qualification failed' }
       - name: Retain qualified turnkey deliverable
         uses: actions/upload-artifact@v4
