@@ -1,4 +1,4 @@
-"""V1.9.5 one-entry offline Windows package launcher."""
+"""V1.12.0 one-entry offline Windows package launcher."""
 from __future__ import annotations
 import argparse
 import base64
@@ -23,7 +23,7 @@ BUNDLE = Path(__file__).resolve().parents[2]
 WORKSPACE = BUNDLE / 'workspace-template'
 DATA = BUNDLE / 'data'
 OPENCODE = WORKSPACE / 'runtime/opencode/opencode.exe'
-VERSION = '1.9.5'
+VERSION = '1.12.0'
 
 
 def sha(path):
@@ -124,7 +124,7 @@ def doctor(full=False):
 
 def display_doctor(full=True):
     result = doctor(full)
-    print('\nAITest V1.9.5 · 能力自检')
+    print('\nAITest V1.12.0 · 能力自检')
     for key, value in result['matrix'].items(): print(f'  {key:15} {value}')
     print('G1-G5 CLOSED/FROZEN；G6 HOLD。行内结果需要现场验证。')
     write(DATA / 'logs/doctor.json', result)
@@ -259,6 +259,39 @@ def execution_settings():
     print('测试环境绑定已保存。CAT/DB 仍需由行内适配器与授权绑定；缺失时会明确阻塞。')
 
 
+
+def browser_teaching():
+    from urllib.parse import urlsplit
+    from aitest_runtime.canonical_runtime import runtime_status
+    missions = runtime_status(WORKSPACE).get('missions', [])
+    if not missions:
+        print('请先进入对话创建测试 Mission。'); return
+    for i, item in enumerate(missions): print(i + 1, item['mission_id'])
+    mission = missions[int(input('选择教学对应 Mission [1]：') or '1') - 1]['mission_id']
+    config = read(WORKSPACE / 'bindings/browser.json', {})
+    if not config:
+        print('首次绑定浏览器：请填写已批准的测试页面。4A 由您在浏览器内操作。')
+        url = input('开始页面地址：').strip()
+        parsed = urlsplit(url)
+        if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError('请填写不含凭据的 HTTP(S) 页面地址')
+        origin = f'{parsed.scheme}://{parsed.netloc}'
+        origins = [origin] + [x.strip().rstrip('/') for x in input('其他已批准的页面源地址（多个用逗号分隔，可留空）：').split(',') if x.strip()]
+        if any(urlsplit(x).scheme not in ('http','https') or not urlsplit(x).hostname or urlsplit(x).username or urlsplit(x).path for x in origins):
+            raise ValueError('额外地址需仅含协议、主机和端口')
+        approval = input('批准记录编号：').strip()
+        if not approval: raise ValueError('批准记录编号必填')
+        print('由行内页面负责人提供以下页面标记；留空可先进行教学，自动恢复将等待绑定。')
+        checks = {key: input(label).strip() for key, label in [('authenticated_selector','登录成功标记：'), ('page_selector','当前页面标记：'), ('business_selector','业务就绪标记：')]}
+        paths = [x.strip() for x in input('允许采集已脱敏 JSON 响应的路径（可留空，多个用逗号分隔）：').split(',') if x.strip()]
+        if any(not x.startswith('/') or '?' in x or '#' in x for x in paths): raise ValueError('响应路径不可含查询参数')
+        config = {'approved': True, 'approval_ref': approval, 'allowed_origins': origins, 'start_url': url,
+                  'cdp_endpoint': 'http://127.0.0.1:9222', 'resume_checks': checks, 'response_body_paths': paths}
+        write(WORKSPACE / 'bindings/browser.json', config)
+    print('浏览器由您操作；完成教学后在此窗口按回车，再回到对话继续。')
+    return subprocess.call([sys.executable, '-m', 'aitest_runtime.recovery_browser', '--workspace-root', str(WORKSPACE), '--mission-id', mission], cwd=WORKSPACE, env=prepare())
+
+
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument('--doctor', action='store_true'); parser.add_argument('--self-check', action='store_true'); parser.add_argument('--export-evidence', action='store_true')
     args = parser.parse_args(); prepare()
@@ -267,7 +300,7 @@ def main():
         result = start_conversation(check_only=True); print(json.dumps(result)); return 0
     if args.export_evidence: evidence_export(); return 0
     while True:
-        print('\nAITest V1.9.5 Recovery · Windows 行内验证\n1 开始/继续测试对话\n2 能力自检\n3 导入需求/SST 附件\n4 导入 Current Release / Starlink 批准导出\n5 配置行内模型\n6 导出证据\n7 绑定测试环境\n8 浏览器人工教学 / 4A\n0 退出')
+        print('\nAITest V1.12.0 Recovery · Windows 行内验证\n1 开始/继续测试对话\n2 能力自检\n3 导入需求/SST 附件\n4 导入 Current Release / Starlink 批准导出\n5 配置行内模型\n6 导出证据\n7 绑定测试环境\n8 浏览器人工教学 / 4A\n0 退出')
         choice = input('请选择 [1]：').strip() or '1'
         try:
             if choice == '0': return 0
@@ -278,7 +311,7 @@ def main():
             elif choice == '5': model_settings()
             elif choice == '6': evidence_export()
             elif choice == '7': execution_settings()
-            elif choice == '8': subprocess.call([sys.executable, '-m', 'aitest_runtime.recovery_browser'], cwd=WORKSPACE, env=prepare())
+            elif choice == '8': browser_teaching()
         except Exception as exc: print('未完成：' + str(exc))
 
 
