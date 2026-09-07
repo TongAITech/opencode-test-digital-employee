@@ -19,5 +19,10 @@
     "checkpoint_and_attempt_lineage": "PASS",
     "bank_model_turn": "NOT_EXECUTED",
     "BANK_FIELD_VALIDATION_REQUIRED": true
+  },
+  "real_local_browser": {
+    "status": "PASS",
+    "checks": "page/element/network/response/screenshot, verified human takeover, authenticated context reuse, real renderer crash recovery with new PAGE and SCREENSHOT",
+    "log_sha256": "3c671844f346bc3ce9ec4a7d4b879058e031fb9d6b24f24c5239aadc8d264d3a"
   }
 }
