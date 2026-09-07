@@ -55,6 +55,8 @@ def prepare():
         PIP_NO_INDEX='1', CODEGRAPH_SKIP_MODEL_FETCH='1', NO_PROXY='localhost,127.0.0.1,::1', no_proxy='localhost,127.0.0.1,::1',
         XDG_DATA_HOME=str(DATA / 'opencode-data'), XDG_CONFIG_HOME=str(DATA / 'opencode-config'),
         XDG_CACHE_HOME=str(DATA / 'opencode-cache'), BUN_INSTALL_CACHE_DIR=str(DATA / 'bun-cache'))
+    portable_bins = [WORKSPACE / 'runtime' / item for item in ('python', 'opencode', 'tools/rg', 'tools/k6', 'tools/java/bin', 'tools/ffmpeg', 'tools/adb')]
+    os.environ['PATH'] = os.pathsep.join([str(p) for p in portable_bins if p.is_dir()] + [os.environ.get('PATH', '')])
     java = WORKSPACE / 'runtime/tools/java'
     if java.is_dir(): os.environ['JAVA_HOME'] = str(java)
     from aitest_runtime.canonical_runtime import create_canonical_runtime

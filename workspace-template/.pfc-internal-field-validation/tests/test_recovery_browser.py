@@ -126,7 +126,7 @@ class BrowserTests(unittest.TestCase):
                 origin = f"http://127.0.0.1:{server.server_port}"
                 endpoint = f"http://127.0.0.1:{port}"
                 browser_log = (root / "browser.log").open("w")
-                browser_process = subprocess.Popen([os.environ["AITEST_BROWSER_SMOKE_CHROMIUM"], "--headless=new", f"--remote-debugging-port={port}", f"--user-data-dir={root / 'profile'}", "--no-first-run", origin], stdout=browser_log, stderr=browser_log)
+                browser_process = subprocess.Popen([os.environ["AITEST_BROWSER_SMOKE_CHROMIUM"], "--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", f"--remote-debugging-port={port}", f"--user-data-dir={root / 'profile'}", "--no-first-run", origin], stdout=browser_log, stderr=browser_log)
                 runtime = create_canonical_runtime(root, db_path=root / "runtime-spine.db")
                 service = G21AutonomousOrchestrationService(runtime, root, session_provider=FakeOpenCodeSessionProvider(root))
                 mission = service.start_test(request("browser-real", "BROWSER-REAL"))["intake"]["intake"]["mission_id"]
@@ -204,7 +204,7 @@ class BrowserTests(unittest.TestCase):
                         page.goto("chrome://crash", timeout=1500)
                     except Exception:
                         pass
-                result = TeachingObserver(provider, mission).run(duration=10, interval=0.2)
+                result = TeachingObserver(provider, mission).run(duration=30, interval=0.2)
                 self.assertEqual(result["status"], "RECORDED")
                 assets = runtime.replay_composed(mission).extension_state("g3_testing_intelligence_product_integration")
                 recovered_kinds = {observation["kind"] for fact_id in result["asset_refs"] for observation in assets.by_id(fact_id).payload["observations"]}

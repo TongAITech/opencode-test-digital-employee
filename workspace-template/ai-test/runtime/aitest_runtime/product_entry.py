@@ -393,7 +393,7 @@ def g4_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
     runtime = service.runtime
     allowed = {
         "DIRECTOR": {"status", "create_goal", "control_tick", "coverage_from_g3", "blocker_gap", "risk_acceptance", "record_iteration", "human_gate_user_turn_resume"},
-        "EXECUTOR": {"status", "record_cursor", "recover_cursor", "register_capability", "validate_executor", "execute_capability", "capability_human_gate", "request_human_takeover", "reconcile_human_takeover", "complete_human_takeover", "record_step_result", "create_batch"},
+        "EXECUTOR": {"status", "browser_context", "record_cursor", "recover_cursor", "register_capability", "validate_executor", "execute_capability", "capability_human_gate", "request_human_takeover", "reconcile_human_takeover", "complete_human_takeover", "record_step_result", "create_batch"},
     }
     if role not in allowed or action not in allowed[role]:
         return {"status": "HOLD", "truth_source": "R1_EVENT_STREAM", "role": role, "action": action, "reason": "ACTION_NOT_AUTHORIZED_FOR_G4_ROLE", "legacy_fallback": "FORBIDDEN", "g5_defect_truth": "CLOSED/FROZEN"}
@@ -409,6 +409,13 @@ def g4_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
         ex = composed.extension_state("r1_3b_execution_resume")
         attempt = ex.attempt(attempt_id) if ex is not None and hasattr(ex, "attempt") else None
         if attempt is None or attempt.task_id != task_id or attempt.runtime_session_id != session_id: raise RuntimeError("G4_R2_5_ATTEMPT_SESSION_BINDING_MISMATCH")
+    if action == "browser_context":
+        provider = service.browser_provider
+        if provider is None or not callable(getattr(provider, "context_ref", None)):
+            return {"status": "BANK_BINDING_REQUIRED", "truth_source": "R1_EVENT_STREAM", "capability": "BROWSER"}
+        return {"status": "READY", "truth_source": "R1_EVENT_STREAM", "observation_source": "LIVE_APPROVED_CDP",
+                "browser_context_ref": provider.context_ref().to_dict(),
+                "resume_condition": dict(getattr(provider, "config", {}).get("resume_checks") or {})}
     if action == "create_goal": return service.create_goal(mission_id, data)
     if action == "human_gate_user_turn_resume": return service.resolve_human_gate_user_turn(mission_id, data)
     if action == "record_cursor": return service.record_cursor(mission_id, data)

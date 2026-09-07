@@ -29,7 +29,7 @@ def run_git(repo: Path, *args: str) -> str:
     return subprocess.check_output(['git', '-C', str(repo), *args], text=True).strip()
 
 
-def build(repo: Path, stage: Path, output: Path, version: str, allow_dirty: bool = False) -> dict:
+def build(repo: Path, stage: Path, output: Path, version: str, allow_dirty: bool = False, store_only: bool = False) -> dict:
     head = run_git(repo, 'rev-parse', 'HEAD')
     dirty = run_git(repo, 'status', '--porcelain')
     if dirty and not allow_dirty:
@@ -118,7 +118,7 @@ def build(repo: Path, stage: Path, output: Path, version: str, allow_dirty: bool
     (bundle / 'FILE_SHA256.json').write_text(
         json.dumps(file_checksums, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     zip_path = output / (name + '.zip')
-    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=1) as target:
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_STORED if store_only else zipfile.ZIP_DEFLATED, compresslevel=None if store_only else 1) as target:
         for path in sorted(bundle.rglob('*')):
             if path.is_file():
                 target.write(path, name + '/' + path.relative_to(bundle).as_posix())
@@ -138,9 +138,10 @@ def main() -> None:
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--version', default='1.12.0')
     parser.add_argument('--allow-dirty-diagnostic', action='store_true')
+    parser.add_argument('--store-only', action='store_true', help='Fast construction-to-CI transport ZIP; Windows qualification compresses the deliverable')
     args = parser.parse_args()
     print(json.dumps(build(args.repo.resolve(), args.payload_stage.resolve(),
-                           args.output_dir.resolve(), args.version, args.allow_dirty_diagnostic), indent=2))
+                           args.output_dir.resolve(), args.version, args.allow_dirty_diagnostic, args.store_only), indent=2))
 
 
 if __name__ == '__main__':

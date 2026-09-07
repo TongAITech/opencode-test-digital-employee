@@ -17,7 +17,7 @@ import time
 import urllib.request
 import uuid
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit, quote
 
 from .canonical_runtime import create_canonical_runtime, runtime_status
 from .common import now_iso
@@ -381,6 +381,30 @@ class TeachingObserver:
         self.batch += 1
         return result
 
+    def _recover_crashed_targets(self):
+        # A crashed renderer can prevent Playwright from attaching any page.
+        # The browser's HTTP endpoint still identifies explicit crash targets.
+        # Replace only those targets, preserving the browser profile/context.
+        target = self.provider.config.get("start_url")
+        if not target or not self.provider.allowed(target):
+            return False
+        recovered = False
+        for page in self.provider._get("/json/list"):
+            if page.get("type") != "page" or str(page.get("url", "")).rstrip('/') not in {"chrome://crash", "about:crash"}:
+                continue
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            # Create the replacement before closing the last crashed tab, so
+            # Chromium does not exit and discard the authenticated context.
+            request = urllib.request.Request(self.provider.endpoint + "/json/new?" + quote(target, safe=''), method="PUT")
+            with opener.open(request, timeout=5) as response:
+                response.read(4096)
+            with opener.open(self.provider.endpoint + "/json/close/" + quote(str(page["id"]), safe=''), timeout=5) as response:
+                response.read(4096)
+            self._add({"kind": "PAGE_RECOVERY", "status": "REPLACED_CRASHED_TAB_SAME_BROWSER_CONTEXT",
+                       "url": safe_url(target), "resume_authority": "G4_FRESH_VERIFICATION_REQUIRED"})
+            recovered = True
+        return recovered
+
     def _recover_page(self, page):
         target = page.url if self.provider.allowed(page.url) else self.provider.config.get("start_url")
         if not target or not self.provider.allowed(target):
@@ -393,6 +417,7 @@ class TeachingObserver:
         from playwright.sync_api import sync_playwright
         stop = stop or threading.Event()
         asset_refs = []
+        productive = False
         with sync_playwright() as driver:
             # Driver startup can be slow on an offline/loaded host. The user
             # observation window begins after driver initialization.
@@ -429,14 +454,20 @@ class TeachingObserver:
                 except Exception as exc:
                     self.errors.append(type(exc).__name__)
                     browser = None
+                    try:
+                        self._recover_crashed_targets()
+                    except Exception as recovery_error:
+                        self.errors.append(type(recovery_error).__name__)
                     stop.wait(min(interval, max(0, deadline - time.monotonic())))
                 result = self.flush()
                 if result:
                     asset_refs.append(result["fact_id"])
+                    productive = productive or any(item.get("kind") in {"PAGE", "SCREENSHOT", "ELEMENT", "NETWORK_RESPONSE"} for item in result["payload"]["observations"])
         result = self.flush()
         if result:
             asset_refs.append(result["fact_id"])
-        return {"status": "RECORDED" if asset_refs else "NO_OBSERVATIONS", "truth_source": "R1_EVENT_STREAM", "asset_refs": asset_refs, "g6": "HOLD"}
+            productive = productive or any(item.get("kind") in {"PAGE", "SCREENSHOT", "ELEMENT", "NETWORK_RESPONSE"} for item in result["payload"]["observations"])
+        return {"status": "RECORDED" if productive else "NO_OBSERVATIONS", "truth_source": "R1_EVENT_STREAM", "asset_refs": asset_refs, "g6": "HOLD"}
 
 
 def main(argv=None):

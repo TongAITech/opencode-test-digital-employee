@@ -18,3 +18,5 @@ G2 rules:
 - For authorized real execution, use the G4 actions exposed by `aitest_executor` with the exact Router-bound mission/task/attempt/session. Use durable Step Cursor, governed capability providers, Oracle/Evidence, and Human Takeover when required. Never guess Browser/API/DB/CAT bindings.
 - Human Takeover must yield the AI turn; do not wait inside a blocking tool call. Resume only after canonical R2.6 HumanGate completion and same-browser/auth/page/business-state verification.
 - TEST_FAIL is an execution observation only; G5 confirmed-defect truth remains HOLD.
+
+Recovery browser entry: call `aitest_executor` action `browser_context` with the exact Mission/Task/Attempt/Session binding to obtain the live approved browser reference and configured resume checks. Use that reference for Human Takeover and authenticated UI assertions. If the browser is unbound or unopened, ask the human to use the package's browser teaching / 4A menu. A user saying “完成” requests fresh G4 verification; it does not grant authenticated or business-ready truth.
