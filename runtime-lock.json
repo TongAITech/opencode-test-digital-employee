@@ -6,7 +6,17 @@
     "stored_in_git": false,
     "internet_required_on_bank_host": false,
     "dependency_install_allowed_on_bank_host": false,
-    "verify_sha256_before_use": true
+    "verify_sha256_before_use": true,
+    "selection_order": [
+      "UPLOADED_PAYLOAD",
+      "REPOSITORY_PACKAGING_CACHE",
+      "LOCAL_HISTORY_OUTPUT_CACHE",
+      "EXACT_PINNED_OFFICIAL_OR_TRUSTED_DOWNLOAD"
+    ],
+    "online_fallback_requires_recorded_local_rejection": true,
+    "registry": "OFFLINE_PAYLOAD_REGISTRY.json",
+    "windows_admin_required": false,
+    "file_level_hash_manifest": "FILE_SHA256.json"
   },
   "payloads": {
     "python": {
@@ -14,16 +24,21 @@
       "version": "3.12.10",
       "platform": "windows-x64",
       "relative_target": "workspace-template/runtime/python/python.exe",
-      "status": "PINNED_VERSION_FROM_CURRENT_CONSTRUCTION",
-      "sha256": "TO_BE_PINNED_FROM_CANONICAL_PAYLOAD_REGISTRY"
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING",
+      "sha256": "4d6f5f81a4bca11191c4c7c6b43632694d0a4ce74e068619d8fdc161d469859a",
+      "hash_kind": "file",
+      "archive_sha256": "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3",
+      "archive_identity": "python-3.12.10-embed-amd64.zip",
+      "stdlib_module_path": "../../ai-test/runtime"
     },
     "chromium": {
       "role": "CONTROLLED_BROWSER",
       "version": "151.0.7922.34",
       "platform": "windows-x64",
       "relative_target": "workspace-template/runtime/browser/chrome-win64/chrome.exe",
-      "status": "PINNED_VERSION_FROM_CURRENT_CONSTRUCTION",
-      "sha256": "TO_BE_PINNED_FROM_CANONICAL_PAYLOAD_REGISTRY"
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING",
+      "sha256": "409805a16d6416087e6b2f778df1cf8f7bbb267d6b99f6b5bb0a618eace234f2",
+      "hash_kind": "file"
     },
     "codegraph": {
       "role": "STRUCTURAL_CODE_INTELLIGENCE",
@@ -34,15 +49,181 @@
       "relative_target": "workspace-template/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe",
       "release_asset": "codegraph-server-win32-x64.exe",
       "sha256": "aa1b6108217c119af6ac444b8652a0eadcfe2c343bff78ead2edd15b6b7b15b1",
-      "status": "SELECTED_FOR_REPAIR_WAVE_2_INTEGRATION",
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING",
       "change_truth_authority": false,
-      "actual_coverage_authority": false
+      "actual_coverage_authority": false,
+      "hash_kind": "file",
+      "companions": [
+        {
+          "relative_target": "workspace-template/runtime/code-intelligence/codegraph/concrt140.dll",
+          "sha256": "2405355f0a58067b258f8df33c327e3a3d716eaac5a3a5aebb757842d85bd376"
+        },
+        {
+          "relative_target": "workspace-template/runtime/code-intelligence/codegraph/msvcp140.dll",
+          "sha256": "0f885b509a685d2bbfa652fed26b5fb31d88fbdab0a978c641d1c7b8aa460aa9"
+        },
+        {
+          "relative_target": "workspace-template/runtime/code-intelligence/codegraph/msvcp140_1.dll",
+          "sha256": "bfad5aef4c63a669e3c140655cdfdf395b6c979b400a447bd5dcb65ed8826c3d"
+        },
+        {
+          "relative_target": "workspace-template/runtime/code-intelligence/codegraph/msvcp140_2.dll",
+          "sha256": "3ea06f0ee098b4823cb79599df3780e7f23cce52c19aac31d2a0d47efe33a5e9"
+        },
+        {
+          "relative_target": "workspace-template/runtime/code-intelligence/codegraph/onnxruntime.dll",
+          "sha256": "52f8ebe8f08f369a44fed6d1cb680c7c89169795e1c2949ee25b88b538ef0948"
+        },
+        {
+          "relative_target": "workspace-template/runtime/code-intelligence/codegraph/vccorlib140.dll",
+          "sha256": "19839407c3fdbc824e5bce189bf68ddf8097f12ec28b757797ffa0415c144ddd"
+        },
+        {
+          "relative_target": "workspace-template/runtime/code-intelligence/codegraph/vcruntime140.dll",
+          "sha256": "d5e4d9a3e835fa679450145d6a7d94e36573a509317111904d9b3712c30d9066"
+        },
+        {
+          "relative_target": "workspace-template/runtime/code-intelligence/codegraph/vcruntime140_1.dll",
+          "sha256": "1f2d41c4aa5db0bc33ebf7b66d72943a817d7ce6cbe880502a9403823633093f"
+        }
+      ]
     },
     "ripgrep": {
       "role": "REFERENCE_SEARCH_ENRICHMENT",
       "platform": "windows-x64",
-      "status": "CAPABILITY_REQUIRED_WHERE_AVAILABLE_VERSION_NOT_YET_PINNED",
-      "sha256": "TO_BE_PINNED_FROM_CANONICAL_PAYLOAD_REGISTRY"
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING",
+      "sha256": "decdd4992f3f1b9a5ef9898f1b40ab16886d579d6516b4efd3d5eaa19364e408",
+      "version": "15.2.0",
+      "relative_target": "workspace-template/runtime/tools/rg/rg.exe",
+      "hash_kind": "file"
+    },
+    "opencode": {
+      "role": "AI_HOST",
+      "version": "1.18.3",
+      "platform": "windows-x64",
+      "relative_target": "workspace-template/runtime/opencode/opencode.exe",
+      "sha256": "e6fb1881a6e25e26177bd4dff0d4148cb8431084b188802f86e3c47558064b05",
+      "hash_kind": "file",
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING",
+      "archive_sha256": "68bc62930f6cb5755e0409aa9de0bb270a66ed2b8c9cf0c029e9f2287ed5486e"
+    },
+    "opencode_plugin": {
+      "role": "OFFLINE_HOST_PLUGIN",
+      "version": "1.18.3",
+      "platform": "windows-x64",
+      "relative_target": "workspace-template/.opencode/node_modules/@opencode-ai/plugin/package.json",
+      "sha256": "8e0f96544aa7306859e55c6e1f5f5c3f564f32672831c3b86cbc92aea355f997",
+      "hash_kind": "file",
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING"
+    },
+    "playwright": {
+      "role": "UI_EXECUTION",
+      "version": "1.62.0",
+      "platform": "windows-x64",
+      "relative_target": "workspace-template/runtime/python/Lib/site-packages/playwright-1.62.0.dist-info/METADATA",
+      "sha256": "a1443e21066f73be70ae0f5c21f6c61a830776104052e281ef5559475377071e",
+      "hash_kind": "file",
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING",
+      "archive_sha256": "92c0d98ed04eb35af557b709875edba415b1f548bdb22ddb5bb3e1e6c835c2f1"
+    },
+    "greenlet": {
+      "role": "UI_RUNTIME_DEPENDENCY",
+      "version": "3.5.5",
+      "platform": "windows-x64",
+      "relative_target": "workspace-template/runtime/python/Lib/site-packages/greenlet/_greenlet.cp312-win_amd64.pyd",
+      "sha256": "63f097e32e9628c9db1db8eeadc1e4f4021a1d0705cd6d350940c277c30821ce",
+      "hash_kind": "file",
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING"
+    },
+    "pyee": {
+      "role": "UI_RUNTIME_DEPENDENCY",
+      "version": "13.0.1",
+      "platform": "windows-x64",
+      "relative_target": "workspace-template/runtime/python/Lib/site-packages/pyee-13.0.1.dist-info/METADATA",
+      "sha256": "7512d063d60cb405124a6c5fdd2c688d78a4c6b6841b8eeb00a59474ef59d43c",
+      "hash_kind": "file",
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING"
+    },
+    "typing_extensions": {
+      "role": "PYTHON_DEPENDENCY",
+      "version": "4.16.0",
+      "platform": "windows-x64",
+      "relative_target": "workspace-template/runtime/python/Lib/site-packages/typing_extensions.py",
+      "sha256": "4040ca1a1ecbee00d1385c12a93084d1c5bd46f0b774f07e5ae7e91c4f55e696",
+      "hash_kind": "file",
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING"
+    },
+    "k6": {
+      "role": "PERFORMANCE_EXECUTION",
+      "version": "2.1.0",
+      "platform": "windows-x64",
+      "relative_target": "workspace-template/runtime/tools/k6/k6.exe",
+      "sha256": "51ac387205675f70ff52bb6decd3416650433b9741a0c2765b1be574535f0087",
+      "hash_kind": "file",
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING"
+    },
+    "zap": {
+      "role": "SECURITY_EXECUTION",
+      "version": "2.17.0",
+      "platform": "windows-x64",
+      "relative_target": "workspace-template/runtime/tools/zap/zap-2.17.0.jar",
+      "sha256": "015dda4709b5ef79736086bb41e8e2a4e95b04cf6625f14d6bcc02b197c99c0c",
+      "hash_kind": "file",
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING"
+    },
+    "java": {
+      "role": "SECURITY_RUNTIME_DEPENDENCY",
+      "version": "17.0.20+8",
+      "platform": "windows-x64",
+      "relative_target": "workspace-template/runtime/tools/java/bin/java.exe",
+      "sha256": "5b463cad4fcd8e4c655cc1c6f45a3b2ebb002adac94ebad2fdaa4f43e2aee211",
+      "hash_kind": "file",
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING"
+    },
+    "ffmpeg": {
+      "role": "VIDEO_EVIDENCE",
+      "version": "1011",
+      "platform": "windows-x64",
+      "relative_target": "workspace-template/runtime/tools/ffmpeg/ffmpeg-win64.exe",
+      "sha256": "5b8f3f59ba61685828939ff3c833109748adbdea2fff4b4ae570c9fc0fc1ff4d",
+      "hash_kind": "file",
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING"
+    },
+    "adb": {
+      "role": "ANDROID_EXTENSION",
+      "version": "37.0.1",
+      "platform": "windows-x64",
+      "relative_target": "workspace-template/runtime/tools/adb/adb.exe",
+      "sha256": "b4a6b455702684652cccf7b46258b29e653538904359a58fd4931cf3ef286b3f",
+      "hash_kind": "file",
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING"
+    },
+    "pytest": {
+      "role": "API_UNIT_EXECUTION",
+      "version": "7.2.2",
+      "platform": "windows-x64",
+      "relative_target": "workspace-template/runtime/python/Lib/site-packages/pytest/__init__.py",
+      "sha256": "45a29481588a917ab9dc3562b71879c3b09b51b7ba37d39d3a04ed69bf8a6ac8",
+      "hash_kind": "file",
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING"
+    },
+    "httpx": {
+      "role": "API_EXECUTION",
+      "version": "0.28.1",
+      "platform": "windows-x64",
+      "relative_target": "workspace-template/runtime/python/Lib/site-packages/httpx/__init__.py",
+      "sha256": "0ac6997bac998f4ac783adf6d8058a587193315afdb718047c3e4fdff46bcfad",
+      "hash_kind": "file",
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING"
+    },
+    "pypdf": {
+      "role": "REQUIREMENT_PDF_IMPORT",
+      "version": "6.17.0",
+      "platform": "windows-x64",
+      "relative_target": "workspace-template/runtime/python/Lib/site-packages/pypdf/__init__.py",
+      "sha256": "612ff566b4378c13c7b1180cb2da89ac0b6cde5500a63fe530e30ae6a88b1b9c",
+      "hash_kind": "file",
+      "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING"
     }
   }
 }
