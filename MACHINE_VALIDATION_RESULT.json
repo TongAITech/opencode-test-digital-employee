@@ -1,0 +1,23 @@
+{
+  "schema_version": "aitest.machine-validation.v1",
+  "product_version": "1.12.0",
+  "status": "LOCAL_REGRESSION_RUNNING_WINDOWS_QUALIFICATION_PENDING",
+  "LOCAL_VALIDATION_PASS": false,
+  "WINDOWS_CI_PASS": false,
+  "BANK_FIELD_VALIDATION_REQUIRED": true,
+  "pending": [
+    "final local regression",
+    "Windows actual offline package execution"
+  ],
+  "fixture_boundary": "No construction fixture is bank acceptance.",
+  "real_opencode_local_api": {
+    "status": "PASS",
+    "classification": "REAL_OPENCODE_LOCAL_API_ROTATE_RESUME",
+    "version": "1.18.3",
+    "metrics_source": "OPENCODE_MESSAGE_API",
+    "rotation_count": 1,
+    "checkpoint_and_attempt_lineage": "PASS",
+    "bank_model_turn": "NOT_EXECUTED",
+    "BANK_FIELD_VALIDATION_REQUIRED": true
+  }
+}
