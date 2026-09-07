@@ -11,7 +11,7 @@
   "candidate_commit": "FINALIZED_BY_BUILD_PROVENANCE",
   "candidate_commit_semantics": "BUILD_PROVENANCE.json records exact assembled Git HEAD; this root manifest is excluded from Source Content Identity",
   "source_identity_formula": "sha256(UTF-8 sorted `<file_sha256>  <path>` lines, exactly one final newline; tracked files from `git ls-files`; excludes PACKAGE_MANIFEST.json)",
-  "source_content_identity": "d8bb47b79576244546ce6a78b7380a2321c4c54761f61b78fc9bd4e2e388e467",
+  "source_content_identity": "f6de79ddd0ad09880a4b39bbaac4ef0dcf2de242a064fc93d6c3846dbc73d4e1",
   "runtime_payload_policy": {
     "lock_file": "runtime-lock.json",
     "registry": "OFFLINE_PAYLOAD_REGISTRY.json",
