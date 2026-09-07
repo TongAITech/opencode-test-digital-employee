@@ -1,0 +1,160 @@
+{
+  "record_format": "PKG0.6B2_PREFLIGHT_STOP_RECORD_V1",
+  "record_kind": "PREFLIGHT_BLOCKER_EVIDENCE_NOT_WINDOWS_EXECUTION",
+  "format_authority": "REPORT_LOCAL_FORMAT_NOT_A_REPLACEMENT_FOR_THE_FROZEN_B2_CONTRACT",
+  "recorded_date": "2026-09-07",
+  "work_item": "10.PKG.5 | PKG0.6B2 Post-B1 Real Windows Interactive Qualification",
+  "scope": "POST_B1_REAL_WINDOWS_INTERACTIVE_QUALIFICATION",
+  "governance_authority": "00.9",
+  "PKG0_6B2": "BLOCKED",
+  "stop_phase": "PRE_INTERACTIVE_EXECUTION",
+  "independent_review": "REQUESTED_FROM_00.9_NOT_PERFORMED_BY_THIS_WORKITEM",
+  "git_recovery": {
+    "repository": "TongAITech/opencode-test-digital-employee",
+    "canonical_main_expected": "58e5e1259cd26846b31ea21a8a87df0bcf071edc",
+    "canonical_main_observed": "58e5e1259cd26846b31ea21a8a87df0bcf071edc",
+    "active_branch": "work/local-validation-package",
+    "authorized_starting_head": "c11208af52d085296494dc26e86ed587be6cef0d",
+    "observed_starting_head": "c11208af52d085296494dc26e86ed587be6cef0d",
+    "starting_commit_parent": "9a52e33204c51f8e5f15ea8b6c2c60d533103d95",
+    "starting_commit_message": "docs(pkg): record repaired Windows qualification evidence",
+    "starting_commit_changed_paths": [
+      "docs/reviews/G1_G5_PACKAGE_WINDOWS_QUALIFICATION_EVIDENCE.md"
+    ],
+    "base_tree": "fe50c9033a890ca40bf3de41b94a01efa74cf597",
+    "branch_divergence_at_recovery": "NONE",
+    "observation_source": "LIVE_GITHUB_CONNECTOR_READS_NOT_CONVERSATION_MEMORY"
+  },
+  "b1_carry_forward": {
+    "execution_authority": "9a52e33204c51f8e5f15ea8b6c2c60d533103d95",
+    "run_id": 34079065820,
+    "windows_job_id_from_b1_evidence": 101610757980,
+    "cleanup_job_id_from_workitem_instruction": 101610723780,
+    "run_status_observed": "completed",
+    "run_conclusion_observed": "success",
+    "run_head_sha_observed": "9a52e33204c51f8e5f15ea8b6c2c60d533103d95",
+    "evidence_path": "docs/reviews/G1_G5_PACKAGE_WINDOWS_QUALIFICATION_EVIDENCE.md",
+    "runner_self_tests_from_b1_evidence": "22/22 PASS",
+    "qualification_matrix_from_b1_evidence": "24/24 PASS",
+    "b1_reexecuted_in_this_workitem": false,
+    "b1_result_used_as_b2_user_turn_proof": false,
+    "formal_closure_provenance": "00.9_DISPOSITION_SUPPLIED_IN_CURRENT_WORKITEM_AUTHORIZATION; NOT_REDECIDED_HERE"
+  },
+  "contract_recovery": {
+    "required_title": "10.1.PKG.2.1 | PKG0.6B2 Gate Authorization & Evidence Contract",
+    "status": "NOT_RETRIEVED_FROM_INSPECTED_SOURCES",
+    "immutable_locator": null,
+    "content_sha256": null,
+    "scenario_manifest": null,
+    "scenario_count": null,
+    "contract_reconstructed_or_weakened": false,
+    "absence_claim_scope": "RETRIEVAL_GAP_ONLY; NOT_A_CLAIM_THAT_THE_CONTRACT_DOES_NOT_EXIST",
+    "inspected_git_tree_scope": [
+      "repository root",
+      "docs/governance (recursive)",
+      "docs/reviews (recursive)",
+      "docs/history (recursive)",
+      "packaging (recursive)",
+      "tools (recursive)",
+      "workspace-template root"
+    ],
+    "additional_searches": {
+      "github_default_branch_code_query": "PKG0.6B2",
+      "github_issue_query": "\"PKG0.6B2\"",
+      "github_commit_message_query": "B2",
+      "github_search_results": "NO_MATCHES_RETURNED; DEFAULT_BRANCH_CODE_SEARCH_IS_NOT_FULL_BRANCH_CONTENT_SEARCH",
+      "file_library_search_batches": 3,
+      "file_library_result": "NO_RELEVANT_B2_CONTRACT_RETURNED",
+      "locator_only_context_lookup_result": "NO_RETRIEVABLE_FORMAL_SOURCE_LOCATOR"
+    }
+  },
+  "execution_substrate": {
+    "local_system_observed": "Linux",
+    "authorized_real_windows_interactive_channel": "NOT_ESTABLISHED_IN_THIS_SESSION",
+    "remote_execution_capability_discovery": "OPTIONAL_UNCONNECTED_INTEGRATION_FOUND; NO_INSTALLATION_OR_CONNECTION_PERFORMED",
+    "existing_b1_ci_used_as_substitute": false,
+    "new_workflow_or_runner_created": false,
+    "model_provider_binding": "NOT_EXERCISED",
+    "local_git_ls_remote": "FAILED_DNS_RESOLUTION_FOR_GITHUB.COM; CONNECTOR_READS_SUCCEEDED",
+    "credential_values_requested_or_recorded": false
+  },
+  "blockers": [
+    {
+      "code": "B2_FROZEN_CONTRACT_NOT_RETRIEVED",
+      "classification": "GOVERNANCE_INPUT_RECOVERY_BLOCKER",
+      "effect": "NO_AUTHORIZED_SCENARIO_TO_EVIDENCE_MAPPING_CAN_BE_ESTABLISHED",
+      "product_failure_established": false
+    },
+    {
+      "code": "B2_REAL_WINDOWS_INTERACTIVE_CHANNEL_NOT_ESTABLISHED",
+      "classification": "EXECUTION_SUBSTRATE_BLOCKER",
+      "effect": "NO_REAL_WINDOWS_OPENCODE_USER_TURN_EXECUTED",
+      "product_failure_established": false
+    }
+  ],
+  "b2_execution": {
+    "status": "NOT_EXECUTED",
+    "execution_commit": null,
+    "run_id": null,
+    "job_id": null,
+    "real_windows_runs": 0,
+    "real_opencode_user_turns": 0,
+    "interactive_scenarios_executed": 0,
+    "interactive_scenarios_passed": 0,
+    "contract_scenario_total": null,
+    "session_ids": [],
+    "user_turn_ids": [],
+    "tool_call_ids": [],
+    "raw_windows_evidence_refs": [],
+    "agent_tool_user_turn_routing": "NOT_EXECUTED",
+    "human_gate_user_turn_verification": "NOT_EXECUTED",
+    "fixture_playback_used_as_pass": false,
+    "start_only_used_as_pass": false,
+    "debug_agent_only_used_as_pass": false
+  },
+  "boundary_resolution": {
+    "status": "NOT_EXECUTED_UNRESOLVED",
+    "required_final_value_domain": [
+      "YES",
+      "NO"
+    ],
+    "OPENCODE_WEB_REQUIRED": null,
+    "OPENCODE_SIDECAR_REQUIRED": null,
+    "DIRECT_INTERACTIVE_ENTRYPOINT_SUPPORTED": null,
+    "null_semantics": "UNRESOLVED_DUE_TO_BLOCKED_EXECUTION; NEVER_COERCE_TO_NO",
+    "historical_source_only_direct_entry_candidate": "YES_IN_PKG0.5_CANDIDATE; NOT_B2_WINDOWS_INTERACTIVE_PROOF"
+  },
+  "preserved_gates": {
+    "ArchitectureBaseline": "v7 / FROZEN / UNCHANGED",
+    "PACKAGE_IDENTITY_FREEZE": "NOT_AUTHORIZED",
+    "PKG1": "HOLD",
+    "LOCAL_VALIDATION": "HOLD",
+    "G1_G5_REOPEN_REQUIRED": "NO",
+    "G6": "HOLD"
+  },
+  "evidence_only_change_scope": {
+    "paths": [
+      "docs/reviews/G1_G5_PACKAGE_WINDOWS_INTERACTIVE_QUALIFICATION_EVIDENCE.md",
+      "docs/reviews/G1_G5_PACKAGE_WINDOWS_INTERACTIVE_QUALIFICATION_RESULT.json"
+    ],
+    "product_source_changes": false,
+    "runtime_lock_changes": false,
+    "package_manifest_changes": false,
+    "launcher_changes": false,
+    "workflow_or_qualification_runner_changes": false,
+    "dependency_reselection": false,
+    "main_update": false,
+    "force_push": false,
+    "enclosing_commit_is_windows_execution_authority": false
+  },
+  "protected_objects_at_start": {
+    "runtime-lock.json": "fc267312e2f590de2c57df86dce9b2de6d30a594",
+    "PACKAGE_MANIFEST.json": "7c99006a83fc7bae769c7ac0a2ca9637c144db83",
+    "packaging": "fcb6cc9a46de7796c654c6ce63a650135e09fe73",
+    "workspace-template": "e72da37edc78e3a89b20b5cc56821572b3d96385",
+    "tools": "59d1222d9e332af09e325ba5d8bcbb448de0bc54",
+    ".github": "f11077ac4885152d37236ca1ccb9948a1d300244",
+    "docs/governance": "851897873e82b9624c42de54aab124002560f3c8"
+  },
+  "next_authority": "00.9_INDEPENDENT_REVIEW_OF_BLOCKERS_AND_RECOVERY_INPUTS; NOT_PACKAGE_FREEZE"
+}
