@@ -15,7 +15,7 @@ WORKSPACE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(WORKSPACE / "ai-test/runtime"))
 from aitest_runtime.canonical_runtime import create_canonical_runtime, execute_core_command
 from aitest_runtime.g3.service import G3TestingIntelligenceService
-from aitest_runtime.recovery_intake import RecoveryIntakeService, parse_document, dispatch
+from aitest_runtime.recovery_intake import RecoveryIntakeService, parse_document, dispatch, read_dispatch
 from aitest_runtime.r2_2 import MissionIntakeOrchestrator
 
 
@@ -146,6 +146,50 @@ class RecoveryIntakeTests(unittest.TestCase):
         self.assertEqual(result["status"], "READY")
         with self.assertRaisesRegex(Exception, "RECOVERY_RELEASE_UNAPPROVED"):
             dispatch(self.root, "import_current_release", {"mission_id": self.mission, "path": str(path), "binding_path": str(path)}, runtime=self.runtime)
+
+    def test_read_context_exposes_exact_release_identity_without_mutation(self):
+        path, approval = self.export()
+        export = json.loads(path.read_text())
+        export['repositories'] = [
+            {'repository_id': 'loan-code', 'application_id': 'loan', 'repository_path': 'C:/approved/loan',
+             'base_ref': 'a' * 40, 'head_ref': 'b' * 40, 'operator_notes': 'not-shared-private-metadata'},
+            {'repository_id': 'loan-page', 'repository_path': 'C:/approved/page', 'base_ref': 'c' * 40, 'head_ref': 'd' * 40},
+        ]
+        path.write_text(json.dumps(export))
+        approval['expected_sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
+        release = self.service.import_current_release(self.mission, path, approval)['current_release']
+        seq = self.runtime.get_head_seq(self.mission)
+        worker = {'mission_id': self.mission, 'task_id': 'bound-by-product', 'attempt_id': 'bound-by-product', 'session_id': 'bound-by-product'}
+        result = read_dispatch(self.root, 'intake_context', {**worker, 'limit': 1}, runtime=self.runtime)
+        row = result['current_release']['repositories'][0]
+        self.assertEqual(row['repository_path'], 'C:/approved/loan')
+        self.assertEqual(row['base_ref'], 'a' * 40)
+        self.assertEqual(row['head_ref'], 'b' * 40)
+        self.assertEqual(result['current_release']['next_offset'], 1)
+        page = read_dispatch(self.root, 'read_intake_source', {**worker, 'fact_id': release['fact_id'], 'offset': 1, 'limit': 1}, runtime=self.runtime)
+        self.assertEqual(page['payload']['repositories'][0]['repository_id'], 'loan-page')
+        self.assertNotIn('not-shared-private-metadata', json.dumps(result))
+        self.assertEqual(self.runtime.get_head_seq(self.mission), seq)
+        for action in ('import_document', 'analyze_requirements', 'import_current_release'):
+            with self.assertRaisesRegex(Exception, 'RECOVERY_READ_ACTION_FORBIDDEN'):
+                read_dispatch(self.root, action, worker, runtime=self.runtime)
+        self.assertEqual(self.runtime.get_head_seq(self.mission), seq)
+
+    def test_read_binding_context_shows_safe_approved_targets_not_secrets(self):
+        folder = self.root / 'bindings'; folder.mkdir()
+        config = {'approved': True, 'approval_ref': 'approval:local-read-fixture', 'allowed_origins': ['https://loan.test:8443', 'https://user:password@withheld.test'],
+                  'allowed_methods': ['GET', 'POST'], 'auth_env_ref': 'RECOVERY_READ_FIXTURE_ABSENT_ENV',
+                  'native_runners': {'project-pytest': {'argv': ['private-argument'], 'cwd': 'private-directory'}},
+                  'operator_notes': 'not-shared-private-metadata'}
+        (folder / 'execution.json').write_text(json.dumps(config))
+        seq = self.runtime.get_head_seq(self.mission)
+        result = read_dispatch(self.root, 'binding_context', {'mission_id': self.mission}, runtime=self.runtime)
+        safe = result['execution_binding']
+        self.assertEqual(safe['authorized_scope'], {'origins': ['https://loan.test:8443'], 'runner_ids': ['project-pytest']})
+        self.assertEqual(safe['auth_state'], 'AUTH_REQUIRED')
+        for private in ('private-argument', 'private-directory', 'password', 'not-shared-private-metadata'):
+            self.assertNotIn(private, json.dumps(result))
+        self.assertEqual(self.runtime.get_head_seq(self.mission), seq)
 
     def test_pdf_text_extraction_or_explicit_missing_payload(self):
         # A complete one-page PDF fixture with a valid cross-reference table.

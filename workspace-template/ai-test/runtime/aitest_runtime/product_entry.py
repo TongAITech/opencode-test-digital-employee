@@ -231,7 +231,7 @@ def orchestration_command(role: str, action: str, payload: Mapping[str, Any]) ->
 
     allowed: dict[str, set[str]] = {
         "DIRECTOR": {"status", "start_test", "continue_test", "intake_mission", "open_planner", "open_human_gate", "decide_human_gate"},
-        "PLANNER": {"status", "propose_plan"},
+        "PLANNER": {"status", "propose_plan", "intake_context", "read_intake_source", "binding_context"},
         "SCHEDULER": {"status", "advance", "dispatch_next"},
         "EXECUTOR": {"status", "report_task_outcome"},
         "CONTROL": {"status", "control_tick", "reconcile_sessions", "observe_session", "rotate_session"},
@@ -250,7 +250,13 @@ def orchestration_command(role: str, action: str, payload: Mapping[str, Any]) ->
     mission_id = data.get("mission_id")
     if action == "status":
         return service.status(str(mission_id)) if mission_id else service.status()
+    if role == "PLANNER" and action in {"intake_context", "read_intake_source", "binding_context"}:
+        from .recovery_intake import read_dispatch
+        return read_dispatch(root, action, data, runtime=service.runtime)
     if action == "start_test":
+        if os.environ.get("AITEST_HOST_SESSION_ID") or os.environ.get("AITEST_HOST_MESSAGE_ID"):
+            from .hosted_intake import hosted_user_intake
+            return service.start_test(hosted_user_intake(service.session_provider, data))
         request = data.get("request", data)
         return service.start_test(_object(request, "request"))
     if action == "continue_test":
@@ -326,7 +332,7 @@ def g3_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
     allowed = {
         "DIRECTOR": {"status", "work_context", "register_intent"},
         "REQUIREMENT_ANALYST": {"status", "work_context", "analyze_requirement"},
-        "CODE_ANALYST": {"status", "work_context", "analyze_changes", "acquire_coverage"},
+        "CODE_ANALYST": {"status", "work_context", "analyze_changes", "acquire_coverage", "intake_context", "read_intake_source", "binding_context"},
         "TEST_STRATEGIST": {"status", "work_context", "recommend_next_work", "create_strategy", "design_test_profile"},
         "CASE_DESIGNER": {"status", "work_context", "design_cases"},
         "EVALUATOR": {"status", "work_context", "evaluate_case_design"},
@@ -351,6 +357,9 @@ def g3_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
         latest = execution.latest_attempt(task_id) if execution is not None and hasattr(execution, "latest_attempt") else None
         if latest is None or latest.attempt_id != attempt_id or latest.runtime_session_id != session_id:
             raise RuntimeError("G3_R2_5_ATTEMPT_SESSION_BINDING_MISMATCH")
+    if action in {"intake_context", "read_intake_source", "binding_context"}:
+        from .recovery_intake import read_dispatch
+        return read_dispatch(root, action, data, runtime=runtime)
     if action == "work_context":
         return service.work_context(mission_id)
     if action == "register_intent":
@@ -393,7 +402,7 @@ def g4_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
     runtime = service.runtime
     allowed = {
         "DIRECTOR": {"status", "create_goal", "control_tick", "coverage_from_g3", "blocker_gap", "risk_acceptance", "record_iteration", "human_gate_user_turn_resume"},
-        "EXECUTOR": {"status", "browser_context", "record_cursor", "recover_cursor", "register_capability", "validate_executor", "execute_capability", "capability_human_gate", "request_human_takeover", "reconcile_human_takeover", "complete_human_takeover", "record_step_result", "create_batch"},
+        "EXECUTOR": {"status", "browser_context", "record_cursor", "recover_cursor", "register_capability", "validate_executor", "execute_capability", "capability_human_gate", "request_human_takeover", "reconcile_human_takeover", "complete_human_takeover", "record_step_result", "create_batch", "intake_context", "read_intake_source", "binding_context"},
     }
     if role not in allowed or action not in allowed[role]:
         return {"status": "HOLD", "truth_source": "R1_EVENT_STREAM", "role": role, "action": action, "reason": "ACTION_NOT_AUTHORIZED_FOR_G4_ROLE", "legacy_fallback": "FORBIDDEN", "g5_defect_truth": "CLOSED/FROZEN"}
@@ -409,6 +418,9 @@ def g4_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
         ex = composed.extension_state("r1_3b_execution_resume")
         attempt = ex.attempt(attempt_id) if ex is not None and hasattr(ex, "attempt") else None
         if attempt is None or attempt.task_id != task_id or attempt.runtime_session_id != session_id: raise RuntimeError("G4_R2_5_ATTEMPT_SESSION_BINDING_MISMATCH")
+    if action in {"intake_context", "read_intake_source", "binding_context"}:
+        from .recovery_intake import read_dispatch
+        return read_dispatch(root, action, data, runtime=runtime)
     if action == "browser_context":
         provider = service.browser_provider
         if provider is None or not callable(getattr(provider, "context_ref", None)):

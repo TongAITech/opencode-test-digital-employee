@@ -1,7 +1,7 @@
 import { tool } from "@opencode-ai/plugin"
 import path from "path"
 
-type ToolContext = { directory?: string; worktree?: string | null }
+type ToolContext = { directory?: string; worktree?: string | null; sessionID?: string; messageID?: string }
 
 async function canonicalWorkspace(context: ToolContext): Promise<string> {
   const required = [
@@ -42,6 +42,8 @@ async function orchestrate(
   const env = {
     ...process.env,
     AITEST_WORKSPACE_ROOT: workspace,
+    AITEST_HOST_SESSION_ID: context.sessionID || "",
+    AITEST_HOST_MESSAGE_ID: context.messageID || "",
     ...(process.env.AITEST_RUNTIME_SPINE_DB ? { AITEST_RUNTIME_SPINE_DB: process.env.AITEST_RUNTIME_SPINE_DB } : {}),
     PYTHONPATH: [runtime, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
   }
@@ -169,9 +171,16 @@ export const director = tool({
   description: "Canonical AI Test Director. Start/resume Mission truth, autonomously open the Planner Session, read orchestration state, and govern Human Gates. Conversation is never Mission truth.",
   args: {
     action: tool.schema.string().describe("status|start_test|continue_test|intake_mission|open_planner|open_human_gate|decide_human_gate"),
-    payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}),
+    payload: tool.schema.object({
+      user_request: tool.schema.string().max(16384).optional().describe("For start_test: exact current User text, e.g. 测试 BLOAN1.9.4. Host supplies identity, timestamp and SHA256."),
+      scope: tool.schema.object({ mode: tool.schema.literal("EXPLICIT_SET"), project_id: tool.schema.string().optional(), version: tool.schema.string().optional(), requirements: tool.schema.array(tool.schema.string()).optional() }).strict().optional(),
+      operation: tool.schema.enum(["CREATE", "REVISE"]).optional(),
+    }).passthrough().default({}),
   },
-  async execute(args, context) { return orchestrate(context as ToolContext, "DIRECTOR", args.action, args.payload) },
+  async execute(args, context) {
+    if (args.action === "start_test" && (!context.sessionID || !context.messageID)) throw new Error("HOST_USER_TURN_REQUIRED")
+    return orchestrate(context as ToolContext, "DIRECTOR", args.action, args.payload)
+  },
 })
 
 export const g3_director = tool({
@@ -188,7 +197,7 @@ export const requirement_analyst = tool({
 
 export const code_analyst = tool({
   description: "G3 Code Analyst. Performs multi-repo static Change Intelligence and reads canonical bank incremental coverage when authenticated. Static truth is never Actual Coverage.",
-  args: { action: tool.schema.string().describe("status|work_context|analyze_changes|acquire_coverage"), payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}) },
+  args: { action: tool.schema.string().describe("status|work_context|analyze_changes|acquire_coverage|intake_context|read_intake_source|binding_context"), payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}) },
   async execute(args, context) { return g3(context as ToolContext, "CODE_ANALYST", args.action, args.payload) },
 })
 
@@ -207,7 +216,7 @@ export const case_designer = tool({
 export const planner = tool({
   description: "Canonical R2 Planner governance. The AI authors an evidence-bound semantic Plan candidate; R2.3 validates/canonicalizes/freezes it into the R1 Event Stream. Never execute tasks here.",
   args: {
-    action: tool.schema.string().describe("status|propose_plan"),
+    action: tool.schema.string().describe("status|propose_plan|intake_context|read_intake_source|binding_context"),
     payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}),
   },
   async execute(args, context) { return orchestrate(context as ToolContext, "PLANNER", args.action, args.payload) },
@@ -225,12 +234,12 @@ export const scheduler = tool({
 export const executor = tool({
   description: "Canonical G2/G4 governed executor. Task outcome remains G2; real execution/cursor/HumanTakeover/evidence/batching are G4 actions and still use G2.1-routed Attempts/Sessions.",
   args: {
-    action: tool.schema.string().describe("status|report_task_outcome|browser_context|record_cursor|recover_cursor|register_capability|validate_executor|execute_capability|capability_human_gate|request_human_takeover|reconcile_human_takeover|complete_human_takeover|record_step_result|create_batch"),
+    action: tool.schema.string().describe("status|report_task_outcome|browser_context|record_cursor|recover_cursor|register_capability|validate_executor|execute_capability|capability_human_gate|request_human_takeover|reconcile_human_takeover|complete_human_takeover|record_step_result|create_batch|intake_context|read_intake_source|binding_context"),
     payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}),
   },
   async execute(args, context) {
     if (["status", "report_task_outcome"].includes(args.action)) return orchestrate(context as ToolContext, "EXECUTOR", args.action, args.payload)
-    if (["browser_context", "record_cursor", "recover_cursor", "register_capability", "validate_executor", "execute_capability", "capability_human_gate", "request_human_takeover", "reconcile_human_takeover", "complete_human_takeover", "record_step_result", "create_batch"].includes(args.action)) return g4(context as ToolContext, "EXECUTOR", args.action, args.payload)
+    if (["browser_context", "record_cursor", "recover_cursor", "register_capability", "validate_executor", "execute_capability", "capability_human_gate", "request_human_takeover", "reconcile_human_takeover", "complete_human_takeover", "record_step_result", "create_batch", "intake_context", "read_intake_source", "binding_context"].includes(args.action)) return g4(context as ToolContext, "EXECUTOR", args.action, args.payload)
     return pending("EXECUTOR", args.action, args.payload, "G5_DEFECT_TRUTH")
   },
 })

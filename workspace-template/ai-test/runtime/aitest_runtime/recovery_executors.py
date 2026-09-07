@@ -41,6 +41,39 @@ def binding(root):
     return result
 
 
+def safe_binding_context(root):
+    """Read approved execution identities without exposing local secrets/argv.
+
+    This is configuration discovery only. G4 still admits the actual request,
+    checks its scope and runner identity, and records execution Evidence in R1.
+    """
+    config = binding(root)
+    if not config:
+        return {'status': 'BANK_BINDING_REQUIRED', 'binding_source': 'LOCAL_APPROVED_CONFIGURATION',
+                'allowed_origins': [], 'allowed_methods': [], 'native_runner_ids': [],
+                'authorized_scope': {'origins': [], 'runner_ids': []}}
+    origins = []
+    for item in config.get('allowed_origins') or []:
+        parsed = urlsplit(str(item))
+        if parsed.scheme in ('http', 'https') and parsed.hostname and not parsed.username and not parsed.password and parsed.path in ('', '/') and not parsed.query and not parsed.fragment:
+            origins.append(f'{parsed.scheme}://{parsed.netloc}'.lower())
+    methods = [str(item).upper() for item in config.get('allowed_methods', ['GET', 'HEAD'])
+               if str(item).upper() in {'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'}]
+    runners = [str(key) for key, value in (config.get('native_runners') or {}).items()
+               if isinstance(value, dict) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}', str(key))]
+    auth_ref = config.get('auth_env_ref')
+    auth_ready = not auth_ref or bool(re.fullmatch(r'[A-Z][A-Z0-9_]+', str(auth_ref)) and os.environ.get(auth_ref))
+    result = {'status': 'READY' if origins or runners else 'BANK_BINDING_REQUIRED',
+            'binding_source': 'LOCAL_APPROVED_CONFIGURATION', 'approval_ref': config['approval_ref'],
+            'allowed_origins': sorted(set(origins)), 'allowed_methods': sorted(set(methods)),
+            'native_runner_ids': sorted(runners), 'auth_state': 'READY' if auth_ready else 'AUTH_REQUIRED',
+            'authorized_scope': {'origins': sorted(set(origins)), 'runner_ids': sorted(runners)},
+            'execution_requires_g4_admission': True, 'native_identity_check': 'REQUIRED_BEFORE_EXECUTION'}
+    from .r2_1.contracts import validate_secret_boundary
+    validate_secret_boundary(result)
+    return result
+
+
 def allowed_url(url, config, request):
     parsed = urlsplit(str(url))
     if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password:

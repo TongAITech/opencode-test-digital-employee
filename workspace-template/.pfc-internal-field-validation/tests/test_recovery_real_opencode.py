@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from aitest_runtime.autonomous_orchestration import DirectoryScopedOpenCodeSessionProvider
 from aitest_runtime.canonical_runtime import create_canonical_runtime
 from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
+from aitest_runtime.hosted_intake import hosted_user_intake
 from test_g2_1_session_router_control_loop import request, one_task
 
 
@@ -64,6 +65,16 @@ def main():
             assert catalog['connected'] == ['bank'], catalog['connected']
             runtime = create_canonical_runtime(WORKSPACE)
             orch = G21AutonomousOrchestrationService(runtime, WORKSPACE, session_provider=provider)
+            user_session = provider.create_session(title='Local hosted intake proof')
+            user_message = provider._request('POST', f'/session/{user_session.session_id}/message?{provider._directory_query()}',
+                {'agent':'aitest-director','noReply':True,'parts':[{'type':'text','text':'测试 BLOAN1.9.4'}]})
+            os.environ.update(AITEST_HOST_SESSION_ID=user_session.session_id, AITEST_HOST_MESSAGE_ID=user_message['info']['id'])
+            hosted = hosted_user_intake(provider, {'user_request':'测试 BLOAN1.9.4'})
+            assert hosted['scope'] == {'mode':'EXPLICIT_SET','version':'BLOAN1.9.4'}
+            assert hosted['source']['source_ref'].endswith(user_message['info']['id'])
+            admitted = orch.start_test(hosted)
+            assert admitted['status'] == 'PLANNING', admitted
+            os.environ.pop('AITEST_HOST_SESSION_ID', None); os.environ.pop('AITEST_HOST_MESSAGE_ID', None)
             mission = orch.start_test(request('actual-opencode-'+uuid.uuid4().hex, 'LOCAL-OPENCODE-ONLY'))['intake']['intake']['mission_id']
             first = orch.propose_plan(mission, one_task())['next']
             sid = first['external_session']['session_id']
@@ -95,7 +106,8 @@ def main():
                 'version':subprocess.check_output([str(binary),'--version'],text=True).strip(),
                 'metrics_source':observed['pressure']['metrics_source'],'rotation_count':len(rotations),
                 'checkpoint_and_attempt_lineage':'PASS','approved_provider_allowlist':'PASS',
-                'unconfigured_model_blocks_conversation':'PASS','bank_model_turn':'NOT_EXECUTED','BANK_FIELD_VALIDATION_REQUIRED':True}
+                'unconfigured_model_blocks_conversation':'PASS','hosted_natural_language_mission_intake':'PASS',
+                'bank_model_turn':'NOT_EXECUTED','BANK_FIELD_VALIDATION_REQUIRED':True}
             assert result['version']=='1.18.3'
             print(json.dumps(result,indent=2))
         finally:

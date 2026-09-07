@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import zipfile
+from urllib.parse import urlsplit
 from datetime import datetime, timezone
 from typing import Any, Mapping
 from xml.etree import ElementTree
@@ -33,6 +34,40 @@ KINDS = {"BR", "SR", "TR"}
 SEMANTIC_FIELDS = ("business_rules", "field_data_rules", "state_transitions", "positive_paths", "negative_paths",
                    "exception_paths", "boundary_rules", "permission_rules", "cross_system_flows", "acceptance_criteria",
                    "non_functional_risks", "unknowns")
+
+
+def _release_index(payload: Mapping[str, Any], *, offset: int = 0, limit: int = 24) -> dict[str, Any]:
+    """Bounded, explicit repository/requirement identity from approved exports."""
+    fields = ("repository_id", "application_id", "repository_path", "repo_path", "base_ref", "head_ref", "base_commit", "head_commit", "branch")
+    repositories = list(payload.get("repositories") or [])
+    requirements = list(payload.get("requirements") or [])
+    rows = []
+    for value in repositories[offset:offset + limit]:
+        if not isinstance(value, Mapping):
+            continue
+        row = {}
+        for field in fields:
+            item = value.get(field)
+            if isinstance(item, str) and item.strip():
+                parsed = urlsplit(item)
+                if parsed.scheme in {"http", "https"} and (parsed.username or parsed.password):
+                    row[field + "_withheld"] = "CREDENTIAL_BEARING_URL"
+                elif len(item) > 1024:
+                    row[field + "_withheld"] = "VALUE_EXCEEDS_CONTEXT_BUDGET"
+                else:
+                    row[field] = item
+        rows.append(row)
+    req_rows = []
+    for value in requirements[offset:offset + limit]:
+        if not isinstance(value, Mapping):
+            continue
+        row = {key: value[key] for key in ("requirement_id", "revision") if isinstance(value.get(key), str) and len(value[key]) <= 1024}
+        if isinstance(value.get("sst_ids"), list):
+            row["sst_ids"] = [item for item in value["sst_ids"][:20] if isinstance(item, str) and len(item) <= 256]
+            row["sst_count"] = len(value["sst_ids"])
+        req_rows.append(row)
+    return {"repositories": rows, "requirements": req_rows, "repository_count": len(repositories),
+            "requirement_count": len(requirements), "next_offset": offset + limit if offset + limit < max(len(repositories), len(requirements)) else None}
 
 
 def _text(value: Any, field: str) -> str:
@@ -362,7 +397,8 @@ class RecoveryIntakeService:
         selected = artifacts[offset:offset + limit]
         return {"schema_version": SCHEMA, "truth_source": "R1_EVENT_STREAM", "mission_id": mission_id,
                 "starlink_export_status": status, "live_starlink_status": "BANK_BINDING_REQUIRED",
-                "current_release": None if release is None else {"fact_id": release.fact_id, **{k: release.payload[k] for k in ("release_id", "project_id", "revision", "sha256", "binding_ref")}},
+                "current_release": None if release is None else {"fact_id": release.fact_id, **{k: release.payload[k] for k in ("release_id", "project_id", "revision", "sha256", "binding_ref")},
+                                                                  **_release_index(release.payload, offset=offset, limit=limit)},
                 "documents": [{"fact_id": f.fact_id, **{k: f.payload[k] for k in ("source_id", "source_kind", "revision", "sha256")}} for f in state.by_kind("SOURCE_DOCUMENT")][-100:],
                 "artifacts": [{"fact_id": f["fact_id"], **{k: f["payload"][k] for k in ("artifact_id", "kind", "revision", "scope_identity", "parent_refs", "source_refs", "asset_refs")},
                                "text_excerpt": f["payload"]["text"][:600]} for f in selected],
@@ -376,8 +412,36 @@ class RecoveryIntakeService:
         payload = dict(fact.payload)
         text = payload.pop("text", None)
         offset, limit = max(0, int(offset)), min(32000, max(1, int(limit)))
+        if fact.fact_kind == "CURRENT_RELEASE":
+            index = _release_index(payload, offset=offset, limit=min(limit, 100))
+            return {"fact_id": fact_id, "truth_source": "R1_EVENT_STREAM", "payload": {
+                **{key: payload[key] for key in ("release_id", "project_id", "revision", "sha256", "binding_ref", "observed_at")}, **index},
+                "text": None, "next_offset": index["next_offset"]}
         return {"fact_id": fact_id, "truth_source": "R1_EVENT_STREAM", "payload": payload, "text": text[offset:offset+limit] if text else None,
                 "next_offset": offset + limit if text and offset + limit < len(text) else None}
+
+
+def read_dispatch(workspace_root: str | Path, action: str, payload: Mapping[str, Any], *, runtime: Any = None) -> dict[str, Any]:
+    """Read-only product seam; caller retains its existing role/binding checks."""
+    if action not in {"intake_context", "read_intake_source", "binding_context"}:
+        raise RuntimeError("RECOVERY_READ_ACTION_FORBIDDEN", action)
+    from aitest_runtime.canonical_runtime import create_canonical_runtime
+    canonical = runtime or create_canonical_runtime(workspace_root)
+    service = RecoveryIntakeService(canonical)
+    data = dict(payload)
+    mission = _text(data.pop("mission_id", None), "mission_id")
+    if canonical.replay(mission).mission is None:
+        raise RuntimeError("MISSION_NOT_FOUND", mission)
+    for key in ("task_id", "attempt_id", "session_id", "root_attempt_id", "logical_agent_id"):
+        data.pop(key, None)
+    if action == "binding_context":
+        if data:
+            raise RuntimeError("RECOVERY_READ_INPUT_INVALID", "binding_context takes only the canonical Mission/worker binding")
+        from aitest_runtime.recovery_executors import safe_binding_context
+        return {"truth_source": "R1_EVENT_STREAM", "mission_id": mission, "execution_binding": safe_binding_context(workspace_root),
+                "current_release": service.work_context(mission, limit=24)["current_release"], "actual_coverage": "NOT_ASSERTED"}
+    method = service.work_context if action == "intake_context" else service.source
+    return method(mission, **data)
 
 
 def dispatch(workspace_root: str | Path, action: str, payload: Mapping[str, Any], *, runtime: Any = None) -> dict[str, Any]:

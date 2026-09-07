@@ -5,6 +5,7 @@ SQL connection, extra event family, or alternate durable authority is involved.
 """
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import sqlite3
 from typing import Any, Mapping
@@ -24,7 +25,10 @@ class CanonicalObservationSnapshotStore:
     def _records(self):
         # Global resolution identity retains the frozen R2.1 conflict boundary.
         # Query the authority (events), never the legacy observation database.
-        with sqlite3.connect(str(self.runtime.db_path)) as connection:
+        # A sqlite transaction context commits/rolls back but does not close its
+        # connection. Close before yielding so even short-circuit lookups release
+        # the database file immediately (required by Windows restart/cleanup).
+        with closing(sqlite3.connect(str(self.runtime.db_path))) as connection:
             rows = connection.execute("SELECT payload_json FROM events WHERE event_type=? ORDER BY rowid", (FACT_RECORDED,)).fetchall()
         for (payload,) in rows:
             value = json.loads(payload)

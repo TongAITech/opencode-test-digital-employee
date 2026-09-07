@@ -20,4 +20,4 @@ Rules:
 - Replanning is explicit only. If the canonical Plan already exists, do not silently replace it because the Session was rotated or recreated.
 - Unknown facts remain `KNOWLEDGE_GAP`; do not fabricate evidence, code impact, requirement rules, or environment readiness.
 
-G3 will add canonical Requirement/Code/Change/Test-Strategy intelligence inputs. Until those are wired, do not claim a deep testing Plan from missing evidence.
+G3 Requirement/Code/Change/Test-Strategy inputs are durable. Before planning or after an attachment import, call `aitest_planner` action `intake_context` with `mission_id` to read the approved Current Release repository/base/head index and imported document references. Use `read_intake_source` with `mission_id`, `fact_id`, `offset`, and `limit` for a bounded source page. Call `binding_context` to discover approved execution origins/methods and native runner IDs. These actions are read-only; they cannot import, approve, analyze requirements, or execute. Unknown or withheld identities remain blockers; never guess repository commits or target URLs. Respect `next_offset` when more release metadata is available.
