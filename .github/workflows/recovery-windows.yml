@@ -1,0 +1,88 @@
+name: Recovery turnkey Windows validation
+on:
+  push:
+    branches: [work/v1.9.5-recovery-turnkey-validation]
+    paths: [tools/recovery/ci-package.json]
+  workflow_dispatch:
+    inputs:
+      draft_release_tag:
+        description: Unpublished draft release holding the exact package asset
+        required: true
+        type: string
+      asset_name:
+        description: Package ZIP asset name
+        required: true
+        default: AITest-V1.9.5-Recovery-Turnkey-Windows-x64.zip
+        type: string
+      expected_sha256:
+        description: SHA256 produced by build_package.py
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  windows-package:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PIP_NO_INDEX: '1'
+      OPENCODE_DISABLE_AUTOUPDATE: 'true'
+      AITEST_OFFLINE_MODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download exact private draft asset on CI construction host
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.draft_release_tag }}
+          ASSET_NAME: ${{ inputs.asset_name }}
+          EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq 'push') {
+            $config = Get-Content tools/recovery/ci-package.json -Raw | ConvertFrom-Json
+            $env:RELEASE_TAG = $config.draft_release_tag
+            $env:ASSET_NAME = $config.asset_name
+            $env:EXPECTED_SHA256 = $config.expected_sha256
+          }
+          if ($env:EXPECTED_SHA256 -notmatch '^[a-fA-F0-9]{64}$') { throw 'Invalid expected package SHA256' }
+          if (-not $env:RELEASE_TAG -or -not $env:ASSET_NAME) { throw 'Missing exact draft asset identity' }
+          New-Item -ItemType Directory -Path incoming -Force | Out-Null
+          gh release download $env:RELEASE_TAG --repo $env:GH_REPO --pattern $env:ASSET_NAME --dir incoming
+          if ($LASTEXITCODE -ne 0) { throw 'Draft asset retrieval failed' }
+          $zip = Join-Path incoming $env:ASSET_NAME
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $env:EXPECTED_SHA256.ToLowerInvariant()) { throw "ZIP SHA256 mismatch: $actual" }
+          Expand-Archive -Path $zip -DestinationPath unpacked
+          $bundle = Get-ChildItem unpacked -Directory | Select-Object -First 1
+          "AITEST_BUNDLE=$($bundle.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Validate offline bundle with its packaged Python
+        shell: pwsh
+        run: |
+          Set-Location $env:AITEST_BUNDLE
+          $env:GH_TOKEN = ''
+          & '.\workspace-template\runtime\python\python.exe' '.\tools\recovery\validate_package.py' --bundle . --output windows-validation.json
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged Windows validation failed' }
+      - name: Run the single user entry doctor and self check
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$AITEST_BUNDLE"
+          unset GH_TOKEN
+          bash AITEST.sh --doctor | tee windows-doctor.txt
+          bash AITEST.sh --self-check | tee windows-self-check.txt
+      - name: Retain exact Windows machine evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-windows-evidence
+          path: |
+            unpacked/**/windows-validation.json
+            unpacked/**/windows-doctor.txt
+            unpacked/**/windows-self-check.txt
+            unpacked/**/MACHINE_VALIDATION_RESULT.json
+            unpacked/**/BUILD_PROVENANCE.json
+          if-no-files-found: warn
