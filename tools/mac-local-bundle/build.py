@@ -2,6 +2,28 @@
 from pathlib import Path
 import argparse,hashlib,json,os,shutil,subprocess,tarfile,zipfile,stat
 
+OPENCODE_LICENSE='''MIT License
+
+Copyright (c) 2025 opencode
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'''
 def digest(p):
     h=hashlib.sha256()
     with p.open('rb') as f:
@@ -19,6 +41,7 @@ def main():
     with zipfile.ZipFile(inputs/'runtime/opencode.zip') as z:z.extractall(bundle/'runtime/opencode')
     oc=bundle/'runtime/opencode/opencode';oc.chmod(0o755)
     if digest(oc)!='ba11415d6af7efc9dc0073520d546b869711da5f39076d12e08eeb266ba1279b':raise RuntimeError('OpenCode mismatch')
+    (bundle/'runtime/opencode/LICENSE').write_text(OPENCODE_LICENSE)
     (bundle/'runtime/python/python').symlink_to('bin/python3.12')
     shutil.copytree(inputs/'plugin',bundle/'runtime/plugin',symlinks=True)
     (bundle/'app').mkdir();shutil.copy2(Path(__file__).with_name('launcher.py'),bundle/'app/launcher.py')
@@ -67,7 +90,6 @@ def main():
             else:z.write(f,relative)
     (out/'SHA256SUMS.txt').write_text(digest(archive)+'  '+archive.name+'\n')
     shutil.copytree(evidence,out/'review-evidence')
-    # Keep the upload bounded; the ZIP already contains the complete candidate.
     shutil.rmtree(source);shutil.rmtree(checkroot);shutil.rmtree(bundle)
     print(json.dumps({'archive':str(archive),'sha256':digest(archive),'status':'RUNTIME_CANDIDATE_ONLY_NOT_TURNKEY'},indent=2))
 if __name__=='__main__':main()

@@ -86,7 +86,7 @@ def server(root,check_only=False):
                 except Exception:time.sleep(.5)
             else:raise RuntimeError('服务启动超时；未连接用户已有服务。')
             if check_only:
-                help_text=subprocess.check_output([str(OC),'attach','--help'],env=env,text=True)
+                help_text=subprocess.check_output([str(OC),'attach','--help'],env=env,text=True,stderr=subprocess.STDOUT)
                 if '--dir' not in help_text:raise RuntimeError('attach --dir 不受支持。')
                 print(json.dumps({'status':'NATIVE_SERVER_BOOT_PASS','session_api':'AUTHENTICATED','model_turn':'NOT_EXECUTED','product_acceptance':False},indent=2));return 0
             print('\n仅诊断模式；新测试入口仍有阻塞，不要提交真实银行数据。\n模型：'+model+'\n工作目录：'+str(workspace)+'\n日志：'+str(log))
