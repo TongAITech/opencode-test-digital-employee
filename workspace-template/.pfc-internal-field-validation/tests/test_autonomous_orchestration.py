@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import sys
 import tempfile
@@ -220,9 +221,14 @@ def main() -> int:
 
     tool_source = (WORKSPACE_ROOT / ".opencode/tools/aitest.ts").read_text(encoding="utf-8")
     product_source = (RUNTIME_ROOT / "aitest_runtime/product_entry.py").read_text(encoding="utf-8")
+    executor_surface = tool_source.split("export const executor = tool({", 1)[1].split("export const g4_director", 1)[0]
+    action_match = re.search(r'action\s*:\s*tool\.schema\.string\(\)\.describe\("([^"]+)"\)', executor_surface)
+    executor_actions = set(action_match.group(1).split("|")) if action_match else set()
+    required_executor_actions = {"status", "report_task_outcome", "record_cursor", "recover_cursor", "register_capability", "validate_executor", "execute_capability", "capability_human_gate", "request_human_takeover", "reconcile_human_takeover", "complete_human_takeover", "record_step_result", "create_batch"}
     checks["product_tool_exposes_outcome_but_agent_session_health_is_removed"] = (
-        '"EXECUTOR"' in tool_source and "report_task_outcome" in tool_source
-        and 'action: tool.schema.string().describe("status|report_task_outcome|record_cursor|recover_cursor|register_capability|validate_executor|execute_capability|capability_human_gate|request_human_takeover|reconcile_human_takeover|complete_human_takeover|record_step_result|create_batch")' in tool_source
+        '"EXECUTOR"' in executor_surface
+        and required_executor_actions <= executor_actions
+        and not ({"observe_session", "rotate_session", "create_session", "close_session", "control_tick", "reconcile_sessions"} & executor_actions)
         and '"EXECUTOR": {"status", "report_task_outcome"}' in product_source
         and "create_session" not in tool_source.split("export const executor = tool({", 1)[1].split("export const g4_director", 1)[0]
         and "rotate_session" not in tool_source.split("export const executor = tool({", 1)[1].split("export const g4_director", 1)[0]

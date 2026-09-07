@@ -265,6 +265,22 @@ class DirectoryScopedOpenCodeSessionProvider:
         )
         return dict(payload) if isinstance(payload, Mapping) else {"accepted": True}
 
+    def session_activity(self, session_id: str) -> str:
+        """Read the real directory-scoped admission state before explicit wake."""
+        payload = self._request("GET", f"/session/status?{self._directory_query()}")
+        if not isinstance(payload, Mapping):
+            raise RuntimeError("OPENCODE_SESSION_STATUS_INVALID")
+        value = payload.get(session_id)
+        if value is None:
+            # OpenCode omits idle Sessions from this map. Verify existence in
+            # the same directory before interpreting an absent entry as idle.
+            if any(item.session_id == session_id for item in self.list_sessions()):
+                return "idle"
+            raise RuntimeError("OPENCODE_SESSION_NOT_FOUND_FOR_CONTINUE")
+        if not isinstance(value, Mapping) or value.get("type") not in {"idle", "busy", "retry"}:
+            raise RuntimeError("OPENCODE_SESSION_STATUS_INVALID")
+        return str(value["type"])
+
     def abort_session(self, session_id: str) -> bool:
         payload = self._request("POST", f"/session/{urllib.parse.quote(_text(session_id, 'session_id'))}/abort?{self._directory_query()}", {})
         if payload is False:
@@ -424,6 +440,11 @@ class FakeOpenCodeSessionProvider:
         if session_id not in self.sessions:
             raise RuntimeError(f"FAKE_SESSION_NOT_FOUND: {session_id}")
         self.observations[session_id] = dict(values)
+
+    def session_activity(self, session_id: str) -> str:
+        if session_id not in self.sessions:
+            raise RuntimeError("FAKE_SESSION_NOT_FOUND")
+        return str(self.observations.get(session_id, {}).get("activity_state", "idle"))
 
     def observe_session(self, session_id: str) -> Mapping[str, Any]:
         if session_id not in self.sessions:
@@ -707,8 +728,102 @@ class AutonomousOrchestrationService:
                 raise RuntimeError("ACTIVE_MISSION_NOT_FOUND_FOR_SCOPE")
         _composed, _graph, _goal, current_plan = self._active_plan_context(resolved)
         if current_plan is None:
+            for session in reversed(_composed.core_state.sessions):
+                attrs = dict(session.attributes or {})
+                if session.status.value == "OPEN" and attrs.get("phase") == "PLANNING" and attrs.get("opencode_agent") == "aitest-planner":
+                    return self._continue_existing_planner(resolved, session)
             return self.open_planning_session(resolved)
         return self.advance(resolved)
+
+    def _continue_existing_planner(self, mission_id: str, session: Any) -> dict[str, Any]:
+        """Explicit continuation wakes once per semantic R1 input snapshot.
+
+        Automatic reconciliation continues to own provisioning recovery. This
+        path never creates another Session, prompts a busy Planner, or imports
+        conversation as state. A durable claim precedes the external prompt;
+        uncertain delivery stays visible and is never blindly retried.
+        """
+        composed, _graph, goal, plan = self._active_plan_context(mission_id)
+        if plan is not None:
+            return self.advance(mission_id)
+        state = composed.extension_state("g3_testing_intelligence_product_integration")
+        facts = list(getattr(state, "facts", ()))
+        index = [{"fact_id": fact.fact_id, "kind": fact.fact_kind, "digest": fact.digest} for fact in facts]
+        digest = canonical_sha256({"goal": goal.to_dict(), "input_facts": index})
+        refresh_ref = "g2:planner-continue:" + canonical_sha256({"session_id": session.session_id, "input_digest": digest})[:32]
+        base = {"schema_version": G2_SCHEMA, "truth_source": "R1_EVENT_STREAM", "mission_id": mission_id,
+                "session_id": session.session_id, "logical_agent_id": (session.attributes or {}).get("logical_agent_id"),
+                "continuation_ref": refresh_ref, "input_digest": digest, "conversation_is_not_truth": True}
+
+        def applied(phase: str) -> bool:
+            connection = sqlite3.connect(str(self.runtime.db_path))
+            try:
+                return connection.execute("SELECT 1 FROM commands WHERE mission_id=? AND idempotency_key=? AND status='APPLIED'",
+                                          (mission_id, refresh_ref + ":" + phase)).fetchone() is not None
+            finally:
+                connection.close()
+
+        if applied("ACCEPTED"):
+            return {**base, "status": "ALREADY_REFRESHED", "prompt_sent": False}
+        if applied("REQUESTED"):
+            return {**base, "status": "WAIT", "reason": "PLANNER_REFRESH_DELIVERY_UNCONFIRMED", "prompt_sent": False}
+        provider = getattr(self, "raw_session_provider", self.session_provider)
+        activity = getattr(provider, "session_activity", None)
+        if not callable(activity):
+            return {**base, "status": "WAIT", "reason": "PLANNER_ACTIVITY_UNAVAILABLE", "prompt_sent": False}
+        try:
+            observed_activity = activity(session.session_id)
+        except Exception as exc:
+            return {**base, "status": "WAIT", "reason": "PLANNER_ACTIVITY_UNAVAILABLE", "error": type(exc).__name__, "prompt_sent": False}
+        if observed_activity != "idle":
+            return {**base, "status": "WAIT", "reason": "PLANNER_BUSY" if observed_activity in {"busy", "retry"} else "PLANNER_ACTIVITY_UNAVAILABLE", "prompt_sent": False}
+
+        envelope = {"schema": "aitest.planning-context.v1", "authority": "R1_EVENT_STREAM", "conversation_is_not_truth": True,
+                    "mission_id": mission_id, "logical_agent_id": base["logical_agent_id"], "goal": goal.to_dict(),
+                    "r1_cursor": {"mission_id": mission_id, "through_seq": composed.seq}, "continuation_ref": refresh_ref,
+                    "input_digest": digest, "durable_input_count": len(index), "durable_input_refs": index[-24:],
+                    "instruction": "The user explicitly continued after updating durable inputs. Read intake_context and read_intake_source, then canonical G3 work_context for current governed sources. Resume this same Mission and author a bounded Plan candidate through propose_plan. Session lifecycle belongs to G2.1 Runtime; do not create or rotate Sessions. Unknown facts remain KNOWLEDGE_GAP."}
+        prefix = "AITEST_CANONICAL_PLANNING_CONTEXT\n"
+        def encode():
+            return prefix + json.dumps(envelope, ensure_ascii=False, sort_keys=True)
+        if len(encode().encode("utf-8")) > 16384:
+            envelope["goal"] = {"goal_id": goal.goal_id, "revision": goal.revision, "digest": canonical_sha256(goal.to_dict()), "body_omitted": True}
+        while len(encode().encode("utf-8")) > 16384 and envelope["durable_input_refs"]:
+            envelope["durable_input_refs"].pop(0)
+        envelope["omitted_input_refs"] = len(index) - len(envelope["durable_input_refs"])
+        text = encode()
+        if len(text.encode("utf-8")) > 16384:
+            raise RuntimeError("PLANNER_CONTINUATION_CONTEXT_EXCEEDS_BUDGET")
+
+        def record(phase: str):
+            receipt = {"session_id": session.session_id, "observed_at": _utc_now(), "reachable": True, "healthy": None,
+                       "message_count": None, "compaction_count": None, "context_used": None, "context_limit": None,
+                       "context_utilization": None, "last_activity_at": None, "provider_state": {"provider": "OPENCODE"}}
+            control = self.runtime.replay_composed(mission_id).extension_state("g2_1_session_control")
+            previous = control.observation(session.session_id) if control is not None else None
+            if previous is not None:
+                # A refresh receipt must not reset the supervisor's durable
+                # blind-mode budget or discard its last pressure observation.
+                receipt.update({key: value for key, value in previous.to_dict().items() if key != "recorded_seq"})
+            receipt["provider_state"] = {**receipt["provider_state"], "planner_refresh": {
+                "continuation_ref": refresh_ref, "phase": phase, "input_digest": digest,
+                "source_through_seq": composed.seq, "context_sha256": canonical_sha256({"text": text})}}
+            return self.runtime.execute(CommandEnvelope(
+                refresh_ref + ":" + phase + ":" + uuid.uuid4().hex, "G21_RECORD_SESSION_OBSERVATION", mission_id,
+                self.runtime.get_head_seq(mission_id), ActorRef("SYSTEM", "g2-explicit-planner-continue"), receipt,
+                session_id=session.session_id, idempotency_key=refresh_ref + ":" + phase, correlation_id=refresh_ref, schema_version=1))
+
+        claimed = record("REQUESTED")
+        if not claimed.ok or claimed.outcome != "APPLIED":
+            return {**base, "status": "WAIT", "reason": "PLANNER_REFRESH_CLAIM_NOT_ACQUIRED", "prompt_sent": False}
+        try:
+            provider.send_context(session_id=session.session_id, agent="aitest-planner", text=text)
+        except Exception as exc:
+            return {**base, "status": "WAIT", "reason": "PLANNER_REFRESH_DELIVERY_UNCONFIRMED", "error": type(exc).__name__, "prompt_sent": None}
+        accepted = record("ACCEPTED")
+        if not accepted.ok:
+            return {**base, "status": "WAIT", "reason": "PLANNER_REFRESH_RECEIPT_PENDING", "prompt_sent": True}
+        return {**base, "status": "PLANNER_CONTEXT_REFRESHED", "prompt_sent": True, "head_seq": self.runtime.get_head_seq(mission_id)}
 
     def _active_plan_context(self, mission_id: str) -> tuple[Any, WorkGraphState, Any, Any | None]:
         composed = self.runtime.replay_composed(mission_id)

@@ -7,6 +7,7 @@ real canonical R1 Event Stream and G2/G2.1 extensions.
 from __future__ import annotations
 
 import hashlib
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -449,9 +450,17 @@ def main() -> int:
     tool_source = (WORKSPACE_ROOT / ".opencode/tools/aitest.ts").read_text(encoding="utf-8")
     scheduler_agent = (WORKSPACE_ROOT / ".opencode/agents/aitest-scheduler.md").read_text(encoding="utf-8")
     executor_agent = (WORKSPACE_ROOT / ".opencode/agents/aitest-executor.md").read_text(encoding="utf-8")
+    executor_surface = tool_source.split("export const executor = tool({", 1)[1].split("export const g4_director", 1)[0]
+    scheduler_surface = tool_source.split("export const scheduler = tool({", 1)[1].split("export const executor", 1)[0]
+    def declared_actions(surface: str) -> set[str]:
+        match = re.search(r'action\s*:\s*tool\.schema\.string\(\)\.describe\("([^"]+)"\)', surface)
+        return set(match.group(1).split("|")) if match else set()
+    required_executor_actions = {"status", "report_task_outcome", "record_cursor", "recover_cursor", "register_capability", "validate_executor", "execute_capability", "capability_human_gate", "request_human_takeover", "reconcile_human_takeover", "complete_human_takeover", "record_step_result", "create_batch"}
     checks["agent_prompts_and_tools_do_not_own_session_lifecycle"] = (
-        'action: tool.schema.string().describe("status|advance|dispatch_next")' in tool_source
-        and 'action: tool.schema.string().describe("status|report_task_outcome|record_cursor|recover_cursor|register_capability|validate_executor|execute_capability|capability_human_gate|request_human_takeover|reconcile_human_takeover|complete_human_takeover|record_step_result|create_batch")' in tool_source
+        {"status", "advance", "dispatch_next"} <= declared_actions(scheduler_surface)
+        and required_executor_actions <= declared_actions(executor_surface)
+        and '"SCHEDULER"' in scheduler_surface and '"EXECUTOR"' in executor_surface
+        and not ({"observe_session", "rotate_session", "create_session", "close_session", "control_tick", "reconcile_sessions"} & (declared_actions(scheduler_surface) | declared_actions(executor_surface)))
         and "create_session" not in tool_source.split("export const executor = tool({", 1)[1].split("export const g4_director", 1)[0]
         and "rotate_session" not in tool_source.split("export const executor = tool({", 1)[1].split("export const g4_director", 1)[0]
         and "close_session" not in tool_source.split("export const executor = tool({", 1)[1].split("export const g4_director", 1)[0]
