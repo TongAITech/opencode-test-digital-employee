@@ -267,7 +267,7 @@ class G4RealExecutionService(_BaseG4RealExecutionService):
             self._record(
                 mission_id,
                 "UNEXPECTED_OBSERVATION",
-                {"step_result_ref": fact["fact_id"], "oracle_result": oracle, "status": "OBSERVATION_ONLY", "g5_defect_truth": "HOLD"},
+                {"step_result_ref": fact["fact_id"], "oracle_result": oracle, "status": "OBSERVATION_ONLY", "g5_defect_truth": "CLOSED/FROZEN"},
                 provenance_refs=(fact["fact_id"],),
             )
-        return {"status": oracle, "truth_source": "R1_EVENT_STREAM", "result": fact, "g5_defect_truth": "HOLD"}
+        return {"status": oracle, "truth_source": "R1_EVENT_STREAM", "result": fact, "g5_defect_truth": "CLOSED/FROZEN"}

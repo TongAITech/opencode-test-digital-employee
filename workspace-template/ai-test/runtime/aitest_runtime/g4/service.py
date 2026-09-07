@@ -258,8 +258,8 @@ class G4RealExecutionService(_R2_5_G4RealExecutionService):
                     "step_result_ref": fact["fact_id"],
                     "oracle_result": oracle,
                     "status": "OBSERVATION_ONLY",
-                    "g5_defect_truth": "HOLD",
+                    "g5_defect_truth": "CLOSED/FROZEN",
                 },
                 provenance_refs=(fact["fact_id"],),
             )
-        return {"status": oracle, "truth_source": "R1_EVENT_STREAM", "result": fact, "g5_defect_truth": "HOLD"}
+        return {"status": oracle, "truth_source": "R1_EVENT_STREAM", "result": fact, "g5_defect_truth": "CLOSED/FROZEN"}

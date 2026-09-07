@@ -355,7 +355,7 @@ def main():
                 behavior["g4_fail_creates_durable_unexpected_observation"] = (
                     outcome["status"] == "FAIL"
                     and observation.payload.get("status") == "OBSERVATION_ONLY"
-                    and observation.payload.get("g5_defect_truth") == "HOLD"
+                    and observation.payload.get("g5_defect_truth") == "CLOSED/FROZEN"
                 )
                 behavior["g4_fail_remains_observation_only"] = (
                     observation.fact_kind == "UNEXPECTED_OBSERVATION"

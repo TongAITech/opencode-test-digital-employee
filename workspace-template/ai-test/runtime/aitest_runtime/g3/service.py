@@ -61,11 +61,11 @@ def recommended_plan(intent_type: str) -> dict[str, Any]:
         tasks.append({
             "task_key": key,
             "intent": f"G3 {key.replace('-', ' ')} for {intent}",
-            "acceptance_criteria": [{"id": f"g3-{key}-evidence", "description": "Result is evidence-bound, durable in R1, and preserves G4/G5 HOLD boundaries"}],
+            "acceptance_criteria": [{"id": f"g3-{key}-evidence", "description": "Result is evidence-bound, durable in R1, and preserves G4 Executor and G5 Diagnosis authority boundaries"}],
             "routing": {"role": role, "agent_name": ROLE_AGENTS[role], "required_capabilities": list(ROLE_CAPABILITIES[role]), "isolation_policy": "TASK_SCOPED", "parallelism_policy": "SERIAL"},
         })
         if index > 1: deps.append({"from": selected[index-2][0], "to": key})
-    return {"objective": f"Execute governed G3 testing intelligence for {intent}", "constraints": [{"kind": "RUNTIME_TRUTH", "value": "R1_EVENT_STREAM_ONLY"}, {"kind": "EXECUTION_BOUNDARY", "value": "G4_HOLD"}, {"kind": "DEFECT_TRUTH_BOUNDARY", "value": "G5_HOLD"}], "tasks": tasks, "dependencies": deps}
+    return {"objective": f"Execute governed G3 testing intelligence for {intent}", "constraints": [{"kind": "RUNTIME_TRUTH", "value": "R1_EVENT_STREAM_ONLY"}, {"kind": "EXECUTION_BOUNDARY", "value": "G4_GOVERNED_EXECUTOR_ONLY"}, {"kind": "DEFECT_TRUTH_BOUNDARY", "value": "G5_GOVERNED_DIAGNOSIS_ONLY"}], "tasks": tasks, "dependencies": deps}
 
 
 
@@ -381,4 +381,4 @@ class G3TestingIntelligenceService:
             if missing: raise RuntimeError("G3_SAFETY_CONTRACT_REQUIRED", ",".join(missing))
         data.update({"profile_type": ptype, "design_only": True, "execution_gate": "HOLD_G4", "real_scan_or_load_executed": False})
         fact = self._record(mission_id, "TEST_PROFILE", data, provenance_refs=("g3:focused-test-intent",))
-        return {"status": "PASS", "truth_source": "R1_EVENT_STREAM", "profile": fact, "g4_real_execution": "HOLD"}
+        return {"status": "PASS", "truth_source": "R1_EVENT_STREAM", "profile": fact, "g4_real_execution": "CLOSED/FROZEN"}

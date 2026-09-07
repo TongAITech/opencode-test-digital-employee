@@ -104,11 +104,14 @@ def admit_g4_observation(
     if observation.fact_kind != "UNEXPECTED_OBSERVATION":
         _fail("G5_G4_ADMISSION_INVALID", "G4 fact is not UNEXPECTED_OBSERVATION")
 
+    # Read historical observations without rewriting R1. Engineering closure
+    # metadata never grants confirmed-defect authority: status, oracle, exact
+    # provenance and attempt lineage are independently enforced below.
     observation_payload = dict(observation.payload)
     trigger = str(observation_payload.get("oracle_result") or "").upper()
     if (
         observation_payload.get("status") != "OBSERVATION_ONLY"
-        or observation_payload.get("g5_defect_truth") != "HOLD"
+        or observation_payload.get("g5_defect_truth") not in {"HOLD", "CLOSED/FROZEN"}
         or trigger not in _G4_ORACLE_TRIGGERS
     ):
         _fail("G5_G4_ADMISSION_INVALID", "G4 observation is not an eligible observation-only trigger")

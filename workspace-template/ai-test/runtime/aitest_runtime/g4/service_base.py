@@ -180,7 +180,7 @@ class G4RealExecutionService:
         return {
             "schema_version": G4_SCHEMA, "status": "PASS", "truth_source": "R1_EVENT_STREAM",
             "conversation_is_not_truth": True, "mission_id": mission_id, "fact_count": len(state.facts),
-            "counts": counts, "g5_defect_truth": "HOLD", "g6_closed_loop": "HOLD",
+            "counts": counts, "g5_defect_truth": "CLOSED/FROZEN", "g6_closed_loop": "HOLD",
             "legacy_aitest_db_write": "FORBIDDEN",
         }
 
@@ -342,6 +342,10 @@ class G4RealExecutionService:
     def validate_executor_request(self, capability_id: str, request: Mapping[str, Any]) -> CapabilityDecision:
         capability = _text(capability_id, "capability_id").upper()
         data = _dict(request, "request")
+        if capability == "UNIT":
+            if not data.get("runner_id") or not data.get("authorized_scope"):
+                return CapabilityDecision(capability, "UNAVAILABLE", "UNIT_APPROVED_NATIVE_RUNNER_REQUIRED", data)
+            return CapabilityDecision(capability, "AVAILABLE", None, data)
         if capability in {"BROWSER", "BROWSER_UI", "UI"}:
             if not data.get("browser_context_ref") or not data.get("authorized_scope"):
                 return CapabilityDecision(capability, "UNAVAILABLE", "BROWSER_CONTEXT_AND_SCOPE_REQUIRED", data)
@@ -464,7 +468,7 @@ class G4RealExecutionService:
                 "execution_node": data.get("execution_node"), "auth_context_ref": data.get("auth_context_ref"),
                 "side_effect_summary": observation.get("side_effect_summary"),
             })
-            return {"status": durable["status"], "truth_source": "R1_EVENT_STREAM", "execution": "COMPLETED", "provider": descriptor.to_dict(), "result": durable["result"], "g5_defect_truth": "HOLD"}
+            return {"status": durable["status"], "truth_source": "R1_EVENT_STREAM", "execution": "COMPLETED", "provider": descriptor.to_dict(), "result": durable["result"], "g5_defect_truth": "CLOSED/FROZEN"}
         finally:
             if result is not None:
                 provider.cleanup(result)
@@ -746,8 +750,8 @@ class G4RealExecutionService:
         }
         fact = self._record(mission_id, "EXECUTION_STEP_RESULT", payload, provenance_refs=tuple(str(x) for x in evidence))
         if oracle in {"FAIL", "INCONCLUSIVE", "ERROR"}:
-            self._record(mission_id, "UNEXPECTED_OBSERVATION", {"step_result_ref": fact["fact_id"], "oracle_result": oracle, "status": "OBSERVATION_ONLY", "g5_defect_truth": "HOLD"}, provenance_refs=(fact["fact_id"],))
-        return {"status": oracle, "truth_source": "R1_EVENT_STREAM", "result": fact, "g5_defect_truth": "HOLD"}
+            self._record(mission_id, "UNEXPECTED_OBSERVATION", {"step_result_ref": fact["fact_id"], "oracle_result": oracle, "status": "OBSERVATION_ONLY", "g5_defect_truth": "CLOSED/FROZEN"}, provenance_refs=(fact["fact_id"],))
+        return {"status": oracle, "truth_source": "R1_EVENT_STREAM", "result": fact, "g5_defect_truth": "CLOSED/FROZEN"}
 
     def create_batch(self, mission_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
         data = _dict(request, "request")

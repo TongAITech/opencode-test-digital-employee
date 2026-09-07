@@ -1067,7 +1067,7 @@ def main() -> int:
                             and all(
                                 item.fact_kind == "UNEXPECTED_OBSERVATION"
                                 and item.payload.get("status") == "OBSERVATION_ONLY"
-                                and item.payload.get("g5_defect_truth") == "HOLD"
+                                and item.payload.get("g5_defect_truth") == "CLOSED/FROZEN"
                                 for item in observations
                             ),
                             "one_observation_is_g5_admitted": any(
