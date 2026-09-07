@@ -21,6 +21,7 @@ from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestration
 from aitest_runtime.g4.service import G4RealExecutionService
 from aitest_runtime.recovery_browser import CDPBrowserProvider, TeachingObserver, load_binding, safe_url, scrub
 from test_g2_1_session_router_control_loop import request, one_task
+from aitest_runtime.recovery_executors import OfflineExecutor
 from test_recovery_g4_execution import make_repo, RecoveryIntakeService, G3TestingIntelligenceService, R33ApplicationService, RISK_DIMENSIONS, exec_task
 
 
@@ -124,7 +125,8 @@ class BrowserTests(unittest.TestCase):
                     sock.bind(("127.0.0.1", 0)); port = sock.getsockname()[1]
                 origin = f"http://127.0.0.1:{server.server_port}"
                 endpoint = f"http://127.0.0.1:{port}"
-                browser_process = subprocess.Popen([os.environ["AITEST_BROWSER_SMOKE_CHROMIUM"], "--headless=new", f"--remote-debugging-port={port}", f"--user-data-dir={root / 'profile'}", "--no-first-run", origin], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                browser_log = (root / "browser.log").open("w")
+                browser_process = subprocess.Popen([os.environ["AITEST_BROWSER_SMOKE_CHROMIUM"], "--headless=new", f"--remote-debugging-port={port}", f"--user-data-dir={root / 'profile'}", "--no-first-run", origin], stdout=browser_log, stderr=browser_log)
                 runtime = create_canonical_runtime(root, db_path=root / "runtime-spine.db")
                 service = G21AutonomousOrchestrationService(runtime, root, session_provider=FakeOpenCodeSessionProvider(root))
                 mission = service.start_test(request("browser-real", "BROWSER-REAL"))["intake"]["intake"]["mission_id"]
@@ -132,14 +134,16 @@ class BrowserTests(unittest.TestCase):
                 case = case_fact["payload"]["r3_3_case"]
                 first = service.propose_plan(mission, {"objective": "Local real browser human gate validation", "tasks": [exec_task("local-browser", case_fact["fact_id"])], "dependencies": []})["next"]
                 checks = {"authenticated_selector": "#authenticated", "page_selector": "#page-ready", "business_selector": "#business-ready"}
-                config = {"cdp_endpoint": endpoint, "approved": True, "approval_ref": "LOCAL_TEST_ONLY", "allowed_origins": [origin], "response_body_paths": ["/data"], "resume_checks": checks}
+                config = {"cdp_endpoint": endpoint, "start_url": origin, "approved": True, "approval_ref": "LOCAL_TEST_ONLY", "allowed_origins": [origin], "response_body_paths": ["/data"], "resume_checks": checks}
                 provider = CDPBrowserProvider(root, config=config, runtime=runtime)
-                deadline = time.monotonic() + 15
+                deadline = time.monotonic() + 60
                 while True:
                     try:
                         ref = provider.context_ref(); break
                     except Exception:
-                        if time.monotonic() > deadline: raise
+                        if browser_process.poll() is not None or time.monotonic() > deadline:
+                            browser_log.flush()
+                            raise RuntimeError("Chromium startup failed: " + (root / "browser.log").read_text(errors="replace")[-3000:])
                         time.sleep(0.1)
                 self.assertEqual(provider.launch_browser()["status"], "READY")
                 observer = TeachingObserver(provider, mission)
@@ -178,6 +182,19 @@ class BrowserTests(unittest.TestCase):
                 completed = g4.complete_human_takeover(mission, {"human_gate_id": "local-human-gate", "completion_mode": "EXPLICIT"})
                 self.assertIn(completed["status"], {"PASS", "RESUMED", "RESUME_SAFE"})
                 self.assertEqual(CDPBrowserProvider(root, config=config, runtime=runtime).inspect_lease(ref), "AI")
+                (root / 'bindings').mkdir(exist_ok=True)
+                (root / 'bindings/browser.json').write_text(json.dumps(config))
+                previous_db = os.environ.get('AITEST_RUNTIME_SPINE_DB')
+                os.environ['AITEST_RUNTIME_SPINE_DB'] = str(root / 'runtime-spine.db')
+                try:
+                    runner = OfflineExecutor(root, 'BROWSER_UI', {'approved': True, 'approval_ref': 'LOCAL_TEST_ONLY', 'allowed_origins': [origin]})
+                    result, passed = runner._run_browser_ui({'expected': {'selector': '#authenticated', 'text': 'Example signed in'}},
+                        {'url': origin + '/', 'authorized_scope': {'origins': [origin]}, 'browser_context_ref': provider.context_ref().to_dict()})
+                    self.assertTrue(passed)
+                    self.assertEqual(result['runner'], 'playwright-existing-governed-context')
+                finally:
+                    if previous_db is None: os.environ.pop('AITEST_RUNTIME_SPINE_DB', None)
+                    else: os.environ['AITEST_RUNTIME_SPINE_DB'] = previous_db
                 with sync_playwright() as driver:
                     browser = driver.chromium.connect_over_cdp(endpoint)
                     page = browser.contexts[0].pages[0]
@@ -187,8 +204,11 @@ class BrowserTests(unittest.TestCase):
                         page.goto("chrome://crash", timeout=1500)
                     except Exception:
                         pass
-                result = TeachingObserver(provider, mission).run(duration=5, interval=0.2)
+                result = TeachingObserver(provider, mission).run(duration=10, interval=0.2)
                 self.assertEqual(result["status"], "RECORDED")
+                assets = runtime.replay_composed(mission).extension_state("g3_testing_intelligence_product_integration")
+                recovered_kinds = {observation["kind"] for fact_id in result["asset_refs"] for observation in assets.by_id(fact_id).payload["observations"]}
+                self.assertTrue({"PAGE", "SCREENSHOT"}.issubset(recovered_kinds), {"kinds": list(recovered_kinds), "assets": [assets.by_id(f).to_dict() for f in result["asset_refs"]]})
                 self.assertEqual(provider.context_ref().context_binding_digest, ref.context_binding_digest)
                 self.assertFalse((root / "ai-test/state/aitest.db").exists())
         finally:

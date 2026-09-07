@@ -155,9 +155,21 @@ def _interactive_truth_result(target: str, requirement_id: str | None = None, ca
                 "gate": "G5_DEFECT_TRUTH", "engineering_status": "CLOSED/FROZEN",
                 "missions": [{"mission_id": item["mission_id"], "defects": G5Service(create_canonical_runtime(root)).command("DIRECTOR", "canonical_defects", {"mission_id": item["mission_id"]})}
                              for item in base.get("missions", [])], "legacy_fallback": "FORBIDDEN"}
-    if target in {"project", "execution"}:
+    if target == "project":
+        from .recovery_intake import RecoveryIntakeService
+        intake = RecoveryIntakeService(create_canonical_runtime(root))
+        bindings = []
+        for item in base.get("missions", [])[:20]:
+            context = intake.work_context(item["mission_id"], limit=1)
+            if context.get("current_release"):
+                bindings.append({"mission_id": item["mission_id"], "status": context["starlink_export_status"],
+                                 "current_release": context["current_release"]})
+        return {"status": "READY" if any(x["status"] == "READY" for x in bindings) else "BANK_BINDING_REQUIRED",
+                "truth_source": "R1_EVENT_STREAM", "target": target, "bindings": bindings,
+                "live_starlink_status": "BANK_BINDING_REQUIRED", "legacy_fallback": "FORBIDDEN"}
+    if target == "execution":
         return {
-            "status": "PASS" if target == "execution" else "BANK_BINDING_REQUIRED",
+            "status": "PASS",
             "truth_source": "R1_EVENT_STREAM", "target": target,
             "gate": "G4_REAL_EXECUTION" if target == "execution" else "PROJECT_BINDING",
             "legacy_fallback": "FORBIDDEN",

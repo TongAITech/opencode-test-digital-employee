@@ -86,7 +86,7 @@ class CDPBrowserProvider:
         return parsed.scheme in {"http", "https"} and not parsed.username and not parsed.password and origin in {str(x).rstrip("/").lower() for x in self.config["allowed_origins"]}
 
     def _get(self, path):
-        with urllib.request.urlopen(self.endpoint + path, timeout=3) as response:
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(self.endpoint + path, timeout=3) as response:
             data = response.read(2 * 1024 * 1024 + 1)
         if len(data) > 2 * 1024 * 1024:
             raise RuntimeError("BROWSER_CDP_OBSERVATION_BUDGET")
@@ -346,7 +346,7 @@ class TeachingObserver:
         tags = page.locator("button,a,input,select,textarea,[role]").evaluate_all("nodes=>nodes.slice(0,100).map(n=>({tag:n.tagName.toLowerCase(),role:n.getAttribute('role')||''}))")
         self._add({"kind": "PAGE", "url": safe_url(page.url), "elements": tags, "input_values_collected": False})
         image_path = self.evidence_root / f"{self.capture_id}-{self.batch}-{len(self.events)}.png"
-        masks = [page.locator("input,textarea,select,[contenteditable],[data-sensitive]")]
+        masks = [page.locator("input,textarea,select,iframe,[contenteditable],[data-sensitive]")]
         masks.extend(page.locator(selector) for selector in self.provider.config.get("mask_selectors") or [])
         page.screenshot(path=str(image_path), full_page=False, mask=masks, timeout=10000)
         self._add({"kind": "SCREENSHOT", "artifact_ref": str(image_path), "sha256": hashlib.sha256(image_path.read_bytes()).hexdigest(), "masked": True})
@@ -381,12 +381,22 @@ class TeachingObserver:
         self.batch += 1
         return result
 
+    def _recover_page(self, page):
+        target = page.url if self.provider.allowed(page.url) else self.provider.config.get("start_url")
+        if not target or not self.provider.allowed(target):
+            raise RuntimeError("BROWSER_CRASH_APPROVED_RECOVERY_URL_REQUIRED")
+        page.goto(target, wait_until="domcontentloaded", timeout=10000)
+        self._add({"kind": "PAGE_RECOVERY", "status": "RELOADED", "url": safe_url(target),
+                   "context_preserved": True, "resume_authority": "G4_FRESH_VERIFICATION_REQUIRED"})
+
     def run(self, *, duration=300, interval=5, stop=None):
         from playwright.sync_api import sync_playwright
         stop = stop or threading.Event()
-        deadline = time.monotonic() + min(max(duration, 0.1), 3600)
         asset_refs = []
         with sync_playwright() as driver:
+            # Driver startup can be slow on an offline/loaded host. The user
+            # observation window begins after driver initialization.
+            deadline = time.monotonic() + min(max(duration, 0.1), 3600)
             browser = None
             while not stop.is_set() and time.monotonic() < deadline:
                 try:
@@ -403,15 +413,18 @@ class TeachingObserver:
                         break
                     for page in pages[:10]:
                         try:
+                            if page.url.rstrip('/') in {"chrome://crash", "about:crash"}:
+                                self._recover_page(page)
                             self.snapshot(page)
                         except Exception as exc:
                             self.errors.append(type(exc).__name__)
                             # A crashed page is isolated. Reloading retains the
                             # same authenticated BrowserContext, not a new profile.
                             try:
-                                page.reload(wait_until="domcontentloaded", timeout=5000)
-                            except Exception:
-                                pass
+                                self._recover_page(page)
+                                self.snapshot(page)
+                            except Exception as recovery_error:
+                                self.errors.append(type(recovery_error).__name__)
                     pages[0].wait_for_timeout(min(interval * 1000, max(1, (deadline - time.monotonic()) * 1000)))
                 except Exception as exc:
                     self.errors.append(type(exc).__name__)
@@ -458,7 +471,10 @@ def main(argv=None):
                     stop.set()
                 threading.Thread(target=wait_for_enter, daemon=True).start()
             result = TeachingObserver(provider, mission_id).run(duration=args.duration, stop=stop)
-        print(json.dumps(result, ensure_ascii=False))
+        if args.status or args.no_input:
+            print(json.dumps(result, ensure_ascii=False))
+        else:
+            print("教学结果：" + result["status"] + "；已保存 " + str(len(result.get("asset_refs", []))) + " 组记录。返回对话继续测试。")
         return 0 if result["status"] in {"READY", "RECORDED"} else 1
     except Exception as exc:
         print(json.dumps({"status": "FAIL", "error": type(exc).__name__, "message": str(exc), "g6": "HOLD"}, ensure_ascii=False))

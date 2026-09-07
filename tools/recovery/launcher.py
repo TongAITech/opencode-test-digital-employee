@@ -52,7 +52,7 @@ def prepare():
         AITEST_CONTROL_LOOP_HEARTBEAT_PATH=str(DATA / 'state/control-loop-heartbeat.json'),
         OPENCODE_DISABLE_AUTOUPDATE='1', OPENCODE_DISABLE_MODELS_FETCH='1', OPENCODE_DISABLE_DEFAULT_PLUGINS='1',
         OPENCODE_DISABLE_LSP_DOWNLOAD='1', OPENCODE_DISABLE_SHARE='1', PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD='1',
-        PIP_NO_INDEX='1', NO_PROXY='localhost,127.0.0.1,::1', no_proxy='localhost,127.0.0.1,::1',
+        PIP_NO_INDEX='1', CODEGRAPH_SKIP_MODEL_FETCH='1', NO_PROXY='localhost,127.0.0.1,::1', no_proxy='localhost,127.0.0.1,::1',
         XDG_DATA_HOME=str(DATA / 'opencode-data'), XDG_CONFIG_HOME=str(DATA / 'opencode-config'),
         XDG_CACHE_HOME=str(DATA / 'opencode-cache'), BUN_INSTALL_CACHE_DIR=str(DATA / 'bun-cache'))
     java = WORKSPACE / 'runtime/tools/java'

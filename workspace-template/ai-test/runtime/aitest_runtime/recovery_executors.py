@@ -288,6 +288,32 @@ class OfflineExecutor:
         expected = step.get('expected') or {}
         if not isinstance(expected, dict) or not expected.get('selector'):
             raise RuntimeError('RECOVERY_EXPLICIT_ORACLE_REQUIRED', 'expected.selector')
+        context_ref = request.get('browser_context_ref')
+        if isinstance(context_ref, dict):
+            # A 4A-authenticated browser is an existing governed resource. This
+            # path only asserts the current page and never replaces its profile.
+            from .recovery_browser import CDPBrowserProvider
+            from .r3_e2.contracts import BrowserContextRef
+            provider = CDPBrowserProvider(self.root)
+            ref = BrowserContextRef.from_dict(context_ref)
+            provider.inspect_context(ref)
+            if provider.inspect_lease(ref) != 'AI':
+                raise RuntimeError('RECOVERY_BROWSER_HUMAN_LEASE', 'AI assertions wait for governed takeover completion')
+            if not provider.allowed(url):
+                raise RuntimeError('RECOVERY_BROWSER_SCOPE_MISMATCH', 'Browser and executor approvals must both cover this page')
+            with sync_playwright() as driver:
+                browser = driver.chromium.connect_over_cdp(provider.endpoint, timeout=5000)
+                pages = [page for context in browser.contexts for page in context.pages if page.url == url]
+                if len(pages) != 1:
+                    raise RuntimeError('RECOVERY_BROWSER_PAGE_BINDING_REQUIRED', 'Exactly one existing approved page must match the requested URL')
+                element = pages[0].locator(expected['selector']).first
+                checks = {'visible': element.is_visible()}
+                if 'text' in expected: checks['text'] = element.inner_text() == expected['text']
+                provider.inspect_context(ref)
+                if provider.inspect_lease(ref) != 'AI':
+                    raise RuntimeError('RECOVERY_BROWSER_LEASE_CHANGED', 'Human control resumed during observation')
+                return {'runner': 'playwright-existing-governed-context', 'checks': checks,
+                        'context_binding_digest': ref.context_binding_digest}, all(checks.values())
         chrome = self.root / 'runtime' / 'browser' / 'chrome-win64' / 'chrome.exe'
         configured = self.config.get('local_chromium_path') if os.name != 'nt' else None
         with sync_playwright() as driver:
