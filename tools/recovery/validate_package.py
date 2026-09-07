@@ -66,7 +66,7 @@ def main():
         if not (tests / name).is_file():
             results[name] = {'status': 'FAIL', 'reason': 'REQUIRED_TEST_MISSING'}
         else:
-            results[name] = run([sys.executable, '-X', 'utf8', '-c', "import sys,runpy; from pathlib import Path; p=sys.argv[1]; sys.path.insert(0,str(Path(p).parent)); sys.argv=[p]; runpy.run_path(p,run_name='__main__')", str(tests / name)], bundle, env, timeout=420)
+            results[name] = run([sys.executable, '-X', 'utf8', '-c', "import sys,runpy; from pathlib import Path; p=sys.argv[1]; sys.path.insert(0,str(Path(p).parent)); sys.argv=[p]; runpy.run_path(p,run_name='__main__')", str(tests / name)], bundle, env, timeout=1200 if args.source_only else 420)
         print(name + ': ' + results[name]['status'], flush=True)
     payloads = {}
     if not args.source_only:

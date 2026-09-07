@@ -788,7 +788,7 @@ class G5Service:
                 fact.fact_kind != "UNEXPECTED_OBSERVATION"
                 or fact.mission_id != mission_id
                 or fact.payload.get("status") != "OBSERVATION_ONLY"
-                or fact.payload.get("g5_defect_truth") != "HOLD"
+                or fact.payload.get("g5_defect_truth") not in {"HOLD", "CLOSED/FROZEN"}
             ):
                 continue
             admitted = [
