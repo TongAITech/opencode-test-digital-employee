@@ -1,6 +1,7 @@
 """Actual pinned OpenCode server + automatic rotation; synthetic no-reply content, no model/bank pass."""
 from __future__ import annotations
 import json
+import importlib.util
 import os
 from pathlib import Path
 import socket
@@ -20,6 +21,12 @@ from test_g2_1_session_router_control_loop import request, one_task
 
 
 def main():
+    spec = importlib.util.spec_from_file_location('turnkey_launcher', WORKSPACE.parent/'tools/recovery/launcher.py')
+    launcher = importlib.util.module_from_spec(spec); spec.loader.exec_module(launcher)
+    try: launcher.model_configuration({})
+    except RuntimeError as exc: assert 'AUTH_REQUIRED' in str(exc)
+    else: raise AssertionError('Unconfigured model must block conversation')
+    assert launcher.model_configuration({}, check_only=True)['enabled_providers'] == []
     binary = Path(os.environ.get('AITEST_REAL_OPENCODE') or WORKSPACE / 'runtime/opencode/opencode.exe')
     if not binary.is_file(): raise RuntimeError('Actual pinned OpenCode binary required')
     processes = []
@@ -38,9 +45,8 @@ def main():
                 XDG_DATA_HOME=str(root/'oc-data'), XDG_CONFIG_HOME=str(root/'oc-config'), XDG_CACHE_HOME=str(root/'oc-cache'),
                 BUN_INSTALL_CACHE_DIR=str(root/'bun-cache'), NO_PROXY='localhost,127.0.0.1,::1', no_proxy='localhost,127.0.0.1,::1',
                 PYTHONPATH=str(WORKSPACE/'ai-test/runtime'), PYTHONDONTWRITEBYTECODE='1')
-            env['OPENCODE_CONFIG_CONTENT'] = json.dumps({'autoupdate':False, 'share':'disabled', 'model':'bank/local-no-model',
-                'provider':{'bank':{'npm':'@ai-sdk/openai-compatible','name':'No model construction endpoint',
-                    'options':{'baseURL':'http://127.0.0.1:9/v1','apiKey':'synthetic-not-a-credential'},'models':{'local-no-model':{'name':'no model'}}}}})
+            env['OPENCODE_CONFIG_CONTENT'] = json.dumps(launcher.model_configuration({'base_url':'http://127.0.0.1:9/v1','model':'local-no-model'}))
+            env['AITEST_MODEL_KEY'] = 'synthetic-not-a-credential'
             os.environ.update(env)
             with (root/'server.log').open('w') as log:
                 server = subprocess.Popen([str(binary),'serve','--hostname','127.0.0.1','--port',str(port)],cwd=WORKSPACE,env=env,stdout=log,stderr=subprocess.STDOUT)
@@ -54,6 +60,8 @@ def main():
                     if server.poll() is not None or time.monotonic()>deadline:
                         raise RuntimeError('REAL_OPENCODE_START_FAILED: '+(root/'server.log').read_text(errors='replace')[-2500:])
                     time.sleep(.5)
+            catalog = provider._request('GET', '/provider?' + provider._directory_query())
+            assert catalog['connected'] == ['bank'], catalog['connected']
             runtime = create_canonical_runtime(WORKSPACE)
             orch = G21AutonomousOrchestrationService(runtime, WORKSPACE, session_provider=provider)
             mission = orch.start_test(request('actual-opencode-'+uuid.uuid4().hex, 'LOCAL-OPENCODE-ONLY'))['intake']['intake']['mission_id']
@@ -86,7 +94,8 @@ def main():
             result={'status':'PASS','classification':'REAL_OPENCODE_LOCAL_API_ROTATE_RESUME',
                 'version':subprocess.check_output([str(binary),'--version'],text=True).strip(),
                 'metrics_source':observed['pressure']['metrics_source'],'rotation_count':len(rotations),
-                'checkpoint_and_attempt_lineage':'PASS','bank_model_turn':'NOT_EXECUTED','BANK_FIELD_VALIDATION_REQUIRED':True}
+                'checkpoint_and_attempt_lineage':'PASS','approved_provider_allowlist':'PASS',
+                'unconfigured_model_blocks_conversation':'PASS','bank_model_turn':'NOT_EXECUTED','BANK_FIELD_VALIDATION_REQUIRED':True}
             assert result['version']=='1.18.3'
             print(json.dumps(result,indent=2))
         finally:

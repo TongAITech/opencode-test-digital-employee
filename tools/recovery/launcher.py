@@ -141,19 +141,29 @@ def model_settings():
     write(DATA / 'model.json', {'base_url': endpoint, 'model': name})
 
 
+def model_configuration(model, check_only=False):
+    if not model and not check_only:
+        raise RuntimeError('AUTH_REQUIRED：请先在菜单中配置已批准的行内模型服务')
+    config = {'autoupdate': False, 'share': 'disabled', 'enabled_providers': ['bank'] if model else []}
+    if model:
+        if not str(model.get('base_url', '')).startswith(('http://', 'https://')) or not model.get('model'):
+            raise ValueError('行内模型地址与模型 ID 必填，请重新配置')
+        config.update(model='bank/' + model['model'], small_model='bank/' + model['model'],
+            provider={'bank': {'npm': '@ai-sdk/openai-compatible',
+            'name': 'Bank approved model', 'options': {'baseURL': model['base_url'], 'apiKey': '{env:AITEST_MODEL_KEY}'},
+            'models': {model['model']: {'name': model['model']}}}})
+    return config
+
+
 def start_conversation(check_only=False):
     if os.name != 'nt': raise RuntimeError('WINDOWS_HOST_REQUIRED')
+    model = read(DATA / 'model.json', {})
+    config = model_configuration(model, check_only)
     report = display_doctor(True)
     if report['integrity_failures'] or report['matrix']['OpenCode'] != 'READY': raise RuntimeError('交付文件校验失败')
     env = prepare()
-    model = read(DATA / 'model.json', {})
-    config = {'autoupdate': False, 'share': 'disabled'}
-    if model:
-        if not check_only:
-            env['AITEST_MODEL_KEY'] = os.environ.get('AITEST_MODEL_KEY') or getpass.getpass('行内模型密钥（不回显、不保存）：')
-        config.update(model='bank/' + model['model'], provider={'bank': {'npm': '@ai-sdk/openai-compatible',
-            'name': 'Bank approved model', 'options': {'baseURL': model['base_url'], 'apiKey': '{env:AITEST_MODEL_KEY}'},
-            'models': {model['model']: {'name': model['model']}}}})
+    if model and not check_only:
+        env['AITEST_MODEL_KEY'] = os.environ.get('AITEST_MODEL_KEY') or getpass.getpass('行内模型密钥（不回显、不保存）：')
     env['OPENCODE_CONFIG_CONTENT'] = json.dumps(config)
     with socket.socket() as sock: sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
     endpoint = f'http://127.0.0.1:{port}'
