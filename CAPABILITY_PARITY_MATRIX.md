@@ -14,7 +14,7 @@ the recovery commits. Existing local offline tool bytes are inventoried by hash.
 | Requirement/SST files | RESTORED | DOCX/PDF/TXT/MD/JSON parser, SHA256, revisions, source provenance and R1/G3 persistence |
 | Current Release/Starlink exports | RESTORED | Approved, expiring, exact-hash export binding and canonical Current Release facts; launcher and OpenCode tool |
 | Live Starlink | OPEN_BANK_BINDING | Bank adapter/authentication required; export READY is not live connection READY |
-| Human browser teaching | RESTORED | Human drives, bounded page/element/network/screenshot/response observations, R1/G3 candidate asset; G6 HOLD |
+| Human browser teaching | RESTORED | Human drives, bounded page/element/network/screenshot/response observations, real renderer crash/reload, R1/G3 candidate asset; G6 HOLD |
 | 4A Human Takeover | PRESERVED | G4 HumanGate and fresh browser verification; user text only requests verification |
 | API | RESTORED | Real httpx runner and pytest, explicit oracle, allowed origin/method, bounded response, G4 Evidence |
 | UI | RESTORED | Playwright plus bundled Chromium; explicit selector/text oracle, approved-origin route enforcement |
@@ -32,3 +32,5 @@ the recovery commits. Existing local offline tool bytes are inventoried by hash.
 
 Actual executed scenarios and failures are in MACHINE_VALIDATION_RESULT.json.
 Payload existence is not a test PASS; unconfigured bank connections stay explicit.
+
+Actual OpenCode1.18.3 message API and background Control Loop rotation are exercised with synthetic no-reply content. This proves session/checkpoint/attempt transport, not a bank model or BLOAN business result. Authenticated UI assertions can reuse the exact approved CDP browser after G4 returns its lease to AI.

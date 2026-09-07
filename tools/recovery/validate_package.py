@@ -48,7 +48,7 @@ def main():
     if chrome.is_file(): env['AITEST_BROWSER_SMOKE_CHROMIUM'] = str(chrome)
     suites = [
         'test_recovery_intake.py', 'test_recovery_executors.py', 'test_recovery_g4_execution.py',
-        'test_g2_1_pressure_fallback.py', 'test_recovery_browser.py',
+        'test_g2_1_pressure_fallback.py', 'test_recovery_browser.py', 'test_recovery_real_opencode.py',
         'test_mac_delivery_default_path.py', 'test_interactive_truth_envelope.py',
         'test_g2_1_background_control_loop_subprocess.py', 'test_g2_1_session_router_control_loop.py',
         'test_g1_g2_product_path_subprocess.py', 'test_g1_g2_1_launch_auth_decoupling.py',
