@@ -22,6 +22,8 @@ class G3CommandContribution:
         fact_kind = str(payload["fact_kind"]).upper()
         if fact_kind not in FACT_KINDS:
             raise RuntimeError("G3_FACT_KIND_UNSUPPORTED", fact_kind)
+        from aitest_runtime.recovery_intake import validate_recovery_fact
+        validate_recovery_fact(fact_kind, payload["payload"], state)
         if state.by_id(fact_id) is not None:
             raise RuntimeError("G3_FACT_ID_CONFLICT", fact_id)
         expected_key = f"g3:fact:{fact_id}"

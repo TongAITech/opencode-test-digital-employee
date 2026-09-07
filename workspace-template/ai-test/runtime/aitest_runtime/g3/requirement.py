@@ -50,6 +50,14 @@ def derive_requirement_intelligence(runtime: Any, mission_id: str, scope_identit
                 "metadata": {"g3_semantic_kind": category, **metadata}, "source_status": "AVAILABLE", "source_gap_kinds": [],
                 "provenance": {"locator": source["provenance"]["locator"], "metadata": {"semantic_kind": category}},
             })
+            for parent_ref in metadata.get("parent_refs") or []:
+                traceability.append({"obligation_id": oid, "asset_id": str(parent_ref),
+                    "relation_type": "DERIVED_FROM_REQUIREMENT_ANALYSIS", "mapping_state": "MAPPED",
+                    "provenance": {"locator": source["provenance"]["locator"], "metadata": {"source": "G3_DURABLE_BR_SR_TR"}}})
+            for asset in metadata.get("asset_refs") or []:
+                traceability.append({"obligation_id": oid, "asset_id": str(asset["ref"]),
+                    "relation_type": "RELATES_TO_" + str(asset["kind"]), "mapping_state": "MAPPED",
+                    "provenance": {"locator": source["provenance"]["locator"], "metadata": {"source": "G3_EXPLICIT_ASSET_REF"}}})
             # Explicit semantic-to-code links are planning evidence, not actual coverage.
             # Preserve them as R3.1 traceability so frozen downstream R3.3 can select
             # code-aware test layers without inventing relations.

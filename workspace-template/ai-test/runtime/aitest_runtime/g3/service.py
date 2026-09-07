@@ -105,7 +105,7 @@ class G3TestingIntelligenceService:
         state = self.state(mission_id)
         counts: dict[str, int] = {}
         for fact in state.facts: counts[fact.fact_kind] = counts.get(fact.fact_kind, 0) + 1
-        return {"schema_version": G3_SCHEMA, "status": "PASS", "truth_source": "R1_EVENT_STREAM", "mission_id": mission_id, "fact_count": len(state.facts), "counts": counts, "g4_real_execution": "HOLD", "g5_defect_truth": "HOLD", "legacy_aitest_db_write": "FORBIDDEN"}
+        return {"schema_version": G3_SCHEMA, "status": "PASS", "truth_source": "R1_EVENT_STREAM", "mission_id": mission_id, "fact_count": len(state.facts), "counts": counts, "g4_real_execution": "CLOSED/FROZEN", "g5_defect_truth": "CLOSED/FROZEN", "legacy_aitest_db_write": "FORBIDDEN"}
 
     def work_context(self, mission_id: str) -> dict[str, Any]:
         """Recover specialist input from durable G3 facts, never conversation memory.
@@ -120,7 +120,20 @@ class G3TestingIntelligenceService:
             latest[fact.fact_kind] = fact.to_dict()
         test_intents = [fact.to_dict() for fact in state.by_kind("TEST_INTENT")]
         active_test_intent = next((item for item in reversed(test_intents) if item.get("payload", {}).get("status") == "ACCEPTED"), None)
+        from aitest_runtime.recovery_intake import RecoveryIntakeService
+        # Large document bodies are fetched explicitly by paginated source reads.
+        # Session rotation receives bounded indexes across all BR/SR/TR levels.
+        recovery_context = RecoveryIntakeService(self.runtime).work_context(mission_id)
+        for kind in ("SOURCE_DOCUMENT", "REQUIREMENT_ANALYSIS_ARTIFACT", "CURRENT_RELEASE"):
+            latest.pop(kind, None)
+        if recovery_context["artifact_count"] and "REQUIREMENT_SEMANTIC_MODEL" in latest:
+            semantic = latest["REQUIREMENT_SEMANTIC_MODEL"]
+            latest["REQUIREMENT_SEMANTIC_MODEL"] = {**semantic, "payload": {
+                key: semantic["payload"][key] for key in ("scope_identity", "r3_1_reference")
+                if key in semantic["payload"]
+            }, "source_read_action": "read_intake_source", "full_model_is_durable": True}
         return {
+            "recovery_intake": recovery_context,
             "schema_version": G3_SCHEMA,
             "status": "PASS",
             "truth_source": "R1_EVENT_STREAM",
@@ -130,8 +143,8 @@ class G3TestingIntelligenceService:
             "active_test_intent": active_test_intent,
             "test_intents": test_intents,
             "latest": latest,
-            "g4_real_execution": "HOLD",
-            "g5_defect_truth": "HOLD",
+            "g4_real_execution": "CLOSED/FROZEN",
+            "g5_defect_truth": "CLOSED/FROZEN",
         }
 
     def register_intent(self, mission_id: str, intent_type: str, scope: Mapping[str, Any], constraints: Mapping[str, Any] | None = None) -> dict[str, Any]:

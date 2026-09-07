@@ -137,7 +137,9 @@ class MissionIntakeOrchestrator:
         if runtime_service is None:
             raise ValueError("runtime_service is required")
         self._runtime_service = runtime_service
-        self._resolver = resolver or RuntimeFactsResolver()
+        # A product Mission already exists before _resolve. Bind its canonical
+        # R1 snapshot adapter there; the legacy SQL adapter is migration-only.
+        self._resolver = resolver
 
     @property
     def runtime_service(self) -> RuntimeService:
@@ -203,7 +205,11 @@ class MissionIntakeOrchestrator:
         if source_precedence is not None:
             raw["source_precedence"] = source_precedence
         try:
-            return self._resolver.resolve(raw)
+            if self._resolver is not None:
+                return self._resolver.resolve(raw)
+            from aitest_runtime.r2_1.canonical_store import CanonicalObservationSnapshotStore
+            store = CanonicalObservationSnapshotStore(self._runtime_service, _mission_id(request))
+            return RuntimeFactsResolver(store).resolve(raw)
         except R2_1IdempotencyConflict:
             raise
         except DurableRuntimeError:
@@ -316,7 +322,8 @@ class MissionIntakeOrchestrator:
                     "command_id": _command_id(request.intake_id, "CREATE_GOAL"),
                     "type": "CREATE_GOAL",
                     "mission_id": _mission_id(request),
-                    "expected_seq": 1,
+                    "expected_seq": next(event.seq - 1 for event in self._runtime_service.list_events(_mission_id(request))
+                                         if event.event_type == "goal.created" and event.entity_id == goal_id),
                     "actor": dict(request.actor),
                     "payload": {"goal_id": goal_id, "goal": definition},
                     "correlation_id": request.intake_id,

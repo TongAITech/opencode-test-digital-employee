@@ -31,6 +31,8 @@ FACT_KINDS = frozenset({
     "INCREMENTAL_COVERAGE_SNAPSHOT", "COVERAGE_RECONCILIATION", "COVERAGE_GAP",
     "RISK_VECTOR", "DEFECT_HYPOTHESIS", "TEST_STRATEGY_PORTFOLIO", "CASE_SPECIFICATION",
     "CASE_VALUE_LINK", "TEST_PROFILE", "DESIGN_EVALUATION", "HUMAN_REVIEW_REQUEST",
+    "SOURCE_DOCUMENT", "REQUIREMENT_ANALYSIS_ARTIFACT", "CURRENT_RELEASE_BINDING",
+    "CURRENT_RELEASE", "RUNTIME_FACTS_RESOLUTION", "TEACHING_ASSET",
 })
 
 SENSITIVE_KEY_FRAGMENTS = (
@@ -45,7 +47,7 @@ def _text(value: Any, name: str) -> str:
     return value.strip()
 
 
-def _json(value: Any, path: str = "payload") -> Any:
+def _json(value: Any, path: str = "payload", *, allow_sensitive_references: bool = False) -> Any:
     if value is None or isinstance(value, (str, bool, int)):
         return value
     if isinstance(value, float):
@@ -58,12 +60,13 @@ def _json(value: Any, path: str = "payload") -> Any:
             if not isinstance(key, str):
                 raise RuntimeError("G3_SCHEMA_INVALID", f"{path} object keys must be strings")
             lowered = key.lower()
-            if any(fragment in lowered for fragment in SENSITIVE_KEY_FRAGMENTS):
+            safe_reference = allow_sensitive_references and (item is None or isinstance(item, str) and item.startswith(("secret://", "env://", "profile://")))
+            if any(fragment in lowered for fragment in SENSITIVE_KEY_FRAGMENTS) and not safe_reference:
                 raise RuntimeError("G3_SECRET_FORBIDDEN", f"durable G3 fact cannot contain sensitive field: {path}.{key}")
-            result[key] = _json(item, f"{path}.{key}")
+            result[key] = _json(item, f"{path}.{key}", allow_sensitive_references=allow_sensitive_references)
         return result
     if isinstance(value, (list, tuple)):
-        return [_json(item, f"{path}[]") for item in value]
+        return [_json(item, f"{path}[]", allow_sensitive_references=allow_sensitive_references) for item in value]
     if isinstance(value, Enum):
         return value.value
     raise RuntimeError("G3_SCHEMA_INVALID", f"{path} must contain canonical JSON values")
@@ -88,7 +91,7 @@ class G3Fact:
         if kind not in FACT_KINDS:
             raise RuntimeError("G3_FACT_KIND_UNSUPPORTED", kind)
         object.__setattr__(self, "fact_kind", kind)
-        object.__setattr__(self, "payload", _json(dict(self.payload)))
+        object.__setattr__(self, "payload", _json(dict(self.payload), allow_sensitive_references=kind == "RUNTIME_FACTS_RESOLUTION"))
         object.__setattr__(self, "provenance_refs", tuple(_text(v, "provenance_ref") for v in self.provenance_refs))
         object.__setattr__(self, "idempotency_key", _text(self.idempotency_key, "idempotency_key"))
         object.__setattr__(self, "correlation_id", _text(self.correlation_id, "correlation_id"))
