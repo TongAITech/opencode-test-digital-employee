@@ -1,0 +1,64 @@
+name: Mac Local Bundle Assembly
+on:
+  push:
+    branches: [work/local-validation-package]
+    paths:
+      - .github/workflows/mac-local-bundle.yml
+      - tools/mac-local-bundle/**
+permissions:
+  contents: read
+concurrency:
+  group: mac-local-bundle-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  assemble:
+    runs-on: macos-26-intel
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Assemble pinned native Mac inputs (not product qualification)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = x86_64
+          mkdir -p mac-build-inputs/runtime mac-build-inputs/evidence
+          git archive --format=tar.gz --output=mac-build-inputs/source.tar.gz HEAD
+          git rev-parse HEAD > mac-build-inputs/source-commit.txt
+          git ls-tree -r HEAD > mac-build-inputs/source-tree.txt
+          sw_vers > mac-build-inputs/evidence/host.txt
+          uname -a >> mac-build-inputs/evidence/host.txt
+          curl --fail --location --retry 3 --max-time 300 'https://github.com/astral-sh/python-build-standalone/releases/download/20250409/cpython-3.12.10%2B20250409-x86_64-apple-darwin-install_only.tar.gz' -o mac-build-inputs/runtime/python.tar.gz
+          echo 'd0d51fa22c0e99b58de1b1b4baeca467d6fd0a1424c7509ea280c0796306c481  mac-build-inputs/runtime/python.tar.gz' | shasum -a 256 -c -
+          curl --fail --location --retry 3 --max-time 300 'https://github.com/anomalyco/opencode/releases/download/v1.18.3/opencode-darwin-x64.zip' -o mac-build-inputs/runtime/opencode.zip
+          mkdir -p native-python native-opencode
+          tar -xzf mac-build-inputs/runtime/python.tar.gz -C native-python
+          unzip -q mac-build-inputs/runtime/opencode.zip -d native-opencode
+          echo 'ba11415d6af7efc9dc0073520d546b869711da5f39076d12e08eeb266ba1279b  native-opencode/opencode' | shasum -a 256 -c -
+          chmod u+x native-opencode/opencode
+          native-python/python/bin/python3.12 --version > mac-build-inputs/evidence/python-version.txt
+          native-opencode/opencode --version > mac-build-inputs/evidence/opencode-version.txt
+          grep -Fx '1.18.3' mac-build-inputs/evidence/opencode-version.txt
+          mkdir -p mac-build-inputs/plugin
+          cd mac-build-inputs/plugin
+          printf '{"private":true,"dependencies":{"@opencode-ai/plugin":"1.18.3"}}\n' > package.json
+          npm install --ignore-scripts --no-audit --no-fund
+          cd ../..
+          printf '%s\n' 'MAC_INPUT_ASSEMBLY_ONLY' 'NOT_A_TURNKEY_PRODUCT_PASS' 'M_S02_REPAIR_AND_REAL_REVALIDATION_REQUIRED' 'MAC_EVIDENCE=NON_B2_AUTHORITY' > mac-build-inputs/evidence/STATUS.txt
+          if [ -f tools/mac-local-bundle/build.py ]; then
+            native-python/python/bin/python3.12 tools/mac-local-bundle/build.py --inputs mac-build-inputs --output mac-local-output
+          fi
+          tar -czf mac-build-inputs.tar.gz mac-build-inputs
+      - name: Preserve assembly inputs and evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mac-local-build-${{ github.sha }}
+          path: |
+            mac-build-inputs.tar.gz
+            mac-build-inputs/evidence/
+            mac-local-output/
+          if-no-files-found: error
+          retention-days: 7
