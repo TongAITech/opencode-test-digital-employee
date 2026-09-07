@@ -36,7 +36,7 @@ async function resolveHumanGate(
   missionId: string,
   userText: string,
   actorId: string,
-): Promise<unknown> {
+): Promise<string> {
   const workspace = await canonicalWorkspace(context)
   const python = await portablePython(workspace)
   const runtime = path.join(workspace, "ai-test", "runtime")
@@ -72,7 +72,7 @@ async function resolveHumanGate(
   if ((result as Record<string, unknown>).truth_source !== "R1_EVENT_STREAM") {
     throw new Error("AITEST_HUMAN_GATE_RESUME_TRUTH_CONTRACT_FAILED")
   }
-  return result
+  return JSON.stringify(result)
 }
 
 export const resume = tool({

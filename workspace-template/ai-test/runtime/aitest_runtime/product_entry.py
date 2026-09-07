@@ -84,6 +84,15 @@ def _mission_view(root: Path) -> dict[str, Any]:
 
 
 def interactive_truth(target: str, requirement_id: str | None = None, case_id: str | None = None) -> dict[str, Any]:
+    """Attach the canonical envelope once, preserving each target's domain result."""
+    return {
+        **_interactive_truth_result(target, requirement_id, case_id),
+        "truth_source": "R1_EVENT_STREAM",
+        "conversation_is_not_truth": True,
+    }
+
+
+def _interactive_truth_result(target: str, requirement_id: str | None = None, case_id: str | None = None) -> dict[str, Any]:
     root = workspace_root()
     target = (target or "status").strip().lower()
     base = runtime_status(root)

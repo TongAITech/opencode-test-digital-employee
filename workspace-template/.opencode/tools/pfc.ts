@@ -51,7 +51,7 @@ async function pythonCommand(workspace: string): Promise<string[]> {
   throw new Error(`PFC_PORTABLE_PYTHON_NOT_FOUND; expected=${local}`)
 }
 
-async function runPfc(context: PfcToolContext, args: string[]): Promise<unknown> {
+async function runPfc(context: PfcToolContext, args: string[]): Promise<string> {
   const workspace = await resolvePfcWorkspace(context)
   const py = await pythonCommand(workspace)
   const runtime = path.join(workspace, "ai-test", "runtime")
@@ -83,7 +83,7 @@ async function runPfc(context: PfcToolContext, args: string[]): Promise<unknown>
       throw new Error("PFC_CANONICAL_TRUTH_QUERY_FAILED; R1 Event Stream truth contract not satisfied")
     }
   }
-  return parsed
+  return JSON.stringify(parsed)
 }
 
 export const truth = tool({

@@ -35,7 +35,7 @@ async function orchestrate(
   role: "DIRECTOR" | "PLANNER" | "SCHEDULER" | "EXECUTOR",
   action: string,
   payload: Record<string, unknown>,
-): Promise<unknown> {
+): Promise<string> {
   const workspace = await canonicalWorkspace(context)
   const python = await portablePython(workspace)
   const runtime = path.join(workspace, "ai-test", "runtime")
@@ -67,7 +67,7 @@ async function orchestrate(
   if (record.truth_source !== "R1_EVENT_STREAM") {
     throw new Error("AITEST_CANONICAL_ORCHESTRATION_TRUTH_CONTRACT_FAILED")
   }
-  return result
+  return JSON.stringify(result)
 }
 
 
@@ -76,7 +76,7 @@ async function g3(
   role: "DIRECTOR" | "REQUIREMENT_ANALYST" | "CODE_ANALYST" | "TEST_STRATEGIST" | "CASE_DESIGNER" | "EVALUATOR",
   action: string,
   payload: Record<string, unknown>,
-): Promise<unknown> {
+): Promise<string> {
   const workspace = await canonicalWorkspace(context)
   const python = await portablePython(workspace)
   const runtime = path.join(workspace, "ai-test", "runtime")
@@ -95,7 +95,7 @@ async function g3(
   let result: unknown
   try { result = JSON.parse(stdout) } catch { throw new Error("AITEST_G3_NOT_JSON") }
   if ((result as Record<string, unknown>).truth_source !== "R1_EVENT_STREAM") throw new Error("AITEST_G3_TRUTH_CONTRACT_FAILED")
-  return result
+  return JSON.stringify(result)
 }
 
 
@@ -104,7 +104,7 @@ async function g4(
   role: "DIRECTOR" | "EXECUTOR",
   action: string,
   payload: Record<string, unknown>,
-): Promise<unknown> {
+): Promise<string> {
   const workspace = await canonicalWorkspace(context)
   const python = await portablePython(workspace)
   const runtime = path.join(workspace, "ai-test", "runtime")
@@ -123,7 +123,7 @@ async function g4(
   let result: unknown
   try { result = JSON.parse(stdout) } catch { throw new Error("AITEST_G4_NOT_JSON") }
   if ((result as Record<string, unknown>).truth_source !== "R1_EVENT_STREAM") throw new Error("AITEST_G4_TRUTH_CONTRACT_FAILED")
-  return result
+  return JSON.stringify(result)
 }
 
 
@@ -132,7 +132,7 @@ async function g5(
   role: "DIAGNOSIS",
   action: string,
   payload: Record<string, unknown>,
-): Promise<unknown> {
+): Promise<string> {
   const workspace = await canonicalWorkspace(context)
   const python = await portablePython(workspace)
   const runtime = path.join(workspace, "ai-test", "runtime")
@@ -151,10 +151,10 @@ async function g5(
   let result: unknown
   try { result = JSON.parse(stdout) } catch { throw new Error("AITEST_G5_NOT_JSON") }
   if ((result as Record<string, unknown>).truth_source !== "R1_EVENT_STREAM") throw new Error("AITEST_G5_TRUTH_CONTRACT_FAILED")
-  return result
+  return JSON.stringify(result)
 }
 
-const pending = (role: string, action: string, payload: unknown, nextGate: string) => ({
+const pending = (role: string, action: string, payload: unknown, nextGate: string): string => JSON.stringify({
   status: "HOLD",
   runtime_truth: "R1_EVENT_STREAM",
   legacy_runtime_write: "FORBIDDEN",
