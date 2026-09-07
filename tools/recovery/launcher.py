@@ -47,7 +47,7 @@ def prepare():
     (WORKSPACE / 'bindings').mkdir(exist_ok=True)
     sys.path.insert(0, str(WORKSPACE / 'ai-test/runtime'))
     os.environ.update(AITEST_WORKSPACE_ROOT=str(WORKSPACE), AITEST_RUNTIME_SPINE_DB=str(DATA / 'state/runtime-spine.db'),
-        PFC_LOCAL_STATE_ROOT=str(DATA), PYTHONPATH=str(WORKSPACE / 'ai-test/runtime'), PYTHONNOUSERSITE='1',
+        PFC_LOCAL_STATE_ROOT=str(DATA), PYTHONPATH=str(WORKSPACE / 'ai-test/runtime'), PYTHONNOUSERSITE='1', PYTHONUTF8='1', PYTHONIOENCODING='utf-8',
         PYTHONDONTWRITEBYTECODE='1', AITEST_G4_PROVIDER_FACTORY='aitest_runtime.recovery_executors:provider_bundle',
         AITEST_CONTROL_LOOP_HEARTBEAT_PATH=str(DATA / 'state/control-loop-heartbeat.json'),
         OPENCODE_DISABLE_AUTOUPDATE='1', OPENCODE_DISABLE_MODELS_FETCH='1', OPENCODE_DISABLE_DEFAULT_PLUGINS='1',

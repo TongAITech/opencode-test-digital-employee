@@ -29,6 +29,42 @@ def run_git(repo: Path, *args: str) -> str:
     return subprocess.check_output(['git', '-C', str(repo), *args], text=True).strip()
 
 
+SOURCE_IDENTITY_FORMULA = "sha256(UTF-8 sorted `<file_sha256>  <path>` lines, exactly one final newline; tracked files from `git ls-files`; excludes PACKAGE_MANIFEST.json)"
+
+
+def archive_source_identity(bundle: Path, source_paths: list[str]) -> dict:
+    """Measure committed archive bytes before any derived payload is copied."""
+    files = [{'path': relative, 'size_bytes': (bundle / relative).stat().st_size,
+              'sha256': sha256(bundle / relative)}
+             for relative in sorted(source_paths) if relative != 'PACKAGE_MANIFEST.json']
+    canonical = ('\n'.join(f"{entry['sha256']}  {entry['path']}" for entry in files) + '\n').encode('utf-8')
+    return {'formula': SOURCE_IDENTITY_FORMULA, 'file_count': len(files),
+            'source_content_identity': hashlib.sha256(canonical).hexdigest(),
+            'scope': 'Exact Git archive before derived payload or generated delivery overlays',
+            'excluded_paths': ['PACKAGE_MANIFEST.json'], 'files': files}
+
+
+def seal_package_source(bundle: Path, head: str, identity: dict, dirty: bool) -> dict:
+    """Finalize generated source metadata without changing committed source bytes."""
+    path = bundle / 'PACKAGE_MANIFEST.json'
+    manifest = json.loads(path.read_text(encoding='utf-8'))
+    before = sha256(path)
+    if manifest.get('source_identity_formula') not in (None, SOURCE_IDENTITY_FORMULA):
+        raise RuntimeError('Unsupported declared source identity formula')
+    scope = 'Exact Git archive before derived payload and generated delivery overlays; FILE_SHA256.json verifies final delivered bytes'
+    if dirty:
+        scope += '; diagnostic working-tree changes are excluded from this committed-source identity'
+    manifest.update(source_identity_formula=SOURCE_IDENTITY_FORMULA,
+                    source_content_identity=identity['source_content_identity'],
+                    candidate_commit=head, source_identity_scope=scope,
+                    candidate_commit_semantics='Exact Git commit archived for this build; generated manifest and payload overlays are recorded in BUILD_PROVENANCE.json')
+    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    return {'path': 'PACKAGE_MANIFEST.json', 'scope': 'BUILD_TIME_SOURCE_IDENTITY_SEAL',
+            'previous_sha256': before, 'generated_sha256': sha256(path),
+            'updated_fields': ['source_identity_formula', 'source_content_identity',
+                               'candidate_commit', 'source_identity_scope', 'candidate_commit_semantics']}
+
+
 def build(repo: Path, stage: Path, output: Path, version: str, allow_dirty: bool = False, store_only: bool = False) -> dict:
     head = run_git(repo, 'rev-parse', 'HEAD')
     dirty = run_git(repo, 'status', '--porcelain')
@@ -58,7 +94,10 @@ def build(repo: Path, stage: Path, output: Path, version: str, allow_dirty: bool
             destination = (bundle / member.name).resolve()
             if not destination.is_relative_to(bundle.resolve()) or member.issym() or member.islnk():
                 raise RuntimeError('Unsafe source archive member: ' + member.name)
+        source_paths = [member.name for member in source.getmembers() if member.isfile()]
         source.extractall(bundle)
+    source_identity = archive_source_identity(bundle, source_paths)
+    archive_manifest_sha256 = sha256(bundle / 'PACKAGE_MANIFEST.json')
     if allow_dirty:
         # Explicit diagnostic mode only; cannot claim exact source HEAD.
         for name_in_repo in run_git(repo, 'ls-files').splitlines():
@@ -70,6 +109,8 @@ def build(repo: Path, stage: Path, output: Path, version: str, allow_dirty: bool
     shutil.copytree(stage, bundle, dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '.DS_Store', '.git'))
     shutil.copy2(registry, bundle / registry.name)
+    generated_manifest_overlay = seal_package_source(bundle, head, source_identity, bool(dirty))
+    generated_manifest_overlay['source_archive_sha256'] = archive_manifest_sha256
     expected = {}
     for artifact in inputs.get('staged_artifacts', []):
         entries = artifact.get('tree_manifest') or []
@@ -98,6 +139,9 @@ def build(repo: Path, stage: Path, output: Path, version: str, allow_dirty: bool
         'repository': 'TongAITech/opencode-test-digital-employee',
         'source_head': head, 'source_branch': run_git(repo, 'branch', '--show-current'),
         'source_truth': 'DIRTY_DIAGNOSTIC_SNAPSHOT' if dirty else 'EXACT_GIT_HEAD',
+        'source_content_identity': source_identity['source_content_identity'],
+        'source_identity': source_identity,
+        'generated_build_overlays': [generated_manifest_overlay],
         'architecture_baseline': 'v7/FROZEN/UNCHANGED',
         'runtime_truth': 'R1_EVENT_STREAM', 'G6': 'HOLD',
         'build_policy': 'LOCAL-FIRST / ONLINE-FALLBACK; build performs no downloads',
@@ -126,6 +170,7 @@ def build(repo: Path, stage: Path, output: Path, version: str, allow_dirty: bool
     (output / (zip_path.name + '.sha256')).write_text(f'{digest}  {zip_path.name}\n', encoding='ascii')
     result = {'zip': str(zip_path.resolve()), 'sha256': digest,
               'size_bytes': zip_path.stat().st_size, 'source_head': head,
+              'source_content_identity': source_identity['source_content_identity'],
               'bundle': str(bundle.resolve()), 'payload_file_count': len(expected)}
     (output / 'BUILD_RESULT.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
     return result

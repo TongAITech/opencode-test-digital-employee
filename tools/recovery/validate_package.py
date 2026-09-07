@@ -16,14 +16,17 @@ import time
 from pathlib import Path
 
 
-def run(command, cwd, env, timeout=240):
+def run(command, cwd, env, timeout=240, required_stdout=None):
     started = time.monotonic()
     try:
         process = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True,
                                  encoding='utf-8', errors='replace', timeout=timeout)
-        return {'status': 'PASS' if process.returncode == 0 else 'FAIL', 'exit_code': process.returncode,
+        content_ok = required_stdout is None or required_stdout in process.stdout
+        return {'status': 'PASS' if process.returncode == 0 and content_ok else 'FAIL', 'exit_code': process.returncode,
                 'elapsed_s': round(time.monotonic() - started, 2),
-                'stdout': process.stdout[-14000:], 'stderr': process.stderr[-6000:]}
+                'required_stdout': required_stdout, 'required_stdout_observed': content_ok,
+                'stdout': process.stdout if len(process.stdout) <= 14000 else process.stdout[:7000] + '\n[output truncated]\n' + process.stdout[-7000:],
+                'stderr': process.stderr[-6000:]}
     except Exception as exc:
         return {'status': 'FAIL', 'error': type(exc).__name__, 'message': str(exc),
                 'elapsed_s': round(time.monotonic() - started, 2)}
@@ -37,7 +40,7 @@ def main():
     env = dict(os.environ)
     # Imported Runtime modules plus local test-only deps when on construction Mac.
     env['PYTHONPATH'] = os.pathsep.join(filter(None, [str(workspace / 'ai-test/runtime'), env.get('PYTHONPATH')]))
-    env.update(PYTHONNOUSERSITE='1', PYTHONDONTWRITEBYTECODE='1', PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',
+    env.update(PYTHONNOUSERSITE='1', PYTHONDONTWRITEBYTECODE='1', PYTEST_DISABLE_PLUGIN_AUTOLOAD='1', PYTHONUTF8='1', PYTHONIOENCODING='utf-8',
                PIP_NO_INDEX='1', PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD='1', OPENCODE_DISABLE_AUTOUPDATE='1',
                OPENCODE_DISABLE_MODELS_FETCH='1', OPENCODE_DISABLE_DEFAULT_PLUGINS='1',
                K6_NO_USAGE_REPORT='true')
@@ -49,10 +52,10 @@ def main():
     # Contract fixtures are separate from the real graph engine query below.
     env['AITEST_CODEGRAPH_BINARY'] = str(bundle / 'data/validation/contract-fixture-no-codegraph.exe')
     suites = [
-        'test_recovery_intake.py', 'test_recovery_executors.py', 'test_recovery_g4_execution.py',
-        'test_g2_1_pressure_fallback.py', 'test_recovery_browser.py', 'test_recovery_real_opencode.py',
+        'test_recovery_intake.py', 'test_recovery_executors.py', 'test_recovery_g4_execution.py', 'test_recovery_read_product_entry.py',
+        'test_g2_1_pressure_fallback.py', 'test_recovery_browser.py', 'test_recovery_real_opencode.py', 'test_recovery_hosted_intake.py',
         'test_mac_delivery_default_path.py', 'test_interactive_truth_envelope.py',
-        'test_g2_1_background_control_loop_subprocess.py', 'test_g2_1_session_router_control_loop.py',
+        'test_g2_1_background_control_loop_subprocess.py', 'test_g2_1_session_router_control_loop.py', 'test_planner_continue_refresh.py',
         'test_g1_g2_product_path_subprocess.py', 'test_g1_g2_1_launch_auth_decoupling.py',
         'test_g3_testing_intelligence_product_path.py', 'test_g4_full_same_mission_product_e2e.py',
         'test_g4_governed_execution_binding_wave2.py', 'test_g4_sensitive_ingress_closure.py',
@@ -62,12 +65,18 @@ def main():
         'test_g5_same_mission_e2e.py', 'test_g5_opencode_surface.py',
     ]
     results = {}
+    output = args.output.resolve(); output.parent.mkdir(parents=True, exist_ok=True)
+    def progress():
+        output.write_text(json.dumps({'status': 'IN_PROGRESS', 'LOCAL_VALIDATION_PASS': False,
+            'WINDOWS_CI_PASS': False, 'BANK_FIELD_VALIDATION_REQUIRED': True,
+            'host': platform.system(), 'suites': results}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     for name in suites:
         if not (tests / name).is_file():
             results[name] = {'status': 'FAIL', 'reason': 'REQUIRED_TEST_MISSING'}
         else:
             results[name] = run([sys.executable, '-X', 'utf8', '-c', "import sys,runpy; from pathlib import Path; p=sys.argv[1]; sys.path.insert(0,str(Path(p).parent)); sys.argv=[p]; runpy.run_path(p,run_name='__main__')", str(tests / name)], bundle, env, timeout=1200 if args.source_only else 420)
         print(name + ': ' + results[name]['status'], flush=True)
+        progress()
     payloads = {}
     if not args.source_only:
         sys.path.insert(0, str(bundle / 'tools/recovery'))
@@ -89,9 +98,8 @@ def main():
             'codegraph_version': [str(runtime / 'code-intelligence/codegraph/codegraph-server-win32-x64.exe'), '--info'],
         }
         for name, command in commands.items():
-            payloads[name] = run(command, workspace, env, timeout=90)
+            payloads[name] = run(command, workspace, env, timeout=90, required_stdout='aitest-director' if name == 'opencode_agents' else None)
             if name == 'opencode_version' and payloads[name].get('stdout', '').strip() != '1.18.3': payloads[name]['status'] = 'FAIL'
-            if name == 'opencode_agents' and 'aitest-director' not in payloads[name].get('stdout', ''): payloads[name]['status'] = 'FAIL'
         graph_root = bundle / 'data/validation/codegraph-smoke'
         graph_root.mkdir(parents=True, exist_ok=True)
         graph_file = graph_root / 'loan.py'
@@ -105,7 +113,7 @@ def main():
         # ZAP full engine startup is a separate proof from the passive API runner.
         jars = list((runtime / 'tools/zap').glob('zap-*.jar'))
         payloads['zap_engine'] = run([str(runtime / 'tools/java/bin/java.exe'), '-jar', str(jars[0]), '-cmd', '-version'], runtime / 'tools/zap', env, timeout=120) if jars else {'status': 'FAIL', 'reason': 'ZAP_JAR_MISSING'}
-        payloads['single_entry_server_control_loop'] = run([sys.executable, str(bundle / 'tools/recovery/launcher.py'), '--self-check'], bundle, env, timeout=150)
+        payloads['single_entry_server_control_loop'] = run([sys.executable, '-X', 'utf8', str(bundle / 'tools/recovery/launcher.py'), '--self-check'], bundle, env, timeout=150)
     passed = all(result['status'] == 'PASS' for result in results.values())
     payload_pass = bool(payloads) and all(result['status'] == 'PASS' for result in payloads.values())
     result = {'schema_version': 'aitest.machine-validation.v1', 'product_version': '1.12.0',
