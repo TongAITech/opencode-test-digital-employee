@@ -258,7 +258,7 @@ export const worker = tool({
 })
 
 export const evaluator = tool({
-  description: "G3 design Evaluator. Reviews detailed Standard Test Case design via frozen R3.4 and raises Human Review. Real SUT execution is owned by G4; confirmed-defect truth remains G5 HOLD.",
+  description: "G3 design Evaluator. Reviews detailed Standard Test Case design via frozen R3.4 and raises Human Review. Real SUT execution is owned by G4; confirmed-defect truth is owned by governed G5 Diagnosis.",
   args: { action: tool.schema.string().describe("status|work_context|evaluate_case_design"), payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}) },
   async execute(args, context) {
     if (["status", "work_context", "evaluate_case_design"].includes(args.action)) return g3(context as ToolContext, "EVALUATOR", args.action, args.payload)
@@ -279,4 +279,25 @@ export const knowledge = tool({
   description: "Canonical governed learning surface. R4 learning/promotion wiring remains HOLD until G6.",
   args: { action: tool.schema.string(), payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}) },
   async execute(args) { return pending("KNOWLEDGE", args.action, args.payload, "G6_R4_LEARNING") },
+})
+
+export const recovery = tool({
+  description: "V1.9.5 canonical Requirement/SST/BR/SR/TR and approved Current Release import. Durable R1/G3 provenance; bounded context; no Session management or G6 promotion. Release approval comes only from a human-authored local binding file.",
+  args: {
+    action: tool.schema.enum(["import_document", "analyze_requirements", "import_current_release", "intake_context", "read_intake_source"]),
+    payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}),
+  },
+  async execute(args, context) {
+    const workspace = await canonicalWorkspace(context as ToolContext)
+    const python = await portablePython(workspace)
+    const env = { ...process.env, AITEST_WORKSPACE_ROOT: workspace, PYTHONPATH: path.join(workspace, "ai-test", "runtime") }
+    const proc = Bun.spawn([python, "-m", "aitest_runtime.product_entry", "recovery", "--action", args.action, "--payload", JSON.stringify(args.payload)],
+      { cwd: workspace, env, stdout: "pipe", stderr: "pipe" })
+    const stdout = await new Response(proc.stdout).text()
+    const stderr = await new Response(proc.stderr).text()
+    if (await proc.exited !== 0) throw new Error((stderr || stdout).slice(0, 3000))
+    const value = JSON.parse(stdout)
+    if (value.truth_source !== "R1_EVENT_STREAM") throw new Error("RECOVERY_TRUTH_CONTRACT_FAILED")
+    return JSON.stringify(value)
+  },
 })

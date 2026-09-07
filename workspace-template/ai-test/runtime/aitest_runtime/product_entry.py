@@ -6,9 +6,8 @@ Runtime responsibility: agents cannot create, rotate, or monitor their own
 Sessions; the background Control Loop does so from durable R1 truth.
 
 G3 Requirement/Code/Testing Intelligence and G4 real execution/test-goal
-convergence are wired through this canonical boundary. G5 exposes its EC2
-read-only seam while defect mutation/confirmation and the G6 continuous loop
-remain later gates. Unsupported operations fail closed; no command falls back
+convergence and G5 governed defect investigation are wired through this boundary.
+G6 continuous learning remains HOLD. Unsupported operations fail closed; no command falls back
 to ``aitest.db``.
 """
 from __future__ import annotations
@@ -109,7 +108,11 @@ def _interactive_truth_result(target: str, requirement_id: str | None = None, ca
             "g2_autonomous_orchestration": "ENGINEERING_PASS / BANK_OPENCODE_FIELD_VALIDATION_PENDING",
             "g2_1_session_router_control_loop": "ENGINEERING_PASS / BANK_OPENCODE_OBSERVATION_FIELD_VALIDATION_PENDING",
             "g3_testing_intelligence": "ENGINEERING_PASS / FROZEN",
-            "g4_real_execution": "ENGINEERING_IN_PROGRESS / BANK_EXECUTION_FIELD_VALIDATION_PENDING",
+            "product_version": "1.9.5",
+            "architecture_baseline": "v7/FROZEN/UNCHANGED",
+            "g4_real_execution": "CLOSED/FROZEN / BANK_EXECUTION_FIELD_VALIDATION_PENDING",
+            "g5_defect_truth": "CLOSED/FROZEN / BANK_FIELD_VALIDATION_REQUIRED",
+            "g6_closed_loop": "HOLD",
             "real_execution_entry": "G4_PRODUCT_ENTRY",
         }
     if target == "mission":
@@ -147,11 +150,16 @@ def _interactive_truth_result(target: str, requirement_id: str | None = None, ca
         if case_id:
             facts = [item for item in facts if case_id in json.dumps(item, ensure_ascii=False)]
         return {"status": "PASS", "truth_source": "R1_EVENT_STREAM", "target": target, "mission_id": mission_id, "facts": facts, "legacy_fallback": "FORBIDDEN"}
-    if target in {"project", "execution", "defects"}:
+    if target == "defects":
+        return {"status": "PASS", "truth_source": "R1_EVENT_STREAM", "target": target,
+                "gate": "G5_DEFECT_TRUTH", "engineering_status": "CLOSED/FROZEN",
+                "missions": [{"mission_id": item["mission_id"], "defects": G5Service(create_canonical_runtime(root)).command("DIRECTOR", "canonical_defects", {"mission_id": item["mission_id"]})}
+                             for item in base.get("missions", [])], "legacy_fallback": "FORBIDDEN"}
+    if target in {"project", "execution"}:
         return {
-            "status": ("PASS" if target == "execution" else ("HOLD" if target == "defects" else "PENDING_PRODUCTIZATION")),
+            "status": "PASS" if target == "execution" else "BANK_BINDING_REQUIRED",
             "truth_source": "R1_EVENT_STREAM", "target": target,
-            "gate": "G4_REAL_EXECUTION" if target == "execution" else ("G5_DEFECT_TRUTH" if target == "defects" else "R5_PRODUCTIZATION"),
+            "gate": "G4_REAL_EXECUTION" if target == "execution" else "PROJECT_BINDING",
             "legacy_fallback": "FORBIDDEN",
         }
     return {"status": "INVALID_TARGET", "truth_source": "R1_EVENT_STREAM", "target": target}
@@ -176,7 +184,7 @@ def interactive_command(
         "case_id": case_id,
         "note_recorded": False,
         "legacy_runtime_write": "FORBIDDEN",
-        "reason": "Use canonical aitest Director/Planner/Scheduler, G3 testing-intelligence tools, and G4 real-execution tools; G5 defect truth and G6 closed-loop mutations remain HOLD",
+        "reason": "Use canonical Director/Planner/Scheduler, G3, G4 and G5 tools. G1-G5 engineering is CLOSED/FROZEN; G6 remains HOLD.",
         "real_execution_entry": "G4_PRODUCT_ENTRY",
     }
 
@@ -194,7 +202,7 @@ def _require_g5_worker_binding(runtime: Any, payload: Mapping[str, Any]):
 
 
 def g5_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-    """Execute the EC2 G5 read-only seam; all later-wave actions fail closed."""
+    """Execute the canonical G5 role/action contract and current worker binding."""
 
     normalized_role, normalized_action = G5Service.preflight(role, action)
     root = workspace_root()
@@ -376,7 +384,7 @@ def g4_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
         "EXECUTOR": {"status", "record_cursor", "recover_cursor", "register_capability", "validate_executor", "execute_capability", "capability_human_gate", "request_human_takeover", "reconcile_human_takeover", "complete_human_takeover", "record_step_result", "create_batch"},
     }
     if role not in allowed or action not in allowed[role]:
-        return {"status": "HOLD", "truth_source": "R1_EVENT_STREAM", "role": role, "action": action, "reason": "ACTION_NOT_AUTHORIZED_FOR_G4_ROLE", "legacy_fallback": "FORBIDDEN", "g5_defect_truth": "HOLD"}
+        return {"status": "HOLD", "truth_source": "R1_EVENT_STREAM", "role": role, "action": action, "reason": "ACTION_NOT_AUTHORIZED_FOR_G4_ROLE", "legacy_fallback": "FORBIDDEN", "g5_defect_truth": "CLOSED/FROZEN"}
     mission_id = str(data.get("mission_id") or "")
     if action == "status": return service.status(mission_id)
     if role == "EXECUTOR" and action not in {"recover_cursor", "complete_human_takeover", "register_capability", "validate_executor"}:
@@ -459,6 +467,10 @@ def parser() -> argparse.ArgumentParser:
     x.add_argument("--action", required=True)
     x.add_argument("--payload", default="{}")
 
+    x = sp.add_parser("recovery")
+    x.add_argument("--action", required=True)
+    x.add_argument("--payload", default="{}")
+
     # Internal construction/migration boundary. Normal product Mission creation
     # goes through R2.2 ``start_test``/``intake_mission``.
     x = sp.add_parser("bootstrap-mission")
@@ -498,6 +510,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "g5":
             payload = json.loads(args.payload)
             emit(g5_command(args.role, args.action, _object(payload, "payload")))
+            return 0
+        if args.command == "recovery":
+            from .recovery_intake import dispatch
+            emit(dispatch(workspace_root(), args.action, _object(json.loads(args.payload), "payload")))
             return 0
         if args.command == "bootstrap-mission":
             goal = json.loads(args.goal)

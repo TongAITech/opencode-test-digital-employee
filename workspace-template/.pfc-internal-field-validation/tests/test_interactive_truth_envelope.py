@@ -46,7 +46,7 @@ def main() -> int:
                         sys.settrace(None)
                     assert actual["truth_source"] == "R1_EVENT_STREAM"
                     assert actual["conversation_is_not_truth"] is True
-                    expected_status = {"project": "PENDING_PRODUCTIZATION", "defects": "HOLD", "invalid": "INVALID_TARGET"}.get(target, "PASS")
+                    expected_status = {"project": "BANK_BINDING_REQUIRED", "defects": "PASS", "invalid": "INVALID_TARGET"}.get(target, "PASS")
                     if target in {"requirement", "coverage", "cases", "human_actions"} and not populated:
                         expected_status = "NO_MISSION"
                     assert actual["status"] == expected_status, (target, actual)
@@ -58,7 +58,10 @@ def main() -> int:
                     assert actual == {**original, "truth_source": "R1_EVENT_STREAM", "conversation_is_not_truth": True}
                     checks[f"{target}_{'mission' if populated else 'empty'}"] = True
             assert entry.interactive_truth("")["status"] == "PASS"
-            assert entry.interactive_truth(" PROJECT ")["status"] == "PENDING_PRODUCTIZATION"
+            assert entry.interactive_truth(" PROJECT ")["status"] == "BANK_BINDING_REQUIRED"
+            assert entry.interactive_truth("status")["product_version"] == "1.9.5"
+            assert entry.interactive_truth("status")["g5_defect_truth"].startswith("CLOSED/FROZEN")
+            assert entry.interactive_truth("status")["g6_closed_loop"] == "HOLD"
             for target in ("requirement", "coverage", "cases", "human_actions"):
                 assert entry.interactive_truth(target, "missing-requirement", "missing-case")["facts"] == []
             assert legacy.read_bytes() == b"READ_ONLY_LEGACY_SENTINEL"
