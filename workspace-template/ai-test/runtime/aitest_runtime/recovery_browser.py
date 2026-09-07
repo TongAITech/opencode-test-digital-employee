@@ -163,7 +163,7 @@ class CDPBrowserProvider:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as driver:
             browser = driver.chromium.connect_over_cdp(self.endpoint, timeout=5000)
-            pages = [page for context in browser.contexts for page in context.pages if self.allowed(page.url)]
+            pages = [page for page in (browser.contexts[0].pages if browser.contexts else []) if self.allowed(page.url)]
             passed = False
             for page in pages:
                 if AUTH_PATH.search(urlsplit(page.url).path):
@@ -433,7 +433,7 @@ class TeachingObserver:
                         self.response_deadlines.clear()
                         self.finished_requests.clear()
                         self.binding_name = "aitestTeachingElement_" + uuid.uuid4().hex
-                    pages = [page for context in browser.contexts for page in context.pages]
+                    pages = list(browser.contexts[0].pages) if browser.contexts else []
                     if not pages:
                         break
                     for page in pages[:10]:

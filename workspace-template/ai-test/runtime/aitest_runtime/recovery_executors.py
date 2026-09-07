@@ -303,7 +303,7 @@ class OfflineExecutor:
                 raise RuntimeError('RECOVERY_BROWSER_SCOPE_MISMATCH', 'Browser and executor approvals must both cover this page')
             with sync_playwright() as driver:
                 browser = driver.chromium.connect_over_cdp(provider.endpoint, timeout=5000)
-                pages = [page for context in browser.contexts for page in context.pages if page.url == url]
+                pages = [page for page in (browser.contexts[0].pages if browser.contexts else []) if page.url == url]
                 if len(pages) != 1:
                     raise RuntimeError('RECOVERY_BROWSER_PAGE_BINDING_REQUIRED', 'Exactly one existing approved page must match the requested URL')
                 element = pages[0].locator(expected['selector']).first
