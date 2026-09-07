@@ -46,6 +46,8 @@ def main():
     if not args.source_only: env['AITEST_TEST_RUNTIME_SOURCE'] = str(workspace)
     chrome = workspace / 'runtime/browser/chrome-win64/chrome.exe' if os.name == 'nt' else Path('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
     if chrome.is_file(): env['AITEST_BROWSER_SMOKE_CHROMIUM'] = str(chrome)
+    # Contract fixtures are separate from the real graph engine query below.
+    env['AITEST_CODEGRAPH_BINARY'] = str(bundle / 'data/validation/contract-fixture-no-codegraph.exe')
     suites = [
         'test_recovery_intake.py', 'test_recovery_executors.py', 'test_recovery_g4_execution.py',
         'test_g2_1_pressure_fallback.py', 'test_recovery_browser.py', 'test_recovery_real_opencode.py',
@@ -90,6 +92,16 @@ def main():
             payloads[name] = run(command, workspace, env, timeout=90)
             if name == 'opencode_version' and payloads[name].get('stdout', '').strip() != '1.18.3': payloads[name]['status'] = 'FAIL'
             if name == 'opencode_agents' and 'aitest-director' not in payloads[name].get('stdout', ''): payloads[name]['status'] = 'FAIL'
+        graph_root = bundle / 'data/validation/codegraph-smoke'
+        graph_root.mkdir(parents=True, exist_ok=True)
+        graph_file = graph_root / 'loan.py'
+        graph_file.write_text('def loan_accepts(amount):\n    return amount > 0\n\ndef submit(amount):\n    return loan_accepts(amount)\n', encoding='utf-8')
+        graph_command = [str(runtime / 'code-intelligence/codegraph/codegraph-server-win32-x64.exe'),
+                         '--graph-only', '--workspace', str(graph_root), '--run-tool', 'codegraph_get_ai_context',
+                         '--tool-args', json.dumps({'uri': graph_file.as_uri(), 'line': 1, 'intent': 'explain'})]
+        payloads['codegraph_real_query'] = run(graph_command, graph_root, env, timeout=120)
+        if 'loan_accepts' not in payloads['codegraph_real_query'].get('stdout', ''):
+            payloads['codegraph_real_query']['status'] = 'FAIL'
         # ZAP full engine startup is a separate proof from the passive API runner.
         jars = list((runtime / 'tools/zap').glob('zap-*.jar'))
         payloads['zap_engine'] = run([str(runtime / 'tools/java/bin/java.exe'), '-jar', str(jars[0]), '-cmd', '-version'], runtime / 'tools/zap', env, timeout=120) if jars else {'status': 'FAIL', 'reason': 'ZAP_JAR_MISSING'}
