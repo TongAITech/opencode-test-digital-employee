@@ -52,6 +52,7 @@ def proposal() -> dict[str, object]:
 
 class Stub(BaseHTTPRequestHandler):
     sessions: dict[str, dict[str, object]] = {}
+    messages: dict[str, list[dict[str, object]]] = {}
     requests: list[dict[str, object]] = []
     counter = 0
 
@@ -73,6 +74,9 @@ class Stub(BaseHTTPRequestHandler):
         self._record(); parsed = urlparse(self.path)
         if parsed.path == "/global/health": self._json(200, {"healthy": True}); return
         if parsed.path == "/session": self._json(200, list(self.__class__.sessions.values())); return
+        if parsed.path.endswith("/message"):
+            sid = parsed.path.split("/")[-2]
+            self._json(200, self.__class__.messages.get(sid, [])); return
         if parsed.path.startswith("/session/"):
             sid = parsed.path.split("/")[-1]; value = self.__class__.sessions.get(sid)
             if value is None: self._json(404, {"error": "not found"}); return
@@ -83,11 +87,15 @@ class Stub(BaseHTTPRequestHandler):
         self._record(); parsed = urlparse(self.path); n = int(self.headers.get("Content-Length") or 0); body = json.loads(self.rfile.read(n) or b"{}")
         if parsed.path == "/session":
             self.__class__.counter += 1; sid = f"bg-session-{self.__class__.counter}"
-            self.__class__.sessions[sid] = {"id": sid, "title": body.get("title"), "messageCount": 1, "compactionCount": 0, "healthy": True}
+            self.__class__.sessions[sid] = {"id": sid, "title": body.get("title"), "healthy": True}
+            self.__class__.messages[sid] = []
             self._json(200, self.__class__.sessions[sid]); return
-        if parsed.path.startswith("/session/") and parsed.path.endswith("/message"):
+        if parsed.path.startswith("/session/") and parsed.path.endswith("/abort"):
+            self._json(200, True); return
+        if parsed.path.startswith("/session/") and parsed.path.endswith("/prompt_async"):
             sid = parsed.path.split("/")[-2]
             if sid not in self.__class__.sessions: self._json(404, {"error": "not found"}); return
+            self.__class__.messages[sid].append({"info": {"id": f"msg-{len(self.__class__.messages[sid])}", "sessionID": sid, "role": "user"}, "parts": body["parts"]})
             self._json(200, {"accepted": True, "sessionID": sid}); return
         self._json(404, {"error": "unknown"})
 
@@ -107,7 +115,7 @@ def run(env: dict[str, str], role: str, action: str, payload: dict[str, object])
 
 def main() -> int:
     checks: dict[str, bool] = {}
-    Stub.sessions = {}; Stub.requests = []; Stub.counter = 0
+    Stub.sessions = {}; Stub.messages = {}; Stub.requests = []; Stub.counter = 0
     server = ThreadingHTTPServer(("127.0.0.1", 0), Stub)
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
     control: subprocess.Popen[str] | None = None
@@ -123,7 +131,11 @@ def main() -> int:
             started = run(env, "DIRECTOR", "start_test", {"request": request()}); mission_id = str(started["intake"]["intake"]["mission_id"])
             planned = run(env, "PLANNER", "propose_plan", {"mission_id": mission_id, "proposal": proposal()}); first = planned["next"]
             predecessor = str(first["external_session"]["session_id"]); root_attempt = str(first["attempt"]["root_attempt_id"])
-            Stub.sessions[predecessor]["messageCount"] = 61
+            Stub.messages[predecessor] = [
+                {"info": {"id": f"msg-{index}", "sessionID": predecessor, "role": "assistant"},
+                 "parts": [{"type": "text", "text": "bounded governed work"}]}
+                for index in range(60)
+            ]
 
             control = subprocess.Popen(
                 [sys.executable, "-m", "aitest_runtime.control_loop", "--workspace-root", str(root), "--interval", "0.1"],
@@ -145,6 +157,19 @@ def main() -> int:
                 checks["background_rotation_preserves_root_attempt"] = latest["root_attempt_id"] == root_attempt and latest["runtime_session_id"] != predecessor
                 sessions = rotated_status["core"]["sessions"]  # type: ignore[index]
                 checks["background_rotation_durable_predecessor_closed_successor_open"] = sessions[predecessor]["status"] == "CLOSED" and sessions[latest["runtime_session_id"]]["status"] == "OPEN"
+                checkpoint = rotated_status["session_control"]["rotations"][-1]["checkpoint"]
+                context = json.loads(Stub.messages[latest["runtime_session_id"]][-1]["parts"][0]["text"].split("\n", 1)[1])
+                checks["fallback_rotation_records_checkpoint_and_rehydrates_context_pack"] = (
+                    checkpoint["root_attempt_id"] == root_attempt and checkpoint["mission_id"] == mission_id
+                    and context["resume_checkpoint"] == checkpoint and bool(context["context_pack_reference"]["semantic_digest"])
+                    and context["logical_agent_id"] == checkpoint["logical_agent_id"]
+                )
+                observation = next(x for x in rotated_status["session_control"]["observations"] if x["session_id"] == predecessor)
+                checks["metadata_has_no_counts_but_message_api_is_durable_fallback"] = (
+                    "messageCount" not in Stub.sessions.get(predecessor, {})
+                    and observation["message_count"] == 60
+                    and observation["provider_state"]["pressure"]["metrics_source"] == "OPENCODE_MESSAGE_API"
+                )
             else:
                 checks["background_rotation_preserves_root_attempt"] = False
                 checks["background_rotation_durable_predecessor_closed_successor_open"] = False
@@ -162,6 +187,11 @@ def main() -> int:
             checks["control_loop_restart_rebuilds_from_r1_without_state_loss"] = once.returncode == 0 and before["head_seq"] <= after["head_seq"] and after["mission_id"] == mission_id
             checks["background_provider_calls_are_directory_scoped"] = bool(Stub.requests) and all(
                 item["directory"] == str(root.resolve()) for item in Stub.requests if str(item["path"]).startswith("/session")
+            )
+            checks["runtime_aborts_predecessor_and_submits_successor_asynchronously"] = (
+                any(item["path"] == f"/session/{predecessor}/abort" for item in Stub.requests)
+                and any(str(item["path"]).endswith("/prompt_async") for item in Stub.requests)
+                and not any(item["method"] == "POST" and str(item["path"]).endswith("/message") for item in Stub.requests)
             )
     finally:
         if control is not None:

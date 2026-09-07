@@ -155,6 +155,7 @@ class RotationRequestRecord:
     requested_seq: int
     updated_seq: int
     updated_at: str
+    checkpoint: Mapping[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -165,6 +166,7 @@ class RotationRequestRecord:
             "successor_session_id": self.successor_session_id,
             "requested_seq": self.requested_seq, "updated_seq": self.updated_seq,
             "updated_at": self.updated_at,
+            "checkpoint": dict(self.checkpoint) if self.checkpoint else None,
         }
 
     @classmethod
@@ -172,7 +174,7 @@ class RotationRequestRecord:
         return cls(str(v["rotation_id"]), str(v["task_id"]), str(v["root_attempt_id"]),
                    str(v["predecessor_session_id"]), _tuple_str(v.get("reasons")),
                    str(v["status"]), v.get("successor_session_id"), int(v["requested_seq"]),
-                   int(v["updated_seq"]), str(v["updated_at"]))
+                   int(v["updated_seq"]), str(v["updated_at"]), dict(v["checkpoint"]) if v.get("checkpoint") else None)
 
 
 @dataclass(frozen=True)

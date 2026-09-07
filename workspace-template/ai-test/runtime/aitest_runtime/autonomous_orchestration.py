@@ -53,6 +53,7 @@ from .r2_4 import (
 from .r2_5 import SessionOrchestrationService
 from .r2_6 import HumanGateApplicationService
 from .work_graph import TaskLifecycleState, WorkGraphState
+from .session_pressure import MAX_OBSERVATION_BYTES, MESSAGE_SAMPLE_LIMIT, ObservationBudgetExceeded, message_metrics, number
 
 
 G2_SCHEMA = "aitest.r2.autonomous-orchestration.v1"
@@ -198,7 +199,10 @@ class DirectoryScopedOpenCodeSessionProvider:
         request = urllib.request.Request(self.base_url + path, data=payload, method=method, headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                raw = response.read()
+                observation = method == "GET" and "/message?" in path
+                raw = response.read(MAX_OBSERVATION_BYTES + 1) if observation else response.read()
+                if observation and len(raw) > MAX_OBSERVATION_BYTES:
+                    raise ObservationBudgetExceeded("OPENCODE_OBSERVATION_BYTE_BUDGET")
                 if not raw:
                     return None
                 return json.loads(raw.decode("utf-8"))
@@ -252,15 +256,20 @@ class DirectoryScopedOpenCodeSessionProvider:
     def send_context(self, *, session_id: str, agent: str, text: str) -> Mapping[str, Any]:
         body = {
             "agent": _text(agent, "agent"),
-            "noReply": False,
             "parts": [{"type": "text", "text": _text(text, "text")}],
         }
         payload = self._request(
             "POST",
-            f"/session/{urllib.parse.quote(_text(session_id, 'session_id'))}/message?{self._directory_query()}",
+            f"/session/{urllib.parse.quote(_text(session_id, 'session_id'))}/prompt_async?{self._directory_query()}",
             body,
         )
         return dict(payload) if isinstance(payload, Mapping) else {"accepted": True}
+
+    def abort_session(self, session_id: str) -> bool:
+        payload = self._request("POST", f"/session/{urllib.parse.quote(_text(session_id, 'session_id'))}/abort?{self._directory_query()}", {})
+        if payload is False:
+            raise RuntimeError("OPENCODE_ABORT_REJECTED")
+        return True
 
     def delete_session(self, session_id: str) -> bool:
         payload = self._request(
@@ -325,8 +334,8 @@ class DirectoryScopedOpenCodeSessionProvider:
         def _number(*keys: str) -> float | None:
             for key in keys:
                 value = raw.get(key)
-                if isinstance(value, (int, float)) and not isinstance(value, bool):
-                    return float(value)
+                if number(value) is not None:
+                    return number(value)
             return None
 
         message_count = _number("messageCount", "message_count", "messages")
@@ -336,6 +345,26 @@ class DirectoryScopedOpenCodeSessionProvider:
         context_utilization = _number("contextUtilization", "context_utilization")
         if context_utilization is None and context_used is not None and context_limit and context_limit > 0:
             context_utilization = context_used / context_limit
+        fallback: dict[str, Any] = {}
+        if message_count is None or compaction_count is None or context_utilization is None:
+            try:
+                messages = self._request("GET", f"/session/{urllib.parse.quote(session_id)}/message?{self._directory_query()}&limit={MESSAGE_SAMPLE_LIMIT}")
+                fallback = message_metrics(messages, session_id)
+                message_count = max(message_count or 0, fallback["message_count"])
+                compaction_count = max(compaction_count or 0, fallback["compaction_count"])
+                if context_used is None:
+                    context_used = fallback["observed_message_tokens"]
+                if context_utilization is None and context_used is not None and context_limit:
+                    context_utilization = context_used / context_limit
+            except OpenCodeSessionAdmissionPending:
+                raise
+            except ObservationBudgetExceeded:
+                fallback = {"observation_byte_budget_exceeded": True, "metrics_source": "OPENCODE_MESSAGE_API_BUDGET"}
+            except (RuntimeError, ValueError, TypeError) as exc:
+                # A metadata-only server cannot silently disable supervision.
+                # The Supervisor applies an R1-persisted blind activity/time
+                # budget; diagnostics never contain raw HTTP/message content.
+                fallback = {"metrics_source": "METADATA_ONLY", "metrics_error": type(exc).__name__}
         unhealthy = raw.get("unhealthy")
         healthy = raw.get("healthy")
         if not isinstance(healthy, bool):
@@ -353,6 +382,7 @@ class DirectoryScopedOpenCodeSessionProvider:
             "last_activity_at": raw.get("lastActivityAt") or raw.get("last_activity_at"),
             "provider": "OPENCODE",
             "raw_digest": canonical_sha256(raw),
+            "pressure": fallback,
         }
 
 

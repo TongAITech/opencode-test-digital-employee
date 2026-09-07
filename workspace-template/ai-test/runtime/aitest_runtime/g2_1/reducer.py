@@ -37,7 +37,7 @@ class G21ReducerContribution:
         if event.event_type == SESSION_ROTATION_REQUESTED:
             p = dict(event.payload); rid = str(p["rotation_id"]); existing = state.rotation(rid)
             requested_seq = existing.requested_seq if existing else event.seq
-            item = RotationRequestRecord(rid, str(p["task_id"]), str(p["root_attempt_id"]), str(p["predecessor_session_id"]), tuple(p.get("reasons") or ()), "REQUIRED", existing.successor_session_id if existing else None, requested_seq, event.seq, event.created_at)
+            item = RotationRequestRecord(rid, str(p["task_id"]), str(p["root_attempt_id"]), str(p["predecessor_session_id"]), tuple(p.get("reasons") or ()), "REQUIRED", existing.successor_session_id if existing else None, requested_seq, event.seq, event.created_at, dict(p["checkpoint"]) if p.get("checkpoint") else None)
             return replace(state, rotations=_upsert(state.rotations, lambda x: x.rotation_id == rid, item))
         if event.event_type == SESSION_ROTATION_COMPLETED:
             p = dict(event.payload); rid = str(p["rotation_id"]); existing = state.rotation(rid)

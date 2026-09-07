@@ -44,7 +44,14 @@ class G21CommandContribution:
             p = _payload(command, {"session_id","observed_at","reachable","healthy","message_count","compaction_count","context_used","context_limit","context_utilization","last_activity_at","provider_state"})
             return [PendingEvent(SESSION_OBSERVATION_RECORDED, "SESSION_OBSERVATION", str(p["session_id"]), p, str(p["session_id"]))]
         if command.type == REQUEST_SESSION_ROTATION:
-            p = _payload(command, {"rotation_id","task_id","root_attempt_id","predecessor_session_id","reasons"})
+            p = _payload(command, {"rotation_id","task_id","root_attempt_id","predecessor_session_id","reasons"}, {"checkpoint"})
+            checkpoint = p.get("checkpoint")
+            if checkpoint is not None:
+                if not isinstance(checkpoint, Mapping) or checkpoint.get("mission_id") != composed.mission_id or checkpoint.get("predecessor_session_id") != p["predecessor_session_id"] or checkpoint.get("task_id") != p["task_id"] or checkpoint.get("root_attempt_id") != p["root_attempt_id"]:
+                    raise RuntimeError("G2_1_CHECKPOINT_LINEAGE_INVALID", "rotation checkpoint identity mismatch")
+                cursor = checkpoint.get("through_seq")
+                if not isinstance(cursor, int) or isinstance(cursor, bool) or cursor < 0 or cursor > composed.seq:
+                    raise RuntimeError("G2_1_CHECKPOINT_CURSOR_INVALID", "rotation checkpoint is not a durable R1 cursor")
             return [PendingEvent(SESSION_ROTATION_REQUESTED, "SESSION_ROTATION", str(p["rotation_id"]), p, str(p["predecessor_session_id"]))]
         if command.type == COMPLETE_SESSION_ROTATION:
             p = _payload(command, {"rotation_id","successor_session_id"})

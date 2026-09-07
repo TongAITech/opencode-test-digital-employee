@@ -29,9 +29,12 @@ from ..autonomous_orchestration import (
 from ..durable_core import ActorRef, CommandEnvelope, MissionStatus, RuntimeService, canonical_sha256
 from ..r2_3 import PlannerInput
 from ..work_graph import TaskLifecycleState, WorkGraphState
+from ..execution_context import (BuildExecutionContextRequest, ContextTarget, EventCursor,
+                                 ExecutionContextApplicationService, KnowledgeSetInput)
+from ..session_pressure import POLICY_ID as PRESSURE_POLICY_ID
 from .router import AgentRoleRegistry, RouteDecision, SessionRouter, TASK_OUTCOME_REPORT
 from .service import SessionControlApplicationService
-from .supervisor import RotationPolicy, SessionObservation
+from .supervisor import RotationPolicy, SessionObservation, durable_pressure
 
 
 class ProvisioningOpenCodeSessionProvider:
@@ -124,6 +127,9 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             "session_router": "RUNTIME_OWNED",
             "session_supervisor": "CONTROL_LOOP_OWNED",
             "agent_owns_session_lifecycle": False,
+            "pressure_policy": PRESSURE_POLICY_ID,
+            "missing_metrics_behavior": "MESSAGE_API_THEN_R1_DURABLE_BLIND_BUDGET",
+            "bootstrap_max_bytes": 16384,
             "bank_opencode_observation_field_validation": "PENDING",
         }
         if mission_id is not None:
@@ -186,13 +192,15 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             "mission_id": mission_id,
             "goal": goal.to_dict(),
             "logical_agent_id": logical_agent_id,
+            "r1_cursor": {"mission_id": mission_id, "through_seq": composed.seq},
+            "resume_checkpoint": self._latest_checkpoint(mission_id, "__PLANNING__"),
             "instruction": (
                 "Analyze the durable Goal and governed evidence. Author a bounded semantic Plan candidate, "
                 "then persist it only through the canonical Planner tool. Unknown facts remain KNOWLEDGE_GAP. "
                 "Session lifecycle is owned by the Runtime Session Router/Supervisor; do not create or rotate Sessions."
             ),
         }
-        return "AITEST_CANONICAL_PLANNING_CONTEXT\n" + json.dumps(envelope, ensure_ascii=False, sort_keys=True)
+        return self._bounded_bootstrap("AITEST_CANONICAL_PLANNING_CONTEXT\n", envelope)
 
     def open_planning_session(self, mission_id: str) -> dict[str, Any]:
         mission_id = _text(mission_id, "mission_id")
@@ -380,13 +388,89 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             raise RuntimeError("G2_1_CONTEXT_ENVELOPE_INVALID")
         envelope = json.loads(raw[len(prefix):])
         envelope["session_lifecycle_owner"] = "G2_1_SESSION_ROUTER_SUPERVISOR"
+        context = ExecutionContextApplicationService(self.runtime).build(BuildExecutionContextRequest(
+            execution_attempt_id=attempt.attempt_id, mission_id=mission_id,
+            cursor=attempt.context_cursor,
+            target=ContextTarget("TASK", plan_id, revision_id, task_id),
+            knowledge_set=KnowledgeSetInput(), policy_id=attempt.policy_id, policy_version=attempt.policy_version,
+            knowledge_scope={"mission_id": mission_id, "task_id": task_id},
+        ))
+        if context.semantic_digest != attempt.context_semantic_digest:
+            raise RuntimeError("G2_1_RESUME_CONTEXT_DIGEST_MISMATCH")
+        envelope["context_pack_reference"] = {
+            "authority": "R1_EVENT_STREAM", "cursor": context.cursor.to_dict(),
+            "semantic_digest": context.semantic_digest,
+            "policy_id": context.policy_id, "policy_version": context.policy_version,
+        }
+        # Bootstrap carries a bounded extract. Canonical ContextPack is always
+        # reconstructible from its exact cursor/digest; no conversation copy is
+        # a resume source. Never paste an unbounded Event Stream into a Session.
+        extract: list[dict[str, Any]] = []
+        remaining = 8192
+        omitted = 0
+        for section in context.sections:
+            for item in section.items:
+                entry = {"section": section.name, "item": item.to_dict()}
+                size = len(json.dumps(entry, ensure_ascii=False).encode("utf-8"))
+                if size > remaining:
+                    omitted += 1
+                    continue
+                extract.append(entry)
+                remaining -= size
+        envelope["bounded_context_extract"] = {"items": extract, "omitted_items": omitted, "max_bytes": 8192}
+        envelope["resume_checkpoint"] = self._latest_checkpoint(mission_id, task_id)
+        envelope["logical_agent_id"] = self._route_task(mission_id, task_id).logical_agent_id
         envelope["instruction"] = (
             "Resume only this durable Task. Read canonical tools before acting. "
             "Do not observe, create, close, or rotate your own Session; the G2.1 Session Supervisor/Router owns Session lifecycle. "
             "Report terminal outcome with the exact mission_id/task_id/attempt_id/session_id from this envelope. "
             "Do not reconstruct Mission state from conversation history and do not silently replan."
         )
-        return prefix + json.dumps(envelope, ensure_ascii=False, sort_keys=True)
+        return self._bounded_bootstrap(prefix, envelope)
+
+    @staticmethod
+    def _bounded_bootstrap(prefix: str, envelope: dict[str, Any]) -> str:
+        def encode() -> str:
+            return prefix + json.dumps(envelope, ensure_ascii=False, sort_keys=True)
+        if len(encode().encode("utf-8")) > 16384:
+            for key in ("goal", "task"):
+                if envelope.get(key) is not None:
+                    value = envelope[key]
+                    envelope[key] = {"authority": "R1_EVENT_STREAM", "body_omitted": True,
+                                     "digest": canonical_sha256(value), "read_via": "canonical status tools"}
+        if len(encode().encode("utf-8")) > 16384:
+            extract = envelope.get("bounded_context_extract")
+            if isinstance(extract, dict):
+                extract["omitted_items"] += len(extract["items"])
+                extract["items"] = []
+        text = encode()
+        if len(text.encode("utf-8")) > 16384:
+            raise RuntimeError("G2_1_BOOTSTRAP_METADATA_EXCEEDS_BUDGET")
+        return text
+
+    def _latest_checkpoint(self, mission_id: str, task_id: str) -> dict[str, Any] | None:
+        record = next((item for item in reversed(self.session_control.state(mission_id).rotations)
+                       if item.task_id == task_id and item.checkpoint), None)
+        return dict(record.checkpoint) if record is not None else None
+
+    def _rotation_checkpoint(self, mission_id: str, task_id: str, predecessor_session_id: str,
+                             root_attempt_id: str, logical_agent_id: str) -> dict[str, Any]:
+        composed = self.runtime.replay_composed(mission_id)
+        execution = composed.extension_state("r1_3b_execution_resume")
+        attempt = execution.latest_attempt(task_id) if execution is not None else None
+        return {
+            "schema": "aitest.g2.1.rotation-checkpoint.v1", "authority": "R1_EVENT_STREAM",
+            "mission_id": mission_id, "task_id": task_id, "predecessor_session_id": predecessor_session_id,
+            "root_attempt_id": root_attempt_id, "logical_agent_id": logical_agent_id,
+            "attempt_id": attempt.attempt_id if attempt is not None else None,
+            "through_seq": composed.seq, "state_digest": canonical_sha256(composed.to_dict()),
+            "conversation_is_truth": False,
+        }
+
+    def _abort_predecessor(self, session_id: str) -> None:
+        abort = getattr(self.raw_session_provider, "abort_session", None)
+        if callable(abort):
+            abort(session_id)
 
     def _ensure_default_route(self, mission_id: str, task_id: str) -> None:
         state = self.session_control.state(mission_id)
@@ -602,7 +686,8 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             self.session_control.request_rotation(
                 mission_id,
                 {"rotation_id": rotation_id, "task_id": task_id, "root_attempt_id": root_attempt_id,
-                 "predecessor_session_id": predecessor_session_id, "reasons": rotation_reasons},
+                 "predecessor_session_id": predecessor_session_id, "reasons": rotation_reasons,
+                 "checkpoint": self._rotation_checkpoint(mission_id, task_id, predecessor_session_id, root_attempt_id, route.logical_agent_id)},
             )
 
         token = self._provision_token(mission_id, route.logical_agent_id, "TASK_ROTATION", predecessor_session_id)
@@ -650,6 +735,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         if latest is None or latest.runtime_session_id != predecessor_session_id or latest.root_attempt_id != root_attempt_id:
             raise RuntimeError("ROTATION_RECOVERY_PREDECESSOR_MISMATCH")
 
+        self._abort_predecessor(predecessor_session_id)
         with self.provisioning_provider.provision(token, title):
             result = super().rotate_session(mission_id, task_id=task_id, agent=route.agent_name)
         successor = str(result.get("successor_session_id") or "")
@@ -696,6 +782,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
                        "reachable": False, "healthy": False, "error": type(exc).__name__, "provider": "OPENCODE"}
         else:
             raw = dict(observation)
+        raw = durable_pressure(raw, self.session_control.state(mission_id).observation(latest.runtime_session_id))
         obs = SessionObservation.from_provider(latest.runtime_session_id, raw)
         self.session_control.record_observation(mission_id, obs.to_dict())
         reasons = self.rotation_policy.evaluate(obs)
@@ -741,7 +828,8 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
                 mission_id,
                 {"rotation_id": rotation_id, "task_id": "__PLANNING__",
                  "root_attempt_id": root_attempt_id,
-                 "predecessor_session_id": predecessor_session_id, "reasons": rotation_reasons},
+                 "predecessor_session_id": predecessor_session_id, "reasons": rotation_reasons,
+                 "checkpoint": self._rotation_checkpoint(mission_id, "__PLANNING__", predecessor_session_id, root_attempt_id, logical_agent_id)},
             )
 
         composed = self.runtime.replay_composed(mission_id)
@@ -770,6 +858,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             raise RuntimeError("PLANNER_ROTATION_DUPLICATE_EXTERNAL_SUCCESSOR")
         external = matches[0] if matches else None
         if external is None:
+            self._abort_predecessor(predecessor_session_id)
             with self.provisioning_provider.provision(token, title):
                 external = self.provisioning_provider.create_session(title=title, parent_id=predecessor_session_id)
 
@@ -989,6 +1078,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
                     raise
                 except Exception as exc:
                     raw = {"reachable": False, "healthy": False, "error": type(exc).__name__, "provider": "OPENCODE"}
+                raw = durable_pressure(raw, self.session_control.state(mission_id).observation(session.session_id))
                 obs = SessionObservation.from_provider(session.session_id, raw)
                 self.session_control.record_observation(mission_id, obs.to_dict())
                 reasons = self.rotation_policy.evaluate(obs)

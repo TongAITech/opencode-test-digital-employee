@@ -1,0 +1,122 @@
+"""Adversarial observation budgets; no bank/provider success is implied."""
+from __future__ import annotations
+
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(WORKSPACE_ROOT / "ai-test/runtime"))
+
+from aitest_runtime.autonomous_orchestration import DirectoryScopedOpenCodeSessionProvider, FakeOpenCodeSessionProvider
+from aitest_runtime.canonical_runtime import create_canonical_runtime
+from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
+from aitest_runtime.g2_1.supervisor import RotationPolicy, SessionObservation, durable_pressure
+from aitest_runtime.session_pressure import message_metrics, ObservationBudgetExceeded
+from test_g2_1_session_router_control_loop import request, one_task
+
+
+def message(index=0, role="assistant", text="small", parts=None):
+    return {"info": {"id": f"msg-{index}", "sessionID": "session-1", "role": role},
+            "parts": parts if parts is not None else [{"type": "text", "text": text}]}
+
+
+def reasons(pressure):
+    return RotationPolicy().evaluate(SessionObservation.from_provider("session-1", {
+        "reachable": True, "healthy": True, "pressure": pressure,
+        "message_count": pressure.get("message_count"), "compaction_count": pressure.get("compaction_count"),
+    }))
+
+
+class PressureTests(unittest.TestCase):
+    def test_large_multilingual_tool_output_rotates_before_estimate_warning(self):
+        pressure = message_metrics([message(parts=[{"type": "tool", "state": {"output": "业务内容" * 2000}}])], "session-1")
+        self.assertIn("ESTIMATED_CONTEXT_PRESSURE", reasons(pressure))
+        self.assertNotIn("业务内容", json.dumps(pressure, ensure_ascii=False))
+        self.assertEqual(pressure["estimate_method"], "UTF8_BYTES_PLUS_FRAMING_AND_4096_RESERVE")
+
+    def test_compaction_and_turn_and_tool_activity_are_independent(self):
+        self.assertIn("CONTEXT_COMPACTED", reasons(message_metrics([message(parts=[{"type": "compaction"}])], "session-1")))
+        self.assertIn("TURN_BUDGET", reasons(message_metrics([message(i) for i in range(24)], "session-1")))
+        self.assertIn("ACTIVITY_BUDGET", reasons(message_metrics([message(parts=[{"type": "tool"}] * 48)], "session-1")))
+
+    def test_duplicate_messages_do_not_inflate_counts(self):
+        pressure = message_metrics([message()] * 60, "session-1")
+        self.assertEqual(pressure["message_count"], 1)
+        self.assertFalse(pressure["message_sample_saturated"])
+
+    def test_invalid_shapes_and_cross_session_messages_fail_closed(self):
+        for value in ({}, ["raw text"], [{"info": {}, "parts": []}], [message(parts=["raw part"])]):
+            with self.assertRaises(ValueError):
+                message_metrics(value, "session-1")
+        with self.assertRaises(ValueError):
+            message_metrics([message()], "other-session")
+
+    def test_latest_real_token_usage_not_cumulative_spend(self):
+        first, last = message(0), message(1)
+        first["info"].update({"tokens": {"input": 500, "output": 20}, "time": {"created": 1}})
+        last["info"].update({"tokens": {"input": 100, "output": 10, "cache": {"read": 50, "write": 5}}, "time": {"created": 2}})
+        self.assertEqual(message_metrics([last, first], "session-1")["observed_message_tokens"], 165)
+
+    def test_provider_fallback_keeps_model_limit_unknown(self):
+        provider = DirectoryScopedOpenCodeSessionProvider(WORKSPACE_ROOT)
+        provider._request = lambda method, path, body=None: [message()] if "/message?" in path else {"id": "session-1"}
+        value = provider.observe_session("session-1")
+        self.assertEqual(value["message_count"], 1)
+        self.assertIsNone(value["context_limit"])
+        self.assertIsNone(value["context_utilization"])
+        self.assertEqual(value["pressure"]["metrics_source"], "OPENCODE_MESSAGE_API")
+
+    def test_oversize_observation_is_pressure_not_unreachable(self):
+        provider = DirectoryScopedOpenCodeSessionProvider(WORKSPACE_ROOT)
+        def transport(method, path, body=None):
+            if "/message?" in path:
+                raise ObservationBudgetExceeded("overflow")
+            return {"id": "session-1"}
+        provider._request = transport
+        value = provider.observe_session("session-1")
+        self.assertTrue(value["reachable"])
+        self.assertIn("OBSERVATION_BYTE_BUDGET", reasons(value["pressure"]))
+
+    def test_blind_budget_is_r1_durable_across_restart(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            provider = FakeOpenCodeSessionProvider(root)
+            service = G21AutonomousOrchestrationService(create_canonical_runtime(root, db_path=root / "runtime-spine.db"), root, session_provider=provider)
+            mission = service.start_test(request("blind", "BLIND"))["intake"]["intake"]["mission_id"]
+            task = service.propose_plan(mission, one_task())["next"]
+            sid = task["external_session"]["session_id"]
+            value = {"reachable": True, "healthy": True, "observed_at": "2026-09-08T00:00:00Z",
+                     "raw_digest": "same", "pressure": {"metrics_source": "METADATA_ONLY"}}
+            self.assertEqual(service.observe_session(mission, task_id=task["task_id"], observation=value)["status"], "KEEP")
+            # Fresh runtime and service, with no in-memory counters.
+            restored = G21AutonomousOrchestrationService(create_canonical_runtime(root, db_path=root / "runtime-spine.db"), root, session_provider=provider)
+            value["observed_at"] = "2026-09-08T00:05:00Z"
+            rotated = restored.observe_session(mission, task_id=task["task_id"], observation=value)
+            self.assertEqual(rotated["status"], "ROTATED")
+            self.assertIn("BLIND_TIME_BUDGET", rotated["rotation_reasons"])
+            checkpoint = restored.session_control.state(mission).rotations[-1].checkpoint
+            self.assertEqual(checkpoint["predecessor_session_id"], sid)
+            recovered = restored.runtime.replay_composed(mission, through_seq=checkpoint["through_seq"])
+            from aitest_runtime.durable_core import canonical_sha256
+            self.assertEqual(canonical_sha256(recovered.to_dict()), checkpoint["state_digest"])
+            self.assertFalse((root / "ai-test/state/aitest.db").exists())
+
+    def test_unchanged_observation_does_not_spend_activity_budget(self):
+        raw = {"reachable": True, "raw_digest": "same", "observed_at": "2026-09-08T00:00:00Z", "pressure": {"metrics_source": "METADATA_ONLY"}}
+        previous = SessionObservation.from_provider("session-1", durable_pressure(raw))
+        for _ in range(25):
+            previous = SessionObservation.from_provider("session-1", durable_pressure(raw, previous))
+        self.assertEqual(previous.provider_state["pressure"]["blind_activity_count"], 0)
+
+    def test_large_bootstrap_is_bounded_and_canonical_body_is_referenced(self):
+        envelope = {"mission_id": "mission", "task": {"intent": "业务需求" * 30000}, "goal": {"title": "goal"}}
+        result = G21AutonomousOrchestrationService._bounded_bootstrap("CONTEXT\n", envelope)
+        self.assertLessEqual(len(result.encode("utf-8")), 16384)
+        self.assertTrue(json.loads(result.split("\n", 1)[1])["task"]["body_omitted"])
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

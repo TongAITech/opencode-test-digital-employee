@@ -114,7 +114,10 @@ class OpenCodeContractStub(BaseHTTPRequestHandler):
             self.__class__.sessions[sid] = {"id": sid, "title": body.get("title")}
             self._json(200, {"id": sid, "title": body.get("title")})
             return
-        if parsed.path.startswith("/session/") and parsed.path.endswith("/message"):
+        if parsed.path.startswith("/session/") and parsed.path.endswith("/abort"):
+            self._json(200, True)
+            return
+        if parsed.path.startswith("/session/") and parsed.path.endswith("/prompt_async"):
             sid = parsed.path.split("/")[-2]
             if sid not in self.__class__.sessions:
                 self._json(404, {"error": "not found"})
