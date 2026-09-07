@@ -1,0 +1,83 @@
+name: G1-G5 Package Windows Qualification
+
+on:
+  push:
+    branches:
+      - work/local-validation-package
+    paths:
+      - ".github/workflows/g1-g5-package-windows-qualification.yml"
+      - "tools/package_windows_qualification.ps1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-package-qualification:
+    name: Windows package qualification
+    runs-on: windows-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout exact workflow commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify branch and checkout identity
+        shell: pwsh
+        run: |
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne "${{ github.sha }}") {
+            throw "checkout SHA mismatch: git=$head github=${{ github.sha }}"
+          }
+          if ("${{ github.ref_name }}" -ne "work/local-validation-package") {
+            throw "unexpected branch: ${{ github.ref_name }}"
+          }
+          Write-Host "WORKFLOW_COMMIT=$head"
+          Write-Host "WINDOWS_RUNNER=$env:RUNNER_OS/$env:RUNNER_ARCH"
+
+      - name: Run Windows package qualification
+        id: qualify
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          ./tools/package_windows_qualification.ps1 `
+            -ResultPath "$env:GITHUB_WORKSPACE\qualification-result.json"
+
+      - name: Emit structured qualification result
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$env:GITHUB_WORKSPACE\qualification-result.json")) {
+            throw "qualification-result.json was not generated"
+          }
+          Write-Host "QUALIFICATION_RESULT_ARTIFACT=qualification-result.json"
+          Write-Host "QUALIFICATION_RESULT_JSON_BEGIN"
+          Get-Content -Raw "$env:GITHUB_WORKSPACE\qualification-result.json" | Write-Host
+          Write-Host "QUALIFICATION_RESULT_JSON_END"
+
+      - name: Upload qualification result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g1-g5-package-windows-qualification-${{ github.sha }}
+          path: qualification-result.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce qualification conclusion
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$env:GITHUB_WORKSPACE\qualification-result.json")) {
+            throw "PKG0.6B1 blocked: structured result missing"
+          }
+          $result = Get-Content -Raw "$env:GITHUB_WORKSPACE\qualification-result.json" | ConvertFrom-Json
+          Write-Host "PKG0_6B1_WINDOWS_PACKAGE_COMPATIBILITY=$($result.gate_status)"
+          if ($result.gate_status -eq "FAIL") {
+            throw "PKG0.6B1 qualification assertions failed"
+          }
+          if ($result.gate_status -eq "BLOCKED") {
+            throw "PKG0.6B1 blocked by execution substrate"
+          }
