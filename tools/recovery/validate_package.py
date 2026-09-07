@@ -44,6 +44,8 @@ def main():
     for key in ('GH_TOKEN', 'GITHUB_TOKEN', 'OPENCODE_SERVER_PASSWORD', 'AITEST_MODEL_KEY', 'AITEST_RUNTIME_SPINE_DB', 'PFC_LOCAL_STATE_ROOT'):
         env.pop(key, None)
     if not args.source_only: env['AITEST_TEST_RUNTIME_SOURCE'] = str(workspace)
+    chrome = workspace / 'runtime/browser/chrome-win64/chrome.exe' if os.name == 'nt' else Path('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+    if chrome.is_file(): env['AITEST_BROWSER_SMOKE_CHROMIUM'] = str(chrome)
     suites = [
         'test_recovery_intake.py', 'test_recovery_executors.py', 'test_recovery_g4_execution.py',
         'test_g2_1_pressure_fallback.py', 'test_recovery_browser.py',
@@ -62,7 +64,7 @@ def main():
         if not (tests / name).is_file():
             results[name] = {'status': 'FAIL', 'reason': 'REQUIRED_TEST_MISSING'}
         else:
-            results[name] = run([sys.executable, str(tests / name)], bundle, env, timeout=420)
+            results[name] = run([sys.executable, '-X', 'utf8', '-c', "import sys,runpy; from pathlib import Path; p=sys.argv[1]; sys.path.insert(0,str(Path(p).parent)); sys.argv=[p]; runpy.run_path(p,run_name='__main__')", str(tests / name)], bundle, env, timeout=420)
         print(name + ': ' + results[name]['status'], flush=True)
     payloads = {}
     if not args.source_only:
@@ -94,7 +96,7 @@ def main():
         payloads['single_entry_server_control_loop'] = run([sys.executable, str(bundle / 'tools/recovery/launcher.py'), '--self-check'], bundle, env, timeout=150)
     passed = all(result['status'] == 'PASS' for result in results.values())
     payload_pass = bool(payloads) and all(result['status'] == 'PASS' for result in payloads.values())
-    result = {'schema_version': 'aitest.machine-validation.v1', 'product_version': '1.9.5',
+    result = {'schema_version': 'aitest.machine-validation.v1', 'product_version': '1.12.0',
               'host': {'system': platform.system(), 'machine': platform.machine(), 'python': platform.python_version()},
               'source_head': (json.loads((bundle / 'BUILD_PROVENANCE.json').read_text()).get('source_head') if (bundle / 'BUILD_PROVENANCE.json').is_file() else subprocess.check_output(['git', '-C', str(bundle), 'rev-parse', 'HEAD'], text=True).strip()),
               'LOCAL_VALIDATION_PASS': passed, 'WINDOWS_CI_PASS': passed and payload_pass and os.name == 'nt',

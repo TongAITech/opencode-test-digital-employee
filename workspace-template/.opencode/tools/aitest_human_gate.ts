@@ -53,6 +53,7 @@ async function resolveHumanGate(
   }
   const proc = Bun.spawn([
     python,
+    "-X", "utf8",
     "-m",
     "aitest_runtime.product_entry",
     "g4",

@@ -59,7 +59,7 @@ def main() -> int:
                     checks[f"{target}_{'mission' if populated else 'empty'}"] = True
             assert entry.interactive_truth("")["status"] == "PASS"
             assert entry.interactive_truth(" PROJECT ")["status"] == "BANK_BINDING_REQUIRED"
-            assert entry.interactive_truth("status")["product_version"] == "1.9.5"
+            assert entry.interactive_truth("status")["product_version"] == "1.12.0"
             assert entry.interactive_truth("status")["g5_defect_truth"].startswith("CLOSED/FROZEN")
             assert entry.interactive_truth("status")["g6_closed_loop"] == "HOLD"
             for target in ("requirement", "coverage", "cases", "human_actions"):

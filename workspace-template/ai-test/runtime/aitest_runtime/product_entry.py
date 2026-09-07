@@ -108,7 +108,7 @@ def _interactive_truth_result(target: str, requirement_id: str | None = None, ca
             "g2_autonomous_orchestration": "ENGINEERING_PASS / BANK_OPENCODE_FIELD_VALIDATION_PENDING",
             "g2_1_session_router_control_loop": "ENGINEERING_PASS / BANK_OPENCODE_OBSERVATION_FIELD_VALIDATION_PENDING",
             "g3_testing_intelligence": "ENGINEERING_PASS / FROZEN",
-            "product_version": "1.9.5",
+            "product_version": "1.12.0",
             "architecture_baseline": "v7/FROZEN/UNCHANGED",
             "g4_real_execution": "CLOSED/FROZEN / BANK_EXECUTION_FIELD_VALIDATION_PENDING",
             "g5_defect_truth": "CLOSED/FROZEN / BANK_FIELD_VALIDATION_REQUIRED",

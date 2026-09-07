@@ -1,4 +1,4 @@
-# V1.9.5 Context Pressure Recovery
+# V1.12.0 Context Pressure Recovery
 
 ArchitectureBaseline v7 remains FROZEN and unchanged. G6 remains HOLD. This
 repair uses the existing G2.1 observation/rotation events and R1.3B/R2.5 resume

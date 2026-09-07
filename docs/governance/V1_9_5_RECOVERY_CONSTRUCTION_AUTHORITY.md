@@ -1,9 +1,9 @@
-# V1.9.5 Recovery construction scope
+# V1.12.0 Recovery construction scope
 
 Authority: the current user's 2026-09-08 request authorizes actual construction,
 testing, repair, dependency acquisition with LOCAL-FIRST / ONLINE-FALLBACK,
 Windows CI, and a derived Windows validation ZIP. The follow-up explicitly asks
-for version evolution; product recovery release is 1.9.5, historical behavior
+for version evolution; product recovery release is 1.12.0, historical behavior
 baseline is V1.9.4. This supersedes earlier documentation-only packaging scope
 restrictions for this isolated recovery branch. It does not reopen architecture
 or authorize main mutation, bank result fabrication, or G6 promotion.
@@ -11,7 +11,7 @@ or authorize main mutation, bank result fabrication, or G6 promotion.
 - Repository: TongAITech/opencode-test-digital-employee only.
 - Canonical main verified remotely: 58e5e1259cd26846b31ea21a8a87df0bcf071edc.
 - Latest remote packaging head at construction: 98868e6bf8a1b1d7c5e262ae6d305755bca35886.
-- Branch: work/v1.9.5-recovery-turnkey-validation, new isolated worktree.
+- Branch: work/v1.12.0-recovery-turnkey-validation, new isolated worktree.
 - Original local main checkout: 4edd785 with untracked .idea directory; untouched.
 - ArchitectureBaseline: v7/FROZEN/UNCHANGED. R1 Event Stream sole durable truth.
 - Canonical G1-G5 engineering CLOSED/FROZEN; field validation is independent.

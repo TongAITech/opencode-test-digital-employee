@@ -1,7 +1,7 @@
 name: Recovery turnkey Windows validation
 on:
   push:
-    branches: [work/v1.9.5-recovery-turnkey-validation]
+    branches: [work/v1.12.0-recovery-turnkey-validation]
     paths: [tools/recovery/ci-package.json]
   workflow_dispatch:
     inputs:
@@ -12,7 +12,7 @@ on:
       asset_name:
         description: Package ZIP asset name
         required: true
-        default: AITest-V1.9.5-Recovery-Turnkey-Windows-x64.zip
+        default: AITest-V1.12.0-Recovery-Turnkey-Windows-x64.zip
         type: string
       expected_sha256:
         description: SHA256 produced by build_package.py
@@ -56,6 +56,7 @@ jobs:
           $zip = Join-Path incoming $env:ASSET_NAME
           $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($actual -ne $env:EXPECTED_SHA256.ToLowerInvariant()) { throw "ZIP SHA256 mismatch: $actual" }
+          "AITEST_INPUT_SHA256=$actual" | Out-File -FilePath $env:GITHUB_ENV -Append
           Expand-Archive -Path $zip -DestinationPath unpacked
           $bundle = Get-ChildItem unpacked -Directory | Select-Object -First 1
           "AITEST_BUNDLE=$($bundle.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
@@ -64,7 +65,7 @@ jobs:
         run: |
           Set-Location $env:AITEST_BUNDLE
           $env:GH_TOKEN = ''
-          & '.\workspace-template\runtime\python\python.exe' '.\tools\recovery\validate_package.py' --bundle . --output windows-validation.json
+          & '.\workspace-template\runtime\python\python.exe' -X utf8 '.\tools\recovery\validate_package.py' --bundle . --output windows-validation.json
           if ($LASTEXITCODE -ne 0) { throw 'Packaged Windows validation failed' }
       - name: Run the single user entry doctor and self check
         shell: bash
@@ -86,3 +87,15 @@ jobs:
             unpacked/**/MACHINE_VALIDATION_RESULT.json
             unpacked/**/BUILD_PROVENANCE.json
           if-no-files-found: warn
+      - name: Seal verified source and payload with Windows evidence
+        shell: pwsh
+        run: |
+          & "$env:AITEST_BUNDLE/workspace-template/runtime/python/python.exe" -X utf8 "$env:AITEST_BUNDLE/tools/recovery/qualify_package.py" --bundle $env:AITEST_BUNDLE --output qualified
+          if ($LASTEXITCODE -ne 0) { throw 'Qualification failed' }
+      - name: Retain qualified turnkey deliverable
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-qualified-package
+          path: qualified/*
+          compression-level: 0
+          if-no-files-found: error

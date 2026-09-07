@@ -47,6 +47,7 @@ async function orchestrate(
   }
   const proc = Bun.spawn([
     python,
+    "-X", "utf8",
     "-m",
     "aitest_runtime.product_entry",
     "orchestrate",
@@ -86,7 +87,7 @@ async function g3(
     ...(process.env.AITEST_RUNTIME_SPINE_DB ? { AITEST_RUNTIME_SPINE_DB: process.env.AITEST_RUNTIME_SPINE_DB } : {}),
     PYTHONPATH: [runtime, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
   }
-  const proc = Bun.spawn([python, "-m", "aitest_runtime.product_entry", "g3", "--role", role, "--action", action, "--payload", JSON.stringify(payload ?? {})],
+  const proc = Bun.spawn([python, "-X", "utf8", "-m", "aitest_runtime.product_entry", "g3", "--role", role, "--action", action, "--payload", JSON.stringify(payload ?? {})],
     { cwd: workspace, env, stdout: "pipe", stderr: "pipe" })
   const stdout = await new Response(proc.stdout).text()
   const stderr = await new Response(proc.stderr).text()
@@ -114,7 +115,7 @@ async function g4(
     ...(process.env.AITEST_RUNTIME_SPINE_DB ? { AITEST_RUNTIME_SPINE_DB: process.env.AITEST_RUNTIME_SPINE_DB } : {}),
     PYTHONPATH: [runtime, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
   }
-  const proc = Bun.spawn([python, "-m", "aitest_runtime.product_entry", "g4", "--role", role, "--action", action, "--payload", JSON.stringify(payload ?? {})],
+  const proc = Bun.spawn([python, "-X", "utf8", "-m", "aitest_runtime.product_entry", "g4", "--role", role, "--action", action, "--payload", JSON.stringify(payload ?? {})],
     { cwd: workspace, env, stdout: "pipe", stderr: "pipe" })
   const stdout = await new Response(proc.stdout).text()
   const stderr = await new Response(proc.stderr).text()
@@ -142,7 +143,7 @@ async function g5(
     ...(process.env.AITEST_RUNTIME_SPINE_DB ? { AITEST_RUNTIME_SPINE_DB: process.env.AITEST_RUNTIME_SPINE_DB } : {}),
     PYTHONPATH: [runtime, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
   }
-  const proc = Bun.spawn([python, "-m", "aitest_runtime.product_entry", "g5", "--role", role, "--action", action, "--payload", JSON.stringify(payload ?? {})],
+  const proc = Bun.spawn([python, "-X", "utf8", "-m", "aitest_runtime.product_entry", "g5", "--role", role, "--action", action, "--payload", JSON.stringify(payload ?? {})],
     { cwd: workspace, env, stdout: "pipe", stderr: "pipe" })
   const stdout = await new Response(proc.stdout).text()
   const stderr = await new Response(proc.stderr).text()
@@ -282,7 +283,7 @@ export const knowledge = tool({
 })
 
 export const recovery = tool({
-  description: "V1.9.5 canonical Requirement/SST/BR/SR/TR and approved Current Release import. Durable R1/G3 provenance; bounded context; no Session management or G6 promotion. Release approval comes only from a human-authored local binding file.",
+  description: "V1.12.0 canonical Requirement/SST/BR/SR/TR and approved Current Release import. Durable R1/G3 provenance; bounded context; no Session management or G6 promotion. Release approval comes only from a human-authored local binding file.",
   args: {
     action: tool.schema.enum(["import_document", "analyze_requirements", "import_current_release", "intake_context", "read_intake_source"]),
     payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}),
@@ -291,7 +292,7 @@ export const recovery = tool({
     const workspace = await canonicalWorkspace(context as ToolContext)
     const python = await portablePython(workspace)
     const env = { ...process.env, AITEST_WORKSPACE_ROOT: workspace, PYTHONPATH: path.join(workspace, "ai-test", "runtime") }
-    const proc = Bun.spawn([python, "-m", "aitest_runtime.product_entry", "recovery", "--action", args.action, "--payload", JSON.stringify(args.payload)],
+    const proc = Bun.spawn([python, "-X", "utf8", "-m", "aitest_runtime.product_entry", "recovery", "--action", args.action, "--payload", JSON.stringify(args.payload)],
       { cwd: workspace, env, stdout: "pipe", stderr: "pipe" })
     const stdout = await new Response(proc.stdout).text()
     const stderr = await new Response(proc.stderr).text()

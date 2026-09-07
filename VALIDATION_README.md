@@ -1,6 +1,6 @@
-# AITest V1.9.5 Recovery · Windows 验证
+# AITest V1.12.0 Recovery · Windows 验证
 
-将 ZIP 解压到当前用户可写的目录，建议 `C:\AITest-V1.9.5`。使用 Windows x64 和 Git Bash，无需管理员权限。请完整解压，不要直接在压缩包内运行。
+将 ZIP 解压到当前用户可写的目录，建议 `C:\AITest-V1.12.0`。使用 Windows x64 和 Git Bash，无需管理员权限。请完整解压，不要直接在压缩包内运行。
 
 在解压目录打开 Git Bash，输入：
 

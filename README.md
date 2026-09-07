@@ -2,6 +2,10 @@
 
 Canonical engineering source for the OpenCode-based AI testing digital employee.
 
+The V1.12.0 Recovery Turnkey Validation package starts with `bash AITEST.sh`.
+See [VALIDATION_README.md](VALIDATION_README.md) for Windows field validation.
+Version1.12.0 advances the actual packaging baseline1.11.1; V1.9.4 remains the historical capability reference.
+
 ## Source of truth
 
 - Git commit SHA = Engineering Source Truth.

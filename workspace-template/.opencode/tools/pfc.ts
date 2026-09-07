@@ -47,7 +47,7 @@ async function resolvePfcWorkspace(context: PfcToolContext): Promise<string> {
 async function pythonCommand(workspace: string): Promise<string[]> {
   const win = process.platform === "win32"
   const local = path.join(workspace, "runtime", "python", win ? "python.exe" : "python")
-  if (await Bun.file(local).exists()) return [local]
+  if (await Bun.file(local).exists()) return [local, "-X", "utf8"]
   throw new Error(`PFC_PORTABLE_PYTHON_NOT_FOUND; expected=${local}`)
 }
 

@@ -1,4 +1,4 @@
-# V1.9.4 historical capability → V1.9.5 recovery
+# V1.9.4 historical capability → V1.12.0 recovery
 
 V1.9.4 is the requested historical behavior oracle. The specific named base
 and upgrade ZIPs are not mounted in this desktop environment; this matrix does
@@ -26,7 +26,7 @@ the recovery commits. Existing local offline tool bytes are inventoried by hash.
 | Git / ripgrep | PRESERVED | Git exact diff authority; local ripgrep enrichment; no invented actual coverage |
 | CAT / DB / Manual | OPEN_BANK_BINDING | Existing governed G4 capability/HumanGate paths; bank adapters and credentials remain external |
 | G5 defect flow | PRESERVED | Canonical investigated Observations→defects; no automatic defect from one error |
-| Entry/status/package truth | UPGRADED | Recovery product1.9.5, canonical G1-G5 CLOSED/FROZEN, G6 HOLD; Windows and bank validation reported separately |
+| Entry/status/package truth | UPGRADED | Recovery product1.12.0, canonical G1-G5 CLOSED/FROZEN, G6 HOLD; Windows and bank validation reported separately |
 | Legacy aitest.db as product truth | INTENTIONALLY_NOT_RESTORED | Existing migration/reference code is not the recovery product entry |
 | G6 automatic learning/promotion | INTENTIONALLY_NOT_RESTORED | HOLD; teaching observation does not grant promotion authority |
 

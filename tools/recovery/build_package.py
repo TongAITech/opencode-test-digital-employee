@@ -136,7 +136,7 @@ def main() -> None:
     parser.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument('--payload-stage', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
-    parser.add_argument('--version', default='1.9.5')
+    parser.add_argument('--version', default='1.12.0')
     parser.add_argument('--allow-dirty-diagnostic', action='store_true')
     args = parser.parse_args()
     print(json.dumps(build(args.repo.resolve(), args.payload_stage.resolve(),

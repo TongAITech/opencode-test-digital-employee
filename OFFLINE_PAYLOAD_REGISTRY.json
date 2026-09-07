@@ -1650,7 +1650,7 @@
       "reason": "Windows1.44.0, Node1.62.1/1.62.0-alpha local candidates mismatch frozen1.62.0; matching greenlet cp312 Windows dependency may also require acquisition."
     }
   ],
-  "product_version": "1.9.5",
+  "product_version": "1.12.0",
   "online_downloads_started": true,
   "construction_only_native_dependencies": [
     {

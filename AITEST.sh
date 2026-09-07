@@ -10,4 +10,4 @@ if [ ! -f "$PY" ]; then
   echo "FAIL：缺少包内 Python；请重新校验交付 ZIP，不会联网安装。"
   exit 1
 fi
-exec "$PY" "$BASE/tools/recovery/launcher.py" "$@"
+exec "$PY" -X utf8 "$BASE/tools/recovery/launcher.py" "$@"
