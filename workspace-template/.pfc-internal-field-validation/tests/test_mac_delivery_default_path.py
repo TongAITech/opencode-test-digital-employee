@@ -23,7 +23,7 @@ sys.path.insert(0, str(WORKSPACE / 'ai-test/runtime'))
 class MacDeliveryDefaultPath(unittest.TestCase):
     def test_default_intake_and_restart_without_legacy_store(self):
         configured = os.environ.get('MAC_DELIVERY_EVIDENCE_ROOT')
-        root = Path(configured) / 'default-resolver' if configured else Path(tempfile.mkdtemp(prefix='mac-delivery-test-'))
+        root = Path(configured) / 'default-resolver' if configured else Path(tempfile.mkdtemp(prefix='mac-delivery-test-')) / 'default-resolver'
         root.mkdir(parents=True, exist_ok=False)
         legacy = root / 'legacy-sentinel/aitest.db'
         legacy.parent.mkdir()
