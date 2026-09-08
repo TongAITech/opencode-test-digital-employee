@@ -178,14 +178,18 @@ class CDPBrowserProvider:
         result["evidence_digest"] = canonical_sha256({"checks": checks, "result": result, "context": browser_context_ref.context_binding_digest})
         return result
 
-    def launch_browser(self):
+    def _chromium_path(self):
+        chrome = self.root / "runtime/browser/chrome-win64/chrome.exe"
+        if os.name != "nt" and self.config.get("local_chromium_path"):
+            chrome = Path(self.config["local_chromium_path"])
+        return chrome
+
+    def launch_browser(self, *, headless=False):
         try:
             return {"status": "READY", "browser_context_ref": self.context_ref().to_dict(), "reused": True}
         except (OSError, ValueError, RuntimeError):
             pass
-        chrome = self.root / "runtime/browser/chrome-win64/chrome.exe"
-        if os.name != "nt" and self.config.get("local_chromium_path"):
-            chrome = Path(self.config["local_chromium_path"])
+        chrome = self._chromium_path()
         if not chrome.is_file():
             raise RuntimeError("BROWSER_OFFLINE_CHROMIUM_PAYLOAD_REQUIRED")
         start_url = str(self.config.get("start_url") or "")
@@ -200,7 +204,9 @@ class CDPBrowserProvider:
         # RenderDocument workaround used by the native construction browser.
         args = [str(chrome), "--disable-features=RenderDocument,AutoDeElevate,OptimizationHints",
                 f"--remote-debugging-port={port}", "--remote-debugging-address=127.0.0.1",
-                f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check", start_url]
+                f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check", "about:blank"]
+        if headless:
+            args.insert(1, "--headless=new")
         process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
@@ -208,9 +214,23 @@ class CDPBrowserProvider:
                 raise RuntimeError("BROWSER_PROCESS_EXITED")
             try:
                 ref = self.context_ref()
-                return {"status": "READY", "browser_context_ref": ref.to_dict(), "reused": False, "pid": process.pid}
             except (OSError, ValueError, RuntimeError):
                 time.sleep(0.2)
+                continue
+            # Windows Chromium can leave the first document uninitialized for
+            # CDP if navigation precedes attachment. Bootstrap only this newly
+            # launched browser on a blank page, then open the approved URL.
+            # The reuse path above never changes an existing human-owned page.
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as driver:
+                browser = driver.chromium.connect_over_cdp(self.endpoint, timeout=15000)
+                pages = browser.contexts[0].pages if browser.contexts else []
+                blank = next((page for page in pages if page.url == "about:blank"), None)
+                if blank is None:
+                    raise RuntimeError("BROWSER_FRESH_BOOTSTRAP_PAGE_REQUIRED")
+                blank.goto(start_url, wait_until="domcontentloaded", timeout=30000)
+            self.inspect_context(ref)
+            return {"status": "READY", "browser_context_ref": ref.to_dict(), "reused": False, "pid": process.pid}
         raise RuntimeError("BROWSER_CDP_START_TIMEOUT")
 
     def status(self):
@@ -256,6 +276,7 @@ class TeachingObserver:
         self.capture_id = uuid.uuid4().hex
         self.binding_name = "aitestTeachingElement_" + self.capture_id
         self.batch = 0
+        self.pending_recovery_targets = set()
         self.evidence_root = Path(os.environ.get("PFC_LOCAL_STATE_ROOT") or provider.root / "data") / "evidence/teaching"
         self.evidence_root.mkdir(parents=True, exist_ok=True)
 
@@ -399,15 +420,40 @@ class TeachingObserver:
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             # Create the replacement before closing the last crashed tab, so
             # Chromium does not exit and discard the authenticated context.
-            request = urllib.request.Request(self.provider.endpoint + "/json/new?" + quote(target, safe=''), method="PUT")
+            request = urllib.request.Request(self.provider.endpoint + "/json/new?about:blank", method="PUT")
             with opener.open(request, timeout=5) as response:
-                response.read(4096)
+                replacement = json.loads(response.read(4096))
+            self.pending_recovery_targets.add(str(replacement["id"]))
             with opener.open(self.provider.endpoint + "/json/close/" + quote(str(page["id"]), safe=''), timeout=5) as response:
                 response.read(4096)
-            self._add({"kind": "PAGE_RECOVERY", "status": "REPLACED_CRASHED_TAB_SAME_BROWSER_CONTEXT",
+            self._add({"kind": "PAGE_RECOVERY", "status": "REPLACEMENT_AWAITING_APPROVED_NAVIGATION",
                        "url": safe_url(target), "resume_authority": "G4_FRESH_VERIFICATION_REQUIRED"})
             recovered = True
         return recovered
+
+    def _navigate_recovery_targets(self, browser):
+        if not self.pending_recovery_targets or not browser.contexts:
+            return
+        target = self.provider.config.get("start_url")
+        if not target or not self.provider.allowed(target):
+            raise RuntimeError("BROWSER_CRASH_APPROVED_RECOVERY_URL_REQUIRED")
+        context = browser.contexts[0]
+        for page in context.pages:
+            session = context.new_cdp_session(page)
+            try:
+                target_id = session.send("Target.getTargetInfo")["targetInfo"]["targetId"]
+            finally:
+                session.detach()
+            if target_id not in self.pending_recovery_targets:
+                continue
+            self.pending_recovery_targets.discard(target_id)
+            # Only the exact blank tab created by this observer is eligible.
+            # A human navigation since its creation always wins.
+            if page.url != "about:blank":
+                continue
+            page.goto(target, wait_until="domcontentloaded", timeout=10000)
+            self._add({"kind": "PAGE_RECOVERY", "status": "REPLACED_CRASHED_TAB_SAME_BROWSER_CONTEXT",
+                       "url": safe_url(target), "resume_authority": "G4_FRESH_VERIFICATION_REQUIRED"})
 
     def _recover_page(self, page):
         target = page.url if self.provider.allowed(page.url) else self.provider.config.get("start_url")
@@ -437,6 +483,7 @@ class TeachingObserver:
                         self.response_deadlines.clear()
                         self.finished_requests.clear()
                         self.binding_name = "aitestTeachingElement_" + uuid.uuid4().hex
+                    self._navigate_recovery_targets(browser)
                     pages = list(browser.contexts[0].pages) if browser.contexts else []
                     if not pages:
                         break

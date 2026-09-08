@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -127,7 +128,6 @@ class BrowserTests(unittest.TestCase):
                 origin = f"http://127.0.0.1:{server.server_port}"
                 endpoint = f"http://127.0.0.1:{port}"
                 browser_log = (root / "browser.log").open("w")
-                browser_process = subprocess.Popen([os.environ["AITEST_BROWSER_SMOKE_CHROMIUM"], "--headless=new", "--disable-features=RenderDocument,AutoDeElevate,OptimizationHints", "--disable-extensions", "--disable-background-networking", "--disable-component-update", f"--remote-debugging-port={port}", f"--user-data-dir={root / 'profile'}", "--no-first-run", "--no-default-browser-check", origin], stdout=browser_log, stderr=browser_log)
                 runtime = create_canonical_runtime(root, db_path=root / "runtime-spine.db")
                 service = G21AutonomousOrchestrationService(runtime, root, session_provider=FakeOpenCodeSessionProvider(root))
                 mission = service.start_test(request("browser-real", "BROWSER-REAL"))["intake"]["intake"]["mission_id"]
@@ -137,16 +137,40 @@ class BrowserTests(unittest.TestCase):
                 checks = {"authenticated_selector": "#authenticated", "page_selector": "#page-ready", "business_selector": "#business-ready"}
                 config = {"cdp_endpoint": endpoint, "start_url": origin, "approved": True, "approval_ref": "LOCAL_TEST_ONLY", "allowed_origins": [origin], "response_body_paths": ["/data"], "resume_checks": checks}
                 provider = CDPBrowserProvider(root, config=config, runtime=runtime)
-                deadline = time.monotonic() + 60
-                while True:
+                chrome = Path(os.environ["AITEST_BROWSER_SMOKE_CHROMIUM"]).resolve()
+                real_popen = subprocess.Popen
+                launched_chrome = []
+
+                def capture_browser_process(argv, *popen_args, **popen_kwargs):
+                    nonlocal browser_process
+                    # Patching the module's subprocess object also intercepts
+                    # Playwright's driver process. Preserve its pipe arguments.
+                    is_chrome = isinstance(argv, (list, tuple)) and Path(argv[0]).resolve() == chrome
+                    if is_chrome:
+                        popen_kwargs.update(stdout=browser_log, stderr=browser_log)
+                    process = real_popen(argv, *popen_args, **popen_kwargs)
+                    if is_chrome:
+                        browser_process = process
+                        launched_chrome.append(process.pid)
+                    return process
+
+                with mock.patch.object(provider, "_chromium_path", return_value=chrome), mock.patch(
+                    "aitest_runtime.recovery_browser.subprocess.Popen", side_effect=capture_browser_process
+                ):
                     try:
-                        ref = provider.context_ref(); break
-                    except Exception:
-                        if browser_process.poll() is not None or time.monotonic() > deadline:
-                            browser_log.flush()
-                            raise RuntimeError("Chromium startup failed: " + (root / "browser.log").read_text(errors="replace")[-3000:])
-                        time.sleep(0.1)
-                self.assertEqual(provider.launch_browser()["status"], "READY")
+                        launched = provider.launch_browser(headless=True)
+                    except Exception as exc:
+                        browser_log.flush()
+                        raise RuntimeError("Product browser startup failed: " + (root / "browser.log").read_text(errors="replace")[-3000:]) from exc
+                self.assertEqual(launched["status"], "READY")
+                self.assertFalse(launched["reused"])
+                self.assertEqual(launched_chrome, [browser_process.pid])
+                self.assertEqual(launched["pid"], browser_process.pid)
+                ref = provider.context_ref()
+                self.assertEqual(launched["browser_context_ref"]["context_binding_digest"], ref.context_binding_digest)
+                reused = provider.launch_browser(headless=True)
+                self.assertEqual(reused["status"], "READY")
+                self.assertTrue(reused["reused"])
                 observer = TeachingObserver(provider, mission)
                 with sync_playwright() as driver:
                     browser = driver.chromium.connect_over_cdp(endpoint, timeout=45000)
@@ -180,6 +204,17 @@ class BrowserTests(unittest.TestCase):
                     browser = driver.chromium.connect_over_cdp(endpoint, timeout=45000)
                     page = browser.contexts[0].pages[0]
                     page.click("#finish")
+                    # Reopening the product entry must retain the exact live
+                    # authenticated document, even when start_url is identical.
+                    page.evaluate("window.__aitestReuseSentinel = 'authenticated-document'")
+                    current_url = page.url
+                    reused = provider.launch_browser(headless=True)
+                    self.assertTrue(reused["reused"])
+                    self.assertEqual(page.url, current_url)
+                    self.assertEqual(page.evaluate("window.__aitestReuseSentinel"), "authenticated-document")
+                    self.assertTrue(page.locator("#authenticated").is_visible())
+                    self.assertTrue(page.locator("#business-ready").is_visible())
+                    self.assertEqual(reused["browser_context_ref"]["context_binding_digest"], ref.context_binding_digest)
                 completed = g4.complete_human_takeover(mission, {"human_gate_id": "local-human-gate", "completion_mode": "EXPLICIT"})
                 self.assertIn(completed["status"], {"PASS", "RESUMED", "RESUME_SAFE"})
                 self.assertEqual(CDPBrowserProvider(root, config=config, runtime=runtime).inspect_lease(ref), "AI")
