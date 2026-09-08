@@ -47,6 +47,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True); parser.add_argument('--source-only', action='store_true')
     parser.add_argument('--installed',type=Path); parser.add_argument('--installed-b',type=Path)
     parser.add_argument('--semantic-report',type=Path)
+    parser.add_argument('--fail-fast',action='store_true',help='Stop source suites at first failure; unexecuted suites cannot satisfy gates')
     args = parser.parse_args(); bundle = args.bundle.resolve(); workspace = bundle / 'workspace-template'
     tests = workspace / '.pfc-internal-field-validation/tests'
     installed=args.installed.resolve() if args.installed else None
@@ -72,8 +73,8 @@ def main():
     env['AITEST_CODEGRAPH_BINARY'] = str(bundle / 'data/validation/contract-fixture-no-codegraph.exe')
     suites = [
         'test_recovery_install_lifecycle.py', 'test_rec3_host_native.py',
-        'test_rec3_business_contracts.py', 'test_rec3_ui_journey.py',
-        'test_recovery_autonomous_entry.py', 'test_recovery_context_stress.py',
+        'test_recovery_autonomous_entry.py',
+        'test_rec3_business_contracts.py', 'test_rec3_ui_journey.py', 'test_recovery_context_stress.py',
         'test_recovery_intake.py', 'test_recovery_executors.py', 'test_recovery_g4_execution.py', 'test_recovery_read_product_entry.py',
         'test_g2_1_pressure_fallback.py', 'test_recovery_browser.py', 'test_recovery_real_opencode.py', 'test_recovery_hosted_intake.py',
         'test_mac_delivery_default_path.py', 'test_interactive_truth_envelope.py',
@@ -100,6 +101,10 @@ def main():
             results[name] = run([sys.executable, '-X', 'utf8', '-c', "import sys,runpy; from pathlib import Path; p=sys.argv[1]; sys.path.insert(0,str(Path(p).parent)); sys.argv=[p]; runpy.run_path(p,run_name='__main__')", str(tests / name)], bundle, env, timeout=1200)
         print(name + ': ' + results[name]['status'], flush=True)
         progress()
+        if args.fail_fast and results[name]['status']!='PASS':
+            for pending in suites:
+                if pending not in results:results[pending]={'status':'NOT_EXECUTED','reason':'PRIOR_REQUIRED_SUITE_FAILED'}
+            break
     seal_test = bundle / 'tools/recovery/check_qualification_seal.py'
     results[seal_test.name] = run([sys.executable, '-X', 'utf8', str(seal_test)], bundle, env, timeout=120)
     print(seal_test.name + ': ' + results[seal_test.name]['status'], flush=True)

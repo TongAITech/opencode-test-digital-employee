@@ -134,7 +134,7 @@ jobs:
           $env:GH_TOKEN = ''
           $semanticArgs = @()
           if ($env:AITEST_SEMANTIC_REPORT) { $semanticArgs = @('--semantic-report', $env:AITEST_SEMANTIC_REPORT) }
-          & "$env:AITEST_INSTALLED/runtime/python/python.exe" -X utf8 "$env:AITEST_BUNDLE/tools/recovery/validate_package.py" --bundle $env:AITEST_BUNDLE --installed $env:AITEST_INSTALLED --installed-b $env:AITEST_INSTALLED_B --output "$env:AITEST_BUNDLE/windows-validation.json" @semanticArgs
+          & "$env:AITEST_INSTALLED/runtime/python/python.exe" -X utf8 "$env:AITEST_BUNDLE/tools/recovery/validate_package.py" --bundle $env:AITEST_BUNDLE --installed $env:AITEST_INSTALLED --installed-b $env:AITEST_INSTALLED_B --fail-fast --output "$env:AITEST_BUNDLE/windows-validation.json" @semanticArgs
           if ($LASTEXITCODE -ne 0) { throw 'Windows qualification failed; final sealing remains blocked' }
       - name: Run installed daily entry on both independent targets
         shell: bash
