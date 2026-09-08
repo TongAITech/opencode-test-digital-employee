@@ -18,7 +18,8 @@ on:
         required: true
         type: string
 permissions:
-  contents: read
+  # GitHub requires write access to retrieve assets from an unpublished draft.
+  contents: write
 jobs:
   windows-package:
     runs-on: windows-latest
