@@ -176,6 +176,23 @@ def main() -> int:
         checks["agent_session_observation_action_is_not_authorized"] = denied["status"] == "HOLD"
         checks["legacy_aitest_db_not_written_by_g2_1"] = legacy_before == sha(legacy)
 
+    # A real worker completion may race an in-flight Session health request.
+    with tempfile.TemporaryDirectory(prefix="pfc-g21-observation-race-") as td:
+        root = Path(td); runtime = create_canonical_runtime(root, db_path=root / "runtime.db")
+        provider = FakeOpenCodeSessionProvider(root)
+        service = G21AutonomousOrchestrationService(runtime, root, session_provider=provider)
+        mission_id = service.start_test(request("observe-race", "RACE-V"))["intake"]["intake"]["mission_id"]
+        first = service.propose_plan(mission_id, one_task("EXECUTOR"))["next"]
+        def complete_during_observation(session_id):
+            service.report_task_outcome(mission_id, task_id=first["task_id"], attempt_id=first["attempt"]["attempt_id"],
+                session_id=session_id, outcome="SUCCEEDED", summary="Durable completion before HTTP health reply")
+            return {"reachable": False, "healthy": False}
+        provider.observe_session = complete_during_observation
+        observation = service.observe_session(mission_id, task_id=first["task_id"])
+        checks["completed_worker_not_rotated_by_stale_health_response"] = (
+            observation.get("reason") == "OBSERVATION_SUPERSEDED_BY_DURABLE_LIFECYCLE"
+            and not service.session_control.state(mission_id).rotations)
+
     # Unknown metrics remain null; a fresh Supervisor instance automatically
     # rotates without any Agent/Scheduler observation call.
     with tempfile.TemporaryDirectory(prefix="pfc-g21-supervisor-") as td:

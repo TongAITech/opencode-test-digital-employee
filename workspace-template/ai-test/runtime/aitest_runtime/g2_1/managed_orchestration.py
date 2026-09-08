@@ -790,6 +790,19 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
                        "reachable": False, "healthy": False, "error": type(exc).__name__, "provider": "OPENCODE"}
         else:
             raw = dict(observation)
+        # A worker can finish and close its external Session while the network
+        # observation is in flight. Reconcile against fresh R1 before treating
+        # that legitimate closure as an unreachable active Session.
+        refreshed = self.runtime.replay_composed(mission_id)
+        current_task = refreshed.extension_state("r1_2_work_graph").task(task_id)
+        current_attempt = refreshed.extension_state("r1_3b_execution_resume").latest_attempt(task_id)
+        current_session = refreshed.core_state.session(latest.runtime_session_id)
+        if (current_task is None or current_task.lifecycle_state != TaskLifecycleState.ACTIVE
+                or current_attempt is None or current_attempt.attempt_id != latest.attempt_id
+                or current_session is None or current_session.status.value != "OPEN"):
+            return {"schema_version": G2_SCHEMA, "status": "KEEP", "truth_source": "R1_EVENT_STREAM",
+                    "reason": "OBSERVATION_SUPERSEDED_BY_DURABLE_LIFECYCLE", "rotation_reasons": [],
+                    "session_id": latest.runtime_session_id, "task_id": task_id}
         raw = durable_pressure(raw, self.session_control.state(mission_id).observation(latest.runtime_session_id))
         obs = SessionObservation.from_provider(latest.runtime_session_id, raw)
         self.session_control.record_observation(mission_id, obs.to_dict())
