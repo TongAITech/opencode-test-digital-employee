@@ -26,7 +26,7 @@ from aitest_runtime.recovery_executors import OfflineExecutor
 from test_recovery_g4_execution import make_repo, RecoveryIntakeService, G3TestingIntelligenceService, R33ApplicationService, RISK_DIMENSIONS, exec_task
 
 
-def governed_case(root, runtime, mission):
+def governed_case(root, runtime, mission, execution_profile=None):
     repo, base, head = make_repo(root, 'local-target',
         {'src/loan.py': 'def accepts(amount):\n    return amount > 1\n'},
         {'src/loan.py': 'def accepts(amount):\n    return amount > 0\n'})
@@ -56,7 +56,13 @@ def governed_case(root, runtime, mission):
         'oracle': {'type': 'EXPLICIT_ASSERTIONS', 'pass': 'Runner assertions all succeed'},
         'evidence_requirements': [{'channel': 'PROVIDER_RESULT', 'required': 'hashed execution receipt bound to the canonical attempt'}],
         'postcondition': {'cleanup': 'close temporary resources'},
+        'execution_profile': execution_profile or {},
     } for point in points}
+    if execution_profile and execution_profile.get('ui_journey'):
+        for spec in specs.values():
+            spec['ordered_steps']=[{'step':i+1,**action} for i,action in enumerate(execution_profile['ui_journey']['steps'])]
+            spec['expected_results']=[{'step':i+1,'expected':{'action':action['action'],'required':'Approved action and its frozen assertion succeed',
+                 'value':action.get('value'),'state':action.get('state'),'url':action.get('url')}} for i,action in enumerate(execution_profile['ui_journey']['steps'])]
     designed = g3.design_cases(mission, sid, strategy['strategy']['strategy_fingerprint'], specs)
     assert designed['ready_cases'], designed
     case_fact = designed['ready_cases'][0]['case']

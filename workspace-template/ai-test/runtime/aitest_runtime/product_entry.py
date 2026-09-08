@@ -365,7 +365,11 @@ def g3_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
         from .recovery_intake import read_dispatch
         return read_dispatch(root, action, data, runtime=runtime)
     if action == "work_context":
-        return service.work_context(mission_id)
+        result = service.work_context(mission_id)
+        if role != "DIRECTOR":
+            from .recovery_knowledge import session_view
+            result["task_knowledge"] = session_view(runtime, mission_id, task_id, "aitest-" + role.lower().replace("_", "-"))
+        return result
     if action == "register_intent":
         return service.register_intent(mission_id, str(data.get("intent_type") or ""), _object(data.get("scope") or {}, "scope"), _object(data.get("constraints") or {}, "constraints"))
     if action == "analyze_requirement":
@@ -429,6 +433,8 @@ def g4_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
         provider = service.browser_provider
         if provider is None or not callable(getattr(provider, "context_ref", None)):
             return {"status": "BANK_BINDING_REQUIRED", "truth_source": "R1_EVENT_STREAM", "capability": "BROWSER"}
+        if callable(getattr(provider, "launch_browser", None)):
+            provider.launch_browser()
         return {"status": "READY", "truth_source": "R1_EVENT_STREAM", "observation_source": "LIVE_APPROVED_CDP",
                 "browser_context_ref": provider.context_ref().to_dict(),
                 "resume_condition": dict(getattr(provider, "config", {}).get("resume_checks") or {})}
@@ -502,6 +508,10 @@ def parser() -> argparse.ArgumentParser:
     x.add_argument("--action", required=True)
     x.add_argument("--payload", default="{}")
 
+    x = sp.add_parser("knowledge")
+    x.add_argument("--action", required=True)
+    x.add_argument("--payload", default="{}")
+
     x = sp.add_parser("recovery")
     x.add_argument("--action", required=True)
     x.add_argument("--payload", default="{}")
@@ -545,6 +555,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "g5":
             payload = json.loads(args.payload)
             emit(g5_command(args.role, args.action, _object(payload, "payload")))
+            return 0
+        if args.command == "knowledge":
+            from .recovery_knowledge import dispatch
+            emit(dispatch(workspace_root(), args.action, _object(json.loads(args.payload), "payload")))
             return 0
         if args.command == "recovery":
             from .recovery_intake import dispatch

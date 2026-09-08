@@ -307,7 +307,7 @@ class G3TestingIntelligenceService:
         return {"status": "PASS", "truth_source": "R1_EVENT_STREAM", "strategy": result.strategy.to_dict(), "portfolio": portfolio_fact, "risk": risk_fact, "hypotheses": hypotheses}
 
     def design_cases(self, mission_id: str, strategy_version_id: str, strategy_fingerprint: str, detailed_specs: Mapping[str, Mapping[str, Any]], *, designer_session_ref: str | None = None, batch_limit: int = 200) -> dict[str, Any]:
-        request = BatchDesignRequest(strategy_version_id, None, strategy_fingerprint, "", batch_limit, designer_session_ref, f"g3-r33-cases:{canonical_sha256({'strategy':strategy_version_id,'specs':detailed_specs})[:24]}", "g3-case-design")
+        request = BatchDesignRequest(strategy_version_id, None, strategy_fingerprint, "", batch_limit, designer_session_ref, f"g3-r33-cases:{canonical_sha256({'strategy':strategy_version_id,'specs':detailed_specs})[:24]}", "g3-case-design", detailed_specs=detailed_specs)
         result = R33ApplicationService(self.runtime).design_case_batch(request)
         if not result.ok or result.batch is None: raise RuntimeError("G3_R33_CASE_BATCH_FAILED", result.error_code or "unknown")
         ready = []; blocked = []
@@ -319,7 +319,9 @@ class G3TestingIntelligenceService:
             raw = detailed_specs.get(case.test_point_id)
             if raw is None:
                 blocked.append({"case_version_id": case.case_version_id, "test_point_id": case.test_point_id, "reason": "DETAILED_SPEC_MISSING"}); continue
-            try: detail = validate_detailed_case(raw)
+            try:
+                detail = validate_detailed_case(raw)
+                case.validate_for_execution()
             except RuntimeError as exc:
                 blocked.append({"case_version_id": case.case_version_id, "test_point_id": case.test_point_id, "reason": exc.code, "message": exc.message}); continue
             coverage_gap_refs = tuple(str(x) for x in detail.get("coverage_gap_refs") or ())

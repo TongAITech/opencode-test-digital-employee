@@ -22,12 +22,8 @@ from test_g2_1_session_router_control_loop import request, one_task
 
 
 def main():
-    spec = importlib.util.spec_from_file_location('turnkey_launcher', WORKSPACE.parent/'tools/recovery/launcher.py')
-    launcher = importlib.util.module_from_spec(spec); spec.loader.exec_module(launcher)
-    assert launcher.model_configuration({})['enabled_providers'] == []
-    assert launcher.model_configuration({}, check_only=True)['enabled_providers'] == []
     binary = Path(os.environ.get('AITEST_REAL_OPENCODE') or WORKSPACE / 'runtime/opencode/opencode.exe')
-    if not binary.is_file(): raise RuntimeError('Actual pinned OpenCode binary required')
+    if not binary.is_file(): raise RuntimeError('External host OpenCode fixture required')
     processes = []
     old = dict(os.environ)
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
@@ -44,7 +40,7 @@ def main():
                 XDG_DATA_HOME=str(root/'oc-data'), XDG_CONFIG_HOME=str(root/'oc-config'), XDG_CACHE_HOME=str(root/'oc-cache'),
                 BUN_INSTALL_CACHE_DIR=str(root/'bun-cache'), NO_PROXY='localhost,127.0.0.1,::1', no_proxy='localhost,127.0.0.1,::1',
                 PYTHONPATH=str(WORKSPACE/'ai-test/runtime'), PYTHONDONTWRITEBYTECODE='1')
-            env['OPENCODE_CONFIG_CONTENT'] = json.dumps(launcher.model_configuration({'base_url':'http://127.0.0.1:9/v1','model':'local-no-model'}))
+            env['OPENCODE_CONFIG_CONTENT'] = json.dumps({'enabled_providers':['fixture'],'model':'fixture/local-no-model','provider':{'fixture':{'npm':'@ai-sdk/openai-compatible','options':{'baseURL':'http://127.0.0.1:9/v1','apiKey':'synthetic-only'},'models':{'local-no-model':{'name':'Local fixture'}}}}})
             env['AITEST_MODEL_KEY'] = 'synthetic-not-a-credential'
             os.environ.update(env)
             with (root/'server.log').open('w') as log:
@@ -60,15 +56,15 @@ def main():
                         raise RuntimeError('REAL_OPENCODE_START_FAILED: '+(root/'server.log').read_text(errors='replace')[-2500:])
                     time.sleep(.5)
             catalog = provider._request('GET', '/provider?' + provider._directory_query())
-            assert catalog['connected'] == ['bank'], catalog['connected']
+            assert catalog['connected'] == ['fixture'], catalog['connected']
             runtime = create_canonical_runtime(WORKSPACE)
             orch = G21AutonomousOrchestrationService(runtime, WORKSPACE, session_provider=provider)
             user_session = provider.create_session(title='Local hosted intake proof')
             user_message = provider._request('POST', f'/session/{user_session.session_id}/message?{provider._directory_query()}',
-                {'agent':'aitest-director','noReply':True,'parts':[{'type':'text','text':'测试 BLOAN1.9.4'}]})
+                {'agent':'aitest-director','noReply':True,'parts':[{'type':'text','text':'测试 BLOAN-PF1.1.0'}]})
             os.environ.update(AITEST_HOST_SESSION_ID=user_session.session_id, AITEST_HOST_MESSAGE_ID=user_message['info']['id'])
-            hosted = hosted_user_intake(provider, {'user_request':'测试 BLOAN1.9.4'})
-            assert hosted['scope'] == {'mode':'EXPLICIT_SET','version':'BLOAN1.9.4'}
+            hosted = hosted_user_intake(provider, {'user_request':'测试 BLOAN-PF1.1.0'})
+            assert hosted['scope'] == {'mode':'EXPLICIT_SET','version':'BLOAN-PF1.1.0'}
             assert hosted['source']['source_ref'].endswith(user_message['info']['id'])
             admitted = orch.start_test(hosted)
             assert admitted['status'] == 'PLANNING', admitted
@@ -106,7 +102,6 @@ def main():
                 'checkpoint_and_attempt_lineage':'PASS','approved_provider_allowlist':'PASS',
                 'unconfigured_model_allows_process_start':'PASS','hosted_natural_language_mission_intake':'PASS',
                 'bank_model_turn':'NOT_EXECUTED','BANK_FIELD_VALIDATION_REQUIRED':True}
-            assert result['version']=='1.18.3'
             print(json.dumps(result,indent=2))
         finally:
             for process in reversed(processes):

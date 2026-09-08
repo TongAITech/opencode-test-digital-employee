@@ -544,7 +544,7 @@ def _case_status(point: TestPoint) -> str:
     return "DRAFT_WITH_GAPS" if blocked or point.designability != "DESIGNABLE" else "DRAFT"
 
 
-def _case_for_point(point: TestPoint, layer: LayerDecision, strategy: TestStrategy, batch_id: str) -> StandardTestCase:
+def _case_for_point(point: TestPoint, layer: LayerDecision, strategy: TestStrategy, batch_id: str, detail=None, existing_cases=()) -> StandardTestCase:
     metadata = _mapping(point.metadata)
     oracle = _mapping(metadata.get("oracle_contract"))
     if not oracle:
@@ -555,7 +555,7 @@ def _case_for_point(point: TestPoint, layer: LayerDecision, strategy: TestStrate
     requirement_meta = _mapping(metadata.get("requirement_metadata"))
     title = f"{layer.layer_id} standard design for {requirement_id or point.point_id}"
     evidence_requirements = tuple({"evidence_id": ref, "required": True, "source": "R3.1/R3.2"} for ref in point.evidence_requirement_refs)
-    return StandardTestCase(
+    case = StandardTestCase(
         tc_id=case_version_id.split(":v1")[0], case_version_id=case_version_id, version=1,
         lifecycle_status=_case_status(point), strategy_version_id=strategy.strategy_version_id,
         test_point_id=point.point_id, batch_id=batch_id,
@@ -588,6 +588,17 @@ def _case_for_point(point: TestPoint, layer: LayerDecision, strategy: TestStrate
         specification_status=_case_status(point),
         source_provenance=point.source_provenance, evidence_refs=point.evidence_requirement_refs,
     )
+
+    if detail is not None:
+        prior = [item for item in existing_cases if item.tc_id == case.tc_id]
+        cached = next((item for item in prior if item.source_context.get("detailed_spec_sha256") == canonical_sha256(detail)), None)
+        if cached is not None:
+            return cached
+        version = max((item.version for item in prior), default=0) + 1
+        case = replace(case, version=version, case_version_id=case.tc_id + ":v" + str(version),
+                       supersedes_case_version_id=max(prior, key=lambda c:c.version).case_version_id if prior else None)
+        case = case.with_details(detail)
+    return case
 
 
 def _matching_inventory_assets(inventory: Mapping[str, Any] | None, cases: tuple[StandardTestCase, ...]) -> tuple[AutomationMapping, ...]:
@@ -670,6 +681,8 @@ def design_case_batch(
         "environment_boundaries": [point.target_refs for point in selected_points],
         "evidence_profiles": [point.evidence_requirement_refs for point in selected_points],
     }
+    if request.detailed_specs:
+        group_seed["detailed_specs_digest"] = canonical_sha256(request.detailed_specs)
     group_key = canonical_sha256(group_seed)
     batch_order = start // request.batch_limit
     computed_batch_id = f"r3.3:batch:{canonical_sha256({'strategy_fingerprint': strategy.strategy_fingerprint, 'canonical_group_key': group_key, 'batch_ordinal': batch_order})}"
@@ -684,7 +697,7 @@ def design_case_batch(
             continue
         for layer in point.layer_decisions:
             if layer.decision == "SELECTED":
-                cases.append(_case_for_point(point, layer, strategy, batch_id))
+                cases.append(_case_for_point(point, layer, strategy, batch_id, request.detailed_specs.get(point.point_id), existing_cases))
     case_tuple = tuple(cases)
     mappings = _matching_inventory_assets(strategy.automation_inventory_ref, case_tuple)
     next_cursor = selected_points[-1].point_id

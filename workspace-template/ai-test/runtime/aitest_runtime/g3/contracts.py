@@ -213,7 +213,7 @@ def validate_coverage_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
 
 
 _PLACEHOLDER_PATTERNS = (
-    "执行正向数据", "符合预期", "exercise governed boundary", "exercise boundary", "normal data", "expected result",
+    "执行正向数据", "操作系统", "符合预期", "功能正常", "exercise governed boundary", "exercise boundary", "normal data", "expected result",
 )
 
 
@@ -227,6 +227,14 @@ def validate_detailed_case(value: Mapping[str, Any]) -> dict[str, Any]:
         raise RuntimeError("G3_CASE_DETAIL_REQUIRED", "preconditions/ordered_steps/expected_results/evidence_requirements must be arrays")
     if len(data["ordered_steps"]) != len(data["expected_results"]):
         raise RuntimeError("G3_CASE_STEP_EXPECTED_MISMATCH", "each ordered step requires an expected result")
+    for name in ("ordered_steps", "expected_results", "evidence_requirements"):
+        if any(not isinstance(item, Mapping) or not item or not any(v not in (None, "", [], {}) for v in item.values()) for item in data[name]):
+            raise RuntimeError("G3_CASE_DETAIL_REQUIRED", name + " contains an empty item")
+    for name in ("preconditions", "test_data", "postcondition"):
+        items = data[name] if isinstance(data[name], list) else [data[name]]
+        for item in items:
+            if isinstance(item, Mapping) and item.get("applicable") is False and not str(item.get("reason") or "").strip():
+                raise RuntimeError("G3_CASE_NOT_APPLICABLE_REASON_REQUIRED", name)
     searchable = str(data).lower()
     for phrase in _PLACEHOLDER_PATTERNS:
         if phrase.lower() in searchable:

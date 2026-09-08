@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Mapping
 
 from aitest_runtime.durable_core import RuntimeError, canonical_sha256
@@ -432,6 +432,41 @@ class StandardTestCase:
             "supersedes_case_version_id": self.supersedes_case_version_id,
         }
 
+    def with_details(self, raw: Mapping[str, Any]) -> "StandardTestCase":
+        from aitest_runtime.g3.contracts import validate_detailed_case
+        detail = validate_detailed_case(raw)
+        def records(value):
+            items = value if isinstance(value, (list, tuple)) else [value]
+            return tuple(item if isinstance(item, Mapping) else {"description": item} for item in items)
+        case = replace(self, objective=detail["objective"],
+            preconditions=records(detail["preconditions"]), test_data=records(detail["test_data"]),
+            steps=records(detail["ordered_steps"]), expected_results=records(detail["expected_results"]),
+            postconditions=records(detail["postcondition"]),
+            oracle_contract={**dict(self.oracle_contract), **detail["oracle"]},
+            evidence_requirements=records(detail["evidence_requirements"]),
+            execution_profile={**dict(self.execution_profile), **dict(detail.get("execution_profile") or {})},
+            source_context={**dict(self.source_context), "detailed_spec_sha256": canonical_sha256(raw)})
+        case.validate_for_execution()
+        return case
+
+    def validate_for_execution(self) -> None:
+        """Draft design remains replayable; execution requires a concrete case.
+
+        Historical incomplete draft events are never silently rewritten. The G3
+        product materializes detailed specifications before G4 can run them.
+        """
+        from aitest_runtime.g3.contracts import validate_detailed_case
+        validate_detailed_case({"objective": self.objective,
+            "preconditions": list(self.preconditions), "test_data": list(self.test_data),
+            "ordered_steps": list(self.steps), "expected_results": list(self.expected_results),
+            "oracle": self.oracle_contract, "evidence_requirements": list(self.evidence_requirements),
+            "postcondition": list(self.postconditions)})
+        if not self.execution_profile:
+            raise R33Error("R3_3_EXECUTION_PROFILE_REQUIRED", self.case_version_id)
+        if not (self.requirement_id or self.sst_id or self.coverage_obligation_refs or
+                (self.code_refs or self.change_impact_refs) and self.source_provenance):
+            raise R33Error("R3_3_SOURCE_SCOPE_REQUIRED", self.case_version_id)
+
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "StandardTestCase":
         return cls(
@@ -838,6 +873,7 @@ class BatchDesignRequest:
     designer_session_ref: str | None
     idempotency_key: str
     correlation_id: str
+    detailed_specs: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "strategy_version_id", _text(self.strategy_version_id, "strategy_version_id"))
@@ -848,6 +884,7 @@ class BatchDesignRequest:
         object.__setattr__(self, "designer_session_ref", _optional_text(self.designer_session_ref, "designer_session_ref"))
         object.__setattr__(self, "idempotency_key", _text(self.idempotency_key, "idempotency_key"))
         object.__setattr__(self, "correlation_id", _text(self.correlation_id, "correlation_id"))
+        object.__setattr__(self, "detailed_specs", _copy(_mapping(self.detailed_specs, "detailed_specs")))
 
     @classmethod
     def from_payload(cls, value: Mapping[str, Any], *, command_mission_id: str | None = None, correlation_id: str | None = None) -> "BatchDesignRequest":
@@ -856,7 +893,7 @@ class BatchDesignRequest:
             "strategy_version_id", "batch_id", "expected_strategy_fingerprint", "batch_cursor",
             "batch_limit", "designer_session_ref", "idempotency_key",
         }
-        if set(payload) != required:
+        if set(payload) not in (required, required | {"detailed_specs"}):
             raise R33Error("R3_3_SCHEMA_INVALID", "batch design request contains unknown or missing fields")
         return cls(
             strategy_version_id=payload["strategy_version_id"], batch_id=payload.get("batch_id"),
@@ -864,10 +901,12 @@ class BatchDesignRequest:
             batch_cursor=payload["batch_cursor"], batch_limit=payload["batch_limit"],
             designer_session_ref=payload.get("designer_session_ref"),
             idempotency_key=payload["idempotency_key"], correlation_id=correlation_id or payload["idempotency_key"],
+            detailed_specs=payload.get("detailed_specs") or {},
         )
 
     def to_payload(self) -> dict[str, Any]:
         return {
+            **({"detailed_specs": _json(self.detailed_specs)} if self.detailed_specs else {}),
             "strategy_version_id": self.strategy_version_id, "batch_id": self.batch_id,
             "expected_strategy_fingerprint": self.expected_strategy_fingerprint,
             "batch_cursor": self.batch_cursor, "batch_limit": self.batch_limit,

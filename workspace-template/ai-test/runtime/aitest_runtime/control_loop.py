@@ -13,6 +13,7 @@ import json
 import os
 import signal
 import sys
+import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,36 @@ from .g4.composition import load_provider_bundle
 from .g4.service import G4RealExecutionService
 
 _STOP = False
+_TEACHING_ENABLED = False
+_TEACHING_PROCESSES = {}
+
+
+def _sync_teaching_observers(service, root, missions):
+    """Only process handles are cached; pending HumanGate identity comes from R1."""
+    if not _TEACHING_ENABLED or service.browser_provider is None:
+        return
+    pending = {}
+    for mission_id in missions:
+        latest = {}
+        for fact in service.state(mission_id).by_kind("HUMAN_TAKEOVER_REQUEST"):
+            latest[fact.payload.get("human_gate_id")] = fact
+        for gate_id, fact in latest.items():
+            if fact.payload.get("status") == "HUMAN_CONTROLLED":
+                pending[gate_id] = mission_id
+    for gate_id, process in list(_TEACHING_PROCESSES.items()):
+        if gate_id not in pending or process.poll() is not None:
+            if process.poll() is None:
+                # Gate-only child observes AI lease and flushes before exiting.
+                continue
+            del _TEACHING_PROCESSES[gate_id]
+    for gate_id, mission_id in pending.items():
+        if gate_id not in _TEACHING_PROCESSES:
+            _TEACHING_PROCESSES[gate_id] = subprocess.Popen(
+                [sys.executable, "-X", "utf8", "-m", "aitest_runtime.recovery_browser",
+                 "--workspace-root", str(root), "--mission-id", mission_id,
+                 "--no-input", "--gate-only", "--duration", "300"],
+                cwd=root, env=dict(os.environ), stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def _handle_stop(_signum: int, _frame: Any) -> None:
@@ -85,6 +116,7 @@ def _g4_background_human_gate_tick(runtime: Any, root: Path) -> dict[str, Any]:
             for item in (runtime_status(root).get("missions") or [])
             if item.get("mission_id")
         ]
+        _sync_teaching_observers(service, root, missions)
         results = {mission_id: service.auto_resume_human_gates(mission_id) for mission_id in missions}
         resumed = sorted(
             gate_id
@@ -140,6 +172,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global _TEACHING_ENABLED
     args = parser().parse_args(argv)
     root = Path(args.workspace_root).expanduser().resolve()
     if not root.is_dir():
@@ -165,6 +198,8 @@ def main(argv: list[str] | None = None) -> int:
             _emit(failure)
             return 1
 
+    _TEACHING_ENABLED = True
+
     started = {"status": "STARTED", "component": "G2_1_CONTROL_LOOP", "truth_source": "R1_EVENT_STREAM", "interval_seconds": args.interval}
     _heartbeat(started)
     _emit(started)
@@ -184,6 +219,11 @@ def main(argv: list[str] | None = None) -> int:
         while not _STOP and time.monotonic() < deadline:
             time.sleep(min(0.25, max(0.01, deadline - time.monotonic())))
     stopped = {"status": "STOPPED", "component": "G2_1_CONTROL_LOOP", "truth_source": "R1_EVENT_STREAM"}
+    for process in _TEACHING_PROCESSES.values():
+        if process.poll() is None:
+            process.terminate()
+            try: process.wait(timeout=5)
+            except subprocess.TimeoutExpired: process.kill(); process.wait()
     _heartbeat(stopped)
     _emit(stopped)
     return 0

@@ -218,6 +218,21 @@ class G4RealExecutionService(_BaseG4RealExecutionService):
         attempt = self._canonical_attempt(mission_id, _text(data.get("attempt_id"), "attempt_id"), task_id)
         # Validate before provider lookup/prepare/execute so fake caller cases cannot create side effects.
         self._validate_governed_execution(mission_id, data, attempt=attempt)
+        case_fact, _, _, _ = self._resolve_governed_case(mission_id, str(data.get("case_id")), str(data.get("case_version")))
+        case = dict(case_fact.payload.get("r3_3_case") or {})
+        profile = case.get("execution_profile") or {}
+        if profile.get("ui_journey") and str(data.get("capability_id")).upper() == "BROWSER_UI":
+            from aitest_runtime.recovery_ui import execute_governed
+            return execute_governed(self, mission_id, data, case,
+                lambda item: super(G4RealExecutionService, self).execute_capability(mission_id, item))
+        step = dict(data.get("step") or {})
+        # Caller-only action scripts cannot establish a second Case Truth.
+        step.pop("standard_case", None)
+        if profile.get("api_journey") or profile.get("ui_journey"):
+            from aitest_runtime.r3_3.contracts import StandardTestCase
+            StandardTestCase.from_dict(case).validate_for_execution()
+            step["standard_case"] = case
+        data["step"] = step
         return super().execute_capability(mission_id, data)
 
     def record_step_result(self, mission_id: str, request: Mapping[str, Any]) -> dict[str, Any]:

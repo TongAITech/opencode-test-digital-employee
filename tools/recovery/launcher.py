@@ -1,4 +1,4 @@
-"""V1.12.0 one-entry offline Windows package launcher."""
+"""V1.13.0 one-entry offline Windows package launcher."""
 from __future__ import annotations
 import argparse
 import base64
@@ -357,8 +357,73 @@ def browser_teaching():
         config = {'approved': True, 'approval_ref': approval, 'allowed_origins': origins, 'start_url': url,
                   'cdp_endpoint': 'http://127.0.0.1:9222', 'resume_checks': checks, 'response_body_paths': paths}
         write(WORKSPACE / 'bindings/browser.json', config)
-    print('浏览器由您操作；完成教学后在此窗口按回车，再回到对话继续。')
-    return subprocess.call([sys.executable, '-m', 'aitest_runtime.recovery_browser', '--workspace-root', str(WORKSPACE), '--mission-id', mission], cwd=WORKSPACE, env=prepare())
+    print('浏览器由您操作。当前任务触发人工接管后会自动观察；操作完成后回到对话输入“完成”，系统验证并续跑。')
+    return subprocess.call([sys.executable, '-m', 'aitest_runtime.recovery_browser', '--workspace-root', str(WORKSPACE), '--mission-id', mission, '--gate-only'], cwd=WORKSPACE, env=prepare())
+
+
+def select_mission():
+    from aitest_runtime.canonical_runtime import runtime_status
+    missions=runtime_status(WORKSPACE).get('missions',[])
+    if not missions:raise ValueError('请先创建测试任务。')
+    for i,item in enumerate(missions):print(i+1,item['mission_id'])
+    return missions[int(input('选择任务 [1]：') or '1')-1]['mission_id']
+
+
+def review_knowledge():
+    from aitest_runtime.canonical_runtime import create_canonical_runtime
+    from aitest_runtime.recovery_knowledge import review
+    mission=select_mission();runtime=create_canonical_runtime(WORKSPACE)
+    state=runtime.replay_composed(mission).extension_state('r3_e1_durable_knowledge_substrate')
+    versions=[v for v in state.versions if v.status in {'CANDIDATE','SOURCE_VERIFIED','RUNTIME_VERIFIED'}]
+    if not versions:print('当前任务没有待审核知识。');return
+    for i,v in enumerate(versions):print(i+1,v.payload.get('kind'),v.payload.get('summary'),v.status)
+    chosen=versions[int(input('选择审核条目：'))-1]
+    from aitest_runtime.g4.contracts import EXTENSION_ID
+    evidence=[f for f in runtime.replay_composed(mission).extension_state(EXTENSION_ID).by_kind('EXECUTION_STEP_RESULT') if f.payload.get('oracle_result')=='PASS']
+    if not evidence:raise ValueError('尚无通过的执行证据；知识保持候选状态。')
+    for i,f in enumerate(evidence):print(i+1,f.payload.get('step_id'),f.payload.get('oracle_reason'))
+    proof=evidence[int(input('选择已核对并支持该知识的执行证据：'))-1]
+    approval=input('审核批准记录编号：').strip()
+    if not approval:raise ValueError('需要批准记录编号。')
+    days=int(input('审核有效天数 [1]：') or '1')
+    if not 1<=days<=30:raise ValueError('有效天数必须为 1–30。')
+    item={'version_id':chosen.version_id,'payload_digest':chosen.payload_digest,'evidence_ref':proof.fact_id,
+      'approved':True,'reviewer':getpass.getuser(),'approval_ref':approval,
+      'expires_at':(datetime.now(timezone.utc)+timedelta(days=days)).isoformat()}
+    path=WORKSPACE/'bindings/knowledge-reviews.json';entries=read(path,[])
+    entries=[e for e in entries if e['version_id']!=chosen.version_id]+[item];write(path,entries)
+    result=review(runtime,WORKSPACE,mission,chosen.version_id)
+    print('知识审核：'+result['lifecycle']+'；仅在相符任务范围和有效期内检索，G6 仍为 HOLD。')
+
+
+def replay_teaching():
+    from aitest_runtime.canonical_runtime import create_canonical_runtime
+    from aitest_runtime.g3.service import G3TestingIntelligenceService
+    from aitest_runtime.recovery_browser import CDPBrowserProvider
+    from aitest_runtime.recovery_teaching import validate_replay
+    from playwright.sync_api import sync_playwright
+    import re
+    mission=select_mission();runtime=create_canonical_runtime(WORKSPACE)
+    candidates=[f for f in G3TestingIntelligenceService(runtime).state(mission).by_kind('TEACHING_ASSET') if f.payload.get('mode')=='PLAYWRIGHT_CANDIDATE']
+    if not candidates:print('当前任务尚无可回放的教学候选。先在任务触发的人工接管中示教。');return
+    for i,f in enumerate(candidates):print(i+1,'步骤数',len(f.payload['actions']),'来源任务',f.payload['execution_lineage']['task_id'])
+    chosen=candidates[int(input('选择回放候选：'))-1]
+    for i,a in enumerate(chosen.payload['actions']):print(i+1,a['action'],a['locator'],a.get('value',''))
+    approval=input('核对上述操作及测试环境后，输入批准记录编号（留空取消）：').strip()
+    if not approval:return
+    variables={name:input('测试数据 '+name+'（不要填写密码或验证码）：') for name in sorted(set(re.findall(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}',json.dumps(chosen.payload['actions']))))}
+    config=read(WORKSPACE/'bindings/browser.json',{})
+    config.setdefault('replay_approvals',[]).append({'approved':True,'approval_ref':approval,'candidate_ref':chosen.fact_id,'program_sha256':chosen.payload['program_sha256']})
+    write(WORKSPACE/'bindings/browser.json',config)
+    provider=CDPBrowserProvider(WORKSPACE,runtime=runtime);ref=provider.context_ref()
+    with sync_playwright() as driver:
+        browser=driver.chromium.connect_over_cdp(provider.endpoint)
+        pages=[p for p in browser.contexts[0].pages if provider.allowed(p.url)]
+        for i,page in enumerate(pages):print(i+1,page.title())
+        page=pages[int(input('选择已准备好回放的受控页面 [1]：') or '1')-1]
+        result=validate_replay(runtime,mission,chosen.fact_id,page=page,variables=variables,
+          evidence_root=DATA/'evidence/teaching-replay',approval_ref=approval,context_ref=ref.to_dict())
+    print('真实回放结果：'+result['payload']['replay_status']+'。证据已保存；未提升为全局技能。')
 
 
 def main():
@@ -371,7 +436,7 @@ def main():
         result = start_conversation(check_only=True); print(json.dumps(result)); return 0
     if args.export_evidence: evidence_export(); return 0
     while True:
-        print('\nAITest V1.13.0 Recovery · Windows 行内验证\n1 开始/继续测试对话\n2 能力自检\n3 导入需求/SST 附件\n4 导入 Current Release / Starlink 批准导出\n5 宿主 OpenCode 模型说明\n6 导出证据\n7 绑定测试环境\n8 浏览器人工教学 / 4A\n0 退出')
+        print('\nAITest V1.13.0 Recovery · Windows 行内验证\n1 开始/继续测试对话\n2 能力自检\n3 导入需求/SST 附件\n4 导入 Current Release / Starlink 批准导出\n5 宿主 OpenCode 模型说明\n6 导出证据\n7 绑定测试环境\n8 浏览器人工教学 / 4A\n9 审核任务知识\n10 教学候选回放\n0 退出')
         choice = input('请选择 [1]：').strip() or '1'
         try:
             if choice == '0': return 0
@@ -383,6 +448,8 @@ def main():
             elif choice == '6': evidence_export()
             elif choice == '7': execution_settings()
             elif choice == '8': browser_teaching()
+            elif choice == '9': review_knowledge()
+            elif choice == '10': replay_teaching()
         except Exception as exc: print('未完成：' + str(exc))
 
 

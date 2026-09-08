@@ -122,10 +122,10 @@ class ModelFixture(http.server.BaseHTTPRequestHandler):
                     checks = [t for m in messages for t in m.get('tool_calls', []) if t.get('function', {}).get('name') == 'aitest_recovery' and json.loads(t['function']['arguments']).get('payload', {}).get('__qualification_boundary')]
                     if len(checks) < 2:
                         name = 'aitest_recovery'; args = {'action': 'intake_context', 'payload': {'__qualification_boundary': 'status' if not checks else 'error'}}
-            elif any(m.get('role') == 'user' and texts(m.get('content')).strip() == '测试 BLOAN1.9.4' for m in messages):
+            elif any(m.get('role') == 'user' and texts(m.get('content')).strip() == '测试 BLOAN-PF1.1.0' for m in messages):
                 role = 'DIRECTOR'
                 if 'aitest_director' not in previous_tools:
-                    name = 'aitest_director'; args = {'action': 'start_test', 'payload': {'user_request': '测试 BLOAN1.9.4'}}
+                    name = 'aitest_director'; args = {'action': 'start_test', 'payload': {'user_request': '测试 BLOAN-PF1.1.0'}}
             if name and name not in tools: raise ValueError('REQUIRED_ROLE_TOOL_NOT_AVAILABLE:' + name + ':available=' + ','.join(sorted(tools)))
             self.decisions.append({'role': role, 'tool': name, 'mission_id': (envelope or {}).get('mission_id'),
                                    'session_id': (envelope or {}).get('session_id')})
@@ -148,7 +148,7 @@ class ModelFixture(http.server.BaseHTTPRequestHandler):
 
 def main():
     binary = Path(os.environ.get('AITEST_REAL_OPENCODE') or WORKSPACE / 'runtime/opencode/opencode.exe')
-    if not binary.is_file(): raise RuntimeError('Actual pinned OpenCode binary required')
+    if not binary.is_file(): raise RuntimeError('External host OpenCode fixture required')
     old = dict(os.environ); process = None; loop = None; model = None; event_response = None
     executed = []; bounded_pages = []; boundary_outputs = []; event_ready = threading.Event()
     with tempfile.TemporaryDirectory(prefix='recovery-autonomous-', ignore_cleanup_errors=True) as temporary:
@@ -163,7 +163,7 @@ def main():
                 shutil.copytree(payload / 'node_modules', destination / 'node_modules')
             for name in ('package.json', 'package-lock.json'):
                 shutil.copy2(payload / name, destination / name)
-        (workspace / 'PFC_R1_R4_INSTALLATION.json').write_text('{"classification":"LOCAL_PROTOCOL_FIXTURE"}', encoding='utf-8')
+        (workspace / 'INSTALL_MANIFEST.json').write_text('{"classification":"LOCAL_PROTOCOL_FIXTURE"}', encoding='utf-8')
         # Test-only branch in the temporary tool copy: exercise large Runtime
         # result shapes and error presentation through actual OpenCode/Bun.
         # The production tool API and R1/domain implementations stay unchanged.
@@ -264,7 +264,7 @@ def main():
                 loop = subprocess.Popen(loop_command, cwd=workspace, env=env, stdout=log, stderr=subprocess.STDOUT)
             user = provider.create_session(title='Synthetic natural-language Director intake qualification')
             provider._request('POST', f'/session/{user.session_id}/prompt_async?{provider._directory_query()}',
-                              {'parts': [{'type': 'text', 'text': '测试 BLOAN1.9.4'}]})
+                              {'parts': [{'type': 'text', 'text': '测试 BLOAN-PF1.1.0'}]})
             deadline = time.monotonic() + 240
             runtime = create_canonical_runtime(workspace)
             mission = None; composed = None; boundary_session = None; boundary_head = None; boundary_idle_since = 0
@@ -398,7 +398,7 @@ def main():
                 'pressure_metrics_source': 'OPENCODE_MESSAGE_API', 'rotation_reason': 'ESTIMATED_CONTEXT_PRESSURE',
                 'CONTEXT_TOO_LARGE_ERROR': 0, 'AI_APICallError_CONTEXT_OVERFLOW': 0, 'overflow_count': 0,
                 'control_loop_restart_same_mission': 'PASS', 'evidence_export_same_mission_replay': 'PASS',
-                'user_request': '测试 BLOAN1.9.4', 'mission_id': mission, 'distinct_session_count': len(set(ids)),
+                'user_request': '测试 BLOAN-PF1.1.0', 'mission_id': mission, 'distinct_session_count': len(set(ids)),
                 'worker_roles': sorted({p.role for p in workers}),
                 'executed_tools': sorted({(p['session_id'], p['tool'], p['status']) for p in executed if p['status'] in {'running', 'completed'}}),
                 'rotation_cancelled_tool_count': sum(p['status'] == 'error' and p.get('fixture_boundary_kind') != 'error' for p in executed),

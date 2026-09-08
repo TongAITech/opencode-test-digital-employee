@@ -202,36 +202,45 @@ class CDPBrowserProvider:
         # Keep externally launched Chrome compatible with CDP attachment:
         # disable Windows relaunch and optimization downloads, and retain the
         # RenderDocument workaround used by the native construction browser.
-        args = [str(chrome), "--disable-features=RenderDocument,AutoDeElevate,OptimizationHints",
+        args = [str(chrome), "--disable-features=RenderDocument,AutoDeElevate,OptimizationHints", "--disable-extensions",
                 f"--remote-debugging-port={port}", "--remote-debugging-address=127.0.0.1",
                 f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check", "about:blank"]
         if headless:
             args.insert(1, "--headless=new")
         process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        deadline = time.monotonic() + 15
-        while time.monotonic() < deadline:
-            if process.poll() is not None:
-                raise RuntimeError("BROWSER_PROCESS_EXITED")
-            try:
-                ref = self.context_ref()
-            except (OSError, ValueError, RuntimeError):
-                time.sleep(0.2)
-                continue
-            # Windows Chromium can leave the first document uninitialized for
-            # CDP if navigation precedes attachment. Bootstrap only this newly
-            # launched browser on a blank page, then open the approved URL.
-            # The reuse path above never changes an existing human-owned page.
-            from playwright.sync_api import sync_playwright
-            with sync_playwright() as driver:
-                browser = driver.chromium.connect_over_cdp(self.endpoint, timeout=15000)
-                pages = browser.contexts[0].pages if browser.contexts else []
-                blank = next((page for page in pages if page.url == "about:blank"), None)
-                if blank is None:
-                    raise RuntimeError("BROWSER_FRESH_BOOTSTRAP_PAGE_REQUIRED")
-                blank.goto(start_url, wait_until="domcontentloaded", timeout=30000)
-            self.inspect_context(ref)
-            return {"status": "READY", "browser_context_ref": ref.to_dict(), "reused": False, "pid": process.pid}
-        raise RuntimeError("BROWSER_CDP_START_TIMEOUT")
+        try:
+            deadline = time.monotonic() + 45
+            while time.monotonic() < deadline:
+                if process.poll() is not None:
+                    raise RuntimeError("BROWSER_PROCESS_EXITED")
+                try:
+                    ref = self.context_ref()
+                except (OSError, ValueError, RuntimeError):
+                    time.sleep(0.2)
+                    continue
+                # Windows Chromium can leave the first document uninitialized for
+                # CDP if navigation precedes attachment. Bootstrap only this newly
+                # launched browser on a blank page, then open the approved URL.
+                # The reuse path above never changes an existing human-owned page.
+                from playwright.sync_api import sync_playwright
+                with sync_playwright() as driver:
+                    browser = driver.chromium.connect_over_cdp(self.endpoint, timeout=15000)
+                    pages = browser.contexts[0].pages if browser.contexts else []
+                    blank = next((page for page in pages if page.url == "about:blank"), None)
+                    if blank is None:
+                        raise RuntimeError("BROWSER_FRESH_BOOTSTRAP_PAGE_REQUIRED")
+                    blank.goto(start_url, wait_until="domcontentloaded", timeout=30000)
+                self.inspect_context(ref)
+                return {"status": "READY", "browser_context_ref": ref.to_dict(), "reused": False, "pid": process.pid}
+            raise RuntimeError("BROWSER_CDP_START_TIMEOUT")
+        except BaseException:
+            # This handle belongs only to the newly launched controlled profile.
+            # Reused browsers return before launch and never enter this cleanup.
+            if process.poll() is None:
+                process.terminate()
+                try: process.wait(timeout=5)
+                except subprocess.TimeoutExpired: process.kill(); process.wait(timeout=5)
+            raise
 
     def status(self):
         try:
@@ -240,20 +249,33 @@ class CDPBrowserProvider:
             return {"status": "FAIL", "error": type(exc).__name__, "g6": "HOLD"}
 
 
-ELEMENT_OBSERVER = """(() => {
-  if (window.__aitestTeachingBinding === 'aitestTeachingElement') return;
-  if (window.__aitestTeachingClickHandler) document.removeEventListener('click', window.__aitestTeachingClickHandler, true);
-  window.__aitestTeachingBinding = 'aitestTeachingElement';
-  window.__aitestTeachingClickHandler = e => {
-    let n=e.target; if (!(n instanceof Element)) return;
-    if (document.querySelector('input[type="password"]')) return;
-    const tag=n.tagName.toLowerCase();
-    const siblings=n.parentElement ? Array.from(n.parentElement.children).filter(x=>x.tagName===n.tagName) : [n];
-    window.aitestTeachingElement({event:'click',tag,selector:tag+':nth-of-type('+(siblings.indexOf(n)+1)+')',role:n.getAttribute('role')||''}).catch(()=>{});
+ELEMENT_OBSERVER = r"""(() => {
+  const binding = 'aitestTeachingElement';
+  if (window.__aitestTeachingBinding === binding) return;
+  if (window.__aitestTeachingHandler) for (const type of ['click','change','keydown']) document.removeEventListener(type, window.__aitestTeachingHandler, true);
+  window.__aitestTeachingBinding = binding;
+  window.__aitestTeachingHandler = e => {
+    const n=e.target; if (!(n instanceof Element)) return;
+    if (document.querySelector('input[type="password"]') || n.matches('[data-sensitive],input[type="password"]')) return;
+    if (e.type==='keydown' && !['Enter','Tab','Escape','ArrowDown','ArrowUp'].includes(e.key)) return;
+    const tag=n.tagName.toLowerCase(); const label=(n.getAttribute('aria-label')||(n.labels && n.labels[0] && n.labels[0].innerText)||'').slice(0,120);
+    const role=n.getAttribute('role')||({button:'button',a:'link',select:'combobox',textarea:'textbox'})[tag]||(tag==='input'?'textbox':'');
+    const name=(label||(['button','a'].includes(tag)?n.textContent:'')||'').trim().slice(0,120);
+    const candidates=[];
+    if(n.getAttribute('data-testid')) candidates.push({testid:n.getAttribute('data-testid')});
+    if(role && name) candidates.push({role,name});
+    if(label) candidates.push({label});
+    if(n.id) candidates.push({css:'#'+CSS.escape(n.id)});
+    let action=e.type==='click'?'click':e.type==='keydown'?'keyboard':tag==='select'?'select':n.type==='checkbox'?(n.checked?'check':'uncheck'):'fill';
+    // Values/OTP/passwords are never recorded; replay needs explicit test data.
+    const placeholder=['fill','select'].includes(action)?'field_'+(n.getAttribute('data-testid')||n.id||n.name||'unbound'):null;
+    window.aitestTeachingElement({event:e.type,action,tag,role,label,target:name,
+      locator_candidates:candidates,semantic_page:document.title.slice(0,120),
+      frame_name:window.frameElement ? window.frameElement.name||null:null,
+      test_data_placeholder:placeholder,keyboard:e.type==='keydown'?e.key:null}).catch(()=>{});
   };
-  document.addEventListener('click', window.__aitestTeachingClickHandler, {capture:true,passive:true});
+  for (const type of ['click','change','keydown']) document.addEventListener(type,window.__aitestTeachingHandler,{capture:true,passive:true});
 })()"""
-
 
 class TeachingObserver:
     def __init__(self, provider, mission_id, *, max_events=60):
@@ -263,6 +285,14 @@ class TeachingObserver:
         if self.runtime.replay_composed(mission_id).core_state.mission is None:
             raise RuntimeError("TEACHING_CANONICAL_MISSION_REQUIRED")
         self.g3 = G3TestingIntelligenceService(self.runtime)
+        g4 = self.runtime.replay_composed(mission_id).extension_state("g4_real_execution_goal_convergence")
+        self.execution_lineage = {}
+        if g4 is not None and hasattr(g4, "by_kind"):
+            takeover = next((f for f in reversed(g4.by_kind("HUMAN_TAKEOVER_REQUEST")) if f.payload.get("status") == "HUMAN_CONTROLLED"), None)
+            if takeover:
+                self.execution_lineage = {key: takeover.payload.get(key) for key in
+                    ("human_gate_id", "attempt_id", "root_attempt_id", "task_id", "step_id", "browser_context_ref")}
+
         self.max_events = min(max(1, max_events), 100)
         self.events = []
         self.errors = []
@@ -301,6 +331,10 @@ class TeachingObserver:
     def _element(self, source, element):
         try:
             page = source["page"]
+            if self.execution_lineage:
+                ref = BrowserContextRef.from_dict(self.execution_lineage["browser_context_ref"])
+                if self.provider.inspect_lease(ref) != "HUMAN":
+                    return
             # Exposed-binding callbacks cannot call synchronous Playwright APIs:
             # doing so deadlocks the click awaiting this callback's return.
             if self.provider.allowed(page.url) and page not in self.auth_pages and not AUTH_PATH.search(urlsplit(page.url).path):
@@ -393,12 +427,20 @@ class TeachingObserver:
         if not self.events and not self.errors:
             return None
         payload = {"asset_id": f"teaching:{self.capture_id}:{self.batch}", "mode": "HUMAN_DRIVES_AI_OBSERVES",
-                   "observations": self.events, "isolated_errors": self.errors[:10], "observed_at": now_iso(),
+                   "execution_lineage": self.execution_lineage, "observations": self.events, "isolated_errors": self.errors[:10], "observed_at": now_iso(),
                    "omitted_events": self.omitted_events, "batch_observation_max_bytes": 32768,
                    "g6": "HOLD", "learning_authority": "HUMAN_REVIEW_REQUIRED", "automatic_promotion": False,
                    "approval_ref": self.provider.config["approval_ref"], "recording_scope": list(self.provider.config["allowed_origins"])}
         result = self.g3._record(self.mission_id, "TEACHING_ASSET", payload,
                                  provenance_refs=(self.provider.config["approval_ref"], "runtime:cdp-human-observer"))
+        if self.execution_lineage and any(item.get("kind") == "ELEMENT" for item in self.events):
+            from .recovery_teaching import generate_candidate
+            try:
+                generate_candidate(self.runtime, self.mission_id, result["fact_id"])
+            except Exception:
+                # The trace stays durable; incomplete/ambiguous locators remain
+                # review candidates and never disable the HumanGate observer.
+                pass
         self.events = []
         self.errors = []
         self.omitted_events = 0
@@ -463,7 +505,7 @@ class TeachingObserver:
         self._add({"kind": "PAGE_RECOVERY", "status": "RELOADED", "url": safe_url(target),
                    "context_preserved": True, "resume_authority": "G4_FRESH_VERIFICATION_REQUIRED"})
 
-    def run(self, *, duration=300, interval=5, stop=None):
+    def run(self, *, duration=300, interval=5, stop=None, gate_only=False):
         from playwright.sync_api import sync_playwright
         stop = stop or threading.Event()
         asset_refs = []
@@ -474,6 +516,12 @@ class TeachingObserver:
             deadline = time.monotonic() + min(max(duration, 0.1), 3600)
             browser = None
             while not stop.is_set() and time.monotonic() < deadline:
+                if gate_only:
+                    if not self.execution_lineage:
+                        break
+                    ref = BrowserContextRef.from_dict(self.execution_lineage["browser_context_ref"])
+                    if self.provider.inspect_lease(ref) != "HUMAN":
+                        break
                 try:
                     if browser is None or not browser.is_connected():
                         browser = driver.chromium.connect_over_cdp(self.provider.endpoint, timeout=5000)
@@ -521,6 +569,24 @@ class TeachingObserver:
         return {"status": "RECORDED" if productive else "NO_OBSERVATIONS", "truth_source": "R1_EVENT_STREAM", "asset_refs": asset_refs, "g6": "HOLD"}
 
 
+def observer_lock(root):
+    """Operational OS lock; crash release prevents duplicate observers."""
+    path=Path(os.environ.get('PFC_LOCAL_STATE_ROOT') or Path(root)/'data')/'state/browser-observer.lock'
+    path.parent.mkdir(parents=True,exist_ok=True)
+    handle=path.open('a+b');handle.seek(0)
+    if path.stat().st_size==0:handle.write(b'0');handle.flush()
+    handle.seek(0)
+    try:
+        if os.name=='nt':
+            import msvcrt
+            msvcrt.locking(handle.fileno(),msvcrt.LK_NBLCK,1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+        return handle
+    except OSError:handle.close();return None
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace-root", required=True)
@@ -528,6 +594,7 @@ def main(argv=None):
     parser.add_argument("--duration", type=float, default=300)
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--no-input", action="store_true")
+    parser.add_argument("--gate-only", action="store_true")
     args = parser.parse_args(argv)
     try:
         provider = CDPBrowserProvider(args.workspace_root)
@@ -552,7 +619,12 @@ def main(argv=None):
                         pass
                     stop.set()
                 threading.Thread(target=wait_for_enter, daemon=True).start()
-            result = TeachingObserver(provider, mission_id).run(duration=args.duration, stop=stop)
+            lock=observer_lock(args.workspace_root)
+            if lock is None:
+                print('当前受控浏览器已有观察进程，完成操作后回到对话请求继续。')
+                return 0
+            try:result = TeachingObserver(provider, mission_id).run(duration=args.duration, stop=stop, gate_only=args.gate_only, interval=1 if args.gate_only else 5)
+            finally:lock.close()
         if args.status or args.no_input:
             print(json.dumps(result, ensure_ascii=False))
         else:

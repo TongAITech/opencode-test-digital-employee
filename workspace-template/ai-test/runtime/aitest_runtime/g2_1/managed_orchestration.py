@@ -426,6 +426,8 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         envelope["bounded_context_extract"] = {"items": extract, "omitted_items": omitted, "max_bytes": 8192}
         envelope["resume_checkpoint"] = self._latest_checkpoint(mission_id, task_id)
         envelope["logical_agent_id"] = self._route_task(mission_id, task_id).logical_agent_id
+        from aitest_runtime.recovery_knowledge import session_view
+        envelope["task_knowledge"] = session_view(self.runtime, mission_id, task_id, agent)
         envelope["instruction"] = (
             "Resume only this durable Task. Read canonical tools before acting. "
             "Do not observe, create, close, or rotate your own Session; the G2.1 Session Supervisor/Router owns Session lifecycle. "

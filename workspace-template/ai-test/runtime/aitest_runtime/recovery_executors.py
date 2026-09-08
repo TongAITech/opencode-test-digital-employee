@@ -154,10 +154,11 @@ class OfflineExecutor:
     retry_semantics = {'automatic_retry': False}
     evidence_channels = ('PROVIDER_RESULT',)
 
-    def __init__(self, root, capability_id, config=None):
+    def __init__(self, root, capability_id, config=None, oracle_providers=None):
         self.root = Path(root).resolve()
         self.capability_id = capability_id
         self.config = dict(config if config is not None else binding(self.root))
+        self.oracle_providers = dict(oracle_providers or {})
         self.evidence = Path(os.environ.get('PFC_LOCAL_STATE_ROOT') or self.root) / 'evidence' / 'executions'
 
     def prepare(self, step, runtime_facts):
@@ -178,7 +179,7 @@ class OfflineExecutor:
             reason = 'Runner failed; inspect binding and local diagnostics'
         value = {'capability': self.capability_id, 'actual': actual, 'oracle_result': 'PASS' if passed else 'FAIL',
                  'oracle_reason': reason, 'elapsed_ms': round((time.monotonic() - started) * 1000),
-                 'lineage': prepared['lineage'], 'source_identity': 'recovery-offline-runner:1.9.5',
+                 'lineage': prepared['lineage'], 'source_identity': 'recovery-offline-runner:1.13.0',
                  'side_effect_summary': 'Bounded execution against approved target'}
         self.evidence.mkdir(parents=True, exist_ok=True)
         path = self.evidence / (uuid.uuid4().hex + '.json')
@@ -202,6 +203,10 @@ class OfflineExecutor:
         if method not in allowed:
             raise RuntimeError('RECOVERY_METHOD_NOT_APPROVED', method)
         headers = {}
+        for key, value in (request.get('headers') or {}).items():
+            if key not in {'Idempotency-Key', 'X-Correlation-ID', 'Accept'} or not isinstance(value, str) or len(value) > 200 or '\r' in value or '\n' in value:
+                raise RuntimeError('RECOVERY_HEADER_NOT_APPROVED', 'Use governed header fields only')
+            headers[key] = value
         env_name = self.config.get('auth_env_ref')
         if env_name:
             if not re.fullmatch(r'[A-Z][A-Z0-9_]+', env_name) or not os.environ.get(env_name):
@@ -219,6 +224,9 @@ class OfflineExecutor:
                 return response.status_code, dict(response.headers), bytes(content)
 
     def _run_api(self, step, request):
+        if step.get('standard_case'):
+            from .recovery_api import run_journey
+            return run_journey(self, step['standard_case'], request)
         expected = step.get('expected')
         if not isinstance(expected, dict) or isinstance(expected.get('status_code'), bool) or not isinstance(expected.get('status_code'), int):
             raise RuntimeError('RECOVERY_EXPLICIT_ORACLE_REQUIRED', 'step.expected.status_code')
@@ -316,6 +324,9 @@ class OfflineExecutor:
                 'summary_sha256': hashlib.sha256(json.dumps(metrics, sort_keys=True).encode()).hexdigest()}, completed['exit_code'] == 0 and observed_p95 is not None and observed_p95 < threshold
 
     def _run_browser_ui(self, step, request):
+        if step.get('standard_case'):
+            from .recovery_ui import run_action
+            return run_action(self, step['standard_case'], step.get('ui_action_index'), request, step.get('prior_network', ()), step.get('page_digest'))
         from playwright.sync_api import sync_playwright
         url = allowed_url(request.get('url'), self.config, request)
         expected = step.get('expected') or {}

@@ -23,6 +23,17 @@ def _taint_metadata(*results: EvidenceSanitization) -> dict[str, Any]:
 class G4RealExecutionService(_R2_5_G4RealExecutionService):
     """R2-6: typed sensitive-evidence taint/redaction before every carrying R1 write."""
 
+    def complete_human_takeover(self, mission_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
+        result = super().complete_human_takeover(mission_id, request)
+        if result.get("status") == "RESUME_SAFE":
+            cursor = (result.get("cursor") or {}).get("payload", {})
+            resume = (cursor.get("last_safe_checkpoint") or {}).get("ui_journey_resume")
+            if resume:
+                continuation = dict(resume)
+                continuation["attempt_id"] = result["resume_attempt_id"]
+                result["ui_continuation"] = self.execute_capability(mission_id, continuation)
+        return result
+
     def register_capability(
         self,
         mission_id: str,

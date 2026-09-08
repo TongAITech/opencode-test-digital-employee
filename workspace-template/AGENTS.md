@@ -1,4 +1,4 @@
-# AI Test Runtime V1.11 — Authoritative Operating Contract
+# AI Test Runtime V1.13.0 — Authoritative Operating Contract
 
 ## Identity
 
@@ -38,3 +38,7 @@ This workspace runs the generic AI Test Runtime. Project identity comes only fro
 ## Recovery entry and context precedence
 
 These entry rules govern daily V1.12 operation even where historical contracts describe manual diagnostics or older `/aitest-*` commands. `OPENCODE_PROCESS_READY` is independent of Model/Auth/Mission readiness. Historical command examples are optional diagnostics, never prerequisites for a natural-language Mission. Planner owns semantic Tasks; Scheduler owns readiness; Session Router owns role and Session selection; Control Loop owns observation, checkpoint, rotation and recovery. Large Runtime/Evidence source bodies are forbidden as direct Session input; use bounded tools and references.
+
+## Task knowledge and business execution
+Use `aitest_knowledge` candidate for bounded, source-bound Requirement/BR/SR/TR/CodeSymbol/CodeImpact/API/Page/Journey/StandardCase/AutomationAsset/EvidenceSummary/DefectRootCause/HistoricalRegressionSignal assets. Preserve exact project/environment/version scope. Only fresh locally reviewed VERIFIED knowledge is eligible for execution Context; global learning/Skill promotion stays G6 HOLD. Never issue approval on behalf of a human.
+API and both UI execution paths resolve the frozen StandardTestCase from R1 and pass through G4. Browser HumanGate observations belong to the current ExecutionAttempt. Complete human actions only after fresh same-context authentication/page/business checks; Runtime resumes the recorded cursor.

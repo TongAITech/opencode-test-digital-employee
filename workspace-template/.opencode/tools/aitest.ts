@@ -287,13 +287,22 @@ export const diagnosis = boundedTool(tool, {
 })
 
 export const knowledge = boundedTool(tool, {
-  description: "Canonical governed learning surface. R4 learning/promotion wiring remains HOLD until G6.",
-  args: { action: tool.schema.string(), payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}) },
-  async execute(args) { return pending("KNOWLEDGE", args.action, args.payload, "G6_R4_LEARNING") },
+  description: "Source-bound R1 knowledge candidates and bounded task retrieval over R3.E1. Only locally reviewed, fresh VERIFIED knowledge enters execution Context. Global learning/Skill promotion remains G6 HOLD.",
+  args: { action: tool.schema.enum(["candidate", "task_view", "apply_review"]), payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}) },
+  async execute(args, context) {
+    const workspace = await canonicalWorkspace(context as ToolContext)
+    const python = await portablePython(workspace)
+    const proc = Bun.spawn([python, "-X", "utf8", "-m", "aitest_runtime.product_entry", "knowledge", "--action", args.action, "--payload", JSON.stringify(args.payload)],
+      { cwd: workspace, env: { ...process.env, AITEST_WORKSPACE_ROOT: workspace, PYTHONPATH: path.join(workspace, "ai-test", "runtime") }, stdout: "pipe", stderr: "pipe" })
+    const stdout = await new Response(proc.stdout).text()
+    const stderr = await new Response(proc.stderr).text()
+    if (await proc.exited !== 0) throw modelError(stderr || stdout)
+    return modelResult(JSON.parse(stdout))
+  },
 })
 
 export const recovery = boundedTool(tool, {
-  description: "V1.12.0 canonical Requirement/SST/BR/SR/TR and approved Current Release import. Durable R1/G3 provenance; bounded context; no Session management or G6 promotion. Release approval comes only from a human-authored local binding file.",
+  description: "V1.13.0 canonical Requirement/SST/BR/SR/TR and approved Current Release import. Durable R1/G3 provenance; bounded context; no Session management or G6 promotion. Release approval comes only from a human-authored local binding file.",
   args: {
     action: tool.schema.enum(["import_document", "analyze_requirements", "import_current_release", "intake_context", "read_intake_source"]),
     payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}),
