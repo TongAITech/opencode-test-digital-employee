@@ -90,12 +90,27 @@ class G3TestingIntelligenceService:
         if existing is not None:
             return existing.to_dict()
         command_id = f"g3:record:{fact_id}"
-        result = self.runtime.execute({
+        command = {
             "command_id": command_id, "type": RECORD_FACT, "mission_id": mission_id, "session_id": None,
             "expected_seq": self.runtime.get_head_seq(mission_id), "actor": self.actor.to_dict(),
             "payload": {"fact_id": fact_id, "fact_kind": fact_kind, "payload": dict(payload), "provenance_refs": list(provenance_refs)},
             "idempotency_key": f"g3:fact:{fact_id}", "correlation_id": command_id, "schema_version": 1,
-        })
+        }
+        # Session telemetry/binding does not change an immutable fact's
+        # content or provenance. Preserve rejected command audit rows and
+        # retry only across these two explicit control events, never across
+        # another business fact, Plan, Task or Mission lifecycle change.
+        control_events = {"g2_1.session_observation_recorded.v1", "g2_1.session_provision_bound.v1"}
+        for attempt in range(5):
+            result = self.runtime.execute(command)
+            if result.ok or not result.error or result.error.code != "EXPECTED_SEQ_MISMATCH":
+                break
+            head = self.runtime.get_head_seq(mission_id)
+            events = self.runtime.list_events(mission_id, after_seq=command["expected_seq"], through_seq=head)
+            if not events or any(event.event_type not in control_events for event in events):
+                break
+            if attempt < 4:
+                command = {**command, "expected_seq": head, "command_id": f"{command_id}:control-cursor:{head}"}
         if not result.ok: raise result.error or RuntimeError("G3_DURABLE_WRITE_FAILED", fact_id)
         fact = self.state(mission_id).by_id(fact_id)
         if fact is None: raise RuntimeError("G3_FACT_NOT_REPLAYABLE", fact_id)

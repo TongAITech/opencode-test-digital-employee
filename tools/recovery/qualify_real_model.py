@@ -133,6 +133,11 @@ try:
   if missions:
    mission=missions[0]
    if not seeded:
+    # Import after the natural-language Mission admission has finished binding
+    # its Planner, as the normal user-facing attachment entry does.
+    admitted=service.session_control.state(mission)
+    if not any(p.role=='PLANNER' and p.status=='BOUND' for p in admitted.provisions):
+     time.sleep(.1);continue
     seed_inputs(runtime,mission);seeded=True
    state=runtime.replay_composed(mission);graph=state.extension_state('r1_2_work_graph');control=service.session_control.state(mission)
    planners=[p for p in control.provisions if p.role=='PLANNER' and p.external_session_id]

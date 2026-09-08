@@ -31,6 +31,41 @@ def reasons(pressure):
 
 
 class PressureTests(unittest.TestCase):
+    def test_g3_fact_write_crosses_only_observation_or_binding_events(self):
+        from aitest_runtime.g3.service import G3TestingIntelligenceService
+        from aitest_runtime.g3.contracts import RECORD_FACT
+        for race in ('observation','binding','business'):
+            with self.subTest(race=race), tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);runtime=create_canonical_runtime(root,db_path=root/'runtime.db')
+                service=G21AutonomousOrchestrationService(runtime,root,session_provider=FakeOpenCodeSessionProvider(root))
+                mission=service.start_test(request('fact-race','FACT-RACE'))['intake']['intake']['mission_id']
+                provision=next(p for p in service.session_control.state(mission).provisions if p.role=='PLANNER')
+                if race=='binding':
+                    service._request_provision_if_needed(mission,token='concurrent-bind',task_id=None,
+                        logical_agent_id=provision.logical_agent_id,root_attempt_id=None,role='PLANNER',
+                        agent_name='aitest-planner',phase='PLANNING',title='Synthetic binding')
+                g3=G3TestingIntelligenceService(runtime);original=runtime.execute;injected=[]
+                def racing_execute(command):
+                    if isinstance(command,dict) and command.get('type')==RECORD_FACT and not injected:
+                        injected.append(command)
+                        if race=='observation':
+                            service.session_control.record_observation(mission,SessionObservation.from_provider(provision.external_session_id,{'reachable':True,'healthy':True}).to_dict())
+                        elif race=='binding':
+                            service.session_control.bind_provision(mission,'concurrent-bind',provision.external_session_id)
+                        else:
+                            g3._record(mission,'KNOWLEDGE_GAP',{'reason':'Synthetic intervening business fact'},fact_id='intervening-fact')
+                    return original(command)
+                runtime.execute=racing_execute
+                if race=='business':
+                    with self.assertRaisesRegex(Exception,'EXPECTED_SEQ_MISMATCH'):
+                        g3._record(mission,'KNOWLEDGE_GAP',{'reason':'Synthetic fact'},fact_id='target-fact')
+                    self.assertIsNone(g3.state(mission).by_id('target-fact'))
+                else:
+                    fact=g3._record(mission,'KNOWLEDGE_GAP',{'reason':'Synthetic fact'},fact_id='target-fact')
+                    self.assertEqual(fact['fact_id'],'target-fact')
+                    self.assertEqual(len([f for f in g3.state(mission).facts if f.fact_id=='target-fact']),1)
+                    self.assertEqual(g3._record(mission,'KNOWLEDGE_GAP',{'reason':'Synthetic fact'},fact_id='target-fact'),fact)
+
     def test_orphan_cleanup_preserves_new_durable_provision_after_snapshot(self):
         class ConcurrentProvider(FakeOpenCodeSessionProvider):
             calls=0
