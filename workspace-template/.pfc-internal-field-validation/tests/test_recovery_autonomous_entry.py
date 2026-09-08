@@ -95,21 +95,22 @@ class ModelFixture(http.server.BaseHTTPRequestHandler):
                 if reads < page_budget:
                     name = 'aitest_context'; args = {'mission_id': mission, 'source_ref': 'evidence:local-observations.jsonl',
                         'offset': (generation * 7 + reads) * 4096, 'limit': 4096 if stress_worker else 512, 'expected_sha256': self.source_digest}
-                elif 'aitest_worker' not in previous_tools and (not stress_worker or generation >= 2):
-                    name = 'aitest_worker'; args = {'action': 'report_task_outcome', 'payload': {
+                elif not {'aitest_worker','aitest_executor'} & previous_tools and (not stress_worker or generation >= 2):
+                    name = 'aitest_executor' if role=='aitest-executor' else 'aitest_worker'; args = {'action': 'report_task_outcome', 'payload': {
                         key: envelope[key] for key in ('mission_id', 'task_id', 'attempt_id', 'session_id')}}
                     args['payload'].update(outcome='SUCCEEDED', summary='Synthetic protocol fixture verified bounded evidence after automatic Runtime successor continuation')
             elif envelope:
                 role = 'PLANNER'
                 if 'aitest_planner' not in previous_tools:
                     proposal = {'objective': 'Synthetic tool protocol qualification, no bank testing claim', 'tasks': [], 'dependencies': []}
-                    for key, task_role, intent in [('inspect-reference', 'CODE_ANALYST', 'Inspect one bounded local evidence reference'),
-                                                   ('evaluate-reference', 'EVALUATOR', 'Evaluate the prior local reference observation')]:
+                    roles=[('requirements','REQUIREMENT_ANALYST'),('inspect-reference','CODE_ANALYST'),('strategy','TEST_STRATEGIST'),('cases','CASE_DESIGNER'),('execution','EXECUTOR'),('evaluate-reference','EVALUATOR'),('diagnosis','DIAGNOSIS')]
+                    for key, task_role in roles:
+                        intent='Verify Router-owned '+task_role+' transport against one bounded synthetic evidence reference'
                         proposal['tasks'].append({'task_key': key, 'intent': intent,
                             'acceptance_criteria': [{'id': key + '-complete', 'description': 'Record the local fixture observation through the bound worker outcome tool'}],
                             'routing': {'role': task_role, 'required_capabilities': ['OPENCODE_AGENT_SESSION', 'TASK_OUTCOME_REPORT'],
                                         'isolation_policy': 'DEDICATED_TASK_SESSION', 'parallelism_policy': 'SERIAL'}})
-                    proposal['dependencies'] = [{'from': 'inspect-reference', 'to': 'evaluate-reference'}]
+                    proposal['dependencies'] = [{'from':a[0],'to':b[0]} for a,b in zip(roles,roles[1:])]
                     name = 'aitest_planner'; args = {'action': 'propose_plan', 'payload': {'mission_id': envelope['mission_id'], 'proposal': proposal}}
             elif any(m.get('role') == 'user' and texts(m.get('content')).strip() == 'SYNTHETIC_MODEL_BOUNDARY_QUALIFICATION' for m in messages):
                 role = 'BOUNDARY_FIXTURE_ONLY'
@@ -159,8 +160,9 @@ def main():
             raise RuntimeError('OFFLINE_OPENCODE_PLUGIN_PAYLOAD_REQUIRED')
         for destination in (workspace / '.opencode', root / 'oc-config/opencode'):
             destination.mkdir(parents=True, exist_ok=True)
-            if not (destination / 'node_modules').exists():
-                shutil.copytree(payload / 'node_modules', destination / 'node_modules')
+            # A preceding source test may leave a partial ignored node_modules
+            # directory. Its presence does not prove the offline SDK is present.
+            shutil.copytree(payload / 'node_modules', destination / 'node_modules', dirs_exist_ok=True)
             for name in ('package.json', 'package-lock.json'):
                 shutil.copy2(payload / name, destination / name)
         (workspace / 'INSTALL_MANIFEST.json').write_text('{"classification":"LOCAL_PROTOCOL_FIXTURE"}', encoding='utf-8')
@@ -218,7 +220,7 @@ def main():
                 'models': {'fixture': {'name': 'Fixture', 'limit': {'context': 131072, 'output': 8192}}}}}})
             os.environ.update(env)
             with (root/'server.log').open('w') as log:
-                process = subprocess.Popen([str(binary), 'serve', '--hostname', '127.0.0.1', '--port', str(port)], cwd=workspace, env=env, stdout=log, stderr=subprocess.STDOUT)
+                process = subprocess.Popen([str(binary), 'serve', '--print-logs', '--log-level', 'DEBUG', '--hostname', '127.0.0.1', '--port', str(port)], cwd=workspace, env=env, stdout=log, stderr=subprocess.STDOUT)
             provider = DirectoryScopedOpenCodeSessionProvider(workspace, timeout=30)
             deadline = time.monotonic() + 90
             while True:
@@ -265,7 +267,7 @@ def main():
             user = provider.create_session(title='Synthetic natural-language Director intake qualification')
             provider._request('POST', f'/session/{user.session_id}/prompt_async?{provider._directory_query()}',
                               {'parts': [{'type': 'text', 'text': '测试 BLOAN-PF1.1.0'}]})
-            deadline = time.monotonic() + 240
+            deadline = time.monotonic() + int(os.environ.get('AITEST_QUALIFICATION_TIMEOUT','240'))
             runtime = create_canonical_runtime(workspace)
             mission = None; composed = None; boundary_session = None; boundary_head = None; boundary_idle_since = 0
             while time.monotonic() < deadline:
@@ -275,7 +277,7 @@ def main():
                 if missions:
                     mission = missions[0]; composed = runtime.replay_composed(mission)
                     graph = composed.extension_state('r1_2_work_graph')
-                    if len(graph.tasks) == 2 and all(t.lifecycle_state.value == 'SUCCEEDED' for t in graph.tasks):
+                    if len(graph.tasks) == 7 and all(t.lifecycle_state.value == 'SUCCEEDED' for t in graph.tasks):
                         if boundary_session is None:
                             head = runtime.get_head_seq(mission)
                             if head != boundary_head:
@@ -299,15 +301,20 @@ def main():
                     messages = provider._request('GET', f'/session/{session.session_id}/message?{provider._directory_query()}')
                     states.append({'session': session.session_id, 'messages': messages})
                 (root/'failure.json').write_text(json.dumps(states), encoding='utf-8')
-                raise RuntimeError('AUTONOMOUS_TOOL_PIPELINE_TIMEOUT:' + json.dumps(states)[-12000:] + '\n' + (root/'server.log').read_text(errors='replace')[-2000:])
+                diagnostics={'server_log':(root/'server.log').read_text(errors='replace')[-8000:],
+                    'control_log':(root/'control-loop.log').read_text(errors='replace')[-3000:],
+                    'decisions':ModelFixture.decisions[-30:],'errors':ModelFixture.errors,'tools':executed[-12:],
+                    'sessions':[{'id':item['session'],'messages':[{'role':m.get('info',{}).get('role'),'agent':m.get('info',{}).get('agent'),'error':m.get('info',{}).get('error'),
+                        'parts':[{'type':p.get('type'),'text_prefix':str(p.get('text',''))[:100],'tool':p.get('tool'),'status':p.get('state',{}).get('status'),'error':str(p.get('state',{}).get('error',''))[:1000]} for p in m.get('parts',[])]} for m in item['messages']]} for item in states]}
+                raise RuntimeError('AUTONOMOUS_TOOL_PIPELINE_TIMEOUT:' + json.dumps(diagnostics,ensure_ascii=False)[-18000:])
             state = service.session_control.state(mission)
             planner = [p for p in state.provisions if p.role == 'PLANNER']
             workers = [p for p in state.provisions if p.task_id]
-            assert len(planner) == 1 and len(workers) >= 4
+            assert len(planner) == 1 and len(workers) >= 9
             ids = [user.session_id, planner[0].external_session_id, *(p.external_session_id for p in workers)]
-            assert len(set(ids)) >= 6
-            assert {p.role for p in workers} == {'CODE_ANALYST', 'EVALUATOR'}
-            assert len({p.logical_agent_id for p in [*planner, *workers]}) == 3
+            assert len(set(ids)) >= 11
+            assert {p.role for p in workers} == {'REQUIREMENT_ANALYST','CODE_ANALYST','TEST_STRATEGIST','CASE_DESIGNER','EXECUTOR','EVALUATOR','DIAGNOSIS'}
+            assert len({p.logical_agent_id for p in [*planner, *workers]}) == 8
             # Observe live OpenCode tool events before Runtime closes terminal
             # Sessions. Durable R1 Mission/Plan/Task results confirm mutations
             # even when a Session is deleted before its final tool-result event.
@@ -329,14 +336,16 @@ def main():
             user_messages = provider._request('GET', f'/session/{user.session_id}/message?{provider._directory_query()}&limit=10')
             assert any(m.get('info', {}).get('role') == 'assistant' and m['info'].get('agent') == 'aitest-director' for m in user_messages)
             final_workers = [provision for provision in workers if composed.extension_state('r1_3b_execution_resume').latest_attempt(provision.task_id).runtime_session_id == provision.external_session_id]
-            assert all(any(p['tool'] == 'aitest_worker' and p['session_id'] == worker.external_session_id for p in executed) for worker in final_workers)
+            assert all(any(p['tool'] == ('aitest_executor' if worker.role=='EXECUTOR' else 'aitest_worker') and p['session_id'] == worker.external_session_id for p in executed) for worker in final_workers)
             stress_workers = [p for p in workers if p.role == 'CODE_ANALYST']
             rotations = [r for r in state.rotations if r.task_id == stress_workers[0].task_id]
             assert len(rotations) >= 2 and all(r.status == 'COMPLETED' for r in rotations), state.to_dict()
             attempts = [a for a in composed.extension_state('r1_3b_execution_resume').attempts if a.task_id == stress_workers[0].task_id]
             assert len(attempts) >= 3 and len({a.root_attempt_id for a in attempts}) == 1
             assert len({p.logical_agent_id for p in stress_workers}) == 1
-            assert not any('SESSION_UNREACHABLE' in r.reasons for r in state.rotations)
+            assert not any('SESSION_UNREACHABLE' in r.reasons for r in state.rotations), json.dumps({
+                'rotations':[r.to_dict() for r in state.rotations if 'SESSION_UNREACHABLE' in r.reasons],
+                'observations':[o.to_dict() for o in state.observations if o.provider_state.get('reachable') is False]},ensure_ascii=False)
             rotation_evidence = []
             for rotation in rotations:
                 checkpoint = rotation.checkpoint

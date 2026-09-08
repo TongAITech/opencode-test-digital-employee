@@ -84,6 +84,10 @@ jobs:
           first="$parent/loan workspace"
           test -f "$first/AGENTS.md"
           test -f "$second/AGENTS.md"
+          test -f "$first/.git/HEAD"
+          test -f "$second/.git/HEAD"
+          test "$(cygpath -m "$(git -C "$first" rev-parse --show-toplevel)")" = "$(cygpath -m "$first")"
+          test "$(cygpath -m "$(git -C "$second" rev-parse --show-toplevel)")" = "$(cygpath -m "$second")"
           test ! -d "$first/workspace-template"
           test ! -d "$second/workspace-template"
           cp "$first/INSTALL_MANIFEST.json" windows-install-manifest.json

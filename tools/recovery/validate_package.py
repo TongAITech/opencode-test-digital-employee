@@ -52,6 +52,8 @@ def main():
     installed_b=args.installed_b.resolve() if args.installed_b else None
     if not args.source_only and (not installed or not installed_b):raise RuntimeError('TWO_INSTALLED_WORKSPACES_REQUIRED')
     runtime_workspace=installed or workspace
+    source_head=(json.loads((bundle/'BUILD_PROVENANCE.json').read_text()).get('source_head') if (bundle/'BUILD_PROVENANCE.json').is_file() else subprocess.check_output(['git','-C',str(bundle),'rev-parse','HEAD'],text=True).strip())
+    source_clean=(not subprocess.check_output(['git','-C',str(bundle),'status','--porcelain'],text=True).strip()) if args.source_only else True
     env = dict(os.environ)
     # Imported Runtime modules plus local test-only deps when on construction Mac.
     env['PYTHONPATH'] = os.pathsep.join(filter(None, [str(workspace / 'ai-test/runtime'), env.get('PYTHONPATH')]))
@@ -145,6 +147,10 @@ def main():
         payloads['zap_engine'] = run([str(runtime / 'tools/java/bin/java.exe'), '-jar', str(jars[0]), '-cmd', '-version'], runtime / 'tools/zap', env, timeout=120) if jars else {'status': 'FAIL', 'reason': 'ZAP_JAR_MISSING'}
         payloads['single_entry_server_control_loop'] = run([sys.executable, '-X', 'utf8', str(installed / 'tools/recovery/launcher.py'), '--self-check'], bundle, env, timeout=150)
         payloads['single_entry_evidence_export'] = run([sys.executable, '-X', 'utf8', str(installed / 'tools/recovery/launcher.py'), '--export-evidence'], bundle, env, timeout=90)
+    if args.source_only:
+        current_head=subprocess.check_output(['git','-C',str(bundle),'rev-parse','HEAD'],text=True).strip()
+        dirty=subprocess.check_output(['git','-C',str(bundle),'status','--porcelain'],text=True).strip()
+        results['source_identity_guard']={'status':'PASS' if source_clean and not dirty and current_head==source_head else 'FAIL','reason':'Exact clean source must remain unchanged during validation'}
     passed = all(result['status'] == 'PASS' for result in results.values())
     payload_pass = bool(payloads) and all(result['status'] == 'PASS' for result in payloads.values())
     sys.path.insert(0,str(bundle/'tools/recovery'))
@@ -178,8 +184,8 @@ def main():
     gates['FINAL_ZIP_SEALED']='PENDING'
     result = {'schema_version': 'aitest.machine-validation.v1', 'product_version': PACKAGE_VERSION,
               'host': {'system': platform.system(), 'machine': platform.machine(), 'python': platform.python_version()},
-              'source_head': (json.loads((bundle / 'BUILD_PROVENANCE.json').read_text()).get('source_head') if (bundle / 'BUILD_PROVENANCE.json').is_file() else subprocess.check_output(['git', '-C', str(bundle), 'rev-parse', 'HEAD'], text=True).strip()),
-              'LOCAL_VALIDATION_PASS': passed, 'WINDOWS_CI_PASS': passed and payload_pass and os.name == 'nt',
+              'source_head': source_head,
+              'LOCAL_VALIDATION_PASS': passed, 'WINDOWS_CI_PASS': gates['WINDOWS_FULL_QUALIFICATION']=='PASS', 'WINDOWS_EXECUTION_TESTS_PASS': windows_execution_pass,
               'BANK_FIELD_VALIDATION_REQUIRED': True,
               'real_model_BLOAN_turn': 'AUTH_REQUIRED / NOT_EXECUTED',
               'bank_4A_Starlink_CAT_DB': 'BANK_BINDING_REQUIRED / NOT_EXECUTED',
