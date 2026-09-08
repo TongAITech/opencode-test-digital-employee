@@ -1,5 +1,6 @@
 import { tool } from "@opencode-ai/plugin"
 import path from "path"
+import { modelResult, modelError, boundedTool } from "../lib/model-result.mjs"
 
 type ToolContext = { directory?: string; worktree?: string | null }
 
@@ -22,13 +23,13 @@ async function canonicalWorkspace(context: ToolContext): Promise<string> {
       if (ok) return candidate
     }
   }
-  throw new Error(`AITEST_CANONICAL_RUNTIME_PATH_NOT_FOUND; candidates=${roots.join("|")}`)
+  throw modelError(`AITEST_CANONICAL_RUNTIME_PATH_NOT_FOUND; candidates=${roots.join("|")}`)
 }
 
 async function portablePython(workspace: string): Promise<string> {
   const executable = path.join(workspace, "runtime", "python", process.platform === "win32" ? "python.exe" : "python")
   if (await Bun.file(executable).exists()) return executable
-  throw new Error(`PFC_PORTABLE_PYTHON_NOT_FOUND; expected=${executable}`)
+  throw modelError(`PFC_PORTABLE_PYTHON_NOT_FOUND; expected=${executable}`)
 }
 
 async function resolveHumanGate(
@@ -67,16 +68,16 @@ async function resolveHumanGate(
   const stdout = await new Response(proc.stdout).text()
   const stderr = await new Response(proc.stderr).text()
   const code = await proc.exited
-  if (code !== 0) throw new Error((stderr || stdout || `AITEST HumanGate resume exited ${code}`).trim().slice(0, 6000))
+  if (code !== 0) throw modelError((stderr || stdout || `AITEST HumanGate resume exited ${code}`).trim())
   let result: unknown
-  try { result = JSON.parse(stdout) } catch { throw new Error("AITEST_HUMAN_GATE_RESUME_NOT_JSON") }
+  try { result = JSON.parse(stdout) } catch { throw modelError("AITEST_HUMAN_GATE_RESUME_NOT_JSON") }
   if ((result as Record<string, unknown>).truth_source !== "R1_EVENT_STREAM") {
-    throw new Error("AITEST_HUMAN_GATE_RESUME_TRUTH_CONTRACT_FAILED")
+    throw modelError("AITEST_HUMAN_GATE_RESUME_TRUTH_CONTRACT_FAILED")
   }
-  return JSON.stringify(result)
+  return modelResult(result)
 }
 
-export const resume = tool({
+export const resume = boundedTool(tool, {
   description: "Deterministic HumanGate completion-verification surface for a NEW OpenCode User Turn. human_gate_user_turn_resume treats phrases such as 完成/好了/已登录 only as REQUEST_TO_VERIFY_COMPLETION; exact compatible gate selection comes from R1 and fresh Browser Runtime verification is the only completion authority. Multiple compatible gates fail closed.",
   args: {
     mission_id: tool.schema.string().describe("Current durable Mission id resolved from R1 truth, never conversation memory."),

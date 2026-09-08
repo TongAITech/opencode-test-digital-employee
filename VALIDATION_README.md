@@ -42,4 +42,6 @@ CAT、DB 的登录和适配器由行内负责人绑定；缺少授权或接口�
 
 本次 `10.REC.3` 的机器验证结果位于 `MACHINE_VALIDATION_RESULT.json`。`windows-install-manifest.json` 是 CI 安装身份的验证证据；交付根目录 `INSTALL_MANIFEST.json` 是待安装模板，实际安装时会生成该主机自己的身份。
 
+大文档、累积 Runtime 状态和错误信息进入对话前受 16KiB UTF-8 输出上限约束；省略内容会明确标记并保留事实引用，完整事实仍在 R1。证据翻页需要上一页的来源哈希，来源变化时必须重新获取。
+
 Context stress 使用至少 10MB 合成证据来源，在真实 OpenCode 和后台 Control Loop 中通过有界读取、checkpoint、两次自动 rotation、successor 完成、重启及证据导出重放验证上下文保护。脚本化模型协议验证只证明工具调用与调度链路，不能证明真实 AI 的语义规划质量；`AUTONOMOUS_PLAN` 未获真实模型证据前保持未证明，WorkItem 不 Closure。BLOAN、Starlink、4A、CAT、DB、增量覆盖平台始终需要真实行内验证。

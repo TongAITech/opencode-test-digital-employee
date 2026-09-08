@@ -69,6 +69,8 @@ def read_evidence_page(durable_root: Path, mission_id: str, source_ref: str, *, 
         raise ValueError("BOUNDED_EVIDENCE_PATH_FORBIDDEN")
     if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0 or isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_PAGE_BYTES:
         raise ValueError("BOUNDED_EVIDENCE_PAGE_BUDGET_REQUIRED")
+    if offset > 0 and (not isinstance(expected_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256)):
+        raise ValueError("BOUNDED_EVIDENCE_CONTINUATION_HASH_REQUIRED")
     root = expected_root.resolve()
     # Neither evidence/ nor its Mission folder may redirect, even to another
     # Mission inside the same durable root (Windows junctions included).

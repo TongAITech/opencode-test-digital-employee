@@ -94,7 +94,7 @@ def main():
             session_id=latest.runtime_session_id, outcome='SUCCEEDED', summary='Synthetic bounded source references verified after two automatic rotations')
         assert completed['next']['status'] == 'PLAN_COMPLETE'
         # Reader budgets, source pinning and path controls cannot be bypassed.
-        for extras in ({'limit': 10 * 1024 * 1024}, {'offset': -1}, {'expected_sha256': '0' * 64}):
+        for extras in ({'limit': 10 * 1024 * 1024}, {'offset': -1}, {'offset': 4096}, {'offset': 4096, 'expected_sha256': 'invalid'}, {'expected_sha256': '0' * 64}):
             try: read_evidence_page(root, mission, 'evidence:runtime-events.jsonl', **extras)
             except ValueError: pass
             else: raise AssertionError('reader accepted unbounded/unpinned input')

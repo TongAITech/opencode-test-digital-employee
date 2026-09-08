@@ -1,5 +1,6 @@
 import { tool } from "@opencode-ai/plugin"
 import path from "path"
+import { modelResult, modelError, boundedTool } from "../lib/model-result.mjs"
 
 type ToolContext = { directory?: string; worktree?: string | null; sessionID?: string; messageID?: string }
 
@@ -21,13 +22,13 @@ async function canonicalWorkspace(context: ToolContext): Promise<string> {
       if (ok) return candidate
     }
   }
-  throw new Error(`AITEST_CANONICAL_RUNTIME_PATH_NOT_FOUND; candidates=${roots.join("|")}`)
+  throw modelError(`AITEST_CANONICAL_RUNTIME_PATH_NOT_FOUND; candidates=${roots.join("|")}`)
 }
 
 async function portablePython(workspace: string): Promise<string> {
   const executable = path.join(workspace, "runtime", "python", process.platform === "win32" ? "python.exe" : "python")
   if (await Bun.file(executable).exists()) return executable
-  throw new Error(`PFC_PORTABLE_PYTHON_NOT_FOUND; expected=${executable}`)
+  throw modelError(`PFC_PORTABLE_PYTHON_NOT_FOUND; expected=${executable}`)
 }
 
 async function orchestrate(
@@ -63,14 +64,14 @@ async function orchestrate(
   const stdout = await new Response(proc.stdout).text()
   const stderr = await new Response(proc.stderr).text()
   const code = await proc.exited
-  if (code !== 0) throw new Error((stderr || stdout || `AITEST orchestration exited ${code}`).trim().slice(0, 6000))
+  if (code !== 0) throw modelError((stderr || stdout || `AITEST orchestration exited ${code}`).trim())
   let result: unknown
-  try { result = JSON.parse(stdout) } catch { throw new Error("AITEST_CANONICAL_ORCHESTRATION_NOT_JSON") }
+  try { result = JSON.parse(stdout) } catch { throw modelError("AITEST_CANONICAL_ORCHESTRATION_NOT_JSON") }
   const record = result as Record<string, unknown>
   if (record.truth_source !== "R1_EVENT_STREAM") {
-    throw new Error("AITEST_CANONICAL_ORCHESTRATION_TRUTH_CONTRACT_FAILED")
+    throw modelError("AITEST_CANONICAL_ORCHESTRATION_TRUTH_CONTRACT_FAILED")
   }
-  return JSON.stringify(result)
+  return modelResult(result)
 }
 
 
@@ -94,11 +95,11 @@ async function g3(
   const stdout = await new Response(proc.stdout).text()
   const stderr = await new Response(proc.stderr).text()
   const code = await proc.exited
-  if (code !== 0) throw new Error((stderr || stdout || `AITEST G3 exited ${code}`).trim().slice(0, 6000))
+  if (code !== 0) throw modelError((stderr || stdout || `AITEST G3 exited ${code}`).trim())
   let result: unknown
-  try { result = JSON.parse(stdout) } catch { throw new Error("AITEST_G3_NOT_JSON") }
-  if ((result as Record<string, unknown>).truth_source !== "R1_EVENT_STREAM") throw new Error("AITEST_G3_TRUTH_CONTRACT_FAILED")
-  return JSON.stringify(result)
+  try { result = JSON.parse(stdout) } catch { throw modelError("AITEST_G3_NOT_JSON") }
+  if ((result as Record<string, unknown>).truth_source !== "R1_EVENT_STREAM") throw modelError("AITEST_G3_TRUTH_CONTRACT_FAILED")
+  return modelResult(result)
 }
 
 
@@ -122,11 +123,11 @@ async function g4(
   const stdout = await new Response(proc.stdout).text()
   const stderr = await new Response(proc.stderr).text()
   const code = await proc.exited
-  if (code !== 0) throw new Error((stderr || stdout || `AITEST G4 exited ${code}`).trim().slice(0, 6000))
+  if (code !== 0) throw modelError((stderr || stdout || `AITEST G4 exited ${code}`).trim())
   let result: unknown
-  try { result = JSON.parse(stdout) } catch { throw new Error("AITEST_G4_NOT_JSON") }
-  if ((result as Record<string, unknown>).truth_source !== "R1_EVENT_STREAM") throw new Error("AITEST_G4_TRUTH_CONTRACT_FAILED")
-  return JSON.stringify(result)
+  try { result = JSON.parse(stdout) } catch { throw modelError("AITEST_G4_NOT_JSON") }
+  if ((result as Record<string, unknown>).truth_source !== "R1_EVENT_STREAM") throw modelError("AITEST_G4_TRUTH_CONTRACT_FAILED")
+  return modelResult(result)
 }
 
 
@@ -150,14 +151,14 @@ async function g5(
   const stdout = await new Response(proc.stdout).text()
   const stderr = await new Response(proc.stderr).text()
   const code = await proc.exited
-  if (code !== 0) throw new Error((stderr || stdout || `AITEST G5 exited ${code}`).trim().slice(0, 6000))
+  if (code !== 0) throw modelError((stderr || stdout || `AITEST G5 exited ${code}`).trim())
   let result: unknown
-  try { result = JSON.parse(stdout) } catch { throw new Error("AITEST_G5_NOT_JSON") }
-  if ((result as Record<string, unknown>).truth_source !== "R1_EVENT_STREAM") throw new Error("AITEST_G5_TRUTH_CONTRACT_FAILED")
-  return JSON.stringify(result)
+  try { result = JSON.parse(stdout) } catch { throw modelError("AITEST_G5_NOT_JSON") }
+  if ((result as Record<string, unknown>).truth_source !== "R1_EVENT_STREAM") throw modelError("AITEST_G5_TRUTH_CONTRACT_FAILED")
+  return modelResult(result)
 }
 
-const pending = (role: string, action: string, payload: unknown, nextGate: string): string => JSON.stringify({
+const pending = (role: string, action: string, payload: unknown, nextGate: string): string => modelResult({
   status: "HOLD",
   runtime_truth: "R1_EVENT_STREAM",
   legacy_runtime_write: "FORBIDDEN",
@@ -167,7 +168,7 @@ const pending = (role: string, action: string, payload: unknown, nextGate: strin
   reason: `${nextGate}_CANONICAL_WIRING_PENDING`,
 })
 
-export const director = tool({
+export const director = boundedTool(tool, {
   description: "Canonical AI Test Director. Start/resume Mission truth, autonomously open the Planner Session, read orchestration state, and govern Human Gates. Conversation is never Mission truth.",
   args: {
     action: tool.schema.string().describe("status|start_test|continue_test|intake_mission|open_planner|open_human_gate|decide_human_gate"),
@@ -178,42 +179,42 @@ export const director = tool({
     }).passthrough().default({}),
   },
   async execute(args, context) {
-    if (args.action === "start_test" && (!context.sessionID || !context.messageID)) throw new Error("HOST_USER_TURN_REQUIRED")
+    if (args.action === "start_test" && (!context.sessionID || !context.messageID)) throw modelError("HOST_USER_TURN_REQUIRED")
     return orchestrate(context as ToolContext, "DIRECTOR", args.action, args.payload)
   },
 })
 
-export const g3_director = tool({
+export const g3_director = boundedTool(tool, {
   description: "Canonical G3 TestIntent intake. Persists autonomous/focused testing intent and returns a governed Planner proposal. It never bypasses Mission/Plan/Task/Session governance.",
   args: { action: tool.schema.string().describe("status|work_context|register_intent"), payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}) },
   async execute(args, context) { return g3(context as ToolContext, "DIRECTOR", args.action, args.payload) },
 })
 
-export const requirement_analyst = tool({
+export const requirement_analyst = boundedTool(tool, {
   description: "G3 Requirement Analyst. Converts provenance-bound Requirement/SST/design facts into R3.1 obligations. Unknown business facts become KnowledgeGap/HumanTask; never guess.",
   args: { action: tool.schema.string().describe("status|work_context|analyze_requirement"), payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}) },
   async execute(args, context) { return g3(context as ToolContext, "REQUIREMENT_ANALYST", args.action, args.payload) },
 })
 
-export const code_analyst = tool({
+export const code_analyst = boundedTool(tool, {
   description: "G3 Code Analyst. Performs multi-repo static Change Intelligence and reads canonical bank incremental coverage when authenticated. Static truth is never Actual Coverage.",
   args: { action: tool.schema.string().describe("status|work_context|analyze_changes|acquire_coverage|intake_context|read_intake_source|binding_context"), payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}) },
   async execute(args, context) { return g3(context as ToolContext, "CODE_ANALYST", args.action, args.payload) },
 })
 
-export const test_strategist = tool({
+export const test_strategist = boundedTool(tool, {
   description: "G3 Reach+Find strategist. Produces risk/coverage/hypothesis-driven L1-L7 strategy or governed API/UI/Security/Performance profiles. Execution is performed only by the Router-bound G4 Executor.",
   args: { action: tool.schema.string().describe("status|work_context|recommend_next_work|create_strategy|design_test_profile"), payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}) },
   async execute(args, context) { return g3(context as ToolContext, "TEST_STRATEGIST", args.action, args.payload) },
 })
 
-export const case_designer = tool({
+export const case_designer = boundedTool(tool, {
   description: "G3 Standard Case Designer. Builds detailed R3.3 cases with preconditions, test data, ordered steps, expected results, oracle/evidence/postcondition and CaseValueLink.",
   args: { action: tool.schema.string().describe("status|work_context|design_cases"), payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}) },
   async execute(args, context) { return g3(context as ToolContext, "CASE_DESIGNER", args.action, args.payload) },
 })
 
-export const planner = tool({
+export const planner = boundedTool(tool, {
   description: "Canonical R2 Planner governance. The AI authors an evidence-bound semantic Plan candidate; R2.3 validates/canonicalizes/freezes it into the R1 Event Stream. Never execute tasks here.",
   args: {
     action: tool.schema.string().describe("status|propose_plan|intake_context|read_intake_source|binding_context"),
@@ -222,7 +223,7 @@ export const planner = tool({
   async execute(args, context) { return orchestrate(context as ToolContext, "PLANNER", args.action, args.payload) },
 })
 
-export const scheduler = tool({
+export const scheduler = boundedTool(tool, {
   description: "Canonical R2 Scheduler. Select dependency-ready Tasks and advance durable orchestration. Session selection/creation/rotation is owned by the G2.1 Runtime Session Router and background Control Loop.",
   args: {
     action: tool.schema.string().describe("status|advance|dispatch_next"),
@@ -231,7 +232,7 @@ export const scheduler = tool({
   async execute(args, context) { return orchestrate(context as ToolContext, "SCHEDULER", args.action, args.payload) },
 })
 
-export const executor = tool({
+export const executor = boundedTool(tool, {
   description: "Canonical G2/G4 governed executor. Task outcome remains G2; real execution/cursor/HumanTakeover/evidence/batching are G4 actions and still use G2.1-routed Attempts/Sessions.",
   args: {
     action: tool.schema.string().describe("status|report_task_outcome|browser_context|record_cursor|recover_cursor|register_capability|validate_executor|execute_capability|capability_human_gate|request_human_takeover|reconcile_human_takeover|complete_human_takeover|record_step_result|create_batch|intake_context|read_intake_source|binding_context"),
@@ -244,7 +245,7 @@ export const executor = tool({
   },
 })
 
-export const g4_director = tool({
+export const g4_director = boundedTool(tool, {
   description: "G4 non-LLM test-goal convergence surface. Creates durable goals, consumes bank G3 coverage facts, evaluates/replans, records blockers/iterations/risk acceptance; it never authors cases or confirms defects.",
   args: {
     action: tool.schema.string().describe("status|create_goal|control_tick|coverage_from_g3|blocker_gap|risk_acceptance|record_iteration"),
@@ -253,7 +254,7 @@ export const g4_director = tool({
   async execute(args, context) { return g4(context as ToolContext, "DIRECTOR", args.action, args.payload) },
 })
 
-export const worker = tool({
+export const worker = boundedTool(tool, {
   description: "Generic durable worker lifecycle surface for any Session Router-assigned Logical Agent. It can read status or report the exact bound Task outcome; it cannot manage Session lifecycle or execute G4 test capabilities.",
   args: {
     action: tool.schema.string().describe("status|report_task_outcome"),
@@ -267,7 +268,7 @@ export const worker = tool({
   },
 })
 
-export const evaluator = tool({
+export const evaluator = boundedTool(tool, {
   description: "G3 design Evaluator. Reviews detailed Standard Test Case design via frozen R3.4 and raises Human Review. Real SUT execution is owned by G4; confirmed-defect truth is owned by governed G5 Diagnosis.",
   args: { action: tool.schema.string().describe("status|work_context|evaluate_case_design"), payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}) },
   async execute(args, context) {
@@ -276,7 +277,7 @@ export const evaluator = tool({
   },
 })
 
-export const diagnosis = tool({
+export const diagnosis = boundedTool(tool, {
   description: "Canonical G5 Diagnosis/Defect Hunter surface. Test failures remain Observations until durable investigation confirms defect truth. New evidence must return through governed G2/G3/G4 work.",
   args: {
     action: tool.schema.string().describe("status|work_context|record_anomaly|create_candidate|request_evidence_deepening|record_evidence_assessment|correlate_sources|evaluate_reproducibility|assess_false_positive|assess_defect_truth|record_rca|record_checkpoint|handoff_confirmed_defect"),
@@ -285,13 +286,13 @@ export const diagnosis = tool({
   async execute(args, context) { return g5(context as ToolContext, "DIAGNOSIS", args.action, args.payload) },
 })
 
-export const knowledge = tool({
+export const knowledge = boundedTool(tool, {
   description: "Canonical governed learning surface. R4 learning/promotion wiring remains HOLD until G6.",
   args: { action: tool.schema.string(), payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}) },
   async execute(args) { return pending("KNOWLEDGE", args.action, args.payload, "G6_R4_LEARNING") },
 })
 
-export const recovery = tool({
+export const recovery = boundedTool(tool, {
   description: "V1.12.0 canonical Requirement/SST/BR/SR/TR and approved Current Release import. Durable R1/G3 provenance; bounded context; no Session management or G6 promotion. Release approval comes only from a human-authored local binding file.",
   args: {
     action: tool.schema.enum(["import_document", "analyze_requirements", "import_current_release", "intake_context", "read_intake_source"]),
@@ -305,14 +306,14 @@ export const recovery = tool({
       { cwd: workspace, env, stdout: "pipe", stderr: "pipe" })
     const stdout = await new Response(proc.stdout).text()
     const stderr = await new Response(proc.stderr).text()
-    if (await proc.exited !== 0) throw new Error((stderr || stdout).slice(0, 3000))
+    if (await proc.exited !== 0) throw modelError((stderr || stdout))
     const value = JSON.parse(stdout)
-    if (value.truth_source !== "R1_EVENT_STREAM") throw new Error("RECOVERY_TRUTH_CONTRACT_FAILED")
-    return JSON.stringify(value)
+    if (value.truth_source !== "R1_EVENT_STREAM") throw modelError("RECOVERY_TRUTH_CONTRACT_FAILED")
+    return modelResult(value)
   },
 })
 
-export const context = tool({
+export const context = boundedTool(tool, {
   description: "Read one bounded page of explicitly referenced, Mission-scoped evidence. Never reads host files/configuration or injects a full Runtime/Evidence file. Requires a Router-owned Session; use next_offset with expected_sha256 and retain references instead of concatenating pages.",
   args: {
     mission_id: tool.schema.string(), source_ref: tool.schema.string().describe("evidence:<relative filename> under this Mission's durable evidence directory"),
@@ -327,8 +328,8 @@ export const context = tool({
       { cwd: workspace, env, stdout: "pipe", stderr: "pipe" })
     const stdout = await new Response(proc.stdout).text()
     const stderr = await new Response(proc.stderr).text()
-    if (await proc.exited !== 0) throw new Error((stderr || stdout).slice(0, 3000))
-    if (Buffer.byteLength(stdout, "utf8") > 16384) throw new Error("BOUNDED_EVIDENCE_RESPONSE_BUDGET_EXCEEDED")
-    return JSON.stringify(JSON.parse(stdout))
+    if (await proc.exited !== 0) throw modelError((stderr || stdout))
+    if (Buffer.byteLength(stdout, "utf8") > 16384) throw modelError("BOUNDED_EVIDENCE_RESPONSE_BUDGET_EXCEEDED")
+    return modelResult(JSON.parse(stdout))
   },
 })

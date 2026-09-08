@@ -48,7 +48,7 @@ def main() -> int:
     }
 
     g5_helper = segment(tool, "async function g5(", "const pending")
-    diagnosis = segment(tool, "export const diagnosis = tool({", "export const knowledge = tool({")
+    diagnosis = segment(tool, "export const diagnosis = boundedTool(tool, {", "export const knowledge = boundedTool(tool, {")
 
     forbidden_helper_markers = (
         "create_session", "rotate_session", "close_session",

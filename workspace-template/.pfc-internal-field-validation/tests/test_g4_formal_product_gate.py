@@ -39,7 +39,7 @@ def main():
     checks['09_case_version_preserved']='case_version' in g4src and ec.get('same_mission_end_to_end') is True
     checks['10_process_restart_recovery']=ec.get('session_rotation_control_restart') is True
     checks['11_sessions_route_g21']='G4_SESSION_ROUTER_ROLE_BINDING_MISMATCH' in pesrc and ec.get('waiting_a_allows_independent_b') is True
-    executor_segment=tool.split('export const executor = tool({',1)[1].split('export const g4_director',1)[0]
+    executor_segment=tool.split('export const executor = boundedTool(tool, {',1)[1].split('export const g4_director',1)[0]
     checks['12_executor_no_session_lifecycle']=all(x not in executor_segment for x in ('create_session','rotate_session','close_session'))
     checks['13_browser_governed']=ec.get('human_takeover_product_entry_yields') is True and 'G4_BROWSER_PROVIDER_REQUIRED' in g4src
     checks['14_api_governed']='EXACT_API_URL_METHOD_SCOPE_REQUIRED' in g4src

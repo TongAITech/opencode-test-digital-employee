@@ -470,8 +470,8 @@ def main() -> int:
     tool_source = (WORKSPACE_ROOT / ".opencode/tools/aitest.ts").read_text(encoding="utf-8")
     scheduler_agent = (WORKSPACE_ROOT / ".opencode/agents/aitest-scheduler.md").read_text(encoding="utf-8")
     executor_agent = (WORKSPACE_ROOT / ".opencode/agents/aitest-executor.md").read_text(encoding="utf-8")
-    executor_surface = tool_source.split("export const executor = tool({", 1)[1].split("export const g4_director", 1)[0]
-    scheduler_surface = tool_source.split("export const scheduler = tool({", 1)[1].split("export const executor", 1)[0]
+    executor_surface = tool_source.split("export const executor = boundedTool(tool, {", 1)[1].split("export const g4_director", 1)[0]
+    scheduler_surface = tool_source.split("export const scheduler = boundedTool(tool, {", 1)[1].split("export const executor", 1)[0]
     def declared_actions(surface: str) -> set[str]:
         match = re.search(r'action\s*:\s*tool\.schema\.string\(\)\.describe\("([^"]+)"\)', surface)
         return set(match.group(1).split("|")) if match else set()
@@ -481,14 +481,14 @@ def main() -> int:
         and required_executor_actions <= declared_actions(executor_surface)
         and '"SCHEDULER"' in scheduler_surface and '"EXECUTOR"' in executor_surface
         and not ({"observe_session", "rotate_session", "create_session", "close_session", "control_tick", "reconcile_sessions"} & (declared_actions(scheduler_surface) | declared_actions(executor_surface)))
-        and "create_session" not in tool_source.split("export const executor = tool({", 1)[1].split("export const g4_director", 1)[0]
-        and "rotate_session" not in tool_source.split("export const executor = tool({", 1)[1].split("export const g4_director", 1)[0]
-        and "close_session" not in tool_source.split("export const executor = tool({", 1)[1].split("export const g4_director", 1)[0]
+        and "create_session" not in tool_source.split("export const executor = boundedTool(tool, {", 1)[1].split("export const g4_director", 1)[0]
+        and "rotate_session" not in tool_source.split("export const executor = boundedTool(tool, {", 1)[1].split("export const g4_director", 1)[0]
+        and "close_session" not in tool_source.split("export const executor = boundedTool(tool, {", 1)[1].split("export const g4_director", 1)[0]
         and "Never call Session observation/rotation actions" in scheduler_agent
         and "Do not observe, create, close, or rotate your own Session" in executor_agent
     )
     checks["generic_worker_outcome_surface_exists_for_router_roles"] = (
-        "export const worker = tool" in tool_source
+        "export const worker = boundedTool(tool," in tool_source
         and "aitest_worker: allow" in (WORKSPACE_ROOT / ".opencode/agents/aitest-evaluator.md").read_text(encoding="utf-8")
         and "aitest_worker: allow" in (WORKSPACE_ROOT / ".opencode/agents/aitest-diagnosis.md").read_text(encoding="utf-8")
     )

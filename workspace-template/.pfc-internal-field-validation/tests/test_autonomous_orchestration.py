@@ -221,7 +221,7 @@ def main() -> int:
 
     tool_source = (WORKSPACE_ROOT / ".opencode/tools/aitest.ts").read_text(encoding="utf-8")
     product_source = (RUNTIME_ROOT / "aitest_runtime/product_entry.py").read_text(encoding="utf-8")
-    executor_surface = tool_source.split("export const executor = tool({", 1)[1].split("export const g4_director", 1)[0]
+    executor_surface = tool_source.split("export const executor = boundedTool(tool, {", 1)[1].split("export const g4_director", 1)[0]
     action_match = re.search(r'action\s*:\s*tool\.schema\.string\(\)\.describe\("([^"]+)"\)', executor_surface)
     executor_actions = set(action_match.group(1).split("|")) if action_match else set()
     required_executor_actions = {"status", "report_task_outcome", "record_cursor", "recover_cursor", "register_capability", "validate_executor", "execute_capability", "capability_human_gate", "request_human_takeover", "reconcile_human_takeover", "complete_human_takeover", "record_step_result", "create_batch"}
@@ -230,9 +230,9 @@ def main() -> int:
         and required_executor_actions <= executor_actions
         and not ({"observe_session", "rotate_session", "create_session", "close_session", "control_tick", "reconcile_sessions"} & executor_actions)
         and '"EXECUTOR": {"status", "report_task_outcome"}' in product_source
-        and "create_session" not in tool_source.split("export const executor = tool({", 1)[1].split("export const g4_director", 1)[0]
-        and "rotate_session" not in tool_source.split("export const executor = tool({", 1)[1].split("export const g4_director", 1)[0]
-        and "close_session" not in tool_source.split("export const executor = tool({", 1)[1].split("export const g4_director", 1)[0]
+        and "create_session" not in tool_source.split("export const executor = boundedTool(tool, {", 1)[1].split("export const g4_director", 1)[0]
+        and "rotate_session" not in tool_source.split("export const executor = boundedTool(tool, {", 1)[1].split("export const g4_director", 1)[0]
+        and "close_session" not in tool_source.split("export const executor = boundedTool(tool, {", 1)[1].split("export const g4_director", 1)[0]
         and '"CONTROL": {"status", "control_tick", "reconcile_sessions", "observe_session", "rotate_session"}' in product_source
     )
     checks["production_product_entry_has_no_fake_provider_selection"] = "FakeOpenCodeSessionProvider(" not in product_source

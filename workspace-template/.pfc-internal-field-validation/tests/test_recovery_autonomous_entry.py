@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import zipfile
 import io
 from contextlib import redirect_stdout
@@ -110,11 +111,22 @@ class ModelFixture(http.server.BaseHTTPRequestHandler):
                                         'isolation_policy': 'DEDICATED_TASK_SESSION', 'parallelism_policy': 'SERIAL'}})
                     proposal['dependencies'] = [{'from': 'inspect-reference', 'to': 'evaluate-reference'}]
                     name = 'aitest_planner'; args = {'action': 'propose_plan', 'payload': {'mission_id': envelope['mission_id'], 'proposal': proposal}}
+            elif any(m.get('role') == 'user' and texts(m.get('content')).strip() == 'SYNTHETIC_MODEL_BOUNDARY_QUALIFICATION' for m in messages):
+                role = 'BOUNDARY_FIXTURE_ONLY'
+                if 'aitest_recovery' not in previous_tools:
+                    with sqlite3.connect(self.server.durable_root / 'state/runtime-spine.db') as db:
+                        mission = db.execute('SELECT mission_id FROM mission_projection LIMIT 1').fetchone()[0]
+                    name = 'aitest_recovery'; args = {'action': 'import_document', 'payload': {
+                        'mission_id': mission, 'path': str(self.server.boundary_source), 'source_id': 'model-boundary-fixture'}}
+                else:
+                    checks = [t for m in messages for t in m.get('tool_calls', []) if t.get('function', {}).get('name') == 'aitest_recovery' and json.loads(t['function']['arguments']).get('payload', {}).get('__qualification_boundary')]
+                    if len(checks) < 2:
+                        name = 'aitest_recovery'; args = {'action': 'intake_context', 'payload': {'__qualification_boundary': 'status' if not checks else 'error'}}
             elif any(m.get('role') == 'user' and texts(m.get('content')).strip() == '测试 BLOAN1.9.4' for m in messages):
                 role = 'DIRECTOR'
                 if 'aitest_director' not in previous_tools:
                     name = 'aitest_director'; args = {'action': 'start_test', 'payload': {'user_request': '测试 BLOAN1.9.4'}}
-            if name and name not in tools: raise ValueError('REQUIRED_ROLE_TOOL_NOT_AVAILABLE:' + name)
+            if name and name not in tools: raise ValueError('REQUIRED_ROLE_TOOL_NOT_AVAILABLE:' + name + ':available=' + ','.join(sorted(tools)))
             self.decisions.append({'role': role, 'tool': name, 'mission_id': (envelope or {}).get('mission_id'),
                                    'session_id': (envelope or {}).get('session_id')})
             delta = {'role': 'assistant'}
@@ -138,7 +150,7 @@ def main():
     binary = Path(os.environ.get('AITEST_REAL_OPENCODE') or WORKSPACE / 'runtime/opencode/opencode.exe')
     if not binary.is_file(): raise RuntimeError('Actual pinned OpenCode binary required')
     old = dict(os.environ); process = None; loop = None; model = None; event_response = None
-    executed = []; bounded_pages = []; event_ready = threading.Event()
+    executed = []; bounded_pages = []; boundary_outputs = []; event_ready = threading.Event()
     with tempfile.TemporaryDirectory(prefix='recovery-autonomous-', ignore_cleanup_errors=True) as temporary:
         root = Path(temporary); workspace = root / 'workspace'; durable = root / 'data'
         shutil.copytree(WORKSPACE, workspace, ignore=lambda directory, names: [name for name in names if name == '__pycache__' or name.endswith('.pyc') or (Path(directory) == WORKSPACE and name == 'runtime')])
@@ -152,6 +164,32 @@ def main():
             for name in ('package.json', 'package-lock.json'):
                 shutil.copy2(payload / name, destination / name)
         (workspace / 'PFC_R1_R4_INSTALLATION.json').write_text('{"classification":"LOCAL_PROTOCOL_FIXTURE"}', encoding='utf-8')
+        # Test-only branch in the temporary tool copy: exercise large Runtime
+        # result shapes and error presentation through actual OpenCode/Bun.
+        # The production tool API and R1/domain implementations stay unchanged.
+        boundary_code = '''
+  if (args.payload.__qualification_boundary === "error") throw new Error("😀".repeat(10000))
+  const identityHeavy = Object.fromEntries(Array.from({length:20}, (_,i) => ["field_"+i+"_id", "x".repeat(1600)]))
+  Object.assign(identityHeavy, {status:"PASS", truth_source:"R1_EVENT_STREAM", mission_id:"required-mission", task_id:"required-task", attempt_id:"required-attempt", session_id:"required-session"})
+  identityHeavy.next = {status:"DISPATCHED", task_id:"next-task", attempt:{attempt_id:"next-attempt",root_attempt_id:"next-root"}, external_session:{session_id:"next-session"}}
+  const fallback = JSON.parse(modelResult(identityHeavy))
+  for (const key of ["status","truth_source","mission_id","task_id","attempt_id","session_id"])
+    if (fallback[key] !== identityHeavy[key]) throw new Error("BOUNDARY_REQUIRED_CONTROL_LOST:"+key)
+  if (fallback.next.status !== "DISPATCHED" || fallback.next.attempt.attempt_id !== "next-attempt" || fallback.next.external_session.session_id !== "next-session") throw new Error("BOUNDARY_NEXT_TASK_CONTROL_LOST")
+  const asciiError = modelError("x".repeat(50000)).message
+  if (!asciiError.includes("omitted=true") || Buffer.byteLength(asciiError,"utf8") > 16384) throw new Error("BOUNDARY_ERROR_OMISSION_REQUIRED")
+  const largeKey = modelResult({status:"PASS", ["x".repeat(20000)+"_id"]:"value"})
+  if (Buffer.byteLength(largeKey,"utf8") > 16384 || JSON.parse(largeKey).status !== "PASS") throw new Error("BOUNDARY_LARGE_KEY_ESCAPE")
+  return modelResult({status:"PASS",truth_source:"R1_EVENT_STREAM",mission_id:"synthetic-mission",
+    task_id:"synthetic-task",attempt_id:"synthetic-attempt",session_id:"synthetic-session",
+    core:{events:Array.from({length:20000}, (_,i) => ({event_id:"synthetic-"+i,body:"合成运行时事实".repeat(40)}))},
+    next:{status:"PLAN_COMPLETE"}, ["x".repeat(20000)+"_id"]:"oversized-key-fixture"})
+'''
+        recovery_tool = workspace / '.opencode/tools/aitest.ts'
+        prefix, recovery_part = recovery_tool.read_text(encoding='utf-8').split('export const recovery = boundedTool(tool, {', 1)
+        recovery_part = recovery_part.replace('  async execute(args, context) {',
+            '  async execute(args, context) {\n    if (args.payload.__qualification_boundary) {\n' + boundary_code + '\n    }', 1)
+        recovery_tool.write_text(prefix + 'export const recovery = boundedTool(tool, {' + recovery_part, encoding='utf-8')
         python = workspace / 'runtime/python'
         if os.name == 'nt': shutil.copytree(WORKSPACE / 'runtime/python', python)
         else:
@@ -159,6 +197,9 @@ def main():
         try:
             model = http.server.ThreadingHTTPServer(('127.0.0.1', 0), ModelFixture)
             model.durable_root = durable
+            model.workspace = workspace
+            model.boundary_source = workspace / 'qualification-source.txt'
+            model.boundary_source.write_text('SYNTHETIC DOCUMENT ' * 60000, encoding='utf-8')
             threading.Thread(target=model.serve_forever, daemon=True).start()
             with socket.socket() as sock: sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
             env = dict(os.environ)
@@ -199,14 +240,20 @@ def main():
                         part = event.get('properties', {}).get('part', {})
                         if part.get('type') == 'tool':
                             record = {'session_id': part.get('sessionID'), 'tool': part.get('tool'),
-                                      'status': part.get('state', {}).get('status')}
-                            if record['status'] == 'error': record['error'] = part.get('state', {}).get('error', '')[:2000]
+                                      'status': part.get('state', {}).get('status'),
+                                      'fixture_boundary_kind': part.get('state', {}).get('input', {}).get('payload', {}).get('__qualification_boundary')}
+                            if record['status'] == 'error':
+                                error = part.get('state', {}).get('error', '')
+                                record.update(error=error[:2000], error_bytes=len(error.encode('utf-8')))
                             executed.append(record)
                             if record['tool'] == 'aitest_context' and record['status'] == 'completed':
                                 output = part.get('state', {}).get('output', '')
                                 page = json.loads(output)
                                 bounded_pages.append({key: page[key] for key in ('source_bytes', 'returned_bytes', 'source_sha256', 'offset')})
                                 bounded_pages[-1].update(session_id=record['session_id'], response_bytes=len(output.encode('utf-8')))
+                            if record['status'] == 'completed' and record['tool'] == 'aitest_recovery':
+                                output = part.get('state', {}).get('output', '')
+                                boundary_outputs.append({'tool': record['tool'], 'kind': record['fixture_boundary_kind'] or 'import', 'bytes': len(output.encode('utf-8')), 'value': json.loads(output)})
 
                 except Exception:
                     event_ready.set()
@@ -220,7 +267,7 @@ def main():
                               {'parts': [{'type': 'text', 'text': '测试 BLOAN1.9.4'}]})
             deadline = time.monotonic() + 240
             runtime = create_canonical_runtime(workspace)
-            mission = None; composed = None
+            mission = None; composed = None; boundary_session = None; boundary_head = None; boundary_idle_since = 0
             while time.monotonic() < deadline:
                 from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
                 service = G21AutonomousOrchestrationService(runtime, workspace, session_provider=provider)
@@ -228,10 +275,23 @@ def main():
                 if missions:
                     mission = missions[0]; composed = runtime.replay_composed(mission)
                     graph = composed.extension_state('r1_2_work_graph')
-                    if len(graph.tasks) == 2 and all(t.lifecycle_state.value == 'SUCCEEDED' for t in graph.tasks): break
+                    if len(graph.tasks) == 2 and all(t.lifecycle_state.value == 'SUCCEEDED' for t in graph.tasks):
+                        if boundary_session is None:
+                            head = runtime.get_head_seq(mission)
+                            if head != boundary_head:
+                                boundary_head = head; boundary_idle_since = time.monotonic()
+                            elif time.monotonic() - boundary_idle_since >= 1:
+                                # This separate, explicitly synthetic Session
+                                # tests result presentation after the one-turn
+                                # autonomous Mission has already completed.
+                                boundary_session = provider.create_session(title='Synthetic model-result boundary qualification only')
+                                provider._request('POST', f'/session/{boundary_session.session_id}/prompt_async?{provider._directory_query()}',
+                                    {'parts': [{'type': 'text', 'text': 'SYNTHETIC_MODEL_BOUNDARY_QUALIFICATION'}]})
+                        elif (len({p['kind'] for p in boundary_outputs}) == 2
+                                and any(p.get('fixture_boundary_kind') == 'error' and p['status'] == 'error' for p in executed)): break
                 if loop.poll() is not None: raise RuntimeError('REAL_CONTROL_LOOP_EXITED:' + (root / 'control-loop.log').read_text(errors='replace')[-2000:])
                 if ModelFixture.errors: raise RuntimeError('MODEL_PROTOCOL_FIXTURE_FAILED:' + json.dumps(ModelFixture.errors))
-                if any(p['status'] == 'error' and p.get('error') != 'Tool execution aborted' for p in executed): raise RuntimeError('ACTUAL_OPENCODE_TOOL_FAILED:' + json.dumps(executed))
+                if any(p['status'] == 'error' and p.get('error') != 'Tool execution aborted' and p.get('fixture_boundary_kind') != 'error' for p in executed): raise RuntimeError('ACTUAL_OPENCODE_TOOL_FAILED:' + json.dumps(executed))
                 time.sleep(.3)
             else:
                 states = []
@@ -253,7 +313,17 @@ def main():
             # even when a Session is deleted before its final tool-result event.
             for name in ('aitest_director', 'aitest_planner', 'aitest_worker', 'aitest_context'):
                 assert any(p['tool'] == name and p['status'] in {'running', 'completed'} for p in executed), executed
-            assert not any(p['status'] == 'error' and p.get('error') != 'Tool execution aborted' for p in executed), executed
+            assert not any(p['status'] == 'error' and p.get('error') != 'Tool execution aborted' and p.get('fixture_boundary_kind') != 'error' for p in executed), executed
+            assert all(p['bytes'] <= 16384 and p['value']['_model_projection']['omitted'] is True for p in boundary_outputs)
+            imported = next(p['value'] for p in boundary_outputs if p['kind'] == 'import')
+            assert imported['_model_projection']['source_bytes'] > 1024 * 1024
+            assert imported['document']['fact_id'] and imported['document']['payload']['text']['_omitted'] is True
+            huge_status = next(p['value'] for p in boundary_outputs if p['kind'] == 'status')
+            assert huge_status['_model_projection']['source_bytes'] > 10 * 1024 * 1024
+            assert huge_status['status'] == 'PASS' and huge_status['next']['status'] == 'PLAN_COMPLETE'
+            for key in ('mission_id', 'task_id', 'attempt_id', 'session_id'): assert huge_status[key].startswith('synthetic-')
+            assert all(p['error_bytes'] <= 16384 for p in executed if p.get('fixture_boundary_kind') == 'error' and p['status'] == 'error')
+            assert any('😀' * 10 in p.get('error', '') for p in executed if p.get('fixture_boundary_kind') == 'error' and p['status'] == 'error')
             assert any(p['tool'] == 'aitest_director' and p['session_id'] == user.session_id for p in executed)
             assert any(p['tool'] == 'aitest_planner' and p['session_id'] == planner[0].external_session_id for p in executed)
             user_messages = provider._request('GET', f'/session/{user.session_id}/message?{provider._directory_query()}&limit=10')
@@ -286,7 +356,7 @@ def main():
                     'reasons': list(rotation.reasons), 'bounded_page_count': len(pages),
                     'observed_message_bytes_plus_reserve': observation.provider_state['pressure']['estimated_context_used']})
             predecessors = {r.checkpoint['predecessor_session_id'] for r in rotations}
-            assert all(p['session_id'] in predecessors for p in executed if p['status'] == 'error'), executed
+            assert all(p['session_id'] in predecessors for p in executed if p['status'] == 'error' and p.get('fixture_boundary_kind') != 'error'), executed
             assert ModelFixture.source_bytes >= 10 * 1024 * 1024
             assert bounded_pages and all(p['returned_bytes'] <= 4096 and p['response_bytes'] <= 16384 for p in bounded_pages)
             assert all(p['source_bytes'] == ModelFixture.source_bytes and p['source_sha256'] == ModelFixture.source_digest for p in bounded_pages)
@@ -318,6 +388,9 @@ def main():
                 'gates': {**{g: 'PASS' for g in ('NATURAL_LANGUAGE_START_TEST', 'MISSION_INTAKE', 'PLANNER_SESSION', 'SCHEDULER_AUTO_ADVANCE', 'SESSION_ROUTER', 'AUTO_ROTATION', 'SUCCESSOR_RESUME', 'CONTEXT_STRESS')},
                           'AUTONOMOUS_PLAN': 'SIMULATED_SEMANTIC_PLANNER'},
                 'context_stress_transport': 'REAL_OPENCODE', 'default_agent_selected_without_override': True,
+                'model_result_boundary': 'PASS', 'boundary_qualification_session': boundary_session.session_id, 'max_boundary_result_bytes': max(p['bytes'] for p in boundary_outputs),
+                'large_import_body_omitted': True, 'large_runtime_projection_bytes': huge_status['_model_projection']['source_bytes'],
+                'multibyte_error_byte_budget': 'PASS',
                 'rotation_count': len(rotations), 'source_bytes': ModelFixture.source_bytes,
                 'rotation_evidence': rotation_evidence, 'unreachable_rotation_count': 0,
                 'max_bounded_response_bytes': max(p['response_bytes'] for p in bounded_pages),
@@ -328,7 +401,7 @@ def main():
                 'user_request': '测试 BLOAN1.9.4', 'mission_id': mission, 'distinct_session_count': len(set(ids)),
                 'worker_roles': sorted({p.role for p in workers}),
                 'executed_tools': sorted({(p['session_id'], p['tool'], p['status']) for p in executed if p['status'] in {'running', 'completed'}}),
-                'rotation_cancelled_tool_count': sum(p['status'] == 'error' for p in executed),
+                'rotation_cancelled_tool_count': sum(p['status'] == 'error' and p.get('fixture_boundary_kind') != 'error' for p in executed),
                 'tool_mutation_result_authority': 'R1_EVENT_STREAM; live OpenCode events captured before terminal Session cleanup',
                 'semantic_planner': 'SIMULATED_SEMANTIC_PLANNER', 'real_model_autonomous_plan': 'NOT_EXECUTED',
                 'max_model_request_bytes': ModelFixture.max_request_bytes,
