@@ -142,11 +142,13 @@ def main() -> int:
                 cwd=str(root), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
             )
             rotated_status: dict[str, object] | None = None
-            deadline = time.time() + 5
+            deadline = time.time() + 30
             while time.time() < deadline:
                 value = run(env, "DIRECTOR", "status", {"mission_id": mission_id})
                 attempts = value.get("execution", {}).get("attempts", [])  # type: ignore[union-attr]
-                if isinstance(attempts, list) and len(attempts) >= 2:
+                rotations = value.get("session_control", {}).get("rotations", [])
+                if (isinstance(attempts, list) and len(attempts) >= 2
+                        and rotations and rotations[-1].get("status") == "COMPLETED"):
                     rotated_status = value
                     break
                 time.sleep(0.1)

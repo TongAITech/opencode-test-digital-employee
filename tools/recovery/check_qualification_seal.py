@@ -19,6 +19,7 @@ import zipfile
 QUALIFIER = Path(__file__).resolve().with_name('qualify_package.py')
 SOURCE_HEAD = 'a' * 40
 OTHER_HEAD = 'b' * 40
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from closure_contract import REQUIRED_GATES
 GATES = tuple(x for x in REQUIRED_GATES if x != 'FINAL_ZIP_SEALED')
 

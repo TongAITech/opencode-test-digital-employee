@@ -5,6 +5,7 @@ no G6 promotion. Candidate ingestion never grants execution eligibility.
 """
 from datetime import datetime, timezone, timedelta
 import json
+from contextlib import closing
 import re
 import sqlite3
 from .durable_core import RuntimeError, canonical_sha256
@@ -37,7 +38,7 @@ def source_fact(runtime, mission_id, fact_id):
         if found is not None:return found
     # G5 persists its typed diagnosis entities in the frozen R3.6 substrate.
     # The adapter reads that same event/identity; it does not invent a G5 store.
-    with sqlite3.connect(str(runtime.db_path)) as conn:
+    with closing(sqlite3.connect(str(runtime.db_path))) as conn:
         row=conn.execute("SELECT entity_type,payload_json,seq,created_at FROM events WHERE mission_id=? AND entity_id=? AND entity_type LIKE 'R3_6_%' ORDER BY seq DESC LIMIT 1",(mission_id,fact_id)).fetchone()
     if row:
         from .g5.service import _known_ref
@@ -60,7 +61,7 @@ def candidate(runtime, mission_id, *, kind, subject, summary, source_fact_id, sc
     payload=_json({'kind':kind,'summary':summary,'source_revision':str(source.payload.get('revision') or source.created_seq)})
     identity=canonical_sha256({'scope':scope.to_dict(),'kind':kind,'subject':subject})
     fact_id='knowledge:'+identity[:24]; source_id='knowledge-source:'+source.digest
-    with sqlite3.connect(str(runtime.db_path)) as conn:
+    with closing(sqlite3.connect(str(runtime.db_path))) as conn:
         existing=conn.execute('SELECT state_json FROM r3e1_versions WHERE scope_key=? AND fact_id=?',(scope.key,fact_id)).fetchall()
     versions=[KnowledgeVersion.from_dict(json.loads(row[0])) for row in existing]
     same=next((v for v in versions if v.payload==payload and source_id in v.source_ref_ids),None)
@@ -86,7 +87,7 @@ def task_view(runtime, *, scope, task_id, query, role, refs=(), source_revisions
     now=datetime.now(timezone.utc); candidates=[]; excluded=0
     # Read the existing disposable SQL index. All records remain replayable R1
     # events; no query writes or independent vector/database authority exists.
-    with sqlite3.connect('file:'+str(runtime.db_path)+'?mode=ro',uri=True) as conn:
+    with closing(sqlite3.connect('file:'+str(runtime.db_path)+'?mode=ro',uri=True)) as conn:
         rows=conn.execute('''SELECT f.state_json,v.state_json FROM r3e1_facts f
             JOIN r3e1_versions v ON f.scope_key=v.scope_key AND f.current_version_id=v.version_id
             WHERE f.scope_key=? AND v.status IN ('RUNTIME_VERIFIED','USER_VERIFIED')
@@ -133,13 +134,13 @@ def task_view(runtime, *, scope, task_id, query, role, refs=(), source_revisions
             result['truncated']=True; continue
         result['items'].append(item);seen.add(item['digest'])
     eligible={item['version_id'] for item in result['items']}|{item['fact_id'] for item in result['items']}
-    with sqlite3.connect('file:'+str(runtime.db_path)+'?mode=ro',uri=True) as conn:
+    with closing(sqlite3.connect('file:'+str(runtime.db_path)+'?mode=ro',uri=True)) as conn:
         relations=conn.execute('SELECT state_json FROM r3e1_relations WHERE scope_key=? AND length(CAST(state_json AS BLOB))<8192 LIMIT 513',(scope.key,)).fetchall()
     for row in relations[:512]:
         rel=json.loads(row[0])
         if rel.get('status') not in {'RUNTIME_VERIFIED','USER_VERIFIED'}:continue
         if not rel.get('freshness_id'):continue
-        with sqlite3.connect('file:'+str(runtime.db_path)+'?mode=ro',uri=True) as conn:
+        with closing(sqlite3.connect('file:'+str(runtime.db_path)+'?mode=ro',uri=True)) as conn:
             fresh_row=conn.execute('SELECT state_json FROM r3e1_freshness WHERE scope_key=? AND freshness_id=?',(scope.key,rel['freshness_id'])).fetchone()
         if not fresh_row:continue
         freshness=json.loads(fresh_row[0])
@@ -179,7 +180,7 @@ def review(runtime,root,mission_id,version_id):
     approvals=json.loads(path.read_text(encoding='utf-8')) if path.is_file() else []
     entry=next((a for a in approvals if a.get('version_id')==version_id and a.get('approved') is True),None)
     if not entry or not entry.get('reviewer') or not entry.get('approval_ref'):raise RuntimeError('KNOWLEDGE_HUMAN_REVIEW_REQUIRED',version_id)
-    with sqlite3.connect(str(runtime.db_path)) as conn:
+    with closing(sqlite3.connect(str(runtime.db_path))) as conn:
         rows=conn.execute('SELECT state_json FROM r3e1_versions WHERE version_id=?',(version_id,)).fetchall()
         if len(rows)!=1:raise RuntimeError('KNOWLEDGE_VERSION_REQUIRED',version_id)
         version=KnowledgeVersion.from_dict(json.loads(rows[0][0]));sources=[]
@@ -227,7 +228,7 @@ def link(runtime,mission_id,from_version_id,to_version_id):
     """Derive a typed dependency only from verified canonical source references."""
     from .r3_e1.contracts import KnowledgeEndpointRef,KnowledgeRelation
     versions=[];sources=[]
-    with sqlite3.connect(str(runtime.db_path)) as conn:
+    with closing(sqlite3.connect(str(runtime.db_path))) as conn:
         for vid in (from_version_id,to_version_id):
             rows=conn.execute('''SELECT v.state_json FROM r3e1_versions v JOIN r3e1_facts f
                 ON v.scope_key=f.scope_key AND v.version_id=f.current_version_id WHERE v.version_id=?''',(vid,)).fetchall()

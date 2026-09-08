@@ -176,9 +176,9 @@ def windows_host():
 
 def start_conversation(check_only=False, attach_runner=None):
     if not windows_host(): raise RuntimeError('WINDOWS_HOST_REQUIRED')
+    env = prepare()
     report = display_doctor(True)
     if report['integrity_failures']: raise RuntimeError('INSTALLED_RUNTIME_INTEGRITY_FAILED')
-    env = prepare()
     executable = host_opencode.resolve(WORKSPACE, env)
     endpoint = env.get('AITEST_OPENCODE_ENDPOINT')
     owned = not bool(endpoint)

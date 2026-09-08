@@ -49,6 +49,7 @@ class ModelFixture(http.server.BaseHTTPRequestHandler):
     worker_sessions = {}
     source_bytes = 0
     source_digest = None
+    delivered_pages = {}
     def log_message(self, *args): pass
     def do_POST(self):
         try:
@@ -69,6 +70,17 @@ class ModelFixture(http.server.BaseHTTPRequestHandler):
             # from the assistant's corresponding tool call in this Session.
             for message in messages:
                 previous_tools.update(t.get('function', {}).get('name') for t in message.get('tool_calls', []))
+            if envelope and envelope.get('task_id'):
+                calls={t.get('id'):t.get('function',{}).get('name') for m in messages for t in m.get('tool_calls',[])}
+                for m in messages:
+                    if m.get('role')!='tool' or calls.get(m.get('tool_call_id'))!='aitest_context':continue
+                    try: value=json.loads(texts(m.get('content')))
+                    except (ValueError,TypeError):continue
+                    if not all(k in value for k in ('source_bytes','returned_bytes','source_sha256','offset')):continue
+                    item={k:value[k] for k in ('source_bytes','returned_bytes','source_sha256','offset')}
+                    item.update(session_id=envelope['session_id'],response_bytes=len(texts(m.get('content')).encode('utf-8')),
+                                observation_channel='REAL_OPENCODE_MODEL_REQUEST_TOOL_RESULT')
+                    self.delivered_pages[(item['session_id'],item['offset'])]=item
             name = None; args = {}; role = 'OTHER'
             if envelope and envelope.get('task_id'):
                 role = envelope['logical_agent']
@@ -308,6 +320,11 @@ def main():
                         'parts':[{'type':p.get('type'),'text_prefix':str(p.get('text',''))[:100],'tool':p.get('tool'),'status':p.get('state',{}).get('status'),'error':str(p.get('state',{}).get('error',''))[:1000]} for p in m.get('parts',[])]} for m in item['messages']]} for item in states]}
                 raise RuntimeError('AUTONOMOUS_TOOL_PIPELINE_TIMEOUT:' + json.dumps(diagnostics,ensure_ascii=False)[-18000:])
             state = service.session_control.state(mission)
+            # SSE delivery can lag external Session cleanup on Windows. The
+            # actual model request also proves that OpenCode delivered the real
+            # completed tool result; this fixture does not author tool outputs.
+            observed={(p['session_id'],p['offset']) for p in bounded_pages}
+            bounded_pages.extend(p for key,p in ModelFixture.delivered_pages.items() if key not in observed)
             planner = [p for p in state.provisions if p.role == 'PLANNER']
             workers = [p for p in state.provisions if p.task_id]
             assert len(planner) == 1 and len(workers) >= 9
@@ -358,7 +375,8 @@ def main():
                 assert observation.provider_state['pressure']['metrics_source'] == 'OPENCODE_MESSAGE_API'
                 assert 'ESTIMATED_CONTEXT_PRESSURE' in rotation.reasons, rotation.to_dict()
                 pages = [p for p in bounded_pages if p['session_id'] == rotation.predecessor_session_id]
-                assert pages, 'Each rotation must follow an actual completed bounded evidence read'
+                assert pages, json.dumps({'error':'ROTATION_WITHOUT_COMPLETED_BOUNDED_READ',
+                    'rotation':rotation.to_dict(),'observation':observation.to_dict()},ensure_ascii=False)
                 rotation_evidence.append({'task_id': rotation.task_id, 'logical_agent_id': checkpoint['logical_agent_id'],
                     'root_attempt_id': rotation.root_attempt_id, 'predecessor_session_id': rotation.predecessor_session_id,
                     'successor_session_id': rotation.successor_session_id, 'status': rotation.status,

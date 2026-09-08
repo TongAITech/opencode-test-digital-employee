@@ -114,7 +114,7 @@ def validate_replay(runtime, mission_id, candidate_ref, *, page, variables, evid
     try:
         with tempfile.TemporaryDirectory(prefix='aitest-verified-replay-') as folder:
             program_path=Path(folder)/'candidate.py'
-            program_path.write_text(payload['playwright_program'],encoding='utf-8')
+            program_path.write_bytes(payload['playwright_program'].encode('utf-8'))
             spec=importlib.util.spec_from_file_location('aitest_verified_replay',program_path)
             module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
             page,receipts=module.replay(page,variables,[],evidence_root,lease_check)

@@ -438,7 +438,7 @@ def g4_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
         if not case.get("execution_profile",{}).get("api_journey"):raise RuntimeError("API_BUSINESS_CASE_REQUIRED")
         program=pytest_asset(case);digest=hashlib.sha256(program.encode("utf-8")).hexdigest()
         path=root/"data/evidence/automation"/(digest+".py");path.parent.mkdir(parents=True,exist_ok=True)
-        path.write_text(program,encoding="utf-8")
+        path.write_bytes(program.encode("utf-8"))
         asset=G3TestingIntelligenceService(runtime)._record(mission_id,"TEACHING_ASSET",{
             "mode":"API_PYTEST_AUTOMATION_CANDIDATE","case_version_id":case["case_version_id"],"case_digest":canonical_sha256(case),
             "artifact_ref":"automation:"+path.name,"program_sha256":digest,"lifecycle":"CANDIDATE", "g6":"HOLD", "automatic_promotion":False},provenance_refs=(fact.fact_id,))

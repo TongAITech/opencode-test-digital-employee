@@ -105,7 +105,9 @@ class CapabilityClient:
             raise CompatibilityRequired('AITEST_AGENTS_INSTRUCTIONS')
         gates['AITEST_WORKSPACE_LOADED'] = 'PASS'
         selected = config.get('model') if isinstance(config, dict) else None
-        catalog = self.request('GET', '/provider')
+        # The host catalog can contain thousands of advertised models. This
+        # transient local control-plane read is never returned to an Agent.
+        catalog = self.request('GET', '/provider', budget=16 * 1024 * 1024)
         connected = catalog.get('connected', []) if isinstance(catalog, dict) else []
         providers = catalog.get('all', []) if isinstance(catalog, dict) else []
         provider_id, _, model_id = str(selected or '').partition('/')

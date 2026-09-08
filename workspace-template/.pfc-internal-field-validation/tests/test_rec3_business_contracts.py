@@ -3,6 +3,7 @@ import copy
 from datetime import datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+from contextlib import closing
 import os
 from pathlib import Path
 import sys
@@ -155,6 +156,8 @@ class Contracts(unittest.TestCase):
                         exported=g4_command('EXECUTOR','generate_api_automation',{
                           'mission_id':mission,**execute,'session_id':first['external_session']['session_id']})
                     asset_path=root/'data/evidence/automation'/(exported['program_sha256']+'.py')
+                    import hashlib
+                    self.assertEqual(hashlib.sha256(asset_path.read_bytes()).hexdigest(),exported['program_sha256'])
                     self.assertEqual(asset_path.read_text(),pytest_asset(case))
                     from aitest_runtime.g3.contracts import EXTENSION_ID as G3_EXTENSION
                     self.assertEqual(g4.runtime.replay_composed(mission).extension_state(G3_EXTENSION).by_id(exported['asset_ref']).payload['lifecycle'],'CANDIDATE')
@@ -172,7 +175,7 @@ class Contracts(unittest.TestCase):
                     self.assertEqual(again['version_id'],registered['version_id'])
                     with self.assertRaises(Exception):review(runtime,root,mission,registered['version_id'])
                     import sqlite3
-                    with sqlite3.connect(str(runtime.db_path)) as db:
+                    with closing(sqlite3.connect(str(runtime.db_path))) as db:
                         version=json.loads(db.execute('SELECT state_json FROM r3e1_versions WHERE version_id=?',(registered['version_id'],)).fetchone()[0])
                     approval={'version_id':registered['version_id'],'payload_digest':version['payload_digest'],'approved':True,
                       'reviewer':'LOCAL-TEST-REVIEWER','approval_ref':'LOCAL-REVIEW','evidence_ref':result.fact_id,
@@ -183,7 +186,7 @@ class Contracts(unittest.TestCase):
                     self.assertEqual(view['items'][0]['version_id'],registered['version_id'])
                     from aitest_runtime.recovery_knowledge import link
                     other=candidate(runtime,mission,kind='EvidenceSummary',subject='loan execution',summary='loan business assertions passed',source_fact_id=result.fact_id,scope=scope)
-                    with sqlite3.connect(str(runtime.db_path)) as db:
+                    with closing(sqlite3.connect(str(runtime.db_path))) as db:
                         ev=json.loads(db.execute('SELECT state_json FROM r3e1_versions WHERE version_id=?',(other['version_id'],)).fetchone()[0])
                     approval2={**approval,'version_id':other['version_id'],'payload_digest':ev['payload_digest'],'approval_ref':'LOCAL-EVIDENCE-REVIEW'}
                     (root/'bindings/knowledge-reviews.json').write_text(json.dumps([approval,approval2]))
