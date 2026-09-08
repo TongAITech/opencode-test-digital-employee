@@ -14,6 +14,10 @@ bin=host/'bin';bin.mkdir();shutil.copy2(a.carrier/'workspace-template/runtime/op
 config=host/'config/opencode';config.mkdir(parents=True)
 shutil.copytree(a.carrier/'workspace-template/.opencode/node_modules',config/'node_modules')
 for name in ('package.json','package-lock.json'):shutil.copy2(a.carrier/'workspace-template/.opencode'/name,config/name)
-(config/'opencode.json').write_text(json.dumps({'enabled_providers':[],'model':'fixture/unconfigured','autoupdate':False,'share':'disabled'}),encoding='utf-8')
+# Model an already initialized host configuration. OpenCode itself inserts this
+# schema marker on the first ever read; that unrelated initialization must not
+# be mistaken for launcher mutation. Startup tests still require byte-identical
+# host config and auth after the complete installed launcher lifecycle.
+(config/'opencode.json').write_text(json.dumps({'$schema':'https://opencode.ai/config.json','enabled_providers':[],'model':'fixture/unconfigured','autoupdate':False,'share':'disabled'}),encoding='utf-8')
 auth=host/'data/opencode';auth.mkdir(parents=True);(auth/'auth.json').write_text('{}',encoding='utf-8')
 print(json.dumps({'host':str(host),'scope':'CI_SYNTHETIC_PREEXISTING_HOST_ONLY','bank_evidence':False}))
