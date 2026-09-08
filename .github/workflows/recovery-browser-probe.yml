@@ -1,0 +1,45 @@
+name: Recovery Windows CDP diagnostic
+on:
+  push:
+    branches: [work/v1.12.0-recovery-turnkey-validation]
+    paths: [tools/recovery/probe-cdp-trigger.json]
+permissions:
+  contents: write
+jobs:
+  cdp-diagnostic:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PIP_NO_INDEX: '1'
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Retrieve exact already assembled payload without installation
+        shell: pwsh
+        run: |
+          $config = Get-Content tools/recovery/ci-package.json -Raw | ConvertFrom-Json
+          New-Item -ItemType Directory incoming -Force | Out-Null
+          gh release download $config.draft_release_tag --repo $env:GH_REPO --pattern $config.asset_name --dir incoming
+          if ($LASTEXITCODE -ne 0) { throw 'Draft retrieval failed' }
+          $zip = Join-Path incoming $config.asset_name
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $config.expected_sha256) { throw 'ZIP SHA256 mismatch' }
+          Expand-Archive $zip unpacked
+          $bundle = Get-ChildItem unpacked -Directory | Select-Object -First 1
+          "AITEST_BUNDLE=$($bundle.FullName)" | Out-File $env:GITHUB_ENV -Append
+      - name: Diagnose fresh CDP navigation using synthetic local pages
+        shell: pwsh
+        run: |
+          $env:GH_TOKEN = ''
+          & "$env:AITEST_BUNDLE/workspace-template/runtime/python/python.exe" -X utf8 tools/recovery/probe_cdp.py --chrome "$env:AITEST_BUNDLE/workspace-template/runtime/browser/chrome-win64/chrome.exe" --output browser-probe.json > browser-probe.log 2>&1
+          if ($LASTEXITCODE -ne 0) { throw 'CDP diagnostic failed; retain report' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-cdp-diagnostic
+          path: browser-probe*
