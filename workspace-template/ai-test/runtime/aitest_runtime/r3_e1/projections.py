@@ -257,9 +257,11 @@ def _upsert(
         if any(existing.get(field) != incoming.get(field) for field in immutable_fields):
             raise R3E1Error("R3_E1_VERSION_IMMUTABLE", f"version identity conflicts across origins: {identity_value}")
         if mutable_status:
-            incoming = dict(existing, status=incoming["status"])
-            incoming["verification_proof"] = incoming.get("verification_proof") or existing.get("verification_proof") or {}
-            incoming["source_ref_ids"] = sorted(set(existing.get("source_ref_ids", ())) | set(incoming.get("source_ref_ids", ())))
+            # Retain the proof from the replayed lifecycle, not the previous
+            # projection. Status and its verification evidence advance together.
+            incoming = dict(existing, status=incoming["status"],
+                            verification_proof=incoming.get("verification_proof") or {},
+                            source_ref_ids=list(incoming["source_ref_ids"]))
     elif table == "r3e1_facts":
         existing_immutable = dict(existing)
         incoming_immutable = dict(incoming)
