@@ -1,0 +1,7 @@
+# V1_6_INSTALL_RUNTIME_LIFECYCLE_RAW_SOURCE_TRUTH
+
+Authority: the supplied `opencode-ai-test-autopilot-v1.6.1.zip` contains the `opencode-ai-test-digital-employee-v1.6.1-opencode-1.14.22/` tree. Its 202 non-metadata baseline files match the independently found `opencode-ai-test-digital-employee-v1.6.1-opencode-1.14.22.zip` byte-for-byte. The exact outer `(1).zip` container is absent; no claim of container identity is made. Archive SHA256 values are in HISTORICAL_RAW_SOURCE_REGISTRY.json.
+
+Raw `install.sh`: lines4–5 accept parent and optional workspace name; lines13–15 construct target; lines25–29 refuse an existing target; line32 copies `workspace-template` directly to target; line33 initializes that directory as a Git worktree; lines35–42 initialize runtime folders; lines44–45 run local configuration patch/validation; lines49–50 instruct `cd target` then host `opencode`. It never launches OpenCode, copies provider/auth, or downloads dependencies. This source proves lifecycle/topology, not model-driven execution. Historical documentation contains older slash-command examples and must not override the newly reissued natural-language entry contract.
+
+Restored semantics: Distribution → offline INSTALL → selected Workspace Root → host OpenCode from that root → workspace agents/tools → governed natural-language Mission. Historical hardcoded repo names, Python-on-PATH assumption, old knowledge instructions and old permissions are not restored. Current portable dependencies, R1/G1–G5 and G6 HOLD remain authoritative.
