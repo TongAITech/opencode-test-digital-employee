@@ -1,7 +1,7 @@
 {
   "schema_version": "aitest.offline-payload-registry.v1",
   "created_at_utc": "2026-09-07T17:47:14.724283+00:00",
-  "strategy": "LOCAL-FIRST / NO_DOWNLOADS_PERFORMED",
+  "strategy": "LOCAL_FIRST_ONLINE_FALLBACK",
   "scope": "Current uploaded/mounted files, canonical repo/worktrees, history builds/outputs/caches, system Python installed sources",
   "files_considered": 522793,
   "search_roots": [
@@ -28,37 +28,109 @@
   "search_limitations": [
     {
       "path": "/mnt/data",
-      "status": "NOT_MOUNTED"
-    },
-    {
-      "path": "/Users/tatu/Downloads",
-      "status": "OS_PERMISSION_DENIED"
+      "status": "NOT_MOUNTED; equivalent user-supplied Downloads paths inspected"
     },
     {
       "path": "ChatGPT conversation attachments",
-      "status": "NO_V1_9_4_ARCHIVE_BYTES_DISCOVERED_IN_LOCAL_MOUNTS; parent resolving referenced conversation separately"
+      "status": "USER_SUPPLIED_LOCAL_ARCHIVES_READ; no repeated upload required"
     }
   ],
   "requested_archives": [
     {
       "artifact": "opencode-ai-test-digital-employee-v1.9.4-final-pfc-full-offline-source-buildfix1-failed.zip",
-      "detected_local_paths": [],
-      "status": "NOT_FOUND_IN_ACCESSIBLE_MOUNTS"
-    },
-    {
-      "artifact": "pfc-v1.9.4-final-browser-teaching-hardening.zip",
-      "detected_local_paths": [],
-      "status": "NOT_FOUND_IN_ACCESSIBLE_MOUNTS"
-    },
-    {
-      "artifact": "pfc-v1.9.4-final-browser-teaching-harness-upgrade.zip",
-      "detected_local_paths": [],
-      "status": "NOT_FOUND_IN_ACCESSIBLE_MOUNTS"
+      "detected_local_paths": [
+        "/Users/tatu/Downloads/opencode-ai-test-digital-employee-v1.9.4-final-pfc-full-offline-source-buildfix1-failed.zip"
+      ],
+      "selected_path": "/Users/tatu/Downloads/opencode-ai-test-digital-employee-v1.9.4-final-pfc-full-offline-source-buildfix1-failed.zip",
+      "sha256": "176ce0dc6f1473d813dab72ecce1fb1412cfecbca67af220a14c079d562a0516",
+      "size_bytes": 50809747,
+      "status": "LOCAL_SOURCE_READ_NOT_EXECUTED",
+      "provenance": "USER_PROVIDED_DOWNLOADS_ARCHIVE",
+      "purpose": "HISTORICAL_VALIDATED_CAPABILITY_ORACLE; NEVER_REPLACE_CANONICAL_RUNTIME"
     },
     {
       "artifact": "pfc-v1.9.4-final-freshness-runtime-hotfix.zip",
-      "detected_local_paths": [],
-      "status": "NOT_FOUND_IN_ACCESSIBLE_MOUNTS"
+      "detected_local_paths": [
+        "/Users/tatu/Downloads/pfc-v1.9.4-final-freshness-runtime-hotfix.zip"
+      ],
+      "selected_path": "/Users/tatu/Downloads/pfc-v1.9.4-final-freshness-runtime-hotfix.zip",
+      "sha256": "74a40a0a3d36aff2ea7c2337c336cf94e8062bd604612c7b6b47b4d30466a7e8",
+      "size_bytes": 8412,
+      "status": "LOCAL_SOURCE_READ_NOT_EXECUTED",
+      "provenance": "USER_PROVIDED_DOWNLOADS_ARCHIVE",
+      "purpose": "HISTORICAL_VALIDATED_CAPABILITY_ORACLE; NEVER_REPLACE_CANONICAL_RUNTIME"
+    },
+    {
+      "artifact": "pfc-v1.9.4-final-browser-teaching-harness-upgrade.zip",
+      "detected_local_paths": [
+        "/Users/tatu/Downloads/pfc-v1.9.4-final-browser-teaching-harness-upgrade.zip"
+      ],
+      "selected_path": "/Users/tatu/Downloads/pfc-v1.9.4-final-browser-teaching-harness-upgrade.zip",
+      "sha256": "5c357d7527ce46c1956fdb930eb35f05f52158774e8b99b6df9faffeb3f0740a",
+      "size_bytes": 62999,
+      "status": "LOCAL_SOURCE_READ_NOT_EXECUTED",
+      "provenance": "USER_PROVIDED_DOWNLOADS_ARCHIVE",
+      "purpose": "HISTORICAL_VALIDATED_CAPABILITY_ORACLE; NEVER_REPLACE_CANONICAL_RUNTIME"
+    },
+    {
+      "artifact": "pfc-v1.9.4-final-browser-teaching-hardening.zip",
+      "detected_local_paths": [
+        "/Users/tatu/Downloads/pfc-v1.9.4-final-browser-teaching-hardening.zip"
+      ],
+      "selected_path": "/Users/tatu/Downloads/pfc-v1.9.4-final-browser-teaching-hardening.zip",
+      "sha256": "d8bced40b49533906d0c96d29074ef9b558cc27db60f9a72e547f5372beadd73",
+      "size_bytes": 36590,
+      "status": "LOCAL_SOURCE_READ_NOT_EXECUTED",
+      "provenance": "USER_PROVIDED_DOWNLOADS_ARCHIVE",
+      "purpose": "HISTORICAL_VALIDATED_CAPABILITY_ORACLE; NEVER_REPLACE_CANONICAL_RUNTIME"
+    },
+    {
+      "artifact": "pfc-v1.9.4-final-tomorrow-current-release-quality-bundle.zip",
+      "detected_local_paths": [
+        "/Users/tatu/Downloads/pfc-v1.9.4-final-tomorrow-current-release-quality-bundle.zip"
+      ],
+      "selected_path": "/Users/tatu/Downloads/pfc-v1.9.4-final-tomorrow-current-release-quality-bundle.zip",
+      "sha256": "543edd9321ab70278ac9feaee949b02c69c11ce73cabddcb7ff761065cbfda6f",
+      "size_bytes": 515794,
+      "status": "LOCAL_SOURCE_READ_NOT_EXECUTED",
+      "provenance": "USER_PROVIDED_DOWNLOADS_ARCHIVE",
+      "purpose": "HISTORICAL_VALIDATED_CAPABILITY_ORACLE; NEVER_REPLACE_CANONICAL_RUNTIME"
+    },
+    {
+      "artifact": "pfc-v1.9.4-quality-governance-launcher-hotfix.zip",
+      "detected_local_paths": [
+        "/Users/tatu/Downloads/pfc-v1.9.4-quality-governance-launcher-hotfix.zip"
+      ],
+      "selected_path": "/Users/tatu/Downloads/pfc-v1.9.4-quality-governance-launcher-hotfix.zip",
+      "sha256": "6a1b5e633a38584cc6daafdbb0504267d862f8c9f248badb12d64fac729114ad",
+      "size_bytes": 27437,
+      "status": "LOCAL_SOURCE_READ_NOT_EXECUTED",
+      "provenance": "USER_PROVIDED_DOWNLOADS_ARCHIVE",
+      "purpose": "HISTORICAL_VALIDATED_CAPABILITY_ORACLE; NEVER_REPLACE_CANONICAL_RUNTIME"
+    },
+    {
+      "artifact": "opencode-ai-test-autopilot-v1.6.1.zip",
+      "detected_local_paths": [
+        "/Users/tatu/Downloads/opencode-ai-test-autopilot-v1.6.1.zip"
+      ],
+      "selected_path": "/Users/tatu/Downloads/opencode-ai-test-autopilot-v1.6.1.zip",
+      "sha256": "cb29221f8a2e17a0d4b84923d16969b384a5708d5a5f766f3060c08008403b97",
+      "size_bytes": 311239,
+      "status": "LOCAL_SOURCE_READ_NOT_EXECUTED",
+      "provenance": "USER_PROVIDED_DOWNLOADS_ARCHIVE",
+      "purpose": "HISTORICAL_VALIDATED_CAPABILITY_ORACLE; NEVER_REPLACE_CANONICAL_RUNTIME"
+    },
+    {
+      "artifact": "opencode-ai-test-digital-employee-v1.6.1-opencode-1.14.22.zip",
+      "detected_local_paths": [
+        "/Users/tatu/Downloads/opencode-ai-test-digital-employee-v1.6.1-opencode-1.14.22.zip"
+      ],
+      "selected_path": "/Users/tatu/Downloads/opencode-ai-test-digital-employee-v1.6.1-opencode-1.14.22.zip",
+      "sha256": "0a68b63d58f127afc917e103d9b989c6e7909db05980945c2409be1352fdf77e",
+      "size_bytes": 302584,
+      "status": "LOCAL_SOURCE_READ_NOT_EXECUTED",
+      "provenance": "USER_PROVIDED_DOWNLOADS_ARCHIVE",
+      "purpose": "HISTORICAL_VALIDATED_CAPABILITY_ORACLE; NEVER_REPLACE_CANONICAL_RUNTIME"
     }
   ],
   "historical_v1_5_codegraph_payload_status": "CodeGraph 1.5.0 Windows vendor ZIP found within R3 history; original full-offline-codegraph-starlink-py311-v1.5.0 bundle not found",
@@ -31406,6 +31478,48 @@
     "bundled_opencode": "CONSTRUCTION_FIXTURE_ONLY; EXCLUDED_FROM_BANK_INSTALLATION",
     "historical_version_rejections": "PRE_REISSUE_ACQUISITION_HISTORY_ONLY",
     "new_downloads_for_1_13": [],
-    "raw_source_registry": "docs/reviews/rec3-final/HISTORICAL_RAW_SOURCE_REGISTRY.json"
+    "raw_source_registry": "docs/reviews/rec3-final/HISTORICAL_RAW_SOURCE_REGISTRY.json",
+    "initial_search_snapshot": "Historical inaccessible/missing statuses preserved for audit only; requested_archives is the current verified inventory"
+  },
+  "initial_search_snapshot": {
+    "created_at_utc": "2026-09-07T17:47:14.724283+00:00",
+    "strategy": "LOCAL-FIRST / NO_DOWNLOADS_PERFORMED",
+    "search_limitations": [
+      {
+        "path": "/mnt/data",
+        "status": "NOT_MOUNTED"
+      },
+      {
+        "path": "/Users/tatu/Downloads",
+        "status": "OS_PERMISSION_DENIED"
+      },
+      {
+        "path": "ChatGPT conversation attachments",
+        "status": "NO_V1_9_4_ARCHIVE_BYTES_DISCOVERED_IN_LOCAL_MOUNTS; parent resolving referenced conversation separately"
+      }
+    ],
+    "requested_archives": [
+      {
+        "artifact": "opencode-ai-test-digital-employee-v1.9.4-final-pfc-full-offline-source-buildfix1-failed.zip",
+        "detected_local_paths": [],
+        "status": "NOT_FOUND_IN_ACCESSIBLE_MOUNTS"
+      },
+      {
+        "artifact": "pfc-v1.9.4-final-browser-teaching-hardening.zip",
+        "detected_local_paths": [],
+        "status": "NOT_FOUND_IN_ACCESSIBLE_MOUNTS"
+      },
+      {
+        "artifact": "pfc-v1.9.4-final-browser-teaching-harness-upgrade.zip",
+        "detected_local_paths": [],
+        "status": "NOT_FOUND_IN_ACCESSIBLE_MOUNTS"
+      },
+      {
+        "artifact": "pfc-v1.9.4-final-freshness-runtime-hotfix.zip",
+        "detected_local_paths": [],
+        "status": "NOT_FOUND_IN_ACCESSIBLE_MOUNTS"
+      }
+    ],
+    "scope": "Historical acquisition snapshot, superseded by the REC3 raw source inventory below"
   }
 }
