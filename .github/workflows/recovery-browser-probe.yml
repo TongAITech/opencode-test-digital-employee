@@ -36,8 +36,14 @@ jobs:
         shell: pwsh
         run: |
           $env:GH_TOKEN = ''
-          & "$env:AITEST_BUNDLE/workspace-template/runtime/python/python.exe" -X utf8 tools/recovery/probe_cdp.py --chrome "$env:AITEST_BUNDLE/workspace-template/runtime/browser/chrome-win64/chrome.exe" --output browser-probe.json > browser-probe.log 2>&1
-          if ($LASTEXITCODE -ne 0) { throw 'CDP diagnostic failed; retain report' }
+          $trigger = Get-Content tools/recovery/probe-cdp-trigger.json -Raw | ConvertFrom-Json
+          if ($trigger.mode -eq 'teaching-repair') {
+            $env:AITEST_BROWSER_SMOKE_CHROMIUM = "$env:AITEST_BUNDLE/workspace-template/runtime/browser/chrome-win64/chrome.exe"
+            & "$env:AITEST_BUNDLE/workspace-template/runtime/python/python.exe" -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_recovery_browser.py > browser-probe-teaching.log 2>&1
+          } else {
+            & "$env:AITEST_BUNDLE/workspace-template/runtime/python/python.exe" -X utf8 tools/recovery/probe_cdp.py --chrome "$env:AITEST_BUNDLE/workspace-template/runtime/browser/chrome-win64/chrome.exe" --output browser-probe.json > browser-probe.log 2>&1
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Focused browser check failed; retain report' }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
