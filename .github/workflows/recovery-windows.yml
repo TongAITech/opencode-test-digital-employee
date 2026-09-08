@@ -1,7 +1,7 @@
 name: Recovery turnkey Windows validation
 on:
   push:
-    branches: [work/v1.12.0-recovery-turnkey-validation]
+    branches: [work/v1.13.0-recovery-turnkey-validation]
     paths: [tools/recovery/ci-package.json]
   workflow_dispatch:
     inputs:
@@ -23,7 +23,7 @@ permissions:
 jobs:
   windows-package:
     runs-on: windows-latest
-    timeout-minutes: 55
+    timeout-minutes: 75
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -71,32 +71,56 @@ jobs:
           if ($result.source_head -ne $env:GITHUB_SHA) { throw 'Package source HEAD differs from workflow HEAD' }
           "AITEST_BUNDLE=$($result.bundle)" | Out-File -FilePath $env:GITHUB_ENV -Append
           "AITEST_INPUT_SHA256=$($result.sha256)" | Out-File -FilePath $env:GITHUB_ENV -Append
-      - name: Install offline to the formal default location without authentication
+      - name: Install offline into two user-selected workspace roots
         shell: bash
         run: |
           set -euo pipefail
           cd "$AITEST_BUNDLE"
           unset GH_TOKEN GITHUB_TOKEN AITEST_MODEL_KEY OPENCODE_SERVER_PASSWORD
-          ./INSTALL.sh | tee windows-install.txt
-          test -f /d/PFC/AITest/INSTALL_MANIFEST.json
-          test -f /d/PFC/AITest/AITEST.sh
-          cp /d/PFC/AITest/INSTALL_MANIFEST.json windows-install-manifest.json
-          echo 'AITEST_INSTALLED=D:/PFC/AITest' >> "$GITHUB_ENV"
-      - name: Validate installed runtime using installed packaged Python
+          parent="$(cygpath -u "$RUNNER_TEMP")/rec3 target A"
+          ./INSTALL.sh "$parent" 'loan workspace' | tee windows-install.txt
+          second="$(cygpath -u "$RUNNER_TEMP")/rec3-other-target/BLoan"
+          ./INSTALL.sh --target "$(cygpath -w "$second")" | tee -a windows-install.txt
+          first="$parent/loan workspace"
+          test -f "$first/AGENTS.md"
+          test -f "$second/AGENTS.md"
+          test ! -d "$first/workspace-template"
+          test ! -d "$second/workspace-template"
+          cp "$first/INSTALL_MANIFEST.json" windows-install-manifest.json
+          echo "AITEST_INSTALLED=$(cygpath -m "$first")" >> "$GITHUB_ENV"
+          echo "AITEST_INSTALLED_B=$(cygpath -m "$second")" >> "$GITHUB_ENV"
+          echo "AITEST_GIT_BASH=$(cygpath -m /bin/bash)" >> "$GITHUB_ENV"
+      - name: Prepare external pre-existing host fixture from cached carrier bytes
         shell: pwsh
         run: |
-          Set-Location $env:AITEST_INSTALLED
+          $hostRoot = Join-Path $env:RUNNER_TEMP 'rec3-preexisting-host'
+          & "$env:AITEST_INSTALLED/runtime/python/python.exe" tools/recovery/prepare_host_fixture.py --carrier $env:AITEST_CARRIER --host $hostRoot
+          if ($LASTEXITCODE -ne 0) { throw 'Host fixture preparation failed' }
+          "AITEST_CI_HOST=$hostRoot" | Out-File $env:GITHUB_ENV -Append
+          "AITEST_REAL_OPENCODE=$hostRoot/bin/opencode.exe" | Out-File $env:GITHUB_ENV -Append
+          "AITEST_REAL_OPENCODE_PAYLOAD=$env:AITEST_INSTALLED/.opencode" | Out-File $env:GITHUB_ENV -Append
+          "XDG_CONFIG_HOME=$hostRoot/config" | Out-File $env:GITHUB_ENV -Append
+          "XDG_DATA_HOME=$hostRoot/data" | Out-File $env:GITHUB_ENV -Append
+          "XDG_CACHE_HOME=$hostRoot/cache" | Out-File $env:GITHUB_ENV -Append
+          "XDG_STATE_HOME=$hostRoot/state" | Out-File $env:GITHUB_ENV -Append
+          "$hostRoot/bin" | Out-File $env:GITHUB_PATH -Append
+      - name: Validate source contracts and installed runtime with portable Python
+        shell: pwsh
+        run: |
           $env:GH_TOKEN = ''
-          & './workspace-template/runtime/python/python.exe' -X utf8 './tools/recovery/validate_package.py' --bundle . --output windows-validation.json
-          if ($LASTEXITCODE -ne 0) { throw 'Installed packaged Windows validation failed' }
-      - name: Run daily installed entry doctor and self check
+          & "$env:AITEST_INSTALLED/runtime/python/python.exe" -X utf8 "$env:AITEST_BUNDLE/tools/recovery/validate_package.py" --bundle $env:AITEST_BUNDLE --installed $env:AITEST_INSTALLED --installed-b $env:AITEST_INSTALLED_B --output "$env:AITEST_BUNDLE/windows-validation.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows qualification failed; final sealing remains blocked' }
+      - name: Run installed daily entry on both independent targets
         shell: bash
         run: |
           set -euo pipefail
-          cd /d/PFC/AITest
           unset GH_TOKEN GITHUB_TOKEN
-          ./AITEST.sh --doctor | tee windows-doctor.txt
-          ./AITEST.sh --self-check | tee windows-self-check.txt
+          cd "$AITEST_INSTALLED"
+          ./AITEST.sh --doctor | tee "$AITEST_BUNDLE/windows-doctor.txt"
+          ./AITEST.sh --self-check | tee "$AITEST_BUNDLE/windows-self-check.txt"
+          cd "$AITEST_INSTALLED_B"
+          ./AITEST.sh --doctor >> "$AITEST_BUNDLE/windows-doctor.txt"
+          ./AITEST.sh --self-check >> "$AITEST_BUNDLE/windows-self-check.txt"
       - name: Retain this run's Windows evidence
         if: always()
         shell: pwsh
@@ -121,7 +145,7 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item 'rec3-evidence/windows-*' $env:AITEST_BUNDLE -Force
-          & "$env:AITEST_INSTALLED/workspace-template/runtime/python/python.exe" -X utf8 "$env:AITEST_BUNDLE/tools/recovery/qualify_package.py" --bundle $env:AITEST_BUNDLE --output qualified
+          & "$env:AITEST_INSTALLED/runtime/python/python.exe" -X utf8 "$env:AITEST_BUNDLE/tools/recovery/qualify_package.py" --bundle $env:AITEST_BUNDLE --output qualified
           if ($LASTEXITCODE -ne 0) { throw 'Qualification sealing failed' }
       - uses: actions/upload-artifact@v4
         with:

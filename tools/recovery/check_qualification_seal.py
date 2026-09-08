@@ -19,13 +19,8 @@ import zipfile
 QUALIFIER = Path(__file__).resolve().with_name('qualify_package.py')
 SOURCE_HEAD = 'a' * 40
 OTHER_HEAD = 'b' * 40
-GATES = (
-    'INSTALL_START_LIFECYCLE', 'OPENCODE_START_WITH_MODEL_AUTH_PENDING',
-    'CONTROL_LOOP_START', 'HOST_PROVIDER_DISCOVERY', 'NATURAL_LANGUAGE_START_TEST',
-    'MISSION_INTAKE', 'PLANNER_SESSION', 'AUTONOMOUS_PLAN', 'SCHEDULER_AUTO_ADVANCE',
-    'SESSION_ROUTER', 'AUTO_ROTATION', 'SUCCESSOR_RESUME', 'CONTEXT_STRESS',
-    'WINDOWS_FULL_QUALIFICATION',
-)
+from closure_contract import REQUIRED_GATES
+GATES = tuple(x for x in REQUIRED_GATES if x != 'FINAL_ZIP_SEALED')
 
 
 def write(path: Path, value: dict) -> None:
@@ -170,12 +165,7 @@ class QualificationSealGuards(unittest.TestCase):
                 bundle = self.fixture()
                 machine = read(bundle / 'windows-validation.json'); del machine['gates'][gate]
                 write(bundle / 'windows-validation.json', machine)
-                result, _ = self.seal(bundle)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                sealed = read(bundle / 'MACHINE_VALIDATION_RESULT.json')
-                self.assertEqual(sealed['closure'], 'HOLD')
-                self.assertEqual(sealed['unproven_closure_gates'][gate], 'NOT_PROVEN')
-                self.assertEqual(read(bundle / 'PACKAGE_MANIFEST.json')['closure'], 'HOLD')
+                self.assert_rejected(bundle, message='REC3_FINAL_CLOSURE_GATES_NOT_PASS')
 
     def test_empty_named_gate_evidence_is_rejected(self):
         bundle = self.fixture()
@@ -183,27 +173,19 @@ class QualificationSealGuards(unittest.TestCase):
         write(bundle / 'windows-validation.json', machine)
         self.assert_rejected(bundle, message='named gate evidence is missing')
 
-    def test_only_host_provider_partial_binding_is_permitted_for_closure(self):
-        for gate, expected in (('HOST_PROVIDER_DISCOVERY', 'PASS'), ('AUTONOMOUS_PLAN', 'HOLD')):
+    def test_no_partial_gate_is_permitted_for_final_zip(self):
+        for gate in GATES:
             with self.subTest(gate=gate):
                 bundle = self.fixture()
                 machine = read(bundle / 'windows-validation.json'); machine['gates'][gate] = 'PARTIAL_BANK_BINDING'
                 write(bundle / 'windows-validation.json', machine)
-                result, _ = self.seal(bundle)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(read(bundle / 'MACHINE_VALIDATION_RESULT.json')['closure'], expected)
+                self.assert_rejected(bundle, message='REC3_FINAL_CLOSURE_GATES_NOT_PASS')
 
-    def test_fresh_local_failure_cannot_inherit_historical_pass_or_claim_closure(self):
+    def test_fresh_local_failure_cannot_inherit_historical_pass_or_seal(self):
         bundle = self.fixture()
         machine = read(bundle / 'windows-validation.json'); machine['LOCAL_VALIDATION_PASS'] = False
         write(bundle / 'windows-validation.json', machine)
-        result, _ = self.seal(bundle)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        sealed = read(bundle / 'MACHINE_VALIDATION_RESULT.json')
-        self.assertFalse(sealed['LOCAL_VALIDATION_PASS'])
-        self.assertEqual(sealed['local_construction_validation']['source_head'], SOURCE_HEAD)
-        self.assertNotEqual(sealed['status'], 'PASS')
-        self.assertEqual(sealed['closure'], 'HOLD')
+        self.assert_rejected(bundle, message='REC3_FINAL_CLOSURE_GATES_NOT_PASS')
 
 
 if __name__ == '__main__':

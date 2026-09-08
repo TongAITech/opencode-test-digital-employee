@@ -1,19 +1,9 @@
 {
   "schema_version": "aitest.machine-validation.v1",
-  "product_version": "1.12.0",
-  "work_item": "10.REC.3",
-  "status": "FRESH_WINDOWS_QUALIFICATION_REQUIRED",
+  "product_version": "1.13.0",
+  "status": "FRESH_QUALIFICATION_REQUIRED",
   "LOCAL_VALIDATION_PASS": false,
   "WINDOWS_CI_PASS": false,
   "BANK_FIELD_VALIDATION_REQUIRED": true,
-  "authorized_starting_head": "69a568dc5ed0e4af441569fb039d93fb392e3194",
-  "historical_qualification": {
-    "run_id": "34177867024",
-    "scope": "PRE_REPAIR_HISTORY_ONLY_NOT_QUALIFICATION_FOR_10.REC.3"
-  },
-  "runtime_truth": "R1_EVENT_STREAM",
-  "architecture_baseline": "v7/FROZEN/UNCHANGED",
-  "g1_g5": "CLOSED/FROZEN",
-  "g6": "HOLD",
   "closure": "HOLD_UNTIL_ALL_REQUIRED_GATES_PASS"
 }

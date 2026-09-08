@@ -1650,7 +1650,7 @@
       "reason": "Windows1.44.0, Node1.62.1/1.62.0-alpha local candidates mismatch frozen1.62.0; matching greenlet cp312 Windows dependency may also require acquisition."
     }
   ],
-  "product_version": "1.12.0",
+  "product_version": "1.13.0",
   "online_downloads_started": true,
   "construction_only_native_dependencies": [
     {
@@ -31400,5 +31400,12 @@
     "credentials_bundled": false,
     "portable_python_module_path": "../../ai-test/runtime in python312._pth",
     "windows_app_local_vc_runtime": "CodeGraph DLL dependencies co-located; OpenCode local VCRUNTIME140.dll"
+  },
+  "rec3_reissue_policy": {
+    "host_opencode": "PATH resolved; no exact version pin",
+    "bundled_opencode": "CONSTRUCTION_FIXTURE_ONLY; EXCLUDED_FROM_BANK_INSTALLATION",
+    "historical_version_rejections": "PRE_REISSUE_ACQUISITION_HISTORY_ONLY",
+    "new_downloads_for_1_13": [],
+    "raw_source_registry": "docs/reviews/rec3-final/HISTORICAL_RAW_SOURCE_REGISTRY.json"
   }
 }

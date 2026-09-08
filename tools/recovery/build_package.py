@@ -185,7 +185,7 @@ def main() -> None:
     parser.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument('--payload-stage', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
-    parser.add_argument('--version', default='1.12.0')
+    parser.add_argument('--version', default='1.13.0')
     parser.add_argument('--allow-dirty-diagnostic', action='store_true')
     parser.add_argument('--store-only', action='store_true', help='Fast construction-to-CI transport ZIP; Windows qualification compresses the deliverable')
     args = parser.parse_args()

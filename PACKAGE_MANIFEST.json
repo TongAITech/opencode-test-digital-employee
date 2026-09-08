@@ -1,13 +1,13 @@
 {
   "schema_version": "aitest.git-native-package-manifest.v2",
-  "product_version": "1.12.0",
-  "package_name": "AITest-V1.12.0-Recovery-Turnkey-Windows-x64",
+  "product_version": "1.13.0",
+  "package_name": "AITest-V1.13.0-Recovery-Turnkey-Windows-x64",
   "historical_behavior_baseline": "V1.9.4",
-  "status": "INSTALL_START_REPAIR_CANDIDATE",
+  "status": "REISSUED_REC3_CONVERGENCE_CANDIDATE",
   "source_truth": "GIT_COMMIT",
   "baseline_commit": "58e5e1259cd26846b31ea21a8a87df0bcf071edc",
-  "packaging_base_commit": "98868e6bf8a1b1d7c5e262ae6d305755bca35886",
-  "candidate_branch": "work/v1.12.0-recovery-turnkey-validation",
+  "packaging_base_commit": "6e1dd3dcfa2a8ad3f00e144c4550fe51791e8d11",
+  "candidate_branch": "work/v1.13.0-recovery-turnkey-validation",
   "candidate_commit": "FINALIZED_BY_BUILD_PROVENANCE",
   "candidate_commit_semantics": "BUILD_PROVENANCE.json records exact assembled Git HEAD; this root manifest is excluded from Source Content Identity",
   "source_identity_formula": "sha256(UTF-8 sorted `<file_sha256>  <path>` lines, exactly one final newline; tracked files from `git ls-files`; excludes PACKAGE_MANIFEST.json)",
@@ -70,5 +70,11 @@
     "recovery_version": "1.12.0"
   },
   "work_item": "10.REC.3",
-  "authorized_starting_head": "69a568dc5ed0e4af441569fb039d93fb392e3194"
+  "authorized_starting_head": "69a568dc5ed0e4af441569fb039d93fb392e3194",
+  "host_opencode_policy": {
+    "required": "HOST_NATIVE_OPENCODE",
+    "exact_version_pin": null,
+    "provider_auth_copy": false,
+    "package_xdg_override": false
+  }
 }

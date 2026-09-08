@@ -39,7 +39,7 @@ def reassemble(repo: Path, carrier: Path, output: Path) -> dict:
             raise RuntimeError('Carrier payload does not match current lock: ' + relative)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
-    result = build(repo, stage, output / 'assembled', '1.12.0', store_only=True)
+    result = build(repo, stage, output / 'assembled', '1.13.0', store_only=True)
     result['carrier_scope'] = 'HASH_LOCKED_OFFLINE_PAYLOAD_ONLY; NO_SOURCE_OR_QUALIFICATION_REUSE'
     (output / 'REASSEMBLY_RESULT.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
     return result

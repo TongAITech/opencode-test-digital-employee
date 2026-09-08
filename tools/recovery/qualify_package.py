@@ -6,6 +6,9 @@ import json
 import os
 from pathlib import Path
 import zipfile
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from closure_contract import REQUIRED_GATES
 
 
 def sha(path):
@@ -46,7 +49,7 @@ def main():
              'tested_input_zip_sha256': os.environ.get('AITEST_INPUT_SHA256'),
              'carrier_sha256': os.environ.get('AITEST_CARRIER_SHA256'),
              'carrier_scope': 'OFFLINE_DEPENDENCIES_ONLY; ALL_SOURCE_AND_TESTS_FROM_WORKFLOW_HEAD',
-             'installed_runtime': 'D:/PFC/AITest',
+             'installed_runtime': machine.get('installed_runtime_roots'),
              'repack_scope': 'Validation reports and checksums only; original source and payload files verified unchanged before sealing'}
     machine['LOCAL_VALIDATION_PASS'] = local.get('LOCAL_VALIDATION_PASS') is True
     local_label = 'LOCAL_VALIDATION_PASS' if machine['LOCAL_VALIDATION_PASS'] else 'LOCAL_VALIDATION_PENDING_OR_FAILED'
@@ -56,25 +59,23 @@ def main():
     machine['qualification'] = local_label + ' + WINDOWS_CI_PASS; BANK_FIELD_VALIDATION_REQUIRED'
     gates = machine.get('gates', {})
     if not gates: raise RuntimeError('10.REC.3 named gate evidence is missing')
-    for gate in ('INSTALL_START_LIFECYCLE', 'OPENCODE_START_WITH_MODEL_AUTH_PENDING',
-                 'CONTROL_LOOP_START', 'HOST_PROVIDER_DISCOVERY', 'NATURAL_LANGUAGE_START_TEST',
-                 'MISSION_INTAKE', 'PLANNER_SESSION', 'AUTONOMOUS_PLAN', 'SCHEDULER_AUTO_ADVANCE',
-                 'SESSION_ROUTER', 'AUTO_ROTATION', 'SUCCESSOR_RESUME', 'CONTEXT_STRESS',
-                 'WINDOWS_FULL_QUALIFICATION'):
-        gates.setdefault(gate, 'NOT_PROVEN')
-    gates['FINAL_ZIP_SEALED'] = 'PASS'
-    pending = {key: value for key, value in gates.items()
-               if value != 'PASS' and not (key == 'HOST_PROVIDER_DISCOVERY' and value == 'PARTIAL_BANK_BINDING')}
+    for gate in REQUIRED_GATES:
+        if gate != 'FINAL_ZIP_SEALED': gates.setdefault(gate, 'NOT_PROVEN')
+    pending = {key: gates.get(key, 'NOT_PROVEN') for key in REQUIRED_GATES
+               if key != 'FINAL_ZIP_SEALED' and gates.get(key) != 'PASS'}
     if not machine['LOCAL_VALIDATION_PASS']:
         pending['LOCAL_CONTRACT_VALIDATION'] = 'NOT_PASS'
-    machine['closure'] = 'PASS' if not pending else 'HOLD'
-    machine['unproven_closure_gates'] = pending
+    if pending:
+        raise RuntimeError('REC3_FINAL_CLOSURE_GATES_NOT_PASS: ' + json.dumps(pending, sort_keys=True))
+    gates['FINAL_ZIP_SEALED'] = 'PASS'
+    machine['closure'] = 'PASS'
+    machine['unproven_closure_gates'] = {}
     write(bundle / 'MACHINE_VALIDATION_RESULT.json', machine)
     manifest = json.loads((bundle / 'PACKAGE_MANIFEST.json').read_text(encoding='utf-8'))
     manifest['validation'] = {'status': 'PASS' if machine['LOCAL_VALIDATION_PASS'] else 'WINDOWS_PASS_LOCAL_PENDING_OR_FAILED', 'local': local_label, 'windows_ci': 'WINDOWS_CI_PASS', 'bank': 'BANK_FIELD_VALIDATION_REQUIRED', 'proof': proof}
     manifest['source_identity_scope'] = 'Exact Git archive before generated validation overlays; FILE_SHA256.json verifies final delivered bytes'
     manifest['recovery_change_validation'] = local_label + ' + WINDOWS_CI_PASS'
-    manifest['work_item'] = '10.REC.3'
+    manifest['work_item'] = 'REC3_FINAL_TURNKEY_PRODUCT_CONVERGENCE_CONTRACT_REISSUE'
     manifest['closure'] = machine['closure']
     manifest['closure_gates'] = gates
     write(bundle / 'PACKAGE_MANIFEST.json', manifest)
@@ -88,9 +89,11 @@ def main():
     checksums = {p.relative_to(bundle).as_posix(): sha(p) for p in files if p.name != 'FILE_SHA256.json'}
     write(bundle / 'FILE_SHA256.json', checksums)
     final = output / (bundle.name + '.zip')
-    with zipfile.ZipFile(final, 'w', zipfile.ZIP_DEFLATED, compresslevel=1) as archive:
+    pending_zip = output / (final.name + '.partial')
+    with zipfile.ZipFile(pending_zip, 'w', zipfile.ZIP_DEFLATED, compresslevel=1) as archive:
         for p in files: archive.write(p, bundle.name + '/' + p.relative_to(bundle).as_posix())
-    digest = sha(final)
+    digest = sha(pending_zip)
+    os.replace(pending_zip, final)
     (output / (final.name + '.sha256')).write_text(f'{digest}  {final.name}\n', encoding='ascii')
     for name in ('INSTALL_MANIFEST.json', 'windows-install-manifest.json', 'MACHINE_VALIDATION_RESULT.json', 'BUILD_PROVENANCE.json', 'PACKAGE_MANIFEST.json', 'VALIDATION_README.md', 'CAPABILITY_PARITY_MATRIX.md', 'OFFLINE_PAYLOAD_REGISTRY.json'):
         import shutil
