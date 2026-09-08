@@ -9,7 +9,7 @@ type PfcToolContext = {
 
 async function isCanonicalWorkspace(candidate: string): Promise<boolean> {
   const required = [
-    "PFC_R1_R4_INSTALLATION.json",
+    "INSTALL_MANIFEST.json",
     "AGENTS.md",
     "opencode.json",
     "ai-test/runtime/aitest_runtime/canonical_runtime.py",

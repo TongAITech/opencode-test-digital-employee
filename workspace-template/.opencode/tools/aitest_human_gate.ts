@@ -8,7 +8,7 @@ const ACTION = "human_gate_user_turn_resume"
 
 async function canonicalWorkspace(context: ToolContext): Promise<string> {
   const required = [
-    "PFC_R1_R4_INSTALLATION.json",
+    "INSTALL_MANIFEST.json",
     "ai-test/runtime/aitest_runtime/canonical_runtime.py",
     "ai-test/runtime/aitest_runtime/product_entry.py",
   ]

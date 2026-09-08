@@ -36,12 +36,12 @@ class InstallLifecycleTests(unittest.TestCase):
             path.write_text('sealed fixture bytes\n', encoding='utf-8')
         (self.source / 'workspace-template/runtime/tools/zap').mkdir()
         (self.source / 'workspace-template/runtime/tools/zap/zap-2.17.0.jar').write_bytes(b'fixture-jar')
-        python_sha = installer.sha256(self.source / installer.PYTHON_RELATIVE)
+        python_sha = installer.sha256(self.source / installer.SOURCE_PYTHON_RELATIVE)
         write(self.source / 'INSTALL_MANIFEST.json', {'schema_version': installer.SCHEMA, 'status': 'NOT_INSTALLED'})
-        registry = {'staged_artifacts': [{'hash_kind': 'file', 'relative_target': installer.PYTHON_RELATIVE, 'sha256': python_sha}]}
+        registry = {'staged_artifacts': [{'hash_kind': 'file', 'relative_target': installer.SOURCE_PYTHON_RELATIVE, 'sha256': python_sha}]}
         write(self.source / 'OFFLINE_PAYLOAD_REGISTRY.json', registry)
-        write(self.source / 'PAYLOAD_SHA256SUMS.json', {installer.PYTHON_RELATIVE: python_sha})
-        write(self.source / 'runtime-lock.json', {'payloads': {'python': {'relative_target': installer.PYTHON_RELATIVE, 'sha256': python_sha, 'version': '3.12.10'}}})
+        write(self.source / 'PAYLOAD_SHA256SUMS.json', {installer.SOURCE_PYTHON_RELATIVE: python_sha})
+        write(self.source / 'runtime-lock.json', {'payloads': {'python': {'relative_target': installer.SOURCE_PYTHON_RELATIVE, 'sha256': python_sha, 'version': '3.12.10'}}})
         write(self.source / 'BUILD_PROVENANCE.json', {'source_head': 'a' * 40, 'registry_sha256': installer.sha256(self.source / 'OFFLINE_PAYLOAD_REGISTRY.json')})
         self.reseal()
 
@@ -67,9 +67,25 @@ class InstallLifecycleTests(unittest.TestCase):
         self.assertEqual((self.target / 'FILE_SHA256.json').read_bytes(), source_manifest)
         for directory in installer.DATA_DIRECTORIES:
             self.assertTrue((self.target / 'data' / directory).is_dir())
-        self.assertTrue((self.target / 'workspace-template/bindings/installation.json').is_file())
+        self.assertTrue((self.target / 'bindings/installation.json').is_file())
         self.assertEqual(installer.verify_install_identity(self.target), [])
         self.assertEqual(installer.verify_package(self.target, installed=True)['status'], 'PASS')
+
+    def test_user_selected_roots_materialize_only_runtime_and_have_independent_identity(self):
+        for relative in ('docs/construction.md', '.github/workflows/private.yml', 'workspace-template/.pfc-internal-field-validation/tests/internal.py'):
+            file = self.source / relative; file.parent.mkdir(parents=True, exist_ok=True); file.write_text('construction-only')
+        self.reseal()
+        ids = []
+        for name in ('parent A/workspace A', 'different parent/工作目录 B'):
+            self.target = self.root / name
+            value = self.install(); ids.append(value['install_id'])
+            self.assertEqual(value['workspace_root'], str(self.target.resolve()))
+            self.assertTrue((self.target / 'AGENTS.md').is_file())
+            self.assertTrue((self.target / 'runtime/python/python.exe').is_file())
+            for forbidden in ('workspace-template', '.github', 'docs', '.pfc-internal-field-validation', 'runtime/opencode'):
+                self.assertFalse((self.target / forbidden).exists(), forbidden)
+            self.assertEqual(installer.verify_package(self.target, installed=True)['status'], 'PASS')
+        self.assertNotEqual(*ids)
 
     def test_existing_runtime_and_data_are_never_overwritten(self):
         self.target.mkdir()
@@ -120,7 +136,7 @@ class InstallLifecycleTests(unittest.TestCase):
             self.install()
 
     def test_offline_registry_disagreement_is_rejected(self):
-        write(self.source / 'PAYLOAD_SHA256SUMS.json', {installer.PYTHON_RELATIVE: 'f' * 64})
+        write(self.source / 'PAYLOAD_SHA256SUMS.json', {installer.SOURCE_PYTHON_RELATIVE: 'f' * 64})
         self.reseal()
         with self.assertRaisesRegex(installer.InstallError, 'OFFLINE_REGISTRY_INVENTORY_MISMATCH'):
             self.install()
@@ -142,7 +158,7 @@ class InstallLifecycleTests(unittest.TestCase):
             if dest.name == 'python.exe':
                 dest.write_bytes(b'copy corruption')
         with patch.object(installer.shutil, 'copy2', side_effect=corrupt):
-            with self.assertRaisesRegex(installer.InstallError, 'PACKAGE_SHA256_MISMATCH'):
+            with self.assertRaisesRegex(installer.InstallError, 'MATERIALIZED_FILE_SHA256_MISMATCH'):
                 self.install()
         self.assertTrue((self.target / '.AITEST_INSTALLING').exists())
         self.assertTrue(installer.verify_install_identity(self.target))
@@ -165,7 +181,7 @@ class InstallLifecycleTests(unittest.TestCase):
 
     def test_daily_integrity_allows_only_generated_install_manifest_overlay(self):
         self.install()
-        (self.target / 'workspace-template/runtime/opencode/opencode.exe').write_bytes(b'modified installed executable')
+        (self.target / 'runtime/python/python.exe').write_bytes(b'modified installed executable')
         with self.assertRaisesRegex(installer.InstallError, 'PACKAGE_SHA256_MISMATCH'):
             installer.verify_package(self.target, installed=True)
 
@@ -190,7 +206,7 @@ class InstallLifecycleTests(unittest.TestCase):
         self.assertNotIn('AITEST_MODEL_KEY', captured['env'])
         self.assertNotIn('OPENAI_API_KEY', captured['env'])
         self.assertNotIn('PYTHONPATH', captured['env'])
-        self.assertEqual(captured['env']['XDG_CONFIG_HOME'], str(self.target / 'data/opencode-config'))
+        self.assertNotIn('XDG_CONFIG_HOME', captured['env'])
         self.assertFalse(any('opencode.exe' in item or 'pip' == item or 'npm' == item for item in captured['argv']))
 
 

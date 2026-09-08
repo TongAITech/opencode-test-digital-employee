@@ -1,4 +1,4 @@
-"""Install sealed V1.12 Windows bytes; never launch OpenCode or acquire dependencies.
+"""Materialize sealed Windows dependencies; never launch OpenCode or download.
 
 The transport manifest stays authoritative for immutable delivered files. Only
 INSTALL_MANIFEST.json becomes an installation-specific overlay, bound to its
@@ -22,11 +22,13 @@ import sys
 import uuid
 
 
-SCHEMA = 'aitest.install-manifest.v1'
-DEFAULT_TARGET = 'D:/PFC/AITest'
-PYTHON_RELATIVE = 'workspace-template/runtime/python/python.exe'
+SCHEMA = 'aitest.install-manifest.v2'
+DEFAULT_TARGET = str(Path.cwd() / 'AITest-Workspace')
+PYTHON_RELATIVE = 'runtime/python/python.exe'
+SOURCE_PYTHON_RELATIVE = 'workspace-template/' + PYTHON_RELATIVE
 REQUIRED_FILES = (
     'INSTALL.sh', 'AITEST.sh', 'tools/recovery/install.py', 'tools/recovery/launcher.py',
+    'tools/recovery/host_opencode.py',
     'FILE_SHA256.json', 'PAYLOAD_SHA256SUMS.json', 'BUILD_PROVENANCE.json',
     'OFFLINE_PAYLOAD_REGISTRY.json', 'INSTALL_MANIFEST.json', 'runtime-lock.json',
     'PACKAGE_MANIFEST.json', 'MACHINE_VALIDATION_RESULT.json',
@@ -34,7 +36,7 @@ REQUIRED_FILES = (
     'workspace-template/opencode.json', 'workspace-template/AGENTS.md',
     'workspace-template/.opencode/agents/aitest-director.md',
     'workspace-template/ai-test/runtime/aitest_runtime/canonical_runtime.py',
-    PYTHON_RELATIVE, 'workspace-template/runtime/python/python312.dll',
+    SOURCE_PYTHON_RELATIVE, 'workspace-template/runtime/python/python312.dll',
     'workspace-template/runtime/opencode/opencode.exe',
     'workspace-template/runtime/browser/chrome-win64/chrome.exe',
     'workspace-template/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe',
@@ -42,8 +44,32 @@ REQUIRED_FILES = (
     'workspace-template/runtime/tools/rg/rg.exe', 'workspace-template/runtime/tools/k6/k6.exe',
     'workspace-template/runtime/tools/java/bin/java.exe',
 )
-DATA_DIRECTORIES = ('state', 'logs', 'evidence', 'imports', 'exports', 'opencode-data',
-                    'opencode-config', 'opencode-cache', 'opencode-state', 'opencode-home', 'bun-cache')
+DATA_DIRECTORIES = ('state', 'logs', 'evidence', 'imports', 'exports')
+
+
+def installation_mapping(checksums: dict) -> dict[str, str]:
+    """Materialize only runtime assets; construction source remains transport-only."""
+    mapping = {}
+    metadata = {'AITEST.sh', 'INSTALL_MANIFEST.json', 'runtime-lock.json',
+                'BUILD_PROVENANCE.json', 'OFFLINE_PAYLOAD_REGISTRY.json',
+                'PAYLOAD_SHA256SUMS.json', 'PACKAGE_MANIFEST.json',
+                'MACHINE_VALIDATION_RESULT.json', 'VALIDATION_README.md'}
+    runtime_tools = {'tools/recovery/install.py', 'tools/recovery/launcher.py',
+                     'tools/recovery/host_opencode.py'}
+    for source in checksums:
+        if source in metadata or source in runtime_tools:
+            mapping[source] = source
+        elif source.startswith('workspace-template/'):
+            target = source.removeprefix('workspace-template/')
+            if target.startswith('runtime/opencode/'):
+                continue  # Construction carrier only; bank uses host OpenCode.
+            if target in {'AGENTS.md', 'opencode.json', 'VERSION', '.gitignore'} or target.startswith(
+                    ('.opencode/', 'ai-test/', 'runtime/', 'tools/', 'bindings/')):
+                mapping[source] = target
+    values = [value.casefold() for value in mapping.values()]
+    if len(values) != len(set(values)):
+        raise InstallError('INSTALL_TARGET_MAPPING_COLLISION')
+    return mapping
 
 
 class InstallError(RuntimeError):
@@ -127,7 +153,7 @@ def verify_install_identity(root: Path) -> list[str]:
         if (root / '.AITEST_INSTALLING').exists():
             failures.append('INSTALL_INCOMPLETE')
         for key, expected in (
-            ('install_root', str(root)), ('workspace_root', str(root / 'workspace-template')),
+            ('install_root', str(root)), ('workspace_root', str(root)),
             ('durable_root', str(root / 'data')), ('portable_python', str(root / PYTHON_RELATIVE)),
         ):
             value = manifest.get(key)
@@ -135,6 +161,12 @@ def verify_install_identity(root: Path) -> list[str]:
                 failures.append('INSTALL_LOCATION_MISMATCH: ' + key)
         if manifest.get('source_file_sha256_sha256') != sha256(root / 'FILE_SHA256.json'):
             failures.append('INSTALL_SOURCE_CHECKSUM_IDENTITY_MISMATCH')
+        if manifest.get('file_map') != installation_mapping(checksums):
+            failures.append('INSTALL_MATERIALIZATION_MAPPING_MISMATCH')
+        if (root / 'workspace-template').exists() or (root / 'runtime/opencode').exists():
+            failures.append('INSTALLED_WORKSPACE_TOPOLOGY_INVALID')
+        if manifest.get('opencode_policy') != 'HOST_NATIVE_OPENCODE':
+            failures.append('HOST_NATIVE_OPENCODE_REQUIRED')
         if not checksums.get('INSTALL_MANIFEST.json') or manifest.get('source_install_manifest_sha256') != checksums.get('INSTALL_MANIFEST.json'):
             failures.append('INSTALL_SOURCE_MANIFEST_IDENTITY_MISMATCH')
         if manifest.get('source_head') != provenance.get('source_head') or not provenance.get('source_head'):
@@ -161,10 +193,13 @@ def verify_package(root: Path, installed: bool = False) -> dict:
         failures = verify_install_identity(root)
         if failures:
             raise InstallError('; '.join(failures))
+    mapping = installation_mapping(checksums) if installed else {p: p for p in checksums}
     for relative, expected in checksums.items():
         if installed and relative == 'INSTALL_MANIFEST.json':
             continue
-        path = safe_path(root, relative)
+        if relative not in mapping:
+            continue
+        path = safe_path(root, mapping[relative])
         if not path.is_file() or sha256(path) != expected:
             raise InstallError('PACKAGE_SHA256_MISMATCH: ' + relative)
     registry = read_json(root / 'OFFLINE_PAYLOAD_REGISTRY.json')
@@ -217,14 +252,14 @@ def self_check(root: Path) -> dict:
     for name, distribution in (('httpx', 'httpx'), ('pytest', 'pytest'), ('playwright.sync_api', 'playwright'),
                                ('greenlet', 'greenlet'), ('pypdf', 'pypdf')):
         module = importlib.import_module(name)
-        if not Path(module.__file__).resolve().is_relative_to(root / 'workspace-template/runtime/python'):
+        if not Path(module.__file__).resolve().is_relative_to(root / 'runtime/python'):
             raise InstallError('HOST_PYTHON_MODULE_FORBIDDEN: ' + name)
         actual = importlib.metadata.version(distribution)
         expected = lock.get('payloads', {}).get(distribution, {}).get('version')
         if expected and expected != actual:
             raise InstallError('PORTABLE_MODULE_VERSION_MISMATCH: ' + name)
         modules[distribution] = actual
-    workspace = root / 'workspace-template'
+    workspace = root
     sys.path.insert(0, str(workspace / 'ai-test/runtime'))
     from aitest_runtime.canonical_runtime import create_canonical_runtime
     db = root / 'data/state/runtime-spine.db'
@@ -245,9 +280,8 @@ def run_installed_self_check(target: Path) -> dict:
     env = {key: value for key, value in os.environ.items() if key.lower() in inherited}
     env.update(PYTHONNOUSERSITE='1', PYTHONDONTWRITEBYTECODE='1', PYTHONUTF8='1',
                PYTHONIOENCODING='utf-8', PIP_NO_INDEX='1', PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD='1',
-               OPENCODE_DISABLE_AUTOUPDATE='1', OPENCODE_DISABLE_MODELS_FETCH='1',
-               XDG_DATA_HOME=str(target / 'data/opencode-data'), XDG_CONFIG_HOME=str(target / 'data/opencode-config'),
-               XDG_CACHE_HOME=str(target / 'data/opencode-cache'))
+               AITEST_WORKSPACE_ROOT=str(target), PFC_LOCAL_STATE_ROOT=str(target / 'data'),
+               AITEST_RUNTIME_SPINE_DB=str(target / 'data/state/runtime-spine.db'))
     result = subprocess.run([str(target / PYTHON_RELATIVE), '-I', '-B', '-X', 'utf8',
                              str(target / 'tools/recovery/install.py'), '--self-check', str(target)],
                             cwd=target, env=env, capture_output=True, text=True, encoding='utf-8', timeout=120)
@@ -278,16 +312,19 @@ def install(source: Path, target: Path) -> dict:
     install_id = str(uuid.uuid4())
     write_json(marker, {'install_id': install_id, 'status': 'INSTALLING'})
     try:
-        for relative in [*integrity['checksums'], 'FILE_SHA256.json']:
+        mapping = installation_mapping(integrity['checksums'])
+        for relative, destination in {**mapping, 'FILE_SHA256.json': 'FILE_SHA256.json'}.items():
             src = safe_path(source, relative)
-            dest = safe_path(target, relative)
+            dest = safe_path(target, destination)
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest)
         # Re-measure installed bytes; transport changes or copy failures cannot become READY.
-        copied = verify_package(target)
+        for relative, destination in mapping.items():
+            if sha256(target / destination) != integrity['checksums'][relative]:
+                raise InstallError('MATERIALIZED_FILE_SHA256_MISMATCH: ' + destination)
         for directory in DATA_DIRECTORIES:
             (target / 'data' / directory).mkdir(parents=True, exist_ok=True)
-        bindings = target / 'workspace-template/bindings'
+        bindings = target / 'bindings'
         bindings.mkdir(parents=True, exist_ok=True)
         binding_status = bindings / 'installation.json'
         if binding_status.exists():
@@ -300,12 +337,14 @@ def install(source: Path, target: Path) -> dict:
         write_json(target / 'data/logs/install-self-check.json', report)
         identity = {'schema_version': SCHEMA, 'status': 'INSTALLED', 'install_id': install_id,
                     'installed_at_utc': datetime.now(timezone.utc).isoformat(),
-                    'install_root': str(target), 'workspace_root': str(target / 'workspace-template'),
+                    'install_root': str(target), 'workspace_root': str(target),
                     'durable_root': str(target / 'data'), 'portable_python': str(target / PYTHON_RELATIVE),
-                    'source_head': copied['source_head'],
+                    'source_head': integrity['source_head'],
                     'source_file_sha256_sha256': sha256(target / 'FILE_SHA256.json'),
                     'source_install_manifest_sha256': integrity['checksums']['INSTALL_MANIFEST.json'],
-                    'copied_file_count': copied['file_count'], 'offline_payload_file_count': copied['payload_file_count'],
+                    'copied_file_count': len(mapping), 'offline_payload_file_count': sum(p.startswith('workspace-template/runtime/') and p in mapping for p in integrity['checksums']),
+                    'file_map': mapping, 'opencode_policy': 'HOST_NATIVE_OPENCODE',
+                    'host_opencode_exact_version_pin': None, 'transport_is_runtime_location': False,
                     'architecture_baseline': 'v7/FROZEN/UNCHANGED', 'runtime_truth': 'R1_EVENT_STREAM',
                     'self_check': report, 'processes_started': [], 'network_install_performed': False,
                     'host_credentials_read_or_copied': False, 'daily_entry': str(target / 'AITEST.sh'),
@@ -335,7 +374,7 @@ def main() -> int:
             return 0
         if os.name != 'nt' or not args.git_bash or not os.environ.get('MSYSTEM', '').startswith(('MINGW', 'MSYS')):
             raise InstallError('WINDOWS_GIT_BASH_REQUIRED: run ./INSTALL.sh in Git Bash')
-        if Path(sys.executable).resolve() != args.source.resolve() / PYTHON_RELATIVE:
+        if Path(sys.executable).resolve() != args.source.resolve() / SOURCE_PYTHON_RELATIVE:
             raise InstallError('PACKAGE_PORTABLE_PYTHON_REQUIRED')
         result = install(args.source, args.target)
         print('INSTALL_START_LIFECYCLE=PASS')

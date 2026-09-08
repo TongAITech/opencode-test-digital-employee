@@ -6,7 +6,7 @@ type ToolContext = { directory?: string; worktree?: string | null; sessionID?: s
 
 async function canonicalWorkspace(context: ToolContext): Promise<string> {
   const required = [
-    "PFC_R1_R4_INSTALLATION.json",
+    "INSTALL_MANIFEST.json",
     "ai-test/runtime/aitest_runtime/canonical_runtime.py",
     "ai-test/runtime/aitest_runtime/autonomous_orchestration.py",
     "ai-test/runtime/aitest_runtime/product_entry.py",

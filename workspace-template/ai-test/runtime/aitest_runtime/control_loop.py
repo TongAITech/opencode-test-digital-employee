@@ -48,6 +48,8 @@ def _heartbeat(value: dict[str, Any]) -> None:
     payload = {
         **value,
         "pid": os.getpid(),
+        "workspace_root": os.environ.get("AITEST_WORKSPACE_ROOT"),
+        "endpoint": os.environ.get("AITEST_OPENCODE_ENDPOINT"),
         "written_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "truth_source": "R1_EVENT_STREAM",
         "operational_only": True,
