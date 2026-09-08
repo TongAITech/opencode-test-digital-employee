@@ -112,13 +112,13 @@ def doctor(full=False):
         host_opencode.resolve(WORKSPACE)
         oc_status = 'READY'
     except RuntimeError:
-        oc_status = 'HOST_NATIVE_OPENCODE_REQUIRED'
+        oc_status = 'FAIL'
     binding_status = provider_configuration()[1]
     matrix = {
         'Runtime': 'READY' if runtime.get('truth_source') == 'R1_EVENT_STREAM' else 'FAIL',
         'OpenCode': oc_status,
-        'Model': binding_status['auth'],
-        'HostProvider': binding_status['qualification'],
+        'Model': 'AUTH_REQUIRED',
+        'HostProvider': 'READY' if oc_status=='READY' else 'FAIL',
         'ControlLoop': 'READY',
         'Browser': exists('runtime/browser/chrome-win64/chrome.exe'),
         'CodeGraph': exists('runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe'),

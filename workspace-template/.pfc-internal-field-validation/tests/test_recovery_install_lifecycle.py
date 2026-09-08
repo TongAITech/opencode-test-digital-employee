@@ -50,8 +50,17 @@ class InstallLifecycleTests(unittest.TestCase):
               for p in self.source.rglob('*') if p.is_file() and p.name != 'FILE_SHA256.json'})
 
     def install(self):
-        with patch.object(installer, 'run_installed_self_check', return_value={'status': 'PASS', 'fixture_boundary': 'CONTRACT_ONLY'}):
+        with patch.object(installer, 'run_installed_self_check', return_value={'status': 'PASS', 'fixture_boundary': 'CONTRACT_ONLY'}), patch.object(installer,'initialize_workspace_git',return_value={'status':'PASS','fixture_boundary':'CONTRACT_ONLY'}):
             return installer.install(self.source, self.target)
+
+    def test_materialized_workspace_has_independent_real_git_root(self):
+        with patch.object(installer,'run_installed_self_check',return_value={'status':'PASS'}):
+            identity=installer.install(self.source,self.target)
+        self.assertEqual(identity['git_workspace']['status'],'PASS')
+        top=subprocess.check_output(['git','-C',str(self.target),'rev-parse','--show-toplevel'],text=True).strip()
+        self.assertEqual(Path(top).resolve(),self.target.resolve())
+        self.assertFalse((self.target/'.git/hooks').exists())
+        self.assertFalse(subprocess.check_output(['git','-C',str(self.target),'remote'],text=True).strip())
 
     def test_install_copies_sealed_payload_initializes_identity_and_never_starts_opencode(self):
         source_manifest = (self.source / 'FILE_SHA256.json').read_bytes()

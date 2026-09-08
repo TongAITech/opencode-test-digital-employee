@@ -9,7 +9,9 @@ case "$(uname -s)" in
 esac
 command -v cygpath >/dev/null 2>&1 || { echo 'FAIL：缺少 Git Bash cygpath。'; exit 2; }
 if [[ $# -gt 0 ]]; then
-  if [[ "$1" == '--target' && $# -eq 2 ]]; then TARGET="$2"
+  if [[ "$1" == '--target' && $# -eq 2 ]]; then
+    TARGET="$2"
+    [[ "$TARGET" == /* || "$TARGET" =~ ^[A-Za-z]:[/\\] ]] || { echo 'FAIL：--target 需要绝对路径。'; exit 2; }
   elif [[ $# -ge 1 && $# -le 2 && "$1" != --* ]]; then
     NAME="${2:-AITest-Workspace}"
     [[ "$NAME" != '.' && "$NAME" != '..' && "$NAME" != *[/\\:]* && -n "$NAME" ]] || { echo 'FAIL：工作目录名称无效。'; exit 2; }

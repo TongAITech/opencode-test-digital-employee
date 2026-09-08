@@ -294,6 +294,20 @@ def run_installed_self_check(target: Path) -> dict:
     return report
 
 
+def initialize_workspace_git(target: Path) -> dict:
+    executable=shutil.which('git')
+    if not executable:raise InstallError('GIT_BASH_GIT_REQUIRED')
+    # Match raw V1.6 workspace identity without importing host Git templates,
+    # hooks or credentials. There is no commit, remote or network operation.
+    allowed={'systemroot','windir','comspec','temp','tmp','pathext','systemdrive'}
+    env={k:v for k,v in os.environ.items() if k.lower() in allowed}
+    env.update(GIT_CONFIG_NOSYSTEM='1',GIT_CONFIG_GLOBAL=os.devnull,GIT_TERMINAL_PROMPT='0')
+    result=subprocess.run([executable,'init','--quiet','--template=',str(target)],env=env,
+        capture_output=True,timeout=30)
+    if result.returncode!=0 or not (target/'.git/HEAD').is_file():raise InstallError('WORKSPACE_GIT_IDENTITY_FAILED')
+    return {'status':'PASS','root':str(target),'host_templates_copied':False,'remote_configured':False}
+
+
 def install(source: Path, target: Path) -> dict:
     source = source.resolve()
     # Check lexical existence before resolve so dangling links are refused too.
@@ -333,6 +347,7 @@ def install(source: Path, target: Path) -> dict:
                    'status': 'BANK_BINDING_REQUIRED', 'approved': False,
                    'capabilities': {name: 'BANK_BINDING_REQUIRED' for name in ('Starlink', '4A', 'CAT', 'DB', 'Execution')},
                    'model': 'AUTH_REQUIRED', 'credentials_copied': False})
+        git_identity = initialize_workspace_git(target)
         report = run_installed_self_check(target)
         write_json(target / 'data/logs/install-self-check.json', report)
         identity = {'schema_version': SCHEMA, 'status': 'INSTALLED', 'install_id': install_id,
@@ -346,7 +361,7 @@ def install(source: Path, target: Path) -> dict:
                     'file_map': mapping, 'opencode_policy': 'HOST_NATIVE_OPENCODE',
                     'host_opencode_exact_version_pin': None, 'transport_is_runtime_location': False,
                     'architecture_baseline': 'v7/FROZEN/UNCHANGED', 'runtime_truth': 'R1_EVENT_STREAM',
-                    'self_check': report, 'processes_started': [], 'network_install_performed': False,
+                    'self_check': report, 'git_workspace': git_identity, 'processes_started': [], 'network_install_performed': False,
                     'host_credentials_read_or_copied': False, 'daily_entry': str(target / 'AITEST.sh'),
                     'field_validation': 'BANK_FIELD_VALIDATION_REQUIRED'}
         write_json(target / 'INSTALL_MANIFEST.json', identity)
