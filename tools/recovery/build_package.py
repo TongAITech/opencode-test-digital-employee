@@ -89,7 +89,8 @@ def build(repo: Path, stage: Path, output: Path, version: str, allow_dirty: bool
     if bundle.exists():
         raise RuntimeError(f'Output already exists; use a fresh output directory: {bundle}')
     bundle.mkdir()
-    archive = subprocess.check_output(['git', '-C', str(repo), 'archive', '--format=tar', head])
+    archive = subprocess.check_output(['git', '-C', str(repo), '-c', 'core.autocrlf=false',
+                                       '-c', 'core.eol=lf', 'archive', '--format=tar', head])
     with tarfile.open(fileobj=io.BytesIO(archive), mode='r:') as source:
         for member in source.getmembers():
             destination = (bundle / member.name).resolve()
@@ -109,7 +110,9 @@ def build(repo: Path, stage: Path, output: Path, version: str, allow_dirty: bool
                 shutil.copy2(path, destination)
     shutil.copytree(stage, bundle, dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '.DS_Store', '.git'))
-    shutil.copy2(registry, bundle / registry.name)
+    # Keep the committed archive's registry bytes. A Windows checkout may use
+    # CRLF while Git stores LF; copying the working-tree file would introduce
+    # an undeclared source overlay despite an otherwise clean exact-HEAD build.
     generated_manifest_overlay = seal_package_source(bundle, head, source_identity, bool(dirty))
     generated_manifest_overlay['source_archive_sha256'] = archive_manifest_sha256
     expected = {}

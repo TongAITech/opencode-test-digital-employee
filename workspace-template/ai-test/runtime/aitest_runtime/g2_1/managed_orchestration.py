@@ -49,18 +49,21 @@ class ProvisioningOpenCodeSessionProvider:
         self.delegate = delegate
         self._token: str | None = None
         self._friendly_title: str | None = None
+        self._independent_session = False
 
     @contextmanager
-    def provision(self, token: str, friendly_title: str) -> Iterator[None]:
+    def provision(self, token: str, friendly_title: str, *, independent_session: bool = False) -> Iterator[None]:
         if self._token is not None:
             raise RuntimeError("NESTED_SESSION_PROVISION_CONTEXT_FORBIDDEN")
         self._token = _text(token, "provision_token")
         self._friendly_title = _text(friendly_title, "friendly_title")
+        self._independent_session = independent_session
         try:
             yield
         finally:
             self._token = None
             self._friendly_title = None
+            self._independent_session = False
 
     @staticmethod
     def title_for(token: str, friendly_title: str) -> str:
@@ -90,7 +93,10 @@ class ProvisioningOpenCodeSessionProvider:
             raise RuntimeError(f"SESSION_PROVISION_DUPLICATE_EXTERNAL_MATCH: {self._token}")
         if matches:
             return matches[0]
-        return self.delegate.create_session(title=effective, parent_id=parent_id)
+        # OpenCode 1.18.3 recursively deletes children when a parent closes.
+        # Rotation lineage belongs to R1; its successor must survive cleanup
+        # of the predecessor's external Session.
+        return self.delegate.create_session(title=effective, parent_id=None if self._independent_session else parent_id)
 
     def send_context(self, *, session_id: str, agent: str, text: str) -> Mapping[str, Any]:
         return self.delegate.send_context(session_id=session_id, agent=agent, text=text)
@@ -736,7 +742,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             raise RuntimeError("ROTATION_RECOVERY_PREDECESSOR_MISMATCH")
 
         self._abort_predecessor(predecessor_session_id)
-        with self.provisioning_provider.provision(token, title):
+        with self.provisioning_provider.provision(token, title, independent_session=True):
             result = super().rotate_session(mission_id, task_id=task_id, agent=route.agent_name)
         successor = str(result.get("successor_session_id") or "")
         if not successor:
@@ -859,7 +865,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         external = matches[0] if matches else None
         if external is None:
             self._abort_predecessor(predecessor_session_id)
-            with self.provisioning_provider.provision(token, title):
+            with self.provisioning_provider.provision(token, title, independent_session=True):
                 external = self.provisioning_provider.create_session(title=title, parent_id=predecessor_session_id)
 
         # If a prior process already opened the successor durably, reuse it.

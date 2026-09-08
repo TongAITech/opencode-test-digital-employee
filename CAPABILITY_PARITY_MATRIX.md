@@ -38,4 +38,4 @@ the recovery commits. Existing local offline tool bytes are inventoried by hash.
 Actual executed scenarios and failures are in MACHINE_VALIDATION_RESULT.json.
 Payload existence is not a test PASS; unconfigured bank connections stay explicit.
 
-Actual OpenCode1.18.3 message API and background Control Loop rotation are exercised with synthetic no-reply content. This proves session/checkpoint/attempt transport, not a bank model or BLOAN business result. Authenticated UI assertions can reuse the exact approved CDP browser after G4 returns its lease to AI.
+Actual OpenCode 1.18.3 user/tool messages and background Control Loop rotations are exercised with a synthetic model protocol and a >=10MB evidence source. The combined test requires two real successor Sessions, preserved lineage, completion, Control Loop restart and export replay. This proves runtime transport and bounded-context behavior; AI semantic planning and BLOAN bank results remain separate unproven gates. Authenticated UI assertions can reuse the exact approved CDP browser after G4 returns its lease to AI.

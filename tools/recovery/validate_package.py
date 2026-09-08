@@ -22,8 +22,18 @@ def run(command, cwd, env, timeout=240, required_stdout=None):
         process = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True,
                                  encoding='utf-8', errors='replace', timeout=timeout)
         content_ok = required_stdout is None or required_stdout in process.stdout
+        structured = None
+        for match in re.finditer(r'\{', process.stdout):
+            try:
+                candidate, _ = json.JSONDecoder().raw_decode(process.stdout[match.start():])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict) and isinstance(candidate.get('gates'), dict):
+                structured = candidate
+                break
         return {'status': 'PASS' if process.returncode == 0 and content_ok else 'FAIL', 'exit_code': process.returncode,
                 'elapsed_s': round(time.monotonic() - started, 2),
+                'structured_report': structured,
                 'required_stdout': required_stdout, 'required_stdout_observed': content_ok,
                 'stdout': process.stdout if len(process.stdout) <= 14000 else process.stdout[:7000] + '\n[output truncated]\n' + process.stdout[-7000:],
                 'stderr': process.stderr[-6000:]}
@@ -133,12 +143,19 @@ def main():
     passed = all(result['status'] == 'PASS' for result in results.values())
     payload_pass = bool(payloads) and all(result['status'] == 'PASS' for result in payloads.values())
     gates = {'INSTALL_START_LIFECYCLE': payloads.get('formal_installation', {}).get('status', 'WINDOWS_PENDING')}
-    for name in ('test_recovery_startup_provider.py', 'test_recovery_autonomous_entry.py', 'test_recovery_context_stress.py'):
+    gate_evidence = {}
+    for name in ('test_recovery_startup_provider.py', 'test_recovery_context_stress.py', 'test_recovery_autonomous_entry.py'):
         suite = results.get(name, {})
         if suite.get('status') != 'PASS':
             continue
         # Suites emit bounded JSON reports. A unittest diagnostic prefix is not
         # evidence; only a parsed report's explicit named gates are admitted.
+        report = suite.get('structured_report')
+        if isinstance(report, dict) and isinstance(report.get('gates'), dict):
+            gates.update(report['gates'])
+            gate_evidence.update({key: {'suite': name, 'classification': report.get('classification'), 'status': value}
+                                  for key, value in report['gates'].items()})
+            continue
         raw = suite.get('stdout', '')
         for match in re.finditer(r'\{', raw):
             try:
@@ -168,7 +185,7 @@ def main():
               'bank_4A_Starlink_CAT_DB': 'BANK_BINDING_REQUIRED / NOT_EXECUTED',
               'fixture_boundary': 'Contract suites use synthetic requirements and OpenCode HTTP fixtures; HTTP/UI/pytest/k6 payload smoke uses a real local test server. None is bank evidence.',
               'suites': results, 'payloads': payloads,
-              'work_item': '10.REC.3', 'gates': gates,
+              'work_item': '10.REC.3', 'gates': gates, 'gate_evidence': gate_evidence,
               'closure': 'HOLD_UNTIL_ALL_REQUIRED_GATES_PASS',
               'status': 'PASS' if passed and (args.source_only or payload_pass) else 'FAIL'}
     output = args.output.resolve(); output.parent.mkdir(parents=True, exist_ok=True)

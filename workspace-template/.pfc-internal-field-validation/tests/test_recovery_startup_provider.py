@@ -78,6 +78,29 @@ def contract_checks(root):
     try: host_provider.create_binding(path, config['model'], 'fixture:approved')
     except host_provider.BindingRequired as exc: assert str(exc)=='HEADER_VALUES_REQUIRE_ENV_REFERENCES'
     else: raise AssertionError('Nonstandard auth headers must not copy literal tokens')
+    # Literal credentials hidden behind aliases or opaque custom option names
+    # are refused; refusal never includes the source value in public errors.
+    for options in ({'password':123456}, {'token':1234}, {'auth':{'password':123456, 'token':1234}},
+                    {'auth':'SYNTHETIC_CREDENTIAL'}, {'bearer':'SYNTHETIC_CREDENTIAL'},
+                    {'opaqueLoginMaterial':'SYNTHETIC_CREDENTIAL'},
+                    {'nested':{'arbitraryValues':['SYNTHETIC_CREDENTIAL']}},
+                    {'endpoint':'https://service.invalid/invoke?token=SYNTHETIC_CREDENTIAL'}):
+        candidate = host_provider._jsonc(before.decode())
+        candidate['provider']['wizard-local']['options'] = options
+        path.write_text(json.dumps(candidate),encoding='utf-8')
+        try: host_provider.create_binding(path, candidate['model'], 'fixture:approved')
+        except host_provider.BindingRequired as exc: assert 'SYNTHETIC_CREDENTIAL' not in str(exc)
+        else: raise AssertionError('Opaque custom credentials must require environment references')
+    candidate = host_provider._jsonc(before.decode())
+    candidate['plugin'] = [['./fixture-plugin.mjs', {'opaqueLoginMaterial':'SYNTHETIC_CREDENTIAL'}]]
+    path.write_text(json.dumps(candidate),encoding='utf-8')
+    try: host_provider.create_binding(path, candidate['model'], 'fixture:approved')
+    except host_provider.BindingRequired as exc: assert 'SYNTHETIC_CREDENTIAL' not in str(exc)
+    else: raise AssertionError('Plugin tuple options have the same credential boundary')
+    approved_options = {'auth':'{env:AITEST_AUTH}', 'bearer':'{env:AITEST_BEARER}',
+                        'customOption':'{env:AITEST_CUSTOM_OPTION}', 'temperature':0.25, 'stream':True, 'authEnabled':False,
+                        'baseURL':'https://service.invalid/custom-route', 'endpoint':'http://127.0.0.1:9/invoke'}
+    assert host_provider._safe({'options':approved_options}) == {'options':approved_options}
     path.write_bytes(before)
     sdk.write_text(sdk.read_text()+'\n// change',encoding='utf-8')
     try: host_provider.resolve(binding)
@@ -119,6 +142,9 @@ def main():
             os.environ.pop('AITEST_MODEL_KEY', None)
             assert launcher.model_configuration({})['enabled_providers'] == []
             launcher.prepare()
+            # The previous UI cache may be truncated by an interrupted older
+            # launcher. It is disposable and never substitutes for R1 truth.
+            (data/'state/director-entry-session.json').write_text('{"session_id":',encoding='utf-8')
             def auth_pending_attach(argv, cwd, env):
                 assert argv[1]=='attach' and cwd == WORKSPACE
                 assert not any(key in env for key in ('OPENCODE_CONFIG','OPENCODE_CONFIG_DIR'))
@@ -138,9 +164,21 @@ def main():
                 assert argv[-2:] == ['--session', readiness['director_session_id']]
                 actual = api(env, '/session/'+readiness['director_session_id'])
                 assert 'AUTH_REQUIRED' in actual['title']
-                gates.update(OPENCODE_START_WITH_MODEL_AUTH_PENDING='PASS', CONTROL_LOOP_START='PASS')
+                gates.update(OPENCODE_START_WITH_MODEL_AUTH_PENDING='PASS', CONTROL_LOOP_START='PASS',
+                             CORRUPTED_ENTRY_CACHE_RECOVERY='PASS', OPAQUE_PROVIDER_CREDENTIAL_GUARD='PASS')
                 return 0
             assert launcher.start_conversation(attach_runner=auth_pending_attach)==0
+            # A failed atomic replace preserves the prior reference and leaves
+            # no partially written final JSON or abandoned temporary file.
+            cache = data/'state/director-entry-session.json'
+            previous_cache = cache.read_bytes()
+            with patch.object(launcher.os, 'replace', side_effect=OSError('synthetic replacement interruption')):
+                try: launcher.write(cache, {'session_id':'ses_replacement'})
+                except OSError: pass
+                else: raise AssertionError('Synthetic interrupted replace should fail')
+            assert cache.read_bytes()==previous_cache
+            assert not list(cache.parent.glob('.director-entry-session.json.*.tmp'))
+            gates['ATOMIC_OPERATIONAL_JSON_WRITE']='PASS'
             # Broken/changed binding stays visible as a model gate and still
             # yields a valid no-provider process configuration.
             launcher.write(data/'provider-binding.json', {**binding,'source_sha256':'0'*64})

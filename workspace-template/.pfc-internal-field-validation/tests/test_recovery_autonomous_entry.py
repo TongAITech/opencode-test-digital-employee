@@ -8,11 +8,16 @@ on Windows. The user's only input is the exact natural-language test request.
 """
 from __future__ import annotations
 import base64
+import hashlib
 import http.server
 import json
 import os
 from pathlib import Path
 import shutil
+import zipfile
+import io
+from contextlib import redirect_stdout
+from unittest.mock import patch
 import socket
 import subprocess
 import sys
@@ -40,6 +45,9 @@ class ModelFixture(http.server.BaseHTTPRequestHandler):
     errors = []
     decisions = []
     max_request_bytes = 0
+    worker_sessions = {}
+    source_bytes = 0
+    source_digest = None
     def log_message(self, *args): pass
     def do_POST(self):
         try:
@@ -63,17 +71,33 @@ class ModelFixture(http.server.BaseHTTPRequestHandler):
             name = None; args = {}; role = 'OTHER'
             if envelope and envelope.get('task_id'):
                 role = envelope['logical_agent']
-                if 'aitest_context' not in previous_tools:
-                    mission = envelope['mission_id']
-                    source = mission_evidence_directory(self.server.durable_root, mission) / 'local-observations.jsonl'
-                    source.parent.mkdir(parents=True, exist_ok=True)
-                    if not source.exists():
-                        source.write_text('{"classification":"SYNTHETIC_ONLY","observation":"local protocol tool roundtrip"}\n' * 50, encoding='utf-8')
-                    name = 'aitest_context'; args = {'mission_id': mission, 'source_ref': 'evidence:local-observations.jsonl', 'limit': 1024}
-                elif 'aitest_worker' not in previous_tools:
+                mission = envelope['mission_id']
+                source = mission_evidence_directory(self.server.durable_root, mission) / 'local-observations.jsonl'
+                source.parent.mkdir(parents=True, exist_ok=True)
+                if not source.exists():
+                    row = (json.dumps({'classification': 'SYNTHETIC_ONLY', 'observation': 'bounded context pressure regression ' * 80}) + '\n').encode('utf-8')
+                    digest = hashlib.sha256()
+                    with source.open('wb') as output:
+                        for _ in range(4500): output.write(row); digest.update(row)
+                    self.__class__.source_bytes = source.stat().st_size
+                    self.__class__.source_digest = digest.hexdigest()
+                sessions = self.worker_sessions.setdefault(envelope['root_attempt_id'], [])
+                if envelope['session_id'] not in sessions: sessions.append(envelope['session_id'])
+                generation = sessions.index(envelope['session_id'])
+                reads = sum(t.get('function', {}).get('name') == 'aitest_context' for message in messages for t in message.get('tool_calls', []))
+                stress_worker = role == 'aitest-code-analyst'
+                # Real bounded tool results grow the real OpenCode message
+                # history. Return idle after seven pages and let the actual
+                # background process discover pressure; the fixture never
+                # requests rotation and never sets observation/utilization.
+                page_budget = (7 if generation < 2 else 0) if stress_worker else 1
+                if reads < page_budget:
+                    name = 'aitest_context'; args = {'mission_id': mission, 'source_ref': 'evidence:local-observations.jsonl',
+                        'offset': (generation * 7 + reads) * 4096, 'limit': 4096 if stress_worker else 512, 'expected_sha256': self.source_digest}
+                elif 'aitest_worker' not in previous_tools and (not stress_worker or generation >= 2):
                     name = 'aitest_worker'; args = {'action': 'report_task_outcome', 'payload': {
                         key: envelope[key] for key in ('mission_id', 'task_id', 'attempt_id', 'session_id')}}
-                    args['payload'].update(outcome='SUCCEEDED', summary='Synthetic protocol fixture verified bounded source reference and routed worker tool')
+                    args['payload'].update(outcome='SUCCEEDED', summary='Synthetic protocol fixture verified bounded evidence after automatic Runtime successor continuation')
             elif envelope:
                 role = 'PLANNER'
                 if 'aitest_planner' not in previous_tools:
@@ -113,8 +137,8 @@ class ModelFixture(http.server.BaseHTTPRequestHandler):
 def main():
     binary = Path(os.environ.get('AITEST_REAL_OPENCODE') or WORKSPACE / 'runtime/opencode/opencode.exe')
     if not binary.is_file(): raise RuntimeError('Actual pinned OpenCode binary required')
-    old = dict(os.environ); process = None; model = None; event_response = None
-    executed = []; event_ready = threading.Event()
+    old = dict(os.environ); process = None; loop = None; model = None; event_response = None
+    executed = []; bounded_pages = []; event_ready = threading.Event()
     with tempfile.TemporaryDirectory(prefix='recovery-autonomous-', ignore_cleanup_errors=True) as temporary:
         root = Path(temporary); workspace = root / 'workspace'; durable = root / 'data'
         shutil.copytree(WORKSPACE, workspace, ignore=lambda directory, names: [name for name in names if name == '__pycache__' or name.endswith('.pyc') or (Path(directory) == WORKSPACE and name == 'runtime')])
@@ -178,13 +202,23 @@ def main():
                                       'status': part.get('state', {}).get('status')}
                             if record['status'] == 'error': record['error'] = part.get('state', {}).get('error', '')[:2000]
                             executed.append(record)
+                            if record['tool'] == 'aitest_context' and record['status'] == 'completed':
+                                output = part.get('state', {}).get('output', '')
+                                page = json.loads(output)
+                                bounded_pages.append({key: page[key] for key in ('source_bytes', 'returned_bytes', 'source_sha256', 'offset')})
+                                bounded_pages[-1].update(session_id=record['session_id'], response_bytes=len(output.encode('utf-8')))
+
                 except Exception:
                     event_ready.set()
             threading.Thread(target=observe_tools, daemon=True).start()
             if not event_ready.wait(10): raise RuntimeError('OPENCODE_TOOL_EVENT_OBSERVER_UNAVAILABLE')
+            loop_command = [sys.executable, '-X', 'utf8', '-m', 'aitest_runtime.control_loop', '--workspace-root', str(workspace), '--interval', '3']
+            with (root / 'control-loop.log').open('w') as log:
+                loop = subprocess.Popen(loop_command, cwd=workspace, env=env, stdout=log, stderr=subprocess.STDOUT)
             user = provider.create_session(title='Synthetic natural-language Director intake qualification')
-            provider.send_context(session_id=user.session_id, agent='aitest-director', text='测试 BLOAN1.9.4')
-            deadline = time.monotonic() + 180
+            provider._request('POST', f'/session/{user.session_id}/prompt_async?{provider._directory_query()}',
+                              {'parts': [{'type': 'text', 'text': '测试 BLOAN1.9.4'}]})
+            deadline = time.monotonic() + 240
             runtime = create_canonical_runtime(workspace)
             mission = None; composed = None
             while time.monotonic() < deadline:
@@ -195,8 +229,9 @@ def main():
                     mission = missions[0]; composed = runtime.replay_composed(mission)
                     graph = composed.extension_state('r1_2_work_graph')
                     if len(graph.tasks) == 2 and all(t.lifecycle_state.value == 'SUCCEEDED' for t in graph.tasks): break
+                if loop.poll() is not None: raise RuntimeError('REAL_CONTROL_LOOP_EXITED:' + (root / 'control-loop.log').read_text(errors='replace')[-2000:])
                 if ModelFixture.errors: raise RuntimeError('MODEL_PROTOCOL_FIXTURE_FAILED:' + json.dumps(ModelFixture.errors))
-                if any(p['status'] == 'error' for p in executed): raise RuntimeError('ACTUAL_OPENCODE_TOOL_FAILED:' + json.dumps(executed))
+                if any(p['status'] == 'error' and p.get('error') != 'Tool execution aborted' for p in executed): raise RuntimeError('ACTUAL_OPENCODE_TOOL_FAILED:' + json.dumps(executed))
                 time.sleep(.3)
             else:
                 states = []
@@ -208,9 +243,9 @@ def main():
             state = service.session_control.state(mission)
             planner = [p for p in state.provisions if p.role == 'PLANNER']
             workers = [p for p in state.provisions if p.task_id]
-            assert len(planner) == 1 and len(workers) == 2
+            assert len(planner) == 1 and len(workers) >= 4
             ids = [user.session_id, planner[0].external_session_id, *(p.external_session_id for p in workers)]
-            assert len(set(ids)) == 4
+            assert len(set(ids)) >= 6
             assert {p.role for p in workers} == {'CODE_ANALYST', 'EVALUATOR'}
             assert len({p.logical_agent_id for p in [*planner, *workers]}) == 3
             # Observe live OpenCode tool events before Runtime closes terminal
@@ -218,21 +253,91 @@ def main():
             # even when a Session is deleted before its final tool-result event.
             for name in ('aitest_director', 'aitest_planner', 'aitest_worker', 'aitest_context'):
                 assert any(p['tool'] == name and p['status'] in {'running', 'completed'} for p in executed), executed
-            assert not any(p['status'] == 'error' for p in executed), executed
+            assert not any(p['status'] == 'error' and p.get('error') != 'Tool execution aborted' for p in executed), executed
             assert any(p['tool'] == 'aitest_director' and p['session_id'] == user.session_id for p in executed)
             assert any(p['tool'] == 'aitest_planner' and p['session_id'] == planner[0].external_session_id for p in executed)
-            assert all(any(p['tool'] == 'aitest_worker' and p['session_id'] == worker.external_session_id for p in executed) for worker in workers)
+            user_messages = provider._request('GET', f'/session/{user.session_id}/message?{provider._directory_query()}&limit=10')
+            assert any(m.get('info', {}).get('role') == 'assistant' and m['info'].get('agent') == 'aitest-director' for m in user_messages)
+            final_workers = [provision for provision in workers if composed.extension_state('r1_3b_execution_resume').latest_attempt(provision.task_id).runtime_session_id == provision.external_session_id]
+            assert all(any(p['tool'] == 'aitest_worker' and p['session_id'] == worker.external_session_id for p in executed) for worker in final_workers)
+            stress_workers = [p for p in workers if p.role == 'CODE_ANALYST']
+            rotations = [r for r in state.rotations if r.task_id == stress_workers[0].task_id]
+            assert len(rotations) >= 2 and all(r.status == 'COMPLETED' for r in rotations), state.to_dict()
+            attempts = [a for a in composed.extension_state('r1_3b_execution_resume').attempts if a.task_id == stress_workers[0].task_id]
+            assert len(attempts) >= 3 and len({a.root_attempt_id for a in attempts}) == 1
+            assert len({p.logical_agent_id for p in stress_workers}) == 1
+            assert not any('SESSION_UNREACHABLE' in r.reasons for r in state.rotations)
+            rotation_evidence = []
+            for rotation in rotations:
+                checkpoint = rotation.checkpoint
+                assert checkpoint['mission_id'] == mission and checkpoint['task_id'] == stress_workers[0].task_id
+                assert checkpoint['logical_agent_id'] == stress_workers[0].logical_agent_id
+                assert checkpoint['root_attempt_id'] == attempts[0].root_attempt_id
+                assert composed.core_state.session(checkpoint['predecessor_session_id']).status.value == 'CLOSED'
+                observation = next(o for o in reversed(state.observations)
+                    if o.session_id == checkpoint['predecessor_session_id'] and o.recorded_seq < rotation.requested_seq)
+                assert observation.provider_state['pressure']['metrics_source'] == 'OPENCODE_MESSAGE_API'
+                assert 'ESTIMATED_CONTEXT_PRESSURE' in rotation.reasons, rotation.to_dict()
+                pages = [p for p in bounded_pages if p['session_id'] == rotation.predecessor_session_id]
+                assert pages, 'Each rotation must follow an actual completed bounded evidence read'
+                rotation_evidence.append({'task_id': rotation.task_id, 'logical_agent_id': checkpoint['logical_agent_id'],
+                    'root_attempt_id': rotation.root_attempt_id, 'predecessor_session_id': rotation.predecessor_session_id,
+                    'successor_session_id': rotation.successor_session_id, 'status': rotation.status,
+                    'reasons': list(rotation.reasons), 'bounded_page_count': len(pages),
+                    'observed_message_bytes_plus_reserve': observation.provider_state['pressure']['estimated_context_used']})
+            predecessors = {r.checkpoint['predecessor_session_id'] for r in rotations}
+            assert all(p['session_id'] in predecessors for p in executed if p['status'] == 'error'), executed
+            assert ModelFixture.source_bytes >= 10 * 1024 * 1024
+            assert bounded_pages and all(p['returned_bytes'] <= 4096 and p['response_bytes'] <= 16384 for p in bounded_pages)
+            assert all(p['source_bytes'] == ModelFixture.source_bytes and p['source_sha256'] == ModelFixture.source_digest for p in bounded_pages)
+            assert ModelFixture.max_request_bytes < 256 * 1024
+            # Restart the actual background process and rehydrate this same
+            # Mission, then export its real R1 snapshot/evidence with the product
+            # exporter and replay that snapshot in a separate Runtime instance.
+            loop.terminate(); loop.wait(timeout=10)
+            before_tasks = graph.to_dict()
+            with (root / 'control-loop-restart.log').open('w') as log:
+                restarted = subprocess.run([*loop_command, '--once'], cwd=workspace, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=45)
+            assert restarted.returncode == 0, (root / 'control-loop-restart.log').read_text(errors='replace')[-2000:]
+            restored = create_canonical_runtime(workspace)
+            assert restored.replay_composed(mission).extension_state('r1_2_work_graph').to_dict() == before_tasks
+            sys.path.insert(0, str(WORKSPACE.parent / 'tools/recovery'))
+            import launcher
+            (durable / 'exports').mkdir(parents=True, exist_ok=True)
+            with patch.object(launcher, 'DATA', durable), redirect_stdout(io.StringIO()):
+                exported = Path(launcher.evidence_export())
+            restored_dir = root / 'export-replay'
+            with zipfile.ZipFile(exported) as archive: archive.extractall(restored_dir)
+            exported_runtime = create_canonical_runtime(workspace, db_path=restored_dir / 'state/runtime-spine.db')
+            assert exported_runtime.replay_composed(mission).extension_state('r1_2_work_graph').to_dict() == before_tasks
+            exported_source = mission_evidence_directory(restored_dir, mission) / 'local-observations.jsonl'
+            assert exported_source.stat().st_size == ModelFixture.source_bytes
+
             assert not (workspace / 'ai-test/state/aitest.db').exists()
             print(json.dumps({'status': 'PASS', 'classification': 'REAL_OPENCODE_WITH_SYNTHETIC_MODEL_PROTOCOL_FIXTURE',
-                'gates': {**{g: 'PASS' for g in ('NATURAL_LANGUAGE_START_TEST', 'MISSION_INTAKE', 'PLANNER_SESSION', 'SCHEDULER_AUTO_ADVANCE', 'SESSION_ROUTER')},
+                'gates': {**{g: 'PASS' for g in ('NATURAL_LANGUAGE_START_TEST', 'MISSION_INTAKE', 'PLANNER_SESSION', 'SCHEDULER_AUTO_ADVANCE', 'SESSION_ROUTER', 'AUTO_ROTATION', 'SUCCESSOR_RESUME', 'CONTEXT_STRESS')},
                           'AUTONOMOUS_PLAN': 'SIMULATED_SEMANTIC_PLANNER'},
+                'context_stress_transport': 'REAL_OPENCODE', 'default_agent_selected_without_override': True,
+                'rotation_count': len(rotations), 'source_bytes': ModelFixture.source_bytes,
+                'rotation_evidence': rotation_evidence, 'unreachable_rotation_count': 0,
+                'max_bounded_response_bytes': max(p['response_bytes'] for p in bounded_pages),
+                'bounded_page_count': len(bounded_pages), 'same_mission_task_logical_agent_root_attempt': True,
+                'pressure_metrics_source': 'OPENCODE_MESSAGE_API', 'rotation_reason': 'ESTIMATED_CONTEXT_PRESSURE',
+                'CONTEXT_TOO_LARGE_ERROR': 0, 'AI_APICallError_CONTEXT_OVERFLOW': 0, 'overflow_count': 0,
+                'control_loop_restart_same_mission': 'PASS', 'evidence_export_same_mission_replay': 'PASS',
                 'user_request': '测试 BLOAN1.9.4', 'mission_id': mission, 'distinct_session_count': len(set(ids)),
-                'worker_roles': [p.role for p in workers], 'executed_tools': executed,
+                'worker_roles': sorted({p.role for p in workers}),
+                'executed_tools': sorted({(p['session_id'], p['tool'], p['status']) for p in executed if p['status'] in {'running', 'completed'}}),
+                'rotation_cancelled_tool_count': sum(p['status'] == 'error' for p in executed),
                 'tool_mutation_result_authority': 'R1_EVENT_STREAM; live OpenCode events captured before terminal Session cleanup',
                 'semantic_planner': 'SIMULATED_SEMANTIC_PLANNER', 'real_model_autonomous_plan': 'NOT_EXECUTED',
                 'max_model_request_bytes': ModelFixture.max_request_bytes,
                 'python_executable': sys.executable, 'BANK_FIELD_VALIDATION_REQUIRED': True}, ensure_ascii=False, indent=2))
         finally:
+            if loop is not None and loop.poll() is None:
+                loop.terminate()
+                try: loop.wait(timeout=10)
+                except subprocess.TimeoutExpired: loop.kill(); loop.wait()
             if process is not None and process.poll() is None:
                 process.terminate()
                 try: process.wait(timeout=10)

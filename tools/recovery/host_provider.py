@@ -13,7 +13,8 @@ import re
 from urllib.parse import urlsplit, unquote
 
 MAX_CONFIG_BYTES = 1024 * 1024
-SECRET_KEY = re.compile(r'(api.?key|access.?key|private.?key|password|passwd|token|secret|authorization|cookie|credential)', re.I)
+SECRET_KEY = re.compile(r'(api.?key|access.?key|private.?key|session.?key|password|passwd|passphrase|token|secret|auth|bearer|cookie|credential|client.?assertion)', re.I)
+SAFE_OPTION_URL_KEYS = {'baseurl', 'endpoint'}
 ENV_REF = re.compile(r'^\{env:[A-Za-z_][A-Za-z0-9_]*\}$')
 IDENTIFIER = re.compile(r'^[A-Za-z0-9_.:@/-]{1,240}$')
 BUNDLED_SDKS = {'@ai-sdk/openai-compatible', '@ai-sdk/openai', '@ai-sdk/anthropic', '@ai-sdk/google', '@ai-sdk/azure'}
@@ -73,20 +74,28 @@ def _read_config(path):
     except UnicodeError: raise BindingRequired('HOST_CONFIG_ENCODING_INVALID') from None
 
 
-def _safe(value, key=''):
+def _safe(value, key='', opaque_options=False):
+    # Custom options are an opaque authentication boundary. Unknown literal
+    # strings cannot be assumed harmless merely because a key has a new name.
+    opaque_options = opaque_options or key.lower() == 'options'
     if key.lower() == 'headers':
         if not isinstance(value, dict) or any(not isinstance(v, str) or not ENV_REF.fullmatch(v) for v in value.values()):
             raise BindingRequired('HEADER_VALUES_REQUIRE_ENV_REFERENCES')
     if SECRET_KEY.search(key):
-        if not isinstance(value, str) or not ENV_REF.fullmatch(value):
+        numeric_secret = isinstance(value, (int, float)) and not isinstance(value, bool)
+        literal_secret = isinstance(value, str) and not ENV_REF.fullmatch(value)
+        if numeric_secret or literal_secret:
             raise BindingRequired('INLINE_SECRET_FORBIDDEN_USE_ENV_REFERENCE')
-    if isinstance(value, dict): return {k: _safe(v, str(k)) for k, v in value.items()}
-    if isinstance(value, list): return [_safe(v, key) for v in value]
+    if isinstance(value, dict): return {k: _safe(v, str(k), opaque_options) for k, v in value.items()}
+    if isinstance(value, list): return [_safe(v, key, opaque_options) for v in value]
     if isinstance(value, str):
         if '{file:' in value: raise BindingRequired('SECRET_FILE_REFERENCE_REQUIRES_BANK_BINDING')
+        if opaque_options and not ENV_REF.fullmatch(value):
+            if key.lower() not in SAFE_OPTION_URL_KEYS or not value.startswith(('http://', 'https://')):
+                raise BindingRequired('OPAQUE_OPTION_STRINGS_REQUIRE_ENV_REFERENCES')
         if value.startswith(('http://', 'https://')):
             parsed = urlsplit(value)
-            if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            if not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
                 raise BindingRequired('CREDENTIAL_FREE_URL_REQUIRED')
     return value
 
@@ -175,7 +184,7 @@ def _selected(path, model_id):
     for spec in specs:
         if isinstance(spec, list):
             if len(spec) != 2: raise BindingRequired('HOST_PLUGIN_SPEC_INVALID')
-            plugins.append([_module(spec[0], base, modules), _safe(spec[1])])
+            plugins.append([_module(spec[0], base, modules), _safe(spec[1], 'options')])
         else: plugins.append(_module(spec, base, modules))
     config = {'model': model_id, 'small_model': model_id, 'enabled_providers': [provider_id],
               'provider': {provider_id: selected}}

@@ -6,5 +6,5 @@
   "source_policy": "REASSEMBLE_EXACT_WORKFLOW_HEAD",
   "carrier_scope": "HASH_LOCKED_OFFLINE_DEPENDENCIES_ONLY",
   "install_root": "D:/PFC/AITest",
-  "qualification_attempt": 2
+  "qualification_attempt": 3
 }

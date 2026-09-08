@@ -62,6 +62,16 @@ def one_task(role: str = "EXECUTOR") -> dict[str, object]:
     }
 
 
+class CascadeDeletingProvider(FakeOpenCodeSessionProvider):
+    """Mirror OpenCode 1.18.3's destructive parent/child deletion semantics."""
+
+    def delete_session(self, session_id: str) -> bool:
+        for child in list(self.sessions.values()):
+            if child.raw.get("parentID") == session_id:
+                self.delete_session(child.session_id)
+        return super().delete_session(session_id)
+
+
 class CrashAfterExternalCreateProvider(FakeOpenCodeSessionProvider):
     def __init__(self, directory: str | Path) -> None:
         super().__init__(directory)
@@ -172,7 +182,7 @@ def main() -> int:
         root = Path(td)
         spine = root / "runtime-spine.db"
         runtime = create_canonical_runtime(root, db_path=spine)
-        provider = FakeOpenCodeSessionProvider(root)
+        provider = CascadeDeletingProvider(root)
         service = G21AutonomousOrchestrationService(runtime, root, session_provider=provider)
         started = service.start_test(request("supervisor", "SUP-V"))
         mission_id = started["intake"]["intake"]["mission_id"]
@@ -208,6 +218,11 @@ def main() -> int:
         checks["two_phase_rotation_closes_predecessor_after_successor"] = (
             core_sessions.get(session_id) == "CLOSED"
             and core_sessions.get(rotation["successor_session_id"]) == "OPEN"
+        )
+        checks["worker_successor_survives_recursive_external_parent_deletion"] = (
+            session_id not in provider.sessions
+            and rotation["successor_session_id"] in provider.sessions
+            and provider.sessions[rotation["successor_session_id"]].raw.get("parentID") is None
         )
         rotation_state = restarted.session_control.state(mission_id).rotation(rotation["rotation_id"])
         checks["rotation_required_and_completed_are_durable"] = rotation_state is not None and rotation_state.status == "COMPLETED"
@@ -258,7 +273,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="pfc-g21-plan-rotate-") as td:
         root = Path(td)
         runtime = create_canonical_runtime(root, db_path=root / "runtime-spine.db")
-        provider = FakeOpenCodeSessionProvider(root)
+        provider = CascadeDeletingProvider(root)
         service = G21AutonomousOrchestrationService(runtime, root, session_provider=provider)
         started = service.start_test(request("plan-rotate", "PLAN-ROTATE-V"))
         mission_id = started["intake"]["intake"]["mission_id"]
@@ -267,6 +282,11 @@ def main() -> int:
         tick = service.supervise_once()
         planning_rotations = [item["result"] for item in tick["supervision"] if item.get("phase") == "PLANNING" and item.get("result", {}).get("status") == "ROTATED"]
         checks["preplan_planner_session_is_autonomously_supervised"] = bool(planning_rotations) and planning_rotations[0]["successor_session_id"] != predecessor
+        checks["planner_successor_survives_recursive_external_parent_deletion"] = (
+            predecessor not in provider.sessions
+            and planning_rotations[0]["successor_session_id"] in provider.sessions
+            and provider.sessions[planning_rotations[0]["successor_session_id"]].raw.get("parentID") is None
+        )
 
     # Reconciliation spans terminal Missions too; a package-owned Session
     # cannot leak merely because the Mission is no longer ACTIVE.

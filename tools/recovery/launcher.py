@@ -44,7 +44,14 @@ def read(path, default=None):
 
 def write(path, value):
     path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    temporary = path.with_name('.' + path.name + '.' + uuid.uuid4().hex + '.tmp')
+    try:
+        with temporary.open('x', encoding='utf-8') as output:
+            json.dump(value, output, ensure_ascii=False, indent=2)
+            output.write('\n'); output.flush(); os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def prepare():
@@ -295,10 +302,17 @@ def start_conversation(check_only=False, attach_runner=None):
                         raise RuntimeError('PROVIDER_MODEL_ADMISSION_PENDING')
                 # Session creation does not require model auth. Reuse the real
                 # Director entry Session; the Router still owns Worker Sessions.
-                previous = read(DATA / 'state/director-entry-session.json', {})
+                try: previous = read(DATA / 'state/director-entry-session.json', {})
+                except (OSError, ValueError, UnicodeError): previous = {}
+                # This reference is a disposable UI cache. Corruption must never
+                # become Runtime Truth or prevent entry into a healthy Runtime.
+                previous_id = previous.get('session_id') if isinstance(previous, dict) else None
+                valid_id = (isinstance(previous_id, str) and previous_id.startswith('ses_')
+                            and len(previous_id) <= 160 and previous_id.isascii()
+                            and all(c.isalnum() or c in '_-' for c in previous_id))
                 session = None
-                if isinstance(previous, dict) and previous.get('session_id'):
-                    try: session = request('/session/' + previous['session_id'], timeout=20)
+                if valid_id:
+                    try: session = request('/session/' + previous_id, timeout=20)
                     except Exception: pass
                 if not session:
                     title = 'AITest Director'

@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import zipfile
 
 from build_package import build, SOURCE_IDENTITY_FORMULA
 
@@ -23,6 +24,62 @@ def committed_identity(repo: Path, head: str) -> tuple[str, dict[str, str]]:
 
 
 class SourceIdentitySealCheck(unittest.TestCase):
+    def test_clean_crlf_registry_checkout_cannot_replace_committed_archive_bytes(self):
+        with tempfile.TemporaryDirectory(prefix='aitest-build-crlf-identity-') as temporary:
+            root = Path(temporary); repo = root / 'source'; repo.mkdir()
+            git(repo, 'init', '-q')
+            git(repo, 'config', 'core.autocrlf', 'true')
+            files = {
+                'INSTALL.sh': '#!/bin/sh\n', 'AITEST.sh': '#!/bin/sh\n',
+                'INSTALL_MANIFEST.json': '{"status":"NOT_INSTALLED"}\n',
+                'tools/recovery/install.py': '# construction fixture\n',
+                'tools/recovery/launcher.py': '# construction fixture\n',
+                'tools/recovery/validate_package.py': '# construction fixture\n',
+                'VALIDATION_README.md': 'fixture\n', 'CAPABILITY_PARITY_MATRIX.md': 'fixture\n',
+                'MACHINE_VALIDATION_RESULT.json': '{}\n', 'PACKAGE_MANIFEST.json': '{}\n',
+                'OFFLINE_PAYLOAD_REGISTRY.json': '{\n  "staged_artifacts": []\n}\n',
+            }
+            for relative, content in files.items():
+                path = repo / relative; path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content.encode('utf-8'))
+            git(repo, 'add', '.')
+            git(repo, '-c', 'user.name=Construction Check', '-c', 'user.email=construction@example.invalid',
+                '-c', 'commit.gpgsign=false', 'commit', '-qm', 'CRLF construction fixture')
+            head = git(repo, 'rev-parse', 'HEAD').decode().strip()
+            committed_registry = git(repo, 'show', head + ':OFFLINE_PAYLOAD_REGISTRY.json')
+            self.assertNotIn(b'\r\n', committed_registry)
+            registry = repo / 'OFFLINE_PAYLOAD_REGISTRY.json'
+            registry.unlink()
+            git(repo, 'checkout', '--', 'OFFLINE_PAYLOAD_REGISTRY.json')
+            self.assertIn(b'\r\n', registry.read_bytes())
+            self.assertNotEqual(registry.read_bytes(), committed_registry)
+            # This is the real Windows failure condition: different physical
+            # bytes while Git still reports the exact source checkout as clean.
+            self.assertEqual(git(repo, 'status', '--porcelain'), b'')
+            stage = root / 'stage'
+            for relative in ['python/python.exe', 'python/python312.dll', 'opencode/opencode.exe',
+                             'browser/chrome-win64/chrome.exe',
+                             'code-intelligence/codegraph/codegraph-server-win32-x64.exe',
+                             'code-intelligence/codegraph/onnxruntime.dll']:
+                path = stage / 'workspace-template/runtime' / relative
+                path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'construction fixture bytes')
+            result = build(repo, stage, root / 'output', '1.12.0', store_only=True)
+            bundle = Path(result['bundle'])
+            committed_sha = hashlib.sha256(committed_registry).hexdigest()
+            delivered = (bundle / 'OFFLINE_PAYLOAD_REGISTRY.json').read_bytes()
+            self.assertEqual(delivered, committed_registry)
+            checksums = json.loads((bundle / 'FILE_SHA256.json').read_text())
+            provenance = json.loads((bundle / 'BUILD_PROVENANCE.json').read_text())
+            expected_identity, _ = committed_identity(repo, head)
+            self.assertEqual(result['source_content_identity'], expected_identity)
+            self.assertEqual(checksums['OFFLINE_PAYLOAD_REGISTRY.json'], committed_sha)
+            self.assertEqual(provenance['registry_sha256'], committed_sha)
+            source_entries = {entry['path']: entry['sha256'] for entry in provenance['source_identity']['files']}
+            self.assertEqual(source_entries['OFFLINE_PAYLOAD_REGISTRY.json'], committed_sha)
+            with zipfile.ZipFile(result['zip']) as archive:
+                self.assertEqual(archive.read(bundle.name + '/OFFLINE_PAYLOAD_REGISTRY.json'), committed_registry)
+            self.assertEqual(git(repo, 'status', '--porcelain'), b'')
+
     def test_committed_identity_is_refreshed_and_excludes_payload_overlays(self):
         with tempfile.TemporaryDirectory(prefix='aitest-build-identity-') as temporary:
             root = Path(temporary); repo = root / 'source'; repo.mkdir()
