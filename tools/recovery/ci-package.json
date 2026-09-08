@@ -1,8 +1,8 @@
 {
   "draft_release_tag": "v1.12.0-recovery-validation-ci",
-  "asset_name": "CI-988fb5086df1-AITest-V1.12.0-Recovery-Turnkey-Windows-x64.zip",
-  "expected_sha256": "f7ab71ad6aff72927754f13c1a65186af39c7c68f5734deea36c9eee78182477",
-  "source_head": "988fb5086df1e1d45b5cbb2a4a6d7acd6639aa9e",
-  "local_validation_asset": "LOCAL-988fb5086df1.json",
-  "local_validation_sha256": "7e883a2d03c9d30675659411552cda787109f10057e62b88cddbda927f80c21c"
+  "asset_name": "CI-0ab5e55a21b8-AITest-V1.12.0-Recovery-Turnkey-Windows-x64.zip",
+  "expected_sha256": "a091da1eaf32c329e6a71e7f4c18e404a2716e9e4dde75ca3ee3aea187c43e4f",
+  "source_head": "0ab5e55a21b898ed467e42129016d2a9886c658b",
+  "local_validation_asset": "LOCAL-0ab5e55a21b8.json",
+  "local_validation_sha256": "8fb094ea6d8b82d720afa05e6f8e62e9b8835ed7b075bbcb8d4131db88e5fdfb"
 }
