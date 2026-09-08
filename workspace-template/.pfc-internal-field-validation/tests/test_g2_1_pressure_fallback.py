@@ -31,6 +31,44 @@ def reasons(pressure):
 
 
 class PressureTests(unittest.TestCase):
+    def test_orphan_cleanup_preserves_new_durable_provision_after_snapshot(self):
+        class ConcurrentProvider(FakeOpenCodeSessionProvider):
+            calls=0
+            after_snapshot=None
+            def list_sessions(self):
+                self.calls+=1
+                if self.calls==2 and self.after_snapshot:
+                    callback=self.after_snapshot;self.after_snapshot=None;callback()
+                return super().list_sessions()
+        for new_mission in (True,False):
+            with self.subTest(new_mission=new_mission), tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);runtime=create_canonical_runtime(root,db_path=root/'runtime.db')
+                provider=ConcurrentProvider(root)
+                service=G21AutonomousOrchestrationService(runtime,root,session_provider=provider)
+                original=service.start_test(request('original-mission','ORIGINAL'))['intake']['intake']['mission_id']
+                if not new_mission:
+                    proposal=one_task();second=dict(proposal['tasks'][0]);second['task_key']='next-worker'
+                    second['routing']={**second['routing'],'role':'EVALUATOR'}
+                    proposal['tasks'].append(second)
+                    proposal['dependencies']=[{'predecessor':'routed-work','successor':'next-worker'}]
+                    first=service.propose_plan(original,proposal)['next']
+                orphan=provider.create_session(title='[AITEST_PROVISION:unowned-orphan] orphan')
+                fresh=[]
+                def dispatch_concurrently():
+                    if new_mission:
+                        mission=service.start_test(request('concurrent-mission','CONCURRENT'))['intake']['intake']['mission_id']
+                        fresh.append(next(p.external_session_id for p in service.session_control.state(mission).provisions if p.role=='PLANNER'))
+                    else:
+                        result=service.report_task_outcome(original,task_id=first['task_id'],attempt_id=first['attempt']['attempt_id'],
+                            session_id=first['external_session']['session_id'],outcome='SUCCEEDED',summary='Synthetic completed work')
+                        fresh.append(result['next']['external_session']['session_id'])
+                provider.calls=0;provider.after_snapshot=dispatch_concurrently
+                result=service.reconcile_external_sessions()
+                self.assertTrue(fresh)
+                self.assertIn(fresh[0],provider.sessions,'New durably registered Session was incorrectly deleted as an orphan')
+                self.assertNotIn(orphan.session_id,provider.sessions)
+                self.assertNotIn(fresh[0],result['orphan_package_sessions_closed'])
+
     def test_control_write_retries_observation_race_but_rejects_semantic_race(self):
         from aitest_runtime.durable_core import ActorRef, CommandEnvelope
         from aitest_runtime.g2_1.contracts import REGISTER_TASK_ROUTE, TASK_ROUTE_REGISTERED

@@ -982,10 +982,6 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         failures: list[dict[str, Any]] = []
         all_mission_ids = self._all_mission_ids()
         active_mission_ids = set(self._active_mission_ids())
-        known_tokens: set[str] = set()
-        for durable_mission_id in all_mission_ids:
-            known_tokens.update(intent.provision_token for intent in self.session_control.state(durable_mission_id).provisions)
-
         def close_external(item: ExternalSession, *, status: str, mission_id: str | None = None, token: str | None = None) -> bool:
             try:
                 self.raw_session_provider.delete_session(item.session_id)
@@ -1066,7 +1062,18 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         unrelated_untagged: list[str] = []
         # Refresh the provider list because duplicate/terminal cleanup above may
         # have changed it, and recovery may have created a deterministic Session.
-        for item in self.raw_session_provider.list_sessions():
+        refreshed_external = list(self.raw_session_provider.list_sessions())
+        # The Scheduler (or recovery above) can persist a new ProvisionIntent
+        # and create its Session while this reconciliation pass is running.
+        # R1 intent is committed BEFORE the external create. Read R1 AFTER this
+        # final external snapshot so a newly visible valid Session cannot be
+        # deleted using the stale token set captured at the start of the pass.
+        known_tokens = {
+            intent.provision_token
+            for durable_mission_id in self._all_mission_ids()
+            for intent in self.session_control.state(durable_mission_id).provisions
+        }
+        for item in refreshed_external:
             token = ProvisioningOpenCodeSessionProvider.token_from_title(item.title)
             if token is None:
                 unrelated_untagged.append(item.session_id)

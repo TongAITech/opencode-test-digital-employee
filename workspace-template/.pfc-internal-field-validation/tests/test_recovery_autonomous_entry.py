@@ -362,7 +362,7 @@ def main():
             assert len({p.logical_agent_id for p in stress_workers}) == 1
             assert not any('SESSION_UNREACHABLE' in r.reasons for r in state.rotations), json.dumps({
                 'rotations':[r.to_dict() for r in state.rotations if 'SESSION_UNREACHABLE' in r.reasons],
-                'observations':[o.to_dict() for o in state.observations if o.provider_state.get('reachable') is False]},ensure_ascii=False)
+                'observations':[o.to_dict() for o in state.observations if o.reachable is False]},ensure_ascii=False)
             rotation_evidence = []
             for rotation in rotations:
                 checkpoint = rotation.checkpoint
