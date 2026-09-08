@@ -31,6 +31,37 @@ def reasons(pressure):
 
 
 class PressureTests(unittest.TestCase):
+    def test_control_write_retries_observation_race_but_rejects_semantic_race(self):
+        from aitest_runtime.durable_core import ActorRef, CommandEnvelope
+        from aitest_runtime.g2_1.contracts import REGISTER_TASK_ROUTE, TASK_ROUTE_REGISTERED
+        for observation_only in (True, False):
+            with self.subTest(observation_only=observation_only), tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);runtime=create_canonical_runtime(root,db_path=root/'runtime.db')
+                service=G21AutonomousOrchestrationService(runtime,root,session_provider=FakeOpenCodeSessionProvider(root))
+                mission=service.start_test(request('control-race','RACE'))['intake']['intake']['mission_id']
+                sid=next(p.external_session_id for p in service.session_control.state(mission).provisions if p.role=='PLANNER')
+                original=runtime.execute;injected=[]
+                def racing_execute(command):
+                    if isinstance(command,CommandEnvelope) and command.type==REGISTER_TASK_ROUTE and not injected:
+                        injected.append(command)
+                        if observation_only:
+                            service.session_control.record_observation(mission,SessionObservation.from_provider(sid,{'reachable':True,'healthy':True,'message_count':1}).to_dict())
+                        else:
+                            changed=original(CommandEnvelope('semantic-close','CLOSE_SESSION',mission,runtime.get_head_seq(mission),ActorRef('SYSTEM','test'),{'reason':'SEMANTIC_CHANGE'},session_id=sid))
+                            self.assertTrue(changed.ok)
+                    return original(command)
+                runtime.execute=racing_execute
+                if observation_only:
+                    self.assertEqual(service.propose_plan(mission,one_task())['status'],'PASS')
+                    routes=[e for e in runtime.list_events(mission) if e.event_type==TASK_ROUTE_REGISTERED]
+                    self.assertEqual(len(routes),1)
+                    self.assertIn(':observation-cursor:',routes[0].command_id)
+                    self.assertEqual(routes[0].correlation_id,injected[0].correlation_id)
+                else:
+                    with self.assertRaisesRegex(Exception,'EXPECTED_SEQ_MISMATCH'):
+                        service.propose_plan(mission,one_task())
+                    self.assertFalse(any(e.event_type==TASK_ROUTE_REGISTERED for e in runtime.list_events(mission)))
+
     def test_large_multilingual_tool_output_rotates_before_estimate_warning(self):
         pressure = message_metrics([message(parts=[{"type": "tool", "state": {"output": "业务内容" * 2000}}])], "session-1")
         self.assertIn("ESTIMATED_CONTEXT_PRESSURE", reasons(pressure))
@@ -59,6 +90,34 @@ class PressureTests(unittest.TestCase):
         first["info"].update({"tokens": {"input": 500, "output": 20}, "time": {"created": 1}})
         last["info"].update({"tokens": {"input": 100, "output": 10, "cache": {"read": 50, "write": 5}}, "time": {"created": 2}})
         self.assertEqual(message_metrics([last, first], "session-1")["observed_message_tokens"], 165)
+        streaming=message(2);streaming["info"].update({"tokens":{"input":0,"output":0},"time":{"created":3}})
+        self.assertEqual(message_metrics([first,last,streaming],"session-1")["observed_message_tokens"],165)
+
+    def test_actual_model_capacity_prevents_small_budget_rotation_loop(self):
+        with tempfile.TemporaryDirectory() as directory:
+            provider=DirectoryScopedOpenCodeSessionProvider(directory)
+            item=message(text="synthetic planner analysis "*2000)
+            item['info'].update(providerID='host',modelID='large-model')
+            def transport(method,path,body=None):
+                if '/message?' in path:return [item]
+                if path.startswith('/provider?'):return {'all':[{'id':'host','models':{'large-model':{'limit':{'context':200000}}}}]}
+                return {'id':'session-1'}
+            provider._request=transport
+            value=provider.observe_session('session-1')
+            self.assertEqual(value['context_limit'],200000)
+            self.assertNotIn('ESTIMATED_CONTEXT_PRESSURE',reasons(value['pressure']))
+            self.assertEqual(value['pressure']['model_context_capacity']['source'],'OPENCODE_PROVIDER_MODEL_CATALOG')
+            item['parts'][0]['text']='synthetic work '*15000
+            self.assertIn('ESTIMATED_CONTEXT_PRESSURE',reasons(provider.observe_session('session-1')['pressure']))
+
+    def test_unknown_model_catalog_does_not_relax_fallback_budget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            provider=DirectoryScopedOpenCodeSessionProvider(directory)
+            item=message(text='synthetic work '*4000);item['info'].update(providerID='host',modelID='unavailable')
+            provider._request=lambda method,path,body=None: [item] if '/message?' in path else {'all':[]} if path.startswith('/provider?') else {'id':'session-1'}
+            value=provider.observe_session('session-1')
+            self.assertIsNone(value['context_limit'])
+            self.assertIn('ESTIMATED_CONTEXT_PRESSURE',reasons(value['pressure']))
 
     def test_provider_fallback_keeps_model_limit_unknown(self):
         provider = DirectoryScopedOpenCodeSessionProvider(WORKSPACE_ROOT)

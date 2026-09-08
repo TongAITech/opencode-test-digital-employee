@@ -18,7 +18,7 @@ ROTATE_TURN_BUDGET = 24
 ROTATE_ACTIVITY_BUDGET = 48
 ROTATE_BLIND_ACTIVITY_BUDGET = 12
 ROTATE_BLIND_SECONDS = 300
-POLICY_ID = "g2.1-opencode-1.18.3-pressure-v1"
+POLICY_ID = "g2.1-host-model-catalog-pressure-v2"
 
 
 class ObservationBudgetExceeded(RuntimeError):
@@ -37,6 +37,8 @@ def message_metrics(payload: Any, session_id: str) -> dict[str, Any]:
     turns = activities = compactions = content_bytes = 0
     latest_tokens: int | None = None
     latest_token_time = -1.0
+    model_identity = None
+    model_time = -1.0
     seen: set[str] = set()
     for message in payload:
         if not isinstance(message, Mapping) or not isinstance(message.get("info"), Mapping) or not isinstance(message.get("parts"), list):
@@ -58,10 +60,15 @@ def message_metrics(payload: Any, session_id: str) -> dict[str, Any]:
             activities += int(part.get("type") in {"tool", "step-finish"})
         tokens = info.get("tokens")
         stamp = number((info.get("time") or {}).get("created")) if isinstance(info.get("time"), Mapping) else None
+        identity = {key: info.get(key) for key in ("providerID", "modelID")}
+        if all(isinstance(v,str) and 0<len(v)<=256 for v in identity.values()) and (stamp or 0)>=model_time:
+            model_identity=identity;model_time=stamp or 0
         if isinstance(tokens, Mapping):
             cache = tokens.get("cache") if isinstance(tokens.get("cache"), Mapping) else {}
             values = [number(tokens.get("input")), number(tokens.get("output")), number(cache.get("read")), number(cache.get("write"))]
-            if values[0] is not None and (stamp or 0) >= latest_token_time:
+            # Streaming assistant placeholders often contain all-zero tokens;
+            # they cannot erase the latest completed input/cache observation.
+            if values[0] is not None and sum(values[i] or 0 for i in (0,2,3))>0 and (stamp or 0) >= latest_token_time:
                 latest_tokens = int(sum(value or 0 for value in values))
                 latest_token_time = stamp or 0
     estimate = content_bytes + CONTEXT_RESERVE
@@ -71,6 +78,7 @@ def message_metrics(payload: Any, session_id: str) -> dict[str, Any]:
         "estimated_context_used": estimate, "estimated_context_budget": ESTIMATED_CONTEXT_BUDGET,
         "estimated_context_utilization": estimate / ESTIMATED_CONTEXT_BUDGET,
         "observed_message_tokens": latest_tokens,
+        "model_identity": model_identity,
         "message_sample_limit": MESSAGE_SAMPLE_LIMIT,
         "message_sample_saturated": len(seen) >= MESSAGE_SAMPLE_LIMIT,
         "metrics_source": "OPENCODE_MESSAGE_API", "estimate_method": "UTF8_BYTES_PLUS_FRAMING_AND_4096_RESERVE",

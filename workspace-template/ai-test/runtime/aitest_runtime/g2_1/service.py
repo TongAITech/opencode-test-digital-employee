@@ -1,7 +1,30 @@
 from __future__ import annotations
+from dataclasses import replace
 from typing import Any, Mapping
 from aitest_runtime.durable_core import ActorRef, CommandEnvelope, RuntimeService, canonical_sha256
 from .contracts import *
+
+def execute_control_command(runtime: RuntimeService, command: CommandEnvelope):
+    """Rebase G2.1 control writes only across additive health observations.
+
+    Rejected commands remain immutable in R1. Each bounded retry therefore has
+    its own cursor-qualified command ID, with the original correlation and
+    idempotency identity. No Plan, Task or other semantic event is crossed.
+    """
+    original_id = command.command_id
+    for attempt in range(5):
+        result = runtime.execute(command)
+        if result.ok or not result.error or result.error.code != "EXPECTED_SEQ_MISMATCH":
+            return result
+        if command.type not in COMMAND_TYPES | {"CLOSE_SESSION"}:
+            return result
+        head = runtime.get_head_seq(command.mission_id)
+        events = runtime.list_events(command.mission_id, after_seq=command.expected_seq, through_seq=head)
+        if not events or any(event.event_type != SESSION_OBSERVATION_RECORDED for event in events):
+            return result
+        if attempt < 4:
+            command = replace(command, expected_seq=head, command_id=f"{original_id}:observation-cursor:{head}")
+    return result
 
 class SessionControlApplicationService:
     def __init__(self, runtime: RuntimeService):
@@ -12,7 +35,7 @@ class SessionControlApplicationService:
         if not isinstance(value, SessionControlState): raise RuntimeError("G2_1_STATE_INVALID")
         return value
     def _execute(self, mission_id: str, command_id: str, type_: str, payload: Mapping[str, Any], session_id: str | None = None):
-        result=self.runtime.execute(CommandEnvelope(command_id, type_, mission_id, self.runtime.get_head_seq(mission_id), ActorRef("SYSTEM","g2.1-session-control"), dict(payload), session_id=session_id, idempotency_key=command_id, correlation_id=command_id, schema_version=1))
+        result=execute_control_command(self.runtime, CommandEnvelope(command_id, type_, mission_id, self.runtime.get_head_seq(mission_id), ActorRef("SYSTEM","g2.1-session-control"), dict(payload), session_id=session_id, idempotency_key=command_id, correlation_id=command_id, schema_version=1))
         if not result.ok:
             if result.error: raise result.error
             raise RuntimeError("G2_1_COMMAND_REJECTED")

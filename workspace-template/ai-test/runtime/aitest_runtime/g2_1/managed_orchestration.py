@@ -33,7 +33,7 @@ from ..execution_context import (BuildExecutionContextRequest, ContextTarget, Ev
                                  ExecutionContextApplicationService, KnowledgeSetInput)
 from ..session_pressure import POLICY_ID as PRESSURE_POLICY_ID
 from .router import AgentRoleRegistry, RouteDecision, SessionRouter, TASK_OUTCOME_REPORT
-from .service import SessionControlApplicationService
+from .service import SessionControlApplicationService, execute_control_command
 from .supervisor import RotationPolicy, SessionObservation, durable_pressure
 
 
@@ -286,7 +286,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             if session.status.value != "OPEN" or attrs.get("phase") != "PLANNING":
                 continue
             close_id = f"g2.1:planning:{session.session_id}:PLAN_ACCEPTED:CLOSE"
-            result = self.runtime.execute(CommandEnvelope(
+            result = execute_control_command(self.runtime, CommandEnvelope(
                 close_id, "CLOSE_SESSION", mission_id, self.runtime.get_head_seq(mission_id),
                 ActorRef("SYSTEM", "g2.1-session-router"), {"reason": "PLAN_ACCEPTED"},
                 session_id=session.session_id, idempotency_key=close_id, correlation_id=close_id, schema_version=1,
@@ -635,7 +635,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         predecessor = after.core_state.session(predecessor_session_id)
         if predecessor is not None and predecessor.status.value != "CLOSED":
             close_id = f"g2.1:rotation:{rotation_id}:CLOSE_PREDECESSOR"
-            close = self.runtime.execute(CommandEnvelope(
+            close = execute_control_command(self.runtime, CommandEnvelope(
                 close_id, "CLOSE_SESSION", mission_id, self.runtime.get_head_seq(mission_id),
                 ActorRef("SYSTEM", "g2.1-session-supervisor"),
                 {"reason": reason, "rotation_id": rotation_id},

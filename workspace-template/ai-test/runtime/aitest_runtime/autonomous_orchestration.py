@@ -25,6 +25,7 @@ import base64
 import json
 import os
 import sqlite3
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -33,6 +34,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Protocol
+
+# Disposable 60-second capability cache, never durable Runtime authority.
+# Every used identity/digest/limit is recorded in the R1 Session observation.
+_MODEL_LIMIT_CACHE: dict[tuple[str,str,str,str], tuple[float,dict[str,Any]]] = {}
 
 from .durable_core import ActorRef, CommandEnvelope, MissionStatus, RuntimeService, canonical_sha256
 from .execution_context import KnowledgeSetInput
@@ -200,8 +205,10 @@ class DirectoryScopedOpenCodeSessionProvider:
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 observation = method == "GET" and "/message?" in path
-                raw = response.read(MAX_OBSERVATION_BYTES + 1) if observation else response.read()
-                if observation and len(raw) > MAX_OBSERVATION_BYTES:
+                catalog = method == "GET" and path.startswith("/provider?")
+                budget = 16*1024*1024 if catalog else MAX_OBSERVATION_BYTES
+                raw = response.read(budget + 1) if observation or catalog else response.read()
+                if (observation or catalog) and len(raw) > budget:
                     raise ObservationBudgetExceeded("OPENCODE_OBSERVATION_BYTE_BUDGET")
                 if not raw:
                     return None
@@ -218,6 +225,23 @@ class DirectoryScopedOpenCodeSessionProvider:
 
     def _directory_query(self) -> str:
         return urllib.parse.urlencode({"directory": self.directory})
+
+    def _model_context_capacity(self, identity: Mapping[str,Any]) -> dict[str,Any]:
+        provider_id,model_id=identity["providerID"],identity["modelID"]
+        key=(self.base_url,self.directory,provider_id,model_id);now=time.monotonic()
+        cached=_MODEL_LIMIT_CACHE.get(key)
+        if cached and now-cached[0]<60:return dict(cached[1])
+        catalog=self._request("GET",f"/provider?{self._directory_query()}")
+        providers=catalog.get("all",[]) if isinstance(catalog,Mapping) else []
+        provider=next((p for p in providers if isinstance(p,Mapping) and p.get("id")==provider_id),{})
+        model=(provider.get("models") or {}).get(model_id,{})
+        limit=number((model.get("limit") or {}).get("context"))
+        if limit is None or not 8192<=limit<=2_000_000:return {}
+        metadata={"provider_id":provider_id,"model_id":model_id,"context_limit":int(limit)}
+        result={**metadata,"source":"OPENCODE_PROVIDER_MODEL_CATALOG","model_metadata_digest":canonical_sha256(metadata),"observed_at":_utc_now()}
+        if len(_MODEL_LIMIT_CACHE)>=64:_MODEL_LIMIT_CACHE.clear()
+        _MODEL_LIMIT_CACHE[key]=(now,result)
+        return dict(result)
 
     @staticmethod
     def _session_id(payload: Any) -> str | None:
@@ -370,6 +394,19 @@ class DirectoryScopedOpenCodeSessionProvider:
                 compaction_count = max(compaction_count or 0, fallback["compaction_count"])
                 if context_used is None:
                     context_used = fallback["observed_message_tokens"]
+                if context_limit is None and fallback.get("model_identity"):
+                    try:
+                        capacity=self._model_context_capacity(fallback["model_identity"])
+                        if capacity:
+                            context_limit=capacity["context_limit"]
+                            fallback["model_context_capacity"]=capacity
+                    except OpenCodeSessionAdmissionPending:raise
+                    except Exception as exc:fallback["model_capacity_error"]=type(exc).__name__
+                if context_limit:
+                    # The same conservative byte estimate uses the actual
+                    # model's advertised capacity, not a universal 32K ceiling.
+                    fallback["estimated_context_budget"]=context_limit
+                    fallback["estimated_context_utilization"]=fallback["estimated_context_used"]/context_limit
                 if context_utilization is None and context_used is not None and context_limit:
                     context_utilization = context_used / context_limit
             except OpenCodeSessionAdmissionPending:

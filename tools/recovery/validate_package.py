@@ -36,7 +36,7 @@ def run(command, cwd, env, timeout=240, required_stdout=None):
                 'structured_report': structured,
                 'required_stdout': required_stdout, 'required_stdout_observed': content_ok,
                 'stdout': process.stdout if len(process.stdout) <= 14000 else process.stdout[:7000] + '\n[output truncated]\n' + process.stdout[-7000:],
-                'stderr': process.stderr[-6000:]}
+                'stderr': process.stderr if len(process.stderr)<=12000 else process.stderr[:6000]+'\n[stderr truncated]\n'+process.stderr[-6000:]}
     except Exception as exc:
         return {'status': 'FAIL', 'error': type(exc).__name__, 'message': str(exc),
                 'elapsed_s': round(time.monotonic() - started, 2)}
