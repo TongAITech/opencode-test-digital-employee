@@ -39,7 +39,7 @@ jobs:
           $trigger = Get-Content tools/recovery/probe-cdp-trigger.json -Raw | ConvertFrom-Json
           if ($trigger.mode -eq 'teaching-repair') {
             $env:AITEST_BROWSER_SMOKE_CHROMIUM = "$env:AITEST_BUNDLE/workspace-template/runtime/browser/chrome-win64/chrome.exe"
-            & "$env:AITEST_BUNDLE/workspace-template/runtime/python/python.exe" -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_recovery_browser.py > browser-probe-teaching.log 2>&1
+            & "$env:AITEST_BUNDLE/workspace-template/runtime/python/python.exe" -X utf8 -c "import sys,runpy; from pathlib import Path; p=sys.argv[1]; sys.path.insert(0,str(Path(p).resolve().parent)); sys.argv=[p]; runpy.run_path(p,run_name='__main__')" workspace-template/.pfc-internal-field-validation/tests/test_recovery_browser.py > browser-probe-teaching.log 2>&1
           } else {
             & "$env:AITEST_BUNDLE/workspace-template/runtime/python/python.exe" -X utf8 tools/recovery/probe_cdp.py --chrome "$env:AITEST_BUNDLE/workspace-template/runtime/browser/chrome-win64/chrome.exe" --output browser-probe.json > browser-probe.log 2>&1
           }
