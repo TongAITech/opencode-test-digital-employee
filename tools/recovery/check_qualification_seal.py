@@ -189,5 +189,35 @@ class QualificationSealGuards(unittest.TestCase):
         self.assert_rejected(bundle, message='REC3_FINAL_CLOSURE_GATES_NOT_PASS')
 
 
+class SemanticEvidenceGuards(unittest.TestCase):
+    def test_real_model_admission_rejects_wrong_source_fixture_or_missing_receipts(self):
+        from datetime import datetime,timezone,timedelta
+        from semantic_evidence import admit_semantic_report
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);harness=root/'harness.py';harness.write_text('SYNTHETIC ADMISSION TEST ONLY')
+            report={
+                'schema_version':'aitest.real-semantic-planner-proof.v1',
+                'classification':'REAL_HOST_MODEL_SEMANTIC_PLANNING_ONLY','source_head':SOURCE_HEAD,
+                'source_clean':True,'status':'PASS','product_version':'1.13.0','semantic_planner':'REAL_HOST_MODEL',
+                'script_authored_plan':False,'host_provider_auth_copied':False,'BANK_FIELD_VALIDATION_REQUIRED':True,
+                'external_input_scope':'PUBLIC_PACKAGE_AND_SYNTHETIC_LOCAL_LOAN_ONLY','user_request':'测试 BLOAN-PF1.1.0',
+                'harness_sha256':sha(harness),'gates':{'AUTONOMOUS_PLAN':'PASS'},
+                'completed_at':datetime.now(timezone.utc).isoformat(),'director_session_id':'director',
+                'planner_sessions':['planner'],'worker_sessions':['worker'],'task_count':2,'r1_cursor':30,
+                'plan_events':[{'type':'synthetic-test-only'}],'model_identities':[{'provider_id':'test-admission-only','model_id':'not-an-execution-proof'}],
+                'tool_receipts':[{'tool':'aitest_director','action':'start_test','session_id':'director','status':'completed'},
+                    {'tool':'aitest_planner','action':'propose_plan','session_id':'planner','status':'completed','task_count':2,'proposal_digest':'c'*64}],
+            }
+            path=root/'report.json';write(path,report)
+            self.assertEqual(admit_semantic_report(path,SOURCE_HEAD,harness)['status'],'PASS')
+            for key,value in [('source_head',OTHER_HEAD),('source_clean',False),('script_authored_plan',True),
+                    ('harness_sha256','0'*64),('tool_receipts',[]),('worker_sessions',['planner']),
+                    ('model_identities',[{'provider_id':'fixture','model_id':'fixture'}]),
+                    ('completed_at',(datetime.now(timezone.utc)-timedelta(days=2)).isoformat())]:
+                with self.subTest(key=key):
+                    write(path,{**report,key:value})
+                    with self.assertRaises(ValueError):admit_semantic_report(path,SOURCE_HEAD,harness)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

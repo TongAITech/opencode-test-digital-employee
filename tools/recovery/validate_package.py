@@ -46,6 +46,7 @@ def main():
     parser = argparse.ArgumentParser(); parser.add_argument('--bundle', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True); parser.add_argument('--source-only', action='store_true')
     parser.add_argument('--installed',type=Path); parser.add_argument('--installed-b',type=Path)
+    parser.add_argument('--semantic-report',type=Path)
     args = parser.parse_args(); bundle = args.bundle.resolve(); workspace = bundle / 'workspace-template'
     tests = workspace / '.pfc-internal-field-validation/tests'
     installed=args.installed.resolve() if args.installed else None
@@ -174,6 +175,15 @@ def main():
     gates['NATURAL_LANGUAGE_MISSION_ENTRY']=gates.get('NATURAL_LANGUAGE_START_TEST','NOT_PROVEN')
     # A deterministic protocol fixture proves transport/routing, not semantic AI.
     gates['AUTONOMOUS_PLANNER']='PASS' if gates.get('AUTONOMOUS_PLAN')=='PASS' else 'REAL_SEMANTIC_MODEL_VALIDATION_REQUIRED'
+    semantic_proof=None
+    if args.semantic_report:
+        from semantic_evidence import admit_semantic_report
+        try:
+            semantic_proof=admit_semantic_report(args.semantic_report,source_head,bundle/'tools/recovery/qualify_real_model.py')
+            gates['AUTONOMOUS_PLANNER']='PASS';gate_evidence['AUTONOMOUS_PLANNER']=semantic_proof
+        except Exception as exc:
+            gates['AUTONOMOUS_PLANNER']='INVALID_SEMANTIC_EVIDENCE'
+            gate_evidence['AUTONOMOUS_PLANNER']={'status':'FAIL','reason':str(exc)}
     if results.get('test_recovery_autonomous_entry.py',{}).get('status')=='PASS':
         gates['BOUNDED_EVIDENCE']='PASS';gate_evidence['BOUNDED_EVIDENCE']={'suite':'test_recovery_autonomous_entry.py','status':'PASS'}
     regression=[name for name in suites if name.startswith(('test_g1','test_g2','test_g3','test_g4','test_g5'))]
@@ -187,7 +197,7 @@ def main():
               'source_head': source_head,
               'LOCAL_VALIDATION_PASS': passed, 'WINDOWS_CI_PASS': gates['WINDOWS_FULL_QUALIFICATION']=='PASS', 'WINDOWS_EXECUTION_TESTS_PASS': windows_execution_pass,
               'BANK_FIELD_VALIDATION_REQUIRED': True,
-              'real_model_BLOAN_turn': 'AUTH_REQUIRED / NOT_EXECUTED',
+              'real_model_BLOAN_turn': 'SYNTHETIC_REAL_MODEL_PLANNER_PASS' if semantic_proof else 'REAL_SEMANTIC_MODEL_VALIDATION_REQUIRED',
               'bank_4A_Starlink_CAT_DB': 'BANK_BINDING_REQUIRED / NOT_EXECUTED',
               'fixture_boundary': 'Contract suites use synthetic requirements and OpenCode HTTP fixtures; HTTP/UI/pytest/k6 payload smoke uses a real local test server. None is bank evidence.',
               'suites': results, 'payloads': payloads,'installed_runtime_roots':[str(x) for x in (installed,installed_b) if x],

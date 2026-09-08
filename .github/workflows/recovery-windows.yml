@@ -17,6 +17,14 @@ on:
         description: Exact carrier SHA256
         required: true
         type: string
+      semantic_asset:
+        description: Fresh real-host semantic proof JSON from the same draft release and exact source HEAD
+        required: false
+        type: string
+      semantic_sha256:
+        description: Exact SHA256 of the real-host semantic proof
+        required: false
+        type: string
 permissions:
   # GitHub requires write access to retrieve assets from an unpublished draft.
   contents: write
@@ -41,6 +49,8 @@ jobs:
           RELEASE_TAG: ${{ inputs.draft_release_tag }}
           ASSET_NAME: ${{ inputs.asset_name }}
           EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+          SEMANTIC_ASSET: ${{ inputs.semantic_asset }}
+          SEMANTIC_SHA256: ${{ inputs.semantic_sha256 }}
         run: |
           if ($env:GITHUB_EVENT_NAME -eq 'push') {
             $config = Get-Content tools/recovery/ci-package.json -Raw | ConvertFrom-Json
@@ -61,6 +71,16 @@ jobs:
           Expand-Archive -Path $zip -DestinationPath $unpacked
           $carrier = Get-ChildItem $unpacked -Directory | Select-Object -First 1
           "AITEST_CARRIER=$($carrier.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          if ($env:SEMANTIC_ASSET) {
+            if ($env:SEMANTIC_SHA256 -notmatch '^[a-fA-F0-9]{64}$') { throw 'Invalid semantic proof SHA256' }
+            gh release download $env:RELEASE_TAG --repo $env:GH_REPO --pattern $env:SEMANTIC_ASSET --dir $incoming
+            if ($LASTEXITCODE -ne 0) { throw 'Real semantic proof retrieval failed' }
+            $proof = Join-Path $incoming $env:SEMANTIC_ASSET
+            if ((Get-FileHash $proof -Algorithm SHA256).Hash.ToLowerInvariant() -ne $env:SEMANTIC_SHA256.ToLowerInvariant()) { throw 'Semantic proof SHA256 mismatch' }
+            $identity = Get-Content $proof -Raw | ConvertFrom-Json
+            if ($identity.source_head -ne $env:GITHUB_SHA) { throw 'Semantic proof source HEAD mismatch' }
+            "AITEST_SEMANTIC_REPORT=$proof" | Out-File -FilePath $env:GITHUB_ENV -Append
+          }
       - name: Assemble this exact source HEAD with the carrier portable Python
         shell: pwsh
         run: |
@@ -112,7 +132,9 @@ jobs:
         shell: pwsh
         run: |
           $env:GH_TOKEN = ''
-          & "$env:AITEST_INSTALLED/runtime/python/python.exe" -X utf8 "$env:AITEST_BUNDLE/tools/recovery/validate_package.py" --bundle $env:AITEST_BUNDLE --installed $env:AITEST_INSTALLED --installed-b $env:AITEST_INSTALLED_B --output "$env:AITEST_BUNDLE/windows-validation.json"
+          $semanticArgs = @()
+          if ($env:AITEST_SEMANTIC_REPORT) { $semanticArgs = @('--semantic-report', $env:AITEST_SEMANTIC_REPORT) }
+          & "$env:AITEST_INSTALLED/runtime/python/python.exe" -X utf8 "$env:AITEST_BUNDLE/tools/recovery/validate_package.py" --bundle $env:AITEST_BUNDLE --installed $env:AITEST_INSTALLED --installed-b $env:AITEST_INSTALLED_B --output "$env:AITEST_BUNDLE/windows-validation.json" @semanticArgs
           if ($LASTEXITCODE -ne 0) { throw 'Windows qualification failed; final sealing remains blocked' }
       - name: Run installed daily entry on both independent targets
         shell: bash
