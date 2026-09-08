@@ -90,6 +90,7 @@ FULL_E2E_CHECKS = (
     "false_positive_exclusion_durable",
     "ordinary_confirmation_is_r36_confirmed_defect",
     "rca_durable",
+    "rca_knowledge_source_bound",
     "r43_exact_lifecycle_durable",
     "single_same_mission_chain",
 )
@@ -1144,6 +1145,15 @@ def main():
                                 )
                                 behavior["rca_durable"] = rca is not None
                                 if rca is not None:
+                                    from aitest_runtime.recovery_knowledge import source_fact, candidate
+                                    known_rca = source_fact(runtime, mission_id, rca_id)
+                                    knowledge = candidate(runtime, mission_id, kind="DefectRootCause", subject="cfg-data established root cause",
+                                        summary="Synthetic typed reproduction identifies the cfg-data code logic cause", source_fact_id=rca_id,
+                                        scope={"project_id":"LOCAL", "environment_id":"SYNTHETIC", "version_scope":"1.13.0"})
+                                    behavior["rca_knowledge_source_bound"] = (
+                                        known_rca.fact_kind == "R3_6_RCA" and known_rca.payload["status"] == "ESTABLISHED"
+                                        and known_rca.digest == rca.rca_digest
+                                        and knowledge["lifecycle"] == "CANDIDATE" and not knowledge["execution_eligible"])
                                     _, handoff_exc = invoke(
                                         lambda: command(
                                             "DEFECT_HUNTER",

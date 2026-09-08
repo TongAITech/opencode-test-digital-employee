@@ -410,7 +410,7 @@ def g4_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
     runtime = service.runtime
     allowed = {
         "DIRECTOR": {"status", "create_goal", "control_tick", "coverage_from_g3", "blocker_gap", "risk_acceptance", "record_iteration", "human_gate_user_turn_resume"},
-        "EXECUTOR": {"status", "browser_context", "record_cursor", "recover_cursor", "register_capability", "validate_executor", "execute_capability", "capability_human_gate", "request_human_takeover", "reconcile_human_takeover", "complete_human_takeover", "record_step_result", "create_batch", "intake_context", "read_intake_source", "binding_context"},
+        "EXECUTOR": {"status", "browser_context", "record_cursor", "recover_cursor", "register_capability", "validate_executor", "execute_capability", "generate_api_automation", "capability_human_gate", "request_human_takeover", "reconcile_human_takeover", "complete_human_takeover", "record_step_result", "create_batch", "intake_context", "read_intake_source", "binding_context"},
     }
     if role not in allowed or action not in allowed[role]:
         return {"status": "HOLD", "truth_source": "R1_EVENT_STREAM", "role": role, "action": action, "reason": "ACTION_NOT_AUTHORIZED_FOR_G4_ROLE", "legacy_fallback": "FORBIDDEN", "g5_defect_truth": "CLOSED/FROZEN"}
@@ -429,6 +429,21 @@ def g4_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
     if action in {"intake_context", "read_intake_source", "binding_context"}:
         from .recovery_intake import read_dispatch
         return read_dispatch(root, action, data, runtime=runtime)
+    if action == "generate_api_automation":
+        from .recovery_api import pytest_asset
+        from .durable_core import canonical_sha256
+        import hashlib
+        fact,_,_,_=service._resolve_governed_case(mission_id,str(data.get("case_id") or ""),str(data.get("case_version") or ""))
+        case=dict(fact.payload["r3_3_case"])
+        if not case.get("execution_profile",{}).get("api_journey"):raise RuntimeError("API_BUSINESS_CASE_REQUIRED")
+        program=pytest_asset(case);digest=hashlib.sha256(program.encode("utf-8")).hexdigest()
+        path=root/"data/evidence/automation"/(digest+".py");path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_text(program,encoding="utf-8")
+        asset=G3TestingIntelligenceService(runtime)._record(mission_id,"TEACHING_ASSET",{
+            "mode":"API_PYTEST_AUTOMATION_CANDIDATE","case_version_id":case["case_version_id"],"case_digest":canonical_sha256(case),
+            "artifact_ref":"automation:"+path.name,"program_sha256":digest,"lifecycle":"CANDIDATE", "g6":"HOLD", "automatic_promotion":False},provenance_refs=(fact.fact_id,))
+        return {"status":"PASS","truth_source":"R1_EVENT_STREAM","asset_ref":asset["fact_id"],"program_sha256":digest,
+                "execution_binding":"LOCAL_APPROVED_AUTOMATION_RUN_REQUIRED","case_version_id":case["case_version_id"]}
     if action == "browser_context":
         provider = service.browser_provider
         if provider is None or not callable(getattr(provider, "context_ref", None)):

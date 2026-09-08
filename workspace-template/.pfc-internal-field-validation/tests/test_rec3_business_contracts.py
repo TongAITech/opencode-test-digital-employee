@@ -150,7 +150,15 @@ class Contracts(unittest.TestCase):
                       'execution_batch_id':'batch-api','goal_id':'goal-api','capability_id':'API','executor_request':{'url':origin+'/loans','method':'POST','authorized_scope':{'origins':[origin]}}}
                     (root/'bindings').mkdir(exist_ok=True)
                     (root/'bindings/automation-runs.json').write_text(json.dumps({'runs':{'loan-qualification':{'approved':True,'approval_ref':'LOCAL-PYTEST','mission_id':mission,'execution_request':execute}}}))
-                    generated=root/'test_generated_loan.py';generated.write_text(pytest_asset(case))
+                    from aitest_runtime.product_entry import g4_command
+                    with patch('aitest_runtime.product_entry.g4_service',return_value=g4):
+                        exported=g4_command('EXECUTOR','generate_api_automation',{
+                          'mission_id':mission,**execute,'session_id':first['external_session']['session_id']})
+                    asset_path=root/'data/evidence/automation'/(exported['program_sha256']+'.py')
+                    self.assertEqual(asset_path.read_text(),pytest_asset(case))
+                    from aitest_runtime.g3.contracts import EXTENSION_ID as G3_EXTENSION
+                    self.assertEqual(g4.runtime.replay_composed(mission).extension_state(G3_EXTENSION).by_id(exported['asset_ref']).payload['lifecycle'],'CANDIDATE')
+                    generated=root/'test_generated_loan.py';generated.write_text(asset_path.read_text())
                     # Replace only service composition; admission, case resolution,
                     # actual HTTP execution and R1 Evidence all use the real G4.
                     with patch('aitest_runtime.product_entry.g4_service',return_value=g4):
@@ -173,6 +181,17 @@ class Contracts(unittest.TestCase):
                     reviewed=review(runtime,root,mission,registered['version_id']);self.assertEqual(reviewed['lifecycle'],'VERIFIED')
                     view=task_view(runtime,scope=scope,task_id=first['task_id'],query='loan',role='aitest-executor')
                     self.assertEqual(view['items'][0]['version_id'],registered['version_id'])
+                    from aitest_runtime.recovery_knowledge import link
+                    other=candidate(runtime,mission,kind='EvidenceSummary',subject='loan execution',summary='loan business assertions passed',source_fact_id=result.fact_id,scope=scope)
+                    with sqlite3.connect(str(runtime.db_path)) as db:
+                        ev=json.loads(db.execute('SELECT state_json FROM r3e1_versions WHERE version_id=?',(other['version_id'],)).fetchone()[0])
+                    approval2={**approval,'version_id':other['version_id'],'payload_digest':ev['payload_digest'],'approval_ref':'LOCAL-EVIDENCE-REVIEW'}
+                    (root/'bindings/knowledge-reviews.json').write_text(json.dumps([approval,approval2]))
+                    review(runtime,root,mission,other['version_id'])
+                    linked=link(runtime,mission,other['version_id'],registered['version_id']);self.assertTrue(linked['source_derived'])
+                    graph=task_view(runtime,scope=scope,task_id=first['task_id'],query='loan',role='aitest-evaluator',max_bytes=8192)
+                    self.assertEqual(graph['relations'][0]['semantic'],'DEPENDS_ON')
+                    with self.assertRaises(Exception):link(runtime,mission,registered['version_id'],other['version_id'])
                     revised=candidate(runtime,mission,kind='StandardCase',subject='loan amount case',summary='loan revised expected total',source_fact_id=fact['fact_id'],scope=scope)
                     self.assertNotEqual(revised['version_id'],registered['version_id'])
                     self.assertEqual(task_view(runtime,scope=scope,task_id=first['task_id'],query='loan',role='aitest-executor')['items'],[])
@@ -196,6 +215,14 @@ class Contracts(unittest.TestCase):
                     fresh=KnowledgeFreshness('fresh:'+identity,vid,scope,'rec3-v1',captured,expiry,None,'FRESH',(sid,))
                     updated=app.record_freshness(mission_id=mission,freshness=fresh,source_refs=(source,))
                     self.assertTrue(updated.ok,updated.to_dict())
+            from aitest_runtime.r3_e1.contracts import KnowledgeRelation,KnowledgeEndpointRef
+            endpoints=[KnowledgeEndpointRef('knowledge:'+kind+':RUNTIME_VERIFIED',endpoint,'knowledge:'+kind+':RUNTIME_VERIFIED:v1',scope,('source:'+kind+':RUNTIME_VERIFIED',)) for kind,endpoint in [('Page','FRONTEND_PAGE'),('API','API_DEPENDENCY')]]
+            relation=KnowledgeRelation('relation:loan-page-api',endpoints[0],endpoints[1],'ROUTES_TO',scope,'RUNTIME_VERIFIED',
+                endpoints[0].source_ref_ids+endpoints[1].source_ref_ids,freshness_id='fresh:Page:RUNTIME_VERIFIED')
+            recorded=app.record_relation(mission_id=mission,relation=relation,source_refs=())
+            self.assertTrue(recorded.ok,recorded.to_dict())
+            graph=task_view(runtime,scope=scope.to_dict(),task_id='task-loan',query='loan',role='aitest-executor',max_bytes=8192,max_items=32)
+            self.assertEqual(graph['relations'][0]['semantic'],'ROUTES_TO')
             kwargs={'scope':scope.to_dict(),'task_id':'task-loan','query':'loan','role':'aitest-executor','refs':['REQ-loan'],'max_bytes':2048}
             view=task_view(runtime,**kwargs)
             self.assertTrue(view['items']);self.assertTrue(all(x['status']=='VERIFIED' and 'RUNTIME_VERIFIED' in x['fact_id'] for x in view['items']))

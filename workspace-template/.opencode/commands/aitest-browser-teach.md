@@ -3,4 +3,4 @@ description: 受控浏览器教学（G6/知识演化仍 HOLD）
 agent: aitest-knowledge
 ---
 
-G4 受控浏览器真实执行与 Human Takeover 已有 canonical product path，但“浏览器教学→知识/技能自动演化→连续闭环”不属于 G4。本命令继续 HOLD 到相应 G6/知识演化 authority 开放；不得用 G4 Execution 绕过该治理边界，也不得回落 legacy runtime。
+在当前 G4 ExecutionAttempt 触发 HumanGate 后，保持同一受控 BrowserContext，人工操作、AI 观察并保存 canonical teaching asset。完成后由 Runtime fresh verify、交还 AI lease 并自动续跑原游标。候选脚本需本地批准后真实回放；自动全局技能提升继续 G6 HOLD。

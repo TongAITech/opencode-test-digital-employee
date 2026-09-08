@@ -4,6 +4,7 @@ mode: subagent
 permission:
   "*": deny
   aitest_context: allow
+  aitest_knowledge: allow
   aitest_executor: allow
   pfc_truth: allow
   question: deny
@@ -27,3 +28,5 @@ For an executable StandardTestCase, invoke G4 `execute_capability` with its exac
 Before a provider request, call `aitest_executor` action `binding_context` with the exact Mission/Task/Attempt/Session binding. It exposes approved origins, HTTP methods and native runner IDs without credentials or arbitrary commands. Build the request's `authorized_scope` from these identities and the narrower frozen Task scope. `READY` binding configuration is not execution success; G4 still validates admission and records Oracle/Evidence. Use read-only `intake_context` or `read_intake_source` (with `fact_id`, `offset`, `limit`) when the Task needs approved release/source metadata. These read actions cannot import or approve files and cannot mutate requirement analysis.
 
 Large Runtime/Evidence sources must never enter a Session through unrestricted Read/cat. For explicitly referenced Mission evidence use `aitest_context` (maximum 4096 source bytes per page), pinned `expected_sha256` and `next_offset`; otherwise use bounded `read_intake_source`. Preserve page/source references and completed semantic facts, never concatenate pages into one prompt. Runtime owns pressure detection, checkpoint, rotation and successor resume.
+
+For a stable API journey, `generate_api_automation` exports a pytest candidate referencing the same immutable case. Generated pytest executes through G4 after a local automation-run binding; do not generate a second request/oracle model or execute unaudited shell.

@@ -235,12 +235,12 @@ export const scheduler = boundedTool(tool, {
 export const executor = boundedTool(tool, {
   description: "Canonical G2/G4 governed executor. Task outcome remains G2; real execution/cursor/HumanTakeover/evidence/batching are G4 actions and still use G2.1-routed Attempts/Sessions.",
   args: {
-    action: tool.schema.string().describe("status|report_task_outcome|browser_context|record_cursor|recover_cursor|register_capability|validate_executor|execute_capability|capability_human_gate|request_human_takeover|reconcile_human_takeover|complete_human_takeover|record_step_result|create_batch|intake_context|read_intake_source|binding_context"),
+    action: tool.schema.string().describe("status|report_task_outcome|browser_context|record_cursor|recover_cursor|register_capability|validate_executor|execute_capability|generate_api_automation|capability_human_gate|request_human_takeover|reconcile_human_takeover|complete_human_takeover|record_step_result|create_batch|intake_context|read_intake_source|binding_context"),
     payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}),
   },
   async execute(args, context) {
     if (["status", "report_task_outcome"].includes(args.action)) return orchestrate(context as ToolContext, "EXECUTOR", args.action, args.payload)
-    if (["browser_context", "record_cursor", "recover_cursor", "register_capability", "validate_executor", "execute_capability", "capability_human_gate", "request_human_takeover", "reconcile_human_takeover", "complete_human_takeover", "record_step_result", "create_batch", "intake_context", "read_intake_source", "binding_context"].includes(args.action)) return g4(context as ToolContext, "EXECUTOR", args.action, args.payload)
+    if (["browser_context", "record_cursor", "recover_cursor", "register_capability", "validate_executor", "execute_capability", "generate_api_automation", "capability_human_gate", "request_human_takeover", "reconcile_human_takeover", "complete_human_takeover", "record_step_result", "create_batch", "intake_context", "read_intake_source", "binding_context"].includes(args.action)) return g4(context as ToolContext, "EXECUTOR", args.action, args.payload)
     return pending("EXECUTOR", args.action, args.payload, "G5_DEFECT_TRUTH")
   },
 })
@@ -288,7 +288,7 @@ export const diagnosis = boundedTool(tool, {
 
 export const knowledge = boundedTool(tool, {
   description: "Source-bound R1 knowledge candidates and bounded task retrieval over R3.E1. Only locally reviewed, fresh VERIFIED knowledge enters execution Context. Global learning/Skill promotion remains G6 HOLD.",
-  args: { action: tool.schema.enum(["candidate", "task_view", "apply_review"]), payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}) },
+  args: { action: tool.schema.enum(["candidate", "task_view", "apply_review", "link"]), payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}) },
   async execute(args, context) {
     const workspace = await canonicalWorkspace(context as ToolContext)
     const python = await portablePython(workspace)

@@ -29,15 +29,23 @@ ROLE_TYPES={
 
 def source_fact(runtime, mission_id, fact_id):
     composed=runtime.replay_composed(mission_id)
-    for name in ('g3_testing_intelligence','g4_real_execution_goal_convergence','g5_defect_lifecycle'):
-        try: state=composed.extension_state(name)
-        except Exception: continue
-        if state is not None and hasattr(state,'by_id'):
-            found=state.by_id(fact_id)
-            if found is not None:return found
-    # Read authoritative service identifiers rather than guessing extension aliases.
-    from .g3.service import G3TestingIntelligenceService
-    return G3TestingIntelligenceService(runtime).state(mission_id).by_id(fact_id)
+    from .g3.contracts import EXTENSION_ID as G3
+    from .g4.contracts import EXTENSION_ID as G4
+    for name in (G3,G4):
+        state=composed.extension_state(name)
+        found=state.by_id(fact_id) if state is not None else None
+        if found is not None:return found
+    # G5 persists its typed diagnosis entities in the frozen R3.6 substrate.
+    # The adapter reads that same event/identity; it does not invent a G5 store.
+    with sqlite3.connect(str(runtime.db_path)) as conn:
+        row=conn.execute("SELECT entity_type,payload_json,seq,created_at FROM events WHERE mission_id=? AND entity_id=? AND entity_type LIKE 'R3_6_%' ORDER BY seq DESC LIMIT 1",(mission_id,fact_id)).fetchone()
+    if row:
+        from .g5.service import _known_ref
+        from types import SimpleNamespace
+        identity=_known_ref(runtime,mission_id,fact_id);payload=json.loads(row[1])['entity']
+        refs=tuple(str(x.get('ref_id') or x.get('object_id')) for x in payload.get('causal_chain_refs',[]) if isinstance(x,dict) and (x.get('ref_id') or x.get('object_id')))
+        return SimpleNamespace(fact_id=fact_id,fact_kind=row[0],payload=payload,digest=identity['digest'],created_seq=row[2],created_at=row[3],provenance_refs=refs)
+    return None
 
 
 def candidate(runtime, mission_id, *, kind, subject, summary, source_fact_id, scope):
@@ -130,6 +138,15 @@ def task_view(runtime, *, scope, task_id, query, role, refs=(), source_revisions
     for row in relations[:512]:
         rel=json.loads(row[0])
         if rel.get('status') not in {'RUNTIME_VERIFIED','USER_VERIFIED'}:continue
+        if not rel.get('freshness_id'):continue
+        with sqlite3.connect('file:'+str(runtime.db_path)+'?mode=ro',uri=True) as conn:
+            fresh_row=conn.execute('SELECT state_json FROM r3e1_freshness WHERE scope_key=? AND freshness_id=?',(scope.key,rel['freshness_id'])).fetchone()
+        if not fresh_row:continue
+        freshness=json.loads(fresh_row[0])
+        if freshness.get('result')!='FRESH':continue
+        try:
+            if any(freshness.get(k) and datetime.fromisoformat(freshness[k].replace('Z','+00:00'))<=now for k in ('expires_at','next_check_at')):continue
+        except (ValueError,TypeError):continue
         ends=[rel.get(k) or {} for k in ('from_ref','to_ref')]
         # Edges only connect eligible retrieved assets; they never smuggle
         # unverified/stale node content into an execution Context.
@@ -201,5 +218,43 @@ def dispatch(root,action,payload):
     if action=='candidate': result=candidate(runtime,**data)
     elif action=='task_view':result=task_view(runtime,**data)
     elif action=='apply_review':result=review(runtime,root,**data)
+    elif action=='link':result=link(runtime,**data)
     else:raise RuntimeError('KNOWLEDGE_ACTION_UNSUPPORTED','Candidate, task_view and locally authorized review only; G6 promotion remains HOLD')
     return {'truth_source':'R1_EVENT_STREAM',**result}
+
+
+def link(runtime,mission_id,from_version_id,to_version_id):
+    """Derive a typed dependency only from verified canonical source references."""
+    from .r3_e1.contracts import KnowledgeEndpointRef,KnowledgeRelation
+    versions=[];sources=[]
+    with sqlite3.connect(str(runtime.db_path)) as conn:
+        for vid in (from_version_id,to_version_id):
+            rows=conn.execute('''SELECT v.state_json FROM r3e1_versions v JOIN r3e1_facts f
+                ON v.scope_key=f.scope_key AND v.version_id=f.current_version_id WHERE v.version_id=?''',(vid,)).fetchall()
+            if len(rows)!=1:raise RuntimeError('KNOWLEDGE_CURRENT_VERSION_REQUIRED',vid)
+            v=KnowledgeVersion.from_dict(json.loads(rows[0][0]))
+            if v.status not in {'RUNTIME_VERIFIED','USER_VERIFIED'}:raise RuntimeError('KNOWLEDGE_VERIFIED_ENDPOINT_REQUIRED',vid)
+            versions.append(v);refs=[]
+            for sid in v.source_ref_ids:
+                row=conn.execute('SELECT state_json FROM r3e1_source_refs WHERE scope_key=? AND source_ref_id=?',(v.scope_identity.key,sid)).fetchone()
+                if not row:raise RuntimeError('KNOWLEDGE_SOURCE_REQUIRED',sid)
+                refs.append(KnowledgeSourceRef.from_dict(json.loads(row[0])))
+            sources.append(refs)
+    a,b=versions
+    if a.scope_identity!=b.scope_identity:raise RuntimeError('KNOWLEDGE_RELATION_SCOPE_MISMATCH','Exact common scope required')
+    target_ids={s.locator.removeprefix('r1:') for s in sources[1]}
+    referenced=set()
+    for source in sources[0]:
+        fact=source_fact(runtime,mission_id,source.locator.removeprefix('r1:'))
+        if fact is None or fact.digest!=source.source_digest:raise RuntimeError('KNOWLEDGE_SOURCE_REVISION_CHANGED',source.source_ref_id)
+        referenced.update(fact.provenance_refs)
+        for key in ('source_refs','parent_refs'):
+            referenced.update(x for x in fact.payload.get(key,[]) if isinstance(x,str))
+    if not referenced&target_ids:raise RuntimeError('KNOWLEDGE_RELATION_PROVENANCE_REQUIRED','Sources do not establish this dependency')
+    refs=tuple({s.source_ref_id:s for group in sources for s in group}.values())
+    end=lambda v:KnowledgeEndpointRef(v.fact_id,'SYSTEM_TOPOLOGY',v.version_id,v.scope_identity,v.source_ref_ids)
+    relation=KnowledgeRelation('knowledge-link:'+canonical_sha256({'from':a.version_id,'to':b.version_id})[:24],end(a),end(b),
+        'DEPENDS_ON',a.scope_identity,'RUNTIME_VERIFIED',tuple(s.source_ref_id for s in refs),freshness_id=a.freshness_id)
+    result=R3E1ApplicationService(runtime).record_relation(mission_id=mission_id,relation=relation,source_refs=refs)
+    if not result.ok:raise result.error
+    return {'relation_id':relation.relation_id,'semantic':'DEPENDS_ON','g6':'HOLD','source_derived':True}

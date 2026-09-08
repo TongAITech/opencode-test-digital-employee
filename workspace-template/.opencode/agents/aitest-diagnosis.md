@@ -4,6 +4,7 @@ mode: subagent
 permission:
   "*": deny
   aitest_context: allow
+  aitest_knowledge: allow
   aitest_worker: allow
   aitest_diagnosis: allow
   question: allow

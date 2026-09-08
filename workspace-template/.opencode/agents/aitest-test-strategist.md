@@ -4,6 +4,7 @@ mode: subagent
 permission:
   "*": deny
   aitest_context: allow
+  aitest_knowledge: allow
   aitest_test_strategist: allow
   aitest_worker: allow
   pfc_truth: allow
