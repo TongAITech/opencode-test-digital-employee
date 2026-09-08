@@ -2,7 +2,8 @@
   "draft_release_tag": "v1.12.0-recovery-validation-ci",
   "asset_name": "CI-0ab5e55a21b8-AITest-V1.12.0-Recovery-Turnkey-Windows-x64.zip",
   "expected_sha256": "a091da1eaf32c329e6a71e7f4c18e404a2716e9e4dde75ca3ee3aea187c43e4f",
-  "source_head": "0ab5e55a21b898ed467e42129016d2a9886c658b",
-  "local_validation_asset": "LOCAL-0ab5e55a21b8.json",
-  "local_validation_sha256": "8fb094ea6d8b82d720afa05e6f8e62e9b8835ed7b075bbcb8d4131db88e5fdfb"
+  "work_item": "10.REC.3",
+  "source_policy": "REASSEMBLE_EXACT_WORKFLOW_HEAD",
+  "carrier_scope": "HASH_LOCKED_OFFLINE_DEPENDENCIES_ONLY",
+  "install_root": "D:/PFC/AITest"
 }

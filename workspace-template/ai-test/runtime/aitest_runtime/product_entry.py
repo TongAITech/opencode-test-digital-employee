@@ -256,7 +256,11 @@ def orchestration_command(role: str, action: str, payload: Mapping[str, Any]) ->
     if action == "start_test":
         if os.environ.get("AITEST_HOST_SESSION_ID") or os.environ.get("AITEST_HOST_MESSAGE_ID"):
             from .hosted_intake import hosted_user_intake
-            return service.start_test(hosted_user_intake(service.session_provider, data))
+            # G2.1 wraps session_provider to govern Session provisioning. Host
+            # User-message provenance is a read on the underlying directory-
+            # scoped transport; the provisioning wrapper has no HTTP API.
+            host_provider = getattr(service, "raw_session_provider", service.session_provider)
+            return service.start_test(hosted_user_intake(host_provider, data))
         request = data.get("request", data)
         return service.start_test(_object(request, "request"))
     if action == "continue_test":

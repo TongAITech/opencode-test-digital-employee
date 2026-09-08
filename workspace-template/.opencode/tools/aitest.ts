@@ -311,3 +311,24 @@ export const recovery = tool({
     return JSON.stringify(value)
   },
 })
+
+export const context = tool({
+  description: "Read one bounded page of explicitly referenced, Mission-scoped evidence. Never reads host files/configuration or injects a full Runtime/Evidence file. Requires a Router-owned Session; use next_offset with expected_sha256 and retain references instead of concatenating pages.",
+  args: {
+    mission_id: tool.schema.string(), source_ref: tool.schema.string().describe("evidence:<relative filename> under this Mission's durable evidence directory"),
+    offset: tool.schema.number().int().min(0).default(0), limit: tool.schema.number().int().min(1).max(4096).default(4096),
+    expected_sha256: tool.schema.string().optional(),
+  },
+  async execute(args, context) {
+    const workspace = await canonicalWorkspace(context as ToolContext)
+    const python = await portablePython(workspace)
+    const env = { ...process.env, AITEST_WORKSPACE_ROOT: workspace, AITEST_HOST_SESSION_ID: context.sessionID || "", PYTHONPATH: path.join(workspace, "ai-test", "runtime") }
+    const proc = Bun.spawn([python, "-X", "utf8", "-m", "aitest_runtime.bounded_evidence", "--payload", JSON.stringify(args)],
+      { cwd: workspace, env, stdout: "pipe", stderr: "pipe" })
+    const stdout = await new Response(proc.stdout).text()
+    const stderr = await new Response(proc.stderr).text()
+    if (await proc.exited !== 0) throw new Error((stderr || stdout).slice(0, 3000))
+    if (Buffer.byteLength(stdout, "utf8") > 16384) throw new Error("BOUNDED_EVIDENCE_RESPONSE_BUDGET_EXCEEDED")
+    return JSON.stringify(JSON.parse(stdout))
+  },
+})

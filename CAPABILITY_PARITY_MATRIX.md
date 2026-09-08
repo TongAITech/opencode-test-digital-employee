@@ -26,6 +26,11 @@ the recovery commits. Existing local offline tool bytes are inventoried by hash.
 | Git / ripgrep | PRESERVED | Git exact diff authority; local ripgrep enrichment; no invented actual coverage |
 | CAT / DB / Manual | OPEN_BANK_BINDING | Existing governed G4 capability/HumanGate paths; bank adapters and credentials remain external |
 | G5 defect flow | PRESERVED | Canonical investigated Observations→defects; no automatic defect from one error |
+| INSTALL → daily START | REPAIRED | Offline INSTALL.sh to /d/PFC/AITest; no service or auth during install; explicit installation identity and protected existing data |
+| OpenCode starts with auth pending | REPAIRED | Normal conversation path starts real server and Control Loop before model readiness; installed entry verifies integrity |
+| Host provider reuse | PARTIAL_BANK_BINDING | Explicit sanitized binding, local plugin/custom SDK support without /v1 conversion; no credential copy or host config write |
+| Natural-language mission entry | QUALIFIED_WITH_EXPLICIT_FIXTURE_BOUNDARY | Actual OpenCode user turn/tool path and distinct Planner/Worker Sessions; scripted semantic planner is not real-model proof |
+| >=10MB context stress | QUALIFIED_WITH_EXPLICIT_FIXTURE_BOUNDARY | Bounded evidence reader, two supervisor rotations, same lineage, task completion; synthetic transport is not bank evidence |
 | Entry/status/package truth | UPGRADED | Recovery product1.12.0, canonical G1-G5 CLOSED/FROZEN, G6 HOLD; Windows and bank validation reported separately |
 | Legacy aitest.db as product truth | INTENTIONALLY_NOT_RESTORED | Existing migration/reference code is not the recovery product entry |
 | G6 automatic learning/promotion | INTENTIONALLY_NOT_RESTORED | HOLD; teaching observation does not grant promotion authority |

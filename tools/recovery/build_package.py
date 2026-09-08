@@ -10,6 +10,7 @@ import datetime as dt
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -123,7 +124,7 @@ def build(repo: Path, stage: Path, output: Path, version: str, allow_dirty: bool
             expected[entry['path']] = entry['sha256']
     (bundle / 'PAYLOAD_SHA256SUMS.json').write_text(
         json.dumps(expected, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    for required_entry in ['AITEST.sh', 'tools/recovery/launcher.py',
+    for required_entry in ['INSTALL.sh', 'INSTALL_MANIFEST.json', 'AITEST.sh', 'tools/recovery/install.py', 'tools/recovery/launcher.py',
                            'tools/recovery/validate_package.py', 'VALIDATION_README.md',
                            'CAPABILITY_PARITY_MATRIX.md', 'MACHINE_VALIDATION_RESULT.json']:
         if not (bundle / required_entry).is_file():
@@ -137,7 +138,7 @@ def build(repo: Path, stage: Path, output: Path, version: str, allow_dirty: bool
         'schema_version': 'aitest.build-provenance.v1', 'product_version': version,
         'package': name, 'built_at_utc': dt.datetime.now(dt.timezone.utc).isoformat(),
         'repository': 'TongAITech/opencode-test-digital-employee',
-        'source_head': head, 'source_branch': run_git(repo, 'branch', '--show-current'),
+        'source_head': head, 'source_branch': run_git(repo, 'branch', '--show-current') or os.environ.get('GITHUB_REF_NAME', ''),
         'source_truth': 'DIRTY_DIAGNOSTIC_SNAPSHOT' if dirty else 'EXACT_GIT_HEAD',
         'source_content_identity': source_identity['source_content_identity'],
         'source_identity': source_identity,

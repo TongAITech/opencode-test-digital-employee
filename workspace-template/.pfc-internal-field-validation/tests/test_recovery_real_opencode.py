@@ -24,9 +24,7 @@ from test_g2_1_session_router_control_loop import request, one_task
 def main():
     spec = importlib.util.spec_from_file_location('turnkey_launcher', WORKSPACE.parent/'tools/recovery/launcher.py')
     launcher = importlib.util.module_from_spec(spec); spec.loader.exec_module(launcher)
-    try: launcher.model_configuration({})
-    except RuntimeError as exc: assert 'AUTH_REQUIRED' in str(exc)
-    else: raise AssertionError('Unconfigured model must block conversation')
+    assert launcher.model_configuration({})['enabled_providers'] == []
     assert launcher.model_configuration({}, check_only=True)['enabled_providers'] == []
     binary = Path(os.environ.get('AITEST_REAL_OPENCODE') or WORKSPACE / 'runtime/opencode/opencode.exe')
     if not binary.is_file(): raise RuntimeError('Actual pinned OpenCode binary required')
@@ -106,7 +104,7 @@ def main():
                 'version':subprocess.check_output([str(binary),'--version'],text=True).strip(),
                 'metrics_source':observed['pressure']['metrics_source'],'rotation_count':len(rotations),
                 'checkpoint_and_attempt_lineage':'PASS','approved_provider_allowlist':'PASS',
-                'unconfigured_model_blocks_conversation':'PASS','hosted_natural_language_mission_intake':'PASS',
+                'unconfigured_model_allows_process_start':'PASS','hosted_natural_language_mission_intake':'PASS',
                 'bank_model_turn':'NOT_EXECUTED','BANK_FIELD_VALIDATION_REQUIRED':True}
             assert result['version']=='1.18.3'
             print(json.dumps(result,indent=2))

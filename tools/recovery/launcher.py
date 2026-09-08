@@ -25,6 +25,10 @@ WORKSPACE = BUNDLE / 'workspace-template'
 DATA = BUNDLE / 'data'
 OPENCODE = WORKSPACE / 'runtime/opencode/opencode.exe'
 VERSION = '1.12.0'
+# Capture paths before prepare() isolates XDG; discovery never reads their content.
+HOST_CONFIG_ENV = {key: os.environ[key] for key in ('XDG_CONFIG_HOME', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_DIR') if key in os.environ}
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import host_provider
 
 
 def sha(path):
@@ -44,18 +48,22 @@ def write(path, value):
 
 
 def prepare():
+    for key in ('OPENCODE_CONFIG', 'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG_CONTENT'):
+        os.environ.pop(key, None)
     for name in ('state', 'logs', 'evidence', 'imports', 'exports'): (DATA / name).mkdir(parents=True, exist_ok=True)
     (WORKSPACE / 'bindings').mkdir(exist_ok=True)
     sys.path.insert(0, str(WORKSPACE / 'ai-test/runtime'))
+    provision_opencode_config()
     os.environ.update(AITEST_WORKSPACE_ROOT=str(WORKSPACE), AITEST_RUNTIME_SPINE_DB=str(DATA / 'state/runtime-spine.db'),
         PFC_LOCAL_STATE_ROOT=str(DATA), PYTHONPATH=str(WORKSPACE / 'ai-test/runtime'), PYTHONNOUSERSITE='1', PYTHONUTF8='1', PYTHONIOENCODING='utf-8',
         PYTHONDONTWRITEBYTECODE='1', AITEST_G4_PROVIDER_FACTORY='aitest_runtime.recovery_executors:provider_bundle',
         AITEST_CONTROL_LOOP_HEARTBEAT_PATH=str(DATA / 'state/control-loop-heartbeat.json'),
         OPENCODE_DISABLE_AUTOUPDATE='1', OPENCODE_DISABLE_MODELS_FETCH='1', OPENCODE_DISABLE_DEFAULT_PLUGINS='1',
         OPENCODE_DISABLE_LSP_DOWNLOAD='1', OPENCODE_DISABLE_SHARE='1', PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD='1',
-        PIP_NO_INDEX='1', CODEGRAPH_SKIP_MODEL_FETCH='1', NO_PROXY='localhost,127.0.0.1,::1', no_proxy='localhost,127.0.0.1,::1',
+        PIP_NO_INDEX='1', NPM_CONFIG_OFFLINE='true', npm_config_offline='true', CODEGRAPH_SKIP_MODEL_FETCH='1', NO_PROXY='localhost,127.0.0.1,::1', no_proxy='localhost,127.0.0.1,::1',
         XDG_DATA_HOME=str(DATA / 'opencode-data'), XDG_CONFIG_HOME=str(DATA / 'opencode-config'),
-        XDG_CACHE_HOME=str(DATA / 'opencode-cache'), BUN_INSTALL_CACHE_DIR=str(DATA / 'bun-cache'))
+        XDG_CACHE_HOME=str(DATA / 'opencode-cache'), XDG_STATE_HOME=str(DATA / 'opencode-state'),
+        OPENCODE_TEST_HOME=str(DATA / 'opencode-home'), BUN_INSTALL_CACHE_DIR=str(DATA / 'bun-cache'))
     portable_bins = [WORKSPACE / 'runtime' / item for item in ('python', 'opencode', 'tools/rg', 'tools/k6', 'tools/java/bin', 'tools/ffmpeg', 'tools/adb')]
     os.environ['PATH'] = os.pathsep.join([str(p) for p in portable_bins if p.is_dir()] + [os.environ.get('PATH', '')])
     java = WORKSPACE / 'runtime/tools/java'
@@ -65,15 +73,35 @@ def prepare():
     return dict(os.environ)
 
 
+def provision_opencode_config():
+    # OpenCode 1.18.3 waits for per-config dependency checks before plugin/tools.
+    # Satisfy its offline fast path from the shipped, hash-verified dependency
+    # tree; this is local materialization, never pip/npm/Bun installation.
+    import shutil
+    source = WORKSPACE / '.opencode'
+    target = DATA / 'opencode-config/opencode'
+    target.mkdir(parents=True, exist_ok=True)
+    if not (source / 'node_modules').is_dir(): return
+    for name in ('package.json', 'package-lock.json'):
+        if (source / name).is_file() and not (target / name).is_file():
+            shutil.copy2(source / name, target / name)
+    if not (target / 'node_modules').is_dir():
+        shutil.copytree(source / 'node_modules', target / 'node_modules')
+
+
 def verify_files():
-    manifest = read(BUNDLE / 'FILE_SHA256.json', {})
-    if not manifest: return ['FILE_SHA256.json 缺失']
-    failures = []
-    for relative, expected in manifest.items():
-        path = (BUNDLE / relative).resolve()
-        if not path.is_relative_to(BUNDLE) or not path.is_file() or sha(path) != expected:
-            failures.append(relative)
-    return failures
+    from install import InstallError, verify_package
+    try:
+        verify_package(BUNDLE, installed=True)
+        return []
+    except (InstallError, OSError, ValueError) as exc:
+        return [str(exc)]
+
+
+def verify_daily_install():
+    from install import verify_install_identity
+    failures = verify_install_identity(BUNDLE)
+    if failures: raise RuntimeError('INSTALL_REQUIRED: 请先运行 ./INSTALL.sh；' + '; '.join(failures))
 
 
 def doctor(full=False):
@@ -93,11 +121,12 @@ def doctor(full=False):
             value = subprocess.check_output([str(OPENCODE), '--version'], timeout=30, text=True).strip()
             if value != '1.18.3': oc_status = 'FAIL'
         except Exception: oc_status = 'FAIL'
-    model = read(DATA / 'model.json', {})
+    binding_status = provider_configuration()[1]
     matrix = {
         'Runtime': 'READY' if runtime.get('truth_source') == 'R1_EVENT_STREAM' else 'FAIL',
         'OpenCode': oc_status,
-        'Model': 'READY' if model and os.environ.get('AITEST_MODEL_KEY') else 'AUTH_REQUIRED',
+        'Model': binding_status['auth'],
+        'HostProvider': binding_status['qualification'],
         'ControlLoop': 'READY',
         'Browser': exists('runtime/browser/chrome-win64/chrome.exe'),
         'CodeGraph': exists('runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe'),
@@ -122,7 +151,9 @@ def doctor(full=False):
             'g1_g5_engineering': 'CLOSED/FROZEN', 'g6': 'HOLD', 'matrix': matrix,
             'control_loop_last_heartbeat': heartbeat.get('status', 'STARTS_WITH_CONVERSATION'),
             'integrity_failures': failures, 'bank_field_validation': 'BANK_FIELD_VALIDATION_REQUIRED',
-            'security_scope': 'API_PASSIVE_BASELINE; ZAP payload separate, active scan requires governed binding'}
+            'security_scope': 'API_PASSIVE_BASELINE; ZAP payload separate, active scan requires governed binding',
+            'host_provider_discovery': host_provider.discover(HOST_CONFIG_ENV),
+            'provider_binding': binding_status}
 
 
 def display_doctor(full=True):
@@ -135,68 +166,173 @@ def display_doctor(full=True):
 
 
 def model_settings():
-    print('填写行内已批准模型服务；不执行依赖安装。密钥仅在当前进程内使用。')
-    endpoint = input('OpenAI 兼容服务地址（包含 /v1）：').strip()
+    print('1 REUSE_APPROVED_HOST_PROVIDER · 复用已批准宿主 provider / 本地插件')
+    print('2 PACKAGE_LOCAL_PROVIDER_BINDING · 包内模型绑定')
+    print('3 AUTH_REQUIRED · 清除绑定，仍可启动 OpenCode')
+    choice = input('选择 [1]：').strip() or '1'
+    if choice == '3':
+        write(DATA / 'provider-binding.json', {'mode': 'AUTH_REQUIRED'})
+        write(DATA / 'model.json', {})
+        return
+    if choice == '1':
+        discovery = host_provider.discover(HOST_CONFIG_ENV)
+        for item in discovery['candidates']: print('发现配置（尚未读取内容）：' + item['path'])
+        default_path = discovery['candidates'][0]['path'] if discovery['candidates'] else ''
+        path = input('批准复用的宿主配置完整路径 [' + default_path + ']：').strip().strip('"') or default_path
+        print('此选择明确授权读取该配置并执行其中现有本地 provider / 插件。')
+        print('仅复用选定模型；不读取宿主 auth.json，不复制密钥，不改宿主文件。')
+        print('内联密钥和文件密钥引用会拒绝；已有环境变量引用可直接复用。')
+        approval = input('批准记录编号（必填）：').strip()
+        review = host_provider.inspect_approved(path, approval)
+        for item in review['models']: print('  ' + item)
+        model = input('provider/model [' + str(review['preferred_model'] or '') + ']：').strip() or review['preferred_model']
+        write(DATA / 'provider-binding.json', host_provider.create_binding(path, model, approval))
+        print('PARTIAL_BANK_BINDING：已保存无密钥引用。真实模型/插件认证待行内验证。')
+        return
+    if choice != '2': raise ValueError('请选择有效绑定模式')
+    print('填写已批准的 OpenAI-compatible 服务；地址按原服务填写，不自动添加 /v1。')
+    endpoint = input('服务地址：').strip()
     name = input('模型 ID：').strip()
-    if not endpoint.startswith(('http://', 'https://')) or not name: raise ValueError('地址与模型 ID 必填')
-    write(DATA / 'model.json', {'base_url': endpoint, 'model': name})
+    approval = input('批准记录编号（必填）：').strip()
+    model_configuration({'base_url': endpoint, 'model': name})
+    if not approval: raise ValueError('批准记录编号必填')
+    write(DATA / 'model.json', {'base_url': endpoint, 'model': name, 'approval_ref': approval})
+    write(DATA / 'provider-binding.json', {'mode': 'PACKAGE_LOCAL_PROVIDER_BINDING', 'approval_ref': approval})
+    print('密钥仅从当前进程的 AITEST_MODEL_KEY 环境变量读取；不回显、不保存。')
 
 
 def model_configuration(model, check_only=False):
-    if not model and not check_only:
-        raise RuntimeError('AUTH_REQUIRED：请先在菜单中配置已批准的行内模型服务')
+    # Process startup is independent of model/auth readiness, including the normal
+    # conversation path. check_only is retained solely for callers' compatibility.
     config = {'autoupdate': False, 'share': 'disabled', 'enabled_providers': ['bank'] if model else []}
     if model:
-        if not str(model.get('base_url', '')).startswith(('http://', 'https://')) or not model.get('model'):
-            raise ValueError('行内模型地址与模型 ID 必填，请重新配置')
+        from urllib.parse import urlsplit
+        endpoint = str(model.get('base_url', ''))
+        parsed = urlsplit(endpoint)
+        if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or not model.get('model'):
+            raise ValueError('CREDENTIAL_FREE_MODEL_ADDRESS_AND_ID_REQUIRED')
+        if not host_provider.IDENTIFIER.fullmatch(str(model['model'])):
+            raise ValueError('MODEL_ID_INVALID')
         config.update(model='bank/' + model['model'], small_model='bank/' + model['model'],
             provider={'bank': {'npm': '@ai-sdk/openai-compatible',
-            'name': 'Bank approved model', 'options': {'baseURL': model['base_url'], 'apiKey': '{env:AITEST_MODEL_KEY}'},
+            'name': 'Bank approved model', 'options': {'baseURL': endpoint, 'apiKey': '{env:AITEST_MODEL_KEY}'},
             'models': {model['model']: {'name': model['model']}}}})
     return config
 
 
-def start_conversation(check_only=False):
-    if os.name != 'nt': raise RuntimeError('WINDOWS_HOST_REQUIRED')
-    model = read(DATA / 'model.json', {})
-    config = model_configuration(model, check_only)
+def provider_configuration():
+    base = model_configuration({})
+    status = {'mode': 'AUTH_REQUIRED', 'auth': 'AUTH_REQUIRED',
+              'qualification': 'PARTIAL_BANK_BINDING', 'bank_gate': 'BANK_PROVIDER_BINDING_REQUIRED'}
+    try:
+        binding = read(DATA / 'provider-binding.json', {})
+        if not isinstance(binding, dict): raise ValueError('BINDING_OBJECT_REQUIRED')
+        status['mode'] = binding.get('mode', 'AUTH_REQUIRED')
+        if binding.get('mode') == 'REUSE_APPROVED_HOST_PROVIDER':
+            base.update(host_provider.resolve(binding))
+            status.update(model=binding['model'], auth='AUTH_VERIFICATION_REQUIRED')
+        elif binding.get('mode') != 'AUTH_REQUIRED' or not binding:
+            model = read(DATA / 'model.json', {})
+            if model:
+                base = model_configuration(model)
+                status.update(mode='PACKAGE_LOCAL_PROVIDER_BINDING', model=base['model'],
+                              auth='AUTH_VERIFICATION_REQUIRED' if os.environ.get('AITEST_MODEL_KEY') else 'AUTH_REQUIRED')
+    except (host_provider.BindingRequired, ValueError, OSError, TypeError, KeyError, AttributeError):
+        # A missing/changed/unsafe binding is a model gate, never a process gate.
+        base = model_configuration({})
+        status['binding_error'] = 'BANK_PROVIDER_BINDING_REQUIRED_REVIEW_APPROVED_SOURCE'
+    return base, status
+
+
+def windows_host():
+    return os.name == 'nt'
+
+
+def start_conversation(check_only=False, attach_runner=None):
+    if not windows_host(): raise RuntimeError('WINDOWS_HOST_REQUIRED')
     report = display_doctor(True)
     if report['integrity_failures'] or report['matrix']['OpenCode'] != 'READY': raise RuntimeError('交付文件校验失败')
+    config, binding_status = provider_configuration()
     env = prepare()
-    if model and not check_only:
-        env['AITEST_MODEL_KEY'] = os.environ.get('AITEST_MODEL_KEY') or getpass.getpass('行内模型密钥（不回显、不保存）：')
-    env['OPENCODE_CONFIG_CONTENT'] = json.dumps(config)
     with socket.socket() as sock: sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
     endpoint = f'http://127.0.0.1:{port}'
     env.update(AITEST_OPENCODE_ENDPOINT=endpoint, OPENCODE_SERVER_USERNAME='opencode', OPENCODE_SERVER_PASSWORD=secrets.token_urlsafe(32))
     auth = 'Basic ' + base64.b64encode(('opencode:' + env['OPENCODE_SERVER_PASSWORD']).encode()).decode()
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    def request(path, payload=None, timeout=5):
+        req = urllib.request.Request(endpoint + path, headers={'Authorization': auth, 'Content-Type': 'application/json'},
+            data=json.dumps(payload).encode() if payload is not None else None)
+        with opener.open(req, timeout=timeout) as response: return json.load(response)
+    def stop(process):
+        if process and process.poll() is None:
+            process.terminate()
+            try: process.wait(timeout=10)
+            except subprocess.TimeoutExpired: process.kill(); process.wait()
     server = loop = None
     try:
-        with (DATA / 'logs/opencode.log').open('a', encoding='utf-8') as log:
-            server = subprocess.Popen([str(OPENCODE), 'serve', '--hostname', '127.0.0.1', '--port', str(port)], cwd=WORKSPACE, env=env, stdout=log, stderr=subprocess.STDOUT)
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        for _ in range(120):
-            if server.poll() is not None: raise RuntimeError('OpenCode 启动失败，查看 data/logs/opencode.log')
+        # A custom bank plugin can fail during config initialization/auth. One
+        # bounded retry opens the isolated shell with a visible binding gate.
+        for attempt in range(2):
+            env['OPENCODE_CONFIG_CONTENT'] = json.dumps(config)
             try:
-                req = urllib.request.Request(endpoint + '/session', headers={'Authorization': auth})
-                with opener.open(req, timeout=1) as response:
-                    if isinstance(json.load(response), list): break
-            except Exception: time.sleep(.5)
-        else: raise RuntimeError('OpenCode 启动超时')
-        with (DATA / 'logs/control-loop.log').open('a', encoding='utf-8') as log:
-            loop = subprocess.Popen([sys.executable, '-m', 'aitest_runtime.control_loop', '--workspace-root', str(WORKSPACE), '--interval', '3'], cwd=WORKSPACE, env=env, stdout=log, stderr=subprocess.STDOUT)
-        if check_only:
-            time.sleep(4)
-            if loop.poll() is not None: raise RuntimeError('Control Loop 启动失败')
-            return {'server': 'PASS', 'control_loop_process': 'PASS', 'model_turn': 'AUTH_REQUIRED'}
+                with (DATA / 'logs/opencode.log').open('a', encoding='utf-8') as log:
+                    server = subprocess.Popen([str(OPENCODE), 'serve', '--hostname', '127.0.0.1', '--port', str(port)], cwd=WORKSPACE, env=env, stdout=log, stderr=subprocess.STDOUT)
+                deadline = time.monotonic() + 45
+                while True:
+                    if server.poll() is not None: raise RuntimeError('OPENCODE_PROCESS_START_FAILED')
+                    try:
+                        if request('/global/health', timeout=1).get('healthy'): break
+                    except Exception: pass
+                    if time.monotonic() >= deadline: raise RuntimeError('OPENCODE_PROCESS_START_TIMEOUT')
+                    time.sleep(.25)
+                with (DATA / 'logs/control-loop.log').open('a', encoding='utf-8') as log:
+                    loop = subprocess.Popen([sys.executable, '-m', 'aitest_runtime.control_loop', '--workspace-root', str(WORKSPACE), '--interval', '3'], cwd=WORKSPACE, env=env, stdout=log, stderr=subprocess.STDOUT)
+                time.sleep(4)
+                if loop.poll() is not None: raise RuntimeError('CONTROL_LOOP_START_FAILED')
+                if config.get('model'):
+                    catalog = request('/provider', timeout=20)
+                    if config['model'].split('/', 1)[0] not in catalog.get('connected', []):
+                        raise RuntimeError('PROVIDER_MODEL_ADMISSION_PENDING')
+                # Session creation does not require model auth. Reuse the real
+                # Director entry Session; the Router still owns Worker Sessions.
+                previous = read(DATA / 'state/director-entry-session.json', {})
+                session = None
+                if isinstance(previous, dict) and previous.get('session_id'):
+                    try: session = request('/session/' + previous['session_id'], timeout=20)
+                    except Exception: pass
+                if not session:
+                    title = 'AITest Director'
+                    if binding_status['auth'] == 'AUTH_REQUIRED':
+                        title += ' · AUTH_REQUIRED：菜单 5 绑定模型；勿在对话输入密钥'
+                    session = request('/session', {'title': title}, timeout=20)
+                if not isinstance(session, dict) or not session.get('id'): raise RuntimeError('R2_SESSION_ADMISSION_PENDING')
+                write(DATA / 'state/director-entry-session.json', {'session_id': session['id'], 'operational_only': True})
+                break
+            except Exception:
+                stop(loop); stop(server); loop = server = None
+                if attempt or not config.get('model'): raise
+                config = model_configuration({})
+                binding_status.update(auth='AUTH_REQUIRED', binding_error='BANK_PROVIDER_BINDING_REQUIRED_PROVIDER_INIT_FAILED')
+                print('BANK_PROVIDER_BINDING_REQUIRED：已批准 provider 暂未就绪，继续启动 OpenCode 设置入口。')
+        readiness = {'server': 'PASS', 'control_loop_process': 'PASS',
+                     'OPENCODE_PROCESS_READY': 'PASS', 'CONTROL_LOOP_START': 'PASS',
+                     'AUTH_READY': binding_status['auth'],
+                     'PROVIDER_MODEL_READY': 'CONFIGURED_UNVERIFIED' if config.get('model') else 'AUTH_REQUIRED',
+                     'LLM_RUNTIME_READY': 'MODEL_TURN_REQUIRED', 'R2_SESSION_READY': 'PASS',
+                     'director_session_id': session['id'],
+                     'HOST_PROVIDER_DISCOVERY': 'PARTIAL_BANK_BINDING', 'model_turn': 'NOT_EXECUTED',
+                     'provider_binding': binding_status, 'operational_only': True}
+        write(DATA / 'state/startup-readiness.json', readiness)
+        if check_only: return readiness
+        if binding_status['auth'] != 'READY':
+            print('OpenCode PROCESS_READY；Control Loop RUNNING；模型认证与进程启动分离。')
+            print('模型设置 HumanGate：缺少模型时仍可进入 OpenCode，Mission 等待模型就绪。')
+            print('OpenCode 会话标题显示认证提示；/aitest-provider-setup 为设置指引。')
+            print('在安装入口菜单 5 复用已批准 provider；环境变量认证，禁止在对话输入密钥。')
         print('\n在对话中输入：测试 BLOAN1.9.4。4A 操作只在浏览器中完成，完成后回到对话输入“完成”。')
-        return subprocess.call([str(OPENCODE), 'attach', endpoint, '--dir', str(WORKSPACE)], cwd=WORKSPACE, env=env)
+        return (attach_runner or subprocess.call)([str(OPENCODE), 'attach', endpoint, '--dir', str(WORKSPACE), '--session', session['id']], cwd=WORKSPACE, env=env)
     finally:
-        for process in (loop, server):
-            if process and process.poll() is None:
-                process.terminate()
-                try: process.wait(timeout=10)
-                except subprocess.TimeoutExpired: process.kill(); process.wait()
+        stop(loop); stop(server)
 
 
 def evidence_export():
@@ -308,7 +444,9 @@ def browser_teaching():
 
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument('--doctor', action='store_true'); parser.add_argument('--self-check', action='store_true'); parser.add_argument('--export-evidence', action='store_true')
-    args = parser.parse_args(); prepare()
+    args = parser.parse_args(); verify_daily_install()
+    if verify_files(): raise RuntimeError('INSTALLED_RUNTIME_INTEGRITY_FAILED')
+    prepare()
     if args.doctor: return 1 if display_doctor()['status'] == 'FAIL' else 0
     if args.self_check:
         result = start_conversation(check_only=True); print(json.dumps(result)); return 0

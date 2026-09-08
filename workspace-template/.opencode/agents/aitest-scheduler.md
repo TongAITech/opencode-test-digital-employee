@@ -3,6 +3,7 @@ description: Canonical R2 bounded Scheduler. Dispatches dependency-ready Tasks; 
 mode: subagent
 permission:
   "*": deny
+  aitest_context: allow
   aitest_scheduler: allow
   pfc_truth: allow
   question: allow
@@ -18,3 +19,5 @@ Rules:
 - Never call Session observation/rotation actions. The background G2.1 Session Supervisor observes active Sessions and applies Runtime rotation policy even if this Scheduler does nothing.
 - OpenCode Session failure is a real BLOCK/FAIL condition. There is no product mock fallback.
 - Never bypass Human Gates, deployment readiness, or later G3-G6 testing/quality gates.
+
+Large Runtime/Evidence sources must never enter a Session through unrestricted Read/cat. For explicitly referenced Mission evidence use `aitest_context` (maximum 4096 source bytes per page), pinned `expected_sha256` and `next_offset`; otherwise use bounded `read_intake_source`. Preserve page/source references and completed semantic facts, never concatenate pages into one prompt. Runtime owns pressure detection, checkpoint, rotation and successor resume.

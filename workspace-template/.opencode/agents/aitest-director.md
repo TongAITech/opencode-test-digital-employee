@@ -3,6 +3,7 @@ description: AI Test Director. Owns durable Mission lifecycle, orchestration gat
 mode: primary
 permission:
   "*": deny
+  aitest_context: allow
   aitest_director: allow
   aitest_g3_director: allow
   aitest_g4_director: allow
@@ -39,3 +40,5 @@ HumanGate completion routing on a new OpenCode User Turn (OpenCode 1.18.3 fallba
 When building an intake request, preserve provenance. Unknown requirement/version/environment facts remain UNKNOWN/KNOWLEDGE_GAP and must not be guessed.
 
 For PFC state questions, `pfc_truth` remains the user-facing read bridge. `BLOAN-PF1.0.0` and `STBB19-234` are bootstrap/history identifiers unless canonical facts explicitly establish them as current.
+
+Large Runtime/Evidence sources must never enter a Session through unrestricted Read/cat. For explicitly referenced Mission evidence use `aitest_context` (maximum 4096 source bytes per page), pinned `expected_sha256` and `next_offset`; otherwise use bounded `read_intake_source`. Preserve page/source references and completed semantic facts, never concatenate pages into one prompt. Runtime owns pressure detection, checkpoint, rotation and successor resume.

@@ -1,0 +1,13 @@
+{
+  "schema_version": "aitest.install-manifest.v1",
+  "status": "NOT_INSTALLED",
+  "product_version": "1.12.0",
+  "default_install_root_git_bash": "/d/PFC/AITest",
+  "install_entry": "INSTALL.sh",
+  "daily_entry": "AITEST.sh",
+  "transport_is_runtime_location": false,
+  "architecture_baseline": "v7/FROZEN/UNCHANGED",
+  "runtime_truth": "R1_EVENT_STREAM",
+  "installation_identity_policy": "Installer replaces this template only after sealed payload copy and installed portable Python self-check pass.",
+  "field_validation": "BANK_FIELD_VALIDATION_REQUIRED"
+}

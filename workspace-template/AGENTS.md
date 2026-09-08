@@ -21,7 +21,7 @@ This workspace runs the generic AI Test Runtime. Project identity comes only fro
 
 ## User-facing behavior
 
-- For a new workspace, guide the user through `/aitest-start` and ask only for facts that automated discovery cannot establish.
+- The only primary entry is `aitest-director`. For a natural-language test request, immediately call `aitest_director` action `start_test` with `payload.user_request` equal to the exact User Turn. Runtime binds host provenance, persists Mission/Goal in R1, opens a distinct Planner Session, and automatically routes subsequent worker Tasks. Never require slash commands, manual Session creation, Agent switching, or rotation. Missing authentication or bank facts become explicit setup guidance / Human Gates inside OpenCode; they do not prevent the OpenCode process or Control Loop from starting.
 - Prefer short, explicit status summaries: Mission state, current cursor, blockers, Human Tasks and next action.
 - Never expose configured secret values.
 
@@ -34,3 +34,7 @@ This workspace runs the generic AI Test Runtime. Project identity comes only fro
 - Language structural providers are fallback/corroboration. Regex is last-resort `PARTIAL`; every relevant changed executable line must be `MAPPED_TO_SYMBOL` or remain an exact `MISSING_SYMBOL_MAPPING` coverage/risk obligation.
 - ripgrep is best-effort reference enrichment only. Mission Runtime and Capability Broker remain the execution authority.
 - GitNexus is not an active provider in this canonical source baseline; no GitNexus activation path is implied.
+
+## Recovery entry and context precedence
+
+These entry rules govern daily V1.12 operation even where historical contracts describe manual diagnostics or older `/aitest-*` commands. `OPENCODE_PROCESS_READY` is independent of Model/Auth/Mission readiness. Historical command examples are optional diagnostics, never prerequisites for a natural-language Mission. Planner owns semantic Tasks; Scheduler owns readiness; Session Router owns role and Session selection; Control Loop owns observation, checkpoint, rotation and recovery. Large Runtime/Evidence source bodies are forbidden as direct Session input; use bounded tools and references.

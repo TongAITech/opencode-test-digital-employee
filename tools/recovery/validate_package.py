@@ -52,6 +52,8 @@ def main():
     # Contract fixtures are separate from the real graph engine query below.
     env['AITEST_CODEGRAPH_BINARY'] = str(bundle / 'data/validation/contract-fixture-no-codegraph.exe')
     suites = [
+        'test_recovery_install_lifecycle.py', 'test_recovery_startup_provider.py',
+        'test_recovery_autonomous_entry.py', 'test_recovery_context_stress.py',
         'test_recovery_intake.py', 'test_recovery_executors.py', 'test_recovery_g4_execution.py', 'test_recovery_read_product_entry.py',
         'test_g2_1_pressure_fallback.py', 'test_recovery_browser.py', 'test_recovery_real_opencode.py', 'test_recovery_hosted_intake.py',
         'test_mac_delivery_default_path.py', 'test_interactive_truth_envelope.py',
@@ -77,12 +79,25 @@ def main():
             results[name] = run([sys.executable, '-X', 'utf8', '-c', "import sys,runpy; from pathlib import Path; p=sys.argv[1]; sys.path.insert(0,str(Path(p).parent)); sys.argv=[p]; runpy.run_path(p,run_name='__main__')", str(tests / name)], bundle, env, timeout=1200 if args.source_only else 420)
         print(name + ': ' + results[name]['status'], flush=True)
         progress()
+    seal_test = bundle / 'tools/recovery/check_qualification_seal.py'
+    results[seal_test.name] = run([sys.executable, '-X', 'utf8', str(seal_test)], bundle, env, timeout=120)
+    print(seal_test.name + ': ' + results[seal_test.name]['status'], flush=True)
+    progress()
     payloads = {}
     if not args.source_only:
         sys.path.insert(0, str(bundle / 'tools/recovery'))
         import launcher
         failures = launcher.verify_files()
         payloads['archive_integrity'] = {'status': 'FAIL' if failures else 'PASS', 'failed_paths': failures}
+        from install import verify_install_identity
+        install_errors = verify_install_identity(bundle)
+        installation = json.loads((bundle / 'INSTALL_MANIFEST.json').read_text(encoding='utf-8'))
+        payloads['formal_installation'] = {
+            'status': 'PASS' if not install_errors and bundle == Path('D:/PFC/AITest').resolve() else 'FAIL',
+            'installation_root': str(bundle), 'identity_errors': install_errors,
+            'install_id': installation.get('install_id'),
+            'self_check': installation.get('self_check'),
+        }
         payloads['portable_python'] = {'status': 'PASS' if os.name == 'nt' and sys.version_info[:3] == (3, 12, 10) else 'FAIL', 'version': sys.version, 'executable': sys.executable}
         for package, expected in [('playwright', '1.62.0'), ('greenlet', '3.5.5'), ('httpx', '0.28.1'), ('pytest', '7.2.2'), ('pypdf', '6.17.0')]:
             try:
@@ -117,6 +132,33 @@ def main():
         payloads['single_entry_evidence_export'] = run([sys.executable, '-X', 'utf8', str(bundle / 'tools/recovery/launcher.py'), '--export-evidence'], bundle, env, timeout=90)
     passed = all(result['status'] == 'PASS' for result in results.values())
     payload_pass = bool(payloads) and all(result['status'] == 'PASS' for result in payloads.values())
+    gates = {'INSTALL_START_LIFECYCLE': payloads.get('formal_installation', {}).get('status', 'WINDOWS_PENDING')}
+    for name in ('test_recovery_startup_provider.py', 'test_recovery_autonomous_entry.py', 'test_recovery_context_stress.py'):
+        suite = results.get(name, {})
+        if suite.get('status') != 'PASS':
+            continue
+        # Suites emit bounded JSON reports. A unittest diagnostic prefix is not
+        # evidence; only a parsed report's explicit named gates are admitted.
+        raw = suite.get('stdout', '')
+        for match in re.finditer(r'\{', raw):
+            try:
+                report, _ = json.JSONDecoder().raw_decode(raw[match.start():])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(report, dict) and isinstance(report.get('gates'), dict):
+                gates.update(report['gates'])
+                break
+    required_gates = ('INSTALL_START_LIFECYCLE', 'OPENCODE_START_WITH_MODEL_AUTH_PENDING',
+        'CONTROL_LOOP_START', 'HOST_PROVIDER_DISCOVERY', 'NATURAL_LANGUAGE_START_TEST',
+        'MISSION_INTAKE', 'PLANNER_SESSION', 'AUTONOMOUS_PLAN', 'SCHEDULER_AUTO_ADVANCE',
+        'SESSION_ROUTER', 'AUTO_ROTATION', 'SUCCESSOR_RESUME', 'CONTEXT_STRESS',
+        'WINDOWS_FULL_QUALIFICATION', 'FINAL_ZIP_SEALED')
+    windows_execution_pass = passed and payload_pass and os.name == 'nt'
+    gates['WINDOWS_FULL_QUALIFICATION'] = (
+        'PASS' if windows_execution_pass and gates.get('AUTONOMOUS_PLAN') == 'PASS'
+        else 'PARTIAL_REAL_MODEL_REQUIRED' if windows_execution_pass else 'PENDING_OR_FAILED')
+    gates['FINAL_ZIP_SEALED'] = 'PENDING'
+    for gate in required_gates: gates.setdefault(gate, 'NOT_PROVEN')
     result = {'schema_version': 'aitest.machine-validation.v1', 'product_version': '1.12.0',
               'host': {'system': platform.system(), 'machine': platform.machine(), 'python': platform.python_version()},
               'source_head': (json.loads((bundle / 'BUILD_PROVENANCE.json').read_text()).get('source_head') if (bundle / 'BUILD_PROVENANCE.json').is_file() else subprocess.check_output(['git', '-C', str(bundle), 'rev-parse', 'HEAD'], text=True).strip()),
@@ -126,6 +168,8 @@ def main():
               'bank_4A_Starlink_CAT_DB': 'BANK_BINDING_REQUIRED / NOT_EXECUTED',
               'fixture_boundary': 'Contract suites use synthetic requirements and OpenCode HTTP fixtures; HTTP/UI/pytest/k6 payload smoke uses a real local test server. None is bank evidence.',
               'suites': results, 'payloads': payloads,
+              'work_item': '10.REC.3', 'gates': gates,
+              'closure': 'HOLD_UNTIL_ALL_REQUIRED_GATES_PASS',
               'status': 'PASS' if passed and (args.source_only or payload_pass) else 'FAIL'}
     output = args.output.resolve(); output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')

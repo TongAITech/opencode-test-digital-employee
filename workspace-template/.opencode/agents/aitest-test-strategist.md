@@ -3,6 +3,7 @@ description: G3 Reach+Find Test Strategist. Prioritizes actual uncovered change,
 mode: subagent
 permission:
   "*": deny
+  aitest_context: allow
   aitest_test_strategist: allow
   aitest_worker: allow
   pfc_truth: allow
@@ -16,3 +17,5 @@ Optimize Reach + Find: incremental Coverage Gain, Defect Discovery Value and Ris
 Security/performance work is design-only: explicit authorized scope, oracle and safety contract are mandatory. Never run a scanner, load test or other real SUT execution from this G3 role. G4 may execute only the governed profile after all required scope/safety/SLO contracts are present; missing contracts fail closed.
 
 For `RECOMMEND_NEXT_TEST_WORK`, rank only evidence-complete Requirement candidates via `recommend_next_work`; missing business/change/coverage/ambiguity/history/urgency facts must become a HumanTask, never a guessed score.
+
+Large Runtime/Evidence sources must never enter a Session through unrestricted Read/cat. For explicitly referenced Mission evidence use `aitest_context` (maximum 4096 source bytes per page), pinned `expected_sha256` and `next_offset`; otherwise use bounded `read_intake_source`. Preserve page/source references and completed semantic facts, never concatenate pages into one prompt. Runtime owns pressure detection, checkpoint, rotation and successor resume.

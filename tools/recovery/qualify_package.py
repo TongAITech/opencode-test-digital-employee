@@ -25,15 +25,28 @@ def main():
     machine = json.loads((bundle / 'windows-validation.json').read_text(encoding='utf-8'))
     if machine.get('WINDOWS_CI_PASS') is not True or machine.get('status') != 'PASS':
         raise RuntimeError('Successful Windows payload execution is required before qualification')
-    previous = json.loads((bundle / 'MACHINE_VALIDATION_RESULT.json').read_text(encoding='utf-8'))
-    local = json.loads(args.local_report.read_text(encoding='utf-8')) if args.local_report else previous.get('local_construction_validation', previous)
+    provenance = json.loads((bundle / 'BUILD_PROVENANCE.json').read_text(encoding='utf-8'))
+    if machine.get('source_head') != provenance.get('source_head'):
+        raise RuntimeError('Validation source HEAD differs from delivered source')
+    if os.environ.get('GITHUB_SHA') != provenance.get('source_head'):
+        raise RuntimeError('Fresh exact-source Windows workflow is required')
+    # Never inherit a historical machine report as evidence for this repair.
+    local = json.loads(args.local_report.read_text(encoding='utf-8')) if args.local_report else {
+        'source_head': machine['source_head'],
+        'LOCAL_VALIDATION_PASS': machine.get('LOCAL_VALIDATION_PASS') is True,
+        'scope': 'Current installed packaged-Python contract suites on Windows',
+    }
+    if local.get('source_head') != provenance['source_head']:
+        raise RuntimeError('Local evidence does not match this source HEAD')
     original_checksums = json.loads((bundle / 'FILE_SHA256.json').read_text(encoding='utf-8'))
     for relative, expected in original_checksums.items():
         if sha(bundle / relative) != expected: raise RuntimeError('Source/payload changed during validation: ' + relative)
-    previous_proof = previous.get('windows_ci', {})
-    proof = {'run_id': os.environ.get('GITHUB_RUN_ID') or previous_proof.get('run_id'), 'workflow_head': os.environ.get('GITHUB_SHA') or previous_proof.get('workflow_head'),
-             'url': f"https://github.com/{os.environ.get('GITHUB_REPOSITORY')}/actions/runs/{os.environ.get('GITHUB_RUN_ID')}" if os.environ.get('GITHUB_RUN_ID') else previous_proof.get('url'),
-             'tested_input_zip_sha256': os.environ.get('AITEST_INPUT_SHA256') or previous_proof.get('tested_input_zip_sha256'),
+    proof = {'run_id': os.environ.get('GITHUB_RUN_ID'), 'workflow_head': os.environ.get('GITHUB_SHA'),
+             'url': f"https://github.com/{os.environ.get('GITHUB_REPOSITORY')}/actions/runs/{os.environ.get('GITHUB_RUN_ID')}",
+             'tested_input_zip_sha256': os.environ.get('AITEST_INPUT_SHA256'),
+             'carrier_sha256': os.environ.get('AITEST_CARRIER_SHA256'),
+             'carrier_scope': 'OFFLINE_DEPENDENCIES_ONLY; ALL_SOURCE_AND_TESTS_FROM_WORKFLOW_HEAD',
+             'installed_runtime': 'D:/PFC/AITest',
              'repack_scope': 'Validation reports and checksums only; original source and payload files verified unchanged before sealing'}
     machine['LOCAL_VALIDATION_PASS'] = local.get('LOCAL_VALIDATION_PASS') is True
     local_label = 'LOCAL_VALIDATION_PASS' if machine['LOCAL_VALIDATION_PASS'] else 'LOCAL_VALIDATION_PENDING_OR_FAILED'
@@ -41,15 +54,33 @@ def main():
     machine['local_construction_validation'] = local
     machine['windows_ci'] = proof
     machine['qualification'] = local_label + ' + WINDOWS_CI_PASS; BANK_FIELD_VALIDATION_REQUIRED'
+    gates = machine.get('gates', {})
+    if not gates: raise RuntimeError('10.REC.3 named gate evidence is missing')
+    for gate in ('INSTALL_START_LIFECYCLE', 'OPENCODE_START_WITH_MODEL_AUTH_PENDING',
+                 'CONTROL_LOOP_START', 'HOST_PROVIDER_DISCOVERY', 'NATURAL_LANGUAGE_START_TEST',
+                 'MISSION_INTAKE', 'PLANNER_SESSION', 'AUTONOMOUS_PLAN', 'SCHEDULER_AUTO_ADVANCE',
+                 'SESSION_ROUTER', 'AUTO_ROTATION', 'SUCCESSOR_RESUME', 'CONTEXT_STRESS',
+                 'WINDOWS_FULL_QUALIFICATION'):
+        gates.setdefault(gate, 'NOT_PROVEN')
+    gates['FINAL_ZIP_SEALED'] = 'PASS'
+    pending = {key: value for key, value in gates.items()
+               if value != 'PASS' and not (key == 'HOST_PROVIDER_DISCOVERY' and value == 'PARTIAL_BANK_BINDING')}
+    if not machine['LOCAL_VALIDATION_PASS']:
+        pending['LOCAL_CONTRACT_VALIDATION'] = 'NOT_PASS'
+    machine['closure'] = 'PASS' if not pending else 'HOLD'
+    machine['unproven_closure_gates'] = pending
     write(bundle / 'MACHINE_VALIDATION_RESULT.json', machine)
     manifest = json.loads((bundle / 'PACKAGE_MANIFEST.json').read_text(encoding='utf-8'))
     manifest['validation'] = {'status': 'PASS' if machine['LOCAL_VALIDATION_PASS'] else 'WINDOWS_PASS_LOCAL_PENDING_OR_FAILED', 'local': local_label, 'windows_ci': 'WINDOWS_CI_PASS', 'bank': 'BANK_FIELD_VALIDATION_REQUIRED', 'proof': proof}
     manifest['source_identity_scope'] = 'Exact Git archive before generated validation overlays; FILE_SHA256.json verifies final delivered bytes'
     manifest['recovery_change_validation'] = local_label + ' + WINDOWS_CI_PASS'
+    manifest['work_item'] = '10.REC.3'
+    manifest['closure'] = machine['closure']
+    manifest['closure_gates'] = gates
     write(bundle / 'PACKAGE_MANIFEST.json', manifest)
     provenance = json.loads((bundle / 'BUILD_PROVENANCE.json').read_text(encoding='utf-8'))
     provenance['windows_qualification'] = proof
-    provenance['generated_delivery_overlays'] = ['MACHINE_VALIDATION_RESULT.json', 'PACKAGE_MANIFEST.json', 'BUILD_PROVENANCE.json', 'FILE_SHA256.json', 'windows-validation.json', 'windows-doctor.txt', 'windows-self-check.txt']
+    provenance['generated_delivery_overlays'] = ['MACHINE_VALIDATION_RESULT.json', 'PACKAGE_MANIFEST.json', 'BUILD_PROVENANCE.json', 'FILE_SHA256.json', 'windows-validation.json', 'windows-doctor.txt', 'windows-self-check.txt', 'windows-install.txt', 'windows-install-manifest.json']
     allowed_extra = set(provenance['generated_delivery_overlays'])
     files = sorted(p for p in bundle.rglob('*') if p.is_file() and (p.relative_to(bundle).as_posix() in original_checksums or p.relative_to(bundle).as_posix() in allowed_extra))
     provenance['files'] = [{'path': p.relative_to(bundle).as_posix(), 'size_bytes': p.stat().st_size, 'sha256': sha(p)} for p in files if p.name not in {'BUILD_PROVENANCE.json', 'FILE_SHA256.json'}]
@@ -61,7 +92,7 @@ def main():
         for p in files: archive.write(p, bundle.name + '/' + p.relative_to(bundle).as_posix())
     digest = sha(final)
     (output / (final.name + '.sha256')).write_text(f'{digest}  {final.name}\n', encoding='ascii')
-    for name in ('MACHINE_VALIDATION_RESULT.json', 'BUILD_PROVENANCE.json', 'PACKAGE_MANIFEST.json', 'VALIDATION_README.md', 'CAPABILITY_PARITY_MATRIX.md', 'OFFLINE_PAYLOAD_REGISTRY.json'):
+    for name in ('INSTALL_MANIFEST.json', 'windows-install-manifest.json', 'MACHINE_VALIDATION_RESULT.json', 'BUILD_PROVENANCE.json', 'PACKAGE_MANIFEST.json', 'VALIDATION_README.md', 'CAPABILITY_PARITY_MATRIX.md', 'OFFLINE_PAYLOAD_REGISTRY.json'):
         import shutil
         shutil.copy2(bundle / name, output / name)
     write(output / 'BUILD_RESULT.json', {'zip': final.name, 'sha256': digest, 'size_bytes': final.stat().st_size, 'source_head': provenance['source_head'], 'windows_ci': proof})

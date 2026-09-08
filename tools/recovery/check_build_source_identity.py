@@ -29,6 +29,9 @@ class SourceIdentitySealCheck(unittest.TestCase):
             git(repo, 'init', '-q')
             source_files = {
                 'AITEST.sh': '#!/bin/sh\n',
+                'INSTALL.sh': '#!/bin/sh\n',
+                'INSTALL_MANIFEST.json': '{"status":"NOT_INSTALLED"}\n',
+                'tools/recovery/install.py': '# construction fixture\n',
                 'tools/recovery/launcher.py': '# construction fixture\n',
                 'tools/recovery/validate_package.py': '# construction fixture\n',
                 'VALIDATION_README.md': 'fixture\n', 'CAPABILITY_PARITY_MATRIX.md': 'fixture\n',
