@@ -27,7 +27,8 @@ class G4RealExecutionService(_R2_5_G4RealExecutionService):
         result = super().complete_human_takeover(mission_id, request)
         if result.get("status") == "RESUME_SAFE":
             cursor = (result.get("cursor") or {}).get("payload", {})
-            resume = (cursor.get("last_safe_checkpoint") or {}).get("ui_journey_resume")
+            checkpoint = cursor.get("last_safe_checkpoint")
+            resume = checkpoint.get("ui_journey_resume") if isinstance(checkpoint, Mapping) else None
             if resume:
                 continuation = dict(resume)
                 continuation["attempt_id"] = result["resume_attempt_id"]
