@@ -129,6 +129,12 @@ internal static class AppContainerProbe {
                 bool attackOK=AttackPassed(D(child,"attack")) && AttackPassed(cmd) && AttackPassed(ps);
                 // Access denied is affirmative OS evidence. Timeout/refusal/DNS failure is not.
                 bool all=B(child,"permitted_write") && B(child,"permitted_read") && B(result,"permitted_cmd_write") && B(result,"permitted_powershell_write") && intact && attackOK;
+                if(File.Exists(Path.Combine(root,"bin","interpreters-required.marker"))) {
+                    var python=Read(Path.Combine(root,"notes","python-result.json"));var bash=Read(Path.Combine(root,"notes","bash-result.json"));
+                    var pyDesc=Read(Path.Combine(root,"notes","python-descendant-result.json"));var bashDesc=Read(Path.Combine(root,"notes","bash-descendant-result.json"));
+                    result["python"]=python;result["bash"]=bash;result["python_native_descendant"]=pyDesc;result["bash_native_descendant"]=bashDesc;
+                    all=all && B(python,"appcontainer") && Convert.ToInt32(python["capability_count"])==0 && InterpreterPassed(python) && InterpreterPassed(bash) && AttackPassed(pyDesc) && AttackPassed(bashDesc);
+                } else result["portable_interpreters"]="NOT_REQUESTED_NOT_QUALIFIED";
                 string[] markers=fixture.Markers(); result["network_connection_markers"]=markers;
                 bool parentSeen=false, childSeen=false; foreach(string marker in markers){if(marker=="PARENT_CONTROL")parentSeen=true;else childSeen=true;}
                 result["network_server_observed_control_only"]=parentSeen && !childSeen; all=all && parentSeen && !childSeen;
@@ -173,6 +179,12 @@ internal static class AppContainerProbe {
         result["cmd_process"]=Spawn(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"cmd.exe"),"/d /s /c \"\""+commandPath+"\"\"",root,25000);
         string ps="[IO.File]::WriteAllText("+PSQ(Path.Combine(root,"notes","powershell-note.txt"))+",'PS_ALLOWED'); $info=[Diagnostics.ProcessStartInfo]::new(); $info.FileName="+PSQ(Exe)+"; $info.Arguments="+PSQ(childArgs+" powershell")+"; $info.UseShellExecute=$false; $info.WorkingDirectory="+PSQ(root)+"; $child=[Diagnostics.Process]::Start($info); $child.WaitForExit(); if($child.ExitCode -ne 0){throw 'NATIVE_DESCENDANT_FAILED'}; try {[IO.File]::WriteAllText("+PSQ(Protected(root))+",'PS_ATTACK')} catch {}; try {[IO.File]::WriteAllText("+PSQ(Outside(root))+",'PS_ATTACK')} catch {}; try {[IO.File]::WriteAllText("+PSQ(Path.Combine(root,"read","diagnostic.txt"))+",'PS_ATTACK')} catch {}";
         result["powershell_process"]=Spawn(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"WindowsPowerShell","v1.0","powershell.exe"),"-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "+Convert.ToBase64String(Encoding.Unicode.GetBytes(ps)),root,35000);
+        if(File.Exists(Path.Combine(root,"bin","interpreters-required.marker"))) {
+            string python=Path.Combine(root,"bin","python","python.exe");
+            result["python_process"]=Spawn(python,"-I -B "+Q(Path.Combine(root,"bin","python-proof.py"))+" "+Q(root)+" "+Q(sid)+" "+port+" "+Q(Exe),root,35000);
+            string bash=Path.Combine(root,"bin","git","bin","bash.exe");
+            result["bash_process"]=Spawn(bash,"--noprofile --norc "+Q(Path.Combine(root,"bin","bash-proof.sh"))+" "+Q(root.Replace('\\','/'))+" "+Q(sid)+" "+port+" "+Q(Exe.Replace('\\','/')),root,35000);
+        }
         Save(Path.Combine(root,"notes","child-result.json"),result);
     }
 
@@ -215,6 +227,11 @@ internal static class AppContainerProbe {
             return new Dictionary<string,object>{{"denied",error==10013},{"socket_error",error},{"writable",ready},{"elapsed_ms",watch.ElapsedMilliseconds},{"connected",s.Connected},{"oracle",error==10013?"OS_ACCESS_DENIED":"NOT_PROVEN"}};
         } } catch(SocketException e) { return new Dictionary<string,object>{{"denied",e.NativeErrorCode==10013},{"native_error",e.NativeErrorCode},{"error",e.SocketErrorCode.ToString()},{"elapsed_ms",watch.ElapsedMilliseconds}}; }
         catch(Exception e) { return new Dictionary<string,object>{{"denied",false},{"error",e.ToString()},{"elapsed_ms",watch.ElapsedMilliseconds}}; }
+    }
+    static bool InterpreterPassed(Dictionary<string,object> a) {
+        if(!B(a,"permitted_write") || !B(a,"permitted_read"))return false;
+        foreach(string k in new[]{"protected","outside","protected_read","outside_read","readonly_write","traversal","case","junction"})if(!B(D(a,k),"denied"))return false;
+        return true;
     }
     static bool AttackPassed(Dictionary<string,object> a) {
         if(!B(a,"correct_appcontainer_sid"))return false;

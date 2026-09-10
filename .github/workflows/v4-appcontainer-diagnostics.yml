@@ -10,11 +10,29 @@ permissions:
 jobs:
   windows-isolation:
     runs-on: windows-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Reuse qualified portable Python and installed Git Bash
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $incoming = Join-Path $env:RUNNER_TEMP 'v4-interpreter-input'
+          gh run download 34278790485 --name recovery-qualified-package --dir $incoming
+          if ($LASTEXITCODE -ne 0) { throw 'Offline payload artifact unavailable' }
+          $zip = Join-Path $incoming 'AITest-V1.13.0-Recovery-Turnkey-Windows-x64.zip'
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne '49d8e4dc0a38a1ea89b5872bb7926151b938172650bec2534ce73c43f76e9be2') { throw 'Offline payload hash mismatch' }
+          $expanded = Join-Path $env:RUNNER_TEMP 'v4-interpreters'
+          Expand-Archive $zip -DestinationPath $expanded
+          $bundle = Get-ChildItem $expanded -Directory | Select-Object -First 1
+          "V4_RUNTIME=$($bundle.FullName)/workspace-template/runtime" | Out-File $env:GITHUB_ENV -Append
+          $git = Join-Path $env:ProgramFiles 'Git'
+          if (-not (Test-Path "$git/bin/bash.exe")) { throw 'EXISTING_GIT_BASH_UNAVAILABLE' }
+          "V4_GIT=$git" | Out-File $env:GITHUB_ENV -Append
       - name: Start independent Windows filtering observer
         shell: pwsh
         run: |
@@ -29,7 +47,7 @@ jobs:
         run: |
           $output = Join-Path $env:RUNNER_TEMP ('v4-isolation-' + [Guid]::NewGuid().ToString('N'))
           "V4_PROBE_OUTPUT=$output" | Out-File $env:GITHUB_ENV -Append
-          & ./tools/v4_review/windows/run-spike.ps1 -OutputDirectory $output -UseDisposableCiUser
+          & ./tools/v4_review/windows/run-spike.ps1 -OutputDirectory $output -UseDisposableCiUser -RuntimeDirectory $env:V4_RUNTIME -GitDirectory $env:V4_GIT
       - name: Collect independent filter decision evidence
         if: always()
         shell: pwsh

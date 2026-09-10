@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$OutputDirectory, [switch]$UseDisposableCiUser)
+param([string]$OutputDirectory, [switch]$UseDisposableCiUser, [string]$RuntimeDirectory, [string]$GitDirectory)
 $ErrorActionPreference = 'Stop'
 if ($env:OS -ne 'Windows_NT') { throw 'WINDOWS_REQUIRED: this probe cannot run on macOS/Linux.' }
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $env:TEMP ('aitest-appcontainer-spike-' + [Guid]::NewGuid().ToString('N')) }
@@ -13,6 +13,16 @@ if (-not (Test-Path -LiteralPath $compiler)) { throw 'ENVIRONMENT_BLOCKED: .NET 
 $exe = Join-Path $OutputDirectory 'bin\AppContainerProbe.exe'
 & $compiler /nologo /target:exe /platform:x64 /optimize+ '/reference:System.Web.Extensions.dll' ('/out:' + $exe) $source 2>&1 | Tee-Object -FilePath (Join-Path $OutputDirectory 'compile.log')
 if ($LASTEXITCODE -ne 0) { throw ('COMPILE_FAILED; output=' + $OutputDirectory) }
+# These copies become read/execute-only before the confined process starts.
+if ($RuntimeDirectory -or $GitDirectory) {
+    if (-not (Test-Path "$RuntimeDirectory/python/python.exe") -or -not (Test-Path "$GitDirectory/bin/bash.exe")) { throw 'INTERPRETER_PAYLOAD_MISSING_FAIL_CLOSED' }
+    Copy-Item "$RuntimeDirectory/python" (Join-Path $OutputDirectory 'bin/python') -Recurse
+    Copy-Item $GitDirectory (Join-Path $OutputDirectory 'bin/git') -Recurse
+    Copy-Item (Join-Path $PSScriptRoot 'python-proof.py') (Join-Path $OutputDirectory 'bin/python-proof.py')
+    Copy-Item (Join-Path $PSScriptRoot 'bash-proof.sh') (Join-Path $OutputDirectory 'bin/bash-proof.sh')
+    Set-Content (Join-Path $OutputDirectory 'bin/interpreters-required.marker') 'PYTHON_AND_GIT_BASH_MUST_EXECUTE'
+    @{ python_source='HASH_PINNED_PREVIOUS_OFFLINE_PACKAGE'; git_source='EXISTING_GITHUB_RUNNER_GIT_INSTALLATION'; python_sha256=(Get-FileHash "$RuntimeDirectory/python/python.exe" -Algorithm SHA256).Hash; bash_sha256=(Get-FileHash "$GitDirectory/bin/bash.exe" -Algorithm SHA256).Hash; git_directory=$GitDirectory } | ConvertTo-Json | Set-Content (Join-Path $OutputDirectory 'interpreter-identities.json')
+}
 Get-FileHash -Algorithm SHA256 $source,$exe | Select-Object Path,Hash | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'identities.json')
 if ($UseDisposableCiUser) {
     # CI provisioning is separate from the product user's no-admin execution.
