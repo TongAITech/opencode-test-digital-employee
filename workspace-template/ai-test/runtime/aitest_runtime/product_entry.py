@@ -230,7 +230,7 @@ def orchestration_command(role: str, action: str, payload: Mapping[str, Any]) ->
     service = orchestration_service(root)
 
     allowed: dict[str, set[str]] = {
-        "DIRECTOR": {"status", "start_test", "continue_test", "intake_mission", "open_planner", "open_human_gate", "decide_human_gate"},
+        "DIRECTOR": {"status", "interact", "start_test", "continue_test"},
         "PLANNER": {"status", "propose_plan", "intake_context", "read_intake_source", "binding_context"},
         "SCHEDULER": {"status", "advance", "dispatch_next"},
         "EXECUTOR": {"status", "report_task_outcome"},
@@ -253,22 +253,11 @@ def orchestration_command(role: str, action: str, payload: Mapping[str, Any]) ->
     if role == "PLANNER" and action in {"intake_context", "read_intake_source", "binding_context"}:
         from .recovery_intake import read_dispatch
         return read_dispatch(root, action, data, runtime=service.runtime)
-    if action == "start_test":
-        if os.environ.get("AITEST_HOST_SESSION_ID") or os.environ.get("AITEST_HOST_MESSAGE_ID"):
-            from .hosted_intake import hosted_user_intake
-            # G2.1 wraps session_provider to govern Session provisioning. Host
-            # User-message provenance is a read on the underlying directory-
-            # scoped transport; the provisioning wrapper has no HTTP API.
-            host_provider = getattr(service, "raw_session_provider", service.session_provider)
-            return service.start_test(hosted_user_intake(host_provider, data))
-        request = data.get("request", data)
-        return service.start_test(_object(request, "request"))
-    if action == "continue_test":
-        scope = data.get("scope")
-        return service.continue_test(
-            mission_id=str(mission_id) if mission_id else None,
-            scope=_object(scope, "scope") if scope is not None else None,
-        )
+    if action in {"interact", "start_test", "continue_test"}:
+        from .hosted_interaction import hosted_interaction
+        # Every exposed mutation route requires actual ToolContext provenance.
+        # Trusted internal R2/G2 services remain callable by their owned adapters.
+        return hosted_interaction(service, data, action=action)
     if action == "intake_mission":
         request = data.get("request", data)
         return service.intake_mission(_object(request, "request"))

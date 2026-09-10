@@ -168,18 +168,40 @@ const pending = (role: string, action: string, payload: unknown, nextGate: strin
   reason: `${nextGate}_CANONICAL_WIRING_PENDING`,
 })
 
+const interactionScope = tool.schema.object({
+  mode: tool.schema.literal("EXPLICIT_SET").default("EXPLICIT_SET"),
+  project_id: tool.schema.string().optional(),
+  version: tool.schema.string().optional(),
+  requirements: tool.schema.array(tool.schema.string()).optional(),
+}).strict()
+
+const interactionOperation = tool.schema.object({
+  intent: tool.schema.enum(["GENERAL_CHAT", "GENERAL_QUERY", "GENERAL_WORK", "AITEST_DIAGNOSIS", "TEST_MISSION_START", "MISSION_QUERY", "MISSION_UPDATE", "MISSION_CONTROL", "HUMAN_GATE_RESPONSE"]),
+  action: tool.schema.enum(["respond", "query", "read", "write", "run", "diagnose", "start", "update", "continue", "pause", "stop", "detach", "stop_runtime", "verify"]),
+  start: tool.schema.number().int().min(0).describe("Exact Unicode codepoint start from Runtime's returned complete clauses; never slice out a negation or quotation."),
+  end: tool.schema.number().int().min(1),
+  scope: interactionScope.optional(),
+  subject_id: tool.schema.string().max(256).optional().describe("Untrusted proposed reference; Runtime resolves real ownership and unique durable context."),
+  arguments: tool.schema.object({
+    purpose: tool.schema.string().max(1024).optional(), target: tool.schema.string().max(1024).optional(),
+    value: tool.schema.string().max(1024).optional(), unit: tool.schema.string().max(1024).optional(),
+    gate_id: tool.schema.string().max(1024).optional(),
+  }).strict().optional(),
+}).strict()
+
 export const director = boundedTool(tool, {
-  description: "Canonical AI Test Director. Start/resume Mission truth, autonomously open the Planner Session, read orchestration state, and govern Human Gates. Conversation is never Mission truth.",
+  description: "Primary interaction admission. Propose nine intent classes and separate mixed operations; Runtime reads the actual host User Turn and independently admits effects. Chat creates no Mission. General-work routing grants no I/O until a typed worker lease exists. Replayed or uncertain operations never redispatch.",
   args: {
-    action: tool.schema.string().describe("status|start_test|continue_test|intake_mission|open_planner|open_human_gate|decide_human_gate"),
+    action: tool.schema.enum(["status", "interact", "start_test", "continue_test"]),
     payload: tool.schema.object({
-      user_request: tool.schema.string().max(16384).optional().describe("For start_test: exact current User text, e.g. 测试 BLOAN1.9.4. Host supplies identity, timestamp and SHA256."),
-      scope: tool.schema.object({ mode: tool.schema.literal("EXPLICIT_SET"), project_id: tool.schema.string().optional(), version: tool.schema.string().optional(), requirements: tool.schema.array(tool.schema.string()).optional() }).strict().optional(),
-      operation: tool.schema.enum(["CREATE", "REVISE"]).optional(),
-    }).passthrough().default({}),
+      user_request: tool.schema.string().max(16384).optional().describe("Exact actual user text, if supplied. The host owns identity, parent, content digest and expiry."),
+      mission_id: tool.schema.string().optional().describe("Read-only status only. Use an operation's subject_id proposal for admission."),
+      scope: interactionScope.optional().describe("Single start/continue convenience only; mixed operations carry separate scopes."),
+      proposal: tool.schema.object({operations: tool.schema.array(interactionOperation).min(1).max(8)}).strict().optional(),
+    }).strict().default({}),
   },
   async execute(args, context) {
-    if (args.action === "start_test" && (!context.sessionID || !context.messageID)) throw modelError("HOST_USER_TURN_REQUIRED")
+    if (args.action !== "status" && (!context.sessionID || !context.messageID)) throw modelError("HOST_USER_TURN_REQUIRED")
     return orchestrate(context as ToolContext, "DIRECTOR", args.action, args.payload)
   },
 })

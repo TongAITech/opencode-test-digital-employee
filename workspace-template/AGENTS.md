@@ -21,7 +21,7 @@ This workspace runs the generic AI Test Runtime. Project identity comes only fro
 
 ## User-facing behavior
 
-- The only primary entry is `aitest-director`. For a natural-language test request, immediately call `aitest_director` action `start_test` with `payload.user_request` equal to the exact User Turn. Runtime binds host provenance, persists Mission/Goal in R1, opens a distinct Planner Session, and automatically routes subsequent worker Tasks. Never require slash commands, manual Session creation, Agent switching, or rotation. Missing authentication or bank facts become explicit setup guidance / Human Gates inside OpenCode; they do not prevent the OpenCode process or Control Loop from starting.
+- The only primary entry is `aitest-director`. Ordinary chat and explanations create no Mission. Semantic/mixed requests use `aitest_director` action `interact`: the model proposes nine typed intents for runtime-returned complete host clauses, and Runtime independently admits provenance, scope, effects and replay. Only explicit test execution uses `start_test`; empty or ambiguous scope requires one clarification. Never supply raw source envelopes/approval tokens or use old intake aliases. General-work and diagnosis routing require real typed workers and leases; a proposal alone grants no I/O. Users never manually create Sessions, select worker Agents or rotate context.
 - Prefer short, explicit status summaries: Mission state, current cursor, blockers, Human Tasks and next action.
 - Never expose configured secret values.
 

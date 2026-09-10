@@ -12,7 +12,9 @@ import re
 import sqlite3
 import sys
 import tempfile
+import time
 from pathlib import Path
+from unittest.mock import patch
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_ROOT = WORKSPACE_ROOT / "ai-test" / "runtime"
@@ -64,6 +66,18 @@ class FailNextCreateProvider(FakeOpenCodeSessionProvider):
         return super().create_session(title=title, parent_id=parent_id)
 
 
+class HostedFixtureProvider(FakeOpenCodeSessionProvider):
+    """Fake host transport; actual F53 admission and R1 operations remain real."""
+    def user_turn(self, message_id, text):
+        self.user_message_id=message_id;self.user_text=text;self.created=int(time.time()*1000)
+    def _directory_query(self):return 'directory=local-fixture'
+    def _request(self, method, path):
+        if '/message/host-assistant?' in path:
+            return {'info':{'sessionID':'host-session','id':'host-assistant','role':'assistant','parentID':self.user_message_id}}
+        return {'info':{'sessionID':'host-session','id':self.user_message_id,'role':'user','time':{'created':self.created}},
+                'parts':[{'type':'text','text':self.user_text,'messageID':self.user_message_id,'sessionID':'host-session'}]}
+
+
 def _sha(path: Path) -> str | None:
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
 
@@ -82,7 +96,7 @@ def main() -> int:
         root = Path(td)
         spine = root / "runtime-spine.db"
         runtime = create_canonical_runtime(root, db_path=spine)
-        provider = FakeOpenCodeSessionProvider(root)
+        provider = HostedFixtureProvider(root)
         service = G21AutonomousOrchestrationService(runtime, root, session_provider=provider)
         legacy = root / "ai-test/state/aitest.db"
         legacy_before = _sha(legacy)
@@ -90,20 +104,26 @@ def main() -> int:
         previous_workspace = os.environ.get("AITEST_WORKSPACE_ROOT")
         original_factory = product_entry.orchestration_service
         os.environ["AITEST_WORKSPACE_ROOT"] = str(root)
+        host_environment=patch.dict(os.environ,{'AITEST_HOST_SESSION_ID':'host-session','AITEST_HOST_MESSAGE_ID':'host-assistant'})
+        host_environment.start()
         product_entry.orchestration_service = lambda _root=None: service  # type: ignore[assignment]
         try:
-            started = product_entry.orchestration_command("DIRECTOR", "start_test", {"request": _request("g2-a")})
-            mission_id = started["intake"]["intake"]["mission_id"]
+            provider.user_turn('g2-a','测试 TEST-VERSION')
+            scope={'mode':'EXPLICIT_SET','version':'TEST-VERSION'}
+            started = product_entry.orchestration_command("DIRECTOR", "start_test", {"scope":scope})['operations'][0]
+            assert started['status']=='DISPATCHED',started
+            mission_id = started['subject']['subject_id']
             checks["product_start_creates_active_mission_and_planner"] = (
-                started["status"] == "PLANNING"
-                and started["planner_session"]["status"] == "PLANNER_SESSION_OPEN"
+                started["status"] == "DISPATCHED"
+                and started['result']["next"]["status"] == "PLANNER_SESSION_OPEN"
                 and service.status(mission_id)["core"]["mission"]["status"] == "ACTIVE"
             )
 
-            resumed = product_entry.orchestration_command("DIRECTOR", "start_test", {"request": _request("g2-b")})
+            provider.user_turn('g2-b','测试 TEST-VERSION')
+            resumed = product_entry.orchestration_command("DIRECTOR", "start_test", {"scope":scope})['operations'][0]
             checks["same_scope_new_intake_resumes_same_mission"] = (
-                resumed["intake"]["status"] == "RESUMED"
-                and resumed["intake"]["intake"]["mission_id"] == mission_id
+                resumed['result']['resumed_existing_mission'] is True
+                and resumed['subject']['subject_id'] == mission_id
                 and _mission_count(spine) == 1
             )
 
@@ -175,9 +195,11 @@ def main() -> int:
             })
             checks["orchestration_loop_reaches_plan_complete"] = completed_second["next"]["status"] == "PLAN_COMPLETE"
 
-            continued = product_entry.orchestration_command("DIRECTOR", "continue_test", {"mission_id": mission_id})
-            checks["continue_reads_durable_state_not_conversation"] = continued["status"] == "PLAN_COMPLETE"
+            provider.user_turn('g2-c','继续测试')
+            continued = product_entry.orchestration_command("DIRECTOR", "continue_test", {})['operations'][0]
+            checks["continue_reads_durable_state_not_conversation"] = continued['result']["status"] == "PLAN_COMPLETE"
         finally:
+            host_environment.stop()
             product_entry.orchestration_service = original_factory  # type: ignore[assignment]
             if previous_workspace is None:
                 os.environ.pop("AITEST_WORKSPACE_ROOT", None)
