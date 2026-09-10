@@ -100,6 +100,61 @@ class RuntimeError(Exception):
 
 
 @dataclass(frozen=True)
+class SubjectRef:
+    """Domain identity; v1 envelope mission_id is only its legacy storage key."""
+    subject_kind: str
+    subject_id: str
+
+    def __post_init__(self) -> None:
+        _require_id("subject_kind", self.subject_kind)
+        _require_id("subject_id", self.subject_id)
+        if not self.subject_kind.isidentifier() or self.subject_kind != self.subject_kind.upper():
+            raise ValueError("subject_kind must be an uppercase identifier")
+
+    def to_dict(self) -> dict[str, str]:
+        return {"subject_kind": self.subject_kind, "subject_id": self.subject_id}
+
+
+@dataclass(frozen=True)
+class RootDefinition:
+    """Reviewed creation and command/event boundary owned by one extension."""
+    subject_kind: str
+    id_prefix: str
+    version: int
+    creation_command: str
+    creation_event: str
+    entity_type: str
+    command_types: frozenset[str]
+    event_types: frozenset[str]
+
+    def __post_init__(self) -> None:
+        SubjectRef(self.subject_kind, "validation")
+        if self.subject_kind == "MISSION" or not self.id_prefix or not self.id_prefix.endswith(":"):
+            raise RuntimeError("ROOT_DEFINITION_INVALID", "extension roots require a disjoint non-Mission namespace")
+        if not isinstance(self.version, int) or isinstance(self.version, bool) or self.version < 1:
+            raise RuntimeError("ROOT_DEFINITION_INVALID", "root version must be positive")
+        _require_id("entity_type", self.entity_type)
+        object.__setattr__(self, "command_types", frozenset(self.command_types))
+        object.__setattr__(self, "event_types", frozenset(self.event_types))
+        if self.creation_command not in self.command_types or self.creation_event not in self.event_types:
+            raise RuntimeError("ROOT_DEFINITION_INVALID", "creation pair must be owned by the root")
+
+
+@dataclass(frozen=True)
+class SubjectState:
+    subject: SubjectRef
+    seq: int
+    root_version: int
+    owner_extension: str
+    root_state: Any
+    extension_states: Mapping[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"subject": self.subject.to_dict(), "seq": self.seq, "root_version": self.root_version,
+                "owner_extension": self.owner_extension, "state": _contributed_value(self.root_state)}
+
+
+@dataclass(frozen=True)
 class CommandEnvelope:
     command_id: str
     type: str
@@ -370,6 +425,8 @@ class ComposedRuntimeState:
     seq: int
     core_state: RuntimeState
     extension_states: Mapping[str, Any] = field(default_factory=dict)
+    subject: SubjectRef | None = None
+    root_version: int = 1
 
     def __post_init__(self) -> None:
         _require_id("mission_id", self.mission_id)
@@ -377,6 +434,8 @@ class ComposedRuntimeState:
             raise ValueError("seq must be non-negative")
         if self.core_state.mission_id != self.mission_id or self.core_state.seq != self.seq:
             raise ValueError("core_state must share the composed mission_id and seq")
+        if self.subject is not None and self.subject.subject_id != self.mission_id:
+            raise ValueError("subject must share the composed storage key")
 
     def extension_state(self, extension_id: str) -> Any:
         if extension_id not in self.extension_states:
@@ -384,7 +443,7 @@ class ComposedRuntimeState:
         return self.extension_states[extension_id]
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        value = {
             "mission_id": self.mission_id,
             "seq": self.seq,
             "core_state": self.core_state.to_dict(),
@@ -393,6 +452,11 @@ class ComposedRuntimeState:
                 for extension_id in sorted(self.extension_states)
             },
         }
+        # Do not add even empty metadata/extension keys to historical Mission hashes.
+        if self.subject is not None and self.subject.subject_kind != "MISSION":
+            value["subject"] = self.subject.to_dict()
+            value["root_version"] = self.root_version
+        return value
 
 
 MigrationApply = Callable[[Any], None]
@@ -428,6 +492,8 @@ class ExtensionManifest:
     reducer_contribution: Any
     projection_contribution: Any
     migration_contribution: Any
+    subject_kinds: frozenset[str] = frozenset({"MISSION"})
+    roots: tuple[RootDefinition, ...] = ()
 
     def __post_init__(self) -> None:
         try:
@@ -437,6 +503,8 @@ class ExtensionManifest:
             raise RuntimeError("EXTENSION_MANIFEST_INVALID", str(exc)) from exc
         object.__setattr__(self, "command_types", frozenset(self.command_types))
         object.__setattr__(self, "event_types", frozenset(self.event_types))
+        object.__setattr__(self, "subject_kinds", frozenset(self.subject_kinds))
+        object.__setattr__(self, "roots", tuple(self.roots))
         if not self.command_types or not self.event_types:
             raise RuntimeError(
                 "EXTENSION_MANIFEST_INVALID",
@@ -514,6 +582,30 @@ class ExtensionRegistry:
         self._by_id = by_id
         self._command_owners = command_owners
         self._event_owners = event_owners
+        self._root_owners: dict[str, tuple[ExtensionManifest, RootDefinition]] = {}
+        prefixes: list[str] = []
+        root_commands: set[str] = set()
+        root_events: set[str] = set()
+        for manifest in self._manifests:
+            if any(not isinstance(r, RootDefinition) for r in manifest.roots):
+                raise RuntimeError("ROOT_DEFINITION_INVALID", "roots must contain RootDefinition values")
+            if not manifest.subject_kinds or manifest.subject_kinds - {"MISSION"} != {r.subject_kind for r in manifest.roots}:
+                raise RuntimeError("ROOT_DEFINITION_INVALID", "non-Mission applicability requires exact owned root definitions")
+            if manifest.roots and not callable(getattr(manifest.state_contribution, "root_exists", None)):
+                raise RuntimeError("ROOT_DEFINITION_INVALID", "root owner must validate durable state existence")
+            if manifest.roots and not callable(getattr(manifest.projection_contribution, "projection_seq", None)):
+                raise RuntimeError("ROOT_DEFINITION_INVALID", "root owner projection must expose its shared sequence")
+            for root in manifest.roots:
+                if root.subject_kind in self._root_owners or any(root.id_prefix.startswith(p) or p.startswith(root.id_prefix) for p in prefixes):
+                    raise RuntimeError("ROOT_OWNER_CONFLICT", "root kind/namespace already owned")
+                if not root.command_types <= manifest.command_types or not root.event_types <= manifest.event_types:
+                    raise RuntimeError("ROOT_DEFINITION_INVALID", "root command/event types exceed extension ownership")
+                if root.command_types & root_commands or root.event_types & root_events:
+                    raise RuntimeError("ROOT_OWNER_CONFLICT", "root command/event applicability must be unambiguous")
+                self._root_owners[root.subject_kind] = (manifest, root)
+                prefixes.append(root.id_prefix)
+                root_commands.update(root.command_types)
+                root_events.update(root.event_types)
 
     @staticmethod
     def _projection_tables(manifest: ExtensionManifest) -> frozenset[str]:
@@ -591,3 +683,20 @@ class ExtensionRegistry:
 
     def migration_steps(self, manifest: ExtensionManifest) -> tuple[MigrationStep, ...]:
         return self._migration_steps(manifest)
+
+    def applicable(self, subject_kind: str = "MISSION") -> tuple[ExtensionManifest, ...]:
+        return tuple(m for m in self.manifests if subject_kind in m.subject_kinds)
+
+    def root_owner(self, subject_kind: str) -> tuple[ExtensionManifest, RootDefinition]:
+        owner = self._root_owners.get(subject_kind)
+        if owner is None:
+            raise RuntimeError("ROOT_OWNER_UNSUPPORTED", f"unsupported root kind: {subject_kind}")
+        return owner
+
+    def creation_owner(self, *, command_type: str | None = None, event_type: str | None = None):
+        return next(((m, r) for m, r in self._root_owners.values()
+                     if (command_type is not None and r.creation_command == command_type)
+                     or (event_type is not None and r.creation_event == event_type)), None)
+
+    def reserved_root_namespace(self, stream_id: str) -> bool:
+        return any(stream_id.startswith(r.id_prefix) for _, r in self._root_owners.values())

@@ -51,6 +51,7 @@ from .r4_7.extension import r4_7_extension
 from .r4_8.extension import r4_8_extension
 from .tool_execution.extension import tool_execution_extension
 from .work_graph.extension import work_graph_extension
+from .general_work.extension import general_work_extension
 
 
 CANONICAL_RUNTIME_SCHEMA = "aitest.r1-r4.canonical-runtime.v1"
@@ -94,6 +95,7 @@ def canonical_extension_manifests() -> tuple[ExtensionManifest, ...]:
         r4_6_extension(),
         r4_7_extension(),
         r4_8_extension(),
+        general_work_extension(),
     )
 
 

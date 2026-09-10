@@ -19,6 +19,9 @@ from .contracts import (
     Session,
     SessionState,
     SessionStatus,
+    SubjectRef,
+    SubjectState,
+    RootDefinition,
 )
 from .reducer import advance_shared_seq, initial_composed_state, initial_state, reduce, reduce_composed
 from .handlers import PendingEvent
@@ -47,6 +50,9 @@ __all__ = [
     "Session",
     "SessionState",
     "SessionStatus",
+    "SubjectRef",
+    "SubjectState",
+    "RootDefinition",
     "SystemClock",
     "canonical_json",
     "canonical_sha256",

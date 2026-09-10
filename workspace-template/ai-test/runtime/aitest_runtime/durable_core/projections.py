@@ -7,6 +7,7 @@ from .canonical import canonical_json, canonical_sha256
 from .contracts import ComposedRuntimeState, ExtensionRegistry, RuntimeError, RuntimeState
 from .event_store import list_events
 from .reducer import initial_composed_state, initial_state, reduce, reduce_composed
+from .subjects import assert_runtime_compatible, root_owner_for_state, validate_creation_event
 
 
 _WRITE_ACTIONS = {sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE}
@@ -150,6 +151,11 @@ def replay_composed_state(
 ) -> ComposedRuntimeState:
     state = initial_composed_state(mission_id, registry)
     for event in list_events(conn, mission_id, through_seq=through_seq):
+        if event.seq == 1 and event.event_type != "mission.created":
+            command = conn.execute("SELECT command_type,mission_id,status FROM commands WHERE command_id=?", (event.command_id,)).fetchone()
+            if command is None or command["mission_id"] != mission_id or command["status"] != "APPLIED":
+                raise RuntimeError("ROOT_CREATION_PAIR_INVALID", "root creation has no matching applied command")
+            validate_creation_event(event, registry, command["command_type"])
         state = reduce_composed(state, event, registry)
     return state
 
@@ -159,8 +165,11 @@ def _apply_composed_projection(
     state: ComposedRuntimeState,
     registry: ExtensionRegistry,
 ) -> None:
-    _apply_projection(conn, state.core_state)
-    for manifest in registry.manifests:
+    root = root_owner_for_state(state, registry)
+    if root is None:
+        _apply_projection(conn, state.core_state)
+    kind = state.subject.subject_kind if state.subject else "MISSION"
+    for manifest in registry.applicable(kind):
         _projection_call(
             conn,
             manifest,
@@ -174,12 +183,25 @@ def composed_projection_state(
     mission_id: str,
     registry: ExtensionRegistry,
 ) -> ComposedRuntimeState | None:
+    first = list_events(conn, mission_id, through_seq=1)
+    if first and first[0].event_type != "mission.created":
+        identity = replay_composed_state(conn, mission_id, registry, through_seq=1)
+        manifest, _root = root_owner_for_state(identity, registry)
+        if any(conn.execute(f"SELECT 1 FROM {table} WHERE mission_id=?", (mission_id,)).fetchone()
+               for table in ("mission_projection", "goal_projection", "session_projection")):
+            raise RuntimeError("ROOT_PROJECTION_CONFLICT", "non-Mission root has a counterfeit core projection")
+        seq = _projection_call(conn, manifest, lambda: manifest.projection_contribution.projection_seq(conn, mission_id), allow_writes=False)
+        if seq is None:
+            return None
+        extensions = {m.extension_id: read_extension_projection(conn, m, mission_id)
+                      for m in registry.applicable(identity.subject.subject_kind)}
+        return ComposedRuntimeState(mission_id, seq, RuntimeState(mission_id, seq), extensions, identity.subject, identity.root_version)
     core_state = projection_state(conn, mission_id)
     if core_state is None:
         return None
     extension_states = {
         manifest.extension_id: read_extension_projection(conn, manifest, mission_id)
-        for manifest in registry.manifests
+        for manifest in registry.applicable("MISSION")
     }
     return ComposedRuntimeState(mission_id, core_state.seq, core_state, extension_states)
 
@@ -195,7 +217,8 @@ def verify_composed_projection(
     core_projection_hash = canonical_sha256(projected.core_state.to_dict()) if projected else None
     extension_results: dict[str, object] = {}
     extension_ok = True
-    for manifest in registry.manifests:
+    kind = replayed.subject.subject_kind if replayed.subject else "MISSION"
+    for manifest in registry.applicable(kind):
         replayed_extension = replayed.extension_states[manifest.extension_id]
         projected_extension = projected.extension_states[manifest.extension_id] if projected else None
         result = manifest.projection_contribution.verify(replayed_extension, projected_extension)
@@ -220,7 +243,7 @@ def verify_composed_projection(
     composed_replay_hash = canonical_sha256(replayed.to_dict())
     composed_projection_hash = canonical_sha256(projected.to_dict()) if projected else None
     if (
-        replayed.core_state.mission is None
+        (replayed.core_state.mission is None and replayed.subject is None)
         or projected is None
         or core_replay_hash != core_projection_hash
         or not extension_ok
@@ -290,7 +313,14 @@ def _rebuild_composed_projections(
     conn: sqlite3.Connection,
     registry: ExtensionRegistry,
     mission_id: str | None = None,
+    failure_injector=None,
 ) -> dict[str, object]:
+    assert_runtime_compatible(conn, registry)
+    checked_ids = ([mission_id] if mission_id is not None else
+                   [row["mission_id"] for row in conn.execute("SELECT DISTINCT mission_id FROM events ORDER BY mission_id")])
+    # Validate every affected stream before any destructive projection clear.
+    for current_id in checked_ids:
+        replay_composed_state(conn, current_id, registry)
     if mission_id is None:
         mission_ids = [row["mission_id"] for row in conn.execute("SELECT DISTINCT mission_id FROM events ORDER BY mission_id")]
         conn.execute("DELETE FROM goal_projection")
@@ -315,19 +345,23 @@ def _rebuild_composed_projections(
                 lambda current=manifest: current.projection_contribution.clear(conn, mission_id),
                 allow_writes=True,
             )
+    if failure_injector:
+        failure_injector("after_projection_clear")
     hashes: dict[str, str] = {}
     extension_hashes: dict[str, dict[str, str]] = {}
     for current_id in mission_ids:
         state = replay_composed_state(conn, current_id, registry)
-        if state.core_state.mission is not None:
+        if state.core_state.mission is not None or state.subject is not None:
             _apply_composed_projection(conn, state, registry)
             hashes[current_id] = canonical_sha256(state.to_dict())
             extension_hashes[current_id] = {
                 manifest.extension_id: manifest.state_contribution.hash(
                     state.extension_states[manifest.extension_id]
                 )
-                for manifest in registry.manifests
+                for manifest in registry.applicable(state.subject.subject_kind if state.subject else "MISSION")
             }
+            if failure_injector:
+                failure_injector("after_rebuild_projection_apply")
     return {
         "rebuilt": len(hashes),
         "state_hashes": hashes,

@@ -19,8 +19,9 @@ from .contracts import (
 from .event_store import _insert_events, get_head_seq, list_events
 from .handlers import handle
 from .projections import _apply_composed_projection, _apply_projection, replay_composed_state
-from .reducer import initial_state, reduce, reduce_composed
+from .reducer import initial_composed_state, initial_state, reduce, reduce_composed
 from .schema import connect, immediate_transaction
+from .subjects import assert_runtime_compatible, validate_root_command
 
 
 FailureInjector = Callable[[str], None]
@@ -173,6 +174,10 @@ class CommandBus:
         try:
             conn = connect(self._db_path)
             with immediate_transaction(conn):
+                try:
+                    assert_runtime_compatible(conn, self._extension_registry)
+                except RuntimeError as exc:
+                    return self._conflict_result(command, exc.code, exc.message)
                 existing = conn.execute("SELECT * FROM commands WHERE command_id=?", (command.command_id,)).fetchone()
                 if existing is not None:
                     if existing["command_fingerprint"] == fingerprint:
@@ -212,7 +217,14 @@ class CommandBus:
                     if owner is None:
                         raise RuntimeError("UNSUPPORTED_COMMAND_TYPE", f"unsupported command: {command.type}")
                     core_state = state.core_state if isinstance(state, ComposedRuntimeState) else state
-                    if command.type == "CREATE_MISSION":
+                    non_mission = isinstance(state, ComposedRuntimeState) and validate_root_command(command, state, self._extension_registry)
+                    if non_mission:
+                        if command.expected_seq != head:
+                            raise RuntimeError("EXPECTED_SEQ_MISMATCH", f"expected_seq {command.expected_seq} does not match stream head {head}")
+                        creation = self._extension_registry.creation_owner(command_type=command.type)
+                        if creation is not None:
+                            state = initial_composed_state(command.mission_id, self._extension_registry, creation[1].subject_kind)
+                    elif command.type == "CREATE_MISSION":
                         if command.expected_seq != 0:
                             raise RuntimeError("EXPECTED_SEQ_MISMATCH", "CREATE_MISSION expected_seq must be 0")
                     else:

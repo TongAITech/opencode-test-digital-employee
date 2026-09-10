@@ -43,7 +43,7 @@ def initial_state(mission_id: str) -> RuntimeState:
     return RuntimeState(mission_id=mission_id)
 
 
-def initial_composed_state(mission_id: str, registry: ExtensionRegistry) -> ComposedRuntimeState:
+def initial_composed_state(mission_id: str, registry: ExtensionRegistry, subject_kind: str = "MISSION") -> ComposedRuntimeState:
     core_state = initial_state(mission_id)
     return ComposedRuntimeState(
         mission_id=mission_id,
@@ -51,7 +51,7 @@ def initial_composed_state(mission_id: str, registry: ExtensionRegistry) -> Comp
         core_state=core_state,
         extension_states={
             manifest.extension_id: manifest.state_contribution.initial_state(mission_id)
-            for manifest in registry.manifests
+            for manifest in registry.applicable(subject_kind)
         },
     )
 
@@ -73,6 +73,8 @@ def reduce_composed(
     event: EventEnvelope,
     registry: ExtensionRegistry,
 ) -> ComposedRuntimeState:
+    from .subjects import root_owner_for_state, validate_creation_event, validate_root_event
+
     if event.seq != state.seq + 1:
         raise RuntimeError(
             "COMPOSED_EVENT_SEQUENCE_VIOLATION",
@@ -81,19 +83,46 @@ def reduce_composed(
     owner = registry.event_owner(event.event_type)
     if owner is None:
         raise RuntimeError("UNSUPPORTED_EVENT_TYPE", f"unsupported event type: {event.event_type}")
+    subject = state.subject
+    root_version = state.root_version
+    creation = registry.creation_owner(event_type=event.event_type)
+    if creation is not None:
+        if state.seq != 0 or state.core_state.mission is not None or state.subject is not None:
+            raise RuntimeError("ROOT_ALREADY_EXISTS", "root can only be created in an empty stream")
+        _manifest, root, subject = validate_creation_event(event, registry)
+        root_version = root.version
+        state = initial_composed_state(state.mission_id, registry, subject.subject_kind)
+    elif state.subject is not None and state.subject.subject_kind != "MISSION":
+        validate_root_event(event, state, registry)
+    elif owner != "CORE" and "MISSION" not in owner.subject_kinds:
+        raise RuntimeError("ROOT_NOT_FOUND", "non-Mission event requires its registered creation event")
+    if owner == "CORE" and subject is not None:
+        raise RuntimeError("ROOT_EVENT_FORBIDDEN", "core Mission events cannot mutate a non-Mission root")
+    if event.event_type == "mission.created" and (registry.reserved_root_namespace(event.mission_id) or event.entity_type != "MISSION" or event.entity_id != event.mission_id):
+        raise RuntimeError("ROOT_IDENTITY_INVALID", "Mission creation identity cannot claim an extension root")
     extension_states = dict(state.extension_states)
     if owner == "CORE":
         core_state = reduce(state.core_state, event)
     else:
-        core_state = advance_shared_seq(state.core_state, event)
+        if subject is not None:
+            if event.schema_version != 1 or event.mission_id != state.mission_id:
+                raise RuntimeError("ROOT_IDENTITY_INVALID", "event envelope does not match root state")
+            core_state = replace(state.core_state, seq=event.seq)
+        else:
+            core_state = advance_shared_seq(state.core_state, event)
         current = extension_states[owner.extension_id]
         extension_states[owner.extension_id] = owner.reducer_contribution.reduce(current, event, core_state)
-    return ComposedRuntimeState(
+    result = ComposedRuntimeState(
         mission_id=state.mission_id,
         seq=event.seq,
         core_state=core_state,
         extension_states=extension_states,
+        subject=subject,
+        root_version=root_version,
     )
+    if subject is not None:
+        root_owner_for_state(result, registry)
+    return result
 
 
 def _replace_goal(state: RuntimeState, goal: GoalState) -> tuple[GoalState, ...]:

@@ -1,0 +1,764 @@
+{
+  "commands": [
+    {
+      "actor_id": "golden-owner",
+      "actor_type": "USER",
+      "command_fingerprint": "9728cf633ce83f6e200d5500b6a8d77cdd75cccca6a16d8fb744f93dc2e3c22c",
+      "command_id": "golden-0",
+      "command_type": "CREATE_MISSION",
+      "correlation_id": "golden-0",
+      "error_code": null,
+      "error_message": null,
+      "expected_seq": 0,
+      "first_seq": 1,
+      "idempotency_key": "golden-key-0",
+      "last_seq": 1,
+      "mission_id": "mission-golden",
+      "payload_json": "{\"purpose\":\"frozen compatibility fixture\"}",
+      "received_at": "2026-09-10T00:00:00.000000Z",
+      "result_json": "{\"command_id\":\"golden-0\",\"duplicate_of\":null,\"error\":null,\"first_seq\":1,\"last_seq\":1,\"mission_id\":\"mission-golden\",\"outcome\":\"APPLIED\",\"state_hash\":\"f627ac8cc561c7f35795f509eca6142e74180f87462756c13b7bb43071d719c0\"}",
+      "schema_version": 1,
+      "session_id": null,
+      "status": "APPLIED"
+    },
+    {
+      "actor_id": "golden-owner",
+      "actor_type": "USER",
+      "command_fingerprint": "4038b6b1e974f61f07ab1d130f73a0bd2b769d45a31737b9845f80b04fbada02",
+      "command_id": "golden-1",
+      "command_type": "CREATE_GOAL",
+      "correlation_id": "golden-1",
+      "error_code": null,
+      "error_message": null,
+      "expected_seq": 1,
+      "first_seq": 2,
+      "idempotency_key": "golden-key-1",
+      "last_seq": 2,
+      "mission_id": "mission-golden",
+      "payload_json": "{\"goal\":{\"intent\":\"compatibility\",\"title\":\"Golden\"},\"goal_id\":\"goal-golden\"}",
+      "received_at": "2026-09-10T00:00:00.000000Z",
+      "result_json": "{\"command_id\":\"golden-1\",\"duplicate_of\":null,\"error\":null,\"first_seq\":2,\"last_seq\":2,\"mission_id\":\"mission-golden\",\"outcome\":\"APPLIED\",\"state_hash\":\"6c291599064cfb23e66f06b1fb0c0c9d9e8d477b1b64584052eec17bce23850c\"}",
+      "schema_version": 1,
+      "session_id": null,
+      "status": "APPLIED"
+    },
+    {
+      "actor_id": "golden-owner",
+      "actor_type": "USER",
+      "command_fingerprint": "88eaf043cbfb682a18b123e8ec41534b6f04537e4afac3c0b1af06f1c5089947",
+      "command_id": "golden-2",
+      "command_type": "ACTIVATE_MISSION",
+      "correlation_id": "golden-2",
+      "error_code": null,
+      "error_message": null,
+      "expected_seq": 2,
+      "first_seq": 3,
+      "idempotency_key": "golden-key-2",
+      "last_seq": 3,
+      "mission_id": "mission-golden",
+      "payload_json": "{}",
+      "received_at": "2026-09-10T00:00:00.000000Z",
+      "result_json": "{\"command_id\":\"golden-2\",\"duplicate_of\":null,\"error\":null,\"first_seq\":3,\"last_seq\":3,\"mission_id\":\"mission-golden\",\"outcome\":\"APPLIED\",\"state_hash\":\"8cdab8b444f3b5633c30c4154f797cd55884e3c1755448a302834f6bc6ac8ead\"}",
+      "schema_version": 1,
+      "session_id": null,
+      "status": "APPLIED"
+    },
+    {
+      "actor_id": "golden-owner",
+      "actor_type": "USER",
+      "command_fingerprint": "0b96588c1c34f259c0c10c9d599e86c09d417ae59c63f9e3be2478678168db57",
+      "command_id": "golden-3",
+      "command_type": "CREATE_PLAN",
+      "correlation_id": "golden-3",
+      "error_code": null,
+      "error_message": null,
+      "expected_seq": 3,
+      "first_seq": 4,
+      "idempotency_key": "golden-key-3",
+      "last_seq": 4,
+      "mission_id": "mission-golden",
+      "payload_json": "{\"plan_id\":\"plan-golden\"}",
+      "received_at": "2026-09-10T00:00:00.000000Z",
+      "result_json": "{\"command_id\":\"golden-3\",\"duplicate_of\":null,\"error\":null,\"first_seq\":4,\"last_seq\":4,\"mission_id\":\"mission-golden\",\"outcome\":\"APPLIED\",\"state_hash\":\"176baa0978b0a7b6f220b2d18b71022f9c7fec7f6d0209322ff685bfcecc173f\"}",
+      "schema_version": 1,
+      "session_id": null,
+      "status": "APPLIED"
+    },
+    {
+      "actor_id": "golden-owner",
+      "actor_type": "USER",
+      "command_fingerprint": "75298a6cb00f6e4125b24dfc43201d6468b53fef5bc1d22cb74392f382890aa0",
+      "command_id": "golden-4",
+      "command_type": "OPEN_SESSION",
+      "correlation_id": "golden-4",
+      "error_code": null,
+      "error_message": null,
+      "expected_seq": 4,
+      "first_seq": 5,
+      "idempotency_key": "golden-key-4",
+      "last_seq": 5,
+      "mission_id": "mission-golden",
+      "payload_json": "{\"purpose\":\"fixture\"}",
+      "received_at": "2026-09-10T00:00:00.000000Z",
+      "result_json": "{\"command_id\":\"golden-4\",\"duplicate_of\":null,\"error\":null,\"first_seq\":5,\"last_seq\":5,\"mission_id\":\"mission-golden\",\"outcome\":\"APPLIED\",\"state_hash\":\"377b16819b753592e00d66e115dd8dee101df662813b3ffc29b90b9a0fc0ae13\"}",
+      "schema_version": 1,
+      "session_id": "session-golden",
+      "status": "APPLIED"
+    },
+    {
+      "actor_id": "golden-owner",
+      "actor_type": "USER",
+      "command_fingerprint": "35ef6f842c48b1fb2eab31682447e733d3f1a70aad3668523081726880ec1c04",
+      "command_id": "golden-5",
+      "command_type": "CLOSE_SESSION",
+      "correlation_id": "golden-5",
+      "error_code": null,
+      "error_message": null,
+      "expected_seq": 5,
+      "first_seq": 6,
+      "idempotency_key": "golden-key-5",
+      "last_seq": 6,
+      "mission_id": "mission-golden",
+      "payload_json": "{}",
+      "received_at": "2026-09-10T00:00:00.000000Z",
+      "result_json": "{\"command_id\":\"golden-5\",\"duplicate_of\":null,\"error\":null,\"first_seq\":6,\"last_seq\":6,\"mission_id\":\"mission-golden\",\"outcome\":\"APPLIED\",\"state_hash\":\"3540ce48ab831c490512f4e0b4825e668096f882ab91c7321ce7346f498e8dd5\"}",
+      "schema_version": 1,
+      "session_id": "session-golden",
+      "status": "APPLIED"
+    }
+  ],
+  "events": [
+    {
+      "command_id": "golden-0",
+      "correlation_id": "golden-0",
+      "created_at": "2026-09-10T00:00:00.000000Z",
+      "entity_id": "mission-golden",
+      "entity_type": "MISSION",
+      "event_id": "00000000000000000000000000000001",
+      "event_type": "mission.created",
+      "initiator_id": "golden-owner",
+      "initiator_type": "USER",
+      "mission_id": "mission-golden",
+      "payload_json": "{\"attributes\":{\"purpose\":\"frozen compatibility fixture\"}}",
+      "schema_version": 1,
+      "seq": 1,
+      "session_id": null
+    },
+    {
+      "command_id": "golden-1",
+      "correlation_id": "golden-1",
+      "created_at": "2026-09-10T00:00:00.000000Z",
+      "entity_id": "goal-golden",
+      "entity_type": "GOAL",
+      "event_id": "00000000000000000000000000000002",
+      "event_type": "goal.created",
+      "initiator_id": "golden-owner",
+      "initiator_type": "USER",
+      "mission_id": "mission-golden",
+      "payload_json": "{\"definition\":{\"intent\":\"compatibility\",\"title\":\"Golden\"},\"revision\":1,\"status\":\"ACTIVE\"}",
+      "schema_version": 1,
+      "seq": 2,
+      "session_id": null
+    },
+    {
+      "command_id": "golden-2",
+      "correlation_id": "golden-2",
+      "created_at": "2026-09-10T00:00:00.000000Z",
+      "entity_id": "mission-golden",
+      "entity_type": "MISSION",
+      "event_id": "00000000000000000000000000000003",
+      "event_type": "mission.activated",
+      "initiator_id": "golden-owner",
+      "initiator_type": "USER",
+      "mission_id": "mission-golden",
+      "payload_json": "{\"from_status\":\"CREATED\",\"reason\":null,\"to_status\":\"ACTIVE\"}",
+      "schema_version": 1,
+      "seq": 3,
+      "session_id": null
+    },
+    {
+      "command_id": "golden-3",
+      "correlation_id": "golden-3",
+      "created_at": "2026-09-10T00:00:00.000000Z",
+      "entity_id": "plan-golden",
+      "entity_type": "PLAN",
+      "event_id": "00000000000000000000000000000004",
+      "event_type": "plan.created.v1",
+      "initiator_id": "golden-owner",
+      "initiator_type": "USER",
+      "mission_id": "mission-golden",
+      "payload_json": "{\"plan_id\":\"plan-golden\"}",
+      "schema_version": 1,
+      "seq": 4,
+      "session_id": null
+    },
+    {
+      "command_id": "golden-4",
+      "correlation_id": "golden-4",
+      "created_at": "2026-09-10T00:00:00.000000Z",
+      "entity_id": "session-golden",
+      "entity_type": "SESSION",
+      "event_id": "00000000000000000000000000000005",
+      "event_type": "session.opened",
+      "initiator_id": "golden-owner",
+      "initiator_type": "USER",
+      "mission_id": "mission-golden",
+      "payload_json": "{\"attributes\":{\"purpose\":\"fixture\"}}",
+      "schema_version": 1,
+      "seq": 5,
+      "session_id": "session-golden"
+    },
+    {
+      "command_id": "golden-5",
+      "correlation_id": "golden-5",
+      "created_at": "2026-09-10T00:00:00.000000Z",
+      "entity_id": "session-golden",
+      "entity_type": "SESSION",
+      "event_id": "00000000000000000000000000000006",
+      "event_type": "session.closed",
+      "initiator_id": "golden-owner",
+      "initiator_type": "USER",
+      "mission_id": "mission-golden",
+      "payload_json": "{\"from_status\":\"OPEN\",\"to_status\":\"CLOSED\"}",
+      "schema_version": 1,
+      "seq": 6,
+      "session_id": "session-golden"
+    }
+  ],
+  "repeated_results": [
+    {
+      "command_id": "golden-0",
+      "duplicate_of": null,
+      "error": null,
+      "first_seq": 1,
+      "last_seq": 1,
+      "mission_id": "mission-golden",
+      "outcome": "APPLIED",
+      "state_hash": "f627ac8cc561c7f35795f509eca6142e74180f87462756c13b7bb43071d719c0"
+    },
+    {
+      "command_id": "golden-1",
+      "duplicate_of": null,
+      "error": null,
+      "first_seq": 2,
+      "last_seq": 2,
+      "mission_id": "mission-golden",
+      "outcome": "APPLIED",
+      "state_hash": "6c291599064cfb23e66f06b1fb0c0c9d9e8d477b1b64584052eec17bce23850c"
+    },
+    {
+      "command_id": "golden-2",
+      "duplicate_of": null,
+      "error": null,
+      "first_seq": 3,
+      "last_seq": 3,
+      "mission_id": "mission-golden",
+      "outcome": "APPLIED",
+      "state_hash": "8cdab8b444f3b5633c30c4154f797cd55884e3c1755448a302834f6bc6ac8ead"
+    },
+    {
+      "command_id": "golden-3",
+      "duplicate_of": null,
+      "error": null,
+      "first_seq": 4,
+      "last_seq": 4,
+      "mission_id": "mission-golden",
+      "outcome": "APPLIED",
+      "state_hash": "176baa0978b0a7b6f220b2d18b71022f9c7fec7f6d0209322ff685bfcecc173f"
+    },
+    {
+      "command_id": "golden-4",
+      "duplicate_of": null,
+      "error": null,
+      "first_seq": 5,
+      "last_seq": 5,
+      "mission_id": "mission-golden",
+      "outcome": "APPLIED",
+      "state_hash": "377b16819b753592e00d66e115dd8dee101df662813b3ffc29b90b9a0fc0ae13"
+    },
+    {
+      "command_id": "golden-5",
+      "duplicate_of": null,
+      "error": null,
+      "first_seq": 6,
+      "last_seq": 6,
+      "mission_id": "mission-golden",
+      "outcome": "APPLIED",
+      "state_hash": "3540ce48ab831c490512f4e0b4825e668096f882ab91c7321ce7346f498e8dd5"
+    }
+  ],
+  "replay": {
+    "core_state": {
+      "goals": {
+        "goal-golden": {
+          "created_at": "2026-09-10T00:00:00.000000Z",
+          "definition": {
+            "intent": "compatibility",
+            "title": "Golden"
+          },
+          "goal_id": "goal-golden",
+          "mission_id": "mission-golden",
+          "revision": 1,
+          "status": "ACTIVE",
+          "updated_at": "2026-09-10T00:00:00.000000Z"
+        }
+      },
+      "mission": {
+        "active_goal_id": "goal-golden",
+        "attributes": {
+          "purpose": "frozen compatibility fixture"
+        },
+        "created_at": "2026-09-10T00:00:00.000000Z",
+        "mission_id": "mission-golden",
+        "status": "ACTIVE",
+        "updated_at": "2026-09-10T00:00:00.000000Z"
+      },
+      "mission_id": "mission-golden",
+      "seq": 6,
+      "sessions": {
+        "session-golden": {
+          "attributes": {
+            "purpose": "fixture"
+          },
+          "created_at": "2026-09-10T00:00:00.000000Z",
+          "mission_id": "mission-golden",
+          "session_id": "session-golden",
+          "status": "CLOSED",
+          "updated_at": "2026-09-10T00:00:00.000000Z"
+        }
+      }
+    },
+    "extension_states": {
+      "g2_1_session_control": {
+        "mission_id": "mission-golden",
+        "observations": [],
+        "provisions": [],
+        "rotations": [],
+        "routing_authority_enabled": false,
+        "routing_authority_enabled_seq": null,
+        "task_routes": []
+      },
+      "g3_testing_intelligence_product_integration": {
+        "facts": [],
+        "mission_id": "mission-golden"
+      },
+      "g4_real_execution_goal_convergence": {
+        "facts": [],
+        "mission_id": "mission-golden"
+      },
+      "r1_2_work_graph": {
+        "dependencies": [],
+        "mission_id": "mission-golden",
+        "plans": {
+          "plan-golden": {
+            "created_at": "2026-09-10T00:00:00.000000Z",
+            "created_by": {
+              "id": "golden-owner",
+              "type": "USER"
+            },
+            "current_revision_id": null,
+            "lifecycle_state": "OPEN",
+            "plan_id": "plan-golden"
+          }
+        },
+        "revisions": {},
+        "snapshots": {},
+        "tasks": {}
+      },
+      "r1_3b_execution_resume": {
+        "attempts": [],
+        "mission_id": "mission-golden"
+      },
+      "r1_3c_provider_binding": {
+        "bindings": [],
+        "mission_id": "mission-golden"
+      },
+      "r1_3d_opencode_bridge": {
+        "mission_id": "mission-golden",
+        "observations": []
+      },
+      "r1_4_tool_execution": {
+        "executions": {},
+        "mission_id": "mission-golden"
+      },
+      "r2_5_session_orchestration": {
+        "bindings": [],
+        "child_results": [],
+        "delegations": [],
+        "joins": [],
+        "mission_id": "mission-golden"
+      },
+      "r2_6_human_gate": {
+        "gates": {},
+        "mission_id": "mission-golden"
+      },
+      "r3_1_requirement_coverage_traceability": {
+        "derivations": [],
+        "mission_id": "mission-golden",
+        "reuses": [],
+        "snapshots": []
+      },
+      "r3_2_change_impact_reconciliation": {
+        "derivations": [],
+        "mission_id": "mission-golden",
+        "reconciliations": [],
+        "reuses": []
+      },
+      "r3_3_test_strategy_standard_case_design": {
+        "automation_mappings": [],
+        "batches": [],
+        "mission_id": "mission-golden",
+        "reuses": [],
+        "standard_cases": [],
+        "strategies": [],
+        "test_points": []
+      },
+      "r3_4_case_review_execution_readiness_oracle": {
+        "case_execution_attempts": [],
+        "case_reviews": [],
+        "evidence_requirements": [],
+        "execution_readiness": [],
+        "mission_id": "mission-golden",
+        "oracle_evaluations": [],
+        "oracle_specifications": [],
+        "precondition_requirements": [],
+        "precondition_resolutions": [],
+        "reuses": [],
+        "reviewer_contexts": [],
+        "test_data_requirements": [],
+        "test_data_resolutions": [],
+        "test_results": []
+      },
+      "r3_5_page_journey_e2e_intelligence": {
+        "checkpoints": [],
+        "journeys": [],
+        "mission_id": "mission-golden",
+        "page_graphs": [],
+        "transitions": [],
+        "verifications": []
+      },
+      "r3_6_defect_investigation_rca": {
+        "anomalies": [],
+        "candidates": [],
+        "checkpoints": [],
+        "correlations": [],
+        "deepenings": [],
+        "defect_assessments": [],
+        "evidence_assessments": [],
+        "false_positive_assessments": [],
+        "mission_id": "mission-golden",
+        "rca_records": [],
+        "reproducibility_assessments": [],
+        "reuses": []
+      },
+      "r3_7_test_sufficiency_operations_reporting": {
+        "decisions": [],
+        "mission_id": "mission-golden",
+        "remaining_risks": [],
+        "reuses": []
+      },
+      "r3_e1_durable_knowledge_substrate": {
+        "conflicts": [],
+        "facts": [],
+        "freshness": [],
+        "lifecycle_events": [],
+        "mission_id": "mission-golden",
+        "relations": [],
+        "source_refs": [],
+        "versions": []
+      },
+      "r3_e2_sut_auth_context": {
+        "contexts": [],
+        "mission_id": "mission-golden",
+        "transition_history": []
+      },
+      "r4_1_quality_version_campaign_foundation": {
+        "mission_id": "mission-golden",
+        "quality_versions": [],
+        "selection_revisions": [],
+        "test_campaigns": []
+      },
+      "r4_2_continuous_trigger_impact_r2_bridge": {
+        "assessments": [],
+        "bridge_receipts": [],
+        "mission_id": "mission-golden",
+        "plan_revision_intents": [],
+        "selection_links": [],
+        "triggers": []
+      },
+      "r4_3_confirmed_defect_fix_resolution_lifecycle": {
+        "confirmed_defect_lifecycles": [],
+        "fix_detection_assessments": [],
+        "fix_links": [],
+        "mission_id": "mission-golden"
+      },
+      "r4_4_fix_validation_targeted_regression_closure": {
+        "execution_linkages": [],
+        "fix_validation_assessments": [],
+        "mission_id": "mission-golden",
+        "regression_closures": [],
+        "regression_worksets": [],
+        "sufficiency_handoff_receipts": [],
+        "supersession_relations": [],
+        "validation_cycles": []
+      },
+      "r4_5_release_risk_wait_resume_readiness": {
+        "mission_id": "mission-golden",
+        "readiness_dispositions": [],
+        "release_readiness_assessments": [],
+        "release_risk_assessments": [],
+        "release_wait_states": [],
+        "resume_eligibility_assessments": [],
+        "resume_intents": [],
+        "resume_receipts": [],
+        "wake_linkages": []
+      },
+      "r4_6_validated_learning_promotion_boundary": {
+        "candidate_dispositions": [],
+        "candidate_revisions": [],
+        "eligibility_assessments": [],
+        "mission_id": "mission-golden",
+        "promotion_receipts": [],
+        "promotion_requests": []
+      },
+      "r4_7_legacy_reconciliation_operational_projections": {
+        "assessments": [],
+        "decisions": [],
+        "handoffs": [],
+        "mappings": [],
+        "mission_id": "mission-golden",
+        "observations": [],
+        "receipts": []
+      },
+      "r4_8_closed_loop_continuous_quality_runtime_integration": {
+        "cycles": [],
+        "last_seq": 0,
+        "owner_mission_id": "mission-golden",
+        "state_digest": "8eff722a643bf7ae5d1915da6d351da9ab29212b735d8223f8635e937e778d11"
+      }
+    },
+    "mission_id": "mission-golden",
+    "seq": 6
+  },
+  "results": [
+    {
+      "command_id": "golden-0",
+      "duplicate_of": null,
+      "error": null,
+      "first_seq": 1,
+      "last_seq": 1,
+      "mission_id": "mission-golden",
+      "outcome": "APPLIED",
+      "state_hash": "f627ac8cc561c7f35795f509eca6142e74180f87462756c13b7bb43071d719c0"
+    },
+    {
+      "command_id": "golden-1",
+      "duplicate_of": null,
+      "error": null,
+      "first_seq": 2,
+      "last_seq": 2,
+      "mission_id": "mission-golden",
+      "outcome": "APPLIED",
+      "state_hash": "6c291599064cfb23e66f06b1fb0c0c9d9e8d477b1b64584052eec17bce23850c"
+    },
+    {
+      "command_id": "golden-2",
+      "duplicate_of": null,
+      "error": null,
+      "first_seq": 3,
+      "last_seq": 3,
+      "mission_id": "mission-golden",
+      "outcome": "APPLIED",
+      "state_hash": "8cdab8b444f3b5633c30c4154f797cd55884e3c1755448a302834f6bc6ac8ead"
+    },
+    {
+      "command_id": "golden-3",
+      "duplicate_of": null,
+      "error": null,
+      "first_seq": 4,
+      "last_seq": 4,
+      "mission_id": "mission-golden",
+      "outcome": "APPLIED",
+      "state_hash": "176baa0978b0a7b6f220b2d18b71022f9c7fec7f6d0209322ff685bfcecc173f"
+    },
+    {
+      "command_id": "golden-4",
+      "duplicate_of": null,
+      "error": null,
+      "first_seq": 5,
+      "last_seq": 5,
+      "mission_id": "mission-golden",
+      "outcome": "APPLIED",
+      "state_hash": "377b16819b753592e00d66e115dd8dee101df662813b3ffc29b90b9a0fc0ae13"
+    },
+    {
+      "command_id": "golden-5",
+      "duplicate_of": null,
+      "error": null,
+      "first_seq": 6,
+      "last_seq": 6,
+      "mission_id": "mission-golden",
+      "outcome": "APPLIED",
+      "state_hash": "3540ce48ab831c490512f4e0b4825e668096f882ab91c7321ce7346f498e8dd5"
+    }
+  ],
+  "verification": {
+    "composed_projection_hash": "3540ce48ab831c490512f4e0b4825e668096f882ab91c7321ce7346f498e8dd5",
+    "composed_replay_hash": "3540ce48ab831c490512f4e0b4825e668096f882ab91c7321ce7346f498e8dd5",
+    "extensions": {
+      "g2_1_session_control": {
+        "ok": true,
+        "projection_hash": "023583244f8942e37cb114e2348252d86f9084084f5260d6b801ac218a983f57",
+        "replay_hash": "023583244f8942e37cb114e2348252d86f9084084f5260d6b801ac218a983f57"
+      },
+      "g3_testing_intelligence_product_integration": {
+        "ok": true,
+        "projection_hash": "de25b24373e7381fdb0fed4319deeda0f8ba5da89b516341a8bd0f1899f4dc1f",
+        "replay_hash": "de25b24373e7381fdb0fed4319deeda0f8ba5da89b516341a8bd0f1899f4dc1f"
+      },
+      "g4_real_execution_goal_convergence": {
+        "ok": true,
+        "projection_hash": "de25b24373e7381fdb0fed4319deeda0f8ba5da89b516341a8bd0f1899f4dc1f",
+        "replay_hash": "de25b24373e7381fdb0fed4319deeda0f8ba5da89b516341a8bd0f1899f4dc1f"
+      },
+      "r1_2_work_graph": {
+        "ok": true,
+        "projection_hash": "462eefdc3ae13062db20356f8304924995fe61afb82be1a7a4f545b2bc8f3d21",
+        "replay_hash": "462eefdc3ae13062db20356f8304924995fe61afb82be1a7a4f545b2bc8f3d21"
+      },
+      "r1_3b_execution_resume": {
+        "ok": true,
+        "projection_hash": "9a1cd8dbf704459c38a1e80157db2cf18abc58019b8c4739a310181094e77ce4",
+        "replay_hash": "9a1cd8dbf704459c38a1e80157db2cf18abc58019b8c4739a310181094e77ce4"
+      },
+      "r1_3c_provider_binding": {
+        "ok": true,
+        "projection_hash": "778c968f2d02dc59a007ac12f0d0666bfd1d794f296ddc884dda8ee96a193dad",
+        "replay_hash": "778c968f2d02dc59a007ac12f0d0666bfd1d794f296ddc884dda8ee96a193dad"
+      },
+      "r1_3d_opencode_bridge": {
+        "ok": true,
+        "projection_hash": "130aa3fc0d01870002a28ef068cd48ddde1a9d6048d07d0405601c8094c3040e",
+        "replay_hash": "130aa3fc0d01870002a28ef068cd48ddde1a9d6048d07d0405601c8094c3040e"
+      },
+      "r1_4_tool_execution": {
+        "ok": true,
+        "projection_hash": "1d81c6076c941f1427296189fc294fafe473b72b0e5a267518d985e89895bdf6",
+        "replay_hash": "1d81c6076c941f1427296189fc294fafe473b72b0e5a267518d985e89895bdf6"
+      },
+      "r2_5_session_orchestration": {
+        "ok": true,
+        "projection_hash": "2112b6fa33fd40de95689dda27fbb8eadfab097dfccfe60209de25c9cd51e1d3",
+        "replay_hash": "2112b6fa33fd40de95689dda27fbb8eadfab097dfccfe60209de25c9cd51e1d3"
+      },
+      "r2_6_human_gate": {
+        "ok": true,
+        "projection_hash": "69fdd1d5f9f75d55a52237f22e30a81aa63e987ea3432cb51525661f7f1d84a0",
+        "replay_hash": "69fdd1d5f9f75d55a52237f22e30a81aa63e987ea3432cb51525661f7f1d84a0"
+      },
+      "r3_1_requirement_coverage_traceability": {
+        "ok": true,
+        "projection_hash": "f615d314003e961761db8e93888f10e41dbe4e78e7a619ccec32b12d71ad7461",
+        "replay_hash": "f615d314003e961761db8e93888f10e41dbe4e78e7a619ccec32b12d71ad7461"
+      },
+      "r3_2_change_impact_reconciliation": {
+        "ok": true,
+        "projection_hash": "2e13cc7e4fe114be7d822f15d0046896afa9bfe9bd347c7248da7895ff630456",
+        "replay_hash": "2e13cc7e4fe114be7d822f15d0046896afa9bfe9bd347c7248da7895ff630456"
+      },
+      "r3_3_test_strategy_standard_case_design": {
+        "ok": true,
+        "projection_hash": "25f75ff8090e3dd9cfeb9ed187686c1173a6d1ea34ef67489cd07dab32255b40",
+        "replay_hash": "25f75ff8090e3dd9cfeb9ed187686c1173a6d1ea34ef67489cd07dab32255b40"
+      },
+      "r3_4_case_review_execution_readiness_oracle": {
+        "ok": true,
+        "projection_hash": "0ff0626df184caa3081eb12a269844673bfa1511c0b1a4d48d064e3f736718bc",
+        "replay_hash": "0ff0626df184caa3081eb12a269844673bfa1511c0b1a4d48d064e3f736718bc"
+      },
+      "r3_5_page_journey_e2e_intelligence": {
+        "entity_count": 0,
+        "ok": true,
+        "projected_hash": "9243df680d9dc703ac72c06ce9478c9e91cfd0a05729873f21061b2f9ebb7d15",
+        "replayed_hash": "9243df680d9dc703ac72c06ce9478c9e91cfd0a05729873f21061b2f9ebb7d15"
+      },
+      "r3_6_defect_investigation_rca": {
+        "entity_count": 0,
+        "ok": true,
+        "projected_hash": "759c4a3479aa8337703129e3f1ef2990286fa367e27c1332d790388df2b55546",
+        "replayed_hash": "759c4a3479aa8337703129e3f1ef2990286fa367e27c1332d790388df2b55546"
+      },
+      "r3_7_test_sufficiency_operations_reporting": {
+        "decision_count": 0,
+        "ok": true,
+        "projected_hash": "eeb06bda7f27f64a12f896abfcbda507e7a1e3868c5a41bd69b51d6df0fabeb6",
+        "remaining_risk_count": 0,
+        "replayed_hash": "eeb06bda7f27f64a12f896abfcbda507e7a1e3868c5a41bd69b51d6df0fabeb6",
+        "reuse_count": 0
+      },
+      "r3_e1_durable_knowledge_substrate": {
+        "ok": true,
+        "projection_hash": "8c2096e106983f911038fd7e8cc9effdb05cb9d60a73c15690ba6b48b3b78abd",
+        "replay_hash": "8c2096e106983f911038fd7e8cc9effdb05cb9d60a73c15690ba6b48b3b78abd"
+      },
+      "r3_e2_sut_auth_context": {
+        "ok": true,
+        "projection_hash": "a3f910044b8aeec43be6d4d3a1c3c9780d1b3e2e7db0602c781bb6c9c98623c4",
+        "replay_hash": "a3f910044b8aeec43be6d4d3a1c3c9780d1b3e2e7db0602c781bb6c9c98623c4"
+      },
+      "r4_1_quality_version_campaign_foundation": {
+        "ok": true,
+        "projection_hash": "2a7f4dd59828ddd955a87bea17182f4fb8a558383f89db1c6a2ceeeae0b29e41",
+        "replay_hash": "2a7f4dd59828ddd955a87bea17182f4fb8a558383f89db1c6a2ceeeae0b29e41"
+      },
+      "r4_2_continuous_trigger_impact_r2_bridge": {
+        "ok": true,
+        "projection_hash": "1ba983a52e8475099234a65059c191bdeb8190ab3dd53f6e4b04447a71dce573",
+        "replay_hash": "1ba983a52e8475099234a65059c191bdeb8190ab3dd53f6e4b04447a71dce573"
+      },
+      "r4_3_confirmed_defect_fix_resolution_lifecycle": {
+        "detection_count": 0,
+        "fix_link_count": 0,
+        "lifecycle_count": 0,
+        "ok": true,
+        "projection_hash": "b358f15621baec7acdc20560fbe0581cb9e4e83232ce456b1c6684e57b1cedd9",
+        "replay_hash": "b358f15621baec7acdc20560fbe0581cb9e4e83232ce456b1c6684e57b1cedd9"
+      },
+      "r4_4_fix_validation_targeted_regression_closure": {
+        "assessment_count": 0,
+        "closure_count": 0,
+        "cycle_count": 0,
+        "linkage_count": 0,
+        "ok": true,
+        "projection_hash": "07e856aa6ab666a65646f5c68ccaf238d0732d06511ac6e378c28990e68dd067",
+        "receipt_count": 0,
+        "replay_hash": "07e856aa6ab666a65646f5c68ccaf238d0732d06511ac6e378c28990e68dd067",
+        "workset_count": 0
+      },
+      "r4_5_release_risk_wait_resume_readiness": {
+        "ok": true,
+        "projection_hash": "6cc033f8f55368e3124ae6e3da54c038fa52d74ad46034026faec53d95b840e6",
+        "replay_hash": "6cc033f8f55368e3124ae6e3da54c038fa52d74ad46034026faec53d95b840e6"
+      },
+      "r4_6_validated_learning_promotion_boundary": {
+        "ok": true,
+        "projection_hash": "e796329cd59ac41bc90266802193ff082070136c7611ecbdf0b9e4010f9de677",
+        "replay_hash": "e796329cd59ac41bc90266802193ff082070136c7611ecbdf0b9e4010f9de677"
+      },
+      "r4_7_legacy_reconciliation_operational_projections": {
+        "ok": true,
+        "projection_hash": "48127ff9e9932c03a147a1d2e79d77dbff67b2d1e90fd7e78a753ad2ca5eb349",
+        "replay_hash": "48127ff9e9932c03a147a1d2e79d77dbff67b2d1e90fd7e78a753ad2ca5eb349"
+      },
+      "r4_8_closed_loop_continuous_quality_runtime_integration": {
+        "ok": true,
+        "projection_hash": "d6c1ae6a5563617b14bff3d97ac95dd94dd4cd36073ca7f4ac44edd72a85aaf9",
+        "replay_hash": "d6c1ae6a5563617b14bff3d97ac95dd94dd4cd36073ca7f4ac44edd72a85aaf9"
+      }
+    },
+    "mission_id": "mission-golden",
+    "ok": true,
+    "projection_hash": "7df54fc6cb29fb7f5de0bbd992295d43ee6e934bf321d4543ed2e2d917f0b18e",
+    "replay_hash": "7df54fc6cb29fb7f5de0bbd992295d43ee6e934bf321d4543ed2e2d917f0b18e"
+  }
+}

@@ -14,6 +14,8 @@ from .contracts import (
     ExtensionRegistry,
     RuntimeError,
     RuntimeState,
+    SubjectRef,
+    SubjectState,
 )
 from .event_store import get_head_seq as store_head_seq
 from .event_store import list_events as store_list_events
@@ -40,6 +42,7 @@ class RuntimeService:
         if db_path is None or not str(db_path).strip():
             raise ValueError("db_path is required")
         self._db_path = Path(db_path)
+        self._failure_injector = failure_injector
         self._extension_registry = ExtensionRegistry(tuple(extensions))
         initialize(self._db_path)
         if self._extension_registry.enabled:
@@ -98,6 +101,35 @@ class RuntimeService:
             raise RuntimeError("MISSION_NOT_FOUND", f"Mission not found: {mission_id}")
         return state
 
+    def get_subject_state(self, subject: SubjectRef) -> SubjectState:
+        """Typed accessor derives identity from replay, never from requested kind."""
+        from .subjects import root_owner_for_state
+        if not isinstance(subject, SubjectRef):
+            raise RuntimeError("SUBJECT_REF_REQUIRED", "typed SubjectRef is required")
+        composed = self.replay_composed(subject.subject_id)
+        actual = composed.subject
+        if actual is None and composed.core_state.mission is not None:
+            actual = SubjectRef("MISSION", subject.subject_id)
+        if actual is None:
+            raise RuntimeError("ROOT_NOT_FOUND", "subject has no immutable creation event")
+        if actual != subject:
+            raise RuntimeError("ROOT_REFERENCE_MISMATCH", "requested subject kind differs from durable identity")
+        owner = root_owner_for_state(composed, self._extension_registry)
+        if owner is None:
+            return SubjectState(subject, composed.seq, 1, "CORE", composed.core_state, composed.extension_states)
+        manifest, root = owner
+        return SubjectState(subject, composed.seq, root.version, manifest.extension_id,
+                            composed.extension_state(manifest.extension_id), composed.extension_states)
+
+    def assert_writable_compatible(self) -> None:
+        """Guard dispatch/rebuild; scoped supported reads remain independently usable."""
+        from .subjects import assert_runtime_compatible
+        conn = connect(self._db_path)
+        try:
+            assert_runtime_compatible(conn, self._extension_registry)
+        finally:
+            conn.close()
+
     def get_extension_projection(self, extension_id: str, mission_id: str) -> Any:
         manifest = self._extension_registry.manifest(extension_id)
         conn = connect(self._db_path)
@@ -145,7 +177,9 @@ class RuntimeService:
         try:
             with immediate_transaction(conn):
                 if self._extension_registry.enabled:
-                    return _rebuild_composed_projections(conn, self._extension_registry, mission_id)
+                    return _rebuild_composed_projections(conn, self._extension_registry, mission_id, self._failure_injector)
+                from .subjects import assert_runtime_compatible
+                assert_runtime_compatible(conn, self._extension_registry)
                 return _rebuild_projections(conn, mission_id)
         finally:
             conn.close()
