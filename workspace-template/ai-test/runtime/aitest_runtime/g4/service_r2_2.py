@@ -232,6 +232,14 @@ class G4RealExecutionService(_BaseG4RealExecutionService):
             from aitest_runtime.r3_3.contracts import StandardTestCase
             StandardTestCase.from_dict(case).validate_for_execution()
             step["standard_case"] = case
+            if profile.get("api_journey") and str(data.get("capability_id")).upper() == "API":
+                from aitest_runtime.recovery_api import validate_journey_contract
+                validate_journey_contract(StandardTestCase.from_dict(case))
+                # The caller cannot supply a second expected-result truth while
+                # the executor runs the separately frozen Case assertions.
+                step["expected"] = {"case_version_id": case["case_version_id"],
+                                    "expected_results": case["expected_results"],
+                                    "oracle_contract": case["oracle_contract"]}
         data["step"] = step
         return super().execute_capability(mission_id, data)
 

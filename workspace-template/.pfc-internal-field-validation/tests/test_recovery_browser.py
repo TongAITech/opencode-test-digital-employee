@@ -63,6 +63,13 @@ def governed_case(root, runtime, mission, execution_profile=None):
             spec['ordered_steps']=[{'step':i+1,**action} for i,action in enumerate(execution_profile['ui_journey']['steps'])]
             spec['expected_results']=[{'step':i+1,'expected':{'action':action['action'],'required':'Approved action and its frozen assertion succeed',
                  'value':action.get('value'),'state':action.get('state'),'url':action.get('url')}} for i,action in enumerate(execution_profile['ui_journey']['steps'])]
+    if execution_profile and execution_profile.get('api_journey'):
+        from api_case_fixture import api_case_spec
+        for spec in specs.values():
+            detail = api_case_spec(execution_profile)
+            spec['ordered_steps'] = detail['ordered_steps']
+            spec['expected_results'] = detail['expected_results']
+            spec['oracle'].update(detail['oracle'])
     designed = g3.design_cases(mission, sid, strategy['strategy']['strategy_fingerprint'], specs)
     assert designed['ready_cases'], designed
     case_fact = designed['ready_cases'][0]['case']

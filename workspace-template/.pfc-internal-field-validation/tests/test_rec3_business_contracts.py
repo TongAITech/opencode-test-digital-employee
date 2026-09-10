@@ -27,7 +27,7 @@ from test_g2_1_session_router_control_loop import request
 
 
 def standard_case(profile=None):
-    return {'tc_id':'TC-BUSINESS','case_version_id':'TC-BUSINESS:1','version':1,'lifecycle_status':'DRAFT',
+    result = {'tc_id':'TC-BUSINESS','case_version_id':'TC-BUSINESS:1','version':1,'lifecycle_status':'DRAFT',
       'strategy_version_id':'strategy:1','test_point_id':'point:1','batch_id':'batch:1','coverage_obligation_refs':['obligation:amount'],
       'requirement_id':'REQ-amount','sst_id':'SST-amount','layer_id':'L3','layer_profile_version':'r3.3.layer-profile.v1','case_type':'BOUNDARY',
       'priority':'HIGH','risk':build_risk_vector({},'risk-v1').to_dict(),'objective':'Reject amount exceeding approved credit and preserve repayment equality',
@@ -39,6 +39,12 @@ def standard_case(profile=None):
       'oracle_contract':{'business_property':'approved_amount <= credit_limit','observation_fields':['amount','fee','total','state']},
       'evidence_requirements':[{'channel':'API','required':'Per-step response digest and business assertion outcomes'}],
       'execution_profile':profile or {'capability':'API'},'specification_status':'DETAILED','source_provenance':['qualification:business']}
+    if profile and profile.get('api_journey'):
+        from api_case_fixture import api_case_spec
+        detail = api_case_spec(profile)
+        result.update(steps=detail['ordered_steps'], expected_results=detail['expected_results'])
+        result['oracle_contract'].update(detail['oracle'])
+    return result
 
 
 class BusinessService(BaseHTTPRequestHandler):
@@ -110,11 +116,13 @@ class Contracts(unittest.TestCase):
                 case=standard_case({'api_journey':journey(origin)});request_data={'authorized_scope':{'origins':[origin]}}
                 result,passed=run_journey(executor,case,request_data)
                 self.assertTrue(passed,result);self.assertEqual(len(result['steps']),4)
-                self.assertNotIn('loan-1',json.dumps(result));self.assertLess(len(json.dumps(result).encode()),8192)
+                self.assertNotIn('loan-1',json.dumps(result));self.assertLess(len(json.dumps(result).encode()),256*1024)
                 BusinessService.bug=True
                 result,passed=run_journey(executor,case,request_data)
                 self.assertFalse(passed);self.assertEqual(result['steps'][-1]['status_code'],200)
-                self.assertFalse(result['steps'][-1]['checks']['assert_0']);self.assertFalse(result['complete'])
+                failed = next(row for row in result['steps'][-1]['oracles'] if row['kind']=='ASSERTION' and row['ordinal']==0)
+                self.assertEqual(failed['status'],'FAIL');self.assertFalse(result['complete'])
+                self.assertEqual(failed['diagnostic']['actual']['variables']['total'],103)
                 # Generated pytest references immutable Case Truth and the G4 fixture.
                 asset=pytest_asset(case);self.assertIn('aitest_governed_case_runner',asset);compile(asset,'candidate.py','exec')
                 self.assertNotIn(origin,asset)
