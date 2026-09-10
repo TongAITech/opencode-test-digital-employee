@@ -10,6 +10,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using System.Threading;
+using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
 
 // Isolated qualification fixture only. Never point this program at product/bank files.
@@ -37,6 +38,7 @@ internal static class AppContainerProbe {
         try {
             if (mode == "--attack") { Save(Path.Combine(root,"notes",args[4]+"-result.json"), Attack(root,args[2],int.Parse(args[3]))); return 0; }
             if (mode == "--child") { RunChild(root,args[2],int.Parse(args[3])); return 0; }
+            if (mode == "--bash-only") { Save(Path.Combine(root,"notes","bash-retry-process.json"),RunBash(root,args[2],int.Parse(args[3])));return 0; }
             if (mode == "--bootstrap") return Bootstrap(root);
             if (mode == "--run") return Run(root);
             return 64;
@@ -94,6 +96,7 @@ internal static class AppContainerProbe {
         Save(Path.Combine(root,"public-network-parent-control.json"),publicControl);
         // All attempted mutation targets are disposable sentinels owned by this probe.
         string profile="aitest-spike-"+Guid.NewGuid().ToString("N"); IntPtr sid=IntPtr.Zero;
+        var compatibilityHandles=new List<IntPtr>();
         var result=new Dictionary<string,object>{{"status","NOT_PROVEN"},{"probe","APPCONTAINER_ZERO_CAPABILITIES_V1"},{"parent_token",parent},{"profile",profile},{"os",Environment.OSVersion.VersionString},{"source_baseline","03b0645119399efd7d5f71ce48c41f02d85ff9c3"}};
         try {
             int hr=CreateAppContainerProfile(profile,profile,"Disposable AITest isolation proof",IntPtr.Zero,0,out sid);
@@ -124,6 +127,25 @@ internal static class AppContainerProbe {
                 result["sentinels_intact"]=File.ReadAllText(Protected(root))==secret && File.ReadAllText(Outside(root))==outer && File.ReadAllText(Path.Combine(root,"read","diagnostic.txt"))=="DIAGNOSTIC_FIXTURE";
                 var child=Read(Path.Combine(root,"notes","child-result.json"));
                 result["child"]=child;
+                if(child.ContainsKey("bash_process")) {
+                    var attempts=new List<object>();var previous=D(child,"bash_process");
+                    for(int retry=0;retry<2;retry++) {
+                        string stderr=previous.ContainsKey("stderr")?(string)previous["stderr"]:"";
+                        var match=Regex.Match(stderr,@"NtCreateDirectoryObject\((\\BaseNamedObjects\\msys-2\.0S5-[0-9a-f]{16})\): 0xC0000022");
+                        if(!match.Success)break;
+                        string objectPath=match.Groups[1].Value;
+                        var compat=CreatePrivateMsysDirectory(objectPath,sidText,compatibilityHandles);attempts.Add(compat);
+                        if(!B(compat,"created"))break;
+                        LaunchContainer(Exe,"--bash-only "+Q(root)+" "+Q(sidText)+" "+fixture.Port,root,sid);
+                        previous=Read(Path.Combine(root,"notes","bash-retry-process.json"));
+                        Save(Path.Combine(root,"notes","bash-retry-"+retry+"-result.json"),previous);
+                        attempts.Add(previous);
+                    }
+                    result["bash_compatibility_attempts"]=attempts;
+                }
+                string[] markers=fixture.Markers(); result["network_connection_markers"]=markers;
+                bool parentSeen=false, childSeen=false; foreach(string marker in markers){if(marker=="PARENT_CONTROL")parentSeen=true;else childSeen=true;}
+                result["network_server_observed_control_only"]=parentSeen && !childSeen;
                 var cmd=Read(Path.Combine(root,"notes","cmd-result.json"));
                 result["cmd_descendant"]=cmd;
                 var ps=Read(Path.Combine(root,"notes","powershell-result.json"));
@@ -141,16 +163,14 @@ internal static class AppContainerProbe {
                     result["python"]=python;result["bash"]=bash;result["python_native_descendant"]=pyDesc;result["bash_native_descendant"]=bashDesc;
                     all=all && B(python,"appcontainer") && Convert.ToInt32(python["capability_count"])==0 && InterpreterPassed(python) && InterpreterPassed(bash) && AttackPassed(pyDesc) && AttackPassed(bashDesc);
                 } else result["portable_interpreters"]="NOT_REQUESTED_NOT_QUALIFIED";
-                string[] markers=fixture.Markers(); result["network_connection_markers"]=markers;
-                bool parentSeen=false, childSeen=false; foreach(string marker in markers){if(marker=="PARENT_CONTROL")parentSeen=true;else childSeen=true;}
-                result["network_server_observed_control_only"]=parentSeen && !childSeen; all=all && parentSeen && !childSeen;
+                all=all && parentSeen && !childSeen;
                 result["status"]=all?"PASS_BOUNDED_NATIVE_FIXTURE":"FAIL";
                 result["qualification"]=all?"L2_WINDOWS_PRIMITIVE_ONLY":"NOT_PROVEN";
                 result["production_general_worker"]= "NOT_IMPLEMENTED_BY_THIS_SPIKE";
                 result["bank_scope"]="NO_BANK_TARGETS_OR_CREDENTIALS";
             }
         } catch(Exception e) { result["status"]="ENVIRONMENT_BLOCKED_OR_INCOMPLETE";result["error"]=e.GetType().Name;result["detail"]=e.Message;result["qualification"]="NOT_PROVEN"; }
-        finally { if(sid!=IntPtr.Zero)FreeSid(sid); int cleanup=DeleteAppContainerProfile(profile);result["profile_delete_hresult"]=cleanup;
+        finally { foreach(var handle in compatibilityHandles)CloseHandle(handle); if(sid!=IntPtr.Zero)FreeSid(sid); int cleanup=DeleteAppContainerProfile(profile);result["profile_delete_hresult"]=cleanup;
             if(cleanup<0 && (string)result["status"]=="PASS_BOUNDED_NATIVE_FIXTURE"){result["status"]="PARTIAL_CLEANUP_REQUIRED";result["qualification"]="NOT_PROVEN";}
             Save(Path.Combine(root,"result.json"),result); }
         return (string)result["status"]=="PASS_BOUNDED_NATIVE_FIXTURE"?0:2;
@@ -188,12 +208,34 @@ internal static class AppContainerProbe {
         if(File.Exists(Path.Combine(root,"bin","interpreters-required.marker"))) {
             string python=Path.Combine(root,"bin","python","python.exe");
             result["python_process"]=Spawn(python,"-I -B "+Q(Path.Combine(root,"bin","python-proof.py"))+" "+Q(root)+" "+Q(sid)+" "+port+" "+Q(Exe),root,35000);
-            string bash=Path.Combine(root,"bin","git","bin","bash.exe");
-            result["bash_process"]=Spawn(bash,"--noprofile --norc "+Q(Path.Combine(root,"bin","bash-proof.sh"))+" "+Q(root.Replace('\\','/'))+" "+Q(sid)+" "+port+" "+Q(Exe.Replace('\\','/')),root,35000);
+            result["bash_process"]=RunBash(root,sid,port);
         }
         Save(Path.Combine(root,"notes","child-result.json"),result);
     }
 
+    static Dictionary<string,object> RunBash(string root,string sid,int port) {
+        string bash=Path.Combine(root,"bin","git","bin","bash.exe");
+        return Spawn(bash,"--noprofile --norc "+Q(Path.Combine(root,"bin","bash-proof.sh"))+" "+Q(root.Replace('\\','/'))+" "+Q(sid)+" "+port+" "+Q(Exe.Replace('\\','/')),root,35000);
+    }
+    static Dictionary<string,object> CreatePrivateMsysDirectory(string path,string sid,List<IntPtr> handles) {
+        // Probe-only compatibility experiment. Exclusive creation, narrow name,
+        // no existing global object ACL is ever changed; handles own its lifetime.
+        IntPtr nameBuffer=IntPtr.Zero, unicodeBuffer=IntPtr.Zero,sd=IntPtr.Zero,handle=IntPtr.Zero;
+        try {
+            Demand(Regex.IsMatch(path,@"^\\BaseNamedObjects\\msys-2\.0S5-[0-9a-f]{16}$"),"MSYS_OBJECT_SCOPE_REJECTED");
+            string owner=WindowsIdentity.GetCurrent().User.Value;
+            Check(ConvertStringSecurityDescriptorToSecurityDescriptorW("D:P(A;;GA;;;"+owner+")(A;;GA;;;"+sid+")S:(ML;;NW;;;LW)",1,out sd,IntPtr.Zero),"MSYS private descriptor");
+            nameBuffer=Marshal.StringToHGlobalUni(path);
+            var name=new UNICODE_STRING{Length=(ushort)(path.Length*2),MaximumLength=(ushort)((path.Length+1)*2),Buffer=nameBuffer};
+            unicodeBuffer=Marshal.AllocHGlobal(Marshal.SizeOf(name));Marshal.StructureToPtr(name,unicodeBuffer,false);
+            var attr=new OBJECT_ATTRIBUTES{Length=Marshal.SizeOf(typeof(OBJECT_ATTRIBUTES)),ObjectName=unicodeBuffer,Attributes=0x40,SecurityDescriptor=sd};
+            int status=NtCreateDirectoryObject(out handle,0x000F000F,ref attr);
+            if(status<0)return new Dictionary<string,object>{{"created",false},{"object_path",path},{"ntstatus",String.Format("0x{0:X8}",status)}};
+            handles.Add(handle);handle=IntPtr.Zero;
+            return new Dictionary<string,object>{{"created",true},{"object_path",path},{"scope","NEW_EXCLUSIVE_PER_INTERPRETER_COPY_OBJECT_DIRECTORY"},{"parent_token",Token()},{"existing_object_changed",false},{"mandatory_label","LOW"}};
+        } catch(Exception e){return new Dictionary<string,object>{{"created",false},{"error",e.ToString()}};}
+        finally {if(handle!=IntPtr.Zero)CloseHandle(handle);if(nameBuffer!=IntPtr.Zero)Marshal.FreeHGlobal(nameBuffer);if(unicodeBuffer!=IntPtr.Zero)Marshal.FreeHGlobal(unicodeBuffer);if(sd!=IntPtr.Zero)LocalFree(sd);}
+    }
     static Dictionary<string,object> Attack(string root,string sid,int port) {
         var token=Token(); var result=new Dictionary<string,object>{{"token",token}};
         result["correct_appcontainer_sid"]=B(token,"appcontainer") && (string)token["appcontainer_sid"]==sid && Convert.ToInt32(token["capability_count"])==0;
@@ -352,6 +394,11 @@ internal static class AppContainerProbe {
         }
     }
 
+    [StructLayout(LayoutKind.Sequential)]struct UNICODE_STRING{public ushort Length,MaximumLength;public IntPtr Buffer;}
+    [StructLayout(LayoutKind.Sequential)]struct OBJECT_ATTRIBUTES{public int Length;public IntPtr RootDirectory,ObjectName;public uint Attributes;public IntPtr SecurityDescriptor,SecurityQualityOfService;}
+    [DllImport("ntdll.dll")]static extern int NtCreateDirectoryObject(out IntPtr handle,uint access,ref OBJECT_ATTRIBUTES attributes);
+    [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)]static extern bool ConvertStringSecurityDescriptorToSecurityDescriptorW(string text,uint revision,out IntPtr descriptor,IntPtr size);
+    [DllImport("kernel32.dll")]static extern IntPtr LocalFree(IntPtr memory);
     [StructLayout(LayoutKind.Sequential)]struct SECURITY_CAPABILITIES{public IntPtr AppContainerSid,Capabilities;public uint CapabilityCount,Reserved;}
     [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)]struct STARTUPINFO{public int cb;public string lpReserved,lpDesktop,lpTitle;public uint dwX,dwY,dwXSize,dwYSize,dwXCountChars,dwYCountChars,dwFillAttribute,dwFlags;public short wShowWindow,cbReserved2;public IntPtr lpReserved2,hStdInput,hStdOutput,hStdError;}
     [StructLayout(LayoutKind.Sequential)]struct STARTUPINFOEX{public STARTUPINFO StartupInfo;public IntPtr lpAttributeList;}

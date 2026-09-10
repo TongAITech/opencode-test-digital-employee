@@ -21,7 +21,7 @@ if ($RuntimeDirectory -or $GitDirectory) {
     Copy-Item (Join-Path $PSScriptRoot 'python-proof.py') (Join-Path $OutputDirectory 'bin/python-proof.py')
     Copy-Item (Join-Path $PSScriptRoot 'bash-proof.sh') (Join-Path $OutputDirectory 'bin/bash-proof.sh')
     Set-Content (Join-Path $OutputDirectory 'bin/interpreters-required.marker') 'PYTHON_AND_GIT_BASH_MUST_EXECUTE'
-    @{ python_source='HASH_PINNED_PREVIOUS_OFFLINE_PACKAGE'; git_source='EXISTING_GITHUB_RUNNER_GIT_INSTALLATION'; python_sha256=(Get-FileHash "$RuntimeDirectory/python/python.exe" -Algorithm SHA256).Hash; bash_sha256=(Get-FileHash "$GitDirectory/bin/bash.exe" -Algorithm SHA256).Hash; git_directory=$GitDirectory } | ConvertTo-Json | Set-Content (Join-Path $OutputDirectory 'interpreter-identities.json')
+    @{ python_source='HASH_PINNED_PREVIOUS_OFFLINE_PACKAGE'; git_source='EXISTING_GITHUB_RUNNER_GIT_INSTALLATION'; python_sha256=(Get-FileHash "$RuntimeDirectory/python/python.exe" -Algorithm SHA256).Hash; bash_sha256=(Get-FileHash "$GitDirectory/bin/bash.exe" -Algorithm SHA256).Hash; git_directory=$GitDirectory; actual_bash_sha256=(Get-FileHash "$GitDirectory/usr/bin/bash.exe" -Algorithm SHA256).Hash; actual_msys_sha256=(Get-FileHash "$GitDirectory/usr/bin/msys-2.0.dll" -Algorithm SHA256).Hash } | ConvertTo-Json | Set-Content (Join-Path $OutputDirectory 'interpreter-identities.json')
 }
 Get-FileHash -Algorithm SHA256 $source,$exe | Select-Object Path,Hash | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'identities.json')
 if ($UseDisposableCiUser) {

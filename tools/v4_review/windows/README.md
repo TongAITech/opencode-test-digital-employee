@@ -1,8 +1,8 @@
 # Windows no-admin isolation probe
 
-Status: **SOURCE READY; LOCAL COMPILE SUCCEEDED; WINDOWS EXECUTION NOT_RUN; ISOLATION NOT_PROVEN.**
+Status: **REAL WINDOWS DIAGNOSTICS IN PROGRESS; COMPLETE ISOLATION ORACLE NOT_PROVEN.**
 
-This probe is an isolated V4 F54 feasibility experiment. It does not install a General Worker, change the product repository, authorize a bank target, or claim that arbitrary production tools are safely confined. Current product reference is `042a88a3fa3ac93cecb7b0d3ad5ff4b7f6bd71ac`.
+This probe is an isolated V4 F54 feasibility experiment. It does not install a General Worker, change the product repository, authorize a bank target, or claim that arbitrary production tools are safely confined. This diagnostic branch starts at `03b0645119399efd7d5f71ce48c41f02d85ff9c3`; workflow artifacts record the exact tested commit.
 
 The implementation uses the classic Windows AppContainer creation path: unique package identity, a zero-capability security descriptor on process creation, and filesystem ACL grants for that identity. The fixture root grant does not inherit; bin/read fixtures receive recursive read/execute, notes receive modify, and protected/outside roots have explicit AppContainer denial. Microsoft documents the AppContainer/user access intersection and the required process attributes in [Launch an AppContainer](https://learn.microsoft.com/en-us/windows/win32/secauthz/implementing-an-appcontainer). It describes filesystem and network isolation in [AppContainer isolation](https://learn.microsoft.com/en-us/windows/win32/secauthz/appcontainer-isolation). These documents justify selecting a real OS primitive; the probe result must establish observed behavior on the target Windows image.
 
@@ -10,8 +10,8 @@ The implementation uses the classic Windows AppContainer creation path: unique p
 
 - `AppContainerProbe.cs`: parent oracle, native launch boundary, trusted instrumented attack child, cmd and PowerShell descendants, local TCP fixture.
 - `run-spike.ps1`: creates a new disposable directory, compiles with the installed Windows .NET Framework compiler, runs the probe, and returns nonzero unless the complete bounded oracle passes.
-- `static-qualification.json`: source/binary SHA256 and local compile-only status.
-- `AppContainerProbe.syntax-check.exe`: local Mono syntax-check output; **do not use it for Windows qualification**. The wrapper recompiles source using the Windows image's installed compiler.
+- `python-proof.py` and `bash-proof.sh`: actual interpreter file attacks plus native descendants. Python comes from the hash-pinned previous offline package; Git Bash comes from the existing Windows runner installation. The wrapper copies both into the fixture read/execute-only bin and records executable hashes. No new runtime is downloaded for the test.
+- `.github/workflows/v4-appcontainer-diagnostics.yml`: isolated branch workflow, standard-user bootstrap, optional CI filtering observer, and retained structured artifacts.
 
 Windows integration entry:
 
@@ -42,3 +42,15 @@ Every required positive and negative path must complete for `PASS_BOUNDED_NATIVE
 - Arbitrary bank-installed Python, Git Bash, build systems, browser libraries, host OpenCode plugins, vendor DLLs, antivirus policies, and corporate Windows lockdown may introduce compatibility constraints. cmd and PowerShell descendants exercise actual interpreter/process inheritance; they do not certify every installed tool.
 - Runtime-issued caller/session/epoch leases, revocation, conflict-safe writes, protected-resource catalogues, R1 event receipts, diagnostic repair candidates, and routing into G4 remain product implementation work. This native fixture cannot supply those contracts.
 - Junction failure, compiler absence, AppContainer launch failure, denied approved work, missing limited-token context, or malformed child evidence remain explicit blockers or failures. Fix the source/host integration and repeat the same oracle; do not relax expected outcomes to manufacture green evidence.
+
+## Diagnostic evidence and unresolved boundaries
+
+The retained real Windows run `34509094339` establishes that native AppContainer launch and cmd descendants have zero capabilities, and all protected/outside/read-only/traversal/case/junction attacks return `AccessDenied`. The parent token is a real standard user. It also retains two failed observations: loopback connect timed out (both asynchronous and nonblocking socket paths), and PowerShell's native `&` invocation failed in its drive resolver. Neither failure is a PASS.
+
+PowerShell itself successfully performed its allowed file write. Its error was `Cannot find drive ... Microsoft.PowerShell.Core\FileSystem`, consistent with the public [PowerShell drive initialization issue](https://github.com/PowerShell/PowerShell/issues/27253). The revised fixture uses PowerShell's .NET `ProcessStartInfo` to start its real native descendant without granting access to the volume root. This qualifies that process API only; it does not claim every PowerShell provider/module works inside the container.
+
+The original loopback oracle still requires affirmative denial and is never changed to accept timeout. The dedicated CI workflow enables diagnostic WFP event collection and exports filtering events/rules for independent tuple/filter-ID correlation. This is an external test observer, like CI account provisioning: the attack processes remain standard-user AppContainers, no firewall rules or loopback exemptions are added, and the observer is not a product dependency. Event absence, wrong tuple/filter or an uncorrelated drop remains NOT_PROVEN. See Microsoft's [WFP diagnostic commands](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/netsh-wfp) and [network isolation diagnosis](https://techcommunity.microsoft.com/blog/coreinfrastructureandsecurityblog/diagnosing-network-isolation-issues/2511562).
+
+An additional public `github.com:443` TCP control resolves its address in the parent, requires the parent to connect successfully, and tests the identical numeric destination in each contained native process. It sends no HTTP request, payload, credential or bank data. Only explicit socket error 10013 counts as denial. This outbound control supplements the loopback evidence; it does not replace it or silently upgrade the original oracle.
+
+The standalone probe returns nonzero for unavailable AppContainer support, unknown socket denial, missing interpreter evidence, bad positive controls or failed cleanup. It executes only the disposable qualification fixtures in this state. Production admission still needs its own typed capability result and must withhold real Worker effects when support is unavailable or unconfirmed; the CI observer does not provide an authorization shortcut.

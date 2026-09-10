@@ -1,5 +1,5 @@
 """Real portable Python inside AppContainer; all targets are disposable fixtures."""
-import ctypes, json, pathlib, socket, subprocess, sys, time
+import ctypes, errno, json, pathlib, socket, subprocess, sys, time
 root=pathlib.Path(sys.argv[1]); sid=sys.argv[2]; port=int(sys.argv[3]); exe=sys.argv[4]
 notes=root/'notes'; result={'interpreter':'PORTABLE_PYTHON','version':sys.version,'executable':sys.executable}
 advapi=ctypes.WinDLL('advapi32',use_last_error=True); kernel=ctypes.WinDLL('kernel32',use_last_error=True)
@@ -17,11 +17,11 @@ result['permitted_read']=(root/'read/diagnostic.txt').read_text()=='DIAGNOSTIC_F
 paths={'protected':root/'protected/runtime-spine.db','outside':root/'outside/outside.txt','readonly_write':root/'read/diagnostic.txt','traversal':notes/'../protected/runtime-spine.db','case':pathlib.Path(str(root/'outside/outside.txt').upper()),'junction':notes/'escape/runtime-spine.db'}
 for name,path in paths.items():
  try:path.write_text('PYTHON_UNAUTHORIZED');result[name]={'denied':False,'wrote':True}
- except PermissionError as e:result[name]={'denied':e.winerror==5,'winerror':e.winerror}
+ except PermissionError as e:result[name]={'denied':e.errno==errno.EACCES,'errno':e.errno,'winerror':e.winerror,'error':repr(e)}
  except Exception as e:result[name]={'denied':False,'error':repr(e)}
 for name in ('protected','outside'):
  try:paths[name].read_bytes();result[name+'_read']={'denied':False,'read':True}
- except PermissionError as e:result[name+'_read']={'denied':e.winerror==5,'winerror':e.winerror}
+ except PermissionError as e:result[name+'_read']={'denied':e.errno==errno.EACCES,'errno':e.errno,'winerror':e.winerror,'error':repr(e)}
  except Exception as e:result[name+'_read']={'denied':False,'error':repr(e)}
 with socket.socket() as sock:
  sock.bind(('127.0.0.1',0));sock.settimeout(3)
