@@ -220,7 +220,7 @@ internal static class AppContainerProbe {
     }
     static int IntInfo(IntPtr token,int type){IntPtr p=Info(token,type);try{return Marshal.ReadInt32(p);}finally{Marshal.FreeHGlobal(p);}}
     static IntPtr Info(IntPtr token,int type){int n;GetTokenInformation(token,type,IntPtr.Zero,0,out n);if(n<=0)throw new Win32Exception(Marshal.GetLastWin32Error(),"GetTokenInformation size "+type);IntPtr p=Marshal.AllocHGlobal(n);if(!GetTokenInformation(token,type,p,n,out n)){int error=Marshal.GetLastWin32Error();Marshal.FreeHGlobal(p);throw new Win32Exception(error,"GetTokenInformation "+type);}return p;}
-    static void Check(bool ok,string name){if(!ok)throw new Win32Exception(Marshal.GetLastWin32Error(),name);}
+    static void Check(bool ok,string name){if(!ok){int code=Marshal.GetLastWin32Error();throw new Win32Exception(code,name+"; native_error="+code+"; "+new Win32Exception(code).Message);}}
 
     static object LaunchContainer(string exe,string args,string cwd,IntPtr sid) {
         IntPtr attr=IntPtr.Zero,cap=IntPtr.Zero,environment=IntPtr.Zero,job=IntPtr.Zero;PROCESS_INFORMATION pi=new PROCESS_INFORMATION(); bool launched=false;
