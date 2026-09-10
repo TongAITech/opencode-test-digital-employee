@@ -34,6 +34,12 @@ if ($UseDisposableCiUser) {
         $credential = [PSCredential]::new(($env:COMPUTERNAME + '\' + $userName), $securePassword)
         $child = Start-Process -FilePath $exe -ArgumentList @('--run', ('"' + $OutputDirectory + '"')) -WorkingDirectory $OutputDirectory -Credential $credential -LoadUserProfile -Wait -PassThru
         $probeExit = $child.ExitCode
+        # Only after the complete probe and its descendants exit, let the CI
+        # evidence collector read the new fixture tree. This is not a child grant.
+        $collectorAcl = Get-Acl -LiteralPath $OutputDirectory
+        $collectorSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+        $collectorAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($collectorSid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+        Set-Acl -LiteralPath $OutputDirectory -AclObject $collectorAcl
         @{ mode='DISPOSABLE_CI_STANDARD_LOCAL_USER'; user_sid=$account.SID.Value; child_exit=$probeExit; product_install_admin_requirement='NONE_INTRODUCED'; setup_requires_ci_admin=$true } | ConvertTo-Json | Set-Content (Join-Path $OutputDirectory 'ci-user-bootstrap.json')
     } finally {
         if ($created) { Remove-LocalUser -Name $userName }
