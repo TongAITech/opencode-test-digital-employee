@@ -75,6 +75,10 @@ internal static class AppContainerProbe {
         Demand(!B(parent,"elevated") && !B(parent,"administrator_enabled"),"NO_ADMIN_PROOF_MISSING: probe must run from a non-elevated token with Administrators disabled");
         Demand(!B(parent,"appcontainer"),"Parent must be outside AppContainer to establish accessible negative controls");
         Demand(File.Exists(Path.Combine(root,"SPIKE_ONLY.marker")),"Fixture marker missing; arbitrary paths refused");
+        // CreateProcessWithLogon (CI bootstrap) can retain the runner's process
+        // environment even though the current token/profile is another user.
+        // Resolve user variables from that actual token, never from the runner.
+        RefreshProfileEnvironment(root);
         foreach(string name in new[]{"notes","read","protected","outside"}) Directory.CreateDirectory(Path.Combine(root,name));
         string secret="R1-SENTINEL-"+Guid.NewGuid().ToString("N"), outer="OUTSIDE-SENTINEL-"+Guid.NewGuid().ToString("N");
         File.WriteAllText(Protected(root),secret); File.WriteAllText(Outside(root),outer);
@@ -222,6 +226,27 @@ internal static class AppContainerProbe {
     static IntPtr Info(IntPtr token,int type){int n;GetTokenInformation(token,type,IntPtr.Zero,0,out n);if(n<=0)throw new Win32Exception(Marshal.GetLastWin32Error(),"GetTokenInformation size "+type);IntPtr p=Marshal.AllocHGlobal(n);if(!GetTokenInformation(token,type,p,n,out n)){int error=Marshal.GetLastWin32Error();Marshal.FreeHGlobal(p);throw new Win32Exception(error,"GetTokenInformation "+type);}return p;}
     static void Check(bool ok,string name){if(!ok){int code=Marshal.GetLastWin32Error();throw new Win32Exception(code,name+"; native_error="+code+"; "+new Win32Exception(code).Message);}}
 
+    static void RefreshProfileEnvironment(string root) {
+        IntPtr token=IntPtr.Zero, block=IntPtr.Zero;
+        var copied=new List<string>();
+        try {
+            Check(OpenProcessToken(GetCurrentProcess(),0x0008|0x0002,out token),"OpenProcessToken profile environment");
+            Check(CreateEnvironmentBlock(out block,token,false),"CreateEnvironmentBlock current user");
+            int offset=0;
+            while(true) {
+                string item=Marshal.PtrToStringUni(IntPtr.Add(block,offset));
+                if(String.IsNullOrEmpty(item))break;
+                offset+=(item.Length+1)*2;
+                int split=item.IndexOf('=');if(split<=0)continue;
+                string key=item.Substring(0,split).ToUpperInvariant();
+                if(key=="USERPROFILE"||key=="LOCALAPPDATA"||key=="APPDATA"||key=="TEMP"||key=="TMP"||key=="SYSTEMDRIVE") {
+                    Environment.SetEnvironmentVariable(key,item.Substring(split+1));copied.Add(key);
+                }
+            }
+            Save(Path.Combine(root,"parent-profile-environment.json"),new {source="CURRENT_TOKEN_CREATE_ENVIRONMENT_BLOCK",keys=copied,values_recorded=false});
+        } finally {if(block!=IntPtr.Zero)DestroyEnvironmentBlock(block);if(token!=IntPtr.Zero)CloseHandle(token);}
+    }
+
     static object LaunchContainer(string exe,string args,string cwd,IntPtr sid) {
         IntPtr attr=IntPtr.Zero,cap=IntPtr.Zero,environment=IntPtr.Zero,job=IntPtr.Zero;PROCESS_INFORMATION pi=new PROCESS_INFORMATION(); bool launched=false;
         try {
@@ -275,6 +300,8 @@ internal static class AppContainerProbe {
     [StructLayout(LayoutKind.Sequential)]struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION{public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;public IO_COUNTERS IoInfo;public UIntPtr ProcessMemoryLimit,JobMemoryLimit,PeakProcessMemoryUsed,PeakJobMemoryUsed;}
     [DllImport("userenv.dll",CharSet=CharSet.Unicode)]static extern int CreateAppContainerProfile(string name,string display,string description,IntPtr capabilities,uint count,out IntPtr sid);
     [DllImport("userenv.dll",CharSet=CharSet.Unicode)]static extern int DeleteAppContainerProfile(string name);
+    [DllImport("userenv.dll",SetLastError=true)]static extern bool CreateEnvironmentBlock(out IntPtr environment,IntPtr token,bool inherit);
+    [DllImport("userenv.dll",SetLastError=true)]static extern bool DestroyEnvironmentBlock(IntPtr environment);
     [DllImport("advapi32.dll",SetLastError=true)]static extern bool OpenProcessToken(IntPtr process,uint desired,out IntPtr token);
     [DllImport("advapi32.dll",SetLastError=true)]static extern bool GetTokenInformation(IntPtr token,int type,IntPtr info,int length,out int needed);
     [DllImport("advapi32.dll")]static extern IntPtr FreeSid(IntPtr sid);
