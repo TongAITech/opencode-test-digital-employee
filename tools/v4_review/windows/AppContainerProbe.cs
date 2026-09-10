@@ -233,7 +233,7 @@ internal static class AppContainerProbe {
             Directory.CreateDirectory(Path.Combine(cwd,"notes","temp"));
             // AppContainer creation needs LOCALAPPDATA even with an explicit environment.
             // Resolve it for this non-admin parent; do not inherit arbitrary host variables.
-            string localAppData=Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string localAppData=Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData,Environment.SpecialFolderOption.Create);
             Demand(!String.IsNullOrEmpty(localAppData) && Directory.Exists(localAppData),"APPCONTAINER_LOCALAPPDATA_MISSING");
             var env=new SortedDictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"SystemRoot",windows},{"SystemDrive",Path.GetPathRoot(windows).TrimEnd(Path.DirectorySeparatorChar)},{"WINDIR",windows},{"COMSPEC",Path.Combine(system,"cmd.exe")},{"PATH",system},{"LOCALAPPDATA",localAppData},{"TEMP",Path.Combine(cwd,"notes","temp")},{"TMP",Path.Combine(cwd,"notes","temp")}};
             var block=new StringBuilder();foreach(var pair in env)block.Append(pair.Key).Append('=').Append(pair.Value).Append('\0');block.Append('\0');environment=Marshal.StringToHGlobalUni(block.ToString());
