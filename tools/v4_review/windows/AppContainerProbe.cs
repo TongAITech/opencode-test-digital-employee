@@ -231,11 +231,31 @@ internal static class AppContainerProbe {
             var si=new STARTUPINFOEX();si.StartupInfo.cb=Marshal.SizeOf(si);si.lpAttributeList=attr;
             string system=Environment.GetFolderPath(Environment.SpecialFolder.System),windows=Directory.GetParent(system).FullName;
             Directory.CreateDirectory(Path.Combine(cwd,"notes","temp"));
-            var env=new SortedDictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"SystemRoot",windows},{"WINDIR",windows},{"COMSPEC",Path.Combine(system,"cmd.exe")},{"PATH",system},{"TEMP",Path.Combine(cwd,"notes","temp")},{"TMP",Path.Combine(cwd,"notes","temp")}};
+            // AppContainer creation needs LOCALAPPDATA even with an explicit environment.
+            // Resolve it for this non-admin parent; do not inherit arbitrary host variables.
+            string localAppData=Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            Demand(!String.IsNullOrEmpty(localAppData) && Directory.Exists(localAppData),"APPCONTAINER_LOCALAPPDATA_MISSING");
+            var env=new SortedDictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"SystemRoot",windows},{"SystemDrive",Path.GetPathRoot(windows).TrimEnd(Path.DirectorySeparatorChar)},{"WINDIR",windows},{"COMSPEC",Path.Combine(system,"cmd.exe")},{"PATH",system},{"LOCALAPPDATA",localAppData},{"TEMP",Path.Combine(cwd,"notes","temp")},{"TMP",Path.Combine(cwd,"notes","temp")}};
             var block=new StringBuilder();foreach(var pair in env)block.Append(pair.Key).Append('=').Append(pair.Value).Append('\0');block.Append('\0');environment=Marshal.StringToHGlobalUni(block.ToString());
             job=CreateJobObject(IntPtr.Zero,null);Check(job!=IntPtr.Zero,"CreateJobObject");
             var limit=new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();limit.BasicLimitInformation.LimitFlags=0x00002000; // KILL_ON_JOB_CLOSE: cleanup only, not security proof.
             Check(SetInformationJobObject(job,9,ref limit,Marshal.SizeOf(limit)),"SetInformationJobObject");
+            // Persist safe metadata before CreateProcess so native failures retain their inputs.
+            // Environment values are deliberately omitted.
+            Save(Path.Combine(cwd,"launch-input.json"),new {
+                pointer_bytes=IntPtr.Size,
+                startupinfo_bytes=Marshal.SizeOf(typeof(STARTUPINFO)),
+                startupinfoex_bytes=Marshal.SizeOf(typeof(STARTUPINFOEX)),
+                startupinfo_cb=si.StartupInfo.cb,
+                attribute_pointer_offset=Marshal.OffsetOf(typeof(STARTUPINFOEX),"lpAttributeList").ToInt64(),
+                security_capabilities_bytes=Marshal.SizeOf(typeof(SECURITY_CAPABILITIES)),
+                environment_keys=new List<string>(env.Keys),
+                environment_utf16_bytes=Encoding.Unicode.GetByteCount(block.ToString()),
+                environment_double_null=block.Length>=2 && block[block.Length-1]=='\0' && block[block.Length-2]=='\0',
+                localappdata_exists=Directory.Exists(localAppData),
+                capabilities=0,inherited_handles=false,
+                creation_flags="EXTENDED_STARTUPINFO_PRESENT|CREATE_UNICODE_ENVIRONMENT|CREATE_NO_WINDOW|CREATE_SUSPENDED"
+            });
             Check(CreateProcessW(exe,new StringBuilder(Q(exe)+" "+args),IntPtr.Zero,IntPtr.Zero,false,0x00080000|0x00000400|0x08000000|0x00000004,environment,cwd,ref si,out pi),"CreateProcessW AppContainer");launched=true;
             Check(AssignProcessToJobObject(job,pi.hProcess),"AssignProcessToJobObject");
             if(ResumeThread(pi.hThread)==0xffffffff)throw new Win32Exception(Marshal.GetLastWin32Error(),"ResumeThread");
