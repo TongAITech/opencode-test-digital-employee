@@ -34,13 +34,15 @@ jobs:
           if (-not (Test-Path "$git/bin/bash.exe")) { throw 'EXISTING_GIT_BASH_UNAVAILABLE' }
           "V4_GIT=$git" | Out-File $env:GITHUB_ENV -Append
       - name: Start independent Windows filtering observer
+        timeout-minutes: 2
+        continue-on-error: true
         shell: pwsh
         run: |
           $trace = Join-Path $env:RUNNER_TEMP 'v4-wfp-observer'
           New-Item -ItemType Directory -Path $trace | Out-Null
           "V4_WFP_OUTPUT=$trace" | Out-File $env:GITHUB_ENV -Append
           netsh wfp show options optionsfor=netevents | Out-File (Join-Path $trace 'options-before.log')
-          netsh wfp capture start cab=off traceonly=off file="$trace/capture" | Out-File (Join-Path $trace 'capture-start.log')
+          # Direct netevent collection is bounded; full packet capture is unnecessary.
           netsh wfp set options netevents=on | Out-File (Join-Path $trace 'events-start.log')
       - name: Probe Windows confinement using synthetic disposable files
         shell: pwsh
@@ -56,7 +58,7 @@ jobs:
           if ($trace) {
             netsh wfp show netevents file="$trace/netevents.xml" timewindow=300 | Out-File (Join-Path $trace 'events-export.log')
             netsh wfp show filters file="$trace/filters.xml" verbose=on | Out-File (Join-Path $trace 'filters-export.log')
-            netsh wfp capture stop | Out-File (Join-Path $trace 'capture-stop.log')
+            netsh wfp show options optionsfor=netevents | Out-File (Join-Path $trace 'options-after.log')
             @{ role='CI_ONLY_INDEPENDENT_OBSERVER'; probe_admin_required=$false; firewall_rules_modified=$false; loopback_exemptions_added=$false; trace_is_not_a_runtime_dependency=$true } | ConvertTo-Json | Set-Content (Join-Path $trace 'observer-role.json')
           }
       - name: Record actual workflow identity and evidence

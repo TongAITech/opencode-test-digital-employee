@@ -86,6 +86,12 @@ internal static class AppContainerProbe {
         string secret="R1-SENTINEL-"+Guid.NewGuid().ToString("N"), outer="OUTSIDE-SENTINEL-"+Guid.NewGuid().ToString("N");
         File.WriteAllText(Protected(root),secret); File.WriteAllText(Outside(root),outer);
         File.WriteAllText(Path.Combine(root,"read","diagnostic.txt"),"DIAGNOSTIC_FIXTURE");
+        // Public endpoint is a payload-free TCP connectivity control, not a bank target.
+        IPAddress publicAddress=null;foreach(var address in Dns.GetHostAddresses("github.com"))if(address.AddressFamily==AddressFamily.InterNetwork){publicAddress=address;break;}
+        Demand(publicAddress!=null,"PUBLIC_CONTROL_DNS_UNAVAILABLE");
+        Save(Path.Combine(root,"read","public-network-fixture.json"),new {host="github.com",address=publicAddress.ToString(),port=443,payload="NONE"});
+        var publicControl=PublicNetwork(root);Demand(B(publicControl,"connected"),"PUBLIC_TCP_PARENT_CONTROL_FAILED");
+        Save(Path.Combine(root,"public-network-parent-control.json"),publicControl);
         // All attempted mutation targets are disposable sentinels owned by this probe.
         string profile="aitest-spike-"+Guid.NewGuid().ToString("N"); IntPtr sid=IntPtr.Zero;
         var result=new Dictionary<string,object>{{"status","NOT_PROVEN"},{"probe","APPCONTAINER_ZERO_CAPABILITIES_V1"},{"parent_token",parent},{"profile",profile},{"os",Environment.OSVersion.VersionString},{"source_baseline","03b0645119399efd7d5f71ce48c41f02d85ff9c3"}};
@@ -199,6 +205,7 @@ internal static class AppContainerProbe {
         result["junction"]=WriteAttack(Path.Combine(root,"notes","escape","runtime-spine.db"));
         result["network"]=Network(port);
         result["network_nonblocking"]=NetworkNonblocking(port);
+        result["public_network"]=PublicNetwork(root);
         return result;
     }
     static Dictionary<string,object> ReadAttack(string path) {
@@ -227,6 +234,15 @@ internal static class AppContainerProbe {
             return new Dictionary<string,object>{{"denied",error==10013},{"socket_error",error},{"writable",ready},{"elapsed_ms",watch.ElapsedMilliseconds},{"connected",s.Connected},{"oracle",error==10013?"OS_ACCESS_DENIED":"NOT_PROVEN"}};
         } } catch(SocketException e) { return new Dictionary<string,object>{{"denied",e.NativeErrorCode==10013},{"native_error",e.NativeErrorCode},{"error",e.SocketErrorCode.ToString()},{"elapsed_ms",watch.ElapsedMilliseconds}}; }
         catch(Exception e) { return new Dictionary<string,object>{{"denied",false},{"error",e.ToString()},{"elapsed_ms",watch.ElapsedMilliseconds}}; }
+    }
+    static Dictionary<string,object> PublicNetwork(string root) {
+        var config=Read(Path.Combine(root,"read","public-network-fixture.json"));
+        try { using(var s=new Socket(AddressFamily.InterNetwork,SocketType.Stream,ProtocolType.Tcp)) {
+            var ar=s.BeginConnect(IPAddress.Parse((string)config["address"]),Convert.ToInt32(config["port"]),null,null);
+            if(!ar.AsyncWaitHandle.WaitOne(5000))return new Dictionary<string,object>{{"denied",false},{"error","TIMEOUT_INSUFFICIENT_EVIDENCE"},{"endpoint",config}};
+            s.EndConnect(ar);return new Dictionary<string,object>{{"denied",false},{"connected",true},{"endpoint",config}};
+        } } catch(SocketException e) { return new Dictionary<string,object>{{"denied",e.NativeErrorCode==10013},{"native_error",e.NativeErrorCode},{"error",e.SocketErrorCode.ToString()},{"endpoint",config}}; }
+        catch(Exception e) { return new Dictionary<string,object>{{"denied",false},{"error",e.ToString()},{"endpoint",config}}; }
     }
     static bool InterpreterPassed(Dictionary<string,object> a) {
         if(!B(a,"permitted_write") || !B(a,"permitted_read"))return false;
