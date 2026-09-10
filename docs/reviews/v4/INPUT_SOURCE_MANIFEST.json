@@ -1,0 +1,63 @@
+{
+  "contract": "6e8c1750a02a3696b5f8ace57fca0646743c912a8fa4fedc08aeb40bf0c6acbc",
+  "materials": [
+    {
+      "source_id": "opencode-ai-test-digital-employee-v1.6.1-opencode-1.14.22(1).zip",
+      "path": "/Users/tatu/Downloads/opencode-ai-test-digital-employee-v1.6.1-opencode-1.14.22(1).zip",
+      "status": "FileNotFoundError",
+      "purpose": "HISTORICAL_ORACLE_ONLY"
+    },
+    {
+      "source_id": "opencode-ai-test-digital-employee-v1.9.4-final-pfc-full-offline-source-buildfix1-failed.zip",
+      "path": "/Users/tatu/Downloads/opencode-ai-test-digital-employee-v1.9.4-final-pfc-full-offline-source-buildfix1-failed.zip",
+      "status": "READ_HASH_VERIFIED",
+      "size_bytes": 50809747,
+      "sha256": "176ce0dc6f1473d813dab72ecce1fb1412cfecbca67af220a14c079d562a0516",
+      "purpose": "HISTORICAL_ORACLE_ONLY"
+    },
+    {
+      "source_id": "pfc-v1.9.4-final-browser-teaching-hardening.zip",
+      "path": "/Users/tatu/Downloads/pfc-v1.9.4-final-browser-teaching-hardening.zip",
+      "status": "READ_HASH_VERIFIED",
+      "size_bytes": 36590,
+      "sha256": "d8bced40b49533906d0c96d29074ef9b558cc27db60f9a72e547f5372beadd73",
+      "purpose": "HISTORICAL_ORACLE_ONLY"
+    },
+    {
+      "source_id": "pfc-v1.9.4-final-browser-teaching-harness-upgrade.zip",
+      "path": "/Users/tatu/Downloads/pfc-v1.9.4-final-browser-teaching-harness-upgrade.zip",
+      "status": "READ_HASH_VERIFIED",
+      "size_bytes": 62999,
+      "sha256": "5c357d7527ce46c1956fdb930eb35f05f52158774e8b99b6df9faffeb3f0740a",
+      "purpose": "HISTORICAL_ORACLE_ONLY"
+    },
+    {
+      "source_id": "pfc-v1.9.4-final-freshness-runtime-hotfix.zip",
+      "path": "/Users/tatu/Downloads/pfc-v1.9.4-final-freshness-runtime-hotfix.zip",
+      "status": "READ_HASH_VERIFIED",
+      "size_bytes": 8412,
+      "sha256": "74a40a0a3d36aff2ea7c2337c336cf94e8062bd604612c7b6b47b4d30466a7e8",
+      "purpose": "HISTORICAL_ORACLE_ONLY"
+    },
+    {
+      "source_id": "pfc-v1.9.4-final-tomorrow-current-release-quality-bundle.zip",
+      "path": "/Users/tatu/Downloads/pfc-v1.9.4-final-tomorrow-current-release-quality-bundle.zip",
+      "status": "READ_HASH_VERIFIED",
+      "size_bytes": 515794,
+      "sha256": "543edd9321ab70278ac9feaee949b02c69c11ce73cabddcb7ff761065cbfda6f",
+      "purpose": "HISTORICAL_ORACLE_ONLY"
+    },
+    {
+      "source_id": "pfc-v1.9.4-quality-governance-launcher-hotfix.zip",
+      "path": "/Users/tatu/Downloads/pfc-v1.9.4-quality-governance-launcher-hotfix.zip",
+      "status": "READ_HASH_VERIFIED",
+      "size_bytes": 27437,
+      "sha256": "6a1b5e633a38584cc6daafdbb0504267d862f8c9f248badb12d64fac729114ad",
+      "purpose": "HISTORICAL_ORACLE_ONLY"
+    }
+  ],
+  "discovery_limitations": [
+    "Downloads directory enumeration rejected by macOS even elevated; exact user-named files checked individually",
+    "No independently accessible CAT screenshot or field credential has been verified yet"
+  ]
+}

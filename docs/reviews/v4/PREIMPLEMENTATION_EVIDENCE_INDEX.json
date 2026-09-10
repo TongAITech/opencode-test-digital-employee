@@ -1,0 +1,53 @@
+{
+  "scope": "REVIEW_COMPONENT_EVIDENCE_NOT_FINAL_QUALIFICATION",
+  "records": [
+    {
+      "artifact": "MODEL_SETTINGS_EVIDENCE.json",
+      "sha256": "8187a56fb7ab8aee42452381daa680e2fc9ca01d7a09994f5c21d6061a860755",
+      "size_bytes": 765,
+      "storage": "LOCAL_REVIEW_EVIDENCE"
+    },
+    {
+      "artifact": "S3_ROUTING_BASELINE_RESULT.json",
+      "sha256": "4dabc0f568aca1f0fca438ffded85a15807def712520cfe9a7eea720bb6401eb",
+      "size_bytes": 8618,
+      "storage": "LOCAL_REVIEW_EVIDENCE"
+    },
+    {
+      "artifact": "S1-real-host-baseline/result.json",
+      "sha256": "8554a9db5ede50152f60d4b6caca05dc5b68c00ec0589fd6014e16e55b428ba5",
+      "size_bytes": 5071,
+      "storage": "LOCAL_REVIEW_EVIDENCE"
+    },
+    {
+      "artifact": "S7-native-run-01/result.json",
+      "sha256": "736f77f9dbba6658a639a34d1980a5fbc1dd618f202d81b53296ac5868e3c79a",
+      "size_bytes": 3056,
+      "storage": "LOCAL_REVIEW_EVIDENCE"
+    },
+    {
+      "artifact": "S7-windows-run-34506247751/result.json",
+      "sha256": "f27c665fe6fdc34236a5c135f3d1624814ff27f1f0bec7e2202c923da8518242",
+      "size_bytes": 11579,
+      "storage": "LOCAL_REVIEW_EVIDENCE"
+    },
+    {
+      "artifact": "reviewer-routing/context-spike/run-04/INDEPENDENT_VERIFICATION.json",
+      "sha256": "745003c69648dc93adb12a004458b4f84ff34a5d732d79a61a73032528f0202a",
+      "size_bytes": 3552,
+      "storage": "LOCAL_REVIEW_EVIDENCE"
+    },
+    {
+      "artifact": "browser-spike/smoke-result.json",
+      "sha256": "43a81ee061821a7b424f9606ddbe680f311fb8593f7b271ae9102fe3f8a27a85",
+      "size_bytes": 12724,
+      "storage": "LOCAL_REVIEW_EVIDENCE"
+    },
+    {
+      "artifact": "reviewer-architecture/liveness-spike/evidence.json",
+      "sha256": "f6ecbd74d831fd729cb0142e9fb17d3bed714761528f4cae5bd8a2590e1429c0",
+      "size_bytes": 102261,
+      "storage": "LOCAL_REVIEW_EVIDENCE"
+    }
+  ]
+}
