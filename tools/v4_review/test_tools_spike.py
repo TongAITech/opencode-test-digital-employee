@@ -105,23 +105,34 @@ def main():
             home=out/'zap-home';home.mkdir();zaplog=open(out/'zap-process.log','wb')
             with socket.socket() as s:s.bind(('127.0.0.1',0));port=s.getsockname()[1]
             key=secrets.token_hex(12)
-            cmd=[str(java.resolve()),'-Xmx512m','-jar',str(jars[0].resolve()),'-daemon','-host','127.0.0.1','-port',str(port),'-dir',str(home),
-                 '-config','api.key='+key,'-config','autoupdate.checkOnStart=false','-config','autoupdate.downloadNewRelease=false','-config','autoupdate.installAddonUpdates=false',
+            pinned_plugins={x.name:digest(x) for x in (jars[0].parent/'plugin').glob('*.zap')}
+            cmd=[str(java.resolve()),'-Xmx512m','-jar',str(jars[0].resolve()),'-daemon','-silent','-host','127.0.0.1','-port',str(port),'-dir',str(home),
+                 '-config','api.key='+key,'-config','start.checkForUpdates=false','-config','start.downloadNewRelease=false','-config','start.checkAddonUpdates=false','-config','start.installAddonUpdates=false','-config','start.installScannerRules=false',
                  '-config','connection.dnsTtlSuccessfulQueries=-1']
             proc=subprocess.Popen(cmd,cwd=jars[0].parent,env=env,stdout=zaplog,stderr=subprocess.STDOUT)
             try:
                 with httpx.Client(trust_env=False,timeout=5) as client:
                     def api(component,kind,name,**params):
-                        r=client.get(f'http://127.0.0.1:{port}/JSON/{component}/{kind}/{name}/',params={'apikey':key,**params});r.raise_for_status();return r.json()
+                        r=client.get(f'http://127.0.0.1:{port}/JSON/{component}/{kind}/{name}/',params={'apikey':key,**params})
+                        if r.is_error:raise RuntimeError('ZAP_API_'+component+'_'+name+': '+r.text[:1000].replace(key,'[REDACTED]'))
+                        return r.json()
                     deadline=time.time()+100
                     while True:
                         try: version=api('core','view','version');break
                         except Exception:
                             if proc.poll() is not None or time.time()>deadline:raise
                             time.sleep(1)
-                    target=origin+'/search?q=hello';api('core','action','accessUrl',url=target,followRedirects='false')
+                    target=origin+'/search?q=hello'
+                    with httpx.Client(proxy=f'http://127.0.0.1:{port}',trust_env=False,timeout=10) as through_zap:
+                        observed=through_zap.get(target);assert observed.status_code==200
+                    deadline=time.time()+10
+                    while target not in api('core','view','urls',baseurl=origin)['urls']:
+                        if time.time()>deadline:raise RuntimeError('ZAP_TARGET_NOT_IN_HISTORY')
+                        time.sleep(0.2)
+                    api('ascan','action','disableAllScanners')
+                    api('ascan','action','enableScanners',ids='40012')
                     api('ascan','action','setOptionMaxScanDurationInMins',Integer='1')
-                    scan=api('ascan','action','scan',url=target,recurse='false',inScopeOnly='false')['scan']
+                    scan=api('ascan','action','scan',url=target,recurse='false',inScopeOnly='false',method='GET')['scan']
                     deadline=time.time()+100
                     while int(api('ascan','view','status',scanId=scan)['status'])<100:
                         if time.time()>deadline:raise TimeoutError('ZAP active scan timeout')
@@ -130,7 +141,10 @@ def main():
                     alerts=api('core','view','alerts',baseurl=origin,start='0',count='100')
                     assert int(messages['numberOfMessages'])>1 and counts['security']>1
                     (out/'zap-alerts.json').write_text(json.dumps(alerts,indent=2))
-                    checks['SECURITY']={'status':'PASS_REAL_ZAP_ACTIVE_SYNTHETIC_TARGET','version':version,'jar_sha256':digest(jars[0]),'message_count':messages,
+                    assert not list((home/'plugin').glob('*.zap')), 'ZAP_UNEXPECTED_RUNTIME_PLUGIN_INSTALL'
+                    assert pinned_plugins=={x.name:digest(x) for x in (jars[0].parent/'plugin').glob('*.zap')}, 'ZAP_PINNED_PLUGIN_MUTATION'
+                    assert any(str(x.get('pluginId'))=='40012' for x in alerts['alerts']), 'SYNTHETIC_XSS_ORACLE_NOT_DETECTED'
+                    checks['SECURITY']={'status':'PASS_REAL_ZAP_ACTIVE_SYNTHETIC_TARGET','version':version,'jar_sha256':digest(jars[0]),'message_count':messages,'pinned_plugins':pinned_plugins,'new_runtime_plugin_files':0,'scanner_scope':['40012_REFLECTED_XSS'],
                                         'target_requests':counts['security'],'alerts_sha256':digest(out/'zap-alerts.json'),'business_security_coverage':'NOT_PROVEN'}
                     api('core','action','shutdown')
             finally:
