@@ -88,7 +88,7 @@ internal static class AppContainerProbe {
         File.WriteAllText(Path.Combine(root,"read","diagnostic.txt"),"DIAGNOSTIC_FIXTURE");
         // All attempted mutation targets are disposable sentinels owned by this probe.
         string profile="aitest-spike-"+Guid.NewGuid().ToString("N"); IntPtr sid=IntPtr.Zero;
-        var result=new Dictionary<string,object>{{"status","NOT_PROVEN"},{"probe","APPCONTAINER_ZERO_CAPABILITIES_V1"},{"parent_token",parent},{"profile",profile},{"os",Environment.OSVersion.VersionString},{"source_head","042a88a3fa3ac93cecb7b0d3ad5ff4b7f6bd71ac"}};
+        var result=new Dictionary<string,object>{{"status","NOT_PROVEN"},{"probe","APPCONTAINER_ZERO_CAPABILITIES_V1"},{"parent_token",parent},{"profile",profile},{"os",Environment.OSVersion.VersionString},{"source_baseline","03b0645119399efd7d5f71ce48c41f02d85ff9c3"}};
         try {
             int hr=CreateAppContainerProfile(profile,profile,"Disposable AITest isolation proof",IntPtr.Zero,0,out sid);
             if(hr<0)Marshal.ThrowExceptionForHR(hr);
@@ -112,7 +112,10 @@ internal static class AppContainerProbe {
             Demand(Directory.Exists(junction),"JUNCTION_FIXTURE_UNAVAILABLE");
             using(var fixture=new TcpFixture()) {
                 fixture.Control(); result["network_parent_control"]=true;
+                result["loopback_port"]=fixture.Port;
+                Save(Path.Combine(root,"read","network-fixture.json"),new {port=fixture.Port,started_at=DateTime.UtcNow.ToString("o")});
                 result["launch"]=LaunchContainer(Exe,"--child "+Q(root)+" "+Q(sidText)+" "+fixture.Port,root,sid);
+                result["sentinels_intact"]=File.ReadAllText(Protected(root))==secret && File.ReadAllText(Outside(root))==outer && File.ReadAllText(Path.Combine(root,"read","diagnostic.txt"))=="DIAGNOSTIC_FIXTURE";
                 var child=Read(Path.Combine(root,"notes","child-result.json"));
                 result["child"]=child;
                 var cmd=Read(Path.Combine(root,"notes","cmd-result.json"));
@@ -168,7 +171,7 @@ internal static class AppContainerProbe {
         string command="@echo off\r\necho CMD_ALLOWED>"+Q(Path.Combine(root,"notes","cmd-note.txt"))+"\r\n"+Q(Exe)+childArgs+" cmd\r\necho CMD_ATTACK>"+Q(Protected(root))+"\r\necho CMD_ATTACK>"+Q(Outside(root))+"\r\necho CMD_ATTACK>"+Q(Path.Combine(root,"read","diagnostic.txt"))+"\r\n";
         string commandPath=Path.Combine(root,"notes","shell-proof.cmd"); File.WriteAllText(commandPath,command,Encoding.Default);
         result["cmd_process"]=Spawn(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"cmd.exe"),"/d /s /c \"\""+commandPath+"\"\"",root,25000);
-        string ps="[IO.File]::WriteAllText("+PSQ(Path.Combine(root,"notes","powershell-note.txt"))+",'PS_ALLOWED'); & "+PSQ(Exe)+" --attack "+PSQ(root)+" "+PSQ(sid)+" "+port+" powershell; try {[IO.File]::WriteAllText("+PSQ(Protected(root))+",'PS_ATTACK')} catch {}; try {[IO.File]::WriteAllText("+PSQ(Outside(root))+",'PS_ATTACK')} catch {}; try {[IO.File]::WriteAllText("+PSQ(Path.Combine(root,"read","diagnostic.txt"))+",'PS_ATTACK')} catch {}";
+        string ps="[IO.File]::WriteAllText("+PSQ(Path.Combine(root,"notes","powershell-note.txt"))+",'PS_ALLOWED'); $info=[Diagnostics.ProcessStartInfo]::new(); $info.FileName="+PSQ(Exe)+"; $info.Arguments="+PSQ(childArgs+" powershell")+"; $info.UseShellExecute=$false; $info.WorkingDirectory="+PSQ(root)+"; $child=[Diagnostics.Process]::Start($info); $child.WaitForExit(); if($child.ExitCode -ne 0){throw 'NATIVE_DESCENDANT_FAILED'}; try {[IO.File]::WriteAllText("+PSQ(Protected(root))+",'PS_ATTACK')} catch {}; try {[IO.File]::WriteAllText("+PSQ(Outside(root))+",'PS_ATTACK')} catch {}; try {[IO.File]::WriteAllText("+PSQ(Path.Combine(root,"read","diagnostic.txt"))+",'PS_ATTACK')} catch {}";
         result["powershell_process"]=Spawn(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"WindowsPowerShell","v1.0","powershell.exe"),"-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "+Convert.ToBase64String(Encoding.Unicode.GetBytes(ps)),root,35000);
         Save(Path.Combine(root,"notes","child-result.json"),result);
     }
@@ -197,7 +200,7 @@ internal static class AppContainerProbe {
         catch(Exception e) { return new Dictionary<string,object>{{"wrote",false},{"denied",false},{"error",e.GetType().Name},{"hresult",e.HResult}}; }
     }
     static Dictionary<string,object> Network(int port) {
-        try { using(var s=new Socket(AddressFamily.InterNetwork,SocketType.Stream,ProtocolType.Tcp)) { var ar=s.BeginConnect(IPAddress.Loopback,port,null,null); if(!ar.AsyncWaitHandle.WaitOne(3000))return new Dictionary<string,object>{{"denied",false},{"error","TIMEOUT_INSUFFICIENT_EVIDENCE"}}; s.EndConnect(ar);s.Send(Encoding.ASCII.GetBytes("CHILD_UNAUTHORIZED")); return new Dictionary<string,object>{{"denied",false},{"connected",true}}; } }
+        try { using(var s=new Socket(AddressFamily.InterNetwork,SocketType.Stream,ProtocolType.Tcp)) { s.Bind(new IPEndPoint(IPAddress.Loopback,0)); int localPort=((IPEndPoint)s.LocalEndPoint).Port;var ar=s.BeginConnect(IPAddress.Loopback,port,null,null); if(!ar.AsyncWaitHandle.WaitOne(3000))return new Dictionary<string,object>{{"denied",false},{"error","TIMEOUT_INSUFFICIENT_EVIDENCE"},{"local_port",localPort},{"remote_port",port},{"process_id",Process.GetCurrentProcess().Id},{"observed_at",DateTime.UtcNow.ToString("o")}}; s.EndConnect(ar);s.Send(Encoding.ASCII.GetBytes("CHILD_UNAUTHORIZED")); return new Dictionary<string,object>{{"denied",false},{"connected",true}}; } }
         catch(SocketException e) { return new Dictionary<string,object>{{"denied",e.NativeErrorCode==10013},{"connected",false},{"error",e.SocketErrorCode.ToString()},{"native_error",e.NativeErrorCode}}; }
         catch(Exception e) { return new Dictionary<string,object>{{"denied",false},{"error",e.GetType().Name}}; }
     }
