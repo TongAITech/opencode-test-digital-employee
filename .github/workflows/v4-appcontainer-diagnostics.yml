@@ -1,0 +1,51 @@
+name: V4 AppContainer diagnostics
+on:
+  push:
+    branches: [scratch/v4-appcontainer-diagnostics]
+    paths: [tools/v4_review/windows/**, .github/workflows/v4-appcontainer-diagnostics.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  windows-isolation:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Probe Windows confinement using synthetic disposable files
+        shell: pwsh
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP ('v4-isolation-' + [Guid]::NewGuid().ToString('N'))
+          "V4_PROBE_OUTPUT=$output" | Out-File $env:GITHUB_ENV -Append
+          & ./tools/v4_review/windows/run-spike.ps1 -OutputDirectory $output -UseDisposableCiUser
+      - name: Record actual workflow identity and evidence
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path review-evidence -Force | Out-Null
+          @{
+            source_head = $env:GITHUB_SHA
+            repository = $env:GITHUB_REPOSITORY
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            runner_os = $env:RUNNER_OS
+            qualification_scope = 'ISOLATED_WINDOWS_OS_PRIMITIVE_ONLY'
+            final_product_l3 = 'NOT_RUN'
+            bank_l5 = 'NOT_RUN'
+          } | ConvertTo-Json | Set-Content review-evidence/workflow-identity.json
+          if ($env:V4_PROBE_OUTPUT -and (Test-Path $env:V4_PROBE_OUTPUT)) {
+            Get-ChildItem $env:V4_PROBE_OUTPUT -File | Where-Object { $_.Extension -in '.json','.log' } | Copy-Item -Destination review-evidence
+            $notes = Join-Path $env:V4_PROBE_OUTPUT 'notes'
+            if (Test-Path $notes) {
+              Get-ChildItem $notes -File | Where-Object { $_.Extension -in '.json','.log' } | Copy-Item -Destination review-evidence
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v4-windows-isolation-review
+          path: review-evidence/*
+          if-no-files-found: error

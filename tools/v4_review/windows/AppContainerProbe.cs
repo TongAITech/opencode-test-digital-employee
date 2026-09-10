@@ -42,6 +42,9 @@ internal static class AppContainerProbe {
             return 64;
         } catch (Exception e) {
             // Child failures are not translated to PASS; the outer oracle requires their files.
+            if (mode == "--child" || mode == "--attack") {
+                try { Save(Path.Combine(root,"notes",mode.Substring(2)+"-error.json"),new { error=e.GetType().Name,detail=e.ToString() }); } catch {}
+            }
             if (mode == "--run" || mode == "--bootstrap") {
                 Directory.CreateDirectory(root);
                 Save(Path.Combine(root,"result.json"),new { status="ENVIRONMENT_BLOCKED", phase=mode, error=e.GetType().Name, detail=e.Message, qualification="NOT_PROVEN" });
@@ -111,7 +114,9 @@ internal static class AppContainerProbe {
                 fixture.Control(); result["network_parent_control"]=true;
                 result["launch"]=LaunchContainer(Exe,"--child "+Q(root)+" "+Q(sidText)+" "+fixture.Port,root,sid);
                 var child=Read(Path.Combine(root,"notes","child-result.json"));
+                result["child"]=child;
                 var cmd=Read(Path.Combine(root,"notes","cmd-result.json"));
+                result["cmd_descendant"]=cmd;
                 var ps=Read(Path.Combine(root,"notes","powershell-result.json"));
                 result["child"]=child; result["cmd_descendant"]=cmd; result["powershell_descendant"]=ps;
                 bool intact=File.ReadAllText(Protected(root))==secret && File.ReadAllText(Outside(root))==outer && File.ReadAllText(Path.Combine(root,"read","diagnostic.txt"))=="DIAGNOSTIC_FIXTURE";
@@ -162,9 +167,9 @@ internal static class AppContainerProbe {
         string childArgs=" --attack "+Q(root)+" "+Q(sid)+" "+port;
         string command="@echo off\r\necho CMD_ALLOWED>"+Q(Path.Combine(root,"notes","cmd-note.txt"))+"\r\n"+Q(Exe)+childArgs+" cmd\r\necho CMD_ATTACK>"+Q(Protected(root))+"\r\necho CMD_ATTACK>"+Q(Outside(root))+"\r\necho CMD_ATTACK>"+Q(Path.Combine(root,"read","diagnostic.txt"))+"\r\n";
         string commandPath=Path.Combine(root,"notes","shell-proof.cmd"); File.WriteAllText(commandPath,command,Encoding.Default);
-        result["cmd_process"]=Spawn(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"cmd.exe"),"/d /s /c \"\""+commandPath+"\"\"",root,15000);
+        result["cmd_process"]=Spawn(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"cmd.exe"),"/d /s /c \"\""+commandPath+"\"\"",root,25000);
         string ps="[IO.File]::WriteAllText("+PSQ(Path.Combine(root,"notes","powershell-note.txt"))+",'PS_ALLOWED'); & "+PSQ(Exe)+" --attack "+PSQ(root)+" "+PSQ(sid)+" "+port+" powershell; try {[IO.File]::WriteAllText("+PSQ(Protected(root))+",'PS_ATTACK')} catch {}; try {[IO.File]::WriteAllText("+PSQ(Outside(root))+",'PS_ATTACK')} catch {}; try {[IO.File]::WriteAllText("+PSQ(Path.Combine(root,"read","diagnostic.txt"))+",'PS_ATTACK')} catch {}";
-        result["powershell_process"]=Spawn(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"WindowsPowerShell","v1.0","powershell.exe"),"-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "+Convert.ToBase64String(Encoding.Unicode.GetBytes(ps)),root,25000);
+        result["powershell_process"]=Spawn(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"WindowsPowerShell","v1.0","powershell.exe"),"-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "+Convert.ToBase64String(Encoding.Unicode.GetBytes(ps)),root,35000);
         Save(Path.Combine(root,"notes","child-result.json"),result);
     }
 
@@ -178,6 +183,7 @@ internal static class AppContainerProbe {
         result["case"]=WriteAttack(Outside(root).ToUpperInvariant());
         result["junction"]=WriteAttack(Path.Combine(root,"notes","escape","runtime-spine.db"));
         result["network"]=Network(port);
+        result["network_nonblocking"]=NetworkNonblocking(port);
         return result;
     }
     static Dictionary<string,object> ReadAttack(string path) {
@@ -195,14 +201,33 @@ internal static class AppContainerProbe {
         catch(SocketException e) { return new Dictionary<string,object>{{"denied",e.NativeErrorCode==10013},{"connected",false},{"error",e.SocketErrorCode.ToString()},{"native_error",e.NativeErrorCode}}; }
         catch(Exception e) { return new Dictionary<string,object>{{"denied",false},{"error",e.GetType().Name}}; }
     }
+    static Dictionary<string,object> NetworkNonblocking(int port) {
+        var watch=Stopwatch.StartNew();
+        try { using(var s=new Socket(AddressFamily.InterNetwork,SocketType.Stream,ProtocolType.Tcp)) {
+            s.Blocking=false;
+            try { s.Connect(IPAddress.Loopback,port); }
+            catch(SocketException e) { if(e.SocketErrorCode!=SocketError.WouldBlock)throw; }
+            bool ready=s.Poll(5000000,SelectMode.SelectWrite);
+            int error=(int)s.GetSocketOption(SocketOptionLevel.Socket,SocketOptionName.Error);
+            return new Dictionary<string,object>{{"denied",error==10013},{"socket_error",error},{"writable",ready},{"elapsed_ms",watch.ElapsedMilliseconds},{"connected",s.Connected},{"oracle",error==10013?"OS_ACCESS_DENIED":"NOT_PROVEN"}};
+        } } catch(SocketException e) { return new Dictionary<string,object>{{"denied",e.NativeErrorCode==10013},{"native_error",e.NativeErrorCode},{"error",e.SocketErrorCode.ToString()},{"elapsed_ms",watch.ElapsedMilliseconds}}; }
+        catch(Exception e) { return new Dictionary<string,object>{{"denied",false},{"error",e.ToString()},{"elapsed_ms",watch.ElapsedMilliseconds}}; }
+    }
     static bool AttackPassed(Dictionary<string,object> a) {
         if(!B(a,"correct_appcontainer_sid"))return false;
         foreach(string k in new[]{"protected","outside","protected_read","outside_read","readonly_write","traversal","case","junction","network"})if(!B(D(a,k),"denied"))return false;
         return true;
     }
     static Dictionary<string,object> Spawn(string executable,string arguments,string cwd,int timeout) {
-        try { using(var p=Process.Start(new ProcessStartInfo(executable,arguments){UseShellExecute=false,CreateNoWindow=true,WorkingDirectory=cwd})) { if(!p.WaitForExit(timeout)){p.Kill();return new Dictionary<string,object>{{"started",true},{"timeout",true}};}return new Dictionary<string,object>{{"started",true},{"exit",p.ExitCode}};} }
-        catch(Exception e){return new Dictionary<string,object>{{"started",false},{"error",e.GetType().Name},{"detail",e.Message}};}
+        var output=new StringBuilder();var errors=new StringBuilder();
+        try { using(var p=new Process()) {
+            p.StartInfo=new ProcessStartInfo(executable,arguments){UseShellExecute=false,CreateNoWindow=true,WorkingDirectory=cwd,RedirectStandardOutput=true,RedirectStandardError=true};
+            p.OutputDataReceived+=(sender,e)=>{if(e.Data!=null)lock(output)output.AppendLine(e.Data);};
+            p.ErrorDataReceived+=(sender,e)=>{if(e.Data!=null)lock(errors)errors.AppendLine(e.Data);};
+            p.Start();p.BeginOutputReadLine();p.BeginErrorReadLine();
+            bool finished=p.WaitForExit(timeout);if(!finished)p.Kill();p.WaitForExit();
+            return new Dictionary<string,object>{{"started",true},{"timeout",!finished},{"exit",p.ExitCode},{"stdout",output.ToString()},{"stderr",errors.ToString()},{"executable",executable}};
+        } } catch(Exception e){return new Dictionary<string,object>{{"started",false},{"error",e.GetType().Name},{"detail",e.ToString()},{"stdout",output.ToString()},{"stderr",errors.ToString()},{"executable",executable}};}
     }
 
     sealed class TcpFixture:IDisposable {
@@ -284,7 +309,7 @@ internal static class AppContainerProbe {
             Check(CreateProcessW(exe,new StringBuilder(Q(exe)+" "+args),IntPtr.Zero,IntPtr.Zero,false,0x00080000|0x00000400|0x08000000|0x00000004,environment,cwd,ref si,out pi),"CreateProcessW AppContainer");launched=true;
             Check(AssignProcessToJobObject(job,pi.hProcess),"AssignProcessToJobObject");
             if(ResumeThread(pi.hThread)==0xffffffff)throw new Win32Exception(Marshal.GetLastWin32Error(),"ResumeThread");
-            uint wait=WaitForSingleObject(pi.hProcess,65000);if(wait!=0)throw new TimeoutException("AppContainer child timeout");uint exit;Check(GetExitCodeProcess(pi.hProcess,out exit),"GetExitCodeProcess");return new {started=true,exit_code=exit,capabilities=0,inherited_handles=false,environment="SANITIZED",timeout_ms=65000};
+            uint wait=WaitForSingleObject(pi.hProcess,110000);if(wait!=0)throw new TimeoutException("AppContainer child timeout");uint exit;Check(GetExitCodeProcess(pi.hProcess,out exit),"GetExitCodeProcess");return new {started=true,exit_code=exit,capabilities=0,inherited_handles=false,environment="SANITIZED",timeout_ms=110000};
         } finally {
             if(launched){if(WaitForSingleObject(pi.hProcess,0)!=0)TerminateProcess(pi.hProcess,124);CloseHandle(pi.hThread);CloseHandle(pi.hProcess);}if(job!=IntPtr.Zero)CloseHandle(job);
             if(attr!=IntPtr.Zero){DeleteProcThreadAttributeList(attr);Marshal.FreeHGlobal(attr);}if(cap!=IntPtr.Zero)Marshal.FreeHGlobal(cap);if(environment!=IntPtr.Zero)Marshal.FreeHGlobal(environment);
