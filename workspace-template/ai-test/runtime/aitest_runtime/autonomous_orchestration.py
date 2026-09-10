@@ -20,6 +20,8 @@ provider exists only for deterministic construction tests and is never selected
 by the product entrypoint.
 """
 from __future__ import annotations
+from .dispatch_receipts import ContextDeliveryUnconfirmed
+import hashlib
 
 import base64
 import json
@@ -289,6 +291,23 @@ class DirectoryScopedOpenCodeSessionProvider:
         )
         return dict(payload) if isinstance(payload, Mapping) else {"accepted": True}
 
+    def find_context_receipt(self, session_id: str, context_digest: str):
+        """Bounded, directory-scoped readback; absence is never proof of no send."""
+        if not any(s.session_id == session_id for s in self.list_sessions()):return None
+        rows=self._request('GET',f'/session/{urllib.parse.quote(session_id)}/message?{self._directory_query()}&limit={MESSAGE_SAMPLE_LIMIT}')
+        if not isinstance(rows,list):raise RuntimeError('OPENCODE_MESSAGE_RECEIPT_SHAPE_INVALID')
+        matches=[]
+        for row in rows:
+            if not isinstance(row,Mapping):continue
+            info=row.get('info',{});parts=row.get('parts',[])
+            if not isinstance(info,Mapping) or info.get('role')!='user' or info.get('sessionID')!=session_id:continue
+            if not isinstance(parts,list) or len(parts)!=1 or parts[0].get('type')!='text':continue
+            text=parts[0].get('text');mid=info.get('id')
+            if isinstance(text,str) and isinstance(mid,str) and hashlib.sha256(text.encode()).hexdigest()==context_digest:
+                matches.append({'source':'OPENCODE_SESSION_MESSAGE_READBACK','session_id':session_id,'message_id':mid,'context_digest':context_digest})
+        if len(matches)>1:raise RuntimeError('OPENCODE_MESSAGE_RECEIPT_DUPLICATE')
+        return matches[0] if matches else None
+
     def session_activity(self, session_id: str) -> str:
         """Read the real directory-scoped admission state before explicit wake."""
         payload = self._request("GET", f"/session/status?{self._directory_query()}")
@@ -469,6 +488,11 @@ class FakeOpenCodeSessionProvider:
     def delete_session(self, session_id: str) -> bool:
         self.observations.pop(session_id, None)
         return self.sessions.pop(session_id, None) is not None
+
+    def find_context_receipt(self, session_id: str, context_digest: str):
+        matches=[(i,m) for i,m in enumerate(self.messages) if m['session_id']==session_id and hashlib.sha256(m['text'].encode()).hexdigest()==context_digest]
+        if len(matches)>1:raise RuntimeError('FAKE_MESSAGE_RECEIPT_DUPLICATE')
+        return {'source':'OPENCODE_SESSION_MESSAGE_READBACK','session_id':session_id,'message_id':'fake-message-'+str(matches[0][0]),'context_digest':context_digest} if matches else None
 
     def list_sessions(self) -> tuple[ExternalSession, ...]:
         return tuple(self.sessions.values())
@@ -1160,6 +1184,8 @@ class AutonomousOrchestrationService:
                 response = self.session_provider.send_context(
                     session_id=latest.runtime_session_id, agent=actual_agent, text=message
                 )
+            except ContextDeliveryUnconfirmed:
+                raise
             except Exception:
                 rotated = self.rotate_session(mission_id, task_id=task_id, agent=actual_agent)
                 return {**rotated, "status": "DISPATCH_REPAIRED_BY_ROTATION"}

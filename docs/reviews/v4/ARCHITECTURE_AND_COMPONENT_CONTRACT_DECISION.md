@@ -1,8 +1,8 @@
 # V4 architecture and component decision
 
-Status: COMPONENT CONTRACT v1; independent CC-01 review revisions incorporated; implementation and compatibility tests pending.
+Status: COMPONENT CONTRACT v2; independent CC-01 review revisions incorporated; implementation and compatibility tests pending.
 
-Authority is the user's V4 contract, SHA256 `6e8c1750a02a3696b5f8ace57fca0646743c912a8fa4fedc08aeb40bf0c6acbc`, RUN_MODE=REVIEW_THEN_IMPLEMENT. Product baseline is `042a88a3fa3ac93cecb7b0d3ad5ff4b7f6bd71ac`; main remains `58e5e1259cd26846b31ea21a8a87df0bcf071edc`. Later commits currently contain isolated review experiments only. The designated integration branch remains `work/v1.13.0-recovery-turnkey-validation`; its historical name does not dictate the new package version.
+Authority is the user's V4 contract, SHA256 `6e8c1750a02a3696b5f8ace57fca0646743c912a8fa4fedc08aeb40bf0c6acbc`, RUN_MODE=REVIEW_THEN_IMPLEMENT. Product baseline is `042a88a3fa3ac93cecb7b0d3ad5ff4b7f6bd71ac`; main remains `58e5e1259cd26846b31ea21a8a87df0bcf071edc`. Review commits through 8c7bf51 precede the first product implementation commits; current implementation evidence is separately indexed. The designated integration branch remains `work/v1.13.0-recovery-turnkey-validation`; its historical name does not dictate the new package version.
 
 Global architecture change is not presently demonstrated as necessary. Component contracts must change. The v7 global invariants retained are sole canonical R1 event truth, no legacy product database, Planner=WHAT / Scheduler=WHEN / Router=WHO-WHERE / ControlLoop=health-pressure-recovery, G4 authority for formal SUT execution, protected caller fencing, and no self-approved wider permissions or learning authority. A formal external frozen registry was not found; this is a bounded review of available governance and code, not a claim that an absent registry has been reviewed.
 
@@ -25,6 +25,12 @@ Cross-root references resolve under exact SubjectRef: Task, Attempt, session, le
 Root-aware load, verify and full rebuild must enumerate and validate every stream owner/version before clearing projections, then rebuild all supported types in the existing transaction. Unknown/omitted owner, future version and injected clear/apply failure cannot return success with lost GeneralWork projections. Golden old events, historical command results/fingerprints and composed-state hashes are mandatory compatibility evidence. There is no claim that an unmodified old binary can safely initialize/rebuild a mixed-root database. A runtime compatibility guard must stop dispatch/rebuild on unsupported root versions; rollback restores compatible executable/state handling while preserving the complete event history. Explicitly scoped legacy Mission reads are separate from writable downgrade.
 
 Independent source review: `reviewer-architecture/CC01_INDEPENDENT_REVIEW.md`, six requested revisions above. Their incorporation is a design decision, not a test PASS.
+
+### CC-01 immutable interaction receipt amendment
+
+`INTERACTION_OPERATION` is an additional registered R1 root used only to consume actual Host User Turn authority atomically before its destination is resolved. It carries an immutable Host envelope digest, operation identity, request digest and eventual exact SubjectRef, with CLAIMED → BOUND / COMPLETED / RECONCILE_REQUIRED transitions validated by its owner. It is an authorization receipt, not a work item: it must never acquire Tasks, a Scheduler, worker Sessions or a fabricated Mission. Destination creation and binding use deterministic identities; an interrupted claim is reconciled before any retry. Repeated model proposals cannot spend the same actual operation twice. No separate mutable receipt database is introduced.
+
+This is a component amendment authorized by F53's consumed-turn/idempotency requirement and preserves the v7 sole R1 truth invariant. Root-kind applicability, creation-pair validation, mixed-root replay/rebuild and downgrade guards above apply equally to the receipt owner. Implementation and end-to-end admission evidence remain required.
 
 ## CC-02: intake, authority, and actual delegation
 

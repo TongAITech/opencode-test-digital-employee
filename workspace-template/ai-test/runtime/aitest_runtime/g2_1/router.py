@@ -95,7 +95,17 @@ class SessionRouter:
             decision,reason="CREATE","NO_ATTEMPT"
         elif session is not None and getattr(getattr(session,"status",None),"value",None)=="OPEN":
             attrs=dict(getattr(session,"attributes",{}) or {})
-            if attrs.get("opencode_agent") != req.agent_name: decision,reason="ROTATE","ROUTE_CHANGED"
+            # R2.5 successors preserve identity in the R1 provision/Attempt
+            # binding, but their legacy core attributes omit opencode_agent.
+            bound_successor = any(
+                p.status == 'BOUND' and p.phase == 'TASK_ROTATION'
+                and p.external_session_id == session.session_id
+                and p.task_id == task_id and p.agent_name == req.agent_name
+                and p.logical_agent_id == logical
+                and p.root_attempt_id == latest_attempt.root_attempt_id
+                for p in state.provisions
+            )
+            if attrs.get("opencode_agent") != req.agent_name and not (not attrs.get('opencode_agent') and bound_successor): decision,reason="ROTATE","ROUTE_CHANGED"
             else: decision,reason="REUSE","ACTIVE_SESSION_MATCHES_ROUTE"
         else: decision,reason="ROTATE","LATEST_SESSION_NOT_OPEN"
         return RouteDecision(decision, task_id, req.role, req.agent_name, logical, req.required_capabilities, req.isolation_policy, req.parallelism_policy, reason)

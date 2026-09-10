@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from functools import wraps
+from datetime import datetime, timezone
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator, Mapping
@@ -35,6 +37,14 @@ from ..session_pressure import POLICY_ID as PRESSURE_POLICY_ID
 from .router import AgentRoleRegistry, RouteDecision, SessionRouter, TASK_OUTCOME_REPORT
 from .service import SessionControlApplicationService, execute_control_command
 from .supervisor import RotationPolicy, SessionObservation, durable_pressure
+from ..dispatch_receipts import (runtime_coordination, dispatch_context, business_cursor,
+                                 reconcile_context_receipt, ContextDeliveryUnconfirmed, CoordinationBusy)
+
+def _coordinated(method):
+    @wraps(method)
+    def call(self,*args,**kwargs):
+        with runtime_coordination(self.runtime.db_path):return method(self,*args,**kwargs)
+    return call
 
 
 class ProvisioningOpenCodeSessionProvider:
@@ -50,6 +60,7 @@ class ProvisioningOpenCodeSessionProvider:
         self._token: str | None = None
         self._friendly_title: str | None = None
         self._independent_session = False
+        self.context_sender = None
 
     @contextmanager
     def provision(self, token: str, friendly_title: str, *, independent_session: bool = False) -> Iterator[None]:
@@ -99,6 +110,8 @@ class ProvisioningOpenCodeSessionProvider:
         return self.delegate.create_session(title=effective, parent_id=None if self._independent_session else parent_id)
 
     def send_context(self, *, session_id: str, agent: str, text: str) -> Mapping[str, Any]:
+        if self.context_sender is not None:
+            return self.context_sender(session_id=session_id,agent=agent,text=text)
         return self.delegate.send_context(session_id=session_id, agent=agent, text=text)
 
     def delete_session(self, session_id: str) -> bool:
@@ -126,6 +139,11 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         self.role_registry = AgentRoleRegistry.default()
         self.session_router = SessionRouter(self.role_registry)
         self.rotation_policy = RotationPolicy()
+        self.provisioning_provider.context_sender = lambda **kw: dispatch_context(self, **kw)
+
+    @_coordinated
+    def intake_mission(self, request):
+        return super().intake_mission(request)
 
     def status(self, mission_id: str | None = None) -> dict[str, Any]:
         result = super().status(mission_id)
@@ -208,6 +226,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         }
         return self._bounded_bootstrap("AITEST_CANONICAL_PLANNING_CONTEXT\n", envelope)
 
+    @_coordinated
     def open_planning_session(self, mission_id: str) -> dict[str, Any]:
         mission_id = _text(mission_id, "mission_id")
         composed = self.runtime.replay_composed(mission_id)
@@ -235,7 +254,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         # (or during) Planner bootstrap, frozen G2 returns ALREADY_OPEN.  Re-send
         # the canonical ContextPack so recovery never depends on conversation.
         if result.get("status") == "ALREADY_OPEN":
-            self.raw_session_provider.send_context(
+            self.provisioning_provider.send_context(
                 session_id=str(session_id), agent=role.agent_name,
                 text=self._planning_context_message(mission_id, logical_agent_id),
             )
@@ -302,6 +321,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             closed.append(session.session_id)
         return closed
 
+    @_coordinated
     def propose_plan(self, mission_id: str, proposal: Mapping[str, Any]) -> dict[str, Any]:
         """Run frozen R2.3, persist G2.1 routes, then hand off to Scheduler."""
         mission_id = _text(mission_id, "mission_id")
@@ -480,6 +500,27 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         if callable(abort):
             abort(session_id)
 
+    def _activity_barrier(self, mission_id: str, session_id: str, task_id: str | None = None):
+        composed = self.runtime.replay_composed(mission_id)
+        if composed.core_state.mission.status != MissionStatus.ACTIVE:
+            return {'status':'WAIT','reason':'MISSION_NOT_ACTIVE','session_id':session_id}
+        gates = composed.extension_state('r2_6_human_gate')
+        if any(g.status == 'PENDING' and (task_id is None or g.task_id == task_id)
+               for g in getattr(gates,'gates',())):
+            return {'status':'WAIT','reason':'WAITING_HUMAN','session_id':session_id}
+        if any(x['session_id'] == session_id and x['phase'] in {'CLAIMED','UNKNOWN'}
+               for x in self.session_control.state(mission_id).context_dispatches):
+            return {'status':'WAIT','reason':'CONTEXT_DELIVERY_UNCONFIRMED','session_id':session_id}
+        activity = getattr(self.raw_session_provider,'session_activity',None)
+        if not callable(activity):
+            return {'status':'WAIT','reason':'ACTIVITY_UNAVAILABLE','session_id':session_id}
+        try: observed = activity(session_id)
+        except Exception as exc:
+            return {'status':'WAIT','reason':'ACTIVITY_UNAVAILABLE','error':type(exc).__name__,'session_id':session_id}
+        if observed != 'idle':
+            return {'status':'WAIT','reason':'WAIT_BUSY' if observed == 'busy' else 'WAIT_BACKOFF' if observed == 'retry' else 'ACTIVITY_UNAVAILABLE','session_id':session_id}
+        return None
+
     def _ensure_default_route(self, mission_id: str, task_id: str) -> None:
         state = self.session_control.state(mission_id)
         if state.route(task_id) is not None:
@@ -507,6 +548,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             self.session_control.state(mission_id), task_id=task_id, latest_attempt=latest, session=session,
         )
 
+    @_coordinated
     def _provision_active_task_session(
         self,
         *,
@@ -524,6 +566,18 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         composed = self.runtime.replay_composed(mission_id)
         execution = composed.extension_state("r1_3b_execution_resume")
         latest = execution.latest_attempt(task_id) if execution is not None else None
+        if route.decision == 'REUSE' and latest is not None:
+            bound = next((p for p in reversed(self.session_control.state(mission_id).provisions)
+                          if p.status == 'BOUND' and p.external_session_id == latest.runtime_session_id
+                          and p.task_id == task_id and p.logical_agent_id == logical_agent_id), None)
+            if bound is not None:
+                # Reuse the successor's own immutable provision; never rebind
+                # the initial Task token to a later Session after rotation.
+                with self.provisioning_provider.provision(bound.provision_token, bound.title):
+                    result = super()._provision_active_task_session(
+                        mission_id=mission_id, plan_id=plan_id, revision_id=revision_id,
+                        task_id=task_id, agent=route.agent_name, parent_session_id=parent_session_id)
+                return {**result, 'route':route.to_dict(), 'provision_token':bound.provision_token}
         phase = "TASK_EXECUTION" if latest is None else ("TASK_ROTATION" if route.decision == "ROTATE" else "TASK_EXECUTION")
         predecessor = latest.runtime_session_id if latest is not None else "NONE"
         # Initial task provisioning token is stable across a crash that happens
@@ -538,18 +592,23 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         )
         if route.decision == "ROTATE" and latest is not None:
             result = self.rotate_session(mission_id, task_id=task_id, reasons=[route.reason])
+            if result.get('status') != 'ROTATED':return result
             return {**result, "status": "DISPATCH_REPAIRED_BY_ROTATION", "route": route.to_dict()}
-        with self.provisioning_provider.provision(token, title):
-            result = super()._provision_active_task_session(
-                mission_id=mission_id, plan_id=plan_id, revision_id=revision_id,
-                task_id=task_id, agent=route.agent_name, parent_session_id=parent_session_id,
-            )
+        try:
+            with self.provisioning_provider.provision(token, title):
+                result = super()._provision_active_task_session(
+                    mission_id=mission_id, plan_id=plan_id, revision_id=revision_id,
+                    task_id=task_id, agent=route.agent_name, parent_session_id=parent_session_id,
+                )
+        except ContextDeliveryUnconfirmed as exc:
+            return {'status':'WAIT','reason':str(exc),'task_id':task_id,'prompt_sent':False,'truth_source':'R1_EVENT_STREAM'}
         session_id = result.get("session_id") or (result.get("external_session") or {}).get("session_id")
         if not session_id:
             raise RuntimeError("TASK_SESSION_ID_MISSING_AFTER_PROVISION")
         self._bind_provision_if_needed(mission_id, token, str(session_id))
         return {**result, "route": route.to_dict(), "provision_token": token}
 
+    @_coordinated
     def report_task_outcome(
         self,
         mission_id: str,
@@ -608,12 +667,14 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             outcome=outcome, summary=summary, external_references=external_references,
         )
 
+    @_coordinated
     def advance(self, mission_id: str, *, agent: str | None = None, parent_session_id: str | None = None) -> dict[str, Any]:
         if agent is not None:
             raise RuntimeError("SESSION_ROUTER_AGENT_OVERRIDE_FORBIDDEN")
         result = super().dispatch_next(mission_id, agent=DEFAULT_WORKER_AGENT, parent_session_id=parent_session_id)
         return {**result, "orchestration_advanced": True, "session_router": "G2_1"}
 
+    @_coordinated
     def dispatch_next(self, mission_id: str, *, agent: str | None = None, parent_session_id: str | None = None) -> dict[str, Any]:
         if agent is not None:
             raise RuntimeError("SESSION_ROUTER_AGENT_OVERRIDE_FORBIDDEN")
@@ -653,6 +714,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             # retried by reconciliation rather than undoing logical rotation.
             pass
 
+    @_coordinated
     def rotate_session(
         self,
         mission_id: str,
@@ -671,6 +733,15 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         latest = execution.latest_attempt(task_id) if execution is not None else None
         if latest is None:
             raise RuntimeError("EXECUTION_ATTEMPT_NOT_FOUND_FOR_ROTATION")
+
+        barrier = self._activity_barrier(mission_id, latest.runtime_session_id, task_id)
+        if barrier:return barrier
+        progress_cursor = business_cursor(self.runtime, mission_id)
+        prior_failures = [x for x in self.session_control.state(mission_id).rotations
+                          if x.task_id == task_id and x.root_attempt_id == latest.root_attempt_id
+                          and x.requested_seq > progress_cursor]
+        if len(prior_failures) >= 3:
+            return {'status':'WAIT','reason':'DIAGNOSIS_REQUIRED_REPEATED_SESSION_FAILURE','failure_signature':sorted(set(reasons or [route.reason or 'RUNTIME_POLICY'])),'task_id':task_id,'recovery_count':len(prior_failures),'business_cursor':progress_cursor}
 
         pending = self._pending_rotation(mission_id, task_id)
         if pending is not None:
@@ -719,7 +790,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
                       if item.title == ProvisioningOpenCodeSessionProvider.title_for(token, title)}
             if successor_core is None or successor_core.status.value != "OPEN" or successor not in tagged:
                 raise RuntimeError("ROTATION_RECOVERY_SUCCESSOR_AMBIGUOUS")
-            self.raw_session_provider.send_context(
+            self.provisioning_provider.send_context(
                 session_id=successor, agent=route.agent_name,
                 text=self._context_message(
                     mission_id=mission_id, plan_id=latest.plan_id, revision_id=latest.plan_revision_id,
@@ -759,6 +830,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         self.session_control.complete_rotation(mission_id, rotation_id, successor)
         return {**result, "rotation_id": rotation_id, "rotation_reasons": rotation_reasons, "session_router": "G2_1"}
 
+    @_coordinated
     def observe_session(
         self,
         mission_id: str,
@@ -816,12 +888,19 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             }
         rotated = self.rotate_session(mission_id, task_id=task_id, reasons=reasons)
         return {
-            "schema_version": G2_SCHEMA, "status": "ROTATED", "truth_source": "R1_EVENT_STREAM",
+            "schema_version": G2_SCHEMA, "status": rotated.get('status','ROTATED'), "truth_source": "R1_EVENT_STREAM",
             "observation": obs.to_dict(), "rotation_reasons": reasons, "rotation": rotated,
         }
 
+    @_coordinated
     def rotate_planning_session(self, mission_id: str, predecessor_session_id: str, reasons: list[str]) -> dict[str, Any]:
         mission_id = _text(mission_id, "mission_id")
+        barrier = self._activity_barrier(mission_id, predecessor_session_id)
+        if barrier:return barrier
+        progress_cursor=business_cursor(self.runtime, mission_id)
+        failures=[x for x in self.session_control.state(mission_id).rotations if x.task_id == '__PLANNING__' and x.requested_seq > progress_cursor]
+        if len(failures)>=3:
+            return {'status':'WAIT','reason':'DIAGNOSIS_REQUIRED_REPEATED_PLANNER_FAILURE','recovery_count':len(failures)}
         pending = self._pending_rotation(mission_id, "__PLANNING__")
         if pending is not None:
             predecessor_session_id = pending.predecessor_session_id
@@ -895,7 +974,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             )
         elif successor_core.status.value != "OPEN":
             raise RuntimeError("PLANNER_ROTATION_SUCCESSOR_NOT_OPEN")
-        self.raw_session_provider.send_context(
+        self.provisioning_provider.send_context(
             session_id=external.session_id, agent=role.agent_name,
             text=self._planning_context_message(mission_id, logical_agent_id),
         )
@@ -964,6 +1043,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             task_id=task.task_id, agent=DEFAULT_WORKER_AGENT,
         )
 
+    @_coordinated
     def reconcile_external_sessions(self) -> dict[str, Any]:
         """Reconcile package-owned external Sessions against durable provision intents.
 
@@ -1129,6 +1209,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
                     continue
                 result = self.observe_session(mission_id, task_id=task.task_id)
                 results.append({"mission_id": mission_id, "task_id": task.task_id, "result": result})
+            results.append({'mission_id':mission_id,'phase':'PROGRESS','result':self.progress_once(mission_id)})
         return {
             "schema_version": "aitest.g2.1.control-loop-tick.v1",
             "status": "PASS" if reconciliation.get("status") == "PASS" else "REPAIR",
@@ -1136,6 +1217,72 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             "reconciliation": reconciliation, "supervision": results,
             "active_mission_count": len(mission_ids),
         }
+
+    @_coordinated
+    def progress_once(self, mission_id: str) -> dict[str, Any]:
+        """Reconcile one bounded scheduling/wake decision from current R1."""
+        composed=self.runtime.replay_composed(mission_id)
+        if composed.core_state.mission.status != MissionStatus.ACTIVE:
+            return {'status':'WAIT','reason':'MISSION_NOT_ACTIVE'}
+        for prior in self.session_control.state(mission_id).context_dispatches:
+            if prior['phase'] not in {'CLAIMED','UNKNOWN'}:continue
+            try:reconcile_context_receipt(self,mission_id,prior)
+            except Exception:
+                # Keep the durable unknown fence; a readback failure never
+                # authorizes a fresh prompt or an implicit successor.
+                continue
+        _composed, graph, _goal, plan=self._active_plan_context(mission_id)
+        if plan is None:
+            # Planner wake shares the same bounded send journal, never a new plan.
+            sessions=[s for s in composed.core_state.sessions if s.status.value=='OPEN' and (s.attributes or {}).get('phase')=='PLANNING']
+            if not sessions:return {'status':'WAIT','reason':'PLANNER_PROVISION_REQUIRED'}
+            session=sessions[-1]
+            barrier=self._activity_barrier(mission_id,session.session_id)
+            if barrier:return barrier
+            control=self.session_control.state(mission_id)
+            observation=control.observation(session.session_id)
+            if observation is None or not observation.reachable or observation.healthy is False:
+                return {'status':'WAIT','reason':'HEALTH_RECOVERY_REQUIRED'}
+            text=self._planning_context_message(mission_id,(session.attributes or {}).get('logical_agent_id','aitest-planner'))
+            return self._wake_once(mission_id,session.session_id,'aitest-planner',text)
+        tasks=[t for t in graph.tasks if t.plan_id==plan.plan_id and t.plan_revision_id==plan.current_revision_id]
+        failed=[t for t in tasks if t.lifecycle_state==TaskLifecycleState.FAILED]
+        if failed:
+            # Technical task failure is explicit; this is not a SUT quality verdict.
+            command_id='g21:progress-failed:'+canonical_sha256({'mission':mission_id,'revision':plan.current_revision_id,'tasks':[t.task_id for t in failed]})[:32]
+            result=self.runtime.execute(CommandEnvelope(command_id,'FAIL_MISSION',mission_id,self.runtime.get_head_seq(mission_id),ActorRef('SYSTEM','g2.1-progress'),{'reason':'RUNTIME_TASK_FAILED: '+','.join(t.task_id for t in failed)}))
+            if not result.ok:raise result.error or RuntimeError('PROGRESS_FAILURE_TRANSITION_REJECTED')
+            return {'status':'FAILED','reason':'RUNTIME_TASK_FAILED','task_ids':[t.task_id for t in failed]}
+        # Existing Scheduler evaluates dependencies, Gate exceptions and activation.
+        scheduled=self.advance(mission_id)
+        if scheduled.get('status')=='PLAN_COMPLETE':
+            return {'status':'WAIT','reason':'PLAN_EXECUTION_COMPLETE_QUALITY_ASSESSMENT_REQUIRED','scheduler':scheduled}
+        fresh=self.runtime.replay_composed(mission_id)
+        graph=fresh.extension_state('r1_2_work_graph');execution=fresh.extension_state('r1_3b_execution_resume')
+        wakes=[]
+        for task in graph.tasks:
+            if task.lifecycle_state!=TaskLifecycleState.ACTIVE:continue
+            attempt=execution.latest_attempt(task.task_id)
+            if attempt is None:continue
+            barrier=self._activity_barrier(mission_id,attempt.runtime_session_id,task.task_id)
+            if barrier:wakes.append(barrier);continue
+            obs=self.session_control.state(mission_id).observation(attempt.runtime_session_id)
+            if obs is None or not obs.reachable or obs.healthy is False:continue
+            route=self._route_task(mission_id,task.task_id)
+            text=self._context_message(mission_id=mission_id,plan_id=task.plan_id,revision_id=task.plan_revision_id,task_id=task.task_id,attempt=attempt,agent=route.agent_name)
+            wakes.append(self._wake_once(mission_id,attempt.runtime_session_id,route.agent_name,text))
+        return {'status':'PROGRESS_CHECKED','scheduler':scheduled,'wakes':wakes}
+
+    def _wake_once(self, mission_id, session_id, agent, text):
+        receipts=[r for r in self.session_control.state(mission_id).context_dispatches if r['session_id']==session_id]
+        if not receipts or receipts[-1]['phase']!='ACCEPTED':
+            return {'status':'WAIT','reason':'INITIAL_DISPATCH_RECEIPT_REQUIRED','session_id':session_id}
+        last=datetime.fromisoformat(receipts[-1]['recorded_at'].replace('Z','+00:00'))
+        if (datetime.now(timezone.utc)-last).total_seconds()<2:
+            return {'status':'WAIT','reason':'POST_DISPATCH_GRACE','session_id':session_id}
+        try:sent=dispatch_context(self,session_id=session_id,agent=agent,text=text,mode='AUTO_CONTINUE')
+        except ContextDeliveryUnconfirmed as exc:return {'status':'WAIT','reason':str(exc),'session_id':session_id}
+        return {'status':'AUTO_CONTINUE' if sent.get('prompt_sent') else 'WAIT','reason':'NONTERMINAL_IDLE' if sent.get('prompt_sent') else 'DIAGNOSIS_REQUIRED_NO_PROGRESS','session_id':session_id,'delivery':sent}
 
 
     def supervise_once(self) -> dict[str, Any]:
@@ -1148,6 +1295,8 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         """
         try:
             return self._supervise_admitted_once()
+        except CoordinationBusy:
+            return {'status':'WAIT','reason':'RUNTIME_COORDINATION_BUSY','truth_source':'R1_EVENT_STREAM'}
         except OpenCodeSessionAdmissionPending as exc:
             return {
                 "schema_version": "aitest.g2.1.control-loop-tick.v1",

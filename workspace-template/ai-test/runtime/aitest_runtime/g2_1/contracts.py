@@ -6,6 +6,26 @@ from typing import Any, Mapping
 EXTENSION_ID = "g2_1_session_control"
 EXTENSION_VERSION = "1"
 
+def validate_dispatch_record(p):
+    """Validate new receipt schema on both live admission and historical replay."""
+    from aitest_runtime.durable_core import RuntimeError
+    fields={'dispatch_id','session_id','context_digest','phase','mode','business_cursor'}
+    if not isinstance(p,Mapping) or not fields <= set(p) or set(p)-fields-{'host_receipt'}:
+        raise RuntimeError('G21_DISPATCH_SCHEMA_INVALID','Invalid dispatch fields')
+    if (any(not isinstance(p[k],str) or not p[k] or len(p[k])>160 for k in ('dispatch_id','session_id'))
+            or p['mode'] not in {'INITIAL','AUTO_CONTINUE'} or p['phase'] not in {'CLAIMED','ACCEPTED','UNKNOWN'}
+            or not isinstance(p['context_digest'],str) or len(p['context_digest'])!=64
+            or any(c not in '0123456789abcdef' for c in p['context_digest'])
+            or type(p['business_cursor']) is not int or p['business_cursor']<0):
+        raise RuntimeError('G21_DISPATCH_SCHEMA_INVALID','Invalid bounded dispatch identity')
+    receipt=p.get('host_receipt')
+    if receipt is not None and (p['phase']!='ACCEPTED' or not isinstance(receipt,dict)
+            or set(receipt)!={'source','session_id','message_id','context_digest'}
+            or receipt.get('source')!='OPENCODE_SESSION_MESSAGE_READBACK'
+            or receipt.get('session_id')!=p['session_id'] or receipt.get('context_digest')!=p['context_digest']
+            or not isinstance(receipt.get('message_id'),str) or not 1<=len(receipt['message_id'])<=160):
+        raise RuntimeError('G21_HOST_RECEIPT_INVALID','Host readback identity is invalid')
+
 ENABLE_ROUTING_AUTHORITY = "G21_ENABLE_ROUTING_AUTHORITY"
 REGISTER_TASK_ROUTE = "G21_REGISTER_TASK_ROUTE"
 REQUEST_SESSION_PROVISION = "G21_REQUEST_SESSION_PROVISION"
@@ -14,6 +34,7 @@ CLOSE_ORPHAN_PROVISION = "G21_CLOSE_ORPHAN_PROVISION"
 RECORD_SESSION_OBSERVATION = "G21_RECORD_SESSION_OBSERVATION"
 REQUEST_SESSION_ROTATION = "G21_REQUEST_SESSION_ROTATION"
 COMPLETE_SESSION_ROTATION = "G21_COMPLETE_SESSION_ROTATION"
+RECORD_CONTEXT_DISPATCH = "G21_RECORD_CONTEXT_DISPATCH"
 
 ROUTING_AUTHORITY_ENABLED = "g2_1.routing_authority_enabled.v1"
 TASK_ROUTE_REGISTERED = "g2_1.task_route_registered.v1"
@@ -23,16 +44,19 @@ ORPHAN_PROVISION_CLOSED = "g2_1.orphan_provision_closed.v1"
 SESSION_OBSERVATION_RECORDED = "g2_1.session_observation_recorded.v1"
 SESSION_ROTATION_REQUESTED = "g2_1.session_rotation_requested.v1"
 SESSION_ROTATION_COMPLETED = "g2_1.session_rotation_completed.v1"
+CONTEXT_DISPATCH_RECORDED = "g2_1.context_dispatch_recorded.v1"
 
 COMMAND_TYPES = frozenset({
     ENABLE_ROUTING_AUTHORITY, REGISTER_TASK_ROUTE, REQUEST_SESSION_PROVISION, BIND_SESSION_PROVISION,
     CLOSE_ORPHAN_PROVISION, RECORD_SESSION_OBSERVATION,
     REQUEST_SESSION_ROTATION, COMPLETE_SESSION_ROTATION,
+    RECORD_CONTEXT_DISPATCH,
 })
 EVENT_TYPES = frozenset({
     ROUTING_AUTHORITY_ENABLED, TASK_ROUTE_REGISTERED, SESSION_PROVISION_REQUESTED, SESSION_PROVISION_BOUND,
     ORPHAN_PROVISION_CLOSED, SESSION_OBSERVATION_RECORDED,
     SESSION_ROTATION_REQUESTED, SESSION_ROTATION_COMPLETED,
+    CONTEXT_DISPATCH_RECORDED,
 })
 
 
@@ -186,6 +210,10 @@ class SessionControlState:
     provisions: tuple[ProvisionIntent, ...] = ()
     observations: tuple[SessionObservationRecord, ...] = ()
     rotations: tuple[RotationRequestRecord, ...] = ()
+    context_dispatches: tuple[Mapping[str, Any], ...] = ()
+
+    def context_dispatch(self, dispatch_id: str) -> Mapping[str, Any] | None:
+        return next((x for x in reversed(self.context_dispatches) if x['dispatch_id'] == dispatch_id), None)
 
     def route(self, task_id: str) -> TaskRouteRequirement | None:
         return next((x for x in reversed(self.task_routes) if x.task_id == task_id), None)
@@ -208,6 +236,8 @@ class SessionControlState:
             "provisions": [x.to_dict() for x in self.provisions],
             "observations": [x.to_dict() for x in self.observations],
             "rotations": [x.to_dict() for x in self.rotations],
+            # Preserve pre-V4 composed hashes when no new event has occurred.
+            **({"context_dispatches": [dict(x) for x in self.context_dispatches]} if self.context_dispatches else {}),
         }
 
     @classmethod
@@ -220,4 +250,5 @@ class SessionControlState:
             tuple(ProvisionIntent.from_dict(x) for x in v.get("provisions") or []),
             tuple(SessionObservationRecord.from_dict(x) for x in v.get("observations") or []),
             tuple(RotationRequestRecord.from_dict(x) for x in v.get("rotations") or []),
+            tuple(dict(x) for x in v.get("context_dispatches") or []),
         )

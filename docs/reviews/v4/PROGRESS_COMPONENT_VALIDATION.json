@@ -1,0 +1,50 @@
+{
+  "schema": "aitest.v4.progress-component-evidence.v1",
+  "status": "INCREMENTAL_COMPONENT_REGRESSION_PASS",
+  "qualification": "SYNTHETIC_HOST_HTTP_AND_OS_PROCESSES_NOT_REAL_MODEL_OR_BANK",
+  "runs": {
+    "run-05-fast": {
+      "count": 9,
+      "all_scenario_checks": true,
+      "log_sha256": "f8af93b527b533303aaf26648fe00306795b1cb6e7323175e3d0b1812a416048",
+      "scenarios": [
+        "happy",
+        "idle",
+        "recovery",
+        "busy",
+        "busy_pressure",
+        "failed",
+        "crash_gap",
+        "gate",
+        "storm"
+      ]
+    },
+    "run-06-slow": {
+      "count": 9,
+      "all_scenario_checks": true,
+      "log_sha256": "f8af93b527b533303aaf26648fe00306795b1cb6e7323175e3d0b1812a416048",
+      "scenarios": [
+        "happy",
+        "idle",
+        "recovery",
+        "busy",
+        "busy_pressure",
+        "failed",
+        "crash_gap",
+        "gate",
+        "storm"
+      ]
+    }
+  },
+  "journal_tests": 4,
+  "pressure_tests": 15,
+  "router_checks": 30,
+  "source_qualification": "Incremental integration workspace; final package source seal and L3/L4 remain required",
+  "remaining": [
+    "G4 business-side-effect ledger integration",
+    "RuntimeDiagnosis escalation beyond bounded WAIT",
+    "GeneralWork continuous execution",
+    "Host provider final-request governor",
+    "Actual model same-Mission end-to-end"
+  ]
+}

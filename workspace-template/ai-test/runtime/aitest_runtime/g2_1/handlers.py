@@ -22,6 +22,37 @@ def _require_mission(composed: ComposedRuntimeState) -> None:
 class G21CommandContribution:
     def handle(self, command: Any, composed: ComposedRuntimeState) -> list[PendingEvent]:
         _require_mission(composed)
+        if command.type == RECORD_CONTEXT_DISPATCH:
+            p = _payload(command, {"dispatch_id","session_id","context_digest","phase","mode","business_cursor"}, {'host_receipt'})
+            validate_dispatch_record(p)
+            session = composed.core_state.session(str(p['session_id']))
+            if session is None or (p['phase'] == 'CLAIMED' and (session.status.value != 'OPEN' or composed.core_state.mission.status.value != 'ACTIVE')):
+                raise RuntimeError('G21_DISPATCH_SESSION_NOT_ACTIVE', str(p['session_id']))
+            if command.session_id != p['session_id'] or command.actor.type != 'SYSTEM' or command.actor.id != 'g2.1-session-control':
+                raise RuntimeError('G21_DISPATCH_CALLER_INVALID', 'Runtime dispatch owner required')
+            if (not isinstance(p['dispatch_id'], str) or not p['dispatch_id'] or len(p['dispatch_id']) > 160
+                    or p['mode'] not in {'INITIAL','AUTO_CONTINUE'} or p['phase'] not in {'CLAIMED','ACCEPTED','UNKNOWN'}
+                    or not isinstance(p['context_digest'], str) or len(p['context_digest']) != 64
+                    or any(c not in '0123456789abcdef' for c in p['context_digest'])
+                    or not isinstance(p['business_cursor'], int) or isinstance(p['business_cursor'], bool)
+                    or not 0 <= p['business_cursor'] <= composed.seq):
+                raise RuntimeError('G21_DISPATCH_SCHEMA_INVALID', 'Invalid bounded dispatch identity')
+            previous = composed.extension_state(EXTENSION_ID).context_dispatch(p['dispatch_id'])
+            receipt=p.get('host_receipt')
+            if receipt is not None and (not isinstance(receipt, dict) or set(receipt) != {'source','session_id','message_id','context_digest'}
+                    or receipt.get('source') != 'OPENCODE_SESSION_MESSAGE_READBACK'
+                    or receipt.get('session_id') != p['session_id'] or receipt.get('context_digest') != p['context_digest']
+                    or not isinstance(receipt.get('message_id'),str) or not 1<=len(receipt['message_id'])<=160):
+                raise RuntimeError('G21_HOST_RECEIPT_INVALID',p['dispatch_id'])
+            if previous is None and p['phase'] != 'CLAIMED':
+                raise RuntimeError('G21_DISPATCH_CLAIM_REQUIRED', p['dispatch_id'])
+            if previous is not None:
+                if not ((previous['phase'] == 'CLAIMED' and p['phase'] in {'ACCEPTED','UNKNOWN'})
+                        or (previous['phase'] == 'UNKNOWN' and p['phase']=='ACCEPTED' and receipt)):
+                    raise RuntimeError('G21_DISPATCH_TRANSITION_INVALID', p['dispatch_id'])
+                if any(previous[k] != p[k] for k in ('session_id','context_digest','mode','business_cursor')):
+                    raise RuntimeError('G21_DISPATCH_IDENTITY_CONFLICT', p['dispatch_id'])
+            return [PendingEvent(CONTEXT_DISPATCH_RECORDED, 'CONTEXT_DISPATCH', p['dispatch_id'], p, p['session_id'])]
         if command.type == ENABLE_ROUTING_AUTHORITY:
             p = _payload(command, set())
             return [PendingEvent(ROUTING_AUTHORITY_ENABLED, "SESSION_ROUTING", composed.mission_id, p)]

@@ -12,6 +12,20 @@ def _upsert(items, predicate, value):
 
 class G21ReducerContribution:
     def reduce(self, state: SessionControlState, event: EventEnvelope, core_state: RuntimeState) -> SessionControlState:
+        if event.event_type == CONTEXT_DISPATCH_RECORDED:
+            p = dict(event.payload)
+            validate_dispatch_record(p)
+            if p['business_cursor'] >= event.seq or event.entity_id!=p['dispatch_id'] or event.session_id!=p['session_id'] or event.entity_type!='CONTEXT_DISPATCH':
+                raise RuntimeError('G21_DISPATCH_REPLAY_IDENTITY_INVALID','Receipt cursor/entity/session mismatch')
+            previous = state.context_dispatch(p['dispatch_id'])
+            valid_followup=(previous is not None and ((previous['phase']=='CLAIMED' and p['phase'] in {'ACCEPTED','UNKNOWN'})
+                            or (previous['phase']=='UNKNOWN' and p['phase']=='ACCEPTED' and p.get('host_receipt'))))
+            if (previous is None and p['phase'] != 'CLAIMED') or (previous is not None and not valid_followup):
+                raise RuntimeError('G21_DISPATCH_REPLAY_TRANSITION_INVALID', p['dispatch_id'])
+            if previous is not None and any(previous[k] != p[k] for k in ('session_id','context_digest','mode','business_cursor')):
+                raise RuntimeError('G21_DISPATCH_REPLAY_IDENTITY_CONFLICT', p['dispatch_id'])
+            item = {**p, 'recorded_seq': event.seq, 'recorded_at': event.created_at}
+            return replace(state, context_dispatches=_upsert(state.context_dispatches, lambda x: x['dispatch_id'] == p['dispatch_id'], item))
         if event.event_type == ROUTING_AUTHORITY_ENABLED:
             return replace(state, routing_authority_enabled=True, routing_authority_enabled_seq=state.routing_authority_enabled_seq or event.seq)
         if event.event_type == TASK_ROUTE_REGISTERED:

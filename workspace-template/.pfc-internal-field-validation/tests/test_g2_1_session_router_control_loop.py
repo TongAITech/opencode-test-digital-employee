@@ -366,7 +366,7 @@ def main() -> int:
         try:
             service.start_test(request("planner-bootstrap-crash", "PLANNER-CRASH"))
         except RuntimeError as exc:
-            planner_crashed = "SIMULATED_CRASH_AFTER_CONTEXT_ACCEPTED" in str(exc)
+            planner_crashed = "CONTEXT_DELIVERY_UNCONFIRMED" in str(exc) and "SIMULATED_CRASH_AFTER_CONTEXT_ACCEPTED" in str(exc.__cause__)
         runtime2 = create_canonical_runtime(root, db_path=spine)
         recovered_planner_service = G21AutonomousOrchestrationService(runtime2, root, session_provider=provider)
         resumed = recovered_planner_service.start_test(request("planner-bootstrap-retry", "PLANNER-CRASH"))
@@ -375,6 +375,7 @@ def main() -> int:
         checks["planner_bootstrap_crash_recovers_same_session_and_binds_intent"] = (
             planner_crashed and resumed["resumed_existing_mission"] is True
             and len(planner_sessions) == 1 and len(planner_intents) == 1 and planner_intents[0].status == "BOUND"
+            and len(provider.messages) == 1
         )
 
     with tempfile.TemporaryDirectory(prefix="pfc-g21-task-bootstrap-crash-") as td:
@@ -387,7 +388,8 @@ def main() -> int:
         provider.crash_after_next_send = True
         worker_crashed = False
         try:
-            service.propose_plan(mission_id, one_task("EXECUTOR"))
+            proposed = service.propose_plan(mission_id, one_task("EXECUTOR"))
+            worker_crashed = proposed['next']['status']=='WAIT' and 'CONTEXT_DELIVERY_UNCONFIRMED' in proposed['next'].get('reason','')
         except RuntimeError as exc:
             worker_crashed = "SIMULATED_CRASH_AFTER_CONTEXT_ACCEPTED" in str(exc)
         runtime2 = create_canonical_runtime(root, db_path=spine)
@@ -399,6 +401,7 @@ def main() -> int:
         checks["task_bootstrap_crash_keeps_stable_provision_token_and_same_session"] = (
             worker_crashed and dispatch["status"] == "ACTIVE_DISPATCH_RECOVERED"
             and len(task_intents) == 1 and task_intents[0].status == "BOUND" and len(worker_sessions) == 1
+            and len(provider.messages) == 2
         )
 
     # Durable provision intent closes the external-create crash window.

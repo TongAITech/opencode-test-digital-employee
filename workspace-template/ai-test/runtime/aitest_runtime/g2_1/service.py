@@ -57,7 +57,15 @@ class SessionControlApplicationService:
         return self._execute(mission_id, f"g2.1:provision:{token}:ORPHAN_CLOSED:{session_id}", CLOSE_ORPHAN_PROVISION, {"provision_token":token,"external_session_id":session_id,"reason":reason}, session_id)
     def record_observation(self, mission_id: str, payload: Mapping[str, Any]):
         sid=str(payload["session_id"]); digest=canonical_sha256(dict(payload))[:16]
+        previous = self.state(mission_id).observation(sid)
+        if previous is not None:
+            prior = previous.to_dict(); prior.pop('recorded_seq', None)
+            if prior == dict(payload):
+                return None
         return self._execute(mission_id, f"g2.1:observe:{sid}:{digest}", RECORD_SESSION_OBSERVATION, payload, sid)
+    def record_context_dispatch(self, mission_id: str, payload: Mapping[str, Any]):
+        did=str(payload['dispatch_id']); phase=str(payload['phase'])
+        return self._execute(mission_id, f'{did}:{phase}', RECORD_CONTEXT_DISPATCH, payload, str(payload['session_id']))
     def request_rotation(self, mission_id: str, payload: Mapping[str, Any]):
         rid=str(payload["rotation_id"]); return self._execute(mission_id, f"g2.1:rotation:{rid}:REQUEST", REQUEST_SESSION_ROTATION, payload, str(payload["predecessor_session_id"]))
     def complete_rotation(self, mission_id: str, rotation_id: str, successor_session_id: str):
