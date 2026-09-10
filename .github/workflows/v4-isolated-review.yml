@@ -20,7 +20,7 @@ jobs:
         run: |
           $output = Join-Path $env:RUNNER_TEMP ('v4-isolation-' + [Guid]::NewGuid().ToString('N'))
           "V4_PROBE_OUTPUT=$output" | Out-File $env:GITHUB_ENV -Append
-          & ./tools/v4_review/windows/run-spike.ps1 -OutputDirectory $output
+          & ./tools/v4_review/windows/run-spike.ps1 -OutputDirectory $output -UseDisposableCiUser
       - name: Record actual workflow identity and evidence
         if: always()
         shell: pwsh

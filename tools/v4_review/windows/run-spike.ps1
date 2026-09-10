@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$OutputDirectory)
+param([string]$OutputDirectory, [switch]$UseDisposableCiUser)
 $ErrorActionPreference = 'Stop'
 if ($env:OS -ne 'Windows_NT') { throw 'WINDOWS_REQUIRED: this probe cannot run on macOS/Linux.' }
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $env:TEMP ('aitest-appcontainer-spike-' + [Guid]::NewGuid().ToString('N')) }
@@ -14,8 +14,34 @@ $exe = Join-Path $OutputDirectory 'bin\AppContainerProbe.exe'
 & $compiler /nologo /target:exe /platform:x64 /optimize+ '/reference:System.Web.Extensions.dll' ('/out:' + $exe) $source 2>&1 | Tee-Object -FilePath (Join-Path $OutputDirectory 'compile.log')
 if ($LASTEXITCODE -ne 0) { throw ('COMPILE_FAILED; output=' + $OutputDirectory) }
 Get-FileHash -Algorithm SHA256 $source,$exe | Select-Object Path,Hash | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'identities.json')
-& $exe --bootstrap $OutputDirectory
-$probeExit = $LASTEXITCODE
+if ($UseDisposableCiUser) {
+    # CI provisioning is separate from the product user's no-admin execution.
+    # Hosted runners may disable UAC and have no linked limited token.
+    if ($env:GITHUB_ACTIONS -ne 'true' -or -not $env:RUNNER_TEMP -or
+        -not $OutputDirectory.StartsWith(([IO.Path]::GetFullPath($env:RUNNER_TEMP) + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'CI_USER_BOOTSTRAP_REQUIRES_DISPOSABLE_GITHUB_RUNNER_TEMP'
+    }
+    $userName = 'v4probe' + [Guid]::NewGuid().ToString('N').Substring(0,10)
+    $securePassword = ConvertTo-SecureString ('V4!' + [Guid]::NewGuid().ToString('N') + 'a9!') -AsPlainText -Force
+    $created = $false
+    try {
+        $account = New-LocalUser -Name $userName -Password $securePassword -Description 'Disposable synthetic V4 CI probe' -AccountNeverExpires
+        $created = $true
+        $acl = Get-Acl -LiteralPath $OutputDirectory
+        $rule = [Security.AccessControl.FileSystemAccessRule]::new($account.SID, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+        $acl.AddAccessRule($rule)
+        Set-Acl -LiteralPath $OutputDirectory -AclObject $acl
+        $credential = [PSCredential]::new(($env:COMPUTERNAME + '\' + $userName), $securePassword)
+        $child = Start-Process -FilePath $exe -ArgumentList @('--run', ('"' + $OutputDirectory + '"')) -WorkingDirectory $OutputDirectory -Credential $credential -LoadUserProfile -Wait -PassThru
+        $probeExit = $child.ExitCode
+        @{ mode='DISPOSABLE_CI_STANDARD_LOCAL_USER'; user_sid=$account.SID.Value; child_exit=$probeExit; product_install_admin_requirement='NONE_INTRODUCED'; setup_requires_ci_admin=$true } | ConvertTo-Json | Set-Content (Join-Path $OutputDirectory 'ci-user-bootstrap.json')
+    } finally {
+        if ($created) { Remove-LocalUser -Name $userName }
+    }
+} else {
+    & $exe --bootstrap $OutputDirectory
+    $probeExit = $LASTEXITCODE
+}
 $result = Join-Path $OutputDirectory 'result.json'
 if (Test-Path -LiteralPath $result) { Get-Content -Raw -LiteralPath $result }
 Write-Output ('SPIKE_ARTIFACT_DIRECTORY=' + $OutputDirectory)
