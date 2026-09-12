@@ -2,7 +2,19 @@ name: V4 isolated implementation review
 on:
   push:
     branches: [work/v1.13.0-recovery-turnkey-validation]
-    paths: [tools/v4_review/**, tests/v4/**, workspace-template/ai-test/runtime/aitest_runtime/general_work/**, workspace-template/ai-test/runtime/aitest_runtime/interaction_receipts.py, .github/workflows/v4-isolated-review.yml]
+    paths:
+      - tools/v4_review/**
+      - tools/recovery/launcher.py
+      - tests/v4/**
+      - workspace-template/.pfc-internal-field-validation/tests/test_recovery_context_stress.py
+      - workspace-template/.pfc-internal-field-validation/tests/test_g2_1_pressure_fallback.py
+      - workspace-template/ai-test/runtime/aitest_runtime/general_work/**
+      - workspace-template/ai-test/runtime/aitest_runtime/interaction_receipts.py
+      - workspace-template/ai-test/runtime/aitest_runtime/primary_sessions.py
+      - workspace-template/ai-test/runtime/aitest_runtime/session_pressure.py
+      - workspace-template/ai-test/runtime/aitest_runtime/g2_1/**
+      - workspace-template/ai-test/runtime/aitest_runtime/control_loop.py
+      - .github/workflows/v4-isolated-review.yml
   workflow_dispatch:
 permissions:
   contents: read
@@ -30,6 +42,16 @@ jobs:
           Expand-Archive $zip -DestinationPath $expanded
           $bundle = Get-ChildItem $expanded -Directory | Select-Object -First 1
           "V4_RUNTIME=$($bundle.FullName)/workspace-template/runtime" | Out-File $env:GITHUB_ENV -Append
+      - name: Verify C2 Primary poison and context recovery regressions on current source
+        shell: pwsh
+        run: |
+          $env:GH_TOKEN = ''
+          $env:PIP_NO_INDEX = '1'
+          $env:PYTHONPATH = (Join-Path $PWD 'workspace-template/ai-test/runtime')
+          & "$env:V4_RUNTIME/python/python.exe" -X utf8 tests/v4/test_primary_sessions.py
+          if ($LASTEXITCODE -ne 0) { throw 'C2 Primary session regression failed' }
+          & "$env:V4_RUNTIME/python/python.exe" -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_recovery_context_stress.py
+          if ($LASTEXITCODE -ne 0) { throw 'C2 context recovery stress regression failed' }
       - name: Verify current General execution and file broker on actual Windows
         shell: pwsh
         run: |
