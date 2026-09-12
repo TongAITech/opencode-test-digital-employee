@@ -1,0 +1,233 @@
+{
+  "recorded_at": "2026-09-12T11:33:47.316799+00:00",
+  "source_drift": false,
+  "remote_main": "58e5e1259cd26846b31ea21a8a87df0bcf071edc",
+  "remote_packaging": "1927ca6f8df6668cf8c50d0af6cf29a4878e6a74",
+  "resume_contract_sha256": "374184adbb652221e2b20ac164c534ae9def0712186ce2c0ccf0cc283b594be0",
+  "worktrees": {
+    "integration": {
+      "head": "c9f067f5868245e115e486fa14936ac9cb783fb5",
+      "branch": "work/v1.13.0-recovery-turnkey-validation",
+      "patch_sha256": "553b91738a35ff9e6a4531e9fe5530bd7a1f9c87a508838224596a233d39db36",
+      "files": {
+        "docs/reviews/v4/F54_ENTRY_AND_FIXTURE_MIGRATION.md": {
+          "bytes": 5109,
+          "sha256": "06da13fbe561405af624669f4b8d0db089d072c4f0037d2282902dfc6967ebe0"
+        },
+        "tests/v4/check_general_tool_bridge.mjs": {
+          "bytes": 3410,
+          "sha256": "44cb12a2fdd87f3f8ca2e35b5701396aa2b34fff317f0b924d32bc2abef105b5"
+        },
+        "tests/v4/test_general_worker_entry.py": {
+          "bytes": 2846,
+          "sha256": "21e0b32d8658e32b4a7d55d3953de332d72329f5954a88553b4ae13fd65f2b3a"
+        },
+        "tools/recovery/host_opencode.py": {
+          "bytes": 9009,
+          "sha256": "8e1bbd2a2b01034b68e16192a379778168b19cc2def1356e36599ef06134503c"
+        },
+        "tools/recovery/install.py": {
+          "bytes": 22712,
+          "sha256": "dd78760b8802fa29eb50ba5de7f05dfc749760162e381d0ea5f63fa2538973f3"
+        },
+        "workspace-template/.opencode/agents/aitest-director.md": {
+          "bytes": 3733,
+          "sha256": "5e3b0140b3756e0b1034597fa298ba6570543685ef532e83ca931c2c8f1fa936"
+        },
+        "workspace-template/.opencode/agents/aitest-general-worker.md": {
+          "bytes": 1885,
+          "sha256": "921f4601e02bd73e8ef873cf2de6e4774f9ae3754e904525a85bc9b2b379150d"
+        },
+        "workspace-template/.opencode/agents/aitest-runtime-diagnosis.md": {
+          "bytes": 1434,
+          "sha256": "114776245efd333ac2ed9f55ef786e7dbd0798c4d55caae95a55ae9b4680966d"
+        },
+        "workspace-template/.opencode/tools/aitest.ts": {
+          "bytes": 26952,
+          "sha256": "26fadf0cc0a5d809dbc2203b0b36e6d63015cb8bc08417c0719d848b5cff03a3"
+        },
+        "workspace-template/.pfc-internal-field-validation/tests/host_interaction_fixture.py": {
+          "bytes": 2443,
+          "sha256": "073df46c2790cfeaa7337880aa112cd5e9c88d086abf13c63a1be0784ed871bc"
+        },
+        "workspace-template/.pfc-internal-field-validation/tests/test_g1_g2_product_path_subprocess.py": {
+          "bytes": 11412,
+          "sha256": "816aaf52318839b4a02c9ad7014281fa6fd3757bf9fe357265603ecad910e1e0"
+        },
+        "workspace-template/.pfc-internal-field-validation/tests/test_g2_1_background_control_loop_subprocess.py": {
+          "bytes": 12505,
+          "sha256": "85cbbb277587375a2470f855fa16879aca6dc8f13110c99566514ab81054d2ee"
+        },
+        "workspace-template/.pfc-internal-field-validation/tests/test_g3_testing_intelligence_product_path.py": {
+          "bytes": 45707,
+          "sha256": "f42be94a42773727a37d795863350d3a8e499651e0396b4085e74f0805e35bb5"
+        },
+        "workspace-template/.pfc-internal-field-validation/tests/test_g4_capability_human_gate_product_path.py": {
+          "bytes": 5151,
+          "sha256": "4365849bf423bb0c318af4165eed3079cb5ffc8d3c2c6579fc59634df2840626"
+        },
+        "workspace-template/.pfc-internal-field-validation/tests/test_g4_full_same_mission_product_e2e.py": {
+          "bytes": 37707,
+          "sha256": "cbf1ff9b0a03747958900a8f123c84905ad522ac1cadec713aa2e70a5ed8fcdf"
+        },
+        "workspace-template/.pfc-internal-field-validation/tests/test_g5_product_path.py": {
+          "bytes": 51674,
+          "sha256": "2940bdcfa8eb11d4dc700abf65992217fd18052b88e59afbdc410899efb7ece0"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/general_work/contracts.py": {
+          "bytes": 6615,
+          "sha256": "ebebe0bcfa4a49ccaa302de9f085844e7db4a68e27667d82b255308a7b99ceec"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/general_work/execution_contract.py": {
+          "bytes": 10875,
+          "sha256": "2486ef6561e2cd5abcbed05c3847a7ba5f4fc50ab6a41bd8aeee05a6f467ebd4"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/general_work/extension.py": {
+          "bytes": 5692,
+          "sha256": "80f31862c8376fac279ce4897eb26ea41096123ccb9d2c9ae11e4961c1dc539d"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/general_work/scoped_files.py": {
+          "bytes": 13142,
+          "sha256": "e12a8e2f34d3a1836045e85cde5b185812a414f5e16f2016627c1a12fcc0a18d"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/general_work/service.py": {
+          "bytes": 3137,
+          "sha256": "4c32d263f99cbabaf6dfab8f7c6cd5f89996e5ab67f571e4fb4af078ed7f56ba"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/hosted_interaction.py": {
+          "bytes": 8623,
+          "sha256": "7fd7de4c6b6be10be07f400147428c85f150a6585ab205db327b758f3a28b409"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/product_entry.py": {
+          "bytes": 34271,
+          "sha256": "45ffb4f2c6f6cf06f5bb25346c04d8dd50c152857f683e57d776c454e8259c3c"
+        }
+      }
+    },
+    "interaction": {
+      "head": "a45ba758d912c57fbf7bdd0e7dc5bf0cfb9b01e4",
+      "branch": "",
+      "patch_sha256": "cbd5d4d9f3779db6f82e4d1e31ededd81f66d8d71308c6318d92451467950b4a",
+      "files": {
+        "workspace-template/ai-test/runtime/aitest_runtime/durable_core/__init__.py": {
+          "bytes": 1409,
+          "sha256": "a2bbb37b5571b92f9223cd741b9c8a460fd3b2cea5510d0f725b50dc82c38460"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/durable_core/command_bus.py": {
+          "bytes": 15111,
+          "sha256": "a6e2ab54ee283e1c2355e0fc495b904accff9b4f758347bdc65e82cf9464d69d"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/durable_core/contracts.py": {
+          "bytes": 28242,
+          "sha256": "50be6bbf75d3301a42b43c16cb6f727478adae6d825057b26a00f8354b4b9f8f"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/durable_core/projections.py": {
+          "bytes": 15699,
+          "sha256": "84ab706a741f9fd04814833be9abd220dd219ee68b473757bdfcd9e1aa9fc98f"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/durable_core/reducer.py": {
+          "bytes": 13376,
+          "sha256": "7001ba2620cd753649133d2c74eeca0cc95229ebcf999cc348e2ddb6e5f7aede"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/durable_core/service.py": {
+          "bytes": 7068,
+          "sha256": "1ee8723c1ac090a891279e3b5d2136583b87b4d8e83271cd154782b4b05879fd"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/durable_core/subjects.py": {
+          "bytes": 7085,
+          "sha256": "3327503cfa71f610b47774876bfefd72b99bf69e3540d70a92b46f45252ecf1c"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/general_work/__init__.py": {
+          "bytes": 221,
+          "sha256": "00cf3065aa35675bdb9a7d491468aab4f62ac391706ca495d9679bb530404903"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/general_work/contracts.py": {
+          "bytes": 6347,
+          "sha256": "9c3feed6acdca3a1d7ddff174302165b8114e0ee0904ffcbeeb588c3f35dfb71"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/general_work/extension.py": {
+          "bytes": 4957,
+          "sha256": "8ac92bd487c0feae9562c254817128018f6809225aa9f74d1c78f14c1b41a69e"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/general_work/scheduling.py": {
+          "bytes": 1178,
+          "sha256": "83126077172d7718cb498e0d1a95fcb746389d6ff158ac4ae24358d578950ee6"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/general_work/service.py": {
+          "bytes": 3166,
+          "sha256": "2be5446a8a163815dbba85edb05154815848a3361d3362fac526392915900db4"
+        }
+      }
+    },
+    "oracle": {
+      "head": "5f32937e34753f35e0a81d8321d201aea3269c94",
+      "branch": "",
+      "patch_sha256": "932ba325b211f8d253357406ee87ce3254227ea188cd749db7f8bb83a6574259",
+      "files": {
+        "workspace-template/.opencode/agents/aitest-executor.md": {
+          "bytes": 5591,
+          "sha256": "7cf168f73de1dcc74228b803bfc20d61de824b1a189eae2decac254c16b04871"
+        },
+        "workspace-template/.opencode/tools/aitest.ts": {
+          "bytes": 21129,
+          "sha256": "80517a2d3cc932a444864b4316b2a287045a360d21f40687acce3c57b82a64f3"
+        },
+        "workspace-template/.pfc-internal-field-validation/tests/api_effect_fixture.py": {
+          "bytes": 3202,
+          "sha256": "cbf47f86aa63b435092c75bb3ff31d447329408686eb1874455989a624ffc465"
+        },
+        "workspace-template/.pfc-internal-field-validation/tests/test_rec3_business_contracts.py": {
+          "bytes": 22278,
+          "sha256": "03ac63c007738951177ab0fb9979eec9e700bf4c64208842cef29c12c52c20ad"
+        },
+        "workspace-template/.pfc-internal-field-validation/tests/test_v4_api_side_effects.py": {
+          "bytes": 24719,
+          "sha256": "0563dbb61b4fd9a77394dab27be95601382c77a39243ed922ef26d256bdd6c14"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/g4/contracts.py": {
+          "bytes": 9043,
+          "sha256": "64b44ee85f885389087a1cedaf1da8b3a1bebbc7ad1776962519371c5a7a1cf5"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/g4/handlers.py": {
+          "bytes": 1709,
+          "sha256": "a3ae88d8423ba8a54848added222011dbeac435f8352218f9158c61ce2cec62c"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/g4/service_base.py": {
+          "bytes": 79445,
+          "sha256": "9c76f1c4e899162e8e10563a1af90f10c45cd9900e0c7d48332c4ab6bb63355e"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/g4/service_r2_2.py": {
+          "bytes": 18413,
+          "sha256": "6fbbeab3fed78149c89d4b33471acdbcc93a9e1b86254f1912c9026271f64da5"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/g4/side_effects.py": {
+          "bytes": 22649,
+          "sha256": "200613e70c22ad73656e654c62bf7274ec0843295eb59f6b58170d9c95c2add9"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/product_entry.py": {
+          "bytes": 33995,
+          "sha256": "a5b9526d64603e4174c63afc5184dfa9db14a58c3a120d706e9dd59e8e5349ae"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/recovery_api.py": {
+          "bytes": 23133,
+          "sha256": "81e3a393cb697c2f8be97b59e02036d6b06359b2d767c6ed82be94baaacebb8e"
+        },
+        "workspace-template/ai-test/runtime/aitest_runtime/recovery_executors.py": {
+          "bytes": 25691,
+          "sha256": "8ece9159aff74db9e900549b56ed6c4fe24a05441d1a5a63b7685efa72ecdb29"
+        }
+      }
+    },
+    "windows": {
+      "head": "608a43787d9bd432ed4c668914c16441502ef4dc",
+      "branch": "scratch/v4-appcontainer-diagnostics",
+      "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "files": {
+        "tools/v4_review/windows/assess-wfp.py": {
+          "bytes": 5576,
+          "sha256": "720d3a2d615d5fdf18f7d07d75ef5fa9da3889b14d09f346017d693feb52f320"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "write_conflict_window": {
+    "injected": "human edit after last hash validation before atomic replace",
+    "returned_success": true,
+    "final_content": "worker replacement",
+    "human_edit_lost": true
+  },
+  "call_identity_contract": {
+    "unbound_request_accepted": true,
+    "note": "Trusted owner reducer test, not externally reachable exploit; missing execution service must enforce and reducer should bind digest/schema"
+  }
+}
