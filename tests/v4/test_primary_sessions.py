@@ -136,4 +136,17 @@ class PrimaryTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,'STALE_CALLER'):self.invoke('status',{})
         self.assertEqual(self.count('events'),before)
 
+    def test_restart_never_reattaches_pressure_poisoned_primary(self):
+        old=self.owner.ensure_current()
+        self.host.set_observation(old['session_id'],
+            context_used=91000, context_limit=100000, context_utilization=0.91,
+            message_count=12, compaction_count=0)
+        new=self.owner.ensure_current()
+        self.assertEqual(new['epoch'],2)
+        self.assertNotEqual(new['session_id'],old['session_id'])
+        self.assertEqual(self.owner.state().bindings['1']['state'],'FENCED')
+        self.assertIn('CONTEXT_PRESSURE',self.owner.state().bindings['1']['reason'])
+        with self.assertRaisesRegex(RuntimeError,'STALE_CALLER'):
+            self.owner.current(old['session_id'])
+
 if __name__=='__main__':unittest.main()
