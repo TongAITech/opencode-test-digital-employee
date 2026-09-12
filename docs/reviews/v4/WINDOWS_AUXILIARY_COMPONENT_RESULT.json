@@ -1,0 +1,33 @@
+{
+  "classification": "ACTUAL_WINDOWS_FILE_BROKER_R1_COMPONENT_NOT_L4",
+  "source_head": "fbc20e9f23810665fd9e7e791677ec30967fc19e",
+  "platform": "Windows-2025Server-10.0.26100-SP0",
+  "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "run_id": "34700757990",
+  "tests_run": 143,
+  "failures": 0,
+  "errors": 0,
+  "skipped": [
+    [
+      "test_atomic_displacement_detects_last_window_external_edit (test_general_execution.FileConflictTests.test_atomic_displacement_detects_last_window_external_edit)",
+      "POSIX atomic exchange fault injection; Windows has a separate CI oracle"
+    ],
+    [
+      "test_oversized_concurrent_displaced_file_is_never_deleted (test_general_execution.FileConflictTests.test_oversized_concurrent_displaced_file_is_never_deleted)",
+      "POSIX exchange oracle"
+    ],
+    [
+      "test_replacement_with_external_symlink_before_open_is_denied (test_auxiliary_caller_admission.AuxiliaryTests.test_replacement_with_external_symlink_before_open_is_denied)",
+      "POSIX symlink replacement; Windows file component uses held reparse guards"
+    ]
+  ],
+  "status": "PASS",
+  "process_confinement": "NOT_QUALIFIED",
+  "bank_field": "NOT_RUN",
+  "log_sha256": "a1e76c48a5bce60c5fc4a62bc4c6effa75fbef8644039a34d884606513fffbc2",
+  "windows_test_tools": "PASS",
+  "windows_isolation": "FAIL_NOT_QUALIFIED",
+  "workflow_url": "https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/34700757990",
+  "passed": 140,
+  "scope": "Auxiliary caller + immutable document bytes component and preserved regressions; not C1 full or L4"
+}

@@ -84,6 +84,15 @@ def hosted_interaction(service: Any, payload: Mapping[str, Any], *, action: str 
                 try:item.update(apply_control(service,owner,admitted))
                 except Exception as exc:item.update(status='RECONCILE_REQUIRED',reason=getattr(exc,'code',type(exc).__name__))
             results.append(item);continue
+        if admitted['intent']=='HUMAN_GATE_RESPONSE' and (admitted['status']=='OWNER_ADMISSION_REQUIRED' or owner.receipt(admitted['operation_id'])):
+            from .hosted_human_gate import apply_gate
+            from .product_entry import g4_service
+            g4=g4_service(service.workspace_root)
+            require_same_db = str(g4.runtime.db_path)==str(service.runtime.db_path)
+            if not require_same_db:
+                raise AdmissionError('HUMAN_GATE_RUNTIME_DATABASE_MISMATCH')
+            item.update(apply_gate(g4,owner,admitted,candidates))
+            results.append(item);continue
         prior = owner.receipt(admitted['operation_id'])
         if prior:
             # Replay the canonical original resolution. New candidates may have

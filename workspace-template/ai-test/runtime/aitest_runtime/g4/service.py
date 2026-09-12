@@ -26,20 +26,26 @@ class G4RealExecutionService(_R2_5_G4RealExecutionService):
 
     @governed_effect
     def execute_capability(self, mission_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
+        from ..human_gate_resume import require_no_unknown_continuation
+        require_no_unknown_continuation(self.runtime, mission_id, request)
         return super().execute_capability(mission_id, request)
 
     @governed_effect
     def complete_human_takeover(self, mission_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
-        result = super().complete_human_takeover(mission_id, request)
-        if result.get("status") == "RESUME_SAFE":
-            cursor = (result.get("cursor") or {}).get("payload", {})
-            checkpoint = cursor.get("last_safe_checkpoint")
-            resume = checkpoint.get("ui_journey_resume") if isinstance(checkpoint, Mapping) else None
-            if resume:
-                continuation = dict(resume)
-                continuation["attempt_id"] = result["resume_attempt_id"]
-                result["ui_continuation"] = self.execute_capability(mission_id, continuation)
-        return result
+        from ..human_gate_resume import resume_gate
+        return resume_gate(self, mission_id, request)
+
+    def auto_resume_human_gates(self, mission_id: str) -> dict[str, Any]:
+        from ..hosted_human_gate import recover_gate_interactions, recover_owned_resumes
+        interactions = recover_gate_interactions(self, mission_id)
+        owned = recover_owned_resumes(self, mission_id)
+        result = super().auto_resume_human_gates(mission_id)
+        resumed = set(result.get('resumed_gate_refs') or [])
+        resumed.update(row['gate_id'] for row in owned if row['status']=='RESUME_SAFE')
+        for row in interactions:
+            if (row.get('result') or {}).get('status')=='RESUME_SAFE':resumed.add(row['result']['gate_id'])
+        return {**result,'status':'RESUMED' if resumed else result['status'],
+            'resumed_gate_refs':sorted(resumed),'interaction_recovery':interactions,'owner_recovery':owned}
 
     def register_capability(
         self,

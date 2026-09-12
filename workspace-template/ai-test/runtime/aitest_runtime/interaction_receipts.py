@@ -23,6 +23,7 @@ EXTENSION_ID = 'interaction_operation_receipts'
 ROOT_KIND = 'INTERACTION_OPERATION'
 PREFIX = 'interaction-operation:v1:'
 GENERAL_INTENT_EVENT = 'interaction.general_intent_recorded.v1'
+GATE_INTENT_EVENT = 'interaction.gate_intent_recorded.v1'
 CONTROL_INTENT_EVENT = 'interaction.control_intent_recorded.v1'
 COMMAND_EVENT = {
     'CLAIM_INTERACTION_OPERATION': 'interaction.operation_claimed.v1',
@@ -93,18 +94,27 @@ def _control_intent(row, value):
     return dict(value)
 
 
+def _gate_intent(row,value):
+    _require(row.get('intent')=='HUMAN_GATE_RESPONSE' and row.get('action')=='verify', 'INTERACTION_GATE_INTENT_INVALID')
+    _require(isinstance(value,Mapping) and set(value)=={'mission_id','gate_id','takeover_ref','root_attempt_id','browser_context_digest'},'INTERACTION_GATE_INTENT_INVALID')
+    _require(all(isinstance(v,str) and 0<len(v)<=512 for v in value.values()),'INTERACTION_GATE_INTENT_INVALID')
+    _require(row.get('subject')=={'subject_kind':'MISSION','subject_id':value['mission_id']},'INTERACTION_GATE_TARGET_INVALID')
+    return dict(value)
+
+
 def _transition(state: ReceiptState, command_type: str, payload: Mapping[str, Any]) -> ReceiptState:
     _require(payload.get('subject') == {'subject_kind': ROOT_KIND, 'subject_id': state.subject_id}, 'INTERACTION_RECEIPT_ROOT_MISMATCH')
     if command_type == 'CLAIM_INTERACTION_OPERATION':
         _require(not state.receipt, 'INTERACTION_OPERATION_ALREADY_CLAIMED')
         _require(set(payload) == {'subject','root_version','creation_command','operation'}, 'INTERACTION_CLAIM_SCHEMA_INVALID')
         op = payload['operation']
-        _require(isinstance(op, Mapping) and set(op) in (IMMUTABLE_FIELDS, IMMUTABLE_FIELDS | {'operation_text'}, IMMUTABLE_FIELDS | {'control_intent'}), 'INTERACTION_OPERATION_SCHEMA_INVALID')
+        _require(isinstance(op, Mapping) and set(op) in (IMMUTABLE_FIELDS, IMMUTABLE_FIELDS | {'operation_text'}, IMMUTABLE_FIELDS | {'control_intent'}, IMMUTABLE_FIELDS | {'gate_intent'}), 'INTERACTION_OPERATION_SCHEMA_INVALID')
         _require(isinstance(op['proposal'], Mapping) and (op['resolved_scope'] is None or isinstance(op['resolved_scope'], Mapping)), 'INTERACTION_OPERATION_SCHEMA_INVALID')
         _require(stream_id(op['operation_id']) == state.subject_id, 'INTERACTION_OPERATION_ROOT_MISMATCH')
         if 'operation_text' in op:
             _require(op['intent'] in {'GENERAL_WORK','AITEST_DIAGNOSIS'} and isinstance(op['operation_text'], str)
                      and 0 < len(op['operation_text'].encode()) <= 8192, 'INTERACTION_OPERATION_TEXT_INVALID')
+        if 'gate_intent' in op: _gate_intent(op, op['gate_intent'])
         if 'control_intent' in op: _control_intent(op, op['control_intent'])
         host = _host(op['host_turn_ref'])
         _require(op['request_digest'] == canonical_sha256({'host_content': host['source_digest'], 'proposal': op['proposal']}), 'INTERACTION_REQUEST_DIGEST_MISMATCH')
@@ -152,6 +162,11 @@ class CommandContribution:
         _require(command.session_id is None, 'INTERACTION_RECEIPT_HAS_NO_EXECUTION_SESSION')
         state = composed.extension_state(EXTENSION_ID)
         _transition(state, command.type, command.payload)
+        if command.type == 'CLAIM_INTERACTION_OPERATION' and 'gate_intent' in command.payload['operation']:
+            base=dict(command.payload);operation=dict(base['operation']);intent=operation.pop('gate_intent');base['operation']=operation
+            return [PendingEvent(COMMAND_EVENT[command.type],ROOT_KIND,command.mission_id,base),
+                PendingEvent(GATE_INTENT_EVENT,ROOT_KIND,command.mission_id,
+                    {'subject':base['subject'],'gate_intent':intent,'request_digest':operation['request_digest']})]
         if command.type == 'CLAIM_INTERACTION_OPERATION' and 'control_intent' in command.payload['operation']:
             base = dict(command.payload); operation = dict(base['operation']); intent = operation.pop('control_intent'); base['operation'] = operation
             return [PendingEvent(COMMAND_EVENT[command.type], ROOT_KIND, command.mission_id, base),
@@ -174,6 +189,11 @@ class ReducerContribution:
     def reduce(self, state, event, core_state):
         _require(event.mission_id == state.subject_id and event.entity_id == state.subject_id and event.entity_type == ROOT_KIND, 'INTERACTION_EVENT_IDENTITY_INVALID')
         _require(event.session_id is None and event.initiator_type == 'SYSTEM' and event.initiator_id == 'interaction-admission', 'INTERACTION_EVENT_OWNER_INVALID')
+        if event.event_type == GATE_INTENT_EVENT:
+            data=event.payload;row=dict(state.receipt)
+            _require(set(data)=={'subject','gate_intent','request_digest'} and data['subject']=={'subject_kind':ROOT_KIND,'subject_id':state.subject_id}
+                and row.get('state')=='CLAIMED' and 'gate_intent' not in row and data['request_digest']==row['request_digest'],'INTERACTION_GATE_INTENT_INVALID')
+            return replace(state,receipt={**row,'gate_intent':_gate_intent(row,data['gate_intent'])})
         if event.event_type == CONTROL_INTENT_EVENT:
             data=event.payload;row=dict(state.receipt)
             _require(set(data)=={'subject','control_intent','request_digest'} and data['subject']=={'subject_kind':ROOT_KIND,'subject_id':state.subject_id}
@@ -224,8 +244,8 @@ class ProjectionContribution:
 
 
 def interaction_receipt_extension() -> ExtensionManifest:
-    commands, events = frozenset(COMMAND_EVENT), frozenset(COMMAND_EVENT.values()) | {GENERAL_INTENT_EVENT, CONTROL_INTENT_EVENT}
-    return ExtensionManifest(EXTENSION_ID, '1.2.0', commands, events,
+    commands, events = frozenset(COMMAND_EVENT), frozenset(COMMAND_EVENT.values()) | {GENERAL_INTENT_EVENT, CONTROL_INTENT_EVENT, GATE_INTENT_EVENT}
+    return ExtensionManifest(EXTENSION_ID, '1.3.0', commands, events,
         StateContribution(), CommandContribution(), ReducerContribution(), ProjectionContribution(), MigrationContribution(),
         subject_kinds=frozenset({ROOT_KIND}), roots=(RootDefinition(ROOT_KIND,PREFIX,1,'CLAIM_INTERACTION_OPERATION',COMMAND_EVENT['CLAIM_INTERACTION_OPERATION'],ROOT_KIND,commands,events),))
 
@@ -252,11 +272,11 @@ class R1InteractionOwner:
         return result
 
     def claim(self, operation: Mapping[str, Any]) -> dict[str, Any]:
-        fields = IMMUTABLE_FIELDS | ({'operation_text'} if operation.get('intent') in {'GENERAL_WORK','AITEST_DIAGNOSIS'} and 'operation_text' in operation else set()) | ({'control_intent'} if 'control_intent' in operation else set())
+        fields = IMMUTABLE_FIELDS | ({'operation_text'} if operation.get('intent') in {'GENERAL_WORK','AITEST_DIAGNOSIS'} and 'operation_text' in operation else set()) | ({'control_intent'} if 'control_intent' in operation else set()) | ({'gate_intent'} if 'gate_intent' in operation else set())
         immutable = {k:operation[k] for k in fields}
         existing = self.receipt(operation['operation_id'])
         if existing:
-            _require({k:existing[k] for k in IMMUTABLE_FIELDS | ({'operation_text'} if 'operation_text' in existing else set()) | ({'control_intent'} if 'control_intent' in existing else set())} == immutable, 'INTERACTION_REPLAY_CONFLICT')
+            _require({k:existing[k] for k in IMMUTABLE_FIELDS | ({'operation_text'} if 'operation_text' in existing else set()) | ({'control_intent'} if 'control_intent' in existing else set()) | ({'gate_intent'} if 'gate_intent' in existing else set())} == immutable, 'INTERACTION_REPLAY_CONFLICT')
             return {'fresh':False, **existing}
         result = self._execute('CLAIM_INTERACTION_OPERATION', operation['operation_id'],
             {'root_version':1,'creation_command':'CLAIM_INTERACTION_OPERATION','operation':immutable},0,
@@ -306,7 +326,7 @@ class R1InteractionOwner:
                 target = {'subject_kind':'MISSION','subject_id':'r2.2:mission:' + receipt['operation_id']}
             if target and target['subject_kind'] == 'MISSION':
                 if receipt['host_turn_ref']['host_session_id'] == turn.host_session_id: linked.add(target['subject_id'])
-                if receipt['state'] != 'COMPLETED': unresolved.add(target['subject_id'])
+                if receipt['state'] != 'COMPLETED' and receipt['intent'] != 'HUMAN_GATE_RESPONSE': unresolved.add(target['subject_id'])
         result = []
         for row in rows:
             state = self.runtime.get_subject_state(SubjectRef('MISSION',row['mission_id']))

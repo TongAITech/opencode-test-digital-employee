@@ -42,12 +42,12 @@ class BrowserHumanGateSupervisor:
 
     def verify(
         self, *, mission_id: str, browser_context_ref: BrowserContextRef,
-        resume_condition: Mapping[str, Any], completion_mode: str,
+        resume_condition: Mapping[str, Any], completion_mode: str, expected_owner: str = "HUMAN",
     ) -> dict[str, Any]:
         observed = self.browser_provider.inspect_context(browser_context_ref)
         if not same_browser_context(browser_context_ref.to_dict(), observed.to_dict()):
             raise RuntimeError("G4_BROWSER_CONTEXT_REPLACED_DURING_HUMAN_CONTROL", mission_id)
-        if self.browser_provider.inspect_lease(browser_context_ref).upper() != "HUMAN":
+        if self.browser_provider.inspect_lease(browser_context_ref).upper() != expected_owner or expected_owner not in {"HUMAN", "AI"}:
             raise RuntimeError("G4_HUMAN_RESUME_LEASE_INVALID", mission_id)
         if self.verifier is None:
             raise RuntimeError("G4_RESUME_CONDITION_VERIFIER_REQUIRED", "runtime browser/SUT verifier is not configured")

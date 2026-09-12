@@ -1,0 +1,9 @@
+{
+  "fresh_effect_denial": "UNKNOWN_SIDE_EFFECT_RECONCILIATION_REQUIRED",
+  "fresh_physical_calls": 0,
+  "before_expiry_phase": "REQUESTED",
+  "expired_requested_denial": "HOST_USER_TURN_EXPIRED",
+  "after_expiry_owner": "HUMAN",
+  "handoffs": 1,
+  "after_expiry_phase": "REQUESTED"
+}

@@ -1,0 +1,47 @@
+{
+  "status": "LOCAL_COMPONENT_TESTS_PASS_WINDOWS_PENDING",
+  "classification": "ACTUAL_R1_G4_WITH_LABELED_HOST_BROWSER_TRANSPORT_FIXTURES",
+  "counts": {
+    "human_gate": 20,
+    "interaction": 37,
+    "typed_roots_and_golden": 20,
+    "primary": 11,
+    "mission_controls": 16
+  },
+  "logs": [
+    {
+      "file": "human-gate-tests-10.log",
+      "sha256": "3b0070c37f234ab6250c3704244c6060e5f08acc36d1fb380f18f2e460990723"
+    },
+    {
+      "file": "human-gate-fresh-cdp-adapter-01.log",
+      "sha256": "2964c474d2d8d1907581e36bcc98ac53a3e33a1d619d02436b9f68e60ecfa623"
+    },
+    {
+      "file": "human-gate-owner-compatibility-01.log",
+      "sha256": "0776689a95c168d81e1898cd89b4a87897b923b7bc5b010f55e710c698b8a8d4"
+    },
+    {
+      "file": "human-gate-interaction-regression-01.log",
+      "sha256": "9a94a53faed0a556ba0eecf2d54888119e7654a64fba4cca7b8ce6c2cde08943"
+    },
+    {
+      "file": "human-gate-golden-regression-01.log",
+      "sha256": "552e73f23017299ae6a544b33205bc162962412c92bcfa575a279da525d1d969"
+    },
+    {
+      "file": "human-gate-primary-regression-01.log",
+      "sha256": "624862c704df4f6d5942f0b7b7b069add4527a2904503c588fa1b3a66ba1efd9"
+    },
+    {
+      "file": "human-gate-controls-regression-01.log",
+      "sha256": "62eef3197ec151b95cd06c962ccddccc8868e3d4194f6f4512f940e4abd39daa"
+    }
+  ],
+  "actual_local_chromium": "NOT_PASS_MACOS_PROCESS_PERMISSION",
+  "actual_windows_chromium": "PENDING_CI",
+  "real_model": "NOT_RUN_APPROVAL_GATE",
+  "bank": "NOT_RUN",
+  "C1_full": "OPEN",
+  "target": "1.14.0 CANDIDATE / NOT_QUALIFIED"
+}

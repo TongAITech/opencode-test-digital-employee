@@ -301,6 +301,19 @@ def decide(turn: ActualHostUserTurn, operation: ProposedOperation,
         if not _CONTROL[action].fullmatch(unquoted): return reject("EXPLICIT_CONTROL_REQUIRED")
         result.update(status="OWNER_ADMISSION_REQUIRED", reason="RUNTIME_LIFECYCLE_OWNER_REQUIRED")
         return result
+    if intent == Intent.HUMAN_GATE_RESPONSE:
+        # Gate selection is global within authorized Missions, not a premature
+        # unique-Mission decision. The owner replays the exact claimed Gate.
+        text = unquoted
+        targets = [v for k,v in (scope or {}).items() if k != "mode"]
+        if operation.subject_id and _literal(operation.subject_id,text): targets.append(operation.subject_id)
+        for value in targets:
+            for literal in value if isinstance(value,list) else [value]:
+                text = re.sub(r"(?<![A-Za-z0-9_.-])"+re.escape(literal)+r"(?![A-Za-z0-9_.-])", "", text)
+        from .g4.service_r2_4 import _completion_intent
+        if not _completion_intent(text): return reject("EXPLICIT_COMPLETION_REQUEST_REQUIRED")
+        result.update(status="OWNER_ADMISSION_REQUIRED", reason="UNIQUE_GATE_AND_FRESH_VERIFICATION_REQUIRED",resolved_scope=scope)
+        return result
     resolution, subject = resolve_subject(candidates, scope=scope, subject_id=operation.subject_id, include_terminal=intent == Intent.MISSION_QUERY)
     if resolution == "AMBIGUOUS":
         return reject("MULTIPLE_RELEVANT_SUBJECTS", "这项操作针对哪个现有任务？")

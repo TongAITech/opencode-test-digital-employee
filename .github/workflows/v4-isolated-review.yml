@@ -45,6 +45,23 @@ jobs:
           name: v4-windows-general-component
           path: ${{ env.V4_GENERAL_OUTPUT }}/*
           if-no-files-found: warn
+      - name: Verify actual offline Chromium HumanGate recovery with a fresh CDP adapter
+        shell: pwsh
+        run: |
+          $env:GH_TOKEN = ''
+          $env:PIP_NO_INDEX = '1'
+          $output = Join-Path $env:RUNNER_TEMP 'v4-human-gate-cdp'
+          "V4_GATE_CDP_OUTPUT=$output" | Out-File $env:GITHUB_ENV -Append
+          & "$env:V4_RUNTIME/python/python.exe" -X utf8 tools/v4_review/human_gate_browser_component.py --chrome "$env:V4_RUNTIME/browser/chrome-win64/chrome.exe" --output $output
+          if ($LASTEXITCODE -ne 0) { throw 'Actual offline Chromium HumanGate recovery failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v4-windows-human-gate-cdp
+          path: |
+            ${{ env.V4_GATE_CDP_OUTPUT }}/*.json
+            ${{ env.V4_GATE_CDP_OUTPUT }}/*.log
+          if-no-files-found: warn
       - name: Execute actual Python HTTP DB k6 and ZAP against disposable local service
         shell: pwsh
         run: |
