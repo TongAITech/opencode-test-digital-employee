@@ -192,8 +192,21 @@ class PrimarySessionOwner:
             sessions=self.provider.list_sessions()
             if binding and binding['state']=='BOUND':
                 matches=[x for x in sessions if x.session_id==binding['session_id'] and Path(x.directory).resolve()==self.root]
-                if len(matches)==1 and binding['host_realm']==self.host_realm() and stamp(now())<stamp(binding['expires_at']):return self.current()
-                self.fence('LEASE_EXPIRED_OR_HOST_BINDING_MISSING');state=self.state();binding=state.bindings.get(str(state.epoch))
+                reusable = len(matches)==1 and binding['host_realm']==self.host_realm() and stamp(now())<stamp(binding['expires_at'])
+                if reusable:
+                    # A still-existing Host Session is not necessarily safe to
+                    # reattach after restart.  Inspect the actual session before
+                    # returning it; otherwise a context-poisoned Director can
+                    # become the startup pointer forever.
+                    from .g2_1.supervisor import RotationPolicy, SessionObservation
+                    observed = self.provider.observe_session(binding['session_id'])
+                    reasons = RotationPolicy().evaluate(SessionObservation.from_provider(binding['session_id'], observed))
+                    if not reasons:
+                        return self.current()
+                    self.fence(('PRIMARY_PRESSURE:' + ','.join(reasons))[:256])
+                else:
+                    self.fence('LEASE_EXPIRED_OR_HOST_BINDING_MISSING')
+                state=self.state();binding=state.bindings.get(str(state.epoch))
             if binding and binding['state']=='REQUESTED' and binding['host_realm'] != self.host_realm():
                 self.fence('PENDING_HOST_REALM_CHANGED');state=self.state();binding=state.bindings.get(str(state.epoch))
             if binding is None or binding['state']=='FENCED':
