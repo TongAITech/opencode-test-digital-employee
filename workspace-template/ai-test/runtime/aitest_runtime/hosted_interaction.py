@@ -52,6 +52,26 @@ def hosted_interaction(service: Any, payload: Mapping[str, Any], *, action: str 
     results = []
     for admitted in decisions:
         item = dict(admitted)
+        if admitted['intent'] in {'GENERAL_WORK','AITEST_DIAGNOSIS'} and admitted['status']=='DELEGATION_REQUIRED':
+            if clock_ms() > turn.expires_ms:
+                item.update(status='BLOCKED',reason='HOST_USER_TURN_EXPIRED')
+                results.append(item); continue
+            try:
+                from .general_work.execution import GeneralExecutionService
+            except ModuleNotFoundError as exc:
+                if exc.name != 'aitest_runtime.general_work.execution':raise
+                item.update(status='BLOCKED',reason='GENERAL_EXECUTION_OWNER_UNAVAILABLE')
+                results.append(item); continue
+            verified_operation={**admitted,'operation_text':turn.text[admitted['proposal']['start']:admitted['proposal']['end']]}
+            worker_result=GeneralExecutionService(service.runtime,service.workspace_root,
+                session_provider=provider).start(verified_operation,owner)
+            # The typed owner decides policy and durable replay. Preserve its
+            # status; a routing proposal is never relabeled as successful work.
+            item.update(status=worker_result['status'],result=worker_result)
+            item.pop('execution_authorized',None)
+            item.pop('reason',None)
+            if 'subject' in worker_result:item['subject']=worker_result['subject']
+            results.append(item);continue
         prior = owner.receipt(admitted['operation_id'])
         if prior:
             # Replay the canonical original resolution. New candidates may have
@@ -113,5 +133,4 @@ def hosted_interaction(service: Any, payload: Mapping[str, Any], *, action: str 
             if not isinstance(exc,Exception): raise
             item.update(status='RECONCILE_REQUIRED',reason=reason)
         results.append(item)
-    return {**base,'status':'INTERACTION_PROCESSED','operations':results,
-            'general_worker_execution':'NOT_IMPLEMENTED_BY_ADMISSION_FOUNDATION'}
+    return {**base,'status':'INTERACTION_PROCESSED','operations':results}

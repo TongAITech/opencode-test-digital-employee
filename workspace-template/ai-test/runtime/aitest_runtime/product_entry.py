@@ -474,6 +474,18 @@ def emit(value: Any) -> None:
     stream.flush()
 
 
+def general_worker_command(action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Actual worker HostContext and current job binding are checked by its owner."""
+    if action not in {'status','read_file','search_files','write_file','git_inspect','terminal','checkpoint','complete'}:
+        raise ValueError('GENERAL_WORKER_ACTION_NOT_ALLOWED')
+    if not os.environ.get('AITEST_HOST_SESSION_ID') or not os.environ.get('AITEST_HOST_MESSAGE_ID'):
+        raise ValueError('WORKER_HOST_CONTEXT_REQUIRED')
+    from .general_work.execution import GeneralExecutionService
+    root = workspace_root()
+    runtime = create_canonical_runtime(root)
+    return GeneralExecutionService(runtime,root).worker_command(action,_object(payload,'payload'))
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="aitest-product")
     sp = p.add_subparsers(dest="command", required=True)
@@ -494,6 +506,10 @@ def parser() -> argparse.ArgumentParser:
 
     x = sp.add_parser("orchestrate")
     x.add_argument("--role", required=True)
+    x.add_argument("--action", required=True)
+    x.add_argument("--payload", default="{}")
+
+    x = sp.add_parser("general-work")
     x.add_argument("--action", required=True)
     x.add_argument("--payload", default="{}")
 
@@ -547,6 +563,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "orchestrate":
             payload = json.loads(args.payload)
             emit(orchestration_command(args.role, args.action, _object(payload, "payload")))
+            return 0
+        if args.command == "general-work":
+            emit(general_worker_command(args.action,_object(json.loads(args.payload),'payload')))
             return 0
         if args.command == "g3":
             payload = json.loads(args.payload)

@@ -17,6 +17,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from host_interaction_fixture import host_turn
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_ROOT = WORKSPACE_ROOT / "ai-test" / "runtime"
@@ -59,6 +60,7 @@ def proposal() -> dict[str, object]:
 
 
 class OpenCodeContractStub(BaseHTTPRequestHandler):
+    host_messages: dict[str, dict[str, object]] = {}
     sessions: dict[str, dict[str, object]] = {}
     requests: list[dict[str, object]] = []
     counter = 0
@@ -86,6 +88,8 @@ class OpenCodeContractStub(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         self._record()
         parsed = urlparse(self.path)
+        if parsed.path in self.__class__.host_messages:
+            self._json(200,self.__class__.host_messages[parsed.path]);return
         if parsed.path == "/global/health":
             self._json(200, {"healthy": True})
             return
@@ -171,12 +175,16 @@ def main() -> int:
                 "PYTHONPATH": str(RUNTIME_ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""),
             })
 
-            started = run(env, "DIRECTOR", "start_test", {"request": request("sub-a")})
-            mission_id = str(started["intake"]["intake"]["mission_id"])
-            checks["independent_process_start_opens_real_provider_planner_session"] = started["status"] == "PLANNING" and str(started["planner_session"]["external_session"]["session_id"]).startswith("contract-session-")
+            OpenCodeContractStub.host_messages,host_env,payload=host_turn(request('sub-a')['scope'],message='sub-a')
+            env.update(host_env)
+            started = run(env, "DIRECTOR", "start_test", payload)['operations'][0]
+            mission_id = started['subject']['subject_id']
+            checks["independent_process_start_opens_real_provider_planner_session"] = started['status']=='DISPATCHED' and started['result']['next']['status']=='PLANNER_SESSION_OPEN' and any(sid.startswith('contract-session-') for sid in OpenCodeContractStub.sessions)
 
-            resumed = run(env, "DIRECTOR", "start_test", {"request": request("sub-b")})
-            checks["independent_process_same_scope_resumes"] = resumed["intake"]["status"] == "RESUMED" and resumed["intake"]["intake"]["mission_id"] == mission_id
+            OpenCodeContractStub.host_messages,host_env,payload=host_turn(request('sub-b')['scope'],message='sub-b')
+            env.update(host_env)
+            resumed = run(env, "DIRECTOR", "start_test", payload)['operations'][0]
+            checks["independent_process_same_scope_resumes"] = resumed['result']['resumed_existing_mission'] is True and resumed['subject']['subject_id']==mission_id
 
             planned = run(env, "PLANNER", "propose_plan", {"mission_id": mission_id, "proposal": proposal()})
             first = planned["next"]
@@ -205,8 +213,10 @@ def main() -> int:
                 "session_id": rotation["successor_session_id"], "outcome": "SUCCEEDED", "summary": "second done",
             })
             checks["independent_process_loop_completes"] = second_done["next"]["status"] == "PLAN_COMPLETE"
-            continued = run(env, "DIRECTOR", "continue_test", {"mission_id": mission_id})
-            checks["new_process_continue_reads_event_stream"] = continued["status"] == "PLAN_COMPLETE" and spine.is_file()
+            OpenCodeContractStub.host_messages,host_env,payload=host_turn({},message='sub-c',text='继续测试')
+            env.update(host_env)
+            continued = run(env, "DIRECTOR", "continue_test", payload)['operations'][0]
+            checks["new_process_continue_reads_event_stream"] = continued['result']["status"] == "PLAN_COMPLETE" and spine.is_file()
 
             requests = OpenCodeContractStub.requests
             checks["provider_sends_explicit_directory_binding"] = bool(requests) and all(item["directory_header"] == str(root.resolve()) for item in requests)

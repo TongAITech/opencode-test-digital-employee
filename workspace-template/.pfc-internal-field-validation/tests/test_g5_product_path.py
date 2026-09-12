@@ -238,10 +238,9 @@ def build_director_runtime_fixture(root: Path, command) -> dict[str, Any]:
                 "head_ref": head_ref,
             }
         ]
-        started = product_entry.orchestration_command(
-            "DIRECTOR", "start_test", {"request": intake_request()}
-        )
-        mission_id = started["intake"]["intake"]["mission_id"]
+        from host_interaction_fixture import start_product_mission
+        started = start_product_mission(orchestration, intake_request(), fixture_id='g5-product')
+        mission_id = started['operations'][0]['subject']['subject_id']
         cycle = g3_cycle(mission_id, orchestration, coverage, repositories, 1)
         case_fact = cycle["cases"]["ready_cases"][0]["case"]
         case = case_fact["payload"]["r3_3_case"]

@@ -18,6 +18,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from host_interaction_fixture import host_turn
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_ROOT = WORKSPACE_ROOT / "ai-test" / "runtime"
@@ -51,6 +52,7 @@ def proposal() -> dict[str, object]:
 
 
 class Stub(BaseHTTPRequestHandler):
+    host_messages: dict[str, dict[str, object]] = {}
     sessions: dict[str, dict[str, object]] = {}
     messages: dict[str, list[dict[str, object]]] = {}
     requests: list[dict[str, object]] = []
@@ -72,6 +74,7 @@ class Stub(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         self._record(); parsed = urlparse(self.path)
+        if parsed.path in self.__class__.host_messages:self._json(200,self.__class__.host_messages[parsed.path]);return
         if parsed.path == "/global/health": self._json(200, {"healthy": True}); return
         if parsed.path == "/session": self._json(200, list(self.__class__.sessions.values())); return
         if parsed.path.endswith("/message"):
@@ -128,7 +131,9 @@ def main() -> int:
                 "AITEST_OPENCODE_ENDPOINT": f"http://127.0.0.1:{server.server_port}",
                 "PYTHONPATH": str(RUNTIME_ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""),
             })
-            started = run(env, "DIRECTOR", "start_test", {"request": request()}); mission_id = str(started["intake"]["intake"]["mission_id"])
+            Stub.host_messages,host_env,payload=host_turn(request()['scope'],message='background-start')
+            env.update(host_env)
+            started = run(env, "DIRECTOR", "start_test", payload); mission_id = started['operations'][0]['subject']['subject_id']
             planned = run(env, "PLANNER", "propose_plan", {"mission_id": mission_id, "proposal": proposal()}); first = planned["next"]
             predecessor = str(first["external_session"]["session_id"]); root_attempt = str(first["attempt"]["root_attempt_id"])
             Stub.messages[predecessor] = [

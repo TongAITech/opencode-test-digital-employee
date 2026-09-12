@@ -137,7 +137,8 @@ def main():
   api_executor=DeterministicExecutor('API'); security_executor=DeterministicExecutor('SECURITY'); performance_executor=DeterministicExecutor('PERFORMANCE'); product_entry._G4_CAPABILITY_EXECUTORS={'API':api_executor,'SECURITY':security_executor,'PERFORMANCE':performance_executor}; product_entry.orchestration_service=lambda _root=None: orch; product_entry.default_service=lambda _rt,_root: orch; product_entry.G3TestingIntelligenceService=lambda rt,orchestration=None:G3TestingIntelligenceService(rt,coverage_provider=coverage_box['provider'],orchestration=orchestration or orch)
   try:
    stage('start mission')
-   started=product_entry.orchestration_command('DIRECTOR','start_test',{'request':intake_request()}); mid=started['intake']['intake']['mission_id']; checks['same_user_opencode_mission']=started['truth_source']=='R1_EVENT_STREAM'
+   from host_interaction_fixture import start_product_mission
+   started=start_product_mission(orch,intake_request(),fixture_id='g4-full'); mid=started['operations'][0]['subject']['subject_id']; checks['same_user_opencode_mission']=started['truth_source']=='R1_EVENT_STREAM'
    stage('g3 cycle 1')
    firstg3=g3_cycle(mid,orch,coverage_box,repos,1); initial_cases=[x['case'] for x in firstg3['cases']['ready_cases']]; checks['g3_requirement_git_strategy_case_review']=len(initial_cases)>=1 and firstg3['evaluation']['status']=='WAITING_FOR_HUMAN' and firstg3['plan_done']['next']['status']=='PLAN_COMPLETE'
    stage('g3 cycle 1 done')

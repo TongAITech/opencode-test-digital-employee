@@ -140,9 +140,10 @@ def main() -> int:
         product_entry.default_service = lambda _runtime, _root: orchestration  # type: ignore[assignment]
         product_entry.G3TestingIntelligenceService = lambda rt, orchestration=None: G3TestingIntelligenceService(rt, coverage_provider=coverage_box["provider"], orchestration=orchestration or globals()["orchestration"])  # type: ignore[assignment]
         try:
-            started = product_entry.orchestration_command("DIRECTOR", "start_test", {"request": intake_request()})
-            mission_id = started["intake"]["intake"]["mission_id"]
-            checks["user_entry_creates_durable_mission"] = started["status"] == "PLANNING" and started["truth_source"] == "R1_EVENT_STREAM"
+            from host_interaction_fixture import start_product_mission
+            started = start_product_mission(orchestration, intake_request(), fixture_id='g3-product')
+            mission_id = started['operations'][0]['subject']['subject_id']
+            checks["user_entry_creates_durable_mission"] = started['operations'][0]['status'] == 'DISPATCHED' and started["truth_source"] == "R1_EVENT_STREAM"
 
             intent = product_entry.g3_command("DIRECTOR", "register_intent", {"mission_id": mission_id, "intent_type": "TEST_CASE_DESIGN", "scope": {"requirement_id": "REQ-018", "version": "V2", "source_materials": [{"source_id": "REQ-018", "source_kind": "REQUIREMENT", "revision": "V2", "content": "Requested limit must not exceed approved limit; equality is allowed."}, {"source_id": "SST-018", "source_kind": "SST", "revision": "V2", "content": "Limit update synchronizes cfg-data to cfg-scd through SYNC_PENDING to SYNCED."}, {"source_id": "DESIGN-018", "source_kind": "DESIGN", "revision": "V2", "content": "Only LIMIT_WRITE may update; API/UI final value must agree."}]}, "constraints": {"mode": "HUMAN_ASSISTED_OR_AUTONOMOUS"}})
             checks["test_intent_is_durable_and_returns_governed_plan"] = intent["status"] == "ACCEPTED" and len(intent["recommended_plan"]["tasks"]) == 6

@@ -13,8 +13,9 @@ import urllib.request
 COMPATIBILITY = 'OPENCODE_ADAPTER_COMPATIBILITY_REQUIRED'
 REQUIRED_AGENTS = {'aitest-director', 'aitest-planner', 'aitest-requirement-analyst',
                    'aitest-code-analyst', 'aitest-test-strategist', 'aitest-case-designer',
-                   'aitest-executor', 'aitest-evaluator', 'aitest-diagnosis'}
-REQUIRED_TOOLS = {'aitest_director', 'aitest_planner', 'aitest_worker', 'aitest_context'}
+                   'aitest-executor', 'aitest-evaluator', 'aitest-diagnosis',
+                   'aitest-general-worker', 'aitest-runtime-diagnosis'}
+REQUIRED_TOOLS = {'aitest_director', 'aitest_planner', 'aitest_worker', 'aitest_context', 'aitest_general_worker'}
 
 
 class CompatibilityRequired(RuntimeError):

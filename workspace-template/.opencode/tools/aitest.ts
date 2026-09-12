@@ -2,7 +2,9 @@ import { tool } from "@opencode-ai/plugin"
 import path from "path"
 import { modelResult, modelError, boundedTool } from "../lib/model-result.mjs"
 
-type ToolContext = { directory?: string; worktree?: string | null; sessionID?: string; messageID?: string }
+// v1.18.3 session/tools.ts adds callID and tool/registry.ts spreads it into
+// pluginCtx, although the installed legacy plugin .d.ts omits that field.
+type ToolContext = { directory?: string; worktree?: string | null; sessionID?: string; messageID?: string; callID?: string }
 
 async function canonicalWorkspace(context: ToolContext): Promise<string> {
   const required = [
@@ -45,6 +47,7 @@ async function orchestrate(
     AITEST_WORKSPACE_ROOT: workspace,
     AITEST_HOST_SESSION_ID: context.sessionID || "",
     AITEST_HOST_MESSAGE_ID: context.messageID || "",
+    AITEST_HOST_CALL_ID: context.callID || "",
     ...(process.env.AITEST_RUNTIME_SPINE_DB ? { AITEST_RUNTIME_SPINE_DB: process.env.AITEST_RUNTIME_SPINE_DB } : {}),
     PYTHONPATH: [runtime, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
   }
@@ -203,6 +206,47 @@ export const director = boundedTool(tool, {
   async execute(args, context) {
     if (args.action !== "status" && (!context.sessionID || !context.messageID)) throw modelError("HOST_USER_TURN_REQUIRED")
     return orchestrate(context as ToolContext, "DIRECTOR", args.action, args.payload)
+  },
+})
+
+const jobRef = tool.schema.object({job_id: tool.schema.string().min(1).max(256)})
+const fileRef = tool.schema.object({path:tool.schema.string().min(1).max(4096),sha256:tool.schema.string().regex(/^[0-9a-f]{64}$/)}).strict()
+const workerPayloads = {
+  status: jobRef.strict(),
+  read_file: jobRef.extend({path:tool.schema.string().min(1).max(4096),offset:tool.schema.number().int().min(0).default(0),limit:tool.schema.number().int().min(1).max(16384).default(8192)}).strict(),
+  search_files: jobRef.extend({path:tool.schema.string().min(1).max(4096),pattern:tool.schema.string().min(1).max(1024),glob:tool.schema.string().max(256).default("*"),offset:tool.schema.number().int().min(0).default(0),limit:tool.schema.number().int().min(1).max(50).default(20)}).strict(),
+  write_file: jobRef.extend({path:tool.schema.string().min(1).max(4096),expected_sha256:tool.schema.string().regex(/^(MISSING|[0-9a-f]{64})$/),content:tool.schema.string().max(65536)}).strict(),
+  git_inspect: jobRef.extend({path:tool.schema.string().min(1).max(4096),operation:tool.schema.enum(["status","diff","log"]),rev:tool.schema.string().max(256).optional()}).strict(),
+  terminal: jobRef.extend({argv:tool.schema.array(tool.schema.string().max(8192)).min(1).max(64),cwd:tool.schema.string().min(1).max(4096),timeout_seconds:tool.schema.number().int().min(1).max(120).default(30)}).strict(),
+  checkpoint: jobRef.extend({summary:tool.schema.string().min(1).max(4096),artifact_refs:tool.schema.array(fileRef).max(32).optional()}).strict(),
+  complete: jobRef.extend({summary:tool.schema.string().min(1).max(4096),result_refs:tool.schema.array(fileRef).max(32).optional()}).strict(),
+}
+
+export const general_worker = boundedTool(tool, {
+  description: "Bound GeneralWork/RuntimeDiagnosis worker. Runtime verifies actual host tool call against current R1 job session/epoch and applies its existing scoped lease. No Mission creation, model-supplied caller identity, filesystem roots, network grant or test verdict. Writes require an exact prior hash or MISSING; terminal/git require the real OS isolation executor.",
+  args: {
+    action: tool.schema.enum(["status","read_file","search_files","write_file","git_inspect","terminal","checkpoint","complete"]),
+    payload: tool.schema.union([workerPayloads.status,workerPayloads.read_file,workerPayloads.search_files,workerPayloads.write_file,workerPayloads.git_inspect,workerPayloads.terminal,workerPayloads.checkpoint,workerPayloads.complete]),
+  },
+  async execute(args, context) {
+    const host = context as ToolContext
+    if (!host.sessionID || !host.messageID) throw modelError("WORKER_HOST_CONTEXT_REQUIRED")
+    const checked = workerPayloads[args.action].safeParse(args.payload)
+    if (!checked.success) throw modelError("GENERAL_WORKER_ACTION_PAYLOAD_INVALID")
+    const workspace = await canonicalWorkspace(host), python = await portablePython(workspace)
+    const env = {...process.env,AITEST_WORKSPACE_ROOT:workspace,
+      AITEST_HOST_SESSION_ID:host.sessionID,AITEST_HOST_MESSAGE_ID:host.messageID,AITEST_HOST_CALL_ID:host.callID || "",
+      PYTHONPATH:[path.join(workspace,"ai-test","runtime"),process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)}
+    // Preserve the host-recorded input exactly; Runtime applies defaults only
+    // after matching the actual tool part, so omitted options are not forged.
+    const proc = Bun.spawn([python,"-X","utf8","-m","aitest_runtime.product_entry","general-work","--action",args.action,"--payload",JSON.stringify(args.payload)],
+      {cwd:workspace,env,stdout:"pipe",stderr:"pipe"})
+    const stdout=await new Response(proc.stdout).text(),stderr=await new Response(proc.stderr).text()
+    if (await proc.exited !== 0) throw modelError((stderr || stdout || "GENERAL_WORKER_COMMAND_FAILED").trim())
+    let result: Record<string,unknown>
+    try {result=JSON.parse(stdout)} catch {throw modelError("GENERAL_WORKER_RESULT_NOT_JSON")}
+    if(result.truth_source!=="R1_EVENT_STREAM")throw modelError("GENERAL_WORKER_TRUTH_CONTRACT_FAILED")
+    return modelResult(result)
   },
 })
 

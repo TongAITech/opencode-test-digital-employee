@@ -23,7 +23,8 @@ def main()->int:
         oldos,oldds=product_entry.orchestration_service,product_entry.default_service
         product_entry.orchestration_service=lambda _root=None: orch; product_entry.default_service=lambda _rt,_root: orch
         try:
-            started=product_entry.orchestration_command('DIRECTOR','start_test',{'request':intake_request()}); mid=started['intake']['intake']['mission_id']
+            from host_interaction_fixture import start_product_mission
+            started=start_product_mission(orch,intake_request(),fixture_id='g4-capability'); mid=started['operations'][0]['subject']['subject_id']
             plan=product_entry.orchestration_command('PLANNER','propose_plan',{'mission_id':mid,'proposal':{'objective':'capability HumanGate product path','tasks':[exec_task('EXEC-HUMAN','TC-HUMAN')],'dependencies':[]}})
             b=binding(plan['next']); root_attempt=plan['next']['attempt']['root_attempt_id']
             cat=product_entry.g4_command('EXECUTOR','capability_human_gate',{**b,'capability_id':'CAT_LOG','gate_id':'cat-auth','executor_request':{'provider_ref':'cat:bank','operation':'READ'},'required_action':'authenticate CAT'})

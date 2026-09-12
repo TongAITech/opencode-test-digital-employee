@@ -35,6 +35,8 @@ REQUIRED_FILES = (
     'CAPABILITY_PARITY_MATRIX.md', 'VALIDATION_README.md',
     'workspace-template/opencode.json', 'workspace-template/AGENTS.md',
     'workspace-template/.opencode/agents/aitest-director.md',
+    'workspace-template/.opencode/agents/aitest-general-worker.md',
+    'workspace-template/.opencode/agents/aitest-runtime-diagnosis.md',
     'workspace-template/ai-test/runtime/aitest_runtime/canonical_runtime.py',
     SOURCE_PYTHON_RELATIVE, 'workspace-template/runtime/python/python312.dll',
     'workspace-template/runtime/opencode/opencode.exe',
