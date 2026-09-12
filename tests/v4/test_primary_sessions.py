@@ -17,6 +17,7 @@ from aitest_runtime.canonical_runtime import create_canonical_runtime, canonical
 from aitest_runtime.durable_core import RuntimeError, RuntimeService, ActorRef, CommandEnvelope
 from aitest_runtime.primary_sessions import PrimarySessionOwner, EXTENSION_ID, OWNER, CREATE, RECORD, transition, stamp, now
 from aitest_runtime import product_entry
+from aitest_runtime.control_loop import _primary_session_tick
 
 class Host(FakeOpenCodeSessionProvider):
     base_url = 'http://127.0.0.1:4096'
@@ -148,5 +149,29 @@ class PrimaryTests(unittest.TestCase):
         self.assertIn('CONTEXT_PRESSURE',self.owner.state().bindings['1']['reason'])
         with self.assertRaisesRegex(RuntimeError,'STALE_CALLER'):
             self.owner.current(old['session_id'])
+
+    def test_control_loop_rotates_pressured_primary_and_follows_tui(self):
+        old=self.owner.ensure_current()
+        self.host.set_observation(old['session_id'],
+            activity_state='idle', context_used=92000, context_limit=100000,
+            context_utilization=0.92, message_count=20, compaction_count=0)
+        result=_primary_session_tick(self.runtime,self.root,self.host)
+        self.assertEqual(result['status'],'ROTATED')
+        self.assertEqual(result['predecessor_session_id'],old['session_id'])
+        self.assertNotEqual(result['successor_session_id'],old['session_id'])
+        self.assertEqual(self.host.tui_selections[-1],result['successor_session_id'])
+        with self.assertRaisesRegex(RuntimeError,'STALE_CALLER'):
+            self.owner.current(old['session_id'])
+
+    def test_control_loop_does_not_rotate_busy_pressured_primary(self):
+        old=self.owner.ensure_current()
+        self.host.set_observation(old['session_id'],
+            activity_state='busy', context_used=93000, context_limit=100000,
+            context_utilization=0.93, message_count=20, compaction_count=0)
+        result=_primary_session_tick(self.runtime,self.root,self.host)
+        self.assertEqual(result['status'],'WAIT')
+        self.assertEqual(result['reason'],'PRIMARY_PRESSURE_WAIT_BUSY')
+        self.assertEqual(self.owner.current()['session_id'],old['session_id'])
+        self.assertEqual(getattr(self.host,'tui_selections',[]),[])
 
 if __name__=='__main__':unittest.main()
