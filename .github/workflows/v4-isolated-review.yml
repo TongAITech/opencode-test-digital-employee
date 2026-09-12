@@ -47,7 +47,9 @@ jobs:
         run: |
           $env:GH_TOKEN = ''
           $env:PIP_NO_INDEX = '1'
-          $env:PYTHONPATH = (Join-Path $PWD 'workspace-template/ai-test/runtime')
+          $runtimeSource = Join-Path $PWD 'workspace-template/ai-test/runtime'
+          $fieldTests = Join-Path $PWD 'workspace-template/.pfc-internal-field-validation/tests'
+          $env:PYTHONPATH = $runtimeSource + [IO.Path]::PathSeparator + $fieldTests
           & "$env:V4_RUNTIME/python/python.exe" -X utf8 tests/v4/test_primary_sessions.py
           if ($LASTEXITCODE -ne 0) { throw 'C2 Primary session regression failed' }
           & "$env:V4_RUNTIME/python/python.exe" -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_recovery_context_stress.py
