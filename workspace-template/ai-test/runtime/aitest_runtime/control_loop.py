@@ -153,6 +153,112 @@ def _g4_background_human_gate_tick(runtime: Any, root: Path) -> dict[str, Any]:
         }
 
 
+def _primary_session_tick(runtime: Any, root: Path, provider: Any) -> dict[str, Any]:
+    """Supervise the durable Primary binding without making TUI focus truth.
+
+    The launcher creates the first Primary.  Once the typed root exists, the
+    background loop observes it like any other long-lived model Session.  A
+    pressured idle Primary is fenced before a clean successor is provisioned,
+    and OpenCode 1.18.3's TUI session-select endpoint follows that successor.
+    Busy/retry generations are never rotated merely to satisfy pressure.
+    """
+    from .autonomous_orchestration import OpenCodeSessionAdmissionPending
+    from .g2_1.supervisor import RotationPolicy, SessionObservation
+    from .primary_sessions import PrimarySessionOwner
+
+    owner = PrimarySessionOwner(runtime, root, provider)
+    state = owner.state()
+    if state.workspace_root is None:
+        return {
+            "status": "NOT_STARTED",
+            "component": "PRIMARY_SESSION_SUPERVISOR",
+            "truth_source": "R1_EVENT_STREAM",
+        }
+
+    binding = state.bindings.get(str(state.epoch))
+    predecessor = binding.get("session_id") if binding and binding.get("state") == "BOUND" else None
+    reasons: list[str] = []
+    if predecessor:
+        try:
+            observed = provider.observe_session(predecessor)
+            reasons = RotationPolicy().evaluate(SessionObservation.from_provider(predecessor, observed))
+        except OpenCodeSessionAdmissionPending as exc:
+            return {
+                "status": "WAIT",
+                "reason": "PRIMARY_HOST_ADMISSION_PENDING",
+                "error": type(exc).__name__,
+                "component": "PRIMARY_SESSION_SUPERVISOR",
+                "truth_source": "R1_EVENT_STREAM",
+                "predecessor_session_id": predecessor,
+            }
+        except Exception as exc:
+            # Do not silently reattach or invent health when the Host cannot be
+            # observed.  The next tick retries from the same R1 binding.
+            return {
+                "status": "WAIT",
+                "reason": "PRIMARY_OBSERVATION_UNAVAILABLE",
+                "error": type(exc).__name__,
+                "component": "PRIMARY_SESSION_SUPERVISOR",
+                "truth_source": "R1_EVENT_STREAM",
+                "predecessor_session_id": predecessor,
+            }
+        if reasons:
+            activity = getattr(provider, "session_activity", None)
+            if callable(activity):
+                try:
+                    activity_state = activity(predecessor)
+                except Exception:
+                    activity_state = "unknown"
+                if activity_state in {"busy", "retry"}:
+                    return {
+                        "status": "WAIT",
+                        "reason": "PRIMARY_PRESSURE_WAIT_BUSY" if activity_state == "busy" else "PRIMARY_PRESSURE_WAIT_BACKOFF",
+                        "rotation_reasons": reasons,
+                        "component": "PRIMARY_SESSION_SUPERVISOR",
+                        "truth_source": "R1_EVENT_STREAM",
+                        "predecessor_session_id": predecessor,
+                    }
+
+    try:
+        current = owner.ensure_current()
+    except OpenCodeSessionAdmissionPending as exc:
+        return {
+            "status": "WAIT",
+            "reason": "PRIMARY_HOST_ADMISSION_PENDING",
+            "error": type(exc).__name__,
+            "component": "PRIMARY_SESSION_SUPERVISOR",
+            "truth_source": "R1_EVENT_STREAM",
+            "predecessor_session_id": predecessor,
+        }
+
+    successor = current["session_id"]
+    if predecessor and successor != predecessor:
+        select = getattr(provider, "select_tui_session", None)
+        if not callable(select):
+            raise RuntimeError("PRIMARY_TUI_FOLLOW_UNAVAILABLE")
+        select(successor)
+        return {
+            "status": "ROTATED",
+            "component": "PRIMARY_SESSION_SUPERVISOR",
+            "truth_source": "R1_EVENT_STREAM",
+            "predecessor_session_id": predecessor,
+            "successor_session_id": successor,
+            "logical_agent_id": current["logical_agent_id"],
+            "epoch": current["epoch"],
+            "rotation_reasons": reasons,
+            "tui_follow": "SELECTED_SUCCESSOR",
+        }
+    return {
+        "status": "KEEP",
+        "component": "PRIMARY_SESSION_SUPERVISOR",
+        "truth_source": "R1_EVENT_STREAM",
+        "session_id": successor,
+        "logical_agent_id": current["logical_agent_id"],
+        "epoch": current["epoch"],
+        "rotation_reasons": reasons,
+    }
+
+
 def run_tick(workspace_root: Path) -> dict[str, Any]:
     # Rebuild per tick on purpose: no in-memory Session/Mission/HumanGate state can
     # become a second authority or survive independently of the Event Stream.
@@ -160,9 +266,11 @@ def run_tick(workspace_root: Path) -> dict[str, Any]:
     service = default_g21_service(runtime, workspace_root)
     from .mission_controls import reconcile_controls
     controls = reconcile_controls(service)
+    primary = _primary_session_tick(runtime, workspace_root, service.raw_session_provider)
     result = service.supervise_once()
     g4_background = _g4_background_human_gate_tick(runtime, workspace_root)
-    return {**result, "mission_control_recovery": controls, "g4_human_gate_background": g4_background}
+    return {**result, "mission_control_recovery": controls, "primary_session_supervision": primary,
+        "g4_human_gate_background": g4_background}
 
 
 def parser() -> argparse.ArgumentParser:
