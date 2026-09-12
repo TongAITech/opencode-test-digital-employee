@@ -6,6 +6,7 @@ import json
 import multiprocessing
 import os
 from pathlib import Path
+from contextlib import closing
 import sqlite3
 import sys
 import tempfile
@@ -50,7 +51,7 @@ class ReceiptTests(unittest.TestCase):
         result=service.intake_mission(mission_intake(t,op))
         return {'subject_kind':'MISSION','subject_id':result['intake']['mission_id']}
     def count(self, table):
-        with sqlite3.connect(self.db) as c:return c.execute('SELECT count(*) FROM '+table).fetchone()[0]
+        with closing(sqlite3.connect(self.db)) as c, c:return c.execute('SELECT count(*) FROM '+table).fetchone()[0]
     def test_receipt_root_is_not_mission_and_restores_replay(self):
         self.assertTrue(self.owner.claim(self.op)['fresh']);self.assertEqual(self.count('mission_projection'),0)
         restarted=R1InteractionOwner(create_canonical_runtime(WORKSPACE,db_path=self.db))
@@ -150,7 +151,7 @@ class ReceiptTests(unittest.TestCase):
         r=RuntimeService(failed_db,extensions=canonical_extension_manifests(),failure_injector=fail)
         with self.assertRaisesRegex(OSError,'injected transaction fault'):R1InteractionOwner(r).claim(self.op)
         self.assertEqual(observed,['after_command_insert','after_event_insert'])
-        with sqlite3.connect(failed_db) as conn:
+        with closing(sqlite3.connect(failed_db)) as conn, conn:
             self.assertEqual(conn.execute('SELECT count(*) FROM commands').fetchone()[0],0)
             self.assertEqual(conn.execute('SELECT count(*) FROM events').fetchone()[0],0)
             self.assertEqual(conn.execute('SELECT count(*) FROM interaction_operation_projection').fetchone()[0],0)
@@ -173,14 +174,14 @@ class ProductEntryTests(unittest.TestCase):
         self.assertEqual(a['operations'][0]['status'],'DISPATCHED',a)
         b=hosted_interaction(self.service,{},action='start_test',now_ms=NOW)
         self.assertEqual(b['operations'][0]['status'],'REPLAYED',b)
-        with sqlite3.connect(self.db) as c:
+        with closing(sqlite3.connect(self.db)) as c, c:
             self.assertEqual(c.execute('SELECT count(*) FROM mission_projection').fetchone()[0],1)
         self.assertEqual(len(self.provider.sessions),1)
     def test_chat_negation_and_quoted_have_zero_mission_and_receipt_events(self):
         for text,intent,action in [('你好','GENERAL_CHAT','respond'),('不要测试 PF1.0.0','TEST_MISSION_START','start'),('“测试 PF1.0.0”','TEST_MISSION_START','start')]:
             self.provider.host=HostFixture(text)
             hosted_interaction(self.service,{'proposal':proposal(text,intent,action)},now_ms=NOW)
-        with sqlite3.connect(self.db) as c:self.assertEqual(c.execute('SELECT count(*) FROM events').fetchone()[0],0)
+        with closing(sqlite3.connect(self.db)) as c, c:self.assertEqual(c.execute('SELECT count(*) FROM events').fetchone()[0],0)
         self.assertEqual(len(self.provider.sessions),0)
     def test_general_and_diagnosis_use_typed_jobs_without_mission(self):
         import time
@@ -193,7 +194,7 @@ class ProductEntryTests(unittest.TestCase):
             self.provider.host.messages['a1']['info']['parentID']=mid
             result=hosted_interaction(self.service,{'proposal':proposal(text,intent,action)})
             self.assertEqual(result['operations'][0]['status'],'ACTIVE')
-        with sqlite3.connect(self.db) as c:
+        with closing(sqlite3.connect(self.db)) as c, c:
             self.assertEqual(c.execute('SELECT count(*) FROM mission_projection').fetchone()[0],0)
             self.assertEqual(c.execute('SELECT count(*) FROM general_work_projection').fetchone()[0],2)
         self.assertEqual(len(self.provider.sessions),2)
@@ -209,7 +210,7 @@ class ProductEntryTests(unittest.TestCase):
         self.assertEqual(second['operations'][0]['status'],'RECONCILE_REQUIRED')
         self.assertEqual(second['operations'][0]['reason'],'OPERATION_ALREADY_CONSUMED')
         self.assertEqual(len(self.provider.sessions),1)
-        with sqlite3.connect(self.db) as c:self.assertEqual(c.execute('SELECT count(*) FROM mission_projection').fetchone()[0],1)
+        with closing(sqlite3.connect(self.db)) as c, c:self.assertEqual(c.execute('SELECT count(*) FROM mission_projection').fetchone()[0],1)
     def test_changed_semantic_proposal_cannot_reuse_completed_operation(self):
         hosted_interaction(self.service,{},action='start_test',now_ms=NOW)
         p=proposal(self.provider.host.messages['u1']['parts'][0]['text'],'GENERAL_CHAT','respond')
@@ -230,6 +231,6 @@ class ProductEntryTests(unittest.TestCase):
         p={'operations':[{'intent':intent,'action':action,'start':slot['start'],'end':slot['end']} for slot,intent,action in zip(slots,['MISSION_CONTROL','TEST_MISSION_START'],['pause','start'])]}
         result=hosted_interaction(self.service,{'proposal':p},now_ms=NOW)
         self.assertEqual(result['operations'][1]['reason'],'PREEMPTING_CONTROL_MUST_COMPLETE_FIRST')
-        with sqlite3.connect(self.db) as c:self.assertEqual(c.execute('SELECT count(*) FROM mission_projection').fetchone()[0],1)
+        with closing(sqlite3.connect(self.db)) as c, c:self.assertEqual(c.execute('SELECT count(*) FROM mission_projection').fetchone()[0],1)
 
 if __name__=='__main__':unittest.main()

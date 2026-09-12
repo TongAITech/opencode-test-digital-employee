@@ -6,6 +6,7 @@ import json
 import multiprocessing
 import os
 from pathlib import Path
+from contextlib import closing
 import sqlite3
 import sys
 import tempfile
@@ -76,7 +77,7 @@ class ExecutionTests(unittest.TestCase):
         with self.host.call(self.service._job(self.subject), action, payload, mid, cid, agent):
             return self.service.worker_command(action, payload)
     def count(self, table):
-        with sqlite3.connect(self.runtime.db_path) as c: return c.execute("SELECT count(*) FROM " + table).fetchone()[0]
+        with closing(sqlite3.connect(self.runtime.db_path)) as c, c: return c.execute("SELECT count(*) FROM " + table).fetchone()[0]
     def test_delegation_real_file_read_write_complete_no_mission(self):
         result = self.start(); self.assertEqual(result["status"], "ACTIVE")
         self.assertEqual(self.count("mission_projection"), 0); self.assertEqual(len(self.host.sessions), 1)
@@ -209,7 +210,7 @@ class ExecutionTests(unittest.TestCase):
     def test_created_before_prepare_crash_restores_from_r1_only(self):
         with patch.object(self.service, "_prepare_created", side_effect=KeyboardInterrupt("before prepare")):
             with self.assertRaises(KeyboardInterrupt): self.start()
-        with sqlite3.connect(self.runtime.db_path) as c: job_id = c.execute("SELECT job_id FROM general_work_projection").fetchone()[0]
+        with closing(sqlite3.connect(self.runtime.db_path)) as c, c: job_id = c.execute("SELECT job_id FROM general_work_projection").fetchone()[0]
         self.subject = self.service._subject(job_id)
         self.assertEqual(self.service._job(self.subject).status, "CREATED")
         self.host.host.messages.clear()  # original conversation is unavailable
@@ -230,7 +231,7 @@ class ExecutionTests(unittest.TestCase):
             manifests.append(m)
         old = create_canonical_runtime(self.root, db_path=self.runtime.db_path, extensions=manifests)
         def snapshot():
-            with sqlite3.connect(self.runtime.db_path) as c: return list(c.iterdump())
+            with closing(sqlite3.connect(self.runtime.db_path)) as c, c: return list(c.iterdump())
         before = snapshot()
         with self.assertRaisesRegex(RuntimeError, "ROOT_EVENT_UNSUPPORTED"): old.assert_writable_compatible()
         with self.assertRaisesRegex(RuntimeError, "ROOT_EVENT_UNSUPPORTED"): old.rebuild_projections()
@@ -255,7 +256,7 @@ class ExecutionTests(unittest.TestCase):
             with self.assertRaises(KeyboardInterrupt): self.start()
         self.assertEqual(self.count("events"), 0); self.assertEqual(self.count("commands"), 0)
         self.start(); self.assertEqual(self.count("interaction_operation_projection"), 1)
-        with sqlite3.connect(self.runtime.db_path) as c:
+        with closing(sqlite3.connect(self.runtime.db_path)) as c, c:
             rows = c.execute("SELECT command_id FROM events WHERE event_type IN ('interaction.operation_claimed.v1','interaction.general_intent_recorded.v1')").fetchall()
         self.assertEqual(len(rows), 2); self.assertEqual(rows[0], rows[1])
     def test_postinstall_validation_error_with_residual_never_releases_effect_fence(self):

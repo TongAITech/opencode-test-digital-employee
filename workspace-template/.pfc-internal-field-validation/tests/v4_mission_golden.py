@@ -6,6 +6,7 @@ changed implementation pass; compare against exact 240573e runtime instead.
 from pathlib import Path
 import itertools
 import json
+from contextlib import closing
 import sqlite3
 import tempfile
 from types import SimpleNamespace
@@ -37,7 +38,7 @@ def capture(db):
             if not r.ok:raise r.error
             results.append(r.to_dict())
     repeated=[runtime.execute(c).to_dict() for c in commands]
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn, conn:
         conn.row_factory=sqlite3.Row
         events=[dict(v) for v in conn.execute("SELECT * FROM events ORDER BY seq")]
         command_rows=[dict(v) for v in conn.execute("SELECT * FROM commands ORDER BY command_id")]

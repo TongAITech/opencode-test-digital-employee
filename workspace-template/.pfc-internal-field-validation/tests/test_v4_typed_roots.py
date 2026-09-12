@@ -6,6 +6,7 @@ from __future__ import annotations
 import concurrent.futures
 from dataclasses import replace
 import json
+from contextlib import closing
 import sqlite3
 import sys
 import tempfile
@@ -43,7 +44,7 @@ class TypedRoots(unittest.TestCase):
                                 intent="Process one bounded note", actor=ACTOR, **kwargs)
 
     def sql(self, query, args=()):
-        with sqlite3.connect(self.db) as conn:
+        with closing(sqlite3.connect(self.db)) as conn, conn:
             return conn.execute(query, args).fetchall()
 
     def durable(self):
