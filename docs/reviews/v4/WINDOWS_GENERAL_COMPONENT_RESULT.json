@@ -1,0 +1,36 @@
+{
+  "classification": "ACTUAL_WINDOWS_FILE_BROKER_R1_COMPONENT_NOT_L4",
+  "source_head": "781fc3878244ce6a86a78506b6ae922bd099844d",
+  "platform": "Windows-2025Server-10.0.26100-SP0",
+  "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "run_id": "34693091510",
+  "tests_run": 91,
+  "failures": 0,
+  "errors": 0,
+  "skipped": [
+    [
+      "test_atomic_displacement_detects_last_window_external_edit (test_general_execution.FileConflictTests.test_atomic_displacement_detects_last_window_external_edit)",
+      "POSIX atomic exchange fault injection; Windows has a separate CI oracle"
+    ],
+    [
+      "test_oversized_concurrent_displaced_file_is_never_deleted (test_general_execution.FileConflictTests.test_oversized_concurrent_displaced_file_is_never_deleted)",
+      "POSIX exchange oracle"
+    ]
+  ],
+  "status": "PASS",
+  "process_confinement": "NOT_QUALIFIED",
+  "bank_field": "NOT_RUN",
+  "log_sha256": "03f296a2d372d88ae44dd02105775356209ccfc8f0df38c6241c25e7eb314840",
+  "workflow_url": "https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/34693091510",
+  "overall_windows_qualification": "NOT_PASS_WINDOWS_ISOLATION_JOB_FAILED",
+  "artifacts": [
+    {
+      "path": "/Users/tatu/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an/work/v4-implementation/windows-general-evidence/run-34693091510/general-windows-result.json",
+      "sha256": "be90a8b89209785b43e1d2ba0a72a413eaa33c162ad85d5ebe852f434c36d51c"
+    },
+    {
+      "path": "/Users/tatu/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an/work/v4-implementation/windows-general-evidence/run-34693091510/general-windows-tests.log",
+      "sha256": "03f296a2d372d88ae44dd02105775356209ccfc8f0df38c6241c25e7eb314840"
+    }
+  ]
+}

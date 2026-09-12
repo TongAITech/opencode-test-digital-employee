@@ -1,0 +1,22 @@
+{
+  "head": "b753f3b69d9763a65dd52138b19014fca4ec009c",
+  "scope": "CONTROL_FLOW_NOT_WINDOWS_KERNEL",
+  "cases": [
+    {
+      "dangling": false,
+      "initial_error": "GENERAL_EFFECT_RECONCILIATION_REQUIRED",
+      "next_call_error": "GENERAL_EFFECT_RECONCILIATION_REQUIRED",
+      "states": [
+        "CLAIMED"
+      ]
+    },
+    {
+      "dangling": true,
+      "initial_error": "GENERAL_EFFECT_RECONCILIATION_REQUIRED",
+      "next_call_error": "GENERAL_EFFECT_RECONCILIATION_REQUIRED",
+      "states": [
+        "CLAIMED"
+      ]
+    }
+  ]
+}

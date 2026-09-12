@@ -1,0 +1,41 @@
+{
+  "classification": "ACTUAL_WINDOWS_FILE_BROKER_R1_COMPONENT_NOT_L4",
+  "source_head": "7ba2720e8529320fa9bf43b75d100ccc4f825ee6",
+  "platform": "Windows-2025Server-10.0.26100-SP0",
+  "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "run_id": "34692878848",
+  "tests_run": 89,
+  "failures": 0,
+  "errors": 28,
+  "skipped": [
+    [
+      "test_atomic_displacement_detects_last_window_external_edit (test_general_execution.FileConflictTests.test_atomic_displacement_detects_last_window_external_edit)",
+      "POSIX atomic exchange fault injection; Windows has a separate CI oracle"
+    ],
+    [
+      "test_oversized_concurrent_displaced_file_is_never_deleted (test_general_execution.FileConflictTests.test_oversized_concurrent_displaced_file_is_never_deleted)",
+      "POSIX exchange oracle"
+    ]
+  ],
+  "status": "FAIL",
+  "process_confinement": "NOT_QUALIFIED",
+  "bank_field": "NOT_RUN",
+  "log_sha256": "f41be05bb95d78152ada51856a6bd76db04ff121727867be99f2b46dfa1d31f9",
+  "error_classification": {
+    "errors": 28,
+    "all": "TEST_FIXTURE_TEARDOWN_WINERROR32",
+    "repair": "781fc3878244ce6a86a78506b6ae922bd099844d",
+    "assertions_removed": 0,
+    "cleanup_disabled": false
+  },
+  "artifacts": [
+    {
+      "path": "/Users/tatu/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an/work/v4-implementation/windows-general-evidence/run-34692878848/general-windows-result.json",
+      "sha256": "db3a7689b09e9e9d2acd6fdc3d2da26eb973b3065ef5a4dcea4e0d7e2488c588"
+    },
+    {
+      "path": "/Users/tatu/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an/work/v4-implementation/windows-general-evidence/run-34692878848/general-windows-tests.log",
+      "sha256": "f41be05bb95d78152ada51856a6bd76db04ff121727867be99f2b46dfa1d31f9"
+    }
+  ]
+}

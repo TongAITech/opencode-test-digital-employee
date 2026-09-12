@@ -1,0 +1,6 @@
+{
+  "error_blocks": 28,
+  "all_teardown": true,
+  "all_winerror32": true,
+  "all_database_paths": true
+}

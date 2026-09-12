@@ -111,3 +111,45 @@ Source fingerprints are in `c1-intent-event-source-seal.json`; this is an increm
 **Finding closure:** C1-R1, R2, R3, R4 (POSIX tested scope), R5, and the ineffective-manifest-only guard assertion are closed by the recorded repairs and negative controls. Windows displaced-object/ReplaceFile cases remain C4 validation obligations. Mission control/update/HumanGate wiring and real no-progress RuntimeDiagnosis remain explicitly outside this component closure.
 
 TASK_DIFFICULTY = HARD. REASONING_RECOMMENDATION = HIGH for subsequent context/fencing and Windows review; ordinary follow-on product wiring can continue at MEDIUM.
+
+
+## Windows file branch source review — pending actual Windows CI
+
+The new `_windows_replace` correctly defers deleting `.displaced` until its bytes equal the expected version already saved in before.bin; oversized displaced or backup-write failure retains the only copy. A failed second replacement/read/backup also leaves `.second`. The added Windows-only test calls actual ReplaceFileW and checks preserved bytes, but this review has **not run it on Windows**. POSIX or control-flow fixtures do not qualify that OS primitive.
+
+**New P1 / WINDOWS-UNKNOWN-CLASSIFICATION:** the outer worker still infers effect uncertainty from the exception class. If displaced `_whole` raises the product RuntimeError GENERAL_FILE_BYTE_BUDGET after ReplaceFileW has applied, worker_command records a terminal FAILED receipt, instead of leaving CLAIMED for the new pending-artifact guard. That releases the job's next call while an unverified `.displaced` remains. `_reconcile_call`'s suffix check is never reached for this RECEIPTED call.
+
+Independent fault injection with actual temporary disk effects (`windows-unknown-write-classification.json`) reproduces this control flow: target changed to worker content; a transaction and retained displaced human content exist; write returned FAILED/RECEIPTED; the next read call was allowed and completed. This is **not a Windows kernel experiment**: it injects the exact post-install exception class identified in the real Windows branch.
+
+Minimum repair: classify by durable transaction/install boundary and unresolved artifacts, not RuntimeError vs OSError. Any unverified displaced/second/temp must keep the call uncertain and fence subsequent effects until reconciliation. Use no-follow existence (`lstat`/lexists) so a retained dangling link is not invisible to the pending-object check. Known pre-effect validation errors can still receive FAILED without blocking unrelated future calls. Add a worker→broker→actual Windows ReplaceFileW negative that asserts both preserved bytes and R1 uncertainty/no-next-effect; broker file-preservation alone misses this gap.
+
+This finding concerns the newly changed Windows branch. Earlier component/POSIX closure remains historical evidence, but **the new Windows change must not be frozen as qualified until repaired and the actual CI oracle passes**. No architecture or user-authorization blocker is introduced.
+
+
+## Windows uncertainty-classification repair recheck — b753f3b
+
+**WINDOWS-UNKNOWN-CLASSIFICATION original control-flow finding CLOSED.** Reviewer read the new `_pending_replacement` use in worker exception handling and write reconciliation. It checks retained tmp/.displaced/.second using lexists, and retains CALL_CLAIM rather than releasing a failed receipt when any such object remains, including when the thrown exception is the product RuntimeError.
+
+Independent reproduction against exact HEAD `b753f3b69d9763a65dd52138b19014fca4ec009c` now yields GENERAL_EFFECT_RECONCILIATION_REQUIRED; after two supervisor ticks, the sole call stays CLAIMED and a later read is also rejected. An additional dangling-symlink residual counterexample produces the same rejection, confirming exists→lexists addresses that boundary. Evidence: `windows-unknown-write-recheck.json`. These tests perform real temporary disk effects and R1 transitions with an injected post-install exception; **they are not Windows kernel evidence**.
+
+Fresh independent suite: **31 tests run / 10.496s; 29 pass, 2 Windows-only tests skipped**. Windows-only added end-to-end case invokes actual ReplaceFileW with oversized displaced content, checks repeated supervisor fencing, rejects the next call and verifies all retained original bytes. Source/oracle design is appropriate; its actual Windows outcome still requires the new CI run for this HEAD. The earlier run on 7ba2720 cannot qualify b753f3b changes.
+
+No remaining reproduced blocker from this new control-flow finding. Current component verdict returns to REVIEWED_COMPONENT_REGRESSION_PASS for the reviewed non-Windows/control-flow scope; **Windows OS execution qualification remains PENDING CI**, and full C1/C2–C4/final package remain OPEN.
+
+
+## Windows test-resource cleanup review
+
+Independently read run 34692878848 result/log: 7ba2720, 89 tests, zero assertion failures, 28 errors, 2 POSIX skips. All 28 error blocks contain tearDown, WinError 32 and a database path. This remains a failed Windows run; passing test bodies do not qualify the component.
+
+Reviewed all four helper diffs: they add contextlib.closing around sqlite3.connect while retaining the existing connection transaction context (`with closing(connection) as c, c`). Exit order preserves commit/rollback before closing the handle. SQL, golden comparison, assertions, expected errors and cleanup remain unchanged. No ignore_errors, skip or weakened oracle was introduced. This is a resource-leak repair consistent with the observed file-lock failure, not an oracle change. Actual Windows rerun on the repaired source is still required; the local run cannot establish the Windows outcome.
+
+
+## Actual Windows file/R1 component verification — current window
+
+**WINDOWS_FILE_BROKER_R1_COMPONENT_PASS** verified for source `781fc3878244ce6a86a78506b6ae922bd099844d`, run **34693091510**. Reviewer directly read the retained result JSON and full test log and recomputed its SHA256: `03f296a2d372d88ae44dd02105775356209ccfc8f0df38c6241c25e7eb314840`, matching the result manifest.
+
+Actual platform: Windows Server 2025 / 10.0.26100, portable Python 3.12.10 x64. **91 tests run, zero failures, zero errors, two POSIX-specific skips**. Both actual Windows tests are explicitly `ok` in the log: postswap RuntimeError keeps UNKNOWN/CLAIMED fencing, and oversized/backup-failed displaced content survives. The skipped tests are the two POSIX exchange tests, not the Windows cases. The previously observed database cleanup errors are absent in this run.
+
+Evidence: `windows-general-evidence/run-34693091510/{general-windows-result.json,general-windows-tests.log}`; independent hash/test-name check: `resume-review/windows-component-ci-verification.json`. This closes the pending Windows **file broker + R1 component** validation for the tested byte/version scope, including the previously reported Windows uncertainty-classification issue.
+
+It does **not** qualify arbitrary General Worker process confinement, full Windows installed package, full C1 wave, normal-entry real-model L4 or bank validation. The separate process-confinement job remains failed/unqualified and dangerous terminal execution must remain fail closed. Continue C1 remaining control/Gate wiring and C2–C4 work without reopening Resume Phase 0.

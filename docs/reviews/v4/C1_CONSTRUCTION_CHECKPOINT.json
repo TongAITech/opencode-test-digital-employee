@@ -1,0 +1,80 @@
+{
+  "schema": "aitest.v4.construction-checkpoint.v2",
+  "updated_at": "2026-09-12T12:18:59.982839+00:00",
+  "CURRENT_BRANCH": "work/v1.13.0-recovery-turnkey-validation",
+  "CURRENT_HEAD": "781fc3878244ce6a86a78506b6ae922bd099844d",
+  "WORKTREE_STATUS": "product code committed and pushed; evidence checkpoint to be committed",
+  "LAST_COMPLETED_WAVE": "C1 scoped General execution component independently reviewed, including actual Windows files/R1; full C1 OPEN",
+  "PRODUCT_CODE_COMMITS": [
+    "bbd73cb",
+    "4203ae42cfe8010886adf43b1153f13b20f4fd75",
+    "7ba2720e8529320fa9bf43b75d100ccc4f825ee6",
+    "b753f3b69d9763a65dd52138b19014fca4ec009c"
+  ],
+  "TEST_COMMITS": [
+    "4203ae4",
+    "7ba2720",
+    "b753f3b",
+    "781fc3878244ce6a86a78506b6ae922bd099844d"
+  ],
+  "CI_RUNS": [
+    {
+      "id": 34693091510,
+      "source_head": "781fc3878244ce6a86a78506b6ae922bd099844d",
+      "windows_general": "PASS_91_RUN_89_PASS_2_POSIX_SKIP",
+      "windows_isolation": "FAIL_MISSING_POWERSHELL_RESULT",
+      "full_windows_qualification": "NOT_PASS"
+    },
+    {
+      "id": 34692954417,
+      "source_head": "b753f3b69d9763a65dd52138b19014fca4ec009c",
+      "status": "FAIL_RETAINED"
+    },
+    {
+      "id": 34692878848,
+      "source_head": "7ba2720e8529320fa9bf43b75d100ccc4f825ee6",
+      "windows_general": "FAIL_28_TEST_SQLITE_CLEANUP_ERRORS_FIXED_IN_781fc38"
+    },
+    {
+      "id": 34510464980,
+      "source": "scratch/v4-appcontainer-diagnostics",
+      "windows_isolation": "NOT_PROVEN_GIT_BASH_BNOLINKS_ACCESS_DENIED"
+    }
+  ],
+  "F01_F54_STATUS_DELTA": {
+    "F53": "PARTIAL_PRODUCT_IMPLEMENTATION",
+    "F54": "PARTIAL_PRODUCT_IMPLEMENTATION",
+    "full_requirement_closure": "NONE_CLAIMED"
+  },
+  "G6_STATUS_DELTA": "UNCHANGED; A-H remain required, no automatic promotion authority enabled",
+  "DIRECTOR_AUTO_ROTATION": "OPEN",
+  "POISONED_SESSION_RESTART_PROTECTION": "OPEN",
+  "GENERAL_WORKER_REAL_EXECUTION": "SCOPED_FILE_READ_WRITE_SEARCH_R1_RECOVERY_COMPONENT_PASS_MAC_AND_WINDOWS; actual OpenCode one-turn file task PASS at4203ae4; arbitrary processes NOT_QUALIFIED",
+  "AUTONOMOUS_MISSION_RUNNER": "PARTIAL; prior progress fixtures pass, normal-entry full-Mission E2E pending",
+  "CONTEXT_GOVERNOR": "PARTIAL_MISSION_PRESSURE_CONTROL; all-role and final-provider product admission OPEN",
+  "WINDOWS_CONFINEMENT": "NOT_QUALIFIED; no unrestricted process fallback",
+  "CURRENT_FAILING_TESTS": [
+    "windows-isolation current mainline workflow; Windows full confinement not proven"
+  ],
+  "ROOT_CAUSE": "Latest mainline AppContainer probe lacks notes/powershell-result.json after child exit0. Later preserved scratch diagnostic fixes this but remains NOT_PROVEN at Git Bash Sessions/BNOLINKS object access; not yet integrated. Full all-role governor/control/update/HumanGate/Diagnosis remain implementation work, not external authorization blockers.",
+  "NEXT_EXACT_ACTION": [
+    "Complete C1 Mission control/update/HumanGate typed owners with actual caller fences and recovery; independently review.",
+    "Implement C2 all-role final-provider Governor and Director healthy successor/restart/TUI binding, C3 autonomous Diagnosis and side-effect recovery.",
+    "Integrate preserved scratch Windows diagnostics, finish C4 broker confinement, then D/E/F/G, version1.14.0 and final package/installed-byte qualification."
+  ],
+  "TASK_DIFFICULTY": "HARD",
+  "REASONING_RECOMMENDATION": "HIGH",
+  "version_target": "1.14.0 CANDIDATE / NOT_QUALIFIED",
+  "architecture": "v7/FROZEN/UNCHANGED",
+  "runtime_truth": "R1_EVENT_STREAM_ONLY",
+  "main_unchanged": "58e5e1259cd26846b31ea21a8a87df0bcf071edc",
+  "final_package": "NOT_BUILT",
+  "real_host_evidence": "docs/reviews/v4/C1_REAL_HOST_COMMITTED_SOURCE_RESULT.json",
+  "scope": "F01-F54 plus G6-A-H and resume contract additions retained; no scope reduction",
+  "evidence": {
+    "local_regression": "89 passed,2 Windows-only skipped; general-execution-14.log",
+    "windows": "docs/reviews/v4/WINDOWS_GENERAL_COMPONENT_RESULT.json",
+    "independent": "docs/reviews/v4/C1_EXECUTION_RAW_SOURCE_REVIEW.md"
+  },
+  "CURRENT_HEAD_semantics": "latest source/test commit covered by this checkpoint; following commit contains evidence metadata only"
+}

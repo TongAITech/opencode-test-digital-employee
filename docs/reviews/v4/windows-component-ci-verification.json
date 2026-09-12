@@ -1,0 +1,25 @@
+{
+  "source_exact": true,
+  "log_sha256_match": true,
+  "test_count": 91,
+  "failures": 0,
+  "errors": 0,
+  "skipped": [
+    [
+      "test_atomic_displacement_detects_last_window_external_edit (test_general_execution.FileConflictTests.test_atomic_displacement_detects_last_window_external_edit)",
+      "POSIX atomic exchange fault injection; Windows has a separate CI oracle"
+    ],
+    [
+      "test_oversized_concurrent_displaced_file_is_never_deleted (test_general_execution.FileConflictTests.test_oversized_concurrent_displaced_file_is_never_deleted)",
+      "POSIX exchange oracle"
+    ]
+  ],
+  "windows_test_lines": [
+    "test_windows_postswap_runtime_error_remains_unresolved (test_general_execution.ExecutionTests.test_windows_postswap_runtime_error_remains_unresolved) ... ok",
+    "test_windows_displaced_survives_oversize_or_backup_failure (test_general_execution.FileConflictTests.test_windows_displaced_survives_oversize_or_backup_failure) ... ok"
+  ],
+  "skip_lines": [
+    "test_atomic_displacement_detects_last_window_external_edit (test_general_execution.FileConflictTests.test_atomic_displacement_detects_last_window_external_edit) ... skipped 'POSIX atomic exchange fault injection; Windows has a separate CI oracle'",
+    "test_oversized_concurrent_displaced_file_is_never_deleted (test_general_execution.FileConflictTests.test_oversized_concurrent_displaced_file_is_never_deleted) ... skipped 'POSIX exchange oracle'"
+  ]
+}

@@ -21,3 +21,13 @@ Still OPEN: Mission update/control/HumanGate typed owners, General automatic rot
 ## Oracle correction
 
 The pre-General implementation's assertion that admitted engineering work creates zero R1 events was invalid once typed non-Mission jobs were implemented. The revised oracle still requires zero events for chat/negation/reference, while admitted General/Diagnosis must create their own durable roots and real Sessions with **zero Mission**. This is a scope-correct oracle migration, not relaxation of Mission admission. Outer Host tool status `completed` is never treated as successful terminal execution when its structured result reports FAILED.
+
+## Committed-source and Windows follow-through
+
+Actual Host probe 03 completed the same one-turn General file task from product code commit `4203ae42cfe8010886adf43b1153f13b20f4fd75`. All 466 tracked product files matched that commit; three reused local OpenCode plugin metadata files are separately identified, so this is not described as a fully source-only or final installed-byte package. See `C1_REAL_HOST_COMMITTED_SOURCE_RESULT.json`.
+
+Windows run **34693091510**, source **781fc3878244ce6a86a78506b6ae922bd099844d**, ran **91 tests: 89 passed, 2 POSIX-only skipped, zero failures/errors** on Windows Server 2025 x64 / local reused Python 3.12.10. Both actual ReplaceFileW adversarial tests executed successfully. The previous 28 Windows errors were retained and independently traced to fixture SQLite connections not being closed before teardown; explicit closing preserves transactions, assertions and cleanup. The latest Mac suite likewise passed 89 with two Windows-only skips.
+
+A post-install validation error now keeps the R1 call CLAIMED when temporary/displaced/second objects remain, including dangling links, and rejects following effects. This proves fencing of an unknown effect, **not autonomous resolution of every possible concurrent edit**; that remains a Diagnosis/reconciliation requirement. The independent report retains the failure and its recheck.
+
+This is **WINDOWS_GENERAL_FILE_R1_COMPONENT_PASS**. The separate Windows process-isolation job still failed, terminal remains fail closed, and full C1, final package, final Windows installed-byte validation, L4 and bank field validation remain OPEN.

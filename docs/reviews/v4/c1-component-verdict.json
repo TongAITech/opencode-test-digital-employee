@@ -14,7 +14,16 @@
     "MANIFEST_ONLY_GUARD_ASSERTION"
   ],
   "full_c1": "OPEN",
-  "windows_execution": "OPEN",
+  "windows_execution": "PROCESS_CONFINEMENT_NOT_QUALIFIED",
   "final_product_qualification": "NOT_RUN",
-  "source_seal": "c1-intent-event-source-seal.json"
+  "source_seal": "c1-intent-event-source-seal.json",
+  "windows_file_broker_r1_component": {
+    "status": "PASS",
+    "source_head": "781fc3878244ce6a86a78506b6ae922bd099844d",
+    "run_id": "34693091510",
+    "tests_run": 91,
+    "failures": 0,
+    "errors": 0,
+    "posix_skipped": 2
+  }
 }

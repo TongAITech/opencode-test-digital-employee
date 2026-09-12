@@ -802,15 +802,32 @@
       "requirement": "要求：九类主要意图与混合意图；不是所有通用工作都创建 TestMission。",
       "source_evidence_status": "CURRENT_SOURCE_AND_L1_SPIKE",
       "root_cause_status": "CONFIRMED_COMPONENT_GAP",
-      "implementation_status": "OPEN",
-      "validation_status": "BASELINE_CONTRACT_FAIL",
+      "implementation_status": "PARTIAL_PRODUCT_IMPLEMENTATION",
+      "validation_status": "COMPONENT_REGRESSION_PASS_FULL_ACCEPTANCE_OPEN",
       "bank_only": false,
       "evidence_refs": [
         "S3_ROUTING_BASELINE_RESULT.json",
-        "reviewer-routing/REVIEW.md"
+        "reviewer-routing/REVIEW.md",
+        "docs/reviews/v4/C1_GENERAL_EXECUTION_COMPONENT.md",
+        "docs/reviews/v4/C1_EXECUTION_RAW_SOURCE_REVIEW.md",
+        "docs/reviews/v4/C1_REAL_HOST_COMMITTED_SOURCE_RESULT.json",
+        "docs/reviews/v4/WINDOWS_GENERAL_COMPONENT_RESULT.json"
       ],
       "planned_phase": "C",
-      "final_qualification": "NOT_RUN"
+      "final_qualification": "NOT_RUN",
+      "construction_delta": {
+        "code_head": "b753f3b69d9763a65dd52138b19014fca4ec009c",
+        "real_host_code_head": "4203ae42cfe8010886adf43b1153f13b20f4fd75",
+        "general_files": "REAL_SCOPED_READ_WRITE_SEARCH_AND_R1_RECOVERY",
+        "real_host": "ONE_USER_TURN_DISTINCT_WORKER_ZERO_MISSION_PASS",
+        "remaining": "Mission update/control/HumanGate owners; all-role governor; automatic Diagnosis; mixed-work fairness; Windows confinement and installed-product qualification",
+        "windows_general_component": {
+          "run_id": 34693091510,
+          "source_head": "781fc3878244ce6a86a78506b6ae922bd099844d",
+          "result": "91_RUN_89_PASS_2_POSIX_SKIP",
+          "scope": "FILE_BROKER_R1_ONLY"
+        }
+      }
     },
     {
       "id": "F54",
@@ -820,15 +837,32 @@
       "requirement": "要求：主 Agent 可委派；Worker 真读写/执行终端，不能借通用通道绕过 R1/G4。",
       "source_evidence_status": "CURRENT_SOURCE_AND_L1_SPIKE",
       "root_cause_status": "CONFIRMED_COMPONENT_GAP",
-      "implementation_status": "OPEN",
-      "validation_status": "BASELINE_CONTRACT_FAIL",
+      "implementation_status": "PARTIAL_PRODUCT_IMPLEMENTATION",
+      "validation_status": "COMPONENT_REGRESSION_PASS_FULL_ACCEPTANCE_OPEN",
       "bank_only": false,
       "evidence_refs": [
         "S3_ROUTING_BASELINE_RESULT.json",
-        "reviewer-routing/REVIEW.md"
+        "reviewer-routing/REVIEW.md",
+        "docs/reviews/v4/C1_GENERAL_EXECUTION_COMPONENT.md",
+        "docs/reviews/v4/C1_EXECUTION_RAW_SOURCE_REVIEW.md",
+        "docs/reviews/v4/C1_REAL_HOST_COMMITTED_SOURCE_RESULT.json",
+        "docs/reviews/v4/WINDOWS_GENERAL_COMPONENT_RESULT.json"
       ],
       "planned_phase": "C",
-      "final_qualification": "NOT_RUN"
+      "final_qualification": "NOT_RUN",
+      "construction_delta": {
+        "code_head": "b753f3b69d9763a65dd52138b19014fca4ec009c",
+        "real_host_code_head": "4203ae42cfe8010886adf43b1153f13b20f4fd75",
+        "general_files": "REAL_SCOPED_READ_WRITE_SEARCH_AND_R1_RECOVERY",
+        "real_host": "ONE_USER_TURN_DISTINCT_WORKER_ZERO_MISSION_PASS",
+        "remaining": "Mission update/control/HumanGate owners; all-role governor; automatic Diagnosis; mixed-work fairness; Windows confinement and installed-product qualification",
+        "windows_general_component": {
+          "run_id": 34693091510,
+          "source_head": "781fc3878244ce6a86a78506b6ae922bd099844d",
+          "result": "91_RUN_89_PASS_2_POSIX_SKIP",
+          "scope": "FILE_BROKER_R1_ONLY"
+        }
+      }
     }
   ],
   "G6": {

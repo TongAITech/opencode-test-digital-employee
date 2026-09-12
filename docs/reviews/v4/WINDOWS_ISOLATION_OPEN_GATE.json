@@ -1,0 +1,48 @@
+{
+  "run_id": 34693091510,
+  "workflow_source_head": "781fc3878244ce6a86a78506b6ae922bd099844d",
+  "probe": {
+    "status": "ENVIRONMENT_BLOCKED_OR_INCOMPLETE",
+    "probe": "APPCONTAINER_ZERO_CAPABILITIES_V1",
+    "parent_token": {
+      "elevated": false,
+      "administrator_enabled": false,
+      "appcontainer": false,
+      "appcontainer_sid": "",
+      "capability_count": -1
+    },
+    "profile": "aitest-spike-09680b4bc1a74c7091de35eba6cc0467",
+    "os": "Microsoft Windows NT 6.2.9200.0",
+    "source_head": "042a88a3fa3ac93cecb7b0d3ad5ff4b7f6bd71ac",
+    "appcontainer_sid": "S-1-15-2-3174117557-1564984190-1298050013-1876268207-154207226-3409475398-2424330280",
+    "parent_read_controls": true,
+    "junction_setup": {
+      "started": true,
+      "exit": 0
+    },
+    "network_parent_control": true,
+    "launch": {
+      "started": true,
+      "exit_code": 0,
+      "capabilities": 0,
+      "inherited_handles": false,
+      "environment": "SANITIZED",
+      "timeout_ms": 65000
+    },
+    "error": "FileNotFoundException",
+    "detail": "Could not find file 'D:\\a\\_temp\\v4-isolation-961a4ece64d741a19c46874c5675f5b9\\notes\\powershell-result.json'.",
+    "qualification": "NOT_PROVEN",
+    "profile_delete_hresult": 0
+  },
+  "embedded_probe_source_head": "STALE_HARDCODED_ID_NOT_WORKFLOW_CHECKOUT_ID",
+  "artifacts": [
+    {
+      "path": "/Users/tatu/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an/work/v4-implementation/windows-general-evidence/isolation-34693091510/result.json",
+      "sha256": "41f82d3953c3b46a28cb910858dad46ab35be3439a3856e977d3af545d4348e1"
+    },
+    {
+      "path": "/Users/tatu/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an/work/v4-implementation/windows-general-evidence/isolation-34693091510/workflow-identity.json",
+      "sha256": "1dbe6c42a37f83fcb60278faa2e43a9e5d263bbc47d4cf725697d988ab030ff7"
+    }
+  ]
+}

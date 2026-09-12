@@ -1,0 +1,23 @@
+{
+  "qualification": "CONTROL_FLOW_FAULT_INJECTION_WITH_ACTUAL_DISK_EFFECT_NOT_WINDOWS_OS_PROOF",
+  "write_response": {
+    "reason": "GENERAL_FILE_BYTE_BUDGET",
+    "truth_source": "R1_EVENT_STREAM",
+    "result_type": "ENGINEERING_RESULT",
+    "job_id": "general-work:v1:20007f3846d37b505939ea9b6829e0589e6a1515da8311f432a73ba375d0293a",
+    "status": "FAILED"
+  },
+  "calls": [
+    [
+      "write_file",
+      "RECEIPTED"
+    ],
+    [
+      "read_file",
+      "RECEIPTED"
+    ]
+  ],
+  "pending_displaced": true,
+  "next_call_status": "COMPLETED",
+  "file_effect": "worker replacement"
+}
