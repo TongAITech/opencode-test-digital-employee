@@ -1,0 +1,11 @@
+# Windows concurrent control oracle independent review
+
+**Decision: ACCEPT_ORACLE_CORRECTION; NOT_A_WEAKENED_COMPLETION_ORACLE.** No product source or Git state changed by reviewer. This review covers only the one test correction and does not reclassify the failed Windows run.
+
+Raw Windows run 34698817575 used source 4c7425e38aea5be864d3a53850dc7ecdbbc607f7 on Windows Server 2025, Python 3.12.10: 118 tests, 1 failure, 0 errors, 2 POSIX skips. The sole failure asserted the immediate result set must be COMPLETED + REPLAYED; actual result contained CONTROL_PENDING instead of REPLAYED. Log SHA256 independently verified: `20a218913d9491587fd3334969b8183d215b77b21319951e89bc5555413ec292`, matching the supplied result JSON. The run remains FAIL pending a new CI execution.
+
+The product deliberately releases a waiting control after a 100 ms effect mutex timeout, retaining a durable pending receipt. Requiring every competing caller to observe final replay within that interval incorrectly depends on platform persistence latency. The revised test permits only the three defined intermediate outcomes, then requires real reconcile_controls PASS, the same canonical receipt COMPLETED with PAUSED result, exact replay-result equality, no remaining background operation, exactly one Mission pause and one Mission creation, and unchanged provider Session/message counts. It does not equate CONTROL_PENDING with completion, mock the reconciliation result, swallow errors, or skip Windows.
+
+Independent local execution of the revised named test: **1 test / OK / 0.342s**. A second targeted execution injects only a 250 ms receipt-completion delay, preserving actual R1 writes and the production controller, to force the pending branch; results are in windows-control-oracle-local-recheck.json. This is a local fault-injection check, not a Windows run. New Windows evidence is still required for Windows PASS.
+
+Prior Mission-control component findings and their closure remain unchanged. Worker authority pre-POST work must still grant durably before actual Host dispatch, preserve original lease identity on retries, validate latest Attempt/root logical lineage for frozen successors, and fence all model-facing domain tool variants. Those are separate implementation/review scope, with no new architectural Gate introduced by this test correction.

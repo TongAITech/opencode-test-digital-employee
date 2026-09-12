@@ -59,12 +59,26 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(result['operations'][0]['status'],'ADMITTED');self.assertEqual(self.count(),before)
         self.assertEqual(self.count('mission.created'),1)
     def test_duplicate_concurrent_controls_single_transition(self):
+        sessions=len(self.host.sessions);messages=len(self.host.messages)
         op=self.control('暂停测试','pause',invoke=False);barrier=threading.Barrier(2)
         def execute(_):
             barrier.wait();return apply_control(self.service,self.owner,op)
         with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(execute,range(2)))
-        self.assertEqual({r['status'] for r in results},{'COMPLETED','REPLAYED'})
+        # The effect mutex deliberately returns PENDING after 100ms. Windows
+        # may take longer to persist the winner's receipt; pending is only an
+        # intermediate observation, never evidence that the control completed.
+        self.assertTrue(all(r['status'] in {'COMPLETED','REPLAYED','CONTROL_PENDING'} for r in results))
+        self.assertEqual(reconcile_controls(self.service)['status'],'PASS')
+        receipt=self.owner.receipt(op['operation_id'])
+        self.assertEqual(receipt['state'],'COMPLETED')
+        self.assertEqual(receipt['result']['status'],'PAUSED')
+        replay=apply_control(self.service,self.owner,op)
+        self.assertEqual(replay['status'],'REPLAYED')
+        self.assertEqual(replay['result'],receipt['result'])
+        self.assertEqual(reconcile_controls(self.service)['operations'],[])
         self.assertEqual(self.count('mission.paused'),1)
+        self.assertEqual(self.count('mission.created'),1)
+        self.assertEqual(len(self.host.sessions),sessions);self.assertEqual(len(self.host.messages),messages)
     def test_crash_after_state_before_receipt_recovers_without_second_pause(self):
         op=self.control('暂停测试','pause',invoke=False)
         with patch.object(self.owner,'complete',side_effect=OSError('receipt interrupted')):
