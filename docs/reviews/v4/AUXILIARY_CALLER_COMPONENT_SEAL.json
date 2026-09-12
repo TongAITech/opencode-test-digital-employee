@@ -1,0 +1,25 @@
+{
+  "decision": "LOCAL_AUXILIARY_COMPONENT_REVIEW_PASS",
+  "reported_p1_closed": 1,
+  "tests": {
+    "run": 9,
+    "result": "OK",
+    "seconds": 10.053
+  },
+  "windows": "SOURCE_REVIEW_ONLY_NOT_RUN",
+  "bank": "NOT_RUN",
+  "full_c1": "OPEN",
+  "source_sha256": {
+    "workspace-template/ai-test/runtime/aitest_runtime/auxiliary_tool_admission.py": "f2c7718ff2044947d1f95b60295de824a9a6a9f4c48502f7f13446e834ca6e4f",
+    "workspace-template/ai-test/runtime/aitest_runtime/recovery_intake.py": "d998d660631203079c0077ed8e67e87f187c00d2db6ec7bd0cef45ed7f15ccfd",
+    "workspace-template/ai-test/runtime/aitest_runtime/bounded_evidence.py": "85c4d991d5010a00a18a1f1e5c8f87a9a3a28e0859961e2f864f46d883122427",
+    "workspace-template/ai-test/runtime/aitest_runtime/host_tool_call.py": "7f6d327b5a02cbd2a8c26457ecfdad5c14e661ceae859ab255e05ab025a2f418",
+    "workspace-template/ai-test/runtime/aitest_runtime/product_entry.py": "8a4d5fde4d63831e58bfbd96e91e903c008eec1e6e0b0f8e5061337290a83406",
+    "workspace-template/.opencode/tools/aitest.ts": "cdba892c06b53f5d4a1fc5220c2c6b11cb89a9e796ad7faa59667b7238fdbd55",
+    "tests/v4/test_auxiliary_caller_admission.py": "c94fc09870ca0af65cf82f272bdbb5a386ea17b934a51e1fefff319ac18cbad8"
+  },
+  "independent_evidence": [
+    "auxiliary-document-path-recheck.json",
+    "auxiliary-knowledge-human-gate.json"
+  ]
+}

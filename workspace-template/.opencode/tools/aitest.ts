@@ -362,13 +362,15 @@ export const diagnosis = boundedTool(tool, {
 })
 
 export const knowledge = boundedTool(tool, {
-  description: "Source-bound R1 knowledge candidates and bounded task retrieval over R3.E1. Only locally reviewed, fresh VERIFIED knowledge enters execution Context. Global learning/Skill promotion remains G6 HOLD.",
+  description: "Source-bound R1 knowledge candidates and bounded task retrieval over R3.E1. Every payload requires mission_id; Runtime derives current task, role and exact project/environment/version scope. Only locally reviewed, fresh VERIFIED knowledge enters execution Context. Global learning/Skill promotion remains G6 HOLD.",
   args: { action: tool.schema.enum(["candidate", "task_view", "apply_review", "link"]), payload: tool.schema.record(tool.schema.string(), tool.schema.any()).default({}) },
   async execute(args, context) {
     const workspace = await canonicalWorkspace(context as ToolContext)
     const python = await portablePython(workspace)
     const proc = Bun.spawn([python, "-X", "utf8", "-m", "aitest_runtime.product_entry", "knowledge", "--action", args.action, "--payload", JSON.stringify(args.payload)],
-      { cwd: workspace, env: { ...process.env, AITEST_WORKSPACE_ROOT: workspace, PYTHONPATH: path.join(workspace, "ai-test", "runtime") }, stdout: "pipe", stderr: "pipe" })
+      { cwd: workspace, env: { ...process.env, AITEST_WORKSPACE_ROOT: workspace,
+        AITEST_HOST_SESSION_ID: (context as ToolContext).sessionID || "", AITEST_HOST_MESSAGE_ID: (context as ToolContext).messageID || "", AITEST_HOST_CALL_ID: (context as ToolContext).callID || "",
+        PYTHONPATH: path.join(workspace, "ai-test", "runtime") }, stdout: "pipe", stderr: "pipe" })
     const stdout = await new Response(proc.stdout).text()
     const stderr = await new Response(proc.stderr).text()
     if (await proc.exited !== 0) throw modelError(stderr || stdout)
@@ -385,7 +387,9 @@ export const recovery = boundedTool(tool, {
   async execute(args, context) {
     const workspace = await canonicalWorkspace(context as ToolContext)
     const python = await portablePython(workspace)
-    const env = { ...process.env, AITEST_WORKSPACE_ROOT: workspace, PYTHONPATH: path.join(workspace, "ai-test", "runtime") }
+    const env = { ...process.env, AITEST_WORKSPACE_ROOT: workspace,
+      AITEST_HOST_SESSION_ID: (context as ToolContext).sessionID || "", AITEST_HOST_MESSAGE_ID: (context as ToolContext).messageID || "", AITEST_HOST_CALL_ID: (context as ToolContext).callID || "",
+      PYTHONPATH: path.join(workspace, "ai-test", "runtime") }
     const proc = Bun.spawn([python, "-X", "utf8", "-m", "aitest_runtime.product_entry", "recovery", "--action", args.action, "--payload", JSON.stringify(args.payload)],
       { cwd: workspace, env, stdout: "pipe", stderr: "pipe" })
     const stdout = await new Response(proc.stdout).text()
@@ -401,13 +405,15 @@ export const context = boundedTool(tool, {
   description: "Read one bounded page of explicitly referenced, Mission-scoped evidence. Never reads host files/configuration or injects a full Runtime/Evidence file. Requires a Router-owned Session; use next_offset with expected_sha256 and retain references instead of concatenating pages.",
   args: {
     mission_id: tool.schema.string(), source_ref: tool.schema.string().describe("evidence:<relative filename> under this Mission's durable evidence directory"),
-    offset: tool.schema.number().int().min(0).default(0), limit: tool.schema.number().int().min(1).max(4096).default(4096),
+    offset: tool.schema.number().int().min(0).optional(), limit: tool.schema.number().int().min(1).max(4096).optional(),
     expected_sha256: tool.schema.string().optional(),
   },
   async execute(args, context) {
     const workspace = await canonicalWorkspace(context as ToolContext)
     const python = await portablePython(workspace)
-    const env = { ...process.env, AITEST_WORKSPACE_ROOT: workspace, AITEST_HOST_SESSION_ID: context.sessionID || "", PYTHONPATH: path.join(workspace, "ai-test", "runtime") }
+    const env = { ...process.env, AITEST_WORKSPACE_ROOT: workspace,
+      AITEST_HOST_SESSION_ID: (context as ToolContext).sessionID || "", AITEST_HOST_MESSAGE_ID: (context as ToolContext).messageID || "", AITEST_HOST_CALL_ID: (context as ToolContext).callID || "",
+      PYTHONPATH: path.join(workspace, "ai-test", "runtime") }
     const proc = Bun.spawn([python, "-X", "utf8", "-m", "aitest_runtime.bounded_evidence", "--payload", JSON.stringify(args)],
       { cwd: workspace, env, stdout: "pipe", stderr: "pipe" })
     const stdout = await new Response(proc.stdout).text()

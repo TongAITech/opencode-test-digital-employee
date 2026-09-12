@@ -7,7 +7,7 @@ from .general_work.execution_contract import require
 from .interaction_admission import AdmissionError
 
 
-def actual_tool_call(provider, *, agent, tool, action, payload):
+def actual_tool_call(provider, *, agent, tool, action, payload, expected_input=None):
     sid, mid, cid = (os.environ.get(k, '') for k in
         ('AITEST_HOST_SESSION_ID', 'AITEST_HOST_MESSAGE_ID', 'AITEST_HOST_CALL_ID'))
     if not sid or not mid or not cid:
@@ -30,9 +30,10 @@ def actual_tool_call(provider, *, agent, tool, action, payload):
     require(len(matches) == 1, 'ACTUAL_TOOL_CALL_REQUIRED')
     p = matches[0]; state = p.get('state')
     allowed_tools = (tool,) if isinstance(tool, str) else tuple(tool)
+    expected = {'action': action, 'payload': payload} if expected_input is None else expected_input
     require(p.get('tool') in allowed_tools and p.get('sessionID') == sid and p.get('messageID') == mid
         and not p.get('synthetic') and not p.get('ignored') and isinstance(state, dict)
-        and state.get('status') == 'running' and state.get('input') == {'action': action, 'payload': payload},
+        and state.get('status') == 'running' and state.get('input') == expected,
         'ACTUAL_TOOL_CALL_REQUIRED')
     return {'session_id': sid, 'message_id': mid, 'call_id': cid, 'tool': p['tool'],
-        'input_digest': canonical_sha256({'action': action, 'payload': payload})}
+        'input_digest': canonical_sha256(expected)}

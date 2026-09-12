@@ -119,6 +119,17 @@ def read_evidence_page(durable_root: Path, mission_id: str, source_ref: str, *, 
     return result
 
 
+def model_read(workspace,payload):
+    from .product_entry import orchestration_service
+    from .auxiliary_tool_admission import auxiliary_call
+    if not isinstance(payload,dict) or set(payload)-{'mission_id','source_ref','offset','limit','expected_sha256'}:
+        raise ValueError('BOUNDED_EVIDENCE_INPUT_INVALID')
+    service=orchestration_service(workspace)
+    with auxiliary_call(service,'aitest_context','read',payload,raw_input=True):
+        require_router_session(service.runtime.replay_composed(payload['mission_id']),os.environ.get('AITEST_HOST_SESSION_ID',''))
+        return read_evidence_page(service.runtime.db_path.parent.parent,**payload)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--payload", required=True)
@@ -127,10 +138,7 @@ def main() -> int:
     if set(payload) - {"mission_id", "source_ref", "offset", "limit", "expected_sha256"}:
         raise ValueError("BOUNDED_EVIDENCE_INPUT_INVALID")
     workspace = Path(os.environ["AITEST_WORKSPACE_ROOT"])
-    runtime = create_canonical_runtime(workspace)
-    composed = runtime.replay_composed(payload["mission_id"])
-    require_router_session(composed, os.environ.get("AITEST_HOST_SESSION_ID", ""))
-    result = read_evidence_page(canonical_db_path(workspace).parent.parent, **payload)
+    result = model_read(workspace,payload)
     print(json.dumps(result, ensure_ascii=False))
     return 0
 

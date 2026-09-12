@@ -531,6 +531,14 @@ def general_worker_command(action: str, payload: Mapping[str, Any]) -> dict[str,
     return GeneralExecutionService(runtime,root).worker_command(action,_object(payload,'payload'))
 
 
+def auxiliary_command(family: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+    from .auxiliary_tool_admission import auxiliary_call, knowledge_command, recovery_command
+    if family not in {'knowledge','recovery'}:raise ValueError('AUXILIARY_TOOL_INVALID')
+    service=orchestration_service(workspace_root());data=_object(payload,'payload')
+    with auxiliary_call(service,'aitest_'+family,action,data) as grant:
+        return knowledge_command(service,action,data,grant) if family=='knowledge' else recovery_command(service,action,data)
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="aitest-product")
     sp = p.add_subparsers(dest="command", required=True)
@@ -625,12 +633,10 @@ def main(argv: list[str] | None = None) -> int:
             emit(g5_command(args.role, args.action, _object(payload, "payload")))
             return 0
         if args.command == "knowledge":
-            from .recovery_knowledge import dispatch
-            emit(dispatch(workspace_root(), args.action, _object(json.loads(args.payload), "payload")))
+            emit(auxiliary_command('knowledge',args.action,_object(json.loads(args.payload),'payload')))
             return 0
         if args.command == "recovery":
-            from .recovery_intake import dispatch
-            emit(dispatch(workspace_root(), args.action, _object(json.loads(args.payload), "payload")))
+            emit(auxiliary_command('recovery',args.action,_object(json.loads(args.payload),'payload')))
             return 0
         if args.command == "bootstrap-mission":
             goal = json.loads(args.goal)

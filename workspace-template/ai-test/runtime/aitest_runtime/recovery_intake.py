@@ -192,10 +192,16 @@ def parse_document(path: str | Path, *, expected_sha256: str | None = None) -> d
     if not file.is_file() or file.stat().st_size > MAX_DOCUMENT_BYTES:
         raise RuntimeError("RECOVERY_DOCUMENT_UNAVAILABLE", "file missing or exceeds 20 MiB")
     raw = file.read_bytes()
+    return parse_document_bytes(raw,suffix=file.suffix.lower(),locator=file.as_uri(),expected_sha256=expected_sha256)
+
+
+def parse_document_bytes(raw: bytes, *, suffix: str, locator: str, expected_sha256: str | None = None) -> dict[str, Any]:
+    """Parse the same bounded bytes which were admitted, never reopen their path."""
+    if not isinstance(raw,bytes) or len(raw)>MAX_DOCUMENT_BYTES:
+        raise RuntimeError('RECOVERY_DOCUMENT_UNAVAILABLE','document exceeds 20 MiB')
     digest = hashlib.sha256(raw).hexdigest()
     if expected_sha256 and digest != _sha(expected_sha256):
-        raise RuntimeError("RECOVERY_DOCUMENT_HASH_MISMATCH", file.name)
-    suffix = file.suffix.lower()
+        raise RuntimeError("RECOVERY_DOCUMENT_HASH_MISMATCH", 'admitted source bytes changed')
     if suffix in {".txt", ".md", ".json"}:
         try:
             text = raw.decode("utf-8-sig")
@@ -225,7 +231,12 @@ def parse_document(path: str | Path, *, expected_sha256: str | None = None) -> d
             binary = os.environ.get("PFC_PDFTOTEXT") or shutil.which("pdftotext")
             if not binary:
                 raise RuntimeError("OPEN_EXTERNAL_PAYLOAD_REQUIRED", "PDF parser requires local pypdf or pdftotext")
-            result = subprocess.run([binary, "-layout", str(file), "-"], capture_output=True, timeout=60)
+            import tempfile
+            # The offline external parser sees only a private snapshot of the
+            # admitted bytes; an input-file replacement cannot retarget it.
+            with tempfile.TemporaryDirectory(prefix='aitest-document-') as private:
+                snapshot=Path(private)/'source.pdf';snapshot.write_bytes(raw)
+                result = subprocess.run([binary, "-layout", str(snapshot), "-"], capture_output=True, timeout=60)
             if result.returncode:
                 raise RuntimeError("RECOVERY_DOCUMENT_INVALID", "pdftotext rejected PDF")
             text = result.stdout.decode("utf-8", errors="strict")
@@ -247,7 +258,7 @@ def parse_document(path: str | Path, *, expected_sha256: str | None = None) -> d
         raise RuntimeError("RECOVERY_DOCUMENT_TOO_LARGE", "split attachment into smaller source revisions")
     validate_secret_boundary(text)
     return {"sha256": digest, "text": text, "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-            "format": suffix[1:], "parser": parser, "byte_size": len(raw), "locator": file.as_uri()}
+            "format": suffix[1:], "parser": parser, "byte_size": len(raw), "locator": locator}
 
 
 class RecoveryIntakeService:
@@ -257,7 +268,15 @@ class RecoveryIntakeService:
 
     def import_document(self, mission_id: str, path: str | Path, source_id: str, *, source_kind: str = "REQUIREMENT",
                         revision: str = "1", expected_sha256: str | None = None) -> dict[str, Any]:
-        parsed = parse_document(path, expected_sha256=expected_sha256)
+        file=Path(path).expanduser().resolve()
+        if not file.is_file() or file.stat().st_size>MAX_DOCUMENT_BYTES:
+            raise RuntimeError('RECOVERY_DOCUMENT_UNAVAILABLE','file missing or exceeds 20 MiB')
+        return self.import_document_bytes(mission_id,file.read_bytes(),suffix=file.suffix.lower(),locator=file.as_uri(),
+            source_id=source_id,source_kind=source_kind,revision=revision,expected_sha256=expected_sha256)
+
+    def import_document_bytes(self, mission_id: str, raw: bytes, *, suffix: str, locator: str, source_id: str,
+                              source_kind: str = 'REQUIREMENT',revision: str = '1',expected_sha256: str | None = None):
+        parsed = parse_document_bytes(raw,suffix=suffix,locator=locator,expected_sha256=expected_sha256)
         payload = {**parsed, "source_id": _text(source_id, "source_id"), "source_kind": source_kind,
                    "revision": str(revision), "semantic_analysis_status": "PENDING_G3_ANALYSIS"}
         state = self.g3.state(mission_id)
@@ -265,15 +284,14 @@ class RecoveryIntakeService:
         fact_id = "document:" + canonical_sha256({"source_id": source_id, "revision": str(revision)})[:32]
         existing = state.by_id(fact_id)
         if existing:
+            if existing.payload['sha256']!=parsed['sha256'] or existing.payload['source_kind']!=source_kind:
+                raise RuntimeError('RECOVERY_DOCUMENT_REVISION_CONFLICT','new source bytes require a new revision')
             return {"status": "PASS", "truth_source": "R1_EVENT_STREAM", "document": existing.to_dict(), "replayed": True}
         # Original attachment bytes are a cache governed by the Event fact's hash.
-        cache = self.runtime.db_path.parent / "attachments" / (parsed["sha256"] + Path(path).suffix.lower())
+        cache = self.runtime.db_path.parent / "attachments" / (parsed["sha256"] + suffix)
         cache.parent.mkdir(parents=True, exist_ok=True)
         if not cache.exists() or hashlib.sha256(cache.read_bytes()).hexdigest() != parsed["sha256"]:
-            source_bytes = Path(path).read_bytes()
-            if hashlib.sha256(source_bytes).hexdigest() != parsed["sha256"]:
-                raise RuntimeError("RECOVERY_DOCUMENT_CHANGED", "source changed during import; retry")
-            cache.write_bytes(source_bytes)
+            cache.write_bytes(raw)
         fact = self.g3._record(mission_id, "SOURCE_DOCUMENT", payload, provenance_refs=(parsed["locator"],), fact_id=fact_id)
         return {"status": "PASS", "truth_source": "R1_EVENT_STREAM", "document": fact, "replayed": False}
 
