@@ -225,6 +225,13 @@ class GeneralExecutionService:
                 "observed_refs": [{"path": result["path"], "sha256": result["sha256"]}] if "path" in result and "sha256" in result else []}})
         return result
 
+    def _pending_replacement(self, spec, call_key):
+        transaction = self.private / "general-backups" / call_key / "transaction.json"
+        if not transaction.is_file(): return False
+        meta = json.loads(transaction.read_text())
+        unresolved = self.workspace / Path(spec["path"]).parent / meta["temporary_name"]
+        return any(os.path.lexists(str(unresolved) + suffix) for suffix in ("", ".displaced", ".second"))
+
     def _read_receipt(self, call):
         raw = self._cache(call["call_key"]).read_bytes()
         require(sha(raw) == call["receipt"]["sha256"], "GENERAL_RECEIPT_CACHE_CORRUPTED")
@@ -267,7 +274,7 @@ class GeneralExecutionService:
                 else:
                     result = self._validated_result(subject, action, payload, broker)
             except Exception as exc:
-                if action == "write_file" and (not isinstance(exc, RuntimeError) or exc.code == "GENERAL_WRITE_RECONCILIATION_REQUIRED"):
+                if action == "write_file" and (not isinstance(exc, RuntimeError) or exc.code == "GENERAL_WRITE_RECONCILIATION_REQUIRED" or self._pending_replacement(spec, call_key)):
                     # An OS exception can follow installation (e.g. fsync failed).
                     # Keep the intent unresolved until postimage readback.
                     raise RuntimeError("GENERAL_EFFECT_RECONCILIATION_REQUIRED", "file effect requires readback") from exc
@@ -321,11 +328,7 @@ class GeneralExecutionService:
             e = self._job(subject).execution; spec = call["request_spec"]
             broker = ScopedFiles(self.workspace, e["write_roots"], self.private, e["write_paths"])
             backup = self.private / "general-backups" / call["call_key"]
-            transaction = backup / "transaction.json"
-            if transaction.is_file():
-                meta = json.loads(transaction.read_text())
-                unresolved = self.workspace / Path(spec["path"]).parent / meta["temporary_name"]
-                require(not any(Path(str(unresolved) + suffix).exists() for suffix in ("", ".displaced", ".second")), "GENERAL_WRITE_RECONCILIATION_REQUIRED")
+            require(not self._pending_replacement(spec, call["call_key"]), "GENERAL_WRITE_RECONCILIATION_REQUIRED")
             current = broker.read(spec["path"], 0, 1)
             if current["sha256"] == spec["content_sha256"] and (backup / "change.diff").is_file():
                 return self._write_receipt(subject, call, {"path": current["path"], "sha256": current["sha256"],

@@ -2,7 +2,7 @@ name: V4 isolated implementation review
 on:
   push:
     branches: [work/v1.13.0-recovery-turnkey-validation]
-    paths: [tools/v4_review/**, .github/workflows/v4-isolated-review.yml]
+    paths: [tools/v4_review/**, tests/v4/**, workspace-template/ai-test/runtime/aitest_runtime/general_work/**, workspace-template/ai-test/runtime/aitest_runtime/interaction_receipts.py, .github/workflows/v4-isolated-review.yml]
   workflow_dispatch:
 permissions:
   contents: read

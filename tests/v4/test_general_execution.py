@@ -258,6 +258,42 @@ class ExecutionTests(unittest.TestCase):
         with sqlite3.connect(self.runtime.db_path) as c:
             rows = c.execute("SELECT command_id FROM events WHERE event_type IN ('interaction.operation_claimed.v1','interaction.general_intent_recorded.v1')").fetchall()
         self.assertEqual(len(rows), 2); self.assertEqual(rows[0], rows[1])
+    def test_postinstall_validation_error_with_residual_never_releases_effect_fence(self):
+        # Actual R1/files, injected broker boundary; not a Windows kernel proof.
+        self.start()
+        def unknown(broker, path, expected, content, call_key):
+            folder=broker.private/"general-backups"/call_key;folder.mkdir(parents=True)
+            (folder/"transaction.json").write_text(json.dumps({"temporary_name":".aitest-injected.tmp"}))
+            (self.root/"notes/.aitest-injected.tmp.displaced").write_text("human edit")
+            (self.root/path).write_text(content)
+            raise RuntimeError("GENERAL_FILE_BYTE_BUDGET","post-install validation failed")
+        with patch.object(ScopedFiles,"write",unknown):
+            with self.assertRaisesRegex(RuntimeError,"EFFECT_RECONCILIATION_REQUIRED"):
+                self.invoke("write_file",{"path":"notes/input.txt","expected_sha256":sha(b"ordinary input"),"content":"worker"})
+        for _ in range(2):self.service.supervise_once()
+        call=next(iter(self.service._job(self.subject).execution["calls"].values()))
+        self.assertEqual(call["state"],"CLAIMED");self.assertIsNone(call["receipt"])
+        with self.assertRaisesRegex(RuntimeError,"EFFECT_RECONCILIATION_REQUIRED"):
+            self.invoke("read_file",{"path":"notes/input.txt"},"later","later")
+        self.assertEqual((self.root/"notes/.aitest-injected.tmp.displaced").read_text(),"human edit")
+    @unittest.skipUnless(os.name == "nt", "actual Windows ReplaceFileW required")
+    def test_windows_postswap_runtime_error_remains_unresolved(self):
+        from aitest_runtime.general_work import scoped_files
+        self.start();target=self.root/"notes/input.txt";original=scoped_files.windows_replace
+        human=b"H"*(scoped_files.MAX_FILE+1)
+        def race(*args):
+            target.write_bytes(human)
+            return original(*args)
+        with patch.object(scoped_files,"windows_replace",race):
+            with self.assertRaisesRegex(RuntimeError,"EFFECT_RECONCILIATION_REQUIRED"):
+                self.invoke("write_file",{"path":"notes/input.txt","expected_sha256":sha(b"ordinary input"),"content":"worker"})
+        for _ in range(2):
+            self.service.supervise_once()
+            call=next(iter(self.service._job(self.subject).execution["calls"].values()))
+            self.assertEqual(call["state"],"CLAIMED");self.assertIsNone(call["receipt"])
+        with self.assertRaisesRegex(RuntimeError,"EFFECT_RECONCILIATION_REQUIRED"):
+            self.invoke("read_file",{"path":"notes/input.txt"},"next","next")
+        self.assertEqual(list((self.root/"notes").glob(".aitest-*.displaced"))[0].read_bytes(),human)
     def test_claim_before_create_recovers_without_host_history(self):
         with patch.object(self.service.jobs, "create", side_effect=KeyboardInterrupt("after admission claim")):
             with self.assertRaises(KeyboardInterrupt): self.start()
