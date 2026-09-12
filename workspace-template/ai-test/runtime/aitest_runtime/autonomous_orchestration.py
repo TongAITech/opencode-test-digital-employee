@@ -168,6 +168,9 @@ class OpenCodeSessionProvider(Protocol):
     def observe_session(self, session_id: str) -> Mapping[str, Any]:
         ...
 
+    def select_tui_session(self, session_id: str) -> bool:
+        ...
+
 
 class DirectoryScopedOpenCodeSessionProvider:
     """Real OpenCode 1.18.3 Web API provider with explicit project binding.
@@ -268,6 +271,16 @@ class DirectoryScopedOpenCodeSessionProvider:
         if not isinstance(value, Mapping):
             raise RuntimeError("OPENCODE_HEALTH_INVALID")
         return dict(value)
+
+    def select_tui_session(self, session_id: str) -> bool:
+        # OpenCode 1.18.3 exposes POST /tui/select-session and publishes
+        # tui.session.select to an attached TUI.  Keep this as an operational
+        # pointer only; R1 Primary binding remains the authority.
+        sid = _text(session_id, "session_id")
+        payload = self._request("POST", f"/tui/select-session?{self._directory_query()}", {"sessionID": sid})
+        if payload is False:
+            raise RuntimeError("OPENCODE_TUI_SESSION_SELECT_REJECTED")
+        return True
 
     def create_session(self, *, title: str, parent_id: str | None = None) -> ExternalSession:
         body: dict[str, Any] = {"title": _text(title, "title")}
@@ -504,6 +517,16 @@ class FakeOpenCodeSessionProvider:
         if session_id not in self.sessions:
             raise RuntimeError(f"FAKE_SESSION_NOT_FOUND: {session_id}")
         self.observations[session_id] = dict(values)
+
+    def select_tui_session(self, session_id: str) -> bool:
+        if session_id not in self.sessions:
+            raise RuntimeError(f"FAKE_SESSION_NOT_FOUND: {session_id}")
+        selected = getattr(self, "tui_selections", None)
+        if selected is None:
+            selected = []
+            self.tui_selections = selected
+        selected.append(session_id)
+        return True
 
     def session_activity(self, session_id: str) -> str:
         if session_id not in self.sessions:
