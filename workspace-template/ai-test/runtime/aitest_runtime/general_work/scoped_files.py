@@ -52,6 +52,17 @@ def exchange(parent, fd, left, right):
         raise OSError(ctypes.get_errno(), "atomic file exchange failed")
 
 
+def windows_replace(target, replacement, displaced):
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    fn = kernel.ReplaceFileW
+    fn.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_void_p, ctypes.c_void_p]
+    fn.restype = wintypes.BOOL
+    if not fn(str(target), str(replacement), str(displaced), 0, None, None):
+        raise OSError(ctypes.get_last_error(), "atomic ReplaceFile failed")
+
+
 def safe_text(data):
     text = data.decode("utf-8", errors="replace")
     try:
@@ -279,28 +290,25 @@ class ScopedFiles:
                 "backup_ref": "general-backups/" + call_key, "diff_sha256": sha(diff.encode())}
 
     def _windows_replace(self, parent, tmp, target, expected, backup):
-        import ctypes
-        from ctypes import wintypes
-        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-        fn = kernel.ReplaceFileW
-        fn.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_void_p, ctypes.c_void_p]
-        fn.restype = wintypes.BOOL
         displaced = parent / (tmp + ".displaced")
-        if not fn(str(parent / target), str(parent / tmp), str(displaced), 0, None, None):
-            raise OSError(ctypes.get_last_error(), "atomic ReplaceFile failed")
-        old, _ = self._whole(parent, None, displaced.name)
+        windows_replace(parent / target, parent / tmp, displaced)
+        # The displaced object is untrusted until inspected or durably backed
+        # up. Failure to read/write its backup must never delete its only copy.
+        removable = False
         try:
-            if sha(old) != expected:
-                _private_write(backup / "concurrent-edit.bin", old)
-                second = parent / (tmp + ".second")
-                if not fn(str(parent / target), str(displaced), str(second), 0, None, None):
-                    raise RuntimeError("GENERAL_WRITE_CONFLICT", "concurrent content preserved in backup; restore conflicted")
-                current, _ = self._whole(parent, None, second.name)
-                _private_write(backup / "displaced-during-restore.bin", current)
-                second.unlink()
-                raise RuntimeError("GENERAL_WRITE_CONFLICT", "concurrent content restored and preserved")
+            old, _ = self._whole(parent, None, displaced.name)
+            if sha(old) == expected:
+                removable = True  # original before.bin already contains it
+                return
+            _private_write(backup / "concurrent-edit.bin", old)
+            second = parent / (tmp + ".second")
+            windows_replace(parent / target, displaced, second)
+            current, _ = self._whole(parent, None, second.name)
+            _private_write(backup / "displaced-during-restore.bin", current)
+            second.unlink()
+            raise RuntimeError("GENERAL_WRITE_CONFLICT", "concurrent content restored and preserved")
         finally:
-            if displaced.exists(): displaced.unlink()
+            if removable and displaced.exists(): displaced.unlink()
 
     def search(self, path, pattern, glob="*", offset=0, limit=20):
         require(isinstance(pattern, str) and 0 < len(pattern.encode()) <= 1024 and isinstance(glob, str) and 0 < len(glob) <= 128, "GENERAL_SEARCH_PATTERN_INVALID")

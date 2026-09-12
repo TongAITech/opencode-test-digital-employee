@@ -376,6 +376,25 @@ class FileConflictTests(unittest.TestCase):
             self.assertEqual(target.stat().st_size,scoped_files.MAX_FILE+1)
             self.assertEqual(target.read_bytes(),b"H"*(scoped_files.MAX_FILE+1))
             with self.assertRaisesRegex(RuntimeError,"PROTECTED_OBJECT"):broker.read("notes/.aitest-private.tmp")
+    @unittest.skipUnless(os.name == "nt", "actual Windows ReplaceFileW required")
+    def test_windows_displaced_survives_oversize_or_backup_failure(self):
+        from aitest_runtime.general_work import scoped_files
+        for large in (False, True):
+            with self.subTest(oversized=large), tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp)/"root";root.mkdir();(root/"notes").mkdir();target=root/"notes/a";target.write_text("before")
+                broker=ScopedFiles(root,["notes"],Path(tmp)/"private")
+                original=scoped_files.windows_replace; private_write=scoped_files._private_write
+                human=b"H"*(scoped_files.MAX_FILE+1) if large else b"human edit"
+                def race(*args):
+                    target.write_bytes(human)
+                    return original(*args)
+                def fail_backup(path, data):
+                    if path.name == "concurrent-edit.bin": raise OSError("injected backup failure")
+                    return private_write(path, data)
+                with patch.object(scoped_files, "windows_replace", race), patch.object(scoped_files, "_private_write", fail_backup):
+                    with self.assertRaises((RuntimeError,OSError)): broker.write("notes/a",sha(b"before"),"worker","windows-race")
+                retained=list((root/"notes").glob(".aitest-*.displaced"))
+                self.assertEqual(len(retained),1);self.assertEqual(retained[0].read_bytes(),human)
     def test_atomic_displacement_detects_last_window_external_edit(self):
         if os.name == "nt": self.skipTest("POSIX atomic exchange fault injection; Windows has a separate CI oracle")
         with tempfile.TemporaryDirectory() as tmp:

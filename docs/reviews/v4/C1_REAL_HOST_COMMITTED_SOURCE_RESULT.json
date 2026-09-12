@@ -1,0 +1,126 @@
+{
+  "classification": "REAL_HOST_GENERAL_WORK_COMPONENT_NOT_L4",
+  "source_head": "4203ae42cfe8010886adf43b1153f13b20f4fd75",
+  "user_request": "读取 notes/input.txt 并把其中的 blue 改为 green 后写到 notes/result.txt",
+  "user_turn_count": 1,
+  "user_technical_command_count": 0,
+  "model_identity": [
+    [
+      "opencode",
+      "big-pickle"
+    ]
+  ],
+  "status": "PASS",
+  "default_plugins": "DISABLED_FOR_ISOLATED_COMPONENT_PROBE",
+  "host_auth_or_model_config_modified": false,
+  "required_agents_present": true,
+  "director_session_id": "ses_f6a7e78bbffewQ3q9Zc6VPEV06",
+  "mission_count": 0,
+  "jobs": [
+    {
+      "job_id": "general-work:v1:f5457c5315eb52597d8680cd04fb8d5424a386d55d0708eb73a400380a3d6aa9",
+      "status": "COMPLETED"
+    }
+  ],
+  "file_content": "green apple",
+  "actual_tool_calls": [
+    {
+      "session_id": "ses_f6a7e410dffeNj2YyADpuNhNnW",
+      "call_id": "call_742d70e2659d476dbbf4d5a4",
+      "tool": "aitest_general_worker",
+      "state": "completed",
+      "action": "status"
+    },
+    {
+      "session_id": "ses_f6a7e410dffeNj2YyADpuNhNnW",
+      "call_id": "call_13336f1217f64495b83fe27f",
+      "tool": "aitest_general_worker",
+      "state": "completed",
+      "action": "read_file"
+    },
+    {
+      "session_id": "ses_f6a7e410dffeNj2YyADpuNhNnW",
+      "call_id": "call_3a8bdb4cf51d4c07934a6471",
+      "tool": "aitest_general_worker",
+      "state": "completed",
+      "action": "read_file"
+    },
+    {
+      "session_id": "ses_f6a7e410dffeNj2YyADpuNhNnW",
+      "call_id": "call_d1a28b95176f4aafbf3f28ad",
+      "tool": "aitest_general_worker",
+      "state": "completed",
+      "action": "write_file"
+    },
+    {
+      "session_id": "ses_f6a7e410dffeNj2YyADpuNhNnW",
+      "call_id": "call_58751572f3e94493af3ecc3f",
+      "tool": "aitest_general_worker",
+      "state": "completed",
+      "action": "read_file"
+    },
+    {
+      "session_id": "ses_f6a7e410dffeNj2YyADpuNhNnW",
+      "call_id": "call_1b73b71db0074257a77719ef",
+      "tool": "aitest_general_worker",
+      "state": "completed",
+      "action": "complete"
+    },
+    {
+      "session_id": "ses_f6a7e78bbffewQ3q9Zc6VPEV06",
+      "call_id": "call_b1f23fd7253c4d30b7f3e0a2",
+      "tool": "aitest_director",
+      "state": "completed",
+      "action": "interact"
+    },
+    {
+      "session_id": "ses_f6a7e78bbffewQ3q9Zc6VPEV06",
+      "call_id": "call_4221c87c9a4343398742d884",
+      "tool": "aitest_director",
+      "state": "completed",
+      "action": "interact"
+    }
+  ],
+  "distinct_worker_session": true,
+  "source_files_checked": 469,
+  "source_commit_mismatches": [
+    {
+      "path": "workspace-template/.opencode/.gitignore",
+      "reason": "NOT_IN_COMMIT"
+    },
+    {
+      "path": "workspace-template/.opencode/package-lock.json",
+      "reason": "NOT_IN_COMMIT"
+    },
+    {
+      "path": "workspace-template/.opencode/package.json",
+      "reason": "NOT_IN_COMMIT"
+    }
+  ],
+  "source_commit_match": false,
+  "artifacts": [
+    {
+      "path": "/Users/tatu/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an/work/v4-implementation/general-host-03/result.json",
+      "sha256": "fcbd139d1de5ffb30858921a0258379ea02e3dcd63acd4baaf028355a1a050d3",
+      "bytes": 60163
+    },
+    {
+      "path": "/Users/tatu/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an/work/v4-implementation/general-host-03/host-messages.json",
+      "sha256": "8b01bdf8ce423884c77bbe0d1d1f67e0d146d6a0c361522b19478300f82de638",
+      "bytes": 48421
+    }
+  ],
+  "tracked_product_files_checked": 466,
+  "tracked_product_commit_match": true,
+  "local_dependency_metadata": {
+    "paths": [
+      "workspace-template/.opencode/.gitignore",
+      "workspace-template/.opencode/package-lock.json",
+      "workspace-template/.opencode/package.json"
+    ],
+    "classification": "REUSED_LOCAL_OPENCODE_PLUGIN_METADATA_NOT_COMMITTED_SOURCE",
+    "plugin_pin": "@opencode-ai/plugin@1.18.3",
+    "hashes": "included in retained result.json source_snapshot",
+    "final_installed_byte_qualification": "NOT_RUN"
+  }
+}

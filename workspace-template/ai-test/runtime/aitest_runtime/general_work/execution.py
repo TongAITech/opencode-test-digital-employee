@@ -325,7 +325,7 @@ class GeneralExecutionService:
             if transaction.is_file():
                 meta = json.loads(transaction.read_text())
                 unresolved = self.workspace / Path(spec["path"]).parent / meta["temporary_name"]
-                require(not unresolved.exists(), "GENERAL_WRITE_RECONCILIATION_REQUIRED")
+                require(not any(Path(str(unresolved) + suffix).exists() for suffix in ("", ".displaced", ".second")), "GENERAL_WRITE_RECONCILIATION_REQUIRED")
             current = broker.read(spec["path"], 0, 1)
             if current["sha256"] == spec["content_sha256"] and (backup / "change.diff").is_file():
                 return self._write_receipt(subject, call, {"path": current["path"], "sha256": current["sha256"],

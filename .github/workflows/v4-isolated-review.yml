@@ -30,6 +30,21 @@ jobs:
           Expand-Archive $zip -DestinationPath $expanded
           $bundle = Get-ChildItem $expanded -Directory | Select-Object -First 1
           "V4_RUNTIME=$($bundle.FullName)/workspace-template/runtime" | Out-File $env:GITHUB_ENV -Append
+      - name: Verify current General execution and file broker on actual Windows
+        shell: pwsh
+        run: |
+          $env:GH_TOKEN = ''
+          $env:PIP_NO_INDEX = '1'
+          $output = Join-Path $env:RUNNER_TEMP 'v4-general-result'
+          "V4_GENERAL_OUTPUT=$output" | Out-File $env:GITHUB_ENV -Append
+          & "$env:V4_RUNTIME/python/python.exe" -X utf8 tools/v4_review/general_windows_component.py --output $output
+          if ($LASTEXITCODE -ne 0) { throw 'Windows General execution component failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v4-windows-general-component
+          path: ${{ env.V4_GENERAL_OUTPUT }}/*
+          if-no-files-found: warn
       - name: Execute actual Python HTTP DB k6 and ZAP against disposable local service
         shell: pwsh
         run: |
