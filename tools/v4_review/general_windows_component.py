@@ -17,7 +17,7 @@ def main():
     for k in ('GH_TOKEN','GITHUB_TOKEN'):os.environ.pop(k,None)
     sys.dont_write_bytecode=True
     suite=unittest.TestSuite()
-    for name in ('test_general_execution.py','test_interaction_admission.py','test_interaction_receipts.py','test_general_worker_entry.py','test_primary_sessions.py'):
+    for name in ('test_general_execution.py','test_interaction_admission.py','test_interaction_receipts.py','test_general_worker_entry.py','test_primary_sessions.py','test_mission_controls.py'):
         suite.addTests(unittest.TestLoader().discover(str(repo/'tests/v4'),pattern=name))
     suite.addTests(unittest.TestLoader().discover(str(repo/'workspace-template/.pfc-internal-field-validation/tests'),pattern='test_v4_typed_roots.py'))
     with (out/'general-windows-tests.log').open('w',encoding='utf-8') as log:

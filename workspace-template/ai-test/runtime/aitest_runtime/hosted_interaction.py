@@ -72,6 +72,18 @@ def hosted_interaction(service: Any, payload: Mapping[str, Any], *, action: str 
             item.pop('reason',None)
             if 'subject' in worker_result:item['subject']=worker_result['subject']
             results.append(item);continue
+        # Controls contain only an R1 state transition. A crash after that
+        # transition can be reconciled from its durable command receipt without
+        # repeating provider work. This is narrower than start/dispatch recovery.
+        if admitted['intent']=='MISSION_CONTROL' and admitted['action'] in {'pause','stop','continue'} and (
+                admitted['status']=='ADMITTED' or owner.receipt(admitted['operation_id'])):
+            if clock_ms() > turn.expires_ms:
+                item.update(status='BLOCKED',reason='HOST_USER_TURN_EXPIRED')
+            else:
+                from .mission_controls import apply_control
+                try:item.update(apply_control(service,owner,admitted))
+                except Exception as exc:item.update(status='RECONCILE_REQUIRED',reason=getattr(exc,'code',type(exc).__name__))
+            results.append(item);continue
         prior = owner.receipt(admitted['operation_id'])
         if prior:
             # Replay the canonical original resolution. New candidates may have
@@ -87,13 +99,16 @@ def hosted_interaction(service: Any, payload: Mapping[str, Any], *, action: str 
             results.append(item); continue
         if admitted['intent'] == 'MISSION_QUERY':
             item['result'] = service.status(admitted['subject']['subject_id'])
+            from .mission_controls import pending_controls
+            item['result']['pending_controls'] = [{'operation_id':r['operation_id'],'action':r['action']} for r in pending_controls(service.runtime,mission_id=admitted['subject']['subject_id'],limit=16)]
             results.append(item); continue
         if admitted['intent'] != 'TEST_MISSION_START' and not (admitted['intent'] == 'MISSION_CONTROL' and admitted['action'] == 'continue'):
             item.update(status='BLOCKED',reason='TYPED_OPERATION_EXECUTOR_REQUIRED')
             results.append(item); continue
         # A control operation lacking an executor must not let a following start
         # undermine the requested pause/stop.
-        if any(d['action'] in {'pause','stop','stop_runtime'} and d['status'] in {'ADMITTED','OWNER_ADMISSION_REQUIRED'} for d in decisions):
+        if any(d['action'] in {'pause','stop','stop_runtime'} and d['status'] in {'ADMITTED','OWNER_ADMISSION_REQUIRED'}
+               and not any(r['operation_id']==d['operation_id'] and r['status'] in {'COMPLETED','REPLAYED'} for r in results) for d in decisions):
             item.update(status='BLOCKED',reason='PREEMPTING_CONTROL_MUST_COMPLETE_FIRST')
             results.append(item); continue
         if clock_ms() > turn.expires_ms:

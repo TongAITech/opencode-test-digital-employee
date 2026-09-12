@@ -222,7 +222,7 @@ class ProductEntryTests(unittest.TestCase):
             self.assertEqual(product_entry.orchestration_command('DIRECTOR','intake_mission',{'request':{}})['reason'],'ACTION_NOT_AUTHORIZED_FOR_G2_ROLE')
             with patch.dict(os.environ,{'AITEST_HOST_SESSION_ID':'','AITEST_HOST_MESSAGE_ID':''}):
                 with self.assertRaisesRegex(ValueError,'HOST_USER_TURN_REQUIRED'):product_entry.orchestration_command('DIRECTOR','start_test',{'request':{}})
-    def test_unimplemented_pause_preempts_mixed_start_without_execution(self):
+    def test_pause_commits_before_separately_authorized_mixed_start(self):
         text='暂停这次测试，测试 PF2.0.0';self.provider.host=HostFixture('测试 BLOAN-PF1.1.0')
         hosted_interaction(self.service,{},action='start_test',now_ms=NOW)
         self.provider.host=HostFixture(text);self.provider.host.messages['u1']['info']['id']='u2';self.provider.host.messages['u1']['parts'][0]['messageID']='u2';self.provider.host.messages['u2']=self.provider.host.messages.pop('u1');self.provider.host.messages['a1']['info']['parentID']='u2'
@@ -230,7 +230,10 @@ class ProductEntryTests(unittest.TestCase):
         slots=clauses(text)
         p={'operations':[{'intent':intent,'action':action,'start':slot['start'],'end':slot['end']} for slot,intent,action in zip(slots,['MISSION_CONTROL','TEST_MISSION_START'],['pause','start'])]}
         result=hosted_interaction(self.service,{'proposal':p},now_ms=NOW)
-        self.assertEqual(result['operations'][1]['reason'],'PREEMPTING_CONTROL_MUST_COMPLETE_FIRST')
-        with closing(sqlite3.connect(self.db)) as c, c:self.assertEqual(c.execute('SELECT count(*) FROM mission_projection').fetchone()[0],1)
+        self.assertEqual(result['operations'][0]['result']['status'],'PAUSED')
+        self.assertEqual(result['operations'][1]['status'],'DISPATCHED')
+        paused=result['operations'][0]['subject']['subject_id']
+        self.assertEqual(self.runtime.replay_composed(paused).core_state.mission.status.value,'PAUSED')
+        with closing(sqlite3.connect(self.db)) as c, c:self.assertEqual(c.execute('SELECT count(*) FROM mission_projection').fetchone()[0],2)
 
 if __name__=='__main__':unittest.main()

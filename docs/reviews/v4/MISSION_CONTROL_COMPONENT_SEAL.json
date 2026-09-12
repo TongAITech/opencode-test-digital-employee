@@ -1,0 +1,28 @@
+{
+  "decision": "LOCAL_COMPONENT_REVIEW_PASS",
+  "full_c1": "OPEN",
+  "real_host": "NOT_CLAIMED_BY_REVIEW_FIXTURES",
+  "windows": "NOT_RUN",
+  "bank": "NOT_RUN",
+  "reported_p1_closed": 4,
+  "tests": {
+    "run": 16,
+    "result": "OK",
+    "seconds": 11.542
+  },
+  "source_sha256": {
+    "workspace-template/ai-test/runtime/aitest_runtime/mission_controls.py": "ce1cf36dc581a205c94210fefe67a0e0183b5a40edb6d06bc8ba34f60593022e",
+    "workspace-template/ai-test/runtime/aitest_runtime/interaction_receipts.py": "22183a11ef5e342b484310323c10ffcec1396ad02721887e9d94baca961b09ac",
+    "workspace-template/ai-test/runtime/aitest_runtime/hosted_interaction.py": "726e2aedfdafca44bb5d49f1ac4b7ccfd5d55ed03e16c114d28226d92c8a64a9",
+    "workspace-template/ai-test/runtime/aitest_runtime/product_entry.py": "25c1c61c706247261cb53669538d43133ffd71fd1a30ccf0e7ae62089b2a038f",
+    "workspace-template/ai-test/runtime/aitest_runtime/primary_sessions.py": "c28404263282efd624525641798605207a2bafd8fc5e1cc5576e59524eb85dbc",
+    "workspace-template/ai-test/runtime/aitest_runtime/control_loop.py": "9a0df7e2e731cd9a2ddaa24bac41092bb9ca11692d65400370837f25d1b7a3f7",
+    "workspace-template/ai-test/runtime/aitest_runtime/g2_1/managed_orchestration.py": "97a783b265117d9f790b2073042a5f24ff7fe02775bd8dcc4a299931429d3fb4",
+    "workspace-template/ai-test/runtime/aitest_runtime/g4/service.py": "fd426048233a98adc55c0db44f25dc5b46189bde013c8221fc64a2b2b184e1d0",
+    "tests/v4/test_mission_controls.py": "7622148ae3d9d2a50692bd12ddf81bddf0c3ce19ad09e44d477371f733ffca7c"
+  },
+  "evidence": [
+    "mission-control-final-recheck.json",
+    "mission-control-event-compatibility.json"
+  ]
+}

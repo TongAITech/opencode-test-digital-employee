@@ -232,6 +232,9 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
 
     @_coordinated
     def open_planning_session(self, mission_id: str) -> dict[str, Any]:
+        from ..mission_controls import pending_controls
+        if pending_controls(self.runtime, mission_id=mission_id, stopping_only=True, limit=1):
+            return {'status':'WAIT','reason':'MISSION_CONTROL_PENDING','truth_source':'R1_EVENT_STREAM'}
         mission_id = _text(mission_id, "mission_id")
         composed = self.runtime.replay_composed(mission_id)
         mission = composed.core_state.mission
@@ -505,6 +508,9 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             abort(session_id)
 
     def _activity_barrier(self, mission_id: str, session_id: str, task_id: str | None = None):
+        from ..mission_controls import pending_controls
+        if pending_controls(self.runtime, mission_id=mission_id, stopping_only=True, limit=1):
+            return {'status':'WAIT','reason':'MISSION_CONTROL_PENDING','session_id':session_id}
         composed = self.runtime.replay_composed(mission_id)
         if composed.core_state.mission.status != MissionStatus.ACTIVE:
             return {'status':'WAIT','reason':'MISSION_NOT_ACTIVE','session_id':session_id}
@@ -680,6 +686,9 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
 
     @_coordinated
     def dispatch_next(self, mission_id: str, *, agent: str | None = None, parent_session_id: str | None = None) -> dict[str, Any]:
+        from ..mission_controls import pending_controls
+        if pending_controls(self.runtime, mission_id=mission_id, stopping_only=True, limit=1):
+            return {'status':'WAIT','reason':'MISSION_CONTROL_PENDING','truth_source':'R1_EVENT_STREAM'}
         if agent is not None:
             raise RuntimeError("SESSION_ROUTER_AGENT_OVERRIDE_FORBIDDEN")
         return {**super().dispatch_next(mission_id, agent=DEFAULT_WORKER_AGENT, parent_session_id=parent_session_id), "session_router": "G2_1"}
@@ -1080,6 +1089,12 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         for mission_id in all_mission_ids:
             state = self.session_control.state(mission_id)
             mission_active = mission_id in active_mission_ids
+            mission = self.runtime.replay_composed(mission_id).core_state.mission
+            # PAUSED/BLOCKED are durable suspended work, not terminal garbage.
+            # Preserve in-flight receipts and Sessions; do not prompt them here.
+            if mission and mission.status.value in {"PAUSED", "BLOCKED"}:
+                for intent in state.provisions: by_token.pop(intent.provision_token, None)
+                continue
             for intent in state.provisions:
                 matches = list(by_token.get(intent.provision_token, []))
                 # Deterministic token must map to at most one external Session.
@@ -1227,6 +1242,9 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
 
     @_coordinated
     def progress_once(self, mission_id: str) -> dict[str, Any]:
+        from ..mission_controls import pending_controls
+        if pending_controls(self.runtime, mission_id=mission_id, stopping_only=True, limit=1):
+            return {'status':'WAIT','reason':'MISSION_CONTROL_PENDING','truth_source':'R1_EVENT_STREAM'}
         """Reconcile one bounded scheduling/wake decision from current R1."""
         composed=self.runtime.replay_composed(mission_id)
         if composed.core_state.mission.status != MissionStatus.ACTIVE:

@@ -114,7 +114,7 @@ def _g4_background_human_gate_tick(runtime: Any, root: Path) -> dict[str, Any]:
         missions = [
             str(item.get("mission_id"))
             for item in (runtime_status(root).get("missions") or [])
-            if item.get("mission_id")
+            if item.get("mission_id") and runtime.replay_composed(str(item["mission_id"])).core_state.mission.status.value == "ACTIVE"
         ]
         _sync_teaching_observers(service, root, missions)
         results = {mission_id: service.auto_resume_human_gates(mission_id) for mission_id in missions}
@@ -158,9 +158,11 @@ def run_tick(workspace_root: Path) -> dict[str, Any]:
     # become a second authority or survive independently of the Event Stream.
     runtime = create_canonical_runtime(workspace_root)
     service = default_g21_service(runtime, workspace_root)
+    from .mission_controls import reconcile_controls
+    controls = reconcile_controls(service)
     result = service.supervise_once()
     g4_background = _g4_background_human_gate_tick(runtime, workspace_root)
-    return {**result, "g4_human_gate_background": g4_background}
+    return {**result, "mission_control_recovery": controls, "g4_human_gate_background": g4_background}
 
 
 def parser() -> argparse.ArgumentParser:

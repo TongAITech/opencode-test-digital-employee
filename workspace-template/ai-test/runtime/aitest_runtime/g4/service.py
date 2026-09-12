@@ -9,6 +9,7 @@ from .evidence_safety import EvidenceSanitization, sanitize_evidence_ingress
 from .service_r2_5 import *  # noqa: F401,F403
 from .service_r2_5 import G4RealExecutionService as _R2_5_G4RealExecutionService
 from .service_base import _dict, _text
+from ..mission_controls import governed_effect
 
 
 def _taint_metadata(*results: EvidenceSanitization) -> dict[str, Any]:
@@ -23,6 +24,11 @@ def _taint_metadata(*results: EvidenceSanitization) -> dict[str, Any]:
 class G4RealExecutionService(_R2_5_G4RealExecutionService):
     """R2-6: typed sensitive-evidence taint/redaction before every carrying R1 write."""
 
+    @governed_effect
+    def execute_capability(self, mission_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
+        return super().execute_capability(mission_id, request)
+
+    @governed_effect
     def complete_human_takeover(self, mission_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
         result = super().complete_human_takeover(mission_id, request)
         if result.get("status") == "RESUME_SAFE":

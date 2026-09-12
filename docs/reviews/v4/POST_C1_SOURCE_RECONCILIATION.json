@@ -1,0 +1,42 @@
+{
+  "observed_at": "2026-09-12T13:45:48.744560+00:00",
+  "local_head": "b0d1aaba8820d7eb3dfd358ada106c96c748bcd2",
+  "remote_head": "b0d1aaba8820d7eb3dfd358ada106c96c748bcd2",
+  "main": "58e5e1259cd26846b31ea21a8a87df0bcf071edc",
+  "worktree": "CLEAN",
+  "source_drift": false,
+  "contract_sha256": "7cc3a5dffdf7da296df33f3f2867bb23d406aa1ca52c3c33cf612adc9f459a75",
+  "preserved": [
+    {
+      "path": "work/rec3-final-repository/docs/reviews/v4/C1_REAL_HOST_COMMITTED_SOURCE_RESULT.json",
+      "sha256": "4de2673a7ff2f3c4c9a87a9d3f4a45b6c2524e9be002df9dfedc3ab46ba0baac"
+    },
+    {
+      "path": "work/rec3-final-repository/docs/reviews/v4/WINDOWS_GENERAL_COMPONENT_RESULT.json",
+      "sha256": "7e05566cd84e14b49ba89d6800abe687dee24f837defc5ddbbecbf4c35796cdf"
+    },
+    {
+      "path": "work/rec3-final-repository/docs/reviews/v4/C1_EXECUTION_RAW_SOURCE_REVIEW.md",
+      "sha256": "95f294e92d2a16aaab8d41f8d9de0a631b4fd70e7b39fa01f11e9322bde7252d"
+    }
+  ],
+  "existing_work_directories": [
+    "work/v4-implementation/general-host-01",
+    "work/v4-implementation/progress",
+    "work/v4-implementation/windows-diagnostics-evidence",
+    "work/v4-implementation/oracle",
+    "work/v4-implementation/general-host-02",
+    "work/v4-implementation/general-host-03",
+    "work/v4-implementation/interaction-schema-check",
+    "work/v4-implementation/windows-diagnostics",
+    "work/v4-implementation/oracle-evidence",
+    "work/v4-implementation/typed-root",
+    "work/v4-implementation/side-effect-evidence",
+    "work/v4-implementation/post-c1-review",
+    "work/v4-implementation/resume-review",
+    "work/v4-implementation/interaction-sdk-source",
+    "work/v4-implementation/typed-root-evidence",
+    "work/v4-implementation/interaction",
+    "work/v4-implementation/windows-general-evidence"
+  ]
+}

@@ -27,6 +27,12 @@ RECORDED = 'primary.binding_recorded.v1'
 POLICY = 'primary-session.v4.1'
 
 
+def primary_coordination(runtime):
+    # A mutex namespace, not a second database or durable truth. Primary control
+    # intake must not wait behind a long G4 physical execution lock.
+    return runtime_coordination(Path(str(runtime.db_path) + '.primary-authority.db'))
+
+
 def now(): return datetime.now(timezone.utc).isoformat()
 def subject_for(root): return SubjectRef(KIND, PREFIX + canonical_sha256(str(Path(root).resolve())))
 def logical_id(subject): return 'logical-director:' + canonical_sha256(subject.subject_id)
@@ -156,7 +162,7 @@ class PrimarySessionOwner:
         return self.state()
     def record(self,operation,data):return self._execute(RECORD,{'operation':operation,'data':data})
     def fence(self,reason):
-        with runtime_coordination(self.runtime.db_path):
+        with primary_coordination(self.runtime):
             state=self.state();binding=state.bindings.get(str(state.epoch))
             if binding and binding['state'] in {'BOUND', 'REQUESTED'}:self.record('FENCE',{'epoch':state.epoch,'session_id':binding['session_id'],'reason':reason,'observed_at':now()})
     def host_realm(self):
@@ -178,7 +184,7 @@ class PrimarySessionOwner:
     def ensure_current(self):
         """Trusted launcher only. Never reads the old operational session pointer."""
         require(self.provider is not None,'PRIMARY_HOST_PROVIDER_REQUIRED')
-        with runtime_coordination(self.runtime.db_path):
+        with primary_coordination(self.runtime):
             self.runtime.assert_writable_compatible();state=self.state()
             if state.workspace_root is None:
                 state=self._execute(CREATE,{'root_version':1,'creation_command':CREATE,'workspace_root':str(self.root),'logical_agent_id':logical_id(self.subject)})

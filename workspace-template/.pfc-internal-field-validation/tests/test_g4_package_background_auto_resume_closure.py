@@ -91,6 +91,7 @@ def main() -> int:
         old_default = control_loop.default_g21_service
         old_bundle = control_loop.load_provider_bundle
         control_loop.default_g21_service = lambda _runtime, _root: SimpleNamespace(
+            runtime=_runtime,
             supervise_once=lambda: {"status": "PASS", "truth_source": "R1_EVENT_STREAM", "fixture": "g2.1-supervision"}
         )
         control_loop.load_provider_bundle = lambda _root, _profile: SimpleNamespace(

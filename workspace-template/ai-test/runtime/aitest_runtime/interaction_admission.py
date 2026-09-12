@@ -227,8 +227,8 @@ def explicit_scope(scope: Mapping[str, Any], clause: str, *, infer_version: bool
 
 
 def resolve_subject(candidates: Sequence[SubjectCandidate], *, scope: Mapping[str, Any] | None,
-                    subject_id: str | None = None, kind: str = "MISSION") -> tuple[str, SubjectCandidate | None]:
-    selected = [c for c in candidates if c.subject_kind == kind and c.state not in {"COMPLETED", "FAILED", "CANCELLED", "STOPPED"}]
+                    subject_id: str | None = None, kind: str = "MISSION", include_terminal: bool = False) -> tuple[str, SubjectCandidate | None]:
+    selected = [c for c in candidates if c.subject_kind == kind and (include_terminal or c.state not in {"COMPLETED", "FAILED", "CANCELLED", "STOPPED"})]
     if scope is None and subject_id is None: selected = [c for c in selected if c.contextual]
     if subject_id is not None: selected = [c for c in selected if c.subject_id == subject_id]
     if scope is not None:
@@ -301,17 +301,26 @@ def decide(turn: ActualHostUserTurn, operation: ProposedOperation,
         if not _CONTROL[action].fullmatch(unquoted): return reject("EXPLICIT_CONTROL_REQUIRED")
         result.update(status="OWNER_ADMISSION_REQUIRED", reason="RUNTIME_LIFECYCLE_OWNER_REQUIRED")
         return result
-    resolution, subject = resolve_subject(candidates, scope=scope, subject_id=operation.subject_id)
+    resolution, subject = resolve_subject(candidates, scope=scope, subject_id=operation.subject_id, include_terminal=intent == Intent.MISSION_QUERY)
     if resolution == "AMBIGUOUS":
         return reject("MULTIPLE_RELEVANT_SUBJECTS", "这项操作针对哪个现有任务？")
     if intent != Intent.TEST_MISSION_START and resolution == "NONE":
         return reject("NO_RELEVANT_SUBJECT", "这项操作针对哪个现有任务？")
     if operation.subject_id and subject is None:
         return reject("SUBJECT_NOT_IN_AUTHORIZED_DURABLE_CONTEXT")
-    if subject and subject.admission_blocker:
+    if subject and subject.admission_blocker and intent != Intent.MISSION_QUERY:
         result.update(status="BLOCKED", reason=subject.admission_blocker, subject=subject.ref())
         return result
-    if intent == Intent.MISSION_CONTROL and not _CONTROL[action].fullmatch(unquoted):
+    control_text = unquoted
+    if intent == Intent.MISSION_CONTROL and scope:
+        # Remove only already verified literal target values; the remaining
+        # clause must still be an explicit control verb, not an explanation.
+        targets = [v for k,v in scope.items() if k != "mode"]
+        for value in targets:
+            for literal in value if isinstance(value, list) else [value]:
+                control_text = re.sub(r"(?<![A-Za-z0-9_.-])" + re.escape(literal) + r"(?![A-Za-z0-9_.-])", "", control_text)
+        control_text = control_text.strip()
+    if intent == Intent.MISSION_CONTROL and not _CONTROL[action].fullmatch(control_text):
         return reject("EXPLICIT_CONTROL_REQUIRED", "请明确要继续、暂停还是停止哪个任务。")
     if intent == Intent.MISSION_UPDATE:
         if _EXPLANATION.search(unquoted): return reject("EXPLANATION_IS_NOT_UPDATE_AUTHORITY")

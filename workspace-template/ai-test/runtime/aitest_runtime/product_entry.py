@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 import sys
+from functools import wraps
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -207,12 +208,25 @@ def _object(value: Any, name: str) -> dict[str, Any]:
     return dict(value)
 
 
+def _active_domain_command(method):
+    @wraps(method)
+    def call(role, action, payload):
+        if action.strip().lower() == "status" or not payload.get("mission_id"):
+            return method(role, action, payload)
+        from .mission_controls import active_effect
+        runtime = create_canonical_runtime(workspace_root())
+        with active_effect(runtime, str(payload["mission_id"])):
+            return method(role, action, payload)
+    return call
+
+
 def _require_g5_worker_binding(runtime: Any, payload: Mapping[str, Any]):
     """Canonical product-boundary admission over existing G2.1/R1.3B/R2.5 truth."""
 
     return require_g5_worker_binding(runtime, payload)
 
 
+@_active_domain_command
 def g5_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     """Execute the canonical G5 role/action contract and current worker binding."""
 
@@ -250,18 +264,22 @@ def orchestration_command(role: str, action: str, payload: Mapping[str, Any]) ->
     if role == "DIRECTOR":
         from .dispatch_receipts import runtime_coordination
         from .host_tool_call import actual_tool_call
-        from .primary_sessions import PrimarySessionOwner
+        from .primary_sessions import PrimarySessionOwner, primary_coordination
         from .interaction_admission import AdmissionError
         if not all(os.environ.get(k) for k in ("AITEST_HOST_SESSION_ID", "AITEST_HOST_MESSAGE_ID", "AITEST_HOST_CALL_ID")):
             raise AdmissionError("HOST_USER_TURN_REQUIRED")
         # Fence and mutation share the controller lock; no successful admission
         # can race a launcher epoch change before its durable effects commit.
-        with runtime_coordination(service.runtime.db_path):
+        with primary_coordination(service.runtime):
             provider = getattr(service, "raw_session_provider", service.session_provider)
             binding = PrimarySessionOwner(service.runtime, root, provider).current(os.environ["AITEST_HOST_SESSION_ID"])
             actual_tool_call(provider, agent="aitest-director", tool="aitest_director", action=action, payload=data)
             result = _orchestration_dispatch(service, role, action, data)
             return {**result, "primary_binding": {k: binding[k] for k in ("logical_agent_id", "epoch", "session_id")}}
+    if action != "status" and data.get("mission_id"):
+        from .mission_controls import active_effect
+        with active_effect(service.runtime, str(data["mission_id"])):
+            return _orchestration_dispatch(service, role, action, data)
     return _orchestration_dispatch(service, role, action, data)
 
 
@@ -334,6 +352,7 @@ def _orchestration_dispatch(service, role, action, data):
     raise AssertionError(action)
 
 
+@_active_domain_command
 def g3_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     root = workspace_root()
     role = (role or "").strip().upper()
@@ -410,6 +429,7 @@ def g3_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
     raise AssertionError(action)
 
 
+@_active_domain_command
 def g4_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     root = workspace_root()
     role = (role or "").strip().upper()
