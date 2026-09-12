@@ -22,6 +22,11 @@ class CommandContribution:
         if root is None:
             raise RuntimeError("JOB_COMMAND_UNSUPPORTED", "unknown job command")
         state = composed.extension_state(EXTENSION_ID)
+        if command.type == "RECORD_" + root.subject_kind + "_EXECUTION":
+            from .execution_contract import execution_transition, require_owner
+            require_owner(command.actor.type, command.actor.id, command.session_id)
+            execution_transition(state, payload)
+            return [PendingEvent(root.subject_kind.lower() + ".execution_recorded.v1", root.entity_type, command.mission_id, payload)]
         if command.type == root.creation_command:
             validate_create(payload)
             identity = "r1:job:create:" + canonical_sha256(payload["operation_id"])
@@ -32,18 +37,22 @@ class CommandContribution:
             if payload.get("from_status") != state.status:
                 raise RuntimeError("JOB_TRANSITION_FORBIDDEN", "lifecycle cursor is stale")
             validate_transition(payload, state)
-            event_type = next(e for e in root.event_types if e != root.creation_event)
+            event_type = root.subject_kind.lower() + ".lifecycle_changed.v1"
         return [PendingEvent(event_type, root.entity_type, command.mission_id, payload)]
 
 
 class ReducerContribution:
     def reduce(self, state, event, core_state):
         payload = dict(event.payload)
+        if event.event_type.endswith(".execution_recorded.v1"):
+            from .execution_contract import execution_transition, require_owner
+            require_owner(event.initiator_type, event.initiator_id, event.session_id)
+            return replace(execution_transition(state, payload), updated_at=event.created_at)
         if any(event.event_type == r.creation_event for r in ROOTS):
             if state.status is not None:
                 raise RuntimeError("ROOT_ALREADY_EXISTS", "job already created")
             validate_create(payload)
-            return JobState(event.mission_id, payload["subject"]["subject_kind"], "CREATED", payload["operation_id"], payload["intent"], payload["host_turn_ref"], created_at=event.created_at, updated_at=event.created_at)
+            return JobState(event.mission_id, payload["subject"]["subject_kind"], "CREATED", payload["operation_id"], payload["intent"], payload["host_turn_ref"], created_at=event.created_at, updated_at=event.created_at, operation_text=payload.get("operation_text"))
         validate_transition(payload, state)
         return replace(state, status=payload["target_status"], summary=payload["summary"], evidence_ref=payload["evidence_ref"], updated_at=event.created_at)
 

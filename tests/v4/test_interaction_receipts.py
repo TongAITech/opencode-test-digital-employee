@@ -176,12 +176,27 @@ class ProductEntryTests(unittest.TestCase):
         with sqlite3.connect(self.db) as c:
             self.assertEqual(c.execute('SELECT count(*) FROM mission_projection').fetchone()[0],1)
         self.assertEqual(len(self.provider.sessions),1)
-    def test_negative_general_and_quoted_have_zero_mission_and_receipt_events(self):
-        for text,intent,action in [('你好','GENERAL_CHAT','respond'),('不要测试 PF1.0.0','TEST_MISSION_START','start'),('“测试 PF1.0.0”','TEST_MISSION_START','start'),('解释这个 Java 方法','GENERAL_WORK','read'),('检查 launcher 为什么慢','AITEST_DIAGNOSIS','diagnose')]:
+    def test_chat_negation_and_quoted_have_zero_mission_and_receipt_events(self):
+        for text,intent,action in [('你好','GENERAL_CHAT','respond'),('不要测试 PF1.0.0','TEST_MISSION_START','start'),('“测试 PF1.0.0”','TEST_MISSION_START','start')]:
             self.provider.host=HostFixture(text)
             hosted_interaction(self.service,{'proposal':proposal(text,intent,action)},now_ms=NOW)
         with sqlite3.connect(self.db) as c:self.assertEqual(c.execute('SELECT count(*) FROM events').fetchone()[0],0)
         self.assertEqual(len(self.provider.sessions),0)
+    def test_general_and_diagnosis_use_typed_jobs_without_mission(self):
+        import time
+        for i,(text,intent,action) in enumerate([('解释这个 Java 方法','GENERAL_WORK','read'),('检查 launcher 为什么慢','AITEST_DIAGNOSIS','diagnose')]):
+            self.provider.host=HostFixture(text)
+            user=self.provider.host.messages.pop('u1');mid='general-user-'+str(i)
+            user['info'].update(id=mid,time={'created':int(time.time()*1000)})
+            user['parts'][0]['messageID']=mid
+            self.provider.host.messages[mid]=user
+            self.provider.host.messages['a1']['info']['parentID']=mid
+            result=hosted_interaction(self.service,{'proposal':proposal(text,intent,action)})
+            self.assertEqual(result['operations'][0]['status'],'ACTIVE')
+        with sqlite3.connect(self.db) as c:
+            self.assertEqual(c.execute('SELECT count(*) FROM mission_projection').fetchone()[0],0)
+            self.assertEqual(c.execute('SELECT count(*) FROM general_work_projection').fetchone()[0],2)
+        self.assertEqual(len(self.provider.sessions),2)
     def test_possible_dispatch_effect_never_repeats_after_fault(self):
         original=self.service.continue_test
         def dispatch_then_fail(*args,**kwargs):

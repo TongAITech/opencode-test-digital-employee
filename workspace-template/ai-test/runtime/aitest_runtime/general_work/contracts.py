@@ -5,9 +5,10 @@ from typing import Any, Mapping
 from aitest_runtime.durable_core import RootDefinition, RuntimeError, SubjectRef, canonical_json, canonical_sha256
 
 EXTENSION_ID = "r1_general_work"
-EXTENSION_VERSION = "1.0.0"
+EXTENSION_VERSION = "1.1.0"
 ROOTS = tuple(RootDefinition(kind, prefix, 1, create, created, kind,
-                            frozenset({create, transition}), frozenset({created, changed}))
+                            frozenset({create, transition, "RECORD_" + kind + "_EXECUTION"}),
+                            frozenset({created, changed, kind.lower() + ".execution_recorded.v1"}))
               for kind, prefix, create, created, transition, changed in (
                   ("GENERAL_WORK", "general-work:v1:", "CREATE_GENERAL_WORK", "general_work.created.v1", "TRANSITION_GENERAL_WORK", "general_work.lifecycle_changed.v1"),
                   ("RUNTIME_DIAGNOSIS", "runtime-diagnosis:v1:", "CREATE_RUNTIME_DIAGNOSIS", "runtime_diagnosis.created.v1", "TRANSITION_RUNTIME_DIAGNOSIS", "runtime_diagnosis.lifecycle_changed.v1")))
@@ -66,12 +67,19 @@ class JobState:
     evidence_ref: Mapping[str, Any] | None = None
     created_at: str | None = None
     updated_at: str | None = None
+    execution: Mapping[str, Any] = field(default_factory=dict)
+    operation_text: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"job_id": self.job_id, "subject_kind": self.subject_kind, "status": self.status,
+        value = {"job_id": self.job_id, "subject_kind": self.subject_kind, "status": self.status,
                 "operation_id": self.operation_id, "intent": self.intent, "host_turn_ref": dict(self.host_turn_ref),
                 "summary": self.summary, "evidence_ref": dict(self.evidence_ref) if self.evidence_ref else None,
                 "created_at": self.created_at, "updated_at": self.updated_at}
+        if self.execution:
+            value["execution"] = dict(self.execution)
+        if self.operation_text is not None:
+            value["operation_text"] = self.operation_text
+        return value
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> JobState:
@@ -79,8 +87,11 @@ class JobState:
 
 
 def validate_create(payload: Mapping[str, Any]) -> None:
-    if set(payload) != {"subject", "root_version", "creation_command", "operation_id", "host_turn_ref", "intent"}:
+    fields = {"subject", "root_version", "creation_command", "operation_id", "host_turn_ref", "intent"}
+    if set(payload) not in (fields, fields | {"operation_text"}):
         raise RuntimeError("JOB_SCHEMA_INVALID", "creation fields must match the typed root contract")
+    if "operation_text" in payload:
+        text(payload["operation_text"], "operation_text", 8192)
     subject = payload["subject"]
     if not isinstance(subject, Mapping) or set(subject) != {"subject_kind", "subject_id"}:
         raise RuntimeError("JOB_SCHEMA_INVALID", "invalid subject reference")
@@ -92,6 +103,8 @@ def validate_create(payload: Mapping[str, Any]) -> None:
 
 
 def validate_transition(payload: Mapping[str, Any], state: JobState) -> None:
+    if state.execution and payload.get("target_status") == "COMPLETED":
+        raise RuntimeError("GENERAL_EXECUTION_COMPLETION_RECEIPT_REQUIRED", "executable jobs complete through their execution owner")
     if set(payload) != {"subject", "from_status", "target_status", "summary", "evidence_ref"}:
         raise RuntimeError("JOB_SCHEMA_INVALID", "transition fields must match the typed root contract")
     if payload["from_status"] != state.status or payload["target_status"] not in TRANSITIONS.get(state.status, ()):

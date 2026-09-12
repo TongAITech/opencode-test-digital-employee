@@ -22,6 +22,7 @@ from .r2_2.contracts import normalize_scope
 EXTENSION_ID = 'interaction_operation_receipts'
 ROOT_KIND = 'INTERACTION_OPERATION'
 PREFIX = 'interaction-operation:v1:'
+GENERAL_INTENT_EVENT = 'interaction.general_intent_recorded.v1'
 COMMAND_EVENT = {
     'CLAIM_INTERACTION_OPERATION': 'interaction.operation_claimed.v1',
     'BIND_INTERACTION_OPERATION': 'interaction.operation_bound.v1',
@@ -85,9 +86,12 @@ def _transition(state: ReceiptState, command_type: str, payload: Mapping[str, An
         _require(not state.receipt, 'INTERACTION_OPERATION_ALREADY_CLAIMED')
         _require(set(payload) == {'subject','root_version','creation_command','operation'}, 'INTERACTION_CLAIM_SCHEMA_INVALID')
         op = payload['operation']
-        _require(isinstance(op, Mapping) and set(op) == IMMUTABLE_FIELDS, 'INTERACTION_OPERATION_SCHEMA_INVALID')
+        _require(isinstance(op, Mapping) and set(op) in (IMMUTABLE_FIELDS, IMMUTABLE_FIELDS | {'operation_text'}), 'INTERACTION_OPERATION_SCHEMA_INVALID')
         _require(isinstance(op['proposal'], Mapping) and (op['resolved_scope'] is None or isinstance(op['resolved_scope'], Mapping)), 'INTERACTION_OPERATION_SCHEMA_INVALID')
         _require(stream_id(op['operation_id']) == state.subject_id, 'INTERACTION_OPERATION_ROOT_MISMATCH')
+        if 'operation_text' in op:
+            _require(op['intent'] in {'GENERAL_WORK','AITEST_DIAGNOSIS'} and isinstance(op['operation_text'], str)
+                     and 0 < len(op['operation_text'].encode()) <= 8192, 'INTERACTION_OPERATION_TEXT_INVALID')
         host = _host(op['host_turn_ref'])
         _require(op['request_digest'] == canonical_sha256({'host_content': host['source_digest'], 'proposal': op['proposal']}), 'INTERACTION_REQUEST_DIGEST_MISMATCH')
         from .interaction_admission import Intent, ACTIONS
@@ -134,6 +138,16 @@ class CommandContribution:
         _require(command.session_id is None, 'INTERACTION_RECEIPT_HAS_NO_EXECUTION_SESSION')
         state = composed.extension_state(EXTENSION_ID)
         _transition(state, command.type, command.payload)
+        if command.type == 'CLAIM_INTERACTION_OPERATION' and 'operation_text' in command.payload['operation']:
+            # Both events are committed by the existing R1 command transaction.
+            # A distinct event type lets existing compatibility checks reject a
+            # composition that cannot replay durable General intent.
+            operation = dict(command.payload['operation']); text = operation.pop('operation_text')
+            base = {**command.payload, 'operation': operation}
+            intent = {'subject': command.payload['subject'], 'operation_text': text,
+                      'request_digest': operation['request_digest']}
+            return [PendingEvent(COMMAND_EVENT[command.type], ROOT_KIND, command.mission_id, base),
+                    PendingEvent(GENERAL_INTENT_EVENT, ROOT_KIND, command.mission_id, intent)]
         return [PendingEvent(COMMAND_EVENT[command.type], ROOT_KIND, command.mission_id, dict(command.payload))]
 
 
@@ -141,6 +155,14 @@ class ReducerContribution:
     def reduce(self, state, event, core_state):
         _require(event.mission_id == state.subject_id and event.entity_id == state.subject_id and event.entity_type == ROOT_KIND, 'INTERACTION_EVENT_IDENTITY_INVALID')
         _require(event.session_id is None and event.initiator_type == 'SYSTEM' and event.initiator_id == 'interaction-admission', 'INTERACTION_EVENT_OWNER_INVALID')
+        if event.event_type == GENERAL_INTENT_EVENT:
+            data = event.payload; row = dict(state.receipt)
+            _require(set(data) == {'subject','operation_text','request_digest'} and data['subject'] == {'subject_kind':ROOT_KIND,'subject_id':state.subject_id}, 'INTERACTION_GENERAL_INTENT_INVALID')
+            _require(row.get('state') == 'CLAIMED' and row.get('intent') in {'GENERAL_WORK','AITEST_DIAGNOSIS'}
+                     and 'operation_text' not in row and data['request_digest'] == row['request_digest'], 'INTERACTION_GENERAL_INTENT_INVALID')
+            _require(isinstance(data['operation_text'], str) and 0 < len(data['operation_text'].encode()) <= 8192, 'INTERACTION_OPERATION_TEXT_INVALID')
+            validate_secret_boundary(data)
+            return replace(state, receipt={**row, 'operation_text':data['operation_text']})
         command_type = next((k for k,v in COMMAND_EVENT.items() if v == event.event_type), None)
         _require(command_type is not None, 'INTERACTION_EVENT_UNKNOWN')
         return _transition(state, command_type, event.payload)
@@ -178,8 +200,8 @@ class ProjectionContribution:
 
 
 def interaction_receipt_extension() -> ExtensionManifest:
-    commands, events = frozenset(COMMAND_EVENT), frozenset(COMMAND_EVENT.values())
-    return ExtensionManifest(EXTENSION_ID, '1.0.0', commands, events,
+    commands, events = frozenset(COMMAND_EVENT), frozenset(COMMAND_EVENT.values()) | {GENERAL_INTENT_EVENT}
+    return ExtensionManifest(EXTENSION_ID, '1.1.0', commands, events,
         StateContribution(), CommandContribution(), ReducerContribution(), ProjectionContribution(), MigrationContribution(),
         subject_kinds=frozenset({ROOT_KIND}), roots=(RootDefinition(ROOT_KIND,PREFIX,1,'CLAIM_INTERACTION_OPERATION',COMMAND_EVENT['CLAIM_INTERACTION_OPERATION'],ROOT_KIND,commands,events),))
 
@@ -206,10 +228,11 @@ class R1InteractionOwner:
         return result
 
     def claim(self, operation: Mapping[str, Any]) -> dict[str, Any]:
-        immutable = {k:operation[k] for k in IMMUTABLE_FIELDS}
+        fields = IMMUTABLE_FIELDS | ({'operation_text'} if operation.get('intent') in {'GENERAL_WORK','AITEST_DIAGNOSIS'} and 'operation_text' in operation else set())
+        immutable = {k:operation[k] for k in fields}
         existing = self.receipt(operation['operation_id'])
         if existing:
-            _require({k:existing[k] for k in IMMUTABLE_FIELDS} == immutable, 'INTERACTION_REPLAY_CONFLICT')
+            _require({k:existing[k] for k in IMMUTABLE_FIELDS | ({'operation_text'} if 'operation_text' in existing else set())} == immutable, 'INTERACTION_REPLAY_CONFLICT')
             return {'fresh':False, **existing}
         result = self._execute('CLAIM_INTERACTION_OPERATION', operation['operation_id'],
             {'root_version':1,'creation_command':'CLAIM_INTERACTION_OPERATION','operation':immutable},0,

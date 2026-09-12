@@ -1,0 +1,35 @@
+{
+  "classification": "COMPONENT_EVIDENCE_NOT_FINAL_QUALIFICATION",
+  "artifacts": [
+    {
+      "path": "/Users/tatu/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an/work/v4-implementation/resume-review/general-execution-10.log",
+      "sha256": "efb0d7899dbe15f4530da423e0191661ff7872a10e5321722198540c0482d72b",
+      "bytes": 1552
+    },
+    {
+      "path": "/Users/tatu/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an/work/v4-implementation/resume-review/general-router-regression.log",
+      "sha256": "715f7a73cc0fe27bc9660066e6fb60c228a0c1c185beb210f0463a427f701ddb",
+      "bytes": 2165
+    },
+    {
+      "path": "/Users/tatu/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an/work/v4-implementation/general-host-01/result.json",
+      "sha256": "2ff86127baa9fe76c983bdbbc3d5b12a866198040b1b1fafd89586551e173194",
+      "bytes": 61394
+    },
+    {
+      "path": "/Users/tatu/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an/work/v4-implementation/general-host-01/host-messages.json",
+      "sha256": "cebc259518aedced8e322716f6ebfdaa12cbba4555818719e5f225e37310639d",
+      "bytes": 76152
+    },
+    {
+      "path": "/Users/tatu/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an/work/v4-implementation/general-host-02/result.json",
+      "sha256": "dab5fa59b5ba85e0f7f7abc739fdc76909998a3caff6e5e4f81fb6498de7ac24",
+      "bytes": 59951
+    },
+    {
+      "path": "/Users/tatu/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an/work/v4-implementation/general-host-02/host-messages.json",
+      "sha256": "2528dd96f62f1b4f71180804204708bdbe4556b93f486aa3db683ca263a603d3",
+      "bytes": 42216
+    }
+  ]
+}

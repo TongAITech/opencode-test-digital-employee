@@ -15,12 +15,13 @@ class GeneralWorkService:
         self.runtime = runtime
         runtime.extension_registry.manifest(EXTENSION_ID)
 
-    def create(self, *, subject_kind: str, operation_id: str, host_turn_ref: Mapping[str, Any], intent: str, actor: ActorRef) -> SubjectState:
+    def create(self, *, subject_kind: str, operation_id: str, host_turn_ref: Mapping[str, Any], intent: str, actor: ActorRef, operation_text: str | None = None) -> SubjectState:
         root = definition(subject_kind)
         subject = job_subject(subject_kind, operation_id)
         command_id = "r1:job:create:" + canonical_sha256(text(operation_id, "operation_id"))
         payload = {"subject": subject.to_dict(), "root_version": root.version, "creation_command": root.creation_command,
                    "operation_id": operation_id, "host_turn_ref": host_reference(host_turn_ref), "intent": text(intent, "intent", 4096)}
+        if operation_text is not None: payload["operation_text"] = text(operation_text, "operation_text", 8192)
         result = self.runtime.execute(CommandEnvelope(command_id, root.creation_command, subject.subject_id, 0, actor, payload,
                                                       idempotency_key=command_id, correlation_id=operation_id))
         if not result.ok:
@@ -36,7 +37,7 @@ class GeneralWorkService:
             raise RuntimeError("EXPECTED_SEQ_MISMATCH", "transition needs an existing exact subject cursor")
         prior = cursor.extension_state(EXTENSION_ID)
         command_id = "r1:job:transition:" + canonical_sha256(text(request_id, "request_id"))
-        command_type = next(c for c in root.command_types if c != root.creation_command)
+        command_type = "TRANSITION_" + subject.subject_kind
         payload = {"subject": subject.to_dict(), "from_status": prior.status, "target_status": target_status,
                    "summary": summary, "evidence_ref": dict(evidence_ref) if evidence_ref is not None else None}
         result = self.runtime.execute(CommandEnvelope(command_id, command_type, subject.subject_id, expected_seq, actor, payload,

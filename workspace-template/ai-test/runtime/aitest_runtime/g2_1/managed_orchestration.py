@@ -147,6 +147,10 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
 
     def status(self, mission_id: str | None = None) -> dict[str, Any]:
         result = super().status(mission_id)
+        import os
+        if mission_id is None and os.environ.get("AITEST_HOST_SESSION_ID"):
+            from ..general_work.execution import GeneralExecutionService
+            result["general_work"] = GeneralExecutionService(self.runtime, self.workspace_root, self.raw_session_provider).status(os.environ["AITEST_HOST_SESSION_ID"])
         result["g2_1_session_management"] = {
             "session_router": "RUNTIME_OWNED",
             "session_supervisor": "CONTROL_LOOP_OWNED",
@@ -1210,12 +1214,15 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
                 result = self.observe_session(mission_id, task_id=task.task_id)
                 results.append({"mission_id": mission_id, "task_id": task.task_id, "result": result})
             results.append({'mission_id':mission_id,'phase':'PROGRESS','result':self.progress_once(mission_id)})
+        from ..general_work.execution import GeneralExecutionService
+        general = GeneralExecutionService(self.runtime, self.workspace_root, self.raw_session_provider).supervise_once()
         return {
             "schema_version": "aitest.g2.1.control-loop-tick.v1",
             "status": "PASS" if reconciliation.get("status") == "PASS" else "REPAIR",
             "truth_source": "R1_EVENT_STREAM",
             "reconciliation": reconciliation, "supervision": results,
             "active_mission_count": len(mission_ids),
+            "general_work_supervision": general,
         }
 
     @_coordinated
