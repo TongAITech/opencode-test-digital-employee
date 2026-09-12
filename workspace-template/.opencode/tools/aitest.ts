@@ -90,6 +90,9 @@ async function g3(
   const env = {
     ...process.env,
     AITEST_WORKSPACE_ROOT: workspace,
+    AITEST_HOST_SESSION_ID: context.sessionID || "",
+    AITEST_HOST_MESSAGE_ID: context.messageID || "",
+    AITEST_HOST_CALL_ID: context.callID || "",
     ...(process.env.AITEST_RUNTIME_SPINE_DB ? { AITEST_RUNTIME_SPINE_DB: process.env.AITEST_RUNTIME_SPINE_DB } : {}),
     PYTHONPATH: [runtime, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
   }
@@ -118,6 +121,9 @@ async function g4(
   const env = {
     ...process.env,
     AITEST_WORKSPACE_ROOT: workspace,
+    AITEST_HOST_SESSION_ID: context.sessionID || "",
+    AITEST_HOST_MESSAGE_ID: context.messageID || "",
+    AITEST_HOST_CALL_ID: context.callID || "",
     ...(process.env.AITEST_RUNTIME_SPINE_DB ? { AITEST_RUNTIME_SPINE_DB: process.env.AITEST_RUNTIME_SPINE_DB } : {}),
     PYTHONPATH: [runtime, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
   }
@@ -146,6 +152,9 @@ async function g5(
   const env = {
     ...process.env,
     AITEST_WORKSPACE_ROOT: workspace,
+    AITEST_HOST_SESSION_ID: context.sessionID || "",
+    AITEST_HOST_MESSAGE_ID: context.messageID || "",
+    AITEST_HOST_CALL_ID: context.callID || "",
     ...(process.env.AITEST_RUNTIME_SPINE_DB ? { AITEST_RUNTIME_SPINE_DB: process.env.AITEST_RUNTIME_SPINE_DB } : {}),
     PYTHONPATH: [runtime, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
   }
@@ -172,7 +181,7 @@ const pending = (role: string, action: string, payload: unknown, nextGate: strin
 })
 
 const interactionScope = tool.schema.object({
-  mode: tool.schema.literal("EXPLICIT_SET").default("EXPLICIT_SET"),
+  mode: tool.schema.literal("EXPLICIT_SET").optional(),
   project_id: tool.schema.string().optional(),
   version: tool.schema.string().optional(),
   requirements: tool.schema.array(tool.schema.string()).optional(),
@@ -201,7 +210,7 @@ export const director = boundedTool(tool, {
       mission_id: tool.schema.string().optional().describe("Read-only status only. Use an operation's subject_id proposal for admission."),
       scope: interactionScope.optional().describe("Single start/continue convenience only; mixed operations carry separate scopes."),
       proposal: tool.schema.object({operations: tool.schema.array(interactionOperation).min(1).max(8)}).strict().optional(),
-    }).strict().default({}),
+    }).strict(),
   },
   async execute(args, context) {
     if (args.action !== "status" && (!context.sessionID || !context.messageID)) throw modelError("HOST_USER_TURN_REQUIRED")

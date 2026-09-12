@@ -229,17 +229,14 @@ def start_conversation(check_only=False, attach_runner=None):
             if time.monotonic() >= deadline: raise RuntimeError('CONTROL_LOOP_BINDING_NOT_VERIFIED')
             time.sleep(.25)
         probe['gates']['CONTROL_LOOP_BINDING'] = 'PASS'
-        previous = read(DATA / 'state/director-entry-session.json', {})
-        previous_id = previous.get('session_id') if isinstance(previous, dict) else None
-        session = None
-        if isinstance(previous_id, str) and previous_id.startswith('ses_') and len(previous_id) < 160 and previous_id.replace('_','').replace('-','').isalnum():
-            try: session = client.request('GET', '/session/' + previous_id)
-            except Exception: pass
-        if not session:
-            session = client.request('POST', '/session', {'title': 'AITest Director'})
-        if not isinstance(session, dict) or not session.get('id'):
-            raise host_opencode.CompatibilityRequired('DIRECTOR_SESSION')
-        write(DATA / 'state/director-entry-session.json', {'session_id': session['id'], 'operational_only': True})
+        from aitest_runtime.canonical_runtime import create_canonical_runtime
+        from aitest_runtime.autonomous_orchestration import DirectoryScopedOpenCodeSessionProvider
+        from aitest_runtime.primary_sessions import PrimarySessionOwner
+        provider = DirectoryScopedOpenCodeSessionProvider(WORKSPACE, base_url=endpoint,
+            username=env.get('OPENCODE_SERVER_USERNAME'), password=env.get('OPENCODE_SERVER_PASSWORD'))
+        binding = PrimarySessionOwner(create_canonical_runtime(WORKSPACE), WORKSPACE, provider).ensure_current()
+        session = {'id': binding['session_id']}
+        write(DATA / 'state/director-entry-session.json', {**binding, 'operational_only': True})
         readiness = {**probe, 'server': 'PASS', 'control_loop_process': 'PASS',
                      'director_session_id': session['id'], 'host_executable': str(executable),
                      'endpoint': endpoint, 'workspace_root': str(WORKSPACE), 'operational_only': True}

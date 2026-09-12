@@ -51,6 +51,7 @@ from .r4_7.extension import r4_7_extension
 from .r4_8.extension import r4_8_extension
 from .tool_execution.extension import tool_execution_extension
 from .work_graph.extension import work_graph_extension
+from .primary_sessions import primary_session_extension
 from .interaction_receipts import interaction_receipt_extension
 from .general_work.extension import general_work_extension
 
@@ -69,6 +70,7 @@ def canonical_extension_manifests() -> tuple[ExtensionManifest, ...]:
     durable dependencies are represented by the extensions below.
     """
     return (
+        primary_session_extension(),
         interaction_receipt_extension(),
         work_graph_extension(),
         execution_resume_extension(),

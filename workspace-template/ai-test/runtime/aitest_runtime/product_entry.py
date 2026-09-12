@@ -247,6 +247,26 @@ def orchestration_command(role: str, action: str, payload: Mapping[str, Any]) ->
             "reason": "ACTION_NOT_AUTHORIZED_FOR_G2_ROLE",
         }
 
+    if role == "DIRECTOR":
+        from .dispatch_receipts import runtime_coordination
+        from .host_tool_call import actual_tool_call
+        from .primary_sessions import PrimarySessionOwner
+        from .interaction_admission import AdmissionError
+        if not all(os.environ.get(k) for k in ("AITEST_HOST_SESSION_ID", "AITEST_HOST_MESSAGE_ID", "AITEST_HOST_CALL_ID")):
+            raise AdmissionError("HOST_USER_TURN_REQUIRED")
+        # Fence and mutation share the controller lock; no successful admission
+        # can race a launcher epoch change before its durable effects commit.
+        with runtime_coordination(service.runtime.db_path):
+            provider = getattr(service, "raw_session_provider", service.session_provider)
+            binding = PrimarySessionOwner(service.runtime, root, provider).current(os.environ["AITEST_HOST_SESSION_ID"])
+            actual_tool_call(provider, agent="aitest-director", tool="aitest_director", action=action, payload=data)
+            result = _orchestration_dispatch(service, role, action, data)
+            return {**result, "primary_binding": {k: binding[k] for k in ("logical_agent_id", "epoch", "session_id")}}
+    return _orchestration_dispatch(service, role, action, data)
+
+
+def _orchestration_dispatch(service, role, action, data):
+    root = service.workspace_root
     mission_id = data.get("mission_id")
     if action == "status":
         return service.status(str(mission_id)) if mission_id else service.status()

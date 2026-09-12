@@ -1,0 +1,11 @@
+{
+  "reviewer": "independent /root/resume_expert",
+  "scope": "ONE_POST_C1_DELTA_REVIEW_NOT_PHASE_0",
+  "head": "b0d1aaba8820d7eb3dfd358ada106c96c748bcd2",
+  "worktree": "",
+  "contract_sha256": "7cc3a5dffdf7da296df33f3f2867bb23d406aa1ca52c3c33cf612adc9f459a75",
+  "closed_component_tests_rerun": false,
+  "decision": "PROCEED_C1_REMAINING",
+  "architecture_change_required": false,
+  "hard_dependency_blocks_c1_c2_c3": false
+}

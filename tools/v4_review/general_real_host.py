@@ -68,7 +68,13 @@ def main():
         if not result["required_agents_present"]: raise RuntimeError("PRODUCT_AGENTS_MISSING")
         with (out / "loop.log").open("w") as log:
             loop = subprocess.Popen([sys.executable, "-m", "aitest_runtime.control_loop", "--workspace-root", str(ws), "--interval", "2"], cwd=ws, env=env, stdout=log, stderr=subprocess.STDOUT)
-        director = client.request("POST", "/session", {"title": "V4 actual GeneralWork component"})["id"]
+        from aitest_runtime.canonical_runtime import create_canonical_runtime
+        from aitest_runtime.autonomous_orchestration import DirectoryScopedOpenCodeSessionProvider
+        from aitest_runtime.primary_sessions import PrimarySessionOwner
+        runtime = create_canonical_runtime(ws, db_path=ws / "data/state/runtime-spine.db")
+        provider = DirectoryScopedOpenCodeSessionProvider(ws, base_url=env["AITEST_OPENCODE_ENDPOINT"],
+            username=env["OPENCODE_SERVER_USERNAME"], password=env["OPENCODE_SERVER_PASSWORD"])
+        director = PrimarySessionOwner(runtime, ws, provider).ensure_current()["session_id"]
         client.request("POST", "/session/" + director + "/prompt_async", {"agent": "aitest-director", "parts": [{"type": "text", "text": request}]})
         result["director_session_id"] = director
         deadline = time.monotonic() + args.timeout
