@@ -164,9 +164,9 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             result["session_control"] = self.session_control.state(str(mission_id)).to_dict()
         return result
 
-    @staticmethod
-    def _provision_token(*parts: str) -> str:
-        return "g21-" + canonical_sha256({"parts": list(parts)})[:28]
+    def _provision_token(self, *parts: str) -> str:
+        from ..mission_session_authority import MissionSessionOwner
+        return "g21-" + canonical_sha256({"parts": list(parts), "host_realm": MissionSessionOwner(self).realm()})[:28]
 
     def _request_provision_if_needed(
         self,
@@ -194,6 +194,8 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
                 phase=phase,
                 title=ProvisioningOpenCodeSessionProvider.title_for(token, title),
             )
+        from ..mission_session_authority import MissionSessionOwner
+        MissionSessionOwner(self).request(mission_id, token)
 
     def _bind_provision_if_needed(self, mission_id: str, token: str, session_id: str) -> None:
         existing = self.session_control.state(mission_id).provision(token)

@@ -78,6 +78,8 @@ def dispatch_context(service, *,session_id,agent,text,mode='INITIAL',cursor=None
     except (ValueError,KeyError,IndexError,TypeError) as exc:raise RuntimeError('G21_CONTEXT_ENVELOPE_REQUIRED') from exc
     runtime=service.runtime
     with runtime_coordination(runtime.db_path):
+        from .mission_session_authority import MissionSessionOwner
+        MissionSessionOwner(service).before_dispatch(mission_id,session_id,agent)
         if mode not in {'INITIAL','AUTO_CONTINUE'}:raise ValueError('G21_DISPATCH_MODE_INVALID')
         cursor=business_cursor(runtime,mission_id) if cursor is None else cursor
         identity={'mission_id':mission_id,'session_id':session_id,'mode':mode}

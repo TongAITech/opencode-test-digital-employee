@@ -461,6 +461,9 @@ class DirectoryScopedOpenCodeSessionProvider:
 class FakeOpenCodeSessionProvider:
     """Construction-test provider only. Product entry never instantiates it."""
 
+    # Explicit synthetic transport realm for tests of durable Host identity.
+    base_url = "http://fixture.invalid"
+
     def __init__(self, directory: str | Path = "/fake/workspace") -> None:
         self.directory = str(directory)
         self.counter = 0

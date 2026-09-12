@@ -211,12 +211,15 @@ def _object(value: Any, name: str) -> dict[str, Any]:
 def _active_domain_command(method):
     @wraps(method)
     def call(role, action, payload):
-        if action.strip().lower() == "status" or not payload.get("mission_id"):
-            return method(role, action, payload)
         from .mission_controls import active_effect
-        runtime = create_canonical_runtime(workspace_root())
-        with active_effect(runtime, str(payload["mission_id"])):
-            return method(role, action, payload)
+        from .mission_tool_admission import model_command
+        service = orchestration_service(workspace_root())
+        role=role.strip().upper();action=action.strip().lower();payload=_object(payload,'payload')
+        with model_command(service,method.__name__.split('_')[0],role,action,payload):
+            if action == 'status' or not payload.get('mission_id'):
+                return method(role,action,payload)
+            with active_effect(service.runtime,str(payload['mission_id'])):
+                return method(role,action,payload)
     return call
 
 
@@ -276,11 +279,13 @@ def orchestration_command(role: str, action: str, payload: Mapping[str, Any]) ->
             actual_tool_call(provider, agent="aitest-director", tool="aitest_director", action=action, payload=data)
             result = _orchestration_dispatch(service, role, action, data)
             return {**result, "primary_binding": {k: binding[k] for k in ("logical_agent_id", "epoch", "session_id")}}
-    if action != "status" and data.get("mission_id"):
-        from .mission_controls import active_effect
-        with active_effect(service.runtime, str(data["mission_id"])):
-            return _orchestration_dispatch(service, role, action, data)
-    return _orchestration_dispatch(service, role, action, data)
+    from .mission_tool_admission import model_command
+    with model_command(service,'orchestration',role,action,data):
+        if action != 'status':
+            from .mission_controls import active_effect
+            with active_effect(service.runtime,str(data['mission_id'])):
+                return _orchestration_dispatch(service,role,action,data)
+        return _orchestration_dispatch(service,role,action,data)
 
 
 def _orchestration_dispatch(service, role, action, data):

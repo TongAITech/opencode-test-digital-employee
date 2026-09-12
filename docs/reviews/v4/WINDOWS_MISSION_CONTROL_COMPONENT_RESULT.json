@@ -1,0 +1,28 @@
+{
+  "classification": "ACTUAL_WINDOWS_FILE_BROKER_R1_COMPONENT_NOT_L4",
+  "source_head": "99ea651586e02431fcfa32f6095a568b84d8a1c3",
+  "platform": "Windows-2025Server-10.0.26100-SP0",
+  "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "run_id": "34699351554",
+  "tests_run": 118,
+  "failures": 0,
+  "errors": 0,
+  "skipped": [
+    [
+      "test_atomic_displacement_detects_last_window_external_edit (test_general_execution.FileConflictTests.test_atomic_displacement_detects_last_window_external_edit)",
+      "POSIX atomic exchange fault injection; Windows has a separate CI oracle"
+    ],
+    [
+      "test_oversized_concurrent_displaced_file_is_never_deleted (test_general_execution.FileConflictTests.test_oversized_concurrent_displaced_file_is_never_deleted)",
+      "POSIX exchange oracle"
+    ]
+  ],
+  "status": "PASS",
+  "process_confinement": "NOT_QUALIFIED",
+  "bank_field": "NOT_RUN",
+  "log_sha256": "51025be2787d5cbf21548977fcfa86ab99b26a270936f3f3118291993433b052",
+  "local_download_log_hash_verified": true,
+  "windows_test_tools_job": "PASS",
+  "windows_isolation_job": "FAIL",
+  "full_windows_qualification": "NOT_PASS"
+}

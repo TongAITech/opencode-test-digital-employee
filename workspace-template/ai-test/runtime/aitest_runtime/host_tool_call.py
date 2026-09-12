@@ -29,9 +29,10 @@ def actual_tool_call(provider, *, agent, tool, action, payload):
         and p.get('callID') == cid]
     require(len(matches) == 1, 'ACTUAL_TOOL_CALL_REQUIRED')
     p = matches[0]; state = p.get('state')
-    require(p.get('tool') == tool and p.get('sessionID') == sid and p.get('messageID') == mid
+    allowed_tools = (tool,) if isinstance(tool, str) else tuple(tool)
+    require(p.get('tool') in allowed_tools and p.get('sessionID') == sid and p.get('messageID') == mid
         and not p.get('synthetic') and not p.get('ignored') and isinstance(state, dict)
         and state.get('status') == 'running' and state.get('input') == {'action': action, 'payload': payload},
         'ACTUAL_TOOL_CALL_REQUIRED')
-    return {'session_id': sid, 'message_id': mid, 'call_id': cid,
+    return {'session_id': sid, 'message_id': mid, 'call_id': cid, 'tool': p['tool'],
         'input_digest': canonical_sha256({'action': action, 'payload': payload})}

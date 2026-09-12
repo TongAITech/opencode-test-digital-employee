@@ -1,0 +1,17 @@
+# C1 Mission caller authority increment
+
+1.14.0 CANDIDATE / NOT_QUALIFIED. v7 unchanged. This increment implements caller admission for G2 Planner/generic Worker and the G3/G4/G5 role surfaces, including read/status calls. It is not full C1 or all-role Context Governor qualification.
+
+Runtime records a realm-bound provisioning request before external creation and an immutable eight-hour Session grant before the first prompt POST. The grant references the real Mission, current Goal, Plan/Task/Attempt and root logical binding. Planner has a separate planning lineage without a fabricated Worker Attempt. Successor admission joins the current Attempt with the unchanged R2.5 root anchor, retires the previous grant and increments the logical role's epoch. Retry cannot extend a lease. The actual Host assistant/message/tool/input/call ID must match; valid IDs copied by another caller confer no authority. Admission and effects share the rotation mutex. Primary G3/G4 direct mutations are denied.
+
+## Storage correction required by actual frozen oracle
+
+The initial same-Mission default extension failed the unmodified frozen Mission golden and omitted-owner guard. That experiment was not committed as product code. The implementation uses an owned `MISSION_SESSION_AUTHORITY` root in the existing canonical R1 database, with an immutable Mission SubjectRef. It has no Tasks, Scheduler or alternate Mission truth. Only its registered SYSTEM owner writes it, after verifying the referenced Mission under the existing coordination lock. All live admission joins read the original Mission. This is within the existing CC-01 typed-root contract; no core envelope, Mission extension applicability or frozen golden was changed. The existing typed-root guard rejects omitted owners before writes/rebuild.
+
+## Evidence and limits
+
+Local: 16 new authority tests passed; original typed-root suite 20 passed including frozen bytes/results/fingerprints/composed hashes; actual process-death dispatch journal 4 passed; existing G2.1 validation script passed; Primary 11 and interaction 37 regression tests passed. Independent review ran 13 authority tests plus the frozen golden before the final three Goal/G5 tests were added. Those final tests prove changed Goal fencing and preserve the distinction between generic DIAGNOSIS and formal DEFECT_HUNTER authority. The latter still requires the existing G5 capability contract.
+
+The previous committed Windows source `99ea651586e02431fcfa32f6095a568b84d8a1c3` passed 118 tests (116 pass, 2 POSIX-only skips) and the offline Python/HTTP/DB/k6/ZAP job in run 34699351554. Its isolation job failed. This is preceding control-component evidence, not Windows validation of this new authority increment.
+
+Open: auxiliary knowledge/recovery/evidence caller wiring, typed Mission update/HumanGate entry, all-role context/lease/Host-change automatic recovery, real Host first-tool/successor verification, normal-entry full Mission and final Windows confinement. `SESSION_ROUTER_AGENT_OVERRIDE_FORBIDDEN` on an old cross-Host repair path remains a recorded C2 recovery issue; fail-closed realm rejection is not automatic recovery PASS. Legacy product fixtures that supplied Director/Worker identity as ordinary parameters require migration to actual Host authority or trusted internal-service fixtures; they are not current E2E evidence. Real model execution awaits the explicit destination/payload approval requested after automatic review rejected that probe.

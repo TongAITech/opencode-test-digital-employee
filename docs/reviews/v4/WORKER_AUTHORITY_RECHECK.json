@@ -1,0 +1,28 @@
+{
+  "decision": "TYPED_AUTHORITY_LOCAL_COMPONENT_REVIEW_PASS",
+  "full_c1": "OPEN",
+  "cross_realm_automatic_recovery": "C2_OPEN",
+  "bank": "NOT_RUN",
+  "windows": "NOT_RUN",
+  "real_host": "NOT_CLAIMED",
+  "tests": {
+    "run": 13,
+    "result": "OK",
+    "seconds": 11.514
+  },
+  "frozen_golden": {
+    "run": 1,
+    "result": "OK",
+    "seconds": 0.189
+  },
+  "source_sha256": {
+    "workspace-template/ai-test/runtime/aitest_runtime/mission_session_authority.py": "33d50cde1150e85e5427ca5a7f876e12e9b702b69b11d8b610827e443f6760d9",
+    "workspace-template/ai-test/runtime/aitest_runtime/mission_tool_admission.py": "5df979a44db1065a8dce12eb272b20f78b3f6fe5b72e0c14b9d6f9b78d31603e",
+    "workspace-template/ai-test/runtime/aitest_runtime/dispatch_receipts.py": "5b5b87895550c43c2b4c09c44f573185d5fd93949a992a36ee3aa242855d5d03",
+    "workspace-template/ai-test/runtime/aitest_runtime/canonical_runtime.py": "716b18a24e885f5f909ff45fff03c675136022a1dc92132b06ea90e5dc87b35e",
+    "workspace-template/ai-test/runtime/aitest_runtime/host_tool_call.py": "61fcd1bffd610cdb6222eccd719bf007126da18fdaf2b4d06860aac998ef4e61",
+    "workspace-template/ai-test/runtime/aitest_runtime/product_entry.py": "f03b3f3883546f10680327e5ff0dda1a5476b80dbbd2a226b27b6481764cd98e",
+    "workspace-template/ai-test/runtime/aitest_runtime/g2_1/managed_orchestration.py": "34306f8558aabdb4c0e294ebce4b203db27c56257d3c6902c9c827e3f73d6a13",
+    "tests/v4/test_mission_session_authority.py": "262fc3fab2366ae6c6000af4621248f1ee9b1a159ef9c1a24a4ffe62329dba6c"
+  }
+}
