@@ -1,0 +1,6 @@
+{
+  "advertised_interaction_version": "1.0.0",
+  "durable_claim_contains_operation_text": true,
+  "assert_writable_compatible": "ALLOWED",
+  "scope": "VERSION_DOWNGRADE_GUARD_CHECK_ONLY; reducers otherwise current, not old-binary qualification"
+}

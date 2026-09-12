@@ -1,0 +1,11 @@
+{
+  "head": "4203ae42cfe8010886adf43b1153f13b20f4fd75",
+  "working_tree": true,
+  "files": {
+    "workspace-template/ai-test/runtime/aitest_runtime/interaction_receipts.py": "835e666a8ba78c6b884dcb724c81cb6f9aa9214db804ea9fc47e38e2d3bb7e01",
+    "workspace-template/ai-test/runtime/aitest_runtime/general_work/execution.py": "01fedf2ff329a4461a0fd6e4bab4f32f171be8c37752a9bd1c8c4e628a6e95b8",
+    "workspace-template/ai-test/runtime/aitest_runtime/general_work/execution_contract.py": "6554f8e1c215781868084af23d47351d56b759797e469b168bde4d598cbc6179",
+    "workspace-template/ai-test/runtime/aitest_runtime/general_work/scoped_files.py": "64aa63a057c96d7cc5e0970087451abf62d6f5900d69bd18a25e7055e6a0f9d7",
+    "tests/v4/test_general_execution.py": "c618c2a904d19ca9ef9b474e7e9da361e8ec607d6e7d9fbf3d5c1501cd3be645"
+  }
+}

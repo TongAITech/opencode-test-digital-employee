@@ -1,0 +1,25 @@
+{
+  "claim_before_create": {
+    "receipts": 1,
+    "jobs": 0,
+    "supervisor": {
+      "truth_source": "R1_EVENT_STREAM",
+      "jobs": []
+    },
+    "host_sessions": 0
+  },
+  "complete_before_cache": {
+    "job_status": "ACTIVE",
+    "call_states": [
+      [
+        "write_file",
+        "RECEIPTED"
+      ],
+      [
+        "complete",
+        "CLAIMED"
+      ]
+    ],
+    "reason": "GENERAL_EFFECT_RECONCILIATION_REQUIRED"
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "write_job_false_complete": {
+    "job_status": "COMPLETED",
+    "file_exists": false,
+    "tool_status": "COMPLETED"
+  },
+  "readonly_crash_stalls": {
+    "status": "ACTIVE",
+    "calls": [
+      "CLAIMED"
+    ],
+    "supervisor": {
+      "truth_source": "R1_EVENT_STREAM",
+      "jobs": [
+        {
+          "truth_source": "R1_EVENT_STREAM",
+          "result_type": "ENGINEERING_RESULT",
+          "subject": {
+            "subject_kind": "GENERAL_WORK",
+            "subject_id": "general-work:v1:20007f3846d37b505939ea9b6829e0589e6a1515da8311f432a73ba375d0293a"
+          },
+          "job_id": "general-work:v1:20007f3846d37b505939ea9b6829e0589e6a1515da8311f432a73ba375d0293a",
+          "status": "ACTIVE",
+          "summary": null,
+          "checkpoint": null,
+          "policy_revision": "general-execution.v4.1",
+          "purpose": "\u628a\u8bf4\u660e\u5199\u5230 notes/result.txt",
+          "capabilities": [
+            "checkpoint",
+            "complete",
+            "read_file",
+            "search_files",
+            "status",
+            "write_file"
+          ],
+          "write_roots": [
+            "notes",
+            "general-work/general-scratch-356aa7dc015d0e4931ec796f7f17672d417ecec84c097dbdaae6381d29ab6e84"
+          ],
+          "write_paths": [
+            "notes/result.txt"
+          ],
+          "task_id": "general-task-a50cec3ecfe9dd88a5424cc66d4e6b4e5d0cf8cb02640b3b2b741037d18d0cba",
+          "root_attempt_id": "general-attempt-7965b5274b9a58dc481e8cce6cc351bbb5a5549463db4b1595ad56b920cb8200",
+          "logical_agent_id": "general-agent-60072330bcfd9999ba33677ec5fed48a5c139c80fe054a4c9830bb6ece392228",
+          "epoch": 1,
+          "session_id": "fake-opencode-session-1",
+          "business_cursor": 0,
+          "reason": "GENERAL_EFFECT_RECONCILIATION_REQUIRED"
+        }
+      ]
+    }
+  },
+  "created_crash_skipped": {
+    "supervisor": {
+      "truth_source": "R1_EVENT_STREAM",
+      "jobs": []
+    },
+    "host_session_count": 0
+  },
+  "displacement_read_failure": {
+    "error": "GENERAL_FILE_BYTE_BUDGET: GENERAL_FILE_BYTE_BUDGET",
+    "final_bytes": 6,
+    "remaining_notes_files": [
+      "x"
+    ],
+    "backup_files": [
+      "change.diff",
+      "before.bin"
+    ]
+  }
+}
