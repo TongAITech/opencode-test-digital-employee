@@ -119,6 +119,37 @@ class ContextAdmissionTests(unittest.TestCase):
         self.assertGreater(blocked["request_upper_bound"], blocked["input_budget"])
         self.assertEqual(blocked["estimation_method"], "UTF8_BYTES_AS_TOKEN_UPPER_BOUND_PLUS_FRAMING")
 
+    def test_large_output_reserve_is_never_shrunk_to_make_input_fit(self):
+        decision = evaluate({
+            "context_limit": 128000,
+            "max_output_tokens": 100000,
+            "system_bytes": 12000,
+            "messages_bytes": 12000,
+            "tools_bytes": 1000,
+            "extra_bytes": 500,
+            "message_count": 8,
+            "tool_count": 2,
+        })
+        self.assertEqual(decision["output_reserve"], 100000)
+        self.assertEqual(decision["context_input_limit"], 28000)
+        self.assertEqual(decision["status"], "BLOCK")
+
+    def test_independent_model_input_limit_caps_budget_before_context_window(self):
+        decision = evaluate({
+            "context_limit": 128000,
+            "input_limit": 16384,
+            "max_output_tokens": 4096,
+            "system_bytes": 7000,
+            "messages_bytes": 9000,
+            "tools_bytes": 1200,
+            "extra_bytes": 500,
+            "message_count": 6,
+            "tool_count": 2,
+        })
+        self.assertEqual(decision["model_input_limit"], 16384)
+        self.assertEqual(decision["effective_input_limit"], 16384)
+        self.assertEqual(decision["status"], "BLOCK")
+
     def test_each_final_request_component_can_independently_block(self):
         base = {
             "context_limit": 128000, "max_output_tokens": 8192,
