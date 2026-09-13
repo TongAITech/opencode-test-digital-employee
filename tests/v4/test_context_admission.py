@@ -205,6 +205,28 @@ class ContextAdmissionTests(unittest.TestCase):
         self.assertEqual(len(self.provider.sessions), 1)
         self.assertEqual(self.provider.messages, [])
 
+    def test_primary_tui_follow_failure_never_replays_before_retry(self):
+        owner = PrimarySessionOwner(self.runtime, self.root, self.provider)
+        old = owner.ensure_current()
+        payload = blocked_payload(old["session_id"], "aitest-director", user_text="继续当前任务")
+        original = self.provider.select_tui_session
+        with patch.object(self.provider, "select_tui_session", side_effect=OSError("tui unavailable")):
+            with self.assertRaisesRegex(RuntimeError, "PRIMARY_CONTEXT_REPLAY_RECONCILIATION_REQUIRED"):
+                admit(payload, runtime=self.runtime, provider=self.provider, root=self.root)
+        state = owner.state()
+        self.assertEqual(state.epoch, 2)
+        recovery = state.bindings["1"]["context_recovery"]
+        self.assertEqual(recovery["state"], "CLAIMED")
+        self.assertEqual(recovery["target_session_id"], state.bindings["2"]["session_id"])
+        self.assertEqual(self.provider.messages, [], "replay must not race ahead of TUI successor follow")
+
+        restarted = PrimarySessionOwner(self.runtime, self.root, self.provider)
+        accepted = restarted.recover_pending_context()
+        self.assertEqual(accepted["status"], "ACCEPTED")
+        self.assertEqual(len(self.provider.messages), 1)
+        self.assertEqual(self.provider.messages[0]["text"], "继续当前任务")
+        self.assertEqual(self.provider.tui_selections[-1], accepted["successor_session_id"])
+
     def test_primary_recovery_transition_is_pure_for_nested_journal(self):
         owner = PrimarySessionOwner(self.runtime, self.root, self.provider)
         old = owner.ensure_current()
