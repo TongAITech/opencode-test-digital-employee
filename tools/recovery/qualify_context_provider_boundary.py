@@ -212,6 +212,7 @@ from host_opencode import CapabilityClient
 from aitest_runtime.canonical_runtime import create_canonical_runtime
 from aitest_runtime.autonomous_orchestration import DirectoryScopedOpenCodeSessionProvider
 from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
+from aitest_runtime.primary_sessions import PrimarySessionOwner
 
 client = CapabilityClient(env["AITEST_OPENCODE_ENDPOINT"], workspace, env)
 host = None
@@ -235,6 +236,24 @@ def latest_planner_rotation(tick):
         if value.get("status") == "ROTATED":
             return value
     return None
+
+
+class CrashAfterHostAcceptProvider:
+    """Delegate to the real OpenCode Host, then lose the client-side receipt once."""
+
+    def __init__(self, delegate):
+        self.delegate = delegate
+        self.crash_once = True
+
+    def __getattr__(self, name):
+        return getattr(self.delegate, name)
+
+    def send_context(self, *, session_id: str, agent: str, text: str):
+        value = self.delegate.send_context(session_id=session_id, agent=agent, text=text)
+        if self.crash_once:
+            self.crash_once = False
+            raise OSError("SIMULATED_CLIENT_CRASH_AFTER_OPENCODE_ACCEPT")
+        return value
 
 try:
     host = subprocess.Popen(
@@ -330,6 +349,50 @@ try:
     completed = [x for x in control.rotations if x.status == "COMPLETED"]
     if len(completed) < 2:
         raise RuntimeError("TWO_DURABLE_ROTATIONS_REQUIRED")
+
+    # Real Host crash-window proof for the Primary path. The OpenCode HTTP
+    # request succeeds and stores the user message, but the client deliberately
+    # loses the acknowledgement. R1 must remain SENDING until a fresh Owner
+    # reconciles by Host readback; it must never replay the same turn blindly.
+    crashing = CrashAfterHostAcceptProvider(provider)
+    primary = PrimarySessionOwner(runtime, workspace, crashing)
+    primary_old = primary.ensure_current()
+    replay_text = "继续当前任务；验证真实 OpenCode Host 接收后客户端崩溃的 readback 恢复。"
+    replay_digest = hashlib.sha256(replay_text.encode()).hexdigest()
+    recovery_id = primary.claim_context_recovery(
+        primary_old["session_id"], "aitest-director", replay_text, "c" * 64
+    )
+    first_recovery = primary.recover_pending_context()
+    if first_recovery.get("status") != "RECONCILE_REQUIRED" or first_recovery.get("reason") != "PRIMARY_RECOVERY_EFFECT_UNKNOWN":
+        raise RuntimeError("PRIMARY_CRASH_WINDOW_DID_NOT_ENTER_RECONCILE")
+    primary_state = primary.state()
+    journal = primary_state.bindings["1"].get("context_recovery") or {}
+    if journal.get("state") != "SENDING":
+        raise RuntimeError("PRIMARY_CRASH_WINDOW_NOT_DURABLE_SENDING")
+    primary_successor = primary_state.bindings[str(primary_state.epoch)]["session_id"]
+
+    # A new owner instance represents process restart. Readback of the exact
+    # successor text is the only path to ACCEPTED. find_context_receipt itself
+    # fails closed if more than one matching user message exists.
+    restarted_primary = PrimarySessionOwner(runtime, workspace, provider)
+    accepted = restarted_primary.recover_pending_context()
+    if accepted.get("status") != "ACCEPTED" or accepted.get("successor_session_id") != primary_successor:
+        raise RuntimeError("PRIMARY_CRASH_WINDOW_READBACK_NOT_ACCEPTED")
+    receipt = provider.find_context_receipt(primary_successor, replay_digest)
+    if receipt is None or receipt.get("message_id") != accepted.get("receipt", {}).get("message_id"):
+        raise RuntimeError("PRIMARY_CRASH_WINDOW_RECEIPT_MISMATCH")
+    if restarted_primary.pending_context_recovery() is not None:
+        raise RuntimeError("PRIMARY_CRASH_WINDOW_REMAINED_PENDING")
+    result["gates"]["PRIMARY_CRASH_AFTER_HOST_ACCEPT_READBACK"] = "PASS"
+    result["primary_crash_window"] = {
+        "recovery_id": recovery_id,
+        "predecessor": primary_old["session_id"],
+        "successor": primary_successor,
+        "final_state": restarted_primary.state().bindings["1"]["context_recovery"]["state"],
+        "receipt": receipt,
+        "blind_resend": False,
+    }
+
     result.update({
         "status": "PASS",
         "mission_id": mission,
