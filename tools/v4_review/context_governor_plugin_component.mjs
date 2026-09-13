@@ -134,6 +134,13 @@ try {
     model: { providerID: "fixture", id: "fixture-model", limit: { context: 128000, input: 64000, output: 32768 } },
     message: { id: "usr2" },
   }
+  // Each OpenCode provider request reruns messages/system transforms. The
+  // governor must not depend on retaining a prior request snapshot.
+  await hooks["experimental.chat.messages.transform"]({}, { messages })
+  await hooks["experimental.chat.system.transform"](
+    { sessionID: "ses_component", model: secondInput.model },
+    { system },
+  )
   await hooks["chat.params"](secondInput, { maxOutputTokens: 8192, options: {} })
   await hooks["chat.headers"](secondInput, { headers: {} })
 } catch (error) {
