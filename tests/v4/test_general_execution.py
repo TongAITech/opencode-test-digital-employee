@@ -167,6 +167,26 @@ class ExecutionTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "COMPLETION_RECEIPT_REQUIRED"):
             self.service.jobs.transition(self.subject, expected_seq=self.runtime.get_head_seq(self.subject.subject_id), request_id="bypass",
                 target_status="COMPLETED", actor=ActorRef("SYSTEM", "tester"), summary="fake done")
+    def test_async_prompt_204_without_immediate_readback_stays_unknown_until_supervisor_reconciles(self):
+        original = self.host.find_context_receipt
+        visibility = {"ready": False}
+        def delayed_receipt(session_id, digest):
+            return original(session_id, digest) if visibility["ready"] else None
+        with patch.object(self.host, "find_context_receipt", side_effect=delayed_receipt):
+            result = self.start()
+            self.assertEqual(result["status"], "ACTIVE")
+            job = self.service._job(self.subject)
+            dispatch = next(iter(job.execution["dispatches"].values()))
+            self.assertEqual(dispatch["state"], "UNKNOWN")
+            self.assertEqual(len(self.host.messages), 1)
+            visibility["ready"] = True
+            self.service.supervise_once()
+        job = self.service._job(self.subject)
+        dispatch = next(iter(job.execution["dispatches"].values()))
+        self.assertEqual(dispatch["state"], "ACCEPTED")
+        self.assertIsNotNone(dispatch["receipt"])
+        self.assertEqual(len(self.host.messages), 1, "readback reconciliation must never resend the bootstrap")
+
     def test_pending_prompt_reconciles_actual_host_readback_once(self):
         original = self.host.send_context
         def delivered_then_error(**kwargs): original(**kwargs); raise OSError("lost acknowledgment")
