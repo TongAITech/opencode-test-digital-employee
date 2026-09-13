@@ -70,6 +70,61 @@ def transition(state, command_type, payload):
     exact(payload, 'subject operation data');op=payload['operation'];data=payload['data']
     require(state.workspace_root is not None and command_type == RECORD, 'PRIMARY_ROOT_REQUIRED')
     bindings={k:dict(v) for k,v in state.bindings.items()};current=bindings.get(str(state.epoch))
+    if op == 'RECOVERY_CLAIM':
+        exact(data, 'epoch session_id recovery_id admission_digest context_digest text agent requested_at')
+        require(current is not None and current['state']=='BOUND' and data['epoch']==state.epoch
+            and data['session_id']==current['session_id'], 'PRIMARY_RECOVERY_PREDECESSOR_INVALID')
+        require(data['agent']=='aitest-director' and isinstance(data['text'],str)
+            and 0<len(data['text'].encode())<=8192, 'PRIMARY_RECOVERY_TEXT_INVALID')
+        require(isinstance(data['admission_digest'],str) and len(data['admission_digest'])==64
+            and isinstance(data['context_digest'],str) and len(data['context_digest'])==64, 'PRIMARY_RECOVERY_DIGEST_INVALID')
+        require(data['context_digest']==canonical_sha256(data['text']), 'PRIMARY_RECOVERY_CONTEXT_DIGEST_MISMATCH')
+        expected='primary-recovery:'+canonical_sha256({'subject':state.subject_id,'epoch':state.epoch,
+            'session_id':data['session_id'],'admission_digest':data['admission_digest'],
+            'context_digest':data['context_digest']})
+        require(data['recovery_id']==expected, 'PRIMARY_RECOVERY_IDENTITY_INVALID');stamp(data['requested_at'])
+        prior=current.get('context_recovery')
+        if prior is not None:
+            require(all(prior.get(k)==data[k] for k in ('recovery_id','admission_digest','context_digest','text','agent')),
+                'PRIMARY_RECOVERY_CONFLICT')
+            return state
+        current['context_recovery']={**dict(data),'state':'CLAIMED','target_epoch':None,
+            'target_session_id':None,'send_started_at':None,'receipt':None}
+        return replace(state,bindings=bindings)
+    if op in {'RECOVERY_TARGET','RECOVERY_BEGIN_SEND','RECOVERY_ACCEPTED'}:
+        predecessor_epoch=data.get('predecessor_epoch')
+        require(type(predecessor_epoch) is int and 1<=predecessor_epoch<=state.epoch,
+            'PRIMARY_RECOVERY_PREDECESSOR_EPOCH_INVALID')
+        predecessor=bindings.get(str(predecessor_epoch));require(predecessor is not None,'PRIMARY_RECOVERY_PREDECESSOR_MISSING')
+        recovery=predecessor.get('context_recovery');require(isinstance(recovery,dict),'PRIMARY_RECOVERY_NOT_CLAIMED')
+        require(data.get('recovery_id')==recovery.get('recovery_id'),'PRIMARY_RECOVERY_IDENTITY_MISMATCH')
+        if op == 'RECOVERY_TARGET':
+            exact(data, 'predecessor_epoch recovery_id successor_epoch successor_session_id observed_at')
+            require(recovery['state']=='CLAIMED' and data['successor_epoch']==state.epoch,
+                'PRIMARY_RECOVERY_TARGET_STATE_INVALID')
+            successor=bindings.get(str(state.epoch));require(successor is not None and successor['state']=='BOUND'
+                and successor['session_id']==data['successor_session_id'],'PRIMARY_RECOVERY_SUCCESSOR_INVALID')
+            stamp(data['observed_at']);recovery.update(target_epoch=data['successor_epoch'],
+                target_session_id=data['successor_session_id'],targeted_at=data['observed_at'])
+        elif op == 'RECOVERY_BEGIN_SEND':
+            exact(data, 'predecessor_epoch recovery_id successor_session_id observed_at')
+            require(recovery['state']=='CLAIMED' and recovery.get('target_session_id')==data['successor_session_id'],
+                'PRIMARY_RECOVERY_SEND_STATE_INVALID')
+            stamp(data['observed_at']);recovery.update(state='SENDING',send_started_at=data['observed_at'])
+        else:
+            exact(data, 'predecessor_epoch recovery_id successor_session_id receipt observed_at')
+            require(recovery['state'] in {'CLAIMED','SENDING'} and recovery.get('target_session_id')==data['successor_session_id'],
+                'PRIMARY_RECOVERY_ACCEPT_STATE_INVALID')
+            receipt=data['receipt'];require(isinstance(receipt,dict)
+                and set(receipt)=={'source','session_id','message_id','context_digest'}
+                and receipt.get('source')=='OPENCODE_SESSION_MESSAGE_READBACK'
+                and receipt.get('session_id')==data['successor_session_id']
+                and receipt.get('context_digest')==recovery['context_digest']
+                and isinstance(receipt.get('message_id'),str) and 0<len(receipt['message_id'])<=256,
+                'PRIMARY_RECOVERY_RECEIPT_INVALID')
+            stamp(data['observed_at']);recovery.update(state='ACCEPTED',receipt=dict(receipt),accepted_at=data['observed_at'])
+        predecessor['context_recovery']=recovery
+        return replace(state,bindings=bindings)
     if op == 'REQUEST':
         exact(data, 'epoch provision_id requested_at policy host_realm')
         require(isinstance(data['host_realm'], str) and len(data['host_realm']) == 64 and all(c in '0123456789abcdef' for c in data['host_realm']), 'PRIMARY_HOST_REALM_INVALID')
@@ -191,8 +246,11 @@ class PrimarySessionOwner:
             binding=state.bindings.get(str(state.epoch))
             sessions=self.provider.list_sessions()
             if binding and binding['state']=='BOUND':
-                matches=[x for x in sessions if x.session_id==binding['session_id'] and Path(x.directory).resolve()==self.root]
-                reusable = len(matches)==1 and binding['host_realm']==self.host_realm() and stamp(now())<stamp(binding['expires_at'])
+                pending=binding.get('context_recovery')
+                if isinstance(pending,dict) and pending.get('state')!='ACCEPTED':
+                    self.fence('PRIMARY_PENDING_CONTEXT_RECOVERY');state=self.state();binding=state.bindings.get(str(state.epoch))
+                matches=[x for x in sessions if x.session_id==binding['session_id'] and Path(x.directory).resolve()==self.root] if binding and binding['state']=='BOUND' else []
+                reusable = bool(binding and binding['state']=='BOUND' and len(matches)==1 and binding['host_realm']==self.host_realm() and stamp(now())<stamp(binding['expires_at']))
                 if reusable:
                     # A still-existing Host Session is not necessarily safe to
                     # reattach after restart.  Inspect the actual session before
@@ -221,3 +279,68 @@ class PrimarySessionOwner:
             observed=now();self.record('BIND',{'epoch':state.epoch,'provision_id':binding['provision_id'],'session_id':actual.session_id,
                 'host_realm':self.host_realm(),'directory_digest':canonical_sha256(str(self.root)),'observed_at':observed,'expires_at':(stamp(observed)+timedelta(hours=8)).isoformat()})
             return self.current()
+
+    def pending_context_recovery(self):
+        state=self.state()
+        for epoch in range(state.epoch,0,-1):
+            binding=state.bindings.get(str(epoch));recovery=binding.get('context_recovery') if isinstance(binding,dict) else None
+            if isinstance(recovery,dict) and recovery.get('state')!='ACCEPTED':
+                return epoch,dict(recovery)
+        return None
+
+    def claim_context_recovery(self,session_id,agent,text,admission_digest):
+        require(isinstance(text,str) and 0<len(text.encode())<=8192,'PRIMARY_RECOVERY_TEXT_INVALID')
+        current=self.current(session_id);context_digest=canonical_sha256(text)
+        recovery_id='primary-recovery:'+canonical_sha256({'subject':self.subject.subject_id,'epoch':current['epoch'],
+            'session_id':session_id,'admission_digest':admission_digest,'context_digest':context_digest})
+        self.record('RECOVERY_CLAIM',{'epoch':current['epoch'],'session_id':session_id,'recovery_id':recovery_id,
+            'admission_digest':admission_digest,'context_digest':context_digest,'text':text,'agent':agent,'requested_at':now()})
+        return recovery_id
+
+    def recover_pending_context(self):
+        require(self.provider is not None,'PRIMARY_HOST_PROVIDER_REQUIRED')
+        pending=self.pending_context_recovery()
+        if pending is None:return {'status':'NONE'}
+        predecessor_epoch,recovery=pending
+        state=self.state();predecessor=state.bindings[str(predecessor_epoch)]
+        if predecessor_epoch==state.epoch and predecessor['state']=='BOUND':
+            self.fence(('PRIMARY_CONTEXT_RECOVERY:'+recovery['recovery_id'])[:256])
+        successor=self.ensure_current()
+        state=self.state();predecessor=state.bindings[str(predecessor_epoch)];recovery=dict(predecessor['context_recovery'])
+        if recovery.get('target_session_id') is None:
+            self.record('RECOVERY_TARGET',{'predecessor_epoch':predecessor_epoch,'recovery_id':recovery['recovery_id'],
+                'successor_epoch':successor['epoch'],'successor_session_id':successor['session_id'],'observed_at':now()})
+            state=self.state();recovery=dict(state.bindings[str(predecessor_epoch)]['context_recovery'])
+        require(recovery.get('target_session_id')==successor['session_id'],'PRIMARY_RECOVERY_TARGET_CHANGED')
+        try:self.provider.select_tui_session(successor['session_id'])
+        except Exception:pass
+        receipt=self.provider.find_context_receipt(successor['session_id'],recovery['context_digest'])
+        if receipt is not None:
+            if recovery['state']!='ACCEPTED':
+                self.record('RECOVERY_ACCEPTED',{'predecessor_epoch':predecessor_epoch,'recovery_id':recovery['recovery_id'],
+                    'successor_session_id':successor['session_id'],'receipt':receipt,'observed_at':now()})
+            return {'status':'ACCEPTED','predecessor_session_id':predecessor['session_id'],
+                'successor_session_id':successor['session_id'],'epoch':successor['epoch'],'receipt':receipt,
+                'idempotent_readback':recovery['state']!='CLAIMED'}
+        if recovery['state']=='SENDING':
+            return {'status':'RECONCILE_REQUIRED','reason':'PRIMARY_RECOVERY_EFFECT_UNKNOWN',
+                'predecessor_session_id':predecessor['session_id'],'successor_session_id':successor['session_id'],
+                'epoch':successor['epoch']}
+        require(recovery['state']=='CLAIMED','PRIMARY_RECOVERY_STATE_INVALID')
+        self.record('RECOVERY_BEGIN_SEND',{'predecessor_epoch':predecessor_epoch,'recovery_id':recovery['recovery_id'],
+            'successor_session_id':successor['session_id'],'observed_at':now()})
+        try:self.provider.send_context(session_id=successor['session_id'],agent=recovery['agent'],text=recovery['text'])
+        except Exception:
+            return {'status':'RECONCILE_REQUIRED','reason':'PRIMARY_RECOVERY_EFFECT_UNKNOWN',
+                'predecessor_session_id':predecessor['session_id'],'successor_session_id':successor['session_id'],
+                'epoch':successor['epoch']}
+        receipt=self.provider.find_context_receipt(successor['session_id'],recovery['context_digest'])
+        if receipt is None:
+            return {'status':'RECONCILE_REQUIRED','reason':'PRIMARY_RECOVERY_RECEIPT_NOT_YET_VISIBLE',
+                'predecessor_session_id':predecessor['session_id'],'successor_session_id':successor['session_id'],
+                'epoch':successor['epoch']}
+        self.record('RECOVERY_ACCEPTED',{'predecessor_epoch':predecessor_epoch,'recovery_id':recovery['recovery_id'],
+            'successor_session_id':successor['session_id'],'receipt':receipt,'observed_at':now()})
+        return {'status':'ACCEPTED','predecessor_session_id':predecessor['session_id'],
+            'successor_session_id':successor['session_id'],'epoch':successor['epoch'],'receipt':receipt,
+            'idempotent_readback':False}
