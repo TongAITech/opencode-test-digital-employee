@@ -107,7 +107,7 @@ assert.equal(captured[0].tool_count, 1, "deny-all agent must not budget unrelate
 assert.ok(captured[0].tools_bytes > 256, "late tool-definition mutation must be included")
 assert.ok(captured[0].system_bytes > 128, "late system mutation must be included")
 assert.equal(captured[0].message_count, 2)
-assert.equal(captured[0].max_output_tokens, 32768, "advertised model output limit must dominate later param changes")
+assert.equal(captured[0].max_output_tokens, 16384, "final provider maxOutputTokens must override the advertised model maximum")
 assert.equal(captured[0].input_limit, 64000, "independent model input limit must reach Runtime admission")
 assert.ok(captured[0].extra_bytes > 1200, "final chat.params options must be included before admission")
 
