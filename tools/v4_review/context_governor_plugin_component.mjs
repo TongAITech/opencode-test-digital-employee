@@ -92,7 +92,7 @@ const firstParams = { maxOutputTokens: 8192, options: { base: true } }
 const firstInput = {
   sessionID: "ses_component",
   agent: "aitest-director",
-  model: { providerID: "fixture", id: "fixture-model", limit: { context: 128000, output: 32768 } },
+  model: { providerID: "fixture", id: "fixture-model", limit: { context: 128000, input: 64000, output: 32768 } },
   message: { id: "usr1" },
 }
 await hooks["chat.params"](firstInput, firstParams)
@@ -108,6 +108,7 @@ assert.ok(captured[0].tools_bytes > 256, "late tool-definition mutation must be 
 assert.ok(captured[0].system_bytes > 128, "late system mutation must be included")
 assert.equal(captured[0].message_count, 2)
 assert.equal(captured[0].max_output_tokens, 32768, "advertised model output limit must dominate later param changes")
+assert.equal(captured[0].input_limit, 64000, "independent model input limit must reach Runtime admission")
 assert.ok(captured[0].extra_bytes > 1200, "final chat.params options must be included before admission")
 
 messages.push({
@@ -130,7 +131,7 @@ try {
   const secondInput = {
     sessionID: "ses_component",
     agent: "aitest-director",
-    model: { providerID: "fixture", id: "fixture-model", limit: { context: 128000, output: 32768 } },
+    model: { providerID: "fixture", id: "fixture-model", limit: { context: 128000, input: 64000, output: 32768 } },
     message: { id: "usr2" },
   }
   await hooks["chat.params"](secondInput, { maxOutputTokens: 8192, options: {} })
