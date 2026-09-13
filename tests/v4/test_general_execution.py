@@ -89,6 +89,24 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(finish["result_type"], "ENGINEERING_RESULT"); self.assertEqual(self.service._job(self.subject).status, "COMPLETED")
         self.assertEqual(self.count("mission_projection"), 0); self.assertEqual(self.runtime.rebuild_projections()["rebuilt"], 2)
         self.assertTrue(self.runtime.verify_projection(self.subject.subject_id)["ok"])
+    def test_context_admission_rotates_general_job_epoch_and_resumes_from_r1(self):
+        result = self.start()
+        old = result["session_id"]
+        before_job = self.service._job(self.subject)
+        self.assertEqual(before_job.execution["epoch"], 1)
+        rotated = self.service.rotate_for_context_admission(old)
+        self.assertEqual(rotated["status"], "ROTATED")
+        self.assertEqual(rotated["job_id"], self.subject.subject_id)
+        self.assertEqual(rotated["epoch"], 2)
+        self.assertNotEqual(rotated["successor_session_id"], old)
+        job = self.service._job(self.subject)
+        self.assertEqual(job.execution["epoch"], 2)
+        self.assertEqual(job.intent, before_job.intent)
+        self.assertEqual(job.execution["root_attempt_id"], before_job.execution["root_attempt_id"])
+        self.assertNotIn(old, self.host.sessions)
+        self.assertTrue(any(m["session_id"] == rotated["successor_session_id"] for m in self.host.messages))
+        self.assertEqual(self.count("mission_projection"), 0)
+
     def test_duplicate_start_and_tool_do_not_spawn_or_write_again(self):
         self.start(); before = len(self.host.messages)
         self.service.start(self.op, self.owner)
