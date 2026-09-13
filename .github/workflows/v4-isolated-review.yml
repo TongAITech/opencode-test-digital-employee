@@ -61,6 +61,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'C2 Primary session regression failed' }
           & "$env:V4_RUNTIME/python/python.exe" -X utf8 tests/v4/test_context_admission.py
           if ($LASTEXITCODE -ne 0) { throw 'C2 final-request admission regression failed' }
+          & "$env:V4_RUNTIME/python/python.exe" -X utf8 tests/v4/test_context_admission_multirole.py
+          if ($LASTEXITCODE -ne 0) { throw 'C2 all-role successor regression failed' }
           & "$env:V4_RUNTIME/python/python.exe" -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_recovery_context_stress.py
           if ($LASTEXITCODE -ne 0) { throw 'C2 context recovery stress regression failed' }
       - name: Verify current General execution and file broker on actual Windows
