@@ -53,6 +53,35 @@ class G21CommandContribution:
                 if any(previous[k] != p[k] for k in ('session_id','context_digest','mode','business_cursor')):
                     raise RuntimeError('G21_DISPATCH_IDENTITY_CONFLICT', p['dispatch_id'])
             return [PendingEvent(CONTEXT_DISPATCH_RECORDED, 'CONTEXT_DISPATCH', p['dispatch_id'], p, p['session_id'])]
+        if command.type == RECORD_PROGRESS_STATE:
+            p = _payload(command, {"progress_id","business_cursor","phase","reason","failure_signature",
+                                   "task_id","session_id","replan_lineage","replan_session_id","observed_at"})
+            if (not isinstance(p["progress_id"], str) or not 1 <= len(p["progress_id"]) <= 160
+                    or p["phase"] not in {"STALLED","REPLANNING","RESOLVED","BLOCKED"}
+                    or not isinstance(p["business_cursor"], int) or isinstance(p["business_cursor"], bool)
+                    or not 0 <= p["business_cursor"] <= composed.seq
+                    or not isinstance(p["reason"], str) or not 1 <= len(p["reason"]) <= 256
+                    or not isinstance(p["failure_signature"], str) or len(p["failure_signature"]) != 64
+                    or any(ch not in "0123456789abcdef" for ch in p["failure_signature"])
+                    or any(value is not None and (not isinstance(value, str) or not 1 <= len(value) <= 256)
+                           for value in (p["task_id"], p["session_id"], p["replan_lineage"], p["replan_session_id"]))):
+                raise RuntimeError("G2_1_PROGRESS_SCHEMA_INVALID", str(p.get("progress_id")))
+            previous = composed.extension_state(EXTENSION_ID).progress(p["progress_id"])
+            if previous is None and p["phase"] != "STALLED":
+                raise RuntimeError("G2_1_PROGRESS_STALLED_REQUIRED", p["progress_id"])
+            if previous is not None:
+                allowed = {
+                    "STALLED": {"STALLED","REPLANNING","BLOCKED"},
+                    "REPLANNING": {"REPLANNING","RESOLVED","BLOCKED"},
+                    "RESOLVED": {"RESOLVED"},
+                    "BLOCKED": {"BLOCKED"},
+                }
+                if p["phase"] not in allowed.get(previous.phase, set()):
+                    raise RuntimeError("G2_1_PROGRESS_TRANSITION_INVALID", p["progress_id"])
+                for key in ("business_cursor","reason","failure_signature","task_id","session_id"):
+                    if getattr(previous, key) != p[key]:
+                        raise RuntimeError("G2_1_PROGRESS_IDENTITY_CONFLICT", p["progress_id"])
+            return [PendingEvent(PROGRESS_STATE_RECORDED, "MISSION_PROGRESS", p["progress_id"], p, p["session_id"])]
         if command.type == ENABLE_ROUTING_AUTHORITY:
             p = _payload(command, set())
             return [PendingEvent(ROUTING_AUTHORITY_ENABLED, "SESSION_ROUTING", composed.mission_id, p)]
