@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+_TEST_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_TEST_DIR))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'ai-test/runtime'))
 from aitest_runtime.autonomous_orchestration import FakeOpenCodeSessionProvider
 from aitest_runtime.bounded_evidence import read_evidence_page, require_router_session, mission_evidence_directory, MAX_RESPONSE_BYTES
