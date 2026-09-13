@@ -40,6 +40,19 @@ class SessionControlApplicationService:
             if result.error: raise result.error
             raise RuntimeError("G2_1_COMMAND_REJECTED")
         return result
+    def record_progress_state(self, mission_id: str, payload: Mapping[str, Any]):
+        pid = str(payload["progress_id"]); phase = str(payload["phase"])
+        digest = canonical_sha256(dict(payload))[:16]
+        previous = self.state(mission_id).progress(pid)
+        if previous is not None:
+            prior = previous.to_dict(); prior.pop("recorded_seq", None)
+            if prior == dict(payload):
+                return None
+        return self._execute(
+            mission_id, f"g2.1:progress:{pid}:{phase}:{digest}", RECORD_PROGRESS_STATE,
+            payload, str(payload["session_id"]) if payload.get("session_id") else None,
+        )
+
     def enable_routing_authority(self, mission_id: str):
         state = self.state(mission_id)
         if state.routing_authority_enabled:
