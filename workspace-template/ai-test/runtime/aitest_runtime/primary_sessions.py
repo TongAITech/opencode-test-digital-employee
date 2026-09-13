@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 import json
+import hashlib
 from urllib.parse import urlsplit
 from pathlib import Path
 import uuid
@@ -78,7 +79,7 @@ def transition(state, command_type, payload):
             and 0<len(data['text'].encode())<=8192, 'PRIMARY_RECOVERY_TEXT_INVALID')
         require(isinstance(data['admission_digest'],str) and len(data['admission_digest'])==64
             and isinstance(data['context_digest'],str) and len(data['context_digest'])==64, 'PRIMARY_RECOVERY_DIGEST_INVALID')
-        require(data['context_digest']==canonical_sha256(data['text']), 'PRIMARY_RECOVERY_CONTEXT_DIGEST_MISMATCH')
+        require(data['context_digest']==hashlib.sha256(data['text'].encode()).hexdigest(), 'PRIMARY_RECOVERY_CONTEXT_DIGEST_MISMATCH')
         expected='primary-recovery:'+canonical_sha256({'subject':state.subject_id,'epoch':state.epoch,
             'session_id':data['session_id'],'admission_digest':data['admission_digest'],
             'context_digest':data['context_digest']})
@@ -290,7 +291,7 @@ class PrimarySessionOwner:
 
     def claim_context_recovery(self,session_id,agent,text,admission_digest):
         require(isinstance(text,str) and 0<len(text.encode())<=8192,'PRIMARY_RECOVERY_TEXT_INVALID')
-        current=self.current(session_id);context_digest=canonical_sha256(text)
+        current=self.current(session_id);context_digest=hashlib.sha256(text.encode()).hexdigest()
         recovery_id='primary-recovery:'+canonical_sha256({'subject':self.subject.subject_id,'epoch':current['epoch'],
             'session_id':session_id,'admission_digest':admission_digest,'context_digest':context_digest})
         self.record('RECOVERY_CLAIM',{'epoch':current['epoch'],'session_id':session_id,'recovery_id':recovery_id,
