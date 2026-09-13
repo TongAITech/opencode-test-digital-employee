@@ -224,12 +224,19 @@ export const AITestContextGovernor = async ({ directory }) => ({
       tool_count: tools.count,
       current_user_text: current,
     }
-    const decision = await admit(directory, payload)
+    let decision
+    try {
+      decision = await admit(directory, payload)
+    } finally {
+      // messages/system/params are only a transient pre-provider snapshot.
+      // Keeping them after admission would pin large histories in the OpenCode
+      // process and could itself create the memory pressure we are preventing.
+      sessions.delete(input.sessionID)
+    }
     if (decision.status === "BLOCK") {
       // Recovery has already been durably initiated/completed by Runtime. The
       // old Session must not reach provider transport.
       const recovery = decision.recovery?.status || "RECOVERY_UNKNOWN"
-      sessions.delete(input.sessionID)
       throw new Error("AITEST_CONTEXT_ADMISSION_BLOCKED:" + recovery)
     }
   },
