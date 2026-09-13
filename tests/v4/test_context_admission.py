@@ -65,7 +65,11 @@ def blocked_payload(session_id: str, agent: str, *, user_text: str | None = None
         "extra_bytes": 200,
         "message_count": 12,
         "tool_count": 4,
-        **({"current_user_text": user_text} if user_text is not None else {}),
+        **({
+            "current_user_text": user_text,
+            "current_user_replay_safe": True,
+            "current_user_part_types": ["text"],
+        } if user_text is not None else {}),
     }
 
 
@@ -171,6 +175,21 @@ class ContextAdmissionTests(unittest.TestCase):
                 with self.assertRaises((ValueError, TypeError)):
                     evaluate(payload)
 
+
+    def test_primary_non_text_turn_fails_closed_before_fence_or_successor(self):
+        owner = PrimarySessionOwner(self.runtime, self.root, self.provider)
+        old = owner.ensure_current()
+        payload = blocked_payload(old["session_id"], "aitest-director", user_text="分析这个附件")
+        payload["current_user_replay_safe"] = False
+        payload["current_user_part_types"] = ["text", "file"]
+        with self.assertRaisesRegex(RuntimeError, "PRIMARY_CONTEXT_REPLAY_NON_TEXT_UNSUPPORTED"):
+            admit(payload, runtime=self.runtime, provider=self.provider, root=self.root)
+        state = owner.state()
+        self.assertEqual(state.epoch, old["epoch"])
+        self.assertEqual(state.bindings[str(old["epoch"])]["state"], "BOUND")
+        self.assertNotIn("context_recovery", state.bindings[str(old["epoch"])])
+        self.assertEqual(len(self.provider.sessions), 1)
+        self.assertEqual(self.provider.messages, [])
 
     def test_primary_recovery_transition_is_pure_for_nested_journal(self):
         owner = PrimarySessionOwner(self.runtime, self.root, self.provider)
