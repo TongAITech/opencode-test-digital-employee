@@ -1,0 +1,106 @@
+name: V4 C2 context qualification
+on:
+  push:
+    branches: [work/v1.13.0-recovery-turnkey-validation]
+    paths:
+      - tools/v4_review/context_governor_plugin_component.mjs
+      - tools/recovery/qualify_context_provider_boundary.py
+      - tools/recovery/qualify_context_real_model.py
+      - tests/v4/test_primary_sessions.py
+      - tests/v4/test_context_admission.py
+      - tests/v4/test_context_admission_multirole.py
+      - workspace-template/.pfc-internal-field-validation/tests/test_recovery_context_stress.py
+      - workspace-template/.opencode/plugins/aitest-context-governor.js
+      - workspace-template/ai-test/runtime/aitest_runtime/context_admission.py
+      - workspace-template/ai-test/runtime/aitest_runtime/general_work/**
+      - workspace-template/ai-test/runtime/aitest_runtime/primary_sessions.py
+      - workspace-template/ai-test/runtime/aitest_runtime/session_pressure.py
+      - workspace-template/ai-test/runtime/aitest_runtime/g2_1/**
+      - workspace-template/ai-test/runtime/aitest_runtime/control_loop.py
+      - .github/workflows/v4-c2-context-qualification.yml
+  workflow_dispatch:
+concurrency:
+  group: v4-c2-context-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  c2-context:
+    name: C2 Context / Session Recovery
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Reuse qualified offline payload
+        shell: pwsh
+        run: |
+          $incoming = Join-Path $env:RUNNER_TEMP 'c2-payload'
+          gh run download 34278790485 --name recovery-qualified-package --dir $incoming
+          if ($LASTEXITCODE -ne 0) { throw 'Prior offline artifact unavailable' }
+          $zip = Join-Path $incoming 'AITest-V1.13.0-Recovery-Turnkey-Windows-x64.zip'
+          $expected = '49d8e4dc0a38a1ea89b5872bb7926151b938172650bec2534ce73c43f76e9be2'
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Offline payload input hash mismatch' }
+          $expanded = Join-Path $env:RUNNER_TEMP 'c2-payload-expanded'
+          Expand-Archive $zip -DestinationPath $expanded
+          $bundle = Get-ChildItem $expanded -Directory | Select-Object -First 1
+          if (-not $bundle) { throw 'Qualified payload root missing' }
+          "C2_RUNTIME=$($bundle.FullName)/workspace-template/runtime" | Out-File $env:GITHUB_ENV -Append
+          "C2_PAYLOAD_WORKSPACE=$($bundle.FullName)/workspace-template" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Run C2 source and pressure regressions
+        shell: pwsh
+        run: |
+          $env:GH_TOKEN = ''
+          $env:PIP_NO_INDEX = '1'
+          $runtimeSource = Join-Path $PWD 'workspace-template/ai-test/runtime'
+          $fieldTests = Join-Path $PWD 'workspace-template/.pfc-internal-field-validation/tests'
+          $env:PYTHONPATH = $runtimeSource + [IO.Path]::PathSeparator + $fieldTests
+          node tools/v4_review/context_governor_plugin_component.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Context Governor plugin component failed' }
+          & "$env:C2_RUNTIME/python/python.exe" -X utf8 tests/v4/test_primary_sessions.py
+          if ($LASTEXITCODE -ne 0) { throw 'Primary recovery regression failed' }
+          & "$env:C2_RUNTIME/python/python.exe" -X utf8 tests/v4/test_context_admission.py
+          if ($LASTEXITCODE -ne 0) { throw 'Final-request admission regression failed' }
+          & "$env:C2_RUNTIME/python/python.exe" -X utf8 tests/v4/test_context_admission_multirole.py
+          if ($LASTEXITCODE -ne 0) { throw 'All-role successor regression failed' }
+          & "$env:C2_RUNTIME/python/python.exe" -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_recovery_context_stress.py
+          if ($LASTEXITCODE -ne 0) { throw 'Context stress regression failed' }
+
+      - name: Qualify exact OpenCode 1.18.3 provider boundary
+        shell: pwsh
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP 'c2-provider-boundary'
+          if (Test-Path $output) { Remove-Item -Recurse -Force $output }
+          "C2_BOUNDARY_OUTPUT=$output" | Out-File $env:GITHUB_ENV -Append
+          $hostDir = Join-Path $env:RUNNER_TEMP 'c2-opencode-1.18.3'
+          New-Item -ItemType Directory -Path $hostDir -Force | Out-Null
+          gh release download v1.18.3 -R anomalyco/opencode -p opencode-windows-x64.zip -D $hostDir --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to acquire official OpenCode 1.18.3 host asset' }
+          $zip = Join-Path $hostDir 'opencode-windows-x64.zip'
+          $expected = '68bc62930f6cb5755e0409aa9de0bb270a66ed2b8c9cf0c029e9f2287ed5486e'
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'OpenCode 1.18.3 host hash mismatch' }
+          $expanded = Join-Path $hostDir 'expanded'
+          Expand-Archive $zip -DestinationPath $expanded
+          $hostExe = Get-ChildItem $expanded -Recurse -File -Filter opencode.exe | Select-Object -First 1
+          if (-not $hostExe) { throw 'OpenCode 1.18.3 host executable missing' }
+          $env:GH_TOKEN = ''
+          $env:GITHUB_TOKEN = ''
+          & "$env:C2_RUNTIME/python/python.exe" -X utf8 tools/recovery/qualify_context_provider_boundary.py --repo $PWD --payload-workspace $env:C2_PAYLOAD_WORKSPACE --output $output --host-opencode $hostExe.FullName --timeout 180
+          if ($LASTEXITCODE -ne 0) { throw 'OpenCode 1.18.3 provider-boundary qualification failed' }
+
+      - uses: actions/upload-artifact@v4
+        if: always() && env.C2_BOUNDARY_OUTPUT != ''
+        with:
+          name: v4-c2-context-provider-boundary
+          path: |
+            ${{ env.C2_BOUNDARY_OUTPUT }}/*.json
+            ${{ env.C2_BOUNDARY_OUTPUT }}/*.log
+          if-no-files-found: warn
