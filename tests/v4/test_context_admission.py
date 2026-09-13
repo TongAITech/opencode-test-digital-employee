@@ -68,6 +68,7 @@ def blocked_payload(session_id: str, agent: str, *, user_text: str | None = None
         **({
             "current_user_text": user_text,
             "current_user_replay_safe": True,
+            "current_user_identity_exact": True,
             "current_user_part_types": ["text"],
         } if user_text is not None else {}),
     }
@@ -175,6 +176,19 @@ class ContextAdmissionTests(unittest.TestCase):
                 with self.assertRaises((ValueError, TypeError)):
                     evaluate(payload)
 
+
+    def test_primary_missing_exact_host_message_identity_never_replays_previous_turn(self):
+        owner = PrimarySessionOwner(self.runtime, self.root, self.provider)
+        old = owner.ensure_current()
+        payload = blocked_payload(old["session_id"], "aitest-director", user_text="上一轮文本绝不能被猜测重放")
+        payload["current_user_identity_exact"] = False
+        with self.assertRaisesRegex(RuntimeError, "PRIMARY_CONTEXT_REPLAY_IDENTITY_UNRESOLVED"):
+            admit(payload, runtime=self.runtime, provider=self.provider, root=self.root)
+        state = owner.state()
+        self.assertEqual(state.epoch, old["epoch"])
+        self.assertEqual(state.bindings[str(old["epoch"])]["state"], "BOUND")
+        self.assertNotIn("context_recovery", state.bindings[str(old["epoch"])])
+        self.assertEqual(self.provider.messages, [])
 
     def test_primary_non_text_turn_fails_closed_before_fence_or_successor(self):
         owner = PrimarySessionOwner(self.runtime, self.root, self.provider)
