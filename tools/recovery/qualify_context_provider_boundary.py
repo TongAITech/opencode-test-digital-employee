@@ -375,8 +375,21 @@ try:
     # successor text is the only path to ACCEPTED. find_context_receipt itself
     # fails closed if more than one matching user message exists.
     restarted_primary = PrimarySessionOwner(runtime, workspace, provider)
-    accepted = restarted_primary.recover_pending_context()
-    if accepted.get("status") != "ACCEPTED" or accepted.get("successor_session_id") != primary_successor:
+
+    def reconcile_primary():
+        value = restarted_primary.recover_pending_context()
+        if value.get("status") == "ACCEPTED":
+            return value
+        if value.get("status") == "RECONCILE_REQUIRED":
+            return None
+        raise RuntimeError("PRIMARY_CRASH_WINDOW_RECONCILE_STATE_INVALID")
+
+    # prompt_async forks the OpenCode prompt task and returns 204 immediately.
+    # The user message may therefore become visible after the client has already
+    # lost the acknowledgement. Polling here models repeated ControlLoop ticks;
+    # SENDING is read-only during these ticks and can never trigger a resend.
+    accepted = wait_until(reconcile_primary, 30)
+    if accepted.get("successor_session_id") != primary_successor:
         raise RuntimeError("PRIMARY_CRASH_WINDOW_READBACK_NOT_ACCEPTED")
     receipt = provider.find_context_receipt(primary_successor, replay_digest)
     if receipt is None or receipt.get("message_id") != accepted.get("receipt", {}).get("message_id"):
