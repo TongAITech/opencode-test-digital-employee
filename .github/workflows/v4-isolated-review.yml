@@ -5,6 +5,8 @@ on:
     paths:
       - tools/v4_review/**
       - tools/recovery/launcher.py
+      - tools/recovery/qualify_context_provider_boundary.py
+      - tools/recovery/qualify_context_real_model.py
       - tests/v4/**
       - workspace-template/.pfc-internal-field-validation/tests/test_recovery_context_stress.py
       - workspace-template/.pfc-internal-field-validation/tests/test_g2_1_pressure_fallback.py
@@ -47,6 +49,7 @@ jobs:
           Expand-Archive $zip -DestinationPath $expanded
           $bundle = Get-ChildItem $expanded -Directory | Select-Object -First 1
           "V4_RUNTIME=$($bundle.FullName)/workspace-template/runtime" | Out-File $env:GITHUB_ENV -Append
+          "V4_PAYLOAD_WORKSPACE=$($bundle.FullName)/workspace-template" | Out-File $env:GITHUB_ENV -Append
       - name: Verify C2 Primary poison and context recovery regressions on current source
         shell: pwsh
         run: |
@@ -65,6 +68,35 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'C2 all-role successor regression failed' }
           & "$env:V4_RUNTIME/python/python.exe" -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_recovery_context_stress.py
           if ($LASTEXITCODE -ne 0) { throw 'C2 context recovery stress regression failed' }
+      - name: Qualify exact OpenCode 1.18.3 host provider boundary
+        shell: pwsh
+        run: |
+          $env:GH_TOKEN = $env:GITHUB_TOKEN
+          $hostDir = Join-Path $env:RUNNER_TEMP 'opencode-1.18.3-host'
+          New-Item -ItemType Directory -Path $hostDir -Force | Out-Null
+          gh release download v1.18.3 -R anomalyco/opencode -p opencode-windows-x64.zip -D $hostDir --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to acquire official OpenCode 1.18.3 host asset' }
+          $zip = Join-Path $hostDir 'opencode-windows-x64.zip'
+          $expected = '68bc62930f6cb5755e0409aa9de0bb270a66ed2b8c9cf0c029e9f2287ed5486e'
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'OpenCode 1.18.3 host hash mismatch' }
+          $expanded = Join-Path $hostDir 'expanded'
+          Expand-Archive $zip -DestinationPath $expanded
+          $host = Get-ChildItem $expanded -Recurse -File -Filter opencode.exe | Select-Object -First 1
+          if (-not $host) { throw 'OpenCode 1.18.3 host executable missing' }
+          $output = Join-Path $env:RUNNER_TEMP 'v4-context-provider-boundary'
+          "V4_CONTEXT_BOUNDARY_OUTPUT=$output" | Out-File $env:GITHUB_ENV -Append
+          $env:GH_TOKEN = ''
+          $env:GITHUB_TOKEN = ''
+          & "$env:V4_RUNTIME/python/python.exe" -X utf8 tools/recovery/qualify_context_provider_boundary.py --repo $PWD --payload-workspace $env:V4_PAYLOAD_WORKSPACE --output $output --host-opencode $host.FullName --timeout 180
+          if ($LASTEXITCODE -ne 0) { throw 'Exact OpenCode 1.18.3 provider-boundary qualification failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v4-context-provider-boundary
+          path: |
+            ${{ env.V4_CONTEXT_BOUNDARY_OUTPUT }}/*.json
+            ${{ env.V4_CONTEXT_BOUNDARY_OUTPUT }}/*.log
+          if-no-files-found: warn
       - name: Verify current General execution and file broker on actual Windows
         shell: pwsh
         run: |
