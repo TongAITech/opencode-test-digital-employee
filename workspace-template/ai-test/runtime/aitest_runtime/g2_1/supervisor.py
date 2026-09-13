@@ -22,6 +22,14 @@ def durable_pressure(raw: Mapping[str, Any], previous: Any = None) -> dict[str, 
     prior = dict((previous.provider_state or {}).get("pressure") or {}) if previous is not None else {}
     now = str(value.get("observed_at") or utc_now())
     pressure["pressure_policy"] = POLICY_ID
+    # A pre-provider admission block is a durable pressure fact for this
+    # exact Session. Fresh Host observations must not erase it before the
+    # control loop has fenced/rotated the predecessor.
+    if prior.get("final_request_admission_blocked") is True and pressure.get("final_request_admission_blocked") is not True:
+        pressure["final_request_admission_blocked"] = True
+        for key in ("admission_digest", "request_upper_bound", "input_budget", "model_context_limit"):
+            if key in prior:
+                pressure[key] = prior[key]
     metadata_only = pressure.get("metrics_source") == "METADATA_ONLY"
     if metadata_only:
         started = prior.get("blind_started_at") or now
@@ -66,6 +74,7 @@ class RotationPolicy:
         if obs.message_count is not None and obs.message_count>=ROTATE_MESSAGE_THRESHOLD: reasons.append("MESSAGE_THRESHOLD")
         if obs.context_utilization is not None and obs.context_utilization>=ROTATE_CONTEXT_UTILIZATION_THRESHOLD: reasons.append("CONTEXT_PRESSURE")
         pressure = dict((obs.provider_state or {}).get("pressure") or {})
+        if pressure.get("final_request_admission_blocked") is True: reasons.append("FINAL_REQUEST_ADMISSION")
         if pressure.get("observation_byte_budget_exceeded") is True: reasons.append("OBSERVATION_BYTE_BUDGET")
         if pressure.get("message_sample_saturated") is True and "MESSAGE_THRESHOLD" not in reasons: reasons.append("MESSAGE_SAMPLE_BUDGET")
         if (_float_or_none(pressure.get("estimated_context_utilization")) or 0) >= 0.75: reasons.append("ESTIMATED_CONTEXT_PRESSURE")
