@@ -199,16 +199,19 @@ export const AITestContextGovernor = async ({ directory }) => ({
     const params = state.params || {}
     const configuredOutput = Number(params.maxOutputTokens)
     const advertisedOutput = Number(input.model?.limit?.output)
+    const advertisedInput = Number(input.model?.limit?.input)
     const outputReserve = Math.max(
       Number.isInteger(configuredOutput) && configuredOutput > 0 ? configuredOutput : 0,
       Number.isInteger(advertisedOutput) && advertisedOutput > 0 ? advertisedOutput : 0,
     )
+    const inputLimit = Number.isInteger(advertisedInput) && advertisedInput > 0 ? advertisedInput : null
     const payload = {
       session_id: input.sessionID,
       agent: input.agent,
       provider_id: input.model?.providerID,
       model_id: input.model?.id,
       context_limit: contextLimit,
+      input_limit: inputLimit,
       max_output_tokens: outputReserve || null,
       system_bytes: utf8(safeJson(system)),
       messages_bytes: utf8(safeJson(messages)),
