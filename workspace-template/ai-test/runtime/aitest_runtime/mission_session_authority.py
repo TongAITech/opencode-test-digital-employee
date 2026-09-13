@@ -73,7 +73,7 @@ def transition(state, payload):
             require(isinstance(data[k],str) and len(data[k])==64 and all(c in '0123456789abcdef' for c in data[k]),'MISSION_AUTHORITY_DIGEST_INVALID')
         require(data['directory_digest']==canonical_sha256(state.workspace_root),'MISSION_AUTHORITY_WORKSPACE_MISMATCH')
         exact(data['provision'],'task_id root_attempt_id logical_agent_id role agent_name phase title')
-        p=data['provision'];require(p['phase'] in {'PLANNING','PLANNING_ROTATION','TASK_EXECUTION','TASK_ROTATION'},'MISSION_AUTHORITY_PHASE_INVALID')
+        p=data['provision'];require(p['phase'] in {'PLANNING','PLANNING_ROTATION','REPLANNING','REPLANNING_ROTATION','TASK_EXECUTION','TASK_ROTATION'},'MISSION_AUTHORITY_PHASE_INVALID')
         for k in ('logical_agent_id','role','agent_name','title'):
             require(isinstance(p[k],str) and 0<len(p[k])<=2048,'MISSION_AUTHORITY_PROVISION_INVALID')
         for k in ('task_id','root_attempt_id'):
@@ -87,13 +87,21 @@ def transition(state, payload):
         require(request is not None and request['host_realm']==data['host_realm'],'MISSION_AUTHORITY_REQUEST_REQUIRED')
         p=request['provision']
         require(all(data[k]==p[k] for k in ('task_id','logical_agent_id','role','agent_name')),'MISSION_AUTHORITY_PROVISION_MISMATCH')
-        planning=p['phase'] in {'PLANNING','PLANNING_ROTATION'}
+        planning=p['phase'] in {'PLANNING','PLANNING_ROTATION','REPLANNING','REPLANNING_ROTATION'}
         require(p['root_attempt_id'] is None or p['root_attempt_id']==data['planning_lineage' if planning else 'root_attempt_id'],'MISSION_AUTHORITY_ROOT_MISMATCH')
         for k in ('goal_id','logical_agent_id','role','agent_name'):
             require(isinstance(data[k],str) and 0<len(data[k])<=256,'MISSION_AUTHORITY_GRANT_INVALID')
         for k in ('task_id','root_attempt_id','attempt_id','plan_id','plan_revision_id'):
             require(data[k] is None if planning else isinstance(data[k],str) and 0<len(data[k])<=256,'MISSION_AUTHORITY_GRANT_INVALID')
-        require(data['planning_lineage']=='planning:'+data['logical_agent_id'] if planning else data['planning_lineage'] is None,'MISSION_AUTHORITY_PLANNER_LINEAGE_INVALID')
+        if planning:
+            expected_control_lineage = (
+                'planning:'+data['logical_agent_id']
+                if p['phase'] in {'PLANNING','PLANNING_ROTATION'}
+                else p['root_attempt_id']
+            )
+            require(data['planning_lineage']==expected_control_lineage,'MISSION_AUTHORITY_PLANNER_LINEAGE_INVALID')
+        else:
+            require(data['planning_lineage'] is None,'MISSION_AUTHORITY_PLANNER_LINEAGE_INVALID')
         require(isinstance(data['session_id'],str) and 0<len(data['session_id'])<=256 and data['session_id'] not in grants,'MISSION_AUTHORITY_SESSION_REUSE')
         require(type(data['epoch']) is int and data['epoch']==1+max((g['epoch'] for g in grants.values() if g['logical_agent_id']==data['logical_agent_id']),default=0),'MISSION_AUTHORITY_EPOCH_INVALID')
         require(type(data['goal_revision']) is int and data['goal_revision']>0,'MISSION_AUTHORITY_GOAL_INVALID')
@@ -131,6 +139,20 @@ def lineage(composed, session_id, provision):
             and attrs.get('logical_agent_id')==expected and provision.logical_agent_id==expected,'MISSION_AUTHORITY_PLANNER_STALE')
         require(provision.root_attempt_id in {None,'planning:'+expected},'MISSION_AUTHORITY_PLANNER_LINEAGE_INVALID')
         return {**base,'planning_lineage':'planning:'+expected}
+    if provision.phase in {'REPLANNING','REPLANNING_ROTATION'}:
+        require(role.role=='PLANNER' and provision.task_id is None and attrs.get('phase')=='REPLANNING',
+            'MISSION_AUTHORITY_REPLANNER_STALE')
+        lineage_ref=provision.root_attempt_id
+        require(isinstance(lineage_ref,str) and lineage_ref.startswith('replanning:'),
+            'MISSION_AUTHORITY_REPLAN_LINEAGE_INVALID')
+        progress_id=lineage_ref.split(':',1)[1]
+        progress=composed.extension_state('g2_1_session_control').progress(progress_id)
+        require(progress is not None and progress.phase in {'STALLED','REPLANNING'}
+            and progress.business_cursor <= composed.seq,'MISSION_AUTHORITY_REPLAN_PROGRESS_REQUIRED')
+        expected=SessionRouter.logical_agent_id(role.agent_name,lineage_ref)
+        require(attrs.get('logical_agent_id')==expected and provision.logical_agent_id==expected,
+            'MISSION_AUTHORITY_REPLANNER_STALE')
+        return {**base,'planning_lineage':lineage_ref}
     graph=composed.extension_state('r1_2_work_graph')
     execution=composed.extension_state('r1_3b_execution_resume')
     task=graph.task(provision.task_id);attempt=execution.latest_attempt(provision.task_id)
