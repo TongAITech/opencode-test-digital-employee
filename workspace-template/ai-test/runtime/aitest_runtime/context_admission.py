@@ -125,6 +125,11 @@ def _recover_primary(runtime, root: Path, provider, payload: Mapping[str, Any],
     text = payload.get("current_user_text")
     if agent != "aitest-director" or not session_id:
         raise RuntimeError("PRIMARY_CONTEXT_ADMISSION_IDENTITY_INVALID")
+    replay_safe = payload.get("current_user_replay_safe")
+    part_types = payload.get("current_user_part_types")
+    if replay_safe is not True:
+        kinds = ",".join(str(x) for x in part_types) if isinstance(part_types, list) else "UNKNOWN"
+        raise RuntimeError("PRIMARY_CONTEXT_REPLAY_NON_TEXT_UNSUPPORTED", kinds[:256])
     if not isinstance(text, str) or not text.strip():
         raise RuntimeError("PRIMARY_CONTEXT_REPLAY_TEXT_REQUIRED")
     if len(text.encode("utf-8")) > MAX_PRIMARY_REPLAY_BYTES:
