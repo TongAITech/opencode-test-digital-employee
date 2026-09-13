@@ -28,7 +28,7 @@ from .primary_sessions import PrimarySessionOwner
 
 SCHEMA = "aitest.context-admission.v1"
 MAX_COMPONENT_BYTES = 64 * 1024 * 1024
-MAX_PRIMARY_REPLAY_BYTES = 16 * 1024
+MAX_PRIMARY_REPLAY_BYTES = 8 * 1024
 MIN_CONTEXT_LIMIT = 8192
 MAX_CONTEXT_LIMIT = 2_000_000
 DEFAULT_OUTPUT_RESERVE = 4096
@@ -119,20 +119,28 @@ def _recover_primary(runtime, root: Path, provider, payload: Mapping[str, Any],
 
     owner = PrimarySessionOwner(runtime, root, provider)
     current = owner.current(session_id)
-    owner.fence("FINAL_REQUEST_ADMISSION:" + str(decision["admission_digest"])[:24])
-    successor = owner.ensure_current()
-    if successor["session_id"] == session_id:
+    recovery_id = owner.claim_context_recovery(
+        session_id, agent, text, str(decision["admission_digest"])
+    )
+    recovered = owner.recover_pending_context()
+    if recovered.get("status") != "ACCEPTED":
+        raise RuntimeError(
+            "PRIMARY_CONTEXT_REPLAY_RECONCILIATION_REQUIRED",
+            str(recovered.get("reason") or recovered.get("status") or "UNKNOWN"),
+        )
+    successor_session_id = str(recovered["successor_session_id"])
+    if successor_session_id == session_id:
         raise RuntimeError("PRIMARY_CONTEXT_SUCCESSOR_REQUIRED")
-    provider.select_tui_session(successor["session_id"])
-    provider.send_context(session_id=successor["session_id"], agent=agent, text=text)
     return {
         "kind": "PRIMARY",
         "status": "ROTATED",
+        "recovery_id": recovery_id,
         "predecessor_session_id": session_id,
-        "successor_session_id": successor["session_id"],
+        "successor_session_id": successor_session_id,
         "logical_agent_id": current["logical_agent_id"],
-        "epoch": successor["epoch"],
+        "epoch": recovered["epoch"],
         "replayed_current_user_turn": True,
+        "replay_receipt": recovered["receipt"],
         "tui_follow": "SELECTED_SUCCESSOR",
     }
 
