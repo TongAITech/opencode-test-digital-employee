@@ -1,0 +1,358 @@
+"""Qualify the Context Governor at the real OpenCode host/provider boundary.
+
+This is intentionally NOT a real-model proof. It runs the exact host binary
+supplied by the caller against a loopback OpenAI-compatible recording provider.
+The provider returns deterministic text only; it never authors a Plan or AITest
+semantic result.
+
+What this proves:
+- ALLOW reaches the provider transport through the real OpenCode host.
+- Large accumulated Host history + a small current turn is BLOCKED before the
+  provider transport.
+- The block is persisted through canonical R1/G2.1 pressure truth.
+- ControlLoop/Supervisor replaces the Planner Session and the bounded bootstrap
+  reaches the provider on the successor.
+- The same sequence can happen twice without losing Mission/LogicalAgent truth.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import socket
+import subprocess
+import sys
+import threading
+import time
+import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--repo", type=Path, required=True)
+parser.add_argument("--payload-workspace", type=Path, required=True)
+parser.add_argument("--output", type=Path, required=True)
+parser.add_argument("--host-opencode", type=Path, required=True)
+parser.add_argument("--timeout", type=int, default=180)
+args = parser.parse_args()
+
+repo = args.repo.resolve()
+payload = args.payload_workspace.resolve()
+output = args.output.resolve()
+output.mkdir(parents=True, exist_ok=False)
+workspace = output / "workspace"
+workspace.mkdir()
+
+def sha_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+def sha_json(value) -> str:
+    return sha_bytes(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode())
+
+def wait_until(predicate, timeout: float, *, interval: float = 0.1):
+    deadline = time.monotonic() + timeout
+    last = None
+    while time.monotonic() < deadline:
+        try:
+            value = predicate()
+            if value:
+                return value
+            last = value
+        except Exception as exc:
+            last = exc
+        time.sleep(interval)
+    raise TimeoutError(f"condition not met; last={last!r}")
+
+head = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+if subprocess.check_output(["git", "-C", str(repo), "status", "--porcelain"], text=True).strip():
+    raise SystemExit("SOURCE_NOT_CLEAN")
+
+for name in (".opencode", "ai-test"):
+    shutil.copytree(repo / "workspace-template" / name, workspace / name,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "node_modules"))
+for name in ("AGENTS.md", "opencode.json"):
+    shutil.copy2(repo / "workspace-template" / name, workspace / name)
+
+# Offline dependencies/runtime come only from an already-qualified payload.
+shutil.copytree(payload / ".opencode" / "node_modules", workspace / ".opencode" / "node_modules")
+if os.name == "nt":
+    shutil.copytree(payload / "runtime" / "python", workspace / "runtime" / "python")
+else:
+    py = workspace / "runtime" / "python"
+    py.mkdir(parents=True)
+    (py / "python").symlink_to(sys.executable)
+
+requests: list[dict] = []
+requests_lock = threading.Lock()
+
+class RecordingProvider(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, *_args):
+        return
+
+    def _json(self, status: int, value):
+        raw = json.dumps(value, ensure_ascii=False).encode()
+        self.send_response(status)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def do_GET(self):
+        if urlparse(self.path).path == "/v1/models":
+            self._json(200, {"object": "list", "data": [{"id": "fixture-model", "object": "model"}]})
+            return
+        self._json(404, {"error": {"message": "not found"}})
+
+    def do_POST(self):
+        length = int(self.headers.get("content-length") or 0)
+        raw = self.rfile.read(length)
+        path = urlparse(self.path).path
+        try:
+            body = json.loads(raw or b"{}")
+        except Exception:
+            body = {}
+        with requests_lock:
+            requests.append({
+                "seq": len(requests) + 1,
+                "path": path,
+                "body_bytes": len(raw),
+                "body_sha256": sha_bytes(raw),
+                "stream": bool(body.get("stream")),
+                "model": body.get("model"),
+                "message_count": len(body.get("messages") or []),
+            })
+        if path not in {"/v1/chat/completions", "/chat/completions"}:
+            self._json(404, {"error": {"message": "unsupported provider path", "path": path}})
+            return
+        if body.get("stream"):
+            self.send_response(200)
+            self.send_header("content-type", "text/event-stream")
+            self.send_header("cache-control", "no-cache")
+            self.send_header("connection", "close")
+            self.end_headers()
+            created = int(time.time())
+            chunks = [
+                {"id": "chatcmpl-aitest", "object": "chat.completion.chunk", "created": created,
+                 "model": "fixture-model", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "fixture-ok"}, "finish_reason": None}]},
+                {"id": "chatcmpl-aitest", "object": "chat.completion.chunk", "created": created,
+                 "model": "fixture-model", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                 "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}},
+            ]
+            for item in chunks:
+                self.wfile.write(("data: " + json.dumps(item) + "\n\n").encode())
+                self.wfile.flush()
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+            self.close_connection = True
+            return
+        self._json(200, {
+            "id": "chatcmpl-aitest", "object": "chat.completion", "created": int(time.time()),
+            "model": "fixture-model",
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": "fixture-ok"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        })
+
+provider_server = ThreadingHTTPServer(("127.0.0.1", 0), RecordingProvider)
+threading.Thread(target=provider_server.serve_forever, daemon=True).start()
+provider_origin = f"http://127.0.0.1:{provider_server.server_port}/v1"
+
+# Use a custom OpenAI-compatible provider so no real credentials/network are
+# involved, while still exercising OpenCode's actual provider stack.
+config = json.loads((workspace / "opencode.json").read_text(encoding="utf-8"))
+config["model"] = "aitest-boundary/fixture-model"
+config["small_model"] = "aitest-boundary/fixture-model"
+config.setdefault("provider", {})
+config["provider"]["aitest-boundary"] = {
+    "npm": "@ai-sdk/openai-compatible",
+    "name": "AITest Boundary Recorder",
+    "options": {"baseURL": provider_origin, "apiKey": "fixture-only"},
+    "models": {
+        "fixture-model": {
+            "name": "AITest Boundary Fixture",
+            "tool_call": True,
+            "limit": {"context": 65536, "output": 4096},
+        }
+    },
+}
+(workspace / "opencode.json").write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+
+with socket.socket() as sock:
+    sock.bind(("127.0.0.1", 0))
+    host_port = sock.getsockname()[1]
+
+env = dict(os.environ)
+for key in ("GH_TOKEN", "GITHUB_TOKEN"):
+    env.pop(key, None)
+env.update({
+    "AITEST_WORKSPACE_ROOT": str(workspace),
+    "AITEST_RUNTIME_SPINE_DB": str(workspace / "data/state/runtime-spine.db"),
+    "PFC_LOCAL_STATE_ROOT": str(workspace / "data"),
+    "AITEST_OPENCODE_ENDPOINT": f"http://127.0.0.1:{host_port}",
+    "OPENCODE_SERVER_USERNAME": "opencode",
+    "OPENCODE_SERVER_PASSWORD": uuid.uuid4().hex,
+    "OPENCODE_DISABLE_AUTOUPDATE": "1",
+    "OPENCODE_DISABLE_MODELS_FETCH": "1",
+    "OPENCODE_DISABLE_DEFAULT_PLUGINS": "1",
+    "OPENCODE_DISABLE_LSP_DOWNLOAD": "1",
+    "OPENCODE_DISABLE_SHARE": "1",
+    "npm_config_offline": "true",
+    "npm_config_registry": "http://127.0.0.1:9",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONNOUSERSITE": "1",
+    "PYTHONPATH": os.pathsep.join([str(workspace / "ai-test/runtime"), os.environ.get("PYTHONPATH", "")]),
+})
+
+sys.path[:0] = [str(repo / "tools/recovery"), str(workspace / "ai-test/runtime")]
+from host_opencode import CapabilityClient
+from aitest_runtime.canonical_runtime import create_canonical_runtime
+from aitest_runtime.autonomous_orchestration import DirectoryScopedOpenCodeSessionProvider
+from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
+
+client = CapabilityClient(env["AITEST_OPENCODE_ENDPOINT"], workspace, env)
+host = None
+old_env = dict(os.environ)
+result = {
+    "schema_version": "aitest.context-provider-boundary-proof.v1",
+    "classification": "REAL_OPENCODE_HOST_LOCAL_RECORDING_PROVIDER_NO_REAL_MODEL",
+    "source_head": head,
+    "status": "FAIL",
+    "provider_origin": provider_origin,
+    "gates": {},
+}
+
+def call_count():
+    with requests_lock:
+        return len(requests)
+
+def latest_planner_rotation(tick):
+    for item in tick.get("supervision", []):
+        value = item.get("result", {}) if item.get("phase") == "PLANNING" else {}
+        if value.get("status") == "ROTATED":
+            return value
+    return None
+
+try:
+    host = subprocess.Popen(
+        [str(args.host_opencode), "serve", "--hostname", "127.0.0.1", "--port", str(host_port)],
+        cwd=workspace, env=env, stdout=(output / "opencode.log").open("wb"),
+        stderr=subprocess.STDOUT,
+    )
+    wait_until(lambda: client.request("GET", "/global/health", timeout=1).get("healthy"), 45)
+
+    os.environ.update(env)
+    runtime = create_canonical_runtime(workspace)
+    provider = DirectoryScopedOpenCodeSessionProvider(workspace, timeout=20)
+    service = G21AutonomousOrchestrationService(runtime, workspace, session_provider=provider)
+
+    started = service.start_test({
+        "intake_id": "context-provider-boundary",
+        "operation": "CREATE",
+        "scope": {"mode": "EXPLICIT_SET", "project_id": "PFC", "version": "BOUNDARY", "requirements": ["REQ-C2"]},
+        "goal": {"title": "Context Provider Boundary", "intent": "prove host transport admission", "constraints": []},
+        "source": {"kind": "USER", "source_ref": "qualification:context-provider-boundary",
+                   "source_digest": sha_json({"goal": "context-provider-boundary"}),
+                   "observed_at": "2026-09-14T00:00:00Z", "valid_until": None, "source_precedence": 1},
+        "actor": {"type": "USER", "id": "qualification"},
+        "resolution": {"resolution_id": "resolution:context-provider-boundary",
+                       "request_digest": sha_json({"request": "context-provider-boundary"}),
+                       "snapshot_id": "snapshot:context-provider-boundary",
+                       "fact_set_digest": sha_json({"facts": []}), "status": "RESOLVED",
+                       "reason_code": None, "source_refs": ["qualification:context-provider-boundary"],
+                       "valid_until": "2026-09-15T00:00:00Z"},
+    })
+    mission = started["intake"]["intake"]["mission_id"]
+    planner = started["planner_session"]["external_session"]["session_id"]
+
+    # The bounded Planner bootstrap must reach the provider through the real host.
+    wait_until(lambda: call_count() >= 1, 30)
+    baseline_calls = call_count()
+    result["gates"]["ALLOW_REACHES_PROVIDER"] = "PASS"
+
+    current = planner
+    rotations = []
+    for cycle in (1, 2):
+        # noReply persists real Host history without creating a provider call.
+        history = ("历史压力样本-%d-" % cycle) + ("测" * 52000)
+        client.request(
+            "POST", f"/session/{current}/message",
+            {"agent": "aitest-planner", "noReply": True,
+             "parts": [{"type": "text", "text": history}]},
+            timeout=30, budget=8 * 1024 * 1024,
+        )
+        before_block = call_count()
+        if before_block != baseline_calls + len(rotations):
+            raise RuntimeError("NOREPLY_REACHED_PROVIDER")
+
+        # A small current turn must be recoverable on a clean successor.
+        client.request(
+            "POST", f"/session/{current}/prompt_async",
+            {"agent": "aitest-planner", "parts": [{"type": "text", "text": f"继续当前规划，压力恢复验证 {cycle}"}]},
+            timeout=30,
+        )
+        # The plugin invokes Python synchronously before provider transport.
+        wait_until(
+            lambda: (
+                service.session_control.state(mission).observation(current) is not None
+                and service.session_control.state(mission).observation(current).provider_state
+                    .get("pressure", {}).get("final_request_admission_blocked") is True
+            ),
+            30,
+        )
+        time.sleep(0.5)
+        if call_count() != before_block:
+            raise RuntimeError("BLOCKED_REQUEST_REACHED_PROVIDER")
+        result["gates"][f"BLOCK_{cycle}_PREVENTS_PROVIDER"] = "PASS"
+
+        tick = service.supervise_once()
+        rotation = latest_planner_rotation(tick)
+        if not rotation or rotation["predecessor_session_id"] != current:
+            raise RuntimeError("PLANNER_ROTATION_NOT_OBSERVED")
+        successor = rotation["successor_session_id"]
+        if successor == current:
+            raise RuntimeError("SUCCESSOR_REUSED_PREDECESSOR")
+        rotations.append({
+            "cycle": cycle,
+            "predecessor": current,
+            "successor": successor,
+            "rotation_id": rotation["rotation_id"],
+        })
+        current = successor
+        wait_until(lambda: call_count() >= before_block + 1, 30)
+        baseline_calls = before_block
+        result["gates"][f"SUCCESSOR_{cycle}_BOOTSTRAP_REACHES_PROVIDER"] = "PASS"
+
+    control = service.session_control.state(mission)
+    completed = [x for x in control.rotations if x.status == "COMPLETED"]
+    if len(completed) < 2:
+        raise RuntimeError("TWO_DURABLE_ROTATIONS_REQUIRED")
+    result.update({
+        "status": "PASS",
+        "mission_id": mission,
+        "rotation_count": len(rotations),
+        "rotations": rotations,
+        "provider_request_count": call_count(),
+        "provider_requests": list(requests),
+        "gates": {**result["gates"], "TWO_DURABLE_ROTATIONS": "PASS"},
+        "r1_cursor": runtime.get_head_seq(mission),
+    })
+finally:
+    if host is not None and host.poll() is None:
+        host.terminate()
+        try:
+            host.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            host.kill()
+            host.wait()
+    provider_server.shutdown()
+    provider_server.server_close()
+    os.environ.clear()
+    os.environ.update(old_env)
+    (output / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+raise SystemExit(0 if result["status"] == "PASS" else 1)
