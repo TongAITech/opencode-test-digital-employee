@@ -174,4 +174,17 @@ class PrimaryTests(unittest.TestCase):
         self.assertEqual(self.owner.current()['session_id'],old['session_id'])
         self.assertEqual(getattr(self.host,'tui_selections',[]),[])
 
+    def test_native_compact_marker_recovers_primary_with_clean_successor(self):
+        old=self.owner.ensure_current()
+        self.host.set_observation(old['session_id'],
+            activity_state='idle', context_used=2000, context_limit=100000,
+            context_utilization=0.02, message_count=4, compaction_count=1)
+        result=_primary_session_tick(self.runtime,self.root,self.host)
+        self.assertEqual(result['status'],'ROTATED')
+        self.assertIn('CONTEXT_COMPACTED',result['rotation_reasons'])
+        self.assertNotEqual(result['successor_session_id'],old['session_id'])
+        self.assertEqual(self.host.tui_selections[-1],result['successor_session_id'])
+        with self.assertRaisesRegex(RuntimeError,'STALE_CALLER'):
+            self.owner.current(old['session_id'])
+
 if __name__=='__main__':unittest.main()
