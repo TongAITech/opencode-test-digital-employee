@@ -9,6 +9,7 @@ on:
       - tests/v4/test_primary_sessions.py
       - tests/v4/test_context_admission.py
       - tests/v4/test_context_admission_multirole.py
+      - tests/v4/test_general_execution.py
       - workspace-template/.pfc-internal-field-validation/tests/test_recovery_context_stress.py
       - workspace-template/.opencode/plugins/aitest-context-governor.js
       - workspace-template/ai-test/runtime/aitest_runtime/context_admission.py
@@ -71,6 +72,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Final-request admission regression failed' }
           & "$env:C2_RUNTIME/python/python.exe" -X utf8 tests/v4/test_context_admission_multirole.py
           if ($LASTEXITCODE -ne 0) { throw 'All-role successor regression failed' }
+          & "$env:C2_RUNTIME/python/python.exe" -X utf8 tests/v4/test_general_execution.py
+          if ($LASTEXITCODE -ne 0) { throw 'General context recovery regression failed' }
           & "$env:C2_RUNTIME/python/python.exe" -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_recovery_context_stress.py
           if ($LASTEXITCODE -ne 0) { throw 'Context stress regression failed' }
 
