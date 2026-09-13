@@ -88,15 +88,18 @@ messages.push({
   parts: [{ type: "text", text: "late-message" }],
 })
 
-await hooks["chat.params"](
-  {
-    sessionID: "ses_component",
-    agent: "aitest-director",
-    model: { providerID: "fixture", id: "fixture-model", limit: { context: 128000 } },
-    message: { id: "usr1" },
-  },
-  { maxOutputTokens: 8192 },
-)
+const firstParams = { maxOutputTokens: 8192, options: { base: true } }
+const firstInput = {
+  sessionID: "ses_component",
+  agent: "aitest-director",
+  model: { providerID: "fixture", id: "fixture-model", limit: { context: 128000, output: 32768 } },
+  message: { id: "usr1" },
+}
+await hooks["chat.params"](firstInput, firstParams)
+// Simulate a plugin after AITest in the chat.params chain.
+firstParams.maxOutputTokens = 16384
+firstParams.options.late = "p".repeat(256)
+await hooks["chat.headers"](firstInput, { headers: {} })
 assert.equal(captured.length, 1)
 assert.equal(captured[0].session_id, "ses_component")
 assert.equal(captured[0].current_user_text, "hello")
@@ -104,6 +107,8 @@ assert.equal(captured[0].tool_count, 1, "deny-all agent must not budget unrelate
 assert.ok(captured[0].tools_bytes > 256, "late tool-definition mutation must be included")
 assert.ok(captured[0].system_bytes > 128, "late system mutation must be included")
 assert.equal(captured[0].message_count, 2)
+assert.equal(captured[0].max_output_tokens, 32768, "advertised model output limit must dominate later param changes")
+assert.ok(captured[0].extra_bytes > 1200, "final chat.params options must be included before admission")
 
 messages.push({
   info: { id: "tool-heavy", sessionID: "ses_component", role: "assistant" },
@@ -122,15 +127,14 @@ messages.push({
 })
 let blocked = false
 try {
-  await hooks["chat.params"](
-    {
-      sessionID: "ses_component",
-      agent: "aitest-director",
-      model: { providerID: "fixture", id: "fixture-model", limit: { context: 128000 } },
-      message: { id: "usr2" },
-    },
-    { maxOutputTokens: 8192 },
-  )
+  const secondInput = {
+    sessionID: "ses_component",
+    agent: "aitest-director",
+    model: { providerID: "fixture", id: "fixture-model", limit: { context: 128000, output: 32768 } },
+    message: { id: "usr2" },
+  }
+  await hooks["chat.params"](secondInput, { maxOutputTokens: 8192, options: {} })
+  await hooks["chat.headers"](secondInput, { headers: {} })
 } catch (error) {
   blocked = String(error).includes("AITEST_CONTEXT_ADMISSION_BLOCKED:ROTATED")
 }
