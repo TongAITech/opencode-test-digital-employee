@@ -72,6 +72,9 @@ jobs:
         shell: pwsh
         run: |
           $env:GH_TOKEN = $env:GITHUB_TOKEN
+          $output = Join-Path $env:RUNNER_TEMP 'v4-context-provider-boundary'
+          New-Item -ItemType Directory -Path $output -Force | Out-Null
+          "V4_CONTEXT_BOUNDARY_OUTPUT=$output" | Out-File $env:GITHUB_ENV -Append
           $hostDir = Join-Path $env:RUNNER_TEMP 'opencode-1.18.3-host'
           New-Item -ItemType Directory -Path $hostDir -Force | Out-Null
           gh release download v1.18.3 -R anomalyco/opencode -p opencode-windows-x64.zip -D $hostDir --clobber
@@ -81,13 +84,11 @@ jobs:
           if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'OpenCode 1.18.3 host hash mismatch' }
           $expanded = Join-Path $hostDir 'expanded'
           Expand-Archive $zip -DestinationPath $expanded
-          $host = Get-ChildItem $expanded -Recurse -File -Filter opencode.exe | Select-Object -First 1
-          if (-not $host) { throw 'OpenCode 1.18.3 host executable missing' }
-          $output = Join-Path $env:RUNNER_TEMP 'v4-context-provider-boundary'
-          "V4_CONTEXT_BOUNDARY_OUTPUT=$output" | Out-File $env:GITHUB_ENV -Append
+          $hostExe = Get-ChildItem $expanded -Recurse -File -Filter opencode.exe | Select-Object -First 1
+          if (-not $hostExe) { throw 'OpenCode 1.18.3 host executable missing' }
           $env:GH_TOKEN = ''
           $env:GITHUB_TOKEN = ''
-          & "$env:V4_RUNTIME/python/python.exe" -X utf8 tools/recovery/qualify_context_provider_boundary.py --repo $PWD --payload-workspace $env:V4_PAYLOAD_WORKSPACE --output $output --host-opencode $host.FullName --timeout 180
+          & "$env:V4_RUNTIME/python/python.exe" -X utf8 tools/recovery/qualify_context_provider_boundary.py --repo $PWD --payload-workspace $env:V4_PAYLOAD_WORKSPACE --output $output --host-opencode $hostExe.FullName --timeout 180
           if ($LASTEXITCODE -ne 0) { throw 'Exact OpenCode 1.18.3 provider-boundary qualification failed' }
       - uses: actions/upload-artifact@v4
         if: always()
