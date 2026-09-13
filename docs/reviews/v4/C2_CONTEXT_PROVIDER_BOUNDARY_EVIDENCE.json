@@ -1,0 +1,92 @@
+{
+  "schema_version": "aitest.c2.context-provider-boundary-evidence.v1",
+  "recorded_at": "2026-09-14",
+  "classification": "REAL_OPENCODE_HOST_LOCAL_RECORDING_PROVIDER_NO_REAL_MODEL",
+  "source_head": "0a7d16ea2b66d18da31432e084a754b5fe22a24c",
+  "branch": "work/v1.13.0-recovery-turnkey-validation",
+  "workflow_run_id": 34769677223,
+  "artifact": {
+    "id": 10321650982,
+    "name": "v4-context-provider-boundary",
+    "digest": "sha256:d9765c60e33cf399cfaa543c20da4ec5d350f44907d74f52df4ef07297cd8780"
+  },
+  "host": {
+    "product": "OpenCode",
+    "version": "1.18.3",
+    "asset": "opencode-windows-x64.zip",
+    "asset_sha256": "68bc62930f6cb5755e0409aa9de0bb270a66ed2b8c9cf0c029e9f2287ed5486e"
+  },
+  "result": {
+    "status": "PASS",
+    "mission_id": "r2.2:mission:context-provider-boundary",
+    "rotation_count": 2,
+    "r1_cursor": 29,
+    "provider_request_count": 3,
+    "gates": {
+      "ALLOW_REACHES_PROVIDER": "PASS",
+      "BLOCK_1_PREVENTS_PROVIDER": "PASS",
+      "SUCCESSOR_1_BOOTSTRAP_REACHES_PROVIDER": "PASS",
+      "BLOCK_2_PREVENTS_PROVIDER": "PASS",
+      "SUCCESSOR_2_BOOTSTRAP_REACHES_PROVIDER": "PASS",
+      "TWO_DURABLE_ROTATIONS": "PASS"
+    },
+    "rotations": [
+      {
+        "cycle": 1,
+        "predecessor": "ses_f64529614ffeOXsgAuVsU1K3LI",
+        "successor": "ses_f645280b5ffeyDG4gUOII34pJl",
+        "rotation_id": "g21-rotate-de8b69b1c586910c679d638a"
+      },
+      {
+        "cycle": 2,
+        "predecessor": "ses_f645280b5ffeyDG4gUOII34pJl",
+        "successor": "ses_f64527591ffeXo5rlpNHeSp6pV",
+        "rotation_id": "g21-rotate-5d9203e6f7a8b48c1624f774"
+      }
+    ],
+    "provider_requests": [
+      {
+        "seq": 1,
+        "path": "/v1/chat/completions",
+        "body_bytes": 17024,
+        "body_sha256": "b470feb879d97c01edf5e50a274718ae60a2b24b61af9a27b1e43ff7ad558934",
+        "stream": true,
+        "model": "fixture-model",
+        "message_count": 2
+      },
+      {
+        "seq": 2,
+        "path": "/v1/chat/completions",
+        "body_bytes": 17738,
+        "body_sha256": "1f1a15208db3c7aa96b81aa48f73bb8c48d89ecaa2fe30b865ac6f23ddb8ff7a",
+        "stream": true,
+        "model": "fixture-model",
+        "message_count": 2
+      },
+      {
+        "seq": 3,
+        "path": "/v1/chat/completions",
+        "body_bytes": 17738,
+        "body_sha256": "3f29c48d39897fbc7e48e42b4e13ba9c608675c99190aa25b618acd80621cf68",
+        "stream": true,
+        "model": "fixture-model",
+        "message_count": 2
+      }
+    ]
+  },
+  "interpretation": {
+    "proven": [
+      "Exact official OpenCode 1.18.3 Windows host loads the AITest Context Governor.",
+      "A bounded allowed AITest request reaches real OpenCode provider transport.",
+      "Two oversized-history/small-current-turn requests are blocked before provider transport.",
+      "Each block becomes durable R1/G2.1 pressure and yields a clean successor.",
+      "Each successor receives bounded bootstrap and reaches provider transport.",
+      "The same Mission survives two consecutive Session replacements."
+    ],
+    "not_proven": [
+      "Real bank model/provider semantics.",
+      "Authenticated QwenPaw/DeepSeek same-Mission behavior.",
+      "Final V1.14 C2 closure until representative real-model qualification and independent raw-source review."
+    ]
+  }
+}
