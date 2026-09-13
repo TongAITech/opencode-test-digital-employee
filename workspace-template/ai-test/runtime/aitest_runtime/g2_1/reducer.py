@@ -26,6 +26,16 @@ class G21ReducerContribution:
                 raise RuntimeError('G21_DISPATCH_REPLAY_IDENTITY_CONFLICT', p['dispatch_id'])
             item = {**p, 'recorded_seq': event.seq, 'recorded_at': event.created_at}
             return replace(state, context_dispatches=_upsert(state.context_dispatches, lambda x: x['dispatch_id'] == p['dispatch_id'], item))
+        if event.event_type == PROGRESS_STATE_RECORDED:
+            p = dict(event.payload)
+            previous = state.progress(str(p["progress_id"]))
+            item = ProgressStateRecord(
+                str(p["progress_id"]), int(p["business_cursor"]), str(p["phase"]), str(p["reason"]),
+                str(p["failure_signature"]), p.get("task_id"), p.get("session_id"),
+                p.get("replan_lineage"), p.get("replan_session_id"), str(p["observed_at"]), event.seq,
+            )
+            records = _upsert(state.progress_records, lambda x: x.progress_id == item.progress_id, item)
+            return replace(state, progress_records=records)
         if event.event_type == ROUTING_AUTHORITY_ENABLED:
             return replace(state, routing_authority_enabled=True, routing_authority_enabled_seq=state.routing_authority_enabled_seq or event.seq)
         if event.event_type == TASK_ROUTE_REGISTERED:
