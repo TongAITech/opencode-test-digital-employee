@@ -6,6 +6,7 @@ only read this authority. The operational pointer is a disposable projection.
 from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
+import copy
 import json
 import hashlib
 from urllib.parse import urlsplit
@@ -70,7 +71,11 @@ def transition(state, command_type, payload):
         return replace(state, workspace_root=payload['workspace_root'], logical_agent_id=payload['logical_agent_id'])
     exact(payload, 'subject operation data');op=payload['operation'];data=payload['data']
     require(state.workspace_root is not None and command_type == RECORD, 'PRIMARY_ROOT_REQUIRED')
-    bindings={k:dict(v) for k,v in state.bindings.items()};current=bindings.get(str(state.epoch))
+    # Reducer/command validation must be pure. Nested recovery journals are
+    # mutable dictionaries, so a shallow binding copy would mutate the input
+    # state during pre-event validation and make the reducer observe a future
+    # state (for example CLAIMED -> SENDING before RECOVERY_BEGIN_SEND reduces).
+    bindings=copy.deepcopy(state.bindings);current=bindings.get(str(state.epoch))
     if op == 'RECOVERY_CLAIM':
         exact(data, 'epoch session_id recovery_id admission_digest context_digest text agent requested_at')
         require(current is not None and current['state']=='BOUND' and data['epoch']==state.epoch
