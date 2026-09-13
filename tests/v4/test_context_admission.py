@@ -132,9 +132,10 @@ class ContextAdmissionTests(unittest.TestCase):
         record = service.session_control.state(mission).observation(sid)
         self.assertIsNotNone(record)
         self.assertTrue(record.provider_state["pressure"]["final_request_admission_blocked"])
-        self.assertIn("FINAL_REQUEST_ADMISSION",
-                      RotationPolicy().evaluate(SessionObservation.from_provider(sid, record.to_dict())))
 
+        # The control loop receives a fresh Host raw shape, then merges the
+        # prior durable observation before evaluating policy.  Do not feed the
+        # R1 record serialization back through from_provider as if it were Host raw.
         fresh = durable_pressure({
             "session_id": sid, "observed_at": "2026-09-13T12:01:00Z",
             "reachable": True, "healthy": True, "message_count": 1,
