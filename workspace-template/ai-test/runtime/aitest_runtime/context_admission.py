@@ -109,7 +109,7 @@ def evaluate(value: Mapping[str, Any]) -> dict[str, Any]:
 def _provider(root: Path):
     endpoint = os.environ.get("AITEST_OPENCODE_ENDPOINT")
     if not endpoint:
-        raise RuntimeError("CONTEXT_ADMISSION_HOST_ENDPOINT_REQUIRED")
+        raise RuntimeError("CONTEXT_ADMISSION_HOST_ENDPOINT_REQUIRED", "OpenCode Host endpoint is required")
     return DirectoryScopedOpenCodeSessionProvider(
         root,
         base_url=endpoint,
@@ -124,19 +124,19 @@ def _recover_primary(runtime, root: Path, provider, payload: Mapping[str, Any],
     agent = str(payload.get("agent") or "")
     text = payload.get("current_user_text")
     if agent != "aitest-director" or not session_id:
-        raise RuntimeError("PRIMARY_CONTEXT_ADMISSION_IDENTITY_INVALID")
+        raise RuntimeError("PRIMARY_CONTEXT_ADMISSION_IDENTITY_INVALID", "Primary admission requires the exact Director Session")
     identity_exact = payload.get("current_user_identity_exact")
     replay_safe = payload.get("current_user_replay_safe")
     part_types = payload.get("current_user_part_types")
     if identity_exact is not True:
-        raise RuntimeError("PRIMARY_CONTEXT_REPLAY_IDENTITY_UNRESOLVED")
+        raise RuntimeError("PRIMARY_CONTEXT_REPLAY_IDENTITY_UNRESOLVED", "current Host user message identity was not resolved exactly")
     if replay_safe is not True:
         kinds = ",".join(str(x) for x in part_types) if isinstance(part_types, list) else "UNKNOWN"
         raise RuntimeError("PRIMARY_CONTEXT_REPLAY_NON_TEXT_UNSUPPORTED", kinds[:256])
     if not isinstance(text, str) or not text.strip():
-        raise RuntimeError("PRIMARY_CONTEXT_REPLAY_TEXT_REQUIRED")
+        raise RuntimeError("PRIMARY_CONTEXT_REPLAY_TEXT_REQUIRED", "a replayable current user text turn is required")
     if len(text.encode("utf-8")) > MAX_PRIMARY_REPLAY_BYTES:
-        raise RuntimeError("PRIMARY_CONTEXT_REPLAY_TEXT_OVER_BUDGET")
+        raise RuntimeError("PRIMARY_CONTEXT_REPLAY_TEXT_OVER_BUDGET", "current user turn exceeds the durable replay budget")
 
     owner = PrimarySessionOwner(runtime, root, provider)
     current = owner.current(session_id)
@@ -151,7 +151,7 @@ def _recover_primary(runtime, root: Path, provider, payload: Mapping[str, Any],
         )
     successor_session_id = str(recovered["successor_session_id"])
     if successor_session_id == session_id:
-        raise RuntimeError("PRIMARY_CONTEXT_SUCCESSOR_REQUIRED")
+        raise RuntimeError("PRIMARY_CONTEXT_SUCCESSOR_REQUIRED", "context recovery must create a distinct successor Session")
     return {
         "kind": "PRIMARY",
         "status": "ROTATED",
@@ -170,7 +170,7 @@ def _recover_general(runtime, root: Path, provider, payload: Mapping[str, Any]) 
     from .general_work.execution import GeneralExecutionService
     session_id = str(payload.get("session_id") or "")
     if not session_id:
-        raise RuntimeError("GENERAL_CONTEXT_SESSION_ID_REQUIRED")
+        raise RuntimeError("GENERAL_CONTEXT_SESSION_ID_REQUIRED", "General context recovery requires a Session id")
     return GeneralExecutionService(runtime, root, provider).rotate_for_context_admission(session_id)
 
 
@@ -178,7 +178,7 @@ def _signal_mission(runtime, root: Path, provider, payload: Mapping[str, Any],
                     decision: Mapping[str, Any]) -> dict[str, Any]:
     session_id = str(payload.get("session_id") or "")
     if not session_id:
-        raise RuntimeError("MISSION_CONTEXT_SESSION_ID_REQUIRED")
+        raise RuntimeError("MISSION_CONTEXT_SESSION_ID_REQUIRED", "Mission context recovery requires a Session id")
     service = default_g21_service(runtime, root, session_provider=provider)
     matches: list[str] = []
     for mission_id in service._active_mission_ids():
@@ -186,7 +186,7 @@ def _signal_mission(runtime, root: Path, provider, payload: Mapping[str, Any],
         if any(s.session_id == session_id and s.status.value == "OPEN" for s in composed.core_state.sessions):
             matches.append(mission_id)
     if len(matches) != 1:
-        raise RuntimeError("MISSION_CONTEXT_SESSION_BINDING_AMBIGUOUS")
+        raise RuntimeError("MISSION_CONTEXT_SESSION_BINDING_AMBIGUOUS", "Session must bind to exactly one active Mission")
     mission_id = matches[0]
     pressure = {
         "final_request_admission_blocked": True,
