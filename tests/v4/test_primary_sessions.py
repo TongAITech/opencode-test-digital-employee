@@ -187,4 +187,21 @@ class PrimaryTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,'STALE_CALLER'):
             self.owner.current(old['session_id'])
 
+    def test_primary_survives_two_consecutive_pressure_rotations(self):
+        current=self.owner.ensure_current()
+        logical=current['logical_agent_id']
+        for expected_epoch in (2,3):
+            self.host.set_observation(current['session_id'],
+                activity_state='idle', context_used=90000+expected_epoch,
+                context_limit=100000, context_utilization=0.90,
+                message_count=20, compaction_count=0)
+            result=_primary_session_tick(self.runtime,self.root,self.host)
+            self.assertEqual(result['status'],'ROTATED')
+            self.assertEqual(result['epoch'],expected_epoch)
+            self.assertEqual(result['logical_agent_id'],logical)
+            self.assertEqual(self.host.tui_selections[-1],result['successor_session_id'])
+            current=self.owner.current()
+            self.assertEqual(current['session_id'],result['successor_session_id'])
+        self.assertEqual(self.owner.state().epoch,3)
+
 if __name__=='__main__':unittest.main()
