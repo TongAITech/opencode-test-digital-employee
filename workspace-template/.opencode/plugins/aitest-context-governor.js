@@ -33,10 +33,15 @@ function sessionID(messages) {
 }
 
 function currentUserTurn(messages, messageID) {
-  const exact = messages.find((row) => row?.info?.id === messageID && row?.info?.role === "user")
-  const row = exact ?? [...messages].reverse().find((item) => item?.info?.role === "user")
+  // Recovery is a side-effecting action. Never guess the current user turn by
+  // falling back to "latest user message"; a missing exact message identity
+  // must fail closed rather than replaying a previous instruction.
+  if (typeof messageID !== "string" || !messageID) {
+    return { text: "", replaySafe: false, partTypes: [], identityExact: false }
+  }
+  const row = messages.find((item) => item?.info?.id === messageID && item?.info?.role === "user")
   if (!row || !Array.isArray(row.parts)) {
-    return { text: "", replaySafe: false, partTypes: [] }
+    return { text: "", replaySafe: false, partTypes: [], identityExact: false }
   }
   const partTypes = row.parts.map((part) => String(part?.type || "unknown"))
   const replaySafe = row.parts.every((part) => part?.type === "text")
@@ -44,7 +49,7 @@ function currentUserTurn(messages, messageID) {
     .filter((part) => part?.type === "text" && part?.ignored !== true && typeof part.text === "string")
     .map((part) => part.text)
     .join("\n")
-  return { text, replaySafe, partTypes }
+  return { text, replaySafe, partTypes, identityExact: true }
 }
 
 function patternsFromPermission(permission) {
@@ -231,6 +236,7 @@ export const AITestContextGovernor = async ({ directory }) => ({
       tool_count: tools.count,
       current_user_text: current.text,
       current_user_replay_safe: current.replaySafe,
+      current_user_identity_exact: current.identityExact,
       current_user_part_types: current.partTypes,
     }
     let decision
