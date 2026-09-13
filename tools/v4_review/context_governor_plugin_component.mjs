@@ -50,6 +50,9 @@ globalThis.Bun = {
   },
   spawn() {
     return fakeProcess((payload) => {
+      if (payload.current_user_identity_exact === false) {
+        return { status: "ERROR", error: "PRIMARY_CONTEXT_REPLAY_IDENTITY_UNRESOLVED" }
+      }
       if (payload.current_user_replay_safe === false) {
         return { status: "ERROR", error: "PRIMARY_CONTEXT_REPLAY_NON_TEXT_UNSUPPORTED" }
       }
@@ -109,6 +112,7 @@ assert.equal(captured.length, 1)
 assert.equal(captured[0].session_id, "ses_component")
 assert.equal(captured[0].current_user_text, "hello")
 assert.equal(captured[0].current_user_replay_safe, true)
+assert.equal(captured[0].current_user_identity_exact, true)
 assert.deepEqual(captured[0].current_user_part_types, ["text"])
 assert.equal(captured[0].tool_count, 1, "deny-all agent must not budget unrelated shell tool")
 assert.ok(captured[0].tools_bytes > 256, "late tool-definition mutation must be included")
@@ -187,7 +191,30 @@ try {
 assert.equal(nonTextRejected, true, "non-text Primary turn must fail closed before lossy successor replay")
 assert.equal(captured.length, 3)
 assert.equal(captured[2].current_user_replay_safe, false)
+assert.equal(captured[2].current_user_identity_exact, true)
 assert.deepEqual(captured[2].current_user_part_types, ["text", "file"])
+
+let missingIdentityRejected = false
+try {
+  const missingInput = {
+    sessionID: "ses_component",
+    agent: "aitest-director",
+    model: { providerID: "fixture", id: "fixture-model", limit: { context: 128000, input: 64000, output: 32768 } },
+    message: { id: "missing-user-message" },
+  }
+  await hooks["experimental.chat.messages.transform"]({}, { messages })
+  await hooks["experimental.chat.system.transform"](
+    { sessionID: "ses_component", model: missingInput.model },
+    { system },
+  )
+  await hooks["chat.params"](missingInput, { maxOutputTokens: 8192, options: {} })
+  await hooks["chat.headers"](missingInput, { headers: {} })
+} catch (error) {
+  missingIdentityRejected = String(error).includes("PRIMARY_CONTEXT_REPLAY_IDENTITY_UNRESOLVED")
+}
+assert.equal(missingIdentityRejected, true, "missing exact message identity must never fall back to a prior user turn")
+assert.equal(captured.length, 4)
+assert.equal(captured[3].current_user_identity_exact, false)
 
 console.log(JSON.stringify({
   status: "PASS",
@@ -197,4 +224,5 @@ console.log(JSON.stringify({
   denied_tool_excluded: true,
   blocked_old_provider_path: true,
   non_text_primary_replay_fails_closed: true,
+  missing_primary_message_identity_fails_closed: true,
 }))
