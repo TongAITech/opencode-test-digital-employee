@@ -200,10 +200,13 @@ export const AITestContextGovernor = async ({ directory }) => ({
     const configuredOutput = Number(params.maxOutputTokens)
     const advertisedOutput = Number(input.model?.limit?.output)
     const advertisedInput = Number(input.model?.limit?.input)
-    const outputReserve = Math.max(
-      Number.isInteger(configuredOutput) && configuredOutput > 0 ? configuredOutput : 0,
-      Number.isInteger(advertisedOutput) && advertisedOutput > 0 ? advertisedOutput : 0,
-    )
+    // chat.headers runs after the entire chat.params plugin chain in OpenCode
+    // 1.18.3, so params.maxOutputTokens is the effective provider request
+    // value. The model limit is only a fail-closed fallback when params omit it.
+    const outputReserve =
+      Number.isInteger(configuredOutput) && configuredOutput > 0
+        ? configuredOutput
+        : (Number.isInteger(advertisedOutput) && advertisedOutput > 0 ? advertisedOutput : 0)
     const inputLimit = Number.isInteger(advertisedInput) && advertisedInput > 0 ? advertisedInput : null
     const payload = {
       session_id: input.sessionID,
