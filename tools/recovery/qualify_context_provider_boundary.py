@@ -238,6 +238,16 @@ def latest_planner_rotation(tick):
     return None
 
 
+def latest_task_rotation(tick, task_id):
+    for item in tick.get("supervision", []):
+        if item.get("task_id") != task_id:
+            continue
+        value = item.get("result", {})
+        if value.get("status") == "ROTATED":
+            return value.get("rotation")
+    return None
+
+
 class CrashAfterHostAcceptProvider:
     """Delegate to the real OpenCode Host, then lose the client-side receipt once."""
 
@@ -349,6 +359,76 @@ try:
     completed = [x for x in control.rotations if x.status == "COMPLETED"]
     if len(completed) < 2:
         raise RuntimeError("TWO_DURABLE_ROTATIONS_REQUIRED")
+
+    # Exercise the normal Mission Worker path on the same exact Host. The plan
+    # is a deterministic qualification fixture; no fixture model output is
+    # treated as a Planner decision.
+    worker_plan = {
+        "objective": "qualify worker context rotation",
+        "tasks": [{
+            "task_key": "boundary-worker",
+            "intent": "bounded executor qualification",
+            "acceptance_criteria": [{"id": "done", "description": "worker Session remains replaceable"}],
+            "routing": {
+                "role": "EXECUTOR",
+                "required_capabilities": ["OPENCODE_AGENT_SESSION", "TASK_OUTCOME_REPORT"],
+                "isolation_policy": "DEDICATED_TASK_SESSION",
+                "parallelism_policy": "SERIAL",
+            },
+        }],
+        "dependencies": [],
+    }
+    dispatched = service.propose_plan(mission, worker_plan)["next"]
+    worker_task_id = dispatched["task_id"]
+    worker = dispatched["external_session"]["session_id"]
+    wait_until(lambda: call_count() >= baseline_calls + len(rotations) + 1, 30)
+    worker_rotations = []
+    for cycle in (1, 2):
+        worker_history = ("WORKER-HISTORY-%d-" % cycle) + ("测" * 52000)
+        client.request(
+            "POST", f"/session/{worker}/message",
+            {"agent": "aitest-executor", "noReply": True,
+             "parts": [{"type": "text", "text": worker_history}]},
+            timeout=30, budget=8 * 1024 * 1024,
+        )
+        before_worker_block = call_count()
+        client.request(
+            "POST", f"/session/{worker}/prompt_async",
+            {"agent": "aitest-executor",
+             "parts": [{"type": "text", "text": f"继续当前执行任务，Worker 压力恢复验证 {cycle}"}]},
+            timeout=30,
+        )
+        wait_until(
+            lambda: (
+                service.session_control.state(mission).observation(worker) is not None
+                and service.session_control.state(mission).observation(worker).provider_state
+                    .get("pressure", {}).get("final_request_admission_blocked") is True
+            ),
+            30,
+        )
+        time.sleep(0.5)
+        if call_count() != before_worker_block:
+            raise RuntimeError("WORKER_BLOCKED_REQUEST_REACHED_PROVIDER")
+        tick = service.supervise_once()
+        rotation = latest_task_rotation(tick, worker_task_id)
+        if not rotation or rotation["predecessor_session_id"] != worker:
+            raise RuntimeError("WORKER_ROTATION_NOT_OBSERVED")
+        successor = rotation["successor_session_id"]
+        if successor == worker:
+            raise RuntimeError("WORKER_SUCCESSOR_REUSED_PREDECESSOR")
+        wait_until(lambda: call_count() >= before_worker_block + 1, 30)
+        worker_rotations.append({
+            "cycle": cycle,
+            "predecessor": worker,
+            "successor": successor,
+            "rotation_id": rotation["rotation_id"],
+            "root_attempt_id": rotation["root_attempt_id"],
+        })
+        worker = successor
+    if len({dispatched["external_session"]["session_id"], *(x["successor"] for x in worker_rotations)}) != 3:
+        raise RuntimeError("TWO_DISTINCT_WORKER_SUCCESSORS_REQUIRED")
+    result["gates"]["WORKER_TWO_DURABLE_ROTATIONS"] = "PASS"
+    result["worker_rotations"] = worker_rotations
 
     # Primary end-to-end plugin proof on the exact Host. Accumulate large
     # history without a model call, then send a small current turn. The old
