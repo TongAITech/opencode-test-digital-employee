@@ -1,0 +1,227 @@
+"""Pre-provider context admission and governed recovery.
+
+OpenCode hooks collect the final pre-provider components.  This module owns the
+budget contract and recovery decision so JavaScript plugins never become a
+second Runtime truth.
+
+UTF-8 serialized bytes are treated as a conservative token upper bound for
+model-visible text/schema content.  This is deliberately pessimistic; exact
+provider tokenizers remain telemetry, not permission to exceed the bound.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import sys
+from typing import Any, Mapping
+
+from .canonical_runtime import create_canonical_runtime
+from .durable_core import RuntimeError
+from .autonomous_orchestration import DirectoryScopedOpenCodeSessionProvider, _utc_now
+from .g2_1.managed_orchestration import default_g21_service
+from .g2_1.supervisor import SessionObservation
+from .primary_sessions import PrimarySessionOwner
+
+SCHEMA = "aitest.context-admission.v1"
+MAX_COMPONENT_BYTES = 64 * 1024 * 1024
+MAX_PRIMARY_REPLAY_BYTES = 16 * 1024
+MIN_CONTEXT_LIMIT = 8192
+MAX_CONTEXT_LIMIT = 2_000_000
+DEFAULT_OUTPUT_RESERVE = 4096
+
+
+def _integer(value: Any, name: str, *, minimum: int = 0, maximum: int | None = None) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or int(value) != value:
+        raise ValueError(name + " must be an integer")
+    result = int(value)
+    if result < minimum or (maximum is not None and result > maximum):
+        raise ValueError(name + " is outside the allowed range")
+    return result
+
+
+def evaluate(value: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError("context admission input must be an object")
+    context_limit = _integer(value.get("context_limit"), "context_limit",
+                             minimum=MIN_CONTEXT_LIMIT, maximum=MAX_CONTEXT_LIMIT)
+    output = value.get("max_output_tokens")
+    output_reserve = DEFAULT_OUTPUT_RESERVE if output is None else _integer(
+        output, "max_output_tokens", minimum=1, maximum=context_limit - 1)
+    # Never allow an output setting to consume the entire model window.
+    output_reserve = min(max(output_reserve, 1024), max(1024, context_limit // 2))
+
+    component_names = ("system_bytes", "messages_bytes", "tools_bytes", "extra_bytes")
+    components = {
+        name: _integer(value.get(name, 0), name, maximum=MAX_COMPONENT_BYTES)
+        for name in component_names
+    }
+    message_count = _integer(value.get("message_count", 0), "message_count", maximum=100000)
+    tool_count = _integer(value.get("tool_count", 0), "tool_count", maximum=10000)
+
+    # Framing covers provider role/content wrappers and transformation growth
+    # after the public hooks.  The byte-as-token method already overestimates
+    # ordinary BPE/SentencePiece inputs; this reserve protects structural drift.
+    framing = 1024 + message_count * 64 + tool_count * 128
+    request_upper_bound = sum(components.values()) + framing
+    safety = max(2048, int(math.ceil(context_limit * 0.05)))
+    input_budget = context_limit - output_reserve - safety
+    if input_budget <= 0:
+        raise ValueError("model context leaves no positive input budget")
+
+    identity = {
+        "context_limit": context_limit,
+        "output_reserve": output_reserve,
+        "safety_reserve": safety,
+        "input_budget": input_budget,
+        "request_upper_bound": request_upper_bound,
+        "components": components,
+        "message_count": message_count,
+        "tool_count": tool_count,
+        "estimation_method": "UTF8_BYTES_AS_TOKEN_UPPER_BOUND_PLUS_FRAMING",
+    }
+    digest = hashlib.sha256(json.dumps(identity, ensure_ascii=False, sort_keys=True,
+                                      separators=(",", ":")).encode("utf-8")).hexdigest()
+    return {
+        "schema": SCHEMA,
+        "status": "ALLOW" if request_upper_bound <= input_budget else "BLOCK",
+        "admission_digest": digest,
+        **identity,
+    }
+
+
+def _provider(root: Path):
+    endpoint = os.environ.get("AITEST_OPENCODE_ENDPOINT")
+    if not endpoint:
+        raise RuntimeError("CONTEXT_ADMISSION_HOST_ENDPOINT_REQUIRED")
+    return DirectoryScopedOpenCodeSessionProvider(
+        root,
+        base_url=endpoint,
+        username=os.environ.get("OPENCODE_SERVER_USERNAME"),
+        password=os.environ.get("OPENCODE_SERVER_PASSWORD"),
+    )
+
+
+def _recover_primary(runtime, root: Path, provider, payload: Mapping[str, Any],
+                     decision: Mapping[str, Any]) -> dict[str, Any]:
+    session_id = str(payload.get("session_id") or "")
+    agent = str(payload.get("agent") or "")
+    text = payload.get("current_user_text")
+    if agent != "aitest-director" or not session_id:
+        raise RuntimeError("PRIMARY_CONTEXT_ADMISSION_IDENTITY_INVALID")
+    if not isinstance(text, str) or not text.strip():
+        raise RuntimeError("PRIMARY_CONTEXT_REPLAY_TEXT_REQUIRED")
+    if len(text.encode("utf-8")) > MAX_PRIMARY_REPLAY_BYTES:
+        raise RuntimeError("PRIMARY_CONTEXT_REPLAY_TEXT_OVER_BUDGET")
+
+    owner = PrimarySessionOwner(runtime, root, provider)
+    current = owner.current(session_id)
+    owner.fence("FINAL_REQUEST_ADMISSION:" + str(decision["admission_digest"])[:24])
+    successor = owner.ensure_current()
+    if successor["session_id"] == session_id:
+        raise RuntimeError("PRIMARY_CONTEXT_SUCCESSOR_REQUIRED")
+    provider.select_tui_session(successor["session_id"])
+    provider.send_context(session_id=successor["session_id"], agent=agent, text=text)
+    return {
+        "kind": "PRIMARY",
+        "status": "ROTATED",
+        "predecessor_session_id": session_id,
+        "successor_session_id": successor["session_id"],
+        "logical_agent_id": current["logical_agent_id"],
+        "epoch": successor["epoch"],
+        "replayed_current_user_turn": True,
+        "tui_follow": "SELECTED_SUCCESSOR",
+    }
+
+
+def _recover_general(runtime, root: Path, provider, payload: Mapping[str, Any]) -> dict[str, Any]:
+    from .general_work.execution import GeneralExecutionService
+    session_id = str(payload.get("session_id") or "")
+    if not session_id:
+        raise RuntimeError("GENERAL_CONTEXT_SESSION_ID_REQUIRED")
+    return GeneralExecutionService(runtime, root, provider).rotate_for_context_admission(session_id)
+
+
+def _signal_mission(runtime, root: Path, provider, payload: Mapping[str, Any],
+                    decision: Mapping[str, Any]) -> dict[str, Any]:
+    session_id = str(payload.get("session_id") or "")
+    if not session_id:
+        raise RuntimeError("MISSION_CONTEXT_SESSION_ID_REQUIRED")
+    service = default_g21_service(runtime, root, session_provider=provider)
+    matches: list[str] = []
+    for mission_id in service._active_mission_ids():
+        composed = runtime.replay_composed(mission_id)
+        if any(s.session_id == session_id and s.status.value == "OPEN" for s in composed.core_state.sessions):
+            matches.append(mission_id)
+    if len(matches) != 1:
+        raise RuntimeError("MISSION_CONTEXT_SESSION_BINDING_AMBIGUOUS")
+    mission_id = matches[0]
+    pressure = {
+        "final_request_admission_blocked": True,
+        "admission_digest": decision["admission_digest"],
+        "request_upper_bound": decision["request_upper_bound"],
+        "input_budget": decision["input_budget"],
+        "model_context_limit": decision["context_limit"],
+    }
+    observation = SessionObservation(
+        session_id=session_id,
+        observed_at=_utc_now(),
+        reachable=True,
+        healthy=True,
+        context_used=None,
+        context_limit=decision["context_limit"],
+        context_utilization=None,
+        provider_state={"provider": "AITEST_CONTEXT_GOVERNOR", "pressure": pressure},
+    )
+    service.session_control.record_observation(mission_id, observation.to_dict())
+    return {
+        "kind": "MISSION",
+        "status": "PRESSURE_RECORDED",
+        "mission_id": mission_id,
+        "session_id": session_id,
+        "rotation_owner": "G2_1_CONTROL_LOOP",
+    }
+
+
+def admit(payload: Mapping[str, Any], *, runtime=None, provider=None, root: Path | None = None) -> dict[str, Any]:
+    decision = evaluate(payload)
+    if decision["status"] == "ALLOW":
+        return {**decision, "recovery": None}
+
+    root = (root or Path(os.environ.get("AITEST_WORKSPACE_ROOT") or ".")).resolve()
+    runtime = runtime or create_canonical_runtime(root)
+    provider = provider or _provider(root)
+    agent = str(payload.get("agent") or "")
+    if agent == "aitest-director":
+        recovery = _recover_primary(runtime, root, provider, payload, decision)
+    elif agent in {"aitest-general-worker", "aitest-runtime-diagnosis"}:
+        recovery = _recover_general(runtime, root, provider, payload)
+    else:
+        recovery = _signal_mission(runtime, root, provider, payload, decision)
+    return {**decision, "recovery": recovery}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="aitest-context-admission")
+    parser.add_argument("--stdin-json", action="store_true", default=True)
+    parser.parse_args(argv)
+    try:
+        payload = json.load(sys.stdin)
+        result = admit(payload)
+        sys.stdout.write(json.dumps(result, ensure_ascii=False, sort_keys=True) + "\n")
+        return 0
+    except Exception as exc:
+        sys.stdout.write(json.dumps({
+            "schema": SCHEMA,
+            "status": "ERROR",
+            "error": getattr(exc, "code", type(exc).__name__),
+            "message": str(exc)[:1000],
+        }, ensure_ascii=False, sort_keys=True) + "\n")
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
