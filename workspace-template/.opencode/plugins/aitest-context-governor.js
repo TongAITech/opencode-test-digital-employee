@@ -32,12 +32,19 @@ function sessionID(messages) {
   }
 }
 
-function currentUserText(messages, messageID) {
+function currentUserTurn(messages, messageID) {
   const exact = messages.find((row) => row?.info?.id === messageID && row?.info?.role === "user")
   const row = exact ?? [...messages].reverse().find((item) => item?.info?.role === "user")
-  if (!row || !Array.isArray(row.parts)) return ""
-  return row.parts.filter((part) => part?.type === "text" && typeof part.text === "string")
-    .map((part) => part.text).join("\n")
+  if (!row || !Array.isArray(row.parts)) {
+    return { text: "", replaySafe: false, partTypes: [] }
+  }
+  const partTypes = row.parts.map((part) => String(part?.type || "unknown"))
+  const replaySafe = row.parts.every((part) => part?.type === "text")
+  const text = row.parts
+    .filter((part) => part?.type === "text" && part?.ignored !== true && typeof part.text === "string")
+    .map((part) => part.text)
+    .join("\n")
+  return { text, replaySafe, partTypes }
 }
 
 function patternsFromPermission(permission) {
@@ -195,7 +202,7 @@ export const AITestContextGovernor = async ({ directory }) => ({
     }
     const patterns = await agentPermissionPatterns(directory, input.agent)
     const tools = toolBytes(patterns)
-    const current = currentUserText(messages, input.message?.id ?? state.messageID)
+    const current = currentUserTurn(messages, input.message?.id ?? state.messageID)
     const params = state.params || {}
     const configuredOutput = Number(params.maxOutputTokens)
     const advertisedOutput = Number(input.model?.limit?.output)
@@ -222,7 +229,9 @@ export const AITestContextGovernor = async ({ directory }) => ({
       extra_bytes: 1024 + utf8(safeJson(params.options || {})),
       message_count: messages.length,
       tool_count: tools.count,
-      current_user_text: current,
+      current_user_text: current.text,
+      current_user_replay_safe: current.replaySafe,
+      current_user_part_types: current.partTypes,
     }
     let decision
     try {
