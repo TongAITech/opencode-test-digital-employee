@@ -1,20 +1,32 @@
 {
-  "schema_version": "aitest.c2.context-provider-boundary-evidence.v1",
+  "schema_version": "aitest.c2.context-provider-boundary-evidence.v2",
   "recorded_at": "2026-09-14",
   "classification": "REAL_OPENCODE_HOST_LOCAL_RECORDING_PROVIDER_NO_REAL_MODEL",
-  "source_head": "0a7d16ea2b66d18da31432e084a754b5fe22a24c",
+  "source_head": "ed6c87fa8a88978e6677eb6360f01208ba7a6adc",
   "branch": "work/v1.13.0-recovery-turnkey-validation",
-  "workflow_run_id": 34769677223,
+  "workflow": {
+    "name": "V4 C2 context qualification",
+    "run_id": 34770982572,
+    "conclusion": "success",
+    "job_id": 103760422921
+  },
   "artifact": {
-    "id": 10321650982,
-    "name": "v4-context-provider-boundary",
-    "digest": "sha256:d9765c60e33cf399cfaa543c20da4ec5d350f44907d74f52df4ef07297cd8780"
+    "id": 10321956958,
+    "name": "v4-c2-context-provider-boundary",
+    "digest": "sha256:4cd86fe4978ee5183f3bbb77bf39b6178d8ccd29615f268de774a9d7f37899f4"
   },
   "host": {
     "product": "OpenCode",
     "version": "1.18.3",
     "asset": "opencode-windows-x64.zip",
     "asset_sha256": "68bc62930f6cb5755e0409aa9de0bb270a66ed2b8c9cf0c029e9f2287ed5486e"
+  },
+  "source_regressions": {
+    "context_governor_plugin_component": "PASS",
+    "primary_recovery_tests": "16/16 PASS",
+    "context_admission_tests": "8/8 PASS",
+    "multirole_two_cycle_recovery": "2/2 PASS",
+    "context_stress": "PASS"
   },
   "result": {
     "status": "PASS",
@@ -28,28 +40,42 @@
       "SUCCESSOR_1_BOOTSTRAP_REACHES_PROVIDER": "PASS",
       "BLOCK_2_PREVENTS_PROVIDER": "PASS",
       "SUCCESSOR_2_BOOTSTRAP_REACHES_PROVIDER": "PASS",
+      "PRIMARY_CRASH_AFTER_HOST_ACCEPT_READBACK": "PASS",
       "TWO_DURABLE_ROTATIONS": "PASS"
+    },
+    "primary_crash_window": {
+      "recovery_id": "primary-recovery:590f4277cf05a7400c4709db4fc2938e4dd11d88befba325832e045f276129ac",
+      "predecessor": "ses_f643abd0effe2boa51e6FbHqp2",
+      "successor": "ses_f643abc6fffehxkP4TwJdUgouz",
+      "final_state": "ACCEPTED",
+      "receipt": {
+        "source": "OPENCODE_SESSION_MESSAGE_READBACK",
+        "session_id": "ses_f643abc6fffehxkP4TwJdUgouz",
+        "message_id": "msg_09bc54410001Z5cu8ObfkNhZBA",
+        "context_digest": "6b1de5df0034ea6e6a22356ec0d76a7cd21e9d625c524ac3fc5886d4749ef9f3"
+      },
+      "blind_resend": false
     },
     "rotations": [
       {
         "cycle": 1,
-        "predecessor": "ses_f64529614ffeOXsgAuVsU1K3LI",
-        "successor": "ses_f645280b5ffeyDG4gUOII34pJl",
-        "rotation_id": "g21-rotate-de8b69b1c586910c679d638a"
+        "predecessor": "ses_f643ae067ffeyT72wSDi0x9Yel",
+        "successor": "ses_f643acdd5ffe3vTEcwHC2OTLYJ",
+        "rotation_id": "g21-rotate-7dfb8d4b90ff52660cd5cee8"
       },
       {
         "cycle": 2,
-        "predecessor": "ses_f645280b5ffeyDG4gUOII34pJl",
-        "successor": "ses_f64527591ffeXo5rlpNHeSp6pV",
-        "rotation_id": "g21-rotate-5d9203e6f7a8b48c1624f774"
+        "predecessor": "ses_f643acdd5ffe3vTEcwHC2OTLYJ",
+        "successor": "ses_f643ac1d8ffeyshz2FmqIs6gHQ",
+        "rotation_id": "g21-rotate-afb605a3b6addb5a7912bac3"
       }
     ],
     "provider_requests": [
       {
         "seq": 1,
         "path": "/v1/chat/completions",
-        "body_bytes": 17024,
-        "body_sha256": "b470feb879d97c01edf5e50a274718ae60a2b24b61af9a27b1e43ff7ad558934",
+        "body_bytes": 17008,
+        "body_sha256": "dee823190dcb78be3b8f0a863cf1b9ba44d0d6a244969e1d3d83011ae7816b86",
         "stream": true,
         "model": "fixture-model",
         "message_count": 2
@@ -57,8 +83,8 @@
       {
         "seq": 2,
         "path": "/v1/chat/completions",
-        "body_bytes": 17738,
-        "body_sha256": "1f1a15208db3c7aa96b81aa48f73bb8c48d89ecaa2fe30b865ac6f23ddb8ff7a",
+        "body_bytes": 17722,
+        "body_sha256": "d52263e2230e314f720c71d03223d1d8c8b031da0ce82847566f19afe574b2dd",
         "stream": true,
         "model": "fixture-model",
         "message_count": 2
@@ -66,8 +92,8 @@
       {
         "seq": 3,
         "path": "/v1/chat/completions",
-        "body_bytes": 17738,
-        "body_sha256": "3f29c48d39897fbc7e48e42b4e13ba9c608675c99190aa25b618acd80621cf68",
+        "body_bytes": 17722,
+        "body_sha256": "461033573a55f773d4ccf47a6bdd427bdc62564d5bd3cf8a177483e714081210",
         "stream": true,
         "model": "fixture-model",
         "message_count": 2
@@ -81,7 +107,9 @@
       "Two oversized-history/small-current-turn requests are blocked before provider transport.",
       "Each block becomes durable R1/G2.1 pressure and yields a clean successor.",
       "Each successor receives bounded bootstrap and reaches provider transport.",
-      "The same Mission survives two consecutive Session replacements."
+      "The same Mission survives two consecutive Session replacements.",
+      "Primary replay journal remains SENDING across an ambiguous post-accept crash window and reconciles to ACCEPTED only by exact OpenCode message readback.",
+      "Crash-window reconciliation does not blindly resend the user turn."
     ],
     "not_proven": [
       "Real bank model/provider semantics.",
