@@ -172,6 +172,20 @@ export const AITestContextGovernor = async ({ directory }) => ({
 
   "chat.params": async (input, output) => {
     if (!input.agent?.startsWith("aitest-")) return
+    if (!sessions.has(input.sessionID) && sessions.size >= 512) sessions.delete(sessions.keys().next().value)
+    const state = sessions.get(input.sessionID) || {}
+    // Keep the live params reference. OpenCode awaits the entire chat.params
+    // plugin chain before starting chat.headers, so the next hook observes the
+    // final params after any later plugin mutation.
+    state.params = output
+    state.agent = input.agent
+    state.model = input.model
+    state.messageID = input.message?.id
+    sessions.set(input.sessionID, state)
+  },
+
+  "chat.headers": async (input, _output) => {
+    if (!input.agent?.startsWith("aitest-")) return
     const state = sessions.get(input.sessionID) || {}
     const messages = state.messages || []
     const system = state.system || []
@@ -181,18 +195,25 @@ export const AITestContextGovernor = async ({ directory }) => ({
     }
     const patterns = await agentPermissionPatterns(directory, input.agent)
     const tools = toolBytes(patterns)
-    const current = currentUserText(messages, input.message?.id)
+    const current = currentUserText(messages, input.message?.id ?? state.messageID)
+    const params = state.params || {}
+    const configuredOutput = Number(params.maxOutputTokens)
+    const advertisedOutput = Number(input.model?.limit?.output)
+    const outputReserve = Math.max(
+      Number.isInteger(configuredOutput) && configuredOutput > 0 ? configuredOutput : 0,
+      Number.isInteger(advertisedOutput) && advertisedOutput > 0 ? advertisedOutput : 0,
+    )
     const payload = {
       session_id: input.sessionID,
       agent: input.agent,
       provider_id: input.model?.providerID,
       model_id: input.model?.id,
       context_limit: contextLimit,
-      max_output_tokens: Number.isInteger(output.maxOutputTokens) ? output.maxOutputTokens : null,
+      max_output_tokens: outputReserve || null,
       system_bytes: utf8(safeJson(system)),
       messages_bytes: utf8(safeJson(messages)),
       tools_bytes: tools.bytes,
-      extra_bytes: 1024,
+      extra_bytes: 1024 + utf8(safeJson(params.options || {})),
       message_count: messages.length,
       tool_count: tools.count,
       current_user_text: current,
