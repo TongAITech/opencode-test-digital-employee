@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "workspace-template
 from aitest_runtime.autonomous_orchestration import FakeOpenCodeSessionProvider
 from aitest_runtime.canonical_runtime import create_canonical_runtime
 from aitest_runtime.context_admission import admit, evaluate
+from aitest_runtime.control_loop import _primary_session_tick
 from aitest_runtime.durable_core import RuntimeError, canonical_sha256
 from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
 from aitest_runtime.g2_1.supervisor import RotationPolicy, SessionObservation, durable_pressure
@@ -66,6 +67,31 @@ def blocked_payload(session_id: str, agent: str, *, user_text: str | None = None
         "tool_count": 4,
         **({"current_user_text": user_text} if user_text is not None else {}),
     }
+
+
+class CrashAfterAcceptProvider(FakeOpenCodeSessionProvider):
+    def __init__(self, directory):
+        super().__init__(directory)
+        self.crash_once = True
+
+    def send_context(self, *, session_id: str, agent: str, text: str):
+        result = super().send_context(session_id=session_id, agent=agent, text=text)
+        if self.crash_once:
+            self.crash_once = False
+            raise OSError("SIMULATED_CRASH_AFTER_HOST_ACCEPT")
+        return result
+
+
+class CrashBeforeAcceptProvider(FakeOpenCodeSessionProvider):
+    def __init__(self, directory):
+        super().__init__(directory)
+        self.crash_once = True
+
+    def send_context(self, *, session_id: str, agent: str, text: str):
+        if self.crash_once:
+            self.crash_once = False
+            raise OSError("SIMULATED_CRASH_BEFORE_HOST_ACCEPT")
+        return super().send_context(session_id=session_id, agent=agent, text=text)
 
 
 class ContextAdmissionTests(unittest.TestCase):
@@ -133,6 +159,52 @@ class ContextAdmissionTests(unittest.TestCase):
         self.assertEqual(replay[0]["text"], text)
         with self.assertRaisesRegex(RuntimeError, "STALE_CALLER"):
             owner.current(old["session_id"])
+
+    def test_primary_replay_crash_after_host_accept_reconciles_without_duplicate_send(self):
+        provider = CrashAfterAcceptProvider(self.root)
+        owner = PrimarySessionOwner(self.runtime, self.root, provider)
+        old = owner.ensure_current()
+        text = "继续当前任务；验证 Host 已接收后的崩溃恢复。"
+        with self.assertRaisesRegex(RuntimeError, "PRIMARY_CONTEXT_REPLAY_RECONCILIATION_REQUIRED"):
+            admit(blocked_payload(old["session_id"], "aitest-director", user_text=text),
+                  runtime=self.runtime, provider=provider, root=self.root)
+
+        state = owner.state()
+        self.assertEqual(state.epoch, 2)
+        recovery = state.bindings["1"]["context_recovery"]
+        self.assertEqual(recovery["state"], "SENDING")
+        successor = state.bindings["2"]["session_id"]
+        sent = [m for m in provider.messages if m["session_id"] == successor and m["text"] == text]
+        self.assertEqual(len(sent), 1)
+
+        result = _primary_session_tick(self.runtime, self.root, provider)
+        self.assertEqual(result["status"], "RECOVERED")
+        state = owner.state()
+        self.assertEqual(state.bindings["1"]["context_recovery"]["state"], "ACCEPTED")
+        sent = [m for m in provider.messages if m["session_id"] == successor and m["text"] == text]
+        self.assertEqual(len(sent), 1, "readback reconciliation must not resend the accepted turn")
+        self.assertTrue(self.runtime.verify_projection(owner.subject.subject_id)["ok"])
+
+    def test_primary_replay_unknown_effect_never_blindly_resends(self):
+        provider = CrashBeforeAcceptProvider(self.root)
+        owner = PrimarySessionOwner(self.runtime, self.root, provider)
+        old = owner.ensure_current()
+        text = "继续当前任务；验证未知副作用不盲目重发。"
+        with self.assertRaisesRegex(RuntimeError, "PRIMARY_CONTEXT_REPLAY_RECONCILIATION_REQUIRED"):
+            admit(blocked_payload(old["session_id"], "aitest-director", user_text=text),
+                  runtime=self.runtime, provider=provider, root=self.root)
+
+        state = owner.state()
+        self.assertEqual(state.bindings["1"]["context_recovery"]["state"], "SENDING")
+        successor = state.bindings["2"]["session_id"]
+        self.assertEqual([m for m in provider.messages if m["session_id"] == successor], [])
+
+        result = _primary_session_tick(self.runtime, self.root, provider)
+        self.assertEqual(result["status"], "WAIT")
+        self.assertEqual(result["reason"], "PRIMARY_RECOVERY_EFFECT_UNKNOWN")
+        self.assertEqual([m for m in provider.messages if m["session_id"] == successor], [],
+                         "an unknown side effect must not be replayed blindly")
+        self.assertEqual(owner.state().epoch, 2)
 
     def test_mission_block_is_durable_pressure_and_survives_fresh_host_observation(self):
         service = G21AutonomousOrchestrationService(self.runtime, self.root, session_provider=self.provider)
