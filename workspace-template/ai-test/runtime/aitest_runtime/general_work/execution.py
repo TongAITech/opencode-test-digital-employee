@@ -376,6 +376,67 @@ class GeneralExecutionService:
                     errors.append({"operation_id": receipt["operation_id"], "reason": getattr(exc, "code", type(exc).__name__)})
         return errors
 
+    def rotate_for_context_admission(self, session_id: str):
+        """Replace the current GeneralWork/RuntimeDiagnosis Session after a
+        pre-provider admission block.
+
+        The provider request has not been sent, so this is a model-Session
+        lifecycle effect only. R1 epoch advancement fences the predecessor;
+        durable job purpose/checkpoint rebuilds the successor prompt.
+        """
+        require(isinstance(session_id, str) and bool(session_id), "GENERAL_SESSION_ID_REQUIRED")
+        from aitest_runtime.durable_core.schema import connect
+        conn = connect(self.runtime.db_path)
+        try:
+            rows = conn.execute(
+                "SELECT job_id AS mission_id,state_json FROM general_work_projection "
+                "WHERE json_extract(state_json,'$.status')='ACTIVE'"
+            ).fetchall()
+        finally:
+            conn.close()
+        matches = []
+        for row in rows:
+            try:
+                state = json.loads(row["state_json"])
+                execution = state.get("execution") or {}
+                epoch = execution.get("epoch")
+                binding = (execution.get("sessions") or {}).get(str(epoch), {})
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if binding.get("state") == "BOUND" and binding.get("session_id") == session_id:
+                matches.append(row["mission_id"])
+        require(len(matches) == 1, "GENERAL_CONTEXT_SESSION_BINDING_AMBIGUOUS")
+        subject = self._subject(matches[0])
+        with runtime_coordination(self.runtime.db_path):
+            job = self._job(subject); e = job.execution
+            binding = e["sessions"].get(str(e["epoch"]), {})
+            require(job.status == "ACTIVE" and binding.get("state") == "BOUND"
+                    and binding.get("session_id") == session_id, "GENERAL_CONTEXT_SESSION_STALE")
+            next_epoch = e["epoch"] + 1
+            self._record(subject, "PROVISION_CLAIM", {
+                "epoch": next_epoch,
+                "provision_id": identity(job.job_id, "session-" + str(next_epoch)),
+                "agent": AGENTS[subject.subject_kind],
+                "checkpoint_cursor": e["business_cursor"],
+            })
+            self._provision(subject)
+            successor = self._job(subject).execution["sessions"][str(next_epoch)]["session_id"]
+            reason = self._prompt(subject, "AUTO_CONTINUE")
+            try:
+                self.provider.delete_session(session_id)
+            except Exception:
+                pass
+            return {
+                "status": "ROTATED",
+                "truth_source": "R1_EVENT_STREAM",
+                "kind": subject.subject_kind,
+                "job_id": job.job_id,
+                "predecessor_session_id": session_id,
+                "successor_session_id": successor,
+                "epoch": next_epoch,
+                "resume": reason,
+            }
+
     def supervise_once(self):
         recovery_errors = self._recover_claimed_jobs()
         from aitest_runtime.durable_core.schema import connect
