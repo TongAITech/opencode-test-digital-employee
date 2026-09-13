@@ -93,6 +93,20 @@ class ContextAdmissionTests(unittest.TestCase):
         self.assertGreater(blocked["request_upper_bound"], blocked["input_budget"])
         self.assertEqual(blocked["estimation_method"], "UTF8_BYTES_AS_TOKEN_UPPER_BOUND_PLUS_FRAMING")
 
+    def test_each_final_request_component_can_independently_block(self):
+        base = {
+            "context_limit": 128000, "max_output_tokens": 8192,
+            "system_bytes": 0, "messages_bytes": 0, "tools_bytes": 0,
+            "extra_bytes": 0, "message_count": 1, "tool_count": 1,
+        }
+        for component in ("system_bytes", "messages_bytes", "tools_bytes", "extra_bytes"):
+            payload = dict(base)
+            payload[component] = 120000
+            with self.subTest(component=component):
+                decision = evaluate(payload)
+                self.assertEqual(decision["status"], "BLOCK")
+                self.assertGreater(decision["request_upper_bound"], decision["input_budget"])
+
     def test_invalid_or_unknown_model_limit_fails_closed(self):
         for value in (None, 0, 4096, "128000"):
             payload = {"context_limit": value}
