@@ -73,7 +73,7 @@ jobs:
         run: |
           $env:GH_TOKEN = $env:GITHUB_TOKEN
           $output = Join-Path $env:RUNNER_TEMP 'v4-context-provider-boundary'
-          New-Item -ItemType Directory -Path $output -Force | Out-Null
+          if (Test-Path $output) { Remove-Item -Recurse -Force $output }
           "V4_CONTEXT_BOUNDARY_OUTPUT=$output" | Out-File $env:GITHUB_ENV -Append
           $hostDir = Join-Path $env:RUNNER_TEMP 'opencode-1.18.3-host'
           New-Item -ItemType Directory -Path $hostDir -Force | Out-Null
@@ -108,7 +108,7 @@ jobs:
           & "$env:V4_RUNTIME/python/python.exe" -X utf8 tools/v4_review/general_windows_component.py --output $output
           if ($LASTEXITCODE -ne 0) { throw 'Windows General execution component failed' }
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && env.V4_GENERAL_OUTPUT != ''
         with:
           name: v4-windows-general-component
           path: ${{ env.V4_GENERAL_OUTPUT }}/*
@@ -123,7 +123,7 @@ jobs:
           & "$env:V4_RUNTIME/python/python.exe" -X utf8 tools/v4_review/human_gate_browser_component.py --chrome "$env:V4_RUNTIME/browser/chrome-win64/chrome.exe" --output $output
           if ($LASTEXITCODE -ne 0) { throw 'Actual offline Chromium HumanGate recovery failed' }
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && env.V4_GATE_CDP_OUTPUT != ''
         with:
           name: v4-windows-human-gate-cdp
           path: |
@@ -140,7 +140,7 @@ jobs:
           & "$env:V4_RUNTIME/python/python.exe" -X utf8 tools/v4_review/test_tools_spike.py --output $output --runtime $env:V4_RUNTIME
           if ($LASTEXITCODE -ne 0) { throw 'S7 real-tool spike failed' }
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && env.V4_TOOLS_OUTPUT != ''
         with:
           name: v4-windows-real-tool-review
           path: |
