@@ -14,6 +14,8 @@ import time
 import unittest
 from unittest.mock import patch
 
+_TEST_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_TEST_DIR))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "workspace-template/ai-test/runtime"))
 from aitest_runtime.autonomous_orchestration import FakeOpenCodeSessionProvider
 from aitest_runtime.canonical_runtime import create_canonical_runtime
