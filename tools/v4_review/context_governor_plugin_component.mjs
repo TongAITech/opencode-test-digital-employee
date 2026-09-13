@@ -106,8 +106,19 @@ assert.ok(captured[0].system_bytes > 128, "late system mutation must be included
 assert.equal(captured[0].message_count, 2)
 
 messages.push({
+  info: { id: "tool-heavy", sessionID: "ses_component", role: "assistant" },
+  parts: [{
+    type: "tool",
+    tool: "aitest_director",
+    state: {
+      input: { payload: "参".repeat(2200) },
+      output: "果".repeat(2200),
+    },
+  }],
+})
+messages.push({
   info: { id: "usr2", sessionID: "ses_component", role: "user" },
-  parts: [{ type: "text", text: "测试 BLOAN" + "大".repeat(7000) }],
+  parts: [{ type: "text", text: "继续测试 BLOAN" }],
 })
 let blocked = false
 try {
@@ -125,8 +136,8 @@ try {
 }
 assert.equal(blocked, true, "BLOCK decision must abort the old pre-provider path")
 assert.equal(captured.length, 2)
-assert.ok(captured[1].messages_bytes > 5000)
-assert.ok(captured[1].current_user_text.startsWith("测试 BLOAN"))
+assert.ok(captured[1].messages_bytes > 5000, "large Chinese tool args/results must enter final history budget")
+assert.equal(captured[1].current_user_text, "继续测试 BLOAN")
 
 console.log(JSON.stringify({
   status: "PASS",
