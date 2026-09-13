@@ -1,19 +1,19 @@
 {
-  "schema_version": "aitest.c2.context-provider-boundary-evidence.v2",
+  "schema_version": "aitest.c2.context-provider-boundary-evidence.v3",
   "recorded_at": "2026-09-14",
   "classification": "REAL_OPENCODE_HOST_LOCAL_RECORDING_PROVIDER_NO_REAL_MODEL",
-  "source_head": "ed6c87fa8a88978e6677eb6360f01208ba7a6adc",
+  "source_head": "ca3027a0b72e7b70f88e2647da4519d7b95cc8f2",
   "branch": "work/v1.13.0-recovery-turnkey-validation",
   "workflow": {
     "name": "V4 C2 context qualification",
-    "run_id": 34770982572,
+    "run_id": 34790510182,
     "conclusion": "success",
-    "job_id": 103760422921
+    "job_id": 103813731728
   },
   "artifact": {
-    "id": 10321956958,
+    "id": 10328431337,
     "name": "v4-c2-context-provider-boundary",
-    "digest": "sha256:4cd86fe4978ee5183f3bbb77bf39b6178d8ccd29615f268de774a9d7f37899f4"
+    "digest": "sha256:bf0f20b2a7e5c91c5d96731d9b5b83535207956e44609d2e9128d13fe3ec5edb"
   },
   "host": {
     "product": "OpenCode",
@@ -24,97 +24,93 @@
   "source_regressions": {
     "context_governor_plugin_component": "PASS",
     "primary_recovery_tests": "16/16 PASS",
-    "context_admission_tests": "8/8 PASS",
+    "context_admission_tests": "13/13 PASS",
     "multirole_two_cycle_recovery": "2/2 PASS",
-    "context_stress": "PASS"
+    "general_execution_tests": "33 tests / PASS / 2 platform skips",
+    "context_stress": "PASS / 13.2MB class / two rotations"
   },
   "result": {
     "status": "PASS",
     "mission_id": "r2.2:mission:context-provider-boundary",
     "rotation_count": 2,
-    "r1_cursor": 29,
-    "provider_request_count": 3,
+    "r1_cursor": 66,
+    "provider_request_count": 7,
     "gates": {
       "ALLOW_REACHES_PROVIDER": "PASS",
       "BLOCK_1_PREVENTS_PROVIDER": "PASS",
       "SUCCESSOR_1_BOOTSTRAP_REACHES_PROVIDER": "PASS",
       "BLOCK_2_PREVENTS_PROVIDER": "PASS",
       "SUCCESSOR_2_BOOTSTRAP_REACHES_PROVIDER": "PASS",
+      "WORKER_TWO_DURABLE_ROTATIONS": "PASS",
+      "PRIMARY_PLUGIN_BLOCK_REPLAYS_ON_CLEAN_SUCCESSOR": "PASS",
       "PRIMARY_CRASH_AFTER_HOST_ACCEPT_READBACK": "PASS",
       "TWO_DURABLE_ROTATIONS": "PASS"
     },
+    "primary_plugin_recovery": {
+      "predecessor_epoch": 1,
+      "predecessor": "ses_f62d5b52cffeBcMMI4TMRFdfmc",
+      "successor": "ses_f62d5b102ffexJWhw7OVVvRoye",
+      "final_state": "ACCEPTED",
+      "provider_delta": 1
+    },
     "primary_crash_window": {
-      "recovery_id": "primary-recovery:590f4277cf05a7400c4709db4fc2938e4dd11d88befba325832e045f276129ac",
-      "predecessor": "ses_f643abd0effe2boa51e6FbHqp2",
-      "successor": "ses_f643abc6fffehxkP4TwJdUgouz",
+      "recovery_id": "primary-recovery:64c42be5c60cff917f9f5d4644e8be31e8575f8ace3a3b5aefacb96f0b132d7a",
+      "predecessor": "ses_f62d5b102ffexJWhw7OVVvRoye",
+      "successor": "ses_f62d5aa44ffeaz43JWeH3Gow5t",
       "final_state": "ACCEPTED",
       "receipt": {
         "source": "OPENCODE_SESSION_MESSAGE_READBACK",
-        "session_id": "ses_f643abc6fffehxkP4TwJdUgouz",
-        "message_id": "msg_09bc54410001Z5cu8ObfkNhZBA",
+        "session_id": "ses_f62d5aa44ffeaz43JWeH3Gow5t",
+        "message_id": "msg_09d2a5662001XfZ86qCyafwbIw",
         "context_digest": "6b1de5df0034ea6e6a22356ec0d76a7cd21e9d625c524ac3fc5886d4749ef9f3"
       },
       "blind_resend": false
     },
-    "rotations": [
+    "worker_rotations": [
       {
         "cycle": 1,
-        "predecessor": "ses_f643ae067ffeyT72wSDi0x9Yel",
-        "successor": "ses_f643acdd5ffe3vTEcwHC2OTLYJ",
-        "rotation_id": "g21-rotate-7dfb8d4b90ff52660cd5cee8"
+        "predecessor": "ses_f62d5d205ffe4kdfBNwB82w4Nh",
+        "successor": "ses_f62d5c616ffetwe4GMv2D1NN71",
+        "rotation_id": "g21-rotate-c70ea9c2d3657ebd6f577b7a"
       },
       {
         "cycle": 2,
-        "predecessor": "ses_f643acdd5ffe3vTEcwHC2OTLYJ",
-        "successor": "ses_f643ac1d8ffeyshz2FmqIs6gHQ",
-        "rotation_id": "g21-rotate-afb605a3b6addb5a7912bac3"
+        "predecessor": "ses_f62d5c616ffetwe4GMv2D1NN71",
+        "successor": "ses_f62d5ba67ffeCfgBghNW4ChuxX",
+        "rotation_id": "g21-rotate-a20c03a477ec2ad36a51a825"
       }
     ],
-    "provider_requests": [
+    "planner_rotations": [
       {
-        "seq": 1,
-        "path": "/v1/chat/completions",
-        "body_bytes": 17008,
-        "body_sha256": "dee823190dcb78be3b8f0a863cf1b9ba44d0d6a244969e1d3d83011ae7816b86",
-        "stream": true,
-        "model": "fixture-model",
-        "message_count": 2
+        "cycle": 1,
+        "predecessor": "ses_f62d5f6c6ffectPBUHQmr09qEN",
+        "successor": "ses_f62d5e360ffe62PtFdfhKuRbVM",
+        "rotation_id": "g21-rotate-64759752a50c3a1421adf825"
       },
       {
-        "seq": 2,
-        "path": "/v1/chat/completions",
-        "body_bytes": 17722,
-        "body_sha256": "d52263e2230e314f720c71d03223d1d8c8b031da0ce82847566f19afe574b2dd",
-        "stream": true,
-        "model": "fixture-model",
-        "message_count": 2
-      },
-      {
-        "seq": 3,
-        "path": "/v1/chat/completions",
-        "body_bytes": 17722,
-        "body_sha256": "461033573a55f773d4ccf47a6bdd427bdc62564d5bd3cf8a177483e714081210",
-        "stream": true,
-        "model": "fixture-model",
-        "message_count": 2
+        "cycle": 2,
+        "predecessor": "ses_f62d5e360ffe62PtFdfhKuRbVM",
+        "successor": "ses_f62d5d77effeo4T0Cak6QKL6qt",
+        "rotation_id": "g21-rotate-96467251f5f510c63ee45183"
       }
     ]
   },
   "interpretation": {
     "proven": [
-      "Exact official OpenCode 1.18.3 Windows host loads the AITest Context Governor.",
-      "A bounded allowed AITest request reaches real OpenCode provider transport.",
-      "Two oversized-history/small-current-turn requests are blocked before provider transport.",
-      "Each block becomes durable R1/G2.1 pressure and yields a clean successor.",
-      "Each successor receives bounded bootstrap and reaches provider transport.",
-      "The same Mission survives two consecutive Session replacements.",
-      "Primary replay journal remains SENDING across an ambiguous post-accept crash window and reconciles to ACCEPTED only by exact OpenCode message readback.",
-      "Crash-window reconciliation does not blindly resend the user turn."
+      "Current source passes the isolated C2 Windows qualification.",
+      "Official OpenCode 1.18.3 Windows host loads the AITest Context Governor.",
+      "Bounded AITest requests reach the real OpenCode provider transport.",
+      "Oversized-history requests are blocked before provider transport.",
+      "Planner and Mission Worker survive two durable clean-Session replacements.",
+      "Primary Context Governor replays the exact safe current Host turn only on a clean successor.",
+      "Primary crash-after-host-accept reconciles from exact Host message readback without blind resend.",
+      "General prompt reconciliation, all-role component recovery, and context stress regressions pass."
     ],
     "not_proven": [
-      "Real bank model/provider semantics.",
-      "Authenticated QwenPaw/DeepSeek same-Mission behavior.",
-      "Final V1.14 C2 closure until representative real-model qualification and independent raw-source review."
+      "Real authenticated bank model/provider semantics.",
+      "QwenPaw/DeepSeek same-Mission context recovery.",
+      "Human-visible interactive TUI focus in the final installed Windows package.",
+      "Final V1.14 C2 overall closure before real-model qualification and governance closure decision."
     ]
   }
 }
