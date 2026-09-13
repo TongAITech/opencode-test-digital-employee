@@ -318,10 +318,16 @@ class PrimarySessionOwner:
                 'successor_epoch':successor['epoch'],'successor_session_id':successor['session_id'],'observed_at':now()})
             state=self.state();recovery=dict(state.bindings[str(predecessor_epoch)]['context_recovery'])
         require(recovery.get('target_session_id')==successor['session_id'],'PRIMARY_RECOVERY_TARGET_CHANGED')
-        try:self.provider.select_tui_session(successor['session_id'])
-        except Exception:pass
         receipt=self.provider.find_context_receipt(successor['session_id'],recovery['context_digest'])
         if receipt is not None:
+            # Do not close the durable recovery until the user-facing TUI has
+            # accepted the same successor identity. Otherwise the turn may have
+            # moved while the user remains attached to the poisoned predecessor.
+            try:self.provider.select_tui_session(successor['session_id'])
+            except Exception:
+                return {'status':'RECONCILE_REQUIRED','reason':'PRIMARY_TUI_FOLLOW_UNCONFIRMED',
+                    'predecessor_session_id':predecessor['session_id'],'successor_session_id':successor['session_id'],
+                    'epoch':successor['epoch']}
             if recovery['state']!='ACCEPTED':
                 self.record('RECOVERY_ACCEPTED',{'predecessor_epoch':predecessor_epoch,'recovery_id':recovery['recovery_id'],
                     'successor_session_id':successor['session_id'],'receipt':receipt,'observed_at':now()})
@@ -333,6 +339,11 @@ class PrimarySessionOwner:
                 'predecessor_session_id':predecessor['session_id'],'successor_session_id':successor['session_id'],
                 'epoch':successor['epoch']}
         require(recovery['state']=='CLAIMED','PRIMARY_RECOVERY_STATE_INVALID')
+        try:self.provider.select_tui_session(successor['session_id'])
+        except Exception:
+            return {'status':'RECONCILE_REQUIRED','reason':'PRIMARY_TUI_FOLLOW_UNCONFIRMED',
+                'predecessor_session_id':predecessor['session_id'],'successor_session_id':successor['session_id'],
+                'epoch':successor['epoch']}
         self.record('RECOVERY_BEGIN_SEND',{'predecessor_epoch':predecessor_epoch,'recovery_id':recovery['recovery_id'],
             'successor_session_id':successor['session_id'],'observed_at':now()})
         try:self.provider.send_context(session_id=successor['session_id'],agent=recovery['agent'],text=recovery['text'])
