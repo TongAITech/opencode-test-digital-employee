@@ -350,6 +350,54 @@ try:
     if len(completed) < 2:
         raise RuntimeError("TWO_DURABLE_ROTATIONS_REQUIRED")
 
+    # Primary end-to-end plugin proof on the exact Host. Accumulate large
+    # history without a model call, then send a small current turn. The old
+    # request must be blocked inside OpenCode, Runtime must create a clean
+    # successor, and only that successor may reach provider transport.
+    live_primary = PrimarySessionOwner(runtime, workspace, provider)
+    live_old = live_primary.ensure_current()
+    live_history = "PRIMARY-CONTEXT-PRESSURE-" + ("测" * 52000)
+    client.request(
+        "POST", f"/session/{live_old['session_id']}/message",
+        {"agent": "aitest-director", "noReply": True,
+         "parts": [{"type": "text", "text": live_history}]},
+        timeout=30, budget=8 * 1024 * 1024,
+    )
+    before_primary_block = call_count()
+    live_text = "继续当前任务；验证 Primary Context Governor 自动切换 clean successor。"
+    client.request(
+        "POST", f"/session/{live_old['session_id']}/prompt_async",
+        {"agent": "aitest-director", "parts": [{"type": "text", "text": live_text}]},
+        timeout=30,
+    )
+
+    def live_primary_accepted():
+        state = live_primary.state()
+        predecessor = state.bindings.get(str(live_old["epoch"])) or {}
+        recovery = predecessor.get("context_recovery") or {}
+        if state.epoch <= live_old["epoch"] or recovery.get("state") != "ACCEPTED":
+            return None
+        successor = state.bindings.get(str(state.epoch)) or {}
+        sid = successor.get("session_id")
+        return sid if sid and sid != live_old["session_id"] else None
+
+    live_successor = wait_until(live_primary_accepted, 45)
+    wait_until(lambda: call_count() >= before_primary_block + 1, 30)
+    time.sleep(0.5)
+    if call_count() != before_primary_block + 1:
+        raise RuntimeError("PRIMARY_BLOCK_OR_REPLAY_PROVIDER_DUPLICATE")
+    live_recovery = live_primary.state().bindings[str(live_old["epoch"])]["context_recovery"]
+    if live_recovery.get("target_session_id") != live_successor:
+        raise RuntimeError("PRIMARY_PLUGIN_SUCCESSOR_IDENTITY_MISMATCH")
+    result["gates"]["PRIMARY_PLUGIN_BLOCK_REPLAYS_ON_CLEAN_SUCCESSOR"] = "PASS"
+    result["primary_plugin_recovery"] = {
+        "predecessor_epoch": live_old["epoch"],
+        "predecessor": live_old["session_id"],
+        "successor": live_successor,
+        "final_state": live_recovery["state"],
+        "provider_delta": call_count() - before_primary_block,
+    }
+
     # Real Host crash-window proof for the Primary path. The OpenCode HTTP
     # request succeeds and stores the user message, but the client deliberately
     # loses the acknowledgement. R1 must remain SENDING until a fresh Owner
@@ -357,6 +405,7 @@ try:
     crashing = CrashAfterHostAcceptProvider(provider)
     primary = PrimarySessionOwner(runtime, workspace, crashing)
     primary_old = primary.ensure_current()
+    crash_predecessor_epoch = primary_old["epoch"]
     replay_text = "继续当前任务；验证真实 OpenCode Host 接收后客户端崩溃的 readback 恢复。"
     replay_digest = hashlib.sha256(replay_text.encode()).hexdigest()
     recovery_id = primary.claim_context_recovery(
@@ -366,7 +415,7 @@ try:
     if first_recovery.get("status") != "RECONCILE_REQUIRED" or first_recovery.get("reason") != "PRIMARY_RECOVERY_EFFECT_UNKNOWN":
         raise RuntimeError("PRIMARY_CRASH_WINDOW_DID_NOT_ENTER_RECONCILE")
     primary_state = primary.state()
-    journal = primary_state.bindings["1"].get("context_recovery") or {}
+    journal = primary_state.bindings[str(crash_predecessor_epoch)].get("context_recovery") or {}
     if journal.get("state") != "SENDING":
         raise RuntimeError("PRIMARY_CRASH_WINDOW_NOT_DURABLE_SENDING")
     primary_successor = primary_state.bindings[str(primary_state.epoch)]["session_id"]
@@ -401,7 +450,7 @@ try:
         "recovery_id": recovery_id,
         "predecessor": primary_old["session_id"],
         "successor": primary_successor,
-        "final_state": restarted_primary.state().bindings["1"]["context_recovery"]["state"],
+        "final_state": restarted_primary.state().bindings[str(crash_predecessor_epoch)]["context_recovery"]["state"],
         "receipt": receipt,
         "blind_resend": False,
     }
