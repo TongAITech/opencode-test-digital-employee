@@ -51,8 +51,13 @@ def evaluate(value: Mapping[str, Any]) -> dict[str, Any]:
     output = value.get("max_output_tokens")
     output_reserve = DEFAULT_OUTPUT_RESERVE if output is None else _integer(
         output, "max_output_tokens", minimum=1, maximum=context_limit - 1)
-    # Never allow an output setting to consume the entire model window.
-    output_reserve = min(max(output_reserve, 1024), max(1024, context_limit // 2))
+    # Reserve the real configured/advertised output budget. Never shrink a
+    # large output allowance merely to make more input fit.
+    output_reserve = max(output_reserve, 1024)
+
+    raw_input_limit = value.get("input_limit")
+    input_limit = None if raw_input_limit is None else _integer(
+        raw_input_limit, "input_limit", minimum=1, maximum=MAX_CONTEXT_LIMIT)
 
     component_names = ("system_bytes", "messages_bytes", "tools_bytes", "extra_bytes")
     components = {
@@ -68,12 +73,20 @@ def evaluate(value: Mapping[str, Any]) -> dict[str, Any]:
     framing = 1024 + message_count * 64 + tool_count * 128
     request_upper_bound = sum(components.values()) + framing
     safety = max(2048, int(math.ceil(context_limit * 0.05)))
-    input_budget = context_limit - output_reserve - safety
+    context_input_limit = context_limit - output_reserve
+    effective_input_limit = min(
+        context_input_limit,
+        input_limit if input_limit is not None else context_input_limit,
+    )
+    input_budget = effective_input_limit - safety
     if input_budget <= 0:
-        raise ValueError("model context leaves no positive input budget")
+        raise ValueError("model limits leave no positive input budget")
 
     identity = {
         "context_limit": context_limit,
+        "model_input_limit": input_limit,
+        "context_input_limit": context_input_limit,
+        "effective_input_limit": effective_input_limit,
         "output_reserve": output_reserve,
         "safety_reserve": safety,
         "input_budget": input_budget,
