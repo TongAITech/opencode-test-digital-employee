@@ -161,11 +161,21 @@ class GeneralExecutionService:
         require(len(text.encode()) <= 16384, "GENERAL_BOOTSTRAP_BYTE_BUDGET")
         data = {"dispatch_id": did, "epoch": e["epoch"], "context_digest": sha(text.encode()), "business_cursor": e["business_cursor"], "mode": mode, "requested_at": now(), "receipt": None}
         self._record(subject, "PROMPT_CLAIM", data)
-        try: self.provider.send_context(session_id=s["session_id"], agent=s["agent"], text=text)
+        try:
+            self.provider.send_context(session_id=s["session_id"], agent=s["agent"], text=text)
         except Exception:
             self._record(subject, "PROMPT_UNKNOWN", data)
             raise
-        self._record(subject, "PROMPT_ACCEPTED", data)
+        finder = getattr(self.provider, "find_context_receipt", None)
+        receipt = finder(s["session_id"], data["context_digest"]) if finder else None
+        if receipt is None:
+            # OpenCode 1.18.3 prompt_async returns 204 after forking the prompt
+            # task. That acknowledgement is not proof that the user message is
+            # durably visible yet. Keep the dispatch UNKNOWN; Supervisor will
+            # reconcile by readback and must never resend this dispatch.
+            self._record(subject, "PROMPT_UNKNOWN", data)
+            return "PROMPT_RECONCILIATION_REQUIRED"
+        self._record(subject, "PROMPT_ACCEPTED", {**data, "receipt": receipt})
         return "PROMPT_SENT"
 
     def _reconcile_prompt(self, subject, record):
