@@ -14,7 +14,7 @@ from aitest_runtime.control_loop import _primary_session_tick
 from aitest_runtime.durable_core import RuntimeError, canonical_sha256
 from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
 from aitest_runtime.g2_1.supervisor import RotationPolicy, SessionObservation, durable_pressure
-from aitest_runtime.primary_sessions import PrimarySessionOwner
+from aitest_runtime.primary_sessions import PrimarySessionOwner, RECORD, transition, now
 
 
 def request(intake_id: str, version: str):
@@ -139,6 +139,39 @@ class ContextAdmissionTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises((ValueError, TypeError)):
                     evaluate(payload)
+
+
+    def test_primary_recovery_transition_is_pure_for_nested_journal(self):
+        owner = PrimarySessionOwner(self.runtime, self.root, self.provider)
+        old = owner.ensure_current()
+        digest = "a" * 64
+        recovery_id = owner.claim_context_recovery(old["session_id"], "aitest-director", "继续当前任务", digest)
+        owner.fence("TEST_CONTEXT_RECOVERY")
+        successor = owner.ensure_current()
+        owner.record("RECOVERY_TARGET", {
+            "predecessor_epoch": 1,
+            "recovery_id": recovery_id,
+            "successor_epoch": successor["epoch"],
+            "successor_session_id": successor["session_id"],
+            "observed_at": now(),
+        })
+        before = owner.state()
+        self.assertEqual(before.bindings["1"]["context_recovery"]["state"], "CLAIMED")
+        payload = {
+            "subject": owner.subject.to_dict(),
+            "operation": "RECOVERY_BEGIN_SEND",
+            "data": {
+                "predecessor_epoch": 1,
+                "recovery_id": recovery_id,
+                "successor_session_id": successor["session_id"],
+                "observed_at": now(),
+            },
+        }
+        after = transition(before, RECORD, payload)
+        self.assertEqual(before.bindings["1"]["context_recovery"]["state"], "CLAIMED",
+                         "transition must never mutate its input state")
+        self.assertEqual(after.bindings["1"]["context_recovery"]["state"], "SENDING")
+
 
     def test_primary_block_fences_predecessor_replays_current_turn_and_follows_tui(self):
         owner = PrimarySessionOwner(self.runtime, self.root, self.provider)
