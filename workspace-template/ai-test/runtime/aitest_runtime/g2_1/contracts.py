@@ -35,6 +35,7 @@ RECORD_SESSION_OBSERVATION = "G21_RECORD_SESSION_OBSERVATION"
 REQUEST_SESSION_ROTATION = "G21_REQUEST_SESSION_ROTATION"
 COMPLETE_SESSION_ROTATION = "G21_COMPLETE_SESSION_ROTATION"
 RECORD_CONTEXT_DISPATCH = "G21_RECORD_CONTEXT_DISPATCH"
+RECORD_PROGRESS_STATE = "G21_RECORD_PROGRESS_STATE"
 
 ROUTING_AUTHORITY_ENABLED = "g2_1.routing_authority_enabled.v1"
 TASK_ROUTE_REGISTERED = "g2_1.task_route_registered.v1"
@@ -45,18 +46,19 @@ SESSION_OBSERVATION_RECORDED = "g2_1.session_observation_recorded.v1"
 SESSION_ROTATION_REQUESTED = "g2_1.session_rotation_requested.v1"
 SESSION_ROTATION_COMPLETED = "g2_1.session_rotation_completed.v1"
 CONTEXT_DISPATCH_RECORDED = "g2_1.context_dispatch_recorded.v1"
+PROGRESS_STATE_RECORDED = "g2_1.progress_state_recorded.v1"
 
 COMMAND_TYPES = frozenset({
     ENABLE_ROUTING_AUTHORITY, REGISTER_TASK_ROUTE, REQUEST_SESSION_PROVISION, BIND_SESSION_PROVISION,
     CLOSE_ORPHAN_PROVISION, RECORD_SESSION_OBSERVATION,
     REQUEST_SESSION_ROTATION, COMPLETE_SESSION_ROTATION,
-    RECORD_CONTEXT_DISPATCH,
+    RECORD_CONTEXT_DISPATCH, RECORD_PROGRESS_STATE,
 })
 EVENT_TYPES = frozenset({
     ROUTING_AUTHORITY_ENABLED, TASK_ROUTE_REGISTERED, SESSION_PROVISION_REQUESTED, SESSION_PROVISION_BOUND,
     ORPHAN_PROVISION_CLOSED, SESSION_OBSERVATION_RECORDED,
     SESSION_ROTATION_REQUESTED, SESSION_ROTATION_COMPLETED,
-    CONTEXT_DISPATCH_RECORDED,
+    CONTEXT_DISPATCH_RECORDED, PROGRESS_STATE_RECORDED,
 })
 
 
@@ -202,6 +204,40 @@ class RotationRequestRecord:
 
 
 @dataclass(frozen=True)
+class ProgressStateRecord:
+    progress_id: str
+    business_cursor: int
+    phase: str
+    reason: str
+    failure_signature: str
+    task_id: str | None
+    session_id: str | None
+    replan_lineage: str | None
+    replan_session_id: str | None
+    observed_at: str
+    recorded_seq: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "progress_id": self.progress_id, "business_cursor": self.business_cursor,
+            "phase": self.phase, "reason": self.reason,
+            "failure_signature": self.failure_signature, "task_id": self.task_id,
+            "session_id": self.session_id, "replan_lineage": self.replan_lineage,
+            "replan_session_id": self.replan_session_id, "observed_at": self.observed_at,
+            "recorded_seq": self.recorded_seq,
+        }
+
+    @classmethod
+    def from_dict(cls, v: Mapping[str, Any]) -> "ProgressStateRecord":
+        return cls(
+            str(v["progress_id"]), int(v["business_cursor"]), str(v["phase"]),
+            str(v["reason"]), str(v["failure_signature"]), v.get("task_id"),
+            v.get("session_id"), v.get("replan_lineage"), v.get("replan_session_id"),
+            str(v["observed_at"]), int(v["recorded_seq"]),
+        )
+
+
+@dataclass(frozen=True)
 class SessionControlState:
     mission_id: str
     routing_authority_enabled: bool = False
@@ -211,9 +247,16 @@ class SessionControlState:
     observations: tuple[SessionObservationRecord, ...] = ()
     rotations: tuple[RotationRequestRecord, ...] = ()
     context_dispatches: tuple[Mapping[str, Any], ...] = ()
+    progress_records: tuple[ProgressStateRecord, ...] = ()
 
     def context_dispatch(self, dispatch_id: str) -> Mapping[str, Any] | None:
         return next((x for x in reversed(self.context_dispatches) if x['dispatch_id'] == dispatch_id), None)
+
+    def progress(self, progress_id: str) -> ProgressStateRecord | None:
+        return next((x for x in reversed(self.progress_records) if x.progress_id == progress_id), None)
+
+    def latest_progress(self) -> ProgressStateRecord | None:
+        return self.progress_records[-1] if self.progress_records else None
 
     def route(self, task_id: str) -> TaskRouteRequirement | None:
         return next((x for x in reversed(self.task_routes) if x.task_id == task_id), None)
@@ -238,6 +281,7 @@ class SessionControlState:
             "rotations": [x.to_dict() for x in self.rotations],
             # Preserve pre-V4 composed hashes when no new event has occurred.
             **({"context_dispatches": [dict(x) for x in self.context_dispatches]} if self.context_dispatches else {}),
+            **({"progress_records": [x.to_dict() for x in self.progress_records]} if self.progress_records else {}),
         }
 
     @classmethod
@@ -251,4 +295,5 @@ class SessionControlState:
             tuple(SessionObservationRecord.from_dict(x) for x in v.get("observations") or []),
             tuple(RotationRequestRecord.from_dict(x) for x in v.get("rotations") or []),
             tuple(dict(x) for x in v.get("context_dispatches") or []),
+            tuple(ProgressStateRecord.from_dict(x) for x in v.get("progress_records") or []),
         )
