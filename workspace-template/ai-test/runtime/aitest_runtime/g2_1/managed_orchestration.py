@@ -232,6 +232,151 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         }
         return self._bounded_bootstrap("AITEST_CANONICAL_PLANNING_CONTEXT\n", envelope)
 
+    def _progress_identity(self, mission_id: str, *, task_id: str | None, session_id: str | None,
+                           reason: str, cursor: int) -> tuple[str, str]:
+        identity = {
+            "mission_id": mission_id, "task_id": task_id, "session_id": session_id,
+            "reason": reason, "business_cursor": cursor,
+        }
+        signature = canonical_sha256(identity)
+        return "g21-progress:" + signature[:40], signature
+
+    def _replanning_context_message(self, mission_id: str, progress_id: str, logical_agent_id: str) -> str:
+        control = self.session_control.state(mission_id)
+        progress = control.progress(progress_id)
+        if progress is None:
+            raise RuntimeError("C3_PROGRESS_RECORD_REQUIRED")
+        composed, graph, goal, current_plan = self._active_plan_context(mission_id)
+        if current_plan is None or current_plan.current_revision_id is None:
+            raise RuntimeError("C3_REPLAN_CURRENT_REVISION_REQUIRED")
+        revision = graph.revision(current_plan.current_revision_id)
+        envelope = {
+            "schema": "aitest.replanning-context.v1",
+            "authority": "R1_EVENT_STREAM",
+            "conversation_is_not_truth": True,
+            "mission_id": mission_id,
+            "goal_id": goal.goal_id,
+            "goal_revision": goal.revision,
+            "current_plan_id": current_plan.plan_id,
+            "current_plan_revision_id": current_plan.current_revision_id,
+            "current_plan_content_hash": getattr(revision, "content_hash", None),
+            "progress": {
+                "progress_id": progress.progress_id,
+                "business_cursor": progress.business_cursor,
+                "reason": progress.reason,
+                "failure_signature": progress.failure_signature,
+                "task_id": progress.task_id,
+                "session_id": progress.session_id,
+            },
+            "logical_agent_id": logical_agent_id,
+            "required_next_action": "AUTHOR_PLAN_REVISION",
+            "instruction": (
+                "Diagnose the durable no-progress condition from canonical R1/G3/G4/G5 evidence and author a governed "
+                "PlanRevision through the canonical Planner tool. Planner owns WHAT: Runtime must not invent Tasks. "
+                "If further investigation is required, add a bounded DIAGNOSIS-role Task so Router selects aitest-diagnosis. "
+                "Preserve completed and in-flight work identities, never replay UNKNOWN_SIDE_EFFECT, and do not treat "
+                "PLAN_COMPLETE as TEST_SUFFICIENT. If evidence is insufficient, make the missing evidence explicit."
+            ),
+        }
+        return self._bounded_bootstrap("AITEST_CANONICAL_REPLANNING_CONTEXT\n", envelope)
+
+    def _open_replanning_session(self, mission_id: str, progress_id: str) -> dict[str, Any]:
+        from ..mission_controls import pending_controls
+        if pending_controls(self.runtime, mission_id=mission_id, stopping_only=True, limit=1):
+            return {"status":"WAIT","reason":"MISSION_CONTROL_PENDING","truth_source":"R1_EVENT_STREAM"}
+        control = self.session_control.state(mission_id)
+        progress = control.progress(progress_id)
+        if progress is None:
+            raise RuntimeError("C3_PROGRESS_RECORD_REQUIRED")
+        composed, _graph, _goal, current_plan = self._active_plan_context(mission_id)
+        if composed.core_state.mission.status != MissionStatus.ACTIVE:
+            return {"status":"WAIT","reason":"MISSION_NOT_ACTIVE","truth_source":"R1_EVENT_STREAM"}
+        if current_plan is None or current_plan.current_revision_id is None:
+            raise RuntimeError("C3_REPLAN_CURRENT_REVISION_REQUIRED")
+
+        role = self.role_registry.resolve("PLANNER")
+        lineage = "replanning:" + progress_id
+        logical_agent_id = self.session_router.logical_agent_id(role.agent_name, lineage)
+        token = self._provision_token(mission_id, logical_agent_id, "REPLANNING", progress_id)
+        title = f"AITest Replan · {mission_id} · {progress_id[-12:]}"
+        self._request_provision_if_needed(
+            mission_id, token=token, task_id=None, logical_agent_id=logical_agent_id,
+            root_attempt_id=lineage, role=role.role, agent_name=role.agent_name,
+            phase="REPLANNING", title=title,
+        )
+        expected_title = ProvisioningOpenCodeSessionProvider.title_for(token, title)
+        matches = [item for item in self.raw_session_provider.list_sessions() if item.title == expected_title]
+        if len(matches) > 1:
+            raise RuntimeError("C3_REPLAN_DUPLICATE_EXTERNAL_SESSION")
+        external = matches[0] if matches else None
+        if external is None:
+            with self.provisioning_provider.provision(token, title, independent_session=True):
+                external = self.provisioning_provider.create_session(title=title)
+
+        refreshed = self.runtime.replay_composed(mission_id)
+        core = refreshed.core_state.session(external.session_id)
+        if core is None:
+            self._open_core_session(
+                mission_id=mission_id, external=external, task_id=None, agent=role.agent_name,
+                phase="REPLANNING", logical_agent_id=logical_agent_id,
+            )
+        elif core.status.value != "OPEN":
+            raise RuntimeError("C3_REPLAN_SESSION_NOT_OPEN")
+        else:
+            attrs = dict(core.attributes or {})
+            if attrs.get("phase") != "REPLANNING" or attrs.get("logical_agent_id") != logical_agent_id:
+                raise RuntimeError("C3_REPLAN_SESSION_LINEAGE_MISMATCH")
+
+        progress = self.session_control.state(mission_id).progress(progress_id)
+        if progress is None:
+            raise RuntimeError("C3_PROGRESS_RECORD_REQUIRED")
+        if progress.phase == "STALLED":
+            self.session_control.record_progress_state(mission_id, {
+                "progress_id": progress.progress_id, "business_cursor": progress.business_cursor,
+                "phase": "REPLANNING", "reason": progress.reason,
+                "failure_signature": progress.failure_signature, "task_id": progress.task_id,
+                "session_id": progress.session_id, "replan_lineage": lineage,
+                "replan_session_id": external.session_id, "observed_at": _utc_now(),
+            })
+        elif progress.phase != "REPLANNING":
+            return {"status":"WAIT","reason":"C3_PROGRESS_NOT_REPLANNABLE","progress_id":progress_id,
+                    "truth_source":"R1_EVENT_STREAM"}
+
+        text = self._replanning_context_message(mission_id, progress_id, logical_agent_id)
+        try:
+            delivery = self.provisioning_provider.send_context(
+                session_id=external.session_id, agent=role.agent_name, text=text,
+            )
+        except ContextDeliveryUnconfirmed as exc:
+            return {"status":"WAIT","reason":str(exc),"progress_id":progress_id,
+                    "session_id":external.session_id,"truth_source":"R1_EVENT_STREAM"}
+        self._bind_provision_if_needed(mission_id, token, external.session_id)
+        return {
+            "status": "REPLAN_DISPATCHED" if delivery.get("prompt_sent") else "REPLAN_IN_PROGRESS",
+            "truth_source": "R1_EVENT_STREAM", "conversation_is_not_truth": True,
+            "progress_id": progress_id, "business_cursor": progress.business_cursor,
+            "failure_signature": progress.failure_signature, "agent": role.agent_name,
+            "logical_agent_id": logical_agent_id, "session_id": external.session_id,
+            "provision_token": token, "delivery": delivery,
+        }
+
+    def _handle_no_progress(self, mission_id: str, *, task_id: str | None, session_id: str | None,
+                            reason: str, cursor: int | None = None) -> dict[str, Any]:
+        mission_id = _text(mission_id, "mission_id")
+        cursor = business_cursor(self.runtime, mission_id) if cursor is None else int(cursor)
+        progress_id, signature = self._progress_identity(
+            mission_id, task_id=task_id, session_id=session_id, reason=reason, cursor=cursor,
+        )
+        existing = self.session_control.state(mission_id).progress(progress_id)
+        if existing is None:
+            self.session_control.record_progress_state(mission_id, {
+                "progress_id": progress_id, "business_cursor": cursor, "phase": "STALLED",
+                "reason": reason, "failure_signature": signature, "task_id": task_id,
+                "session_id": session_id, "replan_lineage": None, "replan_session_id": None,
+                "observed_at": _utc_now(),
+            })
+        return self._open_replanning_session(mission_id, progress_id)
+
     @_coordinated
     def open_planning_session(self, mission_id: str) -> dict[str, Any]:
         from ..mission_controls import pending_controls
@@ -311,7 +456,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         composed = self.runtime.replay_composed(mission_id)
         for session in list(composed.core_state.sessions):
             attrs = dict(session.attributes or {})
-            if session.status.value != "OPEN" or attrs.get("phase") != "PLANNING":
+            if session.status.value != "OPEN" or attrs.get("phase") not in {"PLANNING","REPLANNING"}:
                 continue
             close_id = f"g2.1:planning:{session.session_id}:PLAN_ACCEPTED:CLOSE"
             result = execute_control_command(self.runtime, CommandEnvelope(
@@ -1309,7 +1454,20 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             return {'status':'WAIT','reason':'POST_DISPATCH_GRACE','session_id':session_id}
         try:sent=dispatch_context(self,session_id=session_id,agent=agent,text=text,mode='AUTO_CONTINUE')
         except ContextDeliveryUnconfirmed as exc:return {'status':'WAIT','reason':str(exc),'session_id':session_id}
-        return {'status':'AUTO_CONTINUE' if sent.get('prompt_sent') else 'WAIT','reason':'NONTERMINAL_IDLE' if sent.get('prompt_sent') else 'DIAGNOSIS_REQUIRED_NO_PROGRESS','session_id':session_id,'delivery':sent}
+        if sent.get('prompt_sent'):
+            return {'status':'AUTO_CONTINUE','reason':'NONTERMINAL_IDLE','session_id':session_id,'delivery':sent}
+        composed=self.runtime.replay_composed(mission_id)
+        task_id=None
+        for task in composed.extension_state('r1_2_work_graph').tasks:
+            execution=composed.extension_state('r1_3b_execution_resume')
+            latest=execution.latest_attempt(task.task_id) if execution is not None else None
+            if latest is not None and latest.runtime_session_id==session_id:
+                task_id=task.task_id;break
+        replan=self._handle_no_progress(
+            mission_id, task_id=task_id, session_id=session_id,
+            reason='AUTO_CONTINUE_NO_BUSINESS_PROGRESS', cursor=business_cursor(self.runtime,mission_id),
+        )
+        return {**replan,'stalled_session_id':session_id,'delivery':sent}
 
 
     def supervise_once(self) -> dict[str, Any]:
