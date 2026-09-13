@@ -14,18 +14,14 @@ let mergedPermission = {}
 const utf8 = (value) => new TextEncoder().encode(value).length
 
 function safeJson(value) {
-  const seen = new WeakSet()
   try {
-    return JSON.stringify(value, (_key, item) => {
-      if (typeof item === "function" || typeof item === "symbol") return undefined
-      if (item && typeof item === "object") {
-        if (seen.has(item)) return "[Circular]"
-        seen.add(item)
-      }
-      return item
-    }) ?? ""
+    const result = JSON.stringify(value)
+    if (typeof result !== "string") throw new Error("not serializable")
+    return result
   } catch {
-    return ""
+    // Context accounting must never turn an unserializable structure into a
+    // smaller byte count. Fail closed before provider transport instead.
+    throw new Error("AITEST_CONTEXT_GOVERNOR_UNSERIALIZABLE_REQUEST")
   }
 }
 
@@ -52,12 +48,14 @@ function patternsFromPermission(permission) {
 }
 
 async function agentPermissionPatterns(directory, agent) {
-  const patterns = [...patternsFromPermission(mergedPermission)]
+  const inherited = [...patternsFromPermission(mergedPermission)]
   const file = Bun.file(path.join(directory, ".opencode", "agents", agent + ".md"))
-  if (!(await file.exists())) return patterns
+  if (!(await file.exists())) return ["*"]
   const text = await file.text()
   const lines = text.split(/\r?\n/)
+  const patterns = [...inherited]
   let inside = false
+  let denyAll = false
   for (const line of lines) {
     if (!inside) {
       if (/^permission:\s*$/.test(line)) inside = true
@@ -65,9 +63,14 @@ async function agentPermissionPatterns(directory, agent) {
     }
     if (/^---\s*$/.test(line) || (/^\S/.test(line) && !/^permission:/.test(line))) break
     const match = line.match(/^\s{2,}["']?([^"'\s][^:"']*?)["']?\s*:\s*(allow|ask|deny)\s*$/)
-    if (match && match[2] !== "deny") patterns.push(match[1].trim())
+    if (!match) continue
+    const pattern = match[1].trim()
+    if (pattern === "*" && match[2] === "deny") denyAll = true
+    if (match[2] !== "deny") patterns.push(pattern)
   }
-  return [...new Set(patterns)]
+  // Only a project-owned deny-all AITest Agent gives us a closed-world tool
+  // set. Any looser/unknown permission shape is budgeted as all captured tools.
+  return denyAll ? [...new Set(patterns)] : ["*"]
 }
 
 function matches(pattern, value) {
@@ -144,6 +147,7 @@ export const AITestContextGovernor = async ({ directory }) => ({
   "experimental.chat.messages.transform": async (_input, output) => {
     const sid = sessionID(output.messages || [])
     if (!sid) return
+    if (!sessions.has(sid) && sessions.size >= 512) sessions.delete(sessions.keys().next().value)
     const state = sessions.get(sid) || {}
     // Retain the reference. Later plugins mutate this same output before the
     // separate chat.params trigger, so serialization there sees final history.
@@ -198,6 +202,7 @@ export const AITestContextGovernor = async ({ directory }) => ({
       // Recovery has already been durably initiated/completed by Runtime. The
       // old Session must not reach provider transport.
       const recovery = decision.recovery?.status || "RECOVERY_UNKNOWN"
+      sessions.delete(input.sessionID)
       throw new Error("AITEST_CONTEXT_ADMISSION_BLOCKED:" + recovery)
     }
   },
