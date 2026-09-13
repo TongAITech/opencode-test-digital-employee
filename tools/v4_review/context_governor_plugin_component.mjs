@@ -49,9 +49,14 @@ globalThis.Bun = {
     }
   },
   spawn() {
-    return fakeProcess((payload) => payload.messages_bytes > 5000
-      ? { status: "BLOCK", recovery: { status: "ROTATED" } }
-      : { status: "ALLOW", recovery: null })
+    return fakeProcess((payload) => {
+      if (payload.current_user_replay_safe === false) {
+        return { status: "ERROR", error: "PRIMARY_CONTEXT_REPLAY_NON_TEXT_UNSUPPORTED" }
+      }
+      return payload.messages_bytes > 5000
+        ? { status: "BLOCK", recovery: { status: "ROTATED" } }
+        : { status: "ALLOW", recovery: null }
+    })
   },
 }
 
@@ -103,6 +108,8 @@ await hooks["chat.headers"](firstInput, { headers: {} })
 assert.equal(captured.length, 1)
 assert.equal(captured[0].session_id, "ses_component")
 assert.equal(captured[0].current_user_text, "hello")
+assert.equal(captured[0].current_user_replay_safe, true)
+assert.deepEqual(captured[0].current_user_part_types, ["text"])
 assert.equal(captured[0].tool_count, 1, "deny-all agent must not budget unrelated shell tool")
 assert.ok(captured[0].tools_bytes > 256, "late tool-definition mutation must be included")
 assert.ok(captured[0].system_bytes > 128, "late system mutation must be included")
@@ -150,6 +157,37 @@ assert.equal(blocked, true, "BLOCK decision must abort the old pre-provider path
 assert.equal(captured.length, 2)
 assert.ok(captured[1].messages_bytes > 5000, "large Chinese tool args/results must enter final history budget")
 assert.equal(captured[1].current_user_text, "继续测试 BLOAN")
+assert.equal(captured[1].current_user_replay_safe, true)
+
+messages.push({
+  info: { id: "usr3", sessionID: "ses_component", role: "user" },
+  parts: [
+    { type: "text", text: "分析附件" },
+    { type: "file", mime: "application/pdf", filename: "spec.pdf", url: "file:///tmp/spec.pdf" },
+  ],
+})
+let nonTextRejected = false
+try {
+  const thirdInput = {
+    sessionID: "ses_component",
+    agent: "aitest-director",
+    model: { providerID: "fixture", id: "fixture-model", limit: { context: 128000, input: 64000, output: 32768 } },
+    message: { id: "usr3" },
+  }
+  await hooks["experimental.chat.messages.transform"]({}, { messages })
+  await hooks["experimental.chat.system.transform"](
+    { sessionID: "ses_component", model: thirdInput.model },
+    { system },
+  )
+  await hooks["chat.params"](thirdInput, { maxOutputTokens: 8192, options: {} })
+  await hooks["chat.headers"](thirdInput, { headers: {} })
+} catch (error) {
+  nonTextRejected = String(error).includes("PRIMARY_CONTEXT_REPLAY_NON_TEXT_UNSUPPORTED")
+}
+assert.equal(nonTextRejected, true, "non-text Primary turn must fail closed before lossy successor replay")
+assert.equal(captured.length, 3)
+assert.equal(captured[2].current_user_replay_safe, false)
+assert.deepEqual(captured[2].current_user_part_types, ["text", "file"])
 
 console.log(JSON.stringify({
   status: "PASS",
@@ -158,4 +196,5 @@ console.log(JSON.stringify({
   final_reference_mutation_visible: true,
   denied_tool_excluded: true,
   blocked_old_provider_path: true,
+  non_text_primary_replay_fails_closed: true,
 }))
