@@ -8,6 +8,8 @@ on:
       - tests/v4/**
       - workspace-template/.pfc-internal-field-validation/tests/test_recovery_context_stress.py
       - workspace-template/.pfc-internal-field-validation/tests/test_g2_1_pressure_fallback.py
+      - workspace-template/.opencode/plugins/**
+      - workspace-template/ai-test/runtime/aitest_runtime/context_admission.py
       - workspace-template/ai-test/runtime/aitest_runtime/general_work/**
       - workspace-template/ai-test/runtime/aitest_runtime/interaction_receipts.py
       - workspace-template/ai-test/runtime/aitest_runtime/primary_sessions.py
