@@ -378,10 +378,11 @@ try:
         }],
         "dependencies": [],
     }
+    before_worker_dispatch = call_count()
     dispatched = service.propose_plan(mission, worker_plan)["next"]
     worker_task_id = dispatched["task_id"]
     worker = dispatched["external_session"]["session_id"]
-    wait_until(lambda: call_count() >= baseline_calls + len(rotations) + 1, 30)
+    wait_until(lambda: call_count() >= before_worker_dispatch + 1, 30)
     worker_rotations = []
     for cycle in (1, 2):
         worker_history = ("WORKER-HISTORY-%d-" % cycle) + ("测" * 52000)
