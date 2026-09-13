@@ -63,7 +63,8 @@ jobs:
           $env:PIP_NO_INDEX = '1'
           $runtimeSource = Join-Path $PWD 'workspace-template/ai-test/runtime'
           $fieldTests = Join-Path $PWD 'workspace-template/.pfc-internal-field-validation/tests'
-          $env:PYTHONPATH = $runtimeSource + [IO.Path]::PathSeparator + $fieldTests
+          $v4Tests = Join-Path $PWD 'tests/v4'
+          $env:PYTHONPATH = $runtimeSource + [IO.Path]::PathSeparator + $fieldTests + [IO.Path]::PathSeparator + $v4Tests
           node tools/v4_review/context_governor_plugin_component.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Context Governor plugin component failed' }
           & "$env:C2_RUNTIME/python/python.exe" -X utf8 tests/v4/test_primary_sessions.py
