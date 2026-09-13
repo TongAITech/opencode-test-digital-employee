@@ -224,7 +224,7 @@ try:
         "final_epoch": state.epoch,
         "model_identities": [{"provider_id": p, "model_id": m} for p, m in sorted(identities)],
         "gates": {**result["gates"], "TWO_CONSECUTIVE_REAL_MODEL_SUCCESSORS": "PASS"},
-        "r1_root_head_seq": runtime.get_subject_head_seq(owner.subject),
+        "r1_root_head_seq": runtime.get_subject_state(owner.subject).seq,
     })
 except Exception as exc:
     result.update({
