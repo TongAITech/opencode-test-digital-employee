@@ -175,6 +175,35 @@ def _primary_session_tick(runtime: Any, root: Path, provider: Any) -> dict[str, 
             "truth_source": "R1_EVENT_STREAM",
         }
 
+    pending_recovery = owner.pending_context_recovery()
+    if pending_recovery is not None:
+        try:
+            recovered = owner.recover_pending_context()
+        except OpenCodeSessionAdmissionPending as exc:
+            return {
+                "status": "WAIT",
+                "reason": "PRIMARY_CONTEXT_RECOVERY_HOST_ADMISSION_PENDING",
+                "error": type(exc).__name__,
+                "component": "PRIMARY_SESSION_SUPERVISOR",
+                "truth_source": "R1_EVENT_STREAM",
+            }
+        if recovered.get("status") == "RECONCILE_REQUIRED":
+            return {
+                "status": "WAIT",
+                "reason": recovered.get("reason"),
+                "component": "PRIMARY_SESSION_SUPERVISOR",
+                "truth_source": "R1_EVENT_STREAM",
+                "context_recovery": recovered,
+            }
+        if recovered.get("status") == "ACCEPTED":
+            return {
+                "status": "RECOVERED",
+                "component": "PRIMARY_SESSION_SUPERVISOR",
+                "truth_source": "R1_EVENT_STREAM",
+                "context_recovery": recovered,
+            }
+
+    state = owner.state()
     binding = state.bindings.get(str(state.epoch))
     predecessor = binding.get("session_id") if binding and binding.get("state") == "BOUND" else None
     reasons: list[str] = []
