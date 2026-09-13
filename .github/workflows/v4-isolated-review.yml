@@ -18,6 +18,9 @@ on:
       - workspace-template/ai-test/runtime/aitest_runtime/control_loop.py
       - .github/workflows/v4-isolated-review.yml
   workflow_dispatch:
+concurrency:
+  group: v4-isolated-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
   actions: read
