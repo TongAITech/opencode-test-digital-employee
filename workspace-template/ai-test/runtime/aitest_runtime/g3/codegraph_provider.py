@@ -195,13 +195,23 @@ def _extract_symbol(payload: Any, file_path: str, line_number: int, provider_ref
             continue
         start = _first_int(item, ("startLine", "start_line", "lineStart", "line_start", "line"))
         end = _first_int(item, ("endLine", "end_line", "lineEnd", "line_end"))
+        location = item.get("location") if isinstance(item.get("location"), Mapping) else {}
+        range_obj = location.get("range") if isinstance(location.get("range"), Mapping) else {}
+        range_start = range_obj.get("start") if isinstance(range_obj.get("start"), Mapping) else {}
+        range_end = range_obj.get("end") if isinstance(range_obj.get("end"), Mapping) else {}
+        if start is None:
+            start = _first_int(range_start, ("line",))
+        if end is None:
+            end = _first_int(range_end, ("line",))
         score = 0
-        for candidate_line in (line_number, line_number - 1):
+        for candidate_line in (line_number - 1, line_number):
             if start is not None and end is not None and start <= candidate_line <= end:
                 score = max(score, 3)
             elif start is not None and start == candidate_line:
                 score = max(score, 2)
         uri = _first_text(item, ("uri", "file", "filePath", "file_path", "path"))
+        if not uri and isinstance(location, Mapping):
+            uri = _first_text(location, ("uri", "file", "filePath", "file_path", "path"))
         if uri and file_path.replace("\\", "/") in uri.replace("\\", "/"):
             score += 1
         if score:
