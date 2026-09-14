@@ -309,6 +309,21 @@ def main() -> int:
                 "runtime_lock_path": str(WORKSPACE.parent / "runtime-lock.json"),
                 "codegraph_binary_path": real_binary,
             })
+            raw_context = {}
+            if hasattr(real_provider, "_run_tool"):
+                uri = service.resolve().as_uri()
+                for probe_line in (2, 3, 4):
+                    ok, payload, error = real_provider._run_tool(
+                        relationship_repo,
+                        "codegraph_get_ai_context",
+                        {"uri": uri, "line": probe_line, "intent": "explain"},
+                    )
+                    raw_context[str(probe_line)] = {
+                        "ok": ok,
+                        "payload": payload,
+                        "error": error,
+                    }
+
             real_broker = ChangeIntelligenceBroker(codegraph_provider=real_provider)
             _, real_env, real_meta = analyze_repository(
                 {"repository_id": "real-codegraph", "repository_path": str(relationship_repo), "base_ref": real_base, "head_ref": real_head},
@@ -325,6 +340,7 @@ def main() -> int:
             checks["real_codegraph_edges_keep_tool_provenance"] = all(any(ref.startswith("codegraph-tool:") for ref in edge.source_provenance) for edge in real_edges)
             checks["real_codegraph_keeps_git_change_truth"] = changed_refs(real_env) == {"src/Service.java:L4"}
             diagnostics["real_codegraph"] = {
+                "raw_get_ai_context": raw_context,
                 "provider_health": real_meta.get("provider_health", {}).get("CODEGRAPH"),
                 "provider_capabilities": real_meta.get("provider_capabilities"),
                 "line_mapping": real_meta.get("line_mapping"),
