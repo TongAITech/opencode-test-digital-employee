@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -264,6 +265,23 @@ def main() -> int:
         checks["codegraph_resolver_requires_pinned_binary_sha"] = exec_meta["provider_health"]["CODEGRAPH"]["binary_sha256"] == binary_sha and exec_meta["provider_health"]["CODEGRAPH"]["version"] == "0.20.1"
         checks["codegraph_executable_provider_really_invokes_graph_only_tool"] = "--graph-only" in calls and "--run-tool codegraph_get_ai_context" in calls and exec_meta["provider_capabilities"]["CODEGRAPH"] == "AVAILABLE"
         checks["codegraph_executable_provider_maps_git_established_lines"] = bool(exec_meta["line_mapping"]) and all(item["status"] == "MAPPED_TO_SYMBOL" and item["provider"] == "CODEGRAPH" for item in exec_meta["line_mapping"]) and bool(exec_env.changed_files)
+
+        real_binary = os.environ.get("AITEST_D3_CODEGRAPH_BINARY")
+        if real_binary:
+            real_provider = CodeGraphProviderResolver.resolve({
+                "runtime_lock_path": str(WORKSPACE.parent / "runtime-lock.json"),
+                "codegraph_binary_path": real_binary,
+            })
+            real_broker = ChangeIntelligenceBroker(codegraph_provider=real_provider)
+            _, real_env, real_meta = analyze_repository(
+                {"repository_id": "real-codegraph", "repository_path": str(repo_exec), "base_ref": base_exec, "head_ref": head_exec},
+                broker=real_broker,
+            )
+            refs = real_meta["provider_provenance"].get("codegraph_source_refs") or []
+            checks["real_codegraph_pinned_binary_is_available"] = real_meta["provider_capabilities"]["CODEGRAPH"] == "AVAILABLE" and real_meta["provider_health"]["CODEGRAPH"]["version"] == "0.20.1"
+            checks["real_codegraph_maps_git_established_lines"] = bool(real_meta["line_mapping"]) and all(item["status"] == "MAPPED_TO_SYMBOL" and item["provider"] == "CODEGRAPH" for item in real_meta["line_mapping"])
+            checks["real_codegraph_relationship_queries_execute"] = all(any(tool in ref for ref in refs) for tool in ("codegraph_get_callers", "codegraph_get_callees", "codegraph_get_dependency_graph", "codegraph_analyze_impact"))
+            checks["real_codegraph_keeps_git_change_truth"] = changed_refs(real_env) == {row["line_ref"] for row in real_meta["line_mapping"]}
 
     with tempfile.TemporaryDirectory(prefix="g3-wave2-codegraph-missing-") as td:
         missing_root = Path(td)
