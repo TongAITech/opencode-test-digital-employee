@@ -79,7 +79,8 @@ def build(repo: Path, stage: Path, output: Path, version: str, allow_dirty: bool
     required = ['python/python.exe', 'python/python312.dll', 'opencode/opencode.exe',
                 'browser/chrome-win64/chrome.exe',
                 'code-intelligence/codegraph/codegraph-server-win32-x64.exe',
-                'code-intelligence/codegraph/onnxruntime.dll']
+                'code-intelligence/codegraph/onnxruntime.dll',
+                'tools/node/node.exe', 'tools/node/npm.cmd']
     missing = [name for name in required if not (runtime / name).is_file()]
     if missing:
         raise RuntimeError('Required offline files missing: ' + ', '.join(missing))
