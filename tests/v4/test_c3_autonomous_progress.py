@@ -226,6 +226,81 @@ class C3AutonomousProgressTests(unittest.TestCase):
         self.assertNotIn(replan_session, self.provider.sessions)
 
 
+
+    def test_replanner_gets_one_auto_wake_then_rotates_and_retry_does_not_consume_budget(self):
+        mission, worker = self._active_worker("replanner-wake")
+        cursor = business_cursor(self.runtime, mission)
+        first = self.service._handle_no_progress(
+            mission, task_id=worker["task_id"], session_id=worker["external_session"]["session_id"],
+            reason="AUTO_CONTINUE_NO_BUSINESS_PROGRESS", cursor=cursor,
+        )
+        predecessor = first["session_id"]
+        progress_id = first["progress_id"]
+        self.assertEqual(len([m for m in self.provider.messages if m["session_id"] == predecessor]), 1)
+
+        wake = self.service.progress_once(mission)
+        self.assertEqual(wake["status"], "AUTO_CONTINUE_REPLANNING")
+        self.assertTrue(wake["retry_budget_consumed"])
+        self.assertEqual(len([m for m in self.provider.messages if m["session_id"] == predecessor]), 2)
+
+        rotated = self.service.progress_once(mission)
+        self.assertEqual(rotated["status"], "ROTATED")
+        self.assertEqual(rotated["phase"], "REPLANNING")
+        self.assertEqual(rotated["predecessor_session_id"], predecessor)
+        successor = rotated["successor_session_id"]
+        self.assertNotEqual(successor, predecessor)
+        self.assertNotIn(predecessor, self.provider.sessions)
+        self.assertEqual(self.service.session_control.state(mission).progress(progress_id).replan_session_id, successor)
+        self.assertEqual(len([m for m in self.provider.messages if m["session_id"] == successor]), 1)
+
+        # Host/provider retry is an external backoff barrier. It must not spend
+        # the successor's one AUTO_CONTINUE allowance.
+        self.provider.set_observation(successor, activity_state="retry")
+        before_messages = len(self.provider.messages)
+        before_rotations = len(self.service.session_control.state(mission).rotations)
+        waiting = self.service.progress_once(mission)
+        self.assertEqual(waiting["status"], "WAIT")
+        self.assertEqual(waiting["reason"], "WAIT_BACKOFF")
+        self.assertFalse(waiting["retry_budget_consumed"])
+        self.assertEqual(len(self.provider.messages), before_messages)
+        self.assertEqual(len(self.service.session_control.state(mission).rotations), before_rotations)
+
+        self.provider.set_observation(successor, activity_state="idle")
+        next_wake = self.service.progress_once(mission)
+        self.assertEqual(next_wake["status"], "AUTO_CONTINUE_REPLANNING")
+        self.assertEqual(next_wake["session_id"], successor)
+
+    def test_replanner_repeated_failure_budget_blocks_after_three_clean_successors(self):
+        mission, worker = self._active_worker("replanner-budget")
+        cursor = business_cursor(self.runtime, mission)
+        first = self.service._handle_no_progress(
+            mission, task_id=worker["task_id"], session_id=worker["external_session"]["session_id"],
+            reason="AUTO_CONTINUE_NO_BUSINESS_PROGRESS", cursor=cursor,
+        )
+        progress_id = first["progress_id"]
+
+        successors = [first["session_id"]]
+        for _ in range(3):
+            wake = self.service.progress_once(mission)
+            self.assertEqual(wake["status"], "AUTO_CONTINUE_REPLANNING")
+            rotated = self.service.progress_once(mission)
+            self.assertEqual(rotated["status"], "ROTATED")
+            successors.append(rotated["successor_session_id"])
+
+        final_wake = self.service.progress_once(mission)
+        self.assertEqual(final_wake["status"], "AUTO_CONTINUE_REPLANNING")
+        exhausted = self.service.progress_once(mission)
+        self.assertEqual(exhausted["status"], "WAIT")
+        self.assertEqual(exhausted["reason"], "DIAGNOSIS_REQUIRED_REPEATED_REPLANNER_FAILURE")
+        self.assertTrue(exhausted["retry_budget_exhausted"])
+        self.assertEqual(exhausted["recovery_count"], 3)
+        progress = self.service.session_control.state(mission).progress(progress_id)
+        self.assertEqual(progress.phase, "BLOCKED")
+        self.assertEqual(progress.failure_signature, exhausted["failure_signature"])
+        self.assertEqual(len(set(successors)), 4)
+        self.assertEqual(len(self.service.session_control.state(mission).rotations), 3)
+
+
     def test_busy_and_retry_workers_do_not_create_replanning_session(self):
         for activity in ("busy", "retry"):
             with self.subTest(activity=activity):
