@@ -76,6 +76,9 @@ for name in (".opencode", "ai-test"):
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "node_modules"))
 for name in ("AGENTS.md", "opencode.json"):
     shutil.copy2(repo / "workspace-template" / name, workspace / name)
+# The real installed workspace is rooted by the package identity manifest.
+# OpenCode plugin tools deliberately refuse a partial directory that lacks it.
+shutil.copy2(repo / "INSTALL_MANIFEST.json", workspace / "INSTALL_MANIFEST.json")
 
 # Offline dependencies/runtime come only from an already-qualified payload.
 shutil.copytree(payload / ".opencode" / "node_modules", workspace / ".opencode" / "node_modules")
