@@ -297,6 +297,45 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         role = self.role_registry.resolve("PLANNER")
         lineage = "replanning:" + progress_id
         logical_agent_id = self.session_router.logical_agent_id(role.agent_name, lineage)
+
+        if progress.phase == "REPLANNING" and progress.replan_session_id:
+            current_session = composed.core_state.session(progress.replan_session_id)
+            if current_session is not None and current_session.status.value == "OPEN":
+                attrs = dict(current_session.attributes or {})
+                if attrs.get("phase") != "REPLANNING" or attrs.get("logical_agent_id") != logical_agent_id:
+                    raise RuntimeError("C3_REPLAN_SESSION_LINEAGE_MISMATCH")
+                text = self._replanning_context_message(mission_id, progress_id, logical_agent_id)
+                try:
+                    delivery = self.provisioning_provider.send_context(
+                        session_id=progress.replan_session_id, agent=role.agent_name, text=text,
+                    )
+                except ContextDeliveryUnconfirmed as exc:
+                    return {
+                        "status":"WAIT", "reason":str(exc), "progress_id":progress_id,
+                        "session_id":progress.replan_session_id, "truth_source":"R1_EVENT_STREAM",
+                    }
+                bound = next((
+                    p for p in self.session_control.state(mission_id).provisions
+                    if p.external_session_id == progress.replan_session_id
+                    and p.phase in {"REPLANNING","REPLANNING_ROTATION"}
+                    and p.status == "BOUND"
+                ), None)
+                if bound is None:
+                    raise RuntimeError("C3_REPLAN_BOUND_PROVISION_REQUIRED")
+                return {
+                    "status":"REPLAN_DISPATCHED" if delivery.get("prompt_sent") else "REPLAN_IN_PROGRESS",
+                    "truth_source":"R1_EVENT_STREAM", "conversation_is_not_truth":True,
+                    "progress_id":progress_id, "business_cursor":progress.business_cursor,
+                    "failure_signature":progress.failure_signature, "agent":role.agent_name,
+                    "logical_agent_id":logical_agent_id, "session_id":progress.replan_session_id,
+                    "provision_token":bound.provision_token, "delivery":delivery,
+                }
+            if current_session is not None and current_session.status.value != "OPEN":
+                # A completed rotation should have updated this pointer before
+                # closing its predecessor. A stale durable pointer is a real
+                # reconciliation failure, never permission to silently fork.
+                raise RuntimeError("C3_REPLAN_DURABLE_POINTER_STALE")
+
         token = self._provision_token(mission_id, logical_agent_id, "REPLANNING", progress_id)
         title = f"AITest Replan · {mission_id} · {progress_id[-12:]}"
         self._request_provision_if_needed(
@@ -1256,15 +1295,34 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         if intent.phase in {"PLANNING", "PLANNING_ROTATION"}:
             _composed, _graph, _goal, current_plan = self._active_plan_context(mission_id)
             if current_plan is not None:
-                # Planner lifecycle is stale once a governed Plan exists.
+                # Initial Planner lifecycle is stale once a governed Plan exists.
                 return None
             if intent.phase == "PLANNING_ROTATION":
-                # Rotation record gives the durable predecessor identity.
                 state = self.session_control.state(mission_id)
                 record = next((x for x in state.rotations if x.status == "REQUIRED" and x.task_id == "__PLANNING__"), None)
                 if record is not None:
                     return self.rotate_planning_session(mission_id, record.predecessor_session_id, list(record.reasons))
             return self.open_planning_session(mission_id)
+        if intent.phase in {"REPLANNING", "REPLANNING_ROTATION"}:
+            lineage = str(intent.root_attempt_id or "")
+            if not lineage.startswith("replanning:"):
+                raise RuntimeError("C3_REPLAN_LINEAGE_INVALID")
+            progress_id = lineage.split(":", 1)[1]
+            progress = self.session_control.state(mission_id).progress(progress_id)
+            if progress is None or progress.phase != "REPLANNING":
+                return None
+            if intent.phase == "REPLANNING_ROTATION":
+                key = "__REPLANNING__:" + progress_id
+                record = next((
+                    x for x in self.session_control.state(mission_id).rotations
+                    if x.status == "REQUIRED" and x.task_id == key
+                       and x.root_attempt_id == lineage
+                ), None)
+                if record is not None:
+                    return self.rotate_planning_session(
+                        mission_id, record.predecessor_session_id, list(record.reasons)
+                    )
+            return self._open_replanning_session(mission_id, progress_id)
         if not intent.task_id:
             return None
         composed, graph, _goal, current_plan = self._active_plan_context(mission_id)
