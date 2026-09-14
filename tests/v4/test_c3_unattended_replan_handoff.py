@@ -62,6 +62,23 @@ def director_status(env: dict[str, str], primary: str, mission_id: str, label: s
     return bg.run(env, "DIRECTOR", "status", payload)
 
 
+def current_open_plan_revision(status: dict[str, object]) -> str | None:
+    work_graph = status.get("work_graph")
+    if not isinstance(work_graph, dict):
+        return None
+    plans = work_graph.get("plans")
+    if not isinstance(plans, dict):
+        return None
+    open_plans = [
+        item for item in plans.values()
+        if isinstance(item, dict) and item.get("lifecycle_state") == "OPEN"
+    ]
+    if len(open_plans) != 1:
+        return None
+    value = open_plans[0].get("current_revision_id")
+    return str(value) if isinstance(value, str) and value else None
+
+
 def main() -> int:
     checks: dict[str, bool] = {}
     diagnostics: dict[str, object] = {}
@@ -180,10 +197,7 @@ def main() -> int:
                 progress_id = str(active_replan["progress_id"])
                 replanner_id = str(active_replan["replan_session_id"])
                 stalled_cursor = int(active_replan["business_cursor"])
-                before_plan = replanning_status.get("plan", {})
-                before_revision = (
-                    before_plan.get("current_revision_id") if isinstance(before_plan, dict) else None
-                )
+                before_revision = current_open_plan_revision(replanning_status)
 
                 replan_payload = {"mission_id": mission_id, "proposal": diagnosis_replan()}
                 bg.bind_host_tool(
@@ -210,8 +224,7 @@ def main() -> int:
                     item for item in records
                     if isinstance(item, dict) and item.get("progress_id") == progress_id
                 ), None) if isinstance(records, list) else None
-                plan = after_revision.get("plan", {})
-                after_revision_id = plan.get("current_revision_id") if isinstance(plan, dict) else None
+                after_revision_id = current_open_plan_revision(after_revision)
                 checks["stalled_generation_resolves_on_semantic_revision"] = (
                     isinstance(resolved, dict)
                     and resolved.get("phase") == "RESOLVED"
