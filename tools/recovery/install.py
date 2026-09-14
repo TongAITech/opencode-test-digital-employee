@@ -43,6 +43,10 @@ REQUIRED_FILES = (
     'workspace-template/runtime/browser/chrome-win64/chrome.exe',
     'workspace-template/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe',
     'workspace-template/runtime/code-intelligence/codegraph/onnxruntime.dll',
+    'workspace-template/runtime/tools/node/node.exe',
+    'workspace-template/runtime/tools/node/npm.cmd',
+    'workspace-template/runtime/tools/gitnexus/node_modules/gitnexus/dist/cli/index.js',
+    'workspace-template/runtime/tools/gitnexus/node_modules/gitnexus/package.json',
     'workspace-template/runtime/tools/rg/rg.exe', 'workspace-template/runtime/tools/k6/k6.exe',
     'workspace-template/runtime/tools/java/bin/java.exe',
 )
