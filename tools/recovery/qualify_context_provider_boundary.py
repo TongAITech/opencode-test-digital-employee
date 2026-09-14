@@ -642,7 +642,32 @@ try:
         raise RuntimeError("C3_EXACT_HOST_PROGRESS_POINTER_NOT_ADVANCED")
     result["gates"]["C3_REPLANNER_PRESSURE_ROTATES_ON_EXACT_HOST"] = "PASS"
 
-    before_reentry_provider = call_count()
+    wait_until(
+        lambda: (lambda value: value if value == "idle" else None)(provider.session_activity(c3_successor)),
+        30,
+    )
+    before_dispatches = [
+        dict(row) for row in service.session_control.state(c3_mission).context_dispatches
+        if row.get("session_id") == c3_successor
+    ]
+    before_messages = client.request(
+        "GET", f"/session/{c3_successor}/message?limit=60", timeout=20, budget=8 * 1024 * 1024
+    )
+    before_replan_messages = [
+        row for row in (before_messages if isinstance(before_messages, list) else [])
+        if isinstance(row, dict)
+        and isinstance(row.get("info"), dict)
+        and row["info"].get("role") == "user"
+        and any(
+            isinstance(part, dict) and part.get("type") == "text"
+            and isinstance(part.get("text"), str)
+            and part["text"].startswith("AITEST_CANONICAL_REPLANNING_CONTEXT\n")
+            for part in (row.get("parts") or [])
+        )
+    ]
+    if len(before_replan_messages) != 1:
+        raise RuntimeError("C3_EXACT_HOST_SUCCESSOR_BOOTSTRAP_MESSAGE_AMBIGUOUS")
+
     c3_reentry = service._handle_no_progress(
         c3_mission,
         task_id=c3_worker["task_id"],
@@ -652,9 +677,30 @@ try:
     )
     if c3_reentry.get("status") != "REPLAN_IN_PROGRESS" or c3_reentry.get("session_id") != c3_successor:
         raise RuntimeError("C3_EXACT_HOST_REENTRY_DID_NOT_REUSE_SUCCESSOR")
-    time.sleep(0.5)
-    if call_count() != before_reentry_provider:
-        raise RuntimeError("C3_EXACT_HOST_REENTRY_DUPLICATED_PROVIDER_PROMPT")
+    after_dispatches = [
+        dict(row) for row in service.session_control.state(c3_mission).context_dispatches
+        if row.get("session_id") == c3_successor
+    ]
+    after_messages = client.request(
+        "GET", f"/session/{c3_successor}/message?limit=60", timeout=20, budget=8 * 1024 * 1024
+    )
+    after_replan_messages = [
+        row for row in (after_messages if isinstance(after_messages, list) else [])
+        if isinstance(row, dict)
+        and isinstance(row.get("info"), dict)
+        and row["info"].get("role") == "user"
+        and any(
+            isinstance(part, dict) and part.get("type") == "text"
+            and isinstance(part.get("text"), str)
+            and part["text"].startswith("AITEST_CANONICAL_REPLANNING_CONTEXT\n")
+            for part in (row.get("parts") or [])
+        )
+    ]
+    if [row.get("dispatch_id") for row in after_dispatches] != [row.get("dispatch_id") for row in before_dispatches]:
+        raise RuntimeError("C3_EXACT_HOST_REENTRY_CREATED_NEW_DURABLE_DISPATCH")
+    if len(after_replan_messages) != 1:
+        raise RuntimeError("C3_EXACT_HOST_REENTRY_DUPLICATED_HOST_PROMPT")
+    result["gates"]["C3_REPLAN_REENTRY_DEDUPED_BY_R1_AND_HOST"] = "PASS"
 
     restarted_c3 = G21AutonomousOrchestrationService(runtime, workspace, session_provider=provider)
     c3_restart = restarted_c3._handle_no_progress(
@@ -675,6 +721,8 @@ try:
         "rotation_id": c3_rotation["rotation_id"],
         "lineage": c3_rotation["root_attempt_id"],
         "provider_calls_after_reentry": call_count(),
+        "successor_dispatch_ids": [row.get("dispatch_id") for row in after_dispatches],
+        "successor_replanning_user_messages": len(after_replan_messages),
         "duplicate_replan_prompt": False,
     }
 
