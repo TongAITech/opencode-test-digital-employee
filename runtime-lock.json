@@ -261,13 +261,13 @@
       "license": "PolyForm-Noncommercial-1.0.0",
       "evidence": {
         "workflow": "V4 D3-GN2 GitNexus Windows integration",
-        "source_head": "9c8e4bf82124541599a4b54b5f31e98ea36a79d3",
-        "run_id": 34870515522,
-        "job_id": 104064973238,
-        "evidence_artifact_id": 10359245790,
-        "evidence_artifact_sha256": "7bbf9cb02f857c90c905bdcca00375d3937e9f6fd3ac3ae3d0017ec046d93130",
-        "runtime_artifact_id": 10358876142,
-        "runtime_artifact_sha256": "e87959eba24e65915e795232b597c74b16b0b077d7a0bd4a93676521236451e5"
+        "source_head": "9d4aa96d11d8c9094352786bdc21f0d2d6facf66",
+        "run_id": 34873006282,
+        "job_id": 104073270158,
+        "evidence_artifact_id": 10359583900,
+        "evidence_artifact_sha256": "33ec0cc47626df297d2cb1c40c85861836446dbe3649ab547d7a0093324ded52",
+        "runtime_artifact_id": 10359498865,
+        "runtime_artifact_sha256": "c8e6d93f4a0f92543ae38174fe2114ecd2ca48ee976f81ddd01089d354014e15"
       }
     }
   }
