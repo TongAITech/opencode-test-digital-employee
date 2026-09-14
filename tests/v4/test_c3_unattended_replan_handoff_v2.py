@@ -145,7 +145,22 @@ def main() -> int:
             records = value.get("session_control", {}).get("progress_records", [])
             candidates = [x for x in records if isinstance(x, dict) and x.get("phase") == "REPLANNING" and x.get("replan_session_id")] if isinstance(records, list) else []
             if candidates:
-                replanning_status, active_replan = value, candidates[-1]; break
+                candidate = candidates[-1]
+                replanner_id = str(candidate.get("replan_session_id") or "")
+                provisions = value.get("session_control", {}).get("provisions", [])
+                bound = any(
+                    isinstance(item, dict)
+                    and item.get("external_session_id") == replanner_id
+                    and item.get("status") == "BOUND"
+                    and item.get("phase") in {"REPLANNING", "REPLANNING_ROTATION"}
+                    for item in provisions
+                ) if isinstance(provisions, list) else False
+                host_ready = (
+                    replanner_id in bg.Stub.sessions
+                    and len(bg.Stub.messages.get(replanner_id, [])) >= 1
+                )
+                if bound and host_ready:
+                    replanning_status, active_replan = value, candidate; break
             time.sleep(0.1)
         checks["background_reaches_replanner_without_user_continue"] = active_replan is not None
         if active_replan is None or replanning_status is None:
