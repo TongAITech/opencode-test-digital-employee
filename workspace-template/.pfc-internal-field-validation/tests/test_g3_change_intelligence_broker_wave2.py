@@ -393,6 +393,54 @@ def main() -> int:
                 "obligations": ts_meta.get("mapping_obligations"),
             }
 
+            vue_repo = provider_root / "real-vue"
+            vue_repo.mkdir()
+            git(vue_repo, "init", "-b", "master")
+            git(vue_repo, "config", "user.email", "d3@example.invalid")
+            git(vue_repo, "config", "user.name", "D3 Real CodeGraph")
+            vue_src = vue_repo / "src"
+            vue_src.mkdir()
+            vue_file = vue_src / "View.vue"
+            vue_file.write_text(
+                "<script setup lang=\"ts\">\n"
+                "function apply(x: number) {\n"
+                "  return x + 1\n"
+                "}\n"
+                "</script>\n"
+                "<template><div>{{ apply(1) }}</div></template>\n",
+                encoding="utf-8")
+            git(vue_repo, "add", ".")
+            git(vue_repo, "commit", "-m", "base")
+            vue_base = git(vue_repo, "rev-parse", "HEAD")
+            vue_file.write_text(
+                "<script setup lang=\"ts\">\n"
+                "export function apply(x: number) {\n"
+                "  return x + 1\n"
+                "}\n"
+                "</script>\n"
+                "<template><div>{{ apply(1) }}</div></template>\n",
+                encoding="utf-8")
+            git(vue_repo, "add", ".")
+            git(vue_repo, "commit", "-m", "change apply")
+            vue_head = git(vue_repo, "rev-parse", "HEAD")
+            _, vue_env, vue_meta = analyze_repository(
+                {"repository_id": "real-codegraph-vue", "repository_path": str(vue_repo), "base_ref": vue_base, "head_ref": vue_head},
+                broker=real_broker,
+            )
+            vue_rows = list(vue_meta.get("line_mapping") or [])
+            vue_obligations = list(vue_meta.get("mapping_obligations") or [])
+            checks["real_vue_git_change_truth"] = changed_refs(vue_env) == {"src/View.vue:L2"}
+            checks["real_vue_fallback_mapping_is_explicit"] = bool(vue_rows) and all(row.get("provider") == "LANGUAGE_REGEX_LAST_RESORT" for row in vue_rows)
+            checks["real_vue_never_false_certifies_complete"] = vue_env.code_intelligence_status == "PARTIAL"
+            checks["real_vue_codegraph_gap_is_explicit_obligation"] = any(item.get("obligation_kind") == "CODEGRAPH_STRUCTURAL_MAPPING_PARTIAL" for item in vue_obligations)
+            diagnostics["real_vue"] = {
+                "status": vue_env.code_intelligence_status,
+                "provider_capabilities": vue_meta.get("provider_capabilities"),
+                "line_mapping": vue_rows,
+                "warnings": list(vue_env.warnings),
+                "obligations": vue_obligations,
+            }
+
             diagnostics["real_codegraph"] = {
                 "raw_get_ai_context": raw_context,
                 "provider_health": real_meta.get("provider_health", {}).get("CODEGRAPH"),
