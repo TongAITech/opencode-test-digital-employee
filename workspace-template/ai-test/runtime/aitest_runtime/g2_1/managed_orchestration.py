@@ -1901,6 +1901,25 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
                     "replan_session_id":current.replan_session_id,
                     "observed_at":_utc_now(),
                 })
+                close_id = "c3:replanner-budget:" + current.progress_id + ":CLOSE"
+                closed = execute_control_command(self.runtime, CommandEnvelope(
+                    close_id, "CLOSE_SESSION", mission_id, self.runtime.get_head_seq(mission_id),
+                    ActorRef("SYSTEM", "g2.1-progress"),
+                    {"reason":"REPLANNER_RETRY_BUDGET_EXHAUSTED"},
+                    session_id=session_id, idempotency_key=close_id,
+                    correlation_id=current.progress_id, schema_version=1,
+                ))
+                if not closed.ok:
+                    raise closed.error or RuntimeError(
+                        "C3_REPLANNER_BUDGET_SESSION_CLOSE_REJECTED", session_id
+                    )
+                try:
+                    self.raw_session_provider.delete_session(session_id)
+                except Exception:
+                    # Durable Core Session is already terminal. Reconciliation
+                    # retries deletion of any still-visible package-owned Host
+                    # Session and never resumes this blocked generation.
+                    pass
             return {
                 **rotation,
                 "phase":"REPLANNING",
