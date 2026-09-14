@@ -190,6 +190,42 @@ class C3AutonomousProgressTests(unittest.TestCase):
         self.assertEqual(len([x for x in self.provider.list_sessions() if "Replan" in x.title]), 1)
 
 
+
+    def test_successful_plan_revision_advances_business_cursor_and_resolves_stalled_generation(self):
+        mission, worker = self._active_worker("replan-progress")
+        stalled_cursor = business_cursor(self.runtime, mission)
+        first = self.service._handle_no_progress(
+            mission, task_id=worker["task_id"], session_id=worker["external_session"]["session_id"],
+            reason="AUTO_CONTINUE_NO_BUSINESS_PROGRESS", cursor=stalled_cursor,
+        )
+        progress_id = first["progress_id"]
+        replan_session = first["session_id"]
+        self.assertEqual(self.service.session_control.state(mission).progress(progress_id).phase, "REPLANNING")
+
+        revised = self.service.propose_plan(mission, {
+            "objective": "replace stalled execution with a bounded diagnosis step",
+            "tasks": [{
+                "task_key": "diagnose-stall",
+                "intent": "diagnose why the prior execution made no business progress",
+                "acceptance_criteria": [{"id": "diagnosed", "description": "produce a bounded diagnosis"}],
+                "routing": {
+                    "role": "DIAGNOSIS",
+                    "required_capabilities": ["OPENCODE_AGENT_SESSION", "TASK_OUTCOME_REPORT"],
+                    "isolation_policy": "DEDICATED_TASK_SESSION",
+                    "parallelism_policy": "SERIAL",
+                },
+            }],
+            "dependencies": [],
+        })
+        self.assertEqual(revised["status"], "PASS")
+        advanced = business_cursor(self.runtime, mission)
+        self.assertGreater(advanced, stalled_cursor, "a governed PlanRevision is real business progress")
+        progress = self.service.session_control.state(mission).progress(progress_id)
+        self.assertEqual(progress.phase, "RESOLVED")
+        self.assertEqual(progress.replan_session_id, replan_session)
+        self.assertNotIn(replan_session, self.provider.sessions)
+
+
     def test_busy_and_retry_workers_do_not_create_replanning_session(self):
         for activity in ("busy", "retry"):
             with self.subTest(activity=activity):
