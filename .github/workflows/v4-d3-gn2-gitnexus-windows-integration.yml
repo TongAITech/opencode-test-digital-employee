@@ -1,0 +1,247 @@
+name: V4 D3-GN2 GitNexus Windows integration
+
+on:
+  push:
+    branches:
+      - work/v1.13.0-recovery-turnkey-validation
+    paths:
+      - ".github/workflows/v4-d3-gn2-gitnexus-windows-integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-gitnexus-integration:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Acquire portable Node 22.18.0
+        shell: pwsh
+        run: |
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne "${{ github.sha }}") { throw "SOURCE_HEAD_MISMATCH:$head" }
+
+          $root = Join-Path $env:RUNNER_TEMP "d3-gn2"
+          $zip = Join-Path $root "node-v22.18.0-win-x64.zip"
+          $extract = Join-Path $root "node-extract"
+          New-Item -ItemType Directory -Force -Path $root,$extract | Out-Null
+          curl.exe -fL --retry 3 --retry-delay 2 -o $zip https://nodejs.org/download/release/v22.18.0/node-v22.18.0-win-x64.zip
+          if ($LASTEXITCODE -ne 0) { throw "NODE_DOWNLOAD_FAILED" }
+
+          $archiveSha = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+          if ($archiveSha -ne "c95d8a7e1c99e669cc08c9f1176e068c1f50847c37908fcb8c35b62482366511") {
+            throw "NODE_ARCHIVE_SHA_MISMATCH:$archiveSha"
+          }
+          Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force
+          $nodeHome = Join-Path $extract "node-v22.18.0-win-x64"
+          $nodeExe = Join-Path $nodeHome "node.exe"
+          $npmCmd = Join-Path $nodeHome "npm.cmd"
+          if ((& $nodeExe --version | Out-String).Trim() -ne "v22.18.0") { throw "NODE_VERSION_MISMATCH" }
+
+          "GN2_ROOT=$root" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "GN2_NODE_HOME=$nodeHome" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "GN2_NODE_EXE=$nodeExe" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "GN2_NPM_CMD=$npmCmd" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install pinned GitNexus 1.6.12
+        shell: pwsh
+        run: |
+          $gitnexusRoot = Join-Path $env:GN2_ROOT "gitnexus-runtime"
+          New-Item -ItemType Directory -Force -Path $gitnexusRoot | Out-Null
+          & $env:GN2_NPM_CMD install --prefix $gitnexusRoot --no-audit --no-fund gitnexus@1.6.12
+          if ($LASTEXITCODE -ne 0) { throw "GITNEXUS_INSTALL_FAILED" }
+
+          $cli = Join-Path $gitnexusRoot "node_modules\gitnexus\dist\cli\index.js"
+          if (-not (Test-Path $cli)) { throw "GITNEXUS_CLI_MISSING" }
+          $version = (& $env:GN2_NODE_EXE $cli --version 2>&1 | Out-String).Trim()
+          $version | Write-Host
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch "1\.6\.12") { throw "GITNEXUS_VERSION_MISMATCH:$version" }
+
+          "GN2_GITNEXUS_ROOT=$gitnexusRoot" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "GN2_GITNEXUS_CLI=$cli" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Create Vue Router impact fixture
+        shell: pwsh
+        run: |
+          $repo = Join-Path $env:GN2_ROOT "vue-impact-repo"
+          New-Item -ItemType Directory -Force -Path (Join-Path $repo "src\router"),(Join-Path $repo "src\pages"),(Join-Path $repo "src\components") | Out-Null
+
+          @'
+import { createRouter, createWebHistory } from 'vue-router'
+import ApplyPage from '../pages/ApplyPage.vue'
+import ReviewPage from '../pages/ReviewPage.vue'
+
+export const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    { path: '/loan/apply', component: ApplyPage },
+    { path: '/loan/review', component: ReviewPage },
+  ],
+})
+'@ | Set-Content (Join-Path $repo "src\router\index.ts") -Encoding utf8
+
+          @'
+<template>
+  <section>
+    <h1>Loan Apply</h1>
+    <AmountInput :amount="amount" />
+  </section>
+</template>
+<script setup lang="ts">
+import { ref } from 'vue'
+import AmountInput from '../components/AmountInput.vue'
+const amount = ref(100)
+</script>
+'@ | Set-Content (Join-Path $repo "src\pages\ApplyPage.vue") -Encoding utf8
+
+          @'
+<template><section><h1>Loan Review</h1></section></template>
+<script setup lang="ts">
+const title = 'review'
+</script>
+'@ | Set-Content (Join-Path $repo "src\pages\ReviewPage.vue") -Encoding utf8
+
+          @'
+<template>
+  <label>Amount <input :value="amount" /></label>
+</template>
+<script setup lang="ts">
+defineProps<{ amount: number }>()
+export function normalizeAmount(value: number): number {
+  return value + 1
+}
+</script>
+'@ | Set-Content (Join-Path $repo "src\components\AmountInput.vue") -Encoding utf8
+
+          @'
+{
+  "name": "d3-gitnexus-vue-impact",
+  "private": true,
+  "dependencies": {
+    "vue": "3.5.21",
+    "vue-router": "4.5.1"
+  }
+}
+'@ | Set-Content (Join-Path $repo "package.json") -Encoding utf8
+
+          git -C $repo init -b main
+          git -C $repo config user.email "d3@example.invalid"
+          git -C $repo config user.name "D3 GitNexus"
+          git -C $repo add .
+          git -C $repo commit -m "base vue pages"
+          $base = (git -C $repo rev-parse HEAD).Trim()
+
+          $component = Join-Path $repo "src\components\AmountInput.vue"
+          $text = Get-Content -Raw $component
+          $text = $text.Replace("return value + 1", "return value + 2")
+          Set-Content -LiteralPath $component -Value $text -Encoding utf8
+          git -C $repo add .
+          git -C $repo commit -m "change amount normalization"
+          $head = (git -C $repo rev-parse HEAD).Trim()
+
+          "GN2_FIXTURE_REPO=$repo" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "GN2_BASE_SHA=$base" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "GN2_HEAD_SHA=$head" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Analyze fixture with real GitNexus
+        shell: pwsh
+        run: |
+          $env:GITNEXUS_HOME = Join-Path $env:GN2_ROOT "gitnexus-home"
+          & $env:GN2_NODE_EXE $env:GN2_GITNEXUS_CLI analyze $env:GN2_FIXTURE_REPO --index-only --skip-fts --name d3-vue-impact 2>&1 | Tee-Object GITNEXUS_ANALYZE.log
+          if ($LASTEXITCODE -ne 0) { throw "GITNEXUS_ANALYZE_FAILED" }
+
+          & $env:GN2_NODE_EXE $env:GN2_GITNEXUS_CLI detect-changes --scope compare --base-ref $env:GN2_BASE_SHA --repo d3-vue-impact 2>&1 | Tee-Object GITNEXUS_DETECT_CHANGES.log
+          if ($LASTEXITCODE -ne 0) { throw "GITNEXUS_DETECT_CHANGES_FAILED" }
+
+          $detect = Get-Content -Raw GITNEXUS_DETECT_CHANGES.log
+          if ($detect -notmatch "AmountInput|normalizeAmount") { throw "GITNEXUS_CHANGED_SYMBOL_NOT_FOUND" }
+
+          & $env:GN2_NODE_EXE $env:GN2_GITNEXUS_CLI impact normalizeAmount --file src/components/AmountInput.vue --direction upstream --repo d3-vue-impact --depth 5 2>&1 | Tee-Object GITNEXUS_IMPACT.json
+          if ($LASTEXITCODE -ne 0) { throw "GITNEXUS_IMPACT_FAILED" }
+
+          $impactRaw = Get-Content -Raw GITNEXUS_IMPACT.json
+          $start = $impactRaw.IndexOf("{")
+          if ($start -lt 0) { throw "GITNEXUS_IMPACT_JSON_MISSING" }
+          $impact = ($impactRaw.Substring($start) | ConvertFrom-Json)
+          if ($impact.error) { throw "GITNEXUS_IMPACT_ERROR:$($impact.error)" }
+          if ($impact.partial -eq $true) { throw "GITNEXUS_IMPACT_PARTIAL" }
+
+          $json = $impact | ConvertTo-Json -Depth 20
+          if ($json -notmatch "ApplyPage|AmountInput") { throw "GITNEXUS_PAGE_IMPACT_NOT_PROVEN" }
+
+          $result = [ordered]@{
+            schema_version = "aitest.v4.d3-gn2.gitnexus-windows.v1"
+            status = "PASS"
+            source_head = "${{ github.sha }}"
+            node_version = "22.18.0"
+            gitnexus_version = "1.6.12"
+            fixture_base_sha = $env:GN2_BASE_SHA
+            fixture_head_sha = $env:GN2_HEAD_SHA
+            changed_component = "src/components/AmountInput.vue"
+            expected_affected_page = "src/pages/ApplyPage.vue"
+            detect_changes_contains_changed_symbol = $true
+            impact_is_complete = $true
+            page_impact_proven = $true
+            license_scope = "PERSONAL_LEARNING_NONCOMMERCIAL"
+          }
+          $result | ConvertTo-Json -Depth 8 | Set-Content D3_GN2_RESULT.json -Encoding utf8
+
+      - name: Measure installed GitNexus runtime tree
+        shell: pwsh
+        run: |
+          $root = $env:GN2_GITNEXUS_ROOT
+          $files = Get-ChildItem -LiteralPath $root -Recurse -File | Sort-Object FullName
+          [long]$total = 0
+          $entries = @()
+          foreach ($file in $files) {
+            $rel = [IO.Path]::GetRelativePath($root, $file.FullName).Replace("\","/")
+            $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash.ToLowerInvariant()
+            $size = [long]$file.Length
+            $total += $size
+            $entries += [ordered]@{ path=$rel; size_bytes=$size; sha256=$sha }
+          }
+          $canonical = (($entries | ForEach-Object { "$($_.sha256)  $($_.path)" }) -join "`n") + "`n"
+          $treeSha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($canonical))).ToLowerInvariant()
+
+          $manifest = [ordered]@{
+            schema_version = "aitest.v4.d3-gn2.gitnexus-tree.v1"
+            gitnexus_version = "1.6.12"
+            relative_target = "workspace-template/runtime/tools/gitnexus"
+            tree_sha256 = $treeSha
+            file_count = $entries.Count
+            size_bytes = $total
+            tree_manifest = $entries
+          }
+          $manifest | ConvertTo-Json -Depth 8 | Set-Content D3_GN2_GITNEXUS_TREE.json -Encoding utf8
+          "GITNEXUS_TREE_SHA256=$treeSha" | Write-Host
+          "GITNEXUS_FILE_COUNT=$($entries.Count)" | Write-Host
+          "GITNEXUS_SIZE_BYTES=$total" | Write-Host
+
+          Compress-Archive -Path (Join-Path $root "*") -DestinationPath D3_GN2_GITNEXUS_RUNTIME.zip -CompressionLevel Optimal
+
+      - name: Upload integration evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-d3-gn2-gitnexus-evidence-${{ github.sha }}
+          path: |
+            D3_GN2_RESULT.json
+            D3_GN2_GITNEXUS_TREE.json
+            GITNEXUS_ANALYZE.log
+            GITNEXUS_DETECT_CHANGES.log
+            GITNEXUS_IMPACT.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload GitNexus offline runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-d3-gn2-gitnexus-runtime-${{ github.sha }}
+          path: D3_GN2_GITNEXUS_RUNTIME.zip
+          if-no-files-found: error
+          retention-days: 30
