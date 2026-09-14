@@ -143,6 +143,93 @@ class RecoveryIntakeTests(unittest.TestCase):
             ]["complete"]
         )
 
+    def test_unreferenced_imported_source_remains_in_analysis_denominator(self):
+        first = self.document()
+        second_path = self.root / "second-requirement.md"
+        second_path.write_text(
+            "# Currency\nCurrency must be supported.\n",
+            encoding="utf-8",
+        )
+        second = self.service.import_document(
+            self.mission, second_path, "currency-requirement"
+        )["document"]
+
+        partial = self.service.analyze_requirements(
+            self.mission,
+            "LOAN-ALL-SOURCES",
+            [{
+                "artifact_id": "BR-AMOUNT",
+                "kind": "BR",
+                "revision": "1",
+                "text": "Loan amount must be positive",
+                "source_refs": [first["fact_id"]],
+            }],
+        )
+        self.assertEqual(partial["status"], "PARTIAL_SOURCE_UNITS")
+        coverage = partial["source_analysis_coverage"]
+        self.assertEqual(coverage["document_count"], 2)
+        self.assertEqual(coverage["total_units"], 2)
+        self.assertEqual(coverage["covered_units"], 1)
+        self.assertEqual(coverage["uncovered_unit_count"], 1)
+        self.assertEqual(
+            coverage["uncovered_unit_refs"],
+            [{
+                "source_ref": second["fact_id"],
+                "unit_id": second["payload"]["source_units"][0]["unit_id"],
+            }],
+        )
+
+        complete = self.service.analyze_requirements(
+            self.mission,
+            "LOAN-ALL-SOURCES",
+            [{
+                "artifact_id": "BR-CURRENCY",
+                "kind": "BR",
+                "revision": "1",
+                "text": "Currency must be supported",
+                "source_refs": [second["fact_id"]],
+            }],
+        )
+        self.assertEqual(complete["status"], "PASS")
+        self.assertTrue(complete["source_analysis_coverage"]["complete"])
+        self.assertEqual(complete["source_analysis_coverage"]["covered_units"], 2)
+
+    def test_uncovered_source_unit_summary_is_bounded(self):
+        path = self.root / "many-sections.md"
+        path.write_text(
+            "\n\n".join(
+                f"# Section {index}\nRule {index} must be enforced."
+                for index in range(70)
+            ),
+            encoding="utf-8",
+        )
+        document = self.service.import_document(
+            self.mission, path, "many-section-requirement"
+        )["document"]
+        units = document["payload"]["source_units"]
+        self.assertEqual(len(units), 70)
+        result = self.service.analyze_requirements(
+            self.mission,
+            "MANY-SECTIONS",
+            [{
+                "artifact_id": "BR-1",
+                "kind": "BR",
+                "revision": "1",
+                "text": "Rule 1 must be enforced",
+                "source_refs": [document["fact_id"]],
+                "source_unit_refs": [{
+                    "source_ref": document["fact_id"],
+                    "unit_id": units[0]["unit_id"],
+                }],
+            }],
+        )
+        coverage = result["source_analysis_coverage"]
+        self.assertEqual(result["status"], "PARTIAL_SOURCE_UNITS")
+        self.assertEqual(coverage["uncovered_unit_count"], 69)
+        self.assertEqual(len(coverage["uncovered_unit_refs"]), 64)
+        self.assertTrue(coverage["uncovered_unit_refs_truncated"])
+        self.assertEqual(len(coverage["source_unit_scope_digest"]), 64)
+
     def test_atomic_validation_and_revision_immutability(self):
         doc = self.document()
         graph = self.graph(doc["fact_id"])
