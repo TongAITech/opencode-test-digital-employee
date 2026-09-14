@@ -529,6 +529,13 @@ class RecoveryIntakeTests(unittest.TestCase):
         latest = restarted.g3.state(self.mission).latest("SOURCE_HYDRATION_GENERATION")
         self.assertIsNotNone(latest)
         self.assertEqual(latest.fact_id, second_generation["fact_id"])
+        recovered = restarted.work_context(self.mission)
+        scope_row = next(row for row in recovered["source_scope_latest"] if row["scope_identity"] == "HYDRATION")
+        hydration_row = next(row for row in recovered["hydration_latest"] if row["scope_identity"] == "HYDRATION")
+        self.assertEqual(scope_row["fact_id"], manifest["fact_id"])
+        self.assertEqual(hydration_row["fact_id"], second_generation["fact_id"])
+        self.assertEqual(hydration_row["status"], "COMPLETE")
+        self.assertEqual(hydration_row["remaining_uncovered_units"], 0)
         replayed = restarted.analyze_requirements(
             self.mission,
             "HYDRATION",
