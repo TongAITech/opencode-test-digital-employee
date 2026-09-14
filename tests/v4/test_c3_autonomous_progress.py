@@ -11,7 +11,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "workspace-template
 from aitest_runtime.autonomous_orchestration import FakeOpenCodeSessionProvider
 from aitest_runtime.canonical_runtime import create_canonical_runtime
 from aitest_runtime.dispatch_receipts import business_cursor
-from aitest_runtime.durable_core import canonical_sha256
+from aitest_runtime.durable_core import ActorRef, canonical_sha256
+from aitest_runtime.tool_execution import (
+    ReconcileToolExecutionRequest, SideEffectPolicy, SideEffectState,
+    ToolExecutionApplicationService, ToolExecutionOutcomeRequest, ToolExecutionRequest, ToolObservation,
+)
 from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
 
 
@@ -379,6 +383,101 @@ class C3AutonomousProgressTests(unittest.TestCase):
                     self.assertIn("WAIT_BUSY" if activity == "busy" else "WAIT_BACKOFF", reasons)
                     self.assertEqual(service.session_control.state(mission).progress_records, ())
                     self.assertEqual([x for x in service.session_control.state(mission).provisions if x.phase == "REPLANNING"], [])
+
+
+    def test_unresolved_business_side_effect_fences_autonomous_wake_and_replan(self):
+        mission, worker = self._active_worker("effect-fence")
+        task_id = worker["task_id"]
+        session_id = worker["external_session"]["session_id"]
+        composed = self.runtime.replay_composed(mission)
+        execution = composed.extension_state("r1_3b_execution_resume")
+        attempt = execution.latest_attempt(task_id)
+        self.assertIsNotNone(attempt)
+        bindings = composed.extension_state("r1_3_provider_binding")
+        binding = bindings.binding(attempt.attempt_id)
+        self.assertIsNotNone(binding)
+
+        actor = ActorRef("SYSTEM", "c3-effect-fence-test")
+        tool_id = "tool-execution:effect-fence"
+        tool_service = ToolExecutionApplicationService(self.runtime)
+        request = ToolExecutionRequest(
+            command_id="c3:effect-fence:request",
+            idempotency_key="c3:effect-fence:request",
+            mission_id=mission,
+            plan_id=attempt.plan_id,
+            plan_revision_id=attempt.plan_revision_id,
+            task_id=task_id,
+            attempt_id=attempt.attempt_id,
+            runtime_session_id=session_id,
+            expected_seq=self.runtime.get_head_seq(mission),
+            actor=actor,
+            correlation_id="c3:effect-fence",
+            tool_execution_id=tool_id,
+            capability_id="C3_SIDE_EFFECT_FIXTURE",
+            capability_version=1,
+            provider_binding_id=binding.attempt_id,
+            provider_binding_digest=canonical_sha256(binding.to_dict()),
+            context_cursor=attempt.context_cursor,
+            input_digest=canonical_sha256({"operation": "create", "fixture": "effect-fence"}),
+            side_effect_policy=SideEffectPolicy.REVERSIBLE,
+            redacted_input={"operation": "create"},
+        )
+        started = tool_service.request(request)
+        self.assertEqual(started.record.side_effect_state, SideEffectState.NOT_ATTEMPTED)
+        self.assertIsNone(started.record.execution_fact)
+
+        before_messages = len(self.provider.messages)
+        before_progress = tuple(self.service.session_control.state(mission).progress_records)
+        first = self.service.progress_once(mission)
+        self.assertEqual(first["status"], "PROGRESS_CHECKED")
+        barriers = [item for item in first["wakes"] if item.get("reason") == "BUSINESS_EFFECT_RECONCILIATION_REQUIRED"]
+        self.assertEqual(len(barriers), 1)
+        self.assertEqual(barriers[0]["tool_execution_refs"][0]["tool_execution_id"], tool_id)
+        self.assertEqual(len(self.provider.messages), before_messages)
+        self.assertEqual(tuple(self.service.session_control.state(mission).progress_records), before_progress)
+
+        unknown = ToolExecutionOutcomeRequest(
+            command_id="c3:effect-fence:unknown",
+            idempotency_key="c3:effect-fence:unknown",
+            mission_id=mission,
+            runtime_session_id=session_id,
+            expected_seq=self.runtime.get_head_seq(mission),
+            actor=actor,
+            correlation_id="c3:effect-fence",
+            tool_execution_id=tool_id,
+            observation=ToolObservation(
+                SideEffectState.UNKNOWN,
+                SideEffectState.UNKNOWN,
+                error_code="FIXTURE_RECEIPT_LOST",
+            ),
+        )
+        tool_service.record_outcome(unknown)
+        second = self.service.progress_once(mission)
+        second_barriers = [item for item in second["wakes"] if item.get("reason") == "BUSINESS_EFFECT_RECONCILIATION_REQUIRED"]
+        self.assertEqual(len(second_barriers), 1)
+        self.assertEqual(second_barriers[0]["tool_execution_refs"][0]["side_effect_state"], "UNKNOWN")
+        self.assertEqual(len(self.provider.messages), before_messages)
+
+        reconciled = ReconcileToolExecutionRequest(
+            command_id="c3:effect-fence:reconcile",
+            idempotency_key="c3:effect-fence:reconcile",
+            mission_id=mission,
+            runtime_session_id=session_id,
+            expected_seq=self.runtime.get_head_seq(mission),
+            actor=actor,
+            correlation_id="c3:effect-fence",
+            tool_execution_id=tool_id,
+            reconciliation_id="reconciliation:effect-fence",
+            observation=ToolObservation(
+                SideEffectState.REJECTED,
+                SideEffectState.REJECTED,
+                error_code="FIXTURE_CONFIRMED_NOT_APPLIED",
+            ),
+        )
+        tool_service.reconcile(reconciled)
+        third = self.service.progress_once(mission)
+        third_reasons = [item.get("reason") for item in third.get("wakes", [])]
+        self.assertNotIn("BUSINESS_EFFECT_RECONCILIATION_REQUIRED", third_reasons)
 
 
 if __name__ == "__main__":
