@@ -441,6 +441,56 @@ def main() -> int:
                 "obligations": vue_obligations,
             }
 
+            durable_real_root = provider_root / "real-r1"
+            durable_spine = durable_real_root / "state" / "runtime-spine.db"
+            durable_spine.parent.mkdir(parents=True, exist_ok=True)
+            durable_runtime = create_canonical_runtime(durable_real_root, db_path=durable_spine)
+            durable_orchestration = G21AutonomousOrchestrationService(
+                durable_runtime,
+                durable_real_root,
+                session_provider=FakeOpenCodeSessionProvider(durable_real_root),
+            )
+            durable_mission = durable_orchestration.start_test(intake_request())["intake"]["intake"]["mission_id"]
+            durable_service = G3TestingIntelligenceService(durable_runtime)
+            durable_requirement = durable_service.analyze_requirement(
+                durable_mission, "REQ-D3-REAL", minimal_requirement_semantics()
+            )
+            with patch.dict(os.environ, {
+                "AITEST_CODEGRAPH_BINARY": real_binary,
+                "AITEST_RUNTIME_LOCK": str(WORKSPACE.parent / "runtime-lock.json"),
+            }):
+                durable_change = durable_service.analyze_changes(
+                    durable_mission,
+                    "REQ-D3-REAL",
+                    [{
+                        "repository_id": "real-java-product",
+                        "application_id": "real-java-product",
+                        "repository_path": str(relationship_repo),
+                        "base_ref": real_base,
+                        "head_ref": real_head,
+                    }],
+                    durable_requirement["r3_1_reference"],
+                )
+            durable_repo = durable_change["repositories"][0]
+            durable_kinds = {edge["edge_kind"] for edge in durable_repo["impact_edges"]}
+            checks["real_codegraph_product_service_is_complete"] = durable_change["status"] == "PASS" and durable_repo["status"] == "COMPLETE"
+            checks["real_codegraph_product_service_persists_relationship_edges"] = "CALLER" in durable_kinds and "CALLEE" in durable_kinds and "IMPACT" in durable_kinds
+            checks["real_codegraph_product_service_keeps_provider_identity"] = durable_repo["provider_health"]["CODEGRAPH"]["binary_sha256"] == real_meta["provider_health"]["CODEGRAPH"]["binary_sha256"]
+
+            restarted_runtime = create_canonical_runtime(durable_real_root, db_path=durable_spine)
+            restarted_state = G3TestingIntelligenceService(restarted_runtime).state(durable_mission)
+            replay_fact = restarted_state.latest("MULTI_REPO_CHANGE_ANALYSIS")
+            replay_repo = replay_fact.payload["repositories"][0] if replay_fact is not None else {}
+            replay_kinds = {edge["edge_kind"] for edge in replay_repo.get("impact_edges") or []}
+            checks["real_codegraph_product_truth_survives_r1_restart"] = bool(replay_fact) and "CALLER" in replay_kinds and "CALLEE" in replay_kinds and "IMPACT" in replay_kinds and replay_repo.get("provider_health", {}).get("CODEGRAPH", {}).get("binary_sha256") == durable_repo["provider_health"]["CODEGRAPH"]["binary_sha256"]
+            diagnostics["real_product_r1"] = {
+                "status": durable_change["status"],
+                "repository_status": durable_repo["status"],
+                "provider_health": durable_repo.get("provider_health"),
+                "impact_edges": durable_repo.get("impact_edges"),
+                "replay_fact_id": replay_fact.fact_id if replay_fact is not None else None,
+            }
+
             diagnostics["real_codegraph"] = {
                 "raw_get_ai_context": raw_context,
                 "provider_health": real_meta.get("provider_health", {}).get("CODEGRAPH"),
