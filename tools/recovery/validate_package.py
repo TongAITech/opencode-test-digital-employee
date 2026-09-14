@@ -138,6 +138,10 @@ def main():
         }
         for name, command in commands.items():
             payloads[name] = run(command, workspace, env, timeout=90, required_stdout='aitest-director' if name == 'opencode_agents' else None)
+        payloads['node_version'] = run(
+            [str(runtime / 'tools/node/node.exe'), '--version'],
+            workspace, env, timeout=90, required_stdout='v22.18.0'
+        )
         graph_root = bundle / 'data/validation/codegraph-smoke'
         graph_root.mkdir(parents=True, exist_ok=True)
         graph_file = graph_root / 'loan.py'
