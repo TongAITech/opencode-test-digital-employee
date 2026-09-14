@@ -648,10 +648,20 @@ class RecoveryIntakeService:
         if not artifacts:
             raise RuntimeError("RECOVERY_ANALYSIS_EMPTY", "BR/SR/TR artifacts required")
         state = self.g3.state(mission_id)
+        scope_documents, _ = _resolve_scope_documents(state, scope)
+        allowed_source_refs = {fact.fact_id for fact in scope_documents}
         existing = list(state.by_kind("REQUIREMENT_ANALYSIS_ARTIFACT"))
-        refs = {f.payload["artifact_id"]: f.fact_id for f in existing if f.payload["scope_identity"] == scope}
+        scoped_existing = [f for f in existing if f.payload["scope_identity"] == scope]
+        for fact in scoped_existing:
+            existing_sources = {str(v) for v in fact.payload.get("source_refs") or []}
+            if not existing_sources.issubset(allowed_source_refs):
+                raise RuntimeError("RECOVERY_SOURCE_SCOPE_ARTIFACT_CONFLICT", "existing analysis artifact is outside source scope")
+        refs = {f.payload["artifact_id"]: f.fact_id for f in scoped_existing}
         prepared = []
         for item in artifacts:
+            requested_sources = {str(v) for v in item.get("source_refs") or []}
+            if requested_sources and not requested_sources.issubset(allowed_source_refs):
+                raise RuntimeError("RECOVERY_SOURCE_SCOPE_ARTIFACT_CONFLICT", "analysis artifact is outside source scope")
             artifact_id = _text(item.get("artifact_id"), "artifact_id")
             revision = _text(str(item.get("revision", "1")), "revision")
             ref = self.artifact_ref(scope, artifact_id, revision)
