@@ -142,6 +142,14 @@ def main():
             [str(runtime / 'tools/node/node.exe'), '--version'],
             workspace, env, timeout=90, required_stdout='v22.18.0'
         )
+        payloads['gitnexus_version'] = run(
+            [
+                str(runtime / 'tools/node/node.exe'),
+                str(runtime / 'tools/gitnexus/node_modules/gitnexus/dist/cli/index.js'),
+                '--version',
+            ],
+            workspace, env, timeout=90, required_stdout='1.6.12'
+        )
         graph_root = bundle / 'data/validation/codegraph-smoke'
         graph_root.mkdir(parents=True, exist_ok=True)
         graph_file = graph_root / 'loan.py'
