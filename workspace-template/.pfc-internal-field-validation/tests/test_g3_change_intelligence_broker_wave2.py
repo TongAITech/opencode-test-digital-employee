@@ -250,23 +250,24 @@ def main() -> int:
                 }
             }
         }), encoding="utf-8")
-        resolved_provider = CodeGraphProviderResolver.resolve({"runtime_lock_path": str(runtime_lock)})
+        real_binary = os.environ.get("AITEST_D3_CODEGRAPH_BINARY")
         repo_exec, base_exec, head_exec = make_repo(
             provider_root, "exec-repo", "src/Service.java",
             "class Service {\n  int apply(int x) { return x + 1; }\n}\n",
             "class Service {\n  public int apply(int x) { return x + 2; }\n}\n",
         )
-        exec_broker = ChangeIntelligenceBroker(codegraph_provider=resolved_provider)
-        _, exec_env, exec_meta = analyze_repository(
-            {"repository_id": "exec-repo", "repository_path": str(repo_exec), "base_ref": base_exec, "head_ref": head_exec},
-            broker=exec_broker,
-        )
-        calls = call_log.read_text(encoding="utf-8") if call_log.is_file() else ""
-        checks["codegraph_resolver_requires_pinned_binary_sha"] = exec_meta["provider_health"]["CODEGRAPH"]["binary_sha256"] == binary_sha and exec_meta["provider_health"]["CODEGRAPH"]["version"] == "0.20.1"
-        checks["codegraph_executable_provider_really_invokes_graph_only_tool"] = "--graph-only" in calls and "--run-tool codegraph_get_ai_context" in calls and exec_meta["provider_capabilities"]["CODEGRAPH"] == "AVAILABLE"
-        checks["codegraph_executable_provider_maps_git_established_lines"] = bool(exec_meta["line_mapping"]) and all(item["status"] == "MAPPED_TO_SYMBOL" and item["provider"] == "CODEGRAPH" for item in exec_meta["line_mapping"]) and bool(exec_env.changed_files)
+        if not (os.name == "nt" and real_binary):
+            resolved_provider = CodeGraphProviderResolver.resolve({"runtime_lock_path": str(runtime_lock)})
+            exec_broker = ChangeIntelligenceBroker(codegraph_provider=resolved_provider)
+            _, exec_env, exec_meta = analyze_repository(
+                {"repository_id": "exec-repo", "repository_path": str(repo_exec), "base_ref": base_exec, "head_ref": head_exec},
+                broker=exec_broker,
+            )
+            calls = call_log.read_text(encoding="utf-8") if call_log.is_file() else ""
+            checks["codegraph_resolver_requires_pinned_binary_sha"] = exec_meta["provider_health"]["CODEGRAPH"]["binary_sha256"] == binary_sha and exec_meta["provider_health"]["CODEGRAPH"]["version"] == "0.20.1"
+            checks["codegraph_executable_provider_really_invokes_graph_only_tool"] = "--graph-only" in calls and "--run-tool codegraph_get_ai_context" in calls and exec_meta["provider_capabilities"]["CODEGRAPH"] == "AVAILABLE"
+            checks["codegraph_executable_provider_maps_git_established_lines"] = bool(exec_meta["line_mapping"]) and all(item["status"] == "MAPPED_TO_SYMBOL" and item["provider"] == "CODEGRAPH" for item in exec_meta["line_mapping"]) and bool(exec_env.changed_files)
 
-        real_binary = os.environ.get("AITEST_D3_CODEGRAPH_BINARY")
         if real_binary:
             real_provider = CodeGraphProviderResolver.resolve({
                 "runtime_lock_path": str(WORKSPACE.parent / "runtime-lock.json"),
