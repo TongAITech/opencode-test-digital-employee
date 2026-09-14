@@ -504,6 +504,135 @@ def main() -> int:
                 "status": real_env.code_intelligence_status,
             }
 
+    real_gitnexus_node = os.environ.get("AITEST_D3_GITNEXUS_NODE")
+    real_gitnexus_cli = os.environ.get("AITEST_D3_GITNEXUS_CLI")
+    if real_gitnexus_node and real_gitnexus_cli:
+        with tempfile.TemporaryDirectory(prefix="g3-wave2-gitnexus-") as td:
+            gn_root = Path(td)
+            gn_repo = gn_root / "vue-page-impact"
+            (gn_repo / "src/router").mkdir(parents=True)
+            (gn_repo / "src/pages").mkdir(parents=True)
+            (gn_repo / "src/components").mkdir(parents=True)
+            git(gn_repo, "init", "-b", "master")
+            git(gn_repo, "config", "user.email", "d3@example.invalid")
+            git(gn_repo, "config", "user.name", "D3 GitNexus")
+            (gn_repo / "src/router/index.ts").write_text(
+                "import { createRouter, createWebHistory } from 'vue-router'\n"
+                "import ApplyPage from '../pages/ApplyPage.vue'\n"
+                "import ReviewPage from '../pages/ReviewPage.vue'\n"
+                "export const router = createRouter({ history: createWebHistory(), routes: [\n"
+                "  { path: '/loan/apply', component: ApplyPage },\n"
+                "  { path: '/loan/review', component: ReviewPage },\n"
+                "] })\n",
+                encoding="utf-8",
+            )
+            (gn_repo / "src/pages/ApplyPage.vue").write_text(
+                "<template><AmountInput :amount=\"amount\" /></template>\n"
+                "<script setup lang=\"ts\">\n"
+                "import { ref } from 'vue'\n"
+                "import AmountInput from '../components/AmountInput.vue'\n"
+                "const amount = ref(100)\n"
+                "</script>\n",
+                encoding="utf-8",
+            )
+            (gn_repo / "src/pages/ReviewPage.vue").write_text(
+                "<template><section>Review</section></template>\n"
+                "<script setup lang=\"ts\">const title = 'review'</script>\n",
+                encoding="utf-8",
+            )
+            component = gn_repo / "src/components/AmountInput.vue"
+            component.write_text(
+                "<template><input :value=\"amount\" /></template>\n"
+                "<script setup lang=\"ts\">\n"
+                "defineProps<{ amount: number }>()\n"
+                "export function normalizeAmount(value: number): number {\n"
+                "  return value + 1\n"
+                "}\n"
+                "</script>\n",
+                encoding="utf-8",
+            )
+            (gn_repo / "package.json").write_text(
+                json.dumps({
+                    "name": "d3-gitnexus-product",
+                    "private": True,
+                    "dependencies": {"vue": "3.5.21", "vue-router": "4.5.1"},
+                }),
+                encoding="utf-8",
+            )
+            git(gn_repo, "add", ".")
+            git(gn_repo, "commit", "-m", "base")
+            gn_base = git(gn_repo, "rev-parse", "HEAD")
+            component.write_text(
+                component.read_text(encoding="utf-8").replace(
+                    "return value + 1", "return value + 2"
+                ),
+                encoding="utf-8",
+            )
+            git(gn_repo, "add", ".")
+            git(gn_repo, "commit", "-m", "change amount normalization")
+            gn_head = git(gn_repo, "rev-parse", "HEAD")
+
+            _, gn_env, gn_meta = analyze_repository({
+                "repository_id": "real-gitnexus-vue",
+                "repository_path": str(gn_repo),
+                "base_ref": gn_base,
+                "head_ref": gn_head,
+                "runtime_lock_path": str(WORKSPACE.parent / "runtime-lock.json"),
+                "gitnexus_node_path": real_gitnexus_node,
+                "gitnexus_cli_path": real_gitnexus_cli,
+                "gitnexus_home": str(gn_root / "gitnexus-home"),
+            })
+            gn_pages = [
+                item.to_dict()
+                for item in gn_env.impacted_surfaces
+                if item.surface_kind == "PAGE"
+            ]
+            gn_edges = [
+                edge.to_dict()
+                for edge in gn_env.impact_edges
+                if str(edge.provider_ref).startswith("gitnexus:")
+            ]
+            checks["real_gitnexus_keeps_git_change_truth"] = changed_refs(gn_env) == {
+                "src/components/AmountInput.vue:L5"
+            }
+            checks["real_gitnexus_provider_is_available"] = (
+                gn_meta.get("provider_health", {}).get("GITNEXUS", {}).get("status")
+                == "AVAILABLE"
+            )
+            checks["real_gitnexus_component_is_not_false_page"] = not any(
+                item["stable_surface_id"] == "src/components/AmountInput.vue"
+                for item in gn_pages
+            )
+            checks["real_gitnexus_maps_component_to_affected_page"] = any(
+                item["stable_surface_id"] == "src/pages/ApplyPage.vue"
+                and item["relation"] == "VUE_COMPONENT_CONSUMER"
+                for item in gn_pages
+            )
+            checks["real_gitnexus_normalizes_component_consumer_edge"] = any(
+                item["from_node"] == "src/components/AmountInput.vue"
+                and item["to_node"] == "src/pages/ApplyPage.vue"
+                and item["edge_kind"] == "COMPONENT_CONSUMER"
+                for item in gn_edges
+            )
+            checks["real_gitnexus_page_impact_has_provenance"] = any(
+                item.get("changed_component") == "src/components/AmountInput.vue"
+                and item.get("affected_page_file") == "src/pages/ApplyPage.vue"
+                and str(item.get("evidence_ref", "")).startswith("gitnexus:")
+                for item in gn_meta.get("gitnexus_page_impacts") or []
+            )
+            checks["real_gitnexus_does_not_false_certify_vue_complete"] = (
+                gn_env.code_intelligence_status == "PARTIAL"
+            )
+            diagnostics["real_gitnexus"] = {
+                "status": gn_env.code_intelligence_status,
+                "provider_health": gn_meta.get("provider_health", {}).get("GITNEXUS"),
+                "page_surfaces": gn_pages,
+                "impact_edges": gn_edges,
+                "page_impacts": gn_meta.get("gitnexus_page_impacts"),
+                "obligations": gn_meta.get("mapping_obligations"),
+                "warnings": list(gn_env.warnings),
+            }
+
     with tempfile.TemporaryDirectory(prefix="g3-wave2-codegraph-missing-") as td:
         missing_root = Path(td)
         missing_lock = missing_root / "runtime-lock.json"
