@@ -162,18 +162,20 @@ jobs:
           $detect = Get-Content -Raw GITNEXUS_DETECT_CHANGES.log
           if ($detect -notmatch "AmountInput|normalizeAmount") { throw "GITNEXUS_CHANGED_SYMBOL_NOT_FOUND" }
 
-          & $env:GN2_NODE_EXE $env:GN2_GITNEXUS_CLI impact normalizeAmount --file src/components/AmountInput.vue --direction upstream --repo d3-vue-impact --depth 5 2>&1 | Tee-Object GITNEXUS_IMPACT.json
-          if ($LASTEXITCODE -ne 0) { throw "GITNEXUS_IMPACT_FAILED" }
+          & $env:GN2_NODE_EXE $env:GN2_GITNEXUS_CLI impact normalizeAmount --file src/components/AmountInput.vue --direction upstream --repo d3-vue-impact --depth 5 2>&1 | Tee-Object GITNEXUS_FUNCTION_IMPACT.log
+          if ($LASTEXITCODE -ne 0) { throw "GITNEXUS_FUNCTION_IMPACT_FAILED" }
+          $functionImpact = Get-Content -Raw GITNEXUS_FUNCTION_IMPACT.log
+          if ($functionImpact -notmatch '"impactedCount"\s*:\s*0') { throw "GITNEXUS_FUNCTION_ZERO_CALLER_NOT_PROVEN" }
+          if ($functionImpact -notmatch '"risk"\s*:\s*"UNKNOWN"') { throw "GITNEXUS_FUNCTION_UNKNOWN_RISK_NOT_PRESERVED" }
 
-          $impactRaw = Get-Content -Raw GITNEXUS_IMPACT.json
-          $start = $impactRaw.IndexOf("{")
-          if ($start -lt 0) { throw "GITNEXUS_IMPACT_JSON_MISSING" }
-          $impact = ($impactRaw.Substring($start) | ConvertFrom-Json)
-          if ($impact.error) { throw "GITNEXUS_IMPACT_ERROR:$($impact.error)" }
-          if ($impact.partial -eq $true) { throw "GITNEXUS_IMPACT_PARTIAL" }
-
-          $json = $impact | ConvertTo-Json -Depth 20
-          if ($json -notmatch "ApplyPage|AmountInput") { throw "GITNEXUS_PAGE_IMPACT_NOT_PROVEN" }
+          $edgeQuery = "MATCH (a:File)-[r]->(b:File) RETURN a.filePath AS source, type(r) AS relation, b.filePath AS target, r.reason AS reason LIMIT 100"
+          & $env:GN2_NODE_EXE $env:GN2_GITNEXUS_CLI cypher $edgeQuery --repo d3-vue-impact 2>&1 | Tee-Object GITNEXUS_FILE_EDGES.log
+          if ($LASTEXITCODE -ne 0) { throw "GITNEXUS_FILE_EDGE_QUERY_FAILED" }
+          $edges = Get-Content -Raw GITNEXUS_FILE_EDGES.log
+          if ($edges -notmatch "src/pages/ApplyPage\.vue") { throw "GITNEXUS_APPLY_PAGE_NODE_MISSING" }
+          if ($edges -notmatch "src/components/AmountInput\.vue") { throw "GITNEXUS_AMOUNT_COMPONENT_NODE_MISSING" }
+          if ($edges -notmatch "vue-template-component") { throw "GITNEXUS_VUE_COMPONENT_EDGE_MISSING" }
+          if ($edges -notmatch "src/router/index\.ts") { throw "GITNEXUS_ROUTER_STRUCTURE_MISSING" }
 
           $result = [ordered]@{
             schema_version = "aitest.v4.d3-gn2.gitnexus-windows.v1"
@@ -186,8 +188,10 @@ jobs:
             changed_component = "src/components/AmountInput.vue"
             expected_affected_page = "src/pages/ApplyPage.vue"
             detect_changes_contains_changed_symbol = $true
-            impact_is_complete = $true
-            page_impact_proven = $true
+            function_zero_caller_unknown_preserved = $true
+            vue_component_edge_proven = $true
+            affected_page_file_proven = $true
+            router_structure_proven = $true
             license_scope = "PERSONAL_LEARNING_NONCOMMERCIAL"
           }
           $result | ConvertTo-Json -Depth 8 | Set-Content D3_GN2_RESULT.json -Encoding utf8
@@ -234,7 +238,8 @@ jobs:
             D3_GN2_GITNEXUS_TREE.json
             GITNEXUS_ANALYZE.log
             GITNEXUS_DETECT_CHANGES.log
-            GITNEXUS_IMPACT.json
+            GITNEXUS_FUNCTION_IMPACT.log
+            GITNEXUS_FILE_EDGES.log
           if-no-files-found: error
           retention-days: 30
 
