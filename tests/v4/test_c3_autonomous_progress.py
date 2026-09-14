@@ -528,6 +528,21 @@ class C3AutonomousProgressTests(unittest.TestCase):
         )
         self.assertIn(worker_id, self.provider.sessions)
 
+        # The real background Control Loop can reconcile concurrently with the
+        # still-running Planner ToolContext. A terminal durable Session is not
+        # permission to kill a Host Session that is still busy returning the
+        # accepted tool call.
+        self.provider.set_observation(planner_id, activity_state="busy")
+        busy_reconcile = self.service.reconcile_external_sessions()
+        self.assertEqual(busy_reconcile["status"], "PASS")
+        self.assertIn(planner_id, self.provider.sessions)
+        self.assertTrue(any(
+            item.get("session_id") == planner_id
+            and item.get("status") == "TERMINAL_EXTERNAL_BUSY_DEFERRED"
+            for item in busy_reconcile["actions"]
+        ))
+
+        self.provider.set_observation(planner_id, activity_state="idle")
         reconciled = self.service.reconcile_external_sessions()
         self.assertEqual(reconciled["status"], "PASS")
         self.assertNotIn(planner_id, self.provider.sessions)
