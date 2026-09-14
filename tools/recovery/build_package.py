@@ -30,6 +30,26 @@ def run_git(repo: Path, *args: str) -> str:
     return subprocess.check_output(['git', '-C', str(repo), *args], text=True).strip()
 
 
+def tree_identity(root: Path, relative_target: str) -> dict:
+    target = (root / relative_target).resolve()
+    if not target.is_dir() or not target.is_relative_to(root.resolve()):
+        raise RuntimeError('Staged payload tree missing or unsafe: ' + relative_target)
+    files = []
+    for path in sorted(target.rglob('*')):
+        if path.is_file():
+            files.append({
+                'path': path.relative_to(root).as_posix(),
+                'size_bytes': path.stat().st_size,
+                'sha256': sha256(path),
+            })
+    canonical = ('\n'.join(f"{entry['sha256']}  {entry['path']}" for entry in files) + '\n').encode('utf-8')
+    return {
+        'sha256': hashlib.sha256(canonical).hexdigest(),
+        'file_count': len(files),
+        'size_bytes': sum(entry['size_bytes'] for entry in files),
+    }
+
+
 SOURCE_IDENTITY_FORMULA = "sha256(UTF-8 sorted `<file_sha256>  <path>` lines, exactly one final newline; tracked files from `git ls-files`; excludes PACKAGE_MANIFEST.json)"
 
 
@@ -121,6 +141,16 @@ def build(repo: Path, stage: Path, output: Path, version: str, allow_dirty: bool
         entries = artifact.get('tree_manifest') or []
         if artifact.get('hash_kind') == 'file' and artifact.get('relative_target'):
             entries = [{'path': artifact['relative_target'], 'sha256': artifact['sha256']}]
+        elif artifact.get('hash_kind') == 'tree_digest' and artifact.get('relative_target'):
+            measured = tree_identity(bundle, artifact['relative_target'])
+            if measured['sha256'] != artifact.get('sha256'):
+                raise RuntimeError('Staged payload tree digest mismatch: ' + artifact['relative_target'])
+            if artifact.get('file_count') is not None and measured['file_count'] != int(artifact['file_count']):
+                raise RuntimeError('Staged payload tree file-count mismatch: ' + artifact['relative_target'])
+            if artifact.get('size_bytes') is not None and measured['size_bytes'] != int(artifact['size_bytes']):
+                raise RuntimeError('Staged payload tree size mismatch: ' + artifact['relative_target'])
+            expected[artifact['relative_target'] + '/@TREE_DIGEST'] = artifact['sha256']
+            continue
         for entry in entries:
             path = bundle / entry['path']
             if not path.is_file() or sha256(path) != entry['sha256']:
