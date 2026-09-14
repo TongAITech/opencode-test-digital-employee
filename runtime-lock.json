@@ -31,6 +31,20 @@
       "archive_identity": "python-3.12.10-embed-amd64.zip",
       "stdlib_module_path": "../../ai-test/runtime"
     },
+    "node": {
+      "role": "SECONDARY_GRAPH_PORTABLE_RUNTIME",
+      "version": "22.18.0",
+      "npm_version": "10.9.3",
+      "platform": "windows-x64",
+      "relative_target": "workspace-template/runtime/tools/node/node.exe",
+      "sha256": "c22d1c59a1f767a1ed0178445a027f2257d318c55430fc819d48f269586822b7",
+      "hash_kind": "file",
+      "archive_identity": "node-v22.18.0-win-x64.zip",
+      "archive_sha256": "c95d8a7e1c99e669cc08c9f1176e068c1f50847c37908fcb8c35b62482366511",
+      "status": "IDENTITY_PINNED_WINDOWS_EXECUTION_QUALIFIED_PACKAGE_MATERIALIZATION_PENDING",
+      "host_node_authority": false,
+      "gitnexus_binding_status": "LICENSE_AUTHORIZATION_REQUIRED"
+    },
     "chromium": {
       "role": "CONTROLLED_BROWSER",
       "version": "151.0.7922.34",
