@@ -866,6 +866,12 @@ class RecoveryIntakeService:
             binding = state.by_id(release.payload["binding_ref"])
             status = "READY" if binding and _time(binding.payload["valid_until"]) > datetime.now(timezone.utc) else "BANK_BINDING_REQUIRED"
         selected = artifacts[offset:offset + limit]
+        scope_latest = {}
+        for fact in state.by_kind("SOURCE_SCOPE_MANIFEST"):
+            scope_latest[str(fact.payload["scope_identity"])] = fact
+        hydration_latest = {}
+        for fact in state.by_kind("SOURCE_HYDRATION_GENERATION"):
+            hydration_latest[str(fact.payload["scope_identity"])] = fact
         return {"schema_version": SCHEMA, "truth_source": "R1_EVENT_STREAM", "mission_id": mission_id,
                 "starlink_export_status": status, "live_starlink_status": "BANK_BINDING_REQUIRED",
                 "current_release": None if release is None else {"fact_id": release.fact_id, **{k: release.payload[k] for k in ("release_id", "project_id", "revision", "sha256", "binding_ref")},
@@ -877,6 +883,15 @@ class RecoveryIntakeService:
                 "artifacts": [{"fact_id": f["fact_id"], **{k: f["payload"][k] for k in ("artifact_id", "kind", "revision", "scope_identity", "parent_refs", "source_refs", "asset_refs")},
                                "text_excerpt": f["payload"]["text"][:600]} for f in selected],
                 "artifact_count": len(artifacts), "next_offset": offset + limit if offset + limit < len(artifacts) else None,
+                "source_scope_latest": [{"scope_identity": scope_id, "fact_id": fact.fact_id,
+                    "revision": fact.payload["revision"], "source_count": fact.payload["source_count"],
+                    "in_scope_count": fact.payload["in_scope_count"], "source_snapshot_digest": fact.payload["source_snapshot_digest"]}
+                    for scope_id, fact in sorted(scope_latest.items())][-100:],
+                "hydration_latest": [{"scope_identity": scope_id, "fact_id": fact.fact_id,
+                    "status": fact.payload["status"], "covered_units": fact.payload["covered_units"],
+                    "total_units": fact.payload["total_units"], "remaining_uncovered_units": fact.payload["remaining_uncovered_units"],
+                    "coverage_digest": fact.payload["coverage_digest"]}
+                    for scope_id, fact in sorted(hydration_latest.items())][-100:],
                 "g6": "HOLD", "actual_coverage": "NOT_ASSERTED"}
 
     def source(self, mission_id: str, fact_id: str, *, unit_id: str | None = None, offset: int = 0, limit: int = 8000) -> dict[str, Any]:
