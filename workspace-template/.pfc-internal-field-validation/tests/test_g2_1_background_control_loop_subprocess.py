@@ -474,8 +474,27 @@ def main() -> int:
                     checks["background_worker_auto_continue_precedes_replan"] = (
                         len(Stub.messages.get(successor_id, [])) >= 2
                     )
+                    # Validate one coherent R1 snapshot. The independent
+                    # Control Loop remains live and may legally rotate/delete the
+                    # external predecessor immediately after this status call, so
+                    # consulting Stub.sessions here would race the snapshot.
+                    core_sessions = unattended_status.get("core", {}).get("sessions", {})
+                    replanner_core = (
+                        core_sessions.get(replanner_id)
+                        if isinstance(core_sessions, dict) else None
+                    )
+                    provisions = unattended_status.get("session_control", {}).get("provisions", [])
+                    bound_replanner = any(
+                        isinstance(item, dict)
+                        and item.get("external_session_id") == replanner_id
+                        and item.get("status") == "BOUND"
+                        and item.get("phase") in {"REPLANNING", "REPLANNING_ROTATION"}
+                        for item in provisions
+                    ) if isinstance(provisions, list) else False
                     checks["background_no_progress_creates_governed_replanner"] = (
-                        replanner_id in Stub.sessions
+                        isinstance(replanner_core, dict)
+                        and replanner_core.get("status") == "OPEN"
+                        and bound_replanner
                         and len(Stub.messages.get(replanner_id, [])) >= 1
                         and str(active_replan.get("failure_signature") or "") != ""
                     )
