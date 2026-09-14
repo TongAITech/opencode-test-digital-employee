@@ -332,7 +332,16 @@ def main():
             planner = [p for p in state.provisions if p.role == 'PLANNER']
             workers = [p for p in state.provisions if p.task_id]
             assert len(planner) == 1 and len(workers) >= 9
-            ids = [user_session_id, planner[0].external_session_id, *(p.external_session_id for p in workers)]
+            # Context Admission may durably rotate the first Primary before the
+            # provider sees the request.  The real OpenCode tool event, not the
+            # predecessor provision id, identifies the Director that acted.
+            director_sessions = {
+                p['session_id'] for p in executed
+                if p['tool'] == 'aitest_director' and p['status'] in {'running', 'completed'}
+            }
+            assert len(director_sessions) == 1, executed
+            director_session_id = next(iter(director_sessions))
+            ids = [director_session_id, planner[0].external_session_id, *(p.external_session_id for p in workers)]
             assert len(set(ids)) >= 11
             assert {p.role for p in workers} == {'REQUIREMENT_ANALYST','CODE_ANALYST','TEST_STRATEGIST','CASE_DESIGNER','EXECUTOR','EVALUATOR','DIAGNOSIS'}
             assert len({p.logical_agent_id for p in [*planner, *workers]}) == 8
@@ -352,10 +361,15 @@ def main():
             for key in ('mission_id', 'task_id', 'attempt_id', 'session_id'): assert huge_status[key].startswith('synthetic-')
             assert all(p['error_bytes'] <= 16384 for p in executed if p.get('fixture_boundary_kind') == 'error' and p['status'] == 'error')
             assert any('😀' * 10 in p.get('error', '') for p in executed if p.get('fixture_boundary_kind') == 'error' and p['status'] == 'error')
-            assert any(p['tool'] == 'aitest_director' and p['session_id'] == user_session_id for p in executed)
+            assert any(p['tool'] == 'aitest_director' and p['session_id'] == director_session_id for p in executed)
             assert any(p['tool'] == 'aitest_planner' and p['session_id'] == planner[0].external_session_id for p in executed)
-            user_messages = provider._request('GET', f'/session/{user_session_id}/message?{provider._directory_query()}&limit=10')
+            user_messages = provider._request('GET', f'/session/{director_session_id}/message?{provider._directory_query()}&limit=10')
             assert any(m.get('info', {}).get('role') == 'assistant' and m['info'].get('agent') == 'aitest-director' for m in user_messages)
+            assert any(
+                m.get('info', {}).get('role') == 'user'
+                and any(p.get('type') == 'text' and p.get('text') == '测试 BLOAN-PF1.1.0' for p in m.get('parts', []))
+                for m in user_messages
+            ), user_messages
             final_workers = [provision for provision in workers if composed.extension_state('r1_3b_execution_resume').latest_attempt(provision.task_id).runtime_session_id == provision.external_session_id]
             assert all(any(p['tool'] == ('aitest_executor' if worker.role=='EXECUTOR' else 'aitest_worker') and p['session_id'] == worker.external_session_id for p in executed) for worker in final_workers)
             stress_workers = [p for p in workers if p.role == 'CODE_ANALYST']
