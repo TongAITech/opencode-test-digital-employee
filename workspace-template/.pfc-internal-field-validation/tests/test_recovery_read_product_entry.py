@@ -163,6 +163,45 @@ class RecoveryReadProductEntryTests(unittest.TestCase):
             command(role, "binding_context", {**bound, "mission_id": "unrelated-mission"})
         self.assert_unchanged(seq)
 
+    def test_requirement_analyst_can_set_source_scope_only_with_governed_binding(self):
+        requirement_task = recommended_plan("REQUIREMENT_ANALYSIS")["tasks"][0]
+        plan = product_entry.orchestration_command("PLANNER", "propose_plan", {
+            "mission_id": self.mission,
+            "proposal": {
+                "objective": "Bind explicit requirement source scope",
+                "tasks": [requirement_task],
+                "dependencies": [],
+            },
+        })
+        self.assertEqual(plan["status"], "PASS")
+        self.assertEqual(plan["next"]["route"]["role"], "REQUIREMENT_ANALYST")
+        bound = binding(plan["next"])
+        payload = {
+            **bound,
+            "scope_identity": "LOCAL-READ-SCOPE",
+            "revision": "1",
+            "entries": [{
+                "source_ref": self.document["fact_id"],
+                "disposition": "IN_SCOPE",
+            }],
+        }
+        result = product_entry.g3_command("REQUIREMENT_ANALYST", "set_source_scope", payload)
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["truth_source"], "R1_EVENT_STREAM")
+        self.assertEqual(result["manifest"]["payload"]["in_scope_count"], 1)
+
+        seq = self.runtime.get_head_seq(self.mission)
+        rejected = product_entry.g3_command("CODE_ANALYST", "set_source_scope", payload)
+        self.assertEqual(rejected["status"], "HOLD")
+        self.assertEqual(rejected["reason"], "ACTION_NOT_AUTHORIZED_FOR_G3_ROLE")
+        self.assert_unchanged(seq)
+
+        missing = dict(payload)
+        missing.pop("task_id")
+        with self.assertRaisesRegex(Exception, "G3_GOVERNED_WORKER_BINDING_REQUIRED"):
+            product_entry.g3_command("REQUIREMENT_ANALYST", "set_source_scope", missing)
+        self.assert_unchanged(seq)
+
     def test_actual_product_read_context_role_binding_and_mutation_guards(self):
         planner_bound = {"mission_id": self.mission}
         self.assert_read_context(product_entry.orchestration_command, "PLANNER", planner_bound)
