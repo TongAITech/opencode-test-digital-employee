@@ -777,7 +777,7 @@ class RecoveryIntakeService:
         documents = {fact.fact_id: fact for fact in current_state.by_kind("SOURCE_DOCUMENT")}
         semantics = {name: [] for name in SEMANTIC_FIELDS}
         semantics["source_refs"] = [{"source_id": ref, "source_kind": doc.payload["source_kind"], "revision": doc.payload["revision"],
-                                     "locator": doc.payload["locator"], "source_digest": doc.payload["sha256"]} for ref, doc in sorted(documents.items())]
+                                     "locator": doc.payload["locator"], "source_digest": doc.payload["sha256"]} for ref, doc in sorted(documents.items()) if ref in allowed_source_refs]
         for artifact in all_current:
             data = artifact["payload"]
             category = {"BR": "business_rules", "SR": "acceptance_criteria", "TR": "positive_paths"}[data["kind"]]
