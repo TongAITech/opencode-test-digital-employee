@@ -802,9 +802,10 @@ class RecoveryIntakeService:
                 "source_unit_coverage_digest": coverage["coverage_digest"],
             })
         analysis = self.g3.analyze_requirement(mission_id, scope, semantics)
+        hydration = self._record_hydration_generation(mission_id, scope, coverage, analysis)
         status = "PARTIAL_SOURCE_UNITS" if not coverage["complete"] else analysis["status"]
         return {"status": status, "truth_source": "R1_EVENT_STREAM", "artifacts": results, "analysis": analysis,
-                "source_analysis_coverage": coverage,
+                "source_analysis_coverage": coverage, "hydration_generation": hydration,
                 "r3_1_reference": analysis["r3_1_reference"], "actual_coverage": "NOT_ASSERTED"}
 
     def current_artifacts(self, mission_id: str, scope_identity: str | None = None) -> list[dict[str, Any]]:
