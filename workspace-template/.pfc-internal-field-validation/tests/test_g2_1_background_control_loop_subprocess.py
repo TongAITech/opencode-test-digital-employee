@@ -84,6 +84,11 @@ def bind_host_tool(env: dict[str, str], *, session_id: str, agent: str, tool: st
             },
         }],
     }
+    # A real OpenCode Session is busy while the model/tool call is in flight.
+    # Without this Host state the background Control Loop would incorrectly
+    # treat the bound caller as idle and rotate it before product_entry can
+    # validate the exact ToolContext.
+    Stub.busy_sessions.add(session_id)
     env.update({
         "AITEST_HOST_SESSION_ID": session_id,
         "AITEST_HOST_MESSAGE_ID": message_id,
@@ -119,6 +124,7 @@ class Stub(BaseHTTPRequestHandler):
     sessions: dict[str, dict[str, object]] = {}
     messages: dict[str, list[dict[str, object]]] = {}
     requests: list[dict[str, object]] = []
+    busy_sessions: set[str] = set()
     counter = 0
 
     def log_message(self, fmt: str, *args: object) -> None:
@@ -156,8 +162,13 @@ class Stub(BaseHTTPRequestHandler):
             }); return
         if parsed.path == "/session": self._json(200, list(self.__class__.sessions.values())); return
         if parsed.path == "/session/status":
-            # OpenCode 1.18.3 omits idle Sessions from the status map.
-            self._json(200, {}); return
+            # OpenCode 1.18.3 omits idle Sessions from the status map and
+            # reports active inference/tool work as busy.
+            self._json(200, {
+                sid: {"type": "busy"}
+                for sid in sorted(self.__class__.busy_sessions)
+                if sid in self.__class__.sessions
+            }); return
         if parsed.path.endswith("/message"):
             sid = parsed.path.split("/")[-2]
             self._json(200, self.__class__.messages.get(sid, [])); return
@@ -219,19 +230,24 @@ def module_command(module: str, *args: str) -> list[str]:
 
 
 def run(env: dict[str, str], role: str, action: str, payload: dict[str, object]) -> dict[str, object]:
-    proc = subprocess.run(
-        module_command("aitest_runtime.product_entry", "orchestrate", "--role", role, "--action", action, "--payload", json.dumps(payload)),
-        cwd=env["AITEST_WORKSPACE_ROOT"], env=env, capture_output=True, text=True, timeout=30,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stdout + " " + proc.stderr)
-    return json.loads(proc.stdout)
+    session_id = env.get("AITEST_HOST_SESSION_ID", "")
+    try:
+        proc = subprocess.run(
+            module_command("aitest_runtime.product_entry", "orchestrate", "--role", role, "--action", action, "--payload", json.dumps(payload)),
+            cwd=env["AITEST_WORKSPACE_ROOT"], env=env, capture_output=True, text=True, timeout=30,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stdout + " " + proc.stderr)
+        return json.loads(proc.stdout)
+    finally:
+        if session_id:
+            Stub.busy_sessions.discard(session_id)
 
 
 def main() -> int:
     checks: dict[str, bool] = {}
     diagnostics: dict[str, object] = {}
-    Stub.sessions = {}; Stub.messages = {}; Stub.requests = []; Stub.counter = 0
+    Stub.sessions = {}; Stub.messages = {}; Stub.requests = []; Stub.busy_sessions = set(); Stub.counter = 0
     server = ThreadingHTTPServer(("127.0.0.1", 0), Stub)
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
     control: subprocess.Popen[str] | None = None
