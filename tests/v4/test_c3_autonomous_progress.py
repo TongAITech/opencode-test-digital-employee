@@ -132,6 +132,64 @@ class C3AutonomousProgressTests(unittest.TestCase):
         self.assertTrue(messages[0]["text"].startswith("AITEST_CANONICAL_REPLANNING_CONTEXT\n"))
         self.assertIn('"required_next_action": "AUTHOR_PLAN_REVISION"', messages[0]["text"])
 
+
+    def test_replanning_session_rotates_under_pressure_and_reuses_successor(self):
+        mission, worker = self._active_worker("replan-rotation")
+        cursor = business_cursor(self.runtime, mission)
+        first = self.service._handle_no_progress(
+            mission, task_id=worker["task_id"], session_id=worker["external_session"]["session_id"],
+            reason="AUTO_CONTINUE_NO_BUSINESS_PROGRESS", cursor=cursor,
+        )
+        predecessor = first["session_id"]
+        progress_id = first["progress_id"]
+        before = self.service.session_control.state(mission).progress(progress_id)
+        self.assertEqual(before.phase, "REPLANNING")
+        lineage = before.replan_lineage
+        self.assertTrue(lineage.startswith("replanning:"))
+
+        self.provider.set_observation(
+            predecessor, activity_state="idle", reachable=True, healthy=True,
+            context_used=92000, context_limit=100000, context_utilization=0.92,
+            message_count=20, compaction_count=0,
+        )
+        tick = self.service.supervise_once()
+        rotated = [
+            item for item in tick["supervision"]
+            if item.get("phase") == "REPLANNING"
+               and item.get("result", {}).get("status") == "ROTATED"
+        ]
+        self.assertEqual(len(rotated), 1)
+        rotation = rotated[0]["result"]
+        self.assertEqual(rotation["predecessor_session_id"], predecessor)
+        successor = rotation["successor_session_id"]
+        self.assertNotEqual(successor, predecessor)
+        self.assertNotIn(predecessor, self.provider.sessions)
+        self.assertIn(successor, self.provider.sessions)
+
+        state = self.service.session_control.state(mission)
+        progress = state.progress(progress_id)
+        self.assertEqual(progress.phase, "REPLANNING")
+        self.assertEqual(progress.replan_lineage, lineage)
+        self.assertEqual(progress.replan_session_id, successor)
+        replanning_provisions = [x for x in state.provisions if x.phase in {"REPLANNING","REPLANNING_ROTATION"}]
+        self.assertEqual(len([x for x in replanning_provisions if x.status == "BOUND"]), 2)
+        self.assertEqual(
+            {x.root_attempt_id for x in replanning_provisions},
+            {lineage},
+            "rotation must preserve the progress-bound replanning lineage",
+        )
+
+        # Re-running the same no-progress generation must continue the rotated
+        # successor, not resurrect the initial replanning Session.
+        again = self.service._handle_no_progress(
+            mission, task_id=worker["task_id"], session_id=worker["external_session"]["session_id"],
+            reason="AUTO_CONTINUE_NO_BUSINESS_PROGRESS", cursor=cursor,
+        )
+        self.assertEqual(again["status"], "REPLAN_IN_PROGRESS")
+        self.assertEqual(again["session_id"], successor)
+        self.assertEqual(len([x for x in self.provider.list_sessions() if "Replan" in x.title]), 1)
+
+
     def test_busy_and_retry_workers_do_not_create_replanning_session(self):
         for activity in ("busy", "retry"):
             with self.subTest(activity=activity):
