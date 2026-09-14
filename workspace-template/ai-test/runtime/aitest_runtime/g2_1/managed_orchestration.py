@@ -8,6 +8,7 @@ rotation, and reconciliation.  Agents never own their Session lifecycle.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from functools import wraps
 from datetime import datetime, timezone
