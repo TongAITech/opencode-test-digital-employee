@@ -58,7 +58,7 @@ jobs:
         run: |
           $gitnexusRoot = Join-Path $env:GN2_ROOT "gitnexus-runtime"
           New-Item -ItemType Directory -Force -Path $gitnexusRoot | Out-Null
-          & $env:GN2_NPM_CMD install --prefix $gitnexusRoot --no-audit --no-fund --omit=optional gitnexus@1.6.12
+          & $env:GN2_NPM_CMD install --prefix $gitnexusRoot --no-audit --no-fund gitnexus@1.6.12
           if ($LASTEXITCODE -ne 0) { throw "GITNEXUS_INSTALL_FAILED" }
 
           $cli = Join-Path $gitnexusRoot "node_modules\gitnexus\dist\cli\index.js"
