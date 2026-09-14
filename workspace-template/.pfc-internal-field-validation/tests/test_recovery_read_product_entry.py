@@ -33,6 +33,7 @@ from aitest_runtime.r2_1 import canonical_store
 # validation never silently switches back to source-tree product modules.
 sys.path.insert(0, str(Path(__file__).parent))
 from test_g3_testing_intelligence_product_path import binding, finish, intake_request
+from host_interaction_fixture import start_product_mission
 
 
 class RecoveryReadProductEntryTests(unittest.TestCase):
@@ -68,9 +69,10 @@ class RecoveryReadProductEntryTests(unittest.TestCase):
         request.pop("resolution", None)
         request.update(intake_id="recovery-read-product", scope={
             "mode": "EXPLICIT_SET", "project_id": "LOCAL-READ", "version": "BLOAN1.9.4"})
-        result = product_entry.orchestration_command("DIRECTOR", "start_test", {"request": request})
-        self.assertEqual(result["status"], "PLANNING")
-        self.mission = result["intake"]["intake"]["mission_id"]
+        result = start_product_mission(self.orchestration, request, fixture_id="recovery-read")
+        operation = result["operations"][0]
+        self.assertEqual(operation["status"], "DISPATCHED")
+        self.mission = operation["subject"]["subject_id"]
         self.service = RecoveryIntakeService(self.runtime)
         source = self.root / "requirement.md"
         source.write_text("# Local fixture\nLoan amounts must be positive.\n", encoding="utf-8")
