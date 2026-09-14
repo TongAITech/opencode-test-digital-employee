@@ -2,8 +2,9 @@
 
 This is intentionally NOT a real-model proof. It runs the exact host binary
 supplied by the caller against a loopback OpenAI-compatible recording provider.
-The provider returns deterministic text only; it never authors a Plan or AITest
-semantic result.
+The provider normally returns deterministic text. A late qualification phase
+can emit one predeclared tool call at a time so the real OpenCode Host/ToolContext
+path is exercised without pretending the fixture authored semantic decisions.
 
 What this proves:
 - ALLOW reaches the provider transport through the real OpenCode host.
@@ -87,6 +88,35 @@ else:
 
 requests: list[dict] = []
 requests_lock = threading.Lock()
+script_lock = threading.Lock()
+scripted_tool = {
+    "armed": False,
+    "suffix": None,
+    "arguments": None,
+    "label": None,
+}
+scripted_tool_events: list[dict] = []
+
+def arm_scripted_tool(suffix: str, arguments: dict, label: str) -> None:
+    with script_lock:
+        if scripted_tool["armed"]:
+            raise RuntimeError("SCRIPTED_TOOL_ALREADY_ARMED")
+        scripted_tool.update({
+            "armed": True,
+            "suffix": suffix,
+            "arguments": dict(arguments),
+            "label": label,
+        })
+
+def provider_tool_names(body) -> list[str]:
+    names: list[str] = []
+    for item in body.get("tools") or [] if isinstance(body, dict) else []:
+        if not isinstance(item, dict):
+            continue
+        fn = item.get("function")
+        if isinstance(fn, dict) and isinstance(fn.get("name"), str):
+            names.append(fn["name"])
+    return names
 
 class RecordingProvider(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -101,6 +131,75 @@ class RecordingProvider(BaseHTTPRequestHandler):
         self.send_header("content-length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
+
+    def _stream(self, chunks):
+        self.send_response(200)
+        self.send_header("content-type", "text/event-stream")
+        self.send_header("cache-control", "no-cache")
+        self.send_header("connection", "close")
+        self.end_headers()
+        for item in chunks:
+            self.wfile.write(("data: " + json.dumps(item) + "\n\n").encode())
+            self.wfile.flush()
+        self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
+        self.close_connection = True
+
+    def _scripted_tool_chunks(self, body):
+        names = provider_tool_names(body)
+        with script_lock:
+            if not scripted_tool["armed"]:
+                return None
+            suffix = str(scripted_tool["suffix"] or "")
+            matches = [name for name in names if name == suffix or name.endswith("_" + suffix)]
+            if len(matches) != 1:
+                return None
+            tool_name = matches[0]
+            arguments = dict(scripted_tool["arguments"] or {})
+            label = str(scripted_tool["label"] or suffix)
+            call_id = "call_" + hashlib.sha256(
+                json.dumps({"label": label, "arguments": arguments}, sort_keys=True).encode()
+            ).hexdigest()[:20]
+            scripted_tool.update({"armed": False, "suffix": None, "arguments": None, "label": None})
+            scripted_tool_events.append({
+                "label": label,
+                "tool_name": tool_name,
+                "call_id": call_id,
+                "arguments_sha256": sha_json(arguments),
+            })
+        created = int(time.time())
+        return [
+            {
+                "id": "chatcmpl-" + label,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": "fixture-model",
+                "choices": [{
+                    "index": 0,
+                    "delta": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "index": 0,
+                            "id": call_id,
+                            "type": "function",
+                            "function": {
+                                "name": tool_name,
+                                "arguments": json.dumps(arguments, ensure_ascii=False, separators=(",", ":")),
+                            },
+                        }],
+                    },
+                    "finish_reason": None,
+                }],
+            },
+            {
+                "id": "chatcmpl-" + label,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": "fixture-model",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+        ]
 
     def do_GET(self):
         if urlparse(self.path).path == "/v1/models":
@@ -125,30 +224,24 @@ class RecordingProvider(BaseHTTPRequestHandler):
                 "stream": bool(body.get("stream")),
                 "model": body.get("model"),
                 "message_count": len(body.get("messages") or []),
+                "tool_names": provider_tool_names(body),
             })
         if path not in {"/v1/chat/completions", "/chat/completions"}:
             self._json(404, {"error": {"message": "unsupported provider path", "path": path}})
             return
         if body.get("stream"):
-            self.send_response(200)
-            self.send_header("content-type", "text/event-stream")
-            self.send_header("cache-control", "no-cache")
-            self.send_header("connection", "close")
-            self.end_headers()
+            scripted = self._scripted_tool_chunks(body)
+            if scripted is not None:
+                self._stream(scripted)
+                return
             created = int(time.time())
-            chunks = [
+            self._stream([
                 {"id": "chatcmpl-aitest", "object": "chat.completion.chunk", "created": created,
                  "model": "fixture-model", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "fixture-ok"}, "finish_reason": None}]},
                 {"id": "chatcmpl-aitest", "object": "chat.completion.chunk", "created": created,
                  "model": "fixture-model", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                  "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}},
-            ]
-            for item in chunks:
-                self.wfile.write(("data: " + json.dumps(item) + "\n\n").encode())
-                self.wfile.flush()
-            self.wfile.write(b"data: [DONE]\n\n")
-            self.wfile.flush()
-            self.close_connection = True
+            ])
             return
         self._json(200, {
             "id": "chatcmpl-aitest", "object": "chat.completion", "created": int(time.time()),
