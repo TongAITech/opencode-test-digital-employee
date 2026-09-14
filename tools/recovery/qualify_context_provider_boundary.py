@@ -891,7 +891,55 @@ try:
             }
         return None
 
-    tool_worker = wait_until(tool_worker_ready, 45)
+    try:
+        tool_worker = wait_until(tool_worker_ready, 45)
+    except TimeoutError:
+        try:
+            tool_state = runtime.replay_composed(tool_mission)
+            tool_graph = tool_state.extension_state("r1_2_work_graph")
+            tool_execution = tool_state.extension_state("r1_3b_execution_resume")
+            tool_control = service.session_control.state(tool_mission)
+            planner_messages = client.request(
+                "GET", f"/session/{tool_planner_session}/message?limit=60",
+                timeout=20, budget=8 * 1024 * 1024,
+            )
+            planner_status = client.request(
+                "GET", "/session/status", timeout=20, budget=2 * 1024 * 1024,
+            )
+            result["c3_exact_host_tool_loop_failure"] = {
+                "mission_id": tool_mission,
+                "planner_session_id": tool_planner_session,
+                "provider_request_count": call_count(),
+                "provider_requests_tail": list(requests[-12:]),
+                "scripted_tool_armed": bool(scripted_tool["armed"]),
+                "scripted_tool_suffix": scripted_tool["suffix"],
+                "scripted_tool_events": list(scripted_tool_events),
+                "planner_messages": planner_messages,
+                "planner_session_status": planner_status,
+                "mission_status": tool_state.core_state.mission.status.value if tool_state.core_state.mission else None,
+                "sessions": {
+                    item.session_id: {
+                        "status": item.status.value,
+                        "attributes": dict(item.attributes or {}),
+                    }
+                    for item in tool_state.core_state.sessions
+                },
+                "plans": [item.to_dict() for item in getattr(tool_graph, "plans", ())] if tool_graph is not None else [],
+                "tasks": [item.to_dict() for item in getattr(tool_graph, "tasks", ())] if tool_graph is not None else [],
+                "attempts": [item.to_dict() for item in getattr(tool_execution, "attempts", ())] if tool_execution is not None else [],
+                "provisions": [item.to_dict() for item in tool_control.provisions],
+                "context_dispatches": [dict(item) for item in tool_control.context_dispatches],
+            }
+        except Exception as diagnostic_exc:
+            result["c3_exact_host_tool_loop_failure"] = {
+                "mission_id": tool_mission,
+                "planner_session_id": tool_planner_session,
+                "diagnostic_error": type(diagnostic_exc).__name__ + ":" + str(diagnostic_exc),
+                "provider_request_count": call_count(),
+                "provider_requests_tail": list(requests[-12:]),
+                "scripted_tool_events": list(scripted_tool_events),
+            }
+        raise
     if len(scripted_tool_events) != planner_events_before + 1:
         raise RuntimeError("C3_EXACT_HOST_PLANNER_TOOL_CALL_NOT_OBSERVED")
     result["gates"]["C3_EXACT_HOST_PLANNER_TOOL_CALL_PERSISTS_PLAN"] = "PASS"
