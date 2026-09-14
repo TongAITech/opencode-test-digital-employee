@@ -979,20 +979,57 @@ try:
     if len(scripted_tool_events) != executor_events_before + 1:
         raise RuntimeError("C3_EXACT_HOST_EXECUTOR_TOOL_CALL_NOT_OBSERVED")
 
-    planner_messages = client.request(
-        "GET", f"/session/{tool_planner_session}/message?limit=60", timeout=20, budget=8 * 1024 * 1024
-    )
-    worker_messages = client.request(
-        "GET", f"/session/{tool_worker['session_id']}/message?limit=60", timeout=20, budget=8 * 1024 * 1024
-    )
-    planner_host_text = json.dumps(planner_messages, ensure_ascii=False, sort_keys=True)
-    worker_host_text = json.dumps(worker_messages, ensure_ascii=False, sort_keys=True)
     planner_tool_name = scripted_tool_events[-2]["tool_name"]
     executor_tool_name = scripted_tool_events[-1]["tool_name"]
 
+    def completed_executor_tool_part():
+        messages = client.request(
+            "GET", f"/session/{tool_worker['session_id']}/message?limit=60",
+            timeout=20, budget=8 * 1024 * 1024,
+        )
+        if not isinstance(messages, list):
+            return None
+        for message in reversed(messages):
+            if not isinstance(message, dict):
+                continue
+            for part in reversed(message.get("parts") or []):
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") != "tool" or part.get("tool") != executor_tool_name:
+                    continue
+                state = part.get("state")
+                if not isinstance(state, dict):
+                    continue
+                if state.get("status") in {"completed", "error"}:
+                    return {"messages": messages, "part": part}
+        return None
+
+    # R1 Task completion occurs inside the plugin tool process; OpenCode updates
+    # the Host ToolPart to terminal/completed only after that process returns.
+    # Synchronize both clocks before asserting the exact-host result.
+    terminal_executor = wait_until(completed_executor_tool_part, 45)
+    worker_messages = terminal_executor["messages"]
+    executor_part = terminal_executor["part"]
+    executor_state = executor_part.get("state") or {}
+    if executor_state.get("status") != "completed":
+        raise RuntimeError(
+            "C3_EXACT_HOST_EXECUTOR_TOOL_PART_ERROR:" + str(executor_state.get("error") or "UNKNOWN")
+        )
+    executor_output_raw = executor_state.get("output")
+    if not isinstance(executor_output_raw, str):
+        raise RuntimeError("C3_EXACT_HOST_EXECUTOR_OUTPUT_NOT_TEXT")
+    try:
+        executor_output = json.loads(executor_output_raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("C3_EXACT_HOST_EXECUTOR_OUTPUT_NOT_JSON") from exc
+
+    planner_messages = client.request(
+        "GET", f"/session/{tool_planner_session}/message?limit=60", timeout=20, budget=8 * 1024 * 1024
+    )
+    planner_host_text = json.dumps(planner_messages, ensure_ascii=False, sort_keys=True)
+    worker_host_text = json.dumps(worker_messages, ensure_ascii=False, sort_keys=True)
+
     # Preserve exact Host + durable Runtime evidence before any terminal oracle.
-    # This distinguishes a product failure from an OpenCode message-shape/oracle
-    # mismatch without weakening the acceptance criterion.
     after_executor = runtime.replay_composed(tool_mission)
     after_graph = after_executor.extension_state("r1_2_work_graph")
     after_execution = after_executor.extension_state("r1_3b_execution_resume")
@@ -1003,10 +1040,11 @@ try:
         "executor_tool_name": executor_tool_name,
         "planner_messages": planner_messages,
         "worker_messages": worker_messages,
+        "executor_tool_part": executor_part,
+        "executor_output": executor_output,
         "task": after_task.to_dict() if after_task is not None else None,
         "latest_attempt": after_attempt.to_dict() if after_attempt is not None else None,
         "mission_status": after_executor.core_state.mission.status.value if after_executor.core_state.mission else None,
-        "plan_complete_text_present": "PLAN_COMPLETE" in worker_host_text,
         "executor_tool_part_present": executor_tool_name in worker_host_text,
         "scripted_tool_events": list(scripted_tool_events[-2:]),
     }
@@ -1015,7 +1053,8 @@ try:
         raise RuntimeError("C3_EXACT_HOST_PLANNER_TOOL_PART_NOT_DURABLE")
     if executor_tool_name not in worker_host_text:
         raise RuntimeError("C3_EXACT_HOST_EXECUTOR_TOOL_PART_NOT_DURABLE")
-    if "PLAN_COMPLETE" not in worker_host_text:
+    next_result = executor_output.get("next") if isinstance(executor_output, dict) else None
+    if not isinstance(next_result, dict) or next_result.get("status") != "PLAN_COMPLETE":
         raise RuntimeError("C3_EXACT_HOST_EXECUTOR_DID_NOT_RETURN_PLAN_COMPLETE")
 
     result["gates"]["C3_EXACT_HOST_EXECUTOR_TOOL_CALL_COMPLETES_TASK"] = "PASS"
