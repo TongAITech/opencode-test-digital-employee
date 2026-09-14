@@ -29,9 +29,18 @@ def host_turn(scope, *, session='fixture-host', message='fixture-user', text=Non
 def start_product_mission(service, request, *, fixture_id):
     from aitest_runtime import product_entry
     from aitest_runtime.interaction_receipts import R1InteractionOwner
+    from aitest_runtime.primary_sessions import PrimarySessionOwner
     from urllib.parse import urlparse
     provider=getattr(service,'raw_session_provider',service.session_provider)
-    messages,env,payload=host_turn(request['scope'],session='host-'+fixture_id,message='user-'+fixture_id)
+    primary=PrimarySessionOwner(service.runtime,service.workspace_root,provider).ensure_current()
+    session=primary['session_id']
+    messages,env,payload=host_turn(request['scope'],session=session,message='user-'+fixture_id)
+    assistant=env['AITEST_HOST_MESSAGE_ID'];call_id='call-'+fixture_id
+    row=messages[f'/session/{session}/message/{assistant}']
+    row['info']['agent']='aitest-director'
+    row['parts']=[{'type':'tool','tool':'aitest_director','sessionID':session,'messageID':assistant,
+        'callID':call_id,'state':{'status':'running','input':{'action':'start_test','payload':payload}}}]
+    env['AITEST_HOST_CALL_ID']=call_id
     reads=[]
     def read(method,path):
         assert method=='GET'
