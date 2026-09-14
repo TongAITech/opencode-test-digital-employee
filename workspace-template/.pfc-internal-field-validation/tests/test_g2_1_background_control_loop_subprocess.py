@@ -242,23 +242,48 @@ def main() -> int:
             )
             env.update(host_env)
             started = run(env, "DIRECTOR", "start_test", payload)
-            intake = started.get("intake")
-            planner_session = started.get("planner_session")
+            operations = started.get("operations")
             if (
-                started.get("status") != "PLANNING"
-                or not isinstance(intake, dict)
-                or not isinstance(intake.get("intake"), dict)
-                or not isinstance(planner_session, dict)
-                or planner_session.get("status") != "PLANNER_SESSION_OPEN"
-                or not isinstance(planner_session.get("external_session"), dict)
+                started.get("status") != "INTERACTION_PROCESSED"
+                or not isinstance(operations, list)
+                or len(operations) != 1
+                or operations[0].get("status") != "DISPATCHED"
+                or operations[0].get("effect") != "TEST_DISPATCH"
+                or not isinstance(operations[0].get("subject"), dict)
+                or operations[0]["subject"].get("subject_kind") != "MISSION"
+                or not isinstance(operations[0].get("result"), dict)
+                or operations[0]["result"].get("status") != "PLANNER_SESSION_OPEN"
             ):
                 raise AssertionError(
                     "BACKGROUND_START_RESULT_INVALID:" + json.dumps(started, ensure_ascii=False, sort_keys=True)
                 )
-            mission_id = str(intake["intake"]["mission_id"])
-            planner_session_id = str(planner_session["external_session"]["session_id"])
-            if planner_session.get("mission_id") != mission_id:
+            mission_id = str(operations[0]["subject"]["subject_id"])
+            if operations[0]["result"].get("mission_id") != mission_id:
                 raise AssertionError("BACKGROUND_START_MISSION_IDENTITY_MISMATCH")
+
+            # The normal interaction wrapper intentionally does not expose the
+            # external Planner Session id. Resolve it from canonical Mission
+            # status instead of depending on an internal start-test return shape.
+            startup_status_payload = {"mission_id": mission_id}
+            bind_host_tool(
+                env, session_id=primary_host_session, agent="aitest-director", tool="aitest_director",
+                action="status", payload=startup_status_payload, label="background-start-status",
+            )
+            startup_status = run(env, "DIRECTOR", "status", startup_status_payload)
+            core_sessions = startup_status.get("core", {}).get("sessions", {})
+            planner_sessions = [
+                sid for sid, value in core_sessions.items()
+                if isinstance(value, dict)
+                and value.get("status") == "OPEN"
+                and isinstance(value.get("attributes"), dict)
+                and value["attributes"].get("phase") == "PLANNING"
+            ] if isinstance(core_sessions, dict) else []
+            if len(planner_sessions) != 1:
+                raise AssertionError(
+                    "BACKGROUND_PLANNER_SESSION_NOT_UNIQUE:"
+                    + json.dumps(startup_status, ensure_ascii=False, sort_keys=True)
+                )
+            planner_session_id = str(planner_sessions[0])
             plan_payload = {"mission_id": mission_id, "proposal": proposal()}
             bind_host_tool(
                 env, session_id=planner_session_id, agent="aitest-planner", tool="aitest_planner",
