@@ -569,6 +569,11 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
                 raise RuntimeError(f"SESSION_ROUTER_CAPABILITY_UNAVAILABLE: {sorted(missing)}")
         composed, work_graph, goal, current_plan = self._active_plan_context(mission_id)
         current_revision = work_graph.revision(current_plan.current_revision_id) if current_plan and current_plan.current_revision_id else None
+        business_before_plan = business_cursor(self.runtime, mission_id)
+        replanning_was_active = any(
+            progress.phase == "REPLANNING"
+            for progress in self.session_control.state(mission_id).progress_records
+        )
         stable_proposal = {
             "objective": proposal.get("objective"),
             "constraints": proposal.get("constraints", []),
@@ -601,9 +606,18 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         result = self.planner.plan_or_revise(item)
         accepted = result.outcome in {"APPLIED", "DUPLICATE", "NO_CHANGE"}
         routes = self._register_plan_routes(mission_id, normalized_tasks) if accepted else []
-        resolved_progress = self._resolve_replanning_progress_after_plan(mission_id) if accepted else []
-        closed_planner_sessions = self._close_planning_sessions_after_plan(mission_id) if accepted else []
-        next_state = self.advance(mission_id) if accepted else None
+        business_after_plan = business_cursor(self.runtime, mission_id)
+        semantic_progress = business_after_plan > business_before_plan
+        stalled_replan_no_change = accepted and replanning_was_active and not semantic_progress
+        resolved_progress = (
+            self._resolve_replanning_progress_after_plan(mission_id)
+            if accepted and semantic_progress else []
+        )
+        closed_planner_sessions = (
+            self._close_planning_sessions_after_plan(mission_id)
+            if accepted and not stalled_replan_no_change else []
+        )
+        next_state = self.advance(mission_id) if accepted and not stalled_replan_no_change else None
         return {
             "schema_version": G2_SCHEMA,
             "status": "PASS" if accepted else result.outcome,
@@ -614,7 +628,9 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             "route_requirements": routes,
             "closed_planner_sessions": closed_planner_sessions,
             "resolved_progress_ids": resolved_progress,
-            "autonomous_handoff": "SCHEDULER" if accepted else None,
+            "semantic_business_progress": semantic_progress if accepted else False,
+            "stalled_replan_no_change": stalled_replan_no_change if accepted else False,
+            "autonomous_handoff": "SCHEDULER" if accepted and not stalled_replan_no_change else None,
             "next": next_state,
             "head_seq": self.runtime.get_head_seq(mission_id),
         }
