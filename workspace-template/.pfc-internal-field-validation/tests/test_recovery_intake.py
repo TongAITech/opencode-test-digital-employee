@@ -230,6 +230,50 @@ class RecoveryIntakeTests(unittest.TestCase):
         self.assertTrue(coverage["uncovered_unit_refs_truncated"])
         self.assertEqual(len(coverage["source_unit_scope_digest"]), 64)
 
+    def test_source_unit_provenance_forgery_is_rejected_before_write(self):
+        first = self.document()
+        second_path = self.root / "other-source.md"
+        second_path.write_text("# Other\nOther rule must hold.\n", encoding="utf-8")
+        second = self.service.import_document(
+            self.mission, second_path, "other-source"
+        )["document"]
+        first_unit = first["payload"]["source_units"][0]["unit_id"]
+        second_unit = second["payload"]["source_units"][0]["unit_id"]
+        seq = self.runtime.get_head_seq(self.mission)
+
+        invalid_refs = [
+            [{"source_ref": second["fact_id"], "unit_id": second_unit}],
+            [{"source_ref": first["fact_id"], "unit_id": "unit-does-not-exist"}],
+            [
+                {"source_ref": first["fact_id"], "unit_id": first_unit},
+                {"source_ref": first["fact_id"], "unit_id": first_unit},
+            ],
+        ]
+        for index, source_unit_refs in enumerate(invalid_refs, 1):
+            with self.subTest(case=index):
+                with self.assertRaisesRegex(
+                    Exception, "RECOVERY_SOURCE_UNIT_PROVENANCE_INVALID"
+                ):
+                    self.service.analyze_requirements(
+                        self.mission,
+                        "FORGED-UNITS",
+                        [{
+                            "artifact_id": f"BR-FORGE-{index}",
+                            "kind": "BR",
+                            "revision": "1",
+                            "text": "Forged provenance must not pass",
+                            "source_refs": [first["fact_id"]],
+                            "source_unit_refs": source_unit_refs,
+                        }],
+                    )
+                self.assertEqual(self.runtime.get_head_seq(self.mission), seq)
+
+        with self.assertRaisesRegex(Exception, "RECOVERY_SOURCE_UNIT_NOT_FOUND"):
+            self.service.source(
+                self.mission, first["fact_id"], unit_id="unit-does-not-exist"
+            )
+        self.assertEqual(self.runtime.get_head_seq(self.mission), seq)
+
     def test_atomic_validation_and_revision_immutability(self):
         doc = self.document()
         graph = self.graph(doc["fact_id"])
