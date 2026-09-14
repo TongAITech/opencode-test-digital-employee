@@ -212,6 +212,7 @@ from host_opencode import CapabilityClient
 from aitest_runtime.canonical_runtime import create_canonical_runtime
 from aitest_runtime.autonomous_orchestration import DirectoryScopedOpenCodeSessionProvider
 from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
+from aitest_runtime.dispatch_receipts import business_cursor
 from aitest_runtime.primary_sessions import PrimarySessionOwner
 
 client = CapabilityClient(env["AITEST_OPENCODE_ENDPOINT"], workspace, env)
@@ -534,6 +535,118 @@ try:
         "final_state": restarted_primary.state().bindings[str(crash_predecessor_epoch)]["context_recovery"]["state"],
         "receipt": receipt,
         "blind_resend": False,
+    }
+
+    # C3 exact-host qualification: durable no-progress must create a governed
+    # Replanning Planner on the actual OpenCode 1.18.3 Host. Host-observed
+    # context pressure must rotate that Replanner while preserving the same
+    # progress-bound lineage. No model semantic output is used to author a Plan.
+    c3_started = service.start_test({
+        "intake_id": "c3-replanning-host-boundary",
+        "operation": "CREATE",
+        "scope": {"mode": "EXPLICIT_SET", "project_id": "PFC", "version": "C3-HOST", "requirements": ["REQ-C3"]},
+        "goal": {"title": "C3 Replanning Host Boundary", "intent": "prove durable no-progress replanning on exact host", "constraints": []},
+        "source": {"kind": "USER", "source_ref": "qualification:c3-replanning-host-boundary",
+                   "source_digest": sha_json({"goal": "c3-replanning-host-boundary"}),
+                   "observed_at": "2026-09-14T00:00:00Z", "valid_until": None, "source_precedence": 1},
+        "actor": {"type": "USER", "id": "qualification"},
+        "resolution": {"resolution_id": "resolution:c3-replanning-host-boundary",
+                       "request_digest": sha_json({"request": "c3-replanning-host-boundary"}),
+                       "snapshot_id": "snapshot:c3-replanning-host-boundary",
+                       "fact_set_digest": sha_json({"facts": []}), "status": "RESOLVED",
+                       "reason_code": None, "source_refs": ["qualification:c3-replanning-host-boundary"],
+                       "valid_until": "2026-09-15T00:00:00Z"},
+    })
+    c3_mission = c3_started["intake"]["intake"]["mission_id"]
+    c3_worker = service.propose_plan(c3_mission, {
+        "objective": "one bounded worker for no-progress host qualification",
+        "tasks": [{
+            "task_key": "worker",
+            "intent": "bounded execution",
+            "acceptance_criteria": [{"id": "done", "description": "host replanning proves autonomous continuation substrate"}],
+            "routing": {"role": "EXECUTOR",
+                        "required_capabilities": ["OPENCODE_AGENT_SESSION", "TASK_OUTCOME_REPORT"],
+                        "isolation_policy": "DEDICATED_TASK_SESSION",
+                        "parallelism_policy": "SERIAL"},
+        }],
+        "dependencies": [],
+    })["next"]
+    c3_cursor = business_cursor(runtime, c3_mission)
+    before_replan_provider = call_count()
+    c3_replan = service._handle_no_progress(
+        c3_mission,
+        task_id=c3_worker["task_id"],
+        session_id=c3_worker["external_session"]["session_id"],
+        reason="AUTO_CONTINUE_NO_BUSINESS_PROGRESS",
+        cursor=c3_cursor,
+    )
+    if c3_replan.get("status") != "REPLAN_DISPATCHED":
+        raise RuntimeError("C3_EXACT_HOST_REPLAN_NOT_DISPATCHED")
+    c3_progress_id = c3_replan["progress_id"]
+    c3_replan_session = c3_replan["session_id"]
+    wait_until(lambda: call_count() >= before_replan_provider + 1, 30)
+    result["gates"]["C3_REPLANNING_CONTEXT_REACHES_PROVIDER"] = "PASS"
+
+    client.request(
+        "POST", f"/session/{c3_replan_session}/message",
+        {"agent": "aitest-planner", "noReply": True,
+         "parts": [{"type": "text", "text": "C3-HOST-PRESSURE-" + ("测" * 120000)}]},
+        timeout=30, budget=2 * 1024 * 1024,
+    )
+    before_rotation_provider = call_count()
+    c3_tick = service.supervise_once()
+    c3_rotations = [
+        item["result"] for item in c3_tick.get("supervision", [])
+        if item.get("phase") == "REPLANNING"
+        and item.get("result", {}).get("status") == "ROTATED"
+        and item.get("result", {}).get("progress_id") == c3_progress_id
+    ]
+    if len(c3_rotations) != 1:
+        raise RuntimeError("C3_EXACT_HOST_REPLANNER_ROTATION_NOT_OBSERVED")
+    c3_rotation = c3_rotations[0]
+    c3_successor = c3_rotation["successor_session_id"]
+    if c3_successor == c3_replan_session:
+        raise RuntimeError("C3_EXACT_HOST_REPLANNER_SUCCESSOR_REUSED")
+    wait_until(lambda: call_count() >= before_rotation_provider + 1, 30)
+    c3_progress = service.session_control.state(c3_mission).progress(c3_progress_id)
+    if c3_progress is None or c3_progress.replan_session_id != c3_successor:
+        raise RuntimeError("C3_EXACT_HOST_PROGRESS_POINTER_NOT_ADVANCED")
+    result["gates"]["C3_REPLANNER_PRESSURE_ROTATES_ON_EXACT_HOST"] = "PASS"
+
+    before_reentry_provider = call_count()
+    c3_reentry = service._handle_no_progress(
+        c3_mission,
+        task_id=c3_worker["task_id"],
+        session_id=c3_worker["external_session"]["session_id"],
+        reason="AUTO_CONTINUE_NO_BUSINESS_PROGRESS",
+        cursor=c3_cursor,
+    )
+    if c3_reentry.get("status") != "REPLAN_IN_PROGRESS" or c3_reentry.get("session_id") != c3_successor:
+        raise RuntimeError("C3_EXACT_HOST_REENTRY_DID_NOT_REUSE_SUCCESSOR")
+    time.sleep(0.5)
+    if call_count() != before_reentry_provider:
+        raise RuntimeError("C3_EXACT_HOST_REENTRY_DUPLICATED_PROVIDER_PROMPT")
+
+    restarted_c3 = G21AutonomousOrchestrationService(runtime, workspace, session_provider=provider)
+    c3_restart = restarted_c3._handle_no_progress(
+        c3_mission,
+        task_id=c3_worker["task_id"],
+        session_id=c3_worker["external_session"]["session_id"],
+        reason="AUTO_CONTINUE_NO_BUSINESS_PROGRESS",
+        cursor=c3_cursor,
+    )
+    if c3_restart.get("status") != "REPLAN_IN_PROGRESS" or c3_restart.get("session_id") != c3_successor:
+        raise RuntimeError("C3_EXACT_HOST_RESTART_DID_NOT_REUSE_SUCCESSOR")
+    result["gates"]["C3_REPLAN_RESTART_REUSES_SUCCESSOR"] = "PASS"
+    result["c3_replanning_host"] = {
+        "mission_id": c3_mission,
+        "progress_id": c3_progress_id,
+        "initial_replan_session": c3_replan_session,
+        "successor_replan_session": c3_successor,
+        "rotation_id": c3_rotation["rotation_id"],
+        "lineage": c3_rotation["root_attempt_id"],
+        "provider_calls_after_reentry": call_count(),
+        "duplicate_replan_prompt": False,
     }
 
     result.update({
