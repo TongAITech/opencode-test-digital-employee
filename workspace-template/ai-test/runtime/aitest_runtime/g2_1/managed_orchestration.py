@@ -540,6 +540,144 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             resolved.append(progress.progress_id)
         return resolved
 
+    @staticmethod
+    def _plan_semantic_surface(
+        objective: Any,
+        constraints: Any,
+        tasks: Any,
+        dependencies: Any,
+    ) -> dict[str, Any] | None:
+        """Identity-free Planner semantics used only to reject fake progress.
+
+        Frozen R2.3 remains the sole authority that validates and persists a
+        PlanRevision. This helper intentionally strips revision/task ids so a
+        cursor-qualified retry with identical WHAT cannot manufacture business
+        progress merely by receiving new durable identities.
+        """
+        if not isinstance(tasks, (list, tuple)) or not tasks:
+            return None
+        normalized_tasks: list[dict[str, Any]] = []
+        references: dict[str, str] = {}
+        seen: set[str] = set()
+        for index, raw in enumerate(tasks):
+            if not isinstance(raw, Mapping):
+                return None
+            raw = dict(raw)
+            key = next(
+                (str(raw[name]).strip() for name in ("task_key","key","semantic_key","name")
+                 if raw.get(name) is not None and str(raw.get(name)).strip()),
+                f"task-{index + 1}",
+            )
+            if key in seen:
+                return None
+            seen.add(key)
+            intent = next(
+                (str(raw[name]).strip() for name in ("intent","description","statement","action")
+                 if raw.get(name) is not None and str(raw.get(name)).strip()),
+                key,
+            )
+            criteria_raw = raw.get("acceptance_criteria", raw.get("acceptance", raw.get("criteria", [])))
+            if criteria_raw is None:
+                criteria_raw = []
+            if not isinstance(criteria_raw, (list, tuple)):
+                return None
+            criteria: list[dict[str, str]] = []
+            criterion_ids: set[str] = set()
+            for criterion_index, item in enumerate(criteria_raw):
+                if not isinstance(item, Mapping):
+                    return None
+                cid = next(
+                    (str(item[name]).strip() for name in ("criterion_id","id","key")
+                     if item.get(name) is not None and str(item.get(name)).strip()),
+                    f"{key}:criterion:{criterion_index + 1}",
+                )
+                if cid in criterion_ids:
+                    return None
+                criterion_ids.add(cid)
+                description = next(
+                    (str(item[name]).strip() for name in ("description","statement","expected","value")
+                     if item.get(name) is not None and str(item.get(name)).strip()),
+                    intent,
+                )
+                criteria.append({"criterion_id":cid,"description":description})
+            normalized_tasks.append({
+                "task_key":key, "intent":intent, "acceptance_criteria":criteria,
+            })
+            references[key] = key
+            references[str(index + 1)] = key
+            if raw.get("task_id") is not None:
+                references[str(raw["task_id"])] = key
+
+        if constraints is None:
+            constraints = []
+        if not isinstance(constraints, (list, tuple)):
+            return None
+        normalized_constraints: list[dict[str, Any]] = []
+        for item in constraints:
+            if not isinstance(item, Mapping):
+                return None
+            kind = item.get("kind")
+            if not isinstance(kind, str) or not kind.strip() or "value" not in item:
+                return None
+            normalized_constraints.append({"kind":kind.strip(),"value":item["value"]})
+
+        if dependencies is None:
+            dependencies = []
+        if not isinstance(dependencies, (list, tuple)):
+            return None
+        normalized_dependencies: list[dict[str, str]] = []
+        seen_edges: set[tuple[str, str]] = set()
+        for item in dependencies:
+            if not isinstance(item, Mapping):
+                return None
+            predecessor_raw = item.get("predecessor_task_id", item.get("predecessor", item.get("from")))
+            successor_raw = item.get("successor_task_id", item.get("successor", item.get("to")))
+            predecessor = references.get(str(predecessor_raw))
+            successor = references.get(str(successor_raw))
+            kind = str(item.get("dependency_kind", item.get("kind", "FINISH_TO_START")))
+            if predecessor is None or successor is None or kind != "FINISH_TO_START" or predecessor == successor:
+                return None
+            edge = (predecessor, successor)
+            if edge in seen_edges:
+                return None
+            seen_edges.add(edge)
+            normalized_dependencies.append({
+                "predecessor_task_key":predecessor,
+                "successor_task_key":successor,
+                "dependency_kind":"FINISH_TO_START",
+            })
+
+        return {
+            "objective": objective,
+            "constraints": normalized_constraints,
+            "tasks": normalized_tasks,
+            "dependencies": normalized_dependencies,
+        }
+
+    @classmethod
+    def _proposal_semantic_digest(cls, proposal: Mapping[str, Any]) -> str | None:
+        tasks = proposal.get("tasks", proposal.get("task_definitions"))
+        surface = cls._plan_semantic_surface(
+            proposal.get("objective"), proposal.get("constraints", []),
+            tasks, proposal.get("dependencies", []),
+        )
+        return canonical_sha256(surface) if surface is not None else None
+
+    @classmethod
+    def _revision_semantic_digest(cls, revision: Any) -> str | None:
+        if revision is None:
+            return None
+        tasks = [dict(item) for item in getattr(revision, "task_definitions", ())]
+        # Frozen WorkGraph dependencies reference canonical task ids. Map those
+        # ids back to semantic task keys before comparing with a fresh proposal.
+        surface = cls._plan_semantic_surface(
+            getattr(revision, "objective", None),
+            [dict(item) for item in getattr(revision, "constraints", ())],
+            tasks,
+            [dict(item) for item in getattr(revision, "dependencies", ())],
+        )
+        return canonical_sha256(surface) if surface is not None else None
+
     @_coordinated
     def propose_plan(self, mission_id: str, proposal: Mapping[str, Any]) -> dict[str, Any]:
         """Run frozen R2.3, persist G2.1 routes, then hand off to Scheduler."""
@@ -583,6 +721,45 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             "dependencies": proposal.get("dependencies", []),
         }
         proposal_digest = canonical_sha256(stable_proposal)
+        candidate_semantic_digest = self._proposal_semantic_digest(stable_proposal)
+        current_semantic_digest = self._revision_semantic_digest(current_revision)
+        if (
+            current_plan is not None
+            and current_revision is not None
+            and candidate_semantic_digest is not None
+            and candidate_semantic_digest == current_semantic_digest
+        ):
+            # A new cursor/revision identity is not semantic business progress.
+            # Do not call frozen R2.3: doing so would legitimately persist a new
+            # Revision identity and make the Event Stream look like progress.
+            # The durable current Revision remains the sole Plan Truth.
+            return {
+                "schema_version":G2_SCHEMA,
+                "status":"PASS",
+                "truth_source":"R1_EVENT_STREAM",
+                "operation":"PLAN_PROPOSAL",
+                "ai_authored_proposal_digest":proposal_digest,
+                "runtime_governed_result":{
+                    "outcome":"NO_CHANGE", "status":"NO_CHANGE",
+                    "mission_id":mission_id, "active_goal_id":goal.goal_id,
+                    "plan_id":current_plan.plan_id,
+                    "revision_id":current_plan.current_revision_id,
+                    "content_hash":current_revision.content_hash,
+                    "reason_code":"PLAN_UNCHANGED",
+                    "reason":"Candidate semantic content matches the durable current Revision",
+                    "c3_semantic_digest":candidate_semantic_digest,
+                    "frozen_r2_3_invoked":False,
+                },
+                "route_requirements":[],
+                "closed_planner_sessions":[],
+                "resolved_progress_ids":[],
+                "semantic_business_progress":False,
+                "stalled_replan_no_change":replanning_was_active,
+                "autonomous_handoff":None,
+                "next":None,
+                "head_seq":self.runtime.get_head_seq(mission_id),
+            }
+
         planning_cursor = self.runtime.get_head_seq(mission_id)
         # R2.3 request_digest deliberately binds planning_cursor. Therefore the
         # fallback planner_request_id must identify one cursor-qualified planning
