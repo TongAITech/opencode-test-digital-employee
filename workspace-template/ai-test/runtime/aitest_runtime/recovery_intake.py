@@ -169,6 +169,63 @@ def _document_source_units(fact: Any) -> list[dict[str, Any]]:
     return _validate_source_unit_ledger(text, units)
 
 
+def _source_snapshot(state: G3State) -> tuple[list[dict[str, str]], str]:
+    rows = []
+    for fact in state.by_kind("SOURCE_DOCUMENT"):
+        units = _document_source_units(fact)
+        rows.append({
+            "source_ref": fact.fact_id,
+            "source_id": str(fact.payload["source_id"]),
+            "revision": str(fact.payload["revision"]),
+            "sha256": str(fact.payload["sha256"]),
+            "source_unit_ledger_digest": str(
+                fact.payload.get("source_unit_ledger_digest") or canonical_sha256(units)
+            ),
+        })
+    return rows, canonical_sha256(rows)
+
+
+def _latest_source_scope_manifest(state: G3State, scope_identity: str) -> Any | None:
+    return state.latest(
+        "SOURCE_SCOPE_MANIFEST",
+        lambda fact: fact.payload.get("scope_identity") == scope_identity,
+    )
+
+
+def _resolve_scope_documents(
+    state: G3State, scope_identity: str
+) -> tuple[list[Any], dict[str, Any]]:
+    snapshot, snapshot_digest = _source_snapshot(state)
+    by_ref = {fact.fact_id: fact for fact in state.by_kind("SOURCE_DOCUMENT")}
+    manifest = _latest_source_scope_manifest(state, scope_identity)
+    if manifest is None:
+        return list(by_ref.values()), {
+            "scope_policy": "ALL_IMPORTED_MISSION_SOURCES",
+            "scope_manifest_ref": None,
+            "source_snapshot_digest": snapshot_digest,
+        }
+
+    payload = manifest.payload
+    if payload.get("source_snapshot_digest") != snapshot_digest:
+        raise RuntimeError(
+            "RECOVERY_SOURCE_SCOPE_MANIFEST_STALE",
+            "source set changed after this scope manifest was frozen",
+        )
+    entries = payload.get("entries") or []
+    in_scope = [
+        str(item["source_ref"])
+        for item in entries
+        if isinstance(item, Mapping) and item.get("disposition") == "IN_SCOPE"
+    ]
+    if not in_scope:
+        raise RuntimeError("RECOVERY_SOURCE_SCOPE_EMPTY", scope_identity)
+    return [by_ref[source_ref] for source_ref in in_scope], {
+        "scope_policy": "EXPLICIT_SOURCE_SCOPE_MANIFEST",
+        "scope_manifest_ref": manifest.fact_id,
+        "source_snapshot_digest": snapshot_digest,
+    }
+
+
 def _normalize_source_unit_refs(payload: Mapping[str, Any], state: G3State) -> list[dict[str, str]]:
     source_refs = [str(value) for value in payload.get("source_refs") or []]
     documents: dict[str, Any] = {}
@@ -216,11 +273,19 @@ def _normalize_source_unit_refs(payload: Mapping[str, Any], state: G3State) -> l
     return normalized
 
 
-def _source_analysis_coverage(state: G3State, artifacts: list[Mapping[str, Any]]) -> dict[str, Any]:
-    # Until Phase D introduces an explicit per-scope source manifest, the only
-    # fail-safe denominator is every SOURCE_DOCUMENT admitted to this Mission.
-    # Omitting a whole imported document must never make analysis look complete.
-    documents = list(state.by_kind("SOURCE_DOCUMENT"))
+def _source_analysis_coverage(
+    state: G3State, artifacts: list[Mapping[str, Any]], scope_identity: str
+) -> dict[str, Any]:
+    documents, scope = _resolve_scope_documents(state, scope_identity)
+    allowed_sources = {fact.fact_id for fact in documents}
+    for artifact in artifacts:
+        payload = artifact.get("payload") if isinstance(artifact.get("payload"), Mapping) else artifact
+        artifact_sources = {str(value) for value in payload.get("source_refs") or []}
+        if not artifact_sources.issubset(allowed_sources):
+            raise RuntimeError(
+                "RECOVERY_SOURCE_SCOPE_ARTIFACT_CONFLICT",
+                "analysis artifact references a source outside the current scope manifest",
+            )
     all_refs: list[dict[str, str]] = []
     for fact in documents:
         for unit in _document_source_units(fact):
@@ -239,7 +304,10 @@ def _source_analysis_coverage(state: G3State, artifacts: list[Mapping[str, Any]]
     ]
     covered = len(all_refs) - len(uncovered_all)
     stable = {
-        "scope_policy": "ALL_IMPORTED_MISSION_SOURCES",
+        "scope_identity": scope_identity,
+        "scope_policy": scope["scope_policy"],
+        "scope_manifest_ref": scope["scope_manifest_ref"],
+        "source_snapshot_digest": scope["source_snapshot_digest"],
         "document_count": len(documents),
         "total_units": len(all_refs),
         "covered_units": covered,
@@ -319,7 +387,9 @@ def _revision_guard(state: G3State, kind: str, payload: Mapping[str, Any], ident
 
 def validate_recovery_fact(kind: str, payload: Mapping[str, Any], state: G3State) -> None:
     """Enforce intake invariants at G3 command ingress, including direct calls."""
-    if kind not in {"SOURCE_DOCUMENT", "REQUIREMENT_ANALYSIS_ARTIFACT", "CURRENT_RELEASE", "CURRENT_RELEASE_BINDING", "RUNTIME_FACTS_RESOLUTION"}:
+    if kind not in {"SOURCE_DOCUMENT", "SOURCE_SCOPE_MANIFEST", "SOURCE_HYDRATION_GENERATION",
+                        "REQUIREMENT_ANALYSIS_ARTIFACT", "CURRENT_RELEASE", "CURRENT_RELEASE_BINDING",
+                        "RUNTIME_FACTS_RESOLUTION"}:
         return
     _json(payload, allow_sensitive_references=kind == "RUNTIME_FACTS_RESOLUTION")
     validate_secret_boundary(payload)
@@ -343,6 +413,54 @@ def validate_recovery_fact(kind: str, payload: Mapping[str, Any], state: G3State
         if payload.get("source_unit_ledger_version") != 1 or payload.get("source_unit_ledger_digest") != canonical_sha256(units):
             raise RuntimeError("RECOVERY_SOURCE_UNIT_LEDGER_INVALID", "source unit ledger identity mismatch")
         _revision_guard(state, kind, payload, ("source_id", "revision"))
+    elif kind == "SOURCE_SCOPE_MANIFEST":
+        for name in ("scope_identity", "revision", "source_snapshot_digest"):
+            _text(payload.get(name), name)
+        entries = payload.get("entries")
+        if not isinstance(entries, list) or not entries:
+            raise RuntimeError("RECOVERY_SOURCE_SCOPE_INVALID", "entries are required")
+        snapshot, snapshot_digest = _source_snapshot(state)
+        if payload["source_snapshot_digest"] != snapshot_digest:
+            raise RuntimeError("RECOVERY_SOURCE_SCOPE_MANIFEST_STALE", "manifest does not bind the current source set")
+        expected_refs = [row["source_ref"] for row in snapshot]
+        actual_refs: list[str] = []
+        in_scope = 0
+        for entry in entries:
+            if not isinstance(entry, Mapping) or set(entry) != {"source_ref", "disposition", "reason"}:
+                raise RuntimeError("RECOVERY_SOURCE_SCOPE_INVALID", "entry schema mismatch")
+            source_ref = _text(entry.get("source_ref"), "source_ref")
+            disposition = str(entry.get("disposition") or "")
+            if disposition not in {"IN_SCOPE", "OUT_OF_SCOPE"}:
+                raise RuntimeError("RECOVERY_SOURCE_SCOPE_INVALID", "invalid disposition")
+            reason = entry.get("reason")
+            if disposition == "OUT_OF_SCOPE":
+                _text(reason, "reason")
+            elif reason not in {None, ""}:
+                raise RuntimeError("RECOVERY_SOURCE_SCOPE_INVALID", "IN_SCOPE reason must be empty")
+            actual_refs.append(source_ref)
+            in_scope += disposition == "IN_SCOPE"
+        if actual_refs != expected_refs or len(set(actual_refs)) != len(actual_refs):
+            raise RuntimeError("RECOVERY_SOURCE_SCOPE_INCOMPLETE", "every current source must be classified exactly once")
+        if not in_scope:
+            raise RuntimeError("RECOVERY_SOURCE_SCOPE_EMPTY", str(payload["scope_identity"]))
+        if payload.get("source_count") != len(snapshot) or payload.get("in_scope_count") != in_scope:
+            raise RuntimeError("RECOVERY_SOURCE_SCOPE_INVALID", "scope counts mismatch")
+        _revision_guard(state, kind, payload, ("scope_identity", "revision"))
+    elif kind == "SOURCE_HYDRATION_GENERATION":
+        for name in ("generation_id", "scope_identity", "source_snapshot_digest",
+                     "source_unit_scope_digest", "coverage_digest", "semantic_model_ref", "status"):
+            _text(payload.get(name), name)
+        if payload["status"] not in {"PARTIAL", "COMPLETE"}:
+            raise RuntimeError("RECOVERY_HYDRATION_STATUS_INVALID", str(payload["status"]))
+        for name in ("total_units", "covered_units", "remaining_uncovered_units", "newly_covered_units"):
+            value = payload.get(name)
+            if type(value) is not int or value < 0:
+                raise RuntimeError("RECOVERY_HYDRATION_INVALID", name)
+        if payload["covered_units"] > payload["total_units"] or payload["remaining_uncovered_units"] != payload["total_units"] - payload["covered_units"]:
+            raise RuntimeError("RECOVERY_HYDRATION_INVALID", "coverage counts mismatch")
+        previous = payload.get("previous_generation_ref")
+        if previous is not None and state.by_id(str(previous)) is None:
+            raise RuntimeError("RECOVERY_HYDRATION_PREDECESSOR_INVALID", str(previous))
     elif kind == "REQUIREMENT_ANALYSIS_ARTIFACT":
         for name in ("artifact_id", "scope_identity", "revision", "text", "kind"):
             _text(payload.get(name), name)
