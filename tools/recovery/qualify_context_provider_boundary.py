@@ -819,6 +819,147 @@ try:
         "duplicate_replan_prompt": False,
     }
 
+    # Exact-host model->tool qualification. The provider emits only predeclared
+    # tool calls; semantic payloads are authored here by the qualification, not
+    # by the fixture pretending to be an intelligent model. OpenCode itself must
+    # create ToolContext, run the real plugin tool, and persist all effects in R1.
+    tool_started = service.start_test({
+        "intake_id": "c3-exact-host-tool-loop",
+        "operation": "CREATE",
+        "scope": {"mode": "EXPLICIT_SET", "project_id": "PFC", "version": "C3-TOOL", "requirements": ["REQ-TOOL"]},
+        "goal": {"title": "C3 Exact Host Tool Loop", "intent": "prove OpenCode ToolContext to canonical Runtime", "constraints": []},
+        "source": {"kind": "USER", "source_ref": "qualification:c3-exact-host-tool-loop",
+                   "source_digest": sha_json({"goal": "c3-exact-host-tool-loop"}),
+                   "observed_at": "2026-09-14T00:00:00Z", "valid_until": None, "source_precedence": 1},
+        "actor": {"type": "USER", "id": "qualification"},
+        "resolution": {"resolution_id": "resolution:c3-exact-host-tool-loop",
+                       "request_digest": sha_json({"request": "c3-exact-host-tool-loop"}),
+                       "snapshot_id": "snapshot:c3-exact-host-tool-loop",
+                       "fact_set_digest": sha_json({"facts": []}), "status": "RESOLVED",
+                       "reason_code": None, "source_refs": ["qualification:c3-exact-host-tool-loop"],
+                       "valid_until": "2026-09-15T00:00:00Z"},
+    })
+    tool_mission = tool_started["intake"]["intake"]["mission_id"]
+    tool_planner_session = tool_started["planner_session"]["external_session"]["session_id"]
+    tool_plan = {
+        "objective": "one exact-host worker tool-call",
+        "tasks": [{
+            "task_key": "host-tool-worker",
+            "intent": "report one governed deterministic qualification outcome",
+            "acceptance_criteria": [{"id": "host-tool", "description": "OpenCode executor tool reaches canonical Runtime"}],
+            "routing": {
+                "role": "EXECUTOR",
+                "required_capabilities": ["OPENCODE_AGENT_SESSION", "TASK_OUTCOME_REPORT"],
+                "isolation_policy": "DEDICATED_TASK_SESSION",
+                "parallelism_policy": "SERIAL",
+            },
+        }],
+        "dependencies": [],
+    }
+    planner_args = {
+        "action": "propose_plan",
+        "payload": {"mission_id": tool_mission, "proposal": tool_plan},
+    }
+    planner_events_before = len(scripted_tool_events)
+    arm_scripted_tool("planner", planner_args, "c3-planner-propose")
+    provider.send_context(
+        session_id=tool_planner_session,
+        agent="aitest-planner",
+        text="AITEST_EXACT_HOST_TOOL_CALL_QUALIFICATION\nCall the canonical Planner tool with the supplied qualification payload.",
+    )
+
+    def tool_worker_ready():
+        composed = runtime.replay_composed(tool_mission)
+        graph = composed.extension_state("r1_2_work_graph")
+        execution = composed.extension_state("r1_3b_execution_resume")
+        if graph is None or execution is None:
+            return None
+        for task in getattr(graph, "tasks", ()):
+            if getattr(getattr(task, "lifecycle_state", None), "value", None) != "ACTIVE":
+                continue
+            attempt = execution.latest_attempt(task.task_id)
+            if attempt is None:
+                continue
+            session = composed.core_state.session(attempt.runtime_session_id)
+            if session is None or session.status.value != "OPEN":
+                continue
+            return {
+                "task_id": task.task_id,
+                "attempt_id": attempt.attempt_id,
+                "session_id": attempt.runtime_session_id,
+                "root_attempt_id": attempt.root_attempt_id,
+            }
+        return None
+
+    tool_worker = wait_until(tool_worker_ready, 45)
+    if len(scripted_tool_events) != planner_events_before + 1:
+        raise RuntimeError("C3_EXACT_HOST_PLANNER_TOOL_CALL_NOT_OBSERVED")
+    result["gates"]["C3_EXACT_HOST_PLANNER_TOOL_CALL_PERSISTS_PLAN"] = "PASS"
+
+    executor_args = {
+        "action": "report_task_outcome",
+        "payload": {
+            "mission_id": tool_mission,
+            "task_id": tool_worker["task_id"],
+            "attempt_id": tool_worker["attempt_id"],
+            "session_id": tool_worker["session_id"],
+            "outcome": "SUCCEEDED",
+            "summary": "Deterministic exact-host ToolContext qualification outcome.",
+            "external_references": [],
+        },
+    }
+    executor_events_before = len(scripted_tool_events)
+    arm_scripted_tool("executor", executor_args, "c3-executor-outcome")
+    provider.send_context(
+        session_id=tool_worker["session_id"],
+        agent="aitest-executor",
+        text="AITEST_EXACT_HOST_EXECUTOR_TOOL_CALL_QUALIFICATION\nReport the supplied deterministic qualification outcome.",
+    )
+
+    def tool_task_succeeded():
+        composed = runtime.replay_composed(tool_mission)
+        graph = composed.extension_state("r1_2_work_graph")
+        if graph is None:
+            return None
+        task = graph.task(tool_worker["task_id"])
+        return task if task is not None and getattr(task.lifecycle_state, "value", None) == "SUCCEEDED" else None
+
+    wait_until(tool_task_succeeded, 45)
+    if len(scripted_tool_events) != executor_events_before + 1:
+        raise RuntimeError("C3_EXACT_HOST_EXECUTOR_TOOL_CALL_NOT_OBSERVED")
+
+    planner_messages = client.request(
+        "GET", f"/session/{tool_planner_session}/message?limit=60", timeout=20, budget=8 * 1024 * 1024
+    )
+    worker_messages = client.request(
+        "GET", f"/session/{tool_worker['session_id']}/message?limit=60", timeout=20, budget=8 * 1024 * 1024
+    )
+    planner_host_text = json.dumps(planner_messages, ensure_ascii=False, sort_keys=True)
+    worker_host_text = json.dumps(worker_messages, ensure_ascii=False, sort_keys=True)
+    planner_tool_name = scripted_tool_events[-2]["tool_name"]
+    executor_tool_name = scripted_tool_events[-1]["tool_name"]
+    if planner_tool_name not in planner_host_text:
+        raise RuntimeError("C3_EXACT_HOST_PLANNER_TOOL_PART_NOT_DURABLE")
+    if executor_tool_name not in worker_host_text:
+        raise RuntimeError("C3_EXACT_HOST_EXECUTOR_TOOL_PART_NOT_DURABLE")
+    if "PLAN_COMPLETE" not in worker_host_text:
+        raise RuntimeError("C3_EXACT_HOST_EXECUTOR_DID_NOT_RETURN_PLAN_COMPLETE")
+
+    result["gates"]["C3_EXACT_HOST_EXECUTOR_TOOL_CALL_COMPLETES_TASK"] = "PASS"
+    result["gates"]["C3_EXACT_HOST_TOOL_LOOP_SAME_MISSION"] = "PASS"
+    result["c3_exact_host_tool_loop"] = {
+        "mission_id": tool_mission,
+        "planner_session_id": tool_planner_session,
+        "worker_session_id": tool_worker["session_id"],
+        "task_id": tool_worker["task_id"],
+        "attempt_id": tool_worker["attempt_id"],
+        "root_attempt_id": tool_worker["root_attempt_id"],
+        "scripted_tool_events": list(scripted_tool_events[-2:]),
+        "real_model": False,
+        "semantic_authority": "QUALIFICATION_PREDECLARED_PAYLOAD",
+        "tool_execution_authority": "REAL_OPENCODE_1_18_3_TOOL_CONTEXT",
+    }
+
     result.update({
         "status": "PASS",
         "mission_id": mission,
