@@ -53,6 +53,21 @@ class SessionControlApplicationService:
             payload, str(payload["session_id"]) if payload.get("session_id") else None,
         )
 
+    def record_quality_decision(self, mission_id: str, payload: Mapping[str, Any]):
+        gid = str(payload["generation_id"])
+        previous = self.state(mission_id).quality_decision(gid)
+        if previous is not None:
+            prior = previous.to_dict()
+            prior.pop("recorded_seq", None); prior.pop("recorded_at", None)
+            if prior == dict(payload):
+                return None
+            raise RuntimeError("G2_1_QUALITY_DECISION_CONFLICT", gid)
+        digest = canonical_sha256(dict(payload))[:16]
+        return self._execute(
+            mission_id, f"g2.1:quality:{gid}:{digest}",
+            RECORD_QUALITY_DECISION, payload,
+        )
+
     def enable_routing_authority(self, mission_id: str):
         state = self.state(mission_id)
         if state.routing_authority_enabled:
