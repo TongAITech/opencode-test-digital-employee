@@ -196,10 +196,30 @@ def main() -> int:
                 "AITEST_OPENCODE_ENDPOINT": f"http://127.0.0.1:{server.server_port}",
                 "PYTHONPATH": str(RUNTIME_ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""),
             })
-            Stub.host_messages,host_env,payload=host_start_turn(request()['scope'],message='background-start')
+            # Product startup creates the durable Primary before any Director
+            # tool call. Reuse the exact trusted launcher composition here rather
+            # than inventing a host Session inside the test fixture.
+            from aitest_runtime.autonomous_orchestration import DirectoryScopedOpenCodeSessionProvider
+            from aitest_runtime.canonical_runtime import create_canonical_runtime
+            from aitest_runtime.primary_sessions import PrimarySessionOwner
+            launcher_runtime = create_canonical_runtime(root, db_path=spine)
+            launcher_provider = DirectoryScopedOpenCodeSessionProvider(
+                root, base_url=env["AITEST_OPENCODE_ENDPOINT"]
+            )
+            primary_binding = PrimarySessionOwner(
+                launcher_runtime, root, launcher_provider
+            ).ensure_current()
+            primary_host_session = str(primary_binding["session_id"])
+
+            Stub.host_messages,host_env,payload=host_start_turn(
+                request()['scope'], session=primary_host_session, message='background-start'
+            )
             env.update(host_env)
-            primary_host_session = host_env["AITEST_HOST_SESSION_ID"]
             started = run(env, "DIRECTOR", "start_test", payload)
+            if not isinstance(started.get("operations"), list) or not started["operations"]:
+                raise AssertionError(
+                    "BACKGROUND_START_RESULT_INVALID:" + json.dumps(started, ensure_ascii=False, sort_keys=True)
+                )
             operation = started["operations"][0]
             mission_id = operation["subject"]["subject_id"]
             planner_session_id = str(operation["result"]["next"]["session_id"])
