@@ -227,6 +227,29 @@ class C3AutonomousProgressTests(unittest.TestCase):
 
 
 
+
+    def test_replan_no_change_is_not_business_progress_and_does_not_resolve_stall(self):
+        mission, worker = self._active_worker("replan-no-change")
+        stalled_cursor = business_cursor(self.runtime, mission)
+        first = self.service._handle_no_progress(
+            mission, task_id=worker["task_id"], session_id=worker["external_session"]["session_id"],
+            reason="AUTO_CONTINUE_NO_BUSINESS_PROGRESS", cursor=stalled_cursor,
+        )
+        progress_id = first["progress_id"]
+        replan_session = first["session_id"]
+
+        same = self.service.propose_plan(mission, one_task())
+        self.assertEqual(same["status"], "PASS")
+        self.assertTrue(same["stalled_replan_no_change"])
+        self.assertFalse(same["semantic_business_progress"])
+        self.assertIsNone(same["autonomous_handoff"])
+        self.assertEqual(business_cursor(self.runtime, mission), stalled_cursor)
+        progress = self.service.session_control.state(mission).progress(progress_id)
+        self.assertEqual(progress.phase, "REPLANNING")
+        self.assertEqual(progress.replan_session_id, replan_session)
+        self.assertIn(replan_session, self.provider.sessions)
+
+
     def test_replanner_gets_one_auto_wake_then_rotates_and_retry_does_not_consume_budget(self):
         mission, worker = self._active_worker("replanner-wake")
         cursor = business_cursor(self.runtime, mission)
