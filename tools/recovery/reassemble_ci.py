@@ -39,6 +39,23 @@ def reassemble(repo: Path, carrier: Path, output: Path) -> dict:
             raise RuntimeError('Carrier payload does not match current lock: ' + relative)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
+
+    # V1.13 release-build supplemental runtimes are materialized into the
+    # dependency carrier before reassembly. They are copied as complete trees;
+    # the bank host never downloads or installs them.
+    supplemental = (
+        'workspace-template/runtime/tools/node',
+        'workspace-template/runtime/tools/gitnexus',
+    )
+    for relative in supplemental:
+        source = (carrier / relative).resolve()
+        target = (stage / relative).resolve()
+        if not source.is_relative_to(carrier.resolve()) or not target.is_relative_to(stage.resolve()):
+            raise RuntimeError('Unsafe supplemental payload path: ' + relative)
+        if not source.is_dir():
+            raise RuntimeError('Supplemental runtime missing from carrier: ' + relative)
+        shutil.copytree(source, target, dirs_exist_ok=True)
+
     result = build(repo, stage, output / 'assembled', '1.13.0', store_only=True)
     result['carrier_scope'] = 'HASH_LOCKED_OFFLINE_PAYLOAD_ONLY; NO_SOURCE_OR_QUALIFICATION_REUSE'
     (output / 'REASSEMBLY_RESULT.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
