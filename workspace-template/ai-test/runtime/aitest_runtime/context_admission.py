@@ -140,6 +140,31 @@ def _recover_primary(runtime, root: Path, provider, payload: Mapping[str, Any],
 
     owner = PrimarySessionOwner(runtime, root, provider)
     current = owner.current(session_id)
+
+    # If this exact Host user message is the replay receipt of an already
+    # accepted Primary recovery and a clean successor still cannot admit it,
+    # another rotation cannot reduce static system/tool bytes. Fail closed
+    # instead of creating an unbounded successor loop.
+    current_message_id = payload.get("current_user_message_id")
+    if isinstance(current_message_id, str) and current_message_id:
+        context_digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        state = owner.state()
+        for binding in state.bindings.values():
+            recovery = binding.get("context_recovery") if isinstance(binding, dict) else None
+            receipt = recovery.get("receipt") if isinstance(recovery, dict) else None
+            if (
+                isinstance(recovery, dict)
+                and recovery.get("state") == "ACCEPTED"
+                and recovery.get("target_session_id") == session_id
+                and recovery.get("context_digest") == context_digest
+                and isinstance(receipt, dict)
+                and receipt.get("message_id") == current_message_id
+            ):
+                raise RuntimeError(
+                    "PRIMARY_CONTEXT_RECOVERY_NON_CONVERGENT",
+                    "the exact replayed user turn still exceeds budget on its clean successor",
+                )
+
     recovery_id = owner.claim_context_recovery(
         session_id, agent, text, str(decision["admission_digest"])
     )
