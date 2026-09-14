@@ -561,6 +561,20 @@ class ChangeIntelligenceBroker:
             warning for warning in codegraph.warnings
             if warning.startswith("CODEGRAPH_RELATIONSHIP_QUERY_FAILED:")
         ]
+        mapping_failures = [
+            warning for warning in codegraph.warnings
+            if warning.startswith("CODEGRAPH_QUERY_FAILED:get_ai_context:")
+            or warning.startswith("CODEGRAPH_SYMBOL_UNRESOLVED:")
+        ]
+        if mapping_failures:
+            obligations.append({
+                "obligation_kind": "CODEGRAPH_STRUCTURAL_MAPPING_PARTIAL",
+                "status": "OPEN",
+                "provider": "codegraph-ai/CodeGraph",
+                "failure_refs": list(mapping_failures),
+                "risk_semantics": "STRUCTURAL_SYMBOL_MAPPING_INCOMPLETE; FALLBACK_MAPPING_DOES_NOT_PROVE_GRAPH_RELATIONSHIPS",
+                "resolution_requirement": "RESTORE_PINNED_CODEGRAPH_SYMBOL_MAPPING_OR_RETAIN_PARTIAL_CAPABILITY",
+            })
         if relationship_failures:
             obligations.append({
                 "obligation_kind": "CODEGRAPH_STRUCTURAL_RELATIONSHIPS_PARTIAL",
