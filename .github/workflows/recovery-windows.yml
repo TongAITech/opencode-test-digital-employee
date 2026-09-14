@@ -28,8 +28,7 @@ on:
 permissions:
   # GitHub requires write access to retrieve assets from an unpublished draft.
   contents: write
-  # Reuse the exact D3-GN2-qualified GitNexus runtime artifact; never re-resolve
-  # its transitive npm dependency tree during package sealing.
+  # Read only the exact GN2 runtime artifact pinned by runtime-lock.json.
   actions: read
 jobs:
   windows-package:
@@ -113,143 +112,13 @@ jobs:
           if (Test-Path $gitnexusTarget) { Remove-Item -Recurse -Force $gitnexusTarget }
           New-Item -ItemType Directory -Force -Path $gitnexusTarget | Out-Null
 
+          # Reuse the exact Windows runtime tree that passed D3-GN2 product-path
+          # qualification. Never re-resolve GitNexus transitive npm dependencies
+          # during package sealing.
           $gitnexusLock = (Get-Content -Raw runtime-lock.json | ConvertFrom-Json).payloads.gitnexus
           $artifactId = [long]$gitnexusLock.evidence.runtime_artifact_id
           $artifactExpectedSha = [string]$gitnexusLock.evidence.runtime_artifact_sha256
-          if ($artifactId -le 0 -or $artifactExpectedSha -notmatch '^[a-fA-F0-9]{64}          if (-not (Test-Path $gitnexusCli)) { throw 'GitNexus CLI missing after materialization' }
-          $gitnexusVersion = (& $nodeExe $gitnexusCli --version 2>&1 | Out-String).Trim()
-          if ($gitnexusVersion -notmatch '1\.6\.12') { throw "GitNexus version mismatch: $gitnexusVersion" }
-
-          # The GitNexus top-level version is not sufficient identity: npm can
-          # resolve a different transitive tree later.  Recompute the exact
-          # canonical tree used by D3-GN2 and fail closed before packaging.
-          $gitnexusFiles = Get-ChildItem -LiteralPath $gitnexusTarget -Recurse -File | Sort-Object FullName
-          [long]$gitnexusTotal = 0
-          $gitnexusEntries = @()
-          foreach ($file in $gitnexusFiles) {
-            $rel = [IO.Path]::GetRelativePath($gitnexusTarget, $file.FullName).Replace("\","/")
-            $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash.ToLowerInvariant()
-            [long]$size = $file.Length
-            $gitnexusTotal += $size
-            $gitnexusEntries += [ordered]@{ path=$rel; size_bytes=$size; sha256=$sha }
-          }
-          $gitnexusCanonical = (($gitnexusEntries | ForEach-Object { "$($_.sha256)  $($_.path)" }) -join "`n") + "`n"
-          $gitnexusTreeSha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($gitnexusCanonical))).ToLowerInvariant()
-          if ($gitnexusTreeSha -ne $gitnexusLock.tree_sha256) {
-            throw "GitNexus tree SHA mismatch: expected=$($gitnexusLock.tree_sha256) actual=$gitnexusTreeSha"
-          }
-          if ($gitnexusEntries.Count -ne [int]$gitnexusLock.tree_file_count) {
-            throw "GitNexus tree file-count mismatch: expected=$($gitnexusLock.tree_file_count) actual=$($gitnexusEntries.Count)"
-          }
-          if ($gitnexusTotal -ne [long]$gitnexusLock.tree_size_bytes) {
-            throw "GitNexus tree size mismatch: expected=$($gitnexusLock.tree_size_bytes) actual=$gitnexusTotal"
-          }
-          Write-Host "GITNEXUS_TREE_SHA256=$gitnexusTreeSha"
-          Write-Host "GITNEXUS_FILE_COUNT=$($gitnexusEntries.Count)"
-          Write-Host "GITNEXUS_SIZE_BYTES=$gitnexusTotal"
-          Write-Host "PORTABLE_NODE=22.18.0"
-          Write-Host "GITNEXUS=1.6.12"
-          Write-Host "GITNEXUS_TARGET=$gitnexusTarget"
-
-      - name: Assemble this exact source HEAD with the carrier portable Python
-        shell: pwsh
-        run: |
-          $assembly = Join-Path $env:RUNNER_TEMP 'rec3-assembly'
-          & "$env:AITEST_CARRIER/workspace-template/runtime/python/python.exe" -X utf8 tools/recovery/reassemble_ci.py --repo . --carrier $env:AITEST_CARRIER --output $assembly
-          if ($LASTEXITCODE -ne 0) { throw 'Exact HEAD offline assembly failed' }
-          $result = Get-Content "$assembly/REASSEMBLY_RESULT.json" -Raw | ConvertFrom-Json
-          if ($result.source_head -ne $env:GITHUB_SHA) { throw 'Package source HEAD differs from workflow HEAD' }
-          "AITEST_BUNDLE=$($result.bundle)" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "AITEST_INPUT_SHA256=$($result.sha256)" | Out-File -FilePath $env:GITHUB_ENV -Append
-      - name: Install offline into two user-selected workspace roots
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$AITEST_BUNDLE"
-          unset GH_TOKEN GITHUB_TOKEN AITEST_MODEL_KEY OPENCODE_SERVER_PASSWORD
-          parent="$(cygpath -u "$RUNNER_TEMP")/rec3 target A"
-          ./INSTALL.sh "$parent" 'loan workspace' | tee windows-install.txt
-          second="$(cygpath -u "$RUNNER_TEMP")/rec3-other-target/BLoan"
-          ./INSTALL.sh --target "$(cygpath -w "$second")" | tee -a windows-install.txt
-          first="$parent/loan workspace"
-          test -f "$first/AGENTS.md"
-          test -f "$second/AGENTS.md"
-          test -f "$first/.git/HEAD"
-          test -f "$second/.git/HEAD"
-          test "$(cygpath -m "$(git -C "$first" rev-parse --show-toplevel)")" = "$(cygpath -m "$first")"
-          test "$(cygpath -m "$(git -C "$second" rev-parse --show-toplevel)")" = "$(cygpath -m "$second")"
-          test ! -d "$first/workspace-template"
-          test ! -d "$second/workspace-template"
-          cp "$first/INSTALL_MANIFEST.json" windows-install-manifest.json
-          echo "AITEST_INSTALLED=$(cygpath -m "$first")" >> "$GITHUB_ENV"
-          echo "AITEST_INSTALLED_B=$(cygpath -m "$second")" >> "$GITHUB_ENV"
-          echo "AITEST_GIT_BASH=$(cygpath -m /bin/bash)" >> "$GITHUB_ENV"
-      - name: Prepare external pre-existing host fixture from cached carrier bytes
-        shell: pwsh
-        run: |
-          $hostRoot = Join-Path $env:RUNNER_TEMP 'rec3-preexisting-host'
-          & "$env:AITEST_INSTALLED/runtime/python/python.exe" tools/recovery/prepare_host_fixture.py --carrier $env:AITEST_CARRIER --host $hostRoot
-          if ($LASTEXITCODE -ne 0) { throw 'Host fixture preparation failed' }
-          "AITEST_CI_HOST=$hostRoot" | Out-File $env:GITHUB_ENV -Append
-          "AITEST_REAL_OPENCODE=$hostRoot/bin/opencode.exe" | Out-File $env:GITHUB_ENV -Append
-          "AITEST_REAL_OPENCODE_PAYLOAD=$env:AITEST_INSTALLED/.opencode" | Out-File $env:GITHUB_ENV -Append
-          "XDG_CONFIG_HOME=$hostRoot/config" | Out-File $env:GITHUB_ENV -Append
-          "XDG_DATA_HOME=$hostRoot/data" | Out-File $env:GITHUB_ENV -Append
-          "XDG_CACHE_HOME=$hostRoot/cache" | Out-File $env:GITHUB_ENV -Append
-          "XDG_STATE_HOME=$hostRoot/state" | Out-File $env:GITHUB_ENV -Append
-          "$hostRoot/bin" | Out-File $env:GITHUB_PATH -Append
-      - name: Validate source contracts and installed runtime with portable Python
-        shell: pwsh
-        run: |
-          $env:GH_TOKEN = ''
-          $semanticArgs = @()
-          if ($env:AITEST_SEMANTIC_REPORT) { $semanticArgs = @('--semantic-report', $env:AITEST_SEMANTIC_REPORT) }
-          & "$env:AITEST_INSTALLED/runtime/python/python.exe" -X utf8 "$env:AITEST_BUNDLE/tools/recovery/validate_package.py" --bundle $env:AITEST_BUNDLE --installed $env:AITEST_INSTALLED --installed-b $env:AITEST_INSTALLED_B --fail-fast --output "$env:AITEST_BUNDLE/windows-validation.json" @semanticArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Windows qualification failed; final sealing remains blocked' }
-      - name: Run installed daily entry on both independent targets
-        shell: bash
-        run: |
-          set -euo pipefail
-          unset GH_TOKEN GITHUB_TOKEN
-          cd "$AITEST_INSTALLED"
-          ./AITEST.sh --doctor | tee "$AITEST_BUNDLE/windows-doctor.txt"
-          ./AITEST.sh --self-check | tee "$AITEST_BUNDLE/windows-self-check.txt"
-          cd "$AITEST_INSTALLED_B"
-          ./AITEST.sh --doctor >> "$AITEST_BUNDLE/windows-doctor.txt"
-          ./AITEST.sh --self-check >> "$AITEST_BUNDLE/windows-self-check.txt"
-      - name: Retain this run's Windows evidence
-        if: always()
-        shell: pwsh
-        run: |
-          $reports = Join-Path $env:GITHUB_WORKSPACE 'rec3-evidence'
-          New-Item -ItemType Directory -Path $reports -Force | Out-Null
-          foreach ($base in @($env:AITEST_BUNDLE, $env:AITEST_INSTALLED)) {
-            if ($base -and (Test-Path $base)) {
-              Get-ChildItem $base -Filter 'windows-*' -File | Copy-Item -Destination $reports -Force
-            }
-          }
-          if ($env:AITEST_INSTALLED -and (Test-Path "$env:AITEST_INSTALLED/INSTALL_MANIFEST.json")) {
-            Copy-Item "$env:AITEST_INSTALLED/INSTALL_MANIFEST.json" "$reports/windows-install-manifest.json" -Force
-          }
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: recovery-windows-evidence
-          path: rec3-evidence/*
-          if-no-files-found: warn
-      - name: Seal verified package with fresh installed-runtime evidence
-        shell: pwsh
-        run: |
-          Copy-Item 'rec3-evidence/windows-*' $env:AITEST_BUNDLE -Force
-          & "$env:AITEST_INSTALLED/runtime/python/python.exe" -X utf8 "$env:AITEST_BUNDLE/tools/recovery/qualify_package.py" --bundle $env:AITEST_BUNDLE --output qualified
-          if ($LASTEXITCODE -ne 0) { throw 'Qualification sealing failed' }
-      - uses: actions/upload-artifact@v4
-        with:
-          name: recovery-qualified-package
-          path: qualified/*
-          compression-level: 0
-          if-no-files-found: error
-) {
+          if ($artifactId -le 0 -or $artifactExpectedSha -notmatch '^[a-fA-F0-9]{64}$') {
             throw 'Pinned GitNexus runtime artifact identity missing'
           }
           $artifactZip = Join-Path $env:RUNNER_TEMP "gitnexus-runtime-artifact-$artifactId.zip"
@@ -266,14 +135,12 @@ jobs:
           Expand-Archive -LiteralPath $runtimeZip.FullName -DestinationPath $gitnexusTarget -Force
 
           $gitnexusCli = Join-Path $gitnexusTarget 'node_modules\gitnexus\dist\cli\index.js'
-          if (-not (Test-Path $gitnexusCli)) { throw 'GitNexus CLI missing after materialization' }
+          if (-not (Test-Path $gitnexusCli)) { throw 'GitNexus CLI missing after artifact restore' }
           $gitnexusVersion = (& $nodeExe $gitnexusCli --version 2>&1 | Out-String).Trim()
           if ($gitnexusVersion -notmatch '1\.6\.12') { throw "GitNexus version mismatch: $gitnexusVersion" }
 
-          # The GitNexus top-level version is not sufficient identity: npm can
-          # resolve a different transitive tree later.  Recompute the exact
-          # canonical tree used by D3-GN2 and fail closed before packaging.
-          $gitnexusLock = (Get-Content -Raw runtime-lock.json | ConvertFrom-Json).payloads.gitnexus
+          # Recompute the exact canonical tree used by D3-GN2 and fail closed
+          # before packaging if any transitive dependency byte differs.
           $gitnexusFiles = Get-ChildItem -LiteralPath $gitnexusTarget -Recurse -File | Sort-Object FullName
           [long]$gitnexusTotal = 0
           $gitnexusEntries = @()
@@ -295,6 +162,7 @@ jobs:
           if ($gitnexusTotal -ne [long]$gitnexusLock.tree_size_bytes) {
             throw "GitNexus tree size mismatch: expected=$($gitnexusLock.tree_size_bytes) actual=$gitnexusTotal"
           }
+          Write-Host "GITNEXUS_ARTIFACT_SHA256=$artifactActualSha"
           Write-Host "GITNEXUS_TREE_SHA256=$gitnexusTreeSha"
           Write-Host "GITNEXUS_FILE_COUNT=$($gitnexusEntries.Count)"
           Write-Host "GITNEXUS_SIZE_BYTES=$gitnexusTotal"
