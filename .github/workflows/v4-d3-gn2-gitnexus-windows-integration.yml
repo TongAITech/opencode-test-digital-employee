@@ -73,62 +73,62 @@ jobs:
           New-Item -ItemType Directory -Force -Path (Join-Path $repo "src\router"),(Join-Path $repo "src\pages"),(Join-Path $repo "src\components") | Out-Null
 
           @'
-import { createRouter, createWebHistory } from 'vue-router'
-import ApplyPage from '../pages/ApplyPage.vue'
-import ReviewPage from '../pages/ReviewPage.vue'
-
-export const router = createRouter({
-  history: createWebHistory(),
-  routes: [
-    { path: '/loan/apply', component: ApplyPage },
-    { path: '/loan/review', component: ReviewPage },
-  ],
-})
-'@ | Set-Content (Join-Path $repo "src\router\index.ts") -Encoding utf8
-
-          @'
-<template>
-  <section>
-    <h1>Loan Apply</h1>
-    <AmountInput :amount="amount" />
-  </section>
-</template>
-<script setup lang="ts">
-import { ref } from 'vue'
-import AmountInput from '../components/AmountInput.vue'
-const amount = ref(100)
-</script>
-'@ | Set-Content (Join-Path $repo "src\pages\ApplyPage.vue") -Encoding utf8
+          import { createRouter, createWebHistory } from 'vue-router'
+          import ApplyPage from '../pages/ApplyPage.vue'
+          import ReviewPage from '../pages/ReviewPage.vue'
+          
+          export const router = createRouter({
+            history: createWebHistory(),
+            routes: [
+              { path: '/loan/apply', component: ApplyPage },
+              { path: '/loan/review', component: ReviewPage },
+            ],
+          })
+          '@ | Set-Content (Join-Path $repo "src\router\index.ts") -Encoding utf8
 
           @'
-<template><section><h1>Loan Review</h1></section></template>
-<script setup lang="ts">
-const title = 'review'
-</script>
-'@ | Set-Content (Join-Path $repo "src\pages\ReviewPage.vue") -Encoding utf8
+          <template>
+            <section>
+              <h1>Loan Apply</h1>
+              <AmountInput :amount="amount" />
+            </section>
+          </template>
+          <script setup lang="ts">
+          import { ref } from 'vue'
+          import AmountInput from '../components/AmountInput.vue'
+          const amount = ref(100)
+          </script>
+          '@ | Set-Content (Join-Path $repo "src\pages\ApplyPage.vue") -Encoding utf8
 
           @'
-<template>
-  <label>Amount <input :value="amount" /></label>
-</template>
-<script setup lang="ts">
-defineProps<{ amount: number }>()
-export function normalizeAmount(value: number): number {
-  return value + 1
-}
-</script>
-'@ | Set-Content (Join-Path $repo "src\components\AmountInput.vue") -Encoding utf8
+          <template><section><h1>Loan Review</h1></section></template>
+          <script setup lang="ts">
+          const title = 'review'
+          </script>
+          '@ | Set-Content (Join-Path $repo "src\pages\ReviewPage.vue") -Encoding utf8
 
           @'
-{
-  "name": "d3-gitnexus-vue-impact",
-  "private": true,
-  "dependencies": {
-    "vue": "3.5.21",
-    "vue-router": "4.5.1"
-  }
-}
-'@ | Set-Content (Join-Path $repo "package.json") -Encoding utf8
+          <template>
+            <label>Amount <input :value="amount" /></label>
+          </template>
+          <script setup lang="ts">
+          defineProps<{ amount: number }>()
+          export function normalizeAmount(value: number): number {
+            return value + 1
+          }
+          </script>
+          '@ | Set-Content (Join-Path $repo "src\components\AmountInput.vue") -Encoding utf8
+
+          @'
+          {
+            "name": "d3-gitnexus-vue-impact",
+            "private": true,
+            "dependencies": {
+              "vue": "3.5.21",
+              "vue-router": "4.5.1"
+            }
+          }
+          '@ | Set-Content (Join-Path $repo "package.json") -Encoding utf8
 
           git -C $repo init -b main
           git -C $repo config user.email "d3@example.invalid"
