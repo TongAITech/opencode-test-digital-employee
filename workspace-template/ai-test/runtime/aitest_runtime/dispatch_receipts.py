@@ -60,16 +60,30 @@ def runtime_coordination(db_path, timeout=5):
         lock.release()
 
 def business_cursor(runtime, mission_id):
-    """A health/dispatch/rotation heartbeat is not accepted business progress."""
-    relevant=(
-        'plan.created.',
-        'plan.revision_recorded.',
-        'plan.revision_activated.',
-        'task.outcome_recorded.',
-        'g3.', 'g4.', 'r3.', 'r4.',
-    )
-    return max((e.seq for e in runtime.list_events(mission_id)
-                if e.event_type.startswith(relevant)),default=0)
+    """Latest durable semantic progress; control-loop output is not progress."""
+    g4_control_kinds = {"GOAL_EVALUATION", "TESTING_GOAL_STATUS", "REPLAN_REQUEST"}
+    latest = 0
+    for event in runtime.list_events(mission_id):
+        et = str(event.event_type)
+        relevant = et.startswith((
+            "plan.created.",
+            "plan.revision_recorded.",
+            "plan.revision_activated.",
+            "task.outcome_recorded.",
+            "g3.",
+            "r3.",
+            "r4.",
+        ))
+        if et == "g4.fact_recorded.v1":
+            fact_kind = str((event.payload or {}).get("fact_kind") or "")
+            relevant = fact_kind not in g4_control_kinds
+        elif et.startswith("g4."):
+            # Unknown G4 control/event shapes are not allowed to reset retry
+            # budgets until explicitly classified as semantic input.
+            relevant = False
+        if relevant:
+            latest = max(latest, int(event.seq))
+    return latest
 
 def reconcile_context_receipt(service, mission_id, prior):
     reader=getattr(service.raw_session_provider,'find_context_receipt',None)
