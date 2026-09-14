@@ -697,7 +697,7 @@ class RecoveryIntakeService:
                                         "source_unit_refs": data["source_unit_refs"],
                                         "code_refs": [x["ref"] for x in data["asset_refs"]],
                                         "asset_refs": data["asset_refs"]})
-        coverage = _source_analysis_coverage(current_state, all_current)
+        coverage = _source_analysis_coverage(current_state, all_current, scope)
         semantics["source_analysis_coverage"] = coverage
         if not coverage["complete"]:
             semantics["unknowns"].append({
