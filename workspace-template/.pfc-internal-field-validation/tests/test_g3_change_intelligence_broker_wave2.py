@@ -176,6 +176,7 @@ def assert_mixed_partial(
 
 def main() -> int:
     checks: dict[str, bool] = {}
+    diagnostics: dict[str, Any] = {}
     with tempfile.TemporaryDirectory(prefix="g3-wave2-java-") as td:
         repo, base, head = make_repo(
             Path(td),
@@ -323,6 +324,16 @@ def main() -> int:
             checks["real_codegraph_normalizes_nonempty_impact_edges"] = "IMPACT" in real_kinds
             checks["real_codegraph_edges_keep_tool_provenance"] = all(any(ref.startswith("codegraph-tool:") for ref in edge.source_provenance) for edge in real_edges)
             checks["real_codegraph_keeps_git_change_truth"] = changed_refs(real_env) == {"src/Service.java:L4"}
+            diagnostics["real_codegraph"] = {
+                "provider_health": real_meta.get("provider_health", {}).get("CODEGRAPH"),
+                "provider_capabilities": real_meta.get("provider_capabilities"),
+                "line_mapping": real_meta.get("line_mapping"),
+                "source_refs": refs,
+                "warnings": list(real_env.warnings),
+                "impact_edges": [edge.to_dict() for edge in real_edges],
+                "changed_refs": sorted(changed_refs(real_env)),
+                "status": real_env.code_intelligence_status,
+            }
 
     with tempfile.TemporaryDirectory(prefix="g3-wave2-codegraph-missing-") as td:
         missing_root = Path(td)
@@ -386,7 +397,7 @@ def main() -> int:
         checks["runtime_projection_verifies_after_provider_composition"] = restarted.verify_projection(mission_id).get("ok") is True
 
     failed = [name for name, ok in checks.items() if not ok]
-    print(json.dumps({"status": "PASS" if not failed else "FAIL", "passed": sum(checks.values()), "total": len(checks), "failed": failed, "checks": checks}, ensure_ascii=False, indent=2, sort_keys=True))
+    print(json.dumps({"status": "PASS" if not failed else "FAIL", "passed": sum(checks.values()), "total": len(checks), "failed": failed, "checks": checks, "diagnostics": diagnostics}, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if not failed else 1
 
 
