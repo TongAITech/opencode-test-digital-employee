@@ -1,0 +1,54 @@
+name: V4 D1 source-unit qualification
+
+on:
+  push:
+    branches:
+      - work/v1.13.0-recovery-turnkey-validation
+    paths:
+      - workspace-template/ai-test/runtime/aitest_runtime/recovery_intake.py
+      - workspace-template/.pfc-internal-field-validation/tests/test_recovery_intake.py
+      - .github/workflows/v4-d1-source-unit-qualification.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-source-unit:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Show exact source identity
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          if (git status --porcelain) { throw 'SOURCE_NOT_CLEAN' }
+
+      - name: Compile D1 intake runtime
+        shell: pwsh
+        run: |
+          $runtime = Join-Path $PWD 'workspace-template/ai-test/runtime'
+          $env:PYTHONPATH = $runtime
+          python -X utf8 -m py_compile workspace-template/ai-test/runtime/aitest_runtime/recovery_intake.py
+          if ($LASTEXITCODE -ne 0) { throw 'D1 recovery_intake compile failed' }
+
+      - name: Run D1 recovery intake regressions
+        shell: pwsh
+        run: |
+          $runtime = Join-Path $PWD 'workspace-template/ai-test/runtime'
+          $env:PYTHONPATH = $runtime
+          python -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_recovery_intake.py 2>&1 | Tee-Object -FilePath D1_SOURCE_UNIT_QUALIFICATION.log
+          if ($LASTEXITCODE -ne 0) { throw 'D1 recovery intake regression failed' }
+
+      - name: Upload D1 qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-d1-source-unit-qualification
+          path: D1_SOURCE_UNIT_QUALIFICATION.log
+          if-no-files-found: warn
