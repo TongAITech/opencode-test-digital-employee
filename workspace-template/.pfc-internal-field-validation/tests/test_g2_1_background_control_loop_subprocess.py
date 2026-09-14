@@ -217,13 +217,23 @@ def main() -> int:
             )
             env.update(host_env)
             started = run(env, "DIRECTOR", "start_test", payload)
-            if not isinstance(started.get("operations"), list) or not started["operations"]:
+            intake = started.get("intake")
+            planner_session = started.get("planner_session")
+            if (
+                started.get("status") != "PLANNING"
+                or not isinstance(intake, dict)
+                or not isinstance(intake.get("intake"), dict)
+                or not isinstance(planner_session, dict)
+                or planner_session.get("status") != "PLANNER_SESSION_OPEN"
+                or not isinstance(planner_session.get("external_session"), dict)
+            ):
                 raise AssertionError(
                     "BACKGROUND_START_RESULT_INVALID:" + json.dumps(started, ensure_ascii=False, sort_keys=True)
                 )
-            operation = started["operations"][0]
-            mission_id = operation["subject"]["subject_id"]
-            planner_session_id = str(operation["result"]["next"]["session_id"])
+            mission_id = str(intake["intake"]["mission_id"])
+            planner_session_id = str(planner_session["external_session"]["session_id"])
+            if planner_session.get("mission_id") != mission_id:
+                raise AssertionError("BACKGROUND_START_MISSION_IDENTITY_MISMATCH")
             plan_payload = {"mission_id": mission_id, "proposal": proposal()}
             bind_host_tool(
                 env, session_id=planner_session_id, agent="aitest-planner", tool="aitest_planner",
