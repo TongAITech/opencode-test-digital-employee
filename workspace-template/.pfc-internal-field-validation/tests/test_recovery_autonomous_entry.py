@@ -33,6 +33,7 @@ sys.path.insert(0, str(WORKSPACE / 'ai-test/runtime'))
 from aitest_runtime.autonomous_orchestration import DirectoryScopedOpenCodeSessionProvider
 from aitest_runtime.canonical_runtime import create_canonical_runtime
 from aitest_runtime.bounded_evidence import mission_evidence_directory
+from aitest_runtime.primary_sessions import PrimarySessionOwner
 
 
 def texts(content):
@@ -276,11 +277,14 @@ def main():
             loop_command = [sys.executable, '-X', 'utf8', '-m', 'aitest_runtime.control_loop', '--workspace-root', str(workspace), '--interval', '3']
             with (root / 'control-loop.log').open('w') as log:
                 loop = subprocess.Popen(loop_command, cwd=workspace, env=env, stdout=log, stderr=subprocess.STDOUT)
-            user = provider.create_session(title='Synthetic natural-language Director intake qualification')
-            provider._request('POST', f'/session/{user.session_id}/prompt_async?{provider._directory_query()}',
+            # Follow the installed product contract: the trusted launcher owns
+            # the first durable Primary binding. A raw provider-created
+            # Director Session is intentionally rejected by Context Admission.
+            runtime = create_canonical_runtime(workspace)
+            user_session_id = PrimarySessionOwner(runtime, workspace, provider).ensure_current()['session_id']
+            provider._request('POST', f'/session/{user_session_id}/prompt_async?{provider._directory_query()}',
                               {'parts': [{'type': 'text', 'text': '测试 BLOAN-PF1.1.0'}]})
             deadline = time.monotonic() + int(os.environ.get('AITEST_QUALIFICATION_TIMEOUT','240'))
-            runtime = create_canonical_runtime(workspace)
             mission = None; composed = None; boundary_session = None; boundary_head = None; boundary_idle_since = 0
             while time.monotonic() < deadline:
                 from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
@@ -328,7 +332,7 @@ def main():
             planner = [p for p in state.provisions if p.role == 'PLANNER']
             workers = [p for p in state.provisions if p.task_id]
             assert len(planner) == 1 and len(workers) >= 9
-            ids = [user.session_id, planner[0].external_session_id, *(p.external_session_id for p in workers)]
+            ids = [user_session_id, planner[0].external_session_id, *(p.external_session_id for p in workers)]
             assert len(set(ids)) >= 11
             assert {p.role for p in workers} == {'REQUIREMENT_ANALYST','CODE_ANALYST','TEST_STRATEGIST','CASE_DESIGNER','EXECUTOR','EVALUATOR','DIAGNOSIS'}
             assert len({p.logical_agent_id for p in [*planner, *workers]}) == 8
@@ -348,9 +352,9 @@ def main():
             for key in ('mission_id', 'task_id', 'attempt_id', 'session_id'): assert huge_status[key].startswith('synthetic-')
             assert all(p['error_bytes'] <= 16384 for p in executed if p.get('fixture_boundary_kind') == 'error' and p['status'] == 'error')
             assert any('😀' * 10 in p.get('error', '') for p in executed if p.get('fixture_boundary_kind') == 'error' and p['status'] == 'error')
-            assert any(p['tool'] == 'aitest_director' and p['session_id'] == user.session_id for p in executed)
+            assert any(p['tool'] == 'aitest_director' and p['session_id'] == user_session_id for p in executed)
             assert any(p['tool'] == 'aitest_planner' and p['session_id'] == planner[0].external_session_id for p in executed)
-            user_messages = provider._request('GET', f'/session/{user.session_id}/message?{provider._directory_query()}&limit=10')
+            user_messages = provider._request('GET', f'/session/{user_session_id}/message?{provider._directory_query()}&limit=10')
             assert any(m.get('info', {}).get('role') == 'assistant' and m['info'].get('agent') == 'aitest-director' for m in user_messages)
             final_workers = [provision for provision in workers if composed.extension_state('r1_3b_execution_resume').latest_attempt(provision.task_id).runtime_session_id == provision.external_session_id]
             assert all(any(p['tool'] == ('aitest_executor' if worker.role=='EXECUTOR' else 'aitest_worker') and p['session_id'] == worker.external_session_id for p in executed) for worker in final_workers)
