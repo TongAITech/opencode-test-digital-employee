@@ -322,6 +322,11 @@ class C3AutonomousProgressTests(unittest.TestCase):
         self.assertEqual(progress.failure_signature, exhausted["failure_signature"])
         self.assertEqual(len(set(successors)), 4)
         self.assertEqual(len(self.service.session_control.state(mission).rotations), 3)
+        blocked_session = successors[-1]
+        self.assertNotIn(blocked_session, self.provider.sessions)
+        core = self.runtime.replay_composed(mission).core_state.session(blocked_session)
+        self.assertIsNotNone(core)
+        self.assertEqual(core.status.value, "CLOSED")
 
 
     def test_busy_and_retry_workers_do_not_create_replanning_session(self):
