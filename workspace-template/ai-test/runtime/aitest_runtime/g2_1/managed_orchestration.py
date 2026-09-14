@@ -402,6 +402,11 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
     def _handle_no_progress(self, mission_id: str, *, task_id: str | None, session_id: str | None,
                             reason: str, cursor: int | None = None) -> dict[str, Any]:
         mission_id = _text(mission_id, "mission_id")
+        effect_barrier = self._business_effect_barrier(
+            mission_id, task_id=task_id, session_id=session_id,
+        )
+        if effect_barrier:
+            return effect_barrier
         cursor = business_cursor(self.runtime, mission_id) if cursor is None else int(cursor)
         progress_id, signature = self._progress_identity(
             mission_id, task_id=task_id, session_id=session_id, reason=reason, cursor=cursor,
@@ -986,6 +991,56 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         if callable(abort):
             abort(session_id)
 
+    def _business_effect_barrier(self, mission_id: str, *, task_id: str | None = None,
+                                 session_id: str | None = None) -> dict[str, Any] | None:
+        """Fence autonomous liveness while a side effect has no durable outcome.
+
+        R1 ToolExecution intent is written before the external adapter call. A
+        process death can therefore leave an intent with no outcome even when
+        the external system may already have applied the effect. UNKNOWN and
+        ATTEMPTED observations carry the same replay risk. None of these states
+        may become a wake, rotation, replan, or Mission completion. Only
+        canonical ToolExecution reconciliation may release the fence.
+        """
+        composed = self.runtime.replay_composed(mission_id)
+        state = composed.extension_state("r1_4_tool_execution")
+        unresolved: list[dict[str, Any]] = []
+        for record in tuple(getattr(state, "executions", ()) or ()):
+            intent = getattr(record, "intent", None)
+            if intent is None:
+                continue
+            raw_policy = getattr(intent, "side_effect_policy", None)
+            policy = getattr(raw_policy, "value", str(raw_policy or ""))
+            if policy == "NONE":
+                continue
+            if task_id is not None and getattr(intent, "task_id", None) != task_id:
+                continue
+            fact = getattr(record, "execution_fact", None)
+            reconciliation = getattr(record, "reconciliation", None)
+            raw_state = getattr(record, "side_effect_state", None)
+            state_value = getattr(raw_state, "value", str(raw_state or ""))
+            intent_without_outcome = fact is None and reconciliation is None
+            if not intent_without_outcome and state_value not in {"ATTEMPTED", "UNKNOWN"}:
+                continue
+            unresolved.append({
+                "tool_execution_id": str(getattr(intent, "tool_execution_id", "")),
+                "task_id": str(getattr(intent, "task_id", "")),
+                "runtime_session_id": str(getattr(intent, "runtime_session_id", "")),
+                "side_effect_policy": policy,
+                "side_effect_state": "INTENT_WITHOUT_OUTCOME" if intent_without_outcome else state_value,
+            })
+        if not unresolved:
+            return None
+        refs = sorted(unresolved, key=lambda item: item["tool_execution_id"])
+        return {
+            "status":"WAIT",
+            "reason":"BUSINESS_EFFECT_RECONCILIATION_REQUIRED",
+            "session_id":session_id,
+            "tool_execution_refs":refs[:16],
+            "unresolved_effect_count":len(refs),
+            "truth_source":"R1_EVENT_STREAM",
+        }
+
     def _activity_barrier(self, mission_id: str, session_id: str, task_id: str | None = None):
         from ..mission_controls import pending_controls
         if pending_controls(self.runtime, mission_id=mission_id, stopping_only=True, limit=1):
@@ -997,6 +1052,11 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         if any(g.status == 'PENDING' and (task_id is None or g.task_id == task_id)
                for g in getattr(gates,'gates',())):
             return {'status':'WAIT','reason':'WAITING_HUMAN','session_id':session_id}
+        effect_barrier = self._business_effect_barrier(
+            mission_id, task_id=task_id, session_id=session_id,
+        )
+        if effect_barrier:
+            return effect_barrier
         if any(x['session_id'] == session_id and x['phase'] in {'CLAIMED','UNKNOWN'}
                for x in self.session_control.state(mission_id).context_dispatches):
             return {'status':'WAIT','reason':'CONTEXT_DELIVERY_UNCONFIRMED','session_id':session_id}
@@ -1931,6 +1991,9 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         }
 
     def _handle_plan_complete(self, mission_id: str, scheduler: Mapping[str, Any]) -> dict[str, Any]:
+        effect_barrier = self._business_effect_barrier(mission_id)
+        if effect_barrier:
+            return {**effect_barrier, "scheduler":dict(scheduler)}
         from ..g4 import G4RealExecutionService, TestObjectiveController
         quality_cursor = self._quality_input_cursor(mission_id)
         g4 = G4RealExecutionService(self.runtime, orchestration=self)
