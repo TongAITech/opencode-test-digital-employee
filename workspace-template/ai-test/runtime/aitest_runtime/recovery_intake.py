@@ -643,6 +643,50 @@ class RecoveryIntakeService:
     def artifact_ref(scope_identity: str, artifact_id: str, revision: str) -> str:
         return "requirement-analysis:" + canonical_sha256({"scope": scope_identity, "id": artifact_id, "revision": str(revision)})[:32]
 
+    def bind_source_scope(self, mission_id: str, scope_identity: str, entries: list[Mapping[str, Any]], *, revision: str = "1") -> dict[str, Any]:
+        scope = _text(scope_identity, "scope_identity")
+        rev = _text(str(revision), "revision")
+        state = self.g3.state(mission_id)
+        snapshot, snapshot_digest = _source_snapshot(state)
+        current_refs = [row["source_ref"] for row in snapshot]
+        if not current_refs or not isinstance(entries, list) or not entries:
+            raise RuntimeError("RECOVERY_SOURCE_SCOPE_INVALID", "current source entries are required")
+        provided: dict[str, dict[str, Any]] = {}
+        for raw in entries:
+            if not isinstance(raw, Mapping) or not set(raw).issubset({"source_ref", "disposition", "reason"}):
+                raise RuntimeError("RECOVERY_SOURCE_SCOPE_INVALID", "entry schema mismatch")
+            ref = _text(raw.get("source_ref"), "source_ref")
+            if ref not in current_refs or ref in provided:
+                raise RuntimeError("RECOVERY_SOURCE_SCOPE_INCOMPLETE", ref)
+            disposition = _text(raw.get("disposition"), "disposition").upper()
+            if disposition not in {"IN_SCOPE", "OUT_OF_SCOPE"}:
+                raise RuntimeError("RECOVERY_SOURCE_SCOPE_INVALID", disposition)
+            reason = raw.get("reason")
+            if disposition == "OUT_OF_SCOPE":
+                reason = _text(reason, "reason")
+            elif reason not in {None, ""}:
+                raise RuntimeError("RECOVERY_SOURCE_SCOPE_INVALID", "IN_SCOPE reason must be empty")
+            else:
+                reason = None
+            provided[ref] = {"source_ref": ref, "disposition": disposition, "reason": reason}
+        if set(provided) != set(current_refs):
+            raise RuntimeError("RECOVERY_SOURCE_SCOPE_INCOMPLETE", "classify every current source exactly once")
+        normalized = [provided[ref] for ref in current_refs]
+        in_scope = {row["source_ref"] for row in normalized if row["disposition"] == "IN_SCOPE"}
+        if not in_scope:
+            raise RuntimeError("RECOVERY_SOURCE_SCOPE_EMPTY", scope)
+        for fact in state.by_kind("REQUIREMENT_ANALYSIS_ARTIFACT"):
+            if fact.payload.get("scope_identity") == scope:
+                refs = {str(v) for v in fact.payload.get("source_refs") or []}
+                if not refs.issubset(in_scope):
+                    raise RuntimeError("RECOVERY_SOURCE_SCOPE_EXISTING_ARTIFACT_CONFLICT", "existing analysis falls outside requested scope")
+        payload = {"scope_identity": scope, "revision": rev, "source_snapshot_digest": snapshot_digest,
+                   "source_count": len(snapshot), "in_scope_count": len(in_scope), "entries": normalized}
+        validate_recovery_fact("SOURCE_SCOPE_MANIFEST", payload, state)
+        fact_id = "source-scope:" + canonical_sha256({"scope": scope, "revision": rev})[:32]
+        fact = self.g3._record(mission_id, "SOURCE_SCOPE_MANIFEST", payload, provenance_refs=tuple(current_refs), fact_id=fact_id)
+        return {"status": "PASS", "truth_source": "R1_EVENT_STREAM", "manifest": fact}
+
     def analyze_requirements(self, mission_id: str, scope_identity: str, artifacts: list[Mapping[str, Any]]) -> dict[str, Any]:
         scope = _text(scope_identity, "scope_identity")
         if not artifacts:
