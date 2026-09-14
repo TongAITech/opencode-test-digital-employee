@@ -115,6 +115,35 @@ jobs:
           if (-not (Test-Path $gitnexusCli)) { throw 'GitNexus CLI missing after materialization' }
           $gitnexusVersion = (& $nodeExe $gitnexusCli --version 2>&1 | Out-String).Trim()
           if ($gitnexusVersion -notmatch '1\.6\.12') { throw "GitNexus version mismatch: $gitnexusVersion" }
+
+          # The GitNexus top-level version is not sufficient identity: npm can
+          # resolve a different transitive tree later.  Recompute the exact
+          # canonical tree used by D3-GN2 and fail closed before packaging.
+          $gitnexusLock = (Get-Content -Raw runtime-lock.json | ConvertFrom-Json).payloads.gitnexus
+          $gitnexusFiles = Get-ChildItem -LiteralPath $gitnexusTarget -Recurse -File | Sort-Object FullName
+          [long]$gitnexusTotal = 0
+          $gitnexusEntries = @()
+          foreach ($file in $gitnexusFiles) {
+            $rel = [IO.Path]::GetRelativePath($gitnexusTarget, $file.FullName).Replace("\","/")
+            $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash.ToLowerInvariant()
+            [long]$size = $file.Length
+            $gitnexusTotal += $size
+            $gitnexusEntries += [ordered]@{ path=$rel; size_bytes=$size; sha256=$sha }
+          }
+          $gitnexusCanonical = (($gitnexusEntries | ForEach-Object { "$($_.sha256)  $($_.path)" }) -join "`n") + "`n"
+          $gitnexusTreeSha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($gitnexusCanonical))).ToLowerInvariant()
+          if ($gitnexusTreeSha -ne $gitnexusLock.tree_sha256) {
+            throw "GitNexus tree SHA mismatch: expected=$($gitnexusLock.tree_sha256) actual=$gitnexusTreeSha"
+          }
+          if ($gitnexusEntries.Count -ne [int]$gitnexusLock.tree_file_count) {
+            throw "GitNexus tree file-count mismatch: expected=$($gitnexusLock.tree_file_count) actual=$($gitnexusEntries.Count)"
+          }
+          if ($gitnexusTotal -ne [long]$gitnexusLock.tree_size_bytes) {
+            throw "GitNexus tree size mismatch: expected=$($gitnexusLock.tree_size_bytes) actual=$gitnexusTotal"
+          }
+          Write-Host "GITNEXUS_TREE_SHA256=$gitnexusTreeSha"
+          Write-Host "GITNEXUS_FILE_COUNT=$($gitnexusEntries.Count)"
+          Write-Host "GITNEXUS_SIZE_BYTES=$gitnexusTotal"
           Write-Host "PORTABLE_NODE=22.18.0"
           Write-Host "GITNEXUS=1.6.12"
           Write-Host "GITNEXUS_TARGET=$gitnexusTarget"
