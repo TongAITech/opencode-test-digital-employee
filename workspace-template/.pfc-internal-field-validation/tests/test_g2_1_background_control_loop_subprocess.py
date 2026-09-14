@@ -179,9 +179,24 @@ def drain_background_output(stream: object) -> None:
         pass
 
 
+_MODULE_BOOTSTRAP = (
+    "import runpy,sys;"
+    "root=sys.argv.pop(1);module=sys.argv.pop(1);"
+    "sys.path.insert(0,root);sys.argv[0]=module;"
+    "runpy.run_module(module,run_name='__main__')"
+)
+
+
+def module_command(module: str, *args: str) -> list[str]:
+    # The qualified Windows payload uses an embedded Python distribution whose
+    # path file can ignore PYTHONPATH.  Inject current source inside the child
+    # interpreter itself so subprocess evidence is about this Git HEAD.
+    return [sys.executable, "-c", _MODULE_BOOTSTRAP, str(RUNTIME_ROOT), module, *args]
+
+
 def run(env: dict[str, str], role: str, action: str, payload: dict[str, object]) -> dict[str, object]:
     proc = subprocess.run(
-        [sys.executable, "-m", "aitest_runtime.product_entry", "orchestrate", "--role", role, "--action", action, "--payload", json.dumps(payload)],
+        module_command("aitest_runtime.product_entry", "orchestrate", "--role", role, "--action", action, "--payload", json.dumps(payload)),
         cwd=env["AITEST_WORKSPACE_ROOT"], env=env, capture_output=True, text=True, timeout=30,
     )
     if proc.returncode != 0:
@@ -258,7 +273,7 @@ def main() -> int:
             ]
 
             control = subprocess.Popen(
-                [sys.executable, "-m", "aitest_runtime.control_loop", "--workspace-root", str(root), "--interval", "0.1"],
+                module_command("aitest_runtime.control_loop", "--workspace-root", str(root), "--interval", "0.1"),
                 cwd=str(root), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
             )
             threading.Thread(
@@ -408,7 +423,7 @@ def main() -> int:
             )
             before = run(env, "DIRECTOR", "status", status_payload)
             once = subprocess.run(
-                [sys.executable, "-m", "aitest_runtime.control_loop", "--workspace-root", str(root), "--once"],
+                module_command("aitest_runtime.control_loop", "--workspace-root", str(root), "--once"),
                 cwd=str(root), env=env, capture_output=True, text=True, timeout=30,
             )
             status_call += 1
