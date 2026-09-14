@@ -25,6 +25,7 @@ from host_interaction_fixture import host_turn
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_ROOT = WORKSPACE_ROOT / "ai-test" / "runtime"
+sys.path.insert(0, str(RUNTIME_ROOT))
 
 
 def sha(value: object) -> str:
