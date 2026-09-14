@@ -37,11 +37,11 @@ function currentUserTurn(messages, messageID) {
   // falling back to "latest user message"; a missing exact message identity
   // must fail closed rather than replaying a previous instruction.
   if (typeof messageID !== "string" || !messageID) {
-    return { text: "", replaySafe: false, partTypes: [], identityExact: false }
+    return { text: "", replaySafe: false, partTypes: [], identityExact: false, messageID: null }
   }
   const row = messages.find((item) => item?.info?.id === messageID && item?.info?.role === "user")
   if (!row || !Array.isArray(row.parts)) {
-    return { text: "", replaySafe: false, partTypes: [], identityExact: false }
+    return { text: "", replaySafe: false, partTypes: [], identityExact: false, messageID: null }
   }
   const partTypes = row.parts.map((part) => String(part?.type || "unknown"))
   const replaySafe = row.parts.every((part) => part?.type === "text")
@@ -49,7 +49,7 @@ function currentUserTurn(messages, messageID) {
     .filter((part) => part?.type === "text" && part?.ignored !== true && typeof part.text === "string")
     .map((part) => part.text)
     .join("\n")
-  return { text, replaySafe, partTypes, identityExact: true }
+  return { text, replaySafe, partTypes, identityExact: true, messageID: row.info.id }
 }
 
 function patternsFromPermission(permission) {
@@ -60,12 +60,11 @@ function patternsFromPermission(permission) {
 }
 
 async function agentPermissionPatterns(directory, agent) {
-  const inherited = [...patternsFromPermission(mergedPermission)]
   const file = Bun.file(path.join(directory, ".opencode", "agents", agent + ".md"))
   if (!(await file.exists())) return ["*"]
   const text = await file.text()
   const lines = text.split(/\r?\n/)
-  const patterns = [...inherited]
+  const localPatterns = []
   let inside = false
   let denyAll = false
   for (const line of lines) {
@@ -78,11 +77,15 @@ async function agentPermissionPatterns(directory, agent) {
     if (!match) continue
     const pattern = match[1].trim()
     if (pattern === "*" && match[2] === "deny") denyAll = true
-    if (match[2] !== "deny") patterns.push(pattern)
+    if (match[2] !== "deny") localPatterns.push(pattern)
   }
-  // Only a project-owned deny-all AITest Agent gives us a closed-world tool
-  // set. Any looser/unknown permission shape is budgeted as all captured tools.
-  return denyAll ? [...new Set(patterns)] : ["*"]
+  // A project-owned deny-all AITest Agent is an explicit closed-world
+  // boundary. Global allows are defaults for agents that do not override them;
+  // they must not widen this Agent's model-visible tool set or its budget.
+  if (denyAll) return [...new Set(localPatterns)]
+  // Without a local deny-all boundary, conservative accounting budgets every
+  // captured tool rather than trying to reproduce OpenCode's permission merge.
+  return ["*"]
 }
 
 function matches(pattern, value) {
@@ -235,6 +238,7 @@ export const AITestContextGovernor = async ({ directory }) => ({
       message_count: messages.length,
       tool_count: tools.count,
       current_user_text: current.text,
+      current_user_message_id: current.messageID,
       current_user_replay_safe: current.replaySafe,
       current_user_identity_exact: current.identityExact,
       current_user_part_types: current.partTypes,
