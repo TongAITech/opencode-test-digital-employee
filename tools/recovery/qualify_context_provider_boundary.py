@@ -593,6 +593,31 @@ try:
          "parts": [{"type": "text", "text": "C3-HOST-PRESSURE-" + ("测" * 120000)}]},
         timeout=30, budget=2 * 1024 * 1024,
     )
+    def c3_pressure_ready():
+        observed = provider.observe_session(c3_replan_session)
+        utilization = observed.get("context_utilization")
+        messages = observed.get("message_count")
+        pressured = (
+            (isinstance(utilization, (int, float)) and float(utilization) >= 0.85)
+            or (isinstance(messages, int) and messages >= 60)
+            or bool((observed.get("pressure") or {}).get("observation_byte_budget_exceeded"))
+        )
+        return observed if pressured else None
+
+    c3_observation = wait_until(c3_pressure_ready, 30)
+    c3_activity = wait_until(
+        lambda: (lambda value: value if value == "idle" else None)(provider.session_activity(c3_replan_session)),
+        30,
+    )
+    result["c3_replanning_host_observation"] = {
+        "activity": c3_activity,
+        "message_count": c3_observation.get("message_count"),
+        "context_utilization": c3_observation.get("context_utilization"),
+        "context_used": c3_observation.get("context_used"),
+        "context_limit": c3_observation.get("context_limit"),
+        "pressure": c3_observation.get("pressure"),
+    }
+
     before_rotation_provider = call_count()
     c3_tick = service.supervise_once()
     c3_rotations = [
