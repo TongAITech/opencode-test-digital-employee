@@ -393,7 +393,7 @@ class C3AutonomousProgressTests(unittest.TestCase):
         execution = composed.extension_state("r1_3b_execution_resume")
         attempt = execution.latest_attempt(task_id)
         self.assertIsNotNone(attempt)
-        bindings = composed.extension_state("r1_3_provider_binding")
+        bindings = composed.extension_state("r1_3c_provider_binding")
         binding = bindings.binding(attempt.attempt_id)
         self.assertIsNotNone(binding)
 
