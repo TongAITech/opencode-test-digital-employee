@@ -296,68 +296,77 @@ class PrimarySessionOwner:
 
     def claim_context_recovery(self,session_id,agent,text,admission_digest):
         require(isinstance(text,str) and 0<len(text.encode())<=8192,'PRIMARY_RECOVERY_TEXT_INVALID')
-        current=self.current(session_id);context_digest=hashlib.sha256(text.encode()).hexdigest()
-        recovery_id='primary-recovery:'+canonical_sha256({'subject':self.subject.subject_id,'epoch':current['epoch'],
-            'session_id':session_id,'admission_digest':admission_digest,'context_digest':context_digest})
-        self.record('RECOVERY_CLAIM',{'epoch':current['epoch'],'session_id':session_id,'recovery_id':recovery_id,
-            'admission_digest':admission_digest,'context_digest':context_digest,'text':text,'agent':agent,'requested_at':now()})
-        return recovery_id
+        # Serialize the read-head/write pair with every other Primary authority
+        # mutation, including the background Control Loop. The Event Stream
+        # remains truth; this mutex only prevents concurrent stale expected_seq.
+        with primary_coordination(self.runtime):
+            current=self.current(session_id);context_digest=hashlib.sha256(text.encode()).hexdigest()
+            recovery_id='primary-recovery:'+canonical_sha256({'subject':self.subject.subject_id,'epoch':current['epoch'],
+                'session_id':session_id,'admission_digest':admission_digest,'context_digest':context_digest})
+            self.record('RECOVERY_CLAIM',{'epoch':current['epoch'],'session_id':session_id,'recovery_id':recovery_id,
+                'admission_digest':admission_digest,'context_digest':context_digest,'text':text,'agent':agent,'requested_at':now()})
+            return recovery_id
 
     def recover_pending_context(self):
         require(self.provider is not None,'PRIMARY_HOST_PROVIDER_REQUIRED')
-        pending=self.pending_context_recovery()
-        if pending is None:return {'status':'NONE'}
-        predecessor_epoch,recovery=pending
-        state=self.state();predecessor=state.bindings[str(predecessor_epoch)]
-        if predecessor_epoch==state.epoch and predecessor['state']=='BOUND':
-            self.fence(('PRIMARY_CONTEXT_RECOVERY:'+recovery['recovery_id'])[:256])
-        successor=self.ensure_current()
-        state=self.state();predecessor=state.bindings[str(predecessor_epoch)];recovery=dict(predecessor['context_recovery'])
-        if recovery.get('target_session_id') is None:
-            self.record('RECOVERY_TARGET',{'predecessor_epoch':predecessor_epoch,'recovery_id':recovery['recovery_id'],
-                'successor_epoch':successor['epoch'],'successor_session_id':successor['session_id'],'observed_at':now()})
-            state=self.state();recovery=dict(state.bindings[str(predecessor_epoch)]['context_recovery'])
-        require(recovery.get('target_session_id')==successor['session_id'],'PRIMARY_RECOVERY_TARGET_CHANGED')
-        receipt=self.provider.find_context_receipt(successor['session_id'],recovery['context_digest'])
-        if receipt is not None:
-            # Do not close the durable recovery until the user-facing TUI has
-            # accepted the same successor identity. Otherwise the turn may have
-            # moved while the user remains attached to the poisoned predecessor.
+        # Keep the whole recovery journal transition sequence atomic relative to
+        # Primary supervision. Nested ensure_current/fence calls are safe because
+        # runtime_coordination is re-entrant for this authority key.
+        with primary_coordination(self.runtime):
+            pending=self.pending_context_recovery()
+            if pending is None:return {'status':'NONE'}
+            predecessor_epoch,recovery=pending
+            state=self.state();predecessor=state.bindings[str(predecessor_epoch)]
+            if predecessor_epoch==state.epoch and predecessor['state']=='BOUND':
+                self.fence(('PRIMARY_CONTEXT_RECOVERY:'+recovery['recovery_id'])[:256])
+            successor=self.ensure_current()
+            state=self.state();predecessor=state.bindings[str(predecessor_epoch)];recovery=dict(predecessor['context_recovery'])
+            if recovery.get('target_session_id') is None:
+                self.record('RECOVERY_TARGET',{'predecessor_epoch':predecessor_epoch,'recovery_id':recovery['recovery_id'],
+                    'successor_epoch':successor['epoch'],'successor_session_id':successor['session_id'],'observed_at':now()})
+                state=self.state();recovery=dict(state.bindings[str(predecessor_epoch)]['context_recovery'])
+            require(recovery.get('target_session_id')==successor['session_id'],'PRIMARY_RECOVERY_TARGET_CHANGED')
+            receipt=self.provider.find_context_receipt(successor['session_id'],recovery['context_digest'])
+            if receipt is not None:
+                # Do not close the durable recovery until the user-facing TUI has
+                # accepted the same successor identity. Otherwise the turn may have
+                # moved while the user remains attached to the poisoned predecessor.
+                try:self.provider.select_tui_session(successor['session_id'])
+                except Exception:
+                    return {'status':'RECONCILE_REQUIRED','reason':'PRIMARY_TUI_FOLLOW_UNCONFIRMED',
+                        'predecessor_session_id':predecessor['session_id'],'successor_session_id':successor['session_id'],
+                        'epoch':successor['epoch']}
+                if recovery['state']!='ACCEPTED':
+                    self.record('RECOVERY_ACCEPTED',{'predecessor_epoch':predecessor_epoch,'recovery_id':recovery['recovery_id'],
+                        'successor_session_id':successor['session_id'],'receipt':receipt,'observed_at':now()})
+                return {'status':'ACCEPTED','predecessor_session_id':predecessor['session_id'],
+                    'successor_session_id':successor['session_id'],'epoch':successor['epoch'],'receipt':receipt,
+                    'idempotent_readback':recovery['state']!='CLAIMED'}
+            if recovery['state']=='SENDING':
+                return {'status':'RECONCILE_REQUIRED','reason':'PRIMARY_RECOVERY_EFFECT_UNKNOWN',
+                    'predecessor_session_id':predecessor['session_id'],'successor_session_id':successor['session_id'],
+                    'epoch':successor['epoch']}
+            require(recovery['state']=='CLAIMED','PRIMARY_RECOVERY_STATE_INVALID')
             try:self.provider.select_tui_session(successor['session_id'])
             except Exception:
                 return {'status':'RECONCILE_REQUIRED','reason':'PRIMARY_TUI_FOLLOW_UNCONFIRMED',
                     'predecessor_session_id':predecessor['session_id'],'successor_session_id':successor['session_id'],
                     'epoch':successor['epoch']}
-            if recovery['state']!='ACCEPTED':
-                self.record('RECOVERY_ACCEPTED',{'predecessor_epoch':predecessor_epoch,'recovery_id':recovery['recovery_id'],
-                    'successor_session_id':successor['session_id'],'receipt':receipt,'observed_at':now()})
+            self.record('RECOVERY_BEGIN_SEND',{'predecessor_epoch':predecessor_epoch,'recovery_id':recovery['recovery_id'],
+                'successor_session_id':successor['session_id'],'observed_at':now()})
+            try:self.provider.send_context(session_id=successor['session_id'],agent=recovery['agent'],text=recovery['text'])
+            except Exception:
+                return {'status':'RECONCILE_REQUIRED','reason':'PRIMARY_RECOVERY_EFFECT_UNKNOWN',
+                    'predecessor_session_id':predecessor['session_id'],'successor_session_id':successor['session_id'],
+                    'epoch':successor['epoch']}
+            receipt=self.provider.find_context_receipt(successor['session_id'],recovery['context_digest'])
+            if receipt is None:
+                return {'status':'RECONCILE_REQUIRED','reason':'PRIMARY_RECOVERY_RECEIPT_NOT_YET_VISIBLE',
+                    'predecessor_session_id':predecessor['session_id'],'successor_session_id':successor['session_id'],
+                    'epoch':successor['epoch']}
+            self.record('RECOVERY_ACCEPTED',{'predecessor_epoch':predecessor_epoch,'recovery_id':recovery['recovery_id'],
+                'successor_session_id':successor['session_id'],'receipt':receipt,'observed_at':now()})
             return {'status':'ACCEPTED','predecessor_session_id':predecessor['session_id'],
                 'successor_session_id':successor['session_id'],'epoch':successor['epoch'],'receipt':receipt,
-                'idempotent_readback':recovery['state']!='CLAIMED'}
-        if recovery['state']=='SENDING':
-            return {'status':'RECONCILE_REQUIRED','reason':'PRIMARY_RECOVERY_EFFECT_UNKNOWN',
-                'predecessor_session_id':predecessor['session_id'],'successor_session_id':successor['session_id'],
-                'epoch':successor['epoch']}
-        require(recovery['state']=='CLAIMED','PRIMARY_RECOVERY_STATE_INVALID')
-        try:self.provider.select_tui_session(successor['session_id'])
-        except Exception:
-            return {'status':'RECONCILE_REQUIRED','reason':'PRIMARY_TUI_FOLLOW_UNCONFIRMED',
-                'predecessor_session_id':predecessor['session_id'],'successor_session_id':successor['session_id'],
-                'epoch':successor['epoch']}
-        self.record('RECOVERY_BEGIN_SEND',{'predecessor_epoch':predecessor_epoch,'recovery_id':recovery['recovery_id'],
-            'successor_session_id':successor['session_id'],'observed_at':now()})
-        try:self.provider.send_context(session_id=successor['session_id'],agent=recovery['agent'],text=recovery['text'])
-        except Exception:
-            return {'status':'RECONCILE_REQUIRED','reason':'PRIMARY_RECOVERY_EFFECT_UNKNOWN',
-                'predecessor_session_id':predecessor['session_id'],'successor_session_id':successor['session_id'],
-                'epoch':successor['epoch']}
-        receipt=self.provider.find_context_receipt(successor['session_id'],recovery['context_digest'])
-        if receipt is None:
-            return {'status':'RECONCILE_REQUIRED','reason':'PRIMARY_RECOVERY_RECEIPT_NOT_YET_VISIBLE',
-                'predecessor_session_id':predecessor['session_id'],'successor_session_id':successor['session_id'],
-                'epoch':successor['epoch']}
-        self.record('RECOVERY_ACCEPTED',{'predecessor_epoch':predecessor_epoch,'recovery_id':recovery['recovery_id'],
-            'successor_session_id':successor['session_id'],'receipt':receipt,'observed_at':now()})
-        return {'status':'ACCEPTED','predecessor_session_id':predecessor['session_id'],
-            'successor_session_id':successor['session_id'],'epoch':successor['epoch'],'receipt':receipt,
-            'idempotent_readback':False}
+                'idempotent_readback':False}
+
