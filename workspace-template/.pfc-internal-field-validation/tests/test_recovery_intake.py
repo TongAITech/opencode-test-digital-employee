@@ -274,6 +274,171 @@ class RecoveryIntakeTests(unittest.TestCase):
             )
         self.assertEqual(self.runtime.get_head_seq(self.mission), seq)
 
+    def test_explicit_source_scope_manifest_is_complete_and_stale_safe(self):
+        first = self.document()
+        excluded_path = self.root / "excluded.md"
+        excluded_path.write_text("# Legacy\nLegacy-only rule.\n", encoding="utf-8")
+        excluded = self.service.import_document(
+            self.mission, excluded_path, "legacy-requirement"
+        )["document"]
+
+        manifest_v1 = self.service.bind_source_scope(
+            self.mission,
+            "LOAN-SCOPED",
+            [
+                {"source_ref": first["fact_id"], "disposition": "IN_SCOPE"},
+                {
+                    "source_ref": excluded["fact_id"],
+                    "disposition": "OUT_OF_SCOPE",
+                    "reason": "Legacy-only source is outside this release scope",
+                },
+            ],
+            revision="1",
+        )["manifest"]
+        scoped = self.service.analyze_requirements(
+            self.mission,
+            "LOAN-SCOPED",
+            [{
+                "artifact_id": "BR-AMOUNT",
+                "kind": "BR",
+                "revision": "1",
+                "text": "Loan amount must be positive",
+                "source_refs": [first["fact_id"]],
+            }],
+        )
+        self.assertEqual(scoped["status"], "PASS")
+        self.assertEqual(
+            scoped["source_analysis_coverage"]["scope_policy"],
+            "EXPLICIT_SOURCE_SCOPE_MANIFEST",
+        )
+        self.assertEqual(
+            scoped["source_analysis_coverage"]["scope_manifest_ref"],
+            manifest_v1["fact_id"],
+        )
+        self.assertEqual(scoped["source_analysis_coverage"]["document_count"], 1)
+
+        later_path = self.root / "later.md"
+        later_path.write_text("# Currency\nCurrency must be supported.\n", encoding="utf-8")
+        later = self.service.import_document(
+            self.mission, later_path, "later-requirement"
+        )["document"]
+        seq = self.runtime.get_head_seq(self.mission)
+        with self.assertRaisesRegex(Exception, "RECOVERY_SOURCE_SCOPE_MANIFEST_STALE"):
+            self.service.analyze_requirements(
+                self.mission,
+                "LOAN-SCOPED",
+                [{
+                    "artifact_id": "BR-AMOUNT",
+                    "kind": "BR",
+                    "revision": "1",
+                    "text": "Loan amount must be positive",
+                    "source_refs": [first["fact_id"]],
+                }],
+            )
+        self.assertEqual(self.runtime.get_head_seq(self.mission), seq)
+
+        manifest_v2 = self.service.bind_source_scope(
+            self.mission,
+            "LOAN-SCOPED",
+            [
+                {"source_ref": first["fact_id"], "disposition": "IN_SCOPE"},
+                {
+                    "source_ref": excluded["fact_id"],
+                    "disposition": "OUT_OF_SCOPE",
+                    "reason": "Legacy-only source is outside this release scope",
+                },
+                {"source_ref": later["fact_id"], "disposition": "IN_SCOPE"},
+            ],
+            revision="2",
+        )["manifest"]
+        complete = self.service.analyze_requirements(
+            self.mission,
+            "LOAN-SCOPED",
+            [{
+                "artifact_id": "BR-CURRENCY",
+                "kind": "BR",
+                "revision": "1",
+                "text": "Currency must be supported",
+                "source_refs": [later["fact_id"]],
+            }],
+        )
+        self.assertEqual(complete["status"], "PASS")
+        self.assertEqual(complete["source_analysis_coverage"]["document_count"], 2)
+        self.assertEqual(
+            complete["source_analysis_coverage"]["scope_manifest_ref"],
+            manifest_v2["fact_id"],
+        )
+
+    def test_hydration_generation_tracks_partial_to_complete_lineage(self):
+        path = self.root / "hydration.md"
+        path.write_text(
+            "# Amount\nLoan amount must be positive.\n\n"
+            "# Currency\nCurrency must be supported.\n",
+            encoding="utf-8",
+        )
+        document = self.service.import_document(
+            self.mission, path, "hydration-source"
+        )["document"]
+        units = document["payload"]["source_units"]
+        manifest = self.service.bind_source_scope(
+            self.mission,
+            "HYDRATION",
+            [{"source_ref": document["fact_id"], "disposition": "IN_SCOPE"}],
+            revision="1",
+        )["manifest"]
+
+        first = self.service.analyze_requirements(
+            self.mission,
+            "HYDRATION",
+            [{
+                "artifact_id": "BR-AMOUNT",
+                "kind": "BR",
+                "revision": "1",
+                "text": "Loan amount must be positive",
+                "source_refs": [document["fact_id"]],
+                "source_unit_refs": [{
+                    "source_ref": document["fact_id"],
+                    "unit_id": units[0]["unit_id"],
+                }],
+            }],
+        )
+        first_generation = first["hydration_generation"]
+        self.assertEqual(first["status"], "PARTIAL_SOURCE_UNITS")
+        self.assertEqual(first_generation["payload"]["status"], "PARTIAL")
+        self.assertIsNone(first_generation["payload"]["previous_generation_ref"])
+        self.assertEqual(first_generation["payload"]["scope_manifest_ref"], manifest["fact_id"])
+        self.assertEqual(first_generation["payload"]["covered_units"], 1)
+
+        second = self.service.analyze_requirements(
+            self.mission,
+            "HYDRATION",
+            [{
+                "artifact_id": "BR-CURRENCY",
+                "kind": "BR",
+                "revision": "1",
+                "text": "Currency must be supported",
+                "source_refs": [document["fact_id"]],
+                "source_unit_refs": [{
+                    "source_ref": document["fact_id"],
+                    "unit_id": units[1]["unit_id"],
+                }],
+            }],
+        )
+        second_generation = second["hydration_generation"]
+        self.assertEqual(second["status"], "PASS")
+        self.assertEqual(second_generation["payload"]["status"], "COMPLETE")
+        self.assertEqual(
+            second_generation["payload"]["previous_generation_ref"],
+            first_generation["fact_id"],
+        )
+        self.assertEqual(second_generation["payload"]["newly_covered_units"], 1)
+        self.assertEqual(second_generation["payload"]["remaining_uncovered_units"], 0)
+
+        restarted = RecoveryIntakeService(create_canonical_runtime(self.root, db_path=self.db))
+        latest = restarted.g3.state(self.mission).latest("SOURCE_HYDRATION_GENERATION")
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest.fact_id, second_generation["fact_id"])
+
     def test_atomic_validation_and_revision_immutability(self):
         doc = self.document()
         graph = self.graph(doc["fact_id"])
