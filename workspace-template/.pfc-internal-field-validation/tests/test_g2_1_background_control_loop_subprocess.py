@@ -31,6 +31,34 @@ def sha(value: object) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def host_start_turn(scope: dict[str, object], *, session: str = "fixture-host",
+                    message: str = "fixture-user") -> tuple[dict[str, dict[str, object]], dict[str, str], dict[str, object]]:
+    """Current C1 Host ToolContext for a real DIRECTOR/start_test call."""
+    messages, env, payload = host_turn(scope, session=session, message=message)
+    assistant_id = env["AITEST_HOST_MESSAGE_ID"]
+    session_id = env["AITEST_HOST_SESSION_ID"]
+    call_id = message + "-start-call"
+    assistant_path = f"/session/{session_id}/message/{assistant_id}"
+    assistant = messages[assistant_path]
+    info = assistant.get("info")
+    if not isinstance(info, dict):
+        raise AssertionError("HOST_ASSISTANT_INFO_REQUIRED")
+    info["agent"] = "aitest-director"
+    assistant["parts"] = [{
+        "type": "tool",
+        "callID": call_id,
+        "tool": "aitest_director",
+        "sessionID": session_id,
+        "messageID": assistant_id,
+        "state": {
+            "status": "running",
+            "input": {"action": "start_test", "payload": payload},
+        },
+    }]
+    env["AITEST_HOST_CALL_ID"] = call_id
+    return messages, env, payload
+
+
 def request() -> dict[str, object]:
     return {
         "intake_id": "g21-background",
@@ -137,7 +165,7 @@ def main() -> int:
                 "AITEST_OPENCODE_ENDPOINT": f"http://127.0.0.1:{server.server_port}",
                 "PYTHONPATH": str(RUNTIME_ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""),
             })
-            Stub.host_messages,host_env,payload=host_turn(request()['scope'],message='background-start')
+            Stub.host_messages,host_env,payload=host_start_turn(request()['scope'],message='background-start')
             env.update(host_env)
             started = run(env, "DIRECTOR", "start_test", payload); mission_id = started['operations'][0]['subject']['subject_id']
             planned = run(env, "PLANNER", "propose_plan", {"mission_id": mission_id, "proposal": proposal()}); first = planned["next"]
