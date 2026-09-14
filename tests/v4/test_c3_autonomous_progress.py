@@ -1,10 +1,12 @@
 """C3 autonomous Mission progress / no-progress replanning regressions."""
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "workspace-template/ai-test/runtime"))
 
@@ -500,6 +502,36 @@ class C3AutonomousProgressTests(unittest.TestCase):
         third = self.service.progress_once(mission)
         third_reasons = [item.get("reason") for item in third.get("wakes", [])]
         self.assertNotIn("BUSINESS_EFFECT_RECONCILIATION_REQUIRED", third_reasons)
+
+
+    def test_planner_toolcontext_session_external_delete_is_deferred_until_reconciliation(self):
+        started = self.service.start_test(request("planner-host-close"))
+        mission = started["intake"]["intake"]["mission_id"]
+        planner_id = started["planner_session"]["external_session"]["session_id"]
+
+        with patch.dict(os.environ, {"AITEST_HOST_SESSION_ID": planner_id}, clear=False):
+            planned = self.service.propose_plan(mission, one_task())
+
+        self.assertEqual(planned["status"], "PASS")
+        worker = planned["next"]
+        self.assertIsInstance(worker, dict)
+        self.assertEqual(worker["status"], "DISPATCHED")
+        worker_id = worker["external_session"]["session_id"]
+
+        planner_core = self.runtime.replay_composed(mission).core_state.session(planner_id)
+        self.assertIsNotNone(planner_core)
+        self.assertEqual(planner_core.status.value, "CLOSED")
+        self.assertIn(
+            planner_id,
+            self.provider.sessions,
+            "the currently executing Host Planner Session must survive until its tool call can return",
+        )
+        self.assertIn(worker_id, self.provider.sessions)
+
+        reconciled = self.service.reconcile_external_sessions()
+        self.assertEqual(reconciled["status"], "PASS")
+        self.assertNotIn(planner_id, self.provider.sessions)
+        self.assertIn(worker_id, self.provider.sessions)
 
 
 if __name__ == "__main__":
