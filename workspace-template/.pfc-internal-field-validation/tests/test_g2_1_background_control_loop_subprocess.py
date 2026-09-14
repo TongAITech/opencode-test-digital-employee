@@ -18,6 +18,9 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+
+_TEST_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_TEST_DIR))
 from host_interaction_fixture import host_turn
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
