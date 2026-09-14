@@ -165,16 +165,53 @@ class RecoveryReadProductEntryTests(unittest.TestCase):
             command(role, "binding_context", {**bound, "mission_id": "unrelated-mission"})
         self.assert_unchanged(seq)
 
+    def invoke_hosted_g3(self, role, action, payload):
+        sid = payload["session_id"]
+        message_id = "d2-host-assistant"
+        call_id = "d2-host-call"
+        role_tools = {
+            "REQUIREMENT_ANALYST": "aitest_requirement_analyst",
+            "CODE_ANALYST": "aitest_code_analyst",
+        }
+        row = {
+            "info": {
+                "id": message_id,
+                "sessionID": sid,
+                "role": "assistant",
+                "agent": "aitest-requirement-analyst",
+            },
+            "parts": [{
+                "type": "tool",
+                "tool": role_tools[role],
+                "sessionID": sid,
+                "messageID": message_id,
+                "callID": call_id,
+                "state": {
+                    "status": "running",
+                    "input": {"action": action, "payload": dict(payload)},
+                },
+            }],
+        }
+        provider = self.orchestration.session_provider
+        with patch.dict(os.environ, {
+            "AITEST_HOST_SESSION_ID": sid,
+            "AITEST_HOST_MESSAGE_ID": message_id,
+            "AITEST_HOST_CALL_ID": call_id,
+        }), patch.object(provider, "_request", return_value=row, create=True), patch.object(
+            provider, "_directory_query", return_value="directory=fixture", create=True
+        ):
+            return product_entry.g3_command(role, action, payload)
+
     def test_requirement_analyst_can_set_source_scope_only_with_governed_binding(self):
         requirement_task = recommended_plan("REQUIREMENT_ANALYSIS")["tasks"][0]
-        plan = product_entry.orchestration_command("PLANNER", "propose_plan", {
-            "mission_id": self.mission,
-            "proposal": {
+        plan = self.orchestration.propose_plan(
+            self.mission,
+            {
                 "objective": "Bind explicit requirement source scope",
                 "tasks": [requirement_task],
                 "dependencies": [],
             },
-        })
+        )
         self.assertEqual(plan["status"], "PASS")
         self.assertEqual(plan["next"]["route"]["role"], "REQUIREMENT_ANALYST")
         bound = binding(plan["next"])
@@ -187,21 +224,20 @@ class RecoveryReadProductEntryTests(unittest.TestCase):
                 "disposition": "IN_SCOPE",
             }],
         }
-        result = product_entry.g3_command("REQUIREMENT_ANALYST", "set_source_scope", payload)
+        result = self.invoke_hosted_g3("REQUIREMENT_ANALYST", "set_source_scope", payload)
         self.assertEqual(result["status"], "PASS")
         self.assertEqual(result["truth_source"], "R1_EVENT_STREAM")
         self.assertEqual(result["manifest"]["payload"]["in_scope_count"], 1)
 
         seq = self.runtime.get_head_seq(self.mission)
-        rejected = product_entry.g3_command("CODE_ANALYST", "set_source_scope", payload)
-        self.assertEqual(rejected["status"], "HOLD")
-        self.assertEqual(rejected["reason"], "ACTION_NOT_AUTHORIZED_FOR_G3_ROLE")
+        with self.assertRaisesRegex(Exception, "MISSION_AUTHORITY_ROLE_MISMATCH"):
+            self.invoke_hosted_g3("CODE_ANALYST", "set_source_scope", payload)
         self.assert_unchanged(seq)
 
         missing = dict(payload)
         missing.pop("task_id")
         with self.assertRaisesRegex(Exception, "G3_GOVERNED_WORKER_BINDING_REQUIRED"):
-            product_entry.g3_command("REQUIREMENT_ANALYST", "set_source_scope", missing)
+            self.invoke_hosted_g3("REQUIREMENT_ANALYST", "set_source_scope", missing)
         self.assert_unchanged(seq)
 
     def test_actual_product_read_context_role_binding_and_mutation_guards(self):
