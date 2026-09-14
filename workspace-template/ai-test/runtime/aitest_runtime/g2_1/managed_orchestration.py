@@ -498,6 +498,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
     def _close_planning_sessions_after_plan(self, mission_id: str) -> list[str]:
         closed: list[str] = []
         composed = self.runtime.replay_composed(mission_id)
+        active_host_session_id = os.environ.get("AITEST_HOST_SESSION_ID", "").strip()
         for session in list(composed.core_state.sessions):
             attrs = dict(session.attributes or {})
             if session.status.value != "OPEN" or attrs.get("phase") not in {"PLANNING","REPLANNING"}:
@@ -512,10 +513,17 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
                 if result.error:
                     raise result.error
                 raise RuntimeError("PLANNER_SESSION_CLOSE_AFTER_PLAN_REJECTED")
-            try:
-                self.raw_session_provider.delete_session(session.session_id)
-            except Exception:
-                pass
+            # If this Plan was accepted by a real OpenCode Planner tool call,
+            # deleting that exact Host Session here can terminate the still-running
+            # tool process before it returns and before Scheduler handoff completes.
+            # Durable Core is already CLOSED, so the background reconciler owns the
+            # external cleanup after the Host call unwinds. Other stale planning
+            # Sessions remain safe to delete immediately.
+            if session.session_id != active_host_session_id:
+                try:
+                    self.raw_session_provider.delete_session(session.session_id)
+                except Exception:
+                    pass
             closed.append(session.session_id)
         return closed
 
