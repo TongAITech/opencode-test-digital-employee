@@ -69,12 +69,20 @@ const mod = await import(pathToFileURL(pluginPath).href + "?component=" + Date.n
 assert.equal(typeof mod.default, "function")
 const hooks = await mod.default({ directory: workspace })
 
-hooks.config({ permission: { "*": "deny" } })
+hooks.config({ permission: { "*": "deny", "codegraph_*": "allow", "pfc_command": "allow" } })
 
 const allowedTool = { description: "director-v1", jsonSchema: { type: "object", properties: { action: { type: "string" } } } }
 const deniedTool = { description: "shell-must-not-count", jsonSchema: { type: "object", properties: { argv: { type: "array" } } } }
 await hooks["tool.definition"]({ toolID: "aitest_director" }, allowedTool)
 await hooks["tool.definition"]({ toolID: "shell" }, deniedTool)
+await hooks["tool.definition"]({ toolID: "codegraph_reindex_workspace" }, {
+  description: "global-codegraph-tool-must-not-widen-director",
+  jsonSchema: { type: "object", properties: { huge: { type: "string", description: "x".repeat(4000) } } },
+})
+await hooks["tool.definition"]({ toolID: "pfc_command" }, {
+  description: "global-pfc-command-must-not-widen-director",
+  jsonSchema: { type: "object", properties: { huge: { type: "string", description: "y".repeat(4000) } } },
+})
 // Simulate a plugin loaded after AITest mutating the same definition object.
 allowedTool.description += "-late-plugin-expansion-" + "x".repeat(256)
 
@@ -114,7 +122,7 @@ assert.equal(captured[0].current_user_text, "hello")
 assert.equal(captured[0].current_user_replay_safe, true)
 assert.equal(captured[0].current_user_identity_exact, true)
 assert.deepEqual(captured[0].current_user_part_types, ["text"])
-assert.equal(captured[0].tool_count, 1, "deny-all agent must not budget unrelated shell tool")
+assert.equal(captured[0].tool_count, 1, "deny-all agent must ignore global allows and budget only local explicit tools")
 assert.ok(captured[0].tools_bytes > 256, "late tool-definition mutation must be included")
 assert.ok(captured[0].system_bytes > 128, "late system mutation must be included")
 assert.equal(captured[0].message_count, 2)
@@ -222,6 +230,7 @@ console.log(JSON.stringify({
   captured_requests: captured.length,
   final_reference_mutation_visible: true,
   denied_tool_excluded: true,
+  global_allows_do_not_widen_deny_all_agent: true,
   blocked_old_provider_path: true,
   non_text_primary_replay_fails_closed: true,
   missing_primary_message_identity_fails_closed: true,
