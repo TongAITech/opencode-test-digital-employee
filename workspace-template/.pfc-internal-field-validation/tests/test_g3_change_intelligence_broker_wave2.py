@@ -339,6 +339,60 @@ def main() -> int:
             checks["real_codegraph_normalizes_nonempty_impact_edges"] = "IMPACT" in real_kinds
             checks["real_codegraph_edges_keep_tool_provenance"] = all(any(ref.startswith("codegraph-tool:") for ref in edge.source_provenance) for edge in real_edges)
             checks["real_codegraph_keeps_git_change_truth"] = changed_refs(real_env) == {"src/Service.java:L4"}
+            ts_repo = provider_root / "real-typescript"
+            ts_repo.mkdir()
+            git(ts_repo, "init", "-b", "master")
+            git(ts_repo, "config", "user.email", "d3@example.invalid")
+            git(ts_repo, "config", "user.name", "D3 Real CodeGraph")
+            ts_src = ts_repo / "src"
+            ts_src.mkdir()
+            ts_file = ts_src / "service.ts"
+            ts_file.write_text(
+                "export function callee(x: number) {\n"
+                "  return x\n"
+                "}\n\n"
+                "export function apply(x: number) {\n"
+                "  return callee(x) + 1\n"
+                "}\n\n"
+                "export function caller() {\n"
+                "  return apply(1)\n"
+                "}\n", encoding="utf-8")
+            git(ts_repo, "add", ".")
+            git(ts_repo, "commit", "-m", "base")
+            ts_base = git(ts_repo, "rev-parse", "HEAD")
+            ts_file.write_text(
+                "export function callee(x: number) {\n"
+                "  return x\n"
+                "}\n\n"
+                "export function apply(x: number) {\n"
+                "  return callee(x) + 2\n"
+                "}\n\n"
+                "export function caller() {\n"
+                "  return apply(1)\n"
+                "}\n", encoding="utf-8")
+            git(ts_repo, "add", ".")
+            git(ts_repo, "commit", "-m", "change apply")
+            ts_head = git(ts_repo, "rev-parse", "HEAD")
+            _, ts_env, ts_meta = analyze_repository(
+                {"repository_id": "real-codegraph-ts", "repository_path": str(ts_repo), "base_ref": ts_base, "head_ref": ts_head},
+                broker=real_broker,
+            )
+            ts_rows = list(ts_meta.get("line_mapping") or [])
+            ts_edges = [edge for edge in ts_env.impact_edges if str(edge.provider_ref).startswith("codegraph:")]
+            ts_kinds = {edge.edge_kind for edge in ts_edges}
+            checks["real_typescript_git_change_truth"] = changed_refs(ts_env) == {"src/service.ts:L6"}
+            checks["real_typescript_maps_changed_body_line"] = bool(ts_rows) and all(row.get("provider") == "CODEGRAPH" and row.get("status") == "MAPPED_TO_SYMBOL" for row in ts_rows)
+            checks["real_typescript_has_call_edges"] = "CALLER" in ts_kinds and "CALLEE" in ts_kinds
+            checks["real_typescript_has_impact_edge"] = "IMPACT" in ts_kinds
+            checks["real_typescript_is_complete"] = ts_env.code_intelligence_status == "COMPLETE" and not ts_meta.get("mapping_obligations")
+            diagnostics["real_typescript"] = {
+                "status": ts_env.code_intelligence_status,
+                "line_mapping": ts_rows,
+                "warnings": list(ts_env.warnings),
+                "impact_edges": [edge.to_dict() for edge in ts_edges],
+                "obligations": ts_meta.get("mapping_obligations"),
+            }
+
             diagnostics["real_codegraph"] = {
                 "raw_get_ai_context": raw_context,
                 "provider_health": real_meta.get("provider_health", {}).get("CODEGRAPH"),
