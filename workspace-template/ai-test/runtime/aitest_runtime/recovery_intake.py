@@ -687,6 +687,43 @@ class RecoveryIntakeService:
         fact = self.g3._record(mission_id, "SOURCE_SCOPE_MANIFEST", payload, provenance_refs=tuple(current_refs), fact_id=fact_id)
         return {"status": "PASS", "truth_source": "R1_EVENT_STREAM", "manifest": fact}
 
+    def _record_hydration_generation(self, mission_id: str, scope_identity: str, coverage: Mapping[str, Any], analysis: Mapping[str, Any]) -> dict[str, Any]:
+        state = self.g3.state(mission_id)
+        requirement = analysis.get("requirement")
+        if not isinstance(requirement, Mapping):
+            raise RuntimeError("RECOVERY_HYDRATION_INVALID", "semantic model fact is required")
+        semantic_ref = _text(requirement.get("fact_id"), "semantic_model_ref")
+        for fact in reversed(state.by_kind("SOURCE_HYDRATION_GENERATION")):
+            if fact.payload.get("scope_identity") == scope_identity and fact.payload.get("coverage_digest") == coverage.get("coverage_digest") and fact.payload.get("semantic_model_ref") == semantic_ref and fact.payload.get("scope_manifest_ref") == coverage.get("scope_manifest_ref"):
+                return fact.to_dict()
+        previous = state.latest("SOURCE_HYDRATION_GENERATION", lambda fact: fact.payload.get("scope_identity") == scope_identity)
+        same_scope = bool(previous and previous.payload.get("source_unit_scope_digest") == coverage.get("source_unit_scope_digest"))
+        previous_ref = previous.fact_id if same_scope else None
+        previous_covered = int(previous.payload.get("covered_units", 0)) if same_scope else 0
+        covered = int(coverage["covered_units"])
+        total = int(coverage["total_units"])
+        generation_id = "source-hydration:" + canonical_sha256({"scope": scope_identity, "coverage": coverage["coverage_digest"], "semantic": semantic_ref, "manifest": coverage.get("scope_manifest_ref")})[:32]
+        payload = {
+            "generation_id": generation_id, "scope_identity": scope_identity,
+            "scope_manifest_ref": coverage.get("scope_manifest_ref"),
+            "source_snapshot_digest": coverage["source_snapshot_digest"],
+            "source_unit_scope_digest": coverage["source_unit_scope_digest"],
+            "coverage_digest": coverage["coverage_digest"], "semantic_model_ref": semantic_ref,
+            "status": "COMPLETE" if coverage["complete"] else "PARTIAL",
+            "total_units": total, "covered_units": covered,
+            "remaining_uncovered_units": total - covered,
+            "newly_covered_units": max(0, covered - previous_covered),
+            "previous_generation_ref": previous_ref,
+            "uncovered_unit_count": int(coverage["uncovered_unit_count"]),
+            "uncovered_unit_refs": list(coverage["uncovered_unit_refs"]),
+            "uncovered_unit_refs_truncated": bool(coverage["uncovered_unit_refs_truncated"]),
+        }
+        validate_recovery_fact("SOURCE_HYDRATION_GENERATION", payload, state)
+        provenance = [semantic_ref]
+        if payload["scope_manifest_ref"]:
+            provenance.append(str(payload["scope_manifest_ref"]))
+        return self.g3._record(mission_id, "SOURCE_HYDRATION_GENERATION", payload, provenance_refs=tuple(provenance), fact_id=generation_id)
+
     def analyze_requirements(self, mission_id: str, scope_identity: str, artifacts: list[Mapping[str, Any]]) -> dict[str, Any]:
         scope = _text(scope_identity, "scope_identity")
         if not artifacts:
