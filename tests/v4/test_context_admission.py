@@ -3,6 +3,8 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 import sys
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -85,6 +87,22 @@ class CrashAfterAcceptProvider(FakeOpenCodeSessionProvider):
         if self.crash_once:
             self.crash_once = False
             raise OSError("SIMULATED_CRASH_AFTER_HOST_ACCEPT")
+        return result
+
+
+class PausingRecoveryProvider(FakeOpenCodeSessionProvider):
+    def __init__(self, directory):
+        super().__init__(directory)
+        self.selection_entered = threading.Event()
+        self.selection_release = threading.Event()
+        self.pause_once = True
+
+    def select_tui_session(self, session_id: str):
+        result = super().select_tui_session(session_id)
+        if self.pause_once:
+            self.pause_once = False
+            self.selection_entered.set()
+            self.selection_release.wait(2)
         return result
 
 
@@ -325,6 +343,63 @@ class ContextAdmissionTests(unittest.TestCase):
         self.assertEqual([m for m in provider.messages if m["session_id"] == successor], [],
                          "an unknown side effect must not be replayed blindly")
         self.assertEqual(owner.state().epoch, 2)
+
+    def test_primary_recovery_serializes_against_control_loop_writer(self):
+        provider = PausingRecoveryProvider(self.root)
+        owner = PrimarySessionOwner(self.runtime, self.root, provider)
+        old = owner.ensure_current()
+        payload = blocked_payload(old["session_id"], "aitest-director", user_text="并发恢复必须保持单一 Primary truth")
+        results = {}
+
+        def recover():
+            try:
+                results["admit"] = admit(payload, runtime=self.runtime, provider=provider, root=self.root)
+            except Exception as exc:
+                results["admit_error"] = exc
+
+        def supervise():
+            try:
+                results["tick"] = _primary_session_tick(self.runtime, self.root, provider)
+            except Exception as exc:
+                results["tick_error"] = exc
+
+        recovery_thread = threading.Thread(target=recover)
+        recovery_thread.start()
+        self.assertTrue(provider.selection_entered.wait(1), "recovery must reach successor TUI follow")
+        supervisor_thread = threading.Thread(target=supervise)
+        supervisor_thread.start()
+        time.sleep(0.05)
+        provider.selection_release.set()
+        recovery_thread.join(3)
+        supervisor_thread.join(3)
+
+        self.assertFalse(recovery_thread.is_alive())
+        self.assertFalse(supervisor_thread.is_alive())
+        self.assertNotIn("admit_error", results)
+        self.assertNotIn("tick_error", results)
+        self.assertEqual(results["admit"]["recovery"]["status"], "ROTATED")
+        self.assertIn(results["tick"]["status"], {"KEEP", "RECOVERED"})
+        state = owner.state()
+        self.assertEqual(state.epoch, 2)
+        self.assertEqual(state.bindings["1"]["context_recovery"]["state"], "ACCEPTED")
+        self.assertTrue(self.runtime.verify_projection(owner.subject.subject_id)["ok"])
+
+    def test_exact_replayed_turn_cannot_rotate_forever_on_clean_successor(self):
+        owner = PrimarySessionOwner(self.runtime, self.root, self.provider)
+        old = owner.ensure_current()
+        text = "同一个 replay turn 在干净 successor 仍超预算时必须停止轮转"
+        first = admit(blocked_payload(old["session_id"], "aitest-director", user_text=text),
+                      runtime=self.runtime, provider=self.provider, root=self.root)
+        successor = first["recovery"]["successor_session_id"]
+        receipt = first["recovery"]["replay_receipt"]
+        replay = blocked_payload(successor, "aitest-director", user_text=text)
+        replay["current_user_message_id"] = receipt["message_id"]
+        with self.assertRaisesRegex(RuntimeError, "PRIMARY_CONTEXT_RECOVERY_NON_CONVERGENT"):
+            admit(replay, runtime=self.runtime, provider=self.provider, root=self.root)
+        state = owner.state()
+        self.assertEqual(state.epoch, 2)
+        self.assertEqual(len(self.provider.sessions), 2)
+        self.assertEqual(state.bindings["1"]["context_recovery"]["state"], "ACCEPTED")
 
     def test_mission_block_is_durable_pressure_and_survives_fresh_host_observation(self):
         service = G21AutonomousOrchestrationService(self.runtime, self.root, session_provider=self.provider)
