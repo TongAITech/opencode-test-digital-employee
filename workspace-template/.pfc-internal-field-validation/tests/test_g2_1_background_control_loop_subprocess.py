@@ -172,6 +172,13 @@ class Stub(BaseHTTPRequestHandler):
         self._record(); sid = urlparse(self.path).path.split("/")[-1]; self.__class__.sessions.pop(sid, None); self._json(200, True)
 
 
+def drain_background_output(stream: object) -> None:
+    if stream is None:
+        return
+    for _line in stream:
+        pass
+
+
 def run(env: dict[str, str], role: str, action: str, payload: dict[str, object]) -> dict[str, object]:
     proc = subprocess.run(
         [sys.executable, "-m", "aitest_runtime.product_entry", "orchestrate", "--role", role, "--action", action, "--payload", json.dumps(payload)],
@@ -251,6 +258,9 @@ def main() -> int:
                 [sys.executable, "-m", "aitest_runtime.control_loop", "--workspace-root", str(root), "--interval", "0.1"],
                 cwd=str(root), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
             )
+            threading.Thread(
+                target=drain_background_output, args=(control.stdout,), daemon=True
+            ).start()
             rotated_status: dict[str, object] | None = None
             deadline = time.time() + 30
             status_call = 0
