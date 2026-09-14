@@ -28,7 +28,7 @@ from ..autonomous_orchestration import (
     _text,
     _utc_now,
 )
-from ..durable_core import ActorRef, CommandEnvelope, MissionStatus, RuntimeService, canonical_sha256
+from ..durable_core import ActorRef, CommandEnvelope, MissionStatus, RuntimeError, RuntimeService, canonical_sha256
 from ..r2_3 import PlannerInput
 from ..work_graph import TaskLifecycleState, WorkGraphState
 from ..execution_context import (BuildExecutionContextRequest, ContextTarget, EventCursor,
@@ -1653,14 +1653,64 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             return {**replan, "scheduler":dict(scheduler), "quality_cursor":quality_cursor}
 
         goal_id = str(goal["payload"]["goal_id"])
-        decision = TestObjectiveController(g4).tick(
-            mission_id, goal_id,
-            replan_context={
-                "trigger":"PLAN_COMPLETE",
-                "quality_input_cursor":quality_cursor,
-                "scheduler_status":"PLAN_COMPLETE",
-            },
-        )
+        _composed, _graph, _goal, current_plan = self._active_plan_context(mission_id)
+        if current_plan is None or current_plan.current_revision_id is None:
+            raise RuntimeError("C3_QUALITY_PLAN_REVISION_REQUIRED", mission_id)
+        generation_id = "c3-quality:" + canonical_sha256({
+            "mission_id": mission_id,
+            "plan_id": current_plan.plan_id,
+            "plan_revision_id": current_plan.current_revision_id,
+            "g4_goal_id": goal_id,
+            "quality_cursor": quality_cursor,
+        })[:40]
+        prior = self.session_control.state(mission_id).quality_decision(generation_id)
+        if prior is not None:
+            decision = {
+                "status": prior.g4_status,
+                "truth_source": "R1_EVENT_STREAM",
+                "next_action": prior.next_action,
+                "durable_replay": True,
+                "generation_id": generation_id,
+                "evaluation_fact_id": prior.evaluation_fact_id,
+                "replan_request_fact_id": prior.replan_request_fact_id,
+            }
+        else:
+            decision = TestObjectiveController(g4).tick(
+                mission_id, goal_id,
+                replan_context={
+                    "trigger":"PLAN_COMPLETE",
+                    "quality_input_cursor":quality_cursor,
+                    "scheduler_status":"PLAN_COMPLETE",
+                    "quality_generation_id":generation_id,
+                },
+            )
+            status_now = str(decision.get("goal_status") or decision.get("status") or "")
+            next_action_now = str(decision.get("next_action") or "")
+            evaluation = decision.get("evaluation")
+            replan = decision.get("replan")
+            evaluation_fact_id = (
+                str(evaluation.get("fact_id")) if isinstance(evaluation, Mapping) and evaluation.get("fact_id")
+                else str(getattr(evaluation, "fact_id", "")) or None
+            )
+            replan_request_fact_id = (
+                str(replan.get("fact_id")) if isinstance(replan, Mapping) and replan.get("fact_id")
+                else str(getattr(replan, "fact_id", "")) or None
+            )
+            stable = {
+                "generation_id":generation_id,
+                "quality_cursor":quality_cursor,
+                "plan_id":current_plan.plan_id,
+                "plan_revision_id":current_plan.current_revision_id,
+                "g4_goal_id":goal_id,
+                "g4_status":status_now,
+                "next_action":next_action_now,
+                "evaluation_fact_id":evaluation_fact_id,
+                "replan_request_fact_id":replan_request_fact_id,
+            }
+            stable["decision_digest"] = canonical_sha256(stable)
+            self.session_control.record_quality_decision(mission_id, stable)
+            decision = {**decision, "generation_id":generation_id, "durable_replay":False}
+
         status = str(decision.get("goal_status") or decision.get("status") or "")
         next_action = str(decision.get("next_action") or "")
 
