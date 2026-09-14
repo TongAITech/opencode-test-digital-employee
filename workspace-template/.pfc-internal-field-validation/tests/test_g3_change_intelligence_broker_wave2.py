@@ -28,6 +28,7 @@ from aitest_runtime.g3.codegraph_provider import (  # noqa: E402
     StructuralLineMapping,
 )
 from aitest_runtime.r3_2.contracts import ImpactEdge, RepositoryCompareRequest  # noqa: E402
+from aitest_runtime.r3_5.page_intelligence import build_page_graph  # noqa: E402
 
 
 def git(repo: Path, *args: str) -> str:
@@ -703,6 +704,108 @@ def main() -> int:
                 "provider_health": gn_replay_repo.get("provider_health"),
                 "impacted_surfaces": gn_replay_repo.get("impacted_surfaces"),
                 "provider_provenance": gn_replay_repo.get("provider_provenance"),
+            }
+
+            gn_page_impact = next(
+                item
+                for item in gn_meta.get("gitnexus_page_impacts") or []
+                if item.get("changed_component") == "src/components/AmountInput.vue"
+                and item.get("affected_page_file") == "src/pages/ApplyPage.vue"
+            )
+            page_graph = build_page_graph({
+                "graph_id": "cfg-admin-page-impact",
+                "graph_version": 1,
+                "scope": {
+                    "project_id": "PFC",
+                    "environment_id": "D3_WINDOWS",
+                    "version_scope": gn_head,
+                },
+                "source_revision": gn_head,
+                "build_profile_ref": "d3-gn2-gitnexus-page-impact",
+                "source_refs": [
+                    {
+                        "ref_id": "SRC-ROUTER",
+                        "source_kind": "FRONTEND_CODE",
+                        "locator": "git://src/router/index.ts",
+                        "revision": gn_head,
+                        "source_digest": canonical_digest(
+                            (gn_repo / "src/router/index.ts").read_text(encoding="utf-8")
+                        ),
+                    },
+                    {
+                        "ref_id": "SRC-APPLY-PAGE",
+                        "source_kind": "FRONTEND_CODE",
+                        "locator": "git://src/pages/ApplyPage.vue",
+                        "revision": gn_head,
+                        "source_digest": canonical_digest(
+                            (gn_repo / "src/pages/ApplyPage.vue").read_text(encoding="utf-8")
+                        ),
+                    },
+                    {
+                        "ref_id": "SRC-AMOUNT-COMPONENT",
+                        "source_kind": "FRONTEND_CODE",
+                        "locator": "git://src/components/AmountInput.vue",
+                        "revision": gn_head,
+                        "source_digest": canonical_digest(
+                            component.read_text(encoding="utf-8")
+                        ),
+                    },
+                ],
+                "code_facts": [
+                    {
+                        "page_key": "loan-apply",
+                        "surface": "router",
+                        "route": "/loan/apply",
+                        "path": "src/router/index.ts",
+                        "symbol_id": "route:/loan/apply",
+                        "symbol_kind": "ROUTE",
+                        "source_ref": "SRC-ROUTER",
+                    },
+                    {
+                        "page_key": "loan-apply",
+                        "surface": "component",
+                        "path": gn_page_impact["affected_page_file"],
+                        "symbol_id": "page:ApplyPage",
+                        "symbol_kind": "PAGE_COMPONENT",
+                        "source_ref": "SRC-APPLY-PAGE",
+                    },
+                    {
+                        "page_key": "loan-apply",
+                        "surface": "component",
+                        "path": gn_page_impact["changed_component"],
+                        "symbol_id": "component:AmountInput",
+                        "symbol_kind": "VUE_COMPONENT",
+                        "source_ref": "SRC-AMOUNT-COMPONENT",
+                    },
+                ],
+                "expected_surfaces": ["router", "component"],
+            })
+            page_node = next(
+                node
+                for node in page_graph.graph.nodes
+                if node.page_key == "loan-apply"
+            )
+            checks["real_gitnexus_pagegraph_resolves_business_route"] = (
+                "/loan/apply" in page_node.route_patterns
+            )
+            checks["real_gitnexus_pagegraph_keeps_affected_page_component"] = any(
+                ref.path == "src/pages/ApplyPage.vue"
+                for ref in page_node.component_refs
+            )
+            checks["real_gitnexus_pagegraph_keeps_changed_component"] = any(
+                ref.path == "src/components/AmountInput.vue"
+                for ref in page_node.component_refs
+            )
+            checks["real_gitnexus_pagegraph_is_source_backed"] = (
+                page_graph.graph.status == "SOURCE_MAPPED"
+                and page_graph.engineering_evidence["unresolved_gap_count"] == 0
+                and len(page_node.source_refs) == 3
+            )
+            diagnostics["real_gitnexus_pagegraph"] = {
+                "graph_status": page_graph.graph.status,
+                "graph_digest": page_graph.graph.graph_digest,
+                "page_node": page_node.to_dict(),
+                "engineering_evidence": dict(page_graph.engineering_evidence),
             }
 
     with tempfile.TemporaryDirectory(prefix="g3-wave2-codegraph-missing-") as td:
