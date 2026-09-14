@@ -82,6 +82,31 @@ class G21CommandContribution:
                     if getattr(previous, key) != p[key]:
                         raise RuntimeError("G2_1_PROGRESS_IDENTITY_CONFLICT", p["progress_id"])
             return [PendingEvent(PROGRESS_STATE_RECORDED, "MISSION_PROGRESS", p["progress_id"], p, p["session_id"])]
+        if command.type == RECORD_QUALITY_DECISION:
+            p = _payload(command, {"generation_id","quality_cursor","plan_id","plan_revision_id",
+                                   "g4_goal_id","g4_status","next_action","evaluation_fact_id",
+                                   "replan_request_fact_id","decision_digest"})
+            valid_status = {"SATISFIED","COMPLETED_WITH_ACCEPTED_GAP","WAITING_MEASUREMENT","REPLANNING"}
+            valid_action = {"NONE","WAIT_COVERAGE_REFRESH","G3_REPLAN"}
+            if (not isinstance(p["generation_id"], str) or not 1 <= len(p["generation_id"]) <= 160
+                    or not isinstance(p["quality_cursor"], int) or isinstance(p["quality_cursor"], bool)
+                    or not 0 <= p["quality_cursor"] <= composed.seq
+                    or any(not isinstance(p[key], str) or not 1 <= len(p[key]) <= 256
+                           for key in ("plan_id","plan_revision_id","g4_goal_id"))
+                    or p["g4_status"] not in valid_status or p["next_action"] not in valid_action
+                    or not isinstance(p["decision_digest"], str) or len(p["decision_digest"]) != 64
+                    or any(ch not in "0123456789abcdef" for ch in p["decision_digest"])
+                    or any(value is not None and (not isinstance(value, str) or not 1 <= len(value) <= 256)
+                           for value in (p["evaluation_fact_id"], p["replan_request_fact_id"]))):
+                raise RuntimeError("G2_1_QUALITY_DECISION_SCHEMA_INVALID", str(p.get("generation_id")))
+            previous = composed.extension_state(EXTENSION_ID).quality_decision(p["generation_id"])
+            if previous is not None:
+                prior = previous.to_dict()
+                prior.pop("recorded_seq", None); prior.pop("recorded_at", None)
+                if prior != p:
+                    raise RuntimeError("G2_1_QUALITY_DECISION_CONFLICT", p["generation_id"])
+                return []
+            return [PendingEvent(QUALITY_DECISION_RECORDED, "QUALITY_DECISION", p["generation_id"], p)]
         if command.type == ENABLE_ROUTING_AUTHORITY:
             p = _payload(command, set())
             return [PendingEvent(ROUTING_AUTHORITY_ENABLED, "SESSION_ROUTING", composed.mission_id, p)]
