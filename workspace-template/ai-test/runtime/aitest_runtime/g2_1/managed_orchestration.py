@@ -1853,8 +1853,13 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             execution = composed.extension_state("r1_3b_execution_resume")
             if not isinstance(graph, WorkGraphState) or execution is None:
                 continue
+            _current_composed, _current_graph, _current_goal, current_plan = self._active_plan_context(mission_id)
+            if current_plan is None or current_plan.current_revision_id is None:
+                continue
             for task in graph.tasks:
-                if task.lifecycle_state != TaskLifecycleState.ACTIVE:
+                if (task.lifecycle_state != TaskLifecycleState.ACTIVE
+                        or task.plan_id != current_plan.plan_id
+                        or task.plan_revision_id != current_plan.current_revision_id):
                     continue
                 latest = execution.latest_attempt(task.task_id)
                 if latest is None:
@@ -2296,7 +2301,9 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         graph=fresh.extension_state('r1_2_work_graph');execution=fresh.extension_state('r1_3b_execution_resume')
         wakes=[]
         for task in graph.tasks:
-            if task.lifecycle_state!=TaskLifecycleState.ACTIVE:continue
+            if (task.lifecycle_state!=TaskLifecycleState.ACTIVE
+                    or task.plan_id!=plan.plan_id
+                    or task.plan_revision_id!=plan.current_revision_id):continue
             attempt=execution.latest_attempt(task.task_id)
             if attempt is None:continue
             barrier=self._activity_barrier(mission_id,attempt.runtime_session_id,task.task_id)
