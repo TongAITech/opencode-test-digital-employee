@@ -1795,7 +1795,44 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
                     composed = self.runtime.replay_composed(mission_id)
                     core = composed.core_state.session(intent.external_session_id)
                     if core is not None and core.status.value in {"CLOSED", "FAILED"} and matches:
+                        activity_reader = getattr(self.raw_session_provider, "session_activity", None)
                         for item in matches:
+                            # Durable terminality is authoritative, but OpenCode may
+                            # still be executing the very tool call that produced the
+                            # terminal transition. Killing a busy Host Session here
+                            # can interrupt the return path before Scheduler handoff
+                            # or durable receipt reconciliation completes. Cleanup is
+                            # therefore fail-safe: delete only once Host activity is
+                            # observably idle; unknown/busy/retry states are retried
+                            # by the next Control Loop tick.
+                            if callable(activity_reader):
+                                try:
+                                    activity = str(activity_reader(item.session_id))
+                                except Exception as exc:
+                                    actions.append({
+                                        "mission_id": mission_id,
+                                        "session_id": item.session_id,
+                                        "token": intent.provision_token,
+                                        "status": "TERMINAL_EXTERNAL_ACTIVITY_UNKNOWN_DEFERRED",
+                                        "error": type(exc).__name__,
+                                    })
+                                    continue
+                                if activity != "idle":
+                                    actions.append({
+                                        "mission_id": mission_id,
+                                        "session_id": item.session_id,
+                                        "token": intent.provision_token,
+                                        "status": "TERMINAL_EXTERNAL_" + activity.upper() + "_DEFERRED",
+                                    })
+                                    continue
+                            else:
+                                actions.append({
+                                    "mission_id": mission_id,
+                                    "session_id": item.session_id,
+                                    "token": intent.provision_token,
+                                    "status": "TERMINAL_EXTERNAL_ACTIVITY_UNKNOWN_DEFERRED",
+                                })
+                                continue
                             close_external(item, status="TERMINAL_EXTERNAL_CLOSED", mission_id=mission_id, token=intent.provision_token)
 
         orphan_closed: list[str] = []
