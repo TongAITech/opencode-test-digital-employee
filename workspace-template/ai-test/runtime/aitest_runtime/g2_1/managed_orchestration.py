@@ -663,6 +663,65 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         )
         return canonical_sha256(surface) if surface is not None else None
 
+    def _proposal_route_semantic_digest(self, tasks: Any) -> str | None:
+        if not isinstance(tasks, (list, tuple)) or not tasks:
+            return None
+        normalized: list[dict[str, Any]] = []
+        for index, raw in enumerate(tasks):
+            if not isinstance(raw, Mapping):
+                return None
+            key = next(
+                (str(raw[name]).strip() for name in ("task_key","key","semantic_key","name")
+                 if raw.get(name) is not None and str(raw.get(name)).strip()),
+                f"task-{index + 1}",
+            )
+            routing = raw.get("routing")
+            routing = dict(routing) if isinstance(routing, Mapping) else {}
+            role_name = str(routing.get("role") or "EXECUTOR").upper()
+            role = self.role_registry.resolve(role_name)
+            agent_name = str(routing.get("agent_name") or role.agent_name)
+            requested_caps = routing.get("required_capabilities") or []
+            if not isinstance(requested_caps, list) or not all(isinstance(item, str) and item for item in requested_caps):
+                return None
+            capabilities = list(dict.fromkeys([
+                OPENCODE_AGENT_CAPABILITY, TASK_OUTCOME_REPORT, *requested_caps,
+            ]))
+            normalized.append({
+                "task_key":key,
+                "role":role.role,
+                "agent_name":agent_name,
+                "required_capabilities":capabilities,
+                "isolation_policy":str(routing.get("isolation_policy") or "DEDICATED_TASK_SESSION"),
+                "parallelism_policy":str(routing.get("parallelism_policy") or "SERIAL"),
+            })
+        return canonical_sha256(normalized)
+
+    def _revision_route_semantic_digest(self, mission_id: str, revision: Any) -> str | None:
+        if revision is None:
+            return None
+        state = self.session_control.state(mission_id)
+        normalized: list[dict[str, Any]] = []
+        for index, raw in enumerate(getattr(revision, "task_definitions", ())):
+            if not isinstance(raw, Mapping):
+                return None
+            task_id = raw.get("task_id")
+            key = raw.get("task_key")
+            if not isinstance(task_id, str) or not task_id or not isinstance(key, str) or not key:
+                return None
+            route = state.route(task_id)
+            if route is None:
+                # Missing current route is not permission to collapse a replan.
+                return None
+            normalized.append({
+                "task_key":key,
+                "role":route.role,
+                "agent_name":route.agent_name,
+                "required_capabilities":list(route.required_capabilities),
+                "isolation_policy":route.isolation_policy,
+                "parallelism_policy":route.parallelism_policy,
+            })
+        return canonical_sha256(normalized) if normalized else None
+
     @classmethod
     def _revision_semantic_digest(cls, revision: Any) -> str | None:
         if revision is None:
@@ -723,11 +782,15 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         proposal_digest = canonical_sha256(stable_proposal)
         candidate_semantic_digest = self._proposal_semantic_digest(stable_proposal)
         current_semantic_digest = self._revision_semantic_digest(current_revision)
+        candidate_route_digest = self._proposal_route_semantic_digest(normalized_tasks)
+        current_route_digest = self._revision_route_semantic_digest(mission_id, current_revision)
         if (
             current_plan is not None
             and current_revision is not None
             and candidate_semantic_digest is not None
             and candidate_semantic_digest == current_semantic_digest
+            and candidate_route_digest is not None
+            and candidate_route_digest == current_route_digest
         ):
             # A new cursor/revision identity is not semantic business progress.
             # Do not call frozen R2.3: doing so would legitimately persist a new
@@ -748,6 +811,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
                     "reason_code":"PLAN_UNCHANGED",
                     "reason":"Candidate semantic content matches the durable current Revision",
                     "c3_semantic_digest":candidate_semantic_digest,
+                    "c3_route_semantic_digest":candidate_route_digest,
                     "frozen_r2_3_invoked":False,
                 },
                 "route_requirements":[],
