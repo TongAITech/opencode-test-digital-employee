@@ -277,6 +277,7 @@ class PageNode:
         object.__setattr__(self, "router_refs", _symbol_refs(self.router_refs, "router_refs"))
         object.__setattr__(self, "menu_refs", _symbol_refs(self.menu_refs, "menu_refs"))
         object.__setattr__(self, "permission_refs", _tuple_mapping(self.permission_refs, "permission_refs"))
+        object.__setattr__(self, "component_refs", _symbol_refs(self.component_refs, "component_refs"))
         object.__setattr__(self, "form_refs", _symbol_refs(self.form_refs, "form_refs"))
         object.__setattr__(self, "table_refs", _symbol_refs(self.table_refs, "table_refs"))
         object.__setattr__(self, "action_binding_refs", _tuple_text(self.action_binding_refs, "action_binding_refs"))
