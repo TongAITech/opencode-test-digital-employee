@@ -48,7 +48,7 @@ jobs:
           $env:PYTHONPATH = $runtime
           python -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_recovery_intake.py 2>&1 | Tee-Object -FilePath D1_D2_SOURCE_ANALYSIS_QUALIFICATION.log
           if ($LASTEXITCODE -ne 0) { throw 'D1-D2 recovery intake regression failed' }
-          python -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_recovery_read_product_entry.py 2>&1 | Tee-Object -FilePath D1_D2_PRODUCT_ENTRY_QUALIFICATION.log
+          python -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_recovery_read_product_entry.py RecoveryReadProductEntryTests.test_requirement_analyst_can_set_source_scope_only_with_governed_binding 2>&1 | Tee-Object -FilePath D1_D2_PRODUCT_ENTRY_QUALIFICATION.log
           if ($LASTEXITCODE -ne 0) { throw 'D2 product-entry regression failed' }
 
       - name: Upload D1-D2 qualification evidence
