@@ -369,6 +369,78 @@ class RecoveryIntakeTests(unittest.TestCase):
             manifest_v2["fact_id"],
         )
 
+    def test_source_scope_manifest_rejects_incomplete_mutation_and_out_of_scope_analysis(self):
+        first = self.document()
+        second_path = self.root / "scope-second.md"
+        second_path.write_text("# Legacy\nLegacy rule.\n", encoding="utf-8")
+        second = self.service.import_document(
+            self.mission, second_path, "scope-second"
+        )["document"]
+        seq = self.runtime.get_head_seq(self.mission)
+
+        with self.assertRaisesRegex(Exception, "RECOVERY_SOURCE_SCOPE_INCOMPLETE"):
+            self.service.bind_source_scope(
+                self.mission,
+                "STRICT-SCOPE",
+                [{"source_ref": first["fact_id"], "disposition": "IN_SCOPE"}],
+                revision="1",
+            )
+        self.assertEqual(self.runtime.get_head_seq(self.mission), seq)
+
+        with self.assertRaisesRegex(Exception, "RECOVERY_INPUT_INVALID|RECOVERY_SOURCE_SCOPE_INVALID"):
+            self.service.bind_source_scope(
+                self.mission,
+                "STRICT-SCOPE",
+                [
+                    {"source_ref": first["fact_id"], "disposition": "IN_SCOPE"},
+                    {"source_ref": second["fact_id"], "disposition": "OUT_OF_SCOPE"},
+                ],
+                revision="1",
+            )
+        self.assertEqual(self.runtime.get_head_seq(self.mission), seq)
+
+        manifest = self.service.bind_source_scope(
+            self.mission,
+            "STRICT-SCOPE",
+            [
+                {"source_ref": first["fact_id"], "disposition": "IN_SCOPE"},
+                {
+                    "source_ref": second["fact_id"],
+                    "disposition": "OUT_OF_SCOPE",
+                    "reason": "Not part of this requirement scope",
+                },
+            ],
+            revision="1",
+        )["manifest"]
+        self.assertEqual(manifest["payload"]["in_scope_count"], 1)
+        seq = self.runtime.get_head_seq(self.mission)
+
+        with self.assertRaisesRegex(Exception, "RECOVERY_REVISION_CONFLICT"):
+            self.service.bind_source_scope(
+                self.mission,
+                "STRICT-SCOPE",
+                [
+                    {"source_ref": first["fact_id"], "disposition": "IN_SCOPE"},
+                    {"source_ref": second["fact_id"], "disposition": "IN_SCOPE"},
+                ],
+                revision="1",
+            )
+        self.assertEqual(self.runtime.get_head_seq(self.mission), seq)
+
+        with self.assertRaisesRegex(Exception, "RECOVERY_SOURCE_SCOPE_ARTIFACT_CONFLICT"):
+            self.service.analyze_requirements(
+                self.mission,
+                "STRICT-SCOPE",
+                [{
+                    "artifact_id": "BR-OUT",
+                    "kind": "BR",
+                    "revision": "1",
+                    "text": "Legacy rule",
+                    "source_refs": [second["fact_id"]],
+                }],
+            )
+        self.assertEqual(self.runtime.get_head_seq(self.mission), seq)
+
     def test_hydration_generation_tracks_partial_to_complete_lineage(self):
         path = self.root / "hydration.md"
         path.write_text(
@@ -434,10 +506,46 @@ class RecoveryIntakeTests(unittest.TestCase):
         self.assertEqual(second_generation["payload"]["newly_covered_units"], 1)
         self.assertEqual(second_generation["payload"]["remaining_uncovered_units"], 0)
 
+        seq = self.runtime.get_head_seq(self.mission)
+        repeated = self.service.analyze_requirements(
+            self.mission,
+            "HYDRATION",
+            [{
+                "artifact_id": "BR-CURRENCY",
+                "kind": "BR",
+                "revision": "1",
+                "text": "Currency must be supported",
+                "source_refs": [document["fact_id"]],
+                "source_unit_refs": [{
+                    "source_ref": document["fact_id"],
+                    "unit_id": units[1]["unit_id"],
+                }],
+            }],
+        )
+        self.assertEqual(repeated["hydration_generation"]["fact_id"], second_generation["fact_id"])
+        self.assertEqual(self.runtime.get_head_seq(self.mission), seq)
+
         restarted = RecoveryIntakeService(create_canonical_runtime(self.root, db_path=self.db))
         latest = restarted.g3.state(self.mission).latest("SOURCE_HYDRATION_GENERATION")
         self.assertIsNotNone(latest)
         self.assertEqual(latest.fact_id, second_generation["fact_id"])
+        replayed = restarted.analyze_requirements(
+            self.mission,
+            "HYDRATION",
+            [{
+                "artifact_id": "BR-CURRENCY",
+                "kind": "BR",
+                "revision": "1",
+                "text": "Currency must be supported",
+                "source_refs": [document["fact_id"]],
+                "source_unit_refs": [{
+                    "source_ref": document["fact_id"],
+                    "unit_id": units[1]["unit_id"],
+                }],
+            }],
+        )
+        self.assertEqual(replayed["hydration_generation"]["fact_id"], second_generation["fact_id"])
+        self.assertEqual(self.runtime.get_head_seq(self.mission), seq)
 
     def test_atomic_validation_and_revision_immutability(self):
         doc = self.document()
