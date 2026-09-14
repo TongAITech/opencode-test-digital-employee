@@ -633,6 +633,78 @@ def main() -> int:
                 "warnings": list(gn_env.warnings),
             }
 
+            gn_durable_root = gn_root / "durable-r1"
+            gn_spine = gn_durable_root / "state" / "runtime-spine.db"
+            gn_spine.parent.mkdir(parents=True, exist_ok=True)
+            gn_runtime = create_canonical_runtime(gn_durable_root, db_path=gn_spine)
+            gn_orchestration = G21AutonomousOrchestrationService(
+                gn_runtime,
+                gn_durable_root,
+                session_provider=FakeOpenCodeSessionProvider(gn_durable_root),
+            )
+            gn_mission = gn_orchestration.start_test(intake_request())["intake"]["intake"]["mission_id"]
+            gn_service = G3TestingIntelligenceService(gn_runtime)
+            gn_requirement = gn_service.analyze_requirement(
+                gn_mission, "REQ-D3-GITNEXUS", minimal_requirement_semantics()
+            )
+            gn_change = gn_service.analyze_changes(
+                gn_mission,
+                "REQ-D3-GITNEXUS",
+                [{
+                    "repository_id": "real-gitnexus-vue-product",
+                    "application_id": "cfg-admin",
+                    "repository_path": str(gn_repo),
+                    "base_ref": gn_base,
+                    "head_ref": gn_head,
+                    "runtime_lock_path": str(WORKSPACE.parent / "runtime-lock.json"),
+                    "gitnexus_node_path": real_gitnexus_node,
+                    "gitnexus_cli_path": real_gitnexus_cli,
+                    "gitnexus_home": str(gn_root / "gitnexus-product-home"),
+                }],
+                gn_requirement["r3_1_reference"],
+            )
+            gn_product_repo = gn_change["repositories"][0]
+            checks["real_gitnexus_page_impact_is_durable_g3_product_truth"] = any(
+                item.get("surface_kind") == "PAGE"
+                and item.get("stable_surface_id") == "src/pages/ApplyPage.vue"
+                and item.get("relation") == "VUE_COMPONENT_CONSUMER"
+                for item in gn_product_repo.get("impacted_surfaces") or []
+            )
+            checks["real_gitnexus_product_keeps_git_authority"] = (
+                gn_product_repo.get("provider_health", {}).get("GIT", {}).get("authority")
+                == "CHANGED_FILE_LINE_TRUTH"
+                and gn_product_repo.get("provider_health", {}).get("GITNEXUS", {}).get("authority")
+                == "VUE_COMPONENT_PAGE_ENRICHMENT_ONLY"
+            )
+
+            gn_restarted = create_canonical_runtime(gn_durable_root, db_path=gn_spine)
+            gn_replay = G3TestingIntelligenceService(gn_restarted).state(gn_mission)
+            gn_fact = gn_replay.latest("MULTI_REPO_CHANGE_ANALYSIS")
+            gn_replay_repo = (
+                dict(gn_fact.payload["repositories"][0])
+                if gn_fact is not None
+                else {}
+            )
+            checks["real_gitnexus_page_impact_survives_r1_restart"] = any(
+                item.get("surface_kind") == "PAGE"
+                and item.get("stable_surface_id") == "src/pages/ApplyPage.vue"
+                for item in gn_replay_repo.get("impacted_surfaces") or []
+            )
+            checks["real_gitnexus_provider_provenance_survives_r1_restart"] = (
+                gn_replay_repo.get("provider_health", {}).get("GITNEXUS", {}).get("version")
+                == "1.6.12"
+                and bool(
+                    gn_replay_repo.get("provider_provenance", {}).get("gitnexus_graph_digest")
+                )
+            )
+            diagnostics["real_gitnexus_r1"] = {
+                "status": gn_change["status"],
+                "fact_id": gn_fact.fact_id if gn_fact is not None else None,
+                "provider_health": gn_replay_repo.get("provider_health"),
+                "impacted_surfaces": gn_replay_repo.get("impacted_surfaces"),
+                "provider_provenance": gn_replay_repo.get("provider_provenance"),
+            }
+
     with tempfile.TemporaryDirectory(prefix="g3-wave2-codegraph-missing-") as td:
         missing_root = Path(td)
         missing_lock = missing_root / "runtime-lock.json"
