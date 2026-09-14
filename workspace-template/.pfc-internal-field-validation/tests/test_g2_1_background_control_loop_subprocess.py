@@ -59,6 +59,37 @@ def host_start_turn(scope: dict[str, object], *, session: str = "fixture-host",
     return messages, env, payload
 
 
+def bind_host_tool(env: dict[str, str], *, session_id: str, agent: str, tool: str,
+                   action: str, payload: dict[str, object], label: str) -> None:
+    """Bind one exact current Host tool call to the role-owned Session."""
+    message_id = label + "-assistant"
+    call_id = label + "-call"
+    Stub.host_messages[f"/session/{session_id}/message/{message_id}"] = {
+        "info": {
+            "sessionID": session_id,
+            "id": message_id,
+            "role": "assistant",
+            "agent": agent,
+        },
+        "parts": [{
+            "type": "tool",
+            "callID": call_id,
+            "tool": tool,
+            "sessionID": session_id,
+            "messageID": message_id,
+            "state": {
+                "status": "running",
+                "input": {"action": action, "payload": payload},
+            },
+        }],
+    }
+    env.update({
+        "AITEST_HOST_SESSION_ID": session_id,
+        "AITEST_HOST_MESSAGE_ID": message_id,
+        "AITEST_HOST_CALL_ID": call_id,
+    })
+
+
 def request() -> dict[str, object]:
     return {
         "intake_id": "g21-background",
@@ -167,8 +198,17 @@ def main() -> int:
             })
             Stub.host_messages,host_env,payload=host_start_turn(request()['scope'],message='background-start')
             env.update(host_env)
-            started = run(env, "DIRECTOR", "start_test", payload); mission_id = started['operations'][0]['subject']['subject_id']
-            planned = run(env, "PLANNER", "propose_plan", {"mission_id": mission_id, "proposal": proposal()}); first = planned["next"]
+            primary_host_session = host_env["AITEST_HOST_SESSION_ID"]
+            started = run(env, "DIRECTOR", "start_test", payload)
+            operation = started["operations"][0]
+            mission_id = operation["subject"]["subject_id"]
+            planner_session_id = str(operation["result"]["next"]["session_id"])
+            plan_payload = {"mission_id": mission_id, "proposal": proposal()}
+            bind_host_tool(
+                env, session_id=planner_session_id, agent="aitest-planner", tool="aitest_planner",
+                action="propose_plan", payload=plan_payload, label="background-plan",
+            )
+            planned = run(env, "PLANNER", "propose_plan", plan_payload); first = planned["next"]
             predecessor = str(first["external_session"]["session_id"]); root_attempt = str(first["attempt"]["root_attempt_id"])
             Stub.messages[predecessor] = [
                 {"info": {"id": f"msg-{index}", "sessionID": predecessor, "role": "assistant"},
@@ -182,8 +222,15 @@ def main() -> int:
             )
             rotated_status: dict[str, object] | None = None
             deadline = time.time() + 30
+            status_call = 0
             while time.time() < deadline:
-                value = run(env, "DIRECTOR", "status", {"mission_id": mission_id})
+                status_call += 1
+                status_payload = {"mission_id": mission_id}
+                bind_host_tool(
+                    env, session_id=primary_host_session, agent="aitest-director", tool="aitest_director",
+                    action="status", payload=status_payload, label=f"background-status-{status_call}",
+                )
+                value = run(env, "DIRECTOR", "status", status_payload)
                 attempts = value.get("execution", {}).get("attempts", [])  # type: ignore[union-attr]
                 rotations = value.get("session_control", {}).get("rotations", [])
                 if (isinstance(attempts, list) and len(attempts) >= 2
@@ -221,7 +268,13 @@ def main() -> int:
                 unattended_status: dict[str, object] | None = None
                 deadline = time.time() + 12
                 while time.time() < deadline:
-                    value = run(env, "DIRECTOR", "status", {"mission_id": mission_id})
+                    status_call += 1
+                    status_payload = {"mission_id": mission_id}
+                    bind_host_tool(
+                        env, session_id=primary_host_session, agent="aitest-director", tool="aitest_director",
+                        action="status", payload=status_payload, label=f"background-status-{status_call}",
+                    )
+                    value = run(env, "DIRECTOR", "status", status_payload)
                     progress_records = value.get("session_control", {}).get("progress_records", [])  # type: ignore[union-attr]
                     active_replans = [
                         item for item in progress_records
@@ -268,12 +321,24 @@ def main() -> int:
             # reconstruction is supplied to it beyond R1 + provider facts.
             assert control is not None
             control.terminate(); control.wait(timeout=5); control = None
-            before = run(env, "DIRECTOR", "status", {"mission_id": mission_id})
+            status_call += 1
+            status_payload = {"mission_id": mission_id}
+            bind_host_tool(
+                env, session_id=primary_host_session, agent="aitest-director", tool="aitest_director",
+                action="status", payload=status_payload, label=f"background-status-{status_call}",
+            )
+            before = run(env, "DIRECTOR", "status", status_payload)
             once = subprocess.run(
                 [sys.executable, "-m", "aitest_runtime.control_loop", "--workspace-root", str(root), "--once"],
                 cwd=str(root), env=env, capture_output=True, text=True, timeout=30,
             )
-            after = run(env, "DIRECTOR", "status", {"mission_id": mission_id})
+            status_call += 1
+            status_payload = {"mission_id": mission_id}
+            bind_host_tool(
+                env, session_id=primary_host_session, agent="aitest-director", tool="aitest_director",
+                action="status", payload=status_payload, label=f"background-status-{status_call}",
+            )
+            after = run(env, "DIRECTOR", "status", status_payload)
             checks["control_loop_restart_rebuilds_from_r1_without_state_loss"] = once.returncode == 0 and before["head_seq"] <= after["head_seq"] and after["mission_id"] == mission_id
             checks["background_provider_calls_are_directory_scoped"] = bool(Stub.requests) and all(
                 item["directory"] == str(root.resolve()) for item in Stub.requests if str(item["path"]).startswith("/session")
