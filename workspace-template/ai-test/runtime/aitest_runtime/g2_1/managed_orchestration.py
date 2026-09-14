@@ -514,6 +514,32 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             closed.append(session.session_id)
         return closed
 
+    def _resolve_replanning_progress_after_plan(self, mission_id: str) -> list[str]:
+        """A newly accepted PlanRevision is business progress for all open replanning generations.
+
+        Planner sessions are closed immediately after a governed Plan/Revision is
+        accepted. Leaving their ProgressRecord in REPLANNING would make a later
+        control tick treat completed recovery work as an unresolved deadlock.
+        """
+        resolved: list[str] = []
+        for progress in list(self.session_control.state(mission_id).progress_records):
+            if progress.phase != "REPLANNING":
+                continue
+            self.session_control.record_progress_state(mission_id, {
+                "progress_id": progress.progress_id,
+                "business_cursor": progress.business_cursor,
+                "phase": "RESOLVED",
+                "reason": progress.reason,
+                "failure_signature": progress.failure_signature,
+                "task_id": progress.task_id,
+                "session_id": progress.session_id,
+                "replan_lineage": progress.replan_lineage,
+                "replan_session_id": progress.replan_session_id,
+                "observed_at": _utc_now(),
+            })
+            resolved.append(progress.progress_id)
+        return resolved
+
     @_coordinated
     def propose_plan(self, mission_id: str, proposal: Mapping[str, Any]) -> dict[str, Any]:
         """Run frozen R2.3, persist G2.1 routes, then hand off to Scheduler."""
@@ -575,6 +601,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         result = self.planner.plan_or_revise(item)
         accepted = result.outcome in {"APPLIED", "DUPLICATE", "NO_CHANGE"}
         routes = self._register_plan_routes(mission_id, normalized_tasks) if accepted else []
+        resolved_progress = self._resolve_replanning_progress_after_plan(mission_id) if accepted else []
         closed_planner_sessions = self._close_planning_sessions_after_plan(mission_id) if accepted else []
         next_state = self.advance(mission_id) if accepted else None
         return {
@@ -586,6 +613,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             "runtime_governed_result": result.to_dict(),
             "route_requirements": routes,
             "closed_planner_sessions": closed_planner_sessions,
+            "resolved_progress_ids": resolved_progress,
             "autonomous_handoff": "SCHEDULER" if accepted else None,
             "next": next_state,
             "head_seq": self.runtime.get_head_seq(mission_id),
