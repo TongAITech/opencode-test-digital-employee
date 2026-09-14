@@ -177,9 +177,58 @@ def main() -> int:
                     and observation["message_count"] == 60
                     and observation["provider_state"]["pressure"]["metrics_source"] == "OPENCODE_MESSAGE_API"
                 )
+
+                # Keep the independent Control Loop alive. No user "continue",
+                # Agent observe call or Scheduler command is issued here. The
+                # loop itself must drive successor AUTO_CONTINUE and, after the
+                # same business cursor produces no progress, create a governed
+                # Replanning Planner from durable R1 truth.
+                successor_id = str(latest["runtime_session_id"])
+                unattended_status: dict[str, object] | None = None
+                deadline = time.time() + 12
+                while time.time() < deadline:
+                    value = run(env, "DIRECTOR", "status", {"mission_id": mission_id})
+                    progress_records = value.get("session_control", {}).get("progress_records", [])  # type: ignore[union-attr]
+                    active_replans = [
+                        item for item in progress_records
+                        if item.get("phase") == "REPLANNING" and item.get("replan_session_id")
+                    ]
+                    if active_replans:
+                        unattended_status = value
+                        break
+                    time.sleep(0.1)
+
+                checks["background_progress_does_not_require_user_continue"] = unattended_status is not None
+                if unattended_status is not None:
+                    progress_records = unattended_status["session_control"]["progress_records"]  # type: ignore[index]
+                    active_replan = next(
+                        item for item in progress_records
+                        if item.get("phase") == "REPLANNING" and item.get("replan_session_id")
+                    )
+                    replanner_id = str(active_replan["replan_session_id"])
+                    checks["background_worker_auto_continue_precedes_replan"] = (
+                        len(Stub.messages.get(successor_id, [])) >= 2
+                    )
+                    checks["background_no_progress_creates_governed_replanner"] = (
+                        replanner_id in Stub.sessions
+                        and len(Stub.messages.get(replanner_id, [])) >= 1
+                        and str(active_replan.get("failure_signature") or "") != ""
+                    )
+                    checks["background_replan_remains_same_mission_truth"] = (
+                        active_replan.get("business_cursor") is not None
+                        and unattended_status.get("mission_id") == mission_id
+                    )
+                else:
+                    checks["background_worker_auto_continue_precedes_replan"] = False
+                    checks["background_no_progress_creates_governed_replanner"] = False
+                    checks["background_replan_remains_same_mission_truth"] = False
             else:
                 checks["background_rotation_preserves_root_attempt"] = False
                 checks["background_rotation_durable_predecessor_closed_successor_open"] = False
+                checks["background_progress_does_not_require_user_continue"] = False
+                checks["background_worker_auto_continue_precedes_replan"] = False
+                checks["background_no_progress_creates_governed_replanner"] = False
+                checks["background_replan_remains_same_mission_truth"] = False
 
             # Kill/restart the Control Loop itself. No durable Mission/Session
             # reconstruction is supplied to it beyond R1 + provider facts.
