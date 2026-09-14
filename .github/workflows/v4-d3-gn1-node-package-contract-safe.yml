@@ -1,0 +1,86 @@
+name: V4 D3-GN1 Node package contract safe
+
+on:
+  push:
+    branches:
+      - work/v1.13.0-recovery-turnkey-validation
+    paths:
+      - "runtime-lock.json"
+      - "tools/recovery/build_package.py"
+      - "tools/recovery/validate_package.py"
+      - ".github/workflows/v4-d3-gn1-node-package-contract-safe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-node-package-contract:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify locked package contract
+        shell: pwsh
+        run: |
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne "${{ github.sha }}") { throw "SOURCE_HEAD_MISMATCH:$head" }
+          if (git status --porcelain) { throw "SOURCE_NOT_CLEAN" }
+
+          $lock = Get-Content -Raw runtime-lock.json | ConvertFrom-Json
+          $node = $lock.payloads.node
+          if ($node.version -ne "22.18.0") { throw "NODE_LOCK_VERSION_MISMATCH" }
+          if ($node.relative_target -ne "workspace-template/runtime/tools/node/node.exe") { throw "NODE_LOCK_TARGET_MISMATCH" }
+          if ($node.sha256 -ne "c22d1c59a1f767a1ed0178445a027f2257d318c55430fc819d48f269586822b7") { throw "NODE_EXE_SHA_MISMATCH" }
+          if ($node.archive_sha256 -ne "c95d8a7e1c99e669cc08c9f1176e068c1f50847c37908fcb8c35b62482366511") { throw "NODE_ARCHIVE_SHA_MISMATCH" }
+          if ($node.host_node_authority -ne $false) { throw "HOST_NODE_AUTHORITY_FORBIDDEN" }
+
+          $build = Get-Content -Raw tools/recovery/build_package.py
+          if (-not $build.Contains("'tools/node/node.exe'")) { throw "BUILD_NODE_REQUIREMENT_MISSING" }
+          if (-not $build.Contains("'tools/node/npm.cmd'")) { throw "BUILD_NPM_REQUIREMENT_MISSING" }
+
+          $validation = Get-Content -Raw tools/recovery/validate_package.py
+          if (-not $validation.Contains("runtime / 'tools/node/node.exe'")) { throw "INSTALLED_NODE_VALIDATION_MISSING" }
+          if (-not $validation.Contains("required_stdout='v22.18.0'")) { throw "INSTALLED_NODE_VERSION_ORACLE_MISSING" }
+
+      - name: Re-prove pinned portable Node
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "d3-gn1-node-contract"
+          $zip = Join-Path $root "node.zip"
+          $extract = Join-Path $root "extract"
+          New-Item -ItemType Directory -Force -Path $root,$extract | Out-Null
+          curl.exe -fL --retry 3 -o $zip https://nodejs.org/download/release/v22.18.0/node-v22.18.0-win-x64.zip
+          if ($LASTEXITCODE -ne 0) { throw "NODE_DOWNLOAD_FAILED" }
+          $archiveSha = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+          if ($archiveSha -ne "c95d8a7e1c99e669cc08c9f1176e068c1f50847c37908fcb8c35b62482366511") { throw "NODE_ARCHIVE_SHA_MISMATCH:$archiveSha" }
+          Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force
+          $nodeExe = Join-Path $extract "node-v22.18.0-win-x64\node.exe"
+          $version = (& $nodeExe --version | Out-String).Trim()
+          if ($version -ne "v22.18.0") { throw "PORTABLE_NODE_VERSION_MISMATCH:$version" }
+          $exeSha = (Get-FileHash -Algorithm SHA256 $nodeExe).Hash.ToLowerInvariant()
+          if ($exeSha -ne "c22d1c59a1f767a1ed0178445a027f2257d318c55430fc819d48f269586822b7") { throw "NODE_EXE_SHA_MISMATCH:$exeSha" }
+
+          $result = [ordered]@{
+            status = "PASS"
+            source_head = "${{ github.sha }}"
+            node_version = $version
+            node_archive_sha256 = $archiveSha
+            node_exe_sha256 = $exeSha
+            package_build_contract = "PASS"
+            installed_validation_contract = "PASS"
+            host_node_authority = $false
+            gitnexus_execution = "LICENSE_AUTHORIZATION_REQUIRED"
+          }
+          $result | ConvertTo-Json | Set-Content D3_GN1_NODE_PACKAGE_CONTRACT.json -Encoding utf8
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-d3-gn1-node-package-contract-${{ github.sha }}
+          path: D3_GN1_NODE_PACKAGE_CONTRACT.json
+          if-no-files-found: error
