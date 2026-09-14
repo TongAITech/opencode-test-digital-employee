@@ -1,0 +1,93 @@
+name: V4 D3-GN1 Node tree manifest
+
+on:
+  push:
+    branches:
+      - work/v1.13.0-recovery-turnkey-validation
+    paths:
+      - ".github/workflows/v4-d3-gn1-node-tree-manifest.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node-tree-manifest:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build pinned Node tree manifest
+        shell: pwsh
+        run: |
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne "${{ github.sha }}") { throw "SOURCE_HEAD_MISMATCH:$head" }
+
+          $root = Join-Path $env:RUNNER_TEMP "node-tree"
+          $zip = Join-Path $root "node.zip"
+          $extract = Join-Path $root "extract"
+          New-Item -ItemType Directory -Force -Path $root,$extract | Out-Null
+          curl.exe -fL --retry 3 -o $zip https://nodejs.org/download/release/v22.18.0/node-v22.18.0-win-x64.zip
+          if ($LASTEXITCODE -ne 0) { throw "NODE_DOWNLOAD_FAILED" }
+          $archiveSha = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+          if ($archiveSha -ne "c95d8a7e1c99e669cc08c9f1176e068c1f50847c37908fcb8c35b62482366511") {
+            throw "NODE_ARCHIVE_SHA_MISMATCH:$archiveSha"
+          }
+
+          Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force
+          $tree = Join-Path $extract "node-v22.18.0-win-x64"
+          $node = Join-Path $tree "node.exe"
+          $npm = Join-Path $tree "npm.cmd"
+          if ((& $node --version | Out-String).Trim() -ne "v22.18.0") { throw "NODE_VERSION_MISMATCH" }
+          if ((& $npm --version | Out-String).Trim() -ne "10.9.3") { throw "NPM_VERSION_MISMATCH" }
+
+          $entries = @()
+          [long]$total = 0
+          Get-ChildItem -LiteralPath $tree -Recurse -File | Sort-Object FullName | ForEach-Object {
+            $rel = [IO.Path]::GetRelativePath($tree, $_.FullName).Replace("\","/")
+            $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
+            [long]$size = $_.Length
+            $total += $size
+            $entries += [ordered]@{
+              path = "workspace-template/runtime/tools/node/" + $rel
+              size_bytes = $size
+              sha256 = $sha
+            }
+          }
+
+          $canonical = (($entries | ForEach-Object { "$($_.sha256)  $($_.path)" }) -join "`n") + "`n"
+          $digestBytes = [Text.Encoding]::UTF8.GetBytes($canonical)
+          $treeSha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($digestBytes)).ToLowerInvariant()
+          $npmSha = (Get-FileHash -Algorithm SHA256 $npm).Hash.ToLowerInvariant()
+
+          $result = [ordered]@{
+            schema_version = "aitest.node-tree-manifest.v1"
+            source_head = "${{ github.sha }}"
+            version = "22.18.0"
+            npm_version = "10.9.3"
+            platform = "windows-x64"
+            archive_identity = "node-v22.18.0-win-x64.zip"
+            archive_sha256 = $archiveSha
+            node_exe_sha256 = "c22d1c59a1f767a1ed0178445a027f2257d318c55430fc819d48f269586822b7"
+            npm_cmd_sha256 = $npmSha
+            relative_target = "workspace-template/runtime/tools/node"
+            tree_sha256 = $treeSha
+            file_count = $entries.Count
+            size_bytes = $total
+            gitnexus_execution = "NOT_EXECUTED_LICENSE_AUTHORIZATION_REQUIRED"
+            tree_manifest = $entries
+          }
+          $result | ConvertTo-Json -Depth 6 | Set-Content D3_GN1_NODE_TREE_MANIFEST.json -Encoding utf8
+          "NODE_TREE_SHA256=$treeSha" | Write-Host
+          "NODE_NPM_CMD_SHA256=$npmSha" | Write-Host
+          "NODE_FILE_COUNT=$($entries.Count)" | Write-Host
+          "NODE_SIZE_BYTES=$total" | Write-Host
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v4-d3-gn1-node-tree-manifest-${{ github.sha }}
+          path: D3_GN1_NODE_TREE_MANIFEST.json
+          if-no-files-found: error
