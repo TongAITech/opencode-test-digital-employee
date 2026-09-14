@@ -153,8 +153,9 @@ class C3PlanCompleteConvergenceTests(unittest.TestCase):
         self.assertTrue(session)
 
         again = self.service.progress_once(mission)
-        self.assertEqual(again["status"], "REPLAN_IN_PROGRESS")
+        self.assertEqual(again["status"], "AUTO_CONTINUE_REPLANNING")
         self.assertEqual(again["session_id"], session)
+        self.assertTrue(again["retry_budget_consumed"])
         state2 = self.service.session_control.state(mission)
         self.assertEqual(len([p for p in state2.progress_records if p.reason == "PLAN_COMPLETE_TESTING_GOAL_MISSING"]), 1)
 
@@ -193,12 +194,27 @@ class C3PlanCompleteConvergenceTests(unittest.TestCase):
         self.assertEqual(len(progress), 1)
         successor = progress[0].replan_session_id
 
+        before_control = (
+            len(g4.state(mission).by_kind("GOAL_EVALUATION"))
+            + len(g4.state(mission).by_kind("TESTING_GOAL_STATUS"))
+            + len(g4.state(mission).by_kind("REPLAN_REQUEST"))
+        )
         second = self.service.progress_once(mission)
-        self.assertEqual(second["status"], "REPLAN_IN_PROGRESS")
+        self.assertEqual(second["status"], "AUTO_CONTINUE_REPLANNING")
         self.assertEqual(second["session_id"], successor)
-        self.assertEqual(second["quality_cursor"], first["quality_cursor"])
+        self.assertTrue(second["retry_budget_consumed"])
+        self.assertEqual(second["business_cursor"], first["quality_cursor"])
         self.assertEqual(len([p for p in self.service.session_control.state(mission).progress_records
                               if p.reason == "PLAN_COMPLETE_G4_REPLANNING"]), 1)
+        after_control = (
+            len(g4.state(mission).by_kind("GOAL_EVALUATION"))
+            + len(g4.state(mission).by_kind("TESTING_GOAL_STATUS"))
+            + len(g4.state(mission).by_kind("REPLAN_REQUEST"))
+        )
+        self.assertEqual(
+            after_control, before_control,
+            "driving the same replanning generation must not re-evaluate the same G4 quality generation",
+        )
 
     def test_satisfied_quality_marks_core_goal_achieved_then_completes_mission(self):
         mission, worker = self._mission("satisfied")
