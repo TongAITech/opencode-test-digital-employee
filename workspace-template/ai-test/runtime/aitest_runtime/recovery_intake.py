@@ -34,6 +34,229 @@ KINDS = {"BR", "SR", "TR"}
 SEMANTIC_FIELDS = ("business_rules", "field_data_rules", "state_transitions", "positive_paths", "negative_paths",
                    "exception_paths", "boundary_rules", "permission_rules", "cross_system_flows", "acceptance_criteria",
                    "non_functional_risks", "unknowns")
+MAX_SOURCE_UNIT_CHARS = 8192
+MAX_SOURCE_UNITS = 4096
+
+
+def _trim_source_span(text: str, start: int, end: int) -> tuple[int, int] | None:
+    while start < end and text[start].isspace():
+        start += 1
+    while end > start and text[end - 1].isspace():
+        end -= 1
+    return (start, end) if start < end else None
+
+
+def _base_source_spans(text: str, format_name: str) -> list[tuple[int, int, str]]:
+    """Deterministic structure-first spans; offsets always reference exact stored text."""
+    spans: list[tuple[int, int, str]] = []
+    if format_name == "md":
+        headings = list(re.finditer(r"(?m)^[ 	]{0,3}#{1,6}[ 	]+[^\n]*(?:\n|$)", text))
+        if headings:
+            prefix = _trim_source_span(text, 0, headings[0].start())
+            if prefix:
+                spans.append((*prefix, "PREAMBLE"))
+            for index, heading in enumerate(headings):
+                end = headings[index + 1].start() if index + 1 < len(headings) else len(text)
+                span = _trim_source_span(text, heading.start(), end)
+                if span:
+                    spans.append((*span, "SECTION"))
+            return spans
+
+    # DOCX extraction is paragraph-per-line. Text/JSON/PDF keep blank-line
+    # paragraph boundaries where available. Long units are split below.
+    if format_name == "docx":
+        cursor = 0
+        for line in text.splitlines(keepends=True):
+            end = cursor + len(line)
+            span = _trim_source_span(text, cursor, end)
+            if span:
+                spans.append((*span, "PARAGRAPH"))
+            cursor = end
+        tail = _trim_source_span(text, cursor, len(text))
+        if tail:
+            spans.append((*tail, "PARAGRAPH"))
+    else:
+        cursor = 0
+        for boundary in re.finditer(r"\n[ 	]*\n+", text):
+            span = _trim_source_span(text, cursor, boundary.start())
+            if span:
+                spans.append((*span, "PARAGRAPH"))
+            cursor = boundary.end()
+        tail = _trim_source_span(text, cursor, len(text))
+        if tail:
+            spans.append((*tail, "PARAGRAPH"))
+    return spans
+
+
+def _source_unit_ledger(text: str, format_name: str) -> list[dict[str, Any]]:
+    spans = _base_source_spans(text, format_name)
+    units: list[dict[str, Any]] = []
+    ordinal = 0
+    for base_start, base_end, base_kind in spans:
+        start = base_start
+        while start < base_end:
+            end = min(base_end, start + MAX_SOURCE_UNIT_CHARS)
+            if end < base_end:
+                newline = text.rfind("\n", start + 1, end + 1)
+                if newline > start:
+                    end = newline
+            span = _trim_source_span(text, start, end)
+            if span is None:
+                start = max(end, start + 1)
+                continue
+            unit_start, unit_end = span
+            ordinal += 1
+            unit_text = text[unit_start:unit_end]
+            digest = hashlib.sha256(unit_text.encode("utf-8")).hexdigest()
+            units.append({
+                "unit_id": f"unit-{ordinal:05d}-{digest[:16]}",
+                "ordinal": ordinal,
+                "unit_kind": base_kind if start == base_start else "CHUNK",
+                "char_start": unit_start,
+                "char_end": unit_end,
+                "char_count": unit_end - unit_start,
+                "text_sha256": digest,
+            })
+            start = max(end, unit_end)
+    if not units:
+        raise RuntimeError("RECOVERY_SOURCE_UNIT_LEDGER_EMPTY", "document produced no semantic source units")
+    if len(units) > MAX_SOURCE_UNITS:
+        raise RuntimeError("RECOVERY_SOURCE_UNIT_LEDGER_TOO_LARGE", "split document into smaller source revisions")
+    _validate_source_unit_ledger(text, units)
+    return units
+
+
+def _validate_source_unit_ledger(text: str, units: Any) -> list[dict[str, Any]]:
+    if not isinstance(units, list) or not units or len(units) > MAX_SOURCE_UNITS:
+        raise RuntimeError("RECOVERY_SOURCE_UNIT_LEDGER_INVALID", "source_units must be a bounded non-empty array")
+    prior_end = 0
+    seen: set[str] = set()
+    normalized: list[dict[str, Any]] = []
+    required = {"unit_id", "ordinal", "unit_kind", "char_start", "char_end", "char_count", "text_sha256"}
+    for expected_ordinal, raw in enumerate(units, 1):
+        if not isinstance(raw, Mapping) or set(raw) != required:
+            raise RuntimeError("RECOVERY_SOURCE_UNIT_LEDGER_INVALID", "source unit schema mismatch")
+        unit = dict(raw)
+        unit_id = _text(unit.get("unit_id"), "unit_id")
+        if unit_id in seen or unit.get("ordinal") != expected_ordinal:
+            raise RuntimeError("RECOVERY_SOURCE_UNIT_LEDGER_INVALID", "source unit identity/ordinal mismatch")
+        seen.add(unit_id)
+        start, end = unit.get("char_start"), unit.get("char_end")
+        if type(start) is not int or type(end) is not int or not (0 <= start < end <= len(text)):
+            raise RuntimeError("RECOVERY_SOURCE_UNIT_LEDGER_INVALID", "source unit offset invalid")
+        if start < prior_end or text[prior_end:start].strip():
+            raise RuntimeError("RECOVERY_SOURCE_UNIT_LEDGER_GAP", "non-whitespace source text is missing from ledger")
+        value = text[start:end]
+        if len(value) > MAX_SOURCE_UNIT_CHARS or unit.get("char_count") != len(value):
+            raise RuntimeError("RECOVERY_SOURCE_UNIT_LEDGER_INVALID", "source unit size invalid")
+        if hashlib.sha256(value.encode("utf-8")).hexdigest() != unit.get("text_sha256"):
+            raise RuntimeError("RECOVERY_SOURCE_UNIT_DIGEST_MISMATCH", unit_id)
+        prior_end = end
+        normalized.append(unit)
+    if text[prior_end:].strip():
+        raise RuntimeError("RECOVERY_SOURCE_UNIT_LEDGER_GAP", "trailing semantic text is missing from ledger")
+    return normalized
+
+
+def _document_source_units(fact: Any) -> list[dict[str, Any]]:
+    payload = dict(fact.payload) if hasattr(fact, "payload") else dict(fact)
+    text = str(payload.get("text") or "")
+    units = payload.get("source_units")
+    if units is None:
+        # Deterministic compatibility view for historical SOURCE_DOCUMENT events.
+        # It does not rewrite old R1 facts; newly imported sources persist the ledger.
+        return _source_unit_ledger(text, str(payload.get("format") or "txt"))
+    return _validate_source_unit_ledger(text, units)
+
+
+def _normalize_source_unit_refs(payload: Mapping[str, Any], state: G3State) -> list[dict[str, str]]:
+    source_refs = [str(value) for value in payload.get("source_refs") or []]
+    documents: dict[str, Any] = {}
+    for source_ref in source_refs:
+        fact = state.by_id(source_ref)
+        if fact is None or fact.fact_kind != "SOURCE_DOCUMENT":
+            raise RuntimeError("RECOVERY_SOURCE_NOT_FOUND", source_ref)
+        documents[source_ref] = fact
+
+    raw_refs = payload.get("source_unit_refs")
+    if raw_refs is None:
+        if documents and all(len(_document_source_units(fact)) == 1 for fact in documents.values()):
+            raw_refs = [
+                {"source_ref": source_ref, "unit_id": _document_source_units(fact)[0]["unit_id"]}
+                for source_ref, fact in documents.items()
+            ]
+        else:
+            raise RuntimeError(
+                "RECOVERY_SOURCE_UNIT_PROVENANCE_REQUIRED",
+                "multi-unit source analysis requires explicit source_unit_refs",
+            )
+    if not isinstance(raw_refs, list) or not raw_refs:
+        raise RuntimeError("RECOVERY_SOURCE_UNIT_PROVENANCE_REQUIRED", "source_unit_refs must be non-empty")
+
+    valid = {
+        source_ref: {unit["unit_id"] for unit in _document_source_units(fact)}
+        for source_ref, fact in documents.items()
+    }
+    normalized: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for raw in raw_refs:
+        if not isinstance(raw, Mapping) or set(raw) != {"source_ref", "unit_id"}:
+            raise RuntimeError("RECOVERY_SOURCE_UNIT_PROVENANCE_INVALID", "source_unit_ref schema mismatch")
+        source_ref = _text(raw.get("source_ref"), "source_ref")
+        unit_id = _text(raw.get("unit_id"), "unit_id")
+        if source_ref not in valid or unit_id not in valid[source_ref]:
+            raise RuntimeError("RECOVERY_SOURCE_UNIT_PROVENANCE_INVALID", f"{source_ref}:{unit_id}")
+        key = (source_ref, unit_id)
+        if key in seen:
+            raise RuntimeError("RECOVERY_SOURCE_UNIT_PROVENANCE_INVALID", "duplicate source unit reference")
+        seen.add(key)
+        normalized.append({"source_ref": source_ref, "unit_id": unit_id})
+    if set(source_refs) - {item["source_ref"] for item in normalized}:
+        raise RuntimeError("RECOVERY_SOURCE_UNIT_PROVENANCE_REQUIRED", "every source_ref requires a source unit")
+    return normalized
+
+
+def _source_analysis_coverage(state: G3State, artifacts: list[Mapping[str, Any]]) -> dict[str, Any]:
+    document_order: list[str] = []
+    for artifact in artifacts:
+        payload = artifact.get("payload") if isinstance(artifact.get("payload"), Mapping) else artifact
+        for source_ref in payload.get("source_refs") or []:
+            source_ref = str(source_ref)
+            if source_ref not in document_order:
+                document_order.append(source_ref)
+
+    all_refs: list[dict[str, str]] = []
+    ordinal_by_ref: dict[tuple[str, str], int] = {}
+    for source_ref in document_order:
+        fact = state.by_id(source_ref)
+        if fact is None or fact.fact_kind != "SOURCE_DOCUMENT":
+            continue
+        for unit in _document_source_units(fact):
+            key = (source_ref, unit["unit_id"])
+            ordinal_by_ref[key] = unit["ordinal"]
+            all_refs.append({"source_ref": source_ref, "unit_id": unit["unit_id"]})
+
+    covered_keys: set[tuple[str, str]] = set()
+    for artifact in artifacts:
+        payload = artifact.get("payload") if isinstance(artifact.get("payload"), Mapping) else artifact
+        for ref in payload.get("source_unit_refs") or []:
+            if isinstance(ref, Mapping):
+                covered_keys.add((str(ref.get("source_ref") or ""), str(ref.get("unit_id") or "")))
+
+    uncovered = [
+        ref for ref in all_refs
+        if (ref["source_ref"], ref["unit_id"]) not in covered_keys
+    ]
+    covered = len(all_refs) - len(uncovered)
+    stable = {
+        "document_count": len(document_order),
+        "total_units": len(all_refs),
+        "covered_units": covered,
+        "uncovered_unit_refs": uncovered,
+        "complete": bool(all_refs) and not uncovered,
+    }
+    stable["coverage_digest"] = canonical_sha256(stable)
+    return stable
 
 
 def _release_index(payload: Mapping[str, Any], *, offset: int = 0, limit: int = 24) -> dict[str, Any]:
@@ -122,6 +345,9 @@ def validate_recovery_fact(kind: str, payload: Mapping[str, Any], state: G3State
         _sha(payload.get("sha256"))
         if hashlib.sha256(payload["text"].encode("utf-8")).hexdigest() != payload.get("text_sha256"):
             raise RuntimeError("RECOVERY_TEXT_DIGEST_MISMATCH", str(payload["source_id"]))
+        units = _validate_source_unit_ledger(payload["text"], payload.get("source_units"))
+        if payload.get("source_unit_ledger_version") != 1 or payload.get("source_unit_ledger_digest") != canonical_sha256(units):
+            raise RuntimeError("RECOVERY_SOURCE_UNIT_LEDGER_INVALID", "source unit ledger identity mismatch")
         _revision_guard(state, kind, payload, ("source_id", "revision"))
     elif kind == "REQUIREMENT_ANALYSIS_ARTIFACT":
         for name in ("artifact_id", "scope_identity", "revision", "text", "kind"):
@@ -136,6 +362,9 @@ def validate_recovery_fact(kind: str, payload: Mapping[str, Any], state: G3State
             fact = state.by_id(str(ref))
             if fact is None or fact.fact_kind != "SOURCE_DOCUMENT":
                 raise RuntimeError("RECOVERY_SOURCE_NOT_FOUND", str(ref))
+        normalized_unit_refs = _normalize_source_unit_refs(payload, state)
+        if payload.get("source_unit_refs") != normalized_unit_refs:
+            raise RuntimeError("RECOVERY_SOURCE_UNIT_PROVENANCE_INVALID", "source_unit_refs are not canonical")
         parents = payload.get("parent_refs") or []
         if level != "BR" and not parents:
             raise RuntimeError("RECOVERY_PARENT_REQUIRED", level)
@@ -257,8 +486,11 @@ def parse_document_bytes(raw: bytes, *, suffix: str, locator: str, expected_sha2
     if len(text) > MAX_TEXT_CHARS:
         raise RuntimeError("RECOVERY_DOCUMENT_TOO_LARGE", "split attachment into smaller source revisions")
     validate_secret_boundary(text)
+    source_units = _source_unit_ledger(text, suffix[1:])
     return {"sha256": digest, "text": text, "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-            "format": suffix[1:], "parser": parser, "byte_size": len(raw), "locator": locator}
+            "format": suffix[1:], "parser": parser, "byte_size": len(raw), "locator": locator,
+            "source_unit_ledger_version": 1, "source_units": source_units,
+            "source_unit_ledger_digest": canonical_sha256(source_units)}
 
 
 class RecoveryIntakeService:
@@ -325,6 +557,7 @@ class RecoveryIntakeService:
             payload["parent_refs"] = [refs.get(str(p), str(p)) for p in payload.get("parent_refs") or []]
             payload["asset_refs"] = list(payload.get("asset_refs") or [])
             payload["source_refs"] = list(payload.get("source_refs") or [])
+            payload["source_unit_refs"] = _normalize_source_unit_refs(payload, simulated)
             validate_recovery_fact("REQUIREMENT_ANALYSIS_ARTIFACT", payload, simulated)
             if simulated.by_id(ref) is None:
                 dummy = G3Fact(ref, "REQUIREMENT_ANALYSIS_ARTIFACT", mission_id, payload, tuple(payload["source_refs"]),
@@ -349,10 +582,24 @@ class RecoveryIntakeService:
                                         "source_id": data["source_refs"][0], "analysis_kind": data["kind"],
                                         "artifact_id": data["artifact_id"], "revision": data["revision"],
                                         "parent_refs": data["parent_refs"], "source_refs": data["source_refs"],
+                                        "source_unit_refs": data["source_unit_refs"],
                                         "code_refs": [x["ref"] for x in data["asset_refs"]],
                                         "asset_refs": data["asset_refs"]})
+        coverage = _source_analysis_coverage(self.g3.state(mission_id), all_current)
+        semantics["source_analysis_coverage"] = coverage
+        if not coverage["complete"]:
+            semantics["unknowns"].append({
+                "gap_id": "source-unit-gap:" + coverage["coverage_digest"][:24],
+                "gap_kind": "SOURCE_UNIT_UNANALYZED",
+                "question": "Analyze every referenced source unit before requirement analysis can be complete.",
+                "uncovered_unit_count": len(coverage["uncovered_unit_refs"]),
+                "uncovered_unit_refs": coverage["uncovered_unit_refs"][:64],
+                "source_unit_coverage_digest": coverage["coverage_digest"],
+            })
         analysis = self.g3.analyze_requirement(mission_id, scope, semantics)
-        return {"status": "PASS", "truth_source": "R1_EVENT_STREAM", "artifacts": results, "analysis": analysis,
+        status = "PARTIAL_SOURCE_UNITS" if not coverage["complete"] else analysis["status"]
+        return {"status": status, "truth_source": "R1_EVENT_STREAM", "artifacts": results, "analysis": analysis,
+                "source_analysis_coverage": coverage,
                 "r3_1_reference": analysis["r3_1_reference"], "actual_coverage": "NOT_ASSERTED"}
 
     def current_artifacts(self, mission_id: str, scope_identity: str | None = None) -> list[dict[str, Any]]:
@@ -417,13 +664,16 @@ class RecoveryIntakeService:
                 "starlink_export_status": status, "live_starlink_status": "BANK_BINDING_REQUIRED",
                 "current_release": None if release is None else {"fact_id": release.fact_id, **{k: release.payload[k] for k in ("release_id", "project_id", "revision", "sha256", "binding_ref")},
                                                                   **_release_index(release.payload, offset=offset, limit=limit)},
-                "documents": [{"fact_id": f.fact_id, **{k: f.payload[k] for k in ("source_id", "source_kind", "revision", "sha256")}} for f in state.by_kind("SOURCE_DOCUMENT")][-100:],
+                "documents": [{"fact_id": f.fact_id, **{k: f.payload[k] for k in ("source_id", "source_kind", "revision", "sha256")},
+                               "source_unit_count": len(_document_source_units(f)),
+                               "source_unit_ledger_digest": f.payload.get("source_unit_ledger_digest") or canonical_sha256(_document_source_units(f))}
+                              for f in state.by_kind("SOURCE_DOCUMENT")][-100:],
                 "artifacts": [{"fact_id": f["fact_id"], **{k: f["payload"][k] for k in ("artifact_id", "kind", "revision", "scope_identity", "parent_refs", "source_refs", "asset_refs")},
                                "text_excerpt": f["payload"]["text"][:600]} for f in selected],
                 "artifact_count": len(artifacts), "next_offset": offset + limit if offset + limit < len(artifacts) else None,
                 "g6": "HOLD", "actual_coverage": "NOT_ASSERTED"}
 
-    def source(self, mission_id: str, fact_id: str, *, offset: int = 0, limit: int = 8000) -> dict[str, Any]:
+    def source(self, mission_id: str, fact_id: str, *, unit_id: str | None = None, offset: int = 0, limit: int = 8000) -> dict[str, Any]:
         fact = self.g3.state(mission_id).by_id(fact_id)
         if fact is None or fact.fact_kind not in {"SOURCE_DOCUMENT", "REQUIREMENT_ANALYSIS_ARTIFACT", "CURRENT_RELEASE"}:
             raise RuntimeError("RECOVERY_SOURCE_NOT_FOUND", fact_id)
@@ -431,10 +681,32 @@ class RecoveryIntakeService:
         text = payload.pop("text", None)
         offset, limit = max(0, int(offset)), min(32000, max(1, int(limit)))
         if fact.fact_kind == "CURRENT_RELEASE":
+            if unit_id is not None:
+                raise RuntimeError("RECOVERY_SOURCE_UNIT_NOT_APPLICABLE", fact_id)
             index = _release_index(payload, offset=offset, limit=min(limit, 100))
             return {"fact_id": fact_id, "truth_source": "R1_EVENT_STREAM", "payload": {
                 **{key: payload[key] for key in ("release_id", "project_id", "revision", "sha256", "binding_ref", "observed_at")}, **index},
                 "text": None, "next_offset": index["next_offset"]}
+        if fact.fact_kind == "SOURCE_DOCUMENT":
+            units = _document_source_units(fact)
+            payload.pop("source_units", None)
+            payload["source_unit_count"] = len(units)
+            payload["source_unit_ledger_digest"] = fact.payload.get("source_unit_ledger_digest") or canonical_sha256(units)
+            if unit_id is not None:
+                selected = next((item for item in units if item["unit_id"] == unit_id), None)
+                if selected is None:
+                    raise RuntimeError("RECOVERY_SOURCE_UNIT_NOT_FOUND", unit_id)
+                unit_text = str(text or "")[selected["char_start"]:selected["char_end"]]
+                if hashlib.sha256(unit_text.encode("utf-8")).hexdigest() != selected["text_sha256"]:
+                    raise RuntimeError("RECOVERY_SOURCE_UNIT_DIGEST_MISMATCH", unit_id)
+                return {
+                    "fact_id": fact_id, "truth_source": "R1_EVENT_STREAM", "payload": payload,
+                    "source_unit": selected,
+                    "text": unit_text[offset:offset + limit],
+                    "next_offset": offset + limit if offset + limit < len(unit_text) else None,
+                }
+        elif unit_id is not None:
+            raise RuntimeError("RECOVERY_SOURCE_UNIT_NOT_APPLICABLE", fact_id)
         return {"fact_id": fact_id, "truth_source": "R1_EVENT_STREAM", "payload": payload, "text": text[offset:offset+limit] if text else None,
                 "next_offset": offset + limit if text and offset + limit < len(text) else None}
 
