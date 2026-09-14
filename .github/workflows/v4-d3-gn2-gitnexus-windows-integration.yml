@@ -6,6 +6,10 @@ on:
       - work/v1.13.0-recovery-turnkey-validation
     paths:
       - ".github/workflows/v4-d3-gn2-gitnexus-windows-integration.yml"
+      - "runtime-lock.json"
+      - "workspace-template/ai-test/runtime/aitest_runtime/g3/gitnexus_provider.py"
+      - "workspace-template/ai-test/runtime/aitest_runtime/g3/code_intelligence.py"
+      - "workspace-template/.pfc-internal-field-validation/tests/test_g3_change_intelligence_broker_wave2.py"
   workflow_dispatch:
 
 permissions:
@@ -201,6 +205,16 @@ jobs:
           }
           $result | ConvertTo-Json -Depth 8 | Set-Content D3_GN2_RESULT.json -Encoding utf8
 
+      - name: Prove AITest G3 product path with real GitNexus
+        shell: pwsh
+        env:
+          AITEST_D3_GITNEXUS_NODE: ${{ env.GN2_NODE_EXE }}
+          AITEST_D3_GITNEXUS_CLI: ${{ env.GN2_GITNEXUS_CLI }}
+        run: |
+          $env:PYTHONPATH = Join-Path $PWD 'workspace-template/ai-test/runtime'
+          python -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_g3_change_intelligence_broker_wave2.py 2>&1 | Tee-Object D3_GN2_AITEST_PRODUCT.log
+          if ($LASTEXITCODE -ne 0) { throw 'D3_GN2_AITEST_PRODUCT_FAILED' }
+
       - name: Measure installed GitNexus runtime tree
         shell: pwsh
         run: |
@@ -246,6 +260,7 @@ jobs:
             GITNEXUS_FUNCTION_IMPACT.log
             GITNEXUS_FILE_EDGES.log
             GITNEXUS_ROUTER_NODE.log
+            D3_GN2_AITEST_PRODUCT.log
           if-no-files-found: error
           retention-days: 30
 
