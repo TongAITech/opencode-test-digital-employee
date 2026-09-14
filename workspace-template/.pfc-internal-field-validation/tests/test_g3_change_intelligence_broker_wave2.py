@@ -269,20 +269,60 @@ def main() -> int:
             checks["codegraph_executable_provider_maps_git_established_lines"] = bool(exec_meta["line_mapping"]) and all(item["status"] == "MAPPED_TO_SYMBOL" and item["provider"] == "CODEGRAPH" for item in exec_meta["line_mapping"]) and bool(exec_env.changed_files)
 
         if real_binary:
+            relationship_repo = provider_root / "real-relationship"
+            relationship_repo.mkdir()
+            git(relationship_repo, "init", "-b", "master")
+            git(relationship_repo, "config", "user.email", "d3@example.invalid")
+            git(relationship_repo, "config", "user.name", "D3 Real CodeGraph")
+            src = relationship_repo / "src"
+            src.mkdir()
+            service = src / "Service.java"
+            service.write_text(
+                "class Service {\n"
+                "  private final Callee callee = new Callee();\n"
+                "  int apply(int x) {\n"
+                "    return callee.target(x) + 1;\n"
+                "  }\n"
+                "}\n", encoding="utf-8")
+            (src / "Caller.java").write_text(
+                "class Caller { int call(Service service) { return service.apply(1); } }\n",
+                encoding="utf-8")
+            (src / "Callee.java").write_text(
+                "class Callee { int target(int x) { return x; } }\n",
+                encoding="utf-8")
+            git(relationship_repo, "add", ".")
+            git(relationship_repo, "commit", "-m", "base")
+            real_base = git(relationship_repo, "rev-parse", "HEAD")
+            service.write_text(
+                "class Service {\n"
+                "  private final Callee callee = new Callee();\n"
+                "  int apply(int x) {\n"
+                "    return callee.target(x) + 2;\n"
+                "  }\n"
+                "}\n", encoding="utf-8")
+            git(relationship_repo, "add", ".")
+            git(relationship_repo, "commit", "-m", "change apply")
+            real_head = git(relationship_repo, "rev-parse", "HEAD")
+
             real_provider = CodeGraphProviderResolver.resolve({
                 "runtime_lock_path": str(WORKSPACE.parent / "runtime-lock.json"),
                 "codegraph_binary_path": real_binary,
             })
             real_broker = ChangeIntelligenceBroker(codegraph_provider=real_provider)
             _, real_env, real_meta = analyze_repository(
-                {"repository_id": "real-codegraph", "repository_path": str(repo_exec), "base_ref": base_exec, "head_ref": head_exec},
+                {"repository_id": "real-codegraph", "repository_path": str(relationship_repo), "base_ref": real_base, "head_ref": real_head},
                 broker=real_broker,
             )
             refs = real_meta["provider_provenance"].get("codegraph_source_refs") or []
+            real_edges = [edge for edge in real_env.impact_edges if str(edge.provider_ref).startswith("codegraph:")]
+            real_kinds = {edge.edge_kind for edge in real_edges}
             checks["real_codegraph_pinned_binary_is_available"] = real_meta["provider_capabilities"]["CODEGRAPH"] == "AVAILABLE" and real_meta["provider_health"]["CODEGRAPH"]["version"] == "0.20.1"
             checks["real_codegraph_maps_git_established_lines"] = bool(real_meta["line_mapping"]) and all(item["status"] == "MAPPED_TO_SYMBOL" and item["provider"] == "CODEGRAPH" for item in real_meta["line_mapping"])
             checks["real_codegraph_relationship_queries_execute"] = all(any(tool in ref for ref in refs) for tool in ("codegraph_get_callers", "codegraph_get_callees", "codegraph_get_dependency_graph", "codegraph_analyze_impact"))
-            checks["real_codegraph_keeps_git_change_truth"] = changed_refs(real_env) == {row["line_ref"] for row in real_meta["line_mapping"]}
+            checks["real_codegraph_normalizes_nonempty_call_edges"] = "CALLER" in real_kinds and "CALLEE" in real_kinds
+            checks["real_codegraph_normalizes_nonempty_impact_edges"] = "IMPACT" in real_kinds
+            checks["real_codegraph_edges_keep_tool_provenance"] = all(any(ref.startswith("codegraph-tool:") for ref in edge.source_provenance) for edge in real_edges)
+            checks["real_codegraph_keeps_git_change_truth"] = changed_refs(real_env) == {"src/Service.java:L4"}
 
     with tempfile.TemporaryDirectory(prefix="g3-wave2-codegraph-missing-") as td:
         missing_root = Path(td)
