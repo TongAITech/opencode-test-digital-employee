@@ -1786,6 +1786,120 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         )
         return {**completed, "scheduler":dict(scheduler), "quality_controller":decision}
 
+    def _drive_replanning_progress(self, mission_id: str) -> dict[str, Any] | None:
+        """Bounded autonomous recovery for a Planner that itself makes no progress.
+
+        Each replanning Session gets one INITIAL prompt and at most one
+        AUTO_CONTINUE for the same semantic business cursor.  A second idle tick
+        at that same cursor rotates to a clean successor.  Repeated successor
+        failure is already capped by rotate_planning_session; exhausting that
+        budget blocks the durable ProgressRecord instead of retrying forever.
+        """
+        state = self.session_control.state(mission_id)
+        active = [
+            item for item in state.progress_records
+            if item.phase == "REPLANNING" and item.replan_session_id
+        ]
+        if not active:
+            return None
+        progress = active[-1]
+        session_id = str(progress.replan_session_id)
+        barrier = self._activity_barrier(mission_id, session_id, progress.task_id)
+        if barrier:
+            return {
+                **barrier,
+                "phase":"REPLANNING",
+                "progress_id":progress.progress_id,
+                "failure_signature":progress.failure_signature,
+                "retry_budget_consumed":False,
+            }
+
+        current_cursor = business_cursor(self.runtime, mission_id)
+        text = self._replanning_context_message(
+            mission_id,
+            progress.progress_id,
+            str(progress.replan_lineage or "").replace("replanning:", "", 1)
+            and self.session_router.logical_agent_id(
+                "aitest-planner", str(progress.replan_lineage)
+            )
+            or self.session_router.logical_agent_id(
+                "aitest-planner", "replanning:" + progress.progress_id
+            ),
+        )
+        try:
+            delivery = dispatch_context(
+                self,
+                session_id=session_id,
+                agent="aitest-planner",
+                text=text,
+                mode="AUTO_CONTINUE",
+                cursor=current_cursor,
+            )
+        except ContextDeliveryUnconfirmed as exc:
+            return {
+                "status":"WAIT",
+                "reason":str(exc),
+                "phase":"REPLANNING",
+                "progress_id":progress.progress_id,
+                "session_id":session_id,
+                "failure_signature":progress.failure_signature,
+                "retry_budget_consumed":False,
+                "truth_source":"R1_EVENT_STREAM",
+            }
+
+        if delivery.get("prompt_sent"):
+            return {
+                "status":"AUTO_CONTINUE_REPLANNING",
+                "reason":"REPLANNER_IDLE_NO_BUSINESS_PROGRESS",
+                "phase":"REPLANNING",
+                "progress_id":progress.progress_id,
+                "session_id":session_id,
+                "business_cursor":current_cursor,
+                "failure_signature":progress.failure_signature,
+                "retry_budget_consumed":True,
+                "delivery":delivery,
+                "truth_source":"R1_EVENT_STREAM",
+            }
+
+        rotation = self.rotate_planning_session(
+            mission_id,
+            session_id,
+            [
+                "REPLANNER_NO_BUSINESS_PROGRESS",
+                "FAILURE_SIGNATURE:" + progress.failure_signature[:24],
+            ],
+        )
+        if (rotation.get("status") == "WAIT"
+                and rotation.get("reason") == "DIAGNOSIS_REQUIRED_REPEATED_REPLANNER_FAILURE"):
+            current = self.session_control.state(mission_id).progress(progress.progress_id)
+            if current is not None and current.phase == "REPLANNING":
+                self.session_control.record_progress_state(mission_id, {
+                    "progress_id":current.progress_id,
+                    "business_cursor":current.business_cursor,
+                    "phase":"BLOCKED",
+                    "reason":current.reason,
+                    "failure_signature":current.failure_signature,
+                    "task_id":current.task_id,
+                    "session_id":current.session_id,
+                    "replan_lineage":current.replan_lineage,
+                    "replan_session_id":current.replan_session_id,
+                    "observed_at":_utc_now(),
+                })
+            return {
+                **rotation,
+                "phase":"REPLANNING",
+                "progress_id":progress.progress_id,
+                "failure_signature":progress.failure_signature,
+                "retry_budget_exhausted":True,
+                "truth_source":"R1_EVENT_STREAM",
+            }
+        return {
+            **rotation,
+            "reason":"REPLANNER_NO_BUSINESS_PROGRESS",
+            "failure_signature":progress.failure_signature,
+            "retry_budget_consumed":True,
+        }
+
     @_coordinated
     def progress_once(self, mission_id: str) -> dict[str, Any]:
         from ..mission_controls import pending_controls
@@ -1802,6 +1916,9 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
                 # Keep the durable unknown fence; a readback failure never
                 # authorizes a fresh prompt or an implicit successor.
                 continue
+        replanning = self._drive_replanning_progress(mission_id)
+        if replanning is not None:
+            return replanning
         _composed, graph, _goal, plan=self._active_plan_context(mission_id)
         if plan is None:
             # Planner wake shares the same bounded send journal, never a new plan.
