@@ -36,6 +36,7 @@ REQUEST_SESSION_ROTATION = "G21_REQUEST_SESSION_ROTATION"
 COMPLETE_SESSION_ROTATION = "G21_COMPLETE_SESSION_ROTATION"
 RECORD_CONTEXT_DISPATCH = "G21_RECORD_CONTEXT_DISPATCH"
 RECORD_PROGRESS_STATE = "G21_RECORD_PROGRESS_STATE"
+RECORD_QUALITY_DECISION = "G21_RECORD_QUALITY_DECISION"
 
 ROUTING_AUTHORITY_ENABLED = "g2_1.routing_authority_enabled.v1"
 TASK_ROUTE_REGISTERED = "g2_1.task_route_registered.v1"
@@ -47,18 +48,19 @@ SESSION_ROTATION_REQUESTED = "g2_1.session_rotation_requested.v1"
 SESSION_ROTATION_COMPLETED = "g2_1.session_rotation_completed.v1"
 CONTEXT_DISPATCH_RECORDED = "g2_1.context_dispatch_recorded.v1"
 PROGRESS_STATE_RECORDED = "g2_1.progress_state_recorded.v1"
+QUALITY_DECISION_RECORDED = "g2_1.quality_decision_recorded.v1"
 
 COMMAND_TYPES = frozenset({
     ENABLE_ROUTING_AUTHORITY, REGISTER_TASK_ROUTE, REQUEST_SESSION_PROVISION, BIND_SESSION_PROVISION,
     CLOSE_ORPHAN_PROVISION, RECORD_SESSION_OBSERVATION,
     REQUEST_SESSION_ROTATION, COMPLETE_SESSION_ROTATION,
-    RECORD_CONTEXT_DISPATCH, RECORD_PROGRESS_STATE,
+    RECORD_CONTEXT_DISPATCH, RECORD_PROGRESS_STATE, RECORD_QUALITY_DECISION,
 })
 EVENT_TYPES = frozenset({
     ROUTING_AUTHORITY_ENABLED, TASK_ROUTE_REGISTERED, SESSION_PROVISION_REQUESTED, SESSION_PROVISION_BOUND,
     ORPHAN_PROVISION_CLOSED, SESSION_OBSERVATION_RECORDED,
     SESSION_ROTATION_REQUESTED, SESSION_ROTATION_COMPLETED,
-    CONTEXT_DISPATCH_RECORDED, PROGRESS_STATE_RECORDED,
+    CONTEXT_DISPATCH_RECORDED, PROGRESS_STATE_RECORDED, QUALITY_DECISION_RECORDED,
 })
 
 
@@ -238,6 +240,47 @@ class ProgressStateRecord:
 
 
 @dataclass(frozen=True)
+class QualityDecisionRecord:
+    generation_id: str
+    quality_cursor: int
+    plan_id: str
+    plan_revision_id: str
+    g4_goal_id: str
+    g4_status: str
+    next_action: str
+    evaluation_fact_id: str | None
+    replan_request_fact_id: str | None
+    decision_digest: str
+    recorded_seq: int
+    recorded_at: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "generation_id": self.generation_id,
+            "quality_cursor": self.quality_cursor,
+            "plan_id": self.plan_id,
+            "plan_revision_id": self.plan_revision_id,
+            "g4_goal_id": self.g4_goal_id,
+            "g4_status": self.g4_status,
+            "next_action": self.next_action,
+            "evaluation_fact_id": self.evaluation_fact_id,
+            "replan_request_fact_id": self.replan_request_fact_id,
+            "decision_digest": self.decision_digest,
+            "recorded_seq": self.recorded_seq,
+            "recorded_at": self.recorded_at,
+        }
+
+    @classmethod
+    def from_dict(cls, v: Mapping[str, Any]) -> "QualityDecisionRecord":
+        return cls(
+            str(v["generation_id"]), int(v["quality_cursor"]), str(v["plan_id"]),
+            str(v["plan_revision_id"]), str(v["g4_goal_id"]), str(v["g4_status"]),
+            str(v["next_action"]), v.get("evaluation_fact_id"), v.get("replan_request_fact_id"),
+            str(v["decision_digest"]), int(v["recorded_seq"]), str(v["recorded_at"]),
+        )
+
+
+@dataclass(frozen=True)
 class SessionControlState:
     mission_id: str
     routing_authority_enabled: bool = False
@@ -248,6 +291,7 @@ class SessionControlState:
     rotations: tuple[RotationRequestRecord, ...] = ()
     context_dispatches: tuple[Mapping[str, Any], ...] = ()
     progress_records: tuple[ProgressStateRecord, ...] = ()
+    quality_decisions: tuple[QualityDecisionRecord, ...] = ()
 
     def context_dispatch(self, dispatch_id: str) -> Mapping[str, Any] | None:
         return next((x for x in reversed(self.context_dispatches) if x['dispatch_id'] == dispatch_id), None)
@@ -257,6 +301,9 @@ class SessionControlState:
 
     def latest_progress(self) -> ProgressStateRecord | None:
         return self.progress_records[-1] if self.progress_records else None
+
+    def quality_decision(self, generation_id: str) -> QualityDecisionRecord | None:
+        return next((x for x in reversed(self.quality_decisions) if x.generation_id == generation_id), None)
 
     def route(self, task_id: str) -> TaskRouteRequirement | None:
         return next((x for x in reversed(self.task_routes) if x.task_id == task_id), None)
@@ -282,6 +329,7 @@ class SessionControlState:
             # Preserve pre-V4 composed hashes when no new event has occurred.
             **({"context_dispatches": [dict(x) for x in self.context_dispatches]} if self.context_dispatches else {}),
             **({"progress_records": [x.to_dict() for x in self.progress_records]} if self.progress_records else {}),
+            **({"quality_decisions": [x.to_dict() for x in self.quality_decisions]} if self.quality_decisions else {}),
         }
 
     @classmethod
@@ -296,4 +344,5 @@ class SessionControlState:
             tuple(RotationRequestRecord.from_dict(x) for x in v.get("rotations") or []),
             tuple(dict(x) for x in v.get("context_dispatches") or []),
             tuple(ProgressStateRecord.from_dict(x) for x in v.get("progress_records") or []),
+            tuple(QualityDecisionRecord.from_dict(x) for x in v.get("quality_decisions") or []),
         )
