@@ -1057,61 +1057,104 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         mission_id = _text(mission_id, "mission_id")
         barrier = self._activity_barrier(mission_id, predecessor_session_id)
         if barrier:return barrier
-        progress_cursor=business_cursor(self.runtime, mission_id)
-        failures=[x for x in self.session_control.state(mission_id).rotations if x.task_id == '__PLANNING__' and x.requested_seq > progress_cursor]
-        if len(failures)>=3:
-            return {'status':'WAIT','reason':'DIAGNOSIS_REQUIRED_REPEATED_PLANNER_FAILURE','recovery_count':len(failures)}
-        pending = self._pending_rotation(mission_id, "__PLANNING__")
-        if pending is not None:
-            predecessor_session_id = pending.predecessor_session_id
-            rotation_id = pending.rotation_id
-            root_attempt_id = pending.root_attempt_id
-            rotation_reasons = list(pending.reasons)
-        else:
-            composed = self.runtime.replay_composed(mission_id)
-            predecessor = composed.core_state.session(predecessor_session_id)
-            if predecessor is None or predecessor.status.value != "OPEN":
-                raise RuntimeError("PLANNER_PREDECESSOR_NOT_OPEN")
-            attrs = dict(predecessor.attributes or {})
-            logical_agent_id = str(attrs.get("logical_agent_id") or "")
-            if not logical_agent_id:
-                raise RuntimeError("PLANNER_LOGICAL_AGENT_ID_MISSING")
-            root_attempt_id = f"planning:{logical_agent_id}"
-            rotation_id = self._rotation_record_id(mission_id, "__PLANNING__", predecessor_session_id)
-            record = self.session_control.state(mission_id).rotation(rotation_id)
-            if record is not None and record.status == "COMPLETED":
-                return {"status": "ROTATED", "truth_source": "R1_EVENT_STREAM", "rotation_id": rotation_id,
-                        "predecessor_session_id": predecessor_session_id, "successor_session_id": record.successor_session_id,
-                        "idempotent_replay": True}
-            rotation_reasons = list(reasons)
-            self.session_control.request_rotation(
-                mission_id,
-                {"rotation_id": rotation_id, "task_id": "__PLANNING__",
-                 "root_attempt_id": root_attempt_id,
-                 "predecessor_session_id": predecessor_session_id, "reasons": rotation_reasons,
-                 "checkpoint": self._rotation_checkpoint(mission_id, "__PLANNING__", predecessor_session_id, root_attempt_id, logical_agent_id)},
-            )
 
         composed = self.runtime.replay_composed(mission_id)
         predecessor = composed.core_state.session(predecessor_session_id)
-        if predecessor is None:
-            raise RuntimeError("PLANNER_PREDECESSOR_NOT_FOUND")
+        if predecessor is None or predecessor.status.value != "OPEN":
+            raise RuntimeError("PLANNER_PREDECESSOR_NOT_OPEN")
         attrs = dict(predecessor.attributes or {})
+        phase = str(attrs.get("phase") or "")
         logical_agent_id = str(attrs.get("logical_agent_id") or "")
         if not logical_agent_id:
-            # A pending durable rotation is only valid for the same Planner
-            # LogicalAgent lineage recorded on its predecessor.
             raise RuntimeError("PLANNER_LOGICAL_AGENT_ID_MISSING")
-        if root_attempt_id != f"planning:{logical_agent_id}":
-            raise RuntimeError("PLANNER_ROTATION_ROOT_MISMATCH")
-        role = self.role_registry.resolve("PLANNER")
-        token = self._provision_token(mission_id, logical_agent_id, "PLANNING_ROTATION", predecessor_session_id)
-        title = f"AITest Planner resume · {mission_id}"
-        self._request_provision_if_needed(
-            mission_id, token=token, task_id=None, logical_agent_id=logical_agent_id, root_attempt_id=root_attempt_id,
-            role=role.role, agent_name=role.agent_name, phase="PLANNING_ROTATION", title=title,
-        )
+        if phase not in {"PLANNING", "REPLANNING"}:
+            raise RuntimeError("PLANNER_CONTROL_PHASE_INVALID")
 
+        progress_id = None
+        if phase == "REPLANNING":
+            candidates = [
+                p for p in self.session_control.state(mission_id).provisions
+                if p.external_session_id == predecessor_session_id
+                and p.phase in {"REPLANNING", "REPLANNING_ROTATION"}
+                and p.status == "BOUND"
+            ]
+            if len(candidates) != 1:
+                raise RuntimeError("C3_REPLAN_PREDECESSOR_PROVISION_AMBIGUOUS")
+            root_attempt_id = str(candidates[0].root_attempt_id or "")
+            if not root_attempt_id.startswith("replanning:"):
+                raise RuntimeError("C3_REPLAN_LINEAGE_INVALID")
+            progress_id = root_attempt_id.split(":", 1)[1]
+            progress = self.session_control.state(mission_id).progress(progress_id)
+            if progress is None or progress.phase != "REPLANNING":
+                raise RuntimeError("C3_REPLAN_PROGRESS_REQUIRED")
+            rotation_task_id = "__REPLANNING__:" + progress_id
+            successor_phase = "REPLANNING"
+            provision_phase = "REPLANNING_ROTATION"
+            title = f"AITest Replan resume · {mission_id} · {progress_id[-12:]}"
+        else:
+            root_attempt_id = f"planning:{logical_agent_id}"
+            rotation_task_id = "__PLANNING__"
+            successor_phase = "PLANNING"
+            provision_phase = "PLANNING_ROTATION"
+            title = f"AITest Planner resume · {mission_id}"
+
+        progress_cursor = business_cursor(self.runtime, mission_id)
+        failures = [
+            x for x in self.session_control.state(mission_id).rotations
+            if x.task_id == rotation_task_id and x.requested_seq > progress_cursor
+        ]
+        if len(failures) >= 3:
+            if phase == "REPLANNING":
+                return {
+                    "status":"WAIT", "reason":"DIAGNOSIS_REQUIRED_REPEATED_REPLANNER_FAILURE",
+                    "recovery_count":len(failures), "progress_id":progress_id,
+                    "business_cursor":progress_cursor,
+                }
+            return {"status":"WAIT","reason":"DIAGNOSIS_REQUIRED_REPEATED_PLANNER_FAILURE",
+                    "recovery_count":len(failures),"business_cursor":progress_cursor}
+
+        pending = self._pending_rotation(mission_id, rotation_task_id)
+        if pending is not None:
+            if pending.predecessor_session_id != predecessor_session_id:
+                raise RuntimeError("PLANNER_ROTATION_PREDECESSOR_CHANGED")
+            rotation_id = pending.rotation_id
+            if pending.root_attempt_id != root_attempt_id:
+                raise RuntimeError("PLANNER_ROTATION_ROOT_MISMATCH")
+            rotation_reasons = list(pending.reasons)
+        else:
+            rotation_id = self._rotation_record_id(mission_id, rotation_task_id, predecessor_session_id)
+            record = self.session_control.state(mission_id).rotation(rotation_id)
+            if record is not None and record.status == "COMPLETED":
+                return {
+                    "status":"ROTATED", "truth_source":"R1_EVENT_STREAM", "phase":phase,
+                    "rotation_id":rotation_id, "predecessor_session_id":predecessor_session_id,
+                    "successor_session_id":record.successor_session_id,
+                    "root_attempt_id":root_attempt_id, "idempotent_replay":True,
+                }
+            rotation_reasons = list(reasons)
+            self.session_control.request_rotation(
+                mission_id,
+                {
+                    "rotation_id":rotation_id, "task_id":rotation_task_id,
+                    "root_attempt_id":root_attempt_id,
+                    "predecessor_session_id":predecessor_session_id,
+                    "reasons":rotation_reasons,
+                    "checkpoint":self._rotation_checkpoint(
+                        mission_id, rotation_task_id, predecessor_session_id,
+                        root_attempt_id, logical_agent_id,
+                    ),
+                },
+            )
+
+        role = self.role_registry.resolve("PLANNER")
+        token = self._provision_token(
+            mission_id, logical_agent_id, provision_phase, predecessor_session_id
+        )
+        self._request_provision_if_needed(
+            mission_id, token=token, task_id=None, logical_agent_id=logical_agent_id,
+            root_attempt_id=root_attempt_id, role=role.role, agent_name=role.agent_name,
+            phase=provision_phase, title=title,
+        )
         expected_title = ProvisioningOpenCodeSessionProvider.title_for(token, title)
         matches = [item for item in self.raw_session_provider.list_sessions() if item.title == expected_title]
         if len(matches) > 1:
@@ -1120,34 +1163,66 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         if external is None:
             self._abort_predecessor(predecessor_session_id)
             with self.provisioning_provider.provision(token, title, independent_session=True):
-                external = self.provisioning_provider.create_session(title=title, parent_id=predecessor_session_id)
+                external = self.provisioning_provider.create_session(
+                    title=title, parent_id=predecessor_session_id
+                )
 
-        # If a prior process already opened the successor durably, reuse it.
-        # Otherwise make it durable now. In either case re-send ContextPack so a
-        # crash during bootstrap cannot leave a context-less successor.
         refreshed = self.runtime.replay_composed(mission_id)
         successor_core = refreshed.core_state.session(external.session_id)
         if successor_core is None:
             self._open_core_session(
-                mission_id=mission_id, external=external, task_id=None, agent=role.agent_name,
-                phase="PLANNING", logical_agent_id=logical_agent_id,
+                mission_id=mission_id, external=external, task_id=None,
+                agent=role.agent_name, phase=successor_phase,
+                logical_agent_id=logical_agent_id,
             )
         elif successor_core.status.value != "OPEN":
             raise RuntimeError("PLANNER_ROTATION_SUCCESSOR_NOT_OPEN")
+        else:
+            successor_attrs = dict(successor_core.attributes or {})
+            if (successor_attrs.get("phase") != successor_phase
+                    or successor_attrs.get("logical_agent_id") != logical_agent_id):
+                raise RuntimeError("PLANNER_ROTATION_SUCCESSOR_LINEAGE_MISMATCH")
+
+        text = (
+            self._replanning_context_message(mission_id, progress_id, logical_agent_id)
+            if phase == "REPLANNING"
+            else self._planning_context_message(mission_id, logical_agent_id)
+        )
         self.provisioning_provider.send_context(
-            session_id=external.session_id, agent=role.agent_name,
-            text=self._planning_context_message(mission_id, logical_agent_id),
+            session_id=external.session_id, agent=role.agent_name, text=text,
         )
         self._bind_provision_if_needed(mission_id, token, external.session_id)
+
+        if phase == "REPLANNING":
+            progress = self.session_control.state(mission_id).progress(progress_id)
+            if progress is None or progress.phase != "REPLANNING":
+                raise RuntimeError("C3_REPLAN_PROGRESS_REQUIRED")
+            self.session_control.record_progress_state(mission_id, {
+                "progress_id":progress.progress_id,
+                "business_cursor":progress.business_cursor,
+                "phase":"REPLANNING",
+                "reason":progress.reason,
+                "failure_signature":progress.failure_signature,
+                "task_id":progress.task_id,
+                "session_id":progress.session_id,
+                "replan_lineage":root_attempt_id,
+                "replan_session_id":external.session_id,
+                "observed_at":_utc_now(),
+            })
+
         self._close_predecessor_after_successor(
-            mission_id, rotation_id=rotation_id, predecessor_session_id=predecessor_session_id,
-            reason="G2_1_PLANNER_SUCCESSOR_BOOTSTRAPPED",
+            mission_id, rotation_id=rotation_id,
+            predecessor_session_id=predecessor_session_id,
+            reason="G2_1_REPLANNER_SUCCESSOR_BOOTSTRAPPED" if phase == "REPLANNING"
+                   else "G2_1_PLANNER_SUCCESSOR_BOOTSTRAPPED",
         )
         self.session_control.complete_rotation(mission_id, rotation_id, external.session_id)
         return {
-            "status": "ROTATED", "truth_source": "R1_EVENT_STREAM", "rotation_id": rotation_id,
-            "predecessor_session_id": predecessor_session_id, "successor_session_id": external.session_id,
-            "logical_agent_id": logical_agent_id, "rotation_reasons": rotation_reasons,
+            "status":"ROTATED", "truth_source":"R1_EVENT_STREAM", "phase":phase,
+            "rotation_id":rotation_id, "predecessor_session_id":predecessor_session_id,
+            "successor_session_id":external.session_id, "logical_agent_id":logical_agent_id,
+            "root_attempt_id":root_attempt_id, "rotation_reasons":rotation_reasons,
+            **({"progress_id":progress_id} if progress_id else {}),
         }
 
     def _all_mission_ids(self) -> list[str]:
@@ -1344,7 +1419,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             # Supervise pre-plan Planner Sessions by durable Core lineage.
             for session in list(composed.core_state.sessions):
                 attrs = dict(session.attributes or {})
-                if session.status.value != "OPEN" or attrs.get("phase") != "PLANNING":
+                if session.status.value != "OPEN" or attrs.get("phase") not in {"PLANNING","REPLANNING"}:
                     continue
                 try:
                     raw = dict(self.raw_session_provider.observe_session(session.session_id))
@@ -1358,9 +1433,9 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
                 reasons = self.rotation_policy.evaluate(obs)
                 if reasons:
                     result = self.rotate_planning_session(mission_id, session.session_id, reasons)
-                    results.append({"mission_id": mission_id, "phase": "PLANNING", "result": result})
+                    results.append({"mission_id": mission_id, "phase": attrs.get("phase"), "result": result})
                 else:
-                    results.append({"mission_id": mission_id, "phase": "PLANNING", "status": "KEEP",
+                    results.append({"mission_id": mission_id, "phase": attrs.get("phase"), "status": "KEEP",
                                     "session_id": session.session_id, "observation": obs.to_dict()})
             composed = self.runtime.replay_composed(mission_id)
             graph = composed.extension_state("r1_2_work_graph")
