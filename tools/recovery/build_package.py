@@ -106,6 +106,41 @@ def build(repo: Path, stage: Path, output: Path, version: str, allow_dirty: bool
     missing = [name for name in required if not (runtime / name).is_file()]
     if missing:
         raise RuntimeError('Required offline files missing: ' + ', '.join(missing))
+
+    runtime_lock_path = repo / 'runtime-lock.json'
+    if not runtime_lock_path.is_file():
+        raise RuntimeError('runtime-lock.json must exist before packaging.')
+    runtime_lock = json.loads(runtime_lock_path.read_text(encoding='utf-8'))
+    payloads = runtime_lock.get('payloads') or {}
+    for payload_name in ('node', 'gitnexus'):
+        profile = payloads.get(payload_name) or {}
+        relative_target = profile.get('relative_target')
+        expected_sha = profile.get('sha256')
+        if not relative_target or not expected_sha:
+            raise RuntimeError('Runtime lock profile incomplete: ' + payload_name)
+        target = (stage / relative_target).resolve()
+        if not target.is_relative_to(stage.resolve()) or not target.is_file():
+            raise RuntimeError('Runtime lock target missing or unsafe: ' + payload_name)
+        actual_sha = sha256(target)
+        if actual_sha != expected_sha:
+            raise RuntimeError(
+                f'Runtime lock SHA mismatch for {payload_name}: expected={expected_sha} actual={actual_sha}'
+            )
+
+    gitnexus_profile = payloads.get('gitnexus') or {}
+    gitnexus_manifest_relative = gitnexus_profile.get('package_manifest_relative')
+    gitnexus_manifest_sha = gitnexus_profile.get('package_manifest_sha256')
+    if not gitnexus_manifest_relative or not gitnexus_manifest_sha:
+        raise RuntimeError('GitNexus package-manifest identity missing from runtime lock')
+    gitnexus_manifest = (stage / gitnexus_manifest_relative).resolve()
+    if not gitnexus_manifest.is_relative_to(stage.resolve()) or not gitnexus_manifest.is_file():
+        raise RuntimeError('GitNexus package manifest missing or unsafe')
+    actual_manifest_sha = sha256(gitnexus_manifest)
+    if actual_manifest_sha != gitnexus_manifest_sha:
+        raise RuntimeError(
+            f'GitNexus package manifest SHA mismatch: expected={gitnexus_manifest_sha} actual={actual_manifest_sha}'
+        )
+
     name = f'AITest-V{version}-Recovery-Turnkey-Windows-x64'
     output.mkdir(parents=True, exist_ok=True)
     bundle = output / name
