@@ -368,7 +368,7 @@ def g3_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
     service = G3TestingIntelligenceService(runtime, orchestration=orchestration)
     allowed = {
         "DIRECTOR": {"status", "work_context", "register_intent"},
-        "REQUIREMENT_ANALYST": {"status", "work_context", "analyze_requirement"},
+        "REQUIREMENT_ANALYST": {"status", "work_context", "set_source_scope", "analyze_requirement"},
         "CODE_ANALYST": {"status", "work_context", "analyze_changes", "acquire_coverage", "intake_context", "read_intake_source", "binding_context"},
         "TEST_STRATEGIST": {"status", "work_context", "recommend_next_work", "create_strategy", "design_test_profile"},
         "CASE_DESIGNER": {"status", "work_context", "design_cases"},
@@ -405,6 +405,15 @@ def g3_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, 
         return result
     if action == "register_intent":
         return service.register_intent(mission_id, str(data.get("intent_type") or ""), _object(data.get("scope") or {}, "scope"), _object(data.get("constraints") or {}, "constraints"))
+    if action == "set_source_scope":
+        from .recovery_intake import RecoveryIntakeService
+        entries = data.get("entries") or []
+        if not isinstance(entries, list) or any(not isinstance(item, Mapping) for item in entries):
+            raise RuntimeError("RECOVERY_SOURCE_SCOPE_INVALID", "entries must be an array of objects")
+        return RecoveryIntakeService(runtime).bind_source_scope(
+            mission_id, str(data.get("scope_identity") or ""), [dict(item) for item in entries],
+            revision=str(data.get("revision") or "1"),
+        )
     if action == "analyze_requirement":
         return service.analyze_requirement(mission_id, str(data.get("scope_identity") or ""), _object(data.get("semantics"), "semantics"))
     if action == "analyze_changes":
