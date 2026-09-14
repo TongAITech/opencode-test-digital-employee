@@ -77,6 +77,9 @@ class Stub(BaseHTTPRequestHandler):
         if parsed.path in self.__class__.host_messages:self._json(200,self.__class__.host_messages[parsed.path]);return
         if parsed.path == "/global/health": self._json(200, {"healthy": True}); return
         if parsed.path == "/session": self._json(200, list(self.__class__.sessions.values())); return
+        if parsed.path == "/session/status":
+            # OpenCode 1.18.3 omits idle Sessions from the status map.
+            self._json(200, {}); return
         if parsed.path.endswith("/message"):
             sid = parsed.path.split("/")[-2]
             self._json(200, self.__class__.messages.get(sid, [])); return
