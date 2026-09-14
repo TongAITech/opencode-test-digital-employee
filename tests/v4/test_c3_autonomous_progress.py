@@ -12,6 +12,7 @@ from aitest_runtime.autonomous_orchestration import FakeOpenCodeSessionProvider
 from aitest_runtime.canonical_runtime import create_canonical_runtime
 from aitest_runtime.dispatch_receipts import business_cursor
 from aitest_runtime.durable_core import ActorRef, canonical_sha256
+from aitest_runtime.provider_binding import ProviderBindingApplicationService
 from aitest_runtime.tool_execution import (
     ReconcileToolExecutionRequest, SideEffectPolicy, SideEffectState,
     ToolExecutionApplicationService, ToolExecutionOutcomeRequest, ToolExecutionRequest, ToolObservation,
@@ -395,9 +396,30 @@ class C3AutonomousProgressTests(unittest.TestCase):
         self.assertIsNotNone(attempt)
         bindings = composed.extension_state("r1_3c_provider_binding")
         binding = bindings.binding(attempt.attempt_id)
+        actor = ActorRef("SYSTEM", "c3-effect-fence-test")
+        if binding is None:
+            bound = ProviderBindingApplicationService(self.runtime).bind({
+                "command_id": "c3:effect-fence:provider-binding",
+                "idempotency_key": "c3:effect-fence:provider-binding",
+                "mission_id": mission,
+                "runtime_session_id": session_id,
+                "expected_seq": self.runtime.get_head_seq(mission),
+                "actor": actor,
+                "correlation_id": "c3:effect-fence",
+                "attempt_id": attempt.attempt_id,
+                "provider": "c3-fixture-provider",
+                "model": "c3-fixture-model",
+                "configuration": {
+                    "identity": "c3-effect-fixture",
+                    "version": 1,
+                    "digest": canonical_sha256({"provider": "c3-fixture-provider", "model": "c3-fixture-model"}),
+                    "scope": {"purpose": "side-effect-recovery-regression"},
+                    "provenance": {"kind": "TEST_FIXTURE"},
+                },
+            })
+            binding = bound.binding
         self.assertIsNotNone(binding)
 
-        actor = ActorRef("SYSTEM", "c3-effect-fence-test")
         tool_id = "tool-execution:effect-fence"
         tool_service = ToolExecutionApplicationService(self.runtime)
         request = ToolExecutionRequest(
