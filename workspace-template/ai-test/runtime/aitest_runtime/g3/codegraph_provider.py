@@ -445,7 +445,7 @@ class CodeGraphExecutableProvider:
 
         # A successful empty graph query is valid structural truth. A failed query
         # is not: it makes CodeGraph PARTIAL even when line->symbol mapping succeeded.
-        mapping_complete = successful_mapping_calls == len(changed_executable_lines)
+        mapping_complete = successful_mapping_calls == len(changed_executable_lines) and len(mappings) == len(changed_executable_lines)
         structural_complete = structural_succeeded == structural_expected
         status = "AVAILABLE" if mapping_complete and structural_complete else "PARTIAL"
         reason = None if status == "AVAILABLE" else "ONE_OR_MORE_STRUCTURAL_OR_RELATIONSHIP_QUERIES_FAILED"
