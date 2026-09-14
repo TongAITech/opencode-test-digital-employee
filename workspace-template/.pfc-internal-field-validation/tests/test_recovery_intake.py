@@ -61,6 +61,88 @@ class RecoveryIntakeTests(unittest.TestCase):
         self.assertEqual(self.service.source(self.mission, document["fact_id"])["text"], document["payload"]["text"])
         self.assertFalse((self.root / "ai-test/state/aitest.db").exists())
 
+    def test_multi_section_source_units_are_explicit_and_partial_analysis_cannot_pass(self):
+        path = self.root / "multi-requirement.md"
+        path.write_text(
+            "# Eligibility\n"
+            "Loan amount must be positive.\n\n"
+            "# Currency\n"
+            "Currency must be supported.\n",
+            encoding="utf-8",
+        )
+        document = self.service.import_document(
+            self.mission, path, "loan-multi-requirement"
+        )["document"]
+        units = document["payload"]["source_units"]
+        self.assertEqual(len(units), 2)
+        self.assertEqual([unit["ordinal"] for unit in units], [1, 2])
+        self.assertEqual(len({unit["unit_id"] for unit in units}), 2)
+        for unit in units:
+            text = document["payload"]["text"][unit["char_start"]:unit["char_end"]]
+            self.assertEqual(hashlib.sha256(text.encode("utf-8")).hexdigest(), unit["text_sha256"])
+            self.assertLessEqual(len(text), 8192)
+
+        first_page = self.service.source(
+            self.mission, document["fact_id"], unit_id=units[0]["unit_id"]
+        )
+        self.assertEqual(first_page["source_unit"]["unit_id"], units[0]["unit_id"])
+        self.assertIn("Loan amount must be positive", first_page["text"])
+        self.assertNotIn("Currency must be supported", first_page["text"])
+
+        ambiguous = [{
+            "artifact_id": "BR-ELIGIBILITY",
+            "kind": "BR",
+            "revision": "1",
+            "text": "Loan amount must be positive",
+            "source_refs": [document["fact_id"]],
+        }]
+        with self.assertRaisesRegex(Exception, "RECOVERY_SOURCE_UNIT_PROVENANCE_REQUIRED"):
+            self.service.analyze_requirements(self.mission, "LOAN-MULTI", ambiguous)
+
+        first = [{
+            **ambiguous[0],
+            "source_unit_refs": [{
+                "source_ref": document["fact_id"],
+                "unit_id": units[0]["unit_id"],
+            }],
+        }]
+        partial = self.service.analyze_requirements(self.mission, "LOAN-MULTI", first)
+        self.assertEqual(partial["status"], "PARTIAL_SOURCE_UNITS")
+        coverage = partial["source_analysis_coverage"]
+        self.assertFalse(coverage["complete"])
+        self.assertEqual(coverage["total_units"], 2)
+        self.assertEqual(coverage["covered_units"], 1)
+        self.assertEqual(
+            coverage["uncovered_unit_refs"],
+            [{"source_ref": document["fact_id"], "unit_id": units[1]["unit_id"]}],
+        )
+
+        second = [{
+            "artifact_id": "BR-CURRENCY",
+            "kind": "BR",
+            "revision": "1",
+            "text": "Currency must be supported",
+            "source_refs": [document["fact_id"]],
+            "source_unit_refs": [{
+                "source_ref": document["fact_id"],
+                "unit_id": units[1]["unit_id"],
+            }],
+        }]
+        complete = self.service.analyze_requirements(self.mission, "LOAN-MULTI", second)
+        self.assertEqual(complete["status"], "PASS")
+        self.assertTrue(complete["source_analysis_coverage"]["complete"])
+        self.assertEqual(complete["source_analysis_coverage"]["covered_units"], 2)
+
+        restarted = RecoveryIntakeService(create_canonical_runtime(self.root, db_path=self.db))
+        context = restarted.work_context(self.mission)
+        indexed = next(row for row in context["documents"] if row["fact_id"] == document["fact_id"])
+        self.assertEqual(indexed["source_unit_count"], 2)
+        self.assertTrue(
+            restarted.analyze_requirements(self.mission, "LOAN-MULTI", second)[
+                "source_analysis_coverage"
+            ]["complete"]
+        )
+
     def test_atomic_validation_and_revision_immutability(self):
         doc = self.document()
         graph = self.graph(doc["fact_id"])
