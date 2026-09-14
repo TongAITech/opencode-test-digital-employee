@@ -405,8 +405,27 @@ def main() -> int:
                         if item.get("phase") == "REPLANNING" and item.get("replan_session_id")
                     ]
                     if active_replans:
-                        unattended_status = value
-                        break
+                        candidate = active_replans[-1]
+                        replanner_id = str(candidate.get("replan_session_id") or "")
+                        provisions = value.get("session_control", {}).get("provisions", [])  # type: ignore[union-attr]
+                        bound = any(
+                            isinstance(item, dict)
+                            and item.get("external_session_id") == replanner_id
+                            and item.get("status") == "BOUND"
+                            and item.get("phase") in {"REPLANNING", "REPLANNING_ROTATION"}
+                            for item in provisions
+                        )
+                        host_ready = (
+                            replanner_id in Stub.sessions
+                            and len(Stub.messages.get(replanner_id, [])) >= 1
+                        )
+                        # ProgressState is written before initial prompt delivery
+                        # and provision binding.  That durable two-phase window is
+                        # legal; only declare the replanner ready once R1 binding
+                        # and the Host bootstrap are both observable.
+                        if bound and host_ready:
+                            unattended_status = value
+                            break
                     time.sleep(0.1)
 
                 checks["background_progress_does_not_require_user_continue"] = unattended_status is not None
