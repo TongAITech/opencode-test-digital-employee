@@ -192,7 +192,7 @@ class RecoveryReadProductEntryTests(unittest.TestCase):
                 },
             }],
         }
-        provider = self.orchestration.session_provider
+        provider = self.orchestration.raw_session_provider
         with patch.dict(os.environ, {
             "AITEST_HOST_SESSION_ID": sid,
             "AITEST_HOST_MESSAGE_ID": message_id,
