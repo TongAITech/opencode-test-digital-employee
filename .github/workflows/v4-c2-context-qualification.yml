@@ -99,9 +99,10 @@ jobs:
           "C2_BOUNDARY_OUTPUT=$output" | Out-File $env:GITHUB_ENV -Append
           $hostDir = Join-Path $env:RUNNER_TEMP 'c2-opencode-1.18.3'
           New-Item -ItemType Directory -Path $hostDir -Force | Out-Null
-          gh release download v1.18.3 -R anomalyco/opencode -p opencode-windows-x64.zip -D $hostDir --clobber
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to acquire official OpenCode 1.18.3 host asset' }
           $zip = Join-Path $hostDir 'opencode-windows-x64.zip'
+          $assetUrl = 'https://github.com/anomalyco/opencode/releases/download/v1.18.3/opencode-windows-x64.zip'
+          Invoke-WebRequest -UseBasicParsing -Uri $assetUrl -OutFile $zip -MaximumRedirection 10
+          if (-not (Test-Path $zip)) { throw 'Unable to acquire official OpenCode 1.18.3 host asset' }
           $expected = '68bc62930f6cb5755e0409aa9de0bb270a66ed2b8c9cf0c029e9f2287ed5486e'
           if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'OpenCode 1.18.3 host hash mismatch' }
           $expanded = Join-Path $hostDir 'expanded'
