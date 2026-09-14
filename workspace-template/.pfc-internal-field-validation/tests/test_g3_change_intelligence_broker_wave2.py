@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 from typing import Any, Mapping, Sequence
 
 HERE = Path(__file__).resolve()
