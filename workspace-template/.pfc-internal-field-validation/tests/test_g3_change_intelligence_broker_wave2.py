@@ -258,7 +258,7 @@ def main() -> int:
             "class Service {\n  int apply(int x) { return x + 1; }\n}\n",
             "class Service {\n  public int apply(int x) { return x + 2; }\n}\n",
         )
-        if not (os.name == "nt" and real_binary):
+        if os.name != "nt":
             resolved_provider = CodeGraphProviderResolver.resolve({"runtime_lock_path": str(runtime_lock)})
             exec_broker = ChangeIntelligenceBroker(codegraph_provider=resolved_provider)
             _, exec_env, exec_meta = analyze_repository(
