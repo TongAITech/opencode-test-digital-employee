@@ -51,7 +51,12 @@ def start_product_mission(service, request, *, fixture_id):
         result=product_entry.orchestration_command('DIRECTOR','start_test',payload)
     operation=result['operations'][0]
     assert operation['status']=='DISPATCHED',operation
-    assert len(reads)==2,reads
+    assistant_path=f'/session/{session}/message/{assistant}'
+    user_path=f'/session/{session}/message/user-{fixture_id}'
+    normalized=[urlparse(path).path for path in reads]
+    assert normalized.count(assistant_path)==2,reads
+    assert normalized.count(user_path)==1,reads
+    assert len(normalized)==3,reads
     receipt=R1InteractionOwner(service.runtime).receipt(operation['operation_id'])
     assert receipt['state']=='COMPLETED' and receipt['bound_subject']==operation['subject'],receipt
     return result
