@@ -43,7 +43,7 @@
       "archive_sha256": "c95d8a7e1c99e669cc08c9f1176e068c1f50847c37908fcb8c35b62482366511",
       "status": "IDENTITY_PINNED_WINDOWS_EXECUTION_QUALIFIED_PACKAGE_MATERIALIZATION_PENDING",
       "host_node_authority": false,
-      "gitnexus_binding_status": "LICENSE_AUTHORIZATION_REQUIRED"
+      "gitnexus_binding_status": "PERSONAL_LEARNING_NONCOMMERCIAL_INTEGRATED"
     },
     "chromium": {
       "role": "CONTROLLED_BROWSER",
@@ -238,6 +238,37 @@
       "sha256": "612ff566b4378c13c7b1180cb2da89ac0b6cde5500a63fe530e30ae6a88b1b9c",
       "hash_kind": "file",
       "status": "BUNDLED_HASH_VERIFIED_WINDOWS_EXECUTION_PENDING"
+    },
+    "gitnexus": {
+      "role": "SECONDARY_STRUCTURAL_CODE_INTELLIGENCE",
+      "provider": "abhigyanpatwari/GitNexus",
+      "version": "1.6.12",
+      "platform": "windows-x64",
+      "runtime": "node-22.18.0",
+      "relative_target": "workspace-template/runtime/tools/gitnexus/node_modules/gitnexus/dist/cli/index.js",
+      "sha256": "e2c96d62b26a1898e536457377f7b73c539b080c7e8c316869ffc6a790003eb4",
+      "hash_kind": "file",
+      "package_manifest_relative": "workspace-template/runtime/tools/gitnexus/node_modules/gitnexus/package.json",
+      "package_manifest_sha256": "e84215e817d751daefc5d74ae2e37e1b3f94564462298609ceebebe0a7b17680",
+      "tree_root": "workspace-template/runtime/tools/gitnexus",
+      "tree_sha256": "ac9bc247f1286896e9775796eef38ef1ecebba6eb6cbe333cd14d8eed4f286a2",
+      "tree_file_count": 15244,
+      "tree_size_bytes": 1252363676,
+      "status": "WINDOWS_EXECUTION_QUALIFIED_SAME_PACKAGE_INTEGRATED",
+      "change_truth_authority": false,
+      "page_truth_authority": false,
+      "usage_scope": "PERSONAL_LEARNING_NONCOMMERCIAL",
+      "license": "PolyForm-Noncommercial-1.0.0",
+      "evidence": {
+        "workflow": "V4 D3-GN2 GitNexus Windows integration",
+        "source_head": "9c8e4bf82124541599a4b54b5f31e98ea36a79d3",
+        "run_id": 34870515522,
+        "job_id": 104064973238,
+        "evidence_artifact_id": 10359245790,
+        "evidence_artifact_sha256": "7bbf9cb02f857c90c905bdcca00375d3937e9f6fd3ac3ae3d0017ec046d93130",
+        "runtime_artifact_id": 10358876142,
+        "runtime_artifact_sha256": "e87959eba24e65915e795232b597c74b16b0b077d7a0bd4a93676521236451e5"
+      }
     }
   }
 }
