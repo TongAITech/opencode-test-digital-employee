@@ -191,6 +191,7 @@ def run(env: dict[str, str], role: str, action: str, payload: dict[str, object])
 
 def main() -> int:
     checks: dict[str, bool] = {}
+    diagnostics: dict[str, object] = {}
     Stub.sessions = {}; Stub.messages = {}; Stub.requests = []; Stub.counter = 0
     server = ThreadingHTTPServer(("127.0.0.1", 0), Stub)
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
@@ -199,9 +200,11 @@ def main() -> int:
         with tempfile.TemporaryDirectory(prefix="pfc-g21-bg-") as td:
             root = Path(td); spine = root / "durable/state/runtime-spine.db"; spine.parent.mkdir(parents=True)
             env = dict(os.environ)
+            heartbeat_path = root / "durable" / "state" / "control-loop-heartbeat.json"
             env.update({
                 "AITEST_WORKSPACE_ROOT": str(root), "AITEST_RUNTIME_SPINE_DB": str(spine),
                 "AITEST_OPENCODE_ENDPOINT": f"http://127.0.0.1:{server.server_port}",
+                "AITEST_CONTROL_LOOP_HEARTBEAT_PATH": str(heartbeat_path),
                 "PYTHONPATH": str(RUNTIME_ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""),
             })
             # Product startup creates the durable Primary before any Director
@@ -327,6 +330,41 @@ def main() -> int:
                     time.sleep(0.1)
 
                 checks["background_progress_does_not_require_user_continue"] = unattended_status is not None
+                if unattended_status is None:
+                    heartbeat = {}
+                    try:
+                        heartbeat = json.loads(heartbeat_path.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError):
+                        heartbeat = {}
+                    status_call += 1
+                    status_payload = {"mission_id": mission_id}
+                    bind_host_tool(
+                        env, session_id=primary_host_session, agent="aitest-director", tool="aitest_director",
+                        action="status", payload=status_payload, label=f"background-status-{status_call}",
+                    )
+                    stalled = run(env, "DIRECTOR", "status", status_payload)
+                    attempts = stalled.get("execution", {}).get("attempts", [])
+                    latest_attempt = attempts[-1] if isinstance(attempts, list) and attempts else None
+                    diagnostics["unattended_timeout"] = {
+                        "heartbeat": heartbeat,
+                        "successor_session_id": successor_id,
+                        "successor_message_count": len(Stub.messages.get(successor_id, [])),
+                        "successor_messages": [
+                            str((row.get("parts") or [{}])[0].get("text") or "")[:120]
+                            for row in Stub.messages.get(successor_id, [])
+                            if isinstance(row, dict)
+                        ],
+                        "latest_attempt": latest_attempt,
+                        "context_dispatches": [
+                            row for row in stalled.get("session_control", {}).get("context_dispatches", [])
+                            if row.get("session_id") == successor_id
+                        ],
+                        "successor_observations": [
+                            row for row in stalled.get("session_control", {}).get("observations", [])
+                            if row.get("session_id") == successor_id
+                        ],
+                        "rotations": stalled.get("session_control", {}).get("rotations", []),
+                    }
                 if unattended_status is not None:
                     progress_records = unattended_status["session_control"]["progress_records"]  # type: ignore[index]
                     active_replan = next(
@@ -396,7 +434,12 @@ def main() -> int:
             except subprocess.TimeoutExpired: control.kill()
         server.shutdown(); server.server_close(); thread.join(timeout=2)
 
-    payload = {"status": "PASS" if all(checks.values()) else "FAIL", "checks": checks, "http_requests": len(Stub.requests)}
+    payload = {
+        "status": "PASS" if all(checks.values()) else "FAIL",
+        "checks": checks,
+        "http_requests": len(Stub.requests),
+        "diagnostics": diagnostics,
+    }
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if payload["status"] == "PASS" else 1
 
