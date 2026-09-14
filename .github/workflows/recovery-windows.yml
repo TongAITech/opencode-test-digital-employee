@@ -81,6 +81,44 @@ jobs:
             if ($identity.source_head -ne $env:GITHUB_SHA) { throw 'Semantic proof source HEAD mismatch' }
             "AITEST_SEMANTIC_REPORT=$proof" | Out-File -FilePath $env:GITHUB_ENV -Append
           }
+      - name: Materialize pinned Node and GitNexus into same offline carrier
+        shell: pwsh
+        run: |
+          $nodeZip = Join-Path $env:RUNNER_TEMP 'node-v22.18.0-win-x64.zip'
+          $nodeExtract = Join-Path $env:RUNNER_TEMP 'node-v22.18.0-win-x64-extract'
+          curl.exe -fL --retry 3 --retry-delay 2 -o $nodeZip https://nodejs.org/download/release/v22.18.0/node-v22.18.0-win-x64.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Node download failed' }
+          $nodeArchiveSha = (Get-FileHash -Algorithm SHA256 $nodeZip).Hash.ToLowerInvariant()
+          if ($nodeArchiveSha -ne 'c95d8a7e1c99e669cc08c9f1176e068c1f50847c37908fcb8c35b62482366511') {
+            throw "Pinned Node archive SHA mismatch: $nodeArchiveSha"
+          }
+          Expand-Archive -LiteralPath $nodeZip -DestinationPath $nodeExtract -Force
+          $nodeSource = Join-Path $nodeExtract 'node-v22.18.0-win-x64'
+          $nodeTarget = Join-Path $env:AITEST_CARRIER 'workspace-template\runtime\tools\node'
+          if (Test-Path $nodeTarget) { Remove-Item -Recurse -Force $nodeTarget }
+          New-Item -ItemType Directory -Force -Path $nodeTarget | Out-Null
+          Copy-Item -Path (Join-Path $nodeSource '*') -Destination $nodeTarget -Recurse -Force
+          $nodeExe = Join-Path $nodeTarget 'node.exe'
+          $npmCmd = Join-Path $nodeTarget 'npm.cmd'
+          if ((& $nodeExe --version | Out-String).Trim() -ne 'v22.18.0') { throw 'Portable Node version mismatch' }
+          $nodeExeSha = (Get-FileHash -Algorithm SHA256 $nodeExe).Hash.ToLowerInvariant()
+          if ($nodeExeSha -ne 'c22d1c59a1f767a1ed0178445a027f2257d318c55430fc819d48f269586822b7') {
+            throw "Portable Node executable SHA mismatch: $nodeExeSha"
+          }
+
+          $gitnexusTarget = Join-Path $env:AITEST_CARRIER 'workspace-template\runtime\tools\gitnexus'
+          if (Test-Path $gitnexusTarget) { Remove-Item -Recurse -Force $gitnexusTarget }
+          New-Item -ItemType Directory -Force -Path $gitnexusTarget | Out-Null
+          & $npmCmd install --prefix $gitnexusTarget --no-audit --no-fund gitnexus@1.6.12
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned GitNexus materialization failed' }
+          $gitnexusCli = Join-Path $gitnexusTarget 'node_modules\gitnexus\dist\cli\index.js'
+          if (-not (Test-Path $gitnexusCli)) { throw 'GitNexus CLI missing after materialization' }
+          $gitnexusVersion = (& $nodeExe $gitnexusCli --version 2>&1 | Out-String).Trim()
+          if ($gitnexusVersion -notmatch '1\.6\.12') { throw "GitNexus version mismatch: $gitnexusVersion" }
+          Write-Host "PORTABLE_NODE=22.18.0"
+          Write-Host "GITNEXUS=1.6.12"
+          Write-Host "GITNEXUS_TARGET=$gitnexusTarget"
+
       - name: Assemble this exact source HEAD with the carrier portable Python
         shell: pwsh
         run: |
