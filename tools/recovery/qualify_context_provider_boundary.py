@@ -989,6 +989,28 @@ try:
     worker_host_text = json.dumps(worker_messages, ensure_ascii=False, sort_keys=True)
     planner_tool_name = scripted_tool_events[-2]["tool_name"]
     executor_tool_name = scripted_tool_events[-1]["tool_name"]
+
+    # Preserve exact Host + durable Runtime evidence before any terminal oracle.
+    # This distinguishes a product failure from an OpenCode message-shape/oracle
+    # mismatch without weakening the acceptance criterion.
+    after_executor = runtime.replay_composed(tool_mission)
+    after_graph = after_executor.extension_state("r1_2_work_graph")
+    after_execution = after_executor.extension_state("r1_3b_execution_resume")
+    after_task = after_graph.task(tool_worker["task_id"]) if after_graph is not None else None
+    after_attempt = after_execution.latest_attempt(tool_worker["task_id"]) if after_execution is not None else None
+    result["c3_exact_host_executor_evidence"] = {
+        "planner_tool_name": planner_tool_name,
+        "executor_tool_name": executor_tool_name,
+        "planner_messages": planner_messages,
+        "worker_messages": worker_messages,
+        "task": after_task.to_dict() if after_task is not None else None,
+        "latest_attempt": after_attempt.to_dict() if after_attempt is not None else None,
+        "mission_status": after_executor.core_state.mission.status.value if after_executor.core_state.mission else None,
+        "plan_complete_text_present": "PLAN_COMPLETE" in worker_host_text,
+        "executor_tool_part_present": executor_tool_name in worker_host_text,
+        "scripted_tool_events": list(scripted_tool_events[-2:]),
+    }
+
     if planner_tool_name not in planner_host_text:
         raise RuntimeError("C3_EXACT_HOST_PLANNER_TOOL_PART_NOT_DURABLE")
     if executor_tool_name not in worker_host_text:
