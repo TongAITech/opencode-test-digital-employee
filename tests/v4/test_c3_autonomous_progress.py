@@ -70,9 +70,13 @@ class C3AutonomousProgressTests(unittest.TestCase):
 
     def test_same_no_progress_cursor_opens_one_replanning_session_and_survives_restart(self):
         mission, worker = self._active_worker("dedupe")
-        before = self.service.status(mission)
-        revision = before["plan"]["current_revision_id"]
-        task_ids = [x["task_id"] for x in before["tasks"]]
+        _composed_before, graph_before, _goal_before, plan_before = self.service._active_plan_context(mission)
+        self.assertIsNotNone(plan_before)
+        revision = plan_before.current_revision_id
+        task_ids = [
+            task.task_id for task in graph_before.tasks
+            if task.plan_id == plan_before.plan_id and task.plan_revision_id == plan_before.current_revision_id
+        ]
         cursor = business_cursor(self.runtime, mission)
 
         first = self.service._handle_no_progress(
@@ -113,10 +117,15 @@ class C3AutonomousProgressTests(unittest.TestCase):
         self.assertEqual(recovered["session_id"], first_session)
         self.assertEqual(len([x for x in self.provider.list_sessions() if "Replan" in x.title]), 1)
 
-        after = restarted.status(mission)
-        self.assertEqual(after["plan"]["current_revision_id"], revision,
+        _composed_after, graph_after, _goal_after, plan_after = restarted._active_plan_context(mission)
+        self.assertIsNotNone(plan_after)
+        self.assertEqual(plan_after.current_revision_id, revision,
                          "Runtime must not author a semantic PlanRevision")
-        self.assertEqual([x["task_id"] for x in after["tasks"]], task_ids,
+        after_task_ids = [
+            task.task_id for task in graph_after.tasks
+            if task.plan_id == plan_after.plan_id and task.plan_revision_id == plan_after.current_revision_id
+        ]
+        self.assertEqual(after_task_ids, task_ids,
                          "Runtime must not invent a Diagnosis Task; Planner owns WHAT")
         messages = [m for m in self.provider.messages if m["session_id"] == first_session]
         self.assertEqual(len(messages), 1, "same no-progress generation must not duplicate Planner prompt")
