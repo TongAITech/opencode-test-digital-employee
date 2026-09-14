@@ -124,24 +124,43 @@ def main() -> int:
             )
             env.update(host_env)
             started = bg.run(env, "DIRECTOR", "start_test", start_payload)
-            intake = started.get("intake")
-            planner_session = started.get("planner_session")
+            operations = started.get("operations")
             if (
-                started.get("status") != "PLANNING"
-                or not isinstance(intake, dict)
-                or not isinstance(intake.get("intake"), dict)
-                or not isinstance(planner_session, dict)
-                or planner_session.get("status") != "PLANNER_SESSION_OPEN"
-                or not isinstance(planner_session.get("external_session"), dict)
+                started.get("status") != "INTERACTION_PROCESSED"
+                or not isinstance(operations, list)
+                or len(operations) != 1
+                or operations[0].get("status") != "DISPATCHED"
+                or operations[0].get("effect") != "TEST_DISPATCH"
+                or not isinstance(operations[0].get("subject"), dict)
+                or operations[0]["subject"].get("subject_kind") != "MISSION"
+                or not isinstance(operations[0].get("result"), dict)
+                or operations[0]["result"].get("status") != "PLANNER_SESSION_OPEN"
             ):
                 raise AssertionError(
                     "C3_HANDOFF_START_RESULT_INVALID:"
                     + json.dumps(started, ensure_ascii=False, sort_keys=True)
                 )
-            mission_id = str(intake["intake"]["mission_id"])
-            if planner_session.get("mission_id") != mission_id:
-                raise AssertionError("C3_HANDOFF_PLANNER_MISSION_IDENTITY_MISMATCH")
-            planner_id = str(planner_session["external_session"]["session_id"])
+            mission_id = str(operations[0]["subject"]["subject_id"])
+            if operations[0]["result"].get("mission_id") != mission_id:
+                raise AssertionError("C3_HANDOFF_START_MISSION_IDENTITY_MISMATCH")
+
+            startup_status = director_status(
+                env, primary, mission_id, "c3-handoff-start-status"
+            )
+            sessions = startup_status.get("core", {}).get("sessions", {})
+            planner_ids = [
+                sid for sid, item in sessions.items()
+                if isinstance(item, dict)
+                and item.get("status") == "OPEN"
+                and isinstance(item.get("attributes"), dict)
+                and item["attributes"].get("phase") == "PLANNING"
+            ] if isinstance(sessions, dict) else []
+            if len(planner_ids) != 1:
+                raise AssertionError(
+                    "C3_HANDOFF_PLANNING_SESSION_NOT_UNIQUE:"
+                    + json.dumps(startup_status, ensure_ascii=False, sort_keys=True)
+                )
+            planner_id = str(planner_ids[0])
 
             initial_payload = {"mission_id": mission_id, "proposal": bg.proposal()}
             bg.bind_host_tool(
