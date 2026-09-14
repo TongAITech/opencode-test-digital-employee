@@ -13,6 +13,7 @@ on:
       - tests/v4/test_c3_plan_complete_convergence.py
       - tests/v4/test_general_execution.py
       - workspace-template/.pfc-internal-field-validation/tests/test_recovery_context_stress.py
+      - workspace-template/.pfc-internal-field-validation/tests/test_g2_1_background_control_loop_subprocess.py
       - workspace-template/.opencode/plugins/aitest-context-governor.js
       - workspace-template/ai-test/runtime/aitest_runtime/context_admission.py
       - workspace-template/ai-test/runtime/aitest_runtime/general_work/**
@@ -79,6 +80,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'C3 autonomous progress regression failed' }
           & "$env:C2_RUNTIME/python/python.exe" -X utf8 tests/v4/test_c3_plan_complete_convergence.py
           if ($LASTEXITCODE -ne 0) { throw 'C3 PLAN_COMPLETE quality convergence regression failed' }
+          & "$env:C2_RUNTIME/python/python.exe" -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_g2_1_background_control_loop_subprocess.py
+          if ($LASTEXITCODE -ne 0) { throw 'C3 background unattended progress regression failed' }
           & "$env:C2_RUNTIME/python/python.exe" -X utf8 tests/v4/test_general_execution.py
           if ($LASTEXITCODE -ne 0) { throw 'General context recovery regression failed' }
           & "$env:C2_RUNTIME/python/python.exe" -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_recovery_context_stress.py
