@@ -139,6 +139,21 @@ class Stub(BaseHTTPRequestHandler):
         self._record(); parsed = urlparse(self.path)
         if parsed.path in self.__class__.host_messages:self._json(200,self.__class__.host_messages[parsed.path]);return
         if parsed.path == "/global/health": self._json(200, {"healthy": True}); return
+        if parsed.path == "/provider":
+            # OpenCode 1.18.3 provider catalog shape consumed by the real
+            # DirectoryScopedOpenCodeSessionProvider. Successor runtime prompts
+            # carry this model identity so supervision uses the advertised 128K
+            # capacity instead of the deliberately conservative 32K blind fallback.
+            self._json(200, {
+                "all": [{
+                    "id": "fixture-provider",
+                    "models": {
+                        "fixture-128k": {
+                            "limit": {"context": 131072, "output": 8192}
+                        }
+                    },
+                }]
+            }); return
         if parsed.path == "/session": self._json(200, list(self.__class__.sessions.values())); return
         if parsed.path == "/session/status":
             # OpenCode 1.18.3 omits idle Sessions from the status map.
@@ -164,7 +179,16 @@ class Stub(BaseHTTPRequestHandler):
         if parsed.path.startswith("/session/") and parsed.path.endswith("/prompt_async"):
             sid = parsed.path.split("/")[-2]
             if sid not in self.__class__.sessions: self._json(404, {"error": "not found"}); return
-            self.__class__.messages[sid].append({"info": {"id": f"msg-{len(self.__class__.messages[sid])}", "sessionID": sid, "role": "user"}, "parts": body["parts"]})
+            self.__class__.messages[sid].append({
+                "info": {
+                    "id": f"msg-{len(self.__class__.messages[sid])}",
+                    "sessionID": sid,
+                    "role": "user",
+                    "providerID": "fixture-provider",
+                    "modelID": "fixture-128k",
+                },
+                "parts": body["parts"],
+            })
             self._json(200, {"accepted": True, "sessionID": sid}); return
         self._json(404, {"error": "unknown"})
 
