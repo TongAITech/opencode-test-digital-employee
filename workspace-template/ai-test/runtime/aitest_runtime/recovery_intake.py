@@ -217,24 +217,14 @@ def _normalize_source_unit_refs(payload: Mapping[str, Any], state: G3State) -> l
 
 
 def _source_analysis_coverage(state: G3State, artifacts: list[Mapping[str, Any]]) -> dict[str, Any]:
-    document_order: list[str] = []
-    for artifact in artifacts:
-        payload = artifact.get("payload") if isinstance(artifact.get("payload"), Mapping) else artifact
-        for source_ref in payload.get("source_refs") or []:
-            source_ref = str(source_ref)
-            if source_ref not in document_order:
-                document_order.append(source_ref)
-
+    # Until Phase D introduces an explicit per-scope source manifest, the only
+    # fail-safe denominator is every SOURCE_DOCUMENT admitted to this Mission.
+    # Omitting a whole imported document must never make analysis look complete.
+    documents = list(state.by_kind("SOURCE_DOCUMENT"))
     all_refs: list[dict[str, str]] = []
-    ordinal_by_ref: dict[tuple[str, str], int] = {}
-    for source_ref in document_order:
-        fact = state.by_id(source_ref)
-        if fact is None or fact.fact_kind != "SOURCE_DOCUMENT":
-            continue
+    for fact in documents:
         for unit in _document_source_units(fact):
-            key = (source_ref, unit["unit_id"])
-            ordinal_by_ref[key] = unit["ordinal"]
-            all_refs.append({"source_ref": source_ref, "unit_id": unit["unit_id"]})
+            all_refs.append({"source_ref": fact.fact_id, "unit_id": unit["unit_id"]})
 
     covered_keys: set[tuple[str, str]] = set()
     for artifact in artifacts:
@@ -243,17 +233,21 @@ def _source_analysis_coverage(state: G3State, artifacts: list[Mapping[str, Any]]
             if isinstance(ref, Mapping):
                 covered_keys.add((str(ref.get("source_ref") or ""), str(ref.get("unit_id") or "")))
 
-    uncovered = [
+    uncovered_all = [
         ref for ref in all_refs
         if (ref["source_ref"], ref["unit_id"]) not in covered_keys
     ]
-    covered = len(all_refs) - len(uncovered)
+    covered = len(all_refs) - len(uncovered_all)
     stable = {
-        "document_count": len(document_order),
+        "scope_policy": "ALL_IMPORTED_MISSION_SOURCES",
+        "document_count": len(documents),
         "total_units": len(all_refs),
         "covered_units": covered,
-        "uncovered_unit_refs": uncovered,
-        "complete": bool(all_refs) and not uncovered,
+        "uncovered_unit_count": len(uncovered_all),
+        "uncovered_unit_refs": uncovered_all[:64],
+        "uncovered_unit_refs_truncated": len(uncovered_all) > 64,
+        "source_unit_scope_digest": canonical_sha256(all_refs),
+        "complete": bool(all_refs) and not uncovered_all,
     }
     stable["coverage_digest"] = canonical_sha256(stable)
     return stable
@@ -570,8 +564,8 @@ class RecoveryIntakeService:
         # G3's existing semantics service derives R3.1 obligations, provenance,
         # coverage gaps, and downstream G3 case/strategy references.
         all_current = self.current_artifacts(mission_id, scope)
-        source_ids = {ref for artifact in all_current for ref in artifact["payload"]["source_refs"]}
-        documents = {ref: self.g3.state(mission_id).by_id(ref) for ref in source_ids}
+        current_state = self.g3.state(mission_id)
+        documents = {fact.fact_id: fact for fact in current_state.by_kind("SOURCE_DOCUMENT")}
         semantics = {name: [] for name in SEMANTIC_FIELDS}
         semantics["source_refs"] = [{"source_id": ref, "source_kind": doc.payload["source_kind"], "revision": doc.payload["revision"],
                                      "locator": doc.payload["locator"], "source_digest": doc.payload["sha256"]} for ref, doc in sorted(documents.items())]
@@ -585,15 +579,17 @@ class RecoveryIntakeService:
                                         "source_unit_refs": data["source_unit_refs"],
                                         "code_refs": [x["ref"] for x in data["asset_refs"]],
                                         "asset_refs": data["asset_refs"]})
-        coverage = _source_analysis_coverage(self.g3.state(mission_id), all_current)
+        coverage = _source_analysis_coverage(current_state, all_current)
         semantics["source_analysis_coverage"] = coverage
         if not coverage["complete"]:
             semantics["unknowns"].append({
                 "gap_id": "source-unit-gap:" + coverage["coverage_digest"][:24],
                 "gap_kind": "SOURCE_UNIT_UNANALYZED",
                 "question": "Analyze every referenced source unit before requirement analysis can be complete.",
-                "uncovered_unit_count": len(coverage["uncovered_unit_refs"]),
-                "uncovered_unit_refs": coverage["uncovered_unit_refs"][:64],
+                "uncovered_unit_count": coverage["uncovered_unit_count"],
+                "uncovered_unit_refs": coverage["uncovered_unit_refs"],
+                "uncovered_unit_refs_truncated": coverage["uncovered_unit_refs_truncated"],
+                "source_unit_scope_digest": coverage["source_unit_scope_digest"],
                 "source_unit_coverage_digest": coverage["coverage_digest"],
             })
         analysis = self.g3.analyze_requirement(mission_id, scope, semantics)
