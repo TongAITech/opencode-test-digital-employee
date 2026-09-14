@@ -597,10 +597,14 @@ try:
         observed = provider.observe_session(c3_replan_session)
         utilization = observed.get("context_utilization")
         messages = observed.get("message_count")
+        pressure = observed.get("pressure") or {}
+        estimated = pressure.get("estimated_context_utilization")
         pressured = (
             (isinstance(utilization, (int, float)) and float(utilization) >= 0.85)
             or (isinstance(messages, int) and messages >= 60)
-            or bool((observed.get("pressure") or {}).get("observation_byte_budget_exceeded"))
+            or bool(pressure.get("observation_byte_budget_exceeded"))
+            or (isinstance(estimated, (int, float)) and float(estimated) >= 0.75)
+            or bool(pressure.get("message_sample_saturated"))
         )
         return observed if pressured else None
 
