@@ -10,6 +10,7 @@ on:
       - workspace-template/ai-test/runtime/aitest_runtime/g3/contracts.py
       - workspace-template/.pfc-internal-field-validation/tests/test_recovery_intake.py
       - workspace-template/.pfc-internal-field-validation/tests/test_recovery_read_product_entry.py
+      - workspace-template/.pfc-internal-field-validation/tests/host_interaction_fixture.py
       - .github/workflows/v4-d1-source-unit-qualification.yml
   workflow_dispatch:
 
