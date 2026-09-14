@@ -6,6 +6,6 @@
   "source_policy": "REASSEMBLE_EXACT_WORKFLOW_HEAD",
   "carrier_scope": "HASH_LOCKED_OFFLINE_DEPENDENCIES_ONLY",
   "install_root": "D:/PFC/AITest",
-  "qualification_attempt": 8,
-  "trigger_reason": "PIN_GN2_QUALIFIED_GITNEXUS_RUNTIME"
+  "qualification_attempt": 9,
+  "trigger_reason": "GN2_ARTIFACT_EXACT_RESTORE"
 }
