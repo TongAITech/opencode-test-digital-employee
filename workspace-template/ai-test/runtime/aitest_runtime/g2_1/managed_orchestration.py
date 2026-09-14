@@ -1520,6 +1520,194 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             "general_work_supervision": general,
         }
 
+    def _quality_input_cursor(self, mission_id: str) -> int:
+        """Return the latest durable quality *input* sequence.
+
+        G4's own GOAL_EVALUATION / TESTING_GOAL_STATUS / REPLAN_REQUEST facts are
+        control outputs. Counting them as progress would make PLAN_COMPLETE
+        self-excite forever. Only execution/measurement/evidence/human/defect
+        inputs advance this generation.
+        """
+        control_kinds = {"GOAL_EVALUATION", "TESTING_GOAL_STATUS", "REPLAN_REQUEST"}
+        latest = 0
+        for event in self.runtime.list_events(mission_id):
+            et = str(event.event_type)
+            relevant = (
+                et.startswith("task.outcome_recorded.")
+                or et.startswith("g3.")
+                or et.startswith("r2.6.")
+                or et.startswith("r3.")
+                or et.startswith("r4.")
+            )
+            if et == "g4.fact_recorded.v1":
+                fact_kind = str((event.payload or {}).get("fact_kind") or "")
+                relevant = fact_kind not in control_kinds
+            elif et.startswith("g4."):
+                # No other G4 control event is currently a quality input.
+                relevant = False
+            if relevant:
+                latest = max(latest, int(event.seq))
+        return latest
+
+    def _completion_blockers(self, mission_id: str) -> list[str]:
+        """Conservative cross-layer gate before Core Mission completion."""
+        composed = self.runtime.replay_composed(mission_id)
+        blockers: list[str] = []
+
+        human = composed.extension_state("r2_6_human_gate")
+        for gate in getattr(human, "gates", ()):
+            if getattr(gate, "is_blocking", False):
+                blockers.append("HUMAN_GATE:" + str(gate.gate_id))
+
+        r36 = composed.extension_state("r3_6_defect_investigation_rca")
+        r43 = composed.extension_state("r4_3_confirmed_defect_fix_resolution_lifecycle")
+        assessments = tuple(getattr(r36, "defect_assessments", ()) or ())
+        lifecycles = tuple(getattr(r43, "confirmed_defect_lifecycles", ()) or ())
+        for candidate in tuple(getattr(r36, "candidates", ()) or ()):
+            matches = [item for item in assessments if item.candidate_id == candidate.candidate_id]
+            if len(matches) != 1:
+                blockers.append("DEFECT_CANDIDATE_UNASSESSED:" + candidate.candidate_id)
+                continue
+            assessment = matches[0]
+            if assessment.outcome in {"INCONCLUSIVE", "BLOCKED"}:
+                blockers.append("DEFECT_ASSESSMENT_" + assessment.outcome + ":" + candidate.candidate_id)
+                continue
+            if assessment.outcome == "CONFIRMED_DEFECT":
+                handed = [
+                    item for item in lifecycles
+                    if item.r3_6_defect_assessment_ref.object_id == assessment.assessment_id
+                    and item.r3_6_defect_assessment_ref.source_digest == assessment.defect_assessment_digest
+                    and item.r3_6_assessment_digest == assessment.defect_assessment_digest
+                ]
+                if len(handed) != 1:
+                    blockers.append("CONFIRMED_DEFECT_HANDOFF_REQUIRED:" + candidate.candidate_id)
+        return sorted(set(blockers))
+
+    def _complete_quality_converged_mission(self, mission_id: str, *, quality_cursor: int,
+                                            g4_goal_id: str, g4_status: str) -> dict[str, Any]:
+        composed = self.runtime.replay_composed(mission_id)
+        mission = composed.core_state.mission
+        if mission is None:
+            raise RuntimeError("MISSION_NOT_FOUND")
+        if mission.status == MissionStatus.COMPLETED:
+            return {
+                "status":"COMPLETED", "reason":"TEST_SUFFICIENT",
+                "truth_source":"R1_EVENT_STREAM", "idempotent_replay":True,
+                "g4_goal_id":g4_goal_id, "g4_status":g4_status,
+            }
+        if mission.status != MissionStatus.ACTIVE or not mission.active_goal_id:
+            return {"status":"WAIT","reason":"MISSION_NOT_ACTIVE","truth_source":"R1_EVENT_STREAM"}
+
+        goal = composed.core_state.goal(mission.active_goal_id)
+        if goal is None:
+            raise RuntimeError("ACTIVE_GOAL_NOT_FOUND")
+        actor = ActorRef("SYSTEM", "c3-quality-convergence")
+        generation = canonical_sha256({
+            "mission_id":mission_id, "quality_cursor":quality_cursor,
+            "g4_goal_id":g4_goal_id, "g4_status":g4_status,
+        })[:32]
+        if goal.status.value == "ACTIVE":
+            changed = self.runtime.execute(CommandEnvelope(
+                "c3:goal-achieved:" + generation, "CHANGE_GOAL_STATUS", mission_id,
+                self.runtime.get_head_seq(mission_id), actor,
+                {"goal_id":goal.goal_id, "status":"ACHIEVED"},
+            ))
+            if not changed.ok:
+                raise changed.error or RuntimeError("C3_GOAL_ACHIEVEMENT_REJECTED")
+        elif goal.status.value != "ACHIEVED":
+            return {"status":"WAIT","reason":"CORE_GOAL_NOT_ACHIEVABLE","truth_source":"R1_EVENT_STREAM"}
+
+        refreshed = self.runtime.replay_composed(mission_id)
+        if refreshed.core_state.mission.status == MissionStatus.COMPLETED:
+            return {
+                "status":"COMPLETED", "reason":"TEST_SUFFICIENT",
+                "truth_source":"R1_EVENT_STREAM", "idempotent_replay":True,
+                "g4_goal_id":g4_goal_id, "g4_status":g4_status,
+            }
+        completed = self.runtime.execute(CommandEnvelope(
+            "c3:mission-complete:" + generation, "COMPLETE_MISSION", mission_id,
+            self.runtime.get_head_seq(mission_id), actor,
+            {"reason":"TEST_SUFFICIENT:" + g4_status},
+        ))
+        if not completed.ok:
+            raise completed.error or RuntimeError("C3_MISSION_COMPLETION_REJECTED")
+        return {
+            "status":"COMPLETED", "reason":"TEST_SUFFICIENT",
+            "truth_source":"R1_EVENT_STREAM", "quality_cursor":quality_cursor,
+            "g4_goal_id":g4_goal_id, "g4_status":g4_status,
+        }
+
+    def _handle_plan_complete(self, mission_id: str, scheduler: Mapping[str, Any]) -> dict[str, Any]:
+        from ..g4 import G4RealExecutionService, TestObjectiveController
+        quality_cursor = self._quality_input_cursor(mission_id)
+        g4 = G4RealExecutionService(self.runtime, orchestration=self)
+        try:
+            goal = g4.goal(mission_id)
+        except RuntimeError as exc:
+            if getattr(exc, "code", None) != "G4_TESTING_GOAL_NOT_FOUND":
+                raise
+            replan = self._handle_no_progress(
+                mission_id, task_id=None, session_id=None,
+                reason="PLAN_COMPLETE_TESTING_GOAL_MISSING", cursor=quality_cursor,
+            )
+            return {**replan, "scheduler":dict(scheduler), "quality_cursor":quality_cursor}
+
+        goal_id = str(goal["payload"]["goal_id"])
+        decision = TestObjectiveController(g4).tick(
+            mission_id, goal_id,
+            replan_context={
+                "trigger":"PLAN_COMPLETE",
+                "quality_input_cursor":quality_cursor,
+                "scheduler_status":"PLAN_COMPLETE",
+            },
+        )
+        status = str(decision.get("goal_status") or decision.get("status") or "")
+        next_action = str(decision.get("next_action") or "")
+
+        if next_action == "WAIT_COVERAGE_REFRESH" or status == "WAITING_MEASUREMENT":
+            return {
+                "status":"WAIT", "reason":"QUALITY_MEASUREMENT_REQUIRED",
+                "truth_source":"R1_EVENT_STREAM", "quality_cursor":quality_cursor,
+                "g4_goal_id":goal_id, "g4_status":status,
+                "quality_controller":decision, "scheduler":dict(scheduler),
+            }
+
+        if next_action == "G3_REPLAN" or status == "REPLANNING":
+            replan = self._handle_no_progress(
+                mission_id, task_id=None, session_id=None,
+                reason="PLAN_COMPLETE_G4_REPLANNING", cursor=quality_cursor,
+            )
+            return {
+                **replan, "scheduler":dict(scheduler), "quality_cursor":quality_cursor,
+                "g4_goal_id":goal_id, "g4_status":status, "quality_controller":decision,
+            }
+
+        if status not in {"SATISFIED", "COMPLETED_WITH_ACCEPTED_GAP"}:
+            return {
+                "status":"WAIT", "reason":"QUALITY_CONVERGENCE_NOT_TERMINAL",
+                "truth_source":"R1_EVENT_STREAM", "quality_cursor":quality_cursor,
+                "g4_goal_id":goal_id, "g4_status":status,
+                "quality_controller":decision, "scheduler":dict(scheduler),
+            }
+
+        blockers = self._completion_blockers(mission_id)
+        if blockers:
+            signature = canonical_sha256(blockers)[:16]
+            replan = self._handle_no_progress(
+                mission_id, task_id=None, session_id=None,
+                reason=("PLAN_COMPLETE_QUALITY_BLOCKED:" + signature), cursor=quality_cursor,
+            )
+            return {
+                **replan, "scheduler":dict(scheduler), "quality_cursor":quality_cursor,
+                "g4_goal_id":goal_id, "g4_status":status,
+                "completion_blockers":blockers, "quality_controller":decision,
+            }
+
+        completed = self._complete_quality_converged_mission(
+            mission_id, quality_cursor=quality_cursor, g4_goal_id=goal_id, g4_status=status,
+        )
+        return {**completed, "scheduler":dict(scheduler), "quality_controller":decision}
+
     @_coordinated
     def progress_once(self, mission_id: str) -> dict[str, Any]:
         from ..mission_controls import pending_controls
@@ -1561,7 +1749,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         # Existing Scheduler evaluates dependencies, Gate exceptions and activation.
         scheduled=self.advance(mission_id)
         if scheduled.get('status')=='PLAN_COMPLETE':
-            return {'status':'WAIT','reason':'PLAN_EXECUTION_COMPLETE_QUALITY_ASSESSMENT_REQUIRED','scheduler':scheduled}
+            return self._handle_plan_complete(mission_id, scheduled)
         fresh=self.runtime.replay_composed(mission_id)
         graph=fresh.extension_state('r1_2_work_graph');execution=fresh.extension_state('r1_3b_execution_resume')
         wakes=[]
