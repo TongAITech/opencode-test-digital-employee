@@ -25,9 +25,10 @@ from .codegraph_provider import (
     CodeGraphProviderResolver,
     StructuralLineMapping,
 )
+from .gitnexus_provider import GitNexusContribution, GitNexusProviderResolver
 
 _PROVIDER_ID = "g3.change-intelligence-broker"
-_PROVIDER_VERSION = "2.0.0"
+_PROVIDER_VERSION = "2.1.0"
 _REQUESTED = ("CHANGED_FILES", "CHANGED_SYMBOLS", "IMPACT_SURFACES", "LANGUAGE_AWARE")
 
 _LANG = {
@@ -316,7 +317,7 @@ def _surfaces(path: str, text: str) -> list[ImpactedSurface]:
         if all((value.surface_kind, value.stable_surface_id) != (item.surface_kind, item.stable_surface_id) for value in result):
             result.append(item)
 
-    if path.endswith(".vue") or "/pages/" in low or "/views/" in low or "/components/" in low:
+    if "/pages/" in low or "/views/" in low:
         add("PAGE", path, "CHANGED_PAGE_SURFACE", 0.95, f"file:{path}")
     if re.search(r"@(Get|Post|Put|Delete|Patch|Request)Mapping|@(app|router)\.(get|post|put|delete|patch)|\b(fetch|axios)\s*\(?", text, re.I):
         add("API", path, "API_DECLARATION_OR_CALL", 0.85, f"file:{path}")
@@ -521,10 +522,12 @@ class ChangeIntelligenceBroker:
         git_provider: GitChangeTruthProvider | None = None,
         codegraph_provider: CodeGraphProvider | None = None,
         language_provider: LanguageStructuralProvider | None = None,
+        gitnexus_provider: Any | None = None,
     ) -> None:
         self.git_provider = git_provider or GitChangeTruthProvider()
         self.codegraph_provider = codegraph_provider
         self.language_provider = language_provider or LanguageStructuralProvider()
+        self.gitnexus_provider = gitnexus_provider
 
     def analyze(self, spec: Mapping[str, Any]) -> tuple[RepositoryCompareRequest, CodeIntelligenceEnvelope, dict[str, Any]]:
         git_truth = self.git_provider.analyze(spec)
@@ -546,8 +549,26 @@ class ChangeIntelligenceBroker:
         for file_fact in git_truth.changed_files:
             surfaces.extend(_surfaces(file_fact.file_path, git_truth.texts.get(file_fact.file_path, "")))
 
+        changed_vue_paths = tuple(
+            file_fact.file_path
+            for file_fact in git_truth.changed_files
+            if Path(file_fact.file_path).suffix.lower() == ".vue"
+        )
+        gitnexus_provider = self.gitnexus_provider or GitNexusProviderResolver.resolve(spec)
+        gitnexus: GitNexusContribution = gitnexus_provider.analyze(
+            repo, git_truth.request, changed_vue_paths
+        )
+        for surface in gitnexus.impacted_surfaces:
+            if all(
+                (item.surface_kind, item.stable_surface_id)
+                != (surface.surface_kind, surface.stable_surface_id)
+                for item in surfaces
+            ):
+                surfaces.append(surface)
+
         rg = shutil.which("rg")
         impact_edges = list(codegraph.impact_edges)
+        impact_edges.extend(gitnexus.impact_edges)
         impact_edges.extend(_ripgrep_reference_edges(repo, symbols, bool(rg)))
         provider_caps = {
             "GIT": "AVAILABLE",
@@ -556,7 +577,9 @@ class ChangeIntelligenceBroker:
             "API_SCHEMA_CONFIG": "AVAILABLE",
             **language_caps,
         }
-        warnings = list(codegraph.warnings) + language_warnings
+        if changed_vue_paths:
+            provider_caps["GITNEXUS"] = gitnexus.health.status
+        warnings = list(codegraph.warnings) + language_warnings + list(gitnexus.warnings)
         relationship_failures = [
             warning for warning in codegraph.warnings
             if warning.startswith("CODEGRAPH_RELATIONSHIP_QUERY_FAILED:")
@@ -594,6 +617,36 @@ class ChangeIntelligenceBroker:
         if not rg:
             warnings.append("RIPGREP_UNAVAILABLE")
 
+        gitnexus_pages_by_component = {
+            str(item.get("changed_component")): str(item.get("affected_page_file"))
+            for item in gitnexus.page_impacts
+            if item.get("changed_component") and item.get("affected_page_file")
+        }
+        unresolved_vue_components = [
+            path
+            for path in changed_vue_paths
+            if not ("/pages/" in ("/" + path.lower()) or "/views/" in ("/" + path.lower()))
+            and path not in gitnexus_pages_by_component
+        ]
+        if changed_vue_paths and gitnexus.health.status != "AVAILABLE":
+            obligations.append({
+                "obligation_kind": "GITNEXUS_VUE_PAGE_IMPACT_PARTIAL",
+                "status": "OPEN",
+                "provider": "abhigyanpatwari/GitNexus",
+                "changed_vue_paths": list(changed_vue_paths),
+                "risk_semantics": "VUE_PAGE_IMPACT_ENRICHMENT_INCOMPLETE; GIT_CHANGED_FILE_LINE_TRUTH_UNCHANGED",
+                "resolution_requirement": "RESTORE_BUNDLED_GITNEXUS_OR_RETAIN_EXPLICIT_PAGE_IMPACT_GAP",
+            })
+        elif unresolved_vue_components:
+            obligations.append({
+                "obligation_kind": "VUE_COMPONENT_PAGE_IMPACT_UNRESOLVED",
+                "status": "OPEN",
+                "provider": "abhigyanpatwari/GitNexus",
+                "changed_vue_paths": unresolved_vue_components,
+                "risk_semantics": "NO_PAGE_CONSUMER_EDGE_IS_NOT_EVIDENCE_OF_NO_PAGE_IMPACT",
+                "resolution_requirement": "RECONCILE_WITH_PAGE_GRAPH_OR_RETAIN_UNKNOWN_PAGE_IMPACT",
+            })
+
         regex_only = any(row.get("provider") == "LANGUAGE_REGEX_LAST_RESORT" for row in line_mapping)
         unsupported = any(key.startswith("UNSUPPORTED:") and value == "UNAVAILABLE" for key, value in provider_caps.items())
         symbol_mapping_complete = not any(
@@ -601,7 +654,16 @@ class ChangeIntelligenceBroker:
         )
         codegraph_used = any(row.get("provider") == "CODEGRAPH" for row in line_mapping)
         relationship_complete = not codegraph_used or codegraph.health.status == "AVAILABLE"
-        structural_complete = symbol_mapping_complete and not regex_only and not unsupported and relationship_complete
+        gitnexus_page_complete = not unresolved_vue_components and (
+            not changed_vue_paths or gitnexus.health.status == "AVAILABLE"
+        )
+        structural_complete = (
+            symbol_mapping_complete
+            and not regex_only
+            and not unsupported
+            and relationship_complete
+            and gitnexus_page_complete
+        )
         if not git_truth.changed_files:
             status = "COMPLETE"
             structural_complete = True
@@ -622,6 +684,11 @@ class ChangeIntelligenceBroker:
             "LANGUAGE": {"provider_id": "language-structural-fallback", "status": "AVAILABLE" if structural_complete else "PARTIAL", "capabilities": dict(language_caps)},
             "API_SCHEMA_CONFIG": {"provider_id": "api-schema-config", "status": "AVAILABLE", "authority": "SURFACE_ENRICHMENT_ONLY"},
         }
+        if changed_vue_paths:
+            provider_health["GITNEXUS"] = {
+                **gitnexus.health.to_dict(),
+                "authority": "VUE_COMPONENT_PAGE_ENRICHMENT_ONLY",
+            }
         input_digest = canonical_sha256({
             "repository": git_truth.request.to_dict(),
             "provider_health": provider_health,
@@ -646,6 +713,7 @@ class ChangeIntelligenceBroker:
         resolved = tuple(cap for cap in _REQUESTED if cap != "LANGUAGE_AWARE" or structural_complete)
         source_refs = [f"git:{git_truth.request.repository_id}:{git_truth.request.base_sha}..{git_truth.request.head_sha}"]
         source_refs.extend(codegraph.source_refs)
+        source_refs.extend(gitnexus.source_refs)
         envelope = CodeIntelligenceEnvelope(
             compare,
             _PROVIDER_ID,
@@ -675,10 +743,13 @@ class ChangeIntelligenceBroker:
                 "git_diff_digest": diff_digest,
                 "codegraph_graph_digest": codegraph.graph_digest,
                 "codegraph_source_refs": list(codegraph.source_refs),
+                "gitnexus_graph_digest": gitnexus.graph_digest,
+                "gitnexus_source_refs": list(gitnexus.source_refs),
                 "broker_input_digest": input_digest,
             },
             "line_mapping": line_mapping,
             "mapping_obligations": obligations,
+            "gitnexus_page_impacts": [dict(item) for item in gitnexus.page_impacts],
             "impact_edge_count": len(impact_edges),
             "status": status,
         }
