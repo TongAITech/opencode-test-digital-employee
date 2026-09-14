@@ -6,6 +6,6 @@
   "source_policy": "REASSEMBLE_EXACT_WORKFLOW_HEAD",
   "carrier_scope": "HASH_LOCKED_OFFLINE_DEPENDENCIES_ONLY",
   "install_root": "D:/PFC/AITest",
-  "qualification_attempt": 5,
+  "qualification_attempt": 6,
   "trigger_reason": "D3_GN2_GITNEXUS_SAME_PACKAGE_SEAL"
 }
