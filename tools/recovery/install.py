@@ -254,6 +254,20 @@ def self_check(root: Path) -> dict:
     expected_version = lock['payloads']['python']['version']
     if platform.python_version() != expected_version:
         raise InstallError('PORTABLE_PYTHON_VERSION_MISMATCH')
+    node = root / 'runtime/tools/node/node.exe'
+    gitnexus = root / 'runtime/tools/gitnexus/node_modules/gitnexus/dist/cli/index.js'
+    node_version = subprocess.run(
+        [str(node), '--version'], capture_output=True, text=True, encoding='utf-8',
+        errors='replace', timeout=30,
+    )
+    if node_version.returncode != 0 or node_version.stdout.strip() != 'v22.18.0':
+        raise InstallError('PORTABLE_NODE_VERSION_MISMATCH')
+    gitnexus_version = subprocess.run(
+        [str(node), str(gitnexus), '--version'], capture_output=True, text=True, encoding='utf-8',
+        errors='replace', timeout=60,
+    )
+    if gitnexus_version.returncode != 0 or '1.6.12' not in (gitnexus_version.stdout + gitnexus_version.stderr):
+        raise InstallError('GITNEXUS_VERSION_MISMATCH')
     modules = {}
     for name, distribution in (('httpx', 'httpx'), ('pytest', 'pytest'), ('playwright.sync_api', 'playwright'),
                                ('greenlet', 'greenlet'), ('pypdf', 'pypdf')):
@@ -275,6 +289,7 @@ def self_check(root: Path) -> dict:
     if (workspace / 'ai-test/state/aitest.db').exists():
         raise InstallError('LEGACY_PRODUCT_TRUTH_FORBIDDEN')
     return {'status': 'PASS', 'python': platform.python_version(), 'executable': str(Path(sys.executable).resolve()),
+            'node': '22.18.0', 'gitnexus': '1.6.12',
             'modules': modules, 'runtime_truth': 'R1_EVENT_STREAM', 'runtime_db': str(db),
             'opencode_process_started': False, 'control_loop_started': False,
             'model_auth_required': False, 'bank_auth_required': False, 'online_install': False}
