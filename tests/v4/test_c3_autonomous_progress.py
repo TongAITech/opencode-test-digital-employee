@@ -250,6 +250,37 @@ class C3AutonomousProgressTests(unittest.TestCase):
         self.assertIn(replan_session, self.provider.sessions)
 
 
+
+    def test_routing_only_replan_is_real_governed_progress_not_semantic_no_change(self):
+        mission, worker = self._active_worker("routing-change")
+        stalled_cursor = business_cursor(self.runtime, mission)
+        first = self.service._handle_no_progress(
+            mission, task_id=worker["task_id"], session_id=worker["external_session"]["session_id"],
+            reason="AUTO_CONTINUE_NO_BUSINESS_PROGRESS", cursor=stalled_cursor,
+        )
+        progress_id = first["progress_id"]
+        original_revision = self.service._active_plan_context(mission)[3].current_revision_id
+
+        routed = one_task()
+        routed["tasks"][0]["routing"] = {
+            "role": "EVALUATOR",
+            "required_capabilities": ["OPENCODE_AGENT_SESSION", "TASK_OUTCOME_REPORT"],
+            "isolation_policy": "DEDICATED_TASK_SESSION",
+            "parallelism_policy": "SERIAL",
+        }
+        revised = self.service.propose_plan(mission, routed)
+        self.assertEqual(revised["status"], "PASS")
+        self.assertTrue(revised["semantic_business_progress"])
+        self.assertFalse(revised["stalled_replan_no_change"])
+        current = self.service._active_plan_context(mission)[3]
+        self.assertNotEqual(current.current_revision_id, original_revision)
+        next_item = revised["next"]
+        self.assertIsNotNone(next_item)
+        self.assertEqual(next_item["route"]["role"], "EVALUATOR")
+        self.assertEqual(self.service.session_control.state(mission).progress(progress_id).phase, "RESOLVED")
+        self.assertGreater(business_cursor(self.runtime, mission), stalled_cursor)
+
+
     def test_replanner_gets_one_auto_wake_then_rotates_and_retry_does_not_consume_budget(self):
         mission, worker = self._active_worker("replanner-wake")
         cursor = business_cursor(self.runtime, mission)
