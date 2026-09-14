@@ -168,7 +168,7 @@ jobs:
           if ($functionImpact -notmatch '"impactedCount"\s*:\s*0') { throw "GITNEXUS_FUNCTION_ZERO_CALLER_NOT_PROVEN" }
           if ($functionImpact -notmatch '"risk"\s*:\s*"UNKNOWN"') { throw "GITNEXUS_FUNCTION_UNKNOWN_RISK_NOT_PRESERVED" }
 
-          $edgeQuery = "MATCH (a:File)-[r:CALLS]->(b:File) RETURN a.filePath AS source, b.filePath AS target, r.reason AS reason LIMIT 100"
+          $edgeQuery = "MATCH (a:File)-[r:CodeRelation {type: 'CALLS'}]->(b:File) RETURN a.filePath AS source, b.filePath AS target, r.reason AS reason LIMIT 100"
           & $env:GN2_NODE_EXE $env:GN2_GITNEXUS_CLI cypher $edgeQuery --repo d3-vue-impact 2>&1 | Tee-Object GITNEXUS_FILE_EDGES.log
           if ($LASTEXITCODE -ne 0) { throw "GITNEXUS_FILE_EDGE_QUERY_FAILED" }
           $edges = Get-Content -Raw GITNEXUS_FILE_EDGES.log
