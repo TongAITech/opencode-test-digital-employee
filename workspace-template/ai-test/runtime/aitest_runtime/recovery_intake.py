@@ -896,7 +896,8 @@ class RecoveryIntakeService:
 
     def source(self, mission_id: str, fact_id: str, *, unit_id: str | None = None, offset: int = 0, limit: int = 8000) -> dict[str, Any]:
         fact = self.g3.state(mission_id).by_id(fact_id)
-        if fact is None or fact.fact_kind not in {"SOURCE_DOCUMENT", "REQUIREMENT_ANALYSIS_ARTIFACT", "CURRENT_RELEASE"}:
+        if fact is None or fact.fact_kind not in {"SOURCE_DOCUMENT", "SOURCE_SCOPE_MANIFEST",
+                "SOURCE_HYDRATION_GENERATION", "REQUIREMENT_ANALYSIS_ARTIFACT", "CURRENT_RELEASE"}:
             raise RuntimeError("RECOVERY_SOURCE_NOT_FOUND", fact_id)
         payload = dict(fact.payload)
         text = payload.pop("text", None)
@@ -908,6 +909,24 @@ class RecoveryIntakeService:
             return {"fact_id": fact_id, "truth_source": "R1_EVENT_STREAM", "payload": {
                 **{key: payload[key] for key in ("release_id", "project_id", "revision", "sha256", "binding_ref", "observed_at")}, **index},
                 "text": None, "next_offset": index["next_offset"]}
+        if fact.fact_kind == "SOURCE_SCOPE_MANIFEST":
+            if unit_id is not None:
+                raise RuntimeError("RECOVERY_SOURCE_UNIT_NOT_APPLICABLE", fact_id)
+            entries = list(payload.pop("entries", []) or [])
+            page_limit = min(100, limit)
+            page = entries[offset:offset + page_limit]
+            return {"fact_id": fact_id, "truth_source": "R1_EVENT_STREAM", "payload": payload,
+                    "entries": page, "entry_count": len(entries), "text": None,
+                    "next_offset": offset + page_limit if offset + page_limit < len(entries) else None}
+        if fact.fact_kind == "SOURCE_HYDRATION_GENERATION":
+            if unit_id is not None:
+                raise RuntimeError("RECOVERY_SOURCE_UNIT_NOT_APPLICABLE", fact_id)
+            refs = list(payload.pop("uncovered_unit_refs", []) or [])
+            page_limit = min(64, limit)
+            page = refs[offset:offset + page_limit]
+            return {"fact_id": fact_id, "truth_source": "R1_EVENT_STREAM", "payload": payload,
+                    "uncovered_unit_refs": page, "uncovered_unit_ref_count": len(refs), "text": None,
+                    "next_offset": offset + page_limit if offset + page_limit < len(refs) else None}
         if fact.fact_kind == "SOURCE_DOCUMENT":
             units = _document_source_units(fact)
             payload.pop("source_units", None)
