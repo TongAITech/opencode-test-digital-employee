@@ -583,14 +583,22 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             "dependencies": proposal.get("dependencies", []),
         }
         proposal_digest = canonical_sha256(stable_proposal)
-        request_id = str(proposal.get("planner_request_id") or f"g2:plan:{mission_id}:{proposal_digest[:20]}")
+        planning_cursor = self.runtime.get_head_seq(mission_id)
+        # R2.3 request_digest deliberately binds planning_cursor. Therefore the
+        # fallback planner_request_id must identify one cursor-qualified planning
+        # attempt too; reusing proposal-only identity across a later REPLAN would
+        # correctly trigger frozen R2.3 IDEMPOTENCY_CONFLICT.
+        request_id = str(
+            proposal.get("planner_request_id")
+            or f"g2:plan:{mission_id}:{planning_cursor}:{proposal_digest[:20]}"
+        )
         item = PlannerInput(
             mission_id=mission_id,
             active_goal_id=goal.goal_id,
             goal_revision=goal.revision,
             goal_definition_digest=canonical_sha256(goal.definition),
             scope_digest=goal.definition.get("scope_digest") or canonical_sha256(goal.definition.get("execution_scope", {})),
-            planning_cursor=self.runtime.get_head_seq(mission_id),
+            planning_cursor=planning_cursor,
             planner_request_id=request_id,
             goal_definition=goal.definition,
             objective=proposal.get("objective"),
