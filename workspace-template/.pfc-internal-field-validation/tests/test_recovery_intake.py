@@ -368,6 +368,16 @@ class RecoveryIntakeTests(unittest.TestCase):
             complete["source_analysis_coverage"]["scope_manifest_ref"],
             manifest_v2["fact_id"],
         )
+        manifest_page = self.service.source(
+            self.mission, manifest_v2["fact_id"], limit=1
+        )
+        self.assertEqual(manifest_page["entry_count"], 3)
+        self.assertEqual(len(manifest_page["entries"]), 1)
+        self.assertEqual(manifest_page["next_offset"], 1)
+        manifest_page_2 = self.service.source(
+            self.mission, manifest_v2["fact_id"], offset=1, limit=1
+        )
+        self.assertEqual(len(manifest_page_2["entries"]), 1)
 
     def test_source_scope_manifest_rejects_incomplete_mutation_and_out_of_scope_analysis(self):
         first = self.document()
@@ -480,6 +490,15 @@ class RecoveryIntakeTests(unittest.TestCase):
         self.assertIsNone(first_generation["payload"]["previous_generation_ref"])
         self.assertEqual(first_generation["payload"]["scope_manifest_ref"], manifest["fact_id"])
         self.assertEqual(first_generation["payload"]["covered_units"], 1)
+        hydration_page = self.service.source(
+            self.mission, first_generation["fact_id"], limit=1
+        )
+        self.assertEqual(hydration_page["uncovered_unit_ref_count"], 1)
+        self.assertEqual(
+            hydration_page["uncovered_unit_refs"],
+            first["source_analysis_coverage"]["uncovered_unit_refs"],
+        )
+        self.assertIsNone(hydration_page["next_offset"])
 
         second = self.service.analyze_requirements(
             self.mission,
