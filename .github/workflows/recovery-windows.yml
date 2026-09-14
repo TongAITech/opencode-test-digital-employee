@@ -109,7 +109,7 @@ jobs:
           $gitnexusTarget = Join-Path $env:AITEST_CARRIER 'workspace-template\runtime\tools\gitnexus'
           if (Test-Path $gitnexusTarget) { Remove-Item -Recurse -Force $gitnexusTarget }
           New-Item -ItemType Directory -Force -Path $gitnexusTarget | Out-Null
-          & $npmCmd install --prefix $gitnexusTarget --no-audit --no-fund gitnexus@1.6.12
+          & $npmCmd install --prefix $gitnexusTarget --no-audit --no-fund --omit=optional gitnexus@1.6.12
           if ($LASTEXITCODE -ne 0) { throw 'Pinned GitNexus materialization failed' }
           $gitnexusCli = Join-Path $gitnexusTarget 'node_modules\gitnexus\dist\cli\index.js'
           if (-not (Test-Path $gitnexusCli)) { throw 'GitNexus CLI missing after materialization' }
