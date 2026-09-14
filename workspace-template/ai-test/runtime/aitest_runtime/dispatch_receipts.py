@@ -61,7 +61,13 @@ def runtime_coordination(db_path, timeout=5):
 
 def business_cursor(runtime, mission_id):
     """A health/dispatch/rotation heartbeat is not accepted business progress."""
-    relevant=('task.outcome_recorded.', 'g3.', 'g4.', 'r3.', 'r4.')
+    relevant=(
+        'plan.created.',
+        'plan.revision_recorded.',
+        'plan.revision_activated.',
+        'task.outcome_recorded.',
+        'g3.', 'g4.', 'r3.', 'r4.',
+    )
     return max((e.seq for e in runtime.list_events(mission_id)
                 if e.event_type.startswith(relevant)),default=0)
 
