@@ -36,6 +36,25 @@ class G21ReducerContribution:
             )
             records = _upsert(state.progress_records, lambda x: x.progress_id == item.progress_id, item)
             return replace(state, progress_records=records)
+        if event.event_type == QUALITY_DECISION_RECORDED:
+            p = dict(event.payload)
+            item = QualityDecisionRecord(
+                str(p["generation_id"]), int(p["quality_cursor"]), str(p["plan_id"]),
+                str(p["plan_revision_id"]), str(p["g4_goal_id"]), str(p["g4_status"]),
+                str(p["next_action"]), p.get("evaluation_fact_id"), p.get("replan_request_fact_id"),
+                str(p["decision_digest"]), event.seq, event.created_at,
+            )
+            previous = state.quality_decision(item.generation_id)
+            if previous is not None and previous.to_dict() != item.to_dict():
+                raise RuntimeError("G2_1_QUALITY_DECISION_REPLAY_CONFLICT", item.generation_id)
+            return replace(
+                state,
+                quality_decisions=_upsert(
+                    state.quality_decisions,
+                    lambda x: x.generation_id == item.generation_id,
+                    item,
+                ),
+            )
         if event.event_type == ROUTING_AUTHORITY_ENABLED:
             return replace(state, routing_authority_enabled=True, routing_authority_enabled_seq=state.routing_authority_enabled_seq or event.seq)
         if event.event_type == TASK_ROUTE_REGISTERED:
