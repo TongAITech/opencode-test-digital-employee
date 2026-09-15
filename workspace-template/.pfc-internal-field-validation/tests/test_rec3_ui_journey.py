@@ -105,16 +105,23 @@ class BrowserJourney(unittest.TestCase):
                         if result.get('complete') or result['status']!='PASS':break
                     if human:
                         self.assertEqual(result['status'],'WAITING_HUMAN',result)
+                        self.assertIsInstance(result.get('human_gate'),dict,result)
+                        gate_id=result['human_gate'].get('gate_id')
+                        self.assertIsInstance(gate_id,str,result)
+                        self.assertTrue(gate_id,result)
                         observer=TeachingObserver(provider,mission)
                         self.assertTrue(observer.execution_lineage)
-                        with self.assertRaises(Exception):g4.complete_human_takeover(mission,{'completion_mode':'EXPLICIT'})
+                        # Exact Gate selection is mandatory: ambiguous completion
+                        # must remain fail-closed even when only one Gate exists.
+                        with self.assertRaises(Exception):
+                            g4.complete_human_takeover(mission,{'completion_mode':'EXPLICIT'})
                         with sync_playwright() as driver:
                             browser=driver.chromium.connect_over_cdp(provider.endpoint);page=browser.contexts[0].pages[0]
                             observer.snapshot(page);page.get_by_test_id('finish').click();page.wait_for_timeout(150)
                             asset=observer.flush()
                             self.assertTrue(asset['payload']['execution_lineage']['root_attempt_id'])
                             self.assertTrue(any(x.get('element',{}).get('locator_candidates') for x in asset['payload']['observations']))
-                        completed=g4.complete_human_takeover(mission,{'completion_mode':'EXPLICIT'})
+                        completed=g4.complete_human_takeover(mission,{'human_gate_id':gate_id,'completion_mode':'EXPLICIT'})
                         self.assertEqual(completed['status'],'RESUME_SAFE',completed)
                         result=completed['ui_continuation']
                         from aitest_runtime.recovery_teaching import generate_candidate,validate_replay
