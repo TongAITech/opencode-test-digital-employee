@@ -94,6 +94,144 @@ function matches(pattern, value) {
   return new RegExp("^" + escaped + "$").test(value)
 }
 
+
+const effectSchemaCache = new WeakMap()
+let effectModulePromise
+
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function nonFiniteNumber(value) {
+  return value === "NaN" || value === "Infinity" || value === "-Infinity"
+}
+
+function emptyStructUnion(items) {
+  return items.length === 2
+    && items.some((item) => isRecord(item) && item.type === "object" && item.properties === undefined)
+    && items.some((item) => isRecord(item) && item.type === "array" && item.items === undefined)
+}
+
+function flattenableAllOf(allOf, parent) {
+  const keys = new Set(Object.keys(parent).filter((key) => key !== "allOf"))
+  return allOf.every((item) => Object.keys(item).every((key) => {
+    if (keys.has(key)) return false
+    keys.add(key)
+    return true
+  }))
+}
+
+function normalizeEffectJsonSchema(value, options = {}) {
+  if (Array.isArray(value)) return value.map((item) => normalizeEffectJsonSchema(item))
+  if (!isRecord(value)) return value
+  const required = Array.isArray(value.required)
+    ? new Set(value.required.filter((item) => typeof item === "string"))
+    : undefined
+  const schema = Object.fromEntries(Object.entries(value).map(([key, item]) => [
+    key,
+    key === "properties" && isRecord(item)
+      ? Object.fromEntries(Object.entries(item).map(([name, property]) => [
+          name,
+          normalizeEffectJsonSchema(property, { stripNull: !required?.has(name) }),
+        ]))
+      : normalizeEffectJsonSchema(item),
+  ]))
+  if (schema.additionalProperties === true) delete schema.additionalProperties
+  if (options.stripNull && Array.isArray(schema.anyOf)) {
+    const withoutNull = schema.anyOf.filter((item) => !isRecord(item) || item.type !== "null")
+    if (withoutNull.length !== schema.anyOf.length) {
+      return normalizeEffectJsonSchema({ ...schema, anyOf: withoutNull })
+    }
+  }
+  if (Array.isArray(schema.anyOf)) {
+    const number = schema.anyOf.find((item) => isRecord(item) && item.type === "number")
+    const nonFinite = schema.anyOf.filter(
+      (item) => isRecord(item) && Array.isArray(item.enum) && item.enum.every(nonFiniteNumber),
+    )
+    if (number && nonFinite.length === schema.anyOf.length - 1) {
+      const { anyOf: _ignored, ...rest } = schema
+      return normalizeEffectJsonSchema({ ...number, ...rest })
+    }
+    if (emptyStructUnion(schema.anyOf)) {
+      const { anyOf: _ignored, ...rest } = schema
+      return normalizeEffectJsonSchema({ type: "object", properties: {}, ...rest })
+    }
+    if (schema.anyOf.length === 1 && isRecord(schema.anyOf[0])) {
+      const { anyOf: _ignored, ...rest } = schema
+      return normalizeEffectJsonSchema({ ...schema.anyOf[0], ...rest })
+    }
+  }
+  if (Array.isArray(schema.allOf) && schema.allOf.every(isRecord) && flattenableAllOf(schema.allOf, schema)) {
+    const { allOf, ...rest } = schema
+    return normalizeEffectJsonSchema({ ...Object.assign({}, ...allOf), ...rest })
+  }
+  if (schema.type === "integer" && schema.maximum === undefined) {
+    return { minimum: Number.MIN_SAFE_INTEGER, ...schema, maximum: Number.MAX_SAFE_INTEGER }
+  }
+  return schema
+}
+
+function inlineLocalReferences(value, definitions, seen = new Set()) {
+  if (Array.isArray(value)) return value.map((item) => inlineLocalReferences(item, definitions, seen))
+  if (!isRecord(value)) return value
+  const localDefinitions = definitions ?? (isRecord(value.$defs) ? value.$defs : undefined)
+  if (typeof value.$ref === "string" && localDefinitions) {
+    const name = value.$ref.match(/^#\/\$defs\/(.+)$/)?.[1] ?? value.$ref.match(/^#\/definitions\/(.+)$/)?.[1]
+    if (name && !seen.has(name)) {
+      const target = localDefinitions[name]
+      if (target) {
+        const { $ref: _ignored, ...rest } = value
+        return inlineLocalReferences(
+          { ...(isRecord(target) ? target : {}), ...rest },
+          localDefinitions,
+          new Set(seen).add(name),
+        )
+      }
+    }
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, inlineLocalReferences(item, localDefinitions, seen)]),
+  )
+}
+
+function hasLocalReference(value) {
+  if (Array.isArray(value)) return value.some(hasLocalReference)
+  if (!isRecord(value)) return false
+  if (typeof value.$ref === "string"
+      && (value.$ref.startsWith("#/$defs/") || value.$ref.startsWith("#/definitions/"))) return true
+  return Object.values(value).some(hasLocalReference)
+}
+
+function dropResolvedDefinitions(value) {
+  if (!isRecord(value) || hasLocalReference(value)) return value
+  const { $defs: _defs, definitions: _definitions, ...rest } = value
+  return rest
+}
+
+async function compactToolSchema(ref) {
+  if (ref?.jsonSchema !== undefined && ref?.jsonSchema !== null) return ref.jsonSchema
+  const parameters = ref?.parameters
+  if (!parameters || (typeof parameters !== "object" && typeof parameters !== "function")) return {}
+  if (effectSchemaCache.has(parameters)) return effectSchemaCache.get(parameters)
+  try {
+    effectModulePromise ||= import("effect")
+    const { Schema, JsonSchema } = await effectModulePromise
+    const document = Schema.toJsonSchemaDocument(parameters, { additionalProperties: true })
+    const normalized = normalizeEffectJsonSchema({
+      $schema: JsonSchema.META_SCHEMA_URI_DRAFT_2020_12,
+      ...document.schema,
+      ...(Object.keys(document.definitions || {}).length > 0 ? { $defs: document.definitions } : {}),
+    })
+    const compact = dropResolvedDefinitions(inlineLocalReferences(normalized))
+    effectSchemaCache.set(parameters, compact)
+    return compact
+  } catch {
+    // If the host exposes an unknown schema representation or Effect is not
+    // resolvable, preserve the old fail-conservative raw-object accounting.
+    return parameters
+  }
+}
+
 function admissionBudgetSummary(decision, toolStats) {
   const components = decision?.components && typeof decision.components === "object" ? decision.components : {}
   const numeric = (value) => Number.isFinite(Number(value)) ? Number(value) : -1
@@ -122,23 +260,30 @@ function admissionBudgetSummary(decision, toolStats) {
   ].join(",")
 }
 
-function toolBytes(patterns) {
+async function toolBytes(patterns) {
   let total = 0
   let latestBytes = 0
   let minBytes = 0
   let count = 0
   for (const [toolID, refs] of toolRefs.entries()) {
     if (!patterns.some((pattern) => matches(pattern, toolID))) continue
-    const sizes = refs.map((ref) => utf8(safeJson({
-      name: toolID,
-      description: ref.description ?? "",
-      schema: ref.jsonSchema ?? ref.parameters ?? {},
-    })))
+    const sizes = []
+    for (const ref of refs) {
+      const schema = await compactToolSchema(ref)
+      sizes.push(utf8(safeJson({
+        name: toolID,
+        description: ref.description ?? "",
+        schema,
+      })))
+    }
     if (sizes.length === 0) continue
-    const wrapper = 128
-    total += Math.max(...sizes) + wrapper
-    latestBytes += sizes[sizes.length - 1] + wrapper
-    minBytes += Math.min(...sizes) + wrapper
+    // Covers the provider's function wrapper and bounded provider-specific
+    // schema transforms. The converted schema is the same representation
+    // OpenCode derives before ProviderTransform.schema().
+    const wrapperAndTransformReserve = 512
+    total += Math.max(...sizes) + wrapperAndTransformReserve
+    latestBytes += sizes[sizes.length - 1] + wrapperAndTransformReserve
+    minBytes += Math.min(...sizes) + wrapperAndTransformReserve
     count += 1
   }
   return { bytes: total, latestBytes, minBytes, count }
@@ -238,7 +383,7 @@ export const AITestContextGovernor = async ({ directory }) => ({
       throw new Error("AITEST_CONTEXT_GOVERNOR_MODEL_LIMIT_UNKNOWN")
     }
     const patterns = await agentPermissionPatterns(directory, input.agent)
-    const tools = toolBytes(patterns)
+    const tools = await toolBytes(patterns)
     const current = currentUserTurn(messages, input.message?.id ?? state.messageID)
     const params = state.params || {}
     const configuredOutput = Number(params.maxOutputTokens)
