@@ -94,6 +94,32 @@ function matches(pattern, value) {
   return new RegExp("^" + escaped + "$").test(value)
 }
 
+function admissionBudgetSummary(decision) {
+  const components = decision?.components && typeof decision.components === "object" ? decision.components : {}
+  const numeric = (value) => Number.isFinite(Number(value)) ? Number(value) : -1
+  const system = numeric(components.system_bytes)
+  const messages = numeric(components.messages_bytes)
+  const tools = numeric(components.tools_bytes)
+  const extra = numeric(components.extra_bytes)
+  const upper = numeric(decision?.request_upper_bound)
+  const framing = upper >= 0 && [system, messages, tools, extra].every((value) => value >= 0)
+    ? upper - system - messages - tools - extra
+    : -1
+  return [
+    "ctx=" + numeric(decision?.context_limit),
+    "input_budget=" + numeric(decision?.input_budget),
+    "upper=" + upper,
+    "system=" + system,
+    "messages=" + messages,
+    "tools=" + tools,
+    "extra=" + extra,
+    "framing=" + framing,
+    "output_reserve=" + numeric(decision?.output_reserve),
+    "message_count=" + numeric(decision?.message_count),
+    "tool_count=" + numeric(decision?.tool_count),
+  ].join(",")
+}
+
 function toolBytes(patterns) {
   let total = 0
   let count = 0
@@ -256,7 +282,12 @@ export const AITestContextGovernor = async ({ directory }) => ({
       // Recovery has already been durably initiated/completed by Runtime. The
       // old Session must not reach provider transport.
       const recovery = decision.recovery?.status || "RECOVERY_UNKNOWN"
-      throw new Error("AITEST_CONTEXT_ADMISSION_BLOCKED:" + recovery)
+      // Numbers only: preserve a bounded forensic budget receipt without
+      // leaking prompt/system/tool contents or credentials into Host errors.
+      throw new Error(
+        "AITEST_CONTEXT_ADMISSION_BLOCKED:" + recovery
+        + ";BUDGET[" + admissionBudgetSummary(decision) + "]"
+      )
     }
   },
 })
