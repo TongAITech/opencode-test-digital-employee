@@ -2368,13 +2368,26 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
     def _host_progress_fingerprint(payload: Mapping[str, Any]):
         message_count = payload.get('message_count')
         last_activity = payload.get('last_activity_at')
-        raw_digest = dict(payload.get('provider_state') or {}).get('raw_digest')
+        provider_state = dict(payload.get('provider_state') or {})
+        raw_digest = provider_state.get('raw_digest')
+        pressure = dict(provider_state.get('pressure') or {})
+        # OpenCode can update tool parts inside an existing assistant message.
+        # Message count alone would miss pending->completed/result growth, while
+        # these bounded message-derived counters change without persisting content.
+        message_detail = tuple(pressure.get(key) for key in (
+            'turn_count', 'activity_count', 'estimated_context_used', 'observed_message_tokens'
+        ))
         if type(message_count) is int:
-            return ('MESSAGE_COUNT', message_count, last_activity if isinstance(last_activity, str) else '')
+            return (
+                'MESSAGE_API', message_count, *message_detail,
+                last_activity if isinstance(last_activity, str) else '',
+            )
         if isinstance(last_activity, str) and last_activity:
-            return ('LAST_ACTIVITY', last_activity)
+            return ('LAST_ACTIVITY', last_activity, *message_detail)
         if isinstance(raw_digest, str) and raw_digest:
-            return ('RAW_DIGEST', raw_digest)
+            return ('RAW_DIGEST', raw_digest, *message_detail)
+        if any(value is not None for value in message_detail):
+            return ('MESSAGE_DETAIL', *message_detail)
         return None
 
     def _accepted_wake_host_stability(self, mission_id: str, session_id: str, accepted: Mapping[str, Any]):
