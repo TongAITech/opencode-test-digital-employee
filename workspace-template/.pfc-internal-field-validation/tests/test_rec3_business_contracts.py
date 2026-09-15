@@ -144,7 +144,22 @@ class Contracts(unittest.TestCase):
                   'PFC_LOCAL_STATE_ROOT':str(root/'data'),'AITEST_AUTOMATION_RUN_ID':'loan-qualification','PYTEST_DISABLE_PLUGIN_AUTOLOAD':'1'}
                 with patch.dict(os.environ,env):
                     runtime=create_canonical_runtime(root,db_path=root/'runtime.db')
-                    orch=G21AutonomousOrchestrationService(runtime,root,session_provider=FakeOpenCodeSessionProvider(root))
+                    class AdmissionHost(FakeOpenCodeSessionProvider):
+                        def __init__(self, directory):
+                            super().__init__(directory); self.rows={}
+                        def _directory_query(self): return 'directory=fixture'
+                        def _request(self, method, path, body=None):
+                            message_id=path.split('/message/')[1].split('?')[0]
+                            return copy.deepcopy(self.rows[message_id])
+                        def call(self, sid, agent, tool, action, payload):
+                            self.rows['a']={'info':{'id':'a','sessionID':sid,'role':'assistant','agent':agent,'parentID':'u'},
+                              'parts':[{'type':'tool','tool':tool,'sessionID':sid,'messageID':'a','callID':'c',
+                                'state':{'status':'running','input':{'action':action,'payload':copy.deepcopy(payload)}}}]}
+                            self.rows['u']={'info':{'id':'u','sessionID':sid,'role':'user'},
+                              'parts':[{'type':'text','text':'synthetic qualification','messageID':'u','sessionID':sid}]}
+                            return patch.dict(os.environ,{'AITEST_HOST_SESSION_ID':sid,'AITEST_HOST_MESSAGE_ID':'a','AITEST_HOST_CALL_ID':'c'})
+                    host=AdmissionHost(root)
+                    orch=G21AutonomousOrchestrationService(runtime,root,session_provider=host)
                     mission=orch.start_test(request('canonical-api','V1'))['intake']['intake']['mission_id']
                     fact,strategy=governed_case(root,runtime,mission,{'api_journey':journey(origin)})
                     case=fact['payload']['r3_3_case']
@@ -160,9 +175,17 @@ class Contracts(unittest.TestCase):
                     (root/'bindings').mkdir(exist_ok=True)
                     (root/'bindings/automation-runs.json').write_text(json.dumps({'runs':{'loan-qualification':{'approved':True,'approval_ref':'LOCAL-PYTEST','mission_id':mission,'execution_request':execute}}}))
                     from aitest_runtime.product_entry import g4_command
-                    with patch('aitest_runtime.product_entry.g4_service',return_value=g4):
-                        exported=g4_command('EXECUTOR','generate_api_automation',{
-                          'mission_id':mission,**execute,'session_id':first['external_session']['session_id']})
+                    from aitest_runtime.mission_session_authority import MissionSessionOwner
+                    executor_session_id=first['external_session']['session_id']
+                    grant=MissionSessionOwner(orch).current(mission,executor_session_id,agent='aitest-executor')
+                    self.assertEqual(grant['task_id'],execute['task_id'])
+                    self.assertEqual(grant['attempt_id'],execute['attempt_id'])
+                    automation_payload={'mission_id':mission,**execute,'session_id':executor_session_id}
+                    with host.call(executor_session_id,'aitest-executor','aitest_executor','generate_api_automation',automation_payload), \
+                         patch('aitest_runtime.product_entry.workspace_root',return_value=root), \
+                         patch('aitest_runtime.product_entry.orchestration_service',return_value=orch), \
+                         patch('aitest_runtime.product_entry.g4_service',return_value=g4):
+                        exported=g4_command('EXECUTOR','generate_api_automation',automation_payload)
                     asset_path=root/'data/evidence/automation'/(exported['program_sha256']+'.py')
                     import hashlib
                     self.assertEqual(hashlib.sha256(asset_path.read_bytes()).hexdigest(),exported['program_sha256'])
