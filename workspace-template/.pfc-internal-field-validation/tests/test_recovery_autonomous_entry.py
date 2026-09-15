@@ -109,6 +109,27 @@ class ModelFixture(http.server.BaseHTTPRequestHandler):
                 if reads < page_budget:
                     name = 'aitest_context'; args = {'mission_id': mission, 'source_ref': 'evidence:local-observations.jsonl',
                         'offset': reads * 4096, 'limit': 4096 if role == 'aitest-code-analyst' else 512, 'expected_sha256': self.source_digest}
+                elif role == 'aitest-requirement-analyst':
+                    recovery_calls = [
+                        t for m in messages for t in m.get('tool_calls', [])
+                        if t.get('function', {}).get('name') == 'aitest_recovery'
+                    ]
+                    boundary_checks = [
+                        t for t in recovery_calls
+                        if json.loads(t['function']['arguments']).get('payload', {}).get('__qualification_boundary')
+                    ]
+                    if not recovery_calls:
+                        name = 'aitest_recovery'; args = {'action': 'import_document', 'payload': {
+                            'mission_id': mission, 'path': str(self.server.boundary_source),
+                            'source_id': 'model-boundary-fixture'}}
+                    elif len(boundary_checks) < 2:
+                        name = 'aitest_recovery'; args = {'action': 'intake_context', 'payload': {
+                            'mission_id': mission,
+                            '__qualification_boundary': 'status' if not boundary_checks else 'error'}}
+                    elif not {'aitest_worker','aitest_executor'} & previous_tools:
+                        name = 'aitest_worker'; args = {'action': 'report_task_outcome', 'payload': {
+                            key: envelope[key] for key in ('mission_id', 'task_id', 'attempt_id', 'session_id')}}
+                        args['payload'].update(outcome='SUCCEEDED', summary='Synthetic requirement analyst verified bounded recovery projection through its Runtime-authorized Session')
                 elif not {'aitest_worker','aitest_executor'} & previous_tools:
                     name = 'aitest_executor' if role=='aitest-executor' else 'aitest_worker'; args = {'action': 'report_task_outcome', 'payload': {
                         key: envelope[key] for key in ('mission_id', 'task_id', 'attempt_id', 'session_id')}}
@@ -126,17 +147,6 @@ class ModelFixture(http.server.BaseHTTPRequestHandler):
                                         'isolation_policy': 'DEDICATED_TASK_SESSION', 'parallelism_policy': 'SERIAL'}})
                     proposal['dependencies'] = [{'from':a[0],'to':b[0]} for a,b in zip(roles,roles[1:])]
                     name = 'aitest_planner'; args = {'action': 'propose_plan', 'payload': {'mission_id': envelope['mission_id'], 'proposal': proposal}}
-            elif any(m.get('role') == 'user' and texts(m.get('content')).strip() == 'SYNTHETIC_MODEL_BOUNDARY_QUALIFICATION' for m in messages):
-                role = 'BOUNDARY_FIXTURE_ONLY'
-                if 'aitest_recovery' not in previous_tools:
-                    with sqlite3.connect(self.server.durable_root / 'state/runtime-spine.db') as db:
-                        mission = db.execute('SELECT mission_id FROM mission_projection LIMIT 1').fetchone()[0]
-                    name = 'aitest_recovery'; args = {'action': 'import_document', 'payload': {
-                        'mission_id': mission, 'path': str(self.server.boundary_source), 'source_id': 'model-boundary-fixture'}}
-                else:
-                    checks = [t for m in messages for t in m.get('tool_calls', []) if t.get('function', {}).get('name') == 'aitest_recovery' and json.loads(t['function']['arguments']).get('payload', {}).get('__qualification_boundary')]
-                    if len(checks) < 2:
-                        name = 'aitest_recovery'; args = {'action': 'intake_context', 'payload': {'__qualification_boundary': 'status' if not checks else 'error'}}
             elif any(m.get('role') == 'user' and texts(m.get('content')).strip() == '测试 BLOAN-PF1.1.0' for m in messages):
                 role = 'DIRECTOR'
                 if 'aitest_director' not in previous_tools:
@@ -214,7 +224,8 @@ def main():
             model = http.server.ThreadingHTTPServer(('127.0.0.1', 0), ModelFixture)
             model.durable_root = durable
             model.workspace = workspace
-            model.boundary_source = workspace / 'qualification-source.txt'
+            model.boundary_source = workspace / 'attachments' / 'qualification-source.txt'
+            model.boundary_source.parent.mkdir(parents=True, exist_ok=True)
             model.boundary_source.write_text('SYNTHETIC DOCUMENT ' * 60000, encoding='utf-8')
             threading.Thread(target=model.serve_forever, daemon=True).start()
             with socket.socket() as sock: sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
@@ -286,7 +297,7 @@ def main():
             provider._request('POST', f'/session/{user_session_id}/prompt_async?{provider._directory_query()}',
                               {'parts': [{'type': 'text', 'text': '测试 BLOAN-PF1.1.0'}]})
             deadline = time.monotonic() + int(os.environ.get('AITEST_QUALIFICATION_TIMEOUT','240'))
-            mission = None; composed = None; boundary_session = None; boundary_head = None; boundary_idle_since = 0
+            mission = None; composed = None
             while time.monotonic() < deadline:
                 from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
                 service = G21AutonomousOrchestrationService(runtime, workspace, session_provider=provider)
@@ -294,21 +305,10 @@ def main():
                 if missions:
                     mission = missions[0]; composed = runtime.replay_composed(mission)
                     graph = composed.extension_state('r1_2_work_graph')
-                    if len(graph.tasks) == 7 and all(t.lifecycle_state.value == 'SUCCEEDED' for t in graph.tasks):
-                        if boundary_session is None:
-                            head = runtime.get_head_seq(mission)
-                            if head != boundary_head:
-                                boundary_head = head; boundary_idle_since = time.monotonic()
-                            elif time.monotonic() - boundary_idle_since >= 1:
-                                # This separate, explicitly synthetic Session
-                                # tests result presentation after the one-turn
-                                # autonomous Mission has already completed.
-                                boundary_session = provider.create_session(title='Synthetic model-result boundary qualification only')
-                                provider._request('POST', f'/session/{boundary_session.session_id}/prompt_async?{provider._directory_query()}',
-                                    {'agent': 'aitest-requirement-analyst',
-                                     'parts': [{'type': 'text', 'text': 'SYNTHETIC_MODEL_BOUNDARY_QUALIFICATION'}]})
-                        elif (len({p['kind'] for p in boundary_outputs}) == 2
-                                and any(p.get('fixture_boundary_kind') == 'error' and p['status'] == 'error' for p in executed)): break
+                    if (len(graph.tasks) == 7 and all(t.lifecycle_state.value == 'SUCCEEDED' for t in graph.tasks)
+                            and len({p['kind'] for p in boundary_outputs}) == 2
+                            and any(p.get('fixture_boundary_kind') == 'error' and p['status'] == 'error' for p in executed)):
+                        break
                 if loop.poll() is not None: raise RuntimeError('REAL_CONTROL_LOOP_EXITED:' + (root / 'control-loop.log').read_text(errors='replace')[-2000:])
                 if ModelFixture.errors: raise RuntimeError('MODEL_PROTOCOL_FIXTURE_FAILED:' + json.dumps(ModelFixture.errors))
                 if any(p['status'] == 'error' and p.get('error') != 'Tool execution aborted' and p.get('fixture_boundary_kind') != 'error' for p in executed): raise RuntimeError('ACTUAL_OPENCODE_TOOL_FAILED:' + json.dumps(executed))
