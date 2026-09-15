@@ -379,6 +379,44 @@ def latest_task_rotation(tick, task_id):
     return None
 
 
+def await_planner_rotation(service, predecessor_session_id: str, *, timeout: float = 30):
+    """Drive real ControlLoop ticks until Host activity barrier permits rotation."""
+    seen = []
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        tick = service.supervise_once()
+        rotation = latest_planner_rotation(tick)
+        if rotation and rotation.get("predecessor_session_id") == predecessor_session_id:
+            return rotation
+        seen.append(tick)
+        if len(seen) > 6:
+            seen.pop(0)
+        time.sleep(0.25)
+    raise RuntimeError(
+        "PLANNER_ROTATION_NOT_OBSERVED_AFTER_ACTIVITY_BARRIER:"
+        + json.dumps(seen, ensure_ascii=False, default=str)[-6000:]
+    )
+
+
+def await_task_rotation(service, task_id: str, predecessor_session_id: str, *, timeout: float = 30):
+    """WAIT_BUSY is valid transient state; rotation must converge on a later tick."""
+    seen = []
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        tick = service.supervise_once()
+        rotation = latest_task_rotation(tick, task_id)
+        if rotation and rotation.get("predecessor_session_id") == predecessor_session_id:
+            return rotation
+        seen.append(tick)
+        if len(seen) > 6:
+            seen.pop(0)
+        time.sleep(0.25)
+    raise RuntimeError(
+        "WORKER_ROTATION_NOT_OBSERVED_AFTER_ACTIVITY_BARRIER:"
+        + json.dumps(seen, ensure_ascii=False, default=str)[-6000:]
+    )
+
+
 class CrashAfterHostAcceptProvider:
     """Delegate to the real OpenCode Host, then lose the client-side receipt once."""
 
@@ -477,10 +515,7 @@ try:
             raise RuntimeError("BLOCKED_REQUEST_REACHED_PROVIDER")
         result["gates"][f"BLOCK_{cycle}_PREVENTS_PROVIDER"] = "PASS"
 
-        tick = service.supervise_once()
-        rotation = latest_planner_rotation(tick)
-        if not rotation or rotation["predecessor_session_id"] != current:
-            raise RuntimeError("PLANNER_ROTATION_NOT_OBSERVED")
+        rotation = await_planner_rotation(service, current, timeout=30)
         successor = rotation["successor_session_id"]
         if successor == current:
             raise RuntimeError("SUCCESSOR_REUSED_PREDECESSOR")
@@ -550,10 +585,7 @@ try:
         time.sleep(0.5)
         if call_count() != before_worker_block:
             raise RuntimeError("WORKER_BLOCKED_REQUEST_REACHED_PROVIDER")
-        tick = service.supervise_once()
-        rotation = latest_task_rotation(tick, worker_task_id)
-        if not rotation or rotation["predecessor_session_id"] != worker:
-            raise RuntimeError("WORKER_ROTATION_NOT_OBSERVED")
+        rotation = await_task_rotation(service, worker_task_id, worker, timeout=30)
         successor = rotation["successor_session_id"]
         if successor == worker:
             raise RuntimeError("WORKER_SUCCESSOR_REUSED_PREDECESSOR")
