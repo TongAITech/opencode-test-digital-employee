@@ -173,7 +173,7 @@ class OpenCodeSessionProvider(Protocol):
 
 
 class DirectoryScopedOpenCodeSessionProvider:
-    """Real OpenCode 1.18.3 Web API provider with explicit project binding.
+    """Real host-native OpenCode Web API provider with explicit project binding.
 
     No fake/mock fallback exists here.  HTTP 401/403 means Web is reachable but
     Session API admission is still pending, so the background Supervisor waits
@@ -273,8 +273,8 @@ class DirectoryScopedOpenCodeSessionProvider:
         return dict(value)
 
     def select_tui_session(self, session_id: str) -> bool:
-        # OpenCode 1.18.3 exposes POST /tui/select-session and publishes
-        # tui.session.select to an attached TUI.  Keep this as an operational
+        # The capability-qualified OpenCode Host exposes POST /tui/select-session
+        # and publishes tui.session.select to an attached TUI. Keep this operational
         # pointer only; R1 Primary binding remains the authority.
         sid = _text(session_id, "session_id")
         payload = self._request("POST", f"/tui/select-session?{self._directory_query()}", {"sessionID": sid})
@@ -358,8 +358,8 @@ class DirectoryScopedOpenCodeSessionProvider:
         elif isinstance(payload, Mapping) and isinstance(payload.get("sessions"), list):
             values = list(payload.get("sessions") or [])
         else:
-            # Session-list shape is part of the OpenCode 1.18.3 bank Field
-            # Validation boundary.  Unknown shapes must fail closed; treating
+            # Session-list shape is part of the capability contract and bank
+            # Field Validation boundary. Unknown shapes must fail closed; treating
             # them as an empty list could duplicate a crash-window Session.
             raise RuntimeError("OPENCODE_SESSION_LIST_INVALID")
         result: list[ExternalSession] = []

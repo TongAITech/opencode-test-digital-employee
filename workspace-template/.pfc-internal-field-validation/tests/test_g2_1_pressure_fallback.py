@@ -135,9 +135,12 @@ class PressureTests(unittest.TestCase):
                         service.propose_plan(mission,one_task())
                     self.assertFalse(any(e.event_type==TASK_ROUTE_REGISTERED for e in runtime.list_events(mission)))
 
-    def test_large_multilingual_tool_output_rotates_before_estimate_warning(self):
+    def test_large_multilingual_tool_output_is_measured_without_fabricated_model_window(self):
         pressure = message_metrics([message(parts=[{"type": "tool", "state": {"output": "业务内容" * 2000}}])], "session-1")
-        self.assertIn("ESTIMATED_CONTEXT_PRESSURE", reasons(pressure))
+        self.assertNotIn("ESTIMATED_CONTEXT_PRESSURE", reasons(pressure))
+        self.assertGreater(pressure["estimated_context_used"], 4096)
+        self.assertIsNone(pressure["estimated_context_budget"])
+        self.assertIsNone(pressure["estimated_context_utilization"])
         self.assertNotIn("业务内容", json.dumps(pressure, ensure_ascii=False))
         self.assertEqual(pressure["estimate_method"], "UTF8_BYTES_PLUS_FRAMING_AND_4096_RESERVE")
 
@@ -183,14 +186,19 @@ class PressureTests(unittest.TestCase):
             item['parts'][0]['text']='synthetic work '*15000
             self.assertIn('ESTIMATED_CONTEXT_PRESSURE',reasons(provider.observe_session('session-1')['pressure']))
 
-    def test_unknown_model_catalog_does_not_relax_fallback_budget(self):
+    def test_unknown_model_catalog_never_invents_context_window_and_keeps_independent_budgets(self):
         with tempfile.TemporaryDirectory() as directory:
             provider=DirectoryScopedOpenCodeSessionProvider(directory)
-            item=message(text='synthetic work '*4000);item['info'].update(providerID='host',modelID='unavailable')
-            provider._request=lambda method,path,body=None: [item] if '/message?' in path else {'all':[]} if path.startswith('/provider?') else {'id':'session-1'}
+            items=[message(i,text='synthetic work '*400) for i in range(24)]
+            for item in items:item['info'].update(providerID='host',modelID='unavailable')
+            provider._request=lambda method,path,body=None: items if '/message?' in path else {'all':[]} if path.startswith('/provider?') else {'id':'session-1'}
             value=provider.observe_session('session-1')
             self.assertIsNone(value['context_limit'])
-            self.assertIn('ESTIMATED_CONTEXT_PRESSURE',reasons(value['pressure']))
+            self.assertIsNone(value['context_utilization'])
+            self.assertIsNone(value['pressure']['estimated_context_budget'])
+            self.assertIsNone(value['pressure']['estimated_context_utilization'])
+            self.assertNotIn('ESTIMATED_CONTEXT_PRESSURE',reasons(value['pressure']))
+            self.assertIn('TURN_BUDGET',reasons(value['pressure']))
 
     def test_provider_fallback_keeps_model_limit_unknown(self):
         provider = DirectoryScopedOpenCodeSessionProvider(WORKSPACE_ROOT)
@@ -200,6 +208,8 @@ class PressureTests(unittest.TestCase):
         self.assertIsNone(value["context_limit"])
         self.assertIsNone(value["context_utilization"])
         self.assertEqual(value["pressure"]["metrics_source"], "OPENCODE_MESSAGE_API")
+        self.assertIsNone(value["pressure"]["estimated_context_budget"])
+        self.assertIsNone(value["pressure"]["estimated_context_utilization"])
 
     def test_oversize_observation_is_pressure_not_unreachable(self):
         provider = DirectoryScopedOpenCodeSessionProvider(WORKSPACE_ROOT)

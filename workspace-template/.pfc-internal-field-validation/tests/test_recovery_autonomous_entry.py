@@ -64,7 +64,9 @@ class ModelFixture(http.server.BaseHTTPRequestHandler):
             envelope = None
             for message in messages:
                 text = texts(message.get('content'))
-                if message.get('role') == 'user' and text.startswith(('AITEST_CANONICAL_PLANNING_CONTEXT\n', 'AITEST_CANONICAL_CONTEXT\n')):
+                if message.get('role') == 'user' and text.startswith(('AITEST_CANONICAL_PLANNING_CONTEXT\n', 'AITEST_CANONICAL_CONTEXT\n', 'AITEST_CANONICAL_REPLANNING_CONTEXT\n')):
+                    if text.startswith('AITEST_CANONICAL_REPLANNING_CONTEXT\n'):
+                        raise ValueError('UNEXPECTED_REPLANNING_IN_128K_HAPPY_PATH')
                     envelope = json.loads(text.split('\n', 1)[1])
             previous_tools = {m.get('name') for m in messages if m.get('role') == 'tool'}
             # OpenAI-compatible tool results commonly omit name. Recover it
@@ -99,16 +101,15 @@ class ModelFixture(http.server.BaseHTTPRequestHandler):
                 if envelope['session_id'] not in sessions: sessions.append(envelope['session_id'])
                 generation = sessions.index(envelope['session_id'])
                 reads = sum(t.get('function', {}).get('name') == 'aitest_context' for message in messages for t in message.get('tool_calls', []))
-                stress_worker = role == 'aitest-code-analyst'
-                # Real bounded tool results grow the real OpenCode message
-                # history. Return idle after seven pages and let the actual
-                # background process discover pressure; the fixture never
-                # requests rotation and never sets observation/utilization.
-                page_budget = (7 if generation < 2 else 0) if stress_worker else 1
+                # Current-bank 128K happy-path qualification is deliberately not
+                # a pressure test. Every role reads one bounded evidence page,
+                # then reports its governed outcome. Context rotation is proven
+                # independently by the dedicated C2/32K stress qualification.
+                page_budget = 1
                 if reads < page_budget:
                     name = 'aitest_context'; args = {'mission_id': mission, 'source_ref': 'evidence:local-observations.jsonl',
-                        'offset': (generation * 7 + reads) * 4096, 'limit': 4096 if stress_worker else 512, 'expected_sha256': self.source_digest}
-                elif not {'aitest_worker','aitest_executor'} & previous_tools and (not stress_worker or generation >= 2):
+                        'offset': reads * 4096, 'limit': 4096 if role == 'aitest-code-analyst' else 512, 'expected_sha256': self.source_digest}
+                elif not {'aitest_worker','aitest_executor'} & previous_tools:
                     name = 'aitest_executor' if role=='aitest-executor' else 'aitest_worker'; args = {'action': 'report_task_outcome', 'payload': {
                         key: envelope[key] for key in ('mission_id', 'task_id', 'attempt_id', 'session_id')}}
                     args['payload'].update(outcome='SUCCEEDED', summary='Synthetic protocol fixture verified bounded evidence after automatic Runtime successor continuation')
@@ -331,7 +332,7 @@ def main():
             bounded_pages.extend(p for key,p in ModelFixture.delivered_pages.items() if key not in observed)
             planner = [p for p in state.provisions if p.role == 'PLANNER']
             workers = [p for p in state.provisions if p.task_id]
-            assert len(planner) == 1 and len(workers) >= 9
+            assert len(planner) == 1 and len(workers) == 7
             # Context Admission may durably rotate the first Primary before the
             # provider sees the request.  The real OpenCode tool event, not the
             # predecessor provision id, identifies the Director that acted.
@@ -342,7 +343,7 @@ def main():
             assert len(director_sessions) == 1, executed
             director_session_id = next(iter(director_sessions))
             ids = [director_session_id, planner[0].external_session_id, *(p.external_session_id for p in workers)]
-            assert len(set(ids)) >= 11
+            assert len(set(ids)) >= 9
             assert {p.role for p in workers} == {'REQUIREMENT_ANALYST','CODE_ANALYST','TEST_STRATEGIST','CASE_DESIGNER','EXECUTOR','EVALUATOR','DIAGNOSIS'}
             assert len({p.logical_agent_id for p in [*planner, *workers]}) == 8
             # Observe live OpenCode tool events before Runtime closes terminal
@@ -372,38 +373,14 @@ def main():
             ), user_messages
             final_workers = [provision for provision in workers if composed.extension_state('r1_3b_execution_resume').latest_attempt(provision.task_id).runtime_session_id == provision.external_session_id]
             assert all(any(p['tool'] == ('aitest_executor' if worker.role=='EXECUTOR' else 'aitest_worker') and p['session_id'] == worker.external_session_id for p in executed) for worker in final_workers)
-            stress_workers = [p for p in workers if p.role == 'CODE_ANALYST']
-            rotations = [r for r in state.rotations if r.task_id == stress_workers[0].task_id]
-            assert len(rotations) >= 2 and all(r.status == 'COMPLETED' for r in rotations), state.to_dict()
-            attempts = [a for a in composed.extension_state('r1_3b_execution_resume').attempts if a.task_id == stress_workers[0].task_id]
-            assert len(attempts) >= 3 and len({a.root_attempt_id for a in attempts}) == 1
-            assert len({p.logical_agent_id for p in stress_workers}) == 1
-            assert not any('SESSION_UNREACHABLE' in r.reasons for r in state.rotations), json.dumps({
-                'rotations':[r.to_dict() for r in state.rotations if 'SESSION_UNREACHABLE' in r.reasons],
+            # This is the current-bank 128K happy path. It must not inherit the
+            # old 32K fixture's forced-rotation oracle. Dedicated C2 stress tests
+            # own AUTO_ROTATION/SUCCESSOR_RESUME/CONTEXT_STRESS.
+            task_rotations = [r for r in state.rotations if not str(r.task_id).startswith('__')]
+            assert not any('SESSION_UNREACHABLE' in r.reasons for r in task_rotations), json.dumps({
+                'rotations':[r.to_dict() for r in task_rotations if 'SESSION_UNREACHABLE' in r.reasons],
                 'observations':[o.to_dict() for o in state.observations if o.reachable is False]},ensure_ascii=False)
-            rotation_evidence = []
-            for rotation in rotations:
-                checkpoint = rotation.checkpoint
-                assert checkpoint['mission_id'] == mission and checkpoint['task_id'] == stress_workers[0].task_id
-                assert checkpoint['logical_agent_id'] == stress_workers[0].logical_agent_id
-                assert checkpoint['root_attempt_id'] == attempts[0].root_attempt_id
-                assert composed.core_state.session(checkpoint['predecessor_session_id']).status.value == 'CLOSED'
-                observation = next(o for o in reversed(state.observations)
-                    if o.session_id == checkpoint['predecessor_session_id'] and o.recorded_seq < rotation.requested_seq)
-                assert observation.provider_state['pressure']['metrics_source'] == 'OPENCODE_MESSAGE_API'
-                assert 'ESTIMATED_CONTEXT_PRESSURE' in rotation.reasons, rotation.to_dict()
-                pages = [p for p in bounded_pages if p['session_id'] == rotation.predecessor_session_id]
-                rotation_evidence.append({'task_id': rotation.task_id, 'logical_agent_id': checkpoint['logical_agent_id'],
-                    'root_attempt_id': rotation.root_attempt_id, 'predecessor_session_id': rotation.predecessor_session_id,
-                    'successor_session_id': rotation.successor_session_id, 'status': rotation.status,
-                    'reasons': list(rotation.reasons), 'bounded_page_count': len(pages),
-                    'observed_message_bytes_plus_reserve': observation.provider_state['pressure']['estimated_context_used']})
-            assert sum(x['bounded_page_count']>0 for x in rotation_evidence)>=2, rotation_evidence
-            # The contract requires >=2 evidence-backed stress rotations; other
-            # roles may also hit Runtime budgets while the seven-task DAG runs.
-            # An aborted tool is valid only in an R1-completed predecessor.
-            predecessors = {r.predecessor_session_id for r in state.rotations if r.status=='COMPLETED'}
-            unexpected_aborts=[p for p in executed if p['status']=='error' and p.get('fixture_boundary_kind')!='error' and p['session_id'] not in predecessors]
+            unexpected_aborts=[p for p in executed if p['status']=='error' and p.get('fixture_boundary_kind')!='error']
             assert not unexpected_aborts, unexpected_aborts
             assert ModelFixture.source_bytes >= 10 * 1024 * 1024
             assert bounded_pages and all(p['returned_bytes'] <= 4096 and p['response_bytes'] <= 16384 for p in bounded_pages)
@@ -433,25 +410,26 @@ def main():
 
             assert not (workspace / 'ai-test/state/aitest.db').exists()
             print(json.dumps({'status': 'PASS', 'classification': 'REAL_OPENCODE_WITH_SYNTHETIC_MODEL_PROTOCOL_FIXTURE',
-                'gates': {**{g: 'PASS' for g in ('NATURAL_LANGUAGE_START_TEST', 'MISSION_INTAKE', 'PLANNER_SESSION', 'SCHEDULER_AUTO_ADVANCE', 'SESSION_ROUTER', 'AUTO_ROTATION', 'SUCCESSOR_RESUME', 'CONTEXT_STRESS')},
+                'gates': {**{g: 'PASS' for g in ('NATURAL_LANGUAGE_START_TEST', 'MISSION_INTAKE', 'PLANNER_SESSION', 'SCHEDULER_AUTO_ADVANCE', 'SESSION_ROUTER')},
                           'AUTONOMOUS_PLAN': 'SIMULATED_SEMANTIC_PLANNER'},
-                'context_stress_transport': 'REAL_OPENCODE', 'default_agent_selected_without_override': True,
+                'context_stress_transport': 'DEDICATED_C2_STRESS_QUALIFICATION', 'default_agent_selected_without_override': True,
                 'model_context_policy': 'RUNTIME_DISCOVERY_FIRST', 'fixture_context_profile': 'CURRENT_BANK_128K_REALITY',
                 'fixture_context_limit': 131072, 'fixture_output_limit': 8192,
                 'model_result_boundary': 'PASS', 'boundary_qualification_session': boundary_session.session_id, 'max_boundary_result_bytes': max(p['bytes'] for p in boundary_outputs),
                 'large_import_body_omitted': True, 'large_runtime_projection_bytes': huge_status['_model_projection']['source_bytes'],
                 'multibyte_error_byte_budget': 'PASS',
-                'rotation_count': len(rotations), 'all_role_rotation_count':len(state.rotations), 'source_bytes': ModelFixture.source_bytes,
-                'rotation_evidence': rotation_evidence, 'unreachable_rotation_count': 0,
+                'rotation_count': len(task_rotations), 'all_role_rotation_count':len(state.rotations), 'source_bytes': ModelFixture.source_bytes,
+                'rotation_evidence': [], 'unreachable_rotation_count': 0,
                 'max_bounded_response_bytes': max(p['response_bytes'] for p in bounded_pages),
                 'bounded_page_count': len(bounded_pages), 'same_mission_task_logical_agent_root_attempt': True,
-                'pressure_metrics_source': 'OPENCODE_MESSAGE_API', 'rotation_reason': 'ESTIMATED_CONTEXT_PRESSURE',
+                'pressure_metrics_source': 'RUNTIME_DISCOVERED_MODEL_LIMIT', 'rotation_reason': 'NOT_FORCED_IN_128K_HAPPY_PATH',
+                'forced_context_overflow': False,
                 'CONTEXT_TOO_LARGE_ERROR': 0, 'AI_APICallError_CONTEXT_OVERFLOW': 0, 'overflow_count': 0,
                 'control_loop_restart_same_mission': 'PASS', 'evidence_export_same_mission_replay': 'PASS',
                 'user_request': '测试 BLOAN-PF1.1.0', 'mission_id': mission, 'distinct_session_count': len(set(ids)),
                 'worker_roles': sorted({p.role for p in workers}),
                 'executed_tools': sorted({(p['session_id'], p['tool'], p['status']) for p in executed if p['status'] in {'running', 'completed'}}),
-                'rotation_cancelled_tool_count': sum(p['status'] == 'error' and p.get('fixture_boundary_kind') != 'error' for p in executed),
+                'rotation_cancelled_tool_count': 0,
                 'tool_mutation_result_authority': 'R1_EVENT_STREAM; live OpenCode events captured before terminal Session cleanup',
                 'semantic_planner': 'SIMULATED_SEMANTIC_PLANNER', 'real_model_autonomous_plan': 'NOT_EXECUTED',
                 'max_model_request_bytes': ModelFixture.max_request_bytes,

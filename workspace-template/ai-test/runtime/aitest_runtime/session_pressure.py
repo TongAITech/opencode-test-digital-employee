@@ -12,13 +12,12 @@ from typing import Any, Mapping
 
 MESSAGE_SAMPLE_LIMIT = 60
 MAX_OBSERVATION_BYTES = 8 * 1024 * 1024
-ESTIMATED_CONTEXT_BUDGET = 32768
 CONTEXT_RESERVE = 4096
 ROTATE_TURN_BUDGET = 24
 ROTATE_ACTIVITY_BUDGET = 48
 ROTATE_BLIND_ACTIVITY_BUDGET = 12
 ROTATE_BLIND_SECONDS = 300
-POLICY_ID = "g2.1-host-model-catalog-pressure-v2"
+POLICY_ID = "g2.1-runtime-discovered-model-pressure-v3"
 
 
 class ObservationBudgetExceeded(RuntimeError):
@@ -75,8 +74,12 @@ def message_metrics(payload: Any, session_id: str) -> dict[str, Any]:
     return {
         "message_count": len(seen), "compaction_count": compactions,
         "turn_count": turns, "activity_count": activities,
-        "estimated_context_used": estimate, "estimated_context_budget": ESTIMATED_CONTEXT_BUDGET,
-        "estimated_context_utilization": estimate / ESTIMATED_CONTEXT_BUDGET,
+        # Bytes are observable without knowing a model window. A utilization
+        # ratio is intentionally absent until the Host model catalog supplies
+        # the actual active model context limit. Never invent a universal 32K,
+        # 64K, 128K or other product context ceiling.
+        "estimated_context_used": estimate, "estimated_context_budget": None,
+        "estimated_context_utilization": None,
         "observed_message_tokens": latest_tokens,
         "model_identity": model_identity,
         "message_sample_limit": MESSAGE_SAMPLE_LIMIT,

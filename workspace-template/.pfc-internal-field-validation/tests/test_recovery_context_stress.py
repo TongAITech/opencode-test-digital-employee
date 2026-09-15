@@ -63,7 +63,21 @@ def main():
                 messages.append({'info': {'id': f'page-{index}', 'sessionID': predecessor, 'role': 'assistant'},
                                  'parts': [{'type': 'tool', 'state': {'output': serialized}}]})
             pressure = message_metrics(messages, predecessor)
-            provider.set_observation(predecessor, pressure=pressure, message_count=len(messages))
+            # This test deliberately models a small 32K stress window. The
+            # product Runtime no longer invents a context limit when Host model
+            # metadata is unavailable, so the fixture supplies its own explicit
+            # synthetic capacity instead of relying on a hidden global default.
+            stress_context_limit = 32768
+            stress_utilization = pressure['estimated_context_used'] / stress_context_limit
+            pressure.update(
+                estimated_context_budget=stress_context_limit,
+                estimated_context_utilization=stress_utilization,
+                context_window_source='EXPLICIT_32K_STRESS_FIXTURE',
+            )
+            provider.set_observation(
+                predecessor, pressure=pressure, message_count=len(messages),
+                context_limit=stress_context_limit, context_utilization=stress_utilization,
+            )
             # A restarted control-loop service discovers pressure and requests
             # rotation; no worker calls observe_session or rotate_session.
             service = restore()
@@ -131,6 +145,7 @@ def main():
             'same_mission_task_logical_agent_root_attempt': True, 'task_completed': True,
             'RAW_LARGE_RUNTIME_FILE_DIRECT_CONTEXT_INJECTION': 'FORBIDDEN',
             'overflow_count': 0, 'CONTEXT_TOO_LARGE_ERROR': 0, 'AI_APICallError_CONTEXT_OVERFLOW': 0,
+            'context_window_profile': 'EXPLICIT_32K_STRESS_FIXTURE',
             'model_context_overflow_measurement': 'NOT_APPLICABLE_NO_REAL_MODEL',
             'BANK_FIELD_VALIDATION_REQUIRED': True}, indent=2))
     return 0
