@@ -73,10 +73,21 @@ class RecoveryReadProductEntryTests(unittest.TestCase):
         operation = result["operations"][0]
         self.assertEqual(operation["status"], "DISPATCHED")
         self.mission = operation["subject"]["subject_id"]
-        planner_next = (operation.get("result") or {}).get("next") or {}
-        self.planner_session_id = planner_next.get("session_id")
-        self.assertIsInstance(self.planner_session_id, str, operation)
-        self.assertTrue(self.planner_session_id, operation)
+        # Director-facing interaction summaries deliberately do not expose the
+        # internal Planner Host session id. Resolve the current Planner through
+        # canonical G2.1 provision truth, then grant caller authority exactly as
+        # the Runtime does immediately before the first model tool dispatch.
+        provisions = [
+            p for p in self.orchestration.session_control.state(self.mission).provisions
+            if p.role == "PLANNER" and p.status == "BOUND" and p.external_session_id
+        ]
+        self.assertEqual(len(provisions), 1, provisions)
+        self.planner_session_id = provisions[0].external_session_id
+        from aitest_runtime.mission_session_authority import MissionSessionOwner
+        planner_grant = MissionSessionOwner(self.orchestration).before_dispatch(
+            self.mission, self.planner_session_id, "aitest-planner")
+        self.assertEqual(planner_grant["role"], "PLANNER")
+        self.assertEqual(planner_grant["session_id"], self.planner_session_id)
         self.service = RecoveryIntakeService(self.runtime)
         source = self.root / "requirement.md"
         source.write_text("# Local fixture\nLoan amounts must be positive.\n", encoding="utf-8")
