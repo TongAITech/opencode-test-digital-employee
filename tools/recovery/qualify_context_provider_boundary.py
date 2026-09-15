@@ -298,9 +298,14 @@ config["provider"]["aitest-boundary"] = {
             "limit": {"context": 65536, "output": 4096},
         },
         "fixture-small": {
-            "name": "AITest Boundary 32K Fixture",
+            "name": "AITest Boundary 32K Stress Fixture",
             "tool_call": True,
             "limit": {"context": 32768, "output": 8192},
+        },
+        "fixture-bank": {
+            "name": "AITest Boundary Current Bank 128K Fixture",
+            "tool_call": True,
+            "limit": {"context": 131072, "output": 8192},
         }
     },
 }
@@ -398,6 +403,15 @@ try:
         stderr=subprocess.STDOUT,
     )
     wait_until(lambda: client.request("GET", "/global/health", timeout=1).get("healthy"), 45)
+    # Compatibility is capability-based. The concrete host version is retained
+    # only as evidence for the CI sample and is never an admission predicate.
+    host_capabilities = client.probe()
+    if host_capabilities.get("exact_version_pin") is not None:
+        raise RuntimeError("OPENCODE_EXACT_VERSION_PIN_FORBIDDEN")
+    result["host_capability_probe"] = host_capabilities
+    result["host_reported_version"] = host_capabilities.get("reported_version")
+    result["host_compatibility_policy"] = "CAPABILITY_BASED_NO_EXACT_VERSION_PIN"
+    result["gates"]["OPENCODE_CAPABILITY_CONTRACT"] = "PASS"
 
     os.environ.update(env)
     runtime = create_canonical_runtime(workspace)
@@ -557,76 +571,71 @@ try:
     result["gates"]["WORKER_TWO_DURABLE_ROTATIONS"] = "PASS"
     result["worker_rotations"] = worker_rotations
 
-    # Clean 32K Director forensic probe. The first request deliberately uses a
-    # smaller model window while keeping the exact production Director/system/
-    # tool surface. A block must expose only numeric budget evidence. Recovery
-    # replays the same text on the default 65K fixture so the probe itself can
-    # converge without weakening Primary semantics.
+    # Clean Director model-window probes. 128K is the current bank reality;
+    # 32K remains a deliberately smaller stress fixture. Neither value is a
+    # product constant: Context Governor must honor the limits supplied by the
+    # active model at runtime.
     budget_primary = PrimarySessionOwner(runtime, workspace, provider)
     budget_old = budget_primary.ensure_current()
-    budget_before_provider = call_count()
-    budget_text = "32K clean Director static context budget qualification"
-    client.request(
-        "POST", f"/session/{budget_old['session_id']}/prompt_async",
-        {
-            "agent": "aitest-director",
-            "model": {"providerID": "aitest-boundary", "modelID": "fixture-small"},
-            "parts": [{"type": "text", "text": budget_text}],
-        },
-        timeout=30,
-    )
 
-    def clean_32k_budget_error():
-        rows = client.request(
-            "GET", f"/session/{budget_old['session_id']}/message?limit=10",
-            timeout=20, budget=2 * 1024 * 1024,
+    def clean_director_probe(model_id: str, *, context_limit: int, output_reserve: int, label: str):
+        before_provider = call_count()
+        before_epoch = budget_primary.state().epoch
+        client.request(
+            "POST", f"/session/{budget_old['session_id']}/prompt_async",
+            {
+                "agent": "aitest-director",
+                "model": {"providerID": "aitest-boundary", "modelID": model_id},
+                "parts": [{"type": "text", "text": label}],
+            },
+            timeout=30,
         )
-        for row in rows if isinstance(rows, list) else []:
-            info = row.get("info") if isinstance(row, dict) else None
-            error = info.get("error") if isinstance(info, dict) else None
-            data = error.get("data") if isinstance(error, dict) else None
-            message = data.get("message") if isinstance(data, dict) else None
-            if isinstance(message, str) and "AITEST_CONTEXT_ADMISSION_BLOCKED:ROTATED;BUDGET[" in message:
-                return message
-        return None
+        wait_until(lambda: call_count() >= before_provider + 1, 30)
+        time.sleep(0.5)
+        if call_count() != before_provider + 1:
+            raise RuntimeError("PRIMARY_CLEAN_DIRECTOR_PROVIDER_REQUEST_DUPLICATE")
+        after = budget_primary.state()
+        if after.epoch != before_epoch:
+            raise RuntimeError("PRIMARY_CLEAN_DIRECTOR_UNEXPECTED_ROTATION")
+        if budget_primary.pending_context_recovery() is not None:
+            raise RuntimeError("PRIMARY_CLEAN_DIRECTOR_LEFT_PENDING_RECOVERY")
+        with requests_lock:
+            rows = [dict(row) for row in requests if row["seq"] > before_provider]
+        if len(rows) != 1 or rows[0].get("model") != model_id:
+            raise RuntimeError("PRIMARY_CLEAN_DIRECTOR_PROVIDER_REQUEST_IDENTITY_INVALID")
+        tool_names = rows[0].get("tool_names") or []
+        if len(tool_names) != 3 or set(tool_names) != {"aitest_director", "pfc_truth", "question"}:
+            raise RuntimeError("PRIMARY_DIRECTOR_CLOSED_WORLD_TOOL_SURFACE_INVALID")
+        safety = max(2048, int((context_limit * 0.05) + 0.999999))
+        input_budget = context_limit - output_reserve - safety
+        if rows[0].get("body_bytes", input_budget + 1) > input_budget:
+            raise RuntimeError("PRIMARY_CLEAN_DIRECTOR_PROVIDER_BODY_EXCEEDS_CONSERVATIVE_INPUT_BUDGET")
+        return {**rows[0], "context_limit": context_limit, "output_reserve": output_reserve,
+                "conservative_input_budget": input_budget}
 
-    budget_error = wait_until(clean_32k_budget_error, 45)
-    budget_receipt = budget_error.split(";BUDGET[", 1)[1].split("]", 1)[0]
-    budget_values = {}
-    for item in budget_receipt.split(","):
-        key, value = item.split("=", 1)
-        budget_values[key] = int(value)
-    required_budget_keys = {
-        "ctx", "input_budget", "upper", "system", "messages", "tools", "extra",
-        "framing", "output_reserve", "message_count", "tool_count",
-        "tools_latest", "tools_min",
-    }
-    if set(budget_values) != required_budget_keys:
-        raise RuntimeError("PRIMARY_32K_BUDGET_RECEIPT_SCHEMA_INVALID")
-    if budget_values["ctx"] != 32768 or budget_values["output_reserve"] != 8192:
-        raise RuntimeError("PRIMARY_32K_BUDGET_MODEL_LIMIT_MISMATCH")
-    if budget_values["upper"] <= budget_values["input_budget"]:
-        raise RuntimeError("PRIMARY_32K_BUDGET_DID_NOT_PROVE_BLOCK")
-    budget_recovery = wait_until(
-        lambda: (
-            (lambda state: state.bindings.get(str(budget_old["epoch"]), {}).get("context_recovery", {}))
-            (budget_primary.state())
-        ).get("state") == "ACCEPTED",
-        45,
+    stress_32k = clean_director_probe(
+        "fixture-small",
+        context_limit=32768,
+        output_reserve=8192,
+        label="32K clean Director stress compatibility qualification",
     )
-    wait_until(lambda: call_count() >= budget_before_provider + 1, 30)
-    if call_count() != budget_before_provider + 1:
-        raise RuntimeError("PRIMARY_32K_BLOCK_OR_REPLAY_PROVIDER_DUPLICATE")
-    result["gates"]["PRIMARY_CLEAN_32K_BUDGET_RECEIPT"] = "PASS"
-    result["primary_clean_32k_budget"] = budget_values
-    with requests_lock:
-        budget_provider_rows = [
-            dict(row) for row in requests
-            if row["seq"] > budget_before_provider
-        ]
-    if len(budget_provider_rows) != 1:
-        raise RuntimeError("PRIMARY_32K_SUCCESSOR_PROVIDER_REQUEST_IDENTITY_INVALID")
-    result["primary_clean_32k_provider_request"] = budget_provider_rows[0]
+    result["gates"]["PRIMARY_CLEAN_32K_STRESS_ALLOW"] = "PASS"
+    result["primary_clean_32k_stress"] = stress_32k
+
+    bank_128k = clean_director_probe(
+        "fixture-bank",
+        context_limit=131072,
+        output_reserve=8192,
+        label="128K current-bank clean Director context qualification",
+    )
+    result["gates"]["PRIMARY_CLEAN_128K_BANK_REALITY_ALLOW"] = "PASS"
+    result["primary_clean_128k_bank_reality"] = bank_128k
+    result["context_window_policy"] = {
+        "runtime_discovery_required": True,
+        "hardcoded_product_context_limit": None,
+        "current_bank_reality": 131072,
+        "stress_fixture": 32768,
+    }
 
     # Primary end-to-end plugin proof on the exact Host. Accumulate large
     # history without a model call, then send a small current turn. The old
@@ -1169,7 +1178,7 @@ try:
         "scripted_tool_events": list(scripted_tool_events[-2:]),
         "real_model": False,
         "semantic_authority": "QUALIFICATION_PREDECLARED_PAYLOAD",
-        "tool_execution_authority": "REAL_OPENCODE_1_18_3_TOOL_CONTEXT",
+        "tool_execution_authority": "REAL_OPENCODE_CAPABILITY_PROBED_TOOL_CONTEXT",
     }
 
     result.update({

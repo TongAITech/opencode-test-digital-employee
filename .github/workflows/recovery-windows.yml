@@ -203,12 +203,25 @@ jobs:
           echo "AITEST_INSTALLED=$(cygpath -m "$first")" >> "$GITHUB_ENV"
           echo "AITEST_INSTALLED_B=$(cygpath -m "$second")" >> "$GITHUB_ENV"
           echo "AITEST_GIT_BASH=$(cygpath -m /bin/bash)" >> "$GITHUB_ENV"
-      - name: Prepare external pre-existing host fixture from cached carrier bytes
+      - name: Prepare external pre-existing current-bank host fixture
         shell: pwsh
         run: |
+          # The product remains host-native and version-unpinned. This download
+          # is only the reproducible CI sample matching today's bank reality.
+          $hostAssetDir = Join-Path $env:RUNNER_TEMP 'bank-current-opencode-sample'
+          New-Item -ItemType Directory -Path $hostAssetDir -Force | Out-Null
+          $hostZip = Join-Path $hostAssetDir 'opencode-windows-x64.zip'
+          Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/anomalyco/opencode/releases/download/v1.18.26/opencode-windows-x64.zip' -OutFile $hostZip -MaximumRedirection 10
+          $hostSha = (Get-FileHash $hostZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hostSha -ne 'c7af81e288dff3cf4378c9f3509208ef8bf060d7109589fee2cd943845d87786') { throw "Current bank OpenCode host sample hash mismatch: $hostSha" }
+          $hostExpanded = Join-Path $hostAssetDir 'expanded'
+          Expand-Archive $hostZip -DestinationPath $hostExpanded
+          $hostExe = Get-ChildItem $hostExpanded -Recurse -File -Filter opencode.exe | Select-Object -First 1
+          if (-not $hostExe) { throw 'Current bank OpenCode host sample executable missing' }
           $hostRoot = Join-Path $env:RUNNER_TEMP 'rec3-preexisting-host'
-          & "$env:AITEST_INSTALLED/runtime/python/python.exe" tools/recovery/prepare_host_fixture.py --carrier $env:AITEST_CARRIER --host $hostRoot
+          & "$env:AITEST_INSTALLED/runtime/python/python.exe" tools/recovery/prepare_host_fixture.py --carrier $env:AITEST_CARRIER --host $hostRoot --host-opencode $hostExe.FullName
           if ($LASTEXITCODE -ne 0) { throw 'Host fixture preparation failed' }
+          "AITEST_BANK_HOST_SAMPLE_VERSION=1.18.26" | Out-File $env:GITHUB_ENV -Append
           "AITEST_CI_HOST=$hostRoot" | Out-File $env:GITHUB_ENV -Append
           "AITEST_REAL_OPENCODE=$hostRoot/bin/opencode.exe" | Out-File $env:GITHUB_ENV -Append
           "AITEST_REAL_OPENCODE_PAYLOAD=$env:AITEST_INSTALLED/.opencode" | Out-File $env:GITHUB_ENV -Append

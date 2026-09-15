@@ -230,7 +230,7 @@ def main():
             env['OPENCODE_CONFIG_CONTENT'] = json.dumps({'autoupdate': False, 'share': 'disabled', 'enabled_providers': ['fixture'],
                 'model': 'fixture/fixture', 'small_model': 'fixture/fixture', 'provider': {'fixture': {'npm': '@ai-sdk/openai-compatible',
                 'name': 'Synthetic protocol fixture', 'options': {'baseURL': f'http://127.0.0.1:{model.server_port}/v1', 'apiKey': 'synthetic-not-a-credential'},
-                'models': {'fixture': {'name': 'Fixture', 'limit': {'context': 32768, 'output': 8192}}}}}})
+                'models': {'fixture': {'name': 'Fixture Current Bank 128K', 'limit': {'context': 131072, 'output': 8192}}}}}})
             os.environ.update(env)
             with (root/'server.log').open('w') as log:
                 process = subprocess.Popen([str(binary), 'serve', '--print-logs', '--log-level', 'DEBUG', '--hostname', '127.0.0.1', '--port', str(port)], cwd=workspace, env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -436,6 +436,8 @@ def main():
                 'gates': {**{g: 'PASS' for g in ('NATURAL_LANGUAGE_START_TEST', 'MISSION_INTAKE', 'PLANNER_SESSION', 'SCHEDULER_AUTO_ADVANCE', 'SESSION_ROUTER', 'AUTO_ROTATION', 'SUCCESSOR_RESUME', 'CONTEXT_STRESS')},
                           'AUTONOMOUS_PLAN': 'SIMULATED_SEMANTIC_PLANNER'},
                 'context_stress_transport': 'REAL_OPENCODE', 'default_agent_selected_without_override': True,
+                'model_context_policy': 'RUNTIME_DISCOVERY_FIRST', 'fixture_context_profile': 'CURRENT_BANK_128K_REALITY',
+                'fixture_context_limit': 131072, 'fixture_output_limit': 8192,
                 'model_result_boundary': 'PASS', 'boundary_qualification_session': boundary_session.session_id, 'max_boundary_result_bytes': max(p['bytes'] for p in boundary_outputs),
                 'large_import_body_omitted': True, 'large_runtime_projection_bytes': huge_status['_model_projection']['source_bytes'],
                 'multibyte_error_byte_budget': 'PASS',

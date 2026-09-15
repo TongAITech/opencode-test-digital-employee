@@ -69,29 +69,29 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'C2 all-role successor regression failed' }
           & "$env:V4_RUNTIME/python/python.exe" -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_recovery_context_stress.py
           if ($LASTEXITCODE -ne 0) { throw 'C2 context recovery stress regression failed' }
-      - name: Qualify exact OpenCode 1.18.3 host provider boundary
+      - name: Qualify capability contract on current bank OpenCode 1.18.26 host sample
         shell: pwsh
         run: |
           $env:GH_TOKEN = $env:GITHUB_TOKEN
           $output = Join-Path $env:RUNNER_TEMP 'v4-context-provider-boundary'
           if (Test-Path $output) { Remove-Item -Recurse -Force $output }
           "V4_CONTEXT_BOUNDARY_OUTPUT=$output" | Out-File $env:GITHUB_ENV -Append
-          $hostDir = Join-Path $env:RUNNER_TEMP 'opencode-1.18.3-host'
+          $hostDir = Join-Path $env:RUNNER_TEMP 'opencode-bank-current-host'
           New-Item -ItemType Directory -Path $hostDir -Force | Out-Null
           $zip = Join-Path $hostDir 'opencode-windows-x64.zip'
-          $assetUrl = 'https://github.com/anomalyco/opencode/releases/download/v1.18.3/opencode-windows-x64.zip'
+          $assetUrl = 'https://github.com/anomalyco/opencode/releases/download/v1.18.26/opencode-windows-x64.zip'
           Invoke-WebRequest -UseBasicParsing -Uri $assetUrl -OutFile $zip -MaximumRedirection 10
-          if (-not (Test-Path $zip)) { throw 'Unable to acquire official OpenCode 1.18.3 host asset' }
-          $expected = '68bc62930f6cb5755e0409aa9de0bb270a66ed2b8c9cf0c029e9f2287ed5486e'
-          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'OpenCode 1.18.3 host hash mismatch' }
+          if (-not (Test-Path $zip)) { throw 'Unable to acquire current bank OpenCode host sample' }
+          $expected = 'c7af81e288dff3cf4378c9f3509208ef8bf060d7109589fee2cd943845d87786'
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Current bank OpenCode host sample hash mismatch' }
           $expanded = Join-Path $hostDir 'expanded'
           Expand-Archive $zip -DestinationPath $expanded
           $hostExe = Get-ChildItem $expanded -Recurse -File -Filter opencode.exe | Select-Object -First 1
-          if (-not $hostExe) { throw 'OpenCode 1.18.3 host executable missing' }
+          if (-not $hostExe) { throw 'Current bank OpenCode host executable missing' }
           $env:GH_TOKEN = ''
           $env:GITHUB_TOKEN = ''
           & "$env:V4_RUNTIME/python/python.exe" -X utf8 tools/recovery/qualify_context_provider_boundary.py --repo $PWD --payload-workspace $env:V4_PAYLOAD_WORKSPACE --output $output --host-opencode $hostExe.FullName --timeout 180
-          if ($LASTEXITCODE -ne 0) { throw 'Exact OpenCode 1.18.3 provider-boundary qualification failed' }
+          if ($LASTEXITCODE -ne 0) { throw 'Capability-based current bank OpenCode provider-boundary qualification failed' }
       - uses: actions/upload-artifact@v4
         if: always()
         with:

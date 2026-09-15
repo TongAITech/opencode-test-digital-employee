@@ -91,34 +91,44 @@ jobs:
           & "$env:C2_RUNTIME/python/python.exe" -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_recovery_context_stress.py
           if ($LASTEXITCODE -ne 0) { throw 'Context stress regression failed' }
 
-      - name: Qualify exact OpenCode 1.18.3 provider boundary
+      - name: Qualify capability contract on current 1.18.26 and historical 1.18.3 hosts
         shell: pwsh
         run: |
           $output = Join-Path $env:RUNNER_TEMP 'c2-provider-boundary'
           if (Test-Path $output) { Remove-Item -Recurse -Force $output }
+          New-Item -ItemType Directory -Path $output -Force | Out-Null
           "C2_BOUNDARY_OUTPUT=$output" | Out-File $env:GITHUB_ENV -Append
-          $hostDir = Join-Path $env:RUNNER_TEMP 'c2-opencode-1.18.3'
-          New-Item -ItemType Directory -Path $hostDir -Force | Out-Null
-          $zip = Join-Path $hostDir 'opencode-windows-x64.zip'
-          $assetUrl = 'https://github.com/anomalyco/opencode/releases/download/v1.18.3/opencode-windows-x64.zip'
-          Invoke-WebRequest -UseBasicParsing -Uri $assetUrl -OutFile $zip -MaximumRedirection 10
-          if (-not (Test-Path $zip)) { throw 'Unable to acquire official OpenCode 1.18.3 host asset' }
-          $expected = '68bc62930f6cb5755e0409aa9de0bb270a66ed2b8c9cf0c029e9f2287ed5486e'
-          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'OpenCode 1.18.3 host hash mismatch' }
-          $expanded = Join-Path $hostDir 'expanded'
-          Expand-Archive $zip -DestinationPath $expanded
-          $hostExe = Get-ChildItem $expanded -Recurse -File -Filter opencode.exe | Select-Object -First 1
-          if (-not $hostExe) { throw 'OpenCode 1.18.3 host executable missing' }
-          $env:GH_TOKEN = ''
-          $env:GITHUB_TOKEN = ''
-          & "$env:C2_RUNTIME/python/python.exe" -X utf8 tools/recovery/qualify_context_provider_boundary.py --repo $PWD --payload-workspace $env:C2_PAYLOAD_WORKSPACE --output $output --host-opencode $hostExe.FullName --timeout 180
-          if ($LASTEXITCODE -ne 0) { throw 'OpenCode 1.18.3 provider-boundary qualification failed' }
+
+          function Invoke-AITestHostQualification([string]$Version, [string]$ExpectedSha, [string]$Label) {
+            $hostDir = Join-Path $env:RUNNER_TEMP ("c2-opencode-" + $Label)
+            New-Item -ItemType Directory -Path $hostDir -Force | Out-Null
+            $zip = Join-Path $hostDir 'opencode-windows-x64.zip'
+            $assetUrl = "https://github.com/anomalyco/opencode/releases/download/v$Version/opencode-windows-x64.zip"
+            Invoke-WebRequest -UseBasicParsing -Uri $assetUrl -OutFile $zip -MaximumRedirection 10
+            if (-not (Test-Path $zip)) { throw "Unable to acquire official OpenCode $Version host asset" }
+            $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $ExpectedSha) { throw "OpenCode $Version host hash mismatch: $actual" }
+            $expanded = Join-Path $hostDir 'expanded'
+            Expand-Archive $zip -DestinationPath $expanded
+            $hostExe = Get-ChildItem $expanded -Recurse -File -Filter opencode.exe | Select-Object -First 1
+            if (-not $hostExe) { throw "OpenCode $Version host executable missing" }
+            $target = Join-Path $output $Label
+            $env:GH_TOKEN = ''
+            $env:GITHUB_TOKEN = ''
+            & "$env:C2_RUNTIME/python/python.exe" -X utf8 tools/recovery/qualify_context_provider_boundary.py --repo $PWD --payload-workspace $env:C2_PAYLOAD_WORKSPACE --output $target --host-opencode $hostExe.FullName --timeout 180
+            if ($LASTEXITCODE -ne 0) { throw "OpenCode $Version capability-boundary qualification failed" }
+          }
+
+          # 1.18.26 is the current bank host reality. 1.18.3 is retained only
+          # as a historical regression sample; neither version is a product gate.
+          Invoke-AITestHostQualification '1.18.26' 'c7af81e288dff3cf4378c9f3509208ef8bf060d7109589fee2cd943845d87786' 'bank-current-1.18.26'
+          Invoke-AITestHostQualification '1.18.3' '68bc62930f6cb5755e0409aa9de0bb270a66ed2b8c9cf0c029e9f2287ed5486e' 'historical-1.18.3'
 
       - uses: actions/upload-artifact@v4
         if: always() && env.C2_BOUNDARY_OUTPUT != ''
         with:
           name: v4-c2-context-provider-boundary
           path: |
-            ${{ env.C2_BOUNDARY_OUTPUT }}/*.json
-            ${{ env.C2_BOUNDARY_OUTPUT }}/*.log
+            ${{ env.C2_BOUNDARY_OUTPUT }}/**/*.json
+            ${{ env.C2_BOUNDARY_OUTPUT }}/**/*.log
           if-no-files-found: warn
