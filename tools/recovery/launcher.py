@@ -97,8 +97,9 @@ def verify_daily_install():
     if failures: raise RuntimeError('INSTALL_REQUIRED: 请先运行 ./INSTALL.sh；' + '; '.join(failures))
 
 
-def doctor(full=False):
-    failures = verify_files() if full else []
+def doctor(full=False, verified_integrity_failures=None):
+    integrity_checked = full or verified_integrity_failures is not None
+    failures = list(verified_integrity_failures) if verified_integrity_failures is not None else (verify_files() if full else [])
     from aitest_runtime.canonical_runtime import runtime_status
     runtime = runtime_status(WORKSPACE)
     def module(name):
@@ -130,7 +131,7 @@ def doctor(full=False):
         'Performance': 'FAIL' if exists('runtime/tools/k6/k6.exe') == 'FAIL' else target('PERFORMANCE'),
         'Starlink': 'BANK_BINDING_REQUIRED',
         'CAT': 'BANK_BINDING_REQUIRED', 'DB': 'BANK_BINDING_REQUIRED',
-        'Integrity': 'FAIL' if failures else ('READY' if full else 'NOT_CHECKED'),
+        'Integrity': 'FAIL' if failures else ('READY' if integrity_checked else 'NOT_CHECKED'),
     }
     heartbeat = read(DATA / 'state/control-loop-heartbeat.json', {})
     from aitest_runtime.recovery_intake import RecoveryIntakeService
@@ -147,8 +148,8 @@ def doctor(full=False):
             'provider_binding': binding_status}
 
 
-def display_doctor(full=True):
-    result = doctor(full)
+def display_doctor(full=True, verified_integrity_failures=None):
+    result = doctor(full, verified_integrity_failures=verified_integrity_failures)
     print('\nAITest V1.13.0 · 能力自检')
     for key, value in result['matrix'].items(): print(f'  {key:15} {value}')
     print('G1-G5 CLOSED/FROZEN；G6 HOLD。行内结果需要现场验证。')
@@ -174,10 +175,10 @@ def windows_host():
     return os.name == 'nt'
 
 
-def start_conversation(check_only=False, attach_runner=None):
+def start_conversation(check_only=False, attach_runner=None, verified_integrity_failures=None):
     if not windows_host(): raise RuntimeError('WINDOWS_HOST_REQUIRED')
     env = prepare()
-    report = display_doctor(True)
+    report = display_doctor(True, verified_integrity_failures=verified_integrity_failures)
     if report['integrity_failures']: raise RuntimeError('INSTALLED_RUNTIME_INTEGRITY_FAILED')
     executable = host_opencode.resolve(WORKSPACE, env)
     endpoint = env.get('AITEST_OPENCODE_ENDPOINT')
@@ -426,23 +427,25 @@ def replay_teaching():
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument('--doctor', action='store_true'); parser.add_argument('--self-check', action='store_true'); parser.add_argument('--export-evidence', action='store_true')
     args = parser.parse_args(); verify_daily_install()
-    # Daily install identity is always checked above. Deep byte-for-byte package
-    # verification remains owned by doctor/start_conversation, where it runs once
-    # per command. Do not pre-scan the 2.8GB installation here and then scan it
-    # again inside the selected operation. Evidence export is read-only and uses
-    # the already sealed installed identity rather than re-hashing the whole tree.
+    # Daily install identity is always checked above. One-shot doctor/self-check
+    # own one deep byte-for-byte verification. Evidence export is read-only and
+    # uses durable installed identity. The interactive menu preserves the prior
+    # startup safety boundary by verifying the whole installation once, then
+    # reuses that same in-process proof instead of scanning 2.8GB again.
     prepare()
     if args.doctor: return 1 if display_doctor()['status'] == 'FAIL' else 0
     if args.self_check:
         result = start_conversation(check_only=True); print(json.dumps(result)); return 0
     if args.export_evidence: evidence_export(); return 0
+    verified_integrity_failures = verify_files()
+    if verified_integrity_failures: raise RuntimeError('INSTALLED_RUNTIME_INTEGRITY_FAILED')
     while True:
         print('\nAITest V1.13.0 Recovery · Windows 行内验证\n1 开始/继续测试对话\n2 能力自检\n3 导入需求/SST 附件\n4 导入 Current Release / Starlink 批准导出\n5 宿主 OpenCode 模型说明\n6 导出证据\n7 绑定测试环境\n8 浏览器人工教学 / 4A\n9 审核任务知识\n10 教学候选回放\n0 退出')
         choice = input('请选择 [1]：').strip() or '1'
         try:
             if choice == '0': return 0
-            if choice == '1': start_conversation()
-            elif choice == '2': display_doctor()
+            if choice == '1': start_conversation(verified_integrity_failures=verified_integrity_failures)
+            elif choice == '2': display_doctor(verified_integrity_failures=verified_integrity_failures)
             elif choice == '3': import_asset()
             elif choice == '4': import_asset(True)
             elif choice == '5': model_settings()
