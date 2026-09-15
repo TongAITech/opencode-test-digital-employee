@@ -161,11 +161,12 @@ class RecoveryReadProductEntryTests(unittest.TestCase):
                         command(role, action, {**missing, **extras})
                     self.assert_unchanged(seq)
                 with self.subTest(role=role, action=action, incorrect=key):
-                    reason = "_SESSION_ROUTER_ROLE_BINDING_MISMATCH" if key == "task_id" else "_R2_5_ATTEMPT_SESSION_BINDING_MISMATCH"
-                    with self.assertRaisesRegex(Exception, prefix + reason):
+                    # OpenCode-facing model admission now rejects forged lineage
+                    # before the lower G3/G4 read-dispatch guard is reached.
+                    with self.assertRaisesRegex(Exception, "MISSION_CALL_BINDING_MISMATCH"):
                         command(role, action, {**bound, **extras, key: "unbound-fixture-id"})
                     self.assert_unchanged(seq)
-        with self.assertRaisesRegex(Exception, prefix + "_SESSION_ROUTER_ROLE_BINDING_MISMATCH"):
+        with self.assertRaisesRegex(Exception, "STALE_CALLER"):
             command(role, "binding_context", {**bound, "mission_id": "unrelated-mission"})
         self.assert_unchanged(seq)
 
@@ -202,24 +203,30 @@ class RecoveryReadProductEntryTests(unittest.TestCase):
         ):
             return product_entry.orchestration_command("PLANNER", action, payload)
 
-    def invoke_hosted_g3(self, role, action, payload):
-        sid = payload["session_id"]
-        message_id = "d2-host-assistant"
-        call_id = "d2-host-call"
-        role_tools = {
-            "REQUIREMENT_ANALYST": "aitest_requirement_analyst",
-            "CODE_ANALYST": "aitest_code_analyst",
+    def invoke_hosted_worker(self, family, role, action, payload, *, session_id=None):
+        sid = session_id or payload.get("session_id")
+        self.assertIsInstance(sid, str)
+        self.assertTrue(sid)
+        from aitest_runtime.mission_session_authority import MissionSessionOwner
+        grant = MissionSessionOwner(self.orchestration).current(self.mission, sid)
+        tools = {
+            ("g3", "REQUIREMENT_ANALYST"): "aitest_requirement_analyst",
+            ("g3", "CODE_ANALYST"): "aitest_code_analyst",
+            ("g4", "EXECUTOR"): "aitest_executor",
         }
+        tool = tools[(family, role)]
+        message_id = f"{family}-host-assistant"
+        call_id = f"{family}-host-call"
         row = {
             "info": {
                 "id": message_id,
                 "sessionID": sid,
                 "role": "assistant",
-                "agent": "aitest-requirement-analyst",
+                "agent": grant["agent_name"],
             },
             "parts": [{
                 "type": "tool",
-                "tool": role_tools[role],
+                "tool": tool,
                 "sessionID": sid,
                 "messageID": message_id,
                 "callID": call_id,
@@ -230,6 +237,7 @@ class RecoveryReadProductEntryTests(unittest.TestCase):
             }],
         }
         provider = self.orchestration.raw_session_provider
+        command = product_entry.g3_command if family == "g3" else product_entry.g4_command
         with patch.dict(os.environ, {
             "AITEST_HOST_SESSION_ID": sid,
             "AITEST_HOST_MESSAGE_ID": message_id,
@@ -237,7 +245,10 @@ class RecoveryReadProductEntryTests(unittest.TestCase):
         }), patch.object(provider, "_request", return_value=row, create=True), patch.object(
             provider, "_directory_query", return_value="directory=fixture", create=True
         ):
-            return product_entry.g3_command(role, action, payload)
+            return command(role, action, payload)
+
+    def invoke_hosted_g3(self, role, action, payload):
+        return self.invoke_hosted_worker("g3", role, action, payload)
 
     def test_requirement_analyst_can_set_source_scope_only_with_governed_binding(self):
         requirement_task = recommended_plan("REQUIREMENT_ANALYSIS")["tasks"][0]
@@ -298,23 +309,31 @@ class RecoveryReadProductEntryTests(unittest.TestCase):
         self.assertIn(self.planner_session_id, plan["closed_planner_sessions"])
         self.assertEqual(plan["next"]["route"]["role"], "CODE_ANALYST")
         code_bound = binding(plan["next"])
-        self.assert_read_context(product_entry.g3_command, "CODE_ANALYST", code_bound)
-        self.assert_worker_guards(product_entry.g3_command, "CODE_ANALYST", code_bound, "G3")
-        self.assert_mutation_rejected(product_entry.g3_command, "CODE_ANALYST", code_bound)
+        code_command = lambda role, action, payload: self.invoke_hosted_worker(
+            "g3", role, action, payload, session_id=code_bound["session_id"])
+        self.assert_read_context(code_command, "CODE_ANALYST", code_bound)
+        self.assert_worker_guards(code_command, "CODE_ANALYST", code_bound, "G3")
+        self.assert_mutation_rejected(code_command, "CODE_ANALYST", code_bound)
         seq = self.runtime.get_head_seq(self.mission)
-        with self.assertRaisesRegex(Exception, "G4_SESSION_ROUTER_ROLE_BINDING_MISMATCH"):
-            product_entry.g4_command("EXECUTOR", "binding_context", code_bound)
+        with self.assertRaisesRegex(Exception, "MISSION_AUTHORITY_ROLE_MISMATCH"):
+            self.invoke_hosted_worker(
+                "g4", "EXECUTOR", "binding_context", code_bound,
+                session_id=code_bound["session_id"])
         self.assert_unchanged(seq)
 
         dispatched = finish(self.orchestration, code_bound, "Read-only local source context validated")["next"]
         self.assertEqual(dispatched["route"]["role"], "EXECUTOR")
         executor_bound = binding(dispatched)
-        self.assert_read_context(product_entry.g4_command, "EXECUTOR", executor_bound)
-        self.assert_worker_guards(product_entry.g4_command, "EXECUTOR", executor_bound, "G4")
-        self.assert_mutation_rejected(product_entry.g4_command, "EXECUTOR", executor_bound)
+        executor_command = lambda role, action, payload: self.invoke_hosted_worker(
+            "g4", role, action, payload, session_id=executor_bound["session_id"])
+        self.assert_read_context(executor_command, "EXECUTOR", executor_bound)
+        self.assert_worker_guards(executor_command, "EXECUTOR", executor_bound, "G4")
+        self.assert_mutation_rejected(executor_command, "EXECUTOR", executor_bound)
         seq = self.runtime.get_head_seq(self.mission)
-        with self.assertRaisesRegex(Exception, "G3_SESSION_ROUTER_ROLE_BINDING_MISMATCH"):
-            product_entry.g3_command("CODE_ANALYST", "binding_context", executor_bound)
+        with self.assertRaisesRegex(Exception, "MISSION_AUTHORITY_ROLE_MISMATCH"):
+            self.invoke_hosted_worker(
+                "g3", "CODE_ANALYST", "binding_context", executor_bound,
+                session_id=executor_bound["session_id"])
         self.assert_unchanged(seq)
 
         # G3/G4 product factories already re-open the database for every command.
