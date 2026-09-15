@@ -47,6 +47,16 @@ def main():
         assert launcher.main()==0
         export.assert_called_once_with()
 
+    # Interactive mode keeps the historical deep integrity boundary exactly
+    # once before exposing any mutating menu operation.
+    with patch.object(sys,'argv',['launcher.py']), \
+         patch.object(launcher,'verify_daily_install'), \
+         patch.object(launcher,'prepare'), \
+         patch.object(launcher,'verify_files',return_value=[]) as verify, \
+         patch('builtins.input',return_value='0'):
+        assert launcher.main()==0
+        verify.assert_called_once_with()
+
     heartbeat=launcher.read(installed/'data/state/control-loop-heartbeat.json')
     assert heartbeat['endpoint']==result['endpoint']
     assert heartbeat['workspace_root']==str(installed)
