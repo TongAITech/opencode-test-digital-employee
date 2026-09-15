@@ -426,7 +426,11 @@ def replay_teaching():
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument('--doctor', action='store_true'); parser.add_argument('--self-check', action='store_true'); parser.add_argument('--export-evidence', action='store_true')
     args = parser.parse_args(); verify_daily_install()
-    if verify_files(): raise RuntimeError('INSTALLED_RUNTIME_INTEGRITY_FAILED')
+    # Daily install identity is always checked above. Deep byte-for-byte package
+    # verification remains owned by doctor/start_conversation, where it runs once
+    # per command. Do not pre-scan the 2.8GB installation here and then scan it
+    # again inside the selected operation. Evidence export is read-only and uses
+    # the already sealed installed identity rather than re-hashing the whole tree.
     prepare()
     if args.doctor: return 1 if display_doctor()['status'] == 'FAIL' else 0
     if args.self_check:
