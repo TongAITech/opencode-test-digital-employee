@@ -356,7 +356,21 @@ def main():
             assert all(p['bytes'] <= 16384 and p['value']['_model_projection']['omitted'] is True for p in boundary_outputs)
             imported = next(p['value'] for p in boundary_outputs if p['kind'] == 'import')
             assert imported['_model_projection']['source_bytes'] > 1024 * 1024
-            assert imported['document']['fact_id'] and imported['document']['payload']['text']['_omitted'] is True
+            assert imported['document']['fact_id'].startswith('document:')
+            fact_refs = imported['_model_projection'].get('fact_refs') or []
+            assert any(ref.get('fact_id') == imported['document']['fact_id']
+                       and ref.get('read_action') == 'read_intake_source' for ref in fact_refs)
+            def omitted_nodes(value):
+                if isinstance(value, dict):
+                    if value.get('_omitted') is True:
+                        yield value
+                    for child in value.values():
+                        yield from omitted_nodes(child)
+                elif isinstance(value, list):
+                    for child in value:
+                        yield from omitted_nodes(child)
+            omitted = list(omitted_nodes(imported))
+            assert any(int(node.get('source_bytes') or 0) > 1024 * 1024 for node in omitted), imported
             huge_status = next(p['value'] for p in boundary_outputs if p['kind'] == 'status')
             assert huge_status['_model_projection']['source_bytes'] > 10 * 1024 * 1024
             assert huge_status['status'] == 'PASS' and huge_status['next']['status'] == 'PLAN_COMPLETE'
