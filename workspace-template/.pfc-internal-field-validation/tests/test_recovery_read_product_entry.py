@@ -73,6 +73,10 @@ class RecoveryReadProductEntryTests(unittest.TestCase):
         operation = result["operations"][0]
         self.assertEqual(operation["status"], "DISPATCHED")
         self.mission = operation["subject"]["subject_id"]
+        planner_next = (operation.get("result") or {}).get("next") or {}
+        self.planner_session_id = planner_next.get("session_id")
+        self.assertIsInstance(self.planner_session_id, str, operation)
+        self.assertTrue(self.planner_session_id, operation)
         self.service = RecoveryIntakeService(self.runtime)
         source = self.root / "requirement.md"
         source.write_text("# Local fixture\nLoan amounts must be positive.\n", encoding="utf-8")
@@ -165,6 +169,39 @@ class RecoveryReadProductEntryTests(unittest.TestCase):
             command(role, "binding_context", {**bound, "mission_id": "unrelated-mission"})
         self.assert_unchanged(seq)
 
+    def invoke_hosted_planner(self, action, payload):
+        sid = self.planner_session_id
+        message_id = "planner-host-assistant"
+        call_id = "planner-host-call"
+        row = {
+            "info": {
+                "id": message_id,
+                "sessionID": sid,
+                "role": "assistant",
+                "agent": "aitest-planner",
+            },
+            "parts": [{
+                "type": "tool",
+                "tool": "aitest_planner",
+                "sessionID": sid,
+                "messageID": message_id,
+                "callID": call_id,
+                "state": {
+                    "status": "running",
+                    "input": {"action": action, "payload": dict(payload)},
+                },
+            }],
+        }
+        provider = self.orchestration.raw_session_provider
+        with patch.dict(os.environ, {
+            "AITEST_HOST_SESSION_ID": sid,
+            "AITEST_HOST_MESSAGE_ID": message_id,
+            "AITEST_HOST_CALL_ID": call_id,
+        }), patch.object(provider, "_request", return_value=row, create=True), patch.object(
+            provider, "_directory_query", return_value="directory=fixture", create=True
+        ):
+            return product_entry.orchestration_command("PLANNER", action, payload)
+
     def invoke_hosted_g3(self, role, action, payload):
         sid = payload["session_id"]
         message_id = "d2-host-assistant"
@@ -242,21 +279,23 @@ class RecoveryReadProductEntryTests(unittest.TestCase):
 
     def test_actual_product_read_context_role_binding_and_mutation_guards(self):
         planner_bound = {"mission_id": self.mission}
-        self.assert_read_context(product_entry.orchestration_command, "PLANNER", planner_bound)
-        self.assert_mutation_rejected(product_entry.orchestration_command, "PLANNER", planner_bound)
+        planner_command = lambda _role, action, payload: self.invoke_hosted_planner(action, payload)
+        self.assert_read_context(planner_command, "PLANNER", planner_bound)
+        self.assert_mutation_rejected(planner_command, "PLANNER", planner_bound)
 
         code_task = recommended_plan("CHANGE_IMPACT_ANALYSIS")["tasks"][1]
         executor_task = {"task_key": "read-execution-binding", "intent": "Read approved execution origins and runner identities",
                          "acceptance_criteria": [{"id": "read-only", "description": "Use only authorized execution scope"}],
                          "routing": {"role": "EXECUTOR", "required_capabilities": ["OPENCODE_AGENT_SESSION", "TASK_OUTCOME_REPORT"],
                                      "isolation_policy": "DEDICATED_TASK_SESSION", "parallelism_policy": "PARALLEL_SAFE"}}
-        plan = product_entry.orchestration_command("PLANNER", "propose_plan", {
+        plan = self.invoke_hosted_planner("propose_plan", {
             "mission_id": self.mission, "proposal": {
                 "objective": "Validate local product read-role boundaries",
                 "tasks": [code_task, executor_task],
                 "dependencies": [{"from": code_task["task_key"], "to": executor_task["task_key"]}],
             }})
         self.assertEqual(plan["status"], "PASS")
+        self.assertIn(self.planner_session_id, plan["closed_planner_sessions"])
         self.assertEqual(plan["next"]["route"]["role"], "CODE_ANALYST")
         code_bound = binding(plan["next"])
         self.assert_read_context(product_entry.g3_command, "CODE_ANALYST", code_bound)
@@ -278,12 +317,17 @@ class RecoveryReadProductEntryTests(unittest.TestCase):
             product_entry.g3_command("CODE_ANALYST", "binding_context", executor_bound)
         self.assert_unchanged(seq)
 
-        # G3/G4 product factories already re-open the database for every command;
-        # recreate the Planner's canonical service too to verify process recovery.
+        # G3/G4 product factories already re-open the database for every command.
+        # After Plan acceptance the Planner Session is deliberately retired; a
+        # process restart must preserve that authority fence rather than reviving
+        # a stale model caller from conversation state.
         self.orchestration = G21AutonomousOrchestrationService(
             create_canonical_runtime(self.root, db_path=self.db), self.root,
             session_provider=self.orchestration.session_provider)
-        self.assert_read_context(product_entry.orchestration_command, "PLANNER", planner_bound)
+        seq = self.runtime.get_head_seq(self.mission)
+        with self.assertRaisesRegex(Exception, "STALE_CALLER"):
+            self.invoke_hosted_planner("intake_context", planner_bound)
+        self.assert_unchanged(seq)
 
     def test_canonical_snapshot_lookup_closes_database_on_match_and_query_error(self):
         store = canonical_store.CanonicalObservationSnapshotStore(self.runtime, self.mission)
