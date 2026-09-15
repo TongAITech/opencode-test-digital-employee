@@ -231,6 +231,28 @@ class RecordingProvider(BaseHTTPRequestHandler):
         compact_bytes = lambda value: len(json.dumps(
             value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
         ).encode("utf-8"))
+        def message_texts(message):
+            if not isinstance(message, dict) or message.get("role") != "user":
+                return []
+            content = message.get("content")
+            if isinstance(content, str):
+                return [content]
+            if not isinstance(content, list):
+                return []
+            values = []
+            for part in content:
+                if isinstance(part, str):
+                    values.append(part)
+                elif isinstance(part, dict):
+                    text = part.get("text")
+                    if isinstance(text, str):
+                        values.append(text)
+            return values
+        user_text_sha256 = [
+            sha_bytes(text.encode("utf-8"))
+            for message in non_system_messages
+            for text in message_texts(message)
+        ]
         with requests_lock:
             requests.append({
                 "seq": len(requests) + 1,
@@ -244,6 +266,10 @@ class RecordingProvider(BaseHTTPRequestHandler):
                 "provider_system_bytes": compact_bytes(system_messages),
                 "provider_messages_bytes": compact_bytes(non_system_messages),
                 "provider_tools_bytes": compact_bytes(body_tools),
+                # Privacy-safe request identity for qualification. Only hashes
+                # of synthetic user text are retained; no prompt content is
+                # copied into the provider evidence record.
+                "provider_user_text_sha256": user_text_sha256,
                 "provider_other_upper_bytes": max(
                     0,
                     len(raw)
@@ -613,6 +639,17 @@ try:
     def clean_director_probe(model_id: str, *, context_limit: int, output_reserve: int, label: str):
         before_provider = call_count()
         before_epoch = budget_primary.state().epoch
+        marker_digest = sha_bytes(label.encode("utf-8"))
+
+        def matching_rows():
+            with requests_lock:
+                return [
+                    dict(row) for row in requests
+                    if row["seq"] > before_provider
+                    and row.get("model") == model_id
+                    and marker_digest in (row.get("provider_user_text_sha256") or [])
+                ]
+
         client.request(
             "POST", f"/session/{budget_old['session_id']}/prompt_async",
             {
@@ -622,19 +659,21 @@ try:
             },
             timeout=30,
         )
-        wait_until(lambda: call_count() >= before_provider + 1, 30)
+        rows = wait_until(lambda: matching_rows() or None, 30)
+        # Other active qualification Missions may legitimately reach the same
+        # recording provider. Duplicate-send evidence must therefore be scoped
+        # to this exact synthetic Host user turn, not the global request count.
         time.sleep(0.5)
-        if call_count() != before_provider + 1:
+        rows = matching_rows()
+        if len(rows) > 1:
             raise RuntimeError("PRIMARY_CLEAN_DIRECTOR_PROVIDER_REQUEST_DUPLICATE")
+        if len(rows) != 1:
+            raise RuntimeError("PRIMARY_CLEAN_DIRECTOR_PROVIDER_REQUEST_IDENTITY_INVALID")
         after = budget_primary.state()
         if after.epoch != before_epoch:
             raise RuntimeError("PRIMARY_CLEAN_DIRECTOR_UNEXPECTED_ROTATION")
         if budget_primary.pending_context_recovery() is not None:
             raise RuntimeError("PRIMARY_CLEAN_DIRECTOR_LEFT_PENDING_RECOVERY")
-        with requests_lock:
-            rows = [dict(row) for row in requests if row["seq"] > before_provider]
-        if len(rows) != 1 or rows[0].get("model") != model_id:
-            raise RuntimeError("PRIMARY_CLEAN_DIRECTOR_PROVIDER_REQUEST_IDENTITY_INVALID")
         tool_names = rows[0].get("tool_names") or []
         if len(tool_names) != 3 or set(tool_names) != {"aitest_director", "pfc_truth", "question"}:
             raise RuntimeError("PRIMARY_DIRECTOR_CLOSED_WORLD_TOOL_SURFACE_INVALID")
@@ -642,7 +681,8 @@ try:
         input_budget = context_limit - output_reserve - safety
         if rows[0].get("body_bytes", input_budget + 1) > input_budget:
             raise RuntimeError("PRIMARY_CLEAN_DIRECTOR_PROVIDER_BODY_EXCEEDS_CONSERVATIVE_INPUT_BUDGET")
-        return {**rows[0], "context_limit": context_limit, "output_reserve": output_reserve,
+        return {**rows[0], "probe_user_text_sha256": marker_digest,
+                "context_limit": context_limit, "output_reserve": output_reserve,
                 "conservative_input_budget": input_budget}
 
     stress_32k = clean_director_probe(
