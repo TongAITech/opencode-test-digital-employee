@@ -6,6 +6,6 @@
   "source_policy": "REASSEMBLE_EXACT_WORKFLOW_HEAD",
   "carrier_scope": "HASH_LOCKED_OFFLINE_DEPENDENCIES_ONLY",
   "install_root": "D:/PFC/AITest",
-  "qualification_attempt": 19,
-  "trigger_reason": "AUTHORIZED_RECOVERY_BOUNDARY_PROJECTION_ORACLE"
+  "qualification_attempt": 20,
+  "trigger_reason": "AUTHORIZED_RECOVERY_BOUNDARY_REPORT_CLOSURE"
 }
