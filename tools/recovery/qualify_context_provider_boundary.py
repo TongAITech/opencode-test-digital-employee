@@ -272,6 +272,11 @@ config["provider"]["aitest-boundary"] = {
             "name": "AITest Boundary Fixture",
             "tool_call": True,
             "limit": {"context": 65536, "output": 4096},
+        },
+        "fixture-small": {
+            "name": "AITest Boundary 32K Fixture",
+            "tool_call": True,
+            "limit": {"context": 32768, "output": 8192},
         }
     },
 }
@@ -527,6 +532,68 @@ try:
         raise RuntimeError("TWO_DISTINCT_WORKER_SUCCESSORS_REQUIRED")
     result["gates"]["WORKER_TWO_DURABLE_ROTATIONS"] = "PASS"
     result["worker_rotations"] = worker_rotations
+
+    # Clean 32K Director forensic probe. The first request deliberately uses a
+    # smaller model window while keeping the exact production Director/system/
+    # tool surface. A block must expose only numeric budget evidence. Recovery
+    # replays the same text on the default 65K fixture so the probe itself can
+    # converge without weakening Primary semantics.
+    budget_primary = PrimarySessionOwner(runtime, workspace, provider)
+    budget_old = budget_primary.ensure_current()
+    budget_before_provider = call_count()
+    budget_text = "32K clean Director static context budget qualification"
+    client.request(
+        "POST", f"/session/{budget_old['session_id']}/prompt_async",
+        {
+            "agent": "aitest-director",
+            "model": {"providerID": "aitest-boundary", "modelID": "fixture-small"},
+            "parts": [{"type": "text", "text": budget_text}],
+        },
+        timeout=30,
+    )
+
+    def clean_32k_budget_error():
+        rows = client.request(
+            "GET", f"/session/{budget_old['session_id']}/message?limit=10",
+            timeout=20, budget=2 * 1024 * 1024,
+        )
+        for row in rows if isinstance(rows, list) else []:
+            info = row.get("info") if isinstance(row, dict) else None
+            error = info.get("error") if isinstance(info, dict) else None
+            data = error.get("data") if isinstance(error, dict) else None
+            message = data.get("message") if isinstance(data, dict) else None
+            if isinstance(message, str) and "AITEST_CONTEXT_ADMISSION_BLOCKED:ROTATED;BUDGET[" in message:
+                return message
+        return None
+
+    budget_error = wait_until(clean_32k_budget_error, 45)
+    budget_receipt = budget_error.split(";BUDGET[", 1)[1].split("]", 1)[0]
+    budget_values = {}
+    for item in budget_receipt.split(","):
+        key, value = item.split("=", 1)
+        budget_values[key] = int(value)
+    required_budget_keys = {
+        "ctx", "input_budget", "upper", "system", "messages", "tools", "extra",
+        "framing", "output_reserve", "message_count", "tool_count",
+    }
+    if set(budget_values) != required_budget_keys:
+        raise RuntimeError("PRIMARY_32K_BUDGET_RECEIPT_SCHEMA_INVALID")
+    if budget_values["ctx"] != 32768 or budget_values["output_reserve"] != 8192:
+        raise RuntimeError("PRIMARY_32K_BUDGET_MODEL_LIMIT_MISMATCH")
+    if budget_values["upper"] <= budget_values["input_budget"]:
+        raise RuntimeError("PRIMARY_32K_BUDGET_DID_NOT_PROVE_BLOCK")
+    budget_recovery = wait_until(
+        lambda: (
+            (lambda state: state.bindings.get(str(budget_old["epoch"]), {}).get("context_recovery", {}))
+            (budget_primary.state())
+        ).get("state") == "ACCEPTED",
+        45,
+    )
+    wait_until(lambda: call_count() >= budget_before_provider + 1, 30)
+    if call_count() != budget_before_provider + 1:
+        raise RuntimeError("PRIMARY_32K_BLOCK_OR_REPLAY_PROVIDER_DUPLICATE")
+    result["gates"]["PRIMARY_CLEAN_32K_BUDGET_RECEIPT"] = "PASS"
+    result["primary_clean_32k_budget"] = budget_values
 
     # Primary end-to-end plugin proof on the exact Host. Accumulate large
     # history without a model call, then send a small current turn. The old
