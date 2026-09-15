@@ -424,13 +424,25 @@ def main():
             assert exported_source.stat().st_size == ModelFixture.source_bytes
 
             assert not (workspace / 'ai-test/state/aitest.db').exists()
+            recovery_sessions = {
+                p['session_id'] for p in executed
+                if p['tool'] == 'aitest_recovery' and p['status'] in {'running', 'completed', 'error'}
+            }
+            assert len(recovery_sessions) == 1, executed
+            boundary_authorized_session_id = next(iter(recovery_sessions))
+            assert any(
+                worker.role == 'REQUIREMENT_ANALYST'
+                and worker.external_session_id == boundary_authorized_session_id
+                for worker in workers
+            ), {'recovery_session': boundary_authorized_session_id,
+                'workers': [(w.role, w.external_session_id) for w in workers]}
             print(json.dumps({'status': 'PASS', 'classification': 'REAL_OPENCODE_WITH_SYNTHETIC_MODEL_PROTOCOL_FIXTURE',
                 'gates': {**{g: 'PASS' for g in ('NATURAL_LANGUAGE_START_TEST', 'MISSION_INTAKE', 'PLANNER_SESSION', 'SCHEDULER_AUTO_ADVANCE', 'SESSION_ROUTER')},
                           'AUTONOMOUS_PLAN': 'SIMULATED_SEMANTIC_PLANNER'},
                 'context_stress_transport': 'DEDICATED_C2_STRESS_QUALIFICATION', 'default_agent_selected_without_override': True,
                 'model_context_policy': 'RUNTIME_DISCOVERY_FIRST', 'fixture_context_profile': 'CURRENT_BANK_128K_REALITY',
                 'fixture_context_limit': 131072, 'fixture_output_limit': 8192,
-                'model_result_boundary': 'PASS', 'boundary_qualification_session': boundary_session.session_id, 'max_boundary_result_bytes': max(p['bytes'] for p in boundary_outputs),
+                'model_result_boundary': 'PASS', 'boundary_qualification_session': boundary_authorized_session_id, 'max_boundary_result_bytes': max(p['bytes'] for p in boundary_outputs),
                 'large_import_body_omitted': True, 'large_runtime_projection_bytes': huge_status['_model_projection']['source_bytes'],
                 'multibyte_error_byte_budget': 'PASS',
                 'rotation_count': len(task_rotations), 'all_role_rotation_count':len(state.rotations), 'source_bytes': ModelFixture.source_bytes,
