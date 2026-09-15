@@ -75,6 +75,41 @@ class C3AutonomousProgressTests(unittest.TestCase):
         worker = planned["next"]
         return mission, worker
 
+    def test_idempotent_auto_continue_waits_before_no_progress_replan(self):
+        mission, worker = self._active_worker("accepted-wake-grace")
+        session_id = worker["external_session"]["session_id"]
+        composed = self.runtime.replay_composed(mission)
+        task = next(t for t in composed.extension_state("r1_2_work_graph").tasks if t.task_id == worker["task_id"])
+        attempt = composed.extension_state("r1_3b_execution_resume").latest_attempt(task.task_id)
+        route = self.service._route_task(mission, task.task_id)
+        text = self.service._context_message(
+            mission_id=mission, plan_id=task.plan_id, revision_id=task.plan_revision_id,
+            task_id=task.task_id, attempt=attempt, agent=route.agent_name,
+        )
+
+        with patch("aitest_runtime.g2_1.managed_orchestration.POST_DISPATCH_GRACE_SECONDS", 0):
+            first = self.service._wake_once(mission, session_id, route.agent_name, text)
+            self.assertEqual(first["status"], "AUTO_CONTINUE")
+            self.assertTrue(first["delivery"]["prompt_sent"])
+
+            repeated = self.service._wake_once(mission, session_id, route.agent_name, text)
+            self.assertEqual(repeated["status"], "WAIT")
+            self.assertEqual(repeated["reason"], "AUTO_CONTINUE_PROGRESS_GRACE")
+            self.assertEqual(repeated["delivery"]["status"], "ALREADY_ACCEPTED")
+            self.assertFalse(repeated["delivery"]["prompt_sent"])
+            self.assertFalse(self.service.session_control.state(mission).progress_records)
+            self.assertFalse([
+                p for p in self.service.session_control.state(mission).provisions
+                if p.phase == "REPLANNING"
+            ])
+
+            with patch("aitest_runtime.g2_1.managed_orchestration.AUTO_CONTINUE_PROGRESS_GRACE_SECONDS", 0):
+                stalled = self.service._wake_once(mission, session_id, route.agent_name, text)
+            self.assertEqual(stalled["status"], "REPLAN_DISPATCHED")
+            self.assertEqual(stalled["stalled_session_id"], session_id)
+            self.assertEqual(stalled["delivery"]["status"], "ALREADY_ACCEPTED")
+            self.assertEqual(len(self.service.session_control.state(mission).progress_records), 1)
+
     def test_same_no_progress_cursor_opens_one_replanning_session_and_survives_restart(self):
         mission, worker = self._active_worker("dedupe")
         _composed_before, graph_before, _goal_before, plan_before = self.service._active_plan_context(mission)

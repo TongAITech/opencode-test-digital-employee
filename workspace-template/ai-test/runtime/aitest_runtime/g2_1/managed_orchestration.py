@@ -41,6 +41,9 @@ from .supervisor import RotationPolicy, SessionObservation, durable_pressure
 from ..dispatch_receipts import (runtime_coordination, dispatch_context, business_cursor,
                                  reconcile_context_receipt, ContextDeliveryUnconfirmed, CoordinationBusy)
 
+POST_DISPATCH_GRACE_SECONDS = 2
+AUTO_CONTINUE_PROGRESS_GRACE_SECONDS = 30
+
 def _coordinated(method):
     @wraps(method)
     def call(self,*args,**kwargs):
@@ -2366,12 +2369,36 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         if not receipts or receipts[-1]['phase']!='ACCEPTED':
             return {'status':'WAIT','reason':'INITIAL_DISPATCH_RECEIPT_REQUIRED','session_id':session_id}
         last=datetime.fromisoformat(receipts[-1]['recorded_at'].replace('Z','+00:00'))
-        if (datetime.now(timezone.utc)-last).total_seconds()<2:
+        if (datetime.now(timezone.utc)-last).total_seconds()<POST_DISPATCH_GRACE_SECONDS:
             return {'status':'WAIT','reason':'POST_DISPATCH_GRACE','session_id':session_id}
         try:sent=dispatch_context(self,session_id=session_id,agent=agent,text=text,mode='AUTO_CONTINUE')
         except ContextDeliveryUnconfirmed as exc:return {'status':'WAIT','reason':str(exc),'session_id':session_id}
         if sent.get('prompt_sent'):
             return {'status':'AUTO_CONTINUE','reason':'NONTERMINAL_IDLE','session_id':session_id,'delivery':sent}
+
+        # Idempotent delivery is not proof of no business progress. The Host may
+        # transiently report idle between a tool result and the model's resumed
+        # turn.  The exact accepted AUTO_CONTINUE receipt is durable R1 truth, so
+        # give that wake a bounded grace window before escalating to replanning.
+        # A changed business cursor produces a different dispatch id and sends a
+        # fresh wake; a genuinely stalled, still-idle worker reaches the existing
+        # no-progress/replan path once this window expires.
+        if sent.get('status') in {'ALREADY_ACCEPTED','HOST_RECEIPT_RECONCILED'}:
+            dispatch_id=sent.get('dispatch_id')
+            accepted=next((
+                r for r in reversed(self.session_control.state(mission_id).context_dispatches)
+                if r.get('dispatch_id')==dispatch_id and r.get('phase')=='ACCEPTED'
+            ),None)
+            if accepted is not None:
+                accepted_at=datetime.fromisoformat(accepted['recorded_at'].replace('Z','+00:00'))
+                age=(datetime.now(timezone.utc)-accepted_at).total_seconds()
+                if age<AUTO_CONTINUE_PROGRESS_GRACE_SECONDS:
+                    return {
+                        'status':'WAIT','reason':'AUTO_CONTINUE_PROGRESS_GRACE',
+                        'session_id':session_id,'delivery':sent,
+                        'accepted_wake_age_seconds':max(0.0,age),
+                    }
+
         composed=self.runtime.replay_composed(mission_id)
         task_id=None
         for task in composed.extension_state('r1_2_work_graph').tasks:
