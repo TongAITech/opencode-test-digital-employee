@@ -42,7 +42,7 @@ from ..dispatch_receipts import (runtime_coordination, dispatch_context, busines
                                  reconcile_context_receipt, ContextDeliveryUnconfirmed, CoordinationBusy)
 
 POST_DISPATCH_GRACE_SECONDS = 2
-AUTO_CONTINUE_PROGRESS_GRACE_SECONDS = 30
+AUTO_CONTINUE_PROGRESS_GRACE_SECONDS = 8
 
 def _coordinated(method):
     @wraps(method)
