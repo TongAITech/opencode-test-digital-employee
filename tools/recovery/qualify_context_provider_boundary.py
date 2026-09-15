@@ -218,6 +218,19 @@ class RecordingProvider(BaseHTTPRequestHandler):
             body = json.loads(raw or b"{}")
         except Exception:
             body = {}
+        body_messages = body.get("messages") or [] if isinstance(body, dict) else []
+        body_tools = body.get("tools") or [] if isinstance(body, dict) else []
+        system_messages = [
+            item for item in body_messages
+            if isinstance(item, dict) and item.get("role") == "system"
+        ]
+        non_system_messages = [
+            item for item in body_messages
+            if not (isinstance(item, dict) and item.get("role") == "system")
+        ]
+        compact_bytes = lambda value: len(json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8"))
         with requests_lock:
             requests.append({
                 "seq": len(requests) + 1,
@@ -226,7 +239,18 @@ class RecordingProvider(BaseHTTPRequestHandler):
                 "body_sha256": sha_bytes(raw),
                 "stream": bool(body.get("stream")),
                 "model": body.get("model"),
-                "message_count": len(body.get("messages") or []),
+                "message_count": len(body_messages),
+                "system_message_count": len(system_messages),
+                "provider_system_bytes": compact_bytes(system_messages),
+                "provider_messages_bytes": compact_bytes(non_system_messages),
+                "provider_tools_bytes": compact_bytes(body_tools),
+                "provider_other_upper_bytes": max(
+                    0,
+                    len(raw)
+                    - compact_bytes(system_messages)
+                    - compact_bytes(non_system_messages)
+                    - compact_bytes(body_tools),
+                ),
                 "tool_names": provider_tool_names(body),
             })
         if path not in {"/v1/chat/completions", "/chat/completions"}:
@@ -594,6 +618,14 @@ try:
         raise RuntimeError("PRIMARY_32K_BLOCK_OR_REPLAY_PROVIDER_DUPLICATE")
     result["gates"]["PRIMARY_CLEAN_32K_BUDGET_RECEIPT"] = "PASS"
     result["primary_clean_32k_budget"] = budget_values
+    with requests_lock:
+        budget_provider_rows = [
+            dict(row) for row in requests
+            if row["seq"] > budget_before_provider
+        ]
+    if len(budget_provider_rows) != 1:
+        raise RuntimeError("PRIMARY_32K_SUCCESSOR_PROVIDER_REQUEST_IDENTITY_INVALID")
+    result["primary_clean_32k_provider_request"] = budget_provider_rows[0]
 
     # Primary end-to-end plugin proof on the exact Host. Accumulate large
     # history without a model call, then send a small current turn. The old
