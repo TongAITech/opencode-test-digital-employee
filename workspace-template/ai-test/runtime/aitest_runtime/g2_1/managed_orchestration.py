@@ -42,7 +42,7 @@ from ..dispatch_receipts import (runtime_coordination, dispatch_context, busines
                                  reconcile_context_receipt, ContextDeliveryUnconfirmed, CoordinationBusy)
 
 POST_DISPATCH_GRACE_SECONDS = 2
-AUTO_CONTINUE_PROGRESS_GRACE_SECONDS = 8
+AUTO_CONTINUE_STABLE_HOST_SECONDS = 6
 
 def _coordinated(method):
     @wraps(method)
@@ -2364,6 +2364,76 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             wakes.append(self._wake_once(mission_id,attempt.runtime_session_id,route.agent_name,text))
         return {'status':'PROGRESS_CHECKED','scheduler':scheduled,'wakes':wakes}
 
+    @staticmethod
+    def _host_progress_fingerprint(payload: Mapping[str, Any]):
+        message_count = payload.get('message_count')
+        last_activity = payload.get('last_activity_at')
+        raw_digest = dict(payload.get('provider_state') or {}).get('raw_digest')
+        if type(message_count) is int:
+            return ('MESSAGE_COUNT', message_count, last_activity if isinstance(last_activity, str) else '')
+        if isinstance(last_activity, str) and last_activity:
+            return ('LAST_ACTIVITY', last_activity)
+        if isinstance(raw_digest, str) and raw_digest:
+            return ('RAW_DIGEST', raw_digest)
+        return None
+
+    def _accepted_wake_host_stability(self, mission_id: str, session_id: str, accepted: Mapping[str, Any]):
+        """Require durable post-accept Host quiescence before declaring no progress.
+
+        The initial AUTO_CONTINUE user prompt is already accepted before these
+        observations are recorded.  A changed message-count/activity fingerprint
+        therefore represents real Host/model/tool activity and resets the quiet
+        window.  All samples come from R1 events so restart cannot forget them.
+        """
+        accepted_seq = int(accepted.get('recorded_seq') or 0)
+        samples = []
+        for event in self.runtime.list_events(mission_id):
+            if int(event.seq) <= accepted_seq:
+                continue
+            if str(event.event_type) != 'g2_1.session_observation_recorded.v1':
+                continue
+            if str(event.session_id or '') != session_id:
+                continue
+            payload = dict(event.payload or {})
+            if payload.get('reachable') is not True or payload.get('healthy') is False:
+                continue
+            fingerprint = self._host_progress_fingerprint(payload)
+            observed_at = payload.get('observed_at')
+            if fingerprint is None or not isinstance(observed_at, str):
+                continue
+            try:
+                stamp = datetime.fromisoformat(observed_at.replace('Z', '+00:00'))
+            except ValueError:
+                continue
+            samples.append((stamp, fingerprint, int(event.seq)))
+
+        if not samples:
+            return {
+                'status':'WAIT', 'reason':'AUTO_CONTINUE_HOST_PROGRESS_EVIDENCE_PENDING',
+                'session_id':session_id, 'post_accept_observation_count':0,
+            }
+
+        samples.sort(key=lambda item: item[2])
+        stable_since = samples[0][0]
+        fingerprint = samples[0][1]
+        changes = 0
+        for stamp, current, _seq in samples[1:]:
+            if current != fingerprint:
+                fingerprint = current
+                stable_since = stamp
+                changes += 1
+        latest_at = samples[-1][0]
+        stable_seconds = max(0.0, (latest_at - stable_since).total_seconds())
+        if stable_seconds < AUTO_CONTINUE_STABLE_HOST_SECONDS:
+            return {
+                'status':'WAIT', 'reason':'AUTO_CONTINUE_HOST_PROGRESS_STABILIZING',
+                'session_id':session_id,
+                'post_accept_observation_count':len(samples),
+                'host_progress_change_count':changes,
+                'host_quiet_seconds':stable_seconds,
+            }
+        return None
+
     def _wake_once(self, mission_id, session_id, agent, text):
         receipts=[r for r in self.session_control.state(mission_id).context_dispatches if r['session_id']==session_id]
         if not receipts or receipts[-1]['phase']!='ACCEPTED':
@@ -2376,28 +2446,24 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         if sent.get('prompt_sent'):
             return {'status':'AUTO_CONTINUE','reason':'NONTERMINAL_IDLE','session_id':session_id,'delivery':sent}
 
-        # Idempotent delivery is not proof of no business progress. The Host may
-        # transiently report idle between a tool result and the model's resumed
-        # turn.  The exact accepted AUTO_CONTINUE receipt is durable R1 truth, so
-        # give that wake a bounded grace window before escalating to replanning.
-        # A changed business cursor produces a different dispatch id and sends a
-        # fresh wake; a genuinely stalled, still-idle worker reaches the existing
-        # no-progress/replan path once this window expires.
+        # Idempotent delivery is not proof of no business progress. A real
+        # OpenCode worker can transiently report idle between a tool result and
+        # the model's resumed turn. Before replanning, require R1-recorded Host
+        # observations after the accepted wake to become genuinely stable.
         if sent.get('status') in {'ALREADY_ACCEPTED','HOST_RECEIPT_RECONCILED'}:
             dispatch_id=sent.get('dispatch_id')
             accepted=next((
                 r for r in reversed(self.session_control.state(mission_id).context_dispatches)
                 if r.get('dispatch_id')==dispatch_id and r.get('phase')=='ACCEPTED'
             ),None)
-            if accepted is not None:
-                accepted_at=datetime.fromisoformat(accepted['recorded_at'].replace('Z','+00:00'))
-                age=(datetime.now(timezone.utc)-accepted_at).total_seconds()
-                if age<AUTO_CONTINUE_PROGRESS_GRACE_SECONDS:
-                    return {
-                        'status':'WAIT','reason':'AUTO_CONTINUE_PROGRESS_GRACE',
-                        'session_id':session_id,'delivery':sent,
-                        'accepted_wake_age_seconds':max(0.0,age),
-                    }
+            if accepted is None:
+                return {
+                    'status':'WAIT','reason':'AUTO_CONTINUE_ACCEPTED_RECEIPT_REQUIRED',
+                    'session_id':session_id,'delivery':sent,
+                }
+            stability=self._accepted_wake_host_stability(mission_id,session_id,accepted)
+            if stability is not None:
+                return {**stability,'delivery':sent}
 
         composed=self.runtime.replay_composed(mission_id)
         task_id=None
