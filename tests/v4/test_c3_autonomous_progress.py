@@ -103,11 +103,15 @@ class C3AutonomousProgressTests(unittest.TestCase):
             self.service.session_control.record_observation(mission, {
                 "session_id":session_id, "observed_at":"2026-09-15T00:00:00Z",
                 "reachable":True, "healthy":True, "message_count":2,
+                "compaction_count":0, "context_used":None, "context_limit":None,
+                "context_utilization":None, "last_activity_at":None,
                 "provider_state":{"provider":"FIXTURE","raw_digest":"a"*64},
             })
             self.service.session_control.record_observation(mission, {
                 "session_id":session_id, "observed_at":"2026-09-15T00:00:03Z",
                 "reachable":True, "healthy":True, "message_count":3,
+                "compaction_count":0, "context_used":None, "context_limit":None,
+                "context_utilization":None, "last_activity_at":None,
                 "provider_state":{"provider":"FIXTURE","raw_digest":"b"*64},
             })
             moving = self.service._wake_once(mission, session_id, route.agent_name, text)
@@ -121,6 +125,8 @@ class C3AutonomousProgressTests(unittest.TestCase):
             self.service.session_control.record_observation(mission, {
                 "session_id":session_id, "observed_at":"2026-09-15T00:00:10Z",
                 "reachable":True, "healthy":True, "message_count":3,
+                "compaction_count":0, "context_used":None, "context_limit":None,
+                "context_utilization":None, "last_activity_at":None,
                 "provider_state":{"provider":"FIXTURE","raw_digest":"b"*64},
             })
             restarted = G21AutonomousOrchestrationService(
