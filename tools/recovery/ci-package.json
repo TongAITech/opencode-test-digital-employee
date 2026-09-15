@@ -6,6 +6,6 @@
   "source_policy": "REASSEMBLE_EXACT_WORKFLOW_HEAD",
   "carrier_scope": "HASH_LOCKED_OFFLINE_DEPENDENCIES_ONLY",
   "install_root": "D:/PFC/AITest",
-  "qualification_attempt": 14,
-  "trigger_reason": "AUTO_CONTINUE_ACCEPTED_WAKE_GRACE_CONVERGENCE"
+  "qualification_attempt": 15,
+  "trigger_reason": "BOUNDARY_AGENT_BINDING_AND_LAUNCHER_INTEGRITY_DEDUP"
 }
