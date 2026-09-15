@@ -599,6 +599,7 @@ try:
     required_budget_keys = {
         "ctx", "input_budget", "upper", "system", "messages", "tools", "extra",
         "framing", "output_reserve", "message_count", "tool_count",
+        "tools_latest", "tools_min",
     }
     if set(budget_values) != required_budget_keys:
         raise RuntimeError("PRIMARY_32K_BUDGET_RECEIPT_SCHEMA_INVALID")
