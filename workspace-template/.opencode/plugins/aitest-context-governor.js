@@ -94,7 +94,7 @@ function matches(pattern, value) {
   return new RegExp("^" + escaped + "$").test(value)
 }
 
-function admissionBudgetSummary(decision) {
+function admissionBudgetSummary(decision, tools) {
   const components = decision?.components && typeof decision.components === "object" ? decision.components : {}
   const numeric = (value) => Number.isFinite(Number(value)) ? Number(value) : -1
   const system = numeric(components.system_bytes)
@@ -117,28 +117,31 @@ function admissionBudgetSummary(decision) {
     "output_reserve=" + numeric(decision?.output_reserve),
     "message_count=" + numeric(decision?.message_count),
     "tool_count=" + numeric(decision?.tool_count),
+    "tools_latest=" + numeric(tools?.latestBytes),
+    "tools_min=" + numeric(tools?.minBytes),
   ].join(",")
 }
 
 function toolBytes(patterns) {
   let total = 0
+  let latestBytes = 0
+  let minBytes = 0
   let count = 0
   for (const [toolID, refs] of toolRefs.entries()) {
     if (!patterns.some((pattern) => matches(pattern, toolID))) continue
-    let maximum = 0
-    for (const ref of refs) {
-      const serialized = safeJson({
-        name: toolID,
-        description: ref.description ?? "",
-        schema: ref.jsonSchema ?? ref.parameters ?? {},
-      })
-      maximum = Math.max(maximum, utf8(serialized))
-    }
-    // A tiny per-tool structural reserve covers the final name/function wrapper.
-    total += maximum + 128
+    const sizes = refs.map((ref) => utf8(safeJson({
+      name: toolID,
+      description: ref.description ?? "",
+      schema: ref.jsonSchema ?? ref.parameters ?? {},
+    })))
+    if (sizes.length === 0) continue
+    const wrapper = 128
+    total += Math.max(...sizes) + wrapper
+    latestBytes += sizes[sizes.length - 1] + wrapper
+    minBytes += Math.min(...sizes) + wrapper
     count += 1
   }
-  return { bytes: total, count }
+  return { bytes: total, latestBytes, minBytes, count }
 }
 
 async function portablePython(directory) {
@@ -286,7 +289,7 @@ export const AITestContextGovernor = async ({ directory }) => ({
       // leaking prompt/system/tool contents or credentials into Host errors.
       throw new Error(
         "AITEST_CONTEXT_ADMISSION_BLOCKED:" + recovery
-        + ";BUDGET[" + admissionBudgetSummary(decision) + "]"
+        + ";BUDGET[" + admissionBudgetSummary(decision, tools) + "]"
       )
     }
   },
