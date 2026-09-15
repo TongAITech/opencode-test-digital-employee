@@ -57,7 +57,22 @@ globalThis.Bun = {
         return { status: "ERROR", error: "PRIMARY_CONTEXT_REPLAY_NON_TEXT_UNSUPPORTED" }
       }
       return payload.messages_bytes > 5000
-        ? { status: "BLOCK", recovery: { status: "ROTATED" } }
+        ? {
+            status: "BLOCK",
+            recovery: { status: "ROTATED" },
+            context_limit: payload.context_limit,
+            input_budget: 5000,
+            request_upper_bound: payload.system_bytes + payload.messages_bytes + payload.tools_bytes + payload.extra_bytes + 2048,
+            output_reserve: payload.max_output_tokens,
+            message_count: payload.message_count,
+            tool_count: payload.tool_count,
+            components: {
+              system_bytes: payload.system_bytes,
+              messages_bytes: payload.messages_bytes,
+              tools_bytes: payload.tools_bytes,
+              extra_bytes: payload.extra_bytes,
+            },
+          }
         : { status: "ALLOW", recovery: null }
     })
   },
@@ -163,7 +178,10 @@ try {
   await hooks["chat.params"](secondInput, { maxOutputTokens: 8192, options: {} })
   await hooks["chat.headers"](secondInput, { headers: {} })
 } catch (error) {
-  blocked = String(error).includes("AITEST_CONTEXT_ADMISSION_BLOCKED:ROTATED")
+  const message = String(error)
+  blocked = message.includes("AITEST_CONTEXT_ADMISSION_BLOCKED:ROTATED")
+  assert.ok(message.includes(";BUDGET[ctx="), "BLOCK must carry bounded numeric budget evidence")
+  assert.ok(message.includes("system=") && message.includes("messages=") && message.includes("tools=") && message.includes("framing="))
 }
 assert.equal(blocked, true, "BLOCK decision must abort the old pre-provider path")
 assert.equal(captured.length, 2)
