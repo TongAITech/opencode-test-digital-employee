@@ -75,8 +75,8 @@ class C3AutonomousProgressTests(unittest.TestCase):
         worker = planned["next"]
         return mission, worker
 
-    def test_idempotent_auto_continue_waits_before_no_progress_replan(self):
-        mission, worker = self._active_worker("accepted-wake-grace")
+    def test_idempotent_auto_continue_requires_durable_host_quiescence_before_replan(self):
+        mission, worker = self._active_worker("accepted-wake-host-quiescence")
         session_id = worker["external_session"]["session_id"]
         composed = self.runtime.replay_composed(mission)
         task = next(t for t in composed.extension_state("r1_2_work_graph").tasks if t.task_id == worker["task_id"])
@@ -92,23 +92,46 @@ class C3AutonomousProgressTests(unittest.TestCase):
             self.assertEqual(first["status"], "AUTO_CONTINUE")
             self.assertTrue(first["delivery"]["prompt_sent"])
 
-            repeated = self.service._wake_once(mission, session_id, route.agent_name, text)
-            self.assertEqual(repeated["status"], "WAIT")
-            self.assertEqual(repeated["reason"], "AUTO_CONTINUE_PROGRESS_GRACE")
-            self.assertEqual(repeated["delivery"]["status"], "ALREADY_ACCEPTED")
-            self.assertFalse(repeated["delivery"]["prompt_sent"])
+            # Accepted delivery alone is never sufficient proof of no progress.
+            pending = self.service._wake_once(mission, session_id, route.agent_name, text)
+            self.assertEqual(pending["status"], "WAIT")
+            self.assertEqual(pending["reason"], "AUTO_CONTINUE_HOST_PROGRESS_EVIDENCE_PENDING")
             self.assertFalse(self.service.session_control.state(mission).progress_records)
-            self.assertFalse([
-                p for p in self.service.session_control.state(mission).provisions
-                if p.phase == "REPLANNING"
-            ])
 
-            with patch("aitest_runtime.g2_1.managed_orchestration.AUTO_CONTINUE_PROGRESS_GRACE_SECONDS", 0):
-                stalled = self.service._wake_once(mission, session_id, route.agent_name, text)
+            # A changed Host fingerprint means the model/tool path moved after
+            # the wake. That resets the quiet window instead of opening Replan.
+            self.service.session_control.record_observation(mission, {
+                "session_id":session_id, "observed_at":"2026-09-15T00:00:00Z",
+                "reachable":True, "healthy":True, "message_count":2,
+                "provider_state":{"provider":"FIXTURE","raw_digest":"a"*64},
+            })
+            self.service.session_control.record_observation(mission, {
+                "session_id":session_id, "observed_at":"2026-09-15T00:00:03Z",
+                "reachable":True, "healthy":True, "message_count":3,
+                "provider_state":{"provider":"FIXTURE","raw_digest":"b"*64},
+            })
+            moving = self.service._wake_once(mission, session_id, route.agent_name, text)
+            self.assertEqual(moving["status"], "WAIT")
+            self.assertEqual(moving["reason"], "AUTO_CONTINUE_HOST_PROGRESS_STABILIZING")
+            self.assertEqual(moving["host_progress_change_count"], 1)
+            self.assertFalse(self.service.session_control.state(mission).progress_records)
+
+            # Once the exact Host fingerprint stays quiet for the bounded window,
+            # a restarted Control Loop may declare genuine no-progress from R1.
+            self.service.session_control.record_observation(mission, {
+                "session_id":session_id, "observed_at":"2026-09-15T00:00:10Z",
+                "reachable":True, "healthy":True, "message_count":3,
+                "provider_state":{"provider":"FIXTURE","raw_digest":"b"*64},
+            })
+            restarted = G21AutonomousOrchestrationService(
+                create_canonical_runtime(self.root, db_path=self.root / "runtime-spine.db"),
+                self.root, session_provider=self.provider,
+            )
+            stalled = restarted._wake_once(mission, session_id, route.agent_name, text)
             self.assertEqual(stalled["status"], "REPLAN_DISPATCHED")
             self.assertEqual(stalled["stalled_session_id"], session_id)
             self.assertEqual(stalled["delivery"]["status"], "ALREADY_ACCEPTED")
-            self.assertEqual(len(self.service.session_control.state(mission).progress_records), 1)
+            self.assertEqual(len(restarted.session_control.state(mission).progress_records), 1)
 
     def test_same_no_progress_cursor_opens_one_replanning_session_and_survives_restart(self):
         mission, worker = self._active_worker("dedupe")
