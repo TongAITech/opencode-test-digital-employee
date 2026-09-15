@@ -305,7 +305,8 @@ def main():
                                 # autonomous Mission has already completed.
                                 boundary_session = provider.create_session(title='Synthetic model-result boundary qualification only')
                                 provider._request('POST', f'/session/{boundary_session.session_id}/prompt_async?{provider._directory_query()}',
-                                    {'parts': [{'type': 'text', 'text': 'SYNTHETIC_MODEL_BOUNDARY_QUALIFICATION'}]})
+                                    {'agent': 'aitest-requirement-analyst',
+                                     'parts': [{'type': 'text', 'text': 'SYNTHETIC_MODEL_BOUNDARY_QUALIFICATION'}]})
                         elif (len({p['kind'] for p in boundary_outputs}) == 2
                                 and any(p.get('fixture_boundary_kind') == 'error' and p['status'] == 'error' for p in executed)): break
                 if loop.poll() is not None: raise RuntimeError('REAL_CONTROL_LOOP_EXITED:' + (root / 'control-loop.log').read_text(errors='replace')[-2000:])
