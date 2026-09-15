@@ -94,7 +94,7 @@ function matches(pattern, value) {
   return new RegExp("^" + escaped + "$").test(value)
 }
 
-function admissionBudgetSummary(decision, tools) {
+function admissionBudgetSummary(decision, toolStats) {
   const components = decision?.components && typeof decision.components === "object" ? decision.components : {}
   const numeric = (value) => Number.isFinite(Number(value)) ? Number(value) : -1
   const system = numeric(components.system_bytes)
@@ -117,8 +117,8 @@ function admissionBudgetSummary(decision, tools) {
     "output_reserve=" + numeric(decision?.output_reserve),
     "message_count=" + numeric(decision?.message_count),
     "tool_count=" + numeric(decision?.tool_count),
-    "tools_latest=" + numeric(tools?.latestBytes),
-    "tools_min=" + numeric(tools?.minBytes),
+    "tools_latest=" + numeric(toolStats?.latestBytes),
+    "tools_min=" + numeric(toolStats?.minBytes),
   ].join(",")
 }
 
