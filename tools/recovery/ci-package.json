@@ -6,6 +6,6 @@
   "source_policy": "REASSEMBLE_EXACT_WORKFLOW_HEAD",
   "carrier_scope": "HASH_LOCKED_OFFLINE_DEPENDENCIES_ONLY",
   "install_root": "D:/PFC/AITest",
-  "qualification_attempt": 28,
-  "trigger_reason": "HOSTED_INTAKE_TOOL_CONTEXT_FIXTURE_ALIGNMENT"
+  "qualification_attempt": 29,
+  "trigger_reason": "G21_ROUTER_DURABLE_ERROR_CONTRACT_AND_ORACLE_ALIGNMENT"
 }
