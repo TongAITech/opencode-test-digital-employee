@@ -6,6 +6,6 @@
   "source_policy": "REASSEMBLE_EXACT_WORKFLOW_HEAD",
   "carrier_scope": "HASH_LOCKED_OFFLINE_DEPENDENCIES_ONLY",
   "install_root": "D:/PFC/AITest",
-  "qualification_attempt": 30,
-  "trigger_reason": "G1_G2_SUBPROCESS_CURRENT_HOST_AND_CONTROL_LOOP_ALIGNMENT"
+  "qualification_attempt": 31,
+  "trigger_reason": "AUTONOMOUS_STORAGE_AND_CONTROL_LOOP_RUNTIME_IDENTITY_FIX"
 }
