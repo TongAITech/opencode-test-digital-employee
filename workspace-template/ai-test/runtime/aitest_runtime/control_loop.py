@@ -49,10 +49,13 @@ def _sync_teaching_observers(service, root, missions):
             del _TEACHING_PROCESSES[gate_id]
     for gate_id, mission_id in pending.items():
         if gate_id not in _TEACHING_PROCESSES:
+            from .runtime_subprocess import runtime_module_command
             _TEACHING_PROCESSES[gate_id] = subprocess.Popen(
-                [sys.executable, "-X", "utf8", "-m", "aitest_runtime.recovery_browser",
-                 "--workspace-root", str(root), "--mission-id", mission_id,
-                 "--no-input", "--gate-only", "--duration", "300"],
+                runtime_module_command(
+                    root, "aitest_runtime.recovery_browser",
+                    "--workspace-root", str(root), "--mission-id", mission_id,
+                    "--no-input", "--gate-only", "--duration", "300"
+                ),
                 cwd=root, env=dict(os.environ), stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
