@@ -55,8 +55,16 @@ def main():
                     if server.poll() is not None or time.monotonic()>deadline:
                         raise RuntimeError('REAL_OPENCODE_START_FAILED: '+(root/'server.log').read_text(errors='replace')[-2500:])
                     time.sleep(.5)
-            catalog = provider._request('GET', '/provider?' + provider._directory_query())
-            assert catalog['connected'] == ['fixture'], catalog['connected']
+            # This qualification proves the real Host Session/rotation path without
+            # making OpenCode's cold provider-catalog initialization a product gate.
+            # On 1.18.26, GET /provider initializes the full provider stack and can
+            # legitimately outlive the transport timeout even when the configured
+            # provider is valid. Verify the explicit allowlist/config cheaply here;
+            # the stronger exact-host provider/context boundary is covered by C2.
+            config = provider._request('GET', '/config?' + provider._directory_query())
+            assert config.get('enabled_providers') == ['fixture'], config.get('enabled_providers')
+            fixture = (config.get('provider') or {}).get('fixture') or {}
+            assert 'local-no-model' in (fixture.get('models') or {}), fixture
             runtime = create_canonical_runtime(WORKSPACE)
             orch = G21AutonomousOrchestrationService(runtime, WORKSPACE, session_provider=provider)
             user_session = provider.create_session(title='Local hosted intake proof')
