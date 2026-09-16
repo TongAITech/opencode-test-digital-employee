@@ -8,6 +8,7 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Mapping
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve()
 WORKSPACE = HERE.parents[2]
@@ -20,12 +21,123 @@ from aitest_runtime.autonomous_orchestration import FakeOpenCodeSessionProvider 
 from aitest_runtime.canonical_runtime import create_canonical_runtime  # noqa: E402
 from aitest_runtime.durable_core import RuntimeError, canonical_sha256  # noqa: E402
 from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService  # noqa: E402
+from aitest_runtime.mission_session_authority import MissionSessionOwner  # noqa: E402
 from aitest_runtime.g3.coverage import (  # noqa: E402
     BankCoveragePlatformProvider, CoverageProviderResult, MappingCoveragePlatformProvider, reconcile_coverage,
 )
 from aitest_runtime.g3.service import G3TestingIntelligenceService  # noqa: E402
 from aitest_runtime.r2_6.contracts import OUTCOMES, policy_digest  # noqa: E402
 from aitest_runtime.r3_3.service import R33ApplicationService  # noqa: E402
+
+
+MODEL_TOOLS = {
+    "PLANNER": "aitest_planner",
+    "REQUIREMENT_ANALYST": "aitest_requirement_analyst",
+    "CODE_ANALYST": "aitest_code_analyst",
+    "TEST_STRATEGIST": "aitest_test_strategist",
+    "CASE_DESIGNER": "aitest_case_designer",
+    "EVALUATOR": "aitest_evaluator",
+}
+
+
+def invoke_model_command(
+    service: G21AutonomousOrchestrationService,
+    *,
+    family: str,
+    role: str,
+    action: str,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Call an exposed Planner/G3 specialist through its current R1 grant.
+
+    FakeOpenCodeSessionProvider is construction-only and has no HTTP message
+    endpoint, so the fixture supplies just the actual host tool-part readback.
+    Caller authority still comes exclusively from MissionSessionOwner.
+    """
+    data = dict(payload)
+    mission_id = str(data.get("mission_id") or "")
+    owner = MissionSessionOwner(service)
+    session_id = str(data.get("session_id") or "")
+    if session_id:
+        grant = owner.current(mission_id, session_id)
+        if str(grant.get("role")) != role:
+            raise RuntimeError("G3_TEST_GRANT_ROLE_MISMATCH", f"{role}: {grant}")
+    else:
+        grants = [
+            grant for grant in owner.state(mission_id).grants.values()
+            if grant.get("state") == "GRANTED" and grant.get("role") == role
+        ]
+        if len(grants) != 1:
+            raise RuntimeError("G3_TEST_CURRENT_GRANT_REQUIRED", f"{role}: {grants}")
+        grant = grants[0]
+        session_id = str(grant["session_id"])
+
+    agent = str(grant["agent_name"])
+    tool = MODEL_TOOLS[role]
+    token = canonical_sha256({"role": role, "action": action, "payload": data})[:20]
+    message_id = f"g3-tool-{token}"
+    call_id = f"call-{token}"
+    row = {
+        "info": {
+            "sessionID": session_id,
+            "id": message_id,
+            "role": "assistant",
+            "agent": agent,
+        },
+        "parts": [{
+            "type": "tool",
+            "tool": tool,
+            "sessionID": session_id,
+            "messageID": message_id,
+            "callID": call_id,
+            "state": {
+                "status": "running",
+                "input": {"action": action, "payload": data},
+            },
+        }],
+    }
+    provider = getattr(service, "raw_session_provider", service.session_provider)
+    env = {
+        "AITEST_HOST_SESSION_ID": session_id,
+        "AITEST_HOST_MESSAGE_ID": message_id,
+        "AITEST_HOST_CALL_ID": call_id,
+    }
+
+    def read(method: str, path: str):
+        if method != "GET":
+            raise AssertionError((method, path))
+        return row
+
+    with (
+        patch.dict(os.environ, env),
+        patch.object(provider, "_request", side_effect=read, create=True),
+        patch.object(provider, "_directory_query", return_value="directory=fixture", create=True),
+    ):
+        if family == "orchestration":
+            return product_entry.orchestration_command(role, action, data)
+        if family == "g3":
+            return product_entry.g3_command(role, action, data)
+        raise AssertionError(family)
+
+
+def fresh_process_g3_status(root: Path, spine: Path, mission_id: str) -> dict[str, Any]:
+    """Prove a fresh interpreter can replay G3 without any model/Primary call."""
+    code = (
+        "import json,sys;"
+        "from pathlib import Path;"
+        "sys.path.insert(0,sys.argv[1]);"
+        "from aitest_runtime.canonical_runtime import create_canonical_runtime;"
+        "from aitest_runtime.g3.service import G3TestingIntelligenceService;"
+        "rt=create_canonical_runtime(Path(sys.argv[2]),db_path=Path(sys.argv[3]));"
+        "print(json.dumps(G3TestingIntelligenceService(rt).status(sys.argv[4]),sort_keys=True))"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-X", "utf8", "-c", code, str(RUNTIME), str(root), str(spine), mission_id],
+        cwd=root, capture_output=True, text=True, encoding="utf-8", timeout=30,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError("G3_FRESH_PROCESS_STATUS_FAILED", proc.stdout + proc.stderr)
+    return json.loads(proc.stdout)
 
 
 def digest(value: Any) -> str:
@@ -139,20 +251,30 @@ def main() -> int:
         product_entry.orchestration_service = lambda _root=None: orchestration  # type: ignore[assignment]
         product_entry.default_service = lambda _runtime, _root: orchestration  # type: ignore[assignment]
         product_entry.G3TestingIntelligenceService = lambda rt, orchestration=None: G3TestingIntelligenceService(rt, coverage_provider=coverage_box["provider"], orchestration=orchestration or globals()["orchestration"])  # type: ignore[assignment]
+
+        def g3_model(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+            if role == "DIRECTOR":
+                raise RuntimeError("G3_PRIMARY_DIRECT_MUTATION_FORBIDDEN", action)
+            return invoke_model_command(orchestration, family="g3", role=role, action=action, payload=payload)
+
+        def orch_model(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+            return invoke_model_command(orchestration, family="orchestration", role=role, action=action, payload=payload)
+
         try:
             from host_interaction_fixture import start_product_mission
             started = start_product_mission(orchestration, intake_request(), fixture_id='g3-product')
             mission_id = started['operations'][0]['subject']['subject_id']
             checks["user_entry_creates_durable_mission"] = started['operations'][0]['status'] == 'DISPATCHED' and started["truth_source"] == "R1_EVENT_STREAM"
 
-            intent = product_entry.g3_command("DIRECTOR", "register_intent", {"mission_id": mission_id, "intent_type": "TEST_CASE_DESIGN", "scope": {"requirement_id": "REQ-018", "version": "V2", "source_materials": [{"source_id": "REQ-018", "source_kind": "REQUIREMENT", "revision": "V2", "content": "Requested limit must not exceed approved limit; equality is allowed."}, {"source_id": "SST-018", "source_kind": "SST", "revision": "V2", "content": "Limit update synchronizes cfg-data to cfg-scd through SYNC_PENDING to SYNCED."}, {"source_id": "DESIGN-018", "source_kind": "DESIGN", "revision": "V2", "content": "Only LIMIT_WRITE may update; API/UI final value must agree."}]}, "constraints": {"mode": "HUMAN_ASSISTED_OR_AUTONOMOUS"}})
+            intent_owner = G3TestingIntelligenceService(runtime, coverage_provider=coverage_box["provider"], orchestration=orchestration)
+            intent = intent_owner.register_intent(mission_id, "TEST_CASE_DESIGN", {"requirement_id": "REQ-018", "version": "V2", "source_materials": [{"source_id": "REQ-018", "source_kind": "REQUIREMENT", "revision": "V2", "content": "Requested limit must not exceed approved limit; equality is allowed."}, {"source_id": "SST-018", "source_kind": "SST", "revision": "V2", "content": "Limit update synchronizes cfg-data to cfg-scd through SYNC_PENDING to SYNCED."}, {"source_id": "DESIGN-018", "source_kind": "DESIGN", "revision": "V2", "content": "Only LIMIT_WRITE may update; API/UI final value must agree."}]}, {"mode": "HUMAN_ASSISTED_OR_AUTONOMOUS"})
             checks["test_intent_is_durable_and_returns_governed_plan"] = intent["status"] == "ACCEPTED" and len(intent["recommended_plan"]["tasks"]) == 6
-            held = product_entry.g3_command("DIRECTOR", "register_intent", {"mission_id": mission_id, "intent_type": "CASE_EXECUTION_REQUEST", "scope": {"case_id": "TC-X"}, "constraints": {}})
+            held = intent_owner.register_intent(mission_id, "CASE_EXECUTION_REQUEST", {"case_id": "TC-X"}, {})
             checks["case_execution_intent_remains_g4_hold"] = held["status"] == "HOLD" and held["gate"] == "G4_REAL_EXECUTION" and held["hold_code"] == "HOLD_G4" and held["recommended_plan"] is None
-            defect_hold = product_entry.g3_command("DIRECTOR", "register_intent", {"mission_id": mission_id, "intent_type": "DEFECT_DIAGNOSIS_REQUEST", "scope": {"failure_id": "F-X"}, "constraints": {}})
+            defect_hold = intent_owner.register_intent(mission_id, "DEFECT_DIAGNOSIS_REQUEST", {"failure_id": "F-X"}, {})
             checks["defect_diagnosis_intent_remains_g5_hold"] = defect_hold["status"] == "HOLD" and defect_hold["gate"] == "G5_DEFECT_TRUTH" and defect_hold["hold_code"] == "HOLD_G5" and defect_hold["recommended_plan"] is None
 
-            plan = product_entry.orchestration_command("PLANNER", "propose_plan", {"mission_id": mission_id, "proposal": intent["recommended_plan"]})
+            plan = orch_model("PLANNER", "propose_plan", {"mission_id": mission_id, "proposal": intent["recommended_plan"]})
             first = plan["next"]
             checks["planner_scheduler_router_dispatch_requirement_analyst"] = plan["status"] == "PASS" and first["agent"] == "aitest-requirement-analyst" and first["route"]["role"] == "REQUIREMENT_ANALYST"
             checks["all_g3_routes_are_durable_specialist_routes"] = [x["role"] for x in plan["route_requirements"]] == ["REQUIREMENT_ANALYST", "CODE_ANALYST", "CODE_ANALYST", "TEST_STRATEGIST", "CASE_DESIGNER", "EVALUATOR"]
@@ -167,7 +289,7 @@ def main() -> int:
             rotation = rotations[0]["rotation"]
             first_bound = {"mission_id": mission_id, "task_id": first["task_id"], "attempt_id": rotation["successor_attempt_id"], "session_id": rotation["successor_session_id"]}
             checks["g3_specialist_rotates_after_control_loop_restart"] = rotation["root_attempt_id"] == first["attempt"]["root_attempt_id"] and first_bound["session_id"] != first_session
-            work_context = product_entry.g3_command("REQUIREMENT_ANALYST", "work_context", first_bound)
+            work_context = g3_model("REQUIREMENT_ANALYST", "work_context", first_bound)
             active_intent = work_context.get("active_test_intent") or {}
             checks["router_owned_specialist_recovers_raw_source_materials_from_r1"] = work_context["truth_source"] == "R1_EVENT_STREAM" and work_context["conversation_is_not_truth"] is True and active_intent.get("payload", {}).get("scope", {}).get("source_materials", [])[0].get("source_kind") == "REQUIREMENT"
 
@@ -190,14 +312,14 @@ def main() -> int:
                 "non_functional_risks": [{"text": "Limit update endpoint latency and authorization behavior are release risks", "source_id": "DESIGN-018", "performance_refs": ["LIMIT_UPDATE_P95"], "security_refs": ["AUTHZ_LIMIT_WRITE"]}],
                 "unknowns": [{"question": "Maximum retry/backoff policy is absent from supplied Requirement/SST/design sources", "source_id": "DESIGN-018"}],
             }
-            requirement_result = product_entry.g3_command("REQUIREMENT_ANALYST", "analyze_requirement", {**first_bound, "scope_identity": "REQ-018", "semantics": semantics})
+            requirement_result = g3_model("REQUIREMENT_ANALYST", "analyze_requirement", {**first_bound, "scope_identity": "REQ-018", "semantics": semantics})
             checks["requirement_intelligence_maps_to_r31_with_provenance"] = requirement_result["r3_1_reference"]["derivation_version_id"].startswith("r3.1:")
             checks["unknown_business_fact_becomes_knowledge_gap_and_human_task"] = requirement_result["status"] == "PARTIAL_KNOWLEDGE_GAPS" and len(requirement_result["knowledge_gaps"]) == 1
             completed = finish(restarted, first_bound, "Requirement semantics and explicit knowledge gap persisted")
             second = completed["next"]; second_bound = binding(second)
             checks["scheduler_advances_to_code_analyst"] = second["agent"] == "aitest-code-analyst"
 
-            change_result = product_entry.g3_command("CODE_ANALYST", "analyze_changes", {
+            change_result = g3_model("CODE_ANALYST", "analyze_changes", {
                 **second_bound, "scope_identity": "REQ-018", "r3_1_reference": requirement_result["r3_1_reference"],
                 "repositories": [
                     {"repository_id": "cfg-data", "application_id": "cfg-data", "repository_path": str(repo_java), "base_ref": java_base, "head_ref": java_head},
@@ -220,7 +342,7 @@ def main() -> int:
             # First acquisition attempt proves human-auth gate and no guessed coverage.
             coverage_box["provider"] = BankCoveragePlatformProvider()
             auth_gate_request = human_gate_request(coverage_bound, coverage_dispatch["attempt"], gate_id="g3-coverage-auth", gate_kind="EXTERNAL_ACTION", payload={"action": "Login to bank incremental coverage platform"})
-            auth_required = product_entry.g3_command("CODE_ANALYST", "acquire_coverage", {**coverage_bound, "profile": {"platform_profile_id": "bank-incremental-coverage", "login_url": "https://coverage.example.invalid/login"}, "query": {"application_id": "cfg-data", "target_version": "V2", "baseline_label": "master"}, "change_analysis": change_result["change_analysis"], "human_gate_request": auth_gate_request})
+            auth_required = g3_model("CODE_ANALYST", "acquire_coverage", {**coverage_bound, "profile": {"platform_profile_id": "bank-incremental-coverage", "login_url": "https://coverage.example.invalid/login"}, "query": {"application_id": "cfg-data", "target_version": "V2", "baseline_label": "master"}, "change_analysis": change_result["change_analysis"], "human_gate_request": auth_gate_request})
             checks["coverage_auth_required_creates_r26_human_gate_without_guess"] = auth_required["status"] == "AUTH_REQUIRED" and auth_required["actual_coverage"] is None and auth_required["human_gate"]["status"] == "WAITING_FOR_HUMAN"
             routes = {outcome: (("NONE",) if outcome in {"APPROVED", "CHOICE_SELECTED", "INFORMATION_PROVIDED"} else (("RESUME_EXECUTION",) if outcome == "EXTERNAL_ACTION_COMPLETED" else ("BLOCK",))) for outcome in OUTCOMES}
             auth_decision = restarted.decide_human_gate({"mission_id": mission_id, "gate_id": "g3-coverage-auth", "decision_id": "login-complete", "outcome": "EXTERNAL_ACTION_COMPLETED", "route": "RESUME_EXECUTION", "decision_payload": {"authenticated_context_ref": "browser-auth-context:coverage"}, "decision_provenance": {"source_ref": "human:coverage-login", "source_digest": canonical_sha256({"login": "complete"}), "observed_at": "2026-09-01T10:05:00Z"}, "actor": {"type": "USER", "id": "construction-test"}})
@@ -241,7 +363,7 @@ def main() -> int:
                 ],
             }
             coverage_box["provider"] = MappingCoveragePlatformProvider(CoverageProviderResult("AVAILABLE", ("AGGREGATE", "FILE", "CLASS", "LINE"), snapshot=snapshot))
-            coverage_result = product_entry.g3_command("CODE_ANALYST", "acquire_coverage", {**coverage_bound, "profile": {"platform_profile_id": "bank-incremental-coverage", "authenticated_context_ref": "browser-auth-context:coverage", "method": "API"}, "query": {"application_id": "cfg-data", "target_version": "V2", "baseline_label": "master"}, "change_analysis": change_result["change_analysis"]})
+            coverage_result = g3_model("CODE_ANALYST", "acquire_coverage", {**coverage_bound, "profile": {"platform_profile_id": "bank-incremental-coverage", "authenticated_context_ref": "browser-auth-context:coverage", "method": "API"}, "query": {"application_id": "cfg-data", "target_version": "V2", "baseline_label": "master"}, "change_analysis": change_result["change_analysis"]})
             checks["bank_actual_snapshot_supports_aggregate_file_class_line"] = coverage_result["status"] == "AVAILABLE" and set(coverage_result["capabilities"]) == {"AGGREGATE", "FILE", "CLASS", "LINE"}
             checks["master_alias_is_recorded_not_silently_pinned"] = coverage_result["snapshot"]["payload"]["baseline_identity_status"] == "MASTER_ALIAS_ONLY" and coverage_result["reconciliation"]["payload"]["cross_time_comparison"] == "PROHIBITED_WITHOUT_PINNED_BASELINE"
             checks["actual_uncovered_changed_line_becomes_coverage_gap"] = len(coverage_result["coverage_gaps"]) >= 1 and any(x["payload"].get("line_number") == uncovered_line and x["payload"].get("source") == "BANK_PLATFORM_ACTUAL" for x in coverage_result["coverage_gaps"])
@@ -265,22 +387,22 @@ def main() -> int:
             strategy_dispatch = coverage_done["next"]; strategy_bound = binding(strategy_dispatch)
 
             # Security/performance only design profiles; no scan/load execution.
-            security_profile = product_entry.g3_command("TEST_STRATEGIST", "design_test_profile", {**strategy_bound, "profile_type": "SECURITY", "profile": {"authorized_scope": {"api": "POST /limits", "environment": "TEST"}, "oracle": {"property": "LIMIT_WRITE authorization is enforced"}, "safety_contract": {"no_destructive_payloads": True, "rate_limit_rps": 1}}})
-            performance_profile = product_entry.g3_command("TEST_STRATEGIST", "design_test_profile", {**strategy_bound, "profile_type": "PERFORMANCE", "profile": {"authorized_scope": {"api": "POST /limits", "environment": "TEST"}, "oracle": {"p95_ms_lte": 500}, "slo": {"p95_ms_lte": 500, "error_rate_lte": 0.01}, "safety_contract": {"max_vus": 5, "max_duration_seconds": 60}}})
+            security_profile = g3_model("TEST_STRATEGIST", "design_test_profile", {**strategy_bound, "profile_type": "SECURITY", "profile": {"authorized_scope": {"api": "POST /limits", "environment": "TEST"}, "oracle": {"property": "LIMIT_WRITE authorization is enforced"}, "safety_contract": {"no_destructive_payloads": True, "rate_limit_rps": 1}}})
+            performance_profile = g3_model("TEST_STRATEGIST", "design_test_profile", {**strategy_bound, "profile_type": "PERFORMANCE", "profile": {"authorized_scope": {"api": "POST /limits", "environment": "TEST"}, "oracle": {"p95_ms_lte": 500}, "slo": {"p95_ms_lte": 500, "error_rate_lte": 0.01}, "safety_contract": {"max_vus": 5, "max_duration_seconds": 60}}})
             checks["security_performance_profiles_are_design_only_g4_hold"] = all(x["profile"]["payload"]["design_only"] and x["profile"]["payload"]["execution_gate"] == "HOLD_G4" and not x["profile"]["payload"]["real_scan_or_load_executed"] for x in (security_profile, performance_profile))
             safety_fail_closed = False
             try:
-                product_entry.g3_command("TEST_STRATEGIST", "design_test_profile", {**strategy_bound, "profile_type": "PERFORMANCE", "profile": {"authorized_scope": {"api": "POST /limits"}, "oracle": {"p95_ms_lte": 500}, "safety_contract": {"max_vus": 5}}})
+                g3_model("TEST_STRATEGIST", "design_test_profile", {**strategy_bound, "profile_type": "PERFORMANCE", "profile": {"authorized_scope": {"api": "POST /limits"}, "oracle": {"p95_ms_lte": 500}, "safety_contract": {"max_vus": 5}}})
             except RuntimeError as exc:
                 safety_fail_closed = exc.code == "G3_SAFETY_CONTRACT_REQUIRED"
             checks["security_performance_fail_closed_without_scope_oracle_safety_slo"] = safety_fail_closed
 
-            next_work = product_entry.g3_command("TEST_STRATEGIST", "recommend_next_work", {**strategy_bound, "candidates": [
+            next_work = g3_model("TEST_STRATEGIST", "recommend_next_work", {**strategy_bound, "candidates": [
                 {"requirement_id": "REQ-018", "business_criticality": 5, "change_breadth": 4, "actual_coverage_gap_count": 3, "critical_uncovered_lines": 2, "ambiguity_count": 1, "historical_defect_signal": 2, "release_urgency": 5},
                 {"requirement_id": "REQ-019", "business_criticality": 4, "change_breadth": 5, "actual_coverage_gap_count": 4, "critical_uncovered_lines": 4, "ambiguity_count": 3, "historical_defect_signal": 4, "release_urgency": 5},
             ]})
             checks["recommend_next_test_work_is_evidence_ranked_not_case_count_ranked"] = next_work["status"] == "PASS" and next_work["top_requirement_id"] == "REQ-018" and next_work["recommendation"]["payload"]["case_count_is_value"] is False
-            next_work_missing = product_entry.g3_command("TEST_STRATEGIST", "recommend_next_work", {**strategy_bound, "candidates": [{"requirement_id": "REQ-020", "business_criticality": 5}]})
+            next_work_missing = g3_model("TEST_STRATEGIST", "recommend_next_work", {**strategy_bound, "candidates": [{"requirement_id": "REQ-020", "business_criticality": 5}]})
             checks["recommend_next_test_work_missing_facts_become_human_task"] = next_work_missing["status"] == "KNOWLEDGE_REQUIRED" and next_work_missing["human_task"]["payload"]["task_kind"] == "NEXT_WORK_RANKING_FACT_GAP"
 
             risk_inputs = {
@@ -292,7 +414,7 @@ def main() -> int:
             }
             gap_ref = coverage_result["coverage_gaps"][0]["fact_id"]
             hypothesis = {"hypothesis_id": "HYP-BOUNDARY-001", "trigger": "requested limit equals approved limit", "expected_invariant": "boundary value is accepted and propagated consistently", "suspected_surface": f"src/CreditLimitService.java:L{uncovered_line}", "evidence_requirement": ["API response", "DB final value", "downstream state"], "discriminating_test": "compare approved-1, approved, approved+1 outcomes", "defect_class": "BOUNDARY_OFF_BY_ONE", "severity": "HIGH", "confidence_basis": ["changed comparison operator", gap_ref], "status": "READY_TO_TEST"}
-            strategy_result = product_entry.g3_command("TEST_STRATEGIST", "create_strategy", {**strategy_bound, "scope_identity": "REQ-018", "r3_1_reference": requirement_result["r3_1_reference"], "r3_2_references": change_result["r3_2_references"], "risk_inputs": risk_inputs, "hypothesis_candidates": [hypothesis]})
+            strategy_result = g3_model("TEST_STRATEGIST", "create_strategy", {**strategy_bound, "scope_identity": "REQ-018", "r3_1_reference": requirement_result["r3_1_reference"], "r3_2_references": change_result["r3_2_references"], "risk_inputs": risk_inputs, "hypothesis_candidates": [hypothesis]})
             checks["reach_find_strategy_uses_actual_gap_hypothesis_and_risk"] = strategy_result["status"] == "PASS" and strategy_result["portfolio"]["payload"]["selection_semantics"] == "LEXICOGRAPHIC_REACH_FIND" and len(strategy_result["portfolio"]["payload"]["ranked_work"]) >= 2
             checks["hypothesis_remains_falsifiable_not_confirmed_defect"] = strategy_result["hypotheses"][0]["payload"]["status"] == "READY_TO_TEST" and "CONFIRMED" not in json.dumps(strategy_result["hypotheses"][0])
             strategy_done = finish(restarted, strategy_bound, "Reach+Find L1-L7 strategy and hypotheses persisted")
@@ -315,7 +437,7 @@ def main() -> int:
                     "postcondition": {"cleanup": "restore test fixture or preserve isolated test record per G4 execution policy"},
                     "coverage_gap_refs": [gap_ref], "defect_hypothesis_refs": [strategy_result["hypotheses"][0]["fact_id"]], "estimated_marginal_coverage_gain": 1,
                 }
-            case_result = product_entry.g3_command("CASE_DESIGNER", "design_cases", {**case_bound, "strategy_version_id": strategy_id, "strategy_fingerprint": strategy_result["strategy"]["strategy_fingerprint"], "detailed_specs": detailed_specs, "designer_session_ref": case_bound["session_id"]})
+            case_result = g3_model("CASE_DESIGNER", "design_cases", {**case_bound, "strategy_version_id": strategy_id, "strategy_fingerprint": strategy_result["strategy"]["strategy_fingerprint"], "detailed_specs": detailed_specs, "designer_session_ref": case_bound["session_id"]})
             value_payloads = [x["value_link"]["payload"] for x in case_result["ready_cases"]]
             checks["standard_cases_have_detailed_quality_and_value_links"] = case_result["status"] == "PASS" and bool(value_payloads) and not case_result["blocked_cases"] and all(all(k in v for k in ("requirement_obligation_refs", "changed_code_refs", "coverage_target_refs", "coverage_gap_refs", "risk_refs", "defect_hypothesis_refs")) and v["risk_refs"] and v["coverage_target_refs"] for v in value_payloads) and any(v["requirement_obligation_refs"] and v["changed_code_refs"] and v["coverage_gap_refs"] and v["defect_hypothesis_refs"] for v in value_payloads)
             redundancy_keys = [x["value_link"]["payload"]["redundancy_key"] for x in case_result["ready_cases"]]
@@ -338,15 +460,14 @@ def main() -> int:
 
             first_spec = case_result["ready_cases"][0]["case"]
             review_gate = human_gate_request(evaluator_bound, evaluator_dispatch["attempt"], gate_id="g3-case-human-review", gate_kind="APPROVAL", payload={"case_spec_ref": first_spec["fact_id"], "question": "Approve detailed standard test case design?"}, review=True)
-            evaluation = product_entry.g3_command("EVALUATOR", "evaluate_case_design", {**evaluator_bound, "scope_identity": "REQ-018", "r3_1_reference": requirement_result["r3_1_reference"], "r3_2_reference": change_result["r3_2_references"][0], "case_spec_fact_id": first_spec["fact_id"], "reviewer_session_ref": evaluator_bound["session_id"], "human_gate_request": review_gate})
+            evaluation = g3_model("EVALUATOR", "evaluate_case_design", {**evaluator_bound, "scope_identity": "REQ-018", "r3_1_reference": requirement_result["r3_1_reference"], "r3_2_reference": change_result["r3_2_references"][0], "case_spec_fact_id": first_spec["fact_id"], "reviewer_session_ref": evaluator_bound["session_id"], "human_gate_request": review_gate})
             checks["evaluator_reuses_r34_and_opens_real_human_review_gate"] = evaluation["status"] == "WAITING_FOR_HUMAN" and evaluation["r3_4_review"]["review_status"] == "APPROVED" and evaluation["human_gate"]["status"] == "WAITING_FOR_HUMAN"
             checks["evaluation_does_not_execute_or_confirm_defect"] = evaluation["evaluation"]["payload"]["real_execution"] == "NOT_PERFORMED" and evaluation["evaluation"]["payload"]["test_fail_is_defect"] is False
 
-            # A fresh Python process reads G3 durable state from the same R1 Event Stream.
-            env = dict(os.environ); env["PYTHONPATH"] = str(RUNTIME)
-            proc = subprocess.run([sys.executable, "-m", "aitest_runtime.product_entry", "g3", "--role", "DIRECTOR", "--action", "status", "--payload", json.dumps({"mission_id": mission_id})], cwd=root, env=env, capture_output=True, text=True, encoding="utf-8")
-            recovered_status = json.loads(proc.stdout) if proc.returncode == 0 else {}
-            checks["new_python_process_recovers_g3_from_r1_event_stream"] = proc.returncode == 0 and recovered_status.get("truth_source") == "R1_EVENT_STREAM" and recovered_status.get("fact_count", 0) >= 10
+            # A fresh Python process reads G3 durable state directly from the same
+            # R1 Event Stream. Read-only recovery is not a Primary model mutation.
+            recovered_status = fresh_process_g3_status(root, spine, mission_id)
+            checks["new_python_process_recovers_g3_from_r1_event_stream"] = recovered_status.get("truth_source") == "R1_EVENT_STREAM" and recovered_status.get("fact_count", 0) >= 10
 
             runtime_recovered = create_canonical_runtime(root, db_path=spine)
             g3_recovered = G3TestingIntelligenceService(runtime_recovered).status(mission_id)
