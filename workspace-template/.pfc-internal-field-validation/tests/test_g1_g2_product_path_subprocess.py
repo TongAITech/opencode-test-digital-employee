@@ -346,7 +346,15 @@ def main() -> int:
             )
             env.update(host_env)
             continued = run(env, "DIRECTOR", "continue_test", payload)['operations'][0]
-            checks["new_process_continue_reads_event_stream"] = continued['result']["status"] == "PLAN_COMPLETE" and spine.is_file()
+            control_result = continued.get("result") or {}
+            checks["new_process_continue_reads_event_stream"] = (
+                continued.get("status") == "COMPLETED"
+                and control_result.get("status") == "ACTIVE"
+                and control_result.get("mission_id") == mission_id
+                and control_result.get("already_in_state") is True
+                and control_result.get("effect") == "NONE"
+                and spine.is_file()
+            )
 
             requests = OpenCodeContractStub.requests
             checks["provider_sends_explicit_directory_binding"] = bool(requests) and all(item["directory_header"] == str(root.resolve()) for item in requests)
