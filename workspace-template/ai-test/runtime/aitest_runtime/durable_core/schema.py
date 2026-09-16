@@ -151,25 +151,86 @@ CREATE TABLE IF NOT EXISTS session_projection (
 """
 
 
+_CORE_TABLES = {
+    "schema_migrations", "commands", "events",
+    "mission_projection", "goal_projection", "session_projection",
+}
+_CORE_INDEXES = {"commands_applied_idempotency"}
+_CORE_TRIGGERS = {"events_no_update", "events_no_delete"}
+
+
 def connect(db_path: str | Path) -> sqlite3.Connection:
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), timeout=5.0, isolation_level=None)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    # Keep per-connection policy cheap and read-compatible. journal_mode is a
+    # persistent database setting and must not be rewritten by every tool
+    # subprocess / Control Loop tick.
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA synchronous=FULL")
     conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=5000")
     return conn
+
+
+def _core_schema_ready(conn: sqlite3.Connection) -> bool:
+    mode = str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+    if mode != "wal":
+        return False
+    rows = conn.execute(
+        "SELECT type,name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
+    ).fetchall()
+    tables = {row["name"] for row in rows if row["type"] == "table"}
+    indexes = {row["name"] for row in rows if row["type"] == "index"}
+    triggers = {row["name"] for row in rows if row["type"] == "trigger"}
+    if not (_CORE_TABLES <= tables and _CORE_INDEXES <= indexes and _CORE_TRIGGERS <= triggers):
+        return False
+    row = conn.execute("SELECT 1 FROM schema_migrations WHERE version=1").fetchone()
+    return row is not None
 
 
 def initialize(db_path: str | Path) -> None:
     conn = connect(db_path)
     try:
+        # Normal product processes attach to an already initialized Runtime.
+        # This read-only fast path is critical for multi-process OpenCode tools:
+        # constructing RuntimeService must not contend for SQLite's single
+        # writer slot merely to re-assert unchanged DDL.
+        if _core_schema_ready(conn):
+            return
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(SCHEMA)
         conn.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES(1)")
     finally:
         conn.close()
+
+
+def _extensions_ready(conn: sqlite3.Connection, registry: ExtensionRegistry) -> bool:
+    migration_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='extension_migrations'"
+    ).fetchone()
+    if migration_table is None:
+        return False
+    installed_tables = {
+        item["name"]
+        for item in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
+    for manifest in registry.manifests:
+        for step in registry.migration_steps(manifest):
+            row = conn.execute(
+                "SELECT migration_checksum FROM extension_migrations WHERE extension_id=? AND migration_version=?",
+                (manifest.extension_id, step.version),
+            ).fetchone()
+            if row is None:
+                return False
+            if row["migration_checksum"] != step.checksum:
+                raise RuntimeError(
+                    "EXTENSION_MIGRATION_CHECKSUM_MISMATCH",
+                    f"migration checksum changed: {manifest.extension_id}:{step.version}",
+                )
+        if set(manifest.projection_contribution.projection_tables) - installed_tables:
+            return False
+    return True
 
 
 def initialize_extensions(db_path: str | Path, registry: ExtensionRegistry, applied_at: str) -> None:
@@ -177,6 +238,11 @@ def initialize_extensions(db_path: str | Path, registry: ExtensionRegistry, appl
         return
     conn = connect(db_path)
     try:
+        # Do not take BEGIN IMMEDIATE just to prove that already-frozen
+        # migrations still exist. Reads remain available in WAL while another
+        # process owns the writer slot.
+        if _extensions_ready(conn, registry):
+            return
         with immediate_transaction(conn):
             conn.execute(
                 """
