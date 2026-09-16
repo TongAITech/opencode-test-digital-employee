@@ -76,7 +76,7 @@ def g3_cycle(mid, orch, coverage_box, repos, cycle, replan_ref=None):
  scope={'requirement_id':'REQ-018','version':'V2','source_materials':[{'source_id':'REQ-018','source_kind':'REQUIREMENT','revision':'V2','content':'requested <= approved'},{'source_id':'SST-018','source_kind':'SST','revision':'V2','content':'sync to SYNCED'},{'source_id':'DESIGN-018','source_kind':'DESIGN','revision':'V2','content':'LIMIT_WRITE and API/UI agree'}]}
  if replan_ref: scope['replan_request_ref']=replan_ref
  stage(f'g3 cycle {cycle}: register intent')
- intent=invoke_model_command(orch,family='g3',role='DIRECTOR',action='register_intent',payload={'mission_id':mid,'intent_type':'TEST_CASE_DESIGN','scope':scope,'constraints':{'cycle':cycle}})
+ intent=G3TestingIntelligenceService(orch.runtime,coverage_provider=coverage_box['provider'],orchestration=orch).register_intent(mid,'TEST_CASE_DESIGN',scope,{'cycle':cycle})
  stage(f'g3 cycle {cycle}: propose plan')
  plan_proposal={**intent['recommended_plan'],'planner_request_id':f"g3:{intent['intent']['fact_id']}:plan"}; plan_result=invoke_model_command(orch,family='orchestration',role='PLANNER',action='propose_plan',payload={'mission_id':mid,'proposal':plan_proposal}); first=plan_result['next'];
  if first is None: raise AssertionError('G3_PLAN_HANDOFF_FAILED:'+json.dumps(plan_result,sort_keys=True,default=str))
