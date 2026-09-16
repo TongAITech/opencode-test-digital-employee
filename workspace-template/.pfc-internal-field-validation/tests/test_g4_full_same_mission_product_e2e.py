@@ -14,7 +14,7 @@ from aitest_runtime.g3.service import G3TestingIntelligenceService
 from aitest_runtime.g4.service import G4RealExecutionService
 from aitest_runtime.r3_3.service import R33ApplicationService
 from aitest_runtime.r3_e2.contracts import BrowserContextRef
-from test_g3_testing_intelligence_product_path import make_repo, intake_request, binding, finish, human_gate_request
+from test_g3_testing_intelligence_product_path import make_repo, intake_request, binding, finish, human_gate_request, invoke_model_command
 
 _STAGE_T0=time.monotonic()
 def stage(msg):
@@ -76,37 +76,37 @@ def g3_cycle(mid, orch, coverage_box, repos, cycle, replan_ref=None):
  scope={'requirement_id':'REQ-018','version':'V2','source_materials':[{'source_id':'REQ-018','source_kind':'REQUIREMENT','revision':'V2','content':'requested <= approved'},{'source_id':'SST-018','source_kind':'SST','revision':'V2','content':'sync to SYNCED'},{'source_id':'DESIGN-018','source_kind':'DESIGN','revision':'V2','content':'LIMIT_WRITE and API/UI agree'}]}
  if replan_ref: scope['replan_request_ref']=replan_ref
  stage(f'g3 cycle {cycle}: register intent')
- intent=product_entry.g3_command('DIRECTOR','register_intent',{'mission_id':mid,'intent_type':'TEST_CASE_DESIGN','scope':scope,'constraints':{'cycle':cycle}})
+ intent=invoke_model_command(orch,family='g3',role='DIRECTOR',action='register_intent',payload={'mission_id':mid,'intent_type':'TEST_CASE_DESIGN','scope':scope,'constraints':{'cycle':cycle}})
  stage(f'g3 cycle {cycle}: propose plan')
- plan_proposal={**intent['recommended_plan'],'planner_request_id':f"g3:{intent['intent']['fact_id']}:plan"}; plan_result=product_entry.orchestration_command('PLANNER','propose_plan',{'mission_id':mid,'proposal':plan_proposal}); first=plan_result['next'];
+ plan_proposal={**intent['recommended_plan'],'planner_request_id':f"g3:{intent['intent']['fact_id']}:plan"}; plan_result=invoke_model_command(orch,family='orchestration',role='PLANNER',action='propose_plan',payload={'mission_id':mid,'proposal':plan_proposal}); first=plan_result['next'];
  if first is None: raise AssertionError('G3_PLAN_HANDOFF_FAILED:'+json.dumps(plan_result,sort_keys=True,default=str))
  b1=binding(first)
  stage(f'g3 cycle {cycle}: requirement')
- req=product_entry.g3_command('REQUIREMENT_ANALYST','analyze_requirement',{**b1,'scope_identity':'REQ-018','semantics':semantics()}); second=finish(orch,b1,f'req cycle {cycle}')['next']; b2=binding(second)
+ req=invoke_model_command(orch,family='g3',role='REQUIREMENT_ANALYST',action='analyze_requirement',payload={**b1,'scope_identity':'REQ-018','semantics':semantics()}); second=finish(orch,b1,f'req cycle {cycle}')['next']; b2=binding(second)
  stage(f'g3 cycle {cycle}: changes')
- ch=product_entry.g3_command('CODE_ANALYST','analyze_changes',{**b2,'scope_identity':'REQ-018','r3_1_reference':req['r3_1_reference'],'repositories':repos}); third=finish(orch,b2,f'change cycle {cycle}')['next']; b3=binding(third)
+ ch=invoke_model_command(orch,family='g3',role='CODE_ANALYST',action='analyze_changes',payload={**b2,'scope_identity':'REQ-018','r3_1_reference':req['r3_1_reference'],'repositories':repos}); third=finish(orch,b2,f'change cycle {cycle}')['next']; b3=binding(third)
  java=ch['repositories'][0]['changed_files'][0]; lines=[int(str(x).rsplit('L',1)[1]) for x in java['diff_hunk_refs']]; uncovered=lines[-1]
  details=[{'level':'APPLICATION','application_id':'cfg-data','coverage_pct':80.0 if cycle==1 else 90.0}]+[{'level':'LINE','file_path':java['file_path'],'class_name':'CreditLimitService','line_number':ln,'covered':ln!=uncovered} for ln in lines]
  coverage_box['provider']=MappingCoveragePlatformProvider(CoverageProviderResult('AVAILABLE',('AGGREGATE','FILE','CLASS','LINE'),snapshot=snap('cfg-data',80 if cycle==1 else 90,cycle,target_commit=repos[0]['head_ref'],details=details)))
  stage(f'g3 cycle {cycle}: coverage')
- cov=product_entry.g3_command('CODE_ANALYST','acquire_coverage',{**b3,'profile':{'platform_profile_id':'bankcov','authenticated_context_ref':'auth','method':'API'},'query':{'application_id':'cfg-data','target_version':'V2','baseline_label':'master'},'change_analysis':ch['change_analysis']}); fourth=finish(orch,b3,f'coverage cycle {cycle}')['next']; b4=binding(fourth)
+ cov=invoke_model_command(orch,family='g3',role='CODE_ANALYST',action='acquire_coverage',payload={**b3,'profile':{'platform_profile_id':'bankcov','authenticated_context_ref':'auth','method':'API'},'query':{'application_id':'cfg-data','target_version':'V2','baseline_label':'master'},'change_analysis':ch['change_analysis']}); fourth=finish(orch,b3,f'coverage cycle {cycle}')['next']; b4=binding(fourth)
  gap=cov['coverage_gaps'][0]['fact_id'] if cov['coverage_gaps'] else cov['snapshot']['fact_id']
  risk={'dimensions':{'business_criticality':5,'change_magnitude':4,'impact_breadth':4,'change_uncertainty':2,'critical_journey_criticality':5,'historical_failure_signal':2,'security_data_sensitivity':4,'performance_sensitivity':4,'evidence_gap_penalty':2},'evidence_refs':[req['requirement']['fact_id'],ch['change_analysis']['fact_id'],cov['snapshot']['fact_id']]+([replan_ref] if replan_ref else []),'critical_journey_risk_refs':['LIMIT_UPDATE_JOURNEY'],'cycle':cycle}
  hyp={'hypothesis_id':f'HYP-E2E-{cycle}','trigger':'equality boundary','expected_invariant':'approved equality accepted consistently','suspected_surface':f'src/CreditLimitService.java:L{uncovered}','evidence_requirement':['API','DB'],'discriminating_test':'approved-1/approved/approved+1','defect_class':'BOUNDARY','severity':'HIGH','confidence_basis':['changed comparison',gap],'status':'READY_TO_TEST'}
  stage(f'g3 cycle {cycle}: strategy')
- st=product_entry.g3_command('TEST_STRATEGIST','create_strategy',{**b4,'scope_identity':'REQ-018','r3_1_reference':req['r3_1_reference'],'r3_2_references':ch['r3_2_references'],'risk_inputs':risk,'hypothesis_candidates':[hyp]})
+ st=invoke_model_command(orch,family='g3',role='TEST_STRATEGIST',action='create_strategy',payload={**b4,'scope_identity':'REQ-018','r3_1_reference':req['r3_1_reference'],'r3_2_references':ch['r3_2_references'],'risk_inputs':risk,'hypothesis_candidates':[hyp]})
  profiles={}
  if cycle==1:
-  profiles['SECURITY']=product_entry.g3_command('TEST_STRATEGIST','design_test_profile',{**b4,'profile_type':'SECURITY','profile':{'authorized_scope':{'targets':['sut.test'],'environment':'TEST'},'oracle':{'pass':'no authorization bypass'},'safety_contract':{'target_environment':'TEST','rate_limits':{'rps':1},'safety_limits':{'destructive':False,'max_requests':2},'stop_conditions':['unexpected side effect'],'destructive':False}}})['profile']
-  profiles['PERFORMANCE']=product_entry.g3_command('TEST_STRATEGIST','design_test_profile',{**b4,'profile_type':'PERFORMANCE','profile':{'authorized_scope':{'targets':['sut.test'],'environment':'TEST'},'oracle':{'pass':'p95 within governed SLO'},'slo':{'p95_ms':500},'safety_contract':{'target_environment':'TEST','load_model':{'vus':1,'duration_s':1},'resource_limits':{'max_vus':2},'stop_conditions':['error rate exceeds 1%']}}})['profile']
+  profiles['SECURITY']=invoke_model_command(orch,family='g3',role='TEST_STRATEGIST',action='design_test_profile',payload={**b4,'profile_type':'SECURITY','profile':{'authorized_scope':{'targets':['sut.test'],'environment':'TEST'},'oracle':{'pass':'no authorization bypass'},'safety_contract':{'target_environment':'TEST','rate_limits':{'rps':1},'safety_limits':{'destructive':False,'max_requests':2},'stop_conditions':['unexpected side effect'],'destructive':False}}})['profile']
+  profiles['PERFORMANCE']=invoke_model_command(orch,family='g3',role='TEST_STRATEGIST',action='design_test_profile',payload={**b4,'profile_type':'PERFORMANCE','profile':{'authorized_scope':{'targets':['sut.test'],'environment':'TEST'},'oracle':{'pass':'p95 within governed SLO'},'slo':{'p95_ms':500},'safety_contract':{'target_environment':'TEST','load_model':{'vus':1,'duration_s':1},'resource_limits':{'max_vus':2},'stop_conditions':['error rate exceeds 1%']}}})['profile']
  fifth=finish(orch,b4,f'strategy cycle {cycle}')['next']; b5=binding(fifth)
  r33=R33ApplicationService(orch.runtime).state(mid); sid=st['strategy']['strategy_version_id']; pts=[p for p in r33.test_points if p.strategy_version_id==sid and p.designability=='DESIGNABLE'][:2]
  specs={p.point_id:{'objective':f'cycle {cycle} discriminate {p.point_id}','preconditions':[{'id':'P1','description':'authorized fixture ready'}],'test_data':[{'name':'approved','value':10000},{'name':'requested','value':10000}],'ordered_steps':[{'step':1,'action':'prepare exact boundary data'},{'step':2,'action':'submit governed request and observe synchronized state'}],'expected_results':[{'step':1,'expected':'boundary fixture is ready'},{'step':2,'expected':'API/data/downstream satisfy equality invariant'}],'oracle':{'type':'MULTI_CHANNEL_INVARIANT','pass':'all governed channels agree','insufficient':'any required channel missing'},'evidence_requirements':[{'channel':'API','required':'response'},{'channel':'DATA','required':'value'}],'postcondition':{'cleanup':'restore isolated record'},'coverage_gap_refs':[gap],'defect_hypothesis_refs':[st['hypotheses'][0]['fact_id']],'estimated_marginal_coverage_gain':1} for p in pts}
  stage(f'g3 cycle {cycle}: cases')
- cases=product_entry.g3_command('CASE_DESIGNER','design_cases',{**b5,'strategy_version_id':sid,'strategy_fingerprint':st['strategy']['strategy_fingerprint'],'detailed_specs':specs,'designer_session_ref':b5['session_id']}); sixth=finish(orch,b5,f'cases cycle {cycle}')['next']; b6=binding(sixth)
+ cases=invoke_model_command(orch,family='g3',role='CASE_DESIGNER',action='design_cases',payload={**b5,'strategy_version_id':sid,'strategy_fingerprint':st['strategy']['strategy_fingerprint'],'detailed_specs':specs,'designer_session_ref':b5['session_id']}); sixth=finish(orch,b5,f'cases cycle {cycle}')['next']; b6=binding(sixth)
  firstcase=cases['ready_cases'][0]['case']; gid=f'g3-review-{cycle}'; hg=human_gate_request(b6,sixth['attempt'],gate_id=gid,gate_kind='APPROVAL',payload={'case_spec_ref':firstcase['fact_id'],'question':'approve?'},review=True)
  stage(f'g3 cycle {cycle}: evaluate case')
- ev=product_entry.g3_command('EVALUATOR','evaluate_case_design',{**b6,'scope_identity':'REQ-018','r3_1_reference':req['r3_1_reference'],'r3_2_reference':ch['r3_2_references'][0],'case_spec_fact_id':firstcase['fact_id'],'reviewer_session_ref':b6['session_id'],'human_gate_request':hg}); stage(f'g3 cycle {cycle}: evaluated'); approve(orch,mid,gid); stage(f'g3 cycle {cycle}: approved'); done=finish(orch,b6,f'review cycle {cycle}'); stage(f'g3 cycle {cycle}: review task finished')
+ ev=invoke_model_command(orch,family='g3',role='EVALUATOR',action='evaluate_case_design',payload={**b6,'scope_identity':'REQ-018','r3_1_reference':req['r3_1_reference'],'r3_2_reference':ch['r3_2_references'][0],'case_spec_fact_id':firstcase['fact_id'],'reviewer_session_ref':b6['session_id'],'human_gate_request':hg}); stage(f'g3 cycle {cycle}: evaluated'); approve(orch,mid,gid); stage(f'g3 cycle {cycle}: approved'); done=finish(orch,b6,f'review cycle {cycle}'); stage(f'g3 cycle {cycle}: review task finished')
  return {'intent':intent,'requirement':req,'change':ch,'coverage':cov,'strategy':st,'cases':cases,'evaluation':ev,'plan_done':done,'profiles':profiles}
 
 def exec_task(k,case_ref):
