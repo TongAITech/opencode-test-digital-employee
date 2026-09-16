@@ -1,0 +1,68 @@
+name: Recovery UI journey focused qualification
+
+on:
+  push:
+    branches: [work/v1.13.0-recovery-turnkey-validation]
+    paths:
+      - workspace-template/ai-test/runtime/aitest_runtime/recovery_browser.py
+      - workspace-template/.pfc-internal-field-validation/tests/test_rec3_ui_journey.py
+      - .github/workflows/recovery-ui-focused.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  ui-journey:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PIP_NO_INDEX: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Reuse qualified portable Python and Chromium
+        shell: pwsh
+        run: |
+          $incoming = Join-Path $env:RUNNER_TEMP 'ui-focused-payload'
+          gh run download 34278790485 --name recovery-qualified-package --dir $incoming
+          if ($LASTEXITCODE -ne 0) { throw 'Prior qualified offline payload unavailable' }
+          $zip = Join-Path $incoming 'AITest-V1.13.0-Recovery-Turnkey-Windows-x64.zip'
+          $expected = '49d8e4dc0a38a1ea89b5872bb7926151b938172650bec2534ce73c43f76e9be2'
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+            throw 'Offline payload input hash mismatch'
+          }
+          $expanded = Join-Path $env:RUNNER_TEMP 'ui-focused-expanded'
+          Expand-Archive $zip -DestinationPath $expanded
+          $bundle = Get-ChildItem $expanded -Directory | Select-Object -First 1
+          if (-not $bundle) { throw 'Qualified payload root missing' }
+          $python = Join-Path $bundle.FullName 'workspace-template/runtime/python/python.exe'
+          $chrome = Join-Path $bundle.FullName 'workspace-template/runtime/browser/chrome-win64/chrome.exe'
+          if (-not (Test-Path $python)) { throw 'Portable Python missing' }
+          if (-not (Test-Path $chrome)) { throw 'Offline Chromium missing' }
+          "FOCUSED_PYTHON=$python" | Out-File $env:GITHUB_ENV -Append
+          "AITEST_BROWSER_SMOKE_CHROMIUM=$chrome" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Run exact UI and HumanGate regression
+        shell: pwsh
+        run: |
+          $env:GH_TOKEN = ''
+          $env:GITHUB_TOKEN = ''
+          $env:PYTHONNOUSERSITE = '1'
+          $env:PYTHONDONTWRITEBYTECODE = '1'
+          $env:PYTHONUTF8 = '1'
+          & "$env:FOCUSED_PYTHON" -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_rec3_ui_journey.py 2>&1 | Tee-Object -FilePath RECOVERY_UI_FOCUSED.log
+          if ($LASTEXITCODE -ne 0) { throw 'UI journey focused regression failed' }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recovery-ui-focused
+          path: RECOVERY_UI_FOCUSED.log
+          if-no-files-found: warn
