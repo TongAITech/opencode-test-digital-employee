@@ -55,7 +55,8 @@ jobs:
           $env:PYTHONNOUSERSITE = '1'
           $env:PYTHONDONTWRITEBYTECODE = '1'
           $env:PYTHONUTF8 = '1'
-          & "$env:FOCUSED_PYTHON" -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_g3_testing_intelligence_product_path.py 2>&1 | Tee-Object -FilePath RECOVERY_G3_PRODUCT_FOCUSED.log
+          $test = 'workspace-template/.pfc-internal-field-validation/tests/test_g3_testing_intelligence_product_path.py'
+          & "$env:FOCUSED_PYTHON" -X utf8 -c "import sys,runpy; from pathlib import Path; p=sys.argv[1]; sys.path.insert(0,str(Path(p).parent)); sys.argv=[p]; runpy.run_path(p,run_name='__main__')" $test 2>&1 | Tee-Object -FilePath RECOVERY_G3_PRODUCT_FOCUSED.log
           if ($LASTEXITCODE -ne 0) { throw 'G3 product-path focused regression failed' }
 
       - uses: actions/upload-artifact@v4
