@@ -8,7 +8,7 @@ import time
 from unittest.mock import patch
 
 
-def host_turn(scope, *, session='fixture-host', message='fixture-user', text=None):
+def host_turn(scope, *, session='fixture-host', message='fixture-user', text=None, action='start_test'):
     scope={k:v for k,v in scope.items() if k in {'mode','project_id','version','requirements'}}
     if text is None:
         values=[]
@@ -16,14 +16,20 @@ def host_turn(scope, *, session='fixture-host', message='fixture-user', text=Non
             if key=='mode':continue
             values.extend(value if isinstance(value,list) else [value])
         text='测试 '+' '.join(values)
+    payload={'scope':scope} if scope else {}
     assistant=message+'-assistant'
+    call_id='call-'+message
     messages={
-        f'/session/{session}/message/{assistant}':{'info':{'sessionID':session,'id':assistant,'role':'assistant','parentID':message}},
+        f'/session/{session}/message/{assistant}':{
+            'info':{'sessionID':session,'id':assistant,'role':'assistant','parentID':message,'agent':'aitest-director'},
+            'parts':[{'type':'tool','tool':'aitest_director','sessionID':session,'messageID':assistant,
+                'callID':call_id,'state':{'status':'running','input':{'action':action,'payload':payload}}}],
+        },
         f'/session/{session}/message/{message}':{'info':{'sessionID':session,'id':message,'role':'user','time':{'created':int(time.time()*1000)}},
             'parts':[{'type':'text','text':text,'sessionID':session,'messageID':message}]},
     }
-    env={'AITEST_HOST_SESSION_ID':session,'AITEST_HOST_MESSAGE_ID':assistant}
-    return messages,env,{'scope':scope} if scope else {}
+    env={'AITEST_HOST_SESSION_ID':session,'AITEST_HOST_MESSAGE_ID':assistant,'AITEST_HOST_CALL_ID':call_id}
+    return messages,env,payload
 
 
 def start_product_mission(service, request, *, fixture_id):
