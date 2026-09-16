@@ -18,6 +18,7 @@ from aitest_runtime.autonomous_orchestration import DirectoryScopedOpenCodeSessi
 from aitest_runtime.canonical_runtime import create_canonical_runtime
 from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
 from aitest_runtime.hosted_intake import hosted_user_intake
+from aitest_runtime.runtime_subprocess import runtime_module_command
 from test_g2_1_session_router_control_loop import request, one_task
 
 
@@ -88,7 +89,10 @@ def main():
             observed = provider.observe_session(sid)
             assert observed['pressure']['metrics_source']=='OPENCODE_MESSAGE_API', observed
             with (root/'loop.log').open('w') as log:
-                loop = subprocess.Popen([sys.executable,'-X','utf8','-m','aitest_runtime.control_loop','--workspace-root',str(WORKSPACE),'--interval','1'],cwd=WORKSPACE,env=env,stdout=log,stderr=subprocess.STDOUT)
+                loop = subprocess.Popen(runtime_module_command(
+                    WORKSPACE, 'aitest_runtime.control_loop',
+                    '--workspace-root', str(WORKSPACE), '--interval', '1'
+                ), cwd=WORKSPACE, env=env, stdout=log, stderr=subprocess.STDOUT)
             processes.append(loop)
             deadline=time.monotonic()+90
             while True:
