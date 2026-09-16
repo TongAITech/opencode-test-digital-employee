@@ -37,6 +37,7 @@ def main():
                 OPENCODE_SERVER_USERNAME='opencode', OPENCODE_SERVER_PASSWORD=uuid.uuid4().hex,
                 OPENCODE_DISABLE_AUTOUPDATE='1', OPENCODE_DISABLE_MODELS_FETCH='1', OPENCODE_DISABLE_DEFAULT_PLUGINS='1',
                 OPENCODE_DISABLE_LSP_DOWNLOAD='1', OPENCODE_DISABLE_SHARE='1',
+                npm_config_offline='true', npm_config_registry='http://127.0.0.1:9',
                 XDG_DATA_HOME=str(root/'oc-data'), XDG_CONFIG_HOME=str(root/'oc-config'), XDG_CACHE_HOME=str(root/'oc-cache'),
                 BUN_INSTALL_CACHE_DIR=str(root/'bun-cache'), NO_PROXY='localhost,127.0.0.1,::1', no_proxy='localhost,127.0.0.1,::1',
                 PYTHONPATH=str(WORKSPACE/'ai-test/runtime'), PYTHONDONTWRITEBYTECODE='1')
@@ -111,6 +112,12 @@ def main():
                 'unconfigured_model_allows_process_start':'PASS','hosted_natural_language_mission_intake':'PASS',
                 'bank_model_turn':'NOT_EXECUTED','BANK_FIELD_VALIDATION_REQUIRED':True}
             print(json.dumps(result,indent=2))
+        except Exception:
+            server_log = root/'server.log'
+            if server_log.is_file():
+                sys.stderr.write('REAL_OPENCODE_SERVER_LOG_TAIL\n')
+                sys.stderr.write(server_log.read_text(errors='replace')[-6000:] + '\n')
+            raise
         finally:
             for process in reversed(processes):
                 if process.poll() is None:
