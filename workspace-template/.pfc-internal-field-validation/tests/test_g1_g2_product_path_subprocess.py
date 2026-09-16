@@ -103,6 +103,12 @@ class OpenCodeContractStub(BaseHTTPRequestHandler):
         if parsed.path == "/session":
             self._json(200, list(self.__class__.sessions.values()))
             return
+        if parsed.path == "/session/status":
+            # OpenCode omits idle Sessions from the activity map. The product
+            # verifies existence through the directory-scoped /session list
+            # before interpreting an absent entry as idle.
+            self._json(200, {})
+            return
         if parsed.path.startswith("/session/"):
             sid = parsed.path.split("/")[-1]
             if sid not in self.__class__.sessions:
