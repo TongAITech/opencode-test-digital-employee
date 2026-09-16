@@ -25,6 +25,8 @@ sys.path.insert(0, str(RUNTIME_ROOT))
 from aitest_runtime.autonomous_orchestration import DirectoryScopedOpenCodeSessionProvider
 from aitest_runtime.canonical_runtime import create_canonical_runtime
 from aitest_runtime.primary_sessions import PrimarySessionOwner
+from aitest_runtime.mission_session_authority import MissionSessionOwner
+from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
 from aitest_runtime.runtime_subprocess import runtime_module_command
 
 
@@ -146,6 +148,64 @@ class OpenCodeContractStub(BaseHTTPRequestHandler):
         self._json(404, {"error": "unknown"})
 
 
+def bind_model_tool_call(
+    service: G21AutonomousOrchestrationService,
+    mission_id: str,
+    env: dict[str, str],
+    *,
+    role: str,
+    action: str,
+    payload: dict[str, object],
+    message: str,
+    session_id: str | None = None,
+) -> str:
+    owner = MissionSessionOwner(service)
+    grants = owner.state(mission_id).grants
+    if session_id is None:
+        matches = [
+            grant for grant in grants.values()
+            if grant.get("state") == "GRANTED" and grant.get("role") == role
+        ]
+        if len(matches) != 1:
+            raise RuntimeError(f"expected one current {role} grant, got {matches}")
+        grant = matches[0]
+        session_id = str(grant["session_id"])
+    else:
+        grant = owner.current(mission_id, session_id)
+        if grant.get("role") != role:
+            raise RuntimeError(f"role mismatch for {session_id}: {grant}")
+    agent = str(grant["agent_name"])
+    tool = {"PLANNER": "aitest_planner", "EXECUTOR": "aitest_executor"}[role]
+    call_id = "call-" + message
+    OpenCodeContractStub.host_messages = {
+        f"/session/{session_id}/message/{message}": {
+            "info": {
+                "sessionID": session_id,
+                "id": message,
+                "role": "assistant",
+                "agent": agent,
+            },
+            "parts": [{
+                "type": "tool",
+                "tool": tool,
+                "sessionID": session_id,
+                "messageID": message,
+                "callID": call_id,
+                "state": {
+                    "status": "running",
+                    "input": {"action": action, "payload": payload},
+                },
+            }],
+        },
+    }
+    env.update({
+        "AITEST_HOST_SESSION_ID": session_id,
+        "AITEST_HOST_MESSAGE_ID": message,
+        "AITEST_HOST_CALL_ID": call_id,
+    })
+    return session_id
+
+
 def run(env: dict[str, str], role: str, action: str, payload: dict[str, object]) -> dict[str, object]:
     command = runtime_module_command(
         WORKSPACE_ROOT,
@@ -188,6 +248,7 @@ def main() -> int:
 
             runtime = create_canonical_runtime(root, db_path=spine)
             provider = DirectoryScopedOpenCodeSessionProvider(root, base_url=env["AITEST_OPENCODE_ENDPOINT"])
+            service = G21AutonomousOrchestrationService(runtime, root, session_provider=provider)
             primary = PrimarySessionOwner(runtime, root, provider).ensure_current()
             primary_session = primary["session_id"]
 
@@ -206,14 +267,25 @@ def main() -> int:
             resumed = run(env, "DIRECTOR", "start_test", payload)['operations'][0]
             checks["independent_process_same_scope_resumes"] = resumed['result']['resumed_existing_mission'] is True and resumed['subject']['subject_id']==mission_id
 
-            planned = run(env, "PLANNER", "propose_plan", {"mission_id": mission_id, "proposal": proposal()})
+            plan_payload = {"mission_id": mission_id, "proposal": proposal()}
+            bind_model_tool_call(
+                service, mission_id, env, role="PLANNER", action="propose_plan",
+                payload=plan_payload, message="planner-propose",
+            )
+            planned = run(env, "PLANNER", "propose_plan", plan_payload)
             first = planned["next"]
             checks["independent_process_plan_auto_dispatches"] = planned["autonomous_handoff"] == "SCHEDULER" and first["status"] == "DISPATCHED"
 
-            first_done = run(env, "EXECUTOR", "report_task_outcome", {
+            first_payload = {
                 "mission_id": mission_id, "task_id": first["task_id"], "attempt_id": first["attempt"]["attempt_id"],
                 "session_id": first["external_session"]["session_id"], "outcome": "SUCCEEDED", "summary": "first done",
-            })
+            }
+            bind_model_tool_call(
+                service, mission_id, env, role="EXECUTOR", action="report_task_outcome",
+                payload=first_payload, message="executor-first",
+                session_id=first["external_session"]["session_id"],
+            )
+            first_done = run(env, "EXECUTOR", "report_task_outcome", first_payload)
             second = first_done["next"]
             checks["independent_process_outcome_auto_dispatches_successor"] = second["status"] == "DISPATCHED" and second["task_id"] != first["task_id"]
 
@@ -228,10 +300,16 @@ def main() -> int:
                 observed["status"] == "ROTATED" and rotation["root_attempt_id"] == second["attempt"]["root_attempt_id"]
             )
 
-            second_done = run(env, "EXECUTOR", "report_task_outcome", {
+            second_payload = {
                 "mission_id": mission_id, "task_id": second["task_id"], "attempt_id": rotation["successor_attempt_id"],
                 "session_id": rotation["successor_session_id"], "outcome": "SUCCEEDED", "summary": "second done",
-            })
+            }
+            bind_model_tool_call(
+                service, mission_id, env, role="EXECUTOR", action="report_task_outcome",
+                payload=second_payload, message="executor-second",
+                session_id=rotation["successor_session_id"],
+            )
+            second_done = run(env, "EXECUTOR", "report_task_outcome", second_payload)
             checks["independent_process_loop_completes"] = second_done["next"]["status"] == "PLAN_COMPLETE"
             OpenCodeContractStub.host_messages,host_env,payload=host_turn(
                 {},session=primary_session,message='sub-c',text='继续测试',action='continue_test'
