@@ -53,7 +53,12 @@ class HostedIntake(unittest.TestCase):
     def test_product_entry_reads_host_turn_from_raw_transport_under_router_wrapper(self):
         from types import SimpleNamespace
         raw=Provider()
-        wrapped = SimpleNamespace(session_provider=object(), raw_session_provider=raw, runtime=object())
+        wrapped = SimpleNamespace(
+            session_provider=object(),
+            raw_session_provider=raw,
+            runtime=object(),
+            workspace_root=Path.cwd(),
+        )
         # This unit contract is about raw transport selection under the Router
         # wrapper. Primary authority itself is qualified separately, so isolate
         # that prerequisite while preserving current ToolContext verification.
