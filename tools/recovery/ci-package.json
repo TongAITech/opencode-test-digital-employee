@@ -6,6 +6,6 @@
   "source_policy": "REASSEMBLE_EXACT_WORKFLOW_HEAD",
   "carrier_scope": "HASH_LOCKED_OFFLINE_DEPENDENCIES_ONLY",
   "install_root": "D:/PFC/AITest",
-  "qualification_attempt": 25,
-  "trigger_reason": "READ_PRODUCT_ENTRY_RAW_HOST_REALM_RESTART"
+  "qualification_attempt": 26,
+  "trigger_reason": "REAL_OPENCODE_PINNED_CHILD_RUNTIME_AND_MODEL_BACKED_ROTATION"
 }
