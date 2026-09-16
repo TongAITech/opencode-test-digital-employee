@@ -22,6 +22,9 @@ from host_interaction_fixture import host_turn
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_ROOT = WORKSPACE_ROOT / "ai-test" / "runtime"
 sys.path.insert(0, str(RUNTIME_ROOT))
+from aitest_runtime.autonomous_orchestration import DirectoryScopedOpenCodeSessionProvider
+from aitest_runtime.canonical_runtime import create_canonical_runtime
+from aitest_runtime.primary_sessions import PrimarySessionOwner
 from aitest_runtime.runtime_subprocess import runtime_module_command
 
 
@@ -183,13 +186,22 @@ def main() -> int:
                 "PYTHONPATH": str(RUNTIME_ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""),
             })
 
-            OpenCodeContractStub.host_messages,host_env,payload=host_turn(request('sub-a')['scope'],message='sub-a')
+            runtime = create_canonical_runtime(root, db_path=spine)
+            provider = DirectoryScopedOpenCodeSessionProvider(root, base_url=env["AITEST_OPENCODE_ENDPOINT"])
+            primary = PrimarySessionOwner(runtime, root, provider).ensure_current()
+            primary_session = primary["session_id"]
+
+            OpenCodeContractStub.host_messages,host_env,payload=host_turn(
+                request('sub-a')['scope'],session=primary_session,message='sub-a'
+            )
             env.update(host_env)
             started = run(env, "DIRECTOR", "start_test", payload)['operations'][0]
             mission_id = started['subject']['subject_id']
             checks["independent_process_start_opens_real_provider_planner_session"] = started['status']=='DISPATCHED' and started['result']['next']['status']=='PLANNER_SESSION_OPEN' and any(sid.startswith('contract-session-') for sid in OpenCodeContractStub.sessions)
 
-            OpenCodeContractStub.host_messages,host_env,payload=host_turn(request('sub-b')['scope'],message='sub-b')
+            OpenCodeContractStub.host_messages,host_env,payload=host_turn(
+                request('sub-b')['scope'],session=primary_session,message='sub-b'
+            )
             env.update(host_env)
             resumed = run(env, "DIRECTOR", "start_test", payload)['operations'][0]
             checks["independent_process_same_scope_resumes"] = resumed['result']['resumed_existing_mission'] is True and resumed['subject']['subject_id']==mission_id
@@ -221,7 +233,9 @@ def main() -> int:
                 "session_id": rotation["successor_session_id"], "outcome": "SUCCEEDED", "summary": "second done",
             })
             checks["independent_process_loop_completes"] = second_done["next"]["status"] == "PLAN_COMPLETE"
-            OpenCodeContractStub.host_messages,host_env,payload=host_turn({},message='sub-c',text='继续测试',action='continue_test')
+            OpenCodeContractStub.host_messages,host_env,payload=host_turn(
+                {},session=primary_session,message='sub-c',text='继续测试',action='continue_test'
+            )
             env.update(host_env)
             continued = run(env, "DIRECTOR", "continue_test", payload)['operations'][0]
             checks["new_process_continue_reads_event_stream"] = continued['result']["status"] == "PLAN_COMPLETE" and spine.is_file()
