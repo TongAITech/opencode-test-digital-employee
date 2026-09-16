@@ -1,0 +1,80 @@
+name: Recovery real OpenCode focused qualification
+
+on:
+  push:
+    branches: [work/v1.13.0-recovery-turnkey-validation]
+    paths:
+      - workspace-template/.pfc-internal-field-validation/tests/test_recovery_real_opencode.py
+      - .github/workflows/recovery-real-opencode-focused.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  real-opencode:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      OPENCODE_DISABLE_AUTOUPDATE: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Reuse qualified offline runtime dependencies
+        shell: pwsh
+        run: |
+          $incoming = Join-Path $env:RUNNER_TEMP 'focused-payload'
+          gh run download 34278790485 --name recovery-qualified-package --dir $incoming
+          if ($LASTEXITCODE -ne 0) { throw 'Prior qualified offline payload unavailable' }
+          $zip = Join-Path $incoming 'AITest-V1.13.0-Recovery-Turnkey-Windows-x64.zip'
+          $expected = '49d8e4dc0a38a1ea89b5872bb7926151b938172650bec2534ce73c43f76e9be2'
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Offline payload input hash mismatch' }
+          $expanded = Join-Path $env:RUNNER_TEMP 'focused-payload-expanded'
+          Expand-Archive $zip -DestinationPath $expanded
+          $bundle = Get-ChildItem $expanded -Directory | Select-Object -First 1
+          if (-not $bundle) { throw 'Qualified payload root missing' }
+          $nodeModules = Join-Path $bundle.FullName 'workspace-template/.opencode/node_modules'
+          $targetModules = Join-Path $PWD 'workspace-template/.opencode/node_modules'
+          if (Test-Path $targetModules) { Remove-Item -Recurse -Force $targetModules }
+          Copy-Item $nodeModules $targetModules -Recurse -Force
+          "FOCUSED_PYTHON=$($bundle.FullName)/workspace-template/runtime/python/python.exe" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Acquire exact current-bank OpenCode host sample
+        shell: pwsh
+        run: |
+          $hostDir = Join-Path $env:RUNNER_TEMP 'focused-opencode-1.18.26'
+          New-Item -ItemType Directory -Path $hostDir -Force | Out-Null
+          $zip = Join-Path $hostDir 'opencode-windows-x64.zip'
+          Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/anomalyco/opencode/releases/download/v1.18.26/opencode-windows-x64.zip' -OutFile $zip -MaximumRedirection 10
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne 'c7af81e288dff3cf4378c9f3509208ef8bf060d7109589fee2cd943845d87786') {
+            throw "Current bank OpenCode host sample hash mismatch: $actual"
+          }
+          $expanded = Join-Path $hostDir 'expanded'
+          Expand-Archive $zip -DestinationPath $expanded
+          $hostExe = Get-ChildItem $expanded -Recurse -File -Filter opencode.exe | Select-Object -First 1
+          if (-not $hostExe) { throw 'Current bank OpenCode host sample executable missing' }
+          "AITEST_REAL_OPENCODE=$($hostExe.FullName)" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Run exact-host real OpenCode recovery regression
+        shell: pwsh
+        run: |
+          $env:GH_TOKEN = ''
+          $env:GITHUB_TOKEN = ''
+          $env:PYTHONNOUSERSITE = '1'
+          $env:PYTHONDONTWRITEBYTECODE = '1'
+          $env:PYTHONUTF8 = '1'
+          & "$env:FOCUSED_PYTHON" -X utf8 workspace-template/.pfc-internal-field-validation/tests/test_recovery_real_opencode.py 2>&1 | Tee-Object -FilePath RECOVERY_REAL_OPENCODE_FOCUSED.log
+          if ($LASTEXITCODE -ne 0) { throw 'Real OpenCode focused regression failed' }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recovery-real-opencode-focused
+          path: RECOVERY_REAL_OPENCODE_FOCUSED.log
+          if-no-files-found: warn
