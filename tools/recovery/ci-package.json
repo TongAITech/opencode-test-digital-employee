@@ -6,6 +6,6 @@
   "source_policy": "REASSEMBLE_EXACT_WORKFLOW_HEAD",
   "carrier_scope": "HASH_LOCKED_OFFLINE_DEPENDENCIES_ONLY",
   "install_root": "D:/PFC/AITest",
-  "qualification_attempt": 27,
-  "trigger_reason": "WINDOWS_CHROMIUM_FRESH_BOOTSTRAP_ABORT_RETRY"
+  "qualification_attempt": 28,
+  "trigger_reason": "HOSTED_INTAKE_TOOL_CONTEXT_FIXTURE_ALIGNMENT"
 }
