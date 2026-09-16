@@ -20,10 +20,13 @@ class RuntimeSteadyStateInitConcurrencyTests(unittest.TestCase):
             db = Path(td) / "state" / "runtime-spine.db"
             runtime = create_canonical_runtime(WORKSPACE_ROOT, db_path=db)
             self.assertTrue(db.is_file())
-            with sqlite3.connect(str(db)) as conn:
+            conn = sqlite3.connect(str(db))
+            try:
                 self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0].lower(), "wal")
                 self.assertIsNotNone(conn.execute("SELECT 1 FROM schema_migrations WHERE version=1").fetchone())
                 self.assertGreater(conn.execute("SELECT count(*) FROM extension_migrations").fetchone()[0], 0)
+            finally:
+                conn.close()
             self.assertEqual(runtime.get_head_seq("missing-mission"), 0)
 
     def test_steady_state_runtime_attach_is_read_only_while_writer_slot_is_owned(self):
