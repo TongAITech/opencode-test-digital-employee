@@ -21,6 +21,8 @@ from host_interaction_fixture import host_turn
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_ROOT = WORKSPACE_ROOT / "ai-test" / "runtime"
+sys.path.insert(0, str(RUNTIME_ROOT))
+from aitest_runtime.runtime_subprocess import runtime_module_command
 
 
 def canonical_sha(value: object) -> str:
@@ -142,8 +144,14 @@ class OpenCodeContractStub(BaseHTTPRequestHandler):
 
 
 def run(env: dict[str, str], role: str, action: str, payload: dict[str, object]) -> dict[str, object]:
+    command = runtime_module_command(
+        WORKSPACE_ROOT,
+        "aitest_runtime.product_entry",
+        "orchestrate", "--role", role, "--action", action,
+        "--payload", json.dumps(payload, ensure_ascii=False),
+    )
     proc = subprocess.run(
-        [sys.executable, "-m", "aitest_runtime.product_entry", "orchestrate", "--role", role, "--action", action, "--payload", json.dumps(payload, ensure_ascii=False)],
+        command,
         cwd=str(Path(env["AITEST_WORKSPACE_ROOT"])), env=env, capture_output=True, text=True, timeout=30,
     )
     if proc.returncode != 0:
