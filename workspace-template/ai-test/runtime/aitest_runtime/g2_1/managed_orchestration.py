@@ -1231,7 +1231,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
     @_coordinated
     def advance(self, mission_id: str, *, agent: str | None = None, parent_session_id: str | None = None) -> dict[str, Any]:
         if agent is not None:
-            raise RuntimeError("SESSION_ROUTER_AGENT_OVERRIDE_FORBIDDEN")
+            raise RuntimeError("SESSION_ROUTER_AGENT_OVERRIDE_FORBIDDEN", "caller-supplied agent override is forbidden; G2.1 Session Router owns agent selection")
         result = super().dispatch_next(mission_id, agent=DEFAULT_WORKER_AGENT, parent_session_id=parent_session_id)
         return {**result, "orchestration_advanced": True, "session_router": "G2_1"}
 
@@ -1241,7 +1241,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         if pending_controls(self.runtime, mission_id=mission_id, stopping_only=True, limit=1):
             return {'status':'WAIT','reason':'MISSION_CONTROL_PENDING','truth_source':'R1_EVENT_STREAM'}
         if agent is not None:
-            raise RuntimeError("SESSION_ROUTER_AGENT_OVERRIDE_FORBIDDEN")
+            raise RuntimeError("SESSION_ROUTER_AGENT_OVERRIDE_FORBIDDEN", "caller-supplied agent override is forbidden; G2.1 Session Router owns agent selection")
         return {**super().dispatch_next(mission_id, agent=DEFAULT_WORKER_AGENT, parent_session_id=parent_session_id), "session_router": "G2_1"}
 
     def _rotation_record_id(self, mission_id: str, task_id: str, predecessor_session_id: str) -> str:
@@ -1288,7 +1288,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         reasons: list[str] | None = None,
     ) -> dict[str, Any]:
         if agent is not None:
-            raise RuntimeError("SESSION_ROUTER_AGENT_OVERRIDE_FORBIDDEN")
+            raise RuntimeError("SESSION_ROUTER_AGENT_OVERRIDE_FORBIDDEN", "caller-supplied agent override is forbidden; G2.1 Session Router owns agent selection")
         mission_id = _text(mission_id, "mission_id")
         task_id = _text(task_id, "task_id")
         route = self._route_task(mission_id, task_id)
