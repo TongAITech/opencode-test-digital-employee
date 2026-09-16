@@ -216,10 +216,12 @@ def start_conversation(check_only=False, attach_runner=None, verified_integrity_
                 if time.monotonic() >= deadline: raise RuntimeError('HOST_OPENCODE_PROCESS_START_TIMEOUT')
                 time.sleep(.25)
         probe = client.probe()
+        from aitest_runtime.runtime_subprocess import runtime_module_command
         with (DATA / 'logs/control-loop.log').open('a', encoding='utf-8') as log:
-            loop = subprocess.Popen([sys.executable, '-X', 'utf8', '-m', 'aitest_runtime.control_loop',
-                '--workspace-root', str(WORKSPACE), '--interval', '3'], cwd=WORKSPACE, env=env,
-                stdout=log, stderr=subprocess.STDOUT)
+            loop = subprocess.Popen(runtime_module_command(
+                WORKSPACE, 'aitest_runtime.control_loop',
+                '--workspace-root', str(WORKSPACE), '--interval', '3'
+            ), cwd=WORKSPACE, env=env, stdout=log, stderr=subprocess.STDOUT)
         deadline = time.monotonic() + 20
         while True:
             if loop.poll() is not None: raise RuntimeError('CONTROL_LOOP_START_FAILED')
@@ -356,7 +358,12 @@ def browser_teaching():
                   'cdp_endpoint': 'http://127.0.0.1:9222', 'resume_checks': checks, 'response_body_paths': paths}
         write(WORKSPACE / 'bindings/browser.json', config)
     print('浏览器由您操作。当前任务触发人工接管后会自动观察；操作完成后回到对话输入“完成”，系统验证并续跑。')
-    return subprocess.call([sys.executable, '-m', 'aitest_runtime.recovery_browser', '--workspace-root', str(WORKSPACE), '--mission-id', mission, '--gate-only'], cwd=WORKSPACE, env=prepare())
+    env = prepare()
+    from aitest_runtime.runtime_subprocess import runtime_module_command
+    return subprocess.call(runtime_module_command(
+        WORKSPACE, 'aitest_runtime.recovery_browser',
+        '--workspace-root', str(WORKSPACE), '--mission-id', mission, '--gate-only'
+    ), cwd=WORKSPACE, env=env)
 
 
 def select_mission():
