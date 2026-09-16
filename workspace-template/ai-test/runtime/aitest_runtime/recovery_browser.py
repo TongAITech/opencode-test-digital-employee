@@ -229,7 +229,19 @@ class CDPBrowserProvider:
                     blank = next((page for page in pages if page.url == "about:blank"), None)
                     if blank is None:
                         raise RuntimeError("BROWSER_FRESH_BOOTSTRAP_PAGE_REQUIRED")
-                    blank.goto(start_url, wait_until="domcontentloaded", timeout=30000)
+                    # A freshly launched Windows Chromium can briefly race
+                    # its command-line about:blank navigation against the first
+                    # CDP-driven navigation. Retry only that exact transient
+                    # ERR_ABORTED condition; all other navigation failures remain
+                    # fail-closed.
+                    for attempt in range(3):
+                        try:
+                            blank.goto(start_url, wait_until="domcontentloaded", timeout=30000)
+                            break
+                        except Exception as exc:
+                            if "net::ERR_ABORTED" not in str(exc) or attempt == 2:
+                                raise
+                            time.sleep(0.25 * (attempt + 1))
                 self.inspect_context(ref)
                 return {"status": "READY", "browser_context_ref": ref.to_dict(), "reused": False, "pid": process.pid}
             raise RuntimeError("BROWSER_CDP_START_TIMEOUT")
