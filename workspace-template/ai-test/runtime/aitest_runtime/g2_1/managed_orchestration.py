@@ -1090,7 +1090,7 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             # This Mission entered planning under G2.1. Missing route facts now
             # mean an interrupted/partial Planner->Router commit, not a legacy
             # G2 plan. Fail closed instead of silently changing the AI route.
-            raise RuntimeError(f"SESSION_ROUTER_ROUTE_REGISTRATION_INCOMPLETE: {task_id}")
+            raise RuntimeError("SESSION_ROUTER_ROUTE_REGISTRATION_INCOMPLETE", f"route registration incomplete for task {task_id}", {"task_id": task_id})
         role = self.role_registry.resolve("EXECUTOR")
         self.session_control.register_task_route(
             mission_id, task_id=task_id, role=role.role, agent_name=role.agent_name,
