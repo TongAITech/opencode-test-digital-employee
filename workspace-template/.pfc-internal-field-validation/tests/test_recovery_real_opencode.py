@@ -42,7 +42,7 @@ def main():
                 XDG_DATA_HOME=str(root/'oc-data'), XDG_CONFIG_HOME=str(root/'oc-config'), XDG_CACHE_HOME=str(root/'oc-cache'),
                 BUN_INSTALL_CACHE_DIR=str(root/'bun-cache'), NO_PROXY='localhost,127.0.0.1,::1', no_proxy='localhost,127.0.0.1,::1',
                 PYTHONPATH=str(WORKSPACE/'ai-test/runtime'), PYTHONDONTWRITEBYTECODE='1')
-            env['OPENCODE_CONFIG_CONTENT'] = json.dumps({'enabled_providers':['fixture'],'model':'fixture/local-no-model','provider':{'fixture':{'npm':'@ai-sdk/openai-compatible','options':{'baseURL':'http://127.0.0.1:9/v1','apiKey':'synthetic-only'},'models':{'local-no-model':{'name':'Local fixture'}}}}})
+            env['OPENCODE_CONFIG_CONTENT'] = json.dumps({'enabled_providers':['fixture'],'model':'fixture/local-no-model','provider':{'fixture':{'npm':'@ai-sdk/openai-compatible','options':{'baseURL':'http://127.0.0.1:9/v1','apiKey':'synthetic-only'},'models':{'local-no-model':{'name':'Local fixture','limit':{'context':8192,'output':1024}}}}}})
             env['AITEST_MODEL_KEY'] = 'synthetic-not-a-credential'
             os.environ.update(env)
             with (root/'server.log').open('w') as log:
@@ -88,6 +88,12 @@ def main():
                 {'agent':'aitest-executor','noReply':True,'parts':[{'type':'text','text':'本地合成负载仅用于上下文预算验证。'*1200}]})
             observed = provider.observe_session(sid)
             assert observed['pressure']['metrics_source']=='OPENCODE_MESSAGE_API', observed
+            # The fixture must construct a real, model-capacity-backed pressure
+            # condition before the Control Loop is expected to rotate. Unknown
+            # capacity is deliberately not treated as pressure in product code.
+            pressure = observed['pressure']
+            assert pressure.get('estimated_context_budget') == 8192, pressure
+            assert (pressure.get('estimated_context_utilization') or 0) >= 0.75, pressure
             with (root/'loop.log').open('w') as log:
                 loop = subprocess.Popen(runtime_module_command(
                     WORKSPACE, 'aitest_runtime.control_loop',
