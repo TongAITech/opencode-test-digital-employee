@@ -213,7 +213,7 @@ def main() -> int:
                 "session_id": rotation["successor_session_id"], "outcome": "SUCCEEDED", "summary": "second done",
             })
             checks["independent_process_loop_completes"] = second_done["next"]["status"] == "PLAN_COMPLETE"
-            OpenCodeContractStub.host_messages,host_env,payload=host_turn({},message='sub-c',text='继续测试')
+            OpenCodeContractStub.host_messages,host_env,payload=host_turn({},message='sub-c',text='继续测试',action='continue_test')
             env.update(host_env)
             continued = run(env, "DIRECTOR", "continue_test", payload)['operations'][0]
             checks["new_process_continue_reads_event_stream"] = continued['result']["status"] == "PLAN_COMPLETE" and spine.is_file()
