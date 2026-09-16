@@ -21,7 +21,7 @@ from aitest_runtime.autonomous_orchestration import (  # noqa: E402
     DirectoryScopedOpenCodeSessionProvider, FakeOpenCodeSessionProvider,
 )
 from aitest_runtime.canonical_runtime import create_canonical_runtime  # noqa: E402
-from aitest_runtime.durable_core import ActorRef, CommandEnvelope, canonical_sha256  # noqa: E402
+from aitest_runtime.durable_core import ActorRef, CommandEnvelope, RuntimeError as DurableRuntimeError, canonical_sha256  # noqa: E402
 from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService  # noqa: E402
 from aitest_runtime.g2_1.contracts import SessionControlState, TaskRouteRequirement  # noqa: E402
 from aitest_runtime.g2_1.router import AgentRoleRegistry, SessionRouter  # noqa: E402
@@ -156,8 +156,8 @@ def main() -> int:
         override_forbidden = False
         try:
             service.dispatch_next(mission_id, agent="aitest-executor")
-        except RuntimeError as exc:
-            override_forbidden = "SESSION_ROUTER_AGENT_OVERRIDE_FORBIDDEN" in str(exc)
+        except DurableRuntimeError as exc:
+            override_forbidden = exc.code == "SESSION_ROUTER_AGENT_OVERRIDE_FORBIDDEN"
         checks["scheduler_cannot_override_router_agent"] = override_forbidden
         # Generic worker boundary maps role-specific Sessions to the canonical
         # Task outcome contract; the Session role itself is not changed.
