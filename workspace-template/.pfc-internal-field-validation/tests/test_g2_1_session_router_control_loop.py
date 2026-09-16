@@ -348,8 +348,8 @@ def main() -> int:
         route_fail_closed = False
         try:
             recovered.advance(mission_id)
-        except RuntimeError as exc:
-            route_fail_closed = "SESSION_ROUTER_ROUTE_REGISTRATION_INCOMPLETE" in str(exc)
+        except DurableRuntimeError as exc:
+            route_fail_closed = exc.code == "SESSION_ROUTER_ROUTE_REGISTRATION_INCOMPLETE"
         checks["partial_plan_route_commit_fails_closed_not_legacy_default"] = (
             route_commit_crashed and recovered.session_control.state(mission_id).routing_authority_enabled and route_fail_closed
         )
