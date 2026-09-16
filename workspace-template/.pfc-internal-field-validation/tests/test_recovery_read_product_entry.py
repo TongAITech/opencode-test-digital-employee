@@ -353,7 +353,7 @@ class RecoveryReadProductEntryTests(unittest.TestCase):
         # a stale model caller from conversation state.
         self.orchestration = G21AutonomousOrchestrationService(
             create_canonical_runtime(self.root, db_path=self.db), self.root,
-            session_provider=self.orchestration.session_provider)
+            session_provider=self.orchestration.raw_session_provider)
         seq = self.runtime.get_head_seq(self.mission)
         with self.assertRaisesRegex(Exception, "STALE_CALLER"):
             self.invoke_hosted_planner("intake_context", planner_bound)
