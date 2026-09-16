@@ -34,6 +34,7 @@ from aitest_runtime.autonomous_orchestration import DirectoryScopedOpenCodeSessi
 from aitest_runtime.canonical_runtime import create_canonical_runtime
 from aitest_runtime.bounded_evidence import mission_evidence_directory
 from aitest_runtime.primary_sessions import PrimarySessionOwner
+from aitest_runtime.runtime_subprocess import runtime_module_command
 
 
 def texts(content):
@@ -286,7 +287,12 @@ def main():
                     event_ready.set()
             threading.Thread(target=observe_tools, daemon=True).start()
             if not event_ready.wait(10): raise RuntimeError('OPENCODE_TOOL_EVENT_OBSERVER_UNAVAILABLE')
-            loop_command = [sys.executable, '-X', 'utf8', '-m', 'aitest_runtime.control_loop', '--workspace-root', str(workspace), '--interval', '3']
+            loop_command = runtime_module_command(
+                workspace,
+                'aitest_runtime.control_loop',
+                '--workspace-root', str(workspace),
+                '--interval', '3',
+            )
             with (root / 'control-loop.log').open('w') as log:
                 loop = subprocess.Popen(loop_command, cwd=workspace, env=env, stdout=log, stderr=subprocess.STDOUT)
             # Follow the installed product contract: the trusted launcher owns
