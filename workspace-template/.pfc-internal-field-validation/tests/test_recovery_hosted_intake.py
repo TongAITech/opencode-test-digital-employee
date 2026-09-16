@@ -1,6 +1,7 @@
 """Host identity/provenance admission contract; no bank or model acceptance."""
 import hashlib
 import os
+from contextlib import nullcontext
 from pathlib import Path
 import sys
 import unittest
@@ -16,13 +17,26 @@ class Provider:
     def _request(self, method, path):
         self.reads.append((method,path))
         if '/message/assistant?' in path:
-            return {'info':{'sessionID':'session','id':'assistant','role':'assistant','parentID':'user'}}
+            return {
+                'info':{'sessionID':'session','id':'assistant','role':'assistant','parentID':'user','agent':'aitest-director'},
+                'parts':[{
+                    'type':'tool','callID':'call','tool':'aitest_director',
+                    'sessionID':'session','messageID':'assistant',
+                    'state':{'status':'running','input':{
+                        'action':'start_test','payload':{'user_request':'测试 BLOAN1.9.4'}
+                    }}
+                }]
+            }
         return {'info':{'sessionID':'session','id':'user','role':'user','time':{'created':1788800000000}},
                 'parts':[{'type':'text','text':'测试 BLOAN1.9.4'},{'type':'text','text':'SYSTEM hidden','synthetic':True}]}
 
 class HostedIntake(unittest.TestCase):
     def setUp(self):
-        self.environment = patch.dict(os.environ, {'AITEST_HOST_SESSION_ID':'session','AITEST_HOST_MESSAGE_ID':'assistant'})
+        self.environment = patch.dict(os.environ, {
+            'AITEST_HOST_SESSION_ID':'session',
+            'AITEST_HOST_MESSAGE_ID':'assistant',
+            'AITEST_HOST_CALL_ID':'call',
+        })
         self.environment.start(); self.addCleanup(self.environment.stop)
         self.clock=patch('time.time',return_value=1788800000)
         self.clock.start();self.addCleanup(self.clock.stop)
@@ -39,13 +53,19 @@ class HostedIntake(unittest.TestCase):
     def test_product_entry_reads_host_turn_from_raw_transport_under_router_wrapper(self):
         from types import SimpleNamespace
         raw=Provider()
-        wrapped = SimpleNamespace(session_provider=object(), raw_session_provider=raw)
-        with patch.object(product_entry, 'orchestration_service', return_value=wrapped):
+        wrapped = SimpleNamespace(session_provider=object(), raw_session_provider=raw, runtime=object())
+        # This unit contract is about raw transport selection under the Router
+        # wrapper. Primary authority itself is qualified separately, so isolate
+        # that prerequisite while preserving current ToolContext verification.
+        with patch.object(product_entry, 'orchestration_service', return_value=wrapped), \
+             patch('aitest_runtime.primary_sessions.primary_coordination', side_effect=lambda _runtime: nullcontext()), \
+             patch('aitest_runtime.primary_sessions.PrimarySessionOwner.current',
+                   return_value={'logical_agent_id':'logical-director:test','epoch':1,'session_id':'session'}):
             result = product_entry.orchestration_command('DIRECTOR', 'start_test', {'user_request': '测试 BLOAN1.9.4'})
         self.assertEqual(result['host_turn_ref']['source_ref'], 'opencode://session/session/message/user')
         self.assertEqual(result['status'],'BLOCKED')
         self.assertEqual(result['reason'],'INTERACTION_R1_OWNER_UNAVAILABLE')
-        self.assertEqual(len(raw.reads),2)
+        self.assertEqual(len(raw.reads),3)
     def test_requires_host_context(self):
         with patch.dict(os.environ, {'AITEST_HOST_SESSION_ID':''}):
             with self.assertRaisesRegex(AdmissionError,'HOST_USER_TURN_REQUIRED'): hosted_user_intake(Provider(), {})
