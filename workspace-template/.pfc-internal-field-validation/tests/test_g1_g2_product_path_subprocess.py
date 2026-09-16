@@ -109,7 +109,13 @@ class OpenCodeContractStub(BaseHTTPRequestHandler):
                 self._json(404, {"error": "not found"})
                 return
             value = dict(self.__class__.sessions[sid])
-            value.update({"messageCount": 61, "compactionCount": 0, "contextUtilization": 0.5, "healthy": True})
+            is_primary = str(value.get("title") or "").startswith("AITest Director ")
+            value.update({
+                "messageCount": 1 if is_primary else 61,
+                "compactionCount": 0,
+                "contextUtilization": 0.1 if is_primary else 0.5,
+                "healthy": True,
+            })
             self._json(200, value)
             return
         self._json(404, {"error": "unknown"})
@@ -225,6 +231,24 @@ def run(env: dict[str, str], role: str, action: str, payload: dict[str, object])
     return value
 
 
+def run_control_tick(env: dict[str, str], root: Path) -> dict[str, object]:
+    command = runtime_module_command(
+        WORKSPACE_ROOT,
+        "aitest_runtime.control_loop",
+        "--workspace-root", str(root),
+        "--once",
+    )
+    proc = subprocess.run(
+        command, cwd=str(root), env=env, capture_output=True, text=True, timeout=30,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"CONTROL_LOOP/once failed: {proc.stdout} {proc.stderr}")
+    value = json.loads(proc.stdout)
+    if value.get("truth_source") != "R1_EVENT_STREAM":
+        raise RuntimeError(f"non-canonical control-loop result: {value}")
+    return value
+
+
 def main() -> int:
     checks: dict[str, bool] = {}
     OpenCodeContractStub.sessions = {}
@@ -289,7 +313,7 @@ def main() -> int:
             second = first_done["next"]
             checks["independent_process_outcome_auto_dispatches_successor"] = second["status"] == "DISPATCHED" and second["task_id"] != first["task_id"]
 
-            tick = run(env, "CONTROL", "control_tick", {})
+            tick = run_control_tick(env, root)
             rotated = [
                 item["result"] for item in tick.get("supervision", [])
                 if item.get("task_id") == second["task_id"] and item.get("result", {}).get("status") == "ROTATED"
