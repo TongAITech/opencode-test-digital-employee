@@ -6,6 +6,6 @@
   "source_policy": "REASSEMBLE_EXACT_WORKFLOW_HEAD",
   "carrier_scope": "HASH_LOCKED_OFFLINE_DEPENDENCIES_ONLY",
   "install_root": "D:/PFC/AITest",
-  "qualification_attempt": 32,
-  "trigger_reason": "G3_ROUTED_MODEL_AUTHORITY_ALIGNMENT"
+  "qualification_attempt": 33,
+  "trigger_reason": "G4_SAME_MISSION_AND_DURABLE_RESUME_CLOSURE"
 }
