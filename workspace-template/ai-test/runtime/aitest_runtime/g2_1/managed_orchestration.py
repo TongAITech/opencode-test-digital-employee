@@ -207,7 +207,10 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
             raise RuntimeError("SESSION_PROVISION_INTENT_MISSING")
         if existing.status == "BOUND":
             if existing.external_session_id != session_id:
-                raise RuntimeError("SESSION_PROVISION_BINDING_CONFLICT")
+                raise RuntimeError(
+                    "SESSION_PROVISION_BINDING_CONFLICT",
+                    f"{token}: {existing.external_session_id} != {session_id}",
+                )
             return
         self.session_control.bind_provision(mission_id, token, session_id)
 
@@ -431,17 +434,22 @@ class G21AutonomousOrchestrationService(AutonomousOrchestrationService):
         if pending_controls(self.runtime, mission_id=mission_id, stopping_only=True, limit=1):
             return {'status':'WAIT','reason':'MISSION_CONTROL_PENDING','truth_source':'R1_EVENT_STREAM'}
         mission_id = _text(mission_id, "mission_id")
-        composed = self.runtime.replay_composed(mission_id)
-        mission = composed.core_state.mission
-        if mission is None or mission.status != MissionStatus.ACTIVE or not mission.active_goal_id:
-            raise RuntimeError("ACTIVE_MISSION_AND_GOAL_REQUIRED_FOR_PLANNING")
-        goal = composed.core_state.goal(mission.active_goal_id)
-        if goal is None:
-            raise RuntimeError("ACTIVE_GOAL_NOT_FOUND")
+        composed, _graph, goal, current_plan = self._active_plan_context(mission_id)
         self.session_control.enable_routing_authority(mission_id)
         role = self.role_registry.resolve("PLANNER")
         logical_agent_id = self.session_router.logical_agent_id(role.agent_name, f"planning:{mission_id}:{goal.revision}")
-        token = self._provision_token(mission_id, logical_agent_id, "PLANNING")
+        # One provision token identifies one durable planning generation.
+        # Before the first Plan exists, Goal revision is the stable crash-recovery
+        # identity. After a Plan is accepted, its current Revision becomes the
+        # stable basis for the next governed REPLAN session. This preserves
+        # retry idempotency while preventing a newly opened Planner Session from
+        # colliding with the token already bound to the previous closed Session.
+        planning_generation = (
+            f"plan-revision:{current_plan.current_revision_id}"
+            if current_plan is not None and current_plan.current_revision_id
+            else f"goal-revision:{goal.goal_id}:{goal.revision}:initial"
+        )
+        token = self._provision_token(mission_id, logical_agent_id, "PLANNING", planning_generation)
         title = f"AITest Planner · {mission_id}"
         self._request_provision_if_needed(
             mission_id, token=token, task_id=None, logical_agent_id=logical_agent_id, root_attempt_id=None,
