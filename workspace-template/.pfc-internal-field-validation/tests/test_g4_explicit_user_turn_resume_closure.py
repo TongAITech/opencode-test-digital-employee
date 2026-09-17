@@ -5,6 +5,8 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
+from urllib.parse import urlparse
 
 HERE = Path(__file__).resolve()
 WORKSPACE = HERE.parents[2]
@@ -19,8 +21,10 @@ from aitest_runtime.common import now_iso
 from aitest_runtime.durable_core import canonical_sha256
 from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
 from aitest_runtime.g4.service import G4RealExecutionService
+from aitest_runtime.primary_sessions import PrimarySessionOwner
 from aitest_runtime.r2_6.contracts import OUTCOMES, policy_digest
 from aitest_runtime.r3_e2.contracts import BrowserContextRef
+from host_interaction_fixture import host_turn
 from test_g3_testing_intelligence_product_path import binding, intake_request
 from test_g4_background_auto_resume_wave2 import BrowserPort, seed_g3, task
 
@@ -164,20 +168,56 @@ def main() -> int:
         checks["resolver_uses_r1_and_never_persists_raw_user_text"] = resume_request is not None and resume_request.payload["raw_user_text_persisted"] is False and resume_request.payload["user_text_authoritative"] is False and not_ready["conversation_history_dependency"] is False
 
         browser.resume_ready = True
-        # Product-path call creates a fresh Runtime/service internally. This is the
-        # exact allowed OpenCode 1.18.3 fallback: Primary Director -> deterministic resolver.
+        # A fresh Host user turn is the product authority. The Director proposes
+        # HUMAN_GATE_RESPONSE; hosted_interaction binds the real Primary/tool call
+        # and the typed Gate owner independently selects/revalidates the Gate.
+        primary = PrimarySessionOwner(runtime, root, provider).ensure_current()
+        host_session = primary["session_id"]
+        user_text = f"完成 {mission_id}"
+        proposal = {"operations": [{
+            "intent": "HUMAN_GATE_RESPONSE",
+            "action": "verify",
+            "start": 0,
+            "end": len(user_text),
+            "subject_id": mission_id,
+        }]}
+        host_payload = {"proposal": proposal}
+        messages, host_env, _ = host_turn(
+            {}, session=host_session, message="user-explicit-resume",
+            text=user_text, action="interact",
+        )
+        assistant = host_env["AITEST_HOST_MESSAGE_ID"]
+        call_id = "call-explicit-resume"
+        messages[f"/session/{host_session}/message/{assistant}"]["parts"] = [{
+            "type": "tool",
+            "tool": "aitest_director",
+            "sessionID": host_session,
+            "messageID": assistant,
+            "callID": call_id,
+            "state": {"status": "running", "input": {"action": "interact", "payload": host_payload}},
+        }]
+        host_env["AITEST_HOST_CALL_ID"] = call_id
+        reads: list[str] = []
+
+        def read_host(method: str, path: str) -> dict:
+            assert method == "GET"
+            reads.append(path)
+            return messages[urlparse(path).path]
+
+        old_orchestration_service = product_entry.orchestration_service
         product_entry._G4_BROWSER_PROVIDER = browser
+        product_entry.orchestration_service = lambda _root=None: orch
         try:
-            resumed = product_entry.g4_command("DIRECTOR", "human_gate_user_turn_resume", {
-                "mission_id": mission_id,
-                "user_text": "完成",
-                "actor_id": "tester-new-user-turn",
-            })
+            with patch.dict(os.environ, host_env), patch.object(provider, "_request", side_effect=read_host, create=True), patch.object(provider, "_directory_query", return_value="directory=fixture", create=True):
+                interaction = product_entry.orchestration_command("DIRECTOR", "interact", host_payload)
         finally:
+            product_entry.orchestration_service = old_orchestration_service
             product_entry._G4_BROWSER_PROVIDER = None
+        operation = interaction["operations"][0]
+        resumed = operation.get("result") or {}
         restarted = create_canonical_runtime(root, db_path=db)
         restarted_human = restarted.replay_composed(mission_id).extension_state("r2_6_human_gate")
-        checks["product_director_new_user_turn_resumes_after_fresh_verification"] = resumed["status"] == "RESUME_SAFE" and resumed["completion_authority"] == "BROWSER_RUNTIME_FRESH_VERIFICATION"
+        checks["product_director_new_user_turn_resumes_after_fresh_verification"] = operation["status"] == "COMPLETED" and resumed["status"] == "RESUME_SAFE" and resumed["completion_authority"] == "BROWSER_RUNTIME_FRESH_VERIFICATION" and len(reads) == 3
         checks["canonical_r26_resolves_only_after_runtime_verification"] = restarted_human.gate("gate-explicit").status == "RESOLVED"
         checks["successful_resume_transfers_human_back_to_ai"] = browser.owner == "AI"
         g4_restart = G4RealExecutionService(restarted, browser_provider=browser)
