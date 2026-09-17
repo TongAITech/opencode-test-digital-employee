@@ -37,6 +37,7 @@ MODEL_TOOLS = {
     "TEST_STRATEGIST": "aitest_test_strategist",
     "CASE_DESIGNER": "aitest_case_designer",
     "EVALUATOR": "aitest_evaluator",
+    "EXECUTOR": "aitest_executor",
 }
 
 
@@ -117,6 +118,8 @@ def invoke_model_command(
             return product_entry.orchestration_command(role, action, data)
         if family == "g3":
             return product_entry.g3_command(role, action, data)
+        if family == "g4":
+            return product_entry.g4_command(role, action, data)
         raise AssertionError(family)
 
 
