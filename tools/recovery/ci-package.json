@@ -6,6 +6,6 @@
   "source_policy": "REASSEMBLE_EXACT_WORKFLOW_HEAD",
   "carrier_scope": "HASH_LOCKED_OFFLINE_DEPENDENCIES_ONLY",
   "install_root": "D:/PFC/AITest",
-  "qualification_attempt": 34,
-  "trigger_reason": "G4_WAVE2_HOST_USER_TURN_ALIGNMENT"
+  "qualification_attempt": 35,
+  "trigger_reason": "G4_EXPLICIT_USER_TURN_HOST_INTERACTION_CLOSURE"
 }
