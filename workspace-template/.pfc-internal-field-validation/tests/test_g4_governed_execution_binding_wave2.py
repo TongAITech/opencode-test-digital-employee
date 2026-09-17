@@ -20,6 +20,7 @@ from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestration
 from aitest_runtime.g3.coverage import CoverageProviderResult, MappingCoveragePlatformProvider
 from aitest_runtime.g3.service import G3TestingIntelligenceService
 from aitest_runtime.g4.service import G4RealExecutionService
+from host_interaction_fixture import start_product_mission
 from test_g4_full_same_mission_product_e2e import (
     DeterministicExecutor,
     binding,
@@ -63,8 +64,8 @@ def main() -> int:
         product_entry.default_service = lambda _rt, _root: orch
         product_entry.G3TestingIntelligenceService = lambda rt, orchestration=None: G3TestingIntelligenceService(rt, coverage_provider=coverage_box["provider"], orchestration=orchestration or orch)
         try:
-            started = product_entry.orchestration_command("DIRECTOR", "start_test", {"request": intake_request()})
-            mission_id = started["intake"]["intake"]["mission_id"]
+            started = start_product_mission(orch, intake_request(), fixture_id="g4-wave2-binding")
+            mission_id = started["operations"][0]["subject"]["subject_id"]
             cycle = g3_cycle(mission_id, orch, coverage_box, repos, 1)
             case_fact = cycle["cases"]["ready_cases"][0]["case"]
             case = case_fact["payload"]["r3_3_case"]
