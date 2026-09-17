@@ -305,6 +305,47 @@ def main() -> int:
             and provider.sessions[planning_rotations[0]["successor_session_id"]].raw.get("parentID") is None
         )
 
+    # A later governed PlanRevision needs a fresh Planner Session. The initial
+    # PLANNING provision remains immutable/bound for crash recovery; reopening
+    # after Plan completion must advance provision identity instead of rebinding
+    # the old token to a new Host Session.
+    with tempfile.TemporaryDirectory(prefix="pfc-g21-planner-generation-") as td:
+        root = Path(td); runtime = create_canonical_runtime(root, db_path=root / "runtime-spine.db")
+        provider = FakeOpenCodeSessionProvider(root)
+        service = G21AutonomousOrchestrationService(runtime, root, session_provider=provider)
+        started = service.start_test(request("planner-generation", "PLAN-GEN-V"))
+        mission_id = started["intake"]["intake"]["mission_id"]
+        first_planner = started["planner_session"]
+        first_planner_sid = first_planner["external_session"]["session_id"]
+        first_planner_token = first_planner["provision_token"]
+        planned = service.propose_plan(mission_id, one_task("EXECUTOR"))
+        first = planned["next"]
+        completed = service.report_task_outcome(
+            mission_id,
+            task_id=first["task_id"],
+            attempt_id=first["attempt"]["attempt_id"],
+            session_id=first["external_session"]["session_id"],
+            outcome="SUCCEEDED",
+            summary="Complete first planning generation",
+        )
+        reopened = service.open_planning_session(mission_id)
+        second_planner_sid = reopened["external_session"]["session_id"]
+        second_planner_token = reopened["provision_token"]
+        planner_provisions = [
+            item for item in service.session_control.state(mission_id).provisions
+            if item.phase == "PLANNING"
+        ]
+        checks["completed_plan_reopens_planner_with_new_revision_scoped_provision"] = (
+            completed["next"]["status"] == "PLAN_COMPLETE"
+            and reopened["status"] == "PLANNER_SESSION_OPEN"
+            and second_planner_sid != first_planner_sid
+            and second_planner_token != first_planner_token
+            and len(planner_provisions) == 2
+            and {item.external_session_id for item in planner_provisions}
+                == {first_planner_sid, second_planner_sid}
+            and all(item.status == "BOUND" for item in planner_provisions)
+        )
+
     # Reconciliation spans terminal Missions too; a package-owned Session
     # cannot leak merely because the Mission is no longer ACTIVE.
     with tempfile.TemporaryDirectory(prefix="pfc-g21-terminal-cleanup-") as td:
