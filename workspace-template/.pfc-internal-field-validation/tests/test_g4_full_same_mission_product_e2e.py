@@ -77,6 +77,11 @@ def g3_cycle(mid, orch, coverage_box, repos, cycle, replan_ref=None):
  if replan_ref: scope['replan_request_ref']=replan_ref
  stage(f'g3 cycle {cycle}: register intent')
  intent=G3TestingIntelligenceService(orch.runtime,coverage_provider=coverage_box['provider'],orchestration=orch).register_intent(mid,'TEST_CASE_DESIGN',scope,{'cycle':cycle})
+ if cycle > 1:
+  stage(f'g3 cycle {cycle}: open fresh planner session')
+  planner_session=orch.open_planning_session(mid)
+  if planner_session.get('status') not in {'OPENED','ALREADY_OPEN','PASS'}:
+   raise AssertionError('G3_REPLAN_PLANNER_SESSION_NOT_READY:'+json.dumps(planner_session,sort_keys=True,default=str))
  stage(f'g3 cycle {cycle}: propose plan')
  plan_proposal={**intent['recommended_plan'],'planner_request_id':f"g3:{intent['intent']['fact_id']}:plan"}; plan_result=invoke_model_command(orch,family='orchestration',role='PLANNER',action='propose_plan',payload={'mission_id':mid,'proposal':plan_proposal}); first=plan_result['next'];
  if first is None: raise AssertionError('G3_PLAN_HANDOFF_FAILED:'+json.dumps(plan_result,sort_keys=True,default=str))
