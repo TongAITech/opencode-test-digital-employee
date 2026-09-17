@@ -169,7 +169,10 @@ def main():
    # New Runtime completes explicit human gate and recovers original cursor/context.
    stage('explicit resume')
    explicit=G4RealExecutionService(runtime_restart,orchestration=orch_restart,browser_provider=bp).complete_human_takeover(mid,{'human_gate_id':'g4-4a-explicit','completion_mode':'EXPLICIT','verification':{'auth_state':'VERIFIED','page_identity':'VERIFIED','business_state':'RESUME_SAFE'},'source_ref':'human:4a','actor_id':'human'}); checks['explicit_resume_same_context_root_step']=explicit['resume_attempt_id']==ab['attempt_id'] and explicit['root_attempt_id']==a['attempt']['root_attempt_id'] and explicit['cursor']['payload']['pending_step_id']=='login' and bp.owner=='AI'
-   lease_states=[f.payload['state'] for f in G4RealExecutionService(runtime_restart,orchestration=orch_restart,browser_provider=bp).state(mid).by_kind('BROWSER_LEASE') if str(f.payload.get('lease_id','')).startswith('lease:g4-4a-explicit:')]; checks['browser_lease_full_state_machine']=lease_states==['AI_CONTROLLED','TAKEOVER_REQUESTED','HUMAN_CONTROLLED','HUMAN_COMPLETED_PENDING_VERIFY','AI_RECLAIMING','AI_CONTROLLED']
+   lease_states=[f.payload['state'] for f in G4RealExecutionService(runtime_restart,orchestration=orch_restart,browser_provider=bp).state(mid).by_kind('BROWSER_LEASE') if str(f.payload.get('lease_id','')).startswith('lease:g4-4a-explicit:')]
+   from aitest_runtime.human_gate_resume_receipts import GateResumeReceipt
+   resume_state=GateResumeReceipt(runtime_restart,mid,'g4-4a-explicit').state()
+   checks['browser_lease_full_state_machine']=lease_states==['AI_CONTROLLED','TAKEOVER_REQUESTED','HUMAN_CONTROLLED','AI_RECLAIMING','AI_CONTROLLED'] and resume_state.phase=='COMPLETED' and all(key in resume_state.records for key in ('VERIFIED','HAND_BACK_INTENT','DECIDED','RESUME_SAFE','COMPLETED'))
    # A cannot preempt rotated B while B owns runnable slot. Rotation/recovery may return
    # a canonical repair envelope rather than the normal DISPATCHED shape, so infer identity
    # from durable execution lineage instead of changing the frozen Runtime contract.
