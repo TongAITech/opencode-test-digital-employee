@@ -5,6 +5,7 @@ on:
     branches: [work/v1.13.0-recovery-turnkey-validation]
     paths:
       - workspace-template/.pfc-internal-field-validation/tests/test_g4_full_same_mission_product_e2e.py
+      - workspace-template/.pfc-internal-field-validation/tests/test_g4_governed_execution_binding_wave2.py
       - workspace-template/.pfc-internal-field-validation/tests/test_g3_testing_intelligence_product_path.py
       - workspace-template/.pfc-internal-field-validation/tests/test_g2_1_session_router_control_loop.py
       - workspace-template/ai-test/runtime/aitest_runtime/g2_1/**
@@ -65,9 +66,23 @@ jobs:
           & "$env:FOCUSED_PYTHON" -X utf8 -c "import sys,runpy; from pathlib import Path; p=sys.argv[1]; sys.path.insert(0,str(Path(p).parent)); sys.argv=[p]; runpy.run_path(p,run_name='__main__')" $test 2>&1 | Tee-Object -FilePath RECOVERY_G4_SAME_MISSION_FOCUSED.log
           if ($LASTEXITCODE -ne 0) { throw 'G4 same-Mission focused regression failed' }
 
+      - name: Run G4 governed execution binding Wave2
+        shell: pwsh
+        run: |
+          $env:GH_TOKEN = ''
+          $env:GITHUB_TOKEN = ''
+          $env:PYTHONNOUSERSITE = '1'
+          $env:PYTHONDONTWRITEBYTECODE = '1'
+          $env:PYTHONUTF8 = '1'
+          $test = 'workspace-template/.pfc-internal-field-validation/tests/test_g4_governed_execution_binding_wave2.py'
+          & "$env:FOCUSED_PYTHON" -X utf8 -c "import sys,runpy; from pathlib import Path; p=sys.argv[1]; sys.path.insert(0,str(Path(p).parent)); sys.argv=[p]; runpy.run_path(p,run_name='__main__')" $test 2>&1 | Tee-Object -FilePath RECOVERY_G4_WAVE2_BINDING_FOCUSED.log
+          if ($LASTEXITCODE -ne 0) { throw 'G4 governed execution binding Wave2 focused regression failed' }
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: recovery-g4-same-mission-focused
-          path: RECOVERY_G4_SAME_MISSION_FOCUSED.log
+          path: |
+            RECOVERY_G4_SAME_MISSION_FOCUSED.log
+            RECOVERY_G4_WAVE2_BINDING_FOCUSED.log
           if-no-files-found: warn
