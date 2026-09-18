@@ -196,6 +196,12 @@ def main():
         "r43_service_real": callable(R43ApplicationService.open_confirmed_defect_lifecycle),
         "initial_execution_batch_completed_before_reproduction": False,
     }
+    foundation_diagnostics = {
+        "g4_fixture_returncode": proc.returncode,
+        "g4_fixture_status": base.get("status"),
+        "g4_fixture_stdout_tail": proc.stdout[-4000:],
+        "g4_fixture_stderr_tail": proc.stderr[-4000:],
+    }
     supplemental = {"static_markers_are_not_green_authority": True}
     original_names = (
         "g2_plan_defect_hunter_router_current_binding",
@@ -1171,6 +1177,7 @@ def main():
         "truthful_red": truthful_red,
         "red_kind": "MISSING_G5_INTEGRATION" if truthful_red else None,
         "foundation_checks": foundation,
+        "foundation_diagnostics": foundation_diagnostics,
         "runtime_behavior_checks": behavior,
         "progressive_stage_checks": progressive,
         "supplemental_checks": supplemental,
