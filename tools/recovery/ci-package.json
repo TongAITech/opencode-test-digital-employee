@@ -6,6 +6,6 @@
   "source_policy": "REASSEMBLE_EXACT_WORKFLOW_HEAD",
   "carrier_scope": "HASH_LOCKED_OFFLINE_DEPENDENCIES_ONLY",
   "install_root": "D:/PFC/AITest",
-  "qualification_attempt": 37,
-  "trigger_reason": "G5_WORKER_BINDING_AND_RECOVERY_CLOSURE"
+  "qualification_attempt": 38,
+  "trigger_reason": "G5_ADVERSARIAL_DEFECT_TRUTH_CLOSURE"
 }
