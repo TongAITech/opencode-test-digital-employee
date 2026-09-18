@@ -9,6 +9,7 @@ from aitest_runtime.canonical_runtime import create_canonical_runtime
 from aitest_runtime.durable_core import canonical_sha256
 from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
 from aitest_runtime.g2_1.router import AgentRoleRegistry
+from aitest_runtime.g5.service import G5Service, require_g5_worker_binding
 from aitest_runtime.r2_6.contracts import GATE_KINDS, OUTCOMES, ROUTES
 from aitest_runtime.r2_6.service import HumanGateApplicationService
 from aitest_runtime.r3_6.service import R36ApplicationService
@@ -72,7 +73,7 @@ def main():
      v,e=invoke(lambda:worker(orch,'assess_defect_truth',ap(b,s,HIGH))); behavior['pending_gate_blocks_confirmation']=safe_non_confirmed(v,e) and count(rt,mid)==before
      r26.record_decision({'mission_id':mid,'gate_id':g.gate_id,'decision_id':'confirm','outcome':'CHOICE_SELECTED','route':'RESUME_EXECUTION','decision_payload':{'choice':'CONFIRM_DEFECT'},'actor':{'type':'USER','id':'reviewer'}}); v,e=invoke(lambda:worker(orch,'assess_defect_truth',ap(b,s,HIGH))); behavior['confirm_without_continuation_blocks']=safe_non_confirmed(v,e) and count(rt,mid)==before
      old_attempt=b['attempt_id']; orch.rotate_session(mid,task_id=b['task_id'],reasons=['CONTROL_OVERRIDE']); latest=rt.replay_composed(mid).extension_state('r1_3b_execution_resume').latest_attempt(b['task_id']); nb={**b,'attempt_id':latest.attempt_id,'session_id':latest.runtime_session_id}; r26.record_continuation({'mission_id':mid,'gate_id':g.gate_id,'route':'RESUME_EXECUTION','canonical_reference':{'successor_attempt_id':latest.attempt_id,'successor_session_id':latest.runtime_session_id,'predecessor_attempt_id':old_attempt,'successor_root_attempt_id':latest.root_attempt_id},'continuation_operation_id':'apply','actor':{'type':'SYSTEM','id':'ec0'}}); behavior['applied_continuation_is_allowing']=r26.state(mid).gate(g.gate_id).is_allowing is True
-     v,e=invoke(lambda:worker(orch,'assess_defect_truth',ap(b,s,HIGH))); behavior['stale_binding_rejected_after_continuation']=explicit_code(e or v) in {'G5_ATTEMPT_NOT_CURRENT','G5_SESSION_NOT_OPEN'}
+     v,e=invoke(lambda:require_g5_worker_binding(rt,b)); behavior['stale_binding_rejected_after_continuation']=explicit_code(e or v) in {'G5_ATTEMPT_NOT_CURRENT','G5_SESSION_NOT_OPEN'}
      _,successor_exc=invoke(lambda:worker(orch,'assess_defect_truth',ap(nb,s,HIGH))); behavior['successor_binding_confirms']=successor_exc is None and count(rt,mid)==before+1
    finally:
     if old[0] is None: os.environ.pop('AITEST_WORKSPACE_ROOT',None)
@@ -118,7 +119,7 @@ def main():
       if behavior['r43_exact_handoff_idempotent'] and lifecycles:
        life=lifecycles[0]; lr=tref('R4_3_CONFIRMED_DEFECT_LIFECYCLE',life.lifecycle_id,life.lifecycle_digest,life.created_seq,'r4.3.confirmed_defect_lifecycle_opened.v1'); _,reuse_exc=invoke(lambda:worker(orch,'handoff_confirmed_defect',{**h,'duplicate_correlation_decision':'SAME_CONFIRMED_LIFECYCLE','existing_lifecycle_ref':lr})); behavior['same_mission_typed_reuse_one_lifecycle']=reuse_exc is None and len(R43ApplicationService(rt).state(mid).confirmed_defect_lifecycles)==1
        v,e=invoke(lambda:worker(orch,'handoff_confirmed_defect',{**h,'duplicate_correlation_decision':'AMBIGUOUS_REVIEW_REQUIRED'})); behavior['ambiguous_requires_review']=explicit_code(e or v)=='G5_DUPLICATE_AMBIGUOUS'
-       v,e=invoke(lambda:worker(orch,'handoff_confirmed_defect',{**h,'mission_id':'other','duplicate_correlation_decision':'SAME_CONFIRMED_LIFECYCLE','existing_lifecycle_ref':lr})); behavior['cross_mission_merge_forbidden']=explicit_code(e or v) in {'G5_DUPLICATE_AMBIGUOUS','G5_R4_3_HANDOFF_REJECTED','G5_ROUTE_REQUIRED','G5_ATTEMPT_TASK_MISMATCH'}
+       v,e=invoke(lambda:G5Service(rt).command('DEFECT_HUNTER','handoff_confirmed_defect',{**h,'mission_id':'other','duplicate_correlation_decision':'SAME_CONFIRMED_LIFECYCLE','existing_lifecycle_ref':lr})); behavior['cross_mission_merge_forbidden']=explicit_code(e or v) in {'G5_DUPLICATE_AMBIGUOUS','G5_R4_3_HANDOFF_REJECTED','G5_ROUTE_REQUIRED','G5_ATTEMPT_TASK_MISMATCH'}
      finally: R43ApplicationService.open_confirmed_defect_lifecycle=original
    finally:
     if old[0] is None: os.environ.pop('AITEST_WORKSPACE_ROOT',None)
