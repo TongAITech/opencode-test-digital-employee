@@ -229,14 +229,38 @@ def _require_g5_worker_binding(runtime: Any, payload: Mapping[str, Any]):
     return require_g5_worker_binding(runtime, payload)
 
 
-@_active_domain_command
 def g5_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-    """Execute the canonical G5 role/action contract and current worker binding."""
+    """Execute the frozen G5 product seam without inventing a Director model tool.
 
-    normalized_role, normalized_action = G5Service.preflight(role, action)
+    The frozen OpenCode surface exposes only Diagnosis/Defect Hunter as a model
+    tool. G5 Director remains the canonical controller/CLI seam. Mission-scoped
+    Diagnosis mutations still require the current R1 grant and actual host tool
+    part; non-Mission status remains the contract's read-only probe.
+    """
+
+    raw_role = str(role or "").strip().upper()
+    normalized_role, normalized_action = G5Service.preflight(raw_role, action)
+    data = _object(payload, "payload")
     root = workspace_root()
     runtime = create_canonical_runtime(root)
-    return G5Service(runtime).command(normalized_role, normalized_action, _object(payload, "payload"))
+    service = G5Service(runtime)
+
+    def dispatch() -> dict[str, Any]:
+        if normalized_action == "status" or not data.get("mission_id"):
+            return service.command(normalized_role, normalized_action, data)
+        from .mission_controls import active_effect
+        with active_effect(runtime, str(data["mission_id"])):
+            return service.command(normalized_role, normalized_action, data)
+
+    if normalized_role == "DIRECTOR":
+        return dispatch()
+    if normalized_action == "status" and not data.get("mission_id"):
+        return dispatch()
+
+    from .mission_tool_admission import model_command
+    orchestration = orchestration_service(root)
+    with model_command(orchestration, "g5", raw_role, normalized_action, data):
+        return dispatch()
 
 
 def orchestration_command(role: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
