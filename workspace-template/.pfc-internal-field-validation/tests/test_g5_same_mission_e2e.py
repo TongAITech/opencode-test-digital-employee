@@ -9,7 +9,7 @@ from pathlib import Path
 
 WORKSPACE = Path(__file__).resolve().parents[2]
 RUNTIME = WORKSPACE / "ai-test" / "runtime"
-TESTS = Path(__file__).parent
+TESTS = Path(__file__).resolve().parent
 sys.path[:0] = [str(RUNTIME), str(TESTS)]
 
 from aitest_runtime import product_entry
