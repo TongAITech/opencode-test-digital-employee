@@ -21,6 +21,7 @@ from aitest_runtime.g3.coverage import CoverageProviderResult, MappingCoveragePl
 from aitest_runtime.g3.service import G3TestingIntelligenceService
 from aitest_runtime.g4.service import G4RealExecutionService
 from aitest_runtime.g5 import GovernedEvidenceRequest
+from aitest_runtime.g5.service import require_g5_worker_binding
 from aitest_runtime.r3_6.contracts import ARCHITECTURE_BASELINE_REF
 from aitest_runtime.r3_6.service import R36ApplicationService
 from aitest_runtime.r4_3.service import R43ApplicationService
@@ -35,7 +36,7 @@ from test_g4_full_same_mission_product_e2e import (
 )
 from test_g5_adversarial_defect_truth import explicit_code
 from test_g5_human_gate_and_duplicate_correlation import ALT, exact_ref, r41
-from test_g5_worker_binding_and_recovery import G5_CAPABILITIES
+from test_g5_worker_binding_and_recovery import G5_CAPABILITIES, invoke_g5_worker
 
 
 EC3_PRECONFIRMATION_CHECKS = (
@@ -397,9 +398,7 @@ def main():
 
                 before_anomalies = len(R36ApplicationService(runtime).state(mission_id).anomalies)
                 _, missing_lineage_exc = invoke(
-                    lambda: command(
-                        "DEFECT_HUNTER",
-                        "record_anomaly",
+                    lambda: invoke_g5_worker(orchestration, "record_anomaly",
                         {**hunter_binding, "g4_observation_ref": {}},
                     )
                 )
@@ -409,9 +408,7 @@ def main():
                 )
                 wrong_observation = {**observation.to_dict(), "mission_id": "wrong-mission"}
                 _, wrong_lineage_exc = invoke(
-                    lambda: command(
-                        "DEFECT_HUNTER",
-                        "record_anomaly",
+                    lambda: invoke_g5_worker(orchestration, "record_anomaly",
                         {**hunter_binding, "g4_observation_ref": wrong_observation},
                     )
                 )
@@ -421,9 +418,7 @@ def main():
                 )
 
                 _, admission_exc = invoke(
-                    lambda: command(
-                        "DEFECT_HUNTER",
-                        "record_anomaly",
+                    lambda: invoke_g5_worker(orchestration, "record_anomaly",
                         {**hunter_binding, "g4_observation_ref": observation.to_dict()},
                     )
                 )
@@ -444,9 +439,7 @@ def main():
                 candidate = None
                 if anomaly is not None:
                     _, candidate_exc = invoke(
-                        lambda: command(
-                            "DEFECT_HUNTER",
-                            "create_candidate",
+                        lambda: invoke_g5_worker(orchestration, "create_candidate",
                             {
                                 **hunter_binding,
                                 "candidate_id": candidate_id,
@@ -483,9 +476,7 @@ def main():
                 if candidate is not None:
                     step_ref = str(observation.payload.get("step_result_ref") or "")
                     _, deepening_exc = invoke(
-                        lambda: command(
-                            "DEFECT_HUNTER",
-                            "request_evidence_deepening",
+                        lambda: invoke_g5_worker(orchestration, "request_evidence_deepening",
                             {
                                 **hunter_binding,
                                 "candidate_id": candidate_id,
@@ -506,9 +497,7 @@ def main():
 
                 if ec3_deepening is not None:
                     _, evidence_exc = invoke(
-                        lambda: command(
-                            "DEFECT_HUNTER",
-                            "record_evidence_assessment",
+                        lambda: invoke_g5_worker(orchestration, "record_evidence_assessment",
                             {
                                 **hunter_binding,
                                 "candidate_id": candidate_id,
@@ -537,9 +526,7 @@ def main():
                     if step_fact is not None:
                         source_refs.append({"ref_id": step_fact.fact_id, "digest": step_fact.digest})
                     _, correlation_exc = invoke(
-                        lambda: command(
-                            "DEFECT_HUNTER",
-                            "correlate_sources",
+                        lambda: invoke_g5_worker(orchestration, "correlate_sources",
                             {
                                 **hunter_binding,
                                 "candidate_id": candidate_id,
@@ -562,9 +549,7 @@ def main():
                     behavior["cross_source_correlation_durable_ec3"] = ec3_correlation is not None
 
                     _, repro_exc = invoke(
-                        lambda: command(
-                            "DEFECT_HUNTER",
-                            "evaluate_reproducibility",
+                        lambda: invoke_g5_worker(orchestration, "evaluate_reproducibility",
                             {
                                 **hunter_binding,
                                 "candidate_id": candidate_id,
@@ -587,9 +572,7 @@ def main():
                     behavior["reproducibility_durable_ec3"] = ec3_repro is not None
 
                     _, fp_exc = invoke(
-                        lambda: command(
-                            "DEFECT_HUNTER",
-                            "assess_false_positive",
+                        lambda: invoke_g5_worker(orchestration, "assess_false_positive",
                             {
                                 **hunter_binding,
                                 "candidate_id": candidate_id,
@@ -639,9 +622,7 @@ def main():
                     )
                     if prerequisite.ok:
                         _, rca_exc = invoke(
-                            lambda: command(
-                                "DEFECT_HUNTER",
-                                "record_rca",
+                            lambda: invoke_g5_worker(orchestration, "record_rca",
                                 {
                                     **hunter_binding,
                                     "candidate_id": candidate_id,
@@ -665,9 +646,7 @@ def main():
                 if ec3_deepening is not None:
                     receipt = ec3_deepening.workset_receipt
                     _, checkpoint_exc = invoke(
-                        lambda: command(
-                            "DEFECT_HUNTER",
-                            "record_checkpoint",
+                        lambda: invoke_g5_worker(orchestration, "record_checkpoint",
                             {
                                 **hunter_binding,
                                 "candidate_id": candidate_id,
@@ -694,9 +673,7 @@ def main():
                     confirmed_before = confirmed_count(runtime, mission_id)
                     lifecycle_before = lifecycle_count(runtime, mission_id)
                     barrier_result, barrier_exc = invoke(
-                        lambda: command(
-                            "DEFECT_HUNTER",
-                            "assess_defect_truth",
+                        lambda: invoke_g5_worker(orchestration, "assess_defect_truth",
                             confirmation_payload(
                                 hunter_binding,
                                 candidate_id,
@@ -743,25 +720,13 @@ def main():
                             "session_id": latest.runtime_session_id,
                         }
                         stale_result, stale_exc = invoke(
-                            lambda: command(
-                                "DEFECT_HUNTER",
-                                "record_checkpoint",
-                                {
-                                    **hunter_binding,
-                                    "candidate_id": candidate_id,
-                                    "checkpoint_id": "checkpoint-stale",
-                                    "cursor": ec3_checkpoint.cursor,
-                                    "workset_digest": ec3_checkpoint.workset_digest,
-                                    "session_ref": hunter_binding["session_id"],
-                                    "omitted_refs": list(ec3_checkpoint.omitted_refs),
-                                },
-                            )
+                            lambda: require_g5_worker_binding(runtime, hunter_binding)
                         )
                         behavior["stale_predecessor_rejected_during_recovery"] = explicit_code(
                             stale_exc or stale_result
                         ) in {"G5_ATTEMPT_NOT_CURRENT", "G5_SESSION_NOT_OPEN"}
                         context, context_exc = invoke(
-                            lambda: command("DEFECT_HUNTER", "work_context", successor_binding)
+                            lambda: invoke_g5_worker(orchestration, "work_context", successor_binding)
                         )
                         behavior["successor_current_binding_accepted_during_recovery"] = (
                             context_exc is None
@@ -769,9 +734,7 @@ def main():
                             and context.get("truth_source") == "R1_EVENT_STREAM"
                         )
                         _, checkpoint2_exc = invoke(
-                            lambda: command(
-                                "DEFECT_HUNTER",
-                                "record_checkpoint",
+                            lambda: invoke_g5_worker(orchestration, "record_checkpoint",
                                 {
                                     **successor_binding,
                                     "candidate_id": candidate_id,
@@ -820,9 +783,7 @@ def main():
                     tasks_before = work_graph_task_count(runtime, mission_id)
                     executions_before = executor.executions
                     governed, governed_exc = invoke(
-                        lambda: command(
-                            "DEFECT_HUNTER",
-                            "request_evidence_deepening",
+                        lambda: invoke_g5_worker(orchestration, "request_evidence_deepening",
                             {
                                 **active_hunter_binding,
                                 "candidate_id": candidate_id,
@@ -930,9 +891,7 @@ def main():
                     )["next"]
                     resumed_binding = binding(hunter_second)
                     _, deepening_exc = invoke(
-                        lambda: command(
-                            "DEFECT_HUNTER",
-                            "request_evidence_deepening",
+                        lambda: invoke_g5_worker(orchestration, "request_evidence_deepening",
                             {
                                 **resumed_binding,
                                 "candidate_id": candidate_id,
@@ -957,9 +916,7 @@ def main():
                     if deepening is not None:
                         evidence_id = "ea-e2e"
                         _, evidence_exc = invoke(
-                            lambda: command(
-                                "DEFECT_HUNTER",
-                                "record_evidence_assessment",
+                            lambda: invoke_g5_worker(orchestration, "record_evidence_assessment",
                                 {
                                     **resumed_binding,
                                     "candidate_id": candidate_id,
@@ -985,9 +942,7 @@ def main():
 
                         correlation_id = "corr-e2e"
                         _, correlation_exc = invoke(
-                            lambda: command(
-                                "DEFECT_HUNTER",
-                                "correlate_sources",
+                            lambda: invoke_g5_worker(orchestration, "correlate_sources",
                                 {
                                     **resumed_binding,
                                     "candidate_id": candidate_id,
@@ -1014,9 +969,7 @@ def main():
 
                         repro_id = "repro-e2e"
                         _, repro_exc = invoke(
-                            lambda: command(
-                                "DEFECT_HUNTER",
-                                "evaluate_reproducibility",
+                            lambda: invoke_g5_worker(orchestration, "evaluate_reproducibility",
                                 {
                                     **resumed_binding,
                                     "candidate_id": candidate_id,
@@ -1040,9 +993,7 @@ def main():
 
                         false_positive_id = "fp-e2e"
                         _, fp_exc = invoke(
-                            lambda: command(
-                                "DEFECT_HUNTER",
-                                "assess_false_positive",
+                            lambda: invoke_g5_worker(orchestration, "assess_false_positive",
                                 {
                                     **resumed_binding,
                                     "candidate_id": candidate_id,
@@ -1066,9 +1017,7 @@ def main():
                             ec4_confirmed_before = confirmed_count(runtime, mission_id)
                             ec4_lifecycle_before = lifecycle_count(runtime, mission_id)
                             ec4_barrier_result, ec4_barrier_exc = invoke(
-                                lambda: command(
-                                    "DEFECT_HUNTER",
-                                    "assess_defect_truth",
+                                lambda: invoke_g5_worker(orchestration, "assess_defect_truth",
                                     confirmation_payload(
                                         resumed_binding,
                                         candidate_id,
@@ -1091,9 +1040,7 @@ def main():
 
                             defect_id = "defect-e2e"
                             _, assessment_exc = invoke(
-                                lambda: command(
-                                    "DEFECT_HUNTER",
-                                    "assess_defect_truth",
+                                lambda: invoke_g5_worker(orchestration, "assess_defect_truth",
                                     confirmation_payload(
                                         resumed_binding,
                                         candidate_id,
@@ -1121,9 +1068,7 @@ def main():
                             if assessment is not None:
                                 rca_id = "rca-e2e"
                                 _, rca_exc = invoke(
-                                    lambda: command(
-                                        "DEFECT_HUNTER",
-                                        "record_rca",
+                                    lambda: invoke_g5_worker(orchestration, "record_rca",
                                         {
                                             **resumed_binding,
                                             "candidate_id": candidate_id,
@@ -1156,9 +1101,7 @@ def main():
                                         and known_rca.digest == rca.rca_digest
                                         and knowledge["lifecycle"] == "CANDIDATE" and not knowledge["execution_eligible"])
                                     _, handoff_exc = invoke(
-                                        lambda: command(
-                                            "DEFECT_HUNTER",
-                                            "handoff_confirmed_defect",
+                                        lambda: invoke_g5_worker(orchestration, "handoff_confirmed_defect",
                                             {
                                                 **resumed_binding,
                                                 "candidate_id": candidate_id,
