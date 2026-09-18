@@ -6,6 +6,8 @@ on:
     paths:
       - tools/recovery/validate_package.py
       - tools/recovery/test_validate_package_structured_reports.py
+      - tools/recovery/run_real_semantic_handoff.py
+      - tools/recovery/test_run_real_semantic_handoff.py
       - .github/workflows/recovery-seal-evidence-focused.yml
   workflow_dispatch:
 
@@ -21,10 +23,15 @@ jobs:
       - name: Compile qualification parser
         shell: pwsh
         run: |
-          python -m py_compile tools/recovery/validate_package.py tools/recovery/test_validate_package_structured_reports.py
+          python -m py_compile tools/recovery/validate_package.py tools/recovery/test_validate_package_structured_reports.py tools/recovery/run_real_semantic_handoff.py tools/recovery/test_run_real_semantic_handoff.py
           if ($LASTEXITCODE -ne 0) { throw 'Qualification parser compile failed' }
       - name: Verify multi-report gate evidence merge
         shell: pwsh
         run: |
           python -X utf8 tools/recovery/test_validate_package_structured_reports.py
           if ($LASTEXITCODE -ne 0) { throw 'Seal evidence focused qualification failed' }
+      - name: Verify exact-head semantic handoff contract
+        shell: pwsh
+        run: |
+          python -X utf8 tools/recovery/test_run_real_semantic_handoff.py
+          if ($LASTEXITCODE -ne 0) { throw 'Real semantic handoff focused qualification failed' }
