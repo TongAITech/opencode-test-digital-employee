@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 from contextlib import contextmanager
+from unittest.mock import patch
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -23,6 +24,7 @@ from aitest_runtime.canonical_runtime import canonical_extension_manifests
 from aitest_runtime.canonical_runtime import create_canonical_runtime
 from aitest_runtime.durable_core import canonical_sha256
 from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
+from aitest_runtime.mission_session_authority import MissionSessionOwner
 from aitest_runtime.g3.coverage import CoverageProviderResult, MappingCoveragePlatformProvider
 from aitest_runtime.g3.service import G3TestingIntelligenceService
 from aitest_runtime.g4.service import G4RealExecutionService
@@ -161,6 +163,64 @@ def director_call(command, action: str, payload: Mapping[str, Any]) -> tuple[dic
     return (value if isinstance(value, dict) else {}), exc
 
 
+def invoke_g5_diagnosis(
+    service: G21AutonomousOrchestrationService,
+    command,
+    action: str,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Exercise the real OpenCode Diagnosis surface through the current R1 grant."""
+
+    data = dict(payload)
+    mission_id = str(data.get("mission_id") or "")
+    session_id = str(data.get("session_id") or "")
+    if not mission_id or not session_id:
+        raise RuntimeError("G5_TEST_CURRENT_BINDING_REQUIRED")
+    grant = MissionSessionOwner(service).current(mission_id, session_id)
+    if str(grant.get("role")) != "DEFECT_HUNTER":
+        raise RuntimeError("G5_TEST_GRANT_ROLE_MISMATCH")
+    token = canonical_sha256({"action": action, "payload": data})[:20]
+    message_id = f"g5-tool-{token}"
+    call_id = f"call-{token}"
+    row = {
+        "info": {
+            "sessionID": session_id,
+            "id": message_id,
+            "role": "assistant",
+            "agent": str(grant["agent_name"]),
+        },
+        "parts": [{
+            "type": "tool",
+            "tool": "aitest_diagnosis",
+            "sessionID": session_id,
+            "messageID": message_id,
+            "callID": call_id,
+            "state": {
+                "status": "running",
+                "input": {"action": action, "payload": data},
+            },
+        }],
+    }
+    provider = getattr(service, "raw_session_provider", service.session_provider)
+    env = {
+        "AITEST_HOST_SESSION_ID": session_id,
+        "AITEST_HOST_MESSAGE_ID": message_id,
+        "AITEST_HOST_CALL_ID": call_id,
+    }
+
+    def read(method: str, path: str):
+        if method != "GET":
+            raise AssertionError((method, path))
+        return row
+
+    with (
+        patch.dict(os.environ, env),
+        patch.object(provider, "_request", side_effect=read, create=True),
+        patch.object(provider, "_directory_query", return_value="directory=fixture", create=True),
+    ):
+        return command("DIAGNOSIS", action, data)
+
+
 def exact_hunter_task(candidate_id: str, anomaly_id: str) -> dict[str, Any]:
     return {
         "objective": f"Investigate exact candidate {candidate_id}",
@@ -199,6 +259,13 @@ def build_director_runtime_fixture(root: Path, command) -> dict[str, Any]:
         root,
         session_provider=FakeOpenCodeSessionProvider(root),
     )
+    raw_command = command
+
+    def governed_command(role: str, action: str, payload: Mapping[str, Any]):
+        if str(role).strip().upper() == "DEFECT_HUNTER":
+            return invoke_g5_diagnosis(orchestration, raw_command, action, payload)
+        return raw_command(role, action, payload)
+
     coverage = {
         "provider": MappingCoveragePlatformProvider(
             CoverageProviderResult("SOURCE_UNAVAILABLE", ())
@@ -334,7 +401,7 @@ def build_director_runtime_fixture(root: Path, command) -> dict[str, Any]:
             },
         )["next"]
         hunter_binding = binding(hunter_dispatch)
-        admitted_result = command(
+        admitted_result = governed_command(
             "DEFECT_HUNTER",
             "record_anomaly",
             {**hunter_binding, "g4_observation_ref": observations[0].to_dict()},
@@ -342,7 +409,7 @@ def build_director_runtime_fixture(root: Path, command) -> dict[str, Any]:
         r36 = R36ApplicationService(runtime)
         anomaly = r36.state(mission_id).anomalies[-1]
         candidate_id = "candidate-director"
-        command(
+        governed_command(
             "DEFECT_HUNTER",
             "create_candidate",
             {
@@ -355,7 +422,7 @@ def build_director_runtime_fixture(root: Path, command) -> dict[str, Any]:
                 "affected_scope": {"component": "cfg-data"},
             },
         )
-        command(
+        governed_command(
             "DEFECT_HUNTER",
             "request_evidence_deepening",
             {
@@ -375,7 +442,7 @@ def build_director_runtime_fixture(root: Path, command) -> dict[str, Any]:
         correlation_id = "correlation-director"
         repro_id = "repro-director"
         false_positive_id = "fp-director"
-        command(
+        governed_command(
             "DEFECT_HUNTER",
             "record_evidence_assessment",
             {
@@ -393,7 +460,7 @@ def build_director_runtime_fixture(root: Path, command) -> dict[str, Any]:
                 "evidence_class": "ENGINEERING_EVIDENCE",
             },
         )
-        command(
+        governed_command(
             "DEFECT_HUNTER",
             "correlate_sources",
             {
@@ -418,7 +485,7 @@ def build_director_runtime_fixture(root: Path, command) -> dict[str, Any]:
                 "conflict_refs": [],
             },
         )
-        command(
+        governed_command(
             "DEFECT_HUNTER",
             "evaluate_reproducibility",
             {
@@ -434,7 +501,7 @@ def build_director_runtime_fixture(root: Path, command) -> dict[str, Any]:
                 "blocking_basis": None,
             },
         )
-        command(
+        governed_command(
             "DEFECT_HUNTER",
             "assess_false_positive",
             {
@@ -473,7 +540,7 @@ def build_director_runtime_fixture(root: Path, command) -> dict[str, Any]:
                 },
             }
         )
-        command(
+        governed_command(
             "DEFECT_HUNTER",
             "record_rca",
             {
@@ -490,7 +557,7 @@ def build_director_runtime_fixture(root: Path, command) -> dict[str, Any]:
         )
         receipt = deepening.workset_receipt
         for checkpoint_id in ("checkpoint-z-older", "checkpoint-a-latest"):
-            command(
+            governed_command(
                 "DEFECT_HUNTER",
                 "record_checkpoint",
                 {
@@ -516,7 +583,7 @@ def build_director_runtime_fixture(root: Path, command) -> dict[str, Any]:
             raise RuntimeError("DIRECTOR_CHECKPOINT_EVENT_ORDER_FIXTURE_INVALID")
 
         confirmed_id = "assessment-director-confirmed"
-        command(
+        governed_command(
             "DEFECT_HUNTER",
             "assess_defect_truth",
             {
@@ -544,7 +611,7 @@ def build_director_runtime_fixture(root: Path, command) -> dict[str, Any]:
             },
         )
         assessment_ref = exact_ref(runtime, mission_id, confirmed_id)
-        command(
+        governed_command(
             "DEFECT_HUNTER",
             "handoff_confirmed_defect",
             {
