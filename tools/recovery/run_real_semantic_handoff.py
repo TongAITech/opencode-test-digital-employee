@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
 
 
 def run(command, *, cwd: Path, timeout: int = 120, capture: bool = False) -> str:
@@ -111,6 +112,50 @@ def resolve_payload_workspace(repo: Path, explicit: Path | None) -> Path:
     raise RuntimeError("REAL_MODEL_PAYLOAD_WORKSPACE_NOT_FOUND: need .opencode/node_modules from the qualified payload")
 
 
+def find_payload_workspace(root: Path) -> Path:
+    candidates = [root]
+    candidates.extend(path for path in root.rglob("workspace-template") if path.is_dir())
+    candidates.extend(
+        path.parent.parent for path in root.rglob("node_modules")
+        if path.is_dir() and path.parent.name == ".opencode"
+    )
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if payload_candidate_ok(resolved):
+            return resolved
+    raise RuntimeError("DOWNLOADED_CARRIER_PAYLOAD_WORKSPACE_NOT_FOUND")
+
+
+def download_payload_workspace(gh: str, repository: str, config: dict, work: Path, repo: Path) -> Path:
+    release_tag = str(config.get("draft_release_tag") or "")
+    asset_name = str(config.get("asset_name") or "")
+    expected = str(config.get("expected_sha256") or "").lower()
+    if not release_tag or not asset_name or not re.fullmatch(r"[0-9a-f]{64}", expected):
+        raise RuntimeError("CARRIER_DOWNLOAD_IDENTITY_MISSING")
+    incoming = work / "carrier-download"
+    incoming.mkdir(parents=True, exist_ok=True)
+    run(
+        [gh, "release", "download", release_tag, "--repo", repository, "--pattern", asset_name, "--dir", incoming],
+        cwd=repo,
+        timeout=1200,
+    )
+    archive = incoming / asset_name
+    if not archive.is_file():
+        raise RuntimeError("CARRIER_DOWNLOAD_MISSING")
+    actual = sha256_file(archive)
+    if actual != expected:
+        raise RuntimeError(f"CARRIER_SHA256_MISMATCH: expected={expected} actual={actual}")
+    expanded = work / "carrier-expanded"
+    expanded.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive) as package:
+        package.extractall(expanded)
+    return find_payload_workspace(expanded)
+
+
 def exact_git_identity(repo: Path) -> tuple[str, str, str]:
     head = run(["git", "rev-parse", "HEAD"], cwd=repo, capture=True)
     branch = run(["git", "branch", "--show-current"], cwd=repo, capture=True)
@@ -140,7 +185,6 @@ def main() -> int:
     repo = args.repo.resolve()
     head, branch, slug = exact_git_identity(repo)
     config = json.loads((repo / "tools" / "recovery" / "ci-package.json").read_text(encoding="utf-8"))
-    payload = resolve_payload_workspace(repo, args.payload_workspace)
     host = args.host_opencode.expanduser().resolve() if args.host_opencode else None
     if host is None:
         found = shutil.which("opencode") or shutil.which("opencode.exe")
@@ -155,6 +199,12 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix=f"rec3-real-semantic-{head[:12]}-") as directory:
         work = Path(directory)
+        try:
+            payload = resolve_payload_workspace(repo, args.payload_workspace)
+        except RuntimeError:
+            if args.payload_workspace is not None:
+                raise
+            payload = download_payload_workspace(gh, slug, config, work, repo)
         proof_run = work / "run"
         harness = repo / "tools" / "recovery" / "qualify_real_model.py"
         run(
