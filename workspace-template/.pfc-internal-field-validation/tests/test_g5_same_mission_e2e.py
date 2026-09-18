@@ -24,6 +24,7 @@ from aitest_runtime.g5 import GovernedEvidenceRequest
 from aitest_runtime.r3_6.contracts import ARCHITECTURE_BASELINE_REF
 from aitest_runtime.r3_6.service import R36ApplicationService
 from aitest_runtime.r4_3.service import R43ApplicationService
+from host_interaction_fixture import start_product_mission
 from test_g4_full_same_mission_product_e2e import (
     DeterministicExecutor,
     binding,
@@ -278,8 +279,8 @@ def main():
             )
             product_entry._G4_CAPABILITY_EXECUTORS = {"API": executor}
             try:
-                started = product_entry.orchestration_command("DIRECTOR", "start_test", {"request": intake_request()})
-                mission_id = started["intake"]["intake"]["mission_id"]
+                started = start_product_mission(orchestration, intake_request(), fixture_id="g5-same-mission")
+                mission_id = started["operations"][0]["subject"]["subject_id"]
                 cycle = g3_cycle(mission_id, orchestration, coverage, repositories, 1)
                 case_fact = cycle["cases"]["ready_cases"][0]["case"]
                 case = case_fact["payload"]["r3_3_case"]
