@@ -165,6 +165,8 @@ def main() -> int:
             runtime = create_canonical_runtime(root, db_path=db)
             provider = FakeOpenCodeSessionProvider(root)
             orch = G21AutonomousOrchestrationService(runtime, root, session_provider=provider)
+            original_orchestration_service = product_entry.orchestration_service
+            product_entry.orchestration_service = lambda _root=None: orch  # type: ignore[assignment]
             try:
                 started = orch.start_test(request("adversarial"))
                 mid = started["intake"]["intake"]["mission_id"]
@@ -194,6 +196,7 @@ def main() -> int:
                 runtime_behavior["g6_mutation_rejected_canonically"] = explicit_code(exc or result) in {"G5_ACTION_FORBIDDEN", "G5_G6_HOLD"}
                 runtime_behavior["no_probe_persisted_confirmed_defect"] = confirmed_count(runtime, mid) == before
             finally:
+                product_entry.orchestration_service = original_orchestration_service
                 if old_root is None: os.environ.pop("AITEST_WORKSPACE_ROOT", None)
                 else: os.environ["AITEST_WORKSPACE_ROOT"] = old_root
                 if old_db is None: os.environ.pop("AITEST_RUNTIME_SPINE_DB", None)
