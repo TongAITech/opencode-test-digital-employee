@@ -1,0 +1,30 @@
+name: Recovery seal evidence focused qualification
+
+on:
+  push:
+    branches: [work/v1.13.0-recovery-turnkey-validation]
+    paths:
+      - tools/recovery/validate_package.py
+      - tools/recovery/test_validate_package_structured_reports.py
+      - .github/workflows/recovery-seal-evidence-focused.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  seal-evidence:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile qualification parser
+        shell: pwsh
+        run: |
+          python -m py_compile tools/recovery/validate_package.py tools/recovery/test_validate_package_structured_reports.py
+          if ($LASTEXITCODE -ne 0) { throw 'Qualification parser compile failed' }
+      - name: Verify multi-report gate evidence merge
+        shell: pwsh
+        run: |
+          python -X utf8 tools/recovery/test_validate_package_structured_reports.py
+          if ($LASTEXITCODE -ne 0) { throw 'Seal evidence focused qualification failed' }
