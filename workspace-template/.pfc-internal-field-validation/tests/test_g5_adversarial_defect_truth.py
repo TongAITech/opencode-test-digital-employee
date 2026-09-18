@@ -24,7 +24,7 @@ from aitest_runtime.r3_6.contracts import (
     FALSE_POSITIVE_STATES,
     REPRODUCIBILITY_STATES,
 )
-from test_g5_worker_binding_and_recovery import G5_CAPABILITIES, binding, request, task
+from test_g5_worker_binding_and_recovery import G5_CAPABILITIES, binding, invoke_g5_worker, request, task
 
 ALLOWED_NON_CONFIRMED_STATUSES = {
     "HOLD", "INCONCLUSIVE", "BLOCKED", "GOVERNED_WORK_REQUIRED", "REJECTED",
@@ -183,14 +183,14 @@ def main() -> int:
                     "conflicted_evidence_safe_non_confirmed": {"candidate_signal": "API/DB disagree", "evidence_sufficiency": "CONFLICTED"},
                 }
                 for name, extra in probes.items():
-                    result, exc = invoke(lambda extra=extra: command("DEFECT_HUNTER", "assess_defect_truth", {**b, **extra}))
+                    result, exc = invoke(lambda extra=extra: invoke_g5_worker(orch, "assess_defect_truth", {**b, **extra}))
                     runtime_behavior[name] = safe_non_confirmed(result, exc) and confirmed_count(runtime, mid) == before
 
-                result, exc = invoke(lambda: command("DEFECT_HUNTER", "execute_api", {**b, "url": "https://sut.test/x"}))
+                result, exc = invoke(lambda: invoke_g5_worker(orch, "execute_api", {**b, "url": "https://sut.test/x"}))
                 runtime_behavior["direct_provider_action_rejected_canonically"] = explicit_code(exc or result) in {"G5_ACTION_FORBIDDEN", "G5_DIRECT_EXECUTION_FORBIDDEN"}
-                result, exc = invoke(lambda: command("DEFECT_HUNTER", "record_anomaly", {**b, "password": "never", "token": "secret"}))
+                result, exc = invoke(lambda: invoke_g5_worker(orch, "record_anomaly", {**b, "password": "never", "token": "secret"}))
                 runtime_behavior["raw_secret_injection_rejected_canonically"] = explicit_code(exc or result) in {"G5_SENSITIVE_EVIDENCE_REJECTED", "G5_G4_ADMISSION_INVALID", "G5_G4_LINEAGE_MISSING"}
-                result, exc = invoke(lambda: command("DEFECT_HUNTER", "record_fix_link", b))
+                result, exc = invoke(lambda: invoke_g5_worker(orch, "record_fix_link", b))
                 runtime_behavior["g6_mutation_rejected_canonically"] = explicit_code(exc or result) in {"G5_ACTION_FORBIDDEN", "G5_G6_HOLD"}
                 runtime_behavior["no_probe_persisted_confirmed_defect"] = confirmed_count(runtime, mid) == before
             finally:
