@@ -18,6 +18,8 @@ from aitest_runtime.canonical_runtime import create_canonical_runtime
 from aitest_runtime.durable_core import canonical_sha256
 from aitest_runtime.g2_1.managed_orchestration import G21AutonomousOrchestrationService
 from aitest_runtime.g2_1.router import AgentRoleRegistry, SessionRouter
+from aitest_runtime.g5.service import require_g5_worker_binding
+from test_g3_testing_intelligence_product_path import invoke_model_command
 
 G5_CAPABILITIES = {
     "OPENCODE_AGENT_SESSION", "TASK_OUTCOME_REPORT", "DEFECT_ANOMALY_INTAKE",
@@ -87,6 +89,22 @@ def code(value) -> str:
     if isinstance(value, dict):
         return str(value.get("error_code") or value.get("code") or value.get("reason") or value.get("message") or "")
     return str(value or "")
+
+
+def invoke_g5_worker(
+    service: G21AutonomousOrchestrationService,
+    action: str,
+    payload: dict,
+) -> dict:
+    """Exercise Diagnosis through current R1 grant and actual Host ToolContext."""
+
+    return invoke_model_command(
+        service,
+        family="g5",
+        role="DIAGNOSIS",
+        action=action,
+        payload=payload,
+    )
 
 
 def exact_code(value) -> str | None:
@@ -282,27 +300,31 @@ def probe_session_not_open_fixture() -> bool:
         return close_current_session(fixture)
 
 
-def exercise_missing_binding(command) -> bool:
+def exercise_missing_binding() -> bool:
     with tempfile.TemporaryDirectory(prefix="g5-r25-missing-") as td:
         root = Path(td)
         with runtime_environment(root):
             fixture = interrupted_before_r25_binding_fixture(root, "r25-missing")
-            result, exc = invoke(lambda: command("DEFECT_HUNTER", "work_context", fixture["current"]))
+            result, exc = invoke(
+                lambda: require_g5_worker_binding(fixture["runtime"], fixture["current"])
+            )
             return exact_code(exc or result) == "G5_LOGICAL_AGENT_BINDING_MISSING"
 
 
-def exercise_mismatched_binding(command) -> bool:
+def exercise_mismatched_binding() -> bool:
     with tempfile.TemporaryDirectory(prefix="g5-r25-mismatch-") as td:
         root = Path(td)
         with runtime_environment(root):
             fixture = interrupted_before_r25_binding_fixture(root, "r25-mismatch")
             if not bind_mismatched_logical_agent(fixture):
                 return False
-            result, exc = invoke(lambda: command("DEFECT_HUNTER", "work_context", fixture["current"]))
+            result, exc = invoke(
+                lambda: require_g5_worker_binding(fixture["runtime"], fixture["current"])
+            )
             return exact_code(exc or result) == "G5_LOGICAL_AGENT_BINDING_MISMATCH"
 
 
-def exercise_route_role_mismatch(command) -> bool:
+def exercise_route_role_mismatch() -> bool:
     with tempfile.TemporaryDirectory(prefix="g5-route-role-mismatch-") as td:
         root = Path(td)
         with runtime_environment(root):
@@ -310,11 +332,13 @@ def exercise_route_role_mismatch(command) -> bool:
                 root, "route-role-mismatch", "DIAGNOSIS",
                 ["OPENCODE_AGENT_SESSION", "TASK_OUTCOME_REPORT"],
             )
-            result, exc = invoke(lambda: command("DEFECT_HUNTER", "work_context", fixture["current"]))
+            result, exc = invoke(
+                lambda: require_g5_worker_binding(fixture["runtime"], fixture["current"])
+            )
             return exact_code(exc or result) == "G5_ROUTE_ROLE_MISMATCH"
 
 
-def exercise_session_not_open(command) -> bool:
+def exercise_session_not_open() -> bool:
     with tempfile.TemporaryDirectory(prefix="g5-session-not-open-") as td:
         root = Path(td)
         with runtime_environment(root):
@@ -323,7 +347,9 @@ def exercise_session_not_open(command) -> bool:
             )
             if not close_current_session(fixture):
                 return False
-            result, exc = invoke(lambda: command("DEFECT_HUNTER", "work_context", fixture["current"]))
+            result, exc = invoke(
+                lambda: require_g5_worker_binding(fixture["runtime"], fixture["current"])
+            )
             return exact_code(exc or result) == "G5_SESSION_NOT_OPEN"
 
 
@@ -393,7 +419,7 @@ def main() -> int:
             ("route_role_mismatch_rejected", exercise_route_role_mismatch),
             ("current_session_not_open_rejected", exercise_session_not_open),
         ):
-            value, exc = invoke(lambda exercise=exercise: exercise(command))
+            value, exc = invoke(exercise)
             contract[name] = exc is None and value is True
         with tempfile.TemporaryDirectory(prefix="g5-worker-binding-") as td:
             root = Path(td)
@@ -405,6 +431,8 @@ def main() -> int:
             runtime = create_canonical_runtime(root, db_path=db)
             provider = FakeOpenCodeSessionProvider(root)
             service = G21AutonomousOrchestrationService(runtime, root, session_provider=provider)
+            saved_orchestration_factory = product_entry.orchestration_service
+            product_entry.orchestration_service = lambda _root=None: service
             try:
                 started = service.start_test(request("hunter"))
                 mid = started["intake"]["intake"]["mission_id"]
@@ -413,12 +441,18 @@ def main() -> int:
                 contract["defect_hunter_task_dispatches"] = first.get("status") == "DISPATCHED" and first.get("agent") == "aitest-diagnosis"
                 if contract["defect_hunter_task_dispatches"]:
                     current = binding(first)
-                    ok, exc = invoke(lambda: command("DEFECT_HUNTER", "work_context", current))
+                    ok, exc = invoke(lambda: invoke_g5_worker(service, "work_context", current))
                     contract["current_binding_accepted"] = exc is None and isinstance(ok, dict) and ok.get("truth_source") == "R1_EVENT_STREAM"
 
-                    bad_task, bad_task_exc = invoke(lambda: command("DEFECT_HUNTER", "work_context", {**current, "task_id": "wrong-task"}))
-                    bad_attempt, bad_attempt_exc = invoke(lambda: command("DEFECT_HUNTER", "work_context", {**current, "attempt_id": "wrong-attempt"}))
-                    bad_session, bad_session_exc = invoke(lambda: command("DEFECT_HUNTER", "work_context", {**current, "session_id": "wrong-session"}))
+                    bad_task, bad_task_exc = invoke(
+                        lambda: require_g5_worker_binding(runtime, {**current, "task_id": "wrong-task"})
+                    )
+                    bad_attempt, bad_attempt_exc = invoke(
+                        lambda: require_g5_worker_binding(runtime, {**current, "attempt_id": "wrong-attempt"})
+                    )
+                    bad_session, bad_session_exc = invoke(
+                        lambda: require_g5_worker_binding(runtime, {**current, "session_id": "wrong-session"})
+                    )
                     contract["wrong_task_rejected"] = any(x in code(bad_task_exc or bad_task) for x in ("G5_ROUTE_REQUIRED", "G5_ATTEMPT_TASK_MISMATCH"))
                     contract["wrong_attempt_rejected"] = any(x in code(bad_attempt_exc or bad_attempt) for x in ("G5_ATTEMPT_NOT_FOUND", "G5_ATTEMPT_NOT_CURRENT"))
                     contract["wrong_session_rejected"] = "G5_ATTEMPT_SESSION_MISMATCH" in code(bad_session_exc or bad_session)
@@ -431,14 +465,29 @@ def main() -> int:
                         execution = runtime.replay_composed(mid).extension_state("r1_3b_execution_resume")
                         latest = execution.latest_attempt(current["task_id"])
                         successor = {**current, "attempt_id": latest.attempt_id, "session_id": latest.runtime_session_id}
-                        stale, stale_exc = invoke(lambda: command("DEFECT_HUNTER", "work_context", current))
-                        fresh, fresh_exc = invoke(lambda: command("DEFECT_HUNTER", "work_context", successor))
+                        stale, stale_exc = invoke(
+                            lambda: require_g5_worker_binding(runtime, current)
+                        )
+                        fresh, fresh_exc = invoke(
+                            lambda: invoke_g5_worker(service, "work_context", successor)
+                        )
                         contract["stale_predecessor_rejected_after_rotation"] = any(x in code(stale_exc or stale) for x in ("G5_ATTEMPT_NOT_CURRENT", "G5_SESSION_NOT_OPEN"))
                         contract["successor_binding_accepted_after_rotation"] = fresh_exc is None and isinstance(fresh, dict) and fresh.get("truth_source") == "R1_EVENT_STREAM"
                         contract["root_logical_agent_binding_survives_rotation"] = latest.root_attempt_id == old_root_attempt and latest.attempt_id != old_attempt and latest.runtime_session_id != old_session
-                        restarted, restarted_exc = invoke(lambda: command("DEFECT_HUNTER", "work_context", successor))
+
+                        restarted_runtime = create_canonical_runtime(root, db_path=db)
+                        restarted_service = G21AutonomousOrchestrationService(
+                            restarted_runtime,
+                            root,
+                            session_provider=FakeOpenCodeSessionProvider(root),
+                        )
+                        product_entry.orchestration_service = lambda _root=None: restarted_service
+                        restarted, restarted_exc = invoke(
+                            lambda: invoke_g5_worker(restarted_service, "work_context", successor)
+                        )
                         contract["restart_work_context_uses_durable_truth"] = restarted_exc is None and isinstance(restarted, dict) and restarted.get("truth_source") == "R1_EVENT_STREAM"
             finally:
+                product_entry.orchestration_service = saved_orchestration_factory
                 if old_root is None: os.environ.pop("AITEST_WORKSPACE_ROOT", None)
                 else: os.environ["AITEST_WORKSPACE_ROOT"] = old_root
                 if old_db is None: os.environ.pop("AITEST_RUNTIME_SPINE_DB", None)

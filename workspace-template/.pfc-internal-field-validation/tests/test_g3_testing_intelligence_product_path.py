@@ -38,6 +38,7 @@ MODEL_TOOLS = {
     "CASE_DESIGNER": "aitest_case_designer",
     "EVALUATOR": "aitest_evaluator",
     "EXECUTOR": "aitest_executor",
+    "DIAGNOSIS": "aitest_diagnosis",
 }
 
 
@@ -58,18 +59,19 @@ def invoke_model_command(
     data = dict(payload)
     mission_id = str(data.get("mission_id") or "")
     owner = MissionSessionOwner(service)
+    expected_grant_role = "DEFECT_HUNTER" if family == "g5" and role == "DIAGNOSIS" else role
     session_id = str(data.get("session_id") or "")
     if session_id:
         grant = owner.current(mission_id, session_id)
-        if str(grant.get("role")) != role:
-            raise RuntimeError("G3_TEST_GRANT_ROLE_MISMATCH", f"{role}: {grant}")
+        if str(grant.get("role")) != expected_grant_role:
+            raise RuntimeError("MODEL_TEST_GRANT_ROLE_MISMATCH", f"{expected_grant_role}: {grant}")
     else:
         grants = [
             grant for grant in owner.state(mission_id).grants.values()
-            if grant.get("state") == "GRANTED" and grant.get("role") == role
+            if grant.get("state") == "GRANTED" and grant.get("role") == expected_grant_role
         ]
         if len(grants) != 1:
-            raise RuntimeError("G3_TEST_CURRENT_GRANT_REQUIRED", f"{role}: {grants}")
+            raise RuntimeError("MODEL_TEST_CURRENT_GRANT_REQUIRED", f"{expected_grant_role}: {grants}")
         grant = grants[0]
         session_id = str(grant["session_id"])
 
@@ -120,6 +122,8 @@ def invoke_model_command(
             return product_entry.g3_command(role, action, data)
         if family == "g4":
             return product_entry.g4_command(role, action, data)
+        if family == "g5":
+            return product_entry.g5_command(role, action, data)
         raise AssertionError(family)
 
 
