@@ -6,6 +6,6 @@
   "source_policy": "REASSEMBLE_EXACT_WORKFLOW_HEAD",
   "carrier_scope": "HASH_LOCKED_OFFLINE_DEPENDENCIES_ONLY",
   "install_root": "D:/PFC/AITest",
-  "qualification_attempt": 40,
-  "trigger_reason": "REAL_OPENCODE_FOCUSED_REPRO_PASS"
+  "qualification_attempt": 41,
+  "trigger_reason": "G5_SAME_MISSION_E2E_CLOSURE"
 }
