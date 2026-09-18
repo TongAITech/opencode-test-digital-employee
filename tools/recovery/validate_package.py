@@ -16,21 +16,39 @@ import time
 from pathlib import Path
 
 
+def structured_report_from_stdout(stdout):
+    """Merge every structured gate report emitted by one qualification suite.
+
+    Some product probes intentionally emit a small early self-check followed by
+    richer host/runtime reports. First-JSON-wins loses valid later gate evidence
+    and can make a successful Windows execution impossible to seal.
+    """
+    structured = None
+    for match in re.finditer(r'\{', stdout):
+        try:
+            candidate, _ = json.JSONDecoder().raw_decode(stdout[match.start():])
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(candidate, dict) or not isinstance(candidate.get('gates'), dict):
+            continue
+        if structured is None:
+            structured = {'gates': {}}
+        merged = dict(structured.get('gates') or {})
+        merged.update(candidate['gates'])
+        for key, value in candidate.items():
+            if key != 'gates':
+                structured[key] = value
+        structured['gates'] = merged
+    return structured
+
+
 def run(command, cwd, env, timeout=240, required_stdout=None):
     started = time.monotonic()
     try:
         process = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True,
                                  encoding='utf-8', errors='replace', timeout=timeout)
         content_ok = required_stdout is None or required_stdout in process.stdout
-        structured = None
-        for match in re.finditer(r'\{', process.stdout):
-            try:
-                candidate, _ = json.JSONDecoder().raw_decode(process.stdout[match.start():])
-            except json.JSONDecodeError:
-                continue
-            if isinstance(candidate, dict) and isinstance(candidate.get('gates'), dict):
-                structured = candidate
-                break
+        structured = structured_report_from_stdout(process.stdout)
         return {'status': 'PASS' if process.returncode == 0 and content_ok else 'FAIL', 'exit_code': process.returncode,
                 'elapsed_s': round(time.monotonic() - started, 2),
                 'structured_report': structured,
