@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from run_real_semantic_handoff import (
+    find_payload_workspace,
     payload_candidate_ok,
     repository_slug,
     semantic_asset_name,
@@ -48,6 +49,16 @@ class RealSemanticHandoffTests(unittest.TestCase):
         self.assertIn("expected_sha256=" + "c" * 64, joined)
         for forbidden in ("TOKEN=", "API_KEY=", "PASSWORD=", "AUTH_JSON"):
             self.assertNotIn(forbidden, joined.upper())
+
+    def test_finds_workspace_template_inside_downloaded_carrier(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "carrier" / "AITest" / "workspace-template"
+            (workspace / ".opencode" / "node_modules").mkdir(parents=True)
+            if os.name == "nt":
+                (workspace / "runtime" / "python").mkdir(parents=True)
+                (workspace / "runtime" / "python" / "python.exe").write_bytes(b"fixture")
+            self.assertEqual(find_payload_workspace(root), workspace.resolve())
 
     def test_payload_candidate_requires_host_tool_dependencies(self):
         with tempfile.TemporaryDirectory() as directory:
