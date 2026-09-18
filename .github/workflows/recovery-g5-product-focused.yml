@@ -1,0 +1,66 @@
+name: Recovery G5 product focused qualification
+
+on:
+  push:
+    branches: [work/v1.13.0-recovery-turnkey-validation]
+    paths:
+      - workspace-template/.pfc-internal-field-validation/tests/test_g5_product_path.py
+      - workspace-template/ai-test/runtime/aitest_runtime/g5/**
+      - workspace-template/ai-test/runtime/aitest_runtime/product_entry.py
+      - workspace-template/ai-test/runtime/aitest_runtime/mission_tool_admission.py
+      - .github/workflows/recovery-g5-product-focused.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  g5-product:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Reuse qualified portable Python
+        shell: pwsh
+        run: |
+          $incoming = Join-Path $env:RUNNER_TEMP 'g5-focused-payload'
+          gh run download 34278790485 --name recovery-qualified-package --dir $incoming
+          if ($LASTEXITCODE -ne 0) { throw 'Prior qualified offline payload unavailable' }
+          $zip = Join-Path $incoming 'AITest-V1.13.0-Recovery-Turnkey-Windows-x64.zip'
+          $expected = '49d8e4dc0a38a1ea89b5872bb7926151b938172650bec2534ce73c43f76e9be2'
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+            throw 'Offline payload input hash mismatch'
+          }
+          $expanded = Join-Path $env:RUNNER_TEMP 'g5-focused-expanded'
+          Expand-Archive $zip -DestinationPath $expanded
+          $bundle = Get-ChildItem $expanded -Directory | Select-Object -First 1
+          if (-not $bundle) { throw 'Qualified payload root missing' }
+          $python = Join-Path $bundle.FullName 'workspace-template/runtime/python/python.exe'
+          if (-not (Test-Path $python)) { throw 'Portable Python missing' }
+          "FOCUSED_PYTHON=$python" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Run G5 product path
+        shell: pwsh
+        run: |
+          $env:GH_TOKEN = ''
+          $env:GITHUB_TOKEN = ''
+          $env:PYTHONNOUSERSITE = '1'
+          $env:PYTHONDONTWRITEBYTECODE = '1'
+          $env:PYTHONUTF8 = '1'
+          $test = 'workspace-template/.pfc-internal-field-validation/tests/test_g5_product_path.py'
+          & "$env:FOCUSED_PYTHON" -X utf8 -c "import sys,runpy; from pathlib import Path; p=sys.argv[1]; sys.path.insert(0,str(Path(p).parent)); sys.argv=[p]; runpy.run_path(p,run_name='__main__')" $test 2>&1 | Tee-Object -FilePath RECOVERY_G5_PRODUCT_FOCUSED.log
+          if ($LASTEXITCODE -ne 0) { throw 'G5 product focused regression failed' }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recovery-g5-product-focused
+          path: RECOVERY_G5_PRODUCT_FOCUSED.log
+          if-no-files-found: warn
