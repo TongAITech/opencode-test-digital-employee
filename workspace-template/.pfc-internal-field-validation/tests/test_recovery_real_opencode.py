@@ -80,7 +80,10 @@ def main():
             assert admitted['status'] == 'PLANNING', admitted
             os.environ.pop('AITEST_HOST_SESSION_ID', None); os.environ.pop('AITEST_HOST_MESSAGE_ID', None)
             mission = orch.start_test(request('actual-opencode-'+uuid.uuid4().hex, 'LOCAL-OPENCODE-ONLY'))['intake']['intake']['mission_id']
-            first = orch.propose_plan(mission, one_task())['next']
+            planned = orch.propose_plan(mission, one_task())
+            first = planned.get('next')
+            if not isinstance(first, dict):
+                raise RuntimeError('REAL_OPENCODE_PLAN_HANDOFF_MISSING: '+json.dumps(planned, ensure_ascii=False, sort_keys=True, default=str))
             sid = first['external_session']['session_id']
             # Persist synthetic input via real OpenCode API without buying a model
             # response or presenting an external bank observation as successful.
