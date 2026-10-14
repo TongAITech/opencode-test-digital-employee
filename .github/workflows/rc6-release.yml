@@ -60,6 +60,10 @@ jobs:
       - name: Verify built package
         shell: pwsh
         run: python -m rc6_release.package verify --package-root dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10
+      - name: ZIP shell line-ending qualification
+        shell: pwsh
+        run: |
+          python -c "import glob,zipfile; p=glob.glob(r'dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10-*.zip')[0]; z=zipfile.ZipFile(p); bad=[n for n in z.namelist() if n.endswith('.sh') and b'\r\n' in z.read(n)]; assert not bad, bad"
       - name: Git Bash package-only verification
         shell: bash
         run: ./dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10/VERIFY.sh --package-only
