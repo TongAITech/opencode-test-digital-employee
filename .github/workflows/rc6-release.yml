@@ -1,0 +1,55 @@
+name: RC6 Release Integrated Qualification and Packaging
+
+on:
+  push:
+    branches:
+      - work/rc6-runtime-reconstruction
+    paths:
+      - 'rc6_runtime/**'
+      - 'rc6_release/**'
+      - 'packaging/rc6/**'
+      - 'tests/test_release_packaging.py'
+      - 'docs/RC6_RELEASE_QUALIFICATION.md'
+      - '.github/workflows/rc6-release.yml'
+  workflow_dispatch:
+
+jobs:
+  runtime-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run all RC6 unit qualification
+        run: python -m unittest discover -s tests -v
+      - name: Bash syntax qualification
+        run: |
+          bash -n packaging/rc6/AITEST.sh
+          bash -n packaging/rc6/START-AITEST.sh
+          bash -n packaging/rc6/STOP-AITEST.sh
+          bash -n packaging/rc6/STATUS.sh
+          bash -n packaging/rc6/VERIFY.sh
+
+  windows-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Run all RC6 unit qualification on Windows
+        run: python -m unittest discover -s tests -v
+      - name: Build immutable engineering candidate
+        shell: pwsh
+        run: python -m rc6_release.package build --repo-root . --output dist --source-commit $env:GITHUB_SHA
+      - name: Verify built package
+        shell: pwsh
+        run: python -m rc6_release.package verify --package-root dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10
+      - name: Git Bash package-only verification
+        shell: bash
+        run: ./dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10/VERIFY.sh --package-only
+      - name: Upload RC6 engineering candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10-${{ github.sha }}
+          path: dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10-${{ github.sha }}.zip
+          if-no-files-found: error
+          retention-days: 14
