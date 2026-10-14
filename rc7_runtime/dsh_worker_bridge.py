@@ -6,9 +6,9 @@ independent node evaluator remains the sole authority that may accept it.
 
 The bridge is session-independent: prompts are compiled entirely from durable
 Task/Mission references and never contain coordinator conversation history.
-Worker-declared content references are not trusted as canonical storage: the
-normalized candidate payload is atomically persisted by the runtime and the
-Artifact points to that durable file.
+Worker-declared content references and hashes are not trusted as canonical
+storage: the normalized candidate envelope is atomically persisted and hashed
+by Runtime, and the Artifact points to that durable file.
 """
 
 from __future__ import annotations
@@ -107,6 +107,24 @@ DEFAULT_NODE_POLICIES: Mapping[str, DshNodePolicy] = {
 }
 
 
+_SEMANTIC_PAYLOAD_HINTS = {
+    "REQUIREMENT_ANALYSIS": (
+        "source_assertions, atomic_statements, trace_links, evidence_refs, business_rules, roles, "
+        "preconditions, normal_paths, negative_paths, boundaries, states, data_constraints, "
+        "dependencies, side_effects"
+    ),
+    "CODE_ANALYSIS": (
+        "requirement_ids, source_revisions, changed_files, changed_symbols, symbol_explanations, "
+        "reverse_requirement_mappings, tool_calls, evidence_refs, codegraph_required"
+    ),
+    "TEST_DESIGN": "obligations and test cases with coverage links, risk, action semantics and oracles",
+    "SCRIPT_READINESS": "test case, execution contract, executable script metadata and validation evidence",
+    "EXECUTION": "execution record, actual result, assertion outcome, tool calls and evidence references",
+    "DEFECT": "defect qualification/RCA/fix verification/regression evidence without declaring Mission completion",
+    "RUNTIME": "recovery action and evidence proving the runtime prerequisite was restored",
+}
+
+
 def _stable_id(prefix: str, *parts: str) -> str:
     raw = "\x1f".join(str(part) for part in parts).encode("utf-8")
     return "%s-%s" % (prefix, hashlib.sha256(raw).hexdigest()[:20])
@@ -191,9 +209,12 @@ class DshTaskWorkerBridge:
                 "artifact_id": expected_id,
                 "artifact_type": expected_type,
                 "content_ref": "worker-declared source reference; runtime will persist canonical payload",
-                "parent_refs": "list[str]",
+                "parent_refs": "list[str] containing every required input_artifact_ref",
                 "evidence_refs": "list[str]",
-                "content_hash": "optional sha256/string",
+            },
+            "semantic_payload": {
+                "type": "non-empty object",
+                "node_guidance": _SEMANTIC_PAYLOAD_HINTS.get(task.node, "evaluator-ready node output"),
             },
             "evidence": [
                 {
@@ -201,14 +222,16 @@ class DshTaskWorkerBridge:
                     "source_ref": "real source/tool reference",
                     "content_ref": "durable evidence reference",
                     "subject_refs": "list[str]",
-                    "content_hash": "optional sha256/string",
+                    "content_hash": "optional source evidence hash",
                 }
             ],
         }
         return (
             "You are an RC7 professional worker executing one leased task. "
-            "Do not evaluate or mark the task PASS. You MUST call at least one allowed real tool; "
-            "a text-only answer is invalid. Produce evidence-backed candidate output and return "
+            "Do not evaluate or mark the task PASS. Do not return an Evaluation object. "
+            "You MUST call at least one allowed real tool; a text-only answer is invalid. "
+            "Read/use every input_artifact_ref that is relevant to the task, produce evidence-backed "
+            "candidate output, put the professional node result in semantic_payload, and return "
             "exactly one JSON object.\n"
             "TASK_CONTRACT=" + json.dumps(contract, ensure_ascii=False, sort_keys=True) + "\n"
             "RETURN_SCHEMA=" + json.dumps(schema, ensure_ascii=False, sort_keys=True)
@@ -231,6 +254,12 @@ class DshTaskWorkerBridge:
         if raw_output.get("task_id") != task.task_id:
             raise DshWorkerBridgeError("DSH_OUTPUT_TASK_ID_MISMATCH")
 
+        semantic_payload = raw_output.get("semantic_payload")
+        if not isinstance(semantic_payload, dict) or not semantic_payload:
+            raise DshWorkerBridgeError("DSH_OUTPUT_SEMANTIC_PAYLOAD_REQUIRED")
+        if "evaluation" in semantic_payload or "task_state" in semantic_payload:
+            raise DshWorkerBridgeError("DSH_WORKER_ACCEPTANCE_FIELDS_FORBIDDEN")
+
         raw_artifact = raw_output.get("artifact")
         if not isinstance(raw_artifact, dict):
             raise DshWorkerBridgeError("DSH_OUTPUT_ARTIFACT_REQUIRED")
@@ -243,7 +272,6 @@ class DshTaskWorkerBridge:
         if not isinstance(declared_content_ref, str) or not declared_content_ref.strip():
             raise DshWorkerBridgeError("DSH_OUTPUT_CONTENT_REF_REQUIRED")
 
-        canonical_content_ref = self._persist_candidate_payload(task, invocation, raw_output)
         evidence = [
             Evidence(
                 evidence_id=_stable_id(
@@ -323,6 +351,12 @@ class DshTaskWorkerBridge:
             isinstance(value, str) and value for value in artifact_evidence_refs
         ):
             raise DshWorkerBridgeError("DSH_OUTPUT_ARTIFACT_EVIDENCE_REFS_INVALID")
+
+        canonical_content_ref, runtime_hash = self._persist_candidate_payload(
+            task,
+            invocation,
+            raw_output,
+        )
         artifact = Artifact(
             artifact_id=expected_id,
             mission_id=task.mission_id,
@@ -331,7 +365,7 @@ class DshTaskWorkerBridge:
             content_ref=canonical_content_ref,
             parent_refs=list(dict.fromkeys(parent_refs)),
             evidence_refs=list(dict.fromkeys(artifact_evidence_refs + evidence_ids)),
-            content_hash=raw_artifact.get("content_hash") if isinstance(raw_artifact.get("content_hash"), str) else None,
+            content_hash=runtime_hash,
         )
         return WorkerOutput(
             task_id=task.task_id,
@@ -352,7 +386,7 @@ class DshTaskWorkerBridge:
         task: Task,
         invocation: WorkerInvocation,
         raw_output: Dict[str, Any],
-    ) -> str:
+    ) -> Tuple[str, str]:
         launcher_root = getattr(self.launcher, "state_root", None)
         if launcher_root is not None:
             root = Path(launcher_root)
@@ -369,17 +403,26 @@ class DshTaskWorkerBridge:
             invocation.worker_instance_id,
         ) + ".json"
         target = target_dir / filename
+        serialized = json.dumps(
+            raw_output,
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+            separators=(",", ": "),
+        ) + "\n"
+        encoded = serialized.encode("utf-8")
+        runtime_hash = "sha256:" + hashlib.sha256(encoded).hexdigest()
         fd, temp_name = tempfile.mkstemp(prefix=filename + ".", suffix=".tmp", dir=str(target_dir))
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(raw_output, handle, ensure_ascii=False, sort_keys=True, indent=2)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(encoded)
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temp_name, target)
         finally:
             if os.path.exists(temp_name):
                 os.unlink(temp_name)
-        return "file://" + str(target.resolve())
+        return "file://" + str(target.resolve()), runtime_hash
 
     def _assign(self, task: Task, policy: DshNodePolicy) -> WorkerAssignment:
         attempt_id = _stable_id("ATT-DSH", task.mission_id, task.task_id, str(task.updated_at))
