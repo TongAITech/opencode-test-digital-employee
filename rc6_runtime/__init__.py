@@ -118,6 +118,21 @@ from .recovery import (
     RecoveryActionResult,
     TERMINAL_STATES,
 )
+from .recovery_adapters import (
+    AuthRecoveryAdapter,
+    BoundedRetryAdapter,
+    DependencyRecoveryAdapter,
+    EnvironmentRecoveryAdapter,
+    ExecutableSpecRepairAdapter,
+    FlakyRepeatAdapter,
+    PreparationRecoveryAdapter,
+    RecoveryAdapterError,
+    RecoveryAdapterRegistry,
+    RouteRecoveryAdapter,
+    ScriptRepairAdapter,
+    ToolRecoveryAdapter,
+    VerifiedRecoveryAdapter,
+)
 from .execution_overlay import (
     EXECUTION_CLOSURE_BUCKETS,
     EXECUTION_CLOSURE_EVENT_TYPES,
@@ -178,6 +193,9 @@ __all__ = [
     "ScriptArtifact", "ScriptValidation", "ScriptValidator",
     "ConvergenceDecision", "ExecutionBudgets", "ExecutionConvergenceController", "RecoveryActionError",
     "RecoveryActionExecutor", "RecoveryActionResult", "TERMINAL_STATES",
+    "AuthRecoveryAdapter", "BoundedRetryAdapter", "DependencyRecoveryAdapter", "EnvironmentRecoveryAdapter",
+    "ExecutableSpecRepairAdapter", "FlakyRepeatAdapter", "PreparationRecoveryAdapter", "RecoveryAdapterError",
+    "RecoveryAdapterRegistry", "RouteRecoveryAdapter", "ScriptRepairAdapter", "ToolRecoveryAdapter", "VerifiedRecoveryAdapter",
     "EXECUTION_CLOSURE_BUCKETS", "EXECUTION_CLOSURE_EVENT_TYPES", "EXECUTION_CLOSURE_VALIDATORS", "install_execution_closure_overlay",
     "AGENT_RUNTIME_EVENT_TYPES", "AgentRuntimeError", "AgentRuntimeProofValidator", "AgentRuntimeQualificationResult",
     "DshHeadlessWorkerLauncher", "HeadlessRunResult", "IndependentRequirementSufficiencyGate",
