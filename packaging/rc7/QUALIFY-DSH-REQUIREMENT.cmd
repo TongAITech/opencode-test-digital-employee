@@ -15,6 +15,7 @@ if not defined PYTHON_BIN (
 )
 
 set "PFC_AITEST_HOME=%ROOT%"
+if not defined PFC_WORKSPACE set "PFC_WORKSPACE=%ROOT%"
 if defined PYTHONPATH (
   set "PYTHONPATH=%ROOT%;%PYTHONPATH%"
 ) else (
@@ -25,9 +26,9 @@ set "RC7_TIMEOUT=300"
 if defined PFC_RC7_DSH_TIMEOUT set "RC7_TIMEOUT=%PFC_RC7_DSH_TIMEOUT%"
 
 if defined PFC_DSH_BIN (
-  "%PYTHON_BIN%" -m rc7_release.dsh_bridge_qualification --state-root "%PFC_AITEST_STATE_DIR%" --repo-root "%ROOT%" --dsh-bin "%PFC_DSH_BIN%" --timeout-seconds "%RC7_TIMEOUT%"
+  "%PYTHON_BIN%" -m rc7_release.qualification --state-root "%PFC_AITEST_STATE_DIR%" --repo-root "%ROOT%" --dsh-bin "%PFC_DSH_BIN%" --timeout-seconds "%RC7_TIMEOUT%"
 ) else (
-  "%PYTHON_BIN%" -m rc7_release.dsh_bridge_qualification --state-root "%PFC_AITEST_STATE_DIR%" --repo-root "%ROOT%" --timeout-seconds "%RC7_TIMEOUT%"
+  "%PYTHON_BIN%" -m rc7_release.qualification --state-root "%PFC_AITEST_STATE_DIR%" --repo-root "%ROOT%" --timeout-seconds "%RC7_TIMEOUT%"
 )
 set "RC=%ERRORLEVEL%"
 
