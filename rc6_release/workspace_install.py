@@ -10,45 +10,14 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .static_skills import ALL_SKILLS, PROFESSIONAL_SKILLS
+
 SCHEMA_VERSION = "pfc.aitest.rc6.workspace-install.v1"
 PROFILE_SCHEMA_VERSION = "pfc.aitest.rc6.agent-profile.v1"
 PROFILE_DIR = Path(".dsh") / "rc6"
 MANIFEST_NAME = "INSTALL_MANIFEST.json"
 AGENT_PROFILE_NAME = "AGENT_PROFILE.json"
 BACKUP_DIR = ".aitest-backup"
-
-# RC6 professional agents are fresh DSH Worker sessions. Their reusable role
-# instructions are project-scoped DSH Skills installed into D:\\PFC\\.dsh\\skills.
-# The runtime agent_id and Skill name are intentionally identical so routing and
-# provenance are auditable without inventing an unsupported .dsh/agents format.
-ROLE_DESCRIPTIONS = {
-    "pfc-requirement-analysis": "Analyze BR/SR/TR and atomic testable requirements with rules, roles, paths, boundaries, states, data, dependencies, side effects and trace evidence.",
-    "pfc-requirement-sufficiency": "Independently review requirement analysis for completeness and evidence; return explicit gaps and never self-repair the analyzed artifact.",
-    "pfc-code-analysis": "Analyze exact revision and change impact using admitted CodeGraph/Git/source evidence; map requirements to symbols, call paths, routes, data and risk.",
-    "pfc-code-sufficiency": "Independently review code-analysis reachability, requirement mapping, changed-symbol coverage, call paths and evidence; return gaps only.",
-    "pfc-test-fusion": "Fuse requirement and code truth into Test Intents/Test Conditions and evidence-backed L1-L7 applicability before layer design.",
-    "pfc-l1-test-design": "Design code/unit cases with method, branch, boundary, exception and deterministic oracle coverage; never mix layers.",
-    "pfc-l2-test-design": "Design DB/component/internal-integration cases with SQL, transaction, state, consistency and cleanup oracles; never mix layers.",
-    "pfc-l3-test-design": "Design API/service-integration cases with authoritative route, schema, auth, business/error, negative and boundary oracles; never guess endpoints.",
-    "pfc-l4-test-design": "Design browser/UI cases with page, control, state and network evidence plus real 4A prerequisites; never mix layers.",
-    "pfc-l5-test-design": "Design cross-system E2E journeys with handoff, state consistency, recovery and end-state oracles; never mix layers.",
-    "pfc-l6-test-design": "Design performance/workload cases with workload model, SLO, latency/error/resource oracles and admitted tooling.",
-    "pfc-l7-test-design": "Design bounded security cases from attack surface and controls with authorized probes and evidence-backed oracles.",
-    "pfc-automation-engineer": "Resolve reusable automation first, then build deterministic pytest/JUnit automation from frozen executable specs; generated is not ready until validation passes.",
-    "pfc-test-data": "Construct and verify preconditions, test data and cleanup for one PreparedAttempt using authoritative DB/API/runtime facts.",
-    "pfc-l1-test-execution": "Execute validated L1 automation with real admitted runner and persist actual/oracle/evidence; no simulated success.",
-    "pfc-l2-test-execution": "Execute validated L2 DB/component cases against the bound target and PreparedAttempt; persist transaction/state/SQL evidence and cleanup.",
-    "pfc-l3-test-execution": "Execute validated L3 API cases against authoritative route/auth target; persist request/response/business/oracle evidence and CAT correlation when applicable.",
-    "pfc-l4-test-execution": "Execute validated L4 browser/UI cases using admitted browser automation and real 4A state; persist page/network/oracle evidence.",
-    "pfc-l5-test-execution": "Execute bound E2E journeys across systems, preserving correlation/state evidence and end-state oracle.",
-    "pfc-l6-test-execution": "Execute admitted workload/performance run and persist workload identity, samples, thresholds, SLO result and evidence.",
-    "pfc-l7-test-execution": "Execute authorized bounded security probes and persist request/control/result evidence; stop on authorization ambiguity.",
-    "pfc-failure-diagnosis": "Classify failure ownership with stable FailureSignature, CAT/runner evidence and CodeGraph/Git/requirement context; assertion failure alone is never PRODUCT.",
-    "pfc-recovery": "Execute only runtime-selected recovery, verify side effects, append a fresh Attempt and obey retry budgets; never silently change an oracle.",
-    "pfc-defect-review": "Confirm PRODUCT only after competing script/spec/oracle/data/auth/route/tool/environment/dependency causes are proven correct; create stable defect evidence.",
-    "pfc-report": "Derive status/report only from R1 truth and canonical evidence; reconcile identities/counts and never promote engineering proof to BANK_FINAL.",
-}
-
 ACTIVE_SKILL_ROOTS = (Path(".dsh") / "skills", Path(".agents") / "skills")
 LEGACY_OBSERVATION_ROOTS = (Path(".opencode") / "skills", Path(".opencode") / "agents")
 
@@ -57,20 +26,23 @@ class WorkspaceInstallError(RuntimeError):
     pass
 
 
-def _sha_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+def _sha_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
 
 
-def _render_role_skill(name: str, description: str) -> str:
-    return """---\nname: {name}\ndescription: RC6 professional Worker role. {description}\n---\n\n# RC6 {name}\n\nThis is an RC6 governed professional Worker, not the Coordinator.\n\n- Use only runtime-issued Mission/Worker/Lease scope and admitted tools.\n- R1 Event Stream and R1-backed artifact refs are the only durable test truth.\n- Read routes/revisions/DB/auth/4A/CAT/tool readiness from Bank Reality/Capability Broker; never guess.\n- Produce evidence-backed structured handoff output; missing evidence fails closed.\n- Stay in this role and route gaps through Runtime; never impersonate another role.\n- Release status remains ENGINEERING_CANDIDATE_NOT_BANK_FINAL until real bank gates pass.\n\nProfessional responsibility: {description}\n""".format(name=name, description=description)
-
-
-def _payload(package_root: Path) -> Dict[str, str]:
-    full = package_root / ".dsh" / "skills" / "pfc-full-chain-test" / "SKILL.md"
-    if not full.is_file():
-        raise WorkspaceInstallError("RC6_COORDINATOR_SKILL_PAYLOAD_MISSING")
-    result = {name: _render_role_skill(name, desc) for name, desc in ROLE_DESCRIPTIONS.items()}
-    result["pfc-full-chain-test"] = full.read_text(encoding="utf-8")
+def _payload(package_root: Path) -> Dict[str, bytes]:
+    root = package_root / ".dsh" / "skills"
+    result: Dict[str, bytes] = {}
+    for name in ALL_SKILLS:
+        path = root / name / "SKILL.md"
+        if not path.is_file():
+            raise WorkspaceInstallError("RC6_STATIC_SKILL_PAYLOAD_MISSING:%s" % name)
+        result[name] = path.read_bytes()
+    discovered = {
+        p.parent.name for p in root.glob("pfc-*/SKILL.md") if p.parent.name.startswith("pfc-")
+    }
+    if discovered != set(ALL_SKILLS):
+        raise WorkspaceInstallError("RC6_STATIC_SKILL_PAYLOAD_SET_MISMATCH")
     return result
 
 
@@ -96,7 +68,7 @@ def _read_manifest(workspace: Path) -> Optional[Dict[str, Any]]:
         return None
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return None
     return value if isinstance(value, dict) else None
 
@@ -173,12 +145,6 @@ def _write_json(path: Path, value: Dict[str, Any]) -> None:
         fh.write("\n")
 
 
-def _write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="\n") as fh:
-        fh.write(text)
-
-
 def verify_workspace(package_root: str | Path, workspace: str | Path) -> Dict[str, Any]:
     package, work = Path(package_root).resolve(), Path(workspace).resolve()
     source_commit, payload = _source_commit(package), _payload(package)
@@ -186,9 +152,9 @@ def verify_workspace(package_root: str | Path, workspace: str | Path) -> Dict[st
     active = {p.name for p in _managed_entries(root)}
     if active != set(payload):
         raise WorkspaceInstallError("RC6_ACTIVE_SKILL_SET_MISMATCH")
-    for name, text in payload.items():
+    for name, raw in payload.items():
         path = root / name / "SKILL.md"
-        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != _sha_text(text):
+        if not path.is_file() or _sha_bytes(path.read_bytes()) != _sha_bytes(raw):
             raise WorkspaceInstallError("RC6_SKILL_HASH_MISMATCH:%s" % name)
     if _managed_entries(work / ".agents" / "skills"):
         raise WorkspaceInstallError("LEGACY_PFC_PROJECT_AGENT_SKILLS_STILL_ACTIVE")
@@ -200,19 +166,13 @@ def verify_workspace(package_root: str | Path, workspace: str | Path) -> Dict[st
         raise WorkspaceInstallError("RC6_AGENT_PROFILE_MISSING")
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
     agents = {x.get("agent_id") for x in profile.get("agents", []) if isinstance(x, dict)}
-    if agents != set(ROLE_DESCRIPTIONS):
+    if agents != set(PROFESSIONAL_SKILLS):
         raise WorkspaceInstallError("RC6_AGENT_PROFILE_BINDING_MISMATCH")
     return {
-        "status": "PASS",
-        "workspace": str(work),
-        "source_commit": source_commit,
-        "install_mode": manifest.get("install_mode"),
-        "skill_count": len(payload),
-        "agent_count": len(agents),
-        "rc6_agent_install": "PASS",
-        "rc6_skill_install": "PASS",
-        "legacy_rc5_pfc_active": False,
-        "rc6_profile_active": "PASS",
+        "status": "PASS", "workspace": str(work), "source_commit": source_commit,
+        "install_mode": manifest.get("install_mode"), "skill_count": len(payload), "agent_count": len(agents),
+        "rc6_agent_install": "PASS", "rc6_skill_install": "PASS",
+        "legacy_rc5_pfc_active": False, "rc6_profile_active": "PASS",
     }
 
 
@@ -226,38 +186,29 @@ def install_workspace(package_root: str | Path, workspace: str | Path) -> Dict[s
         root = work / ".dsh" / "skills"
         root.mkdir(parents=True, exist_ok=True)
         hashes: Dict[str, str] = {}
-        for name, text in payload.items():
+        for name, raw in payload.items():
             path = root / name / "SKILL.md"
-            _write_text(path, text)
-            hashes[name] = _sha_text(text)
-        _write_json(
-            work / PROFILE_DIR / AGENT_PROFILE_NAME,
-            {
-                "schema_version": PROFILE_SCHEMA_VERSION,
-                "source_commit": source_commit,
-                "agent_runtime": "DSH_HEADLESS_FRESH_AGENT",
-                "worker_skill_binding_required": True,
-                "coordinator_skill": "pfc-full-chain-test",
-                "agents": [
-                    {"agent_id": name, "skill": name, "source": "workspace-project-dsh"}
-                    for name in ROLE_DESCRIPTIONS
-                ],
-            },
-        )
-        _write_json(
-            work / PROFILE_DIR / MANIFEST_NAME,
-            {
-                "schema_version": SCHEMA_VERSION,
-                "source_commit": source_commit,
-                "install_mode": mode,
-                "installed_at_epoch": int(time.time()),
-                "workspace": str(work),
-                "active_skill_root": str(root),
-                "skill_hashes": hashes,
-                "backup_path": str(backup) if backup else None,
-                "release_status": "ENGINEERING_CANDIDATE_NOT_BANK_FINAL",
-            },
-        )
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(raw)
+            hashes[name] = _sha_bytes(raw)
+        _write_json(work / PROFILE_DIR / AGENT_PROFILE_NAME, {
+            "schema_version": PROFILE_SCHEMA_VERSION,
+            "source_commit": source_commit,
+            "agent_runtime": "DSH_HEADLESS_FRESH_AGENT",
+            "worker_skill_binding_required": True,
+            "coordinator_skill": "pfc-full-chain-test",
+            "agents": [
+                {"agent_id": name, "skill": name, "source": "workspace-project-dsh"}
+                for name in PROFESSIONAL_SKILLS
+            ],
+        })
+        _write_json(work / PROFILE_DIR / MANIFEST_NAME, {
+            "schema_version": SCHEMA_VERSION, "source_commit": source_commit, "install_mode": mode,
+            "installed_at_epoch": int(time.time()), "workspace": str(work), "active_skill_root": str(root),
+            "skill_hashes": hashes, "backup_path": str(backup) if backup else None,
+            "release_status": "ENGINEERING_CANDIDATE_NOT_BANK_FINAL",
+            "skill_source": "IMMUTABLE_PACKAGE_STATIC_PAYLOAD",
+        })
         result = verify_workspace(package, work)
         result["backup_path"] = str(backup) if backup else None
         return result
