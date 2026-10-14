@@ -78,8 +78,20 @@ class RealAgentQualificationFailClosedTests(unittest.TestCase):
                 dsh_record("session-analysis-2", analysis_payload(repaired=True)),
                 dsh_record("session-review-2", review_payload(passed=True)),
             ]
+            preflight_calls = []
 
             def fake_run(command, **kwargs):
+                if "--help" in command:
+                    preflight_calls.append("help")
+                    return subprocess.CompletedProcess(command, 0, stdout="usage: dsh --dump-config", stderr="")
+                if "--dump-config" in command:
+                    preflight_calls.append("dump-config")
+                    return subprocess.CompletedProcess(
+                        command,
+                        0,
+                        stdout="serverName: pfc_aitest_rc6\nid: mcp-pfc-aitest-rc6",
+                        stderr="",
+                    )
                 self.assertTrue(records, "unexpected fifth DSH worker invocation")
                 return records.pop(0)
 
@@ -98,6 +110,7 @@ class RealAgentQualificationFailClosedTests(unittest.TestCase):
             self.assertEqual(len(set(result.worker_instance_ids)), 4)
             self.assertEqual(len(result.dsh_session_ids), 4)
             self.assertEqual(len(set(result.dsh_session_ids)), 4)
+            self.assertEqual(preflight_calls, ["help", "dump-config"])
             self.assertFalse(records)
 
             r1 = Path(root) / "runtime-state" / "r1" / "event-stream.jsonl"
@@ -110,6 +123,36 @@ class RealAgentQualificationFailClosedTests(unittest.TestCase):
                 "SUFFICIENCY_PASSED",
             ):
                 self.assertIn(event_name, text)
+
+    def test_composition_preflight_failure_is_recorded_in_r1_before_worker_start(self):
+        with tempfile.TemporaryDirectory() as root:
+            dsh = Path(root) / "dsh"
+            dsh.write_text("stub", encoding="utf-8")
+
+            def fake_run(command, **kwargs):
+                if "--help" in command:
+                    return subprocess.CompletedProcess(command, 0, stdout="usage: dsh --dump-config", stderr="")
+                if "--dump-config" in command:
+                    return subprocess.CompletedProcess(command, 0, stdout="profile: headless", stderr="")
+                self.fail("worker must not start after composition preflight failure")
+
+            with mock.patch("rc6_runtime.agent_runtime.subprocess.run", side_effect=fake_run):
+                result = run_real_vertical_slice(
+                    home=root,
+                    dsh_bin=str(dsh),
+                    coordinator_instance_id="coord-preflight-fail",
+                    timeout_seconds=1,
+                )
+
+            self.assertEqual(result.status, "AGENT_RUNTIME_FAIL")
+            self.assertEqual(
+                result.reason,
+                "ROUTING_INTEGRITY_FAIL:DSH_MCP_PATCH_NOT_COMPOSED",
+            )
+            r1 = Path(root) / "runtime-state" / "r1" / "event-stream.jsonl"
+            text = r1.read_text(encoding="utf-8")
+            self.assertIn("DSH_MCP_PATCH_NOT_COMPOSED", text)
+            self.assertNotIn("WORKER_STARTED", text)
 
 
 if __name__ == "__main__":
