@@ -20,10 +20,22 @@ Repository truth only. Conversation claims do not advance a wave.
 | 6 | L1-L7 Design Runtime | ENGINEERING_PASS / FROZEN | code `5daf515777a0a36fc08c1d640f8c40efbca69520`; GitHub Actions run `38523622831` = success |
 | 7 | Coverage/Oracle Closure | ENGINEERING_PASS / FROZEN | code `318fe446c498c22d92ac241f01d067e4c8e3bd83`; GitHub Actions run `38523909146` = success |
 | 8 | Precondition/Test Data | ENGINEERING_PASS / FROZEN | code `bdd54561f7f2c68feeba0970ede0506b6a7f4cb1`; GitHub Actions run `38524369514` = success |
-| 9 | L1-L7 Execution | IMPLEMENTING | layer-isolated real-action execution and integrity gate next |
-| 10 | CAT Diagnosis/Recovery | NOT_STARTED | — |
+| 9 | L1-L7 Execution | ENGINEERING_PASS / FROZEN | code `a8f9cf301b21448ce71a5c2c1067f25e22167651`; GitHub Actions run `38525779029` = success |
+| 10 | CAT Diagnosis/Recovery | IMPLEMENTING | failure diagnosis, bounded CAT correlation and recovery semantics next |
 | 11 | Execution Coverage Closure | NOT_STARTED | — |
 | 12 | Admin/Allure/Report | NOT_STARTED | — |
 
+## Wave 9 frozen capabilities
+- seven independent `L1_EXECUTE` ... `L7_EXECUTE` profiles
+- exact PREPARED attempt + FROZEN Case version + TargetIdentity required
+- worker role/layer/phase and lease scope are runtime-enforced
+- layer-specific tool admission is required for the exact worker and target
+- every required execution tool must produce a real tool-call ref and evidence ref
+- actual result + independent deterministic oracle assertion + current evidence required for PASS
+- `BLOCKED`, `SKIPPED`, `NOT_RUN` cannot become PASS
+- mixed-layer Cases are rejected
+- execution receives copies; canonical frozen Case and prepared bindings cannot be mutated by an execution worker
+- failed oracle stays FAIL with valid execution integrity
+
 ## Current RED
-`W9-REAL-EXECUTION-INTEGRITY`: implement seven independent L1-L7 execution profiles and a fail-closed execution integrity gate. Execution requires a PreparedAttempt, matching FROZEN Case version and TargetIdentity, runtime-authorized Lx_EXECUTE worker/lease, layer-specific tool admission, a real action/tool-call evidence, actual result, deterministic oracle assertion, and current evidence. BLOCKED/SKIPPED/NOT_RUN cannot become PASS, and execution workers cannot mutate the frozen Case.
+`W10-CAT-DIAGNOSIS-RECOVERY`: failed attempts must preserve immutable attempt history, collect bounded multi-source evidence, correlate CAT when applicable using app/time/request/trace/business identifiers, classify the failure, and choose only an allowed recovery path. Retry is allowed only for transient failures and must be bounded. DATA/PRECONDITION/AUTH/TOOL/ROUTE/DESIGN failures use distinct recovery semantics. A valid PRODUCT assertion failure after verified preparation and real action is terminal and cannot be retried or re-prepared to green.
