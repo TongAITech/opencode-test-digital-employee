@@ -21,6 +21,9 @@ SECRET_MARKERS = (
 
 SOURCE_DIRS = ("rc6_runtime", "rc6_release")
 LAUNCHER_DIR = Path("packaging") / "rc6"
+RUNTIME_GENERATED_DIRS = {"runtime-state"}
+RUNTIME_GENERATED_SUFFIXES = {".pyc", ".pyo"}
+
 SHELL_ENTRYPOINTS = (
     "AITEST.sh",
     "START-AITEST.sh",
@@ -75,10 +78,22 @@ def _write_text(path: Path, text: str) -> None:
         fh.write(text)
 
 
+def _is_runtime_generated(root: Path, path: Path) -> bool:
+    rel = path.relative_to(root)
+    return (
+        "__pycache__" in rel.parts
+        or path.suffix in RUNTIME_GENERATED_SUFFIXES
+        or (bool(rel.parts) and rel.parts[0] in RUNTIME_GENERATED_DIRS)
+    )
+
+
 def _package_files(root: Path) -> Iterable[Path]:
     for path in sorted(root.rglob("*")):
-        if path.is_file() and path.name != "CHECKSUMS.sha256":
-            yield path
+        if not path.is_file() or path.name == "CHECKSUMS.sha256":
+            continue
+        if _is_runtime_generated(root, path):
+            continue
+        yield path
 
 
 def _manifest_for(package_root: Path, source_commit: str) -> dict:
