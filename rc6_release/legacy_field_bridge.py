@@ -95,9 +95,7 @@ def _existing_candidate(value: str, workspace: Path, registry_root: Path) -> Opt
         except OSError:
             pass
     found = shutil.which(raw)
-    if found:
-        return Path(found).resolve()
-    return None
+    return Path(found).resolve() if found else None
 
 
 def _registry_candidates(workspace: Path, tool_id: str, spec: Dict[str, Any]) -> Iterable[Path]:
@@ -185,18 +183,39 @@ def _bounded_name_search(roots: Sequence[Path], names: Sequence[str], max_depth:
 
 
 def _discover(workspace: Path, package_root: Optional[Path], tool_id: str, spec: Dict[str, Any]) -> Tuple[Optional[Path], str]:
-    # Existing explicit binding remains authoritative.
     env_value = os.environ.get(spec['env'])
     if env_value:
         path = _existing_candidate(env_value, workspace, workspace)
         if path is not None:
             return path, 'ENV:' + spec['env']
 
-    # Historical runtime registry is next; it may point outside D:\\PFC.
     for candidate in _registry_candidates(workspace, tool_id, spec):
         return candidate, 'AITEST_RUNTIME_CONTEXT_REGISTRY'
 
-    # Then scan only known runtime/tool roots, never the business repositories.
+    path = _bounded_name_search(_safe_roots(workspace, package_root), spec['names'])
+    if path is not None:
+        return path, 'HISTORICAL_RUNTIME_ROOT'
+    return None, 'NONE'
+
+
+def _discover_cat(workspace: Path, package_root: Optional[Path], spec: Dict[str, Any]) -> Tuple[Optional[Path], str]:
+    # Explicit override is strongest.
+    env_value = os.environ.get(spec['env'])
+    if env_value:
+        path = _existing_candidate(env_value, workspace, workspace)
+        if path is not None:
+            return path, 'ENV:' + spec['env']
+
+    # Historical registry remains authoritative when it has a CAT binding.
+    for candidate in _registry_candidates(workspace, 'cat', spec):
+        return candidate, 'AITEST_RUNTIME_CONTEXT_REGISTRY'
+
+    # The bank field layout has a stable secret-reference location. We only
+    # retain its path and never read the file content.
+    known = workspace / 'aitest-runtime-context' / 'secrets' / 'cat.json'
+    if known.is_file():
+        return known.resolve(), 'AITEST_RUNTIME_CONTEXT_SECRET_REF'
+
     path = _bounded_name_search(_safe_roots(workspace, package_root), spec['names'])
     if path is not None:
         return path, 'HISTORICAL_RUNTIME_ROOT'
@@ -217,13 +236,11 @@ def build_bindings(workspace: str | Path, package_root: str | Path | None = None
             'found': path is not None,
         })
 
-    # 4A/CAT are bindings, not boot-time READY claims. Never read CAT secret contents.
     for tool_id, spec in SPECIAL_BINDINGS.items():
-        path, provenance = _discover(work, package, tool_id, spec)
-        if tool_id == 'cat' and path is None:
-            known = work / 'aitest-runtime-context' / 'secrets' / 'cat.json'
-            if known.is_file():
-                path, provenance = known.resolve(), 'AITEST_RUNTIME_CONTEXT_SECRET_REF'
+        if tool_id == 'cat':
+            path, provenance = _discover_cat(work, package, spec)
+        else:
+            path, provenance = _discover(work, package, tool_id, spec)
         bindings.append({
             'tool_id': tool_id,
             'env': spec['env'],
@@ -265,7 +282,10 @@ def write_env(workspace: str | Path, output: str | Path, package_root: str | Pat
     for item in result['bindings']:
         if item['found'] and item['path']:
             lines.append('export %s=%s' % (item['env'], _shell_quote(str(item['path']))))
-    target.write_text('\n'.join(lines) + '\n', encoding='utf-8', newline='\n')
+    # pathlib.Path.write_text gained newline= after Python 3.8. Use open() so
+    # the bank Python 3.8 runtime gets deterministic LF without compatibility risk.
+    with target.open('w', encoding='utf-8', newline='\n') as fh:
+        fh.write('\n'.join(lines) + '\n')
     result['env_file'] = str(target.resolve())
     return result
 
