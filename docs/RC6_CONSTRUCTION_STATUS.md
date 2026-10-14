@@ -18,28 +18,23 @@ Repository truth only. Conversation claims do not advance a wave.
 | 4 | Tool Capability Broker | ENGINEERING_PASS / FROZEN | code `c13cddb6e1bc013106050bb24a4735cac4049a65`; GitHub Actions run `38523006166` = success |
 | 5 | Requirement/Code Intelligence | ENGINEERING_PASS / FROZEN | code `0d79b7e46240d28a94691d4ae7e26f74e85c44ae`; GitHub Actions run `38523268446` = success |
 | 6 | L1-L7 Design Runtime | ENGINEERING_PASS / FROZEN | code `5daf515777a0a36fc08c1d640f8c40efbca69520`; GitHub Actions run `38523622831` = success |
-| 7 | Coverage/Oracle Closure | IMPLEMENTING | subject-level semantic coverage, oracle adequacy and delta-design closure next |
+| 7 | Coverage/Oracle Closure | IMPLEMENTING | subject-level semantic coverage, oracle derivation, delta design, and freeze gate under qualification |
 | 8 | Precondition/Test Data | NOT_STARTED | — |
 | 9 | L1-L7 Execution | NOT_STARTED | — |
 | 10 | CAT Diagnosis/Recovery | NOT_STARTED | — |
 | 11 | Execution Coverage Closure | NOT_STARTED | — |
 | 12 | Admin/Allure/Report | NOT_STARTED | — |
 
-## Wave 6 frozen capabilities
-- every TestCondition receives seven explicit L1..L7 applicability decisions
-- applicable layers require evidence; non-applicable layers remain explicit
-- one applicable layer creates one independent `Lx_DESIGN` worker identity and lease
-- combined `L2-L4` design workers are absent from the runtime planner
-- Case candidate layer/condition/worker/lease provenance is validated
-- design worker may emit only CANDIDATE
-- design context is bounded artifact refs; raw diff/source/chat context is rejected
-- context overflow rotates within the same professional role/layer only
-
-## Wave 6 evidence
-- commit: `5daf515777a0a36fc08c1d640f8c40efbca69520`
-- workflow: `RC6 Wave 6 L1-L7 Design Runtime`
-- run id: `38523622831`
-- conclusion: `success`
+## Wave 7 implementation under qualification
+- canonical CoverageSubject registry with explicit kind/layer/risk/source evidence
+- required subjects are evaluated individually; Case count and dimension presence do not substitute for coverage
+- Case-to-subject coverage links must be evidence-backed and same-layer
+- uncovered CRITICAL/HIGH subjects reported explicitly
+- OraclePolicy derives required oracle types from L1-L7 layer, risk and action semantics
+- state-changing -> PERSISTENCE oracle; negative -> NEGATIVE_SIDE_EFFECT; authorization-sensitive -> AUTHORIZATION
+- HIGH/CRITICAL -> EVIDENCE_CORRELATION oracle
+- DeltaDesignPlanner emits exact subject refs grouped by professional layer
+- CaseFreezeGate blocks FROZEN transition until semantic coverage and oracle closure PASS
 
 ## Current RED
-`W7-COVERAGE-ORACLE-CLOSURE`: replace dimension-presence counting with a canonical CoverageSubject registry. Every required subject must be mapped to concrete Case candidates; critical/high-risk and critical-oracle gaps must be zero before freeze. Oracle adequacy must be computed from layer/risk/action semantics, and uncovered subjects must produce delta-design work for the exact professional layer rather than a generic re-generation pass.
+`W7-CI-PROOF`: commit semantic coverage/oracle closure plus adversarial tests, run GitHub Actions, and repair only the first failing invariant. Wave 8 remains blocked until Wave 7 is frozen.
