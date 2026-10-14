@@ -200,7 +200,11 @@ def validate_rc7_defect(payload: Dict[str, Any]) -> Dict[str, Any]:
     passes = out.get("reproduction_passes")
     if not isinstance(attempts, int) or attempts < 0 or not isinstance(passes, int) or passes < 0 or passes > attempts:
         raise _contracts.DomainValidationError("DEFECT_REPRODUCTION_COUNTER_INVALID")
-    if out["state"] in {"EVIDENCE_READY", "READY_FOR_REVIEW", "CONFIRMED", "FIX_PENDING", "FIX_DETECTED", "VERIFYING", "FIXED", "REGRESSION_TESTING", "CLOSED"}:
+    if out["state"] in {
+        "EVIDENCE_READY", "READY_FOR_REVIEW", "CONFIRMED", "FIX_PENDING",
+        "FIX_DETECTED", "VERIFYING", "FIXED", "REGRESSION_TESTING", "CLOSED",
+        "DUPLICATE", "NOT_A_DEFECT",
+    }:
         if not isinstance(out.get("latest_evaluation_id"), str) or not out["latest_evaluation_id"].strip():
             raise _contracts.DomainValidationError("DEFECT_ACCEPTED_STATE_REQUIRES_EVALUATION")
     if out["state"] in {"FIX_DETECTED", "VERIFYING", "FIXED", "REGRESSION_TESTING", "CLOSED"}:
@@ -291,6 +295,19 @@ def _enforce_durable_acceptance(truth_runtime: _truth.TruthRuntime, entity: Any)
             evaluated = set(evaluation.get("artifact_refs", []))
             if not evaluated.intersection(entity.output_artifact_refs):
                 raise _truth.EventValidationError("TASK_PASS_EVALUATION_DOES_NOT_REFERENCE_OUTPUT")
+
+    if isinstance(entity, DefectRecord) and entity.state.value in {"CLOSED", "DUPLICATE", "NOT_A_DEFECT"}:
+        evaluation = _require_durable_pass_evaluation(
+            truth_runtime,
+            entity.latest_evaluation_id or "",
+            mission_id=entity.mission_id,
+            node="DEFECT",
+        )
+        dimensions = evaluation.get("dimensions", {})
+        if dimensions.get("defect_id") != entity.defect_id:
+            raise _truth.EventValidationError("DEFECT_TERMINAL_EVALUATION_ID_MISMATCH")
+        if dimensions.get("defect_state") != entity.state.value:
+            raise _truth.EventValidationError("DEFECT_TERMINAL_EVALUATION_STATE_MISMATCH")
 
     if isinstance(entity, Gap) and entity.state.value == "RESOLVED":
         is_product_defect = entity.category == "PRODUCT_DEFECT" and entity.target_node == "DEFECT"
