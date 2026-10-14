@@ -31,6 +31,7 @@ from .state_machine import (
 )
 from .closed_loop_control import ClosedLoopControlError, ClosedLoopControlPlane
 from .mission_graph import MissionTaskGraph, MissionTaskGraphCompiler
+from .final_report import FinalReportError, RC7FinalReportBuilder
 
 __all__ = [
     "Artifact",
@@ -57,4 +58,6 @@ __all__ = [
     "ClosedLoopControlPlane",
     "MissionTaskGraph",
     "MissionTaskGraphCompiler",
+    "FinalReportError",
+    "RC7FinalReportBuilder",
 ]
