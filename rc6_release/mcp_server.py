@@ -17,10 +17,11 @@ from rc6_runtime import (
     ToolCapabilityBroker,
     TruthRuntime,
 )
+from .execution_closure_mcp import call_execution_closure_tool, execution_closure_tool_schemas
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "pfc-aitest-rc6"
-SERVER_VERSION = "6.0-engineering-candidate"
+SERVER_VERSION = "6.1-execution-closure-engineering-candidate"
 
 _AUTH_EVENT = {
     "test_intent": "TEST_INTENT_UPSERTED",
@@ -39,6 +40,15 @@ _AUTH_EVENT = {
     "evidence": "EVIDENCE_UPSERTED",
     "defect": "DEFECT_UPSERTED",
     "coverage_observation": "COVERAGE_OBSERVATION_UPSERTED",
+    "executable_test_spec": "EXECUTABLE_TEST_SPEC_UPSERTED",
+    "automation_mapping": "AUTOMATION_MAPPING_UPSERTED",
+    "script_artifact": "SCRIPT_ARTIFACT_UPSERTED",
+    "script_validation": "SCRIPT_VALIDATION_UPSERTED",
+    "failure_diagnosis": "FAILURE_DIAGNOSIS_UPSERTED",
+    "root_cause_candidate": "ROOT_CAUSE_CANDIDATE_UPSERTED",
+    "recovery_decision": "RECOVERY_DECISION_UPSERTED",
+    "recovery_action": "RECOVERY_ACTION_UPSERTED",
+    "execution_convergence": "EXECUTION_CONVERGENCE_UPSERTED",
 }
 
 _runtime_key: Optional[str] = None
@@ -123,7 +133,7 @@ def _tools() -> list[dict]:
     s = {"type": "string"}
     a = {"type": "array", "items": s}
     o = {"type": "object", "additionalProperties": True}
-    return [
+    core = [
         {"name": "runtime_status", "description": "Read RC6 runtime/build identity.", "inputSchema": _object({})},
         {"name": "mission_create", "description": "Create one durable Mission.", "inputSchema": _object({"mission_id": s, "release_id": s}, ["mission_id", "release_id"])},
         {"name": "mission_status", "description": "Read durable Mission state.", "inputSchema": _object({"mission_id": s}, ["mission_id"])},
@@ -154,6 +164,7 @@ def _tools() -> list[dict]:
         {"name": "capability_admit", "description": "Fail-closed admission for exact worker/tool set/target.", "inputSchema": _object({"worker_id": s, "required_tools": a, "target_id": s}, ["worker_id", "required_tools", "target_id"])},
         {"name": "capability_record_call", "description": "Record a real admitted professional tool call as provenance.", "inputSchema": _object({"tool_id": s, "worker_id": s, "target_id": s, "call_ref": s, "evidence_ref": s}, ["tool_id", "worker_id", "target_id", "call_ref", "evidence_ref"])},
     ]
+    return core + execution_closure_tool_schemas()
 
 
 def _runtime_status() -> dict:
@@ -170,6 +181,7 @@ def _runtime_status() -> dict:
         "durable_truth": "R1_EVENT_STREAM",
         "mission_session_separated": True,
         "autonomous_orchestrator": True,
+        "execution_closure_overlay": True,
         "governed_control_tools": len(_tools()),
     }
 
@@ -228,6 +240,18 @@ def _call_tool(name: str, arguments: dict) -> dict:
         return _text(_reality_registry().reconcile(arguments["kind"], arguments["fact_id"], arguments["observed"], verified_at=arguments.get("verified_at")))
     if name == "target_build":
         return _text(TargetIdentityBuilder(_reality_registry()).build(**arguments))
+
+    closure = call_execution_closure_tool(
+        name,
+        arguments,
+        authority=_authority_runtime(),
+        truth=_truth_runtime(),
+        broker=_capability_broker(),
+        state_root=_state_root(),
+    )
+    if closure is not None:
+        return _text(closure)
+
     broker = _capability_broker()
     if name == "capability_discover":
         broker.discover(arguments["tool_id"], arguments["location"]); return _text(broker.readiness(arguments["tool_id"], "__unbound__", "__unbound__"))
@@ -254,7 +278,7 @@ def handle(message: dict) -> dict | None:
     if method == "notifications/initialized":
         return None
     if method == "initialize":
-        return {"jsonrpc": "2.0", "id": msg_id, "result": {"protocolVersion": message.get("params", {}).get("protocolVersion") or PROTOCOL_VERSION, "capabilities": {"tools": {"listChanged": False}}, "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION}, "instructions": "RC6 autonomous governed control plane. Runtime chooses the next legal Mission directive; chat text is never Mission truth."}}
+        return {"jsonrpc": "2.0", "id": msg_id, "result": {"protocolVersion": message.get("params", {}).get("protocolVersion") or PROTOCOL_VERSION, "capabilities": {"tools": {"listChanged": False}}, "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION}, "instructions": "RC6 autonomous governed control plane. Runtime chooses the next legal Mission directive; chat text is never Mission truth. Execution Closure requires immutable ExecutableSpec, SCRIPT_READY, real RunnerAdapter evidence and evidence-backed recovery."}}
     if method == "ping":
         return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
     if method == "tools/list":
@@ -268,7 +292,7 @@ def handle(message: dict) -> dict | None:
             return {"jsonrpc": "2.0", "id": msg_id, "result": {"isError": True, "content": [{"type": "text", "text": str(exc)}]}}
     if msg_id is None:
         return None
-    return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": -32601, "message": f"Method not found: {method}"}}
+    return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": -32601, "message": "Method not found: %s" % method}}
 
 
 def main() -> int:
