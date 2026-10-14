@@ -1,0 +1,22 @@
+name: RC6 Wave 12 Admin Allure Report Truth Convergence
+
+on:
+  push:
+    branches:
+      - work/rc6-runtime-reconstruction
+  pull_request:
+    paths:
+      - 'rc6_runtime/contracts.py'
+      - 'rc6_runtime/truth.py'
+      - 'rc6_runtime/presentation.py'
+      - 'tests/test_presentation.py'
+      - 'docs/RC6_WAVE12_QUALIFICATION.md'
+      - '.github/workflows/rc6-wave12.yml'
+
+jobs:
+  wave12-presentation-truth:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run all RC6 unit qualification
+        run: python -m unittest discover -s tests -v

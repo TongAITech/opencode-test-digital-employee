@@ -68,6 +68,18 @@ from .preparation import (
     PreparationSpecParser,
     RecoveryDecision,
 )
+from .presentation import (
+    ADMIN_ENTITIES,
+    CHINESE_LABELS,
+    AdminHtmlRenderer,
+    AdminReadModel,
+    AllureRenderer,
+    AllureResultsAdapter,
+    MissionReportBuilder,
+    PageResult,
+    PresentationError,
+    TruthReconciler,
+)
 from .reality import BankRealityRegistry, RealityError
 from .stages import StageMachine, StageViolation
 from .target import TargetIdentity, TargetIdentityBuilder, TargetIdentityError
@@ -93,6 +105,8 @@ __all__ = [
     "MissionRuntime", "MissionState", "ResumeEnvelope",
     "AttemptBindingStore", "PreparationContractError", "PreparationPlan", "PreparedAttempt",
     "PreparationRecoveryEngine", "PreparationRuntime", "PreparationSpecParser", "RecoveryDecision",
+    "ADMIN_ENTITIES", "CHINESE_LABELS", "AdminHtmlRenderer", "AdminReadModel", "AllureRenderer",
+    "AllureResultsAdapter", "MissionReportBuilder", "PageResult", "PresentationError", "TruthReconciler",
     "BankRealityRegistry", "RealityError",
     "StageMachine", "StageViolation",
     "TargetIdentity", "TargetIdentityBuilder", "TargetIdentityError",

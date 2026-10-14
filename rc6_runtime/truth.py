@@ -1,9 +1,10 @@
-"""RC6 Wave 2 durable truth, replay and query layer.
+"""RC6 durable R1 truth, replay and query layer.
 
-R1 JSONL is the sole durable truth. Projection is derived and disposable.
+R1 JSONL is the sole durable runtime truth. Projection is derived and disposable.
 Live writes are atomic domain events. RC5 legacy batch payloads are accepted
 only during replay and are deterministically expanded without emitting repair
-events.
+events. Wave 12 extends the same stream to analysis/execution/evidence/defect/
+coverage/report entities so presentation has no shadow business store.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import uuid
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from .contracts import DomainValidationError, validate_artifact
 
@@ -32,6 +33,14 @@ EVENT_TYPES = {
     "TEST_INTENT_UPSERTED": ("test_intent", "id"),
     "TEST_CONDITION_UPSERTED": ("test_condition", "id"),
     "TEST_CASE_UPSERTED": ("test_case", "tc_id"),
+    "REQUIREMENT_ANALYSIS_UPSERTED": ("requirement_analysis", "id"),
+    "CODE_ANALYSIS_UPSERTED": ("code_analysis", "id"),
+    "EXECUTION_ATTEMPT_UPSERTED": ("execution_attempt", "attempt_id"),
+    "ASSERTION_UPSERTED": ("assertion", "id"),
+    "EVIDENCE_UPSERTED": ("evidence", "id"),
+    "DEFECT_UPSERTED": ("defect", "id"),
+    "COVERAGE_OBSERVATION_UPSERTED": ("coverage_observation", "id"),
+    "REPORT_UPSERTED": ("report", "id"),
 }
 
 LEGACY_BATCH_FIELDS = {
@@ -39,6 +48,22 @@ LEGACY_BATCH_FIELDS = {
     "conditions": ("TEST_CONDITION_UPSERTED", "test_condition"),
     "cases": ("TEST_CASE_UPSERTED", "test_case"),
 }
+
+BUCKETS = {
+    "test_intent": "intents",
+    "test_condition": "conditions",
+    "test_case": "cases",
+    "requirement_analysis": "requirement_analyses",
+    "code_analysis": "code_analyses",
+    "execution_attempt": "execution_attempts",
+    "assertion": "assertions",
+    "evidence": "evidence",
+    "defect": "defects",
+    "coverage_observation": "coverage_observations",
+    "report": "reports",
+}
+
+IDENTITY_FIELDS = {artifact_type: identity for _, (artifact_type, identity) in EVENT_TYPES.items()}
 
 
 @dataclass(frozen=True)
@@ -135,26 +160,16 @@ class Projection:
         self.reset()
 
     def reset(self) -> None:
-        self.intents: Dict[str, Dict[str, Any]] = {}
-        self.conditions: Dict[str, Dict[str, Any]] = {}
-        self.cases: Dict[str, Dict[str, Any]] = {}
-        self._versions: Dict[str, Dict[str, Dict[str, Any]]] = {
-            "test_intent": {},
-            "test_condition": {},
-            "test_case": {},
-        }
+        for bucket in BUCKETS.values():
+            setattr(self, bucket, {})
+        self._versions: Dict[str, Dict[str, Dict[str, Any]]] = {k: {} for k in BUCKETS}
 
     @staticmethod
     def _bucket_name(artifact_type: str) -> str:
-        return {
-            "test_intent": "intents",
-            "test_condition": "conditions",
-            "test_case": "cases",
-        }[artifact_type]
-
-    @staticmethod
-    def _identity_field(artifact_type: str) -> str:
-        return "tc_id" if artifact_type == "test_case" else "id"
+        try:
+            return BUCKETS[artifact_type]
+        except KeyError as exc:
+            raise ProjectionIntegrityError("UNKNOWN_PROJECTION_ARTIFACT") from exc
 
     def apply_atomic(self, event: Dict[str, Any]) -> None:
         event_type = event.get("event_type")
@@ -204,12 +219,10 @@ class Projection:
     def snapshot(self) -> Dict[str, Any]:
         def ordered(bucket: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
             return [deepcopy(bucket[k]) for k in sorted(bucket)]
+        return {bucket: ordered(getattr(self, bucket)) for bucket in BUCKETS.values()}
 
-        return {
-            "intents": ordered(self.intents),
-            "conditions": ordered(self.conditions),
-            "cases": ordered(self.cases),
-        }
+    def full_inventory(self) -> Dict[str, int]:
+        return {artifact_type: len(getattr(self, bucket)) for artifact_type, bucket in BUCKETS.items()}
 
 
 def _legacy_children(raw_event: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
@@ -234,18 +247,16 @@ def _legacy_children(raw_event: Dict[str, Any]) -> Optional[List[Dict[str, Any]]
             _, entity_id, version, canonical = _canonical_payload(event_type, item)
         except EventValidationError as exc:
             raise ProjectionIntegrityError(f"LEGACY_CHILD_INVALID:{exc}") from exc
-        children.append(
-            {
-                "seq": raw_event.get("seq"),
-                "event_id": f"{base_id}:{artifact_type}:{index}",
-                "event_type": event_type,
-                "entity_type": artifact_type,
-                "entity_id": entity_id,
-                "entity_version": version,
-                "payload": canonical,
-                "legacy_parent_event_id": base_id,
-            }
-        )
+        children.append({
+            "seq": raw_event.get("seq"),
+            "event_id": f"{base_id}:{artifact_type}:{index}",
+            "event_type": event_type,
+            "entity_type": artifact_type,
+            "entity_id": entity_id,
+            "entity_version": version,
+            "payload": canonical,
+            "legacy_parent_event_id": base_id,
+        })
     return children
 
 
@@ -294,12 +305,12 @@ class TruthRuntime:
         persisted = self.projection.get(artifact_type, entity_id)
         if persisted != canonical:
             raise ProjectionIntegrityError("READ_AFTER_WRITE_ENTITY_MISMATCH")
-        queryable = self.projection.query(
-            artifact_type,
-            release_id=canonical.get("release_id"),
-            requirement_id=canonical.get("requirement_id"),
-        )
-        matching = [x for x in queryable if x.get("tc_id", x.get("id")) == entity_id]
+        filters = {"release_id": canonical.get("release_id")}
+        if canonical.get("requirement_id") is not None:
+            filters["requirement_id"] = canonical.get("requirement_id")
+        queryable = self.projection.query(artifact_type, **filters)
+        identity_field = IDENTITY_FIELDS[artifact_type]
+        matching = [x for x in queryable if x.get(identity_field) == entity_id]
         if len(matching) != 1:
             raise ProjectionIntegrityError("READ_AFTER_WRITE_QUERY_MISMATCH")
         return PersistenceReceipt(
@@ -315,17 +326,48 @@ class TruthRuntime:
         )
 
     def inventory(self) -> Dict[str, int]:
+        """Backward-compatible Wave2 inventory."""
         return {
             "intents": len(self.projection.intents),
             "conditions": len(self.projection.conditions),
             "cases": len(self.projection.cases),
         }
 
+    def full_inventory(self) -> Dict[str, int]:
+        return self.projection.full_inventory()
+
+    def query(self, artifact_type: str, **filters: Any) -> List[Dict[str, Any]]:
+        return self.projection.query(artifact_type, **filters)
+
     def query_intents(self, **filters: Any) -> List[Dict[str, Any]]:
-        return self.projection.query("test_intent", **filters)
+        return self.query("test_intent", **filters)
 
     def query_conditions(self, **filters: Any) -> List[Dict[str, Any]]:
-        return self.projection.query("test_condition", **filters)
+        return self.query("test_condition", **filters)
 
     def query_cases(self, **filters: Any) -> List[Dict[str, Any]]:
-        return self.projection.query("test_case", **filters)
+        return self.query("test_case", **filters)
+
+    def query_requirement_analyses(self, **filters: Any) -> List[Dict[str, Any]]:
+        return self.query("requirement_analysis", **filters)
+
+    def query_code_analyses(self, **filters: Any) -> List[Dict[str, Any]]:
+        return self.query("code_analysis", **filters)
+
+    def query_execution_attempts(self, **filters: Any) -> List[Dict[str, Any]]:
+        return self.query("execution_attempt", **filters)
+
+    def query_assertions(self, **filters: Any) -> List[Dict[str, Any]]:
+        return self.query("assertion", **filters)
+
+    def query_evidence(self, **filters: Any) -> List[Dict[str, Any]]:
+        return self.query("evidence", **filters)
+
+    def query_defects(self, **filters: Any) -> List[Dict[str, Any]]:
+        return self.query("defect", **filters)
+
+    def query_coverage(self, **filters: Any) -> List[Dict[str, Any]]:
+        return self.query("coverage_observation", **filters)
+
+    def query_reports(self, **filters: Any) -> List[Dict[str, Any]]:
+        return self.query("report", **filters)
