@@ -27,6 +27,10 @@ PASS_GATE = {
     "DESIGN_SUFFICIENCY": "DESIGN_SUFFICIENT",
     "ORACLE_CLOSURE": "ORACLE_SUFFICIENT",
     "CASE_FREEZE": "CASE_SET_FROZEN",
+    "EXECUTABLE_SPEC": "EXECUTABLE_SPEC_READY",
+    "SCRIPT_BUILD": "SCRIPT_GENERATED",
+    "SCRIPT_VALIDATE": "SCRIPT_READY",
+    "SCRIPT_READY": "SCRIPT_READY_ADMITTED",
     "PREPARATION": "PREPARATION_STARTED",
     "PRECONDITION_VERIFY": "PRECONDITIONS_VERIFIED",
     "TEST_DATA_PREPARE": "TEST_DATA_READY",
@@ -99,6 +103,10 @@ class AutonomousMissionLoopTests(unittest.TestCase):
         self.assertEqual(result.coordinator_session_refs[0], "coord://synthetic/A")
         self.assertEqual(len(set(result.coordinator_session_refs)), 4)
         self.assertFalse(any("CONTINUE" in action.upper() for action in handler.actions))
+        # The autonomous happy path must now traverse execution closure rather
+        # than jumping from frozen cases straight to preparation.
+        for required_action in ("BUILD_EXECUTABLE_SPEC", "BUILD_SCRIPT", "VALIDATE_SCRIPT"):
+            self.assertIn(required_action, handler.actions)
         envelope = self.missions.resume_envelope(self.missions.load("M-AUTO"))
         self.assertFalse(hasattr(envelope, "chat_history"))
         self.assertFalse(hasattr(envelope, "messages"))
