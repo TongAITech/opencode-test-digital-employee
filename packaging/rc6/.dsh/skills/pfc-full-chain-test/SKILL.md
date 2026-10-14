@@ -23,6 +23,12 @@ The coordinator MUST NOT advance a Stage itself. `mission_plan_next` is read-onl
 
 Mission != DSH Session. R1 Event Stream is the sole durable business truth; DSH session/subagent/job history is disposable compute history. Before coordinator context becomes unsafe, call `mission_control_tick` with `context_pressure=true`. Runtime writes a checkpoint, increments coordinator generation and returns `ROTATE_SESSION` plus a bounded ResumeEnvelope reference. Start the successor coordinator session from that envelope and resume the control loop. Never ask the user to type “continue”. Compaction is not Session Rotation.
 
+## RC6 workspace profile and Worker skill binding
+
+This skill is valid only when the RC6 workspace installer has activated the project-scoped profile under `D:\PFC\.dsh\skills` (or `PFC_WORKSPACE`). Historical `pfc-*` project skills from `.agents/skills` must not remain active. The RC6 MCP server alone is not proof that the RC6 professional profile is active.
+
+Every professional Worker session MUST load the skill whose name exactly equals its runtime `agent_id` before doing professional work (for example `pfc-requirement-analysis`, `pfc-code-analysis`, `pfc-l3-test-execution`). A Worker that cannot load its exact RC6 role skill must fail closed with routing/profile integrity failure; it may not fall back to a legacy Agent, generic chat behavior, or Coordinator execution.
+
 ## Worker authority and tool admission
 
 Every professional worker MUST receive a runtime-issued identity (`worker_issue`) and signed lease (`lease_issue`). Before an external professional tool call, require both lease authorization (`tool_authorize`) and exact Worker/Target capability admission (`capability_admit`). Discovery alone is never READY; real probe/call evidence must be recorded through capability tools.
