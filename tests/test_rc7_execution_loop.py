@@ -116,8 +116,6 @@ def test_trusted_product_fail_is_conclusive_but_never_rewritten_as_test_pass(tmp
     assert task.state == TaskStatus.PASS
     assert result.test_result != "PASS"
 
-    # The control/evidence truth preserves the FAIL while allowing the
-    # execution-work Task to converge and hand ownership to Defect.
     from rc6_runtime.truth import TruthRuntime
 
     truth = TruthRuntime(tmp_path / "r1.jsonl")
@@ -182,3 +180,44 @@ def test_oracle_fail_without_diagnosis_cannot_be_called_product_defect() -> None
     assert result.conclusive is False
     assert result.evaluation.result.value == "REPAIR_REQUIRED"
     assert [gap.category for gap in result.gaps] == ["DIAGNOSIS_REQUIRED"]
+
+
+def test_blocked_auth_is_not_product_fail_and_routes_to_auth_recovery() -> None:
+    record = _record(
+        integrity=False,
+        assertion_passed=None,
+        reason="AUTH_SESSION_EXPIRED",
+        status="BLOCKED",
+    )
+    context = FailureContext(
+        attempt_id="ATT-1",
+        tc_id="TC-1",
+        case_version=1,
+        target_id="TARGET-1",
+        layer="L3",
+        execution_status="BLOCKED",
+        preparation_verified=False,
+        real_action_executed=False,
+        assertion_failed=False,
+        execution_evidence_refs=("EVD-EXEC-1",),
+        auth_verified=False,
+    )
+    diagnosis = _diagnosis("AUTH", "authentication evidence proves session is invalid")
+    history = AttemptHistory()
+    history.append(history_entry_from_execution(record))
+    recovery = RecoveryEngine(history).decide(context, diagnosis)
+    assert recovery.action == "REAUTH"
+    assert recovery.retry_allowed is True
+
+    result = ExecutionClosedLoop().evaluate(
+        mission_id="MISSION-1",
+        artifact_ref="ART-EXEC-1",
+        record=record,
+        diagnosis=diagnosis,
+        recovery=recovery,
+    )
+    assert result.test_result == "BLOCKED"
+    assert result.test_result != "FAIL"
+    assert result.conclusive is False
+    assert result.evaluation.result.value == "REPAIR_REQUIRED"
+    assert any(gap.category == "AUTH_DEFECT" and gap.target_node == "RUNTIME" for gap in result.gaps)
