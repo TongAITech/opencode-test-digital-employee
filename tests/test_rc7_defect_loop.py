@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from rc6_runtime.truth import TruthRuntime
-from rc7_runtime import Gap, GapSeverity
+from rc6_runtime.truth import EventValidationError, TruthRuntime
+from rc7_runtime import Evaluation, EvaluationResult, Gap, GapSeverity
 from rc7_runtime.defect_loop import (
     DefectClosedLoop,
     DefectContractError,
@@ -11,6 +11,7 @@ from rc7_runtime.defect_loop import (
     DefectStatus,
     RootCauseHypothesis,
 )
+from rc7_runtime.truth_overlay import append_entity
 
 
 def _product_gap(suffix: str = "1") -> Gap:
@@ -121,6 +122,30 @@ def test_defect_requires_rca_before_review_and_closure_requires_fix_plus_regress
     assert defect.regression_refs == ["EXEC-REGRESSION-1", "EXEC-REGRESSION-2"]
 
     truth = TruthRuntime(tmp_path / "r1.jsonl")
+
+    # A terminal object carrying a plausible-looking evaluation id is still
+    # rejected until that exact independent DEFECT/PASS Evaluation exists in R1.
+    with pytest.raises(EventValidationError, match="DURABLE_PASS_REQUIRES_EXISTING_EVALUATION"):
+        loop.persist(truth, release_id="RC7", defect=defect, artifact_version=7)
+
+    close_evaluation = Evaluation(
+        evaluation_id="EVAL-CLOSE-1",
+        mission_id="MISSION-1",
+        node="DEFECT",
+        artifact_refs=[defect.defect_id],
+        result=EvaluationResult.PASS,
+        evaluator_ref="evaluator-defect-independent",
+        dimensions={
+            "defect_id": defect.defect_id,
+            "defect_state": "CLOSED",
+            "fix_revision": defect.fix_revision,
+            "fix_verified": True,
+            "impact_regression_passed": True,
+        },
+        evidence_refs=["EXEC-VERIFY-1", "EXEC-REGRESSION-1", "EXEC-REGRESSION-2"],
+    )
+    append_entity(truth, close_evaluation, release_id="RC7")
+
     receipt = loop.persist(truth, release_id="RC7", defect=defect, artifact_version=7)
     assert receipt.status == "PERSISTENCE_VERIFIED"
     projected = truth.query("rc7_defect", defect_id=defect.defect_id)[0]
