@@ -1,9 +1,11 @@
 """Parent-aware RC7 DSH Test Design evaluator.
 
 This is the canonical RC7 DSH Test Design acceptance adapter. It composes the
-independent reviewer / semantic closure evaluator with a deterministic parent
-inventory guard so a Designer cannot obtain 100% coverage by choosing a small
-self-authored obligation denominator.
+independent reviewer / semantic closure evaluator with two deterministic guards:
+(1) the Designer cannot choose a small self-authored obligation denominator;
+(2) a semantically covered case cannot PASS if it is unusable by the downstream
+Runtime compiler. Script workers must never invent missing steps, data oracles,
+cleanup policy, or runner semantics.
 """
 
 from __future__ import annotations
@@ -29,8 +31,12 @@ def _stable_id(prefix: str, *parts: str) -> str:
     return "%s-%s" % (prefix, hashlib.sha256(raw).hexdigest()[:20])
 
 
+def _text(value) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
 class DshParentAwareTestDesignEvaluator(_BaseDshTestDesignEvaluator):
-    """Add a parent-truth denominator guard to the proven DSH design evaluator."""
+    """Add parent-truth and downstream execution-contract guards."""
 
     def __init__(self, launcher, *, reviewer_allowed_tools=None) -> None:
         if reviewer_allowed_tools is None:
@@ -61,14 +67,16 @@ class DshParentAwareTestDesignEvaluator(_BaseDshTestDesignEvaluator):
             sources,
             candidate.semantic_payload.get("obligations"),
         )
+        case_reasons = self._execution_case_reasons(candidate.semantic_payload.get("cases"))
 
         evaluated = super().evaluate(control, task_id, artifact_id)
-        guarded = self._apply_parent_guard(
+        guarded = self._apply_guards(
             control,
             artifact_id=artifact_id,
             base=evaluated.loop_result,
             sources=sources,
             missing=missing,
+            case_reasons=case_reasons,
         )
         return DshTestDesignEvaluation(
             task_id=evaluated.task_id,
@@ -84,21 +92,65 @@ class DshParentAwareTestDesignEvaluator(_BaseDshTestDesignEvaluator):
         )
 
     @staticmethod
-    def _apply_parent_guard(
+    def _execution_case_reasons(raw_cases) -> Sequence[str]:
+        if not isinstance(raw_cases, list) or not raw_cases:
+            return ("TEST_CASES_REQUIRED_FOR_EXECUTION",)
+        reasons = []
+        for index, case in enumerate(raw_cases):
+            if not isinstance(case, dict):
+                reasons.append("CASE[%d]:NOT_OBJECT" % index)
+                continue
+            tc_id = case.get("tc_id") if _text(case.get("tc_id")) else "CASE[%d]" % index
+            checks = (
+                (_text(case.get("requirement_id")), "REQUIREMENT_ID_REQUIRED"),
+                (isinstance(case.get("preconditions"), list), "PRECONDITIONS_REQUIRED"),
+                (isinstance(case.get("steps"), list) and bool(case.get("steps")), "STEPS_REQUIRED"),
+                (_text(case.get("expected")), "EXPECTED_REQUIRED"),
+                (
+                    isinstance(case.get("evidence_requirements"), list)
+                    and bool(case.get("evidence_requirements"))
+                    and all(_text(value) for value in case.get("evidence_requirements", [])),
+                    "EVIDENCE_REQUIREMENTS_REQUIRED",
+                ),
+                (isinstance(case.get("test_data_refs"), list), "TEST_DATA_REFS_REQUIRED"),
+                (
+                    isinstance(case.get("oracle_refs"), list)
+                    and bool(case.get("oracle_refs"))
+                    and all(_text(value) for value in case.get("oracle_refs", [])),
+                    "ORACLE_REFS_REQUIRED",
+                ),
+                (isinstance(case.get("cleanup_policy"), dict), "CLEANUP_POLICY_REQUIRED"),
+                (
+                    _text(case.get("runner_type"))
+                    and str(case.get("runner_type")).upper() in {"PYTEST", "JUNIT"},
+                    "PYTEST_OR_JUNIT_RUNNER_REQUIRED",
+                ),
+            )
+            for passed, code in checks:
+                if not passed:
+                    reasons.append("%s:%s" % (tc_id, code))
+        return tuple(reasons)
+
+    @staticmethod
+    def _apply_guards(
         control: ClosedLoopControlPlane,
         *,
         artifact_id: str,
         base: TestDesignLoopResult,
         sources: Sequence[MandatoryObligationSource],
         missing: Sequence[str],
+        case_reasons: Sequence[str],
     ) -> TestDesignLoopResult:
         dimensions = dict(base.evaluation.dimensions)
         dimensions["parent_obligation_source_total"] = len(sources)
         dimensions["parent_obligation_missing_total"] = len(missing)
         dimensions["missing_parent_obligation_sources"] = list(missing)
         dimensions["parent_obligation_coverage"] = "PASS" if not missing else "GAPS"
+        dimensions["execution_contract_case_gap_total"] = len(case_reasons)
+        dimensions["execution_contract_case_gaps"] = list(case_reasons)
+        dimensions["execution_contract_ready"] = not case_reasons
 
-        if not missing:
+        if not missing and not case_reasons:
             evaluation = Evaluation(
                 evaluation_id=base.evaluation.evaluation_id,
                 mission_id=base.evaluation.mission_id,
@@ -150,15 +202,32 @@ class DshParentAwareTestDesignEvaluator(_BaseDshTestDesignEvaluator):
                     ],
                 )
             )
+        for reason in sorted(set(case_reasons)):
+            extra_gaps.append(
+                Gap(
+                    gap_id=_stable_id("GAP-TD-EXEC", control.mission_id, artifact_id, reason),
+                    mission_id=control.mission_id,
+                    source_node="TEST_DESIGN",
+                    category="TEST_CASE_DEFECT",
+                    severity=GapSeverity.HIGH,
+                    target_node="TEST_DESIGN",
+                    description="EXECUTION_CONTRACT_CASE_GAP:%s" % reason,
+                    subject_refs=[artifact_id, reason.split(":", 1)[0]],
+                    evidence_refs=list(base.evaluation.evidence_refs),
+                    acceptance_criteria=[
+                        "TestCase carries immutable preconditions, steps, expected/oracle refs, evidence requirements, cleanup policy and PYTEST/JUNIT runner"
+                    ],
+                )
+            )
 
         gaps = tuple(list(base.gaps) + extra_gaps)
         evaluation = Evaluation(
             evaluation_id=_stable_id(
-                "EVAL-TD-PARENT",
+                "EVAL-TD-GUARDED",
                 control.mission_id,
                 artifact_id,
                 base.evaluation.evaluation_id,
-                ",".join(sorted(set(missing))),
+                ",".join(sorted(set(list(missing) + list(case_reasons)))),
             ),
             mission_id=control.mission_id,
             node="TEST_DESIGN",
