@@ -173,6 +173,12 @@ def _write_json(path: Path, value: Dict[str, Any]) -> None:
         fh.write("\n")
 
 
+def _write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+
+
 def verify_workspace(package_root: str | Path, workspace: str | Path) -> Dict[str, Any]:
     package, work = Path(package_root).resolve(), Path(workspace).resolve()
     source_commit, payload = _source_commit(package), _payload(package)
@@ -222,8 +228,7 @@ def install_workspace(package_root: str | Path, workspace: str | Path) -> Dict[s
         hashes: Dict[str, str] = {}
         for name, text in payload.items():
             path = root / name / "SKILL.md"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(text, encoding="utf-8", newline="\n")
+            _write_text(path, text)
             hashes[name] = _sha_text(text)
         _write_json(
             work / PROFILE_DIR / AGENT_PROFILE_NAME,
