@@ -6,12 +6,43 @@ import shutil
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-LEGACY_SCAN_ROOTS = (
-    Path('.opencode') / 'skills',
-    Path('.opencode') / 'agents',
+# RC6 owns only its immutable .dsh/skills payload. Historical OpenCode/RC5
+# control-plane definitions are backed up and removed from active scan roots so
+# they cannot be selected by DSH. The rules are intentionally narrow: only
+# known product-managed names/prefixes are touched; unrelated user assets stay.
+LEGACY_SCAN_RULES: Tuple[Tuple[Path, Tuple[str, ...], Tuple[str, ...]], ...] = (
+    (
+        Path('.opencode') / 'agents',
+        ('pfc-', 'aitest-'),
+        (),
+    ),
+    (
+        Path('.opencode') / 'commands',
+        ('pfc-', 'aitest-'),
+        (),
+    ),
+    (
+        Path('.opencode') / 'skills',
+        ('pfc-',),
+        (
+            'admin-control-plane',
+            'cat-diagnosis',
+            'defect-lifecycle',
+            'execution-boundary',
+            'human-browser',
+            'knowledge-teaching',
+            'legacy-migration',
+            'mission-runtime',
+            'project-bootstrap',
+            'quality-scheduler',
+            'release-truth',
+            'session-recovery',
+        ),
+    ),
 )
+LEGACY_SCAN_ROOTS = tuple(rule[0] for rule in LEGACY_SCAN_RULES)
 STATE_REL = Path('.dsh') / 'rc6' / 'LEGACY_SKILL_GUARD.json'
 BACKUP_ROOT = '.aitest-backup'
 
@@ -20,16 +51,29 @@ class LegacySkillGuardError(RuntimeError):
     pass
 
 
+def _matches(name: str, prefixes: Tuple[str, ...], exact: Tuple[str, ...]) -> bool:
+    lowered = name.lower()
+    return any(lowered.startswith(prefix.lower()) for prefix in prefixes) or lowered in {x.lower() for x in exact}
+
+
 def _managed_entries(workspace: Path) -> List[Path]:
     result: List[Path] = []
-    for rel in LEGACY_SCAN_ROOTS:
+    seen = set()
+    for rel, prefixes, exact in LEGACY_SCAN_RULES:
         root = workspace / rel
         if not root.is_dir():
             continue
-        for item in sorted(root.iterdir()):
-            if item.name.startswith('pfc-'):
-                result.append(item)
+        for item in sorted(root.iterdir(), key=lambda p: p.name.lower()):
+            if _matches(item.name, prefixes, exact):
+                resolved = item.resolve()
+                if resolved not in seen:
+                    result.append(item)
+                    seen.add(resolved)
     return result
+
+
+def has_managed_legacy_assets(workspace: str | Path) -> bool:
+    return bool(_managed_entries(Path(workspace).resolve()))
 
 
 def _rel(workspace: Path, path: Path) -> Path:
@@ -79,6 +123,7 @@ def sanitize_legacy_pfc_skills(workspace: str | Path) -> Dict[str, Any]:
         'status': 'PASS',
         'workspace': str(work),
         'legacy_pfc_skill_contamination': False,
+        'legacy_managed_asset_contamination': False,
         'removed_count': len(removed),
         'removed': removed,
         'backup_path': str(backup) if backup else None,
@@ -98,6 +143,7 @@ def verify_legacy_pfc_skills(workspace: str | Path) -> Dict[str, Any]:
         'status': 'PASS',
         'workspace': str(work),
         'legacy_pfc_skill_contamination': False,
+        'legacy_managed_asset_contamination': False,
     }
 
 
