@@ -10,7 +10,12 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .static_skills import ALL_SKILLS, PROFESSIONAL_SKILLS
+from .static_skills import ALL_SKILLS, PROFESSIONAL_SKILLS, ROLE_SPECS
+
+# Compatibility/read-only view kept for existing qualification consumers. The
+# installer no longer renders skills from this mapping; installation truth is
+# the immutable static payload physically packaged under .dsh/skills.
+ROLE_DESCRIPTIONS = {name: spec[1] for name, spec in ROLE_SPECS.items()}
 
 SCHEMA_VERSION = "pfc.aitest.rc6.workspace-install.v1"
 PROFILE_SCHEMA_VERSION = "pfc.aitest.rc6.agent-profile.v1"
