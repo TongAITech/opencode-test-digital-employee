@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -130,19 +132,28 @@ def test_dsh_worker_bridge_stops_at_candidate_output_and_persists_runtime_eviden
     artifact = truth.query("rc7_artifact", artifact_id=expected_id)[0]
     assert artifact["producer_task_id"] == requirement_task.task_id
     assert artifact["artifact_type_name"] == "REQUIREMENT_MODEL"
+    assert artifact["content_ref"].startswith("file://")
+    candidate_path = Path(artifact["content_ref"][len("file://"):])
+    assert candidate_path.exists()
+    durable_payload = json.loads(candidate_path.read_text(encoding="utf-8"))
+    assert durable_payload["task_id"] == requirement_task.task_id
+    assert durable_payload["artifact"]["artifact_id"] == expected_id
+    assert durable_payload["artifact"]["content_ref"] == "artifact://requirement-analysis/e2e"
 
     evidence_rows = truth.query("rc7_evidence", mission_id="MISSION-DSH-BRIDGE")
-    assert len(evidence_rows) >= 3
+    assert len(evidence_rows) >= 4
     contents = {row["content_ref"] for row in evidence_rows}
     assert "dsh://session/session-worker-req-1" in contents
     assert "file:///tmp/rc7-dsh-worker-req-1.jsonl" in contents
     assert "evidence://sst/1" in contents
+    assert "artifact://requirement-analysis/e2e" in contents
 
     assert len(launcher.prompts) == 1
     prompt = launcher.prompts[0]
     assert requirement_task.task_id in prompt
     assert expected_id in prompt
     assert "Do not evaluate or mark the task PASS" in prompt
+    assert "MUST call at least one allowed real tool" in prompt
     assert "previous chat transcript" not in prompt.lower()
 
     # Downstream Code remains locked because Requirement has not been accepted
