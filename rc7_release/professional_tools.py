@@ -47,6 +47,7 @@ _CODEGRAPH_FORBIDDEN_TOKENS = {
     "build",
     "init",
     "write",
+    "output",
     "update",
     "delete",
     "remove",
