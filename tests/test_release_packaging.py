@@ -26,6 +26,9 @@ class ReleasePackagingTests(unittest.TestCase):
             self.assertEqual(result["release_status"], BUILD_STATUS)
             manifest = json.loads((root / "PACKAGE_MANIFEST.json").read_text(encoding="utf-8"))
             self.assertFalse(manifest["bank_field_pass"])
+            self.assertFalse(manifest["autonomous_testing_pass"])
+            self.assertFalse(manifest["full_chain_real"])
+            self.assertEqual(manifest["agent_runtime_bank_final_gate"], "NOT_PROVEN_UNTIL_REAL_DSH_VERTICAL_SLICE_PASS")
             self.assertEqual(manifest["durable_truth"], "R1_EVENT_STREAM")
             self.assertTrue((Path(tmp) / f"{PACKAGE_NAME}-{'a' * 12}.zip").is_file())
 
@@ -33,11 +36,13 @@ class ReleasePackagingTests(unittest.TestCase):
         repo = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as tmp:
             root = build_package(repo, tmp, "b" * 40, make_zip=False)
-            for name in ("AITEST.sh", "START-AITEST.sh", "STOP-AITEST.sh", "STATUS.sh", "VERIFY.sh"):
+            for name in ("AITEST.sh", "START-AITEST.sh", "STOP-AITEST.sh", "STATUS.sh", "VERIFY.sh", "QUALIFY-AGENT-RUNTIME.sh"):
                 text = (root / name).read_text(encoding="utf-8")
                 self.assertTrue(text.startswith("#!/usr/bin/env bash"))
             self.assertTrue((root / ".dsh/skills/pfc-full-chain-test/SKILL.md").is_file())
             self.assertTrue((root / "rc6_release/mcp_server.py").is_file())
+            self.assertTrue((root / "rc6_release/agent_qualification.py").is_file())
+            self.assertTrue((root / "rc6_runtime/agent_runtime.py").is_file())
 
     def test_package_excludes_obvious_secret_files(self):
         repo = Path(__file__).resolve().parents[1]
