@@ -4,7 +4,10 @@ This module composes the already-proven TaskScheduler and GapRepairPlanner into
 a deterministic closed loop. A repair worker never closes its own Gap. Repair
 PASS only moves the Gap to EVIDENCE_PENDING and reactivates the source Task.
 Only a fresh source-node Evaluation may resolve that Gap and accept the source
-Task. Mission state and all intermediate truth remain R1-native.
+Task. A trusted Execution PRODUCT FAIL is different: Execution may be accepted
+as a conclusive piece of work while its PRODUCT_DEFECT Gap is handed to an
+independent Defect qualification task. Mission state and all intermediate truth
+remain R1-native.
 """
 
 from __future__ import annotations
@@ -60,6 +63,13 @@ _ACTIVE_TASK_STATES = {
     TaskStatus.HUMAN_REQUIRED,
     TaskStatus.FAILED,
     TaskStatus.STALE,
+}
+
+# PASS normally means the source node has no remaining gap. The single explicit
+# exception is a conclusive execution result that proves the product failed:
+# execution work is complete, but ownership moves to Defect qualification.
+_PASS_HANDOFF_GAPS = {
+    ("EXECUTION", "PRODUCT_DEFECT", "DEFECT"),
 }
 
 
@@ -150,7 +160,9 @@ class ClosedLoopControlPlane:
         if set(evaluation.gap_refs) != {gap.gap_id for gap in gaps}:
             raise ClosedLoopControlError("EVALUATION_GAP_SET_MISMATCH")
         if evaluation.result == EvaluationResult.PASS and gaps:
-            raise ClosedLoopControlError("PASS_EVALUATION_CANNOT_CREATE_GAPS")
+            invalid = [gap for gap in gaps if not self._is_pass_handoff_gap(task, gap)]
+            if invalid:
+                raise ClosedLoopControlError("PASS_EVALUATION_GAP_NOT_HANDOFF_ELIGIBLE")
         if evaluation.result == EvaluationResult.REPAIR_REQUIRED and not gaps:
             raise ClosedLoopControlError("REPAIR_EVALUATION_REQUIRES_GAPS")
 
@@ -170,8 +182,14 @@ class ClosedLoopControlPlane:
                 self._reactivate_source_tasks(task.gap_refs)
             else:
                 self._resolve_source_gaps(task, evaluation)
+                for gap in gaps:
+                    self._validate_new_gap(task, gap)
+                    if gap.gap_id not in task.gap_refs:
+                        task.gap_refs.append(gap.gap_id)
                 transition_task(task, TaskStatus.PASS, evaluation_id=evaluation.evaluation_id)
                 self.scheduler.persist_evaluated_task(task)
+                for gap in gaps:
+                    self.gap_planner.plan(gap, priority=20)
                 self.scheduler.refresh_ready(self.mission_id)
         elif evaluation.result == EvaluationResult.REPAIR_REQUIRED:
             for gap in gaps:
@@ -290,6 +308,10 @@ class ClosedLoopControlPlane:
             "ready_task_ids": sorted(row["task_id"] for row in tasks if row["state"] == TaskStatus.READY.value),
             "gap_states": {row["gap_id"]: row["state"] for row in gaps},
         }
+
+    @staticmethod
+    def _is_pass_handoff_gap(task: Task, gap: Gap) -> bool:
+        return (task.node, gap.category, gap.target_node) in _PASS_HANDOFF_GAPS
 
     def _validate_new_gap(self, task: Task, gap: Gap) -> None:
         if gap.mission_id != self.mission_id or gap.source_node != task.node:
