@@ -17,7 +17,7 @@ from rc6_runtime.diagnosis import (
 TARGET = "TARGET-BLOAN-PF1.2.0-FAT1"
 
 
-def context(layer="L3", attempt="ATT-1", assertion_failed=False, remote=False, correlation=True):
+def context(layer="L3", attempt="ATT-1", assertion_failed=False, remote=False, correlation=True, product_proven=False):
     scope = None
     if correlation:
         scope = CorrelationScope(
@@ -36,9 +36,25 @@ def context(layer="L3", attempt="ATT-1", assertion_failed=False, remote=False, c
         preparation_verified=True,
         real_action_executed=True,
         assertion_failed=assertion_failed,
-        execution_evidence_refs=(f"evidence://execution/{attempt}",),
+        execution_evidence_refs=("evidence://execution/%s" % attempt,),
         correlation=scope,
         remote_integration=remote,
+        case_oracle_verified=product_proven,
+        executable_spec_verified=product_proven,
+        script_validated=product_proven,
+        data_verified=product_proven,
+        auth_verified=product_proven,
+        route_verified=product_proven,
+        tool_verified=product_proven,
+        environment_verified=product_proven,
+        dependency_verified=product_proven,
+        exception_type="AssertionError" if assertion_failed else "TimeoutError",
+        root_stack_frame="cfg_data.service:120",
+        http_status=500 if assertion_failed else 504,
+        business_error_code="E500" if assertion_failed else None,
+        route="/cfg-data/v1/apply",
+        assertion_identity="assertion://TC-1/code" if assertion_failed else None,
+        runner_log_refs=("runner-log://%s" % attempt,),
     )
 
 
@@ -46,8 +62,8 @@ def classifier(failure_class):
     def classify(ctx, signals):
         return {
             "failure_class": failure_class,
-            "classifier_ref": "classifier://deterministic/v1",
-            "rationale": f"classified as {failure_class}",
+            "classifier_ref": "classifier://deterministic/v2",
+            "rationale": "classified as %s" % failure_class,
             "evidence_refs": ["evidence://classifier/1"],
         }
     return classify
@@ -63,7 +79,7 @@ class DiagnosisRuntimeTests(unittest.TestCase):
         tools = ["cat"] if allow_cat else []
         lease = self.authority.issue_lease(
             worker.worker_id,
-            f"attempt:{attempt}",
+            "attempt:%s" % attempt,
             ["failure_diagnosis", "recovery_decision", "evidence"],
             tools,
         )
@@ -80,8 +96,8 @@ class DiagnosisRuntimeTests(unittest.TestCase):
     @staticmethod
     def cat_query(scope, ctx):
         return {
-            "tool_call_ref": f"toolcall://cat/{ctx.attempt_id}",
-            "evidence_ref": f"evidence://cat/{ctx.attempt_id}",
+            "tool_call_ref": "toolcall://cat/%s" % ctx.attempt_id,
+            "evidence_ref": "evidence://cat/%s" % ctx.attempt_id,
             "signals": {"error_type": "timeout", "trace_id": scope.trace_id},
         }
 
@@ -99,6 +115,7 @@ class DiagnosisRuntimeTests(unittest.TestCase):
         self.assertTrue(result.cat_required)
         self.assertTrue(result.cat_queried)
         self.assertIn("evidence://cat/ATT-1", result.evidence_refs)
+        self.assertTrue(result.failure_signature.signature_id.startswith("FSIG-"))
 
     def test_l5_also_requires_cat(self):
         ctx = context("L5")
@@ -121,7 +138,7 @@ class DiagnosisRuntimeTests(unittest.TestCase):
 
     def test_cat_missing_correlation_identifier_fails_closed(self):
         ctx = context("L3")
-        ctx = FailureContext(**{**ctx.__dict__, "correlation": CorrelationScope(("cfg-data",), 1000, 1010)})
+        ctx = FailureContext(**dict(ctx.__dict__, correlation=CorrelationScope(("cfg-data",), 1000, 1010)))
         worker, lease = self._diagnostic_worker()
         self._ready_cat(worker.worker_id)
         runtime = DiagnosisRuntime(authority=self.authority, tool_broker=self.broker, classifier=classifier("TRANSIENT"), cat_query=self.cat_query)
@@ -131,7 +148,7 @@ class DiagnosisRuntimeTests(unittest.TestCase):
 
     def test_cat_time_window_is_bounded(self):
         ctx = context("L3")
-        ctx = FailureContext(**{**ctx.__dict__, "correlation": CorrelationScope(("cfg-data",), 0, 901, trace_id="t")})
+        ctx = FailureContext(**dict(ctx.__dict__, correlation=CorrelationScope(("cfg-data",), 0, 901, trace_id="t")))
         worker, lease = self._diagnostic_worker()
         self._ready_cat(worker.worker_id)
         runtime = DiagnosisRuntime(authority=self.authority, tool_broker=self.broker, classifier=classifier("TRANSIENT"), cat_query=self.cat_query, cat_policy=CATPolicy(max_window_seconds=900))
@@ -161,16 +178,23 @@ class DiagnosisRuntimeTests(unittest.TestCase):
             runtime.diagnose(context=context("L3"), worker_id=worker.worker_id, lease_id=lease.lease_id)
         self.assertEqual(str(e.exception), "FAILURE_DIAGNOSTIC_ROLE_REQUIRED")
 
-    def test_valid_product_assertion_failure_cannot_be_relabeled_transient(self):
+    def test_assertion_failure_is_not_automatically_product(self):
         worker, lease = self._diagnostic_worker()
         self._ready_cat(worker.worker_id)
-        runtime = DiagnosisRuntime(authority=self.authority, tool_broker=self.broker, classifier=classifier("TRANSIENT"), cat_query=self.cat_query)
+        runtime = DiagnosisRuntime(authority=self.authority, tool_broker=self.broker, classifier=classifier("SCRIPT"), cat_query=self.cat_query)
+        result = runtime.diagnose(context=context("L3", assertion_failed=True), worker_id=worker.worker_id, lease_id=lease.lease_id)
+        self.assertEqual(result.failure_class, "SCRIPT")
+
+    def test_product_requires_all_competing_ownership_evidence(self):
+        worker, lease = self._diagnostic_worker()
+        self._ready_cat(worker.worker_id)
+        runtime = DiagnosisRuntime(authority=self.authority, tool_broker=self.broker, classifier=classifier("PRODUCT"), cat_query=self.cat_query)
         with self.assertRaises(DiagnosisContractError) as e:
             runtime.diagnose(context=context("L3", assertion_failed=True), worker_id=worker.worker_id, lease_id=lease.lease_id)
-        self.assertEqual(str(e.exception), "VALID_PRODUCT_ASSERTION_FAILURE_MUST_BE_PRODUCT")
+        self.assertEqual(str(e.exception), "PRODUCT_OWNERSHIP_EVIDENCE_INCOMPLETE")
 
     def test_product_failure_is_terminal_and_never_retried_or_reprepared(self):
-        ctx = context("L3", assertion_failed=True)
+        ctx = context("L3", assertion_failed=True, product_proven=True)
         worker, lease = self._diagnostic_worker()
         self._ready_cat(worker.worker_id)
         runtime = DiagnosisRuntime(authority=self.authority, tool_broker=self.broker, classifier=classifier("PRODUCT"), cat_query=self.cat_query)
@@ -210,14 +234,16 @@ class DiagnosisRuntimeTests(unittest.TestCase):
 
     def test_semantic_failures_route_to_distinct_recovery_actions(self):
         expected = {
+            "SCRIPT": ("REPAIR_SCRIPT", False),
+            "SPEC": ("REOPEN_EXECUTABLE_SPEC", False),
             "DATA": ("RESEARCH_OR_REBUILD_DATA", True),
             "PRECONDITION": ("RECONSTRUCT_PRECONDITION", True),
             "AUTH": ("REAUTH", True),
             "TOOL": ("REPAIR_TOOL_BINDING", False),
             "ROUTE": ("RECONCILE_ROUTE_BINDING", False),
             "ENVIRONMENT": ("REQUALIFY_TARGET", False),
-            "DESIGN": ("REOPEN_DESIGN", False),
-            "UNKNOWN": ("BLOCKED_DIAGNOSIS", False),
+            "DEPENDENCY": ("REPAIR_DEPENDENCY_BINDING", False),
+            "FLAKY": ("CONTROLLED_REPEAT", False),
         }
         for failure_class, (action, reprepare) in expected.items():
             with self.subTest(failure_class=failure_class):
@@ -232,7 +258,22 @@ class DiagnosisRuntimeTests(unittest.TestCase):
                 decision = RecoveryEngine(history).decide(ctx, diag)
                 self.assertEqual(decision.action, action)
                 self.assertEqual(decision.reprepare_allowed, reprepare)
-                self.assertFalse(decision.retry_allowed)
+                self.assertTrue(decision.retry_allowed)
+                self.assertIsNotNone(decision.next_attempt_id)
+
+    def test_oracle_and_unknown_are_not_auto_repaired(self):
+        for failure_class, expected_action in (("ORACLE", "ORACLE_CHANGE_REQUEST"), ("UNKNOWN", "MANUAL_REQUIRED")):
+            authority = AuthorityRuntime(b"0123456789abcdef0123456789abcdef")
+            worker = authority.issue_identity("FAILURE_DIAGNOSTIC", "DIAGNOSIS", None, 0, "s")
+            lease = authority.issue_lease(worker.worker_id, "attempt:ATT-1", ["failure_diagnosis", "recovery_decision", "evidence"], [])
+            ctx = context("L2", correlation=False)
+            diag = DiagnosisRuntime(authority=authority, tool_broker=ToolCapabilityBroker(), classifier=classifier(failure_class)).diagnose(context=ctx, worker_id=worker.worker_id, lease_id=lease.lease_id)
+            history = AttemptHistory()
+            history.append(AttemptHistoryEntry("ATT-1", None, "TC-1", 1, TARGET, "L2", "FAIL", ctx.execution_evidence_refs, 1000))
+            decision = RecoveryEngine(history).decide(ctx, diag)
+            self.assertEqual(decision.action, expected_action)
+            self.assertTrue(decision.terminal)
+            self.assertIsNone(decision.next_attempt_id)
 
 
 if __name__ == "__main__":
