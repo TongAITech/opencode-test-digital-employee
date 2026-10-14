@@ -256,6 +256,62 @@ def _r1_payload(entity: Any, *, release_id: str, artifact_version: int = 1) -> T
     return event_type, payload
 
 
+def _require_durable_pass_evaluation(
+    truth_runtime: _truth.TruthRuntime,
+    evaluation_id: str,
+    *,
+    mission_id: str,
+    node: str,
+) -> Dict[str, Any]:
+    rows = truth_runtime.query("rc7_evaluation", evaluation_id=evaluation_id)
+    if len(rows) != 1:
+        raise _truth.EventValidationError("DURABLE_PASS_REQUIRES_EXISTING_EVALUATION")
+    evaluation = rows[0]
+    if evaluation.get("mission_id") != mission_id:
+        raise _truth.EventValidationError("DURABLE_EVALUATION_MISSION_MISMATCH")
+    if evaluation.get("node") != node:
+        raise _truth.EventValidationError("DURABLE_EVALUATION_NODE_MISMATCH")
+    if evaluation.get("result") != "PASS":
+        raise _truth.EventValidationError("DURABLE_ACCEPTANCE_REQUIRES_PASS_EVALUATION")
+    return evaluation
+
+
+def _enforce_durable_acceptance(truth_runtime: _truth.TruthRuntime, entity: Any) -> None:
+    if isinstance(entity, Task) and entity.state.value == "PASS":
+        evaluation_id = entity.evaluation_id or ""
+        evaluation = _require_durable_pass_evaluation(
+            truth_runtime,
+            evaluation_id,
+            mission_id=entity.mission_id,
+            node=entity.node,
+        )
+        if entity.lease_owner and evaluation.get("evaluator_ref") == entity.lease_owner:
+            raise _truth.EventValidationError("WORKER_SELF_EVALUATION_FORBIDDEN")
+        if entity.output_artifact_refs:
+            evaluated = set(evaluation.get("artifact_refs", []))
+            if not evaluated.intersection(entity.output_artifact_refs):
+                raise _truth.EventValidationError("TASK_PASS_EVALUATION_DOES_NOT_REFERENCE_OUTPUT")
+
+    if isinstance(entity, Gap) and entity.state.value == "RESOLVED":
+        _require_durable_pass_evaluation(
+            truth_runtime,
+            entity.resolution_evaluation_id or "",
+            mission_id=entity.mission_id,
+            node=entity.source_node,
+        )
+
+    if isinstance(entity, Mission) and entity.state.value == "CONVERGED":
+        evaluation = _require_durable_pass_evaluation(
+            truth_runtime,
+            entity.latest_evaluation_id or "",
+            mission_id=entity.mission_id,
+            node="MISSION_EVALUATION",
+        )
+        sufficiency = str(evaluation.get("dimensions", {}).get("sufficiency_state", ""))
+        if sufficiency != entity.sufficiency_state:
+            raise _truth.EventValidationError("MISSION_SUFFICIENCY_EVALUATION_STATE_MISMATCH")
+
+
 def append_entity(
     truth_runtime: _truth.TruthRuntime,
     entity: Any,
@@ -265,6 +321,7 @@ def append_entity(
 ):
     """Append an RC7 control entity to inherited R1 truth and verify RAW."""
     install_rc7_truth_overlay()
+    _enforce_durable_acceptance(truth_runtime, entity)
     event_type, payload = _r1_payload(entity, release_id=release_id, artifact_version=artifact_version)
     return truth_runtime.append_atomic(event_type, payload)
 
