@@ -56,6 +56,10 @@ class AutonomousMissionOrchestrator:
         "DELTA_DESIGN_COMPLETE": "DELTA_DESIGN",
         "ORACLE_SUFFICIENT": "ORACLE_CLOSURE",
         "CASE_SET_FROZEN": "CASE_FREEZE",
+        "EXECUTABLE_SPEC_READY": "EXECUTABLE_SPEC",
+        "SCRIPT_GENERATED": "SCRIPT_BUILD",
+        "SCRIPT_READY": "SCRIPT_VALIDATE",
+        "SCRIPT_READY_ADMITTED": "SCRIPT_READY",
         "PREPARATION_STARTED": "PREPARATION",
         "PRECONDITIONS_VERIFIED": "PRECONDITION_VERIFY",
         "TEST_DATA_READY": "TEST_DATA_PREPARE",
@@ -63,6 +67,11 @@ class AutonomousMissionOrchestrator:
         "L1_L7_EXECUTION_COMPLETE": "L1_L7_EXECUTION",
         "EXECUTION_INTEGRITY": "EXECUTION_INTEGRITY",
         "FAILURE_DIAGNOSIS_COMPLETE": "FAILURE_DIAGNOSIS",
+        "RECOVERY_DECISION_COMPLETE": "RECOVERY_DECISION",
+        "PRODUCT_DEFECT_CONFIRMED": "RECOVERY_DECISION",
+        "RECOVERY_RERUN_READY": "RECOVERY_ACTION",
+        "RECOVERY_REPREPARE_READY": "RECOVERY_ACTION",
+        "REEXECUTION_COMPLETE": "REEXECUTION",
         "COVERAGE_SUFFICIENT": "EMPIRICAL_COVERAGE",
         "DELTA_EXECUTION_COMPLETE": "DELTA_EXECUTION",
         "DEFECT_RECONCILED": "DEFECT",
@@ -90,7 +99,6 @@ class AutonomousMissionOrchestrator:
         "CODE_REPAIR_COMPLETE": ("CODE_GAP_OPEN",),
         "DELTA_DESIGN_COMPLETE": ("DESIGN_GAP_OPEN",),
         "DELTA_EXECUTION_COMPLETE": ("EXECUTION_COVERAGE_GAP_OPEN",),
-        "FAILURE_DIAGNOSIS_COMPLETE": ("EXECUTION_FAILURES_PRESENT",),
     }
 
     def __init__(self, missions: MissionRuntime, truth: TruthRuntime):
@@ -230,26 +238,73 @@ class AutonomousMissionOrchestrator:
             return self._directive(state, "RUN_GATE", scope=release, artifacts=("test_case",), blocking=("ORACLE_CLOSURE_REQUIRED",))
         if stage == "CASE_FREEZE":
             return self._directive(state, "FREEZE_CASE_SET", scope=release, artifacts=("test_case",), blocking=("CASE_FREEZE_REQUIRED",), target=state.target_identity_ref)
+        if stage == "EXECUTABLE_SPEC":
+            return self._directive(
+                state, "BUILD_EXECUTABLE_SPEC", role="AUTOMATION_ENGINEER", scope=release,
+                artifacts=("test_case", "executable_test_spec", "automation_mapping"),
+                blocking=("EXECUTABLE_SPEC_REQUIRED",), target=state.target_identity_ref,
+            )
+        if stage == "SCRIPT_BUILD":
+            return self._directive(
+                state, "BUILD_SCRIPT", role="AUTOMATION_ENGINEER", scope=release,
+                artifacts=("executable_test_spec", "automation_mapping", "script_artifact", "evidence"),
+                blocking=("AUTOMATION_REUSE_AND_SCRIPT_BUILD_REQUIRED",), target=state.target_identity_ref,
+            )
+        if stage == "SCRIPT_VALIDATE":
+            return self._directive(
+                state, "VALIDATE_SCRIPT", role="AUTOMATION_ENGINEER", scope=release,
+                artifacts=("script_artifact", "script_validation", "evidence"),
+                blocking=("SCRIPT_READY_GATE_REQUIRED",), target=state.target_identity_ref,
+            )
+        if stage == "SCRIPT_READY":
+            return self._directive(
+                state, "RUN_GATE", scope=release,
+                artifacts=("executable_test_spec", "script_artifact", "script_validation"),
+                blocking=("SCRIPT_READY_ADMISSION_REQUIRED",), target=state.target_identity_ref,
+            )
         if stage == "PREPARATION":
-            return self._directive(state, "START_PREPARATION", scope=release, artifacts=("test_case",), blocking=("PREPARATION_START_REQUIRED",), target=state.target_identity_ref)
+            return self._directive(state, "START_PREPARATION", scope=release, artifacts=("test_case", "executable_test_spec", "script_validation"), blocking=("PREPARATION_START_REQUIRED",), target=state.target_identity_ref)
         if stage == "PRECONDITION_VERIFY":
-            return self._directive(state, "VERIFY_PRECONDITION", scope=release, artifacts=("test_case",), blocking=("PRECONDITION_VERIFY_REQUIRED",), target=state.target_identity_ref)
+            return self._directive(state, "VERIFY_PRECONDITION", scope=release, artifacts=("test_case", "executable_test_spec"), blocking=("PRECONDITION_VERIFY_REQUIRED",), target=state.target_identity_ref)
         if stage == "TEST_DATA_PREPARE":
-            return self._directive(state, "PREPARE_TEST_DATA", scope=release, artifacts=("test_case",), blocking=("TEST_DATA_PREPARE_REQUIRED",), target=state.target_identity_ref)
+            return self._directive(state, "PREPARE_TEST_DATA", scope=release, artifacts=("test_case", "executable_test_spec"), blocking=("TEST_DATA_PREPARE_REQUIRED",), target=state.target_identity_ref)
         if stage == "PREPARED_ATTEMPT_FREEZE":
             return self._directive(state, "FREEZE_PREPARED_ATTEMPT", scope=release, blocking=("PREPARED_ATTEMPT_FREEZE_REQUIRED",), target=state.target_identity_ref)
         if stage == "L1_L7_EXECUTION":
-            return self._directive(state, "EXECUTE_LAYER", scope=release, artifacts=("execution_attempt", "assertion", "evidence"), blocking=("L1_L7_EXECUTION_INCOMPLETE",), target=state.target_identity_ref)
+            return self._directive(state, "EXECUTE_RUNNER", scope=release, artifacts=("executable_test_spec", "script_artifact", "script_validation", "execution_attempt", "assertion", "evidence"), blocking=("L1_L7_EXECUTION_INCOMPLETE",), target=state.target_identity_ref)
         if stage == "EXECUTION_INTEGRITY":
             return self._directive(state, "RUN_GATE", scope=release, artifacts=("execution_attempt", "assertion", "evidence"), blocking=("EXECUTION_INTEGRITY_NOT_VERIFIED",), target=state.target_identity_ref)
         if stage == "FAILURE_DIAGNOSIS":
-            return self._directive(state, "SPAWN_WORKER", role="FAILURE_DIAGNOSTIC", scope=release, artifacts=("evidence", "defect"), tools=("cat",), blocking=("FAILURE_DIAGNOSIS_REQUIRED",), target=state.target_identity_ref)
+            return self._directive(
+                state, "SPAWN_WORKER", role="FAILURE_DIAGNOSTIC", scope=release,
+                artifacts=("failure_diagnosis", "root_cause_candidate", "evidence"),
+                tools=("cat", "codegraph", "git"), blocking=("FAILURE_OWNERSHIP_AND_RCA_REQUIRED",),
+                target=state.target_identity_ref,
+            )
+        if stage == "RECOVERY_DECISION":
+            return self._directive(
+                state, "DECIDE_RECOVERY", role="FAILURE_DIAGNOSTIC", scope=release,
+                artifacts=("failure_diagnosis", "recovery_decision"),
+                blocking=("RECOVERY_DECISION_REQUIRED",), target=state.target_identity_ref,
+            )
+        if stage == "RECOVERY_ACTION":
+            return self._directive(
+                state, "EXECUTE_RECOVERY", role="FAILURE_DIAGNOSTIC", scope=release,
+                artifacts=("recovery_decision", "recovery_action", "execution_convergence", "evidence"),
+                blocking=("RECOVERY_ACTION_EXECUTION_REQUIRED",), target=state.target_identity_ref,
+            )
+        if stage == "REEXECUTION":
+            return self._directive(
+                state, "EXECUTE_RUNNER", scope=release,
+                artifacts=("executable_test_spec", "script_artifact", "script_validation", "execution_attempt", "assertion", "evidence", "execution_convergence"),
+                blocking=("REEXECUTION_REQUIRED",), target=state.target_identity_ref,
+            )
         if stage == "EMPIRICAL_COVERAGE":
             return self._directive(state, "CLOSE_COVERAGE", scope=release, artifacts=("coverage_observation",), blocking=("EMPIRICAL_COVERAGE_GAPS_OPEN",), target=state.target_identity_ref)
         if stage == "DELTA_EXECUTION":
-            return self._directive(state, "EXECUTE_LAYER", scope=release, artifacts=("execution_attempt", "assertion", "evidence", "coverage_observation"), blocking=("DELTA_EXECUTION_REQUIRED",), target=state.target_identity_ref)
+            return self._directive(state, "EXECUTE_RUNNER", scope=release, artifacts=("execution_attempt", "assertion", "evidence", "coverage_observation"), blocking=("DELTA_EXECUTION_REQUIRED",), target=state.target_identity_ref)
         if stage == "DEFECT":
-            return self._directive(state, "RECONCILE_DEFECTS", scope=release, artifacts=("defect", "evidence"), blocking=("DEFECT_RECONCILIATION_REQUIRED",), target=state.target_identity_ref)
+            return self._directive(state, "RECONCILE_DEFECTS", scope=release, artifacts=("defect", "evidence", "failure_diagnosis", "root_cause_candidate"), blocking=("DEFECT_RECONCILIATION_REQUIRED",), target=state.target_identity_ref)
         if stage == "REPORT":
             return self._directive(state, "REPORT", scope=release, artifacts=("report",), blocking=("REPORT_REQUIRED",), target=state.target_identity_ref)
         if stage == "ALLURE":
