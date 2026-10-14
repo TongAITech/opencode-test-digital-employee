@@ -49,6 +49,9 @@ class AuthorityRuntime:
         "REQUIREMENT_REVIEWER": {"requirement_review", "analysis_gap"},
         "CODE_ANALYZER": {"code_analysis"},
         "CODE_REVIEWER": {"code_review", "analysis_gap"},
+        # Fusion is a professional role; coordinator is never allowed to synthesize
+        # Test Intent / Test Condition directly.
+        "TEST_FUSION": {"test_intent", "test_condition"},
         "L1_DESIGN": {"case_candidate_l1"},
         "L2_DESIGN": {"case_candidate_l2"},
         "L3_DESIGN": {"case_candidate_l3"},
@@ -63,7 +66,7 @@ class AuthorityRuntime:
         "L5_EXECUTE": {"execution_attempt", "assertion", "evidence", "coverage_observation"},
         "L6_EXECUTE": {"execution_attempt", "assertion", "evidence", "coverage_observation"},
         "L7_EXECUTE": {"execution_attempt", "assertion", "evidence", "coverage_observation"},
-        "FAILURE_DIAGNOSTIC": {"failure_diagnosis", "recovery_decision", "evidence"},
+        "FAILURE_DIAGNOSTIC": {"failure_diagnosis", "recovery_decision", "evidence", "defect"},
     }
 
     def __init__(self, signing_key: bytes):

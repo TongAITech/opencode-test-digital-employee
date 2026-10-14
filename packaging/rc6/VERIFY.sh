@@ -23,7 +23,17 @@ r = handle({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVers
 assert r and r["result"]["serverInfo"]["name"] == "pfc-aitest-rc6"
 t = handle({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}})
 names = {x["name"] for x in t["result"]["tools"]}
-assert {"runtime_status","mission_create","mission_status","mission_checkpoint"}.issubset(names)
+required = {
+    "runtime_status", "mission_create", "mission_status", "mission_checkpoint",
+    "worker_issue", "worker_rotate", "lease_issue", "tool_authorize",
+    "artifact_record", "truth_inventory", "truth_query",
+    "reality_list", "reality_get", "reality_upsert", "reality_reconcile", "target_build",
+    "capability_discover", "capability_mark_executable", "capability_register",
+    "capability_bind_worker", "capability_record_probe", "capability_target_ready",
+    "capability_admit", "capability_record_call",
+}
+missing = sorted(required - names)
+assert not missing, "missing governed MCP tools: " + ",".join(missing)
 PY
 
 mkdir -p "$ROOT/runtime-state"

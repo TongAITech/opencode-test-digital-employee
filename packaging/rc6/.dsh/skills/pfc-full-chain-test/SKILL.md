@@ -7,24 +7,21 @@ description: Run one governed PFC release Mission from requirement/code analysis
 
 Use this skill only as the coordinator entry. The coordinator MUST stay thin: route work, evaluate runtime gates, checkpoint, and summarize artifact references. It MUST NOT perform requirement analysis, code analysis, test design, data construction, test execution, CAT diagnosis, or rewrite a frozen Case itself.
 
-## Durable truth
+## Mandatory control plane
 
-- Mission != DSH Session.
-- R1 Event Stream is the sole durable business truth.
-- DSH session/subagent/job events are compute history, not product completion truth.
-- A Stage may advance only when the corresponding RC6 runtime gate passes from stored evidence.
-- `PASS` requires a real action, actual result, oracle assertion, current evidence and tool-call provenance on the exact TargetIdentity.
+Before professional work, call `mcp__pfc_aitest_rc6__runtime_status`. All professional workers MUST receive a runtime-issued identity (`worker_issue`) and signed lease (`lease_issue`). Before an external tool call, require both lease authorization (`tool_authorize`) and exact Worker/Target capability admission (`capability_admit`). Discovery alone is never READY; real probe/call evidence must be recorded through the capability tools.
 
-## Start / resume
+Professional artifacts MUST be persisted through `artifact_record`, never by chat claims or ad-hoc files. `artifact_record` enforces Role/Lease/Layer authority, validates the canonical domain contract, appends one atomic R1 event, applies projection, and requires read-after-write integrity. Use `truth_inventory` / `truth_query` for Mission truth. Never infer completion from DSH messages.
 
-1. Call `mcp__pfc_aitest_rc6__runtime_status` and fail closed if RC6 runtime identity is unavailable.
-2. Create or load the durable Mission with `mcp__pfc_aitest_rc6__mission_create` / `mission_status`.
-3. Resolve Bank Reality and a unique TargetIdentity before execution. Never guess routes, repositories, deployed revision, accounts, DB profiles or environment.
-4. Keep coordinator context bounded. Before context pressure, checkpoint with `mission_checkpoint`, end the current coordinator session and continue from the ResumeEnvelope in a fresh session. Do not ask the user to type “continue”.
+Bank facts are read through `reality_list` / `reality_get` and refreshed through `reality_reconcile`; do not guess routes, repository revisions, DB profiles, account bindings, 4A or CAT. Build a unique execution target with `target_build`; any STALE/NEEDS_BINDING fact blocks execution.
 
-## Professional workers
+## Durable Mission and session rotation
 
-Use independent workers for requirement analysis/review, code analysis/review, and each applicable layer. L1-L7 Design and L1-L7 Execution are separate roles. Never combine layers such as `L2|L3` or `L2|L3|L4` into one Case/worker. A failed worker may only be split/rotated into the same role; the coordinator cannot impersonate it.
+Mission != DSH Session. R1 Event Stream is the sole durable business truth; DSH session/subagent/job events are compute history only. Create/load the durable Mission with `mission_create` / `mission_status`. Keep coordinator context bounded. Before context pressure, call `mission_checkpoint`, end the current coordinator session and continue from the ResumeEnvelope in a fresh session. Never ask the user to type “continue”.
+
+## Professional roles
+
+Use independent requirement analyzer/reviewer, code analyzer/reviewer, TEST_FUSION, and each applicable layer. Test Fusion owns Test Intent and Test Condition; the coordinator cannot create them. L1-L7 Design and L1-L7 Execution are separate roles. Never combine layers such as `L2|L3` or `L2|L3|L4` into one Case/worker. A failed worker may only rotate/split into the same role (`worker_rotate` preserves role/layer).
 
 Layer responsibilities:
 - L1: code/unit, JUnit/Maven, changed method/line/branch and mutation evidence when available.
@@ -37,7 +34,7 @@ Layer responsibilities:
 
 ## Analysis and design closure
 
-Requirement and Code gates must be computed from stored evidence; ignore self-reported percentages. When CodeGraph is required, require a real admitted CodeGraph call and evidence reference. Build Test Intent -> Test Condition -> layer applicability -> layer-specific Case Candidates. Run Coverage Subject and Oracle evaluation, generate explicit gaps, perform delta design, and re-evaluate until all critical/high-risk gaps are closed. Only then freeze Cases.
+Requirement and Code gates are computed from stored evidence; ignore self-reported percentages. When CodeGraph is required, require real Tool Broker admission and a real CodeGraph call/evidence reference. Build Requirement+Code -> Test Intent -> Test Condition -> layer applicability -> layer-specific Case Candidates. Run Coverage Subject and Oracle evaluation, generate explicit gaps, perform delta design, and re-evaluate until critical/high-risk gaps are closed. Only then freeze Cases.
 
 ## Preparation and execution
 
