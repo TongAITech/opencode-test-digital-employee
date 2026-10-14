@@ -28,7 +28,7 @@ export PFC_WORKSPACE="${PFC_WORKSPACE:-$ROOT}"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 ARGS=(
-  -m rc7_release.code_qualification
+  -m rc7_release.code_qualification_strict
   --state-root "$STATE"
   --workspace "$PFC_WORKSPACE"
   --repo-path "$PFC_RC7_CODE_REPO"
@@ -51,7 +51,7 @@ set -e
 
 RESULT="$STATE/qualification/rc7-dsh-code-result.json"
 if [[ -f "$RESULT" ]]; then
-  printf 'RC7 Code qualification evidence: %s\n' "$RESULT" >&2
+  printf 'RC7 strict Code qualification evidence: %s\n' "$RESULT" >&2
 else
   printf '%s\n' '{"status":"FAIL","reason":"CODE_QUALIFICATION_RESULT_FILE_MISSING"}' >&2
   exit 11
