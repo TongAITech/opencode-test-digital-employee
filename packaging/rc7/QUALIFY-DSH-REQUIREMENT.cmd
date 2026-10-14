@@ -1,0 +1,38 @@
+@echo off
+setlocal EnableExtensions
+for %%I in ("%~dp0..\..") do set "ROOT=%%~fI"
+
+if not defined PFC_AITEST_STATE_DIR set "PFC_AITEST_STATE_DIR=%ROOT%\runtime-state\rc7-dsh-requirement-qualification"
+if not exist "%PFC_AITEST_STATE_DIR%" mkdir "%PFC_AITEST_STATE_DIR%" >nul 2>&1
+
+set "PYTHON_BIN=%PFC_PYTHON%"
+if not defined PYTHON_BIN (
+  for /f "delims=" %%P in ('where python 2^>nul') do if not defined PYTHON_BIN set "PYTHON_BIN=%%P"
+)
+if not defined PYTHON_BIN (
+  echo {"status":"NOT_PROVEN","reason":"PYTHON_NOT_FOUND"} 1>&2
+  exit /b 10
+)
+
+set "PFC_AITEST_HOME=%ROOT%"
+if defined PYTHONPATH (
+  set "PYTHONPATH=%ROOT%;%PYTHONPATH%"
+) else (
+  set "PYTHONPATH=%ROOT%"
+)
+
+set "TIMEOUT_ARGS="
+if defined PFC_RC7_DSH_TIMEOUT set "TIMEOUT_ARGS=--timeout-seconds %PFC_RC7_DSH_TIMEOUT%"
+set "DSH_ARGS="
+if defined PFC_DSH_BIN set "DSH_ARGS=--dsh-bin "%PFC_DSH_BIN%""
+
+"%PYTHON_BIN%" -m rc7_release.dsh_bridge_qualification --state-root "%PFC_AITEST_STATE_DIR%" --repo-root "%ROOT%" %DSH_ARGS% %TIMEOUT_ARGS%
+set "RC=%ERRORLEVEL%"
+
+set "RESULT=%PFC_AITEST_STATE_DIR%\qualification\rc7-dsh-bridge-result.json"
+if not exist "%RESULT%" (
+  echo {"status":"FAIL","reason":"QUALIFICATION_RESULT_FILE_MISSING"} 1>&2
+  exit /b 11
+)
+echo RC7 qualification evidence: %RESULT% 1>&2
+exit /b %RC%
