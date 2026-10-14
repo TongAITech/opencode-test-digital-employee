@@ -4,6 +4,10 @@ A control-plane Task PASS means the execution work reached a trustworthy,
 classified conclusion. It does NOT mean the product test passed. Therefore an
 evidence-backed product TEST_RESULT=FAIL may still produce Evaluation=PASS and
 a downstream PRODUCT_DEFECT Gap for the Defect node.
+
+BLOCKED remains distinct from product FAIL. When diagnosis evidence exists,
+BLOCKED is routed by its proven owner (AUTH/ENV/DATA/etc.) instead of being
+collapsed into a generic failure bucket.
 """
 
 from __future__ import annotations
@@ -58,13 +62,9 @@ class ExecutionClosedLoop:
         status = str(record.status).upper()
         if status == "PASS":
             return "PASS"
-        if status == "BLOCKED":
-            return "BLOCKED"
-        if status in {"SKIPPED", "NOT_RUN"}:
+        if status in {"BLOCKED", "SKIPPED", "NOT_RUN"}:
             return "BLOCKED"
         if status == "FAIL":
-            # Integrity=true means the real action/evidence/oracle chain was
-            # trustworthy even when the Oracle result is FAIL.
             if record.integrity_passed and record.assertion_passed is False:
                 return "FAIL"
             return "INCONCLUSIVE"
@@ -84,23 +84,50 @@ class ExecutionClosedLoop:
         gaps = []
         recovery_action = recovery.action if recovery is not None else None
 
+        if diagnosis is not None and diagnosis.attempt_id != record.attempt_id:
+            raise ValueError("DIAGNOSIS_ATTEMPT_MISMATCH")
+        if recovery is not None and recovery.attempt_id != record.attempt_id:
+            raise ValueError("RECOVERY_ATTEMPT_MISMATCH")
+
         if test_result == "PASS":
             evaluation_result = EvaluationResult.PASS
             conclusive = True
         elif test_result == "BLOCKED":
-            category = "EXECUTION_BLOCKED"
+            if diagnosis is None:
+                category, target, severity = "EXECUTION_BLOCKED", "RUNTIME", GapSeverity.HIGH
+                description = record.reason or category
+            else:
+                failure_class = str(diagnosis.failure_class).upper()
+                if failure_class == "PRODUCT":
+                    raise ValueError("BLOCKED_EXECUTION_CANNOT_BE_PRODUCT_DEFECT")
+                category, target, severity = _FAILURE_ROUTE.get(
+                    failure_class,
+                    ("UNKNOWN_FAILURE", "RUNTIME", GapSeverity.BLOCKER),
+                )
+                description = diagnosis.rationale
             gaps.append(
                 self._gap(
                     mission_id,
                     record,
                     category=category,
-                    target="RUNTIME",
-                    severity=GapSeverity.HIGH,
-                    description=record.reason or category,
+                    target=target,
+                    severity=severity,
+                    description=description,
+                    extra_evidence=diagnosis.evidence_refs if diagnosis is not None else (),
                 )
             )
-            evaluation_result = EvaluationResult.BLOCKED
-            conclusive = True
+            # A diagnosed recoverable dependency is not a product test result;
+            # it remains repairable. A terminal/manual recovery decision is a
+            # durable BLOCKED conclusion rather than an infinite repair loop.
+            if recovery is not None and recovery.terminal:
+                evaluation_result = EvaluationResult.BLOCKED
+                conclusive = True
+            elif diagnosis is not None:
+                evaluation_result = EvaluationResult.REPAIR_REQUIRED
+                conclusive = False
+            else:
+                evaluation_result = EvaluationResult.BLOCKED
+                conclusive = True
         else:
             if diagnosis is None:
                 gaps.append(
@@ -116,8 +143,6 @@ class ExecutionClosedLoop:
                 evaluation_result = EvaluationResult.REPAIR_REQUIRED
                 conclusive = False
             else:
-                if diagnosis.attempt_id != record.attempt_id:
-                    raise ValueError("DIAGNOSIS_ATTEMPT_MISMATCH")
                 failure_class = str(diagnosis.failure_class).upper()
                 if failure_class == "PRODUCT":
                     if test_result != "FAIL" or not record.integrity_passed:
@@ -135,8 +160,6 @@ class ExecutionClosedLoop:
                             extra_evidence=diagnosis.evidence_refs,
                         )
                     )
-                    # Execution is conclusively complete; the open product Gap
-                    # is owned by Defect, not by the execution worker.
                     evaluation_result = EvaluationResult.PASS
                     conclusive = True
                 else:
@@ -155,10 +178,12 @@ class ExecutionClosedLoop:
                             extra_evidence=diagnosis.evidence_refs,
                         )
                     )
-                    if recovery is not None and recovery.attempt_id != record.attempt_id:
-                        raise ValueError("RECOVERY_ATTEMPT_MISMATCH")
-                    evaluation_result = EvaluationResult.REPAIR_REQUIRED
-                    conclusive = False
+                    if recovery is not None and recovery.terminal:
+                        evaluation_result = EvaluationResult.BLOCKED
+                        conclusive = True
+                    else:
+                        evaluation_result = EvaluationResult.REPAIR_REQUIRED
+                        conclusive = False
 
         evidence_refs = list(record.evidence_refs)
         if diagnosis is not None:
