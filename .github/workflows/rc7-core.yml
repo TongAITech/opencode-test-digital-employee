@@ -27,5 +27,7 @@ jobs:
         run: python -m pip install --disable-pip-version-check pytest
       - name: Compile RC7 runtime
         run: python -m compileall -q rc7_runtime
+      - name: Import inherited RC6 runtime
+        run: python -c "import rc6_runtime; import rc6_runtime.truth"
       - name: Run RC7 closed-loop core tests
-        run: python -m pytest -q tests/test_rc7_closed_loop_core.py
+        run: python -m pytest -q tests/test_rc7_*.py
