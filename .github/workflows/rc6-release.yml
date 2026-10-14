@@ -81,7 +81,7 @@ jobs:
       - name: Git Bash package-only verification
         shell: bash
         run: ./dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10/VERIFY.sh --package-only
-      - name: Git Bash workspace fresh and legacy upgrade qualification
+      - name: Git Bash workspace fresh and field legacy upgrade qualification
         shell: bash
         run: |
           set -euo pipefail
@@ -93,33 +93,72 @@ jobs:
           PFC_WORKSPACE="$FRESH" "$PKG/VERIFY-RC6-PROFILE.sh"
           test "$(find "$FRESH/.dsh/skills" -mindepth 1 -maxdepth 1 -type d -name 'pfc-*' | wc -l | tr -d ' ')" = "26"
           PFC_WORKSPACE="$FRESH" "$PKG/INSTALL-AITEST.sh" | grep -q '"install_mode": "RC6_REPAIR"'
-          mkdir -p "$LEGACY/.dsh/skills/pfc-old-rc5" "$LEGACY/.dsh/skills/custom-bank" "$LEGACY/.agents/skills/pfc-old-agent"
+
+          mkdir -p \
+            "$LEGACY/.dsh/skills/pfc-old-rc5" \
+            "$LEGACY/.dsh/skills/custom-bank" \
+            "$LEGACY/.agents/skills/pfc-old-agent" \
+            "$LEGACY/.opencode/skills/pfc-bank-context" \
+            "$LEGACY/.opencode/skills/custom-opencode" \
+            "$LEGACY/.opencode/agents"
           printf 'legacy\n' > "$LEGACY/.dsh/skills/pfc-old-rc5/SKILL.md"
           printf 'keep\n' > "$LEGACY/.dsh/skills/custom-bank/SKILL.md"
           printf 'legacy-agent\n' > "$LEGACY/.agents/skills/pfc-old-agent/SKILL.md"
+          printf 'legacy-bank-context\n' > "$LEGACY/.opencode/skills/pfc-bank-context/SKILL.md"
+          printf 'legacy-opencode-agent\n' > "$LEGACY/.opencode/agents/pfc-old-agent.md"
+          printf 'keep-opencode\n' > "$LEGACY/.opencode/skills/custom-opencode/SKILL.md"
+
           PFC_WORKSPACE="$LEGACY" "$PKG/INSTALL-AITEST.sh" | grep -q '"install_mode": "UPGRADE_FROM_LEGACY"'
           PFC_WORKSPACE="$LEGACY" "$PKG/VERIFY-RC6-PROFILE.sh"
           test "$(find "$LEGACY/.dsh/skills" -mindepth 1 -maxdepth 1 -type d -name 'pfc-*' | wc -l | tr -d ' ')" = "26"
           test -f "$LEGACY/.dsh/skills/custom-bank/SKILL.md"
-          test -n "$(find "$LEGACY/.aitest-backup" -path '*/.dsh/skills/pfc-old-rc5/SKILL.md' -print -quit)"
+          test -f "$LEGACY/.opencode/skills/custom-opencode/SKILL.md"
           test -z "$(find "$LEGACY/.agents/skills" -maxdepth 1 -name 'pfc-*' -print -quit 2>/dev/null || true)"
-      - name: Reusable offline tool bootstrap qualification
+          test -z "$(find "$LEGACY/.opencode/skills" -maxdepth 1 -name 'pfc-*' -print -quit 2>/dev/null || true)"
+          test -z "$(find "$LEGACY/.opencode/agents" -maxdepth 1 -name 'pfc-*' -print -quit 2>/dev/null || true)"
+          test -n "$(find "$LEGACY/.aitest-backup" -path '*/.dsh/skills/pfc-old-rc5/SKILL.md' -print -quit)"
+          test -n "$(find "$LEGACY/.aitest-backup" -path '*/.opencode/skills/pfc-bank-context/SKILL.md' -print -quit)"
+          test -n "$(find "$LEGACY/.aitest-backup" -path '*/.opencode/agents/pfc-old-agent.md' -print -quit)"
+      - name: Historical runtime-context bridge and reusable offline tool qualification
         shell: pwsh
         run: |
           $ws = Join-Path $env:RUNNER_TEMP 'rc6-tool-bootstrap'
+          $root = (Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10').Path
           Remove-Item $ws -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force (Join-Path $ws 'tools') | Out-Null
+          New-Item -ItemType Directory -Force (Join-Path $ws 'aitest-runtime-context/secrets') | Out-Null
           Set-Content -Path (Join-Path $ws 'tools/foura_auth.py') -Value "def login():`n    return 'not-executed'`n" -Encoding utf8
-          Set-Content -Path (Join-Path $ws 'tools/cat.yml') -Value "endpoint: placeholder`n" -Encoding utf8
+          $catPath = Join-Path $ws 'aitest-runtime-context/secrets/cat.json'
+          Set-Content -Path $catPath -Value '{"password":"CI_SECRET_MUST_NOT_LEAK"}' -Encoding utf8
+          $pythonPath = (Get-Command python).Source
+          $registry = @{ schema_version='legacy.field.registry.v1'; tools=@{ codegraph=@{ tool_id='codegraph'; executable=$pythonPath } } }
+          $registry | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $ws 'aitest-runtime-context/registry.json') -Encoding utf8
+
+          python -m rc6_release.legacy_field_bridge --workspace $ws --package-root $root --output (Join-Path $ws 'legacy-field-env.sh')
+          $bridgeText = Get-Content "$ws/.dsh/rc6/LEGACY_FIELD_BRIDGE.json" -Raw
+          if ($bridgeText -match 'CI_SECRET_MUST_NOT_LEAK') { Write-Error 'CAT secret leaked into bridge state'; exit 1 }
+          $bridge = $bridgeText | ConvertFrom-Json
+          $codegraph = @($bridge.bindings | Where-Object { $_.tool_id -eq 'codegraph' })[0]
+          $catBridge = @($bridge.bindings | Where-Object { $_.tool_id -eq 'cat' })[0]
+          if (-not $bridge.registry_present) { Write-Error 'historical registry was not detected'; exit 1 }
+          if (-not $codegraph.found -or $codegraph.provenance -ne 'AITEST_RUNTIME_CONTEXT_REGISTRY') { Write-Error 'CodeGraph registry bridge failed'; exit 1 }
+          if (-not $catBridge.found -or $catBridge.provenance -ne 'AITEST_RUNTIME_CONTEXT_SECRET_REF') { Write-Error 'CAT historical binding bridge failed'; exit 1 }
+          if ($bridge.secret_contents_read -ne $false) { Write-Error 'bridge must not read secret contents'; exit 1 }
+          if ($bridge.target_ready_forged -ne $false) { Write-Error 'bridge forged target readiness'; exit 1 }
+
+          $env:PFC_CODEGRAPH_BIN = $codegraph.path
+          $env:PFC_CAT_CONFIG = $catBridge.path
           $env:PFC_GIT_BIN = (Get-Command git).Source
-          $env:PFC_PYTHON = (Get-Command python).Source
+          $env:PFC_PYTHON = $pythonPath
           python -m rc6_release.tool_bootstrap bootstrap --workspace $ws
           python -m rc6_release.tool_bootstrap verify --workspace $ws
           $profile = Get-Content "$ws/.dsh/rc6/TOOL_PROFILE.json" | ConvertFrom-Json
           $git = @($profile.tools | Where-Object { $_.tool_id -eq 'git' })[0]
+          $cg = @($profile.tools | Where-Object { $_.tool_id -eq 'codegraph' })[0]
           $foura = @($profile.tools | Where-Object { $_.tool_id -eq '4a' })[0]
           $cat = @($profile.tools | Where-Object { $_.tool_id -eq 'cat' })[0]
           if ($git.status -ne 'PROBE_PASS') { Write-Error 'git reuse/probe failed'; exit 1 }
+          if ($cg.status -ne 'PROBE_PASS') { Write-Error 'CodeGraph reuse/probe failed'; exit 1 }
           if ($foura.status -ne 'BLOCKED_FIELD_AUTH') { Write-Error '4A must remain field-blocked'; exit 1 }
           if ($cat.status -ne 'BLOCKED_FIELD_LOGIN') { Write-Error 'CAT must remain field-blocked'; exit 1 }
           if (@($profile.tools | Where-Object { $_.target_ready -eq $true }).Count -ne 0) { Write-Error 'bootstrap forged target READY'; exit 1 }
@@ -149,6 +188,8 @@ jobs:
             'rc6_release/workspace_install.py',
             'rc6_release/static_skills.py',
             'rc6_release/tool_bootstrap.py',
+            'rc6_release/legacy_skill_guard.py',
+            'rc6_release/legacy_field_bridge.py',
             'INSTALL-AITEST.sh',
             'VERIFY-RC6-PROFILE.sh',
             'ROLLBACK-AITEST.sh',
