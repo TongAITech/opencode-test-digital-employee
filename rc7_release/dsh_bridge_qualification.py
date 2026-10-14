@@ -18,16 +18,23 @@ from rc6_runtime.agent_runtime_hardening import BankFinalDshHeadlessWorkerLaunch
 from rc6_runtime.truth import TruthRuntime
 from rc7_runtime.authority import RC7AuthorityRuntime
 from rc7_runtime.closed_loop_control import ClosedLoopControlPlane
+from rc7_runtime.dsh_requirement_evaluator import DshRequirementEvaluator
 from rc7_runtime.dsh_worker_bridge import (
     DEFAULT_NODE_POLICIES,
     DshNodePolicy,
     DshTaskWorkerBridge,
 )
 from rc7_runtime.mission_graph import MissionTaskGraphCompiler
-from rc7_runtime.models import Mission, TaskStatus
+from rc7_runtime.models import EvaluationResult, Mission, TaskStatus
 
 
 RELEASE_ID = "RC7-DSH-BRIDGE-REALITY"
+QUAL_REQUIREMENT_ID = "QUAL-REQ-BOUNDARY-001"
+QUAL_SOURCE_REF = "qualification-fixture://rate-boundary-requirement"
+QUAL_SOURCE_REQUIREMENT = (
+    "交易金额必须大于0且不超过500000.00元；500000.00元必须允许通过；"
+    "500000.01元及以上必须拒绝，并返回明确的超限业务结果。"
+)
 _RUNTIME_STATUS_TOOL = "mcp__pfc_aitest_rc6__runtime_status"
 _EXPECTED_LIFECYCLE = (
     "WORKER_ASSIGN_REQUESTED",
@@ -48,8 +55,13 @@ class RC7DshBridgeQualificationResult:
     task_id: Optional[str]
     worker_instance_id: Optional[str]
     dsh_session_id: Optional[str]
+    reviewer_worker_instance_id: Optional[str]
+    reviewer_dsh_session_id: Optional[str]
     tool_call_count: int
     task_state: Optional[str]
+    downstream_task_state: Optional[str]
+    evaluation_id: Optional[str]
+    evaluation_result: Optional[str]
     artifact_ref: Optional[str]
     raw_output_ref: Optional[str]
     r1_event_count: int
@@ -130,6 +142,19 @@ def _lifecycle_proof(truth: TruthRuntime, mission_id: str, worker_id: str) -> Tu
     return tuple(proof)
 
 
+def _requirement_objective() -> str:
+    return (
+        "Analyze one qualification requirement into an evaluator-ready requirement model. "
+        "SOURCE_REQUIREMENT=%s REQUIREMENT_ID=%s. semantic_payload MUST contain requirement_id=%s, "
+        "source_assertions, atomic_statements, trace_links, business_rules, roles, preconditions, "
+        "normal_paths, negative_paths, boundaries, states, data_constraints, dependencies and side_effects. "
+        "Every atomic statement MUST have id, source_ref and testable=true; every source and atomic statement "
+        "MUST be covered by valid trace_links with evidence_ref. The boundaries MUST explicitly preserve "
+        "500000.00 as allowed inclusive upper boundary and 500000.01 as rejected above-boundary value. "
+        "Do not declare PASS or emit an Evaluation."
+    ) % (QUAL_SOURCE_REQUIREMENT, QUAL_REQUIREMENT_ID, QUAL_REQUIREMENT_ID)
+
+
 def run_real_qualification(
     *,
     state_root: str,
@@ -152,8 +177,13 @@ def run_real_qualification(
             task_id=None,
             worker_instance_id=None,
             dsh_session_id=None,
+            reviewer_worker_instance_id=None,
+            reviewer_dsh_session_id=None,
             tool_call_count=0,
             task_state=None,
+            downstream_task_state=None,
+            evaluation_id=None,
+            evaluation_result=None,
             artifact_ref=None,
             raw_output_ref=None,
             r1_event_count=0,
@@ -192,12 +222,18 @@ def run_real_qualification(
         Mission(
             mission_id=mission_id,
             release_id=RELEASE_ID,
-            goal="prove a real independent DSH worker can execute one RC7 READY task",
+            goal="prove real independent DSH Requirement producer/reviewer/gate handoff",
         ),
     )
     compiler = MissionTaskGraphCompiler()
-    graph = compiler.install(control, mission_id)
+    graph = compiler.compile(
+        mission_id,
+        external_inputs={"REQUIREMENT_ANALYSIS": (QUAL_SOURCE_REF,)},
+    )
     requirement = graph.task("REQUIREMENT_ANALYSIS")
+    requirement.objective = _requirement_objective()
+    for task in graph.tasks:
+        control.register_task(task)
 
     policies = dict(DEFAULT_NODE_POLICIES)
     base = policies["REQUIREMENT_ANALYSIS"]
@@ -210,16 +246,25 @@ def run_real_qualification(
     )
     bridge = DshTaskWorkerBridge(control, launcher, node_policies=policies)
 
+    producer_worker_id = None
+    producer_session_id = None
+    artifact_ref = None
+    raw_output_ref = None
     try:
         run = bridge.run_next()
         if run is None:
             raise AgentRuntimeError("RC7_DSH_READY_TASK_NOT_EXECUTED")
+        producer_worker_id = run.worker_instance_id
+        producer_session_id = run.dsh_session_id
+        raw_output_ref = run.raw_output_ref
+
         task = control.scheduler.task(requirement.task_id)
         if task.state != TaskStatus.OUTPUT_PRODUCED:
             raise AgentRuntimeError("RC7_DSH_WORKER_DID_NOT_STOP_AT_OUTPUT_PRODUCED")
         if task.evaluation_id is not None:
             raise AgentRuntimeError("RC7_DSH_WORKER_ILLEGALLY_ACCEPTED_OWN_OUTPUT")
-        code = control.scheduler.task(graph.task("CODE_ANALYSIS").task_id)
+        code_task_id = graph.task("CODE_ANALYSIS").task_id
+        code = control.scheduler.task(code_task_id)
         if code.state != TaskStatus.REGISTERED:
             raise AgentRuntimeError("RC7_DSH_DOWNSTREAM_RELEASED_BEFORE_EVALUATION")
         if run.tool_call_count < 1 or not run.dsh_session_id:
@@ -227,7 +272,8 @@ def run_real_qualification(
         if not run.raw_output_ref.startswith("file://"):
             raise AgentRuntimeError("RC7_DSH_RAW_OUTPUT_NOT_DURABLE")
 
-        artifact_rows = truth.query("rc7_artifact", artifact_id=graph.artifact_ids["REQUIREMENT_ANALYSIS"])
+        artifact_id = graph.artifact_ids["REQUIREMENT_ANALYSIS"]
+        artifact_rows = truth.query("rc7_artifact", artifact_id=artifact_id)
         if len(artifact_rows) != 1:
             raise AgentRuntimeError("RC7_DSH_CANONICAL_ARTIFACT_MISSING")
         artifact_ref = str(artifact_rows[0].get("content_ref") or "")
@@ -237,7 +283,43 @@ def run_real_qualification(
         if not artifact_path.is_file():
             raise AgentRuntimeError("RC7_DSH_CANONICAL_ARTIFACT_FILE_MISSING")
 
-        proof_ids = _lifecycle_proof(truth, mission_id, run.worker_instance_id)
+        producer_proof = _lifecycle_proof(truth, mission_id, run.worker_instance_id)
+
+        evaluated = DshRequirementEvaluator(
+            launcher,
+            allowed_tools=(_RUNTIME_STATUS_TOOL,),
+        ).evaluate_and_apply(
+            control,
+            requirement.task_id,
+            artifact_id,
+        )
+        if evaluated.loop_result.evaluation.result != EvaluationResult.PASS:
+            reasons = evaluated.loop_result.evaluation.dimensions.get("reasons", [])
+            raise AgentRuntimeError(
+                "RC7_REAL_REQUIREMENT_GATE_NOT_PASS:%s" % ",".join(str(reason) for reason in reasons)
+            )
+        if evaluated.reviewer_worker_id == run.worker_instance_id:
+            raise AgentRuntimeError("RC7_REQUIREMENT_REVIEWER_NOT_INDEPENDENT")
+        if evaluated.reviewer_session_id == run.dsh_session_id:
+            raise AgentRuntimeError("RC7_REQUIREMENT_REVIEWER_SESSION_NOT_INDEPENDENT")
+        if not evaluated.reviewer_evidence_ids:
+            raise AgentRuntimeError("RC7_REQUIREMENT_REVIEWER_EVIDENCE_MISSING")
+
+        accepted_requirement = control.scheduler.task(requirement.task_id)
+        downstream = control.scheduler.task(code_task_id)
+        if accepted_requirement.state != TaskStatus.PASS:
+            raise AgentRuntimeError("RC7_REQUIREMENT_NOT_ACCEPTED_AFTER_GATE")
+        if downstream.state != TaskStatus.READY:
+            raise AgentRuntimeError("RC7_CODE_NOT_RELEASED_AFTER_REQUIREMENT_PASS")
+        evaluation_rows = truth.query(
+            "rc7_evaluation",
+            evaluation_id=evaluated.loop_result.evaluation.evaluation_id,
+        )
+        if len(evaluation_rows) != 1 or evaluation_rows[0].get("result") != "PASS":
+            raise AgentRuntimeError("RC7_REQUIREMENT_EVALUATION_NOT_DURABLE")
+
+        reviewer_proof = _lifecycle_proof(truth, mission_id, evaluated.reviewer_worker_id)
+        proof_ids = producer_proof + reviewer_proof
         result = RC7DshBridgeQualificationResult(
             status="PASS",
             reason=None,
@@ -245,8 +327,13 @@ def run_real_qualification(
             task_id=run.task_id,
             worker_instance_id=run.worker_instance_id,
             dsh_session_id=run.dsh_session_id,
+            reviewer_worker_instance_id=evaluated.reviewer_worker_id,
+            reviewer_dsh_session_id=evaluated.reviewer_session_id,
             tool_call_count=run.tool_call_count,
-            task_state=run.task_state,
+            task_state=accepted_requirement.state.value,
+            downstream_task_state=downstream.state.value,
+            evaluation_id=evaluated.loop_result.evaluation.evaluation_id,
+            evaluation_result=evaluated.loop_result.evaluation.result.value,
             artifact_ref=artifact_ref,
             raw_output_ref=run.raw_output_ref,
             r1_event_count=_mission_event_count(truth, mission_id),
@@ -260,12 +347,17 @@ def run_real_qualification(
             reason="%s:%s" % (type(exc).__name__, exc),
             mission_id=mission_id,
             task_id=requirement.task_id,
-            worker_instance_id=None,
-            dsh_session_id=None,
+            worker_instance_id=producer_worker_id,
+            dsh_session_id=producer_session_id,
+            reviewer_worker_instance_id=None,
+            reviewer_dsh_session_id=None,
             tool_call_count=0,
             task_state=control.scheduler.task(requirement.task_id).state.value,
-            artifact_ref=None,
-            raw_output_ref=None,
+            downstream_task_state=control.scheduler.task(graph.task("CODE_ANALYSIS").task_id).state.value,
+            evaluation_id=control.scheduler.task(requirement.task_id).evaluation_id,
+            evaluation_result=None,
+            artifact_ref=artifact_ref,
+            raw_output_ref=raw_output_ref,
             r1_event_count=_mission_event_count(truth, mission_id),
             lifecycle_event_ids=(),
             started_at=started,
@@ -277,7 +369,7 @@ def run_real_qualification(
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="RC7 real DSH worker bridge qualification")
+    parser = argparse.ArgumentParser(description="RC7 real DSH Requirement vertical qualification")
     parser.add_argument("--state-root", required=True)
     parser.add_argument("--repo-root", default=str(Path.cwd()))
     parser.add_argument("--dsh-bin", default=None)
