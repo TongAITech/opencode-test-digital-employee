@@ -110,11 +110,12 @@ def test_same_failure_signature_stops_blind_retry_loop():
     assert second.reason == "SAME_FAILURE_SIGNATURE_REPEATED"
 
 
-def test_product_is_terminal_and_recovery_does_not_create_attempt():
+def test_product_is_terminal_and_recovery_emits_defect_candidate_without_new_attempt():
     h = history()
     ctx = context()
     diag = diagnosis(ctx, "PRODUCT")
     decision = RecoveryDecision("diag-1", "ATT-1", "PRODUCT_DEFECT", False, False, True, None, "product")
     result = RecoveryActionExecutor(history=h).execute(context=ctx, diagnosis=diag, decision=decision)
     assert result.terminal_status == "PRODUCT_DEFECT_CONFIRMED"
+    assert result.output_refs == ("defect-candidate://ATT-1/%s" % diag.failure_signature.signature_id,)
     assert len(h.entries()) == 1
