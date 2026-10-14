@@ -9,7 +9,14 @@ from rc6_release.agent_qualification import run_real_vertical_slice
 class RealAgentQualificationFailClosedTests(unittest.TestCase):
     def test_missing_dsh_is_not_proven_and_never_pass(self):
         with tempfile.TemporaryDirectory() as root:
-            with mock.patch("rc6_release.agent_qualification._resolve_dsh", return_value=""):
+            # agent_qualification.py is the public compatibility entrypoint;
+            # DSH resolution lives in the hardened implementation module.
+            # Patch the symbol where run_real_vertical_slice resolves it so
+            # this qualification remains fail-closed after the hardening split.
+            with mock.patch(
+                "rc6_release.agent_qualification_runtime._resolve_dsh",
+                return_value="",
+            ):
                 result = run_real_vertical_slice(home=root, timeout_seconds=1)
             self.assertEqual(result.status, "NOT_PROVEN")
             self.assertIn("ROUTING_INTEGRITY_FAIL", result.reason)
