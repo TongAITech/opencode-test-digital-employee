@@ -6,9 +6,10 @@ independent node evaluator remains the sole authority that may accept it.
 
 The bridge is session-independent: prompts are compiled entirely from durable
 Task/Mission references and never contain coordinator conversation history.
-Worker-declared content references and hashes are not trusted as canonical
-storage: the normalized candidate envelope is atomically persisted and hashed
-by Runtime, and the Artifact points to that durable file.
+Worker-declared content references, hashes and evidence ids are not trusted as
+canonical storage: the normalized candidate envelope is atomically persisted
+and hashed by Runtime, and the Artifact references only Runtime-created
+Evidence ids.
 """
 
 from __future__ import annotations
@@ -210,7 +211,7 @@ class DshTaskWorkerBridge:
                 "artifact_type": expected_type,
                 "content_ref": "worker-declared source reference; runtime will persist canonical payload",
                 "parent_refs": "list[str] containing every required input_artifact_ref",
-                "evidence_refs": "list[str]",
+                "evidence_refs": "optional worker aliases for audit only; Runtime will store canonical Evidence ids",
             },
             "semantic_payload": {
                 "type": "non-empty object",
@@ -272,21 +273,7 @@ class DshTaskWorkerBridge:
         if not isinstance(declared_content_ref, str) or not declared_content_ref.strip():
             raise DshWorkerBridgeError("DSH_OUTPUT_CONTENT_REF_REQUIRED")
 
-        evidence = [
-            Evidence(
-                evidence_id=_stable_id(
-                    "EVD-WORKER-DECLARED-REF",
-                    task.mission_id,
-                    task.task_id,
-                    declared_content_ref,
-                ),
-                mission_id=task.mission_id,
-                kind="WORKER_DECLARED_CONTENT_REF",
-                source_ref="dsh://worker/%s" % invocation.worker_instance_id,
-                content_ref=declared_content_ref,
-                subject_refs=[task.task_id, expected_id],
-            )
-        ]
+        evidence = []
         for ref in invocation.evidence_refs:
             if not isinstance(ref, str) or not ref:
                 continue
@@ -364,7 +351,7 @@ class DshTaskWorkerBridge:
             producer_task_id=task.task_id,
             content_ref=canonical_content_ref,
             parent_refs=list(dict.fromkeys(parent_refs)),
-            evidence_refs=list(dict.fromkeys(artifact_evidence_refs + evidence_ids)),
+            evidence_refs=evidence_ids,
             content_hash=runtime_hash,
         )
         return WorkerOutput(
