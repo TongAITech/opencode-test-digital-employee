@@ -46,6 +46,11 @@ from .dsh_requirement_evaluator import (
     DshRequirementEvaluatorError,
 )
 from .dsh_code_evaluator import DshCodeEvaluation, DshCodeEvaluator, DshCodeEvaluatorError
+from .dsh_test_design_evaluator import (
+    DshTestDesignEvaluation,
+    DshTestDesignEvaluator,
+    DshTestDesignEvaluatorError,
+)
 from .dsh_proof import DshProofError, DshR1ProofReader, DshToolCallProof, code_tool_category
 
 __all__ = [
@@ -89,6 +94,9 @@ __all__ = [
     "DshCodeEvaluation",
     "DshCodeEvaluator",
     "DshCodeEvaluatorError",
+    "DshTestDesignEvaluation",
+    "DshTestDesignEvaluator",
+    "DshTestDesignEvaluatorError",
     "DshProofError",
     "DshR1ProofReader",
     "DshToolCallProof",
