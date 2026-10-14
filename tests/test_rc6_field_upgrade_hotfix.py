@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-from rc6_release.legacy_field_bridge import write_env
+from rc6_release.legacy_field_bridge_compat import write_env
 from rc6_release.legacy_skill_guard import (
     rollback_legacy_pfc_skills,
     sanitize_legacy_pfc_skills,
@@ -17,36 +17,64 @@ def _by_id(profile):
     return {item["tool_id"]: item for item in profile["tools"]}
 
 
-def test_legacy_opencode_pfc_skill_is_backed_up_removed_and_restorable(tmp_path):
+def test_legacy_rc5_managed_scan_assets_are_backed_up_removed_and_restorable(tmp_path):
     workspace = tmp_path / "PFC"
-    legacy_skill = workspace / ".opencode/skills/pfc-bank-context/SKILL.md"
-    legacy_agent = workspace / ".opencode/agents/pfc-old-agent.md"
+    legacy_pfc_skill = workspace / ".opencode/skills/pfc-bank-context/SKILL.md"
+    legacy_known_skill = workspace / ".opencode/skills/cat-diagnosis/SKILL.md"
+    legacy_pfc_agent = workspace / ".opencode/agents/pfc-old-agent.md"
+    legacy_aitest_agent = workspace / ".opencode/agents/aitest-director.md"
+    legacy_aitest_command = workspace / ".opencode/commands/aitest-start.md"
     custom_skill = workspace / ".opencode/skills/custom-bank/SKILL.md"
-    legacy_skill.parent.mkdir(parents=True)
-    legacy_agent.parent.mkdir(parents=True)
-    custom_skill.parent.mkdir(parents=True)
-    legacy_skill.write_text("legacy pfc bank context\n", encoding="utf-8")
-    legacy_agent.write_text("legacy pfc agent\n", encoding="utf-8")
+    custom_agent = workspace / ".opencode/agents/custom-bank-agent.md"
+
+    for path in (
+        legacy_pfc_skill,
+        legacy_known_skill,
+        legacy_pfc_agent,
+        legacy_aitest_agent,
+        legacy_aitest_command,
+        custom_skill,
+        custom_agent,
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+    legacy_pfc_skill.write_text("legacy pfc bank context\n", encoding="utf-8")
+    legacy_known_skill.write_text("legacy cat diagnosis\n", encoding="utf-8")
+    legacy_pfc_agent.write_text("legacy pfc agent\n", encoding="utf-8")
+    legacy_aitest_agent.write_text("legacy rc5 director\n", encoding="utf-8")
+    legacy_aitest_command.write_text("legacy rc5 command\n", encoding="utf-8")
     custom_skill.write_text("must survive\n", encoding="utf-8")
+    custom_agent.write_text("custom agent must survive\n", encoding="utf-8")
 
     result = sanitize_legacy_pfc_skills(workspace)
 
     assert result["status"] == "PASS"
-    assert result["removed_count"] == 2
-    assert not legacy_skill.exists()
-    assert not legacy_agent.exists()
+    assert result["removed_count"] == 5
+    assert not legacy_pfc_skill.exists()
+    assert not legacy_known_skill.exists()
+    assert not legacy_pfc_agent.exists()
+    assert not legacy_aitest_agent.exists()
+    assert not legacy_aitest_command.exists()
     assert custom_skill.read_text(encoding="utf-8") == "must survive\n"
+    assert custom_agent.read_text(encoding="utf-8") == "custom agent must survive\n"
     assert verify_legacy_pfc_skills(workspace)["status"] == "PASS"
 
     backup = Path(result["backup_path"])
     assert (backup / ".opencode/skills/pfc-bank-context/SKILL.md").is_file()
+    assert (backup / ".opencode/skills/cat-diagnosis/SKILL.md").is_file()
     assert (backup / ".opencode/agents/pfc-old-agent.md").is_file()
+    assert (backup / ".opencode/agents/aitest-director.md").is_file()
+    assert (backup / ".opencode/commands/aitest-start.md").is_file()
 
     rollback = rollback_legacy_pfc_skills(workspace)
-    assert rollback["restored_count"] == 2
-    assert legacy_skill.read_text(encoding="utf-8") == "legacy pfc bank context\n"
-    assert legacy_agent.read_text(encoding="utf-8") == "legacy pfc agent\n"
+    assert rollback["restored_count"] == 5
+    assert legacy_pfc_skill.read_text(encoding="utf-8") == "legacy pfc bank context\n"
+    assert legacy_known_skill.read_text(encoding="utf-8") == "legacy cat diagnosis\n"
+    assert legacy_pfc_agent.read_text(encoding="utf-8") == "legacy pfc agent\n"
+    assert legacy_aitest_agent.read_text(encoding="utf-8") == "legacy rc5 director\n"
+    assert legacy_aitest_command.read_text(encoding="utf-8") == "legacy rc5 command\n"
     assert custom_skill.read_text(encoding="utf-8") == "must survive\n"
+    assert custom_agent.read_text(encoding="utf-8") == "custom agent must survive\n"
 
 
 def test_field_bridge_uses_runtime_registry_and_cat_secret_reference_without_reading_secret(tmp_path, monkeypatch):
@@ -120,3 +148,20 @@ def test_cat_known_historical_location_is_discovered_even_without_registry_entry
     assert bindings["cat"]["found"] is True
     assert bindings["cat"]["provenance"] == "AITEST_RUNTIME_CONTEXT_SECRET_REF"
     assert Path(bindings["cat"]["path"]) == cat_config.resolve()
+
+
+def test_pinned_historical_codegraph_server_payload_name_is_discovered(tmp_path):
+    workspace = tmp_path / "PFC"
+    binary = (
+        workspace
+        / "cfg-ai-test-workspace-r1r4/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe"
+    )
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"historical-codegraph-payload")
+
+    result = write_env(workspace, tmp_path / "env.sh")
+    bindings = {item["tool_id"]: item for item in result["bindings"]}
+
+    assert bindings["codegraph"]["found"] is True
+    assert bindings["codegraph"]["provenance"] == "HISTORICAL_RUNTIME_ROOT"
+    assert Path(bindings["codegraph"]["path"]) == binary.resolve()
