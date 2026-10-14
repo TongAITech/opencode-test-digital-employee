@@ -86,22 +86,38 @@ def _result_path(state_root: Path) -> Path:
     return state_root / "qualification" / "rc7-dsh-bridge-result.json"
 
 
+def _patch_path(state_root: Path) -> Path:
+    return state_root / "control" / "rc7.cordis.yml"
+
+
 def _write_result(state_root: Path, result: RC7DshBridgeQualificationResult) -> None:
     path = _result_path(state_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(asdict(result), ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
 
 
-def _lifecycle_proof(truth: TruthRuntime, mission_id: str, worker_id: str) -> Tuple[str, ...]:
-    events = [
+def _mission_events(truth: TruthRuntime, mission_id: str):
+    return [
         event
         for event in truth.store.iter_raw()
         if isinstance(event.get("payload"), dict)
         and event["payload"].get("mission_id") == mission_id
-        and event["payload"].get("worker_instance_id") == worker_id
     ]
-    if any(event.get("event_type") == "ROUTING_INTEGRITY_FAIL" for event in truth.store.iter_raw()):
+
+
+def _mission_event_count(truth: TruthRuntime, mission_id: str) -> int:
+    return len(_mission_events(truth, mission_id))
+
+
+def _lifecycle_proof(truth: TruthRuntime, mission_id: str, worker_id: str) -> Tuple[str, ...]:
+    mission_events = _mission_events(truth, mission_id)
+    if any(event.get("event_type") == "ROUTING_INTEGRITY_FAIL" for event in mission_events):
         raise AgentRuntimeError("R1_PROOF_CONTAINS_ROUTING_INTEGRITY_FAIL")
+    events = [
+        event
+        for event in mission_events
+        if event["payload"].get("worker_instance_id") == worker_id
+    ]
     names = [str(event.get("event_type")) for event in events]
     cursor = -1
     proof = []
@@ -150,7 +166,9 @@ def run_real_qualification(
 
     truth = TruthRuntime(root / "r1.jsonl")
     authority = RC7AuthorityRuntime(_runtime_key(root))
-    patch_path = write_patch(root, repository)
+    patch_file = _patch_path(root)
+    patch_file.parent.mkdir(parents=True, exist_ok=True)
+    patch_path = write_patch(patch_file, repository, sys.executable)
     launcher = BankFinalDshHeadlessWorkerLauncher(
         dsh_bin=resolved_dsh,
         patch_path=str(patch_path),
@@ -161,6 +179,12 @@ def run_real_qualification(
         release_id=RELEASE_ID,
         state_root=str(root),
         timeout_seconds=timeout_seconds,
+        env={
+            "PFC_AITEST_HOME": str(repository),
+            "PFC_AITEST_STATE_DIR": str(root),
+            "PYTHONPATH": str(repository)
+            + (os.pathsep + os.environ["PYTHONPATH"] if os.environ.get("PYTHONPATH") else ""),
+        },
     )
 
     control = ClosedLoopControlPlane.bootstrap(
@@ -225,7 +249,7 @@ def run_real_qualification(
             task_state=run.task_state,
             artifact_ref=artifact_ref,
             raw_output_ref=run.raw_output_ref,
-            r1_event_count=sum(1 for _ in truth.store.iter_raw()),
+            r1_event_count=_mission_event_count(truth, mission_id),
             lifecycle_event_ids=proof_ids,
             started_at=started,
             finished_at=int(time.time()),
@@ -242,7 +266,7 @@ def run_real_qualification(
             task_state=control.scheduler.task(requirement.task_id).state.value,
             artifact_ref=None,
             raw_output_ref=None,
-            r1_event_count=sum(1 for _ in truth.store.iter_raw()),
+            r1_event_count=_mission_event_count(truth, mission_id),
             lifecycle_event_ids=(),
             started_at=started,
             finished_at=int(time.time()),
