@@ -12,8 +12,8 @@ Repository truth only. Conversation claims do not advance a wave.
 | Wave | Scope | Status | Evidence |
 |---|---|---|---|
 | 0 | RC6 architecture/problem baseline | DESIGN_FROZEN | field Reality Audit in project conversation |
-| 1 | Runtime Kernel | IMPLEMENTING | local qualification 9/9 PASS before commit; GitHub CI pending |
-| 2 | Truth Layer | NOT_STARTED | — |
+| 1 | Runtime Kernel | ENGINEERING_PASS / FROZEN | code `0a9e3d0eebf3003a2046c857a9334657655c5a6a`; local 9/9 PASS; GitHub Actions run `38521696131` = success |
+| 2 | Truth Layer | IMPLEMENTING | next: canonical event schema, projection replay, read-after-write integrity |
 | 3 | Bank Reality Registry | NOT_STARTED | — |
 | 4 | Tool Capability Broker | NOT_STARTED | — |
 | 5 | Requirement/Code Intelligence | NOT_STARTED | — |
@@ -25,7 +25,7 @@ Repository truth only. Conversation claims do not advance a wave.
 | 11 | Execution Coverage Closure | NOT_STARTED | — |
 | 12 | Admin/Allure/Report | NOT_STARTED | — |
 
-## Wave 1 current implementation
+## Wave 1 frozen capabilities
 - durable Mission state independent of chat history
 - bounded ResumeEnvelope
 - runtime-issued immutable WorkerIdentity
@@ -38,16 +38,20 @@ Repository truth only. Conversation claims do not advance a wave.
 - 429/451 cooldown hooks
 - fail-closed StageMachine
 
-## Wave 1 qualification
-Local qualification command:
+## Wave 1 evidence
+Qualification command:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-Observed before GitHub commit: `Ran 9 tests ... OK`.
+Local result: `Ran 9 tests ... OK`.
 
-Wave 1 remains `IMPLEMENTING` until the committed source is verified and GitHub qualification evidence is attached. It may then move to `ENGINEERING_PASS / FROZEN`.
+GitHub Actions:
+- workflow: `RC6 Wave 1 Runtime Kernel`
+- run id: `38521696131`
+- head sha: `0a9e3d0eebf3003a2046c857a9334657655c5a6a`
+- conclusion: `success`
 
-## Next RED
-`W1-CI-PROOF`: commit the Wave 1 source, verify branch HEAD moved off baseline, and inspect GitHub Actions result. If PASS, freeze Wave 1. Otherwise repair the first failing test only.
+## Current RED
+`W2-ATOMIC-TRUTH`: implement one-entity canonical events, deterministic replay, legacy RC5 batch expansion, and fail-closed read-after-write integrity before any design/execution gate may consume projections.
