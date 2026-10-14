@@ -1,0 +1,22 @@
+name: RC6 Wave 2 Truth Layer
+
+on:
+  push:
+    branches:
+      - work/rc6-runtime-reconstruction
+  pull_request:
+    paths:
+      - 'rc6_runtime/contracts.py'
+      - 'rc6_runtime/truth.py'
+      - 'rc6_runtime/__init__.py'
+      - 'tests/test_truth_layer.py'
+      - 'docs/RC6_WAVE2_QUALIFICATION.md'
+      - '.github/workflows/rc6-wave2.yml'
+
+jobs:
+  wave2-truth-layer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run all RC6 unit qualification
+        run: python -m unittest discover -s tests -v
