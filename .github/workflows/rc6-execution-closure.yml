@@ -1,0 +1,45 @@
+name: RC6 Execution Closure Engineering Qualification
+
+on:
+  push:
+    branches:
+      - work/rc6-agent-runtime-bank-final-clean
+    paths:
+      - 'rc6_runtime/**'
+      - 'rc6_release/**'
+      - 'tests/**'
+      - '.github/workflows/rc6-execution-closure.yml'
+  workflow_dispatch:
+
+jobs:
+  execution-closure:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: '3.8'
+          - os: ubuntu-latest
+            python: '3.x'
+          - os: windows-latest
+            python: '3.8'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install qualification dependencies
+        run: python -m pip install -U pytest
+      - name: Execution closure focused qualification
+        run: >-
+          python -m pytest -q
+          tests/test_executable_spec.py
+          tests/test_automation_runtime.py
+          tests/test_execution.py
+          tests/test_diagnosis.py
+          tests/test_recovery_action_executor.py
+          tests/test_autonomous_orchestrator.py
+          tests/test_autonomous_loop.py
+      - name: Full RC6 regression
+        run: python -m pytest -q tests
