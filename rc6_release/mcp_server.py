@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from rc6_runtime import (
+    AutonomousMissionOrchestrator,
     AuthorityRuntime,
     BankRealityRegistry,
     MissionRuntime,
@@ -61,6 +62,10 @@ def _mission_runtime() -> MissionRuntime:
 
 def _truth_runtime() -> TruthRuntime:
     return TruthRuntime(_state_root() / "r1" / "event-stream.jsonl")
+
+
+def _orchestrator() -> AutonomousMissionOrchestrator:
+    return AutonomousMissionOrchestrator(_mission_runtime(), _truth_runtime())
 
 
 def _reality_registry() -> BankRealityRegistry:
@@ -123,6 +128,11 @@ def _tools() -> list[dict]:
         {"name": "mission_create", "description": "Create one durable Mission.", "inputSchema": _object({"mission_id": s, "release_id": s}, ["mission_id", "release_id"])},
         {"name": "mission_status", "description": "Read durable Mission state.", "inputSchema": _object({"mission_id": s}, ["mission_id"])},
         {"name": "mission_checkpoint", "description": "Create bounded ResumeEnvelope without chat history.", "inputSchema": _object({"mission_id": s}, ["mission_id"])},
+        {"name": "mission_plan_next", "description": "Read the deterministic next legal Mission directive without changing professional truth.", "inputSchema": _object({"mission_id": s, "context_pressure": {"type": "boolean"}}, ["mission_id"])},
+        {"name": "mission_control_tick", "description": "Advance at most one legal Stage or checkpoint/rotate, then return the next deterministic directive.", "inputSchema": _object({"mission_id": s, "context_pressure": {"type": "boolean"}}, ["mission_id"])},
+        {"name": "mission_gate_commit", "description": "Commit a PASS only from a deterministic runtime gate result with an evidence reference; Stage mismatch fails closed.", "inputSchema": _object({"mission_id": s, "gate_name": s, "evidence_ref": s}, ["mission_id", "gate_name", "evidence_ref"])},
+        {"name": "mission_gate_block", "description": "Record a deterministic gate block/gap and prevent Stage advancement.", "inputSchema": _object({"mission_id": s, "gate_name": s, "reason": s}, ["mission_id", "gate_name", "reason"])},
+        {"name": "mission_bind_target", "description": "Bind the exact TargetIdentity to the durable Mission before preparation/execution.", "inputSchema": _object({"mission_id": s, "target_id": s}, ["mission_id", "target_id"])},
         {"name": "worker_issue", "description": "Issue immutable runtime WorkerIdentity.", "inputSchema": _object({"role": s, "phase": s, "layer": {"type": ["string", "null"]}, "generation": {"type": "integer", "minimum": 0}, "session_id": s}, ["role", "phase", "generation", "session_id"])},
         {"name": "worker_rotate", "description": "Rotate only to the same role/layer in a successor session.", "inputSchema": _object({"worker_id": s, "successor_session_id": s}, ["worker_id", "successor_session_id"])},
         {"name": "lease_issue", "description": "Issue signed scope/artifact/tool lease.", "inputSchema": _object({"worker_id": s, "scope_ref": s, "allowed_artifact_types": a, "allowed_tools": a, "ttl_seconds": {"type": "integer", "minimum": 1}}, ["worker_id", "scope_ref", "allowed_artifact_types", "allowed_tools"])},
@@ -159,6 +169,7 @@ def _runtime_status() -> dict:
         "source_commit": read("SOURCE_COMMIT"),
         "durable_truth": "R1_EVENT_STREAM",
         "mission_session_separated": True,
+        "autonomous_orchestrator": True,
         "governed_control_tools": len(_tools()),
     }
 
@@ -172,6 +183,16 @@ def _call_tool(name: str, arguments: dict) -> dict:
         return _text(_mission_runtime().load(arguments["mission_id"]))
     if name == "mission_checkpoint":
         rt = _mission_runtime(); return _text(rt.checkpoint(rt.load(arguments["mission_id"])))
+    if name == "mission_plan_next":
+        return _text(_orchestrator().plan_next(arguments["mission_id"], context_pressure=bool(arguments.get("context_pressure", False))))
+    if name == "mission_control_tick":
+        return _text(_orchestrator().control_tick(arguments["mission_id"], context_pressure=bool(arguments.get("context_pressure", False))))
+    if name == "mission_gate_commit":
+        return _text(_orchestrator().record_verified_gate(arguments["mission_id"], arguments["gate_name"], arguments["evidence_ref"]))
+    if name == "mission_gate_block":
+        return _text(_orchestrator().record_gate_blocked(arguments["mission_id"], arguments["gate_name"], arguments["reason"]))
+    if name == "mission_bind_target":
+        return _text(_orchestrator().bind_target(arguments["mission_id"], arguments["target_id"]))
     if name == "worker_issue":
         return _text(_authority_runtime().issue_identity(arguments["role"], arguments["phase"], arguments.get("layer"), int(arguments["generation"]), arguments["session_id"]))
     if name == "worker_rotate":
@@ -233,7 +254,7 @@ def handle(message: dict) -> dict | None:
     if method == "notifications/initialized":
         return None
     if method == "initialize":
-        return {"jsonrpc": "2.0", "id": msg_id, "result": {"protocolVersion": message.get("params", {}).get("protocolVersion") or PROTOCOL_VERSION, "capabilities": {"tools": {"listChanged": False}}, "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION}, "instructions": "RC6 governed control plane. Chat text is never Mission truth; use runtime identity/lease/tool admission/R1 tools."}}
+        return {"jsonrpc": "2.0", "id": msg_id, "result": {"protocolVersion": message.get("params", {}).get("protocolVersion") or PROTOCOL_VERSION, "capabilities": {"tools": {"listChanged": False}}, "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION}, "instructions": "RC6 autonomous governed control plane. Runtime chooses the next legal Mission directive; chat text is never Mission truth."}}
     if method == "ping":
         return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
     if method == "tools/list":

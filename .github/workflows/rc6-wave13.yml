@@ -1,0 +1,41 @@
+name: RC6 Wave 13 Autonomous Mission Orchestrator
+
+on:
+  push:
+    branches:
+      - work/rc6-runtime-reconstruction
+    paths:
+      - 'rc6_runtime/orchestrator.py'
+      - 'rc6_runtime/__init__.py'
+      - 'rc6_release/mcp_server.py'
+      - 'packaging/rc6/.dsh/skills/pfc-full-chain-test/SKILL.md'
+      - 'tests/test_autonomous_orchestrator.py'
+      - '.github/workflows/rc6-wave13.yml'
+  workflow_dispatch:
+
+jobs:
+  wave13-autonomous-mission:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.x']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Autonomous Mission orchestrator qualification
+        run: python -m unittest tests.test_autonomous_orchestrator -v
+      - name: Runtime kernel and MCP regression
+        run: python -m unittest tests.test_runtime_kernel tests.test_mcp_control_plane -v
+
+  wave13-windows-python38:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Autonomous Mission qualification on Windows Python 3.8
+        run: python -m unittest tests.test_autonomous_orchestrator tests.test_mcp_control_plane -v

@@ -58,6 +58,7 @@ from .execution_coverage import (
 )
 from .intelligence import CodeSufficiencyEvaluator, GateResult, IntelligenceContractError, RequirementSufficiencyEvaluator
 from .mission import MissionRuntime, MissionState, ResumeEnvelope
+from .orchestrator import AutonomousMissionOrchestrator, MissionDirective, MissionOrchestrationError
 from .preparation import (
     AttemptBindingStore,
     PreparationContractError,
@@ -103,6 +104,7 @@ __all__ = [
     "EmpiricalCoverageSubject", "ExecutionCoverageDeltaPlanner", "ExecutionCoverageError", "LayerCoverageProfile", "LayerCoverageResult",
     "CodeSufficiencyEvaluator", "GateResult", "IntelligenceContractError", "RequirementSufficiencyEvaluator",
     "MissionRuntime", "MissionState", "ResumeEnvelope",
+    "AutonomousMissionOrchestrator", "MissionDirective", "MissionOrchestrationError",
     "AttemptBindingStore", "PreparationContractError", "PreparationPlan", "PreparedAttempt",
     "PreparationRecoveryEngine", "PreparationRuntime", "PreparationSpecParser", "RecoveryDecision",
     "ADMIN_ENTITIES", "CHINESE_LABELS", "AdminHtmlRenderer", "AdminReadModel", "AllureRenderer",
