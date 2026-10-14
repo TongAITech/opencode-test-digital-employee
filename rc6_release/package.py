@@ -21,6 +21,14 @@ SECRET_MARKERS = (
 
 SOURCE_DIRS = ("rc6_runtime", "rc6_release")
 LAUNCHER_DIR = Path("packaging") / "rc6"
+SHELL_ENTRYPOINTS = (
+    "AITEST.sh",
+    "START-AITEST.sh",
+    "STOP-AITEST.sh",
+    "STATUS.sh",
+    "VERIFY.sh",
+    "QUALIFY-AGENT-RUNTIME.sh",
+)
 
 
 def sha256_file(path: Path) -> str:
@@ -88,8 +96,11 @@ def _manifest_for(package_root: Path, source_commit: str) -> dict:
         "build_id": f"RC6-{source_commit[:12]}",
         "architecture": "DSH_NATIVE_GOVERNED_RUNTIME",
         "version_policy": "CAPABILITY_BASED_NO_EXACT_VERSION_PIN",
-        "entrypoints": ["AITEST.sh", "START-AITEST.sh", "STOP-AITEST.sh", "STATUS.sh", "VERIFY.sh"],
+        "entrypoints": list(SHELL_ENTRYPOINTS),
         "durable_truth": "R1_EVENT_STREAM",
+        "agent_runtime_bank_final_gate": "NOT_PROVEN_UNTIL_REAL_DSH_VERTICAL_SLICE_PASS",
+        "autonomous_testing_pass": False,
+        "full_chain_real": False,
         "bank_field_pass": False,
         "field_qualification_required": True,
         "files": files,
@@ -137,7 +148,7 @@ def build_package(repo_root: str | Path, output_dir: str | Path, source_commit: 
     _write_text(package_root / "PACKAGE_MANIFEST.json", json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
     write_checksums(package_root)
 
-    for shell_name in ("AITEST.sh", "START-AITEST.sh", "STOP-AITEST.sh", "STATUS.sh", "VERIFY.sh"):
+    for shell_name in SHELL_ENTRYPOINTS:
         shell_path = package_root / shell_name
         if shell_path.exists():
             shell_path.chmod(shell_path.stat().st_mode | stat.S_IXUSR)
@@ -159,9 +170,10 @@ def build_package(repo_root: str | Path, output_dir: str | Path, source_commit: 
 def verify_package(package_root: str | Path) -> dict:
     root = Path(package_root).resolve()
     required = {
-        "AITEST.sh", "START-AITEST.sh", "STOP-AITEST.sh", "STATUS.sh", "VERIFY.sh",
+        "AITEST.sh", "START-AITEST.sh", "STOP-AITEST.sh", "STATUS.sh", "VERIFY.sh", "QUALIFY-AGENT-RUNTIME.sh",
         "BUILD_ID", "SOURCE_COMMIT", "RELEASE_STATUS", "PACKAGE_MANIFEST.json", "CHECKSUMS.sha256",
-        "rc6_runtime/__init__.py", "rc6_release/mcp_server.py", ".dsh/skills/pfc-full-chain-test/SKILL.md",
+        "rc6_runtime/__init__.py", "rc6_runtime/agent_runtime.py", "rc6_release/mcp_server.py",
+        "rc6_release/agent_qualification.py", ".dsh/skills/pfc-full-chain-test/SKILL.md",
     }
     missing = sorted(name for name in required if not (root / name).is_file())
     if missing:
@@ -172,6 +184,10 @@ def verify_package(package_root: str | Path) -> dict:
         raise RuntimeError("PACKAGE_MANIFEST_SCHEMA_MISMATCH")
     if manifest.get("status") != BUILD_STATUS or manifest.get("bank_field_pass") is not False:
         raise RuntimeError("PACKAGE_RELEASE_STATUS_INVALID")
+    if manifest.get("agent_runtime_bank_final_gate") != "NOT_PROVEN_UNTIL_REAL_DSH_VERTICAL_SLICE_PASS":
+        raise RuntimeError("PACKAGE_AGENT_RUNTIME_GATE_INVALID")
+    if manifest.get("autonomous_testing_pass") is not False or manifest.get("full_chain_real") is not False:
+        raise RuntimeError("PACKAGE_FALSE_RUNTIME_PASS_FORBIDDEN")
     source_commit = (root / "SOURCE_COMMIT").read_text(encoding="utf-8").strip()
     if manifest.get("source_commit") != source_commit:
         raise RuntimeError("PACKAGE_SOURCE_COMMIT_MISMATCH")
@@ -197,6 +213,7 @@ def verify_package(package_root: str | Path) -> dict:
     return {
         "status": "PASS",
         "release_status": BUILD_STATUS,
+        "agent_runtime_bank_final_gate": manifest["agent_runtime_bank_final_gate"],
         "source_commit": source_commit,
         "file_count": len(actual) + 1,
     }
