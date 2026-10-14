@@ -101,6 +101,71 @@ def test_r1_rejects_fake_or_self_evaluation_authority(tmp_path) -> None:
         append_entity(truth, self_task, release_id="RC7")
 
 
+def test_r1_rejects_converged_mission_when_projection_still_has_active_task(tmp_path) -> None:
+    truth = TruthRuntime(tmp_path / "r1.jsonl")
+    evaluation = Evaluation(
+        evaluation_id="EVAL-MISSION-PROJECTION-BYPASS",
+        mission_id="MISSION-PROJECTION-BYPASS",
+        node="MISSION_EVALUATION",
+        artifact_refs=["SNAPSHOT-PROJECTION"],
+        result=EvaluationResult.PASS,
+        evaluator_ref="mission-sufficiency-gate",
+        dimensions={"sufficiency_state": "SUFFICIENT"},
+    )
+    append_entity(truth, evaluation, release_id="RC7")
+    append_entity(
+        truth,
+        Task(
+            task_id="TASK-STILL-READY",
+            mission_id="MISSION-PROJECTION-BYPASS",
+            node="EXECUTION",
+            task_type="PRODUCE",
+            objective="still pending despite mission object claiming no active tasks",
+            state=TaskStatus.READY,
+        ),
+        release_id="RC7",
+    )
+    mission = Mission(
+        mission_id="MISSION-PROJECTION-BYPASS",
+        release_id="RC7",
+        goal="cannot lie about projection state",
+        state=MissionStatus.CONVERGED,
+        sufficiency_state="SUFFICIENT",
+        active_task_ids=[],
+        open_gap_ids=[],
+        latest_evaluation_id=evaluation.evaluation_id,
+    )
+    with pytest.raises(EventValidationError, match="CONVERGED_MISSION_HAS_ACTIVE_TASK_PROJECTION"):
+        append_entity(truth, mission, release_id="RC7")
+
+
+def test_r1_rejects_product_gap_resolution_without_terminal_defect_record(tmp_path) -> None:
+    truth = TruthRuntime(tmp_path / "r1.jsonl")
+    evaluation = Evaluation(
+        evaluation_id="EVAL-DEFECT-FAKE-CLOSED",
+        mission_id="MISSION-1",
+        node="DEFECT",
+        artifact_refs=["ART-DEFECT-FAKE"],
+        result=EvaluationResult.PASS,
+        evaluator_ref="evaluator-defect-independent",
+        dimensions={"defect_id": "DEFECT-NOT-PERSISTED", "defect_state": "CLOSED"},
+    )
+    append_entity(truth, evaluation, release_id="RC7")
+    gap = Gap(
+        gap_id="GAP-PRODUCT-FAKE-CLOSED",
+        mission_id="MISSION-1",
+        source_node="EXECUTION",
+        category="PRODUCT_DEFECT",
+        severity=GapSeverity.HIGH,
+        target_node="DEFECT",
+        description="must not close from evaluation dimensions alone",
+        state=GapStatus.RESOLVED,
+        resolution_evaluation_id=evaluation.evaluation_id,
+    )
+    with pytest.raises(EventValidationError, match="PRODUCT_DEFECT_RESOLUTION_REQUIRES_TERMINAL_DEFECT_RECORD"):
+        append_entity(truth, gap, release_id="RC7")
+
+
 def test_r1_accepts_terminal_control_truth_with_evaluation_authority(tmp_path) -> None:
     truth = TruthRuntime(tmp_path / "r1.jsonl")
 
