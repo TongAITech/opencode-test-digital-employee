@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from rc6_runtime import AutonomousMissionOrchestrator, MissionOrchestrationError, MissionRuntime, TruthRuntime
+from rc6_runtime.stages import StageMachine, StageViolation
 from rc6_release.mcp_server import handle
 
 
@@ -20,14 +21,27 @@ class AutonomousMissionOrchestratorTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_first_tick_enters_requirement_analysis_and_cannot_skip(self):
+    def test_first_tick_enters_reality_recon_and_cannot_skip(self):
         d = self.rt.control_tick("M-W13")
-        self.assertEqual(d.stage, "REQUIREMENT_ANALYSIS")
-        self.assertEqual(d.action, "SPAWN_WORKER")
-        self.assertEqual(d.required_role, "REQUIREMENT_ANALYZER")
+        self.assertEqual(d.stage, "REALITY_RECON")
+        self.assertEqual(d.action, "RECONCILE_REALITY")
         state = self.missions.load("M-W13")
         self.assertIn("MISSION_REGISTERED", state.completed_gates)
-        self.assertEqual(state.stage, "REQUIREMENT_ANALYSIS")
+        self.assertEqual(state.stage, "REALITY_RECON")
+        with self.assertRaises(StageViolation):
+            self.rt.stages.enter("REALITY_RECON", "REQUIREMENT_ANALYSIS", state.completed_gates)
+
+    def test_reality_and_target_are_mandatory_before_requirement_analysis(self):
+        self.rt.control_tick("M-W13")
+        self.rt.record_verified_gate("M-W13", "REALITY_RECONCILED", "reality-proof")
+        d = self.rt.control_tick("M-W13")
+        self.assertEqual(d.stage, "TARGET_QUALIFICATION")
+        self.assertEqual(d.action, "BUILD_TARGET")
+        self.rt.bind_target("M-W13", "TARGET-bank-fat1-001")
+        self.rt.record_verified_gate("M-W13", "TARGET_QUALIFIED", "target-proof")
+        d = self.rt.control_tick("M-W13")
+        self.assertEqual(d.stage, "REQUIREMENT_ANALYSIS")
+        self.assertEqual(d.required_role, "REQUIREMENT_ANALYZER")
 
     def test_gate_commit_is_stage_bound(self):
         self.rt.control_tick("M-W13")
@@ -41,7 +55,7 @@ class AutonomousMissionOrchestratorTests(unittest.TestCase):
         b = self.rt.plan_next("M-W13")
         self.assertEqual(a, b)
         self.assertEqual(a.idempotency_key, b.idempotency_key)
-        self.assertEqual(self.missions.load("M-W13").stage, "REQUIREMENT_ANALYSIS")
+        self.assertEqual(self.missions.load("M-W13").stage, "REALITY_RECON")
 
     def test_three_session_rotations_preserve_mission_without_chat_history(self):
         self.rt.control_tick("M-W13")
@@ -55,34 +69,48 @@ class AutonomousMissionOrchestratorTests(unittest.TestCase):
         state = self.missions.load("M-W13")
         self.assertEqual(state.coordinator_generation, 3)
         self.assertEqual(state.checkpoint_seq, 3)
-        self.assertEqual(state.stage, "REQUIREMENT_ANALYSIS")
+        self.assertEqual(state.stage, "REALITY_RECON")
         self.assertEqual(len(set(refs)), 3)
+        envelope = self.missions.resume_envelope(state)
+        self.assertFalse(hasattr(envelope, "chat_history"))
+        self.assertFalse(hasattr(envelope, "transcript"))
 
-    def test_failed_gate_never_advances_stage(self):
+    def test_requirement_gap_enters_explicit_repair_loop(self):
         self.rt.control_tick("M-W13")
+        self.rt.record_verified_gate("M-W13", "REALITY_RECONCILED", "reality")
+        self.rt.control_tick("M-W13")
+        self.rt.bind_target("M-W13", "TARGET-fat1")
+        self.rt.record_verified_gate("M-W13", "TARGET_QUALIFIED", "target")
+        self.rt.control_tick("M-W13")
+        self.rt.record_verified_gate("M-W13", "REQUIREMENT_ANALYSIS_COMPLETE", "req-analysis")
+        d = self.rt.control_tick("M-W13")
+        self.assertEqual(d.stage, "REQUIREMENT_SUFFICIENCY")
+        self.assertEqual(d.required_role, "REQUIREMENT_REVIEWER")
         self.rt.record_gate_blocked("M-W13", "REQUIREMENT_SUFFICIENT", "orphan-source")
         d = self.rt.control_tick("M-W13")
-        self.assertEqual(d.stage, "REQUIREMENT_ANALYSIS")
+        self.assertEqual(d.stage, "REQUIREMENT_GAP_REPAIR")
+        self.assertEqual(d.required_role, "REQUIREMENT_ANALYZER")
         self.assertNotEqual(d.action, "COMPLETE")
-        self.assertIn("GATE_BLOCKED:REQUIREMENT_SUFFICIENT", self.missions.load("M-W13").open_gaps)
-
-    def test_stage_transition_requires_verified_gate(self):
-        self.rt.control_tick("M-W13")
-        self.rt.record_verified_gate("M-W13", "REQUIREMENT_SUFFICIENT", "req-gate-evidence")
+        self.rt.record_verified_gate("M-W13", "REQUIREMENT_REPAIR_COMPLETE", "repair-proof")
         d = self.rt.control_tick("M-W13")
-        self.assertEqual(d.stage, "CODE_ANALYSIS")
-        self.assertEqual(d.required_role, "CODE_ANALYZER")
-        self.assertIn("codegraph", d.required_tools)
+        self.assertEqual(d.stage, "REQUIREMENT_SUFFICIENCY")
+
+    def test_target_can_only_bind_during_target_qualification(self):
+        self.rt.control_tick("M-W13")
+        with self.assertRaises(MissionOrchestrationError) as ctx:
+            self.rt.bind_target("M-W13", "TARGET-fat1")
+        self.assertEqual(str(ctx.exception), "TARGET_BIND_STAGE_MISMATCH")
+
+    def test_canonical_final_integration_stages_are_runtime_states(self):
+        required = {"REGISTERED", "REALITY_RECON", "TARGET_QUALIFICATION", "REQUIREMENT_ANALYSIS", "REQUIREMENT_SUFFICIENCY", "REQUIREMENT_GAP_REPAIR", "CODE_ANALYSIS", "CODE_SUFFICIENCY", "CODE_GAP_REPAIR", "FUSION", "LAYER_APPLICABILITY", "L1_L7_DESIGN", "DESIGN_SUFFICIENCY", "DELTA_DESIGN", "ORACLE_CLOSURE", "CASE_FREEZE", "PREPARATION", "PRECONDITION_VERIFY", "TEST_DATA_PREPARE", "PREPARED_ATTEMPT_FREEZE", "L1_L7_EXECUTION", "EXECUTION_INTEGRITY", "FAILURE_DIAGNOSIS", "EMPIRICAL_COVERAGE", "DELTA_EXECUTION", "DEFECT", "REPORT", "ALLURE", "TRUTH_RECONCILIATION", "COMPLETE"}
+        self.assertEqual(set(StageMachine.STAGES), required)
 
 
 class AutonomousMcpSurfaceTests(unittest.TestCase):
     def test_wave13_tools_are_exposed(self):
         r = handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
         names = {x["name"] for x in r["result"]["tools"]}
-        self.assertTrue({
-            "mission_plan_next", "mission_control_tick", "mission_gate_commit",
-            "mission_gate_block", "mission_bind_target",
-        }.issubset(names))
+        self.assertTrue({"mission_plan_next", "mission_control_tick", "mission_gate_commit", "mission_gate_block", "mission_bind_target"}.issubset(names))
 
     def test_runtime_status_identifies_autonomous_orchestrator(self):
         r = handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "runtime_status", "arguments": {}}})
