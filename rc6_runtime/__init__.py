@@ -4,7 +4,9 @@ from .authority import AuthorityError, AuthorityRuntime, WorkerIdentity, TaskLea
 from .budget import ContextBudget, ProviderBudget, BudgetDecision
 from .contracts import DomainValidationError, validate_artifact, validate_test_case
 from .mission import MissionRuntime, MissionState, ResumeEnvelope
+from .reality import BankRealityRegistry, RealityError
 from .stages import StageMachine, StageViolation
+from .target import TargetIdentity, TargetIdentityBuilder, TargetIdentityError
 from .truth import (
     EventValidationError,
     JsonlEventStore,
@@ -19,7 +21,9 @@ __all__ = [
     "ContextBudget", "ProviderBudget", "BudgetDecision",
     "DomainValidationError", "validate_artifact", "validate_test_case",
     "MissionRuntime", "MissionState", "ResumeEnvelope",
+    "BankRealityRegistry", "RealityError",
     "StageMachine", "StageViolation",
+    "TargetIdentity", "TargetIdentityBuilder", "TargetIdentityError",
     "EventValidationError", "JsonlEventStore", "PersistenceReceipt",
     "Projection", "ProjectionIntegrityError", "TruthRuntime",
 ]
