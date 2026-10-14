@@ -9,7 +9,10 @@ on:
       - 'rc6_release/**'
       - 'packaging/rc6/**'
       - 'tests/test_release_packaging.py'
+      - 'tests/test_agent_runtime.py'
+      - 'tests/test_agent_qualification.py'
       - 'docs/RC6_RELEASE_QUALIFICATION.md'
+      - 'docs/RC6_CONSTRUCTION_STATUS.md'
       - '.github/workflows/rc6-release.yml'
   workflow_dispatch:
 
@@ -34,6 +37,7 @@ jobs:
           bash -n packaging/rc6/STOP-AITEST.sh
           bash -n packaging/rc6/STATUS.sh
           bash -n packaging/rc6/VERIFY.sh
+          bash -n packaging/rc6/QUALIFY-AGENT-RUNTIME.sh
 
   windows-package:
     runs-on: windows-latest
@@ -53,6 +57,14 @@ jobs:
       - name: Git Bash package-only verification
         shell: bash
         run: ./dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10/VERIFY.sh --package-only
+      - name: Agent runtime qualifier is packaged but not falsely executed in CI
+        shell: pwsh
+        run: |
+          $manifest = Get-Content dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10/PACKAGE_MANIFEST.json | ConvertFrom-Json
+          if ($manifest.agent_runtime_bank_final_gate -ne 'NOT_PROVEN_UNTIL_REAL_DSH_VERTICAL_SLICE_PASS') { exit 1 }
+          if ($manifest.autonomous_testing_pass -ne $false) { exit 1 }
+          if ($manifest.full_chain_real -ne $false) { exit 1 }
+          if (-not (Test-Path dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10/QUALIFY-AGENT-RUNTIME.sh)) { exit 1 }
       - name: Upload RC6 engineering candidate
         uses: actions/upload-artifact@v4
         with:
