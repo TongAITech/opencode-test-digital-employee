@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Dict, Mapping, Tuple
+from typing import Any, Dict, Mapping, Tuple
 
 from .models import Task
 
@@ -34,7 +34,7 @@ class MissionTaskGraph:
 
 
 class MissionTaskGraphCompiler:
-    """Compile the deterministic core Mission DAG.
+    """Compile and install the deterministic core Mission DAG.
 
     Requirement -> Code -> Test Design -> Script Readiness -> Execution.
     Test Design keeps an explicit Requirement dependency as well as Code so a
@@ -128,3 +128,15 @@ class MissionTaskGraphCompiler:
             tasks=tuple(tasks),
             artifact_ids=dict(artifact_ids),
         )
+
+    def install(self, control_plane: Any, mission_id: str) -> MissionTaskGraph:
+        """Persist the compiled graph through the canonical control-plane API.
+
+        The duck-typed boundary deliberately avoids a reverse import from this
+        pure graph compiler into the control-plane module. Registration order is
+        topological, so dependency contracts are checked by TaskScheduler.
+        """
+        graph = self.compile(mission_id)
+        for task in graph.tasks:
+            control_plane.register_task(task)
+        return graph
