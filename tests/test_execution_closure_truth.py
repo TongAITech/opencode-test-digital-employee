@@ -1,4 +1,5 @@
 import tempfile
+from copy import deepcopy
 from pathlib import Path
 
 from rc6_runtime import TruthRuntime
@@ -62,12 +63,17 @@ def test_execution_closure_artifacts_share_canonical_r1_and_replay_deterministic
         }
         truth.append_atomic("RECOVERY_ACTION_UPSERTED", recovery)
 
-        before = truth.full_inventory()
-        projection = truth.replay()
-        after = truth.full_inventory()
-        assert before == after
-        assert projection.state["executable_test_specs"]["XSPEC-1"]["oracle_fingerprint"] == "oracle-fp"
-        assert projection.state["script_artifacts"]["SCRIPT-1"]["spec_id"] == "XSPEC-1"
-        assert projection.state["script_validations"]["VAL-1"]["status"] == "SCRIPT_READY"
-        assert projection.state["failure_diagnoses"]["DIAG-1"]["root_cause_candidate_id"] == "RCA-1"
-        assert projection.state["recovery_actions"]["REC-1"]["next_attempt_id"] == "ATT-2"
+        before_inventory = deepcopy(truth.full_inventory())
+        before_snapshot = deepcopy(truth.projection.snapshot())
+        replay_snapshot = truth.rebuild_projection()
+        after_inventory = truth.full_inventory()
+        second_replay_snapshot = truth.rebuild_projection()
+
+        assert before_inventory == after_inventory
+        assert replay_snapshot == before_snapshot
+        assert second_replay_snapshot == replay_snapshot
+        assert truth.projection.executable_test_specs["XSPEC-1"]["oracle_fingerprint"] == "oracle-fp"
+        assert truth.projection.script_artifacts["SCRIPT-1"]["spec_id"] == "XSPEC-1"
+        assert truth.projection.script_validations["VAL-1"]["status"] == "SCRIPT_READY"
+        assert truth.projection.failure_diagnoses["DIAG-1"]["root_cause_candidate_id"] == "RCA-1"
+        assert truth.projection.recovery_actions["REC-1"]["next_attempt_id"] == "ATT-2"
