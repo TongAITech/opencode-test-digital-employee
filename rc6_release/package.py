@@ -12,6 +12,8 @@ import zipfile
 from pathlib import Path
 from typing import Iterable
 
+from .static_skills import ALL_SKILLS, materialize_professional_skills
+
 BUILD_STATUS = "ENGINEERING_CANDIDATE_NOT_BANK_FINAL"
 PACKAGE_NAME = "PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10"
 MANIFEST_SCHEMA = "pfc.aitest.rc6.package.v1"
@@ -79,8 +81,6 @@ def _copy_tree(source: Path, dest: Path) -> None:
         target = dest / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         if item.suffix.lower() == ".sh":
-            # Git for Windows may materialize shell sources as CRLF. Package
-            # bytes must stay Git-Bash/Unix portable after ZIP extraction.
             _write_text(target, item.read_text(encoding="utf-8"))
             shutil.copystat(item, target)
         else:
@@ -130,6 +130,8 @@ def _manifest_for(package_root: Path, source_commit: str) -> dict:
         "workspace_installation": "AUTO_FRESH_OR_UPGRADE",
         "default_windows_workspace": r"D:\PFC",
         "agent_profile": "RC6_RUNTIME_WORKERS_BOUND_TO_PROJECT_DSH_SKILLS",
+        "static_skill_count": len(ALL_SKILLS),
+        "offline_tool_bootstrap": "DISCOVER_REUSE_PROBE_WITHOUT_FORGING_TARGET_READY",
         "files": files,
     }
 
@@ -162,6 +164,11 @@ def build_package(repo_root: str | Path, output_dir: str | Path, source_commit: 
     if not launchers.is_dir():
         raise RuntimeError("MISSING_RC6_LAUNCHERS")
     _copy_tree(launchers, package_root)
+
+    # Coordinator skill is maintained as launcher source. All independent
+    # professional worker skills are materialized here so the delivery ZIP
+    # physically contains the complete RC6 skill set before first launch.
+    materialize_professional_skills(package_root)
 
     readme = repo / "docs" / "RC6_RELEASE_QUALIFICATION.md"
     if readme.exists():
@@ -201,11 +208,20 @@ def verify_package(package_root: str | Path) -> dict:
         "INSTALL-AITEST.sh", "VERIFY-RC6-PROFILE.sh", "ROLLBACK-AITEST.sh",
         "BUILD_ID", "SOURCE_COMMIT", "RELEASE_STATUS", "PACKAGE_MANIFEST.json", "CHECKSUMS.sha256",
         "rc6_runtime/__init__.py", "rc6_runtime/agent_runtime.py", "rc6_release/mcp_server.py",
-        "rc6_release/agent_qualification.py", "rc6_release/workspace_install.py", ".dsh/skills/pfc-full-chain-test/SKILL.md",
+        "rc6_release/agent_qualification.py", "rc6_release/workspace_install.py", "rc6_release/static_skills.py",
+        "rc6_release/tool_bootstrap.py",
     }
+    required.update(".dsh/skills/%s/SKILL.md" % name for name in ALL_SKILLS)
     missing = sorted(name for name in required if not (root / name).is_file())
     if missing:
         raise RuntimeError("PACKAGE_REQUIRED_FILE_MISSING:" + ",".join(missing))
+
+    skill_dirs = {
+        p.parent.name for p in (root / ".dsh" / "skills").glob("*/SKILL.md")
+        if p.parent.name.startswith("pfc-")
+    }
+    if skill_dirs != set(ALL_SKILLS):
+        raise RuntimeError("PACKAGE_STATIC_SKILL_SET_MISMATCH")
 
     manifest = json.loads((root / "PACKAGE_MANIFEST.json").read_text(encoding="utf-8"))
     if manifest.get("schema_version") != MANIFEST_SCHEMA:
@@ -218,6 +234,8 @@ def verify_package(package_root: str | Path) -> dict:
         raise RuntimeError("PACKAGE_FALSE_RUNTIME_PASS_FORBIDDEN")
     if manifest.get("workspace_installation") != "AUTO_FRESH_OR_UPGRADE":
         raise RuntimeError("PACKAGE_WORKSPACE_INSTALLATION_INVALID")
+    if manifest.get("static_skill_count") != len(ALL_SKILLS):
+        raise RuntimeError("PACKAGE_STATIC_SKILL_COUNT_INVALID")
     source_commit = (root / "SOURCE_COMMIT").read_text(encoding="utf-8").strip()
     if manifest.get("source_commit") != source_commit:
         raise RuntimeError("PACKAGE_SOURCE_COMMIT_MISMATCH")
@@ -245,6 +263,7 @@ def verify_package(package_root: str | Path) -> dict:
         "release_status": BUILD_STATUS,
         "agent_runtime_bank_final_gate": manifest["agent_runtime_bank_final_gate"],
         "source_commit": source_commit,
+        "static_skill_count": len(ALL_SKILLS),
         "file_count": len(actual) + 1,
     }
 
