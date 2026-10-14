@@ -6,14 +6,20 @@ independent node evaluator remains the sole authority that may accept it.
 
 The bridge is session-independent: prompts are compiled entirely from durable
 Task/Mission references and never contain coordinator conversation history.
+Worker-declared content references are not trusted as canonical storage: the
+normalized candidate payload is atomically persisted by the runtime and the
+Artifact points to that durable file.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
+from pathlib import Path
+from typing import Any, Dict, Mapping, Optional, Tuple
 
 from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher, WorkerAssignment, WorkerInvocation
 
@@ -138,9 +144,6 @@ class DshTaskWorkerBridge:
             raise DshWorkerBridgeError("DSH_ASSIGNMENT_TASK_LEASE_MISMATCH")
         running = self.control.start(chosen.task_id, worker_ref=assignment.worker_instance_id)
 
-        # Always compile and validate against the persisted RUNNING Task, not
-        # the stale READY object captured before lease. This preserves the
-        # authoritative lease_owner and blocks unrelated worker handoffs.
         prompt = self.compile_prompt(running, assignment)
         invocation, raw_output = self.launcher.execute(assignment, prompt)
         worker_output = self.normalize_output(running, invocation, raw_output)
@@ -187,7 +190,7 @@ class DshTaskWorkerBridge:
             "artifact": {
                 "artifact_id": expected_id,
                 "artifact_type": expected_type,
-                "content_ref": "non-empty durable reference",
+                "content_ref": "worker-declared source reference; runtime will persist canonical payload",
                 "parent_refs": "list[str]",
                 "evidence_refs": "list[str]",
                 "content_hash": "optional sha256/string",
@@ -204,8 +207,9 @@ class DshTaskWorkerBridge:
         }
         return (
             "You are an RC7 professional worker executing one leased task. "
-            "Do not evaluate or mark the task PASS. Use the allowed real tools, "
-            "produce evidence-backed candidate output, and return exactly one JSON object.\n"
+            "Do not evaluate or mark the task PASS. You MUST call at least one allowed real tool; "
+            "a text-only answer is invalid. Produce evidence-backed candidate output and return "
+            "exactly one JSON object.\n"
             "TASK_CONTRACT=" + json.dumps(contract, ensure_ascii=False, sort_keys=True) + "\n"
             "RETURN_SCHEMA=" + json.dumps(schema, ensure_ascii=False, sort_keys=True)
         )
@@ -235,12 +239,27 @@ class DshTaskWorkerBridge:
             raise DshWorkerBridgeError("DSH_OUTPUT_ARTIFACT_ID_MISMATCH")
         if raw_artifact.get("artifact_type") != expected_type:
             raise DshWorkerBridgeError("DSH_OUTPUT_ARTIFACT_TYPE_MISMATCH")
-        content_ref = raw_artifact.get("content_ref")
-        if not isinstance(content_ref, str) or not content_ref.strip():
+        declared_content_ref = raw_artifact.get("content_ref")
+        if not isinstance(declared_content_ref, str) or not declared_content_ref.strip():
             raise DshWorkerBridgeError("DSH_OUTPUT_CONTENT_REF_REQUIRED")
 
-        evidence = []
-        for index, ref in enumerate(invocation.evidence_refs):
+        canonical_content_ref = self._persist_candidate_payload(task, invocation, raw_output)
+        evidence = [
+            Evidence(
+                evidence_id=_stable_id(
+                    "EVD-WORKER-DECLARED-REF",
+                    task.mission_id,
+                    task.task_id,
+                    declared_content_ref,
+                ),
+                mission_id=task.mission_id,
+                kind="WORKER_DECLARED_CONTENT_REF",
+                source_ref="dsh://worker/%s" % invocation.worker_instance_id,
+                content_ref=declared_content_ref,
+                subject_refs=[task.task_id, expected_id],
+            )
+        ]
+        for ref in invocation.evidence_refs:
             if not isinstance(ref, str) or not ref:
                 continue
             evidence.append(
@@ -309,7 +328,7 @@ class DshTaskWorkerBridge:
             mission_id=task.mission_id,
             artifact_type=expected_type,
             producer_task_id=task.task_id,
-            content_ref=content_ref,
+            content_ref=canonical_content_ref,
             parent_refs=list(dict.fromkeys(parent_refs)),
             evidence_refs=list(dict.fromkeys(artifact_evidence_refs + evidence_ids)),
             content_hash=raw_artifact.get("content_hash") if isinstance(raw_artifact.get("content_hash"), str) else None,
@@ -327,6 +346,40 @@ class DshTaskWorkerBridge:
             return graph.artifact_ids[task.node], self.graph_compiler.OUTPUT_TYPES[task.node]
         artifact_type = "DEFECT_CLOSURE" if task.node == "DEFECT" else "%s_OUTPUT" % task.node
         return _stable_id("ART-TASK", task.mission_id, task.task_id), artifact_type
+
+    def _persist_candidate_payload(
+        self,
+        task: Task,
+        invocation: WorkerInvocation,
+        raw_output: Dict[str, Any],
+    ) -> str:
+        launcher_root = getattr(self.launcher, "state_root", None)
+        if launcher_root is not None:
+            root = Path(launcher_root)
+        else:
+            store_path = getattr(self.control.truth.store, "path", None)
+            root = Path(store_path).parent if store_path is not None else Path.cwd()
+        target_dir = root / "rc7-worker-candidates"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        filename = _stable_id(
+            "candidate",
+            task.mission_id,
+            task.task_id,
+            invocation.attempt_id,
+            invocation.worker_instance_id,
+        ) + ".json"
+        target = target_dir / filename
+        fd, temp_name = tempfile.mkstemp(prefix=filename + ".", suffix=".tmp", dir=str(target_dir))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(raw_output, handle, ensure_ascii=False, sort_keys=True, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_name, target)
+        finally:
+            if os.path.exists(temp_name):
+                os.unlink(temp_name)
+        return "file://" + str(target.resolve())
 
     def _assign(self, task: Task, policy: DshNodePolicy) -> WorkerAssignment:
         attempt_id = _stable_id("ATT-DSH", task.mission_id, task.task_id, str(task.updated_at))
