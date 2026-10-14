@@ -19,24 +19,29 @@ Repository truth only. Conversation claims do not advance a wave.
 | 5 | Requirement/Code Intelligence | ENGINEERING_PASS / FROZEN | code `0d79b7e46240d28a94691d4ae7e26f74e85c44ae`; GitHub Actions run `38523268446` = success |
 | 6 | L1-L7 Design Runtime | ENGINEERING_PASS / FROZEN | code `5daf515777a0a36fc08c1d640f8c40efbca69520`; GitHub Actions run `38523622831` = success |
 | 7 | Coverage/Oracle Closure | ENGINEERING_PASS / FROZEN | code `318fe446c498c22d92ac241f01d067e4c8e3bd83`; GitHub Actions run `38523909146` = success |
-| 8 | Precondition/Test Data | IMPLEMENTING | deterministic structured preparation and recovery under qualification |
-| 9 | L1-L7 Execution | NOT_STARTED | — |
+| 8 | Precondition/Test Data | ENGINEERING_PASS / FROZEN | code `bdd54561f7f2c68feeba0970ede0506b6a7f4cb1`; GitHub Actions run `38524369514` = success |
+| 9 | L1-L7 Execution | IMPLEMENTING | layer-isolated real-action execution and integrity gate next |
 | 10 | CAT Diagnosis/Recovery | NOT_STARTED | — |
 | 11 | Execution Coverage Closure | NOT_STARTED | — |
 | 12 | Admin/Allure/Report | NOT_STARTED | — |
 
-## Wave 8 implementation under qualification
+## Wave 8 frozen capabilities
 - only FROZEN Cases enter preparation
-- structured preconditions: ENVIRONMENT / AUTH / BUSINESS_STATE / DATA / DEPENDENCY
-- preconditions verified before data selection/build
-- separate immutable initial-state and input-data bindings per execution attempt
-- deterministic strategy order: reuse -> derive -> API -> UI -> DB -> fixture -> mock, constrained by Case policy
-- every selected binding requires tool/evidence refs and post-selection verification
+- typed preconditions verified before data selection/build
+- initial business state and execution input data remain separate
+- deterministic search/reuse -> derive -> API -> UI -> DB -> fixture -> mock strategy order constrained by Case policy
+- every selected binding requires tool/evidence refs plus verification
 - DB_CREATE requires HumanGate approval evidence
-- attempt binding is immutable by attempt id, Case version and TargetIdentity
-- Oracle snapshot and cleanup policy fixed before execution
-- deterministic failure recovery semantics
-- valid real PRODUCT assertion failure => PRODUCT_DEFECT; no retry and no re-prepare-to-green
+- prepared binding immutable per attempt + Case version + TargetIdentity
+- Oracle and cleanup policy fixed before real action
+- deterministic recovery categories
+- valid PRODUCT assertion failure after verified preparation + real action cannot be retried or re-prepared to green
+
+## Wave 8 evidence
+- commit: `bdd54561f7f2c68feeba0970ede0506b6a7f4cb1`
+- workflow: `RC6 Wave 8 Precondition Test Data Runtime`
+- run id: `38524369514`
+- conclusion: `success`
 
 ## Current RED
-`W8-CI-PROOF`: commit preparation/data/recovery runtime plus adversarial tests, run GitHub Actions, and repair only the first failing invariant. Wave 9 remains blocked until Wave 8 is frozen.
+`W9-REAL-EXECUTION-INTEGRITY`: implement seven independent L1-L7 execution profiles and a fail-closed execution integrity gate. Execution requires a PreparedAttempt, matching FROZEN Case version and TargetIdentity, runtime-authorized Lx_EXECUTE worker/lease, layer-specific tool admission, a real action/tool-call evidence, actual result, deterministic oracle assertion, and current evidence. BLOCKED/SKIPPED/NOT_RUN cannot become PASS, and execution workers cannot mutate the frozen Case.
