@@ -38,10 +38,12 @@ jobs:
           tests/test_automation_runtime.py
           tests/test_execution_closure_truth.py
           tests/test_execution_closure_mcp.py
+          tests/test_execution_closure_recovery_mcp.py
           tests/test_execution_closure_vertical.py
           tests/test_execution.py
           tests/test_diagnosis.py
           tests/test_recovery_action_executor.py
+          tests/test_recovery_adapters.py
           tests/test_autonomous_orchestrator.py
           tests/test_autonomous_loop.py
       - name: Full RC6 regression
