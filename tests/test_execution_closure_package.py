@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from rc6_release.package import BUILD_STATUS, build_package, verify_package
 
 
@@ -40,3 +42,25 @@ def test_turnkey_package_contains_execution_closure_runtime_and_remains_not_bank
     assert manifest["bank_field_pass"] is False
     assert manifest["autonomous_testing_pass"] is False
     assert manifest["full_chain_real"] is False
+
+
+def test_verify_package_tolerates_python_cache_and_runtime_state(tmp_path):
+    package_root = build_package(REPO_ROOT, tmp_path / "dist", SOURCE_COMMIT, make_zip=False)
+
+    cache = package_root / "rc6_release" / "__pycache__"
+    cache.mkdir(parents=True)
+    (cache / "package.cpython-38.pyc").write_bytes(b"runtime-bytecode")
+    state = package_root / "runtime-state"
+    state.mkdir()
+    (state / "dsh-web.log").write_text("runtime log", encoding="utf-8")
+    (state / "rc6.cordis.yml").write_text("runtime patch", encoding="utf-8")
+
+    assert verify_package(package_root)["status"] == "PASS"
+
+
+def test_verify_package_still_rejects_untracked_source_file(tmp_path):
+    package_root = build_package(REPO_ROOT, tmp_path / "dist", SOURCE_COMMIT, make_zip=False)
+    (package_root / "rc6_runtime" / "rogue.py").write_text("raise SystemExit('rogue')\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="PACKAGE_CHECKSUM_COVERAGE_MISMATCH"):
+        verify_package(package_root)
