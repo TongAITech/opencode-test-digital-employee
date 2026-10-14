@@ -50,9 +50,9 @@ set "RC7_TIMEOUT=300"
 if defined PFC_RC7_DSH_TIMEOUT set "RC7_TIMEOUT=%PFC_RC7_DSH_TIMEOUT%"
 
 if defined PFC_DSH_BIN (
-  "%PYTHON_BIN%" -m rc7_release.code_qualification --state-root "%PFC_AITEST_STATE_DIR%" --workspace "%PFC_WORKSPACE%" --repo-path "%PFC_RC7_CODE_REPO%" --base-ref "%PFC_RC7_CODE_BASE_REF%" --head-ref "%PFC_RC7_CODE_HEAD_REF%" --target-id "%PFC_RC7_CODE_TARGET_ID%" --codegraph-args-json "%PFC_RC7_CODEGRAPH_QUERY_ARGS_JSON%" --dsh-bin "%PFC_DSH_BIN%" --timeout-seconds "%RC7_TIMEOUT%"
+  "%PYTHON_BIN%" -m rc7_release.code_qualification_strict --state-root "%PFC_AITEST_STATE_DIR%" --workspace "%PFC_WORKSPACE%" --repo-path "%PFC_RC7_CODE_REPO%" --base-ref "%PFC_RC7_CODE_BASE_REF%" --head-ref "%PFC_RC7_CODE_HEAD_REF%" --target-id "%PFC_RC7_CODE_TARGET_ID%" --codegraph-args-json "%PFC_RC7_CODEGRAPH_QUERY_ARGS_JSON%" --dsh-bin "%PFC_DSH_BIN%" --timeout-seconds "%RC7_TIMEOUT%"
 ) else (
-  "%PYTHON_BIN%" -m rc7_release.code_qualification --state-root "%PFC_AITEST_STATE_DIR%" --workspace "%PFC_WORKSPACE%" --repo-path "%PFC_RC7_CODE_REPO%" --base-ref "%PFC_RC7_CODE_BASE_REF%" --head-ref "%PFC_RC7_CODE_HEAD_REF%" --target-id "%PFC_RC7_CODE_TARGET_ID%" --codegraph-args-json "%PFC_RC7_CODEGRAPH_QUERY_ARGS_JSON%" --timeout-seconds "%RC7_TIMEOUT%"
+  "%PYTHON_BIN%" -m rc7_release.code_qualification_strict --state-root "%PFC_AITEST_STATE_DIR%" --workspace "%PFC_WORKSPACE%" --repo-path "%PFC_RC7_CODE_REPO%" --base-ref "%PFC_RC7_CODE_BASE_REF%" --head-ref "%PFC_RC7_CODE_HEAD_REF%" --target-id "%PFC_RC7_CODE_TARGET_ID%" --codegraph-args-json "%PFC_RC7_CODEGRAPH_QUERY_ARGS_JSON%" --timeout-seconds "%RC7_TIMEOUT%"
 )
 set "RC=%ERRORLEVEL%"
 set "RESULT=%PFC_AITEST_STATE_DIR%\qualification\rc7-dsh-code-result.json"
@@ -60,5 +60,5 @@ if not exist "%RESULT%" (
   echo {"status":"FAIL","reason":"CODE_QUALIFICATION_RESULT_FILE_MISSING"} 1>&2
   exit /b 11
 )
-echo RC7 Code qualification evidence: %RESULT% 1>&2
+echo RC7 strict Code qualification evidence: %RESULT% 1>&2
 exit /b %RC%
