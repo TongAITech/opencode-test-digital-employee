@@ -59,6 +59,15 @@ class AuthorityRuntime:
         "L5_DESIGN": {"case_candidate_l5"},
         "L6_DESIGN": {"case_candidate_l6"},
         "L7_DESIGN": {"case_candidate_l7"},
+        # One professional automation role owns executable-spec/script construction
+        # across layers. It may build/repair automation but can never decide PASS.
+        "AUTOMATION_ENGINEER": {
+            "executable_test_spec",
+            "automation_mapping",
+            "script_artifact",
+            "script_validation",
+            "evidence",
+        },
         "L1_EXECUTE": {"execution_attempt", "assertion", "evidence", "coverage_observation"},
         "L2_EXECUTE": {"execution_attempt", "assertion", "evidence", "coverage_observation"},
         "L3_EXECUTE": {"execution_attempt", "assertion", "evidence", "coverage_observation"},
@@ -66,7 +75,15 @@ class AuthorityRuntime:
         "L5_EXECUTE": {"execution_attempt", "assertion", "evidence", "coverage_observation"},
         "L6_EXECUTE": {"execution_attempt", "assertion", "evidence", "coverage_observation"},
         "L7_EXECUTE": {"execution_attempt", "assertion", "evidence", "coverage_observation"},
-        "FAILURE_DIAGNOSTIC": {"failure_diagnosis", "recovery_decision", "evidence", "defect"},
+        "FAILURE_DIAGNOSTIC": {
+            "failure_diagnosis",
+            "root_cause_candidate",
+            "recovery_decision",
+            "recovery_action",
+            "execution_convergence",
+            "evidence",
+            "defect",
+        },
     }
 
     def __init__(self, signing_key: bytes):
