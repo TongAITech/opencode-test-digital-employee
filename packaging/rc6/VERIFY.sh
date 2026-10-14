@@ -13,9 +13,17 @@ if [[ -z "$PYTHON_BIN" ]]; then
   exit 10
 fi
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+# Package verification imports RC6 modules. Suppress bytecode writes so a pristine
+# extracted package stays byte-for-byte stable during verification. The verifier
+# also ignores runtime-generated cache/state paths on subsequent launches.
+export PYTHONDONTWRITEBYTECODE=1
 
 if [[ -f "$ROOT/PACKAGE_MANIFEST.json" ]]; then
-  "$PYTHON_BIN" -m rc6_release.package verify --package-root "$ROOT" >/dev/null
+  "$PYTHON_BIN" - "$ROOT" >/dev/null <<'PY'
+import sys
+from rc6_release.package import verify_package
+verify_package(sys.argv[1])
+PY
 fi
 "$PYTHON_BIN" - <<'PY'
 from rc6_release.mcp_server import handle
