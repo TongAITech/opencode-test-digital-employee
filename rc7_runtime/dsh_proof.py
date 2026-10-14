@@ -25,6 +25,7 @@ class DshToolCallProof:
     worker_instance_id: str
     tool_name: str
     call_ref: str
+    arguments: Any = None
 
 
 def _normalized_tool_name(value: str) -> str:
@@ -89,6 +90,7 @@ class DshR1ProofReader:
                     worker_instance_id=worker_instance_id,
                     tool_name=tool_name.strip(),
                     call_ref=call_ref.strip(),
+                    arguments=tool_call.get("arguments"),
                 )
             )
         return tuple(proofs)
