@@ -1,7 +1,7 @@
 """Canonical RC7 control-plane domain models.
 
 These models deliberately do not embed conversation history or provider/model
-identities.  Mission state is durable; worker sessions are disposable.
+identities. Mission state is durable; worker sessions are disposable.
 """
 
 from __future__ import annotations
@@ -133,9 +133,11 @@ class Task:
     objective: str
     state: TaskStatus = TaskStatus.REGISTERED
     required_capabilities: List[str] = field(default_factory=list)
+    dependency_task_ids: List[str] = field(default_factory=list)
     input_artifact_refs: List[str] = field(default_factory=list)
     gap_refs: List[str] = field(default_factory=list)
     acceptance_criteria: List[str] = field(default_factory=list)
+    priority: int = 100
     lease_owner: Optional[str] = None
     output_artifact_refs: List[str] = field(default_factory=list)
     evaluation_id: Optional[str] = None
@@ -148,11 +150,16 @@ class Task:
         self.node = _required(self.node, "node")
         self.task_type = _required(self.task_type, "task_type")
         self.objective = _required(self.objective, "objective")
+        if not isinstance(self.priority, int) or self.priority < 0:
+            raise ContractError("TASK_PRIORITY_INVALID")
         _string_list(self.required_capabilities, "required_capabilities")
+        _string_list(self.dependency_task_ids, "dependency_task_ids")
         _string_list(self.input_artifact_refs, "input_artifact_refs")
         _string_list(self.gap_refs, "gap_refs")
         _string_list(self.acceptance_criteria, "acceptance_criteria")
         _string_list(self.output_artifact_refs, "output_artifact_refs")
+        if self.task_id in self.dependency_task_ids:
+            raise ContractError("TASK_SELF_DEPENDENCY_FORBIDDEN")
 
 
 @dataclass
