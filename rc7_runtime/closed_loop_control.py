@@ -1,13 +1,12 @@
 """RC7 end-to-end control-plane composition.
 
-This module composes the already-proven TaskScheduler and GapRepairPlanner into
-a deterministic closed loop. A repair worker never closes its own Gap. Repair
-PASS only moves the Gap to EVIDENCE_PENDING and reactivates the source Task.
-Only a fresh source-node Evaluation may resolve that Gap and accept the source
-Task. A trusted Execution PRODUCT FAIL is different: Execution may be accepted
-as a conclusive piece of work while its PRODUCT_DEFECT Gap is handed to an
-independent Defect qualification task. Mission state and all intermediate truth
-remain R1-native.
+This module composes the proven scheduler, Gap router and node evaluators into
+a deterministic closed loop. Ordinary repair work never closes its own Gap:
+repair PASS only moves the Gap to EVIDENCE_PENDING and the source node must be
+re-executed and independently re-evaluated. A trusted PRODUCT FAIL is a
+cross-node handoff: Execution work may PASS as a conclusive result while the
+PRODUCT_DEFECT Gap remains open until the Defect lifecycle reaches a terminal,
+evidence-backed state.
 """
 
 from __future__ import annotations
@@ -65,12 +64,11 @@ _ACTIVE_TASK_STATES = {
     TaskStatus.STALE,
 }
 
-# PASS normally means the source node has no remaining gap. The single explicit
-# exception is a conclusive execution result that proves the product failed:
-# execution work is complete, but ownership moves to Defect qualification.
 _PASS_HANDOFF_GAPS = {
     ("EXECUTION", "PRODUCT_DEFECT", "DEFECT"),
 }
+
+_DEFECT_RESOLUTION_STATES = {"CLOSED", "DUPLICATE", "NOT_A_DEFECT"}
 
 
 class ClosedLoopControlPlane:
@@ -121,11 +119,11 @@ class ClosedLoopControlPlane:
         )
         if task is None:
             return None
-        if task.task_type == "REPAIR":
+        if task.task_type in {"REPAIR", "QUALIFY_DEFECT"}:
             for gap_id in task.gap_refs:
                 gap = self._gap(gap_id)
                 if gap.state != GapStatus.PLANNED:
-                    raise ClosedLoopControlError("REPAIR_LEASE_REQUIRES_PLANNED_GAP")
+                    raise ClosedLoopControlError("OWNERSHIP_TASK_LEASE_REQUIRES_PLANNED_GAP")
                 transition_gap(gap, GapStatus.REPAIRING)
                 self._persist_gap(gap)
         self._sync_mission(self._mission())
@@ -159,6 +157,8 @@ class ClosedLoopControlPlane:
             raise ClosedLoopControlError("EVALUATION_DOES_NOT_REFERENCE_TASK_OUTPUT")
         if set(evaluation.gap_refs) != {gap.gap_id for gap in gaps}:
             raise ClosedLoopControlError("EVALUATION_GAP_SET_MISMATCH")
+        if task.task_type == "QUALIFY_DEFECT" and evaluation.result == EvaluationResult.PASS:
+            raise ClosedLoopControlError("DEFECT_TASK_REQUIRES_TERMINAL_DEFECT_RESOLUTION")
         if evaluation.result == EvaluationResult.PASS and gaps:
             invalid = [gap for gap in gaps if not self._is_pass_handoff_gap(task, gap)]
             if invalid:
@@ -236,6 +236,61 @@ class ClosedLoopControlPlane:
         else:
             raise ClosedLoopControlError("UNSUPPORTED_EVALUATION_RESULT")
 
+        self._sync_mission(self._mission())
+        return self.scheduler.task(task_id)
+
+    def accept_defect_resolution(self, task_id: str, *, defect, evaluation: Evaluation) -> Task:
+        """Close a PRODUCT_DEFECT handoff only with terminal Defect truth."""
+        task = self.scheduler.task(task_id)
+        if task.node != "DEFECT" or task.task_type != "QUALIFY_DEFECT":
+            raise ClosedLoopControlError("PRODUCT_DEFECT_TASK_REQUIRED")
+        if task.state != TaskStatus.OUTPUT_PRODUCED:
+            raise ClosedLoopControlError("DEFECT_TERMINAL_OUTPUT_REQUIRED")
+        if len(task.gap_refs) != 1:
+            raise ClosedLoopControlError("DEFECT_TASK_REQUIRES_SINGLE_PRODUCT_GAP")
+        gap = self._gap(task.gap_refs[0])
+        if gap.category != "PRODUCT_DEFECT" or gap.target_node != "DEFECT":
+            raise ClosedLoopControlError("DEFECT_TASK_GAP_IDENTITY_INVALID")
+        if gap.state != GapStatus.REPAIRING:
+            raise ClosedLoopControlError("DEFECT_RESOLUTION_REQUIRES_ACTIVE_OWNERSHIP")
+
+        defect_state = getattr(getattr(defect, "state", None), "value", str(getattr(defect, "state", "")))
+        defect_id = str(getattr(defect, "defect_id", ""))
+        if getattr(defect, "mission_id", None) != self.mission_id:
+            raise ClosedLoopControlError("DEFECT_MISSION_MISMATCH")
+        if getattr(defect, "source_gap_id", None) != gap.gap_id:
+            raise ClosedLoopControlError("DEFECT_SOURCE_GAP_MISMATCH")
+        if defect_state not in _DEFECT_RESOLUTION_STATES:
+            raise ClosedLoopControlError("DEFECT_NOT_TERMINAL_FOR_GAP_RESOLUTION")
+
+        if evaluation.mission_id != self.mission_id or evaluation.node != "DEFECT":
+            raise ClosedLoopControlError("DEFECT_RESOLUTION_EVALUATION_IDENTITY_MISMATCH")
+        if evaluation.result != EvaluationResult.PASS:
+            raise ClosedLoopControlError("DEFECT_RESOLUTION_REQUIRES_PASS_EVALUATION")
+        if task.lease_owner and evaluation.evaluator_ref == task.lease_owner:
+            raise ClosedLoopControlError("WORKER_SELF_EVALUATION_FORBIDDEN")
+        if task.output_artifact_refs and not set(task.output_artifact_refs).intersection(evaluation.artifact_refs):
+            raise ClosedLoopControlError("DEFECT_EVALUATION_DOES_NOT_REFERENCE_OUTPUT")
+        if evaluation.dimensions.get("defect_id") != defect_id:
+            raise ClosedLoopControlError("DEFECT_EVALUATION_ID_MISMATCH")
+        if evaluation.dimensions.get("defect_state") != defect_state:
+            raise ClosedLoopControlError("DEFECT_EVALUATION_STATE_MISMATCH")
+        if getattr(defect, "latest_evaluation_id", None) != evaluation.evaluation_id:
+            raise ClosedLoopControlError("DEFECT_LATEST_EVALUATION_MISMATCH")
+
+        append_entity(self.truth, evaluation, release_id=self.release_id, artifact_version=1)
+        defect_rows = self.truth.query("rc7_defect", defect_id=defect_id)
+        defect_version = int(defect_rows[0]["artifact_version"]) + 1 if defect_rows else 1
+        append_entity(self.truth, defect, release_id=self.release_id, artifact_version=defect_version)
+
+        transition_task(task, TaskStatus.EVALUATING)
+        transition_task(task, TaskStatus.PASS, evaluation_id=evaluation.evaluation_id)
+        self.scheduler.persist_evaluated_task(task)
+
+        transition_gap(gap, GapStatus.EVIDENCE_PENDING)
+        self._persist_gap(gap)
+        transition_gap(gap, GapStatus.RESOLVED, resolution_evaluation_id=evaluation.evaluation_id)
+        self._persist_gap(gap)
         self._sync_mission(self._mission())
         return self.scheduler.task(task_id)
 
