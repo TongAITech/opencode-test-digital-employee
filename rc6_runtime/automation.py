@@ -1,9 +1,15 @@
 """RC6 Execution Closure Overlay: automation reuse, script build and real runners.
 
 The runtime never treats generated source as ready merely because a model wrote
-it.  Existing automation assets are resolved first, generated/repaired scripts
+it. Existing automation assets are resolved first, generated/repaired scripts
 remain bound to the frozen Case/Oracle fingerprints, deterministic validation
 must pass, and production runners invoke real local processes/tools.
+
+Runner exit code is not sufficient evidence of real API/DB/UI behavior. During
+real execution the adapter binds RC6_EXECUTION_MANIFEST. Reused/generated
+fixtures record actual tool calls and actual results through runner_manifest;
+ExecutionRuntime can then apply its existing tool admission/integrity gate to
+those structured records.
 """
 
 from __future__ import annotations
@@ -15,11 +21,11 @@ from hashlib import sha256
 import json
 import os
 from pathlib import Path
-import py_compile
 import subprocess
 import sys
 import time
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+import uuid
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from .executable_spec import ExecutableSpecBuilder, ExecutableSpecError, ExecutableTestSpec, canonical_fingerprint
 
@@ -97,11 +103,7 @@ class AutomationReuseResolver:
         extra_keywords: Sequence[str] = (),
     ) -> AutomationResolution:
         roots = tuple(str(Path(root).resolve()) for root in search_roots)
-        keywords = {
-            spec.tc_id.lower(),
-            spec.requirement_id.lower(),
-            spec.layer.lower(),
-        }
+        keywords = {spec.tc_id.lower(), spec.requirement_id.lower(), spec.layer.lower()}
         if spec.sst_id:
             keywords.add(spec.sst_id.lower())
         keywords.update(str(x).lower() for x in extra_keywords if str(x).strip())
@@ -128,7 +130,6 @@ class AutomationReuseResolver:
                     ref = "file://" + rel
                     evidence = "reuse-scan://" + sha256((category + "|" + rel).encode("utf-8")).hexdigest()[:24]
                     candidates.append(AutomationAsset(category, ref, score, evidence))
-        # Stable ordering and bounded results avoid context blow-up.
         ordered = sorted(candidates, key=lambda item: (-item.score, item.category, item.ref))
         selected: List[AutomationAsset] = []
         per_category: Dict[str, int] = {}
@@ -163,12 +164,7 @@ class ScriptArtifact:
 
 
 class AIScriptBuilder:
-    """Governed AUTOMATION_ENGINEER output wrapper.
-
-    `generator` may be an AI Worker adapter, but the runtime owns identity,
-    fingerprints and output validation.  The generator cannot rewrite the
-    frozen oracle through its returned metadata.
-    """
+    """Governed AUTOMATION_ENGINEER output wrapper."""
 
     def build(
         self,
@@ -270,14 +266,9 @@ class _ProcessHarness:
             merged.update({str(k): str(v) for k, v in env.items()})
         try:
             completed = subprocess.run(
-                list(command),
-                cwd=cwd,
-                env=merged,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=self.timeout_seconds,
-                check=False,
+                list(command), cwd=cwd, env=merged,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                timeout=self.timeout_seconds, check=False,
             )
             stdout = completed.stdout or ""
             stderr = completed.stderr or ""
@@ -331,12 +322,10 @@ class ScriptValidator:
         steps: List[ProcessStepResult] = []
         if runner == "PYTEST":
             path = self._local_path(script.source_ref)
-            # py_compile gives a deterministic syntax/importable-source preflight.
             steps.append(self.harness.run("python_compile", (sys.executable, "-m", "py_compile", path), cwd, env))
             if steps[-1].passed:
                 node = "%s::%s" % (path, script.test_symbol) if "::" not in script.test_symbol else script.test_symbol
                 steps.append(self.harness.run("pytest_collect", (sys.executable, "-m", "pytest", "--collect-only", "-q", node), cwd, env))
-                # pytest collection performs fixture/dependency resolution for the target symbol.
                 if steps[-1].passed:
                     steps.append(self.harness.run("fixture_dependency_resolution", (sys.executable, "-m", "pytest", "--setup-plan", "-q", node), cwd, env))
                 if execute_target and steps[-1].passed:
@@ -346,12 +335,10 @@ class ScriptValidator:
             source_path = self._local_path(script.source_ref)
             if not Path(cwd, "pom.xml").is_file():
                 raise AutomationContractError("JUNIT_POM_REQUIRED")
-            # Maven is resolved by capability/path, never by exact version pin.
             steps.append(self.harness.run("dependency_resolution", ("mvn", "-q", "-DskipTests", "dependency:go-offline"), cwd, env))
             if steps[-1].passed:
                 steps.append(self.harness.run("compile", ("mvn", "-q", "-DskipTests", "test-compile"), cwd, env))
             if steps[-1].passed:
-                # Existence of compiled source plus Surefire selector is deterministic discovery evidence.
                 selector = "-Dtest=%s" % symbol
                 steps.append(self.harness.run("test_discovery", ("mvn", "-q", selector, "-DfailIfNoTests=true", "-DskipTests=false", "test"), cwd, env))
             if execute_target and steps[-1].passed:
@@ -387,6 +374,7 @@ class RunnerExecutionResult:
     actual_result: Dict[str, Any]
     stdout_ref: str
     stderr_ref: str
+    tool_calls: Tuple[Dict[str, str], ...]
     tool_call_refs: Tuple[str, ...]
     evidence_refs: Tuple[str, ...]
     duration_ms: int
@@ -401,6 +389,44 @@ class RunnerAdapter(ABC):
     @abstractmethod
     def command(self, script: ScriptArtifact) -> Tuple[str, ...]:
         raise NotImplementedError
+
+    def base_tool_calls(self, result: ProcessStepResult) -> Tuple[Dict[str, str], ...]:
+        return ()
+
+    @staticmethod
+    def _read_manifest(path: Path) -> Tuple[Tuple[Dict[str, str], ...], Optional[Dict[str, Any]], Tuple[str, ...]]:
+        calls: List[Dict[str, str]] = []
+        actual: Optional[Dict[str, Any]] = None
+        note_refs: List[str] = []
+        if not path.is_file():
+            return (), None, ()
+        for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise AutomationContractError("INVALID_RUNNER_MANIFEST_JSON_LINE_%d" % line_no) from exc
+            if not isinstance(row, dict):
+                raise AutomationContractError("INVALID_RUNNER_MANIFEST_RECORD")
+            kind = row.get("type")
+            if kind == "tool_call":
+                values = {key: row.get(key) for key in ("tool_id", "call_ref", "evidence_ref")}
+                if not all(isinstance(value, str) and value for value in values.values()):
+                    raise AutomationContractError("RUNNER_MANIFEST_TOOL_CALL_INVALID")
+                calls.append(values)
+            elif kind == "actual_result":
+                value = row.get("value")
+                if not isinstance(value, dict) or not value:
+                    raise AutomationContractError("RUNNER_MANIFEST_ACTUAL_RESULT_INVALID")
+                actual = deepcopy(value)
+            elif kind == "note":
+                ref = row.get("ref")
+                if isinstance(ref, str) and ref:
+                    note_refs.append(ref)
+            else:
+                raise AutomationContractError("UNKNOWN_RUNNER_MANIFEST_RECORD")
+        return tuple(calls), actual, tuple(note_refs)
 
     def execute(
         self,
@@ -420,23 +446,38 @@ class RunnerAdapter(ABC):
             case_fingerprint=script.case_fingerprint,
             oracle_fingerprint=script.oracle_fingerprint,
         )
-        result = self.harness.run("real_runner_execution", self.command(script), cwd, env)
-        call_ref = "process-call://" + sha256((script.script_id + "|" + str(time.time_ns())).encode("utf-8")).hexdigest()[:24]
-        evidence = (result.stdout_ref, result.stderr_ref)
+
+        manifest = Path(cwd) / (".rc6-execution-manifest-%s.jsonl" % uuid.uuid4().hex)
+        run_env = dict(env or {})
+        run_env["RC6_EXECUTION_MANIFEST"] = str(manifest)
+        result = self.harness.run("real_runner_execution", self.command(script), cwd, run_env)
+        manifest_calls, manifest_actual, note_refs = self._read_manifest(manifest)
+        try:
+            manifest.unlink()
+        except OSError:
+            pass
+
+        base_calls = self.base_tool_calls(result)
+        tool_calls = tuple(list(base_calls) + list(manifest_calls))
+        actual = manifest_actual or {
+            "process_exit_code": result.exit_code,
+            "runner_passed": result.passed,
+            "test_symbol": script.test_symbol,
+        }
+        process_call_ref = "process-call://" + sha256((script.script_id + "|" + str(time.time_ns())).encode("utf-8")).hexdigest()[:24]
+        call_refs = [process_call_ref] + [item["call_ref"] for item in tool_calls]
+        evidence = [result.stdout_ref, result.stderr_ref] + [item["evidence_ref"] for item in tool_calls] + list(note_refs)
         return RunnerExecutionResult(
             runner_type=self.runner_type,
             test_symbol=script.test_symbol,
             exit_code=result.exit_code,
             status="EXECUTED",
-            actual_result={
-                "process_exit_code": result.exit_code,
-                "runner_passed": result.passed,
-                "test_symbol": script.test_symbol,
-            },
+            actual_result=deepcopy(actual),
             stdout_ref=result.stdout_ref,
             stderr_ref=result.stderr_ref,
-            tool_call_refs=(call_ref,),
-            evidence_refs=evidence,
+            tool_calls=tool_calls,
+            tool_call_refs=tuple(dict.fromkeys(call_refs)),
+            evidence_refs=tuple(dict.fromkeys(evidence)),
             duration_ms=result.duration_ms,
         )
 
@@ -449,9 +490,23 @@ class PytestRunnerAdapter(RunnerAdapter):
         node = "%s::%s" % (path, script.test_symbol) if "::" not in script.test_symbol else script.test_symbol
         return (sys.executable, "-m", "pytest", "-q", node)
 
+    def base_tool_calls(self, result: ProcessStepResult) -> Tuple[Dict[str, str], ...]:
+        return ({
+            "tool_id": "pytest",
+            "call_ref": "pytest-process://%s" % result.stdout_ref.split("://", 1)[-1][:24],
+            "evidence_ref": result.stdout_ref,
+        },)
+
 
 class JUnitRunnerAdapter(RunnerAdapter):
     runner_type = "JUNIT"
 
     def command(self, script: ScriptArtifact) -> Tuple[str, ...]:
         return ("mvn", "-q", "-Dtest=%s" % script.test_symbol, "-DfailIfNoTests=true", "-DskipTests=false", "test")
+
+    def base_tool_calls(self, result: ProcessStepResult) -> Tuple[Dict[str, str], ...]:
+        suffix = result.stdout_ref.split("://", 1)[-1][:24]
+        return (
+            {"tool_id": "maven", "call_ref": "maven-process://%s" % suffix, "evidence_ref": result.stdout_ref},
+            {"tool_id": "junit", "call_ref": "junit-process://%s" % suffix, "evidence_ref": result.stdout_ref},
+        )
