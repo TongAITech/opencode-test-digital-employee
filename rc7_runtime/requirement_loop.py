@@ -1,7 +1,7 @@
 """RC7 requirement-analysis closed-loop adapter.
 
 The semantic sufficiency predicate is inherited from the proven RC6 independent
-requirement gate.  RC7 adds canonical Evaluation/Gap objects and deterministic
+requirement gate. RC7 adds canonical Evaluation/Gap objects and deterministic
 Task acceptance semantics around that predicate.
 """
 
@@ -19,10 +19,11 @@ from .models import (
     EvaluationResult,
     Gap,
     GapSeverity,
+    GapStatus,
     Task,
     TaskStatus,
 )
-from .state_machine import transition_task
+from .state_machine import transition_gap, transition_task
 from .truth_overlay import append_entity
 
 
@@ -151,12 +152,39 @@ class RequirementClosedLoop:
         )
 
     @staticmethod
+    def resolve_repaired_gaps(
+        prior_gaps: Sequence[Gap],
+        result: RequirementLoopResult,
+    ) -> Tuple[Gap, ...]:
+        """Resolve only gaps whose reason disappeared in a new evaluation.
+
+        Repair output alone can never close a gap.  The repair controller must
+        first move a gap to EVIDENCE_PENDING; this method then requires the new
+        independent evaluation as the resolution authority.
+        """
+        current_reasons = set(result.evaluation.dimensions.get("reasons", []))
+        resolved = []
+        for gap in prior_gaps:
+            if gap.description in current_reasons:
+                continue
+            if gap.state != GapStatus.EVIDENCE_PENDING:
+                raise RuntimeError("REPAIRED_GAP_MUST_BE_EVIDENCE_PENDING")
+            transition_gap(
+                gap,
+                GapStatus.RESOLVED,
+                resolution_evaluation_id=result.evaluation.evaluation_id,
+            )
+            resolved.append(gap)
+        return tuple(resolved)
+
+    @staticmethod
     def persist(
         truth: TruthRuntime,
         *,
         release_id: str,
         result: RequirementLoopResult,
         evaluation_version: int = 1,
+        gap_version: int = 1,
     ) -> Sequence[Any]:
         receipts = [
             append_entity(
@@ -167,5 +195,30 @@ class RequirementClosedLoop:
             )
         ]
         for gap in result.gaps:
-            receipts.append(append_entity(truth, gap, release_id=release_id))
+            receipts.append(
+                append_entity(
+                    truth,
+                    gap,
+                    release_id=release_id,
+                    artifact_version=gap_version,
+                )
+            )
         return receipts
+
+    @staticmethod
+    def persist_gap_updates(
+        truth: TruthRuntime,
+        *,
+        release_id: str,
+        gaps: Sequence[Gap],
+        artifact_version: int,
+    ) -> Sequence[Any]:
+        return [
+            append_entity(
+                truth,
+                gap,
+                release_id=release_id,
+                artifact_version=artifact_version,
+            )
+            for gap in gaps
+        ]
