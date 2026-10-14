@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Sequence, Tuple
+from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
 from .models import Task
 
@@ -83,7 +83,7 @@ class MissionTaskGraphCompiler:
         self,
         mission_id: str,
         *,
-        external_inputs: Mapping[str, Sequence[str]] | None = None,
+        external_inputs: Optional[Mapping[str, Sequence[str]]] = None,
     ) -> MissionTaskGraph:
         if not isinstance(mission_id, str) or not mission_id.strip():
             raise ValueError("MISSION_ID_REQUIRED")
@@ -96,8 +96,9 @@ class MissionTaskGraphCompiler:
         for node, refs in external_inputs.items():
             if isinstance(refs, (str, bytes)):
                 raise ValueError("MISSION_GRAPH_EXTERNAL_INPUTS_MUST_BE_SEQUENCE:%s" % node)
-            values = tuple(ref.strip() for ref in refs if isinstance(ref, str) and ref.strip())
-            if len(values) != len(tuple(refs)):
+            refs_tuple = tuple(refs)
+            values = tuple(ref.strip() for ref in refs_tuple if isinstance(ref, str) and ref.strip())
+            if len(values) != len(refs_tuple):
                 raise ValueError("MISSION_GRAPH_EXTERNAL_INPUT_REF_INVALID:%s" % node)
             normalized_external[node] = tuple(dict.fromkeys(values))
 
@@ -157,7 +158,7 @@ class MissionTaskGraphCompiler:
         control_plane: Any,
         mission_id: str,
         *,
-        external_inputs: Mapping[str, Sequence[str]] | None = None,
+        external_inputs: Optional[Mapping[str, Sequence[str]]] = None,
     ) -> MissionTaskGraph:
         """Persist the compiled graph through the canonical control-plane API.
 
