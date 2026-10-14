@@ -293,12 +293,19 @@ def _enforce_durable_acceptance(truth_runtime: _truth.TruthRuntime, entity: Any)
                 raise _truth.EventValidationError("TASK_PASS_EVALUATION_DOES_NOT_REFERENCE_OUTPUT")
 
     if isinstance(entity, Gap) and entity.state.value == "RESOLVED":
-        _require_durable_pass_evaluation(
+        is_product_defect = entity.category == "PRODUCT_DEFECT" and entity.target_node == "DEFECT"
+        evaluation = _require_durable_pass_evaluation(
             truth_runtime,
             entity.resolution_evaluation_id or "",
             mission_id=entity.mission_id,
-            node=entity.source_node,
+            node="DEFECT" if is_product_defect else entity.source_node,
         )
+        if is_product_defect:
+            dimensions = evaluation.get("dimensions", {})
+            if dimensions.get("defect_state") not in {"CLOSED", "DUPLICATE", "NOT_A_DEFECT"}:
+                raise _truth.EventValidationError("PRODUCT_DEFECT_RESOLUTION_REQUIRES_TERMINAL_DEFECT_STATE")
+            if not isinstance(dimensions.get("defect_id"), str) or not dimensions.get("defect_id"):
+                raise _truth.EventValidationError("PRODUCT_DEFECT_RESOLUTION_REQUIRES_DEFECT_ID")
 
     if isinstance(entity, Mission) and entity.state.value == "CONVERGED":
         evaluation = _require_durable_pass_evaluation(
