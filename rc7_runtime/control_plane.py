@@ -1,16 +1,17 @@
 """RC7 R1-backed control plane.
 
-This is intentionally a deterministic controller, not a super-agent.  It owns
-Task dependency readiness, leasing, worker-output persistence and Gap -> repair
-Task routing.  It never performs Requirement/Code/Test work itself and never
-accepts worker output as PASS.
+This is intentionally a deterministic controller, not a super-agent. It owns
+Task dependency readiness, leasing, worker-output persistence and Gap routing.
+It never performs Requirement/Code/Test work itself and never accepts worker
+output as PASS. PRODUCT_DEFECT is a downstream qualification handoff rather
+than an ordinary repair task.
 """
 
 from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Iterable, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import Iterable, Mapping, Optional, Sequence, Set, Tuple
 
 from rc6_runtime.truth import TruthRuntime
 
@@ -248,7 +249,10 @@ class GapRepairPlanner:
             raise ControlPlaneError("GAP_MUST_BE_OPEN_FOR_PLANNING")
         transition_gap(gap, GapStatus.PLANNED)
         self._persist_gap(gap)
-        task_id = _stable_id("TASK-REPAIR", gap.mission_id, gap.gap_id, decision.target_node)
+
+        is_product_defect = gap.category == "PRODUCT_DEFECT" and decision.target_node == "DEFECT"
+        prefix = "TASK-DEFECT" if is_product_defect else "TASK-REPAIR"
+        task_id = _stable_id(prefix, gap.mission_id, gap.gap_id, decision.target_node)
         existing = self.scheduler._row(task_id)
         if existing is not None:
             return self.scheduler._task_from_row(existing)
@@ -256,12 +260,16 @@ class GapRepairPlanner:
             task_id=task_id,
             mission_id=gap.mission_id,
             node=decision.target_node,
-            task_type="REPAIR",
-            objective="Resolve %s: %s" % (gap.category, gap.description),
+            task_type="QUALIFY_DEFECT" if is_product_defect else "REPAIR",
+            objective=(
+                "Qualify evidence-backed product defect: %s" % gap.description
+                if is_product_defect
+                else "Resolve %s: %s" % (gap.category, gap.description)
+            ),
             required_capabilities=list(_CAPABILITIES_BY_NODE.get(decision.target_node, ())),
             gap_refs=[gap.gap_id],
             acceptance_criteria=list(gap.acceptance_criteria),
-            priority=priority,
+            priority=20 if is_product_defect else priority,
         )
         self.scheduler.register(task)
         return task
