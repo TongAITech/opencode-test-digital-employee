@@ -27,7 +27,7 @@ export PFC_WORKSPACE="${PFC_WORKSPACE:-$ROOT}"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 ARGS=(
-  -m rc7_release.test_design_qualification
+  -m rc7_release.test_design_qualification_strict
   --state-root "$STATE"
   --workspace "$PFC_WORKSPACE"
   --requirement-result "$PFC_RC7_REQUIREMENT_RESULT"
@@ -49,7 +49,7 @@ set -e
 
 RESULT="$STATE/qualification/rc7-dsh-test-design-result.json"
 if [[ -f "$RESULT" ]]; then
-  printf 'RC7 Test Design qualification evidence: %s\n' "$RESULT" >&2
+  printf 'RC7 strict Test Design qualification evidence: %s\n' "$RESULT" >&2
 else
   printf '%s\n' '{"status":"FAIL","reason":"TEST_DESIGN_QUALIFICATION_RESULT_FILE_MISSING"}' >&2
   exit 11
