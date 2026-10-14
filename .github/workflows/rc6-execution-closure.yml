@@ -36,6 +36,9 @@ jobs:
           python -m pytest -q
           tests/test_executable_spec.py
           tests/test_automation_runtime.py
+          tests/test_execution_closure_truth.py
+          tests/test_execution_closure_mcp.py
+          tests/test_execution_closure_vertical.py
           tests/test_execution.py
           tests/test_diagnosis.py
           tests/test_recovery_action_executor.py
@@ -43,3 +46,21 @@ jobs:
           tests/test_autonomous_loop.py
       - name: Full RC6 regression
         run: python -m pytest -q tests
+
+  real-junit-runner:
+    runs-on: ubuntu-latest
+    env:
+      RC6_RUN_REAL_JUNIT: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install qualification dependencies
+        run: python -m pip install -U pytest
+      - name: Probe Maven and Java capabilities
+        run: |
+          mvn -version
+          java -version
+      - name: Real JUnit dependency compile discovery targeted execution and runner
+        run: python -m pytest -q tests/test_junit_runner_real.py
