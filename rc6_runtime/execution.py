@@ -357,13 +357,7 @@ class ExecutionRuntime:
         cwd: str,
         env: Optional[Mapping[str, str]] = None,
     ) -> ExecutionRecord:
-        """Production execution path: immutable spec -> SCRIPT_READY -> real runner.
-
-        The runner's process-level refs are retained as evidence, while only
-        professional tool calls required by the layer (api-runtime/database/etc.)
-        are fed to ToolCapabilityBroker. A pytest/maven exit-code zero therefore
-        cannot manufacture PASS when the required real layer tool call is absent.
-        """
+        """Production path with admission before any real process is launched."""
         layer = self._validate_case_and_prepared(case, prepared)
         if executable_spec.tc_id != prepared.tc_id or executable_spec.case_version != prepared.case_version:
             raise ExecutionContractError("EXECUTABLE_SPEC_CASE_MISMATCH")
@@ -384,6 +378,14 @@ class ExecutionRuntime:
             raise ExecutionContractError("SCRIPT_READY_RUNTIME_GATE_REQUIRED")
 
         profile = self.profiles.get(layer)
+        scope_ref = "case:%s@%s" % (prepared.tc_id, prepared.case_version)
+        # Critical ordering: no external process/tool may run before exact
+        # worker/lease/target/tool admission is proven.
+        self._authorize(worker_id=worker_id, lease_id=lease_id, profile=profile, scope_ref=scope_ref)
+        admission = self.tool_broker.admit(worker_id, profile.required_tools, prepared.target_id)
+        if not admission.ready:
+            raise ExecutionContractError("EXECUTION_TOOL_ADMISSION_BLOCKED:%s" % admission.blocked)
+
         runner_result = runner.execute(
             spec=executable_spec,
             script=script,
@@ -409,6 +411,15 @@ class ExecutionRuntime:
         )
         all_call_refs = tuple(dict.fromkeys(list(record.tool_call_refs) + list(runner_result.tool_call_refs)))
         all_evidence = tuple(dict.fromkeys(list(record.evidence_refs) + list(runner_result.evidence_refs)))
+        final_status = record.status
+        final_integrity = record.integrity_passed
+        final_reason = record.reason
+        # A runner/process failure is Script/Runner evidence, never a PASS, even
+        # if a partial actual result accidentally satisfies the independent oracle.
+        if runner_result.exit_code != 0:
+            final_status = "FAIL"
+            final_integrity = False
+            final_reason = "RUNNER_PROCESS_FAILED:%d" % runner_result.exit_code
         return ExecutionRecord(
             attempt_id=record.attempt_id,
             tc_id=record.tc_id,
@@ -417,12 +428,12 @@ class ExecutionRuntime:
             layer=record.layer,
             worker_id=record.worker_id,
             lease_id=record.lease_id,
-            status=record.status,
-            integrity_passed=record.integrity_passed,
+            status=final_status,
+            integrity_passed=final_integrity,
             actual_result=deepcopy(record.actual_result),
             tool_call_refs=all_call_refs,
             evidence_refs=all_evidence,
             assertion_ref=record.assertion_ref,
             assertion_passed=record.assertion_passed,
-            reason=record.reason,
+            reason=final_reason,
         )
