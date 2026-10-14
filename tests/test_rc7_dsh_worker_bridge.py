@@ -106,6 +106,9 @@ class FakeDshLauncher:
                 "artifact_type": "REQUIREMENT_MODEL",
                 "content_ref": "artifact://requirement-analysis/e2e",
                 "parent_refs": [],
+                # This is deliberately a worker-controlled alias. It remains in
+                # the raw candidate envelope for audit but must never become an
+                # R1 Artifact evidence reference.
                 "evidence_refs": ["source://sst/1"],
                 # Deliberately bogus: Runtime must ignore this value and hash
                 # the canonical persisted envelope itself.
@@ -174,17 +177,22 @@ def test_dsh_worker_bridge_stops_at_candidate_output_and_persists_runtime_eviden
     assert durable_payload["task_id"] == requirement_task.task_id
     assert durable_payload["artifact"]["artifact_id"] == expected_id
     assert durable_payload["artifact"]["content_ref"] == "artifact://requirement-analysis/e2e"
+    assert durable_payload["artifact"]["evidence_refs"] == ["source://sst/1"]
     assert durable_payload["semantic_payload"]["business_rules"] == [{"id": "BR-1"}]
     assert artifact["content_hash"] == "sha256:" + hashlib.sha256(durable_bytes).hexdigest()
     assert artifact["content_hash"] != "sha256:worker-controlled-bogus-hash"
 
     evidence_rows = truth.query("rc7_evidence", mission_id="MISSION-DSH-BRIDGE")
-    assert len(evidence_rows) >= 4
+    assert len(evidence_rows) >= 3
+    canonical_evidence_ids = {row["evidence_id"] for row in evidence_rows}
     contents = {row["content_ref"] for row in evidence_rows}
     assert "dsh://session/session-worker-req-1" in contents
     assert "file:///tmp/rc7-dsh-worker-req-1.jsonl" in contents
     assert "evidence://sst/1" in contents
-    assert "artifact://requirement-analysis/e2e" in contents
+    assert "artifact://requirement-analysis/e2e" not in contents
+    assert set(artifact["evidence_refs"]) == set(result.evidence_ids)
+    assert set(artifact["evidence_refs"]).issubset(canonical_evidence_ids)
+    assert "source://sst/1" not in artifact["evidence_refs"]
 
     assert len(launcher.prompts) == 1
     prompt = launcher.prompts[0]
