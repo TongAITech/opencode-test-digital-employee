@@ -16,6 +16,17 @@ from .coverage import (
     OraclePolicy,
 )
 from .design import DesignContextBuilder, DesignRuntimeError, DesignTask, DesignTaskPlanner, LayerApplicabilityRouter, LayerDecision
+from .execution import (
+    DEFAULT_EXECUTION_PROFILES,
+    ExecutionContractError,
+    ExecutionIntegrityGate,
+    ExecutionProfileRegistry,
+    ExecutionRecord,
+    ExecutionRuntime,
+    LayerExecutionProfile,
+    OracleAssertionResult,
+    RealActionResult,
+)
 from .intelligence import CodeSufficiencyEvaluator, GateResult, IntelligenceContractError, RequirementSufficiencyEvaluator
 from .mission import MissionRuntime, MissionState, ResumeEnvelope
 from .preparation import (
@@ -41,6 +52,8 @@ __all__ = [
     "CaseFreezeGate", "ClosureResult", "CoverageContractError", "CoverageSubject", "CoverageSubjectRegistry",
     "DeltaDesignPlanner", "DeltaDesignRequest", "DesignClosureEvaluator", "OraclePolicy",
     "DesignContextBuilder", "DesignRuntimeError", "DesignTask", "DesignTaskPlanner", "LayerApplicabilityRouter", "LayerDecision",
+    "DEFAULT_EXECUTION_PROFILES", "ExecutionContractError", "ExecutionIntegrityGate", "ExecutionProfileRegistry",
+    "ExecutionRecord", "ExecutionRuntime", "LayerExecutionProfile", "OracleAssertionResult", "RealActionResult",
     "CodeSufficiencyEvaluator", "GateResult", "IntelligenceContractError", "RequirementSufficiencyEvaluator",
     "MissionRuntime", "MissionState", "ResumeEnvelope",
     "AttemptBindingStore", "PreparationContractError", "PreparationPlan", "PreparedAttempt",

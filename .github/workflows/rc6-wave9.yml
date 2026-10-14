@@ -1,0 +1,20 @@
+name: RC6 Wave 9 L1-L7 Real Execution
+
+on:
+  push:
+    branches:
+      - work/rc6-runtime-reconstruction
+  pull_request:
+    paths:
+      - 'rc6_runtime/execution.py'
+      - 'tests/test_execution.py'
+      - 'docs/RC6_WAVE9_QUALIFICATION.md'
+      - '.github/workflows/rc6-wave9.yml'
+
+jobs:
+  wave9-real-execution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run all RC6 unit qualification
+        run: python -m unittest discover -s tests -v
