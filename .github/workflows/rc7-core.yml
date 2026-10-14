@@ -30,11 +30,12 @@ jobs:
       - name: Compile RC7 runtime and release qualification
         run: python -m compileall -q rc7_runtime rc7_release
       - name: Import inherited RC6 runtime and RC7 MCP
-        run: python -c "import rc6_runtime; import rc6_runtime.truth; import rc7_release.mcp_server; import rc7_release.qualification; import rc7_release.code_qualification"
+        run: python -c "import rc6_runtime; import rc6_runtime.truth; import rc7_release.mcp_server; import rc7_release.qualification; import rc7_release.code_qualification; import rc7_release.code_qualification_strict"
       - name: Validate RC7 shell qualification entrypoints
         run: |
           bash -n packaging/rc7/QUALIFY-DSH-REQUIREMENT.sh
           bash -n packaging/rc7/QUALIFY-DSH-CODE.sh
+          grep -q 'rc7_release.code_qualification_strict' packaging/rc7/QUALIFY-DSH-CODE.sh
       - name: Run RC7 closed-loop core tests
         run: python -m pytest -q tests/test_rc7_*.py
 
@@ -54,8 +55,8 @@ jobs:
           if ($requirement -notmatch 'rc7-dsh-bridge-result\.json') { throw 'RC7 Requirement qualification result contract missing' }
           if ($requirement -match 'DSH_ARGS=--dsh-bin') { throw 'Unsafe concatenated DSH path quoting regression' }
           $code = Get-Content -Raw 'packaging/rc7/QUALIFY-DSH-CODE.cmd'
-          if ($code -notmatch 'rc7_release\.code_qualification') { throw 'RC7 Code qualification module invocation missing' }
+          if ($code -notmatch 'rc7_release\.code_qualification_strict') { throw 'RC7 strict Code qualification module invocation missing' }
           if ($code -notmatch 'rc7-dsh-code-result\.json') { throw 'RC7 Code qualification result contract missing' }
           if ($code -notmatch 'PFC_RC7_CODEGRAPH_QUERY_ARGS_JSON') { throw 'RC7 CodeGraph query contract missing' }
       - name: Python 3.8 imports RC7 qualification and MCP modules
-        run: python -c "import rc7_release.qualification; import rc7_release.code_qualification; import rc7_release.mcp_server"
+        run: python -c "import rc7_release.qualification; import rc7_release.code_qualification; import rc7_release.code_qualification_strict; import rc7_release.mcp_server"
