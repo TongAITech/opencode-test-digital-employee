@@ -26,6 +26,8 @@ from .diagnosis import (
     DiagnosisResult,
     DiagnosisRuntime,
     FailureContext,
+    FailureSignature,
+    RootCauseCandidate,
     RecoveryDecision as DiagnosisRecoveryDecision,
     RecoveryEngine,
     history_entry_from_execution,
@@ -86,6 +88,42 @@ from .reality import BankRealityRegistry, RealityError
 from .stages import StageMachine, StageViolation
 from .target import TargetIdentity, TargetIdentityBuilder, TargetIdentityError
 from .truth import EventValidationError, JsonlEventStore, PersistenceReceipt, Projection, ProjectionIntegrityError, TruthRuntime
+from .executable_spec import (
+    ExecutableSpecBuilder,
+    ExecutableSpecError,
+    ExecutableTestSpec,
+    canonical_fingerprint,
+)
+from .automation import (
+    AIScriptBuilder,
+    AutomationAsset,
+    AutomationContractError,
+    AutomationResolution,
+    AutomationReuseResolver,
+    JUnitRunnerAdapter,
+    ProcessStepResult,
+    PytestRunnerAdapter,
+    RunnerAdapter,
+    RunnerExecutionResult,
+    ScriptArtifact,
+    ScriptValidation,
+    ScriptValidator,
+)
+from .recovery import (
+    ConvergenceDecision,
+    ExecutionBudgets,
+    ExecutionConvergenceController,
+    RecoveryActionError,
+    RecoveryActionExecutor,
+    RecoveryActionResult,
+    TERMINAL_STATES,
+)
+from .execution_overlay import (
+    EXECUTION_CLOSURE_BUCKETS,
+    EXECUTION_CLOSURE_EVENT_TYPES,
+    EXECUTION_CLOSURE_VALIDATORS,
+    install_execution_closure_overlay,
+)
 from .agent_runtime import (
     AGENT_RUNTIME_EVENT_TYPES,
     AgentRuntimeError,
@@ -103,6 +141,9 @@ from .agent_runtime import (
     normalize_requirement_review,
 )
 
+# Extend the frozen R1 truth runtime with execution-closure artifacts.
+install_execution_closure_overlay()
+
 __all__ = [
     "AuthorityError", "AuthorityRuntime", "TaskLease", "WorkerIdentity",
     "BudgetDecision", "ContextBudget", "ProviderBudget",
@@ -112,8 +153,8 @@ __all__ = [
     "DeltaDesignPlanner", "DeltaDesignRequest", "DesignClosureEvaluator", "OraclePolicy",
     "DesignContextBuilder", "DesignRuntimeError", "DesignTask", "DesignTaskPlanner", "LayerApplicabilityRouter", "LayerDecision",
     "AttemptHistory", "AttemptHistoryEntry", "CATCorrelationResult", "CATPolicy", "CorrelationScope",
-    "DiagnosisContractError", "DiagnosisResult", "DiagnosisRuntime", "FailureContext", "DiagnosisRecoveryDecision",
-    "RecoveryEngine", "history_entry_from_execution",
+    "DiagnosisContractError", "DiagnosisResult", "DiagnosisRuntime", "FailureContext", "FailureSignature", "RootCauseCandidate",
+    "DiagnosisRecoveryDecision", "RecoveryEngine", "history_entry_from_execution",
     "DEFAULT_EXECUTION_PROFILES", "ExecutionContractError", "ExecutionIntegrityGate", "ExecutionProfileRegistry",
     "ExecutionRecord", "ExecutionRuntime", "LayerExecutionProfile", "OracleAssertionResult", "RealActionResult",
     "DEFAULT_LAYER_COVERAGE_PROFILES", "CoverageDeltaRequest", "CoverageObservation", "CoverageObservationRuntime",
@@ -131,6 +172,13 @@ __all__ = [
     "StageMachine", "StageViolation",
     "TargetIdentity", "TargetIdentityBuilder", "TargetIdentityError",
     "EventValidationError", "JsonlEventStore", "PersistenceReceipt", "Projection", "ProjectionIntegrityError", "TruthRuntime",
+    "ExecutableSpecBuilder", "ExecutableSpecError", "ExecutableTestSpec", "canonical_fingerprint",
+    "AIScriptBuilder", "AutomationAsset", "AutomationContractError", "AutomationResolution", "AutomationReuseResolver",
+    "JUnitRunnerAdapter", "ProcessStepResult", "PytestRunnerAdapter", "RunnerAdapter", "RunnerExecutionResult",
+    "ScriptArtifact", "ScriptValidation", "ScriptValidator",
+    "ConvergenceDecision", "ExecutionBudgets", "ExecutionConvergenceController", "RecoveryActionError",
+    "RecoveryActionExecutor", "RecoveryActionResult", "TERMINAL_STATES",
+    "EXECUTION_CLOSURE_BUCKETS", "EXECUTION_CLOSURE_EVENT_TYPES", "EXECUTION_CLOSURE_VALIDATORS", "install_execution_closure_overlay",
     "AGENT_RUNTIME_EVENT_TYPES", "AgentRuntimeError", "AgentRuntimeProofValidator", "AgentRuntimeQualificationResult",
     "DshHeadlessWorkerLauncher", "HeadlessRunResult", "IndependentRequirementSufficiencyGate",
     "WorkerAssignment", "WorkerInvocation", "append_gap", "append_requirement_analysis", "append_requirement_review",
