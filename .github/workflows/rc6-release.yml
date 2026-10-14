@@ -60,6 +60,20 @@ jobs:
       - name: Verify built package
         shell: pwsh
         run: python -m rc6_release.package verify --package-root dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10
+      - name: Static RC6 skill payload qualification
+        shell: pwsh
+        run: |
+          $root = 'dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10'
+          $skills = @(Get-ChildItem "$root/.dsh/skills" -Directory | Where-Object { $_.Name -like 'pfc-*' })
+          if ($skills.Count -ne 26) { Write-Error "expected 26 static RC6 skills, got $($skills.Count)"; exit 1 }
+          $professional = @($skills | Where-Object { $_.Name -ne 'pfc-full-chain-test' })
+          if ($professional.Count -ne 25) { Write-Error "expected 25 professional RC6 skills"; exit 1 }
+          foreach ($skill in $skills) {
+            $path = Join-Path $skill.FullName 'SKILL.md'
+            if (-not (Test-Path $path)) { Write-Error "missing $path"; exit 1 }
+          }
+          $manifest = Get-Content "$root/PACKAGE_MANIFEST.json" | ConvertFrom-Json
+          if ($manifest.static_skill_count -ne 26) { Write-Error 'manifest static_skill_count mismatch'; exit 1 }
       - name: ZIP shell line-ending qualification
         shell: pwsh
         run: |
@@ -77,6 +91,7 @@ jobs:
           rm -rf "$FRESH" "$LEGACY"
           PFC_WORKSPACE="$FRESH" "$PKG/INSTALL-AITEST.sh"
           PFC_WORKSPACE="$FRESH" "$PKG/VERIFY-RC6-PROFILE.sh"
+          test "$(find "$FRESH/.dsh/skills" -mindepth 1 -maxdepth 1 -type d -name 'pfc-*' | wc -l | tr -d ' ')" = "26"
           PFC_WORKSPACE="$FRESH" "$PKG/INSTALL-AITEST.sh" | grep -q '"install_mode": "RC6_REPAIR"'
           mkdir -p "$LEGACY/.dsh/skills/pfc-old-rc5" "$LEGACY/.dsh/skills/custom-bank" "$LEGACY/.agents/skills/pfc-old-agent"
           printf 'legacy\n' > "$LEGACY/.dsh/skills/pfc-old-rc5/SKILL.md"
@@ -84,9 +99,32 @@ jobs:
           printf 'legacy-agent\n' > "$LEGACY/.agents/skills/pfc-old-agent/SKILL.md"
           PFC_WORKSPACE="$LEGACY" "$PKG/INSTALL-AITEST.sh" | grep -q '"install_mode": "UPGRADE_FROM_LEGACY"'
           PFC_WORKSPACE="$LEGACY" "$PKG/VERIFY-RC6-PROFILE.sh"
+          test "$(find "$LEGACY/.dsh/skills" -mindepth 1 -maxdepth 1 -type d -name 'pfc-*' | wc -l | tr -d ' ')" = "26"
           test -f "$LEGACY/.dsh/skills/custom-bank/SKILL.md"
           test -n "$(find "$LEGACY/.aitest-backup" -path '*/.dsh/skills/pfc-old-rc5/SKILL.md' -print -quit)"
           test -z "$(find "$LEGACY/.agents/skills" -maxdepth 1 -name 'pfc-*' -print -quit 2>/dev/null || true)"
+      - name: Reusable offline tool bootstrap qualification
+        shell: pwsh
+        run: |
+          $ws = Join-Path $env:RUNNER_TEMP 'rc6-tool-bootstrap'
+          Remove-Item $ws -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force (Join-Path $ws 'tools') | Out-Null
+          Set-Content -Path (Join-Path $ws 'tools/foura_auth.py') -Value "def login():`n    return 'not-executed'`n" -Encoding utf8
+          Set-Content -Path (Join-Path $ws 'tools/cat.yml') -Value "endpoint: placeholder`n" -Encoding utf8
+          $env:PFC_GIT_BIN = (Get-Command git).Source
+          $env:PFC_PYTHON = (Get-Command python).Source
+          python -m rc6_release.tool_bootstrap bootstrap --workspace $ws
+          python -m rc6_release.tool_bootstrap verify --workspace $ws
+          $profile = Get-Content "$ws/.dsh/rc6/TOOL_PROFILE.json" | ConvertFrom-Json
+          $git = @($profile.tools | Where-Object { $_.tool_id -eq 'git' })[0]
+          $foura = @($profile.tools | Where-Object { $_.tool_id -eq '4a' })[0]
+          $cat = @($profile.tools | Where-Object { $_.tool_id -eq 'cat' })[0]
+          if ($git.status -ne 'PROBE_PASS') { Write-Error 'git reuse/probe failed'; exit 1 }
+          if ($foura.status -ne 'BLOCKED_FIELD_AUTH') { Write-Error '4A must remain field-blocked'; exit 1 }
+          if ($cat.status -ne 'BLOCKED_FIELD_LOGIN') { Write-Error 'CAT must remain field-blocked'; exit 1 }
+          if (@($profile.tools | Where-Object { $_.target_ready -eq $true }).Count -ne 0) { Write-Error 'bootstrap forged target READY'; exit 1 }
+          if ($profile.summary.target_ready -ne 0) { Write-Error 'target_ready summary must stay zero'; exit 1 }
+          if (Test-Path "$ws/tools/__pycache__") { Write-Error '4A discovery created bytecode side effect'; exit 1 }
       - name: Execution Closure runtime is packaged and status stays pre-bank
         shell: pwsh
         run: |
@@ -97,6 +135,7 @@ jobs:
           if ($manifest.full_chain_real -ne $false) { exit 1 }
           if ($manifest.bank_field_pass -ne $false) { exit 1 }
           if ($manifest.workspace_installation -ne 'AUTO_FRESH_OR_UPGRADE') { exit 1 }
+          if ($manifest.static_skill_count -ne 26) { exit 1 }
           $required = @(
             'rc6_runtime/executable_spec.py',
             'rc6_runtime/automation.py',
@@ -108,10 +147,17 @@ jobs:
             'rc6_release/execution_closure_hardening.py',
             'rc6_release/recovery_adapter_registry.py',
             'rc6_release/workspace_install.py',
+            'rc6_release/static_skills.py',
+            'rc6_release/tool_bootstrap.py',
             'INSTALL-AITEST.sh',
             'VERIFY-RC6-PROFILE.sh',
             'ROLLBACK-AITEST.sh',
             '.dsh/skills/pfc-full-chain-test/SKILL.md',
+            '.dsh/skills/pfc-requirement-analysis/SKILL.md',
+            '.dsh/skills/pfc-code-analysis/SKILL.md',
+            '.dsh/skills/pfc-l3-test-design/SKILL.md',
+            '.dsh/skills/pfc-automation-engineer/SKILL.md',
+            '.dsh/skills/pfc-failure-diagnosis/SKILL.md',
             'QUALIFY-AGENT-RUNTIME.sh'
           )
           foreach ($file in $required) { if (-not (Test-Path "$root/$file")) { Write-Error "missing $file"; exit 1 } }
