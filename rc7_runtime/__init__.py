@@ -39,6 +39,7 @@ from .dsh_worker_bridge import (
     DshTaskWorkerBridge,
     DshWorkerBridgeError,
 )
+from .candidate_payload import CandidatePayload, CandidatePayloadError, CandidatePayloadReader
 
 __all__ = [
     "Artifact",
@@ -72,4 +73,7 @@ __all__ = [
     "DshTaskRunResult",
     "DshTaskWorkerBridge",
     "DshWorkerBridgeError",
+    "CandidatePayload",
+    "CandidatePayloadError",
+    "CandidatePayloadReader",
 ]
