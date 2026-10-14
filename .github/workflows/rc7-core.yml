@@ -1,0 +1,31 @@
+name: RC7 Closed-loop Core
+
+on:
+  push:
+    branches:
+      - work/rc7-closed-loop-runtime
+    paths:
+      - 'rc7_runtime/**'
+      - 'tests/test_rc7_*.py'
+      - '.github/workflows/rc7-core.yml'
+  workflow_dispatch:
+
+jobs:
+  core:
+    name: core-python-${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install qualification dependency
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile RC7 runtime
+        run: python -m compileall -q rc7_runtime
+      - name: Run RC7 closed-loop core tests
+        run: python -m pytest -q tests/test_rc7_closed_loop_core.py
