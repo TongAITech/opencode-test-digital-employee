@@ -45,6 +45,8 @@ from .dsh_requirement_evaluator import (
     DshRequirementEvaluator,
     DshRequirementEvaluatorError,
 )
+from .dsh_code_evaluator import DshCodeEvaluation, DshCodeEvaluator, DshCodeEvaluatorError
+from .dsh_proof import DshProofError, DshR1ProofReader, DshToolCallProof, code_tool_category
 
 __all__ = [
     "Artifact",
@@ -84,4 +86,11 @@ __all__ = [
     "DshRequirementEvaluation",
     "DshRequirementEvaluator",
     "DshRequirementEvaluatorError",
+    "DshCodeEvaluation",
+    "DshCodeEvaluator",
+    "DshCodeEvaluatorError",
+    "DshProofError",
+    "DshR1ProofReader",
+    "DshToolCallProof",
+    "code_tool_category",
 ]
