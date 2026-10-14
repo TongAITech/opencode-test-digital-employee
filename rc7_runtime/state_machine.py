@@ -1,7 +1,7 @@
 """Deterministic RC7 control-plane state transitions and convergence gates.
 
-The LLM/worker may propose an output, repair, or gap.  It does not own these
-transitions.  Runtime code must pass through this module (or an equivalent
+The LLM/worker may propose an output, repair, or gap. It does not own these
+transitions. Runtime code must pass through this module (or an equivalent
 policy implementation) before durable state can be accepted.
 """
 
@@ -37,7 +37,14 @@ TASK_TRANSITIONS: Dict[TaskStatus, Set[TaskStatus]] = {
         TaskStatus.STALE,
         TaskStatus.CANCELLED,
     },
-    TaskStatus.LEASED: {TaskStatus.RUNNING, TaskStatus.READY, TaskStatus.FAILED, TaskStatus.STALE},
+    TaskStatus.LEASED: {
+        TaskStatus.RUNNING,
+        TaskStatus.READY,
+        TaskStatus.BLOCKED,
+        TaskStatus.HUMAN_REQUIRED,
+        TaskStatus.FAILED,
+        TaskStatus.STALE,
+    },
     TaskStatus.RUNNING: {
         TaskStatus.OUTPUT_PRODUCED,
         TaskStatus.BLOCKED,
@@ -140,8 +147,6 @@ def transition_task(task: Task, target: TaskStatus, *, evaluation_id: str = "", 
     if target == TaskStatus.RUNNING and not task.lease_owner:
         raise TransitionError("TASK_MUST_BE_LEASED_BEFORE_RUNNING")
 
-    # Critical RC7 invariant: a worker may only produce candidate output.  PASS
-    # is an evaluator-owned transition and therefore requires an evaluation id.
     if target == TaskStatus.PASS:
         if task.state != TaskStatus.EVALUATING:
             raise TransitionError("TASK_PASS_REQUIRES_EVALUATING_STATE")
@@ -153,7 +158,15 @@ def transition_task(task: Task, target: TaskStatus, *, evaluation_id: str = "", 
         if task.state == TaskStatus.EVALUATING and evaluation_id:
             task.evaluation_id = evaluation_id.strip()
 
-    if target in {TaskStatus.READY, TaskStatus.STALE, TaskStatus.CANCELLED}:
+    # A blocked/human/stale/cancelled task no longer belongs to the worker that
+    # happened to hold the lease when a shared dependency or gate stopped it.
+    if target in {
+        TaskStatus.READY,
+        TaskStatus.BLOCKED,
+        TaskStatus.HUMAN_REQUIRED,
+        TaskStatus.STALE,
+        TaskStatus.CANCELLED,
+    }:
         task.lease_owner = None
 
     task.state = target
