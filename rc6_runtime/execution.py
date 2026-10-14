@@ -6,8 +6,10 @@ runtime-issued layer execution worker/lease is authorized, all required tools
 are admitted for that worker+target, a real action is evidenced by real tool
 calls, an actual result exists, and an independent oracle assertion passes.
 
-Execution workers receive copies of the frozen Case/prepared binding and cannot
-mutate either canonical object. BLOCKED/SKIPPED/NOT_RUN never become PASS.
+Execution Closure adds `execute_with_runner`: the product path consumes an
+immutable ExecutableTestSpec + SCRIPT_READY validation and invokes a production
+RunnerAdapter. The legacy `real_action` callable remains only as a compatibility
+surface for frozen Wave9 tests/adapters; it is no longer the only product path.
 """
 
 from __future__ import annotations
@@ -21,6 +23,8 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Tuple
 from .authority import AuthorityError, AuthorityRuntime
 from .capability import ToolCapabilityBroker, ToolCapabilityError
 from .preparation import PreparedAttempt
+from .executable_spec import ExecutableSpecBuilder, ExecutableTestSpec
+from .automation import RunnerAdapter, ScriptArtifact, ScriptValidation
 
 
 class ExecutionContractError(RuntimeError):
@@ -89,7 +93,7 @@ class ExecutionRecord:
 class ExecutionProfileRegistry:
     def __init__(self, profiles: Optional[Mapping[str, LayerExecutionProfile]] = None):
         source = dict(profiles or DEFAULT_EXECUTION_PROFILES)
-        expected = {f"L{i}" for i in range(1, 8)}
+        expected = {"L%d" % i for i in range(1, 8)}
         if set(source) != expected:
             raise ExecutionContractError("SEVEN_LAYER_EXECUTION_PROFILES_REQUIRED")
         self._profiles: Dict[str, LayerExecutionProfile] = {}
@@ -97,7 +101,7 @@ class ExecutionProfileRegistry:
         for layer, profile in source.items():
             if profile.layer != layer:
                 raise ExecutionContractError("PROFILE_LAYER_MISMATCH")
-            if profile.role != f"{layer}_EXECUTE":
+            if profile.role != "%s_EXECUTE" % layer:
                 raise ExecutionContractError("PROFILE_ROLE_MUST_BE_LAYER_EXECUTE")
             if not profile.required_tools or any(not x for x in profile.required_tools):
                 raise ExecutionContractError("PROFILE_REQUIRED_TOOLS_REQUIRED")
@@ -113,7 +117,7 @@ class ExecutionProfileRegistry:
             raise ExecutionContractError("UNKNOWN_EXECUTION_LAYER")
 
     def all(self) -> Tuple[LayerExecutionProfile, ...]:
-        return tuple(self._profiles[f"L{i}"] for i in range(1, 8))
+        return tuple(self._profiles["L%d" % i] for i in range(1, 8))
 
 
 class ExecutionIntegrityGate:
@@ -131,7 +135,7 @@ class ExecutionIntegrityGate:
         if status not in ACTION_STATUSES:
             raise ExecutionContractError("INVALID_REAL_ACTION_STATUS")
         if status != "EXECUTED":
-            return status, False, action.reason or f"ACTION_{status}"
+            return status, False, action.reason or "ACTION_%s" % status
         if not isinstance(action.actual_result, dict) or not action.actual_result:
             return "FAIL", False, "ACTUAL_RESULT_REQUIRED"
         required = set(required_tools)
@@ -151,7 +155,7 @@ class ExecutionIntegrityGate:
 
 
 class ExecutionRuntime:
-    """Layer-isolated real execution with authority, tool and integrity gates."""
+    """Layer-isolated execution with authority, tool and integrity gates."""
 
     REQUIRED_ARTIFACTS = ("execution_attempt", "assertion", "evidence")
 
@@ -182,7 +186,7 @@ class ExecutionRuntime:
         tc_id = case.get("tc_id")
         version = case.get("case_version")
         layer = str(case.get("layer", "")).upper()
-        if layer not in {f"L{i}" for i in range(1, 8)}:
+        if layer not in {"L%d" % i for i in range(1, 8)}:
             raise ExecutionContractError("SINGLE_VALID_LAYER_REQUIRED")
         if prepared.status != "PREPARED":
             raise ExecutionContractError("PREPARED_ATTEMPT_REQUIRED")
@@ -223,14 +227,15 @@ class ExecutionRuntime:
         lease_id: str,
         real_action: Callable[[Dict[str, Any], PreparedAttempt, LayerExecutionProfile], Dict[str, Any]],
     ) -> ExecutionRecord:
+        """Compatibility execution surface retained for frozen Wave9 adapters/tests."""
         layer = self._validate_case_and_prepared(case, prepared)
         profile = self.profiles.get(layer)
-        scope_ref = f"case:{prepared.tc_id}@{prepared.case_version}"
+        scope_ref = "case:%s@%s" % (prepared.tc_id, prepared.case_version)
         self._authorize(worker_id=worker_id, lease_id=lease_id, profile=profile, scope_ref=scope_ref)
 
         admission = self.tool_broker.admit(worker_id, profile.required_tools, prepared.target_id)
         if not admission.ready:
-            raise ExecutionContractError(f"EXECUTION_TOOL_ADMISSION_BLOCKED:{admission.blocked}")
+            raise ExecutionContractError("EXECUTION_TOOL_ADMISSION_BLOCKED:%s" % admission.blocked)
 
         case_before = self._fingerprint(case)
         prepared_before = self._fingerprint(prepared)
@@ -245,7 +250,6 @@ class ExecutionRuntime:
         if not isinstance(tool_calls_raw, list) or not isinstance(evidence_raw, list):
             raise ExecutionContractError("REAL_ACTION_EVIDENCE_SHAPE_INVALID")
 
-        calls = []
         observed_tools = []
         call_refs = []
         tool_evidence = []
@@ -259,7 +263,7 @@ class ExecutionRuntime:
                 raise ExecutionContractError("TOOL_CALL_EVIDENCE_REQUIRED")
             try:
                 self.authority.authorize_tool(worker_id, lease_id, tool_id)
-                evidence = self.tool_broker.record_tool_call(
+                self.tool_broker.record_tool_call(
                     tool_id,
                     worker_id=worker_id,
                     target_id=prepared.target_id,
@@ -268,7 +272,6 @@ class ExecutionRuntime:
                 )
             except (AuthorityError, ToolCapabilityError) as exc:
                 raise ExecutionContractError(str(exc))
-            calls.append(evidence)
             observed_tools.append(tool_id)
             call_refs.append(call_ref)
             tool_evidence.append(evidence_ref)
@@ -338,4 +341,88 @@ class ExecutionRuntime:
             assertion_ref=assertion.assertion_ref if assertion else None,
             assertion_passed=assertion.passed if assertion else None,
             reason=reason,
+        )
+
+    def execute_with_runner(
+        self,
+        *,
+        case: Dict[str, Any],
+        executable_spec: ExecutableTestSpec,
+        script: ScriptArtifact,
+        validation: ScriptValidation,
+        prepared: PreparedAttempt,
+        worker_id: str,
+        lease_id: str,
+        runner: RunnerAdapter,
+        cwd: str,
+        env: Optional[Mapping[str, str]] = None,
+    ) -> ExecutionRecord:
+        """Production execution path: immutable spec -> SCRIPT_READY -> real runner.
+
+        The runner's process-level refs are retained as evidence, while only
+        professional tool calls required by the layer (api-runtime/database/etc.)
+        are fed to ToolCapabilityBroker. A pytest/maven exit-code zero therefore
+        cannot manufacture PASS when the required real layer tool call is absent.
+        """
+        layer = self._validate_case_and_prepared(case, prepared)
+        if executable_spec.tc_id != prepared.tc_id or executable_spec.case_version != prepared.case_version:
+            raise ExecutionContractError("EXECUTABLE_SPEC_CASE_MISMATCH")
+        if executable_spec.layer != layer:
+            raise ExecutionContractError("EXECUTABLE_SPEC_LAYER_MISMATCH")
+        if script.spec_id != executable_spec.spec_id or validation.script_id != script.script_id:
+            raise ExecutionContractError("SCRIPT_VALIDATION_SPEC_CHAIN_MISMATCH")
+        try:
+            ExecutableSpecBuilder.verify_case_binding(executable_spec, case)
+            ExecutableSpecBuilder.verify_script_or_repair_binding(
+                executable_spec,
+                case_fingerprint=script.case_fingerprint,
+                oracle_fingerprint=script.oracle_fingerprint,
+            )
+        except Exception as exc:
+            raise ExecutionContractError(str(exc))
+        if not validation.ready:
+            raise ExecutionContractError("SCRIPT_READY_RUNTIME_GATE_REQUIRED")
+
+        profile = self.profiles.get(layer)
+        runner_result = runner.execute(
+            spec=executable_spec,
+            script=script,
+            validation=validation,
+            cwd=cwd,
+            env=env,
+        )
+        required = set(profile.required_tools)
+        professional_calls = [deepcopy(call) for call in runner_result.tool_calls if call.get("tool_id") in required]
+
+        record = self.execute(
+            case=case,
+            prepared=prepared,
+            worker_id=worker_id,
+            lease_id=lease_id,
+            real_action=lambda _case, _prepared, _profile: {
+                "status": runner_result.status,
+                "actual_result": deepcopy(runner_result.actual_result),
+                "tool_calls": professional_calls,
+                "evidence_refs": list(runner_result.evidence_refs),
+                "reason": None if runner_result.status == "EXECUTED" else "RUNNER_NOT_EXECUTED",
+            },
+        )
+        all_call_refs = tuple(dict.fromkeys(list(record.tool_call_refs) + list(runner_result.tool_call_refs)))
+        all_evidence = tuple(dict.fromkeys(list(record.evidence_refs) + list(runner_result.evidence_refs)))
+        return ExecutionRecord(
+            attempt_id=record.attempt_id,
+            tc_id=record.tc_id,
+            case_version=record.case_version,
+            target_id=record.target_id,
+            layer=record.layer,
+            worker_id=record.worker_id,
+            lease_id=record.lease_id,
+            status=record.status,
+            integrity_passed=record.integrity_passed,
+            actual_result=deepcopy(record.actual_result),
+            tool_call_refs=all_call_refs,
+            evidence_refs=all_evidence,
+            assertion_ref=record.assertion_ref,
+            assertion_passed=record.assertion_passed,
+            reason=record.reason,
         )
