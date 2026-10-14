@@ -1,13 +1,12 @@
 """RC7 end-to-end control-plane composition.
 
-This module composes the already-proven TaskScheduler and GapRepairPlanner into
-a deterministic closed loop. A repair worker never closes its own Gap. Repair
-PASS only moves the Gap to EVIDENCE_PENDING and reactivates the source Task.
-Only a fresh source-node Evaluation may resolve that Gap and accept the source
-Task. A trusted Execution PRODUCT FAIL is different: Execution may be accepted
-as a conclusive piece of work while its PRODUCT_DEFECT Gap is handed to an
-independent Defect qualification task. Mission state and all intermediate truth
-remain R1-native.
+This module composes the proven scheduler, Gap router and node evaluators into
+a deterministic closed loop. Ordinary repair work never closes its own Gap:
+repair PASS only moves the Gap to EVIDENCE_PENDING and the source node must be
+re-executed and independently re-evaluated. A trusted PRODUCT FAIL is a
+cross-node handoff: Execution work may PASS as a conclusive result while the
+PRODUCT_DEFECT Gap remains open until the Defect lifecycle reaches a terminal,
+evidence-backed state.
 """
 
 from __future__ import annotations
@@ -65,9 +64,6 @@ _ACTIVE_TASK_STATES = {
     TaskStatus.STALE,
 }
 
-# PASS normally means the source node has no remaining gap. The single explicit
-# exception is a conclusive execution result that proves the product failed:
-# execution work is complete, but ownership moves to Defect qualification.
 _PASS_HANDOFF_GAPS = {
     ("EXECUTION", "PRODUCT_DEFECT", "DEFECT"),
 }
@@ -203,9 +199,6 @@ class ClosedLoopControlPlane:
                 self.gap_planner.plan(gap)
             transition_task(task, TaskStatus.REPAIR_REQUIRED, evaluation_id=evaluation.evaluation_id)
             self.scheduler.persist_evaluated_task(task)
-            # Gap ownership is runtime work, not a follow-up API responsibility.
-            # Once the source evaluation is durable, any dependency-free repair
-            # task must become leaseable in the same control-plane turn.
             self.scheduler.refresh_ready(self.mission_id)
             mission = self._mission()
             if mission.state == MissionStatus.RUNNING:
@@ -221,8 +214,6 @@ class ClosedLoopControlPlane:
                 self.gap_planner.plan(gap)
             transition_task(task, TaskStatus.BLOCKED, evaluation_id=evaluation.evaluation_id)
             self.scheduler.persist_evaluated_task(task)
-            # Runtime/environment repair must be immediately visible to the
-            # scheduler even though the source Task itself is BLOCKED.
             self.scheduler.refresh_ready(self.mission_id)
             mission = self._mission()
             if mission.state in {MissionStatus.RUNNING, MissionStatus.REPAIRING}:
@@ -299,82 +290,168 @@ class ClosedLoopControlPlane:
         self.scheduler.persist_evaluated_task(task)
 
         transition_gap(gap, GapStatus.EVIDENCE_PENDING)
+        self._persist_gap(gap)
         transition_gap(gap, GapStatus.RESOLVED, resolution_evaluation_id=evaluation.evaluation_id)
         self._persist_gap(gap)
-        self.scheduler.refresh_ready(self.mission_id)
         self._sync_mission(self._mission())
         return self.scheduler.task(task_id)
 
-    def converge_mission(self, evaluation: Evaluation) -> Mission:
+    def converge_mission(
+        self,
+        evaluation: Evaluation,
+        *,
+        pending_defect_verifications: int = 0,
+        residual_risks_pending_acceptance: int = 0,
+    ) -> Mission:
         if evaluation.mission_id != self.mission_id or evaluation.node != "MISSION_EVALUATION":
             raise ClosedLoopControlError("MISSION_EVALUATION_IDENTITY_MISMATCH")
         if evaluation.result != EvaluationResult.PASS:
-            raise ClosedLoopControlError("MISSION_CONVERGENCE_REQUIRES_PASS_EVALUATION")
-        append_entity(self.truth, evaluation, release_id=self.release_id, artifact_version=1)
-
-        mission = self._mission()
-        open_gaps = self._open_gaps()
-        active_tasks = self._active_tasks()
-        pending_defects = [
-            row
-            for row in self.truth.query("rc7_defect", mission_id=self.mission_id)
-            if row["state"] not in _DEFECT_RESOLUTION_STATES
+            raise ClosedLoopControlError("MISSION_EVALUATION_MUST_PASS")
+        active = [
+            row["task_id"]
+            for row in self.truth.query("rc7_task", mission_id=self.mission_id)
+            if TaskStatus(str(row["state"])) in _ACTIVE_TASK_STATES
         ]
-        if active_tasks:
-            raise ClosedLoopControlError("MISSION_HAS_ACTIVE_TASKS")
+        if active:
+            raise ClosedLoopControlError("MISSION_HAS_ACTIVE_TASKS:%s" % ",".join(sorted(active)))
+        open_gaps = [
+            row
+            for row in self.truth.query("rc7_gap", mission_id=self.mission_id)
+            if GapStatus(str(row["state"])) in _OPEN_GAP_STATES
+        ]
         if open_gaps:
             raise ClosedLoopControlError("MISSION_HAS_OPEN_GAPS")
-        decision = decide_convergence(
+        convergence = decide_convergence(
             ConvergenceInput(
                 mission_sufficiency_result=evaluation.result,
-                open_critical_gaps=sum(
-                    1
-                    for gap in open_gaps
-                    if gap.severity.value in {"CRITICAL", "BLOCKER"}
-                ),
-                open_blocking_gaps=len(open_gaps),
-                pending_defect_verifications=len(pending_defects),
-                residual_risks_pending_acceptance=len(mission.residual_risk_ids),
+                pending_defect_verifications=pending_defect_verifications,
+                residual_risks_pending_acceptance=residual_risks_pending_acceptance,
             )
         )
-        if not decision.converged:
-            raise ClosedLoopControlError("MISSION_CONVERGENCE_REJECTED:%s" % ",".join(decision.reasons))
+        if not convergence.converged:
+            raise ClosedLoopControlError("MISSION_CONVERGENCE_REJECTED:%s" % ",".join(convergence.reasons))
+        sufficiency_state = str(evaluation.dimensions.get("sufficiency_state", ""))
+        if sufficiency_state not in {"SUFFICIENT", "SUFFICIENT_WITH_RESIDUAL_RISK"}:
+            raise ClosedLoopControlError("MISSION_SUFFICIENCY_STATE_INVALID")
+
+        mission = self._mission()
         if mission.state == MissionStatus.RUNNING:
             transition_mission(mission, MissionStatus.EVALUATING)
         elif mission.state == MissionStatus.REPAIRING:
             transition_mission(mission, MissionStatus.EVALUATING)
-        if mission.state != MissionStatus.EVALUATING:
-            raise ClosedLoopControlError("MISSION_NOT_READY_FOR_CONVERGENCE")
-        mission.sufficiency_state = str(evaluation.dimensions.get("sufficiency_state") or "SUFFICIENT")
-        mission.latest_evaluation_id = evaluation.evaluation_id
-        transition_mission(mission, MissionStatus.CONVERGED)
+        elif mission.state != MissionStatus.EVALUATING:
+            raise ClosedLoopControlError("MISSION_NOT_READY_FOR_EVALUATION")
+        self._persist_mission(mission)
+        append_entity(self.truth, evaluation, release_id=self.release_id, artifact_version=1)
+        transition_mission(
+            mission,
+            MissionStatus.CONVERGED,
+            convergence=convergence,
+            evaluation_id=evaluation.evaluation_id,
+        )
+        mission.sufficiency_state = sufficiency_state
         self._sync_mission(mission)
         return mission
 
     def snapshot(self) -> Mapping[str, object]:
-        mission = self._mission()
+        mission = self._mission_row()
+        tasks = self.truth.query("rc7_task", mission_id=self.mission_id)
+        gaps = self.truth.query("rc7_gap", mission_id=self.mission_id)
         return {
-            "mission_id": mission.mission_id,
-            "mission_state": mission.state.value,
-            "sufficiency_state": mission.sufficiency_state,
-            "ready_task_ids": [task.task_id for task in self.scheduler.ready_tasks(self.mission_id)],
-            "open_gap_ids": [gap.gap_id for gap in self._open_gaps()],
-            "active_task_ids": [task.task_id for task in self._active_tasks()],
+            "mission_id": self.mission_id,
+            "mission_state": mission["state"],
+            "active_task_ids": list(mission.get("active_task_ids", [])),
+            "open_gap_ids": list(mission.get("open_gap_ids", [])),
+            "ready_task_ids": sorted(row["task_id"] for row in tasks if row["state"] == TaskStatus.READY.value),
+            "gap_states": {row["gap_id"]: row["state"] for row in gaps},
         }
 
-    def open_next_session(self, successor_session_id: str, *, reason: str) -> Mapping[str, object]:
-        checkpoint = self.sessions.create_checkpoint(
-            mission_id=self.mission_id,
-            session_id=successor_session_id,
-            reason=reason,
-            snapshot=dict(self.snapshot()),
-        )
-        return checkpoint
+    @staticmethod
+    def _is_pass_handoff_gap(task: Task, gap: Gap) -> bool:
+        return (task.node, gap.category, gap.target_node) in _PASS_HANDOFF_GAPS
 
-    def _mission_row(self):
+    def _validate_new_gap(self, task: Task, gap: Gap) -> None:
+        if gap.mission_id != self.mission_id or gap.source_node != task.node:
+            raise ClosedLoopControlError("GAP_SOURCE_IDENTITY_MISMATCH")
+        if self.truth.query("rc7_gap", gap_id=gap.gap_id):
+            raise ClosedLoopControlError("GAP_ALREADY_EXISTS")
+
+    def _resolve_source_gaps(self, task: Task, evaluation: Evaluation) -> None:
+        for gap_id in task.gap_refs:
+            rows = self.truth.query("rc7_gap", gap_id=gap_id)
+            if not rows:
+                continue
+            gap = self._gap_from_row(rows[0])
+            if gap.state != GapStatus.EVIDENCE_PENDING:
+                continue
+            if gap.source_node != task.node:
+                raise ClosedLoopControlError("GAP_SOURCE_REEVALUATION_NODE_MISMATCH")
+            transition_gap(gap, GapStatus.RESOLVED, resolution_evaluation_id=evaluation.evaluation_id)
+            self._persist_gap(gap)
+        mission = self._mission()
+        if mission.state == MissionStatus.REPAIRING and not self._open_gap_rows():
+            transition_mission(mission, MissionStatus.RUNNING)
+            self._persist_mission(mission)
+
+    def _reactivate_source_tasks(self, repaired_gap_ids: Sequence[str]) -> None:
+        repaired = set(repaired_gap_ids)
+        rows = self.truth.query("rc7_task", mission_id=self.mission_id)
+        for row in rows:
+            if row["task_type"] == "REPAIR":
+                continue
+            if row["state"] not in {TaskStatus.REPAIR_REQUIRED.value, TaskStatus.BLOCKED.value}:
+                continue
+            refs = set(row.get("gap_refs", []))
+            if not refs.intersection(repaired):
+                continue
+            gap_rows = [self.truth.query("rc7_gap", gap_id=gap_id) for gap_id in refs]
+            flattened = [items[0] for items in gap_rows if items]
+            if not flattened or not all(
+                item["state"] in {GapStatus.EVIDENCE_PENDING.value, GapStatus.RESOLVED.value}
+                for item in flattened
+            ):
+                continue
+            task = self.scheduler._task_from_row(row)
+            task.output_artifact_refs = []
+            task.evaluation_id = None
+            transition_task(task, TaskStatus.READY)
+            append_entity(
+                self.truth,
+                task,
+                release_id=self.release_id,
+                artifact_version=int(row["artifact_version"]) + 1,
+            )
+        mission = self._mission()
+        if mission.state == MissionStatus.BLOCKED:
+            transition_mission(mission, MissionStatus.RUNNING)
+            self._persist_mission(mission)
+
+    def _sync_mission(self, mission: Mission) -> None:
+        task_rows = self.truth.query("rc7_task", mission_id=self.mission_id)
+        gap_rows = self.truth.query("rc7_gap", mission_id=self.mission_id)
+        mission.active_task_ids = sorted(
+            row["task_id"]
+            for row in task_rows
+            if TaskStatus(str(row["state"])) in _ACTIVE_TASK_STATES
+        )
+        mission.open_gap_ids = sorted(
+            row["gap_id"]
+            for row in gap_rows
+            if GapStatus(str(row["state"])) in _OPEN_GAP_STATES
+        )
+        self._persist_mission(mission)
+
+    def _open_gap_rows(self) -> List[Mapping[str, object]]:
+        return [
+            row
+            for row in self.truth.query("rc7_gap", mission_id=self.mission_id)
+            if GapStatus(str(row["state"])) in _OPEN_GAP_STATES
+        ]
+
+    def _mission_row(self) -> Mapping[str, object]:
         rows = self.truth.query("rc7_mission", mission_id=self.mission_id)
-        if not rows:
-            raise ClosedLoopControlError("MISSION_NOT_FOUND")
+        if len(rows) != 1:
+            raise ClosedLoopControlError("MISSION_PROJECTION_NOT_FOUND")
         return rows[0]
 
     def _mission(self) -> Mission:
@@ -395,17 +472,31 @@ class ClosedLoopControlPlane:
             updated_at=int(row.get("updated_at", 0)),
         )
 
+    def _persist_mission(self, mission: Mission) -> None:
+        row = self._mission_row()
+        append_entity(
+            self.truth,
+            mission,
+            release_id=self.release_id,
+            artifact_version=int(row["artifact_version"]) + 1,
+        )
+
     def _gap(self, gap_id: str) -> Gap:
         rows = self.truth.query("rc7_gap", gap_id=gap_id)
         if not rows:
-            raise ClosedLoopControlError("GAP_NOT_FOUND")
-        row = rows[0]
+            raise ClosedLoopControlError("GAP_NOT_FOUND:%s" % gap_id)
+        return self._gap_from_row(rows[0])
+
+    @staticmethod
+    def _gap_from_row(row: Mapping[str, object]) -> Gap:
+        from .models import GapSeverity
+
         return Gap(
             gap_id=str(row["gap_id"]),
             mission_id=str(row["mission_id"]),
             source_node=str(row["source_node"]),
             category=str(row["category"]),
-            severity=row["severity"] if isinstance(row["severity"], GapSeverity) else __import__("rc7_runtime.models", fromlist=["GapSeverity"]).GapSeverity(str(row["severity"])),
+            severity=GapSeverity(str(row["severity"])),
             target_node=str(row["target_node"]),
             description=str(row["description"]),
             state=GapStatus(str(row["state"])),
@@ -422,68 +513,3 @@ class ClosedLoopControlPlane:
         rows = self.truth.query("rc7_gap", gap_id=gap.gap_id)
         version = int(rows[0]["artifact_version"]) + 1 if rows else 1
         append_entity(self.truth, gap, release_id=self.release_id, artifact_version=version)
-
-    def _persist_mission(self, mission: Mission) -> None:
-        row = self._mission_row()
-        append_entity(self.truth, mission, release_id=self.release_id, artifact_version=int(row["artifact_version"]) + 1)
-
-    def _resolve_source_gaps(self, task: Task, evaluation: Evaluation) -> None:
-        for gap_id in task.gap_refs:
-            gap = self._gap(gap_id)
-            if gap.state != GapStatus.EVIDENCE_PENDING:
-                continue
-            transition_gap(gap, GapStatus.RESOLVED, resolution_evaluation_id=evaluation.evaluation_id)
-            self._persist_gap(gap)
-
-    @staticmethod
-    def _is_pass_handoff_gap(task: Task, gap: Gap) -> bool:
-        return (task.node, gap.category, gap.target_node) in _PASS_HANDOFF_GAPS
-
-    @staticmethod
-    def _validate_new_gap(task: Task, gap: Gap) -> None:
-        if gap.mission_id != task.mission_id or gap.source_node != task.node:
-            raise ClosedLoopControlError("GAP_TASK_IDENTITY_MISMATCH")
-        if gap.state != GapStatus.OPEN:
-            raise ClosedLoopControlError("NEW_GAP_MUST_BE_OPEN")
-
-    def _reactivate_source_tasks(self, gap_ids: Sequence[str]) -> None:
-        for gap_id in gap_ids:
-            gap = self._gap(gap_id)
-            rows = [
-                row
-                for row in self.truth.query("rc7_task", mission_id=self.mission_id)
-                if row["node"] == gap.source_node and gap_id in row.get("gap_refs", []) and row["task_type"] != "REPAIR"
-            ]
-            if len(rows) != 1:
-                raise ClosedLoopControlError("SOURCE_TASK_NOT_UNIQUE_FOR_GAP")
-            row = rows[0]
-            source = self.scheduler._task_from_row(row)
-            if source.state != TaskStatus.REPAIR_REQUIRED:
-                raise ClosedLoopControlError("SOURCE_TASK_NOT_REPAIR_REQUIRED")
-            transition_task(source, TaskStatus.READY)
-            self.scheduler._persist_task(source, int(row["artifact_version"]) + 1)
-
-    def _sync_mission(self, mission: Mission) -> None:
-        mission.open_gap_ids = [gap.gap_id for gap in self._open_gaps()]
-        mission.active_task_ids = [task.task_id for task in self._active_tasks()]
-        artifact_refs = [
-            str(row["artifact_id"])
-            for row in self.truth.query("rc7_artifact", mission_id=self.mission_id)
-            if row["state"] in {"VALID", "REVALIDATION_REQUIRED"}
-        ]
-        mission.artifact_refs = sorted(set(artifact_refs))
-        self._persist_mission(mission)
-
-    def _open_gaps(self) -> List[Gap]:
-        return [
-            self._gap(str(row["gap_id"]))
-            for row in self.truth.query("rc7_gap", mission_id=self.mission_id)
-            if row["state"] in {state.value for state in _OPEN_GAP_STATES}
-        ]
-
-    def _active_tasks(self) -> List[Task]:
-        return [
-            self.scheduler._task_from_row(row)
-            for row in self.truth.query("rc7_task", mission_id=self.mission_id)
-            if row["state"] in {state.value for state in _ACTIVE_TASK_STATES}
-        ]
