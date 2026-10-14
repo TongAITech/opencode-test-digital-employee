@@ -25,23 +25,5 @@ Repository truth only. Conversation claims do not advance a wave.
 | 11 | Execution Coverage Closure | NOT_STARTED | — |
 | 12 | Admin/Allure/Report | NOT_STARTED | — |
 
-## Wave 8 frozen capabilities
-- only FROZEN Cases enter preparation
-- typed preconditions verified before data selection/build
-- initial business state and execution input data remain separate
-- deterministic search/reuse -> derive -> API -> UI -> DB -> fixture -> mock strategy order constrained by Case policy
-- every selected binding requires tool/evidence refs plus verification
-- DB_CREATE requires HumanGate approval evidence
-- prepared binding immutable per attempt + Case version + TargetIdentity
-- Oracle and cleanup policy fixed before real action
-- deterministic recovery categories
-- valid PRODUCT assertion failure after verified preparation + real action cannot be retried or re-prepared to green
-
-## Wave 8 evidence
-- commit: `bdd54561f7f2c68feeba0970ede0506b6a7f4cb1`
-- workflow: `RC6 Wave 8 Precondition Test Data Runtime`
-- run id: `38524369514`
-- conclusion: `success`
-
 ## Current RED
 `W9-REAL-EXECUTION-INTEGRITY`: implement seven independent L1-L7 execution profiles and a fail-closed execution integrity gate. Execution requires a PreparedAttempt, matching FROZEN Case version and TargetIdentity, runtime-authorized Lx_EXECUTE worker/lease, layer-specific tool admission, a real action/tool-call evidence, actual result, deterministic oracle assertion, and current evidence. BLOCKED/SKIPPED/NOT_RUN cannot become PASS, and execution workers cannot mutate the frozen Case.
