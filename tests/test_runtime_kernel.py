@@ -84,9 +84,13 @@ class StageTests(unittest.TestCase):
     def test_fail_closed_gate(self):
         sm = StageMachine()
         with self.assertRaises(StageViolation):
-            sm.enter("CODE_ANALYSIS", "FUSION", ["REQUIREMENT_SUFFICIENT"])
+            sm.enter("CODE_ANALYSIS", "FUSION", ["CODE_ANALYSIS_COMPLETE", "CODE_SUFFICIENT"])
         self.assertEqual(
-            sm.enter("CODE_ANALYSIS", "FUSION", ["REQUIREMENT_SUFFICIENT", "CODE_SUFFICIENT"]),
+            sm.enter("CODE_ANALYSIS", "CODE_SUFFICIENCY", ["CODE_ANALYSIS_COMPLETE"]),
+            "CODE_SUFFICIENCY",
+        )
+        self.assertEqual(
+            sm.enter("CODE_SUFFICIENCY", "FUSION", ["CODE_ANALYSIS_COMPLETE", "CODE_SUFFICIENT"]),
             "FUSION",
         )
 
