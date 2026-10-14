@@ -4,13 +4,17 @@ The runtime, not the chat coordinator, owns the initial dependency graph. The
 compiler emits stable Task ids and stable expected Artifact ids for the core
 happy-path nodes. Defect work remains event-driven and is created only after a
 trusted PRODUCT_DEFECT Gap; it is deliberately absent from the initial graph.
+
+External source/runtime inputs are explicit durable references bound into Task
+contracts at graph construction time. They are never smuggled through chat
+history or coordinator context.
 """
 
 from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Tuple
+from typing import Any, Dict, Mapping, Sequence, Tuple
 
 from .models import Task
 
@@ -75,10 +79,27 @@ class MissionTaskGraphCompiler:
         "EXECUTION": 50,
     }
 
-    def compile(self, mission_id: str) -> MissionTaskGraph:
+    def compile(
+        self,
+        mission_id: str,
+        *,
+        external_inputs: Mapping[str, Sequence[str]] | None = None,
+    ) -> MissionTaskGraph:
         if not isinstance(mission_id, str) or not mission_id.strip():
             raise ValueError("MISSION_ID_REQUIRED")
         mission_id = mission_id.strip()
+        external_inputs = dict(external_inputs or {})
+        unknown_nodes = sorted(set(external_inputs).difference(self.NODE_ORDER))
+        if unknown_nodes:
+            raise ValueError("MISSION_GRAPH_EXTERNAL_INPUT_NODE_UNKNOWN:%s" % ",".join(unknown_nodes))
+        normalized_external: Dict[str, Tuple[str, ...]] = {}
+        for node, refs in external_inputs.items():
+            if isinstance(refs, (str, bytes)):
+                raise ValueError("MISSION_GRAPH_EXTERNAL_INPUTS_MUST_BE_SEQUENCE:%s" % node)
+            values = tuple(ref.strip() for ref in refs if isinstance(ref, str) and ref.strip())
+            if len(values) != len(tuple(refs)):
+                raise ValueError("MISSION_GRAPH_EXTERNAL_INPUT_REF_INVALID:%s" % node)
+            normalized_external[node] = tuple(dict.fromkeys(values))
 
         task_ids: Dict[str, str] = {
             node: _stable_id("TASK", mission_id, node) for node in self.NODE_ORDER
@@ -105,6 +126,8 @@ class MissionTaskGraphCompiler:
 
         tasks = []
         for node in self.NODE_ORDER:
+            inherited_inputs = [artifact_ids[name] for name in input_nodes[node]]
+            node_inputs = list(normalized_external.get(node, ()))
             tasks.append(
                 Task(
                     task_id=task_ids[node],
@@ -114,7 +137,7 @@ class MissionTaskGraphCompiler:
                     objective="Produce evaluator-ready %s output" % self.OUTPUT_TYPES[node],
                     required_capabilities=list(self.REQUIRED_CAPABILITIES[node]),
                     dependency_task_ids=[task_ids[name] for name in dependency_nodes[node]],
-                    input_artifact_refs=[artifact_ids[name] for name in input_nodes[node]],
+                    input_artifact_refs=list(dict.fromkeys(inherited_inputs + node_inputs)),
                     acceptance_criteria=[
                         "independent evaluator accepts %s output" % node,
                         "output and acceptance evidence are durable in R1",
@@ -129,14 +152,20 @@ class MissionTaskGraphCompiler:
             artifact_ids=dict(artifact_ids),
         )
 
-    def install(self, control_plane: Any, mission_id: str) -> MissionTaskGraph:
+    def install(
+        self,
+        control_plane: Any,
+        mission_id: str,
+        *,
+        external_inputs: Mapping[str, Sequence[str]] | None = None,
+    ) -> MissionTaskGraph:
         """Persist the compiled graph through the canonical control-plane API.
 
         The duck-typed boundary deliberately avoids a reverse import from this
         pure graph compiler into the control-plane module. Registration order is
         topological, so dependency contracts are checked by TaskScheduler.
         """
-        graph = self.compile(mission_id)
+        graph = self.compile(mission_id, external_inputs=external_inputs)
         for task in graph.tasks:
             control_plane.register_task(task)
         return graph
