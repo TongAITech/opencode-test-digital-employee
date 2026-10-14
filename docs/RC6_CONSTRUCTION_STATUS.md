@@ -23,17 +23,21 @@ Repository truth only. Conversation claims do not advance a wave.
 | 9 | L1-L7 Execution | ENGINEERING_PASS / FROZEN | code `a8f9cf301b21448ce71a5c2c1067f25e22167651`; GitHub Actions run `38525779029` = success |
 | 10 | CAT Diagnosis/Recovery | ENGINEERING_PASS / FROZEN | code `9c9fc97133353503c8acb52f02193d082b0d2104`; GitHub Actions run `38526336050` = success |
 | 11 | Execution Coverage Closure | ENGINEERING_PASS / FROZEN | code `270e10346787009440a29f0fb7bd2906179a1f4d`; GitHub Actions run `38526923819` = success |
-| 12 | Admin/Allure/Report | IMPLEMENTING | R1-only presentation truth, Allure derivative, count/identity reconciliation and report serving next |
+| 12 | Admin/Allure/Report | ENGINEERING_PASS / FROZEN | code `f3e5a85bc66aaee6f009811bc4920db9c43f7228`; GitHub Actions run `38527845151` = success |
 
-## Wave 11 frozen capabilities
-- layer-specific empirical L1-L7 coverage subjects and tools
-- coverage only from integrity-verified real ExecutionRecords on the exact TargetIdentity
-- real tool-call/evidence refs required; cross-layer and wrong-tool observations rejected
-- runtime computes coverage from expected vs observed refs and ignores self-reported percentages
-- missing/partial evidence creates explicit gaps; CRITICAL/HIGH gaps are surfaced separately
-- other-environment evidence cannot close current-target gaps
-- existing-case gaps route to DELTA_EXECUTION; no-case gaps route to same-layer DELTA_DESIGN
-- delta evidence must close the actual subject on re-evaluation
+## Wave 12 frozen capabilities
+- R1 Event Stream remains the sole durable business truth for requirement/code analysis, Test Intent, Test Condition, Test Case, execution attempt, assertion, evidence, defect, empirical coverage and report metadata.
+- Admin/API/reporting are read-only projections/derivatives of R1; no shadow admin business store is allowed.
+- Admin query supports release, requirement, SST, layer and status filters plus pagination, with a Chinese list/query shell.
+- Allure results are generated automatically from R1 execution/assertion/evidence truth and declare `R1_EVENT_STREAM_PROJECTION` as their source.
+- configured local Allure CLI is invoked automatically; users do not manually generate reports.
+- mission HTML report and machine-readable report manifest are generated from the same R1-backed Admin read model.
+- reconciliation compares identity sets and counts across R1 projection -> Admin/API -> report manifest; Allure execution identities/counts must exactly match R1 execution attempts.
+- evidence metadata containing password/secret/token/credential/authorization keys is rejected from R1.
+- projection replay remains deterministic and no repair/re-record event is required to reconstruct presentation truth.
+
+## Release qualification status
+`IMPLEMENTING`
 
 ## Current RED
-`W12-PRESENTATION-TRUTH-CONVERGENCE`: Admin/API/Allure/Report must be pure projections/derivatives of R1 durable truth. No shadow admin business store is allowed. Requirement/code/design/execution/assertion/evidence/defect/coverage/report identities and counts must reconcile across R1 -> projection -> query/API -> Admin -> generated report. Allure results must be generated automatically from R1-backed mission truth and rendered with a configured local Allure CLI without exposing secrets. A user must be able to open a mission report from Admin without manually generating it. Final release packaging remains blocked until this reconciliation and package integrity qualification pass.
+`RC6-RELEASE-INTEGRATED-QUALIFICATION-AND-PACKAGING`: Wave 0-12 engineering capabilities are frozen, but RC6 is not yet a BANK_FIELD_PASS release. Build a single Git-Bash-first turnkey Windows package with immutable build identity, source commit, manifest and checksums; qualify all entrypoints and offline runtime wiring; prove DSH Skill/MCP readiness, governed Session rotation, provider backpressure, real tool admission/evidence, R1/projection/Admin/Allure/report reconciliation, secret hygiene and package integrity. Final engineering package must be explicitly marked `ENGINEERING_CANDIDATE_NOT_BANK_FINAL` until a real same-Mission bank qualification completes requirement -> code -> design -> preparation -> L1-L7 execution -> evidence/defect/coverage -> report without user `continue` loops.
