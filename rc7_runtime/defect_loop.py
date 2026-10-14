@@ -9,10 +9,11 @@ impact regression evidence.
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, Iterable, List, Optional, Sequence, Tuple
 
 from .models import Evaluation, EvaluationResult, Gap, GapSeverity
 
@@ -120,6 +121,10 @@ def _stable_id(prefix: str, *parts: str) -> str:
     return "%s-%s" % (prefix, hashlib.sha256(raw).hexdigest()[:20])
 
 
+def _canonical(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+
 class DefectClosedLoop:
     TERMINAL = {
         DefectStatus.CLOSED,
@@ -200,6 +205,8 @@ class DefectClosedLoop:
         if defect.state != DefectStatus.QUALIFYING:
             raise DefectContractError("DEFECT_MUST_BE_QUALIFYING_BEFORE_EVALUATION")
         reasons = [name.upper() for name, value in asdict(qualification).items() if not value]
+        if qualification.reproducible and defect.reproduction_passes < 1:
+            reasons.append("REPRODUCTION_EVIDENCE_MISSING")
         gaps: List[Gap] = []
         if reasons:
             gaps.append(
@@ -224,7 +231,12 @@ class DefectClosedLoop:
             artifact_refs=[defect.defect_id],
             result=result,
             evaluator_ref=evaluator_ref,
-            dimensions={"qualification": asdict(qualification), "state": defect.state.value},
+            dimensions={
+                "qualification": asdict(qualification),
+                "reproduction_attempts": defect.reproduction_attempts,
+                "reproduction_passes": defect.reproduction_passes,
+                "state": defect.state.value,
+            },
             gap_refs=[gap.gap_id for gap in gaps],
             evidence_refs=list(defect.evidence_refs),
         )
@@ -254,6 +266,8 @@ class DefectClosedLoop:
         elif target == DefectStatus.READY_FOR_REVIEW:
             if not defect.latest_evaluation_id:
                 raise DefectContractError("DEFECT_REVIEW_REQUIRES_QUALIFICATION_EVALUATION")
+            if defect.root_cause_hypothesis is None:
+                raise DefectContractError("DEFECT_REVIEW_REQUIRES_RCA_HYPOTHESIS")
         elif target == DefectStatus.CONFIRMED:
             if not evaluation_id:
                 raise DefectContractError("DEFECT_CONFIRMATION_REQUIRES_EVALUATION")
@@ -309,6 +323,23 @@ class DefectClosedLoop:
         return defect
 
     @staticmethod
+    def duplicate_of(candidate: DefectRecord, existing: Iterable[DefectRecord]) -> Optional[str]:
+        if candidate.root_cause_hypothesis is None:
+            return None
+        candidate_symbols = tuple(sorted(candidate.root_cause_hypothesis.suspected_symbols))
+        candidate_symptom = (_canonical(candidate.expected), _canonical(candidate.actual))
+        for item in existing:
+            if item.defect_id == candidate.defect_id or item.root_cause_hypothesis is None:
+                continue
+            if item.state == DefectStatus.NOT_A_DEFECT:
+                continue
+            symbols = tuple(sorted(item.root_cause_hypothesis.suspected_symbols))
+            symptom = (_canonical(item.expected), _canonical(item.actual))
+            if symbols == candidate_symbols and symptom == candidate_symptom:
+                return item.defect_id
+        return None
+
+    @staticmethod
     def mark_duplicate(defect: DefectRecord, *, duplicate_of: str, evaluation_id: str) -> DefectRecord:
         if defect.state not in {DefectStatus.QUALIFYING, DefectStatus.READY_FOR_REVIEW}:
             raise DefectContractError("DEFECT_DUPLICATE_STATE_INVALID")
@@ -330,8 +361,6 @@ class DefectClosedLoop:
         defect: DefectRecord,
         artifact_version: int = 1,
     ):
-        # Local import avoids making defect lifecycle depend on the persistence
-        # overlay at module import time.
         from .truth_overlay import append_entity
 
         return append_entity(
