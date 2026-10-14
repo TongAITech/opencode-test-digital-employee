@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 
 from rc6_release import mcp_server as rc6
 from .professional_tools import codegraph_probe, codegraph_query, git_diff, git_show_revision
+from .source_tools import read_text
 
 
 PROTOCOL_VERSION = rc6.PROTOCOL_VERSION
@@ -25,8 +26,19 @@ def _object(properties: Dict[str, Any], required=None, *, additional: bool = Fal
 def _extra_tools():
     s = {"type": "string"}
     a = {"type": "array", "items": s}
-    i = {"type": "integer", "minimum": 1}
     return [
+        {
+            "name": "read_text",
+            "description": "Read one UTF-8 source file contained by PFC_WORKSPACE or PFC_AITEST_STATE_DIR. Read-only and path-escape protected.",
+            "inputSchema": _object(
+                {
+                    "path": s,
+                    "scope": {"type": "string", "enum": ["workspace", "state"]},
+                    "max_chars": {"type": "integer", "minimum": 1000, "maximum": 1000000},
+                },
+                ["path"],
+            ),
+        },
         {
             "name": "git_show_revision",
             "description": "Read one Git commit identity from a workspace-contained repository. Read-only; shell is never used.",
@@ -74,6 +86,14 @@ def _text(value: Any) -> Dict[str, Any]:
 
 
 def _call_extra(name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if name == "read_text":
+        return _text(
+            read_text(
+                path=arguments["path"],
+                scope=str(arguments.get("scope") or "workspace"),
+                max_chars=int(arguments.get("max_chars", 200000)),
+            )
+        )
     if name == "git_show_revision":
         return _text(
             git_show_revision(
@@ -114,9 +134,10 @@ def handle(message: Dict[str, Any]):
             response["result"]["serverInfo"] = {"name": SERVER_NAME, "version": SERVER_VERSION}
             response["result"]["instructions"] = (
                 "RC7 closed-loop testing control plane. RC6 governed tools remain available. "
-                "git_show_revision/git_diff are real read-only Git execution. codegraph_query is a "
-                "fixed-binary, workspace-contained, allowlisted read-only query adapter. Tool calls "
-                "are runtime evidence only; Workers never own PASS authority."
+                "read_text reads real source files from controlled roots. git_show_revision/git_diff "
+                "are real read-only Git execution. codegraph_query is a fixed-binary, workspace-contained, "
+                "allowlisted read-only query adapter. Tool calls are runtime evidence only; Workers never "
+                "own PASS authority."
             )
         return response
     if method == "tools/list":
