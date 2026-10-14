@@ -5,6 +5,7 @@ STATE="$ROOT/runtime-state"
 PATCH="$STATE/rc6.cordis.yml"
 LOG="$STATE/dsh-web.log"
 PIDFILE="$STATE/dsh-web.pid"
+LEGACY_ENV="$STATE/rc6-legacy-field-env.sh"
 TOOL_ENV="$STATE/rc6-tool-env.sh"
 mkdir -p "$STATE"
 
@@ -17,7 +18,6 @@ export PFC_WORKSPACE="$WORKSPACE"
 export PFC_AITEST_HOME="$ROOT"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export PFC_AITEST_STATE_DIR="$STATE"
-bash "$ROOT/VERIFY-RC6-PROFILE.sh" >/dev/null
 
 PYTHON_BIN="${PFC_PYTHON:-}"
 if [[ -z "$PYTHON_BIN" ]]; then
@@ -27,6 +27,19 @@ if [[ -z "$PYTHON_BIN" ]]; then
   echo "ERROR: PYTHON_NOT_FOUND" >&2
   exit 10
 fi
+
+# DSH scans more than .dsh/skills in historical workspaces. Remove only legacy
+# pfc-* definitions from .opencode scan roots, after taking an explicit backup.
+GUARD_JSON="$("$PYTHON_BIN" -m rc6_release.legacy_skill_guard sanitize --workspace "$WORKSPACE")"
+echo "$GUARD_JSON"
+bash "$ROOT/VERIFY-RC6-PROFILE.sh" >/dev/null
+
+# Reuse the authoritative historical field registry and bounded legacy runtime
+# roots before host probing. This prevents Workers from guessing tool locations.
+BRIDGE_JSON="$("$PYTHON_BIN" -m rc6_release.legacy_field_bridge --workspace "$WORKSPACE" --package-root "$ROOT" --output "$LEGACY_ENV")"
+echo "$BRIDGE_JSON"
+# shellcheck disable=SC1090
+source "$LEGACY_ENV"
 
 # Discover and probe reusable historical/host tools, then export only verified
 # executable paths (plus discovered 4A/CAT binding paths) into the DSH host.
@@ -82,6 +95,8 @@ echo "RC6_PROFESSIONAL_AGENTS=25"
 echo "RC6_AGENT_MECHANISM=DSH_HEADLESS_FRESH_AGENT"
 echo "RC6_PROFILE_ACTIVE=PASS"
 echo "LEGACY_RC5_PFC_ACTIVE=FALSE"
+echo "LEGACY_PFC_SKILL_GUARD=PASS"
+echo "LEGACY_FIELD_BRIDGE=PASS"
 echo "TOOL_PROFILE=$WORKSPACE/.dsh/rc6/TOOL_PROFILE.json"
 echo "TOOL_ENV_BINDING=PASS"
 echo "TOOL_TARGET_READY=DEFERRED_UNTIL_REAL_MISSION_WORKER_TARGET_BINDING"
