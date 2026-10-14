@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -40,9 +42,99 @@ class BankFinalDshHeadlessWorkerLauncher(DshHeadlessWorkerLauncher):
 
     The base launcher establishes fresh DSH sessions and R1 lifecycle events.
     This hardening layer makes the signed TaskLease authoritative for every
-    observed tool call and requires terminal DSH output before a handoff can be
-    accepted. There is no Coordinator fallback path.
+    observed tool call, probes headless patch composition when the installed DSH
+    exposes that capability, and requires terminal DSH output before a handoff
+    can be accepted. There is no Coordinator fallback path.
     """
+
+    def execute(self, assignment: WorkerAssignment, prompt: str) -> Tuple[WorkerInvocation, Dict[str, Any]]:
+        if not getattr(self, "_bank_final_composition_preflight_done", False):
+            self._preflight_headless_composition(assignment.mission_id)
+            self._bank_final_composition_preflight_done = True
+        return super().execute(assignment, prompt)
+
+    def _preflight_headless_composition(self, mission_id: str) -> None:
+        """Probe DSH capabilities without pinning a DSH release.
+
+        When ``--dump-config`` is advertised, the BANK_FINAL qualifier verifies
+        that the generated RC6 MCP patch is actually composed into the headless
+        profile before a Worker is started. Older/alternate DSH lines that do not
+        advertise composition dumping are not rejected solely for that absence;
+        the mandatory real MCP tool call in every Worker remains the final
+        fail-closed capability proof.
+        """
+        if not self._dsh_available():
+            self._emit_routing_fail(mission_id, "DSH_NOT_AVAILABLE")
+            raise AgentRuntimeError("ROUTING_INTEGRITY_FAIL:DSH_NOT_AVAILABLE")
+
+        run_env = os.environ.copy()
+        run_env.update(self.env)
+        probe_timeout = max(1, min(self.timeout_seconds, 30))
+        try:
+            help_proc = self.command_runner(
+                [self.dsh_bin, "--help"],
+                cwd=self.cwd,
+                env=run_env,
+                capture_output=True,
+                text=True,
+                timeout=probe_timeout,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            self._emit_routing_fail(
+                mission_id,
+                "DSH_CAPABILITY_PROBE_FAILED:%s" % type(exc).__name__,
+            )
+            raise AgentRuntimeError(
+                "ROUTING_INTEGRITY_FAIL:DSH_CAPABILITY_PROBE_FAILED"
+            ) from exc
+
+        if int(help_proc.returncode) != 0:
+            self._emit_routing_fail(mission_id, "DSH_CAPABILITY_PROBE_NONZERO")
+            raise AgentRuntimeError(
+                "ROUTING_INTEGRITY_FAIL:DSH_CAPABILITY_PROBE_NONZERO"
+            )
+
+        help_text = (help_proc.stdout or "") + "\n" + (help_proc.stderr or "")
+        if "--dump-config" not in help_text:
+            return
+
+        try:
+            dump_proc = self.command_runner(
+                [
+                    self.dsh_bin,
+                    "--profile", "headless",
+                    "--patch", self.patch_path,
+                    "--dump-config",
+                ],
+                cwd=self.cwd,
+                env=run_env,
+                capture_output=True,
+                text=True,
+                timeout=probe_timeout,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            self._emit_routing_fail(
+                mission_id,
+                "DSH_COMPOSITION_PREFLIGHT_FAILED:%s" % type(exc).__name__,
+            )
+            raise AgentRuntimeError(
+                "ROUTING_INTEGRITY_FAIL:DSH_COMPOSITION_PREFLIGHT_FAILED"
+            ) from exc
+
+        if int(dump_proc.returncode) != 0:
+            self._emit_routing_fail(mission_id, "DSH_COMPOSITION_PREFLIGHT_NONZERO")
+            raise AgentRuntimeError(
+                "ROUTING_INTEGRITY_FAIL:DSH_COMPOSITION_PREFLIGHT_NONZERO"
+            )
+
+        dump_text = (dump_proc.stdout or "") + "\n" + (dump_proc.stderr or "")
+        if "pfc_aitest_rc6" not in dump_text and "mcp-pfc-aitest-rc6" not in dump_text:
+            self._emit_routing_fail(mission_id, "DSH_MCP_PATCH_NOT_COMPOSED")
+            raise AgentRuntimeError(
+                "ROUTING_INTEGRITY_FAIL:DSH_MCP_PATCH_NOT_COMPOSED"
+            )
 
     def _emit(
         self,
