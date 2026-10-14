@@ -20,6 +20,7 @@ class RC7AuthorityRuntime(AuthorityRuntime):
         "RC7_REQUIREMENT_WORKER": {"rc7_requirement_candidate"},
         "RC7_CODE_WORKER": {"rc7_code_candidate"},
         "RC7_TEST_DESIGN_WORKER": {"rc7_test_design_candidate"},
+        "RC7_TEST_DESIGN_REVIEWER": {"rc7_test_design_review", "analysis_gap"},
         "RC7_SCRIPT_WORKER": {"rc7_script_candidate"},
         "RC7_EXECUTION_WORKER": {"rc7_execution_candidate"},
         "RC7_DEFECT_WORKER": {"rc7_defect_candidate"},
