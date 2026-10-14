@@ -37,10 +37,18 @@ class HardeningTests(unittest.TestCase):
         return launcher, truth, authority
 
     @staticmethod
-    def _runner_for(records):
+    def _runner_for(records, *, dump_config=True, composed=True):
         queue = list(records)
 
         def run(command, **kwargs):
+            if "--help" in command:
+                text = "usage: dsh --profile --patch"
+                if dump_config:
+                    text += " --dump-config"
+                return subprocess.CompletedProcess(command, 0, stdout=text, stderr="")
+            if "--dump-config" in command:
+                text = "serverName: pfc_aitest_rc6\nid: mcp-pfc-aitest-rc6" if composed else "profile: headless"
+                return subprocess.CompletedProcess(command, 0, stdout=text, stderr="")
             session_id, tool_name, payload, terminal_json = queue.pop(0)
             final_text = json.dumps({"qualification_payload": payload}) if terminal_json else "done"
             stdout = "\n".join([
@@ -67,6 +75,50 @@ class HardeningTests(unittest.TestCase):
             allowed_tools=("mcp__pfc_aitest_rc6__runtime_status",),
             generation=generation,
         )
+
+    def test_preflight_fails_closed_when_advertised_patch_is_not_composed(self):
+        runner = self._runner_for([
+            ("session-worker-1", "mcp__pfc_aitest_rc6__runtime_status", {"ok": True}, True),
+        ], composed=False)
+        with tempfile.TemporaryDirectory() as root:
+            launcher, truth, _ = self._launcher(root, runner)
+            assignment = self._assign(
+                launcher,
+                "pfc-requirement-analysis",
+                "REQUIREMENT_ANALYZER",
+                "analysis-attempt-1",
+            )
+            with self.assertRaises(AgentRuntimeError) as ctx:
+                launcher.execute(assignment, "analyze")
+            self.assertEqual(
+                str(ctx.exception),
+                "ROUTING_INTEGRITY_FAIL:DSH_MCP_PATCH_NOT_COMPOSED",
+            )
+            events = list(truth.store.iter_raw())
+            failures = [e for e in events if e["event_type"] == "ROUTING_INTEGRITY_FAIL"]
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(failures[0]["payload"]["reason"], "DSH_MCP_PATCH_NOT_COMPOSED")
+            self.assertNotIn("WORKER_STARTED", [e["event_type"] for e in events])
+
+    def test_preflight_is_capability_based_when_dump_config_is_not_advertised(self):
+        runner = self._runner_for([
+            ("session-worker-1", "mcp__pfc_aitest_rc6__runtime_status", {"ok": True}, True),
+        ], dump_config=False)
+        with tempfile.TemporaryDirectory() as root:
+            launcher, truth, _ = self._launcher(root, runner)
+            assignment = self._assign(
+                launcher,
+                "pfc-requirement-analysis",
+                "REQUIREMENT_ANALYZER",
+                "analysis-attempt-1",
+            )
+            invocation, output = launcher.execute(assignment, "analyze")
+            self.assertEqual(invocation.result, "PASS")
+            self.assertEqual(output, {"ok": True})
+            self.assertNotIn(
+                "ROUTING_INTEGRITY_FAIL",
+                [e["event_type"] for e in truth.store.iter_raw()],
+            )
 
     def test_unleased_real_tool_call_is_routing_integrity_fail(self):
         runner = self._runner_for([
