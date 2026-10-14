@@ -1,0 +1,20 @@
+name: RC6 Wave 11 Empirical Execution Coverage Closure
+
+on:
+  push:
+    branches:
+      - work/rc6-runtime-reconstruction
+  pull_request:
+    paths:
+      - 'rc6_runtime/execution_coverage.py'
+      - 'tests/test_execution_coverage.py'
+      - 'docs/RC6_WAVE11_QUALIFICATION.md'
+      - '.github/workflows/rc6-wave11.yml'
+
+jobs:
+  wave11-execution-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run all RC6 unit qualification
+        run: python -m unittest discover -s tests -v

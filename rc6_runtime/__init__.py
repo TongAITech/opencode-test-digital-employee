@@ -41,6 +41,21 @@ from .execution import (
     OracleAssertionResult,
     RealActionResult,
 )
+from .execution_coverage import (
+    DEFAULT_LAYER_COVERAGE_PROFILES,
+    CoverageDeltaRequest,
+    CoverageObservation,
+    CoverageObservationRuntime,
+    EmpiricalClosureResult,
+    EmpiricalCoverageEvaluator,
+    EmpiricalCoverageGap,
+    EmpiricalCoverageRegistry,
+    EmpiricalCoverageSubject,
+    ExecutionCoverageDeltaPlanner,
+    ExecutionCoverageError,
+    LayerCoverageProfile,
+    LayerCoverageResult,
+)
 from .intelligence import CodeSufficiencyEvaluator, GateResult, IntelligenceContractError, RequirementSufficiencyEvaluator
 from .mission import MissionRuntime, MissionState, ResumeEnvelope
 from .preparation import (
@@ -71,6 +86,9 @@ __all__ = [
     "RecoveryEngine", "history_entry_from_execution",
     "DEFAULT_EXECUTION_PROFILES", "ExecutionContractError", "ExecutionIntegrityGate", "ExecutionProfileRegistry",
     "ExecutionRecord", "ExecutionRuntime", "LayerExecutionProfile", "OracleAssertionResult", "RealActionResult",
+    "DEFAULT_LAYER_COVERAGE_PROFILES", "CoverageDeltaRequest", "CoverageObservation", "CoverageObservationRuntime",
+    "EmpiricalClosureResult", "EmpiricalCoverageEvaluator", "EmpiricalCoverageGap", "EmpiricalCoverageRegistry",
+    "EmpiricalCoverageSubject", "ExecutionCoverageDeltaPlanner", "ExecutionCoverageError", "LayerCoverageProfile", "LayerCoverageResult",
     "CodeSufficiencyEvaluator", "GateResult", "IntelligenceContractError", "RequirementSufficiencyEvaluator",
     "MissionRuntime", "MissionState", "ResumeEnvelope",
     "AttemptBindingStore", "PreparationContractError", "PreparationPlan", "PreparedAttempt",
