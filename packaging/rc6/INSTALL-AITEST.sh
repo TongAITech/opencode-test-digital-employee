@@ -13,14 +13,17 @@ export PYTHONDONTWRITEBYTECODE=1
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 WORKSPACE="${PFC_WORKSPACE:-/d/PFC}"
 
-# Install/upgrade the immutable RC6 .dsh skill payload first.
-"$PYTHON_BIN" -m rc6_release.workspace_install install --package-root "$ROOT" --workspace "$WORKSPACE"
+# Keep stdout as one canonical install result. START-AITEST performs and prints
+# the independent legacy guard verification after installation.
+INSTALL_JSON="$("$PYTHON_BIN" -m rc6_release.workspace_install install --package-root "$ROOT" --workspace "$WORKSPACE")"
 
-# DSH can also scan historical .opencode roots. Back up and isolate only
-# legacy pfc-* definitions so RC5 cannot shadow or contaminate the RC6 profile.
-"$PYTHON_BIN" -m rc6_release.legacy_skill_guard sanitize --workspace "$WORKSPACE"
+# DSH can also scan historical .opencode roots. Back up and isolate only known
+# RC5/PFC-managed Agent/Skill/Command assets; unrelated user assets are kept.
+"$PYTHON_BIN" -m rc6_release.legacy_skill_guard sanitize --workspace "$WORKSPACE" >/dev/null
 
-# An install is not complete until both the immutable RC6 profile and the
+# Installation is not complete until both the immutable RC6 profile and the
 # legacy-scan isolation gate verify successfully.
 "$PYTHON_BIN" -m rc6_release.workspace_install verify --package-root "$ROOT" --workspace "$WORKSPACE" >/dev/null
 "$PYTHON_BIN" -m rc6_release.legacy_skill_guard verify --workspace "$WORKSPACE" >/dev/null
+
+printf '%s\n' "$INSTALL_JSON"
