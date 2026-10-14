@@ -7,3 +7,4 @@ export PYTHONDONTWRITEBYTECODE=1
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 WORKSPACE="${PFC_WORKSPACE:-/d/PFC}"
 "$PYTHON_BIN" -m rc6_release.workspace_install verify --package-root "$ROOT" --workspace "$WORKSPACE"
+"$PYTHON_BIN" -m rc6_release.legacy_skill_guard verify --workspace "$WORKSPACE"
