@@ -17,9 +17,10 @@ class StageTransition:
 class StageMachine:
     """Fail-closed final-integration mission state graph.
 
-    Optional repair/diagnosis states are explicit graph branches rather than
-    prompt conventions. A caller can only enter a declared adjacent target and
-    all transition gates must already be durable in MissionState.
+    Execution Closure extends, but does not replace, the frozen RC6 graph. A
+    Frozen Case cannot jump directly to preparation/execution; it must become a
+    governed ExecutableSpec and validated Script first. Failed executions must
+    pass diagnosis -> recovery decision -> recovery action before any rerun.
     """
 
     STAGES: Tuple[str, ...] = (
@@ -39,6 +40,10 @@ class StageMachine:
         "DELTA_DESIGN",
         "ORACLE_CLOSURE",
         "CASE_FREEZE",
+        "EXECUTABLE_SPEC",
+        "SCRIPT_BUILD",
+        "SCRIPT_VALIDATE",
+        "SCRIPT_READY",
         "PREPARATION",
         "PRECONDITION_VERIFY",
         "TEST_DATA_PREPARE",
@@ -46,6 +51,9 @@ class StageMachine:
         "L1_L7_EXECUTION",
         "EXECUTION_INTEGRITY",
         "FAILURE_DIAGNOSIS",
+        "RECOVERY_DECISION",
+        "RECOVERY_ACTION",
+        "REEXECUTION",
         "EMPIRICAL_COVERAGE",
         "DELTA_EXECUTION",
         "DEFECT",
@@ -80,7 +88,11 @@ class StageMachine:
         ),
         "DELTA_DESIGN": (StageTransition("DESIGN_SUFFICIENCY", ("DELTA_DESIGN_COMPLETE",)),),
         "ORACLE_CLOSURE": (StageTransition("CASE_FREEZE", ("ORACLE_SUFFICIENT",)),),
-        "CASE_FREEZE": (StageTransition("PREPARATION", ("CASE_SET_FROZEN",)),),
+        "CASE_FREEZE": (StageTransition("EXECUTABLE_SPEC", ("CASE_SET_FROZEN",)),),
+        "EXECUTABLE_SPEC": (StageTransition("SCRIPT_BUILD", ("EXECUTABLE_SPEC_READY",)),),
+        "SCRIPT_BUILD": (StageTransition("SCRIPT_VALIDATE", ("SCRIPT_GENERATED",)),),
+        "SCRIPT_VALIDATE": (StageTransition("SCRIPT_READY", ("SCRIPT_READY",)),),
+        "SCRIPT_READY": (StageTransition("PREPARATION", ("SCRIPT_READY_ADMITTED",)),),
         "PREPARATION": (StageTransition("PRECONDITION_VERIFY", ("PREPARATION_STARTED",)),),
         "PRECONDITION_VERIFY": (StageTransition("TEST_DATA_PREPARE", ("PRECONDITIONS_VERIFIED",)),),
         "TEST_DATA_PREPARE": (StageTransition("PREPARED_ATTEMPT_FREEZE", ("TEST_DATA_READY",)),),
@@ -90,7 +102,16 @@ class StageMachine:
             StageTransition("EMPIRICAL_COVERAGE", ("EXECUTION_INTEGRITY",)),
             StageTransition("FAILURE_DIAGNOSIS", ("EXECUTION_FAILURES_PRESENT",)),
         ),
-        "FAILURE_DIAGNOSIS": (StageTransition("EMPIRICAL_COVERAGE", ("FAILURE_DIAGNOSIS_COMPLETE",)),),
+        "FAILURE_DIAGNOSIS": (StageTransition("RECOVERY_DECISION", ("FAILURE_DIAGNOSIS_COMPLETE",)),),
+        "RECOVERY_DECISION": (
+            StageTransition("RECOVERY_ACTION", ("RECOVERY_DECISION_COMPLETE",)),
+            StageTransition("DEFECT", ("PRODUCT_DEFECT_CONFIRMED",)),
+        ),
+        "RECOVERY_ACTION": (
+            StageTransition("REEXECUTION", ("RECOVERY_RERUN_READY",)),
+            StageTransition("PREPARED_ATTEMPT_FREEZE", ("RECOVERY_REPREPARE_READY",)),
+        ),
+        "REEXECUTION": (StageTransition("EXECUTION_INTEGRITY", ("REEXECUTION_COMPLETE",)),),
         "EMPIRICAL_COVERAGE": (
             StageTransition("DEFECT", ("COVERAGE_SUFFICIENT",)),
             StageTransition("DELTA_EXECUTION", ("EXECUTION_COVERAGE_GAP_OPEN",)),
