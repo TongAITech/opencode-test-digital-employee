@@ -30,12 +30,16 @@ jobs:
       - name: Compile RC7 runtime and release qualification
         run: python -m compileall -q rc7_runtime rc7_release
       - name: Import inherited RC6 runtime and RC7 MCP
-        run: python -c "import rc6_runtime; import rc6_runtime.truth; import rc7_release.mcp_server; import rc7_release.qualification; import rc7_release.code_qualification; import rc7_release.code_qualification_strict"
+        run: python -c "import rc6_runtime; import rc6_runtime.truth; import rc7_release.mcp_server; import rc7_release.qualification; import rc7_release.code_qualification; import rc7_release.code_qualification_strict; import rc7_release.test_design_qualification"
       - name: Validate RC7 shell qualification entrypoints
         run: |
           bash -n packaging/rc7/QUALIFY-DSH-REQUIREMENT.sh
           bash -n packaging/rc7/QUALIFY-DSH-CODE.sh
+          bash -n packaging/rc7/QUALIFY-DSH-TEST-DESIGN.sh
           grep -q 'rc7_release.code_qualification_strict' packaging/rc7/QUALIFY-DSH-CODE.sh
+          grep -q 'rc7_release.test_design_qualification' packaging/rc7/QUALIFY-DSH-TEST-DESIGN.sh
+          grep -q 'PFC_RC7_REQUIREMENT_RESULT' packaging/rc7/QUALIFY-DSH-TEST-DESIGN.sh
+          grep -q 'PFC_RC7_CODE_RESULT' packaging/rc7/QUALIFY-DSH-TEST-DESIGN.sh
       - name: Run RC7 closed-loop core tests
         run: python -m pytest -q tests/test_rc7_*.py
 
@@ -58,5 +62,10 @@ jobs:
           if ($code -notmatch 'rc7_release\.code_qualification_strict') { throw 'RC7 strict Code qualification module invocation missing' }
           if ($code -notmatch 'rc7-dsh-code-result\.json') { throw 'RC7 Code qualification result contract missing' }
           if ($code -notmatch 'PFC_RC7_CODEGRAPH_QUERY_ARGS_JSON') { throw 'RC7 CodeGraph query contract missing' }
+          $design = Get-Content -Raw 'packaging/rc7/QUALIFY-DSH-TEST-DESIGN.cmd'
+          if ($design -notmatch 'rc7_release\.test_design_qualification') { throw 'RC7 Test Design qualification module invocation missing' }
+          if ($design -notmatch 'rc7-dsh-test-design-result\.json') { throw 'RC7 Test Design result contract missing' }
+          if ($design -notmatch 'PFC_RC7_REQUIREMENT_RESULT') { throw 'RC7 Test Design upstream Requirement result contract missing' }
+          if ($design -notmatch 'PFC_RC7_CODE_RESULT') { throw 'RC7 Test Design upstream Code result contract missing' }
       - name: Python 3.8 imports RC7 qualification and MCP modules
-        run: python -c "import rc7_release.qualification; import rc7_release.code_qualification; import rc7_release.code_qualification_strict; import rc7_release.mcp_server"
+        run: python -c "import rc7_release.qualification; import rc7_release.code_qualification; import rc7_release.code_qualification_strict; import rc7_release.test_design_qualification; import rc7_release.mcp_server"
