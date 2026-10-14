@@ -17,11 +17,14 @@ fi
 export PFC_AITEST_HOME="$ROOT"
 export PFC_AITEST_STATE_DIR="$STATE"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+export PFC_WORKSPACE="${PFC_WORKSPACE:-/d/PFC}"
 
-# Package/runtime wiring only. DSH availability is evaluated by the real
-# qualifier itself so DSH missing becomes ROUTING_INTEGRITY_FAIL in R1 rather
-# than being hidden by a generic VERIFY failure.
+# BANK_FINAL qualification may not run against a stale RC5 profile. Package
+# integrity is checked first, then the RC6 workspace profile is installed or
+# repaired and hash-verified before DSH worker evidence is accepted.
 bash "$ROOT/VERIFY.sh" --package-only >/dev/null
+bash "$ROOT/INSTALL-AITEST.sh" >/dev/null
+bash "$ROOT/VERIFY-RC6-PROFILE.sh" >/dev/null
 
 DSH_BIN="${PFC_DSH_BIN:-}"
 if [[ -z "$DSH_BIN" ]]; then
