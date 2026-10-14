@@ -1,11 +1,32 @@
 from __future__ import annotations
 
 from rc6_runtime.truth import TruthRuntime
-from rc7_runtime import Artifact, Evidence, Gap, GapSeverity, Task, TaskStatus, transition_task
+from rc7_runtime import (
+    Artifact,
+    Evaluation,
+    EvaluationResult,
+    Evidence,
+    Gap,
+    GapSeverity,
+    Task,
+    TaskStatus,
+    transition_task,
+)
 from rc7_runtime.control_plane import GapRepairPlanner, TaskScheduler, WorkerOutput
+from rc7_runtime.truth_overlay import append_entity
 
 
 def _accept(scheduler: TaskScheduler, task: Task, evaluation_id: str) -> Task:
+    evaluation = Evaluation(
+        evaluation_id=evaluation_id,
+        mission_id=task.mission_id,
+        node=task.node,
+        artifact_refs=list(task.output_artifact_refs),
+        result=EvaluationResult.PASS,
+        evaluator_ref="independent-evaluator",
+        evidence_refs=["EVD-EVAL-%s" % evaluation_id],
+    )
+    append_entity(scheduler.truth, evaluation, release_id=scheduler.release_id)
     transition_task(task, TaskStatus.EVALUATING)
     transition_task(task, TaskStatus.PASS, evaluation_id=evaluation_id)
     scheduler.persist_evaluated_task(task)
