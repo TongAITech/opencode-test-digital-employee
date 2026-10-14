@@ -48,8 +48,10 @@ from .dsh_requirement_evaluator import (
 from .dsh_code_evaluator import DshCodeEvaluation, DshCodeEvaluator, DshCodeEvaluatorError
 from .dsh_test_design_evaluator import (
     DshTestDesignEvaluation,
-    DshTestDesignEvaluator,
     DshTestDesignEvaluatorError,
+)
+from .dsh_test_design_parent_evaluator import (
+    DshParentAwareTestDesignEvaluator as DshTestDesignEvaluator,
 )
 from .dsh_proof import DshProofError, DshR1ProofReader, DshToolCallProof, code_tool_category
 
