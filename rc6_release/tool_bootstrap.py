@@ -106,9 +106,7 @@ def _discover_binary(tool_id: str, spec: Dict[str, Any], workspace: Path) -> Tup
 
 def _probe(command: Sequence[str], timeout: int = 8) -> Dict[str, Any]:
     try:
-        proc = subprocess.run(
-            list(command), capture_output=True, timeout=timeout, check=False,
-        )
+        proc = subprocess.run(list(command), capture_output=True, timeout=timeout, check=False)
         stdout = proc.stdout or b""
         stderr = proc.stderr or b""
         combined = (stdout + b"\n" + stderr)[:16384]
@@ -166,7 +164,6 @@ def _discover_special(tool_id: str, workspace: Path) -> Tuple[Optional[Path], st
     path = _existing(env)
     if path:
         return path, "ENV:%s" % spec["env"]
-    # Known project config/script roots only.
     roots = (
         workspace, workspace / "tools", workspace / ".tools", workspace / "scripts",
         workspace / ".dsh", workspace / ".agents", workspace / ".opencode",
@@ -195,7 +192,13 @@ def _foura_entry(workspace: Path, python_entry: Dict[str, Any]) -> Dict[str, Any
         }
     syntax_probe: Optional[Dict[str, Any]] = None
     if path.suffix.lower() == ".py" and python_entry.get("status") == "PROBE_PASS":
-        syntax_probe = _probe((str(python_entry["path"]), "-m", "py_compile", str(path)))
+        # Use tokenize.open + compile only. Unlike py_compile this creates no
+        # __pycache__ beside the historical 4A script and executes none of it.
+        check = (
+            "import sys,tokenize; p=sys.argv[1]; f=tokenize.open(p); "
+            "s=f.read(); f.close(); compile(s,p,'exec')"
+        )
+        syntax_probe = _probe((str(python_entry["path"]), "-c", check, str(path)))
     return {
         "tool_id": "4a", "status": "BLOCKED_FIELD_AUTH", "path": str(path), "provenance": provenance,
         "capability_stage": "DISCOVERED" if syntax_probe is None or syntax_probe["status"] == "PROBE_PASS" else "PROBE_FAIL",
@@ -230,8 +233,7 @@ def build_tool_profile(workspace: str | Path) -> Dict[str, Any]:
         entry = _binary_entry(tool_id, spec, work)
         entries.append(entry)
         by_id[tool_id] = entry
-    pytest_entry = _pytest_entry(by_id["python"])
-    entries.append(pytest_entry)
+    entries.append(_pytest_entry(by_id["python"]))
     entries.append(_foura_entry(work, by_id["python"]))
     entries.append(_cat_entry(work))
 
