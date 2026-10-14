@@ -1,7 +1,7 @@
 """RC7 Defect qualification / RCA / fix verification / regression closed loop.
 
-TEST_FAIL is not a Defect.  A defect enters this lifecycle only from a trusted
-PRODUCT_DEFECT execution Gap.  Root cause remains an evidence-backed hypothesis
+TEST_FAIL is not a Defect. A defect enters this lifecycle only from a trusted
+PRODUCT_DEFECT execution Gap. Root cause remains an evidence-backed hypothesis
 until engineering confirmation, and closure requires both fix verification and
 impact regression evidence.
 """
@@ -12,7 +12,7 @@ import hashlib
 import time
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 
 from .models import Evaluation, EvaluationResult, Gap, GapSeverity
 
@@ -197,6 +197,8 @@ class DefectClosedLoop:
         *,
         evaluator_ref: str = "rc7-defect-qualification-gate",
     ) -> DefectLoopResult:
+        if defect.state != DefectStatus.QUALIFYING:
+            raise DefectContractError("DEFECT_MUST_BE_QUALIFYING_BEFORE_EVALUATION")
         reasons = [name.upper() for name, value in asdict(qualification).items() if not value]
         gaps: List[Gap] = []
         if reasons:
@@ -228,7 +230,7 @@ class DefectClosedLoop:
         )
         defect.latest_evaluation_id = evaluation.evaluation_id
         if result == EvaluationResult.PASS:
-            defect.state = DefectStatus.EVIDENCE_READY
+            self.transition(defect, DefectStatus.EVIDENCE_READY, evaluation_id=evaluation.evaluation_id)
         return DefectLoopResult(evaluation, tuple(gaps), qualified=(result == EvaluationResult.PASS))
 
     def transition(
@@ -245,8 +247,10 @@ class DefectClosedLoop:
             raise DefectContractError(
                 "DEFECT_TRANSITION_FORBIDDEN:%s->%s" % (defect.state.value, target.value)
             )
-        if target == DefectStatus.QUALIFYING:
-            pass
+        if target == DefectStatus.EVIDENCE_READY:
+            if not evaluation_id:
+                raise DefectContractError("DEFECT_EVIDENCE_READY_REQUIRES_EVALUATION")
+            defect.latest_evaluation_id = evaluation_id
         elif target == DefectStatus.READY_FOR_REVIEW:
             if not defect.latest_evaluation_id:
                 raise DefectContractError("DEFECT_REVIEW_REQUIRES_QUALIFICATION_EVALUATION")
@@ -306,6 +310,8 @@ class DefectClosedLoop:
 
     @staticmethod
     def mark_duplicate(defect: DefectRecord, *, duplicate_of: str, evaluation_id: str) -> DefectRecord:
+        if defect.state not in {DefectStatus.QUALIFYING, DefectStatus.READY_FOR_REVIEW}:
+            raise DefectContractError("DEFECT_DUPLICATE_STATE_INVALID")
         if not duplicate_of or duplicate_of == defect.defect_id:
             raise DefectContractError("DEFECT_DUPLICATE_TARGET_INVALID")
         if not evaluation_id:
@@ -315,3 +321,22 @@ class DefectClosedLoop:
         defect.state = DefectStatus.DUPLICATE
         defect.updated_at = int(time.time())
         return defect
+
+    @staticmethod
+    def persist(
+        truth,
+        *,
+        release_id: str,
+        defect: DefectRecord,
+        artifact_version: int = 1,
+    ):
+        # Local import avoids making defect lifecycle depend on the persistence
+        # overlay at module import time.
+        from .truth_overlay import append_entity
+
+        return append_entity(
+            truth,
+            defect,
+            release_id=release_id,
+            artifact_version=artifact_version,
+        )
