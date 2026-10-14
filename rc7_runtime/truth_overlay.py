@@ -1,9 +1,13 @@
 """RC7 control-plane overlay for the inherited R1 Event Stream.
 
-RC7 does not create a shadow state database.  Canonical Mission/Task/Artifact/
+RC7 does not create a shadow state database. Canonical Mission/Task/Artifact/
 Evidence/Gap/Evaluation/Event records are registered as additional atomic R1
 artifact types and therefore use the same append/replay/projection mechanism as
 RC6 business truth.
+
+Acceptance authority is enforced twice: by the in-memory state machine and by
+this durable R1 boundary. Direct object construction therefore cannot bypass an
+independent Evaluation for PASS/RESOLVED/CONVERGED truth.
 """
 
 from __future__ import annotations
@@ -68,6 +72,12 @@ def _list_of_strings(out: Dict[str, Any], field: str) -> None:
     _contracts._require_string_list(out, field)
 
 
+def _optional_nonempty_str(out: Dict[str, Any], field: str) -> None:
+    value = out.get(field)
+    if value is not None and (not isinstance(value, str) or not value.strip()):
+        raise _contracts.DomainValidationError("INVALID_%s" % field.upper())
+
+
 def validate_rc7_mission(payload: Dict[str, Any]) -> Dict[str, Any]:
     out = _base(payload, "rc7_mission", "mission_id")
     out["goal"] = _contracts._require_str(out, "goal")
@@ -78,6 +88,14 @@ def validate_rc7_mission(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise _contracts.DomainValidationError("INVALID_MISSION_REVISION")
     for field in ("artifact_refs", "open_gap_ids", "active_task_ids", "residual_risk_ids"):
         _list_of_strings(out, field)
+    _optional_nonempty_str(out, "latest_evaluation_id")
+    if out["state"] == "CONVERGED":
+        if out["sufficiency_state"] != "SUFFICIENT":
+            raise _contracts.DomainValidationError("CONVERGED_MISSION_REQUIRES_SUFFICIENT_STATE")
+        if not isinstance(out.get("latest_evaluation_id"), str) or not out["latest_evaluation_id"].strip():
+            raise _contracts.DomainValidationError("CONVERGED_MISSION_REQUIRES_EVALUATION")
+        if out["open_gap_ids"]:
+            raise _contracts.DomainValidationError("CONVERGED_MISSION_CANNOT_HAVE_OPEN_GAPS")
     return out
 
 
@@ -91,6 +109,10 @@ def validate_rc7_task(payload: Dict[str, Any]) -> Dict[str, Any]:
         "acceptance_criteria", "output_artifact_refs",
     ):
         _list_of_strings(out, field)
+    _optional_nonempty_str(out, "evaluation_id")
+    if out["state"] == "PASS":
+        if not isinstance(out.get("evaluation_id"), str) or not out["evaluation_id"].strip():
+            raise _contracts.DomainValidationError("TASK_PASS_REQUIRES_EVALUATION")
     return out
 
 
@@ -120,6 +142,10 @@ def validate_rc7_gap(payload: Dict[str, Any]) -> Dict[str, Any]:
         out[field] = _contracts._require_str(out, field)
     for field in ("subject_refs", "evidence_refs", "acceptance_criteria"):
         _list_of_strings(out, field)
+    _optional_nonempty_str(out, "resolution_evaluation_id")
+    if out["state"] == "RESOLVED":
+        if not isinstance(out.get("resolution_evaluation_id"), str) or not out["resolution_evaluation_id"].strip():
+            raise _contracts.DomainValidationError("GAP_RESOLUTION_REQUIRES_EVALUATION")
     return out
 
 
@@ -196,7 +222,7 @@ def append_entity(
     release_id: str,
     artifact_version: int = 1,
 ):
-    """Append an RC7 control entity to the inherited R1 stream and verify RAW."""
+    """Append an RC7 control entity to inherited R1 truth and verify RAW."""
     install_rc7_truth_overlay()
     event_type, payload = _r1_payload(entity, release_id=release_id, artifact_version=artifact_version)
     return truth_runtime.append_atomic(event_type, payload)
