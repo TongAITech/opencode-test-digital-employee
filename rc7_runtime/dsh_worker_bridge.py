@@ -136,11 +136,14 @@ class DshTaskWorkerBridge:
         )
         if leased is None or leased.task_id != chosen.task_id:
             raise DshWorkerBridgeError("DSH_ASSIGNMENT_TASK_LEASE_MISMATCH")
-        self.control.start(chosen.task_id, worker_ref=assignment.worker_instance_id)
+        running = self.control.start(chosen.task_id, worker_ref=assignment.worker_instance_id)
 
-        prompt = self.compile_prompt(chosen, assignment)
+        # Always compile and validate against the persisted RUNNING Task, not
+        # the stale READY object captured before lease. This preserves the
+        # authoritative lease_owner and blocks unrelated worker handoffs.
+        prompt = self.compile_prompt(running, assignment)
         invocation, raw_output = self.launcher.execute(assignment, prompt)
-        worker_output = self.normalize_output(chosen, invocation, raw_output)
+        worker_output = self.normalize_output(running, invocation, raw_output)
         candidate = self.control.submit_worker_output(worker_output)
         if candidate.state != TaskStatus.OUTPUT_PRODUCED:
             raise DshWorkerBridgeError("DSH_WORKER_MUST_STOP_AT_OUTPUT_PRODUCED")
@@ -150,7 +153,7 @@ class DshTaskWorkerBridge:
             "",
         )
         return DshTaskRunResult(
-            task_id=chosen.task_id,
+            task_id=running.task_id,
             worker_instance_id=assignment.worker_instance_id,
             dsh_session_id=invocation.dsh_session_id or "",
             tool_call_count=len(invocation.tool_calls),
