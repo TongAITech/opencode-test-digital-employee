@@ -6,6 +6,7 @@ from rc6_runtime.truth import TruthRuntime
 from rc7_runtime import (
     Artifact,
     ClosedLoopControlPlane,
+    EvaluationResult,
     Evidence,
     Mission,
     MissionTaskGraphCompiler,
@@ -232,7 +233,6 @@ def test_real_semantic_gates_compose_inside_one_r1_mission(tmp_path) -> None:
     compiler = MissionTaskGraphCompiler()
     graph = compiler.install(control, MISSION)
 
-    # 1. Requirement Analysis: inherited independent sufficiency gate.
     req_task, req_artifact = _produce(control, graph, compiler, "REQUIREMENT_ANALYSIS", "worker-requirement")
     req_result = RequirementClosedLoop().evaluate(
         mission_id=MISSION,
@@ -243,7 +243,6 @@ def test_real_semantic_gates_compose_inside_one_r1_mission(tmp_path) -> None:
     assert req_result.evaluation.result == EvaluationResult.PASS
     control.accept_evaluation(req_task.task_id, evaluation=req_result.evaluation)
 
-    # 2. Code Analysis: real Git + CodeGraph evidence is required by the gate.
     code_task, code_artifact = _produce(control, graph, compiler, "CODE_ANALYSIS", "worker-code")
     code_result = CodeAnalysisClosedLoop().evaluate(
         mission_id=MISSION,
@@ -256,7 +255,6 @@ def test_real_semantic_gates_compose_inside_one_r1_mission(tmp_path) -> None:
     assert code_result.evaluation.dimensions["metrics"]["codegraph_evidence_calls"] == 1
     control.accept_evaluation(code_task.task_id, evaluation=code_result.evaluation)
 
-    # 3. Test Design: semantic obligation coverage, not case count, decides PASS.
     design_task, design_artifact = _produce(control, graph, compiler, "TEST_DESIGN", "worker-design")
     design_result = TestDesignClosedLoop().evaluate(
         mission_id=MISSION,
@@ -271,7 +269,6 @@ def test_real_semantic_gates_compose_inside_one_r1_mission(tmp_path) -> None:
     assert design_result.semantic_coverage == 1.0
     control.accept_evaluation(design_task.task_id, evaluation=design_result.evaluation)
 
-    # 4. Script Readiness: compile/collect/fixture readiness only; no product verdict.
     script_task, script_artifact = _produce(control, graph, compiler, "SCRIPT_READINESS", "worker-script")
     script_loop = ScriptReadinessClosedLoop(validation_timeout_seconds=60)
     spec = script_loop.compile_execution_contract(
@@ -312,7 +309,6 @@ def test_real_semantic_gates_compose_inside_one_r1_mission(tmp_path) -> None:
     assert script_result.evaluation.dimensions["business_assertion_executed"] is False
     control.accept_evaluation(script_task.task_id, evaluation=script_result.evaluation)
 
-    # 5. Execution: product PASS is a separate trusted execution conclusion.
     exec_task, exec_artifact = _produce(control, graph, compiler, "EXECUTION", "worker-execution")
     record = ExecutionRecord(
         attempt_id="ATT-E2E-1",
@@ -340,7 +336,6 @@ def test_real_semantic_gates_compose_inside_one_r1_mission(tmp_path) -> None:
     assert exec_result.evaluation.result == EvaluationResult.PASS
     control.accept_evaluation(exec_task.task_id, evaluation=exec_result.evaluation)
 
-    # 6. Mission Sufficiency: workflow completion alone is not the final gate.
     snapshot = MissionEvidenceSnapshot(
         mission_id=MISSION,
         release_id="RC7",
@@ -361,7 +356,6 @@ def test_real_semantic_gates_compose_inside_one_r1_mission(tmp_path) -> None:
     mission = control.converge_mission(sufficiency.evaluation)
     assert mission.state.value == "CONVERGED"
 
-    # Fresh process replay proves the entire semantic chain is durable R1 truth.
     replay = TruthRuntime(path)
     recovered = ClosedLoopControlPlane(replay, "RC7", MISSION)
     assert recovered.snapshot()["mission_state"] == "CONVERGED"
