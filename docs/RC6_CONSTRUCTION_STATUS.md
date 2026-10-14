@@ -17,7 +17,7 @@ Repository truth only. Conversation claims do not advance a wave.
 | 3 | Bank Reality Registry | ENGINEERING_PASS / FROZEN | code `27d100405185b688802b97c0a5216961e8c71d85`; GitHub Actions run `38522685705` = success |
 | 4 | Tool Capability Broker | ENGINEERING_PASS / FROZEN | code `c13cddb6e1bc013106050bb24a4735cac4049a65`; GitHub Actions run `38523006166` = success |
 | 5 | Requirement/Code Intelligence | ENGINEERING_PASS / FROZEN | code `0d79b7e46240d28a94691d4ae7e26f74e85c44ae`; GitHub Actions run `38523268446` = success |
-| 6 | L1-L7 Design Runtime | IMPLEMENTING | deterministic layer routing and independent professional design tasks next |
+| 6 | L1-L7 Design Runtime | IMPLEMENTING | seven-way applicability router and independent professional design task isolation under qualification |
 | 7 | Coverage/Oracle Closure | NOT_STARTED | — |
 | 8 | Precondition/Test Data | NOT_STARTED | — |
 | 9 | L1-L7 Execution | NOT_STARTED | — |
@@ -25,21 +25,15 @@ Repository truth only. Conversation claims do not advance a wave.
 | 11 | Execution Coverage Closure | NOT_STARTED | — |
 | 12 | Admin/Allure/Report | NOT_STARTED | — |
 
-## Wave 5 frozen capabilities
-- requirement sufficiency recomputed from source assertions, atomic statements and evidence-backed trace links
-- self-reported requirement coverage/gap/testability fields ignored
-- orphan source, unsupported assertion and untestable atomic fail closed
-- independent analyzer/reviewer identity enforced
-- code sufficiency recomputed from changed symbols, evidence-backed explanations and reverse mappings
-- CodeGraph and Git real tool-call evidence required and bound to exact TargetIdentity
-- missing/unexplained change or reverse mapping fails closed
-- self-reported code coverage/gap counts ignored
-
-## Wave 5 evidence
-- commit: `0d79b7e46240d28a94691d4ae7e26f74e85c44ae`
-- workflow: `RC6 Wave 5 Requirement Code Intelligence`
-- run id: `38523268446`
-- conclusion: `success`
+## Wave 6 implementation under qualification
+- every TestCondition receives seven explicit L1..L7 applicability decisions
+- applicability is driven by structured impact/risk signals with evidence refs
+- one applicable layer creates one independent `Lx_DESIGN` worker and lease
+- combined `L2-L4` worker model removed from runtime design planner
+- Case candidate must match exact task layer, condition, worker and lease provenance
+- design workers may emit only CANDIDATE
+- design context is bounded artifact refs; raw diff/source/chat payloads forbidden
+- context overflow rotates only to same role/layer with a new generation
 
 ## Current RED
-`W6-LAYER-ISOLATION`: implement a seven-way applicability router and one independent design task per applicable layer. Combined `L2-L4` workers and mixed-layer Cases must be impossible. Design tasks receive bounded artifact references rather than raw repository diffs/chat history, and OOM recovery must rotate only within the same professional role/layer.
+`W6-CI-PROOF`: commit the L1-L7 design runtime and adversarial isolation tests, run GitHub Actions, and repair the first failing invariant only. Wave 7 remains blocked until Wave 6 is frozen.

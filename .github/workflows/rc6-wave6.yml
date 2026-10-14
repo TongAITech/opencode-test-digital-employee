@@ -1,0 +1,20 @@
+name: RC6 Wave 6 L1-L7 Design Runtime
+
+on:
+  push:
+    branches:
+      - work/rc6-runtime-reconstruction
+  pull_request:
+    paths:
+      - 'rc6_runtime/design.py'
+      - 'tests/test_design_runtime.py'
+      - 'docs/RC6_WAVE6_QUALIFICATION.md'
+      - '.github/workflows/rc6-wave6.yml'
+
+jobs:
+  wave6-design-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run all RC6 unit qualification
+        run: python -m unittest discover -s tests -v
