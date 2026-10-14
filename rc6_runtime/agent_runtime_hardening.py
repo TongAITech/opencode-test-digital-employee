@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -95,6 +96,22 @@ class BankFinalDshHeadlessWorkerLauncher(DshHeadlessWorkerLauncher):
                         "ROUTING_INTEGRITY_FAIL:HANDOFF_TOOL_AUTHORIZATION_FAILED"
                     ) from exc
         return super()._emit(event_name, invocation, enriched)
+
+    @staticmethod
+    def _last_json_object(text: str) -> Optional[Dict[str, Any]]:
+        """Accept only one complete terminal JSON object.
+
+        The base helper scans every ``{`` and returns the last decodable object,
+        which is intentionally permissive for generic runtime use but unsafe for
+        BANK_FINAL handoffs: a valid nested object can be mistaken for the whole
+        professional result. Qualification requires the terminal answer itself to
+        be one JSON object, so parse the complete string and fail closed otherwise.
+        """
+        try:
+            value = json.loads(text.strip())
+        except (TypeError, json.JSONDecodeError):
+            return None
+        return value if isinstance(value, dict) else None
 
     @classmethod
     def _final_json(cls, events: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
