@@ -7,6 +7,7 @@ on:
     paths:
       - 'rc7_runtime/**'
       - 'rc7_release/**'
+      - 'packaging/rc7/**'
       - 'tests/test_rc7_*.py'
       - '.github/workflows/rc7-core.yml'
   workflow_dispatch:
@@ -30,5 +31,25 @@ jobs:
         run: python -m compileall -q rc7_runtime rc7_release
       - name: Import inherited RC6 runtime
         run: python -c "import rc6_runtime; import rc6_runtime.truth"
+      - name: Validate RC7 shell qualification entrypoint
+        run: bash -n packaging/rc7/QUALIFY-DSH-REQUIREMENT.sh
       - name: Run RC7 closed-loop core tests
         run: python -m pytest -q tests/test_rc7_*.py
+
+  packaging-windows:
+    name: packaging-windows-python-3.8
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Parse RC7 Windows qualification entrypoint
+        shell: pwsh
+        run: |
+          $content = Get-Content -Raw 'packaging/rc7/QUALIFY-DSH-REQUIREMENT.cmd'
+          if ($content -notmatch 'rc7_release\.dsh_bridge_qualification') { throw 'RC7 qualification module invocation missing' }
+          if ($content -notmatch 'rc7-dsh-bridge-result\.json') { throw 'RC7 qualification result contract missing' }
+          if ($content -match 'DSH_ARGS=--dsh-bin') { throw 'Unsafe concatenated DSH path quoting regression' }
+      - name: Python 3.8 imports field qualification module
+        run: python -c "import rc7_release.dsh_bridge_qualification"
