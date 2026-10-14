@@ -63,6 +63,7 @@ class AuthorityRuntime:
         "L5_EXECUTE": {"execution_attempt", "assertion", "evidence", "coverage_observation"},
         "L6_EXECUTE": {"execution_attempt", "assertion", "evidence", "coverage_observation"},
         "L7_EXECUTE": {"execution_attempt", "assertion", "evidence", "coverage_observation"},
+        "FAILURE_DIAGNOSTIC": {"failure_diagnosis", "recovery_decision", "evidence"},
     }
 
     def __init__(self, signing_key: bytes):

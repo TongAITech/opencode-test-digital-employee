@@ -16,6 +16,20 @@ from .coverage import (
     OraclePolicy,
 )
 from .design import DesignContextBuilder, DesignRuntimeError, DesignTask, DesignTaskPlanner, LayerApplicabilityRouter, LayerDecision
+from .diagnosis import (
+    AttemptHistory,
+    AttemptHistoryEntry,
+    CATCorrelationResult,
+    CATPolicy,
+    CorrelationScope,
+    DiagnosisContractError,
+    DiagnosisResult,
+    DiagnosisRuntime,
+    FailureContext,
+    RecoveryDecision as DiagnosisRecoveryDecision,
+    RecoveryEngine,
+    history_entry_from_execution,
+)
 from .execution import (
     DEFAULT_EXECUTION_PROFILES,
     ExecutionContractError,
@@ -52,6 +66,9 @@ __all__ = [
     "CaseFreezeGate", "ClosureResult", "CoverageContractError", "CoverageSubject", "CoverageSubjectRegistry",
     "DeltaDesignPlanner", "DeltaDesignRequest", "DesignClosureEvaluator", "OraclePolicy",
     "DesignContextBuilder", "DesignRuntimeError", "DesignTask", "DesignTaskPlanner", "LayerApplicabilityRouter", "LayerDecision",
+    "AttemptHistory", "AttemptHistoryEntry", "CATCorrelationResult", "CATPolicy", "CorrelationScope",
+    "DiagnosisContractError", "DiagnosisResult", "DiagnosisRuntime", "FailureContext", "DiagnosisRecoveryDecision",
+    "RecoveryEngine", "history_entry_from_execution",
     "DEFAULT_EXECUTION_PROFILES", "ExecutionContractError", "ExecutionIntegrityGate", "ExecutionProfileRegistry",
     "ExecutionRecord", "ExecutionRuntime", "LayerExecutionProfile", "OracleAssertionResult", "RealActionResult",
     "CodeSufficiencyEvaluator", "GateResult", "IntelligenceContractError", "RequirementSufficiencyEvaluator",

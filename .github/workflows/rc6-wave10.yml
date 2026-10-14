@@ -1,0 +1,21 @@
+name: RC6 Wave 10 CAT Diagnosis Recovery
+
+on:
+  push:
+    branches:
+      - work/rc6-runtime-reconstruction
+  pull_request:
+    paths:
+      - 'rc6_runtime/diagnosis.py'
+      - 'rc6_runtime/authority.py'
+      - 'tests/test_diagnosis.py'
+      - 'docs/RC6_WAVE10_QUALIFICATION.md'
+      - '.github/workflows/rc6-wave10.yml'
+
+jobs:
+  wave10-diagnosis-recovery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run all RC6 unit qualification
+        run: python -m unittest discover -s tests -v
