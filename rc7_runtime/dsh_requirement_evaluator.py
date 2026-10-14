@@ -5,6 +5,9 @@ runtime-hashed candidate, launches a fresh reviewer Worker/session under a
 separate signed lease, converts only reviewer evidence into canonical RC7
 Evidence, and finally invokes RequirementClosedLoop. The reviewer itself never
 owns PASS authority; the deterministic gate creates the canonical Evaluation.
+
+Before review, semantic trace links are bound to evidence that actually exists
+in R1 for the candidate Artifact. A nonempty worker string is not evidence.
 """
 
 from __future__ import annotations
@@ -95,7 +98,7 @@ class DshRequirementEvaluator:
         analysis["release_id"] = control.release_id
         analysis["analyzer_worker_id"] = analyzer_worker_id
         artifact_row = control.truth.query("rc7_artifact", artifact_id=artifact_id)[0]
-        analysis["evidence_refs"] = list(artifact_row.get("evidence_refs", []))
+        self._bind_analysis_evidence(control, artifact_row, analysis)
 
         assignment = self.launcher.assign(
             agent_id="rc7-requirement-sufficiency",
@@ -173,6 +176,62 @@ class DshRequirementEvaluator:
             gaps=evaluated.loop_result.gaps,
         )
         return evaluated
+
+    @staticmethod
+    def _bind_analysis_evidence(
+        control: ClosedLoopControlPlane,
+        artifact_row: Dict[str, object],
+        analysis: Dict[str, object],
+    ) -> None:
+        artifact_evidence_ids = artifact_row.get("evidence_refs", [])
+        if not isinstance(artifact_evidence_ids, list) or not artifact_evidence_ids:
+            raise DshRequirementEvaluatorError("REQUIREMENT_ARTIFACT_EVIDENCE_MISSING")
+
+        canonical_ids = []
+        aliases = {}
+        ambiguous = set()
+        for evidence_id in artifact_evidence_ids:
+            if not isinstance(evidence_id, str) or not evidence_id:
+                raise DshRequirementEvaluatorError("REQUIREMENT_ARTIFACT_EVIDENCE_ID_INVALID")
+            rows = control.truth.query("rc7_evidence", evidence_id=evidence_id)
+            if len(rows) != 1:
+                raise DshRequirementEvaluatorError("REQUIREMENT_ARTIFACT_EVIDENCE_NOT_DURABLE:%s" % evidence_id)
+            row = rows[0]
+            if row.get("mission_id") != control.mission_id:
+                raise DshRequirementEvaluatorError("REQUIREMENT_ARTIFACT_EVIDENCE_MISSION_MISMATCH")
+            canonical_ids.append(evidence_id)
+            for alias in (evidence_id, row.get("content_ref"), row.get("source_ref")):
+                if not isinstance(alias, str) or not alias:
+                    continue
+                existing = aliases.get(alias)
+                if existing is not None and existing != evidence_id:
+                    ambiguous.add(alias)
+                else:
+                    aliases[alias] = evidence_id
+        for alias in ambiguous:
+            aliases.pop(alias, None)
+
+        links = analysis.get("trace_links")
+        if not isinstance(links, list):
+            raise DshRequirementEvaluatorError("REQUIREMENT_TRACE_LINKS_REQUIRED")
+        normalized_links = []
+        for link in links:
+            if not isinstance(link, dict):
+                raise DshRequirementEvaluatorError("REQUIREMENT_TRACE_LINK_INVALID")
+            evidence_ref = link.get("evidence_ref")
+            if not isinstance(evidence_ref, str) or not evidence_ref:
+                raise DshRequirementEvaluatorError("REQUIREMENT_TRACE_EVIDENCE_REF_REQUIRED")
+            canonical = aliases.get(evidence_ref)
+            if canonical is None:
+                raise DshRequirementEvaluatorError(
+                    "REQUIREMENT_TRACE_EVIDENCE_NOT_DURABLE:%s" % evidence_ref
+                )
+            normalized = dict(link)
+            normalized["evidence_ref"] = canonical
+            normalized_links.append(normalized)
+
+        analysis["trace_links"] = normalized_links
+        analysis["evidence_refs"] = list(dict.fromkeys(canonical_ids))
 
     def _persist_reviewer_evidence(
         self,
