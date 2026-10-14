@@ -85,6 +85,22 @@ from .reality import BankRealityRegistry, RealityError
 from .stages import StageMachine, StageViolation
 from .target import TargetIdentity, TargetIdentityBuilder, TargetIdentityError
 from .truth import EventValidationError, JsonlEventStore, PersistenceReceipt, Projection, ProjectionIntegrityError, TruthRuntime
+from .agent_runtime import (
+    AGENT_RUNTIME_EVENT_TYPES,
+    AgentRuntimeError,
+    AgentRuntimeProofValidator,
+    AgentRuntimeQualificationResult,
+    DshHeadlessWorkerLauncher,
+    HeadlessRunResult,
+    IndependentRequirementSufficiencyGate,
+    WorkerAssignment,
+    WorkerInvocation,
+    append_gap,
+    append_requirement_analysis,
+    append_requirement_review,
+    normalize_requirement_analysis,
+    normalize_requirement_review,
+)
 
 __all__ = [
     "AuthorityError", "AuthorityRuntime", "TaskLease", "WorkerIdentity",
@@ -113,4 +129,8 @@ __all__ = [
     "StageMachine", "StageViolation",
     "TargetIdentity", "TargetIdentityBuilder", "TargetIdentityError",
     "EventValidationError", "JsonlEventStore", "PersistenceReceipt", "Projection", "ProjectionIntegrityError", "TruthRuntime",
+    "AGENT_RUNTIME_EVENT_TYPES", "AgentRuntimeError", "AgentRuntimeProofValidator", "AgentRuntimeQualificationResult",
+    "DshHeadlessWorkerLauncher", "HeadlessRunResult", "IndependentRequirementSufficiencyGate",
+    "WorkerAssignment", "WorkerInvocation", "append_gap", "append_requirement_analysis", "append_requirement_review",
+    "normalize_requirement_analysis", "normalize_requirement_review",
 ]
