@@ -10,6 +10,7 @@ on:
       - 'packaging/rc6/**'
       - 'tests/test_release_packaging.py'
       - 'tests/test_agent_runtime.py'
+      - 'tests/test_agent_runtime_hardening.py'
       - 'tests/test_agent_qualification.py'
       - 'docs/RC6_RELEASE_QUALIFICATION.md'
       - 'docs/RC6_CONSTRUCTION_STATUS.md'
