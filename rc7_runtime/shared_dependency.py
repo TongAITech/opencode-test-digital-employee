@@ -1,8 +1,8 @@
 """Shared dependency/root-cause incident control for RC7.
 
-One AUTH/ENV/DEPENDENCY outage that affects N tests is represented by one
-Incident and one recovery Task. Affected Tasks are paused without being marked
-as product FAIL and are resumed only after evidence-backed incident resolution.
+One AUTH/ENV/DEPENDENCY outage affecting N tests becomes one Incident and one
+recovery Task. Affected Tasks are paused without product FAIL and resume only
+after the recovery Task is independently accepted and recovery evidence exists.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import time
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 from rc6_runtime import contracts as _contracts
 from rc6_runtime import truth as _truth
@@ -21,7 +21,6 @@ from .control_plane import TaskScheduler
 from .models import Task, TaskStatus
 from .state_machine import transition_task
 from .truth_overlay import append_entity, install_rc7_truth_overlay
-
 
 INCIDENT_EVENT = "RC7_SHARED_INCIDENT_UPSERTED"
 INCIDENT_ARTIFACT = "rc7_shared_incident"
@@ -61,24 +60,24 @@ def _validate_incident(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         raise _contracts.DomainValidationError("ARTIFACT_MUST_BE_OBJECT")
     out = deepcopy(payload)
-    for field in ("incident_id", "mission_id", "release_id", "category", "dependency_key", "state"):
-        out[field] = _contracts._require_str(out, field)
+    for field_name in ("incident_id", "mission_id", "release_id", "category", "dependency_key", "state"):
+        out[field_name] = _contracts._require_str(out, field_name)
     out["artifact_version"] = _contracts._artifact_version(out)
     out["artifact_type"] = INCIDENT_ARTIFACT
-    for field in ("affected_task_ids", "affected_case_refs", "evidence_refs"):
-        _contracts._require_string_list(out, field)
+    for field_name in ("affected_task_ids", "affected_case_refs", "evidence_refs"):
+        _contracts._require_string_list(out, field_name)
     if not out["affected_task_ids"]:
         raise _contracts.DomainValidationError("INCIDENT_AFFECTED_TASKS_REQUIRED")
-    for field in ("recovery_task_id", "resolution_evaluation_id"):
-        value = out.get(field)
+    for field_name in ("recovery_task_id", "resolution_evaluation_id"):
+        value = out.get(field_name)
         if value is not None and (not isinstance(value, str) or not value.strip()):
-            raise _contracts.DomainValidationError("INVALID_%s" % field.upper())
+            raise _contracts.DomainValidationError("INVALID_%s" % field_name.upper())
     state = out["state"].upper()
     if state in {SharedIncidentStatus.RECOVERING.value, SharedIncidentStatus.RESOLVED.value}:
-        if not isinstance(out.get("recovery_task_id"), str) or not out["recovery_task_id"].strip():
+        if not out.get("recovery_task_id"):
             raise _contracts.DomainValidationError("INCIDENT_RECOVERY_TASK_REQUIRED")
     if state == SharedIncidentStatus.RESOLVED.value:
-        if not isinstance(out.get("resolution_evaluation_id"), str) or not out["resolution_evaluation_id"].strip():
+        if not out.get("resolution_evaluation_id"):
             raise _contracts.DomainValidationError("INCIDENT_RESOLUTION_EVALUATION_REQUIRED")
         if not out["evidence_refs"]:
             raise _contracts.DomainValidationError("INCIDENT_RESOLUTION_EVIDENCE_REQUIRED")
@@ -132,8 +131,11 @@ class SharedDependencyManager:
         evidence_refs: Sequence[str] = (),
     ) -> SharedDependencyIncident:
         category = category.upper().strip()
+        task_ids = list(dict.fromkeys(affected_task_ids))
         if category not in self.RECOVERY_CAPABILITIES:
             raise RuntimeError("SHARED_INCIDENT_CATEGORY_UNSUPPORTED")
+        if not task_ids:
+            raise RuntimeError("INCIDENT_AFFECTED_TASKS_REQUIRED")
         incident_id = _stable_id(mission_id, category, dependency_key)
         rows = self.truth.query(INCIDENT_ARTIFACT, incident_id=incident_id)
         if rows and rows[0]["state"] == SharedIncidentStatus.RESOLVED.value:
@@ -162,15 +164,15 @@ class SharedDependencyManager:
                 mission_id=mission_id,
                 category=category,
                 dependency_key=dependency_key,
-                affected_task_ids=[],
+                affected_task_ids=task_ids,
+                affected_case_refs=list(dict.fromkeys(affected_case_refs)),
+                evidence_refs=list(dict.fromkeys(evidence_refs)),
             )
             version = 1
 
-        for task_id in affected_task_ids:
+        for task_id in task_ids:
             if task_id not in incident.affected_task_ids:
                 incident.affected_task_ids.append(task_id)
-        if not incident.affected_task_ids:
-            raise RuntimeError("INCIDENT_AFFECTED_TASKS_REQUIRED")
         for ref in affected_case_refs:
             if ref not in incident.affected_case_refs:
                 incident.affected_case_refs.append(ref)
@@ -198,13 +200,7 @@ class SharedDependencyManager:
         self.scheduler.refresh_ready(mission_id)
         return incident
 
-    def resolve(
-        self,
-        incident_id: str,
-        *,
-        evaluation_id: str,
-        evidence_refs: Sequence[str],
-    ) -> SharedDependencyIncident:
+    def resolve(self, incident_id: str, *, evaluation_id: str, evidence_refs: Sequence[str]) -> SharedDependencyIncident:
         rows = self.truth.query(INCIDENT_ARTIFACT, incident_id=incident_id)
         if not rows:
             raise RuntimeError("SHARED_INCIDENT_NOT_FOUND")
@@ -216,7 +212,6 @@ class SharedDependencyManager:
         recovery_rows = self.truth.query("rc7_task", task_id=row["recovery_task_id"])
         if not recovery_rows or recovery_rows[0]["state"] != TaskStatus.PASS.value:
             raise RuntimeError("SHARED_INCIDENT_RECOVERY_TASK_NOT_ACCEPTED")
-
         incident = SharedDependencyIncident(
             incident_id=row["incident_id"],
             mission_id=row["mission_id"],
@@ -246,31 +241,18 @@ class SharedDependencyManager:
             task = self.scheduler.task(task_id)
             if task.state in {TaskStatus.READY, TaskStatus.LEASED, TaskStatus.RUNNING}:
                 transition_task(task, TaskStatus.BLOCKED)
-                append_entity(
-                    self.truth,
-                    task,
-                    release_id=self.release_id,
-                    artifact_version=int(row["artifact_version"]) + 1,
-                )
+                append_entity(self.truth, task, release_id=self.release_id, artifact_version=int(row["artifact_version"]) + 1)
 
     def _resume_tasks(self, incident: SharedDependencyIncident) -> None:
         for task_id in incident.affected_task_ids:
             rows = self.truth.query("rc7_task", task_id=task_id)
-            if not rows:
-                continue
-            row = rows[0]
-            if row["state"] != TaskStatus.BLOCKED.value:
+            if not rows or rows[0]["state"] != TaskStatus.BLOCKED.value:
                 continue
             if self._other_active_incident_affects(task_id, incident.incident_id):
                 continue
             task = self.scheduler.task(task_id)
             transition_task(task, TaskStatus.READY)
-            append_entity(
-                self.truth,
-                task,
-                release_id=self.release_id,
-                artifact_version=int(row["artifact_version"]) + 1,
-            )
+            append_entity(self.truth, task, release_id=self.release_id, artifact_version=int(rows[0]["artifact_version"]) + 1)
 
     def _other_active_incident_affects(self, task_id: str, exclude_incident_id: str) -> bool:
         for row in self.truth.query(INCIDENT_ARTIFACT):
@@ -281,10 +263,7 @@ class SharedDependencyManager:
         return False
 
     def _persist(self, incident: SharedDependencyIncident, version: int) -> None:
-        receipt = self.truth.append_atomic(
-            INCIDENT_EVENT,
-            _payload(incident, self.release_id, version),
-        )
+        receipt = self.truth.append_atomic(INCIDENT_EVENT, _payload(incident, self.release_id, version))
         if receipt.status != "PERSISTENCE_VERIFIED":
             raise RuntimeError("SHARED_INCIDENT_PERSISTENCE_FAILED")
 
