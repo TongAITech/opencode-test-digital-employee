@@ -1,6 +1,6 @@
 """RC6 Execution Closure Overlay: executable recovery and convergence.
 
-Recovery decisions are not sufficient.  This module executes bounded recovery
+Recovery decisions are not sufficient. This module executes bounded recovery
 through explicit adapters, appends a fresh attempt for every rerunnable action,
 prevents repeated identical failure signatures from blind retry loops, and
 computes a small terminal-state vocabulary.
@@ -138,18 +138,18 @@ class ExecutionConvergenceController:
 
 
 class RecoveryActionExecutor:
-    """Execute the deterministic recovery action through real adapters/callbacks.
+    """Execute deterministic recovery actions through real runtime adapters.
 
     Adapters are injected runtime surfaces for Script repair/validation, data,
     4A/auth, route/tool/target qualification, dependency repair and controlled
-    repeat.  A successful rerunnable action MUST return evidence and verification
+    repeat. A successful rerunnable action MUST return evidence and verification
     and the executor MUST append a new Attempt before re-execution.
     """
 
     TERMINAL_ACTIONS = {
         "PRODUCT_DEFECT": "PRODUCT_DEFECT_CONFIRMED",
         "ORACLE_CHANGE_REQUEST": "MANUAL_REQUIRED",
-        "MANUAL_REQUIRED": "UNKNOWN_ROOT_CAUSE",
+        "MANUAL_REQUIRED": "MANUAL_REQUIRED",
         "BLOCKED_DIAGNOSIS": "UNKNOWN_ROOT_CAUSE",
         "RETRY_BUDGET_EXHAUSTED": "RETRY_BUDGET_EXHAUSTED",
     }
@@ -192,6 +192,19 @@ class RecoveryActionExecutor:
         self.history.append(entry)
         return entry
 
+    @staticmethod
+    def _terminal_output_refs(
+        context: FailureContext,
+        diagnosis: DiagnosisResult,
+        action: str,
+    ) -> Tuple[str, ...]:
+        if action == "PRODUCT_DEFECT":
+            signature = diagnosis.failure_signature.signature_id if diagnosis.failure_signature else "no-signature"
+            return ("defect-candidate://%s/%s" % (context.attempt_id, signature),)
+        if action == "ORACLE_CHANGE_REQUEST":
+            return ("oracle-change-request://%s" % context.attempt_id,)
+        return ()
+
     def execute(
         self,
         *,
@@ -214,7 +227,7 @@ class RecoveryActionExecutor:
                 next_attempt_id=None,
                 status="TERMINAL",
                 evidence_refs=diagnosis.evidence_refs,
-                output_refs=(),
+                output_refs=self._terminal_output_refs(context, diagnosis, decision.action),
                 verified=True,
                 terminal_status=terminal,
             )
