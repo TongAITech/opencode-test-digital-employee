@@ -28,23 +28,23 @@ if [[ -z "$PYTHON_BIN" ]]; then
   exit 10
 fi
 
-# INSTALL-AITEST performs the one and only destructive legacy pfc-* isolation
-# and records the backup pointer. Startup verifies it but must not sanitize a
-# second time, otherwise the original upgrade backup evidence would be lost.
+# INSTALL-AITEST performs the one and only destructive isolation of known
+# legacy RC5/PFC managed Agent/Skill/Command assets and records the backup.
+# Startup verifies it but must not sanitize a second time.
 GUARD_JSON="$("$PYTHON_BIN" -m rc6_release.legacy_skill_guard verify --workspace "$WORKSPACE")"
 echo "$GUARD_JSON"
 bash "$ROOT/VERIFY-RC6-PROFILE.sh" >/dev/null
 
-# Reuse the authoritative historical field registry and bounded legacy runtime
-# roots before host probing. This prevents Workers from guessing tool locations.
-BRIDGE_JSON="$("$PYTHON_BIN" -m rc6_release.legacy_field_bridge --workspace "$WORKSPACE" --package-root "$ROOT" --output "$LEGACY_ENV")"
+# Reuse authoritative historical field bindings and bounded runtime roots.
+# The compatibility bridge also knows the pinned RC5 CodeGraph server payload
+# name (codegraph-server-win32-x64.exe), so Workers never guess tool paths.
+BRIDGE_JSON="$("$PYTHON_BIN" -m rc6_release.legacy_field_bridge_compat --workspace "$WORKSPACE" --package-root "$ROOT" --output "$LEGACY_ENV")"
 echo "$BRIDGE_JSON"
 # shellcheck disable=SC1090
 source "$LEGACY_ENV"
 
-# Discover and probe reusable historical/host tools, then export only verified
-# executable paths (plus discovered 4A/CAT binding paths) into the DSH host.
-# This makes the existing offline tools actually reachable by RC6 Workers.
+# Probe reusable historical/host tools, then export only verified executable
+# paths (plus discovered 4A/CAT binding refs) into the DSH host.
 TOOL_JSON="$("$PYTHON_BIN" -m rc6_release.tool_bootstrap bootstrap --workspace "$WORKSPACE")"
 echo "$TOOL_JSON"
 "$PYTHON_BIN" -m rc6_release.tool_bootstrap verify --workspace "$WORKSPACE" >/dev/null
@@ -96,7 +96,7 @@ echo "RC6_PROFESSIONAL_AGENTS=25"
 echo "RC6_AGENT_MECHANISM=DSH_HEADLESS_FRESH_AGENT"
 echo "RC6_PROFILE_ACTIVE=PASS"
 echo "LEGACY_RC5_PFC_ACTIVE=FALSE"
-echo "LEGACY_PFC_SKILL_GUARD=PASS"
+echo "LEGACY_MANAGED_ASSET_GUARD=PASS"
 echo "LEGACY_FIELD_BRIDGE=PASS"
 echo "TOOL_PROFILE=$WORKSPACE/.dsh/rc6/TOOL_PROFILE.json"
 echo "TOOL_ENV_BINDING=PASS"
