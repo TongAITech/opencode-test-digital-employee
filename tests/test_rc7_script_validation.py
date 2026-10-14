@@ -96,7 +96,7 @@ def test_pytest_compile_failure_keeps_real_stderr_log(tmp_path):
     assert stderr_path.read_text(encoding="utf-8").strip()
 
 
-def test_junit_readiness_never_invokes_maven_test_business_execution(tmp_path):
+def test_junit_readiness_compiles_generated_source_without_maven_test_execution(tmp_path):
     spec = _spec("JUNIT")
     source = tmp_path / "RateReadyTest.java"
     source.write_text(
@@ -109,6 +109,11 @@ def test_junit_readiness_never_invokes_maven_test_business_execution(tmp_path):
 
     def fake_runner(command, **kwargs):
         commands.append(tuple(command))
+        for token in command:
+            if isinstance(token, str) and token.startswith("-Dmdep.outputFile="):
+                classpath_path = Path(token.split("=", 1)[1])
+                classpath_path.parent.mkdir(parents=True, exist_ok=True)
+                classpath_path.write_text("dependency-a.jar", encoding="utf-8")
         return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
 
     validation = EvidenceBackedScriptReadinessValidator(
@@ -121,8 +126,13 @@ def test_junit_readiness_never_invokes_maven_test_business_execution(tmp_path):
     assert [step.name for step in validation.steps] == [
         "dependency_resolution",
         "test_compile",
+        "test_classpath_resolution",
+        "generated_source_compile",
         "test_symbol_discovery",
     ]
     maven_commands = [command for command in commands if command and command[0] == "mvn"]
     assert maven_commands
     assert all(command[-1] != "test" for command in maven_commands)
+    javac_commands = [command for command in commands if command and command[0] == "javac"]
+    assert len(javac_commands) == 1
+    assert str(source) in javac_commands[0]
