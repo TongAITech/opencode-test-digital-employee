@@ -183,22 +183,30 @@ class DshRequirementEvaluator:
         artifact_row: Dict[str, object],
         analysis: Dict[str, object],
     ) -> None:
-        artifact_evidence_ids = artifact_row.get("evidence_refs", [])
-        if not isinstance(artifact_evidence_ids, list) or not artifact_evidence_ids:
+        artifact_refs = artifact_row.get("evidence_refs", [])
+        if not isinstance(artifact_refs, list) or not artifact_refs:
             raise DshRequirementEvaluatorError("REQUIREMENT_ARTIFACT_EVIDENCE_MISSING")
 
         canonical_ids = []
         aliases = {}
         ambiguous = set()
-        for evidence_id in artifact_evidence_ids:
-            if not isinstance(evidence_id, str) or not evidence_id:
-                raise DshRequirementEvaluatorError("REQUIREMENT_ARTIFACT_EVIDENCE_ID_INVALID")
-            rows = control.truth.query("rc7_evidence", evidence_id=evidence_id)
+        for declared_ref in artifact_refs:
+            if not isinstance(declared_ref, str) or not declared_ref:
+                continue
+            rows = control.truth.query("rc7_evidence", evidence_id=declared_ref)
+            # Worker-declared Artifact references are not acceptance authority.
+            # Ignore declarations that do not resolve to an R1 Evidence record;
+            # at least one real durable record is still mandatory below.
+            if not rows:
+                continue
             if len(rows) != 1:
-                raise DshRequirementEvaluatorError("REQUIREMENT_ARTIFACT_EVIDENCE_NOT_DURABLE:%s" % evidence_id)
+                raise DshRequirementEvaluatorError("REQUIREMENT_ARTIFACT_EVIDENCE_NOT_UNIQUE:%s" % declared_ref)
             row = rows[0]
             if row.get("mission_id") != control.mission_id:
                 raise DshRequirementEvaluatorError("REQUIREMENT_ARTIFACT_EVIDENCE_MISSION_MISMATCH")
+            evidence_id = str(row.get("evidence_id") or "")
+            if not evidence_id:
+                raise DshRequirementEvaluatorError("REQUIREMENT_ARTIFACT_EVIDENCE_ID_INVALID")
             canonical_ids.append(evidence_id)
             for alias in (evidence_id, row.get("content_ref"), row.get("source_ref")):
                 if not isinstance(alias, str) or not alias:
@@ -208,6 +216,8 @@ class DshRequirementEvaluator:
                     ambiguous.add(alias)
                 else:
                     aliases[alias] = evidence_id
+        if not canonical_ids:
+            raise DshRequirementEvaluatorError("REQUIREMENT_ARTIFACT_HAS_NO_DURABLE_EVIDENCE")
         for alias in ambiguous:
             aliases.pop(alias, None)
 
