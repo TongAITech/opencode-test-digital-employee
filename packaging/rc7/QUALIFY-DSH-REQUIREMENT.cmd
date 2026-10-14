@@ -21,12 +21,14 @@ if defined PYTHONPATH (
   set "PYTHONPATH=%ROOT%"
 )
 
-set "TIMEOUT_ARGS="
-if defined PFC_RC7_DSH_TIMEOUT set "TIMEOUT_ARGS=--timeout-seconds %PFC_RC7_DSH_TIMEOUT%"
-set "DSH_ARGS="
-if defined PFC_DSH_BIN set "DSH_ARGS=--dsh-bin "%PFC_DSH_BIN%""
+set "RC7_TIMEOUT=300"
+if defined PFC_RC7_DSH_TIMEOUT set "RC7_TIMEOUT=%PFC_RC7_DSH_TIMEOUT%"
 
-"%PYTHON_BIN%" -m rc7_release.dsh_bridge_qualification --state-root "%PFC_AITEST_STATE_DIR%" --repo-root "%ROOT%" %DSH_ARGS% %TIMEOUT_ARGS%
+if defined PFC_DSH_BIN (
+  "%PYTHON_BIN%" -m rc7_release.dsh_bridge_qualification --state-root "%PFC_AITEST_STATE_DIR%" --repo-root "%ROOT%" --dsh-bin "%PFC_DSH_BIN%" --timeout-seconds "%RC7_TIMEOUT%"
+) else (
+  "%PYTHON_BIN%" -m rc7_release.dsh_bridge_qualification --state-root "%PFC_AITEST_STATE_DIR%" --repo-root "%ROOT%" --timeout-seconds "%RC7_TIMEOUT%"
+)
 set "RC=%ERRORLEVEL%"
 
 set "RESULT=%PFC_AITEST_STATE_DIR%\qualification\rc7-dsh-bridge-result.json"
