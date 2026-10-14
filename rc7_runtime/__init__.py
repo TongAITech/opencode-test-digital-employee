@@ -40,6 +40,11 @@ from .dsh_worker_bridge import (
     DshWorkerBridgeError,
 )
 from .candidate_payload import CandidatePayload, CandidatePayloadError, CandidatePayloadReader
+from .dsh_requirement_evaluator import (
+    DshRequirementEvaluation,
+    DshRequirementEvaluator,
+    DshRequirementEvaluatorError,
+)
 
 __all__ = [
     "Artifact",
@@ -76,4 +81,7 @@ __all__ = [
     "CandidatePayload",
     "CandidatePayloadError",
     "CandidatePayloadReader",
+    "DshRequirementEvaluation",
+    "DshRequirementEvaluator",
+    "DshRequirementEvaluatorError",
 ]
