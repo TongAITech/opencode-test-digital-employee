@@ -1,0 +1,205 @@
+"""RC7 control-plane overlay for the inherited R1 Event Stream.
+
+RC7 does not create a shadow state database.  Canonical Mission/Task/Artifact/
+Evidence/Gap/Evaluation/Event records are registered as additional atomic R1
+artifact types and therefore use the same append/replay/projection mechanism as
+RC6 business truth.
+"""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Any, Dict, Tuple, Type
+
+from rc6_runtime import contracts as _contracts
+from rc6_runtime import truth as _truth
+
+from .models import Artifact, Evaluation, EventRecord, Evidence, Gap, Mission, Task, to_payload
+
+
+RC7_EVENT_TYPES = {
+    "RC7_MISSION_UPSERTED": ("rc7_mission", "mission_id"),
+    "RC7_TASK_UPSERTED": ("rc7_task", "task_id"),
+    "RC7_ARTIFACT_UPSERTED": ("rc7_artifact", "artifact_id"),
+    "RC7_EVIDENCE_UPSERTED": ("rc7_evidence", "evidence_id"),
+    "RC7_GAP_UPSERTED": ("rc7_gap", "gap_id"),
+    "RC7_EVALUATION_UPSERTED": ("rc7_evaluation", "evaluation_id"),
+    "RC7_CONTROL_EVENT_UPSERTED": ("rc7_control_event", "event_id"),
+}
+
+RC7_BUCKETS = {
+    "rc7_mission": "rc7_missions",
+    "rc7_task": "rc7_tasks",
+    "rc7_artifact": "rc7_artifacts",
+    "rc7_evidence": "rc7_evidence_records",
+    "rc7_gap": "rc7_gaps",
+    "rc7_evaluation": "rc7_evaluations",
+    "rc7_control_event": "rc7_control_events",
+}
+
+
+_MODEL_EVENT: Dict[Type[Any], str] = {
+    Mission: "RC7_MISSION_UPSERTED",
+    Task: "RC7_TASK_UPSERTED",
+    Artifact: "RC7_ARTIFACT_UPSERTED",
+    Evidence: "RC7_EVIDENCE_UPSERTED",
+    Gap: "RC7_GAP_UPSERTED",
+    Evaluation: "RC7_EVALUATION_UPSERTED",
+    EventRecord: "RC7_CONTROL_EVENT_UPSERTED",
+}
+
+
+def _base(payload: Dict[str, Any], artifact_type: str, identity: str) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise _contracts.DomainValidationError("ARTIFACT_MUST_BE_OBJECT")
+    out = deepcopy(payload)
+    out[identity] = _contracts._require_str(out, identity)
+    out["mission_id"] = _contracts._require_str(out, "mission_id")
+    out["release_id"] = _contracts._require_str(out, "release_id")
+    out["artifact_version"] = _contracts._artifact_version(out)
+    out["artifact_type"] = artifact_type
+    return out
+
+
+def _list_of_strings(out: Dict[str, Any], field: str) -> None:
+    value = out.get(field, [])
+    if isinstance(value, tuple):
+        out[field] = list(value)
+    _contracts._require_string_list(out, field)
+
+
+def validate_rc7_mission(payload: Dict[str, Any]) -> Dict[str, Any]:
+    out = _base(payload, "rc7_mission", "mission_id")
+    out["goal"] = _contracts._require_str(out, "goal")
+    out["state"] = _contracts._require_str(out, "state").upper()
+    out["sufficiency_state"] = _contracts._require_str(out, "sufficiency_state").upper()
+    revision = out.get("revision")
+    if not isinstance(revision, int) or revision < 1:
+        raise _contracts.DomainValidationError("INVALID_MISSION_REVISION")
+    for field in ("artifact_refs", "open_gap_ids", "active_task_ids", "residual_risk_ids"):
+        _list_of_strings(out, field)
+    return out
+
+
+def validate_rc7_task(payload: Dict[str, Any]) -> Dict[str, Any]:
+    out = _base(payload, "rc7_task", "task_id")
+    for field in ("node", "task_type", "objective", "state"):
+        out[field] = _contracts._require_str(out, field)
+    out["state"] = out["state"].upper()
+    for field in (
+        "required_capabilities", "input_artifact_refs", "gap_refs",
+        "acceptance_criteria", "output_artifact_refs",
+    ):
+        _list_of_strings(out, field)
+    return out
+
+
+def validate_rc7_artifact(payload: Dict[str, Any]) -> Dict[str, Any]:
+    out = _base(payload, "rc7_artifact", "artifact_id")
+    for field in ("artifact_type_name", "producer_task_id", "content_ref", "state"):
+        out[field] = _contracts._require_str(out, field)
+    version = out.get("version")
+    if not isinstance(version, int) or version < 1:
+        raise _contracts.DomainValidationError("INVALID_RC7_ARTIFACT_VERSION")
+    for field in ("parent_refs", "evidence_refs"):
+        _list_of_strings(out, field)
+    return out
+
+
+def validate_rc7_evidence(payload: Dict[str, Any]) -> Dict[str, Any]:
+    out = _base(payload, "rc7_evidence", "evidence_id")
+    for field in ("kind", "source_ref", "content_ref"):
+        out[field] = _contracts._require_str(out, field)
+    _list_of_strings(out, "subject_refs")
+    return out
+
+
+def validate_rc7_gap(payload: Dict[str, Any]) -> Dict[str, Any]:
+    out = _base(payload, "rc7_gap", "gap_id")
+    for field in ("source_node", "category", "severity", "target_node", "description", "state"):
+        out[field] = _contracts._require_str(out, field)
+    for field in ("subject_refs", "evidence_refs", "acceptance_criteria"):
+        _list_of_strings(out, field)
+    return out
+
+
+def validate_rc7_evaluation(payload: Dict[str, Any]) -> Dict[str, Any]:
+    out = _base(payload, "rc7_evaluation", "evaluation_id")
+    for field in ("node", "result", "evaluator_ref"):
+        out[field] = _contracts._require_str(out, field)
+    for field in ("artifact_refs", "gap_refs", "evidence_refs"):
+        _list_of_strings(out, field)
+    if not isinstance(out.get("dimensions"), dict):
+        raise _contracts.DomainValidationError("INVALID_RC7_EVALUATION_DIMENSIONS")
+    return out
+
+
+def validate_rc7_control_event(payload: Dict[str, Any]) -> Dict[str, Any]:
+    out = _base(payload, "rc7_control_event", "event_id")
+    for field in ("event_type_name", "subject_type", "subject_id"):
+        out[field] = _contracts._require_str(out, field)
+    _list_of_strings(out, "refs")
+    if not isinstance(out.get("data"), dict):
+        raise _contracts.DomainValidationError("INVALID_RC7_CONTROL_EVENT_DATA")
+    occurred_at = out.get("occurred_at")
+    if not isinstance(occurred_at, int) or occurred_at < 0:
+        raise _contracts.DomainValidationError("INVALID_RC7_CONTROL_EVENT_TIME")
+    return out
+
+
+RC7_VALIDATORS = {
+    "rc7_mission": validate_rc7_mission,
+    "rc7_task": validate_rc7_task,
+    "rc7_artifact": validate_rc7_artifact,
+    "rc7_evidence": validate_rc7_evidence,
+    "rc7_gap": validate_rc7_gap,
+    "rc7_evaluation": validate_rc7_evaluation,
+    "rc7_control_event": validate_rc7_control_event,
+}
+
+
+def install_rc7_truth_overlay() -> None:
+    _contracts.VALIDATORS.update(RC7_VALIDATORS)
+    _truth.EVENT_TYPES.update(RC7_EVENT_TYPES)
+    _truth.BUCKETS.update(RC7_BUCKETS)
+    _truth.IDENTITY_FIELDS.update(
+        {artifact_type: identity for _, (artifact_type, identity) in RC7_EVENT_TYPES.items()}
+    )
+
+
+def _r1_payload(entity: Any, *, release_id: str, artifact_version: int = 1) -> Tuple[str, Dict[str, Any]]:
+    event_type = _MODEL_EVENT.get(type(entity))
+    if event_type is None:
+        raise TypeError("UNSUPPORTED_RC7_ENTITY")
+    if not isinstance(release_id, str) or not release_id.strip():
+        raise ValueError("RELEASE_ID_REQUIRED")
+    if not isinstance(artifact_version, int) or artifact_version < 1:
+        raise ValueError("ARTIFACT_VERSION_INVALID")
+
+    payload = to_payload(entity)
+    payload["release_id"] = release_id.strip()
+    payload["artifact_version"] = artifact_version
+
+    # Avoid collision between the canonical control record's semantic type and
+    # the R1 envelope's artifact_type field, which validators own.
+    if isinstance(entity, Artifact):
+        payload["artifact_type_name"] = payload.pop("artifact_type")
+    if isinstance(entity, EventRecord):
+        payload["event_type_name"] = payload.pop("event_type")
+    return event_type, payload
+
+
+def append_entity(
+    truth_runtime: _truth.TruthRuntime,
+    entity: Any,
+    *,
+    release_id: str,
+    artifact_version: int = 1,
+):
+    """Append an RC7 control entity to the inherited R1 stream and verify RAW."""
+    install_rc7_truth_overlay()
+    event_type, payload = _r1_payload(entity, release_id=release_id, artifact_version=artifact_version)
+    return truth_runtime.append_atomic(event_type, payload)
+
+
+install_rc7_truth_overlay()
