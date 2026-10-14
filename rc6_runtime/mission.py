@@ -21,6 +21,9 @@ class MissionState:
     target_identity_ref: Optional[str] = None
     checkpoint_seq: int = 0
     coordinator_generation: int = 0
+    active_coordinator_session_ref: Optional[str] = None
+    coordinator_session_refs: List[str] = field(default_factory=list)
+    successor_pending: bool = False
     updated_at: int = 0
 
 
@@ -36,6 +39,9 @@ class ResumeEnvelope:
     target_identity_ref: Optional[str]
     checkpoint_seq: int
     coordinator_generation: int
+    active_coordinator_session_ref: Optional[str]
+    coordinator_session_refs: tuple
+    successor_pending: bool
 
 
 class MissionRuntime:
@@ -75,9 +81,47 @@ class MissionRuntime:
             if os.path.exists(tmp_name):
                 os.unlink(tmp_name)
 
+    def bind_coordinator_session(self, state: MissionState, session_ref: str) -> ResumeEnvelope:
+        ref = self._validate_session_ref(session_ref)
+        if state.successor_pending:
+            raise RuntimeError("SUCCESSOR_ACTIVATION_REQUIRED")
+        if state.active_coordinator_session_ref is not None:
+            if state.active_coordinator_session_ref == ref:
+                return self.resume_envelope(state)
+            raise RuntimeError("COORDINATOR_SESSION_ALREADY_BOUND")
+        state.active_coordinator_session_ref = ref
+        state.coordinator_session_refs.append(ref)
+        self.save(state)
+        return self.resume_envelope(state)
+
     def checkpoint(self, state: MissionState) -> ResumeEnvelope:
+        """Legacy/manual checkpoint; does not assert that a successor was created."""
         state.checkpoint_seq += 1
         state.coordinator_generation += 1
+        self.save(state)
+        return self.resume_envelope(state)
+
+    def rotation_checkpoint(self, state: MissionState) -> ResumeEnvelope:
+        """Strict auto-rotation checkpoint requiring A->successor continuity."""
+        if not state.active_coordinator_session_ref:
+            raise RuntimeError("COORDINATOR_SESSION_NOT_BOUND")
+        if state.successor_pending:
+            raise RuntimeError("SUCCESSOR_ACTIVATION_REQUIRED")
+        state.checkpoint_seq += 1
+        state.coordinator_generation += 1
+        state.successor_pending = True
+        self.save(state)
+        return self.resume_envelope(state)
+
+    def activate_successor(self, state: MissionState, successor_session_ref: str) -> ResumeEnvelope:
+        ref = self._validate_session_ref(successor_session_ref)
+        if not state.successor_pending:
+            raise RuntimeError("NO_SUCCESSOR_PENDING")
+        if ref == state.active_coordinator_session_ref or ref in state.coordinator_session_refs:
+            raise RuntimeError("SUCCESSOR_SESSION_MUST_BE_FRESH")
+        state.active_coordinator_session_ref = ref
+        state.coordinator_session_refs.append(ref)
+        state.successor_pending = False
         self.save(state)
         return self.resume_envelope(state)
 
@@ -94,7 +138,19 @@ class MissionRuntime:
             target_identity_ref=state.target_identity_ref,
             checkpoint_seq=state.checkpoint_seq,
             coordinator_generation=state.coordinator_generation,
+            active_coordinator_session_ref=state.active_coordinator_session_ref,
+            coordinator_session_refs=tuple(state.coordinator_session_refs),
+            successor_pending=state.successor_pending,
         )
+
+    @staticmethod
+    def _validate_session_ref(session_ref: str) -> str:
+        if not isinstance(session_ref, str) or not session_ref.strip():
+            raise RuntimeError("COORDINATOR_SESSION_REF_REQUIRED")
+        ref = session_ref.strip()
+        if len(ref) > 512:
+            raise RuntimeError("COORDINATOR_SESSION_REF_TOO_LONG")
+        return ref
 
     def _path(self, mission_id: str) -> Path:
         safe = "".join(c for c in mission_id if c.isalnum() or c in "-_.")

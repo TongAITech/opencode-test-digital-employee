@@ -57,23 +57,41 @@ class AutonomousMissionOrchestratorTests(unittest.TestCase):
         self.assertEqual(a.idempotency_key, b.idempotency_key)
         self.assertEqual(self.missions.load("M-W13").stage, "REALITY_RECON")
 
-    def test_three_session_rotations_preserve_mission_without_chat_history(self):
+    def test_three_session_rotations_require_fresh_successors(self):
         self.rt.control_tick("M-W13")
+        state = self.missions.load("M-W13")
+        self.missions.bind_coordinator_session(state, "coord://synthetic/A")
         refs = []
-        for expected_generation in (1, 2, 3):
+        for expected_generation, successor in ((1, "B"), (2, "C"), (3, "D")):
             d = self.rt.control_tick("M-W13", context_pressure=True)
             self.assertEqual(d.action, "ROTATE_SESSION")
             self.assertTrue(d.checkpoint_required)
             self.assertIn("/generation/%d" % expected_generation, d.resume_envelope_ref)
             refs.append(d.resume_envelope_ref)
+            pending = self.missions.load("M-W13")
+            self.assertTrue(pending.successor_pending)
+            self.missions.activate_successor(pending, "coord://synthetic/%s" % successor)
         state = self.missions.load("M-W13")
         self.assertEqual(state.coordinator_generation, 3)
         self.assertEqual(state.checkpoint_seq, 3)
         self.assertEqual(state.stage, "REALITY_RECON")
         self.assertEqual(len(set(refs)), 3)
+        self.assertEqual(state.coordinator_session_refs, [
+            "coord://synthetic/A", "coord://synthetic/B", "coord://synthetic/C", "coord://synthetic/D"
+        ])
+        self.assertFalse(state.successor_pending)
         envelope = self.missions.resume_envelope(state)
         self.assertFalse(hasattr(envelope, "chat_history"))
         self.assertFalse(hasattr(envelope, "transcript"))
+
+    def test_rotation_cannot_continue_without_successor_activation(self):
+        self.rt.control_tick("M-W13")
+        state = self.missions.load("M-W13")
+        self.missions.bind_coordinator_session(state, "coord://synthetic/A")
+        self.rt.control_tick("M-W13", context_pressure=True)
+        with self.assertRaises(MissionOrchestrationError) as ctx:
+            self.rt.control_tick("M-W13")
+        self.assertEqual(str(ctx.exception), "SUCCESSOR_ACTIVATION_REQUIRED")
 
     def test_requirement_gap_enters_explicit_repair_loop(self):
         self.rt.control_tick("M-W13")

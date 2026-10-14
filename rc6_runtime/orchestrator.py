@@ -107,12 +107,14 @@ class AutonomousMissionOrchestrator:
     def control_tick(self, mission_id: str, *, context_pressure: bool = False) -> MissionDirective:
         state = self.missions.load(mission_id)
         if context_pressure:
-            envelope = self.missions.checkpoint(state)
+            envelope = self.missions.rotation_checkpoint(state)
             return self._directive(
                 self.missions.load(mission_id), "ROTATE_SESSION",
                 blocking=("COORDINATOR_CONTEXT_PRESSURE",), checkpoint_required=True,
                 resume_envelope_ref=self._resume_ref(envelope),
             )
+        if state.successor_pending:
+            raise MissionOrchestrationError("SUCCESSOR_ACTIVATION_REQUIRED")
         if state.stage == "REGISTERED" and "MISSION_REGISTERED" not in state.completed_gates:
             state.completed_gates.append("MISSION_REGISTERED")
             self.missions.save(state)
