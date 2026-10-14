@@ -22,19 +22,18 @@ Repository truth only. Conversation claims do not advance a wave.
 | 8 | Precondition/Test Data | ENGINEERING_PASS / FROZEN | code `bdd54561f7f2c68feeba0970ede0506b6a7f4cb1`; GitHub Actions run `38524369514` = success |
 | 9 | L1-L7 Execution | ENGINEERING_PASS / FROZEN | code `a8f9cf301b21448ce71a5c2c1067f25e22167651`; GitHub Actions run `38525779029` = success |
 | 10 | CAT Diagnosis/Recovery | ENGINEERING_PASS / FROZEN | code `9c9fc97133353503c8acb52f02193d082b0d2104`; GitHub Actions run `38526336050` = success |
-| 11 | Execution Coverage Closure | IMPLEMENTING | empirical L1-L7 coverage evidence -> gaps -> delta execution/design loop next |
-| 12 | Admin/Allure/Report | NOT_STARTED | — |
+| 11 | Execution Coverage Closure | ENGINEERING_PASS / FROZEN | code `270e10346787009440a29f0fb7bd2906179a1f4d`; GitHub Actions run `38526923819` = success |
+| 12 | Admin/Allure/Report | IMPLEMENTING | R1-only presentation truth, Allure derivative, count/identity reconciliation and report serving next |
 
-## Wave 10 frozen capabilities
-- append-only immutable attempt history; retries/repreparation create successor attempts
-- dedicated `FAILURE_DIAGNOSTIC` runtime role and scoped lease
-- L3/L5 CAT mandatory; L1 CAT mandatory only for remote integration
-- CAT bounded by applications + time window + request/trace/business correlation identifiers
-- CAT must be READY for exact diagnostic worker + TargetIdentity and produce real tool/evidence refs
-- retry only for TRANSIENT and bounded by retry budget
-- DATA/PRECONDITION/AUTH/TOOL/ROUTE/ENVIRONMENT/DESIGN use distinct recovery paths
-- verified preparation + real action + failed assertion must remain PRODUCT and terminal
-- PRODUCT cannot retry/reprepare to green; UNKNOWN fails closed
+## Wave 11 frozen capabilities
+- layer-specific empirical L1-L7 coverage subjects and tools
+- coverage only from integrity-verified real ExecutionRecords on the exact TargetIdentity
+- real tool-call/evidence refs required; cross-layer and wrong-tool observations rejected
+- runtime computes coverage from expected vs observed refs and ignores self-reported percentages
+- missing/partial evidence creates explicit gaps; CRITICAL/HIGH gaps are surfaced separately
+- other-environment evidence cannot close current-target gaps
+- existing-case gaps route to DELTA_EXECUTION; no-case gaps route to same-layer DELTA_DESIGN
+- delta evidence must close the actual subject on re-evaluation
 
 ## Current RED
-`W11-EMPIRICAL-COVERAGE-CLOSURE`: after real execution, each applicable L1-L7 layer must calculate coverage from real layer-specific evidence, not Case counts or model claims. Uncovered required subjects must become explicit empirical coverage gaps. Critical/high-risk gaps must trigger delta design/execution and re-evaluation until closure. L1 uses changed code line/branch/method evidence (and mutation when available); L2 DB/transaction/state; L3 route/schema/auth/error/business; L4 page/control/state/network; L5 journey/state/cross-system; L6 workload envelope/SLO; L7 attack surface/security controls. No execution coverage evidence means no execution sufficiency PASS.
+`W12-PRESENTATION-TRUTH-CONVERGENCE`: Admin/API/Allure/Report must be pure projections/derivatives of R1 durable truth. No shadow admin business store is allowed. Requirement/code/design/execution/assertion/evidence/defect/coverage/report identities and counts must reconcile across R1 -> projection -> query/API -> Admin -> generated report. Allure results must be generated automatically from R1-backed mission truth and rendered with a configured local Allure CLI without exposing secrets. A user must be able to open a mission report from Admin without manually generating it. Final release packaging remains blocked until this reconciliation and package integrity qualification pass.
