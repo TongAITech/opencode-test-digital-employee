@@ -1,15 +1,17 @@
-"""RC6 Wave 10 CAT-backed failure diagnosis and bounded recovery.
+"""RC6 Wave 10 + Execution Closure evidence-backed failure diagnosis.
 
-A failed execution is never retried merely because a model suggests retrying.
-The runtime preserves every attempt, collects evidence, requires bounded CAT
-correlation where policy says CAT applies, classifies the failure, and maps the
-classification to a small deterministic recovery vocabulary.
+A failed execution is never retried merely because a model suggests retrying and
+an assertion failure is never automatically declared PRODUCT.  Failure
+ownership is evidence-backed across Case/Oracle, ExecutableSpec, Script, Data,
+Auth, Route, Tool, Environment and dependency state.  Attempt history remains
+append-only and CAT correlation remains bounded.
 """
 
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
+from hashlib import sha256
 import json
 import time
 import uuid
@@ -25,29 +27,41 @@ class DiagnosisContractError(RuntimeError):
 
 
 FAILURE_CLASSES = {
-    "TRANSIENT",
+    "SCRIPT",
+    "SPEC",
+    "ORACLE",
     "DATA",
     "PRECONDITION",
     "AUTH",
-    "TOOL",
     "ROUTE",
+    "TOOL",
     "ENVIRONMENT",
-    "DESIGN",
+    "DEPENDENCY",
+    "FLAKY",
     "PRODUCT",
+    "TRANSIENT",
     "UNKNOWN",
+    # Legacy compatibility. New execution-closure routing normalizes DESIGN to SPEC.
+    "DESIGN",
 }
 
 RECOVERY_ACTIONS = {
-    "RETRY_SAME_STEP",
+    "REPAIR_SCRIPT",
+    "REOPEN_EXECUTABLE_SPEC",
+    "ORACLE_CHANGE_REQUEST",
     "RESEARCH_OR_REBUILD_DATA",
     "RECONSTRUCT_PRECONDITION",
     "REAUTH",
     "REPAIR_TOOL_BINDING",
     "RECONCILE_ROUTE_BINDING",
     "REQUALIFY_TARGET",
+    "REPAIR_DEPENDENCY_BINDING",
+    "CONTROLLED_REPEAT",
+    "RETRY_SAME_STEP",
     "REOPEN_DESIGN",
     "PRODUCT_DEFECT",
     "BLOCKED_DIAGNOSIS",
+    "MANUAL_REQUIRED",
     "RETRY_BUDGET_EXHAUSTED",
 }
 
@@ -85,6 +99,76 @@ class FailureContext:
     execution_evidence_refs: Tuple[str, ...]
     correlation: Optional[CorrelationScope] = None
     remote_integration: bool = False
+    case_oracle_verified: bool = False
+    executable_spec_verified: bool = False
+    script_validated: bool = False
+    data_verified: bool = False
+    auth_verified: bool = False
+    route_verified: bool = False
+    tool_verified: bool = False
+    environment_verified: bool = False
+    dependency_verified: bool = False
+    exception_type: Optional[str] = None
+    root_stack_frame: Optional[str] = None
+    http_status: Optional[int] = None
+    business_error_code: Optional[str] = None
+    route: Optional[str] = None
+    assertion_identity: Optional[str] = None
+    runner_log_refs: Tuple[str, ...] = ()
+
+    def product_ownership_proven(self) -> bool:
+        return all((
+            self.preparation_verified,
+            self.real_action_executed,
+            self.assertion_failed,
+            self.case_oracle_verified,
+            self.executable_spec_verified,
+            self.script_validated,
+            self.data_verified,
+            self.auth_verified,
+            self.route_verified,
+            self.tool_verified,
+            self.environment_verified,
+            self.dependency_verified,
+        ))
+
+
+@dataclass(frozen=True)
+class FailureSignature:
+    signature_id: str
+    exception_type: Optional[str]
+    root_stack_frame: Optional[str]
+    http_status: Optional[int]
+    business_error_code: Optional[str]
+    route: Optional[str]
+    assertion_identity: Optional[str]
+
+    @classmethod
+    def from_context(cls, context: FailureContext) -> "FailureSignature":
+        stable = {
+            "exception_type": context.exception_type,
+            "root_stack_frame": context.root_stack_frame,
+            "http_status": context.http_status,
+            "business_error_code": context.business_error_code,
+            "route": context.route,
+            "assertion_identity": context.assertion_identity,
+        }
+        encoded = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+        return cls(
+            signature_id="FSIG-" + sha256(encoded.encode("utf-8")).hexdigest()[:24],
+            **stable
+        )
+
+
+@dataclass(frozen=True)
+class RootCauseCandidate:
+    candidate_id: str
+    symbol: str
+    call_path: Tuple[str, ...]
+    git_change_refs: Tuple[str, ...]
+    requirement_refs: Tuple[str, ...]
+    evidence_refs: Tuple[str, ...]
+    confidence: float
 
 
 @dataclass(frozen=True)
@@ -105,6 +189,8 @@ class DiagnosisResult:
     cat_queried: bool
     rationale: str
     classifier_ref: str
+    failure_signature: Optional[FailureSignature] = None
+    root_cause_candidate: Optional[RootCauseCandidate] = None
 
 
 @dataclass(frozen=True)
@@ -130,6 +216,7 @@ class AttemptHistoryEntry:
     status: str
     evidence_refs: Tuple[str, ...]
     recorded_at: int
+    failure_signature_id: Optional[str] = None
 
 
 class AttemptHistory:
@@ -164,6 +251,9 @@ class AttemptHistory:
             count += 1
             current = self._entries[current.parent_attempt_id]
         return count
+
+    def signature_count(self, signature_id: str) -> int:
+        return sum(1 for item in self.entries() if item.failure_signature_id == signature_id)
 
     def successor_id(self, attempt_id: str) -> str:
         if attempt_id not in self._entries:
@@ -214,6 +304,7 @@ class DiagnosisRuntime:
         evidence_collectors: Optional[Mapping[str, Callable[[FailureContext], Dict[str, Any]]]] = None,
         cat_query: Optional[Callable[[CorrelationScope, FailureContext], Dict[str, Any]]] = None,
         cat_policy: Optional[CATPolicy] = None,
+        rca_resolver: Optional[Callable[[FailureContext, Dict[str, Any], str], Dict[str, Any]]] = None,
     ):
         self.authority = authority
         self.tool_broker = tool_broker
@@ -221,6 +312,7 @@ class DiagnosisRuntime:
         self.evidence_collectors = dict(evidence_collectors or {})
         self.cat_query = cat_query
         self.cat_policy = cat_policy or CATPolicy()
+        self.rca_resolver = rca_resolver
 
     def _authorize(self, worker_id: str, lease_id: str, attempt_id: str, cat_required: bool) -> None:
         try:
@@ -230,7 +322,7 @@ class DiagnosisRuntime:
                 raise DiagnosisContractError("FAILURE_DIAGNOSTIC_ROLE_REQUIRED")
             if str(identity.phase).upper() != "DIAGNOSIS":
                 raise DiagnosisContractError("DIAGNOSIS_PHASE_REQUIRED")
-            if lease.scope_ref != f"attempt:{attempt_id}":
+            if lease.scope_ref != "attempt:%s" % attempt_id:
                 raise DiagnosisContractError("DIAGNOSIS_LEASE_SCOPE_MISMATCH")
             for artifact in self.REQUIRED_ARTIFACTS:
                 self.authority.authorize_artifact(worker_id, lease_id, artifact)
@@ -238,6 +330,34 @@ class DiagnosisRuntime:
                 self.authority.authorize_tool(worker_id, lease_id, "cat")
         except AuthorityError as exc:
             raise DiagnosisContractError(str(exc))
+
+    @staticmethod
+    def _root_cause(raw: Dict[str, Any]) -> RootCauseCandidate:
+        symbol = raw.get("symbol")
+        call_path = raw.get("call_path")
+        git_refs = raw.get("git_change_refs")
+        req_refs = raw.get("requirement_refs")
+        evidence_refs = raw.get("evidence_refs")
+        confidence = raw.get("confidence")
+        if not isinstance(symbol, str) or not symbol:
+            raise DiagnosisContractError("RCA_SYMBOL_REQUIRED")
+        if not isinstance(call_path, list) or not call_path or not all(isinstance(x, str) and x for x in call_path):
+            raise DiagnosisContractError("RCA_CALL_PATH_REQUIRED")
+        for values, code in ((git_refs, "RCA_GIT_CHANGE_REFS_REQUIRED"), (req_refs, "RCA_REQUIREMENT_REFS_REQUIRED"), (evidence_refs, "RCA_EVIDENCE_REFS_REQUIRED")):
+            if not isinstance(values, list) or not values or not all(isinstance(x, str) and x for x in values):
+                raise DiagnosisContractError(code)
+        if not isinstance(confidence, (int, float)) or float(confidence) < 0 or float(confidence) > 1:
+            raise DiagnosisContractError("RCA_CONFIDENCE_INVALID")
+        identity = json.dumps({"symbol": symbol, "call_path": call_path, "git": git_refs, "req": req_refs}, sort_keys=True)
+        return RootCauseCandidate(
+            candidate_id="RCA-" + sha256(identity.encode("utf-8")).hexdigest()[:24],
+            symbol=symbol,
+            call_path=tuple(call_path),
+            git_change_refs=tuple(git_refs),
+            requirement_refs=tuple(req_refs),
+            evidence_refs=tuple(evidence_refs),
+            confidence=float(confidence),
+        )
 
     def diagnose(self, *, context: FailureContext, worker_id: str, lease_id: str) -> DiagnosisResult:
         if context.execution_status.upper() == "PASS":
@@ -247,15 +367,30 @@ class DiagnosisRuntime:
         cat_required = self.cat_policy.required(context)
         self._authorize(worker_id, lease_id, context.attempt_id, cat_required)
 
-        evidence_refs: List[str] = list(context.execution_evidence_refs)
-        signals: Dict[str, Any] = {"execution_status": context.execution_status, "sources": {}}
+        evidence_refs: List[str] = list(context.execution_evidence_refs) + list(context.runner_log_refs)
+        signals: Dict[str, Any] = {
+            "execution_status": context.execution_status,
+            "failure_signature": asdict(FailureSignature.from_context(context)),
+            "ownership": {
+                "case_oracle_verified": context.case_oracle_verified,
+                "executable_spec_verified": context.executable_spec_verified,
+                "script_validated": context.script_validated,
+                "data_verified": context.data_verified,
+                "auth_verified": context.auth_verified,
+                "route_verified": context.route_verified,
+                "tool_verified": context.tool_verified,
+                "environment_verified": context.environment_verified,
+                "dependency_verified": context.dependency_verified,
+            },
+            "sources": {},
+        }
         for name, collector in sorted(self.evidence_collectors.items()):
             result = collector(context)
             if not isinstance(result, dict):
-                raise DiagnosisContractError(f"EVIDENCE_COLLECTOR_RESULT_INVALID:{name}")
+                raise DiagnosisContractError("EVIDENCE_COLLECTOR_RESULT_INVALID:%s" % name)
             ref = result.get("evidence_ref")
             if not isinstance(ref, str) or not ref:
-                raise DiagnosisContractError(f"EVIDENCE_COLLECTOR_REF_REQUIRED:{name}")
+                raise DiagnosisContractError("EVIDENCE_COLLECTOR_REF_REQUIRED:%s" % name)
             evidence_refs.append(ref)
             signals["sources"][name] = deepcopy(result.get("signals") or {})
 
@@ -266,7 +401,7 @@ class DiagnosisRuntime:
                 raise DiagnosisContractError("CAT_QUERY_ADAPTER_REQUIRED")
             admission = self.tool_broker.admit(worker_id, ["cat"], context.target_id)
             if not admission.ready:
-                raise DiagnosisContractError(f"CAT_TOOL_NOT_READY:{admission.blocked.get('cat')}")
+                raise DiagnosisContractError("CAT_TOOL_NOT_READY:%s" % admission.blocked.get("cat"))
             raw = self.cat_query(context.correlation, context)
             if not isinstance(raw, dict):
                 raise DiagnosisContractError("CAT_QUERY_RESULT_REQUIRED")
@@ -284,7 +419,6 @@ class DiagnosisRuntime:
             cat_queried = True
             evidence_refs.append(evidence_ref)
             signals["cat"] = deepcopy(raw.get("signals") or {})
-            # Never persist credentials returned accidentally by an adapter.
             lowered = json.dumps(signals["cat"], ensure_ascii=False).lower()
             if any(k in lowered for k in ("password", "passwd", "secret", "token", "credential")):
                 raise DiagnosisContractError("CAT_SECRET_DETECTED_IN_DIAGNOSIS_SIGNAL")
@@ -306,25 +440,36 @@ class DiagnosisRuntime:
             raise DiagnosisContractError("CLASSIFIER_EVIDENCE_SHAPE_INVALID")
         evidence_refs.extend(str(x) for x in class_evidence if isinstance(x, str) and x)
 
-        # A verified real product assertion failure is not allowed to be relabeled
-        # as transient/data/etc. to manufacture a future PASS.
-        if context.preparation_verified and context.real_action_executed and context.assertion_failed:
-            if failure_class != "PRODUCT":
-                raise DiagnosisContractError("VALID_PRODUCT_ASSERTION_FAILURE_MUST_BE_PRODUCT")
+        # PRODUCT is legal only after competing ownership classes have evidence-backed
+        # exclusion. Assertion failure alone is not ownership proof.
+        if failure_class == "PRODUCT" and not context.product_ownership_proven():
+            raise DiagnosisContractError("PRODUCT_OWNERSHIP_EVIDENCE_INCOMPLETE")
+
+        root_cause = None
+        if self.rca_resolver is not None:
+            raw_rca = self.rca_resolver(context, deepcopy(signals), failure_class)
+            if not isinstance(raw_rca, dict):
+                raise DiagnosisContractError("RCA_RESULT_REQUIRED")
+            root_cause = self._root_cause(raw_rca)
+            evidence_refs.extend(root_cause.evidence_refs)
 
         return DiagnosisResult(
             diagnosis_id="diag-" + uuid.uuid4().hex,
             attempt_id=context.attempt_id,
-            failure_class=failure_class,
+            failure_class="SPEC" if failure_class == "DESIGN" else failure_class,
             evidence_refs=tuple(dict.fromkeys(evidence_refs)),
             cat_required=cat_required,
             cat_queried=cat_queried,
             rationale=rationale,
             classifier_ref=classifier_ref,
+            failure_signature=FailureSignature.from_context(context),
+            root_cause_candidate=root_cause,
         )
 
 
 class RecoveryEngine:
+    """Decision only. Execution Closure adds RecoveryActionExecutor for side effects."""
+
     def __init__(self, history: AttemptHistory, max_transient_retries: int = 2):
         if max_transient_retries < 0:
             raise ValueError("max_transient_retries must be >= 0")
@@ -340,31 +485,45 @@ class RecoveryEngine:
             return RecoveryDecision(diagnosis.diagnosis_id, context.attempt_id, "BLOCKED_DIAGNOSIS", False, False, False, None, "CAT_REQUIRED_BEFORE_RECOVERY")
 
         cls = diagnosis.failure_class
-        if context.preparation_verified and context.real_action_executed and context.assertion_failed:
-            if cls != "PRODUCT":
-                raise DiagnosisContractError("PRODUCT_FAILURE_CLASSIFICATION_REQUIRED")
-            return RecoveryDecision(diagnosis.diagnosis_id, context.attempt_id, "PRODUCT_DEFECT", False, False, True, None, "VALID_PRODUCT_FAILURE_TERMINAL")
-
+        if cls == "PRODUCT":
+            if not context.product_ownership_proven():
+                raise DiagnosisContractError("PRODUCT_OWNERSHIP_EVIDENCE_INCOMPLETE")
+            return RecoveryDecision(diagnosis.diagnosis_id, context.attempt_id, "PRODUCT_DEFECT", False, False, True, None, "EVIDENCE_BACKED_PRODUCT_FAILURE_TERMINAL")
+        if cls == "ORACLE":
+            return RecoveryDecision(diagnosis.diagnosis_id, context.attempt_id, "ORACLE_CHANGE_REQUEST", False, False, True, None, "ORACLE_CHANGE_REQUIRES_DESIGN_REVIEW")
+        if cls == "UNKNOWN":
+            return RecoveryDecision(diagnosis.diagnosis_id, context.attempt_id, "MANUAL_REQUIRED", False, False, True, None, "UNKNOWN_ROOT_CAUSE_FAIL_CLOSED")
         if cls == "TRANSIENT":
             retries = self.history.retry_count(context.attempt_id)
             if retries >= self.max_transient_retries:
-                return RecoveryDecision(diagnosis.diagnosis_id, context.attempt_id, "RETRY_BUDGET_EXHAUSTED", False, False, False, None, "TRANSIENT_RETRY_LIMIT_REACHED")
+                return RecoveryDecision(diagnosis.diagnosis_id, context.attempt_id, "RETRY_BUDGET_EXHAUSTED", False, False, True, None, "TRANSIENT_RETRY_LIMIT_REACHED")
             return RecoveryDecision(diagnosis.diagnosis_id, context.attempt_id, "RETRY_SAME_STEP", True, False, False, self.history.successor_id(context.attempt_id), "TRANSIENT_FAILURE")
+
         mapping = {
-            "DATA": ("RESEARCH_OR_REBUILD_DATA", False, True),
-            "PRECONDITION": ("RECONSTRUCT_PRECONDITION", False, True),
-            "AUTH": ("REAUTH", False, True),
-            "TOOL": ("REPAIR_TOOL_BINDING", False, False),
-            "ROUTE": ("RECONCILE_ROUTE_BINDING", False, False),
-            "ENVIRONMENT": ("REQUALIFY_TARGET", False, False),
-            "DESIGN": ("REOPEN_DESIGN", False, False),
-            "PRODUCT": ("PRODUCT_DEFECT", False, False),
-            "UNKNOWN": ("BLOCKED_DIAGNOSIS", False, False),
+            "SCRIPT": ("REPAIR_SCRIPT", True, False),
+            "SPEC": ("REOPEN_EXECUTABLE_SPEC", True, False),
+            "DATA": ("RESEARCH_OR_REBUILD_DATA", True, True),
+            "PRECONDITION": ("RECONSTRUCT_PRECONDITION", True, True),
+            "AUTH": ("REAUTH", True, True),
+            "TOOL": ("REPAIR_TOOL_BINDING", True, False),
+            "ROUTE": ("RECONCILE_ROUTE_BINDING", True, False),
+            "ENVIRONMENT": ("REQUALIFY_TARGET", True, False),
+            "DEPENDENCY": ("REPAIR_DEPENDENCY_BINDING", True, False),
+            "FLAKY": ("CONTROLLED_REPEAT", True, False),
         }
+        if cls not in mapping:
+            raise DiagnosisContractError("NO_RECOVERY_MAPPING_FOR_FAILURE_CLASS")
         action, retry, reprepare = mapping[cls]
-        terminal = cls == "PRODUCT"
-        next_attempt = self.history.successor_id(context.attempt_id) if reprepare else None
-        return RecoveryDecision(diagnosis.diagnosis_id, context.attempt_id, action, retry, reprepare, terminal, next_attempt, f"FAILURE_CLASS:{cls}")
+        return RecoveryDecision(
+            diagnosis.diagnosis_id,
+            context.attempt_id,
+            action,
+            retry,
+            reprepare,
+            False,
+            self.history.successor_id(context.attempt_id),
+            "FAILURE_CLASS:%s" % cls,
+        )
 
     def record_successor(self, decision: RecoveryDecision, prior: AttemptHistoryEntry, *, status: str = "PLANNED") -> AttemptHistoryEntry:
         if not decision.next_attempt_id:
