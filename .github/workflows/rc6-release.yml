@@ -39,6 +39,9 @@ jobs:
           bash -n packaging/rc6/STATUS.sh
           bash -n packaging/rc6/VERIFY.sh
           bash -n packaging/rc6/QUALIFY-AGENT-RUNTIME.sh
+          bash -n packaging/rc6/INSTALL-AITEST.sh
+          bash -n packaging/rc6/VERIFY-RC6-PROFILE.sh
+          bash -n packaging/rc6/ROLLBACK-AITEST.sh
 
   windows-package:
     runs-on: windows-latest
@@ -60,6 +63,26 @@ jobs:
       - name: Git Bash package-only verification
         shell: bash
         run: ./dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10/VERIFY.sh --package-only
+      - name: Git Bash workspace fresh and legacy upgrade qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG="$GITHUB_WORKSPACE/dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10"
+          FRESH="$RUNNER_TEMP/rc6-pfc-fresh"
+          LEGACY="$RUNNER_TEMP/rc6-pfc-legacy"
+          rm -rf "$FRESH" "$LEGACY"
+          PFC_WORKSPACE="$FRESH" "$PKG/INSTALL-AITEST.sh"
+          PFC_WORKSPACE="$FRESH" "$PKG/VERIFY-RC6-PROFILE.sh"
+          PFC_WORKSPACE="$FRESH" "$PKG/INSTALL-AITEST.sh" | grep -q '"install_mode": "RC6_REPAIR"'
+          mkdir -p "$LEGACY/.dsh/skills/pfc-old-rc5" "$LEGACY/.dsh/skills/custom-bank" "$LEGACY/.agents/skills/pfc-old-agent"
+          printf 'legacy\n' > "$LEGACY/.dsh/skills/pfc-old-rc5/SKILL.md"
+          printf 'keep\n' > "$LEGACY/.dsh/skills/custom-bank/SKILL.md"
+          printf 'legacy-agent\n' > "$LEGACY/.agents/skills/pfc-old-agent/SKILL.md"
+          PFC_WORKSPACE="$LEGACY" "$PKG/INSTALL-AITEST.sh" | grep -q '"install_mode": "UPGRADE_FROM_LEGACY"'
+          PFC_WORKSPACE="$LEGACY" "$PKG/VERIFY-RC6-PROFILE.sh"
+          test -f "$LEGACY/.dsh/skills/custom-bank/SKILL.md"
+          test -n "$(find "$LEGACY/.aitest-backup" -path '*/.dsh/skills/pfc-old-rc5/SKILL.md' -print -quit)"
+          test -z "$(find "$LEGACY/.agents/skills" -maxdepth 1 -name 'pfc-*' -print -quit 2>/dev/null || true)"
       - name: Execution Closure runtime is packaged and status stays pre-bank
         shell: pwsh
         run: |
@@ -69,6 +92,7 @@ jobs:
           if ($manifest.autonomous_testing_pass -ne $false) { exit 1 }
           if ($manifest.full_chain_real -ne $false) { exit 1 }
           if ($manifest.bank_field_pass -ne $false) { exit 1 }
+          if ($manifest.workspace_installation -ne 'AUTO_FRESH_OR_UPGRADE') { exit 1 }
           $required = @(
             'rc6_runtime/executable_spec.py',
             'rc6_runtime/automation.py',
@@ -79,6 +103,11 @@ jobs:
             'rc6_release/execution_closure_mcp.py',
             'rc6_release/execution_closure_hardening.py',
             'rc6_release/recovery_adapter_registry.py',
+            'rc6_release/workspace_install.py',
+            'INSTALL-AITEST.sh',
+            'VERIFY-RC6-PROFILE.sh',
+            'ROLLBACK-AITEST.sh',
+            '.dsh/skills/pfc-full-chain-test/SKILL.md',
             'QUALIFY-AGENT-RUNTIME.sh'
           )
           foreach ($file in $required) { if (-not (Test-Path "$root/$file")) { Write-Error "missing $file"; exit 1 } }
