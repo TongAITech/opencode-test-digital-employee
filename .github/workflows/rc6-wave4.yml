@@ -1,0 +1,20 @@
+name: RC6 Wave 4 Tool Capability Broker
+
+on:
+  push:
+    branches:
+      - work/rc6-runtime-reconstruction
+  pull_request:
+    paths:
+      - 'rc6_runtime/capability.py'
+      - 'tests/test_tool_capability.py'
+      - 'docs/RC6_WAVE4_QUALIFICATION.md'
+      - '.github/workflows/rc6-wave4.yml'
+
+jobs:
+  wave4-tool-capability:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run all RC6 unit qualification
+        run: python -m unittest discover -s tests -v
