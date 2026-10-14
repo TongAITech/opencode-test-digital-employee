@@ -17,10 +17,11 @@ fi
 mkdir -p "$STATE"
 export PFC_AITEST_HOME="$ROOT"
 export PFC_AITEST_STATE_DIR="$STATE"
+export PFC_WORKSPACE="${PFC_WORKSPACE:-$ROOT}"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 ARGS=(
-  -m rc7_release.dsh_bridge_qualification
+  -m rc7_release.qualification
   --state-root "$STATE"
   --repo-root "$ROOT"
 )
