@@ -1,0 +1,43 @@
+name: RC6 Agent Runtime BANK_FINAL Engineering Qualification
+
+on:
+  push:
+    branches:
+      - work/rc6-agent-runtime-bank-final-clean
+    paths:
+      - 'rc6_runtime/agent_runtime.py'
+      - 'rc6_runtime/agent_runtime_hardening.py'
+      - 'rc6_release/agent_qualification.py'
+      - 'rc6_release/agent_qualification_runtime.py'
+      - 'rc6_release/dsh.py'
+      - 'packaging/rc6/QUALIFY-AGENT-RUNTIME.sh'
+      - 'tests/test_agent_qualification.py'
+      - 'tests/test_agent_runtime.py'
+      - 'tests/test_agent_runtime_hardening.py'
+      - '.github/workflows/rc6-agent-runtime-bank-final.yml'
+  workflow_dispatch:
+
+jobs:
+  agent-runtime-engineering:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.x']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Agent Runtime qualification wiring and fail-closed regression
+        run: python -m unittest tests.test_agent_qualification tests.test_agent_runtime tests.test_agent_runtime_hardening -v
+
+  agent-runtime-windows-python38:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Agent Runtime qualification wiring on Windows Python 3.8
+        run: python -m unittest tests.test_agent_qualification tests.test_agent_runtime tests.test_agent_runtime_hardening -v
