@@ -320,30 +320,33 @@ class ScriptValidator:
             raise AutomationContractError("SCRIPT_SPEC_IDENTITY_MISMATCH")
         runner = script.runner_type.upper()
         steps: List[ProcessStepResult] = []
+        validation_env = dict(env or {})
+        validation_manifest = Path(cwd) / (".rc6-validation-manifest-%s.jsonl" % uuid.uuid4().hex)
+        validation_env["RC6_EXECUTION_MANIFEST"] = str(validation_manifest)
         if runner == "PYTEST":
             path = self._local_path(script.source_ref)
-            steps.append(self.harness.run("python_compile", (sys.executable, "-m", "py_compile", path), cwd, env))
+            steps.append(self.harness.run("python_compile", (sys.executable, "-m", "py_compile", path), cwd, validation_env))
             if steps[-1].passed:
                 node = "%s::%s" % (path, script.test_symbol) if "::" not in script.test_symbol else script.test_symbol
-                steps.append(self.harness.run("pytest_collect", (sys.executable, "-m", "pytest", "--collect-only", "-q", node), cwd, env))
+                steps.append(self.harness.run("pytest_collect", (sys.executable, "-m", "pytest", "--collect-only", "-q", node), cwd, validation_env))
                 if steps[-1].passed:
-                    steps.append(self.harness.run("fixture_dependency_resolution", (sys.executable, "-m", "pytest", "--setup-plan", "-q", node), cwd, env))
+                    steps.append(self.harness.run("fixture_dependency_resolution", (sys.executable, "-m", "pytest", "--setup-plan", "-q", node), cwd, validation_env))
                 if execute_target and steps[-1].passed:
-                    steps.append(self.harness.run("targeted_execution", (sys.executable, "-m", "pytest", "-q", node), cwd, env))
+                    steps.append(self.harness.run("targeted_execution", (sys.executable, "-m", "pytest", "-q", node), cwd, validation_env))
         elif runner == "JUNIT":
             symbol = script.test_symbol
             source_path = self._local_path(script.source_ref)
             if not Path(cwd, "pom.xml").is_file():
                 raise AutomationContractError("JUNIT_POM_REQUIRED")
-            steps.append(self.harness.run("dependency_resolution", ("mvn", "-q", "-DskipTests", "dependency:go-offline"), cwd, env))
+            steps.append(self.harness.run("dependency_resolution", ("mvn", "-q", "-DskipTests", "dependency:go-offline"), cwd, validation_env))
             if steps[-1].passed:
-                steps.append(self.harness.run("compile", ("mvn", "-q", "-DskipTests", "test-compile"), cwd, env))
+                steps.append(self.harness.run("compile", ("mvn", "-q", "-DskipTests", "test-compile"), cwd, validation_env))
             if steps[-1].passed:
                 selector = "-Dtest=%s" % symbol
-                steps.append(self.harness.run("test_discovery", ("mvn", "-q", selector, "-DfailIfNoTests=true", "-DskipTests=false", "test"), cwd, env))
+                steps.append(self.harness.run("test_discovery", ("mvn", "-q", selector, "-DfailIfNoTests=true", "-DskipTests=false", "test"), cwd, validation_env))
             if execute_target and steps[-1].passed:
                 selector = "-Dtest=%s" % symbol
-                steps.append(self.harness.run("targeted_execution", ("mvn", "-q", selector, "-DfailIfNoTests=true", "-DskipTests=false", "test"), cwd, env))
+                steps.append(self.harness.run("targeted_execution", ("mvn", "-q", selector, "-DfailIfNoTests=true", "-DskipTests=false", "test"), cwd, validation_env))
             if source_path and not Path(source_path).exists() and not Path(cwd, source_path).exists():
                 raise AutomationContractError("JUNIT_SOURCE_REF_NOT_FOUND")
         else:
@@ -352,7 +355,16 @@ class ScriptValidator:
         if not steps:
             raise AutomationContractError("VALIDATION_STEPS_REQUIRED")
         ready = all(step.passed for step in steps)
-        refs = tuple(dict.fromkeys([step.stdout_ref for step in steps] + [step.stderr_ref for step in steps]))
+        manifest_refs: List[str] = []
+        if validation_manifest.is_file():
+            manifest_payload = validation_manifest.read_text(encoding="utf-8")
+            if manifest_payload.strip():
+                manifest_refs.append("validation-manifest://" + sha256(manifest_payload.encode("utf-8")).hexdigest())
+            try:
+                validation_manifest.unlink()
+            except OSError:
+                pass
+        refs = tuple(dict.fromkeys([step.stdout_ref for step in steps] + [step.stderr_ref for step in steps] + manifest_refs))
         identity = {"script_id": script.script_id, "steps": [asdict(x) for x in steps]}
         return ScriptValidation(
             validation_id="VAL-" + canonical_fingerprint(identity)[:24],
