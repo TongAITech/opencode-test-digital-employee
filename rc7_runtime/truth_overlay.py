@@ -319,10 +319,22 @@ def _enforce_durable_acceptance(truth_runtime: _truth.TruthRuntime, entity: Any)
         )
         if is_product_defect:
             dimensions = evaluation.get("dimensions", {})
-            if dimensions.get("defect_state") not in {"CLOSED", "DUPLICATE", "NOT_A_DEFECT"}:
+            defect_state = dimensions.get("defect_state")
+            defect_id = dimensions.get("defect_id")
+            if defect_state not in {"CLOSED", "DUPLICATE", "NOT_A_DEFECT"}:
                 raise _truth.EventValidationError("PRODUCT_DEFECT_RESOLUTION_REQUIRES_TERMINAL_DEFECT_STATE")
-            if not isinstance(dimensions.get("defect_id"), str) or not dimensions.get("defect_id"):
+            if not isinstance(defect_id, str) or not defect_id:
                 raise _truth.EventValidationError("PRODUCT_DEFECT_RESOLUTION_REQUIRES_DEFECT_ID")
+            defects = truth_runtime.query("rc7_defect", defect_id=defect_id)
+            if len(defects) != 1:
+                raise _truth.EventValidationError("PRODUCT_DEFECT_RESOLUTION_REQUIRES_TERMINAL_DEFECT_RECORD")
+            defect = defects[0]
+            if defect.get("mission_id") != entity.mission_id or defect.get("source_gap_id") != entity.gap_id:
+                raise _truth.EventValidationError("PRODUCT_DEFECT_RECORD_OWNERSHIP_MISMATCH")
+            if defect.get("state") != defect_state:
+                raise _truth.EventValidationError("PRODUCT_DEFECT_RECORD_STATE_MISMATCH")
+            if defect.get("latest_evaluation_id") != entity.resolution_evaluation_id:
+                raise _truth.EventValidationError("PRODUCT_DEFECT_RECORD_EVALUATION_MISMATCH")
 
     if isinstance(entity, Mission) and entity.state.value == "CONVERGED":
         evaluation = _require_durable_pass_evaluation(
@@ -334,6 +346,28 @@ def _enforce_durable_acceptance(truth_runtime: _truth.TruthRuntime, entity: Any)
         sufficiency = str(evaluation.get("dimensions", {}).get("sufficiency_state", ""))
         if sufficiency != entity.sufficiency_state:
             raise _truth.EventValidationError("MISSION_SUFFICIENCY_EVALUATION_STATE_MISMATCH")
+
+        active_task_states = {
+            "REGISTERED", "READY", "LEASED", "RUNNING", "OUTPUT_PRODUCED",
+            "EVALUATING", "REPAIR_REQUIRED", "BLOCKED", "HUMAN_REQUIRED",
+            "FAILED", "STALE",
+        }
+        active_tasks = [
+            row for row in truth_runtime.query("rc7_task", mission_id=entity.mission_id)
+            if row.get("state") in active_task_states
+        ]
+        if active_tasks:
+            raise _truth.EventValidationError("CONVERGED_MISSION_HAS_ACTIVE_TASK_PROJECTION")
+
+        open_gap_states = {
+            "OPEN", "PLANNED", "REPAIRING", "EVIDENCE_PENDING", "HUMAN_REQUIRED", "BLOCKED",
+        }
+        open_gaps = [
+            row for row in truth_runtime.query("rc7_gap", mission_id=entity.mission_id)
+            if row.get("state") in open_gap_states
+        ]
+        if open_gaps:
+            raise _truth.EventValidationError("CONVERGED_MISSION_HAS_OPEN_GAP_PROJECTION")
 
 
 def append_entity(
