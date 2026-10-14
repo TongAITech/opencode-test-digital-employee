@@ -3,7 +3,17 @@ from __future__ import annotations
 import pytest
 
 from rc6_runtime.truth import EventValidationError, TruthRuntime
-from rc7_runtime import Gap, GapSeverity, GapStatus, Mission, MissionStatus, Task, TaskStatus
+from rc7_runtime import (
+    Evaluation,
+    EvaluationResult,
+    Gap,
+    GapSeverity,
+    GapStatus,
+    Mission,
+    MissionStatus,
+    Task,
+    TaskStatus,
+)
 from rc7_runtime.truth_overlay import append_entity
 
 
@@ -18,7 +28,7 @@ def test_r1_rejects_pass_task_without_evaluation(tmp_path) -> None:
         state=TaskStatus.PASS,
     )
 
-    with pytest.raises(EventValidationError, match="TASK_PASS_REQUIRES_EVALUATION"):
+    with pytest.raises(EventValidationError, match="DURABLE_PASS_REQUIRES_EXISTING_EVALUATION"):
         append_entity(truth, task, release_id="RC7")
 
 
@@ -35,7 +45,7 @@ def test_r1_rejects_resolved_gap_without_resolution_evaluation(tmp_path) -> None
         state=GapStatus.RESOLVED,
     )
 
-    with pytest.raises(EventValidationError, match="GAP_RESOLUTION_REQUIRES_EVALUATION"):
+    with pytest.raises(EventValidationError, match="DURABLE_PASS_REQUIRES_EXISTING_EVALUATION"):
         append_entity(truth, gap, release_id="RC7")
 
 
@@ -49,12 +59,79 @@ def test_r1_rejects_converged_mission_without_sufficiency_evaluation(tmp_path) -
         sufficiency_state="UNKNOWN",
     )
 
-    with pytest.raises(EventValidationError, match="CONVERGED_MISSION_REQUIRES_SUFFICIENT_STATE"):
+    with pytest.raises(EventValidationError, match="DURABLE_PASS_REQUIRES_EXISTING_EVALUATION"):
         append_entity(truth, mission, release_id="RC7")
+
+
+def test_r1_rejects_fake_or_self_evaluation_authority(tmp_path) -> None:
+    truth = TruthRuntime(tmp_path / "r1.jsonl")
+    fake = Task(
+        task_id="TASK-FAKE-EVAL",
+        mission_id="MISSION-1",
+        node="TEST_DESIGN",
+        task_type="PRODUCE",
+        objective="fake evaluator id",
+        state=TaskStatus.PASS,
+        evaluation_id="EVAL-DOES-NOT-EXIST",
+    )
+    with pytest.raises(EventValidationError, match="DURABLE_PASS_REQUIRES_EXISTING_EVALUATION"):
+        append_entity(truth, fake, release_id="RC7")
+
+    self_eval = Evaluation(
+        evaluation_id="EVAL-SELF",
+        mission_id="MISSION-1",
+        node="TEST_DESIGN",
+        artifact_refs=["ART-SELF"],
+        result=EvaluationResult.PASS,
+        evaluator_ref="worker-self",
+    )
+    append_entity(truth, self_eval, release_id="RC7")
+    self_task = Task(
+        task_id="TASK-SELF",
+        mission_id="MISSION-1",
+        node="TEST_DESIGN",
+        task_type="PRODUCE",
+        objective="worker cannot accept own output",
+        state=TaskStatus.PASS,
+        lease_owner="worker-self",
+        output_artifact_refs=["ART-SELF"],
+        evaluation_id=self_eval.evaluation_id,
+    )
+    with pytest.raises(EventValidationError, match="WORKER_SELF_EVALUATION_FORBIDDEN"):
+        append_entity(truth, self_task, release_id="RC7")
 
 
 def test_r1_accepts_terminal_control_truth_with_evaluation_authority(tmp_path) -> None:
     truth = TruthRuntime(tmp_path / "r1.jsonl")
+
+    task_eval = Evaluation(
+        evaluation_id="EVAL-TASK-1",
+        mission_id="MISSION-1",
+        node="TEST_DESIGN",
+        artifact_refs=["ART-TASK-1"],
+        result=EvaluationResult.PASS,
+        evaluator_ref="evaluator-test-design",
+    )
+    gap_eval = Evaluation(
+        evaluation_id="EVAL-GAP-1",
+        mission_id="MISSION-1",
+        node="TEST_DESIGN",
+        artifact_refs=["ART-TASK-1"],
+        result=EvaluationResult.PASS,
+        evaluator_ref="evaluator-test-design-recheck",
+    )
+    mission_eval = Evaluation(
+        evaluation_id="EVAL-MISSION-1",
+        mission_id="MISSION-1",
+        node="MISSION_EVALUATION",
+        artifact_refs=["SNAPSHOT-1"],
+        result=EvaluationResult.PASS,
+        evaluator_ref="mission-sufficiency-gate",
+        dimensions={"sufficiency_state": "SUFFICIENT"},
+    )
+    for evaluation in (task_eval, gap_eval, mission_eval):
+        receipt = append_entity(truth, evaluation, release_id="RC7")
+        assert receipt.status == "PERSISTENCE_VERIFIED"
 
     task = Task(
         task_id="TASK-ACCEPTED",
@@ -63,7 +140,8 @@ def test_r1_accepts_terminal_control_truth_with_evaluation_authority(tmp_path) -
         task_type="PRODUCE",
         objective="Accepted after evaluation",
         state=TaskStatus.PASS,
-        evaluation_id="EVAL-TASK-1",
+        output_artifact_refs=["ART-TASK-1"],
+        evaluation_id=task_eval.evaluation_id,
     )
     gap = Gap(
         gap_id="GAP-ACCEPTED",
@@ -74,7 +152,7 @@ def test_r1_accepts_terminal_control_truth_with_evaluation_authority(tmp_path) -
         target_node="TEST_DESIGN",
         description="Closed after reevaluation",
         state=GapStatus.RESOLVED,
-        resolution_evaluation_id="EVAL-GAP-1",
+        resolution_evaluation_id=gap_eval.evaluation_id,
     )
     mission = Mission(
         mission_id="MISSION-1",
@@ -82,7 +160,7 @@ def test_r1_accepts_terminal_control_truth_with_evaluation_authority(tmp_path) -
         goal="Converged after sufficiency evaluation",
         state=MissionStatus.CONVERGED,
         sufficiency_state="SUFFICIENT",
-        latest_evaluation_id="EVAL-MISSION-1",
+        latest_evaluation_id=mission_eval.evaluation_id,
     )
 
     for entity in (task, gap, mission):
