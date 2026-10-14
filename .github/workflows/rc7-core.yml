@@ -6,6 +6,7 @@ on:
       - work/rc7-closed-loop-runtime
     paths:
       - 'rc7_runtime/**'
+      - 'rc7_release/**'
       - 'tests/test_rc7_*.py'
       - '.github/workflows/rc7-core.yml'
   workflow_dispatch:
@@ -25,8 +26,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install qualification dependency
         run: python -m pip install --disable-pip-version-check pytest
-      - name: Compile RC7 runtime
-        run: python -m compileall -q rc7_runtime
+      - name: Compile RC7 runtime and release qualification
+        run: python -m compileall -q rc7_runtime rc7_release
       - name: Import inherited RC6 runtime
         run: python -c "import rc6_runtime; import rc6_runtime.truth"
       - name: Run RC7 closed-loop core tests
