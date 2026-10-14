@@ -31,7 +31,8 @@ def write_patch(output: str | Path, home: str | Path, python_executable: str | N
         "",
     ])
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8", newline="\n")
+    with target.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(content)
     return target
 
 

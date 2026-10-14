@@ -61,8 +61,10 @@ def _copy_tree(source: Path, dest: Path) -> None:
 
 
 def _write_text(path: Path, text: str) -> None:
+    """Write deterministic LF UTF-8 text on Python 3.8+ and Windows."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", newline="\n")
+    with path.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
 
 
 def _package_files(root: Path) -> Iterable[Path]:
