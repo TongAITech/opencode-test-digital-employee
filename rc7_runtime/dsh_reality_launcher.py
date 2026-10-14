@@ -1,16 +1,20 @@
-"""RC7 DSH launcher hardening for argument-level runtime proof.
+"""RC7 DSH launcher hardening for field reality proof.
 
-RC6/BANK_FINAL already fail closed on signed lease tool authorization. RC7 adds
-one missing evidence detail without modifying the frozen RC6 runtime: preserve
-the arguments/input/params carried by each DSH tool-call event so R1 can prove
-not only which tool ran, but what target/query it was invoked with.
+RC6/BANK_FINAL already fails closed on signed lease tool authorization. RC7
+adds two release-specific guarantees without modifying the frozen RC6 runtime:
+verify that the RC7 MCP patch is actually composed when DSH exposes
+``--dump-config``, and preserve tool arguments/input/params in R1 so field
+qualification can prove the exact target/query that was executed.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from typing import Any, Dict, List, Optional, Sequence
 
+from rc6_runtime.agent_runtime import AgentRuntimeError
 from rc6_runtime.agent_runtime_hardening import BankFinalDshHeadlessWorkerLauncher
 
 
@@ -18,7 +22,62 @@ _ARGUMENT_KEYS = {"arguments", "args", "input", "parameters", "params"}
 
 
 class RC7BankFinalDshHeadlessWorkerLauncher(BankFinalDshHeadlessWorkerLauncher):
-    """BANK_FINAL launcher plus best-effort argument extraction from DSH events."""
+    """BANK_FINAL authority plus RC7 composition and argument-level proof."""
+
+    def _preflight_headless_composition(self, mission_id: str) -> None:
+        if not self._dsh_available():
+            self._emit_routing_fail(mission_id, "DSH_NOT_AVAILABLE")
+            raise AgentRuntimeError("ROUTING_INTEGRITY_FAIL:DSH_NOT_AVAILABLE")
+
+        run_env = os.environ.copy()
+        run_env.update(self.env)
+        probe_timeout = max(1, min(self.timeout_seconds, 30))
+        try:
+            help_proc = self.command_runner(
+                [self.dsh_bin, "--help"],
+                cwd=self.cwd,
+                env=run_env,
+                capture_output=True,
+                text=True,
+                timeout=probe_timeout,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            self._emit_routing_fail(mission_id, "DSH_CAPABILITY_PROBE_FAILED:%s" % type(exc).__name__)
+            raise AgentRuntimeError("ROUTING_INTEGRITY_FAIL:DSH_CAPABILITY_PROBE_FAILED") from exc
+        if int(help_proc.returncode) != 0:
+            self._emit_routing_fail(mission_id, "DSH_CAPABILITY_PROBE_NONZERO")
+            raise AgentRuntimeError("ROUTING_INTEGRITY_FAIL:DSH_CAPABILITY_PROBE_NONZERO")
+
+        help_text = (help_proc.stdout or "") + "\n" + (help_proc.stderr or "")
+        if "--dump-config" not in help_text:
+            return
+        try:
+            dump_proc = self.command_runner(
+                [
+                    self.dsh_bin,
+                    "--profile", "headless",
+                    "--patch", self.patch_path,
+                    "--dump-config",
+                ],
+                cwd=self.cwd,
+                env=run_env,
+                capture_output=True,
+                text=True,
+                timeout=probe_timeout,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            self._emit_routing_fail(mission_id, "DSH_COMPOSITION_PREFLIGHT_FAILED:%s" % type(exc).__name__)
+            raise AgentRuntimeError("ROUTING_INTEGRITY_FAIL:DSH_COMPOSITION_PREFLIGHT_FAILED") from exc
+        if int(dump_proc.returncode) != 0:
+            self._emit_routing_fail(mission_id, "DSH_COMPOSITION_PREFLIGHT_NONZERO")
+            raise AgentRuntimeError("ROUTING_INTEGRITY_FAIL:DSH_COMPOSITION_PREFLIGHT_NONZERO")
+
+        dump_text = (dump_proc.stdout or "") + "\n" + (dump_proc.stderr or "")
+        if "pfc_aitest_rc7" not in dump_text and "mcp-pfc-aitest-rc7" not in dump_text:
+            self._emit_routing_fail(mission_id, "DSH_RC7_MCP_PATCH_NOT_COMPOSED")
+            raise AgentRuntimeError("ROUTING_INTEGRITY_FAIL:DSH_RC7_MCP_PATCH_NOT_COMPOSED")
 
     @classmethod
     def _tool_calls(cls, events: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
