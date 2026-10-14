@@ -94,7 +94,7 @@ def validate_rc7_mission(payload: Dict[str, Any]) -> Dict[str, Any]:
         _list_of_strings(out, field)
     _optional_nonempty_str(out, "latest_evaluation_id")
     if out["state"] == "CONVERGED":
-        if out["sufficiency_state"] != "SUFFICIENT":
+        if out["sufficiency_state"] not in {"SUFFICIENT", "SUFFICIENT_WITH_RESIDUAL_RISK"}:
             raise _contracts.DomainValidationError("CONVERGED_MISSION_REQUIRES_SUFFICIENT_STATE")
         if not isinstance(out.get("latest_evaluation_id"), str) or not out["latest_evaluation_id"].strip():
             raise _contracts.DomainValidationError("CONVERGED_MISSION_REQUIRES_EVALUATION")
@@ -109,10 +109,15 @@ def validate_rc7_task(payload: Dict[str, Any]) -> Dict[str, Any]:
         out[field] = _contracts._require_str(out, field)
     out["state"] = out["state"].upper()
     for field in (
-        "required_capabilities", "input_artifact_refs", "gap_refs",
+        "required_capabilities", "dependency_task_ids", "input_artifact_refs", "gap_refs",
         "acceptance_criteria", "output_artifact_refs",
     ):
         _list_of_strings(out, field)
+    priority = out.get("priority")
+    if not isinstance(priority, int) or priority < 0:
+        raise _contracts.DomainValidationError("TASK_PRIORITY_INVALID")
+    if out["task_id"] in out["dependency_task_ids"]:
+        raise _contracts.DomainValidationError("TASK_SELF_DEPENDENCY_FORBIDDEN")
     _optional_nonempty_str(out, "evaluation_id")
     if out["state"] == "PASS":
         if not isinstance(out.get("evaluation_id"), str) or not out["evaluation_id"].strip():
