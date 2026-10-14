@@ -25,8 +25,47 @@ Repository truth only. Conversation claims do not advance a wave.
 | 11 | Execution Coverage Closure | ENGINEERING_PASS / FROZEN | code `270e10346787009440a29f0fb7bd2906179a1f4d`; GitHub Actions run `38526923819` = success |
 | 12 | Admin/Allure/Report | ENGINEERING_PASS / FROZEN | code `f3e5a85bc66aaee6f009811bc4920db9c43f7228`; GitHub Actions run `38527845151` = success |
 
+No Wave above is reopened by the Agent Runtime BANK_FINAL gate. Only the cross-wave runtime proof and the P0 wiring required to make that proof real may change.
+
+## RC6 Agent Runtime BANK_FINAL gate
+
+Status: `BLOCKING / NOT_PROVEN`
+
+This gate is cross-wave and non-negotiable. Agent/Skill/Workflow/Prompt/State-Machine existence and Windows/package qualification do not count as Agent Runtime proof.
+
+Required real vertical slice before `AGENT_RUNTIME_PASS` is legal:
+
+`Coordinator -> pfc-requirement-analysis -> pfc-requirement-sufficiency -> Gap -> Repair Routing -> pfc-requirement-analysis -> pfc-requirement-sufficiency -> PASS`
+
+Qualification fault injection requires Attempt #1 to preserve `missing_boundary_rule`; Attempt #1 must therefore fail sufficiency. A direct first PASS is qualification failure.
+
+R1 must contain real ordered lifecycle events from actual DSH headless Worker sessions:
+- `WORKER_ASSIGN_REQUESTED`
+- `WORKER_ADMITTED`
+- `WORKER_STARTED`
+- `WORKER_TOOL_CALLED`
+- `WORKER_OUTPUT_PRODUCED`
+- `WORKER_COMPLETED`
+- `HANDOFF_RETURNED`
+- `SUFFICIENCY_STARTED`
+- `SUFFICIENCY_GAP_FOUND`
+- `REPAIR_REQUESTED`
+- `WORKER_REASSIGNED`
+- `SUFFICIENCY_REEVALUATED`
+- `SUFFICIENCY_PASSED`
+
+Every handoff must preserve `worker_instance_id`, `agent_id`, `mission_id`, `attempt_id`, `assignment_id`, `lease_id`, `parent_worker_id`, `scope`, `input_refs`, `tool_calls`, `output_refs`, `evidence_refs`, `started_at`, `finished_at`, `result`, plus the real fresh DSH session id used as independence proof. Coordinator identity/session must never equal a Worker identity/session. Missing Worker/DSH capability is `ROUTING_INTEGRITY_FAIL`; Coordinator fallback is forbidden.
+
+The one-command package entrypoint is `bash QUALIFY-AGENT-RUNTIME.sh`. It launches fresh DSH headless workers and validates proof from the canonical R1 stream. Unit/CI simulations validate fail-closed mechanics only and can never set the real gate to PASS.
+
+Until that real vertical slice passes, these labels are forbidden:
+- `AGENT_RUNTIME_PASS`
+- `AUTONOMOUS_TESTING_PASS`
+- `BANK_FINAL`
+- `FULL_CHAIN_REAL`
+
 ## Wave 12 frozen capabilities
-- R1 Event Stream remains the sole durable business truth for requirement/code analysis, Test Intent, Test Condition, Test Case, execution attempt, assertion, evidence, defect, empirical coverage and report metadata.
+- R1 Event Stream remains the sole durable business truth for requirement/code analysis, Test Intent, Test Condition, Test Case, execution attempt, assertion, evidence, defect, empirical coverage and report metadata. Agent runtime lifecycle proof is now also persisted in this same R1 stream; no qualification shadow log is allowed.
 - Admin/API/reporting are read-only projections/derivatives of R1; no shadow admin business store is allowed.
 - Admin query supports release, requirement, SST, layer and status filters plus pagination, with a Chinese list/query shell.
 - Allure results are generated automatically from R1 execution/assertion/evidence truth and declare `R1_EVENT_STREAM_PROJECTION` as their source.
@@ -40,4 +79,4 @@ Repository truth only. Conversation claims do not advance a wave.
 `IMPLEMENTING`
 
 ## Current RED
-`RC6-RELEASE-INTEGRATED-QUALIFICATION-AND-PACKAGING`: Wave 0-12 engineering capabilities are frozen, but RC6 is not yet a BANK_FIELD_PASS release. Build a single Git-Bash-first turnkey Windows package with immutable build identity, source commit, manifest and checksums; qualify all entrypoints and offline runtime wiring; prove DSH Skill/MCP readiness, governed Session rotation, provider backpressure, real tool admission/evidence, R1/projection/Admin/Allure/report reconciliation, secret hygiene and package integrity. Final engineering package must be explicitly marked `ENGINEERING_CANDIDATE_NOT_BANK_FINAL` until a real same-Mission bank qualification completes requirement -> code -> design -> preparation -> L1-L7 execution -> evidence/defect/coverage -> report without user `continue` loops.
+`RC6-AGENT-RUNTIME-BANK-FINAL-GATE`: keep Wave 0-12 frozen. First prove the real requirement vertical slice above with independent DSH workers, real handoffs, an actual first sufficiency gap, repair routing, independent re-evaluation and R1 proof. Packaging/Windows PASS remains only engineering evidence. After this slice passes, extend the same runtime proof pattern to Code -> Test Design -> Preconditions/Data -> L1-L7 -> Failure/Diagnosis/Recovery -> Defect -> Evidence/Report. Final package remains `ENGINEERING_CANDIDATE_NOT_BANK_FINAL` until both this gate and the real same-Mission bank full-chain field qualification pass.
