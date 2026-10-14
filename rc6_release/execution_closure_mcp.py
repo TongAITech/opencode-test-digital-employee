@@ -35,7 +35,6 @@ from rc6_runtime import (
     ProcessStepResult,
     PytestRunnerAdapter,
     RecoveryActionExecutor,
-    RecoveryDecision as PreparationRecoveryDecision,
     ScriptArtifact,
     ScriptValidation,
     ScriptValidator,
@@ -57,6 +56,7 @@ def execution_closure_tool_schemas() -> List[Dict[str, Any]]:
     b = {"type": "boolean"}
     a = {"type": "array", "items": s}
     o = {"type": "object", "additionalProperties": True}
+    history = {"type": "array", "items": o}
     return [
         {"name": "executable_spec_build", "description": "AUTOMATION_ENGINEER builds immutable ExecutableSpec from a frozen canonical TestCase and records it in R1.", "inputSchema": _schema({"worker_id": s, "lease_id": s, "case": o, "target_requirements": a, "test_data_refs": a, "oracle_refs": a, "cleanup_policy": o, "runner_type": s, "automation_mapping": o}, ["worker_id", "lease_id", "case", "target_requirements", "test_data_refs", "oracle_refs", "cleanup_policy", "runner_type", "automation_mapping"])},
         {"name": "automation_reuse_resolve", "description": "Search existing tests/fixtures/clients/helpers/auth/routes/data/assertions/cleanup before script generation; records mapping in R1.", "inputSchema": _schema({"worker_id": s, "lease_id": s, "spec": o, "search_roots": a, "extra_keywords": a}, ["worker_id", "lease_id", "spec", "search_roots"])},
@@ -64,9 +64,9 @@ def execution_closure_tool_schemas() -> List[Dict[str, Any]]:
         {"name": "script_validate", "description": "Deterministically validate generated/repaired pytest or JUnit script and record SCRIPT_READY/SCRIPT_INVALID in R1.", "inputSchema": _schema({"worker_id": s, "lease_id": s, "spec": o, "script": o, "cwd": s, "env": o}, ["worker_id", "lease_id", "spec", "script", "cwd"])},
         {"name": "runner_execute", "description": "Execute SCRIPT_READY through production Pytest/JUnit RunnerAdapter and Wave9 ExecutionIntegrityGate; records attempt/assertion/evidence in R1.", "inputSchema": _schema({"worker_id": s, "lease_id": s, "case": o, "spec": o, "script": o, "validation": o, "prepared_attempt": o, "cwd": s, "env": o}, ["worker_id", "lease_id", "case", "spec", "script", "validation", "prepared_attempt", "cwd"])},
         {"name": "failure_diagnose", "description": "Evidence-backed failure ownership; optional CAT evidence and CodeGraph/Git RCA candidate are recorded canonically. Assertion failure alone cannot become PRODUCT.", "inputSchema": _schema({"worker_id": s, "lease_id": s, "release_id": s, "context": o, "classification": o, "cat_result": o, "rca_candidate": o}, ["worker_id", "lease_id", "release_id", "context", "classification"])},
-        {"name": "recovery_decide", "description": "Compute fail-closed recovery decision from canonical failure diagnosis and append it to R1.", "inputSchema": _schema({"worker_id": s, "lease_id": s, "release_id": s, "context": o, "diagnosis": o, "history": {"type": "array", "items": o}}, ["worker_id", "lease_id", "release_id", "context", "diagnosis", "history"])},
-        {"name": "recovery_execute", "description": "Execute/verify a recovery action result, enforce independent budgets/signature loop breaker, and create a fresh successor Attempt reference; records recovery action in R1.", "inputSchema": _schema({"worker_id": s, "lease_id": s, "release_id": s, "context": o, "diagnosis": o, "decision": o, "history": {"type": "array", "items": o}, "action_result": o, "budgets": o}, ["worker_id", "lease_id", "release_id", "context", "diagnosis", "decision", "history", "action_result"])},
-        {"name": "execution_convergence", "description": "Evaluate PASS/product/manual/budget convergence from append-only attempt history and stable FailureSignature.", "inputSchema": _schema({"release_id": s, "diagnosis": o, "history": {"type": "array", "items": o}, "budgets": o, "pass_observed": b}, ["release_id", "history"])},
+        {"name": "recovery_decide", "description": "Compute fail-closed recovery decision from canonical failure diagnosis and append it to R1.", "inputSchema": _schema({"worker_id": s, "lease_id": s, "release_id": s, "context": o, "diagnosis": o, "history": history}, ["worker_id", "lease_id", "release_id", "context", "diagnosis", "history"])},
+        {"name": "recovery_execute", "description": "Execute/verify a recovery action result, enforce independent budgets/signature loop breaker, and create a fresh successor Attempt reference; records recovery action in R1.", "inputSchema": _schema({"worker_id": s, "lease_id": s, "release_id": s, "context": o, "diagnosis": o, "decision": o, "history": history, "action_result": o, "budgets": o}, ["worker_id", "lease_id", "release_id", "context", "diagnosis", "decision", "history", "action_result"])},
+        {"name": "execution_convergence", "description": "Evaluate PASS/product/manual/budget convergence from append-only attempt history and stable FailureSignature and persist convergence to R1.", "inputSchema": _schema({"release_id": s, "attempt_id": s, "diagnosis": o, "history": history, "budgets": o, "pass_observed": b, "evidence_refs": a}, ["release_id", "attempt_id", "history", "evidence_refs"])},
     ]
 
 
@@ -99,13 +99,15 @@ def _script(payload: Mapping[str, Any]) -> ScriptArtifact:
 
 
 def _validation(payload: Mapping[str, Any]) -> ScriptValidation:
-    steps = tuple(ProcessStepResult(**_strip(item, ("name", "command", "exit_code", "stdout_ref", "stderr_ref", "duration_ms", "passed"))) for item in (payload.get("steps") or []))
-    # JSON payloads carry command as arrays; dataclass contract uses tuple.
-    normalized_steps = tuple(ProcessStepResult(step.name, tuple(step.command), step.exit_code, step.stdout_ref, step.stderr_ref, step.duration_ms, step.passed) for step in steps)
+    steps = []
+    for item in payload.get("steps") or []:
+        raw = _strip(item, ("name", "command", "exit_code", "stdout_ref", "stderr_ref", "duration_ms", "passed"))
+        raw["command"] = tuple(raw.get("command") or ())
+        steps.append(ProcessStepResult(**raw))
     return ScriptValidation(
         validation_id=payload["validation_id"], script_id=payload["script_id"],
         runner_type=payload["runner_type"], test_symbol=payload["test_symbol"],
-        steps=normalized_steps, evidence_refs=tuple(payload.get("evidence_refs") or ()), status=payload["status"],
+        steps=tuple(steps), evidence_refs=tuple(payload.get("evidence_refs") or ()), status=payload["status"],
     )
 
 
@@ -123,7 +125,6 @@ def _prepared(payload: Mapping[str, Any]) -> PreparedAttempt:
 def _history(rows: Sequence[Mapping[str, Any]]) -> AttemptHistory:
     history = AttemptHistory()
     pending = list(rows)
-    # Parent-before-child deterministic load.
     while pending:
         progressed = False
         for raw in list(pending):
@@ -136,7 +137,8 @@ def _history(rows: Sequence[Mapping[str, Any]]) -> AttemptHistory:
                 layer=raw["layer"], status=raw["status"], evidence_refs=tuple(raw.get("evidence_refs") or ()),
                 recorded_at=int(raw.get("recorded_at", 0)), failure_signature_id=raw.get("failure_signature_id"),
             ))
-            pending.remove(raw); progressed = True
+            pending.remove(raw)
+            progressed = True
         if not progressed:
             raise ExecutionClosureMcpError("INVALID_ATTEMPT_HISTORY_PARENT_CHAIN")
     return history
@@ -210,7 +212,8 @@ def _oracle(snapshot: Dict[str, Any], actual: Dict[str, Any], context: Dict[str,
         value: Any = actual
         for part in str(field).split("."):
             if not isinstance(value, dict) or part not in value:
-                value = None; break
+                value = None
+                break
             value = value[part]
         passed = value == expected
         details = {"field": field, "expected": expected, "actual": value}
@@ -256,15 +259,7 @@ def _record_execution_truth(truth, spec: ExecutableTestSpec, record) -> Dict[str
     return {"attempt": attempt_receipt, "assertion": assertion_receipt, "evidence": evidence_receipts}
 
 
-def call_execution_closure_tool(
-    name: str,
-    arguments: Dict[str, Any],
-    *,
-    authority,
-    truth,
-    broker,
-    state_root: Path,
-) -> Optional[Dict[str, Any]]:
+def call_execution_closure_tool(name: str, arguments: Dict[str, Any], *, authority, truth, broker, state_root: Path) -> Optional[Dict[str, Any]]:
     if name == "executable_spec_build":
         authority.authorize_artifact(arguments["worker_id"], arguments["lease_id"], "executable_test_spec")
         spec = ExecutableSpecBuilder().build(
@@ -311,18 +306,26 @@ def call_execution_closure_tool(
 
     if name == "script_validate":
         authority.authorize_artifact(arguments["worker_id"], arguments["lease_id"], "script_validation")
-        spec = _spec(arguments["spec"]); script = _script(arguments["script"])
+        spec = _spec(arguments["spec"])
+        script = _script(arguments["script"])
         validation = ScriptValidator().validate(spec=spec, script=script, cwd=arguments["cwd"], env=arguments.get("env") or None, execute_target=True)
-        payload = validation.to_artifact(); payload["release_id"] = spec.release_id; payload["spec_id"] = spec.spec_id; payload["tc_id"] = spec.tc_id
+        payload = validation.to_artifact()
+        payload.update({"release_id": spec.release_id, "spec_id": spec.spec_id, "tc_id": spec.tc_id})
         receipt = _append(truth, "SCRIPT_VALIDATION_UPSERTED", payload)
         return {"validation": payload, "r1_receipt": asdict(receipt)}
 
     if name == "runner_execute":
-        spec = _spec(arguments["spec"]); script = _script(arguments["script"]); validation = _validation(arguments["validation"]); prepared = _prepared(arguments["prepared_attempt"])
+        spec = _spec(arguments["spec"])
+        script = _script(arguments["script"])
+        validation = _validation(arguments["validation"])
+        prepared = _prepared(arguments["prepared_attempt"])
         runner_type = script.runner_type.upper()
-        if runner_type == "PYTEST": runner = PytestRunnerAdapter()
-        elif runner_type == "JUNIT": runner = JUnitRunnerAdapter()
-        else: raise ExecutionClosureMcpError("RUNNER_ADAPTER_NOT_AVAILABLE:%s" % runner_type)
+        if runner_type == "PYTEST":
+            runner = PytestRunnerAdapter()
+        elif runner_type == "JUNIT":
+            runner = JUnitRunnerAdapter()
+        else:
+            raise ExecutionClosureMcpError("RUNNER_ADAPTER_NOT_AVAILABLE:%s" % runner_type)
         runtime = ExecutionRuntime(authority=authority, tool_broker=broker, oracle_evaluator=_oracle)
         record = runtime.execute_with_runner(
             case=arguments["case"], executable_spec=spec, script=script, validation=validation,
@@ -345,7 +348,8 @@ def call_execution_closure_tool(
         rca_receipt = None
         rca_id = None
         if result.root_cause_candidate:
-            rca = asdict(result.root_cause_candidate); rca.update({"release_id": arguments["release_id"], "attempt_id": ctx.attempt_id})
+            rca = asdict(result.root_cause_candidate)
+            rca.update({"release_id": arguments["release_id"], "attempt_id": ctx.attempt_id})
             rca_id = result.root_cause_candidate.candidate_id
             rca_receipt = _append(truth, "ROOT_CAUSE_CANDIDATE_UPSERTED", rca)
         payload = {
@@ -358,32 +362,51 @@ def call_execution_closure_tool(
 
     if name == "recovery_decide":
         authority.authorize_artifact(arguments["worker_id"], arguments["lease_id"], "recovery_decision")
-        ctx = _failure_context(arguments["context"]); diag = _diagnosis(arguments["diagnosis"]); history = _history(arguments["history"])
+        ctx = _failure_context(arguments["context"])
+        diag = _diagnosis(arguments["diagnosis"])
+        history = _history(arguments["history"])
         decision = RecoveryEngine(history).decide(ctx, diag)
         did = "RDEC-" + sha256((diag.diagnosis_id + "|" + decision.action).encode("utf-8")).hexdigest()[:24]
-        payload = {"decision_id": did, "release_id": arguments["release_id"], "diagnosis_id": decision.diagnosis_id, "attempt_id": decision.attempt_id, "action": decision.action, "terminal": decision.terminal, "next_attempt_id": decision.next_attempt_id, "retry_allowed": decision.retry_allowed, "reprepare_allowed": decision.reprepare_allowed, "reason": decision.reason}
+        payload = {
+            "decision_id": did, "release_id": arguments["release_id"], "diagnosis_id": decision.diagnosis_id,
+            "attempt_id": decision.attempt_id, "action": decision.action, "terminal": decision.terminal,
+            "next_attempt_id": decision.next_attempt_id, "retry_allowed": decision.retry_allowed,
+            "reprepare_allowed": decision.reprepare_allowed, "reason": decision.reason,
+        }
         receipt = _append(truth, "RECOVERY_DECISION_UPSERTED", payload)
         return {"decision": asdict(decision), "decision_id": did, "r1_receipt": asdict(receipt)}
 
     if name == "recovery_execute":
         authority.authorize_artifact(arguments["worker_id"], arguments["lease_id"], "recovery_action")
-        ctx = _failure_context(arguments["context"]); diag = _diagnosis(arguments["diagnosis"]); decision = _decision(arguments["decision"]); history = _history(arguments["history"])
+        ctx = _failure_context(arguments["context"])
+        diag = _diagnosis(arguments["diagnosis"])
+        decision = _decision(arguments["decision"])
+        history = _history(arguments["history"])
         budgets = ExecutionBudgets(**(arguments.get("budgets") or {}))
         controller = ExecutionConvergenceController(history, budgets)
         executor = RecoveryActionExecutor(history=history, convergence=controller, adapters={decision.action: lambda _c, _d, _r: arguments["action_result"]})
         result = executor.execute(context=ctx, diagnosis=diag, decision=decision)
-        payload = asdict(result); payload["release_id"] = arguments["release_id"]
+        payload = asdict(result)
+        payload["release_id"] = arguments["release_id"]
         receipt = _append(truth, "RECOVERY_ACTION_UPSERTED", payload)
         return {"recovery_action": payload, "attempt_history": [asdict(x) for x in history.entries()], "r1_receipt": asdict(receipt)}
 
     if name == "execution_convergence":
-        history = _history(arguments["history"]); controller = ExecutionConvergenceController(history, ExecutionBudgets(**(arguments.get("budgets") or {}))
+        history = _history(arguments["history"])
+        controller = ExecutionConvergenceController(history, ExecutionBudgets(**(arguments.get("budgets") or {})))
         if arguments.get("pass_observed"):
             result = controller.pass_result()
         else:
             if not arguments.get("diagnosis"):
                 raise ExecutionClosureMcpError("DIAGNOSIS_REQUIRED_WHEN_PASS_NOT_OBSERVED")
             result = controller.evaluate_failure(_diagnosis(arguments["diagnosis"]))
-        return {"convergence": asdict(result), "release_id": arguments["release_id"]}
+        status = result.terminal_status or ("RECOVERY_ALLOWED" if result.allow_recovery else "MANUAL_REQUIRED")
+        cid = "CONV-" + sha256((arguments["attempt_id"] + "|" + status + "|" + result.reason).encode("utf-8")).hexdigest()[:24]
+        payload = {
+            "convergence_id": cid, "release_id": arguments["release_id"], "attempt_id": arguments["attempt_id"],
+            "status": status, "reason": result.reason, "evidence_refs": list(arguments.get("evidence_refs") or ()),
+        }
+        receipt = _append(truth, "EXECUTION_CONVERGENCE_UPSERTED", payload)
+        return {"convergence": asdict(result), "artifact": payload, "r1_receipt": asdict(receipt)}
 
     return None
