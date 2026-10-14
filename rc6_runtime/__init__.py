@@ -18,6 +18,16 @@ from .coverage import (
 from .design import DesignContextBuilder, DesignRuntimeError, DesignTask, DesignTaskPlanner, LayerApplicabilityRouter, LayerDecision
 from .intelligence import CodeSufficiencyEvaluator, GateResult, IntelligenceContractError, RequirementSufficiencyEvaluator
 from .mission import MissionRuntime, MissionState, ResumeEnvelope
+from .preparation import (
+    AttemptBindingStore,
+    PreparationContractError,
+    PreparationPlan,
+    PreparedAttempt,
+    PreparationRecoveryEngine,
+    PreparationRuntime,
+    PreparationSpecParser,
+    RecoveryDecision,
+)
 from .reality import BankRealityRegistry, RealityError
 from .stages import StageMachine, StageViolation
 from .target import TargetIdentity, TargetIdentityBuilder, TargetIdentityError
@@ -33,6 +43,8 @@ __all__ = [
     "DesignContextBuilder", "DesignRuntimeError", "DesignTask", "DesignTaskPlanner", "LayerApplicabilityRouter", "LayerDecision",
     "CodeSufficiencyEvaluator", "GateResult", "IntelligenceContractError", "RequirementSufficiencyEvaluator",
     "MissionRuntime", "MissionState", "ResumeEnvelope",
+    "AttemptBindingStore", "PreparationContractError", "PreparationPlan", "PreparedAttempt",
+    "PreparationRecoveryEngine", "PreparationRuntime", "PreparationSpecParser", "RecoveryDecision",
     "BankRealityRegistry", "RealityError",
     "StageMachine", "StageViolation",
     "TargetIdentity", "TargetIdentityBuilder", "TargetIdentityError",
