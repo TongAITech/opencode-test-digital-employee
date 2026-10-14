@@ -194,7 +194,7 @@ def test_independent_reviewer_plus_deterministic_gate_accepts_complete_requireme
     assert evaluated.analysis["evidence_refs"] == ["EVD-REQ-SOURCE"]
     assert evaluated.review["evidence_refs"]
     assert len(truth.query("rc7_evidence", mission_id=control.mission_id)) >= 3
-    assert "Do not emit a canonical Evaluation" in launcher.prompts[0]
+    assert "do not emit a canonical evaluation" in launcher.prompts[0].lower()
 
 
 def test_reviewer_false_pass_cannot_hide_missing_boundary(tmp_path) -> None:
