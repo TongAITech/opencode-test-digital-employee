@@ -28,9 +28,10 @@ if [[ -z "$PYTHON_BIN" ]]; then
   exit 10
 fi
 
-# DSH scans more than .dsh/skills in historical workspaces. Remove only legacy
-# pfc-* definitions from .opencode scan roots, after taking an explicit backup.
-GUARD_JSON="$("$PYTHON_BIN" -m rc6_release.legacy_skill_guard sanitize --workspace "$WORKSPACE")"
+# INSTALL-AITEST performs the one and only destructive legacy pfc-* isolation
+# and records the backup pointer. Startup verifies it but must not sanitize a
+# second time, otherwise the original upgrade backup evidence would be lost.
+GUARD_JSON="$("$PYTHON_BIN" -m rc6_release.legacy_skill_guard verify --workspace "$WORKSPACE")"
 echo "$GUARD_JSON"
 bash "$ROOT/VERIFY-RC6-PROFILE.sh" >/dev/null
 
