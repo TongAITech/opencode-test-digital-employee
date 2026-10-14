@@ -62,6 +62,13 @@ def _looks_secret(path: Path) -> bool:
     )
 
 
+def _write_text(path: Path, text: str) -> None:
+    """Write deterministic LF UTF-8 text on Python 3.8+ and Windows."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+
+
 def _copy_tree(source: Path, dest: Path) -> None:
     for item in sorted(source.rglob("*")):
         if not item.is_file():
@@ -71,14 +78,13 @@ def _copy_tree(source: Path, dest: Path) -> None:
             continue
         target = dest / rel
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(item, target)
-
-
-def _write_text(path: Path, text: str) -> None:
-    """Write deterministic LF UTF-8 text on Python 3.8+ and Windows."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="\n") as fh:
-        fh.write(text)
+        if item.suffix.lower() == ".sh":
+            # Git for Windows may materialize shell sources as CRLF. Package
+            # bytes must stay Git-Bash/Unix portable after ZIP extraction.
+            _write_text(target, item.read_text(encoding="utf-8"))
+            shutil.copystat(item, target)
+        else:
+            shutil.copy2(item, target)
 
 
 def _is_runtime_generated(root: Path, path: Path) -> bool:
