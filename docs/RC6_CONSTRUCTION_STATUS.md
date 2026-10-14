@@ -21,21 +21,20 @@ Repository truth only. Conversation claims do not advance a wave.
 | 7 | Coverage/Oracle Closure | ENGINEERING_PASS / FROZEN | code `318fe446c498c22d92ac241f01d067e4c8e3bd83`; GitHub Actions run `38523909146` = success |
 | 8 | Precondition/Test Data | ENGINEERING_PASS / FROZEN | code `bdd54561f7f2c68feeba0970ede0506b6a7f4cb1`; GitHub Actions run `38524369514` = success |
 | 9 | L1-L7 Execution | ENGINEERING_PASS / FROZEN | code `a8f9cf301b21448ce71a5c2c1067f25e22167651`; GitHub Actions run `38525779029` = success |
-| 10 | CAT Diagnosis/Recovery | IMPLEMENTING | failure diagnosis, bounded CAT correlation and recovery semantics next |
-| 11 | Execution Coverage Closure | NOT_STARTED | — |
+| 10 | CAT Diagnosis/Recovery | ENGINEERING_PASS / FROZEN | code `9c9fc97133353503c8acb52f02193d082b0d2104`; GitHub Actions run `38526336050` = success |
+| 11 | Execution Coverage Closure | IMPLEMENTING | empirical L1-L7 coverage evidence -> gaps -> delta execution/design loop next |
 | 12 | Admin/Allure/Report | NOT_STARTED | — |
 
-## Wave 9 frozen capabilities
-- seven independent `L1_EXECUTE` ... `L7_EXECUTE` profiles
-- exact PREPARED attempt + FROZEN Case version + TargetIdentity required
-- worker role/layer/phase and lease scope are runtime-enforced
-- layer-specific tool admission is required for the exact worker and target
-- every required execution tool must produce a real tool-call ref and evidence ref
-- actual result + independent deterministic oracle assertion + current evidence required for PASS
-- `BLOCKED`, `SKIPPED`, `NOT_RUN` cannot become PASS
-- mixed-layer Cases are rejected
-- execution receives copies; canonical frozen Case and prepared bindings cannot be mutated by an execution worker
-- failed oracle stays FAIL with valid execution integrity
+## Wave 10 frozen capabilities
+- append-only immutable attempt history; retries/repreparation create successor attempts
+- dedicated `FAILURE_DIAGNOSTIC` runtime role and scoped lease
+- L3/L5 CAT mandatory; L1 CAT mandatory only for remote integration
+- CAT bounded by applications + time window + request/trace/business correlation identifiers
+- CAT must be READY for exact diagnostic worker + TargetIdentity and produce real tool/evidence refs
+- retry only for TRANSIENT and bounded by retry budget
+- DATA/PRECONDITION/AUTH/TOOL/ROUTE/ENVIRONMENT/DESIGN use distinct recovery paths
+- verified preparation + real action + failed assertion must remain PRODUCT and terminal
+- PRODUCT cannot retry/reprepare to green; UNKNOWN fails closed
 
 ## Current RED
-`W10-CAT-DIAGNOSIS-RECOVERY`: failed attempts must preserve immutable attempt history, collect bounded multi-source evidence, correlate CAT when applicable using app/time/request/trace/business identifiers, classify the failure, and choose only an allowed recovery path. Retry is allowed only for transient failures and must be bounded. DATA/PRECONDITION/AUTH/TOOL/ROUTE/DESIGN failures use distinct recovery semantics. A valid PRODUCT assertion failure after verified preparation and real action is terminal and cannot be retried or re-prepared to green.
+`W11-EMPIRICAL-COVERAGE-CLOSURE`: after real execution, each applicable L1-L7 layer must calculate coverage from real layer-specific evidence, not Case counts or model claims. Uncovered required subjects must become explicit empirical coverage gaps. Critical/high-risk gaps must trigger delta design/execution and re-evaluation until closure. L1 uses changed code line/branch/method evidence (and mutation when available); L2 DB/transaction/state; L3 route/schema/auth/error/business; L4 page/control/state/network; L5 journey/state/cross-system; L6 workload envelope/SLO; L7 attack surface/security controls. No execution coverage evidence means no execution sufficiency PASS.
