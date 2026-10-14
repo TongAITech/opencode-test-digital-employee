@@ -3,9 +3,10 @@
 Readiness proves that a generated script is structurally executable without
 executing the product/business assertion. Every subprocess stdout/stderr is
 persisted as a real file so repair/diagnosis can locate the first failing step.
-For JUnit, RC7 deliberately does NOT invoke ``mvn test`` during readiness;
-dependency resolution + test compilation + source symbol discovery are enough
-for the SCRIPT_READY gate. Formal Execution owns the actual business result.
+For JUnit, RC7 deliberately does NOT invoke ``mvn test`` during readiness: it
+resolves dependencies, compiles the project test classpath, then explicitly
+``javac`` compiles the Runtime-persisted generated Java source in isolation.
+Formal Execution owns the actual business result.
 """
 
 from __future__ import annotations
@@ -91,6 +92,34 @@ class EvidenceBackedScriptReadinessValidator:
             steps.append(self._run("dependency_resolution", ("mvn", "-q", "-DskipTests", "dependency:go-offline"), cwd, merged, run_root))
             if steps[-1].passed:
                 steps.append(self._run("test_compile", ("mvn", "-q", "-DskipTests", "test-compile"), cwd, merged, run_root))
+            classpath_file = run_root / "junit-test-classpath.txt"
+            if steps[-1].passed:
+                steps.append(
+                    self._run(
+                        "test_classpath_resolution",
+                        (
+                            "mvn", "-q", "-DincludeScope=test",
+                            "-Dmdep.outputFile=%s" % str(classpath_file),
+                            "dependency:build-classpath",
+                        ),
+                        cwd,
+                        merged,
+                        run_root,
+                    )
+                )
+            if steps[-1].passed:
+                classpath = self._junit_classpath(classpath_file, cwd)
+                classes_dir = run_root / "generated-test-classes"
+                classes_dir.mkdir(parents=True, exist_ok=True)
+                steps.append(
+                    self._run(
+                        "generated_source_compile",
+                        ("javac", "-cp", classpath, "-d", str(classes_dir), str(source_path)),
+                        cwd,
+                        merged,
+                        run_root,
+                    )
+                )
             if steps[-1].passed:
                 steps.append(self._junit_symbol_discovery(source_path, script.test_symbol, cwd, merged, run_root))
         else:
@@ -124,6 +153,8 @@ class EvidenceBackedScriptReadinessValidator:
         manifest_path = run_root / "validation-manifest.json"
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
         evidence_refs.append("file://" + str(manifest_path))
+        if runner == "JUNIT" and classpath_file.is_file():
+            evidence_refs.append("file://" + str(classpath_file))
         identity = {"script_id": script.script_id, "steps": manifest["steps"]}
         return ScriptValidation(
             validation_id="VAL-" + canonical_fingerprint(identity)[:24],
@@ -134,6 +165,19 @@ class EvidenceBackedScriptReadinessValidator:
             evidence_refs=tuple(dict.fromkeys(evidence_refs)),
             status="SCRIPT_READY" if ready else "SCRIPT_INVALID",
         )
+
+    @staticmethod
+    def _junit_classpath(classpath_file: Path, cwd: str) -> str:
+        if not classpath_file.is_file():
+            raise RC7ScriptValidationError("JUNIT_TEST_CLASSPATH_FILE_MISSING")
+        dependency_classpath = classpath_file.read_text(encoding="utf-8").strip()
+        project = Path(cwd).resolve()
+        entries = [
+            dependency_classpath,
+            str(project / "target" / "classes"),
+            str(project / "target" / "test-classes"),
+        ]
+        return os.pathsep.join(value for value in entries if value)
 
     def _run(
         self,
