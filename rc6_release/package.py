@@ -31,6 +31,9 @@ SHELL_ENTRYPOINTS = (
     "STATUS.sh",
     "VERIFY.sh",
     "QUALIFY-AGENT-RUNTIME.sh",
+    "INSTALL-AITEST.sh",
+    "VERIFY-RC6-PROFILE.sh",
+    "ROLLBACK-AITEST.sh",
 )
 
 
@@ -118,6 +121,9 @@ def _manifest_for(package_root: Path, source_commit: str) -> dict:
         "full_chain_real": False,
         "bank_field_pass": False,
         "field_qualification_required": True,
+        "workspace_installation": "AUTO_FRESH_OR_UPGRADE",
+        "default_windows_workspace": r"D:\PFC",
+        "agent_profile": "RC6_RUNTIME_WORKERS_BOUND_TO_PROJECT_DSH_SKILLS",
         "files": files,
     }
 
@@ -186,9 +192,10 @@ def verify_package(package_root: str | Path) -> dict:
     root = Path(package_root).resolve()
     required = {
         "AITEST.sh", "START-AITEST.sh", "STOP-AITEST.sh", "STATUS.sh", "VERIFY.sh", "QUALIFY-AGENT-RUNTIME.sh",
+        "INSTALL-AITEST.sh", "VERIFY-RC6-PROFILE.sh", "ROLLBACK-AITEST.sh",
         "BUILD_ID", "SOURCE_COMMIT", "RELEASE_STATUS", "PACKAGE_MANIFEST.json", "CHECKSUMS.sha256",
         "rc6_runtime/__init__.py", "rc6_runtime/agent_runtime.py", "rc6_release/mcp_server.py",
-        "rc6_release/agent_qualification.py", ".dsh/skills/pfc-full-chain-test/SKILL.md",
+        "rc6_release/agent_qualification.py", "rc6_release/workspace_install.py", ".dsh/skills/pfc-full-chain-test/SKILL.md",
     }
     missing = sorted(name for name in required if not (root / name).is_file())
     if missing:
@@ -203,6 +210,8 @@ def verify_package(package_root: str | Path) -> dict:
         raise RuntimeError("PACKAGE_AGENT_RUNTIME_GATE_INVALID")
     if manifest.get("autonomous_testing_pass") is not False or manifest.get("full_chain_real") is not False:
         raise RuntimeError("PACKAGE_FALSE_RUNTIME_PASS_FORBIDDEN")
+    if manifest.get("workspace_installation") != "AUTO_FRESH_OR_UPGRADE":
+        raise RuntimeError("PACKAGE_WORKSPACE_INSTALLATION_INVALID")
     source_commit = (root / "SOURCE_COMMIT").read_text(encoding="utf-8").strip()
     if manifest.get("source_commit") != source_commit:
         raise RuntimeError("PACKAGE_SOURCE_COMMIT_MISMATCH")
