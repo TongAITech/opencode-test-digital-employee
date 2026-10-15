@@ -50,10 +50,11 @@ from .dsh_test_design_evaluator import (
     DshTestDesignEvaluation,
     DshTestDesignEvaluatorError,
 )
-from .dsh_test_design_parent_evaluator import (
-    DshParentAwareTestDesignEvaluator as DshTestDesignEvaluator,
+from .dsh_test_design_oracle_evaluator import (
+    DshExecutionReadyTestDesignEvaluator as DshTestDesignEvaluator,
 )
 from .dsh_proof import DshProofError, DshR1ProofReader, DshToolCallProof, code_tool_category
+from .oracle_runtime import DeterministicOracleError, DeterministicOracleRuntime
 
 __all__ = [
     "Artifact",
@@ -103,4 +104,6 @@ __all__ = [
     "DshR1ProofReader",
     "DshToolCallProof",
     "code_tool_category",
+    "DeterministicOracleError",
+    "DeterministicOracleRuntime",
 ]
