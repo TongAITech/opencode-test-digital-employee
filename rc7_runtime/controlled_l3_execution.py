@@ -13,7 +13,7 @@ from rc6_runtime.preparation import PreparedAttempt
 from .authority import RC7AuthorityRuntime
 from .closed_loop_control import ClosedLoopControlPlane
 from .control_plane import WorkerOutput
-from .controlled_api_execution import ControlledApiRunnerAdapter
+from .controlled_api_execution_strict import StrictControlledApiRunnerAdapter
 from .execution_loop import ExecutionClosedLoop
 from .models import TaskStatus
 from .oracle_runtime import DeterministicOracleRuntime
@@ -52,11 +52,10 @@ class ControlledL3ClosedLoopExecutionService(ClosedLoopRuntimeExecutionService):
             raise RuntimeExecutionError("FORMAL_EXECUTION_REQUIRES_PREPARED_ATTEMPT")
         DeterministicOracleRuntime.validate_contract(prepared.oracle_snapshot)
 
-        oracle = DeterministicOracleRuntime()
         runtime = ExecutionRuntime(
             authority=authority,
             tool_broker=tool_broker,
-            oracle_evaluator=oracle,
+            oracle_evaluator=DeterministicOracleRuntime(),
         )
         profile = runtime.profiles.get("L3")
         identity = authority.issue_identity(
@@ -99,7 +98,7 @@ class ControlledL3ClosedLoopExecutionService(ClosedLoopRuntimeExecutionService):
             evidence_root=str(self.evidence_root),
             timeout_seconds=self.timeout_seconds,
         )
-        runner = ControlledApiRunnerAdapter(
+        runner = StrictControlledApiRunnerAdapter(
             delegate=delegate,
             target_base_url=target_base_url,
             evidence_root=str(self.evidence_root),
