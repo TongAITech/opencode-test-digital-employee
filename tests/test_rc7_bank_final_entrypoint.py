@@ -8,6 +8,7 @@ from rc7_release.package import ENTRYPOINTS, build_package, verify_package
 
 COMMIT = "f" * 40
 BANK_FINAL_NAMES = ("QUALIFY-BANK-FINAL.cmd", "QUALIFY-BANK-FINAL.sh")
+BUNDLED_PYTHON = r"workspace-template\runtime\python\python.exe"
 
 
 def test_bank_final_entrypoints_are_fail_closed_operator_contracts():
@@ -25,6 +26,20 @@ def test_bank_final_entrypoints_are_fail_closed_operator_contracts():
         assert "QUALIFY-FINAL" in text
         assert "REAL_MISSION_PASS" not in text
         assert "BLOAN-PF" not in text
+
+
+def test_windows_final_entrypoints_prefer_bundled_python_before_host_fallback():
+    repo = Path(__file__).resolve().parents[1]
+    bundled = 'if not defined PFC_PYTHON if exist "%ROOT%\\%s" set "PFC_PYTHON=%%ROOT%%\\%s"' % (
+        BUNDLED_PYTHON,
+        BUNDLED_PYTHON,
+    )
+    fallback = 'if not defined PFC_PYTHON set "PFC_PYTHON=python"'
+    for name in ("QUALIFY-BANK-FINAL.cmd", "QUALIFY-FINAL.cmd"):
+        text = (repo / "packaging" / "rc7" / name).read_text(encoding="utf-8")
+        assert bundled in text
+        assert fallback in text
+        assert text.index(bundled) < text.index(fallback)
 
 
 def test_bank_final_entrypoints_are_manifested_checksummed_and_packaged(tmp_path):
