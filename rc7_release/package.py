@@ -47,6 +47,8 @@ LAUNCHER_NAMES = (
     "QUALIFY-EXECUTION.sh",
     "QUALIFY-FINAL.cmd",
     "QUALIFY-FINAL.sh",
+    "QUALIFY-BANK-FINAL.cmd",
+    "QUALIFY-BANK-FINAL.sh",
     "START-RC7-ADMIN.cmd",
     "START-RC7-ADMIN.sh",
 )
