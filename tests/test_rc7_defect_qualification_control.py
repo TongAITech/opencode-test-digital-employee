@@ -4,13 +4,18 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 from rc6_runtime.automation import ProcessStepResult, ScriptArtifact, ScriptValidation
 from rc6_runtime.executable_spec import ExecutableSpecBuilder
 from rc6_runtime.execution import ExecutionRecord
 from rc6_runtime.truth import TruthRuntime
 from rc7_runtime.closed_loop_control import ClosedLoopControlPlane
 from rc7_runtime.control_plane import WorkerOutput
-from rc7_runtime.defect_qualification_control import DefectQualificationControl
+from rc7_runtime.defect_qualification_control import (
+    DefectQualificationControl,
+    DefectQualificationControlError,
+)
 from rc7_runtime.defect_reproduction import DefectReproductionResult
 from rc7_runtime.models import (
     Artifact,
@@ -266,26 +271,13 @@ def _control(tmp_path: Path):
     return truth, control, str(defect_tasks[0]["task_id"])
 
 
-def _reproduction(truth, *, reproduced: bool):
-    attempt = "ATT-REPRO-YES" if reproduced else "ATT-REPRO-NO"
-    evidence = Evidence(
-        evidence_id="EVD-REPRO-YES" if reproduced else "EVD-REPRO-NO",
-        mission_id=MISSION,
-        kind="RUNTIME_EXECUTION_RECORD",
-        source_ref="runtime://defect-reproduction",
-        content_ref="evidence://reproduction/%s" % attempt,
-        subject_refs=[attempt, "TC-DEFECT-QUAL"],
-    )
-    append_entity(truth, evidence, release_id="RC7-DEFECT-QUAL")
-    artifact = Artifact(
-        artifact_id="ART-REPRO-YES" if reproduced else "ART-REPRO-NO",
-        mission_id=MISSION,
-        artifact_type="EXECUTION_CONCLUSION",
-        producer_task_id="TASK-REPRO-FIXTURE",
-        content_ref="artifact://reproduction/%s" % attempt,
-        evidence_refs=[evidence.evidence_id],
-    )
-    append_entity(truth, artifact, release_id="RC7-DEFECT-QUAL")
+def _durable_reproduction(truth, tmp_path: Path, *, reproduced: bool):
+    suffix = "YES" if reproduced else "NO"
+    attempt = "ATT-REPRO-%s" % suffix
+    task_id = "TASK-REPRO-%s" % suffix
+    evidence_id = "EVD-REPRO-%s" % suffix
+    artifact_id = "ART-REPRO-%s" % suffix
+    evaluation_id = "EVAL-REPRO-%s" % suffix
     record = ExecutionRecord(
         attempt_id=attempt,
         tc_id="TC-DEFECT-QUAL",
@@ -298,21 +290,128 @@ def _reproduction(truth, *, reproduced: bool):
         integrity_passed=True,
         actual_result={"business_code": "BAD" if reproduced else "OK"},
         tool_call_refs=("database-call://reproduction",),
-        evidence_refs=(evidence.evidence_id,),
+        evidence_refs=(evidence_id,),
         assertion_ref="assertion://business",
         assertion_passed=False if reproduced else True,
         reason="ORACLE_ASSERTION_FAILED" if reproduced else None,
     )
+    record_path = tmp_path / ("reproduction-%s.json" % suffix.lower())
+    digest = _write_json(
+        record_path,
+        {
+            "record": {
+                "attempt_id": record.attempt_id,
+                "tc_id": record.tc_id,
+                "case_version": record.case_version,
+                "target_id": record.target_id,
+                "layer": record.layer,
+                "worker_id": record.worker_id,
+                "lease_id": record.lease_id,
+                "status": record.status,
+                "integrity_passed": record.integrity_passed,
+                "actual_result": record.actual_result,
+                "tool_call_refs": list(record.tool_call_refs),
+                "evidence_refs": list(record.evidence_refs),
+                "assertion_ref": record.assertion_ref,
+                "assertion_passed": record.assertion_passed,
+                "reason": record.reason,
+            }
+        },
+    )
+    evidence = Evidence(
+        evidence_id=evidence_id,
+        mission_id=MISSION,
+        kind="RUNTIME_EXECUTION_RECORD",
+        source_ref="runtime://formal-execution",
+        content_ref="file://" + str(record_path),
+        subject_refs=[task_id, attempt, "TC-DEFECT-QUAL"],
+        content_hash="sha256:" + digest,
+    )
+    artifact = Artifact(
+        artifact_id=artifact_id,
+        mission_id=MISSION,
+        artifact_type="EXECUTION_CONCLUSION",
+        producer_task_id=task_id,
+        content_ref="file://" + str(record_path),
+        evidence_refs=[evidence_id],
+        content_hash="sha256:" + digest,
+    )
+    task = Task(
+        task_id=task_id,
+        mission_id=MISSION,
+        node="EXECUTION",
+        task_type="DEFECT_REPRODUCTION",
+        objective="durable reproduction fixture",
+        state=TaskStatus.PASS,
+        required_capabilities=["test_execution"],
+        gap_refs=[PRODUCT_GAP],
+        output_artifact_refs=[artifact_id],
+        evaluation_id=evaluation_id,
+    )
+    evaluation = Evaluation(
+        evaluation_id=evaluation_id,
+        mission_id=MISSION,
+        node="EXECUTION",
+        artifact_refs=[artifact_id],
+        result=EvaluationResult.PASS,
+        evaluator_ref="rc7-defect-reproduction-runtime-gate",
+        dimensions={
+            "purpose": "DEFECT_REPRODUCTION",
+            "source_product_gap_id": PRODUCT_GAP,
+            "attempt_id": attempt,
+            "execution_status": record.status,
+            "integrity_passed": True,
+            "assertion_passed": record.assertion_passed,
+            "reproduced": reproduced,
+            "conclusive": True,
+        },
+        evidence_refs=[evidence_id],
+    )
+    append_entity(truth, task, release_id="RC7-DEFECT-QUAL")
+    append_entity(truth, evidence, release_id="RC7-DEFECT-QUAL")
+    append_entity(truth, artifact, release_id="RC7-DEFECT-QUAL")
+    append_entity(truth, evaluation, release_id="RC7-DEFECT-QUAL")
     return DefectReproductionResult(
         execution_record=record,
-        record_artifact_id=artifact.artifact_id,
-        evidence_ids=(evidence.evidence_id,),
-        evaluation_id="EVAL-REPRO-FIXTURE",
+        record_artifact_id=artifact_id,
+        evidence_ids=(evidence_id,),
+        evaluation_id=evaluation_id,
         task_state="PASS",
         reproduced=reproduced,
         conclusive=True,
         runtime_worker_id="repro-worker",
         runtime_lease_id="repro-lease",
+    )
+
+
+def _forged_reproduction():
+    record = ExecutionRecord(
+        attempt_id="ATT-FORGED",
+        tc_id="TC-DEFECT-QUAL",
+        case_version=1,
+        target_id="TARGET-1",
+        layer="L2",
+        worker_id="forged-worker",
+        lease_id="forged-lease",
+        status="FAIL",
+        integrity_passed=True,
+        actual_result={"business_code": "BAD"},
+        tool_call_refs=("database-call://forged",),
+        evidence_refs=("EVD-FORGED",),
+        assertion_ref="assertion://business",
+        assertion_passed=False,
+        reason="ORACLE_ASSERTION_FAILED",
+    )
+    return DefectReproductionResult(
+        execution_record=record,
+        record_artifact_id="ART-FORGED",
+        evidence_ids=("EVD-FORGED",),
+        evaluation_id="EVAL-FORGED",
+        task_state="PASS",
+        reproduced=True,
+        conclusive=True,
+        runtime_worker_id="forged-worker",
+        runtime_lease_id="forged-lease",
     )
 
 
@@ -323,7 +422,7 @@ def test_reproduced_product_failure_enters_evidence_ready_without_resolving_prod
         defect_task_id,
         product_gap_id=PRODUCT_GAP,
         bundle=_bundle(tmp_path),
-        reproduction=_reproduction(truth, reproduced=True),
+        reproduction=_durable_reproduction(truth, tmp_path, reproduced=True),
     )
 
     assert result.qualified is True
@@ -347,7 +446,7 @@ def test_non_reproduction_stays_qualifying_and_schedules_runnable_defect_repair(
         defect_task_id,
         product_gap_id=PRODUCT_GAP,
         bundle=_bundle(tmp_path),
-        reproduction=_reproduction(truth, reproduced=False),
+        reproduction=_durable_reproduction(truth, tmp_path, reproduced=False),
     )
 
     assert result.qualified is False
@@ -364,3 +463,18 @@ def test_non_reproduction_stays_qualifying_and_schedules_runnable_defect_repair(
     assert defect["state"] == "QUALIFYING"
     assert defect["reproduction_attempts"] == 1
     assert defect["reproduction_passes"] == 0
+
+
+def test_forged_in_memory_reproduction_cannot_qualify_product_defect(tmp_path: Path):
+    _, control, defect_task_id = _control(tmp_path)
+    with pytest.raises(
+        DefectQualificationControlError,
+        match="REPRODUCTION_EVALUATION_NOT_DURABLE",
+    ):
+        DefectQualificationControl(evidence_root=str(tmp_path / "defect-evidence")).qualify(
+            control,
+            defect_task_id,
+            product_gap_id=PRODUCT_GAP,
+            bundle=_bundle(tmp_path),
+            reproduction=_forged_reproduction(),
+        )
