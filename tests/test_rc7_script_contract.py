@@ -20,6 +20,7 @@ WORKER = "worker-design-for-script"
 
 
 def _case(*, include_steps=True):
+    cleanup = {"required": True, "mode": "rollback"}
     case = {
         "tc_id": "TC-RATE-SCRIPT-1",
         "case_version": 3,
@@ -28,14 +29,37 @@ def _case(*, include_steps=True):
         "requirement_id": "REQ-RATE-1",
         "sst_id": "SST-RATE-1",
         "layer": "L3",
-        "preconditions": [{"id": "PRE-1", "description": "loan exists"}],
+        "preconditions": [
+            {
+                "id": "PRE-1",
+                "type": "BUSINESS_STATE",
+                "requirement": "loan exists and is eligible for rate adjustment",
+            }
+        ],
+        "test_data": {
+            "initial_state": [
+                {
+                    "id": "DATA-LOAN",
+                    "selectors": {"loan_status": "ACTIVE"},
+                    "allowed_strategies": ["REUSE_EXISTING"],
+                }
+            ],
+            "input_data": [
+                {
+                    "id": "DATA-RATE",
+                    "selectors": {"rate_adjustment": "VALID"},
+                    "allowed_strategies": ["REUSE_EXISTING"],
+                }
+            ],
+            "cleanup_policy": dict(cleanup),
+        },
         "expected": "rate adjustment accepted",
         "oracle": {"checks": [{"type": "BUSINESS_RULE", "expected": "RATE_UPDATED"}]},
         "evidence_requirements": ["api-response", "db-before-after"],
         "target_requirements": ["REQ-RATE-1"],
         "test_data_refs": ["data://loan/rate-case-1"],
         "oracle_refs": ["oracle://rate/accepted"],
-        "cleanup_policy": {"required": True, "mode": "rollback"},
+        "cleanup_policy": dict(cleanup),
         "runner_type": "PYTEST",
     }
     if include_steps:
@@ -133,7 +157,7 @@ def test_runtime_freezes_accepted_case_and_compiles_executable_spec(tmp_path):
     assert contract.spec.test_data_refs == ("data://loan/rate-case-1",)
     assert contract.spec.oracle_refs == ("oracle://rate/accepted",)
     assert len(contract.spec.ordered_actions) == 2
-    assert contract.spec.cleanup_policy == {"required": True, "mode": "rollback"}
+    assert contract.spec.cleanup_policy == {"required": True, "mode": "ROLLBACK"}
 
 
 def test_script_contract_rejects_design_case_without_executable_steps(tmp_path):
