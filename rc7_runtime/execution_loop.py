@@ -7,7 +7,9 @@ a downstream PRODUCT_DEFECT Gap for the Defect node.
 
 BLOCKED remains distinct from product FAIL. When diagnosis evidence exists,
 BLOCKED is routed by its proven owner (AUTH/ENV/DATA/etc.) instead of being
-collapsed into a generic failure bucket.
+collapsed into a generic failure bucket. Exhausted retry budgets leave the
+Execution loop and become Runtime blockers; max retries can stop automation but
+can never force PASS.
 """
 
 from __future__ import annotations
@@ -46,6 +48,12 @@ _FAILURE_ROUTE = {
     "UNKNOWN": ("UNKNOWN_FAILURE", "RUNTIME", GapSeverity.BLOCKER),
 }
 
+_TERMINAL_RECOVERY_ROUTE = {
+    "RETRY_BUDGET_EXHAUSTED": ("RETRY_BUDGET_EXHAUSTED", "RUNTIME", GapSeverity.BLOCKER),
+    "BLOCKED_DIAGNOSIS": ("EXECUTION_BLOCKED", "RUNTIME", GapSeverity.BLOCKER),
+    "MANUAL_REQUIRED": ("UNKNOWN_FAILURE", "RUNTIME", GapSeverity.BLOCKER),
+}
+
 
 @dataclass(frozen=True)
 class ExecutionLoopResult:
@@ -69,6 +77,20 @@ class ExecutionClosedLoop:
                 return "FAIL"
             return "INCONCLUSIVE"
         return "INCONCLUSIVE"
+
+    @staticmethod
+    def _route_failure(
+        failure_class: str,
+        recovery: Optional[RecoveryDecision],
+    ) -> Tuple[str, str, GapSeverity]:
+        if recovery is not None and recovery.terminal:
+            terminal = _TERMINAL_RECOVERY_ROUTE.get(str(recovery.action).upper())
+            if terminal is not None:
+                return terminal
+        return _FAILURE_ROUTE.get(
+            failure_class,
+            ("UNKNOWN_FAILURE", "RUNTIME", GapSeverity.BLOCKER),
+        )
 
     def evaluate(
         self,
@@ -100,10 +122,7 @@ class ExecutionClosedLoop:
                 failure_class = str(diagnosis.failure_class).upper()
                 if failure_class == "PRODUCT":
                     raise ValueError("BLOCKED_EXECUTION_CANNOT_BE_PRODUCT_DEFECT")
-                category, target, severity = _FAILURE_ROUTE.get(
-                    failure_class,
-                    ("UNKNOWN_FAILURE", "RUNTIME", GapSeverity.BLOCKER),
-                )
+                category, target, severity = self._route_failure(failure_class, recovery)
                 description = diagnosis.rationale
             gaps.append(
                 self._gap(
@@ -116,9 +135,6 @@ class ExecutionClosedLoop:
                     extra_evidence=diagnosis.evidence_refs if diagnosis is not None else (),
                 )
             )
-            # A diagnosed recoverable dependency is not a product test result;
-            # it remains repairable. A terminal/manual recovery decision is a
-            # durable BLOCKED conclusion rather than an infinite repair loop.
             if recovery is not None and recovery.terminal:
                 evaluation_result = EvaluationResult.BLOCKED
                 conclusive = True
@@ -163,10 +179,7 @@ class ExecutionClosedLoop:
                     evaluation_result = EvaluationResult.PASS
                     conclusive = True
                 else:
-                    category, target, severity = _FAILURE_ROUTE.get(
-                        failure_class,
-                        ("UNKNOWN_FAILURE", "RUNTIME", GapSeverity.BLOCKER),
-                    )
+                    category, target, severity = self._route_failure(failure_class, recovery)
                     gaps.append(
                         self._gap(
                             mission_id,
