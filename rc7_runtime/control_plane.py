@@ -247,12 +247,17 @@ class GapRepairPlanner:
             raise ControlPlaneError("GAP_ROUTE_POLICY_REVIEW_REQUIRED:%s" % gap.category)
         if gap.state != GapStatus.OPEN:
             raise ControlPlaneError("GAP_MUST_BE_OPEN_FOR_PLANNING")
-        transition_gap(gap, GapStatus.PLANNED)
-        self._persist_gap(gap)
 
         is_product_defect = gap.category == "PRODUCT_DEFECT" and decision.target_node == "DEFECT"
-        prefix = "TASK-DEFECT" if is_product_defect else "TASK-REPAIR"
-        task_id = _stable_id(prefix, gap.mission_id, gap.gap_id, decision.target_node)
+        product_source = self._product_defect_source(gap) if is_product_defect else None
+
+        transition_gap(gap, GapStatus.PLANNED)
+        self._persist_gap(gap)
+        if is_product_defect:
+            assert product_source is not None
+            return self._plan_product_defect(gap, product_source)
+
+        task_id = _stable_id("TASK-REPAIR", gap.mission_id, gap.gap_id, decision.target_node)
         existing = self.scheduler._row(task_id)
         if existing is not None:
             return self.scheduler._task_from_row(existing)
@@ -260,19 +265,119 @@ class GapRepairPlanner:
             task_id=task_id,
             mission_id=gap.mission_id,
             node=decision.target_node,
-            task_type="QUALIFY_DEFECT" if is_product_defect else "REPAIR",
-            objective=(
-                "Qualify evidence-backed product defect: %s" % gap.description
-                if is_product_defect
-                else "Resolve %s: %s" % (gap.category, gap.description)
-            ),
+            task_type="REPAIR",
+            objective="Resolve %s: %s" % (gap.category, gap.description),
             required_capabilities=list(_CAPABILITIES_BY_NODE.get(decision.target_node, ())),
             gap_refs=[gap.gap_id],
             acceptance_criteria=list(gap.acceptance_criteria),
-            priority=20 if is_product_defect else priority,
+            priority=priority,
         )
         self.scheduler.register(task)
         return task
+
+    def _product_defect_source(self, gap: Gap) -> Tuple[str, str]:
+        evaluations = [
+            row
+            for row in self.truth.query("rc7_evaluation", mission_id=gap.mission_id)
+            if row.get("node") == "EXECUTION"
+            and gap.gap_id in row.get("gap_refs", [])
+            and isinstance(row.get("dimensions"), dict)
+            and row["dimensions"].get("failure_class") == "PRODUCT"
+            and row["dimensions"].get("test_result") == "FAIL"
+        ]
+        if len(evaluations) != 1:
+            raise ControlPlaneError("PRODUCT_DEFECT_SOURCE_EVALUATION_NOT_UNIQUE")
+        artifact_refs = evaluations[0].get("artifact_refs")
+        if not isinstance(artifact_refs, list) or len(artifact_refs) != 1:
+            raise ControlPlaneError("PRODUCT_DEFECT_SOURCE_ARTIFACT_REQUIRED")
+        artifact_id = str(artifact_refs[0])
+        artifacts = self.truth.query("rc7_artifact", artifact_id=artifact_id)
+        if len(artifacts) != 1:
+            raise ControlPlaneError("PRODUCT_DEFECT_SOURCE_ARTIFACT_NOT_UNIQUE")
+        artifact = artifacts[0]
+        if artifact.get("mission_id") != gap.mission_id:
+            raise ControlPlaneError("PRODUCT_DEFECT_SOURCE_ARTIFACT_MISSION_MISMATCH")
+        if artifact.get("artifact_type_name") != "EXECUTION_CONCLUSION":
+            raise ControlPlaneError("PRODUCT_DEFECT_SOURCE_EXECUTION_ARTIFACT_REQUIRED")
+        producer_task_id = artifact.get("producer_task_id")
+        if not isinstance(producer_task_id, str) or not producer_task_id:
+            raise ControlPlaneError("PRODUCT_DEFECT_SOURCE_TASK_REQUIRED")
+        source_task = self.scheduler._row(producer_task_id)
+        if source_task is None:
+            raise ControlPlaneError("PRODUCT_DEFECT_SOURCE_TASK_NOT_FOUND")
+        if source_task.get("mission_id") != gap.mission_id:
+            raise ControlPlaneError("PRODUCT_DEFECT_SOURCE_TASK_MISSION_MISMATCH")
+        if source_task.get("node") != "EXECUTION" or source_task.get("state") != TaskStatus.PASS.value:
+            raise ControlPlaneError("PRODUCT_DEFECT_SOURCE_EXECUTION_TASK_PASS_REQUIRED")
+        return producer_task_id, artifact_id
+
+    def _plan_product_defect(self, gap: Gap, source: Tuple[str, str]) -> Task:
+        source_task_id, source_artifact_id = source
+        reproduction_task_id = _stable_id(
+            "TASK-DEFECT-REPRO",
+            gap.mission_id,
+            gap.gap_id,
+            source_artifact_id,
+        )
+        reproduction_row = self.scheduler._row(reproduction_task_id)
+        if reproduction_row is None:
+            reproduction = Task(
+                task_id=reproduction_task_id,
+                mission_id=gap.mission_id,
+                node="EXECUTION",
+                task_type="DEFECT_REPRODUCTION",
+                objective="Reproduce trusted product mismatch before defect qualification: %s" % gap.description,
+                required_capabilities=["test_execution"],
+                dependency_task_ids=[source_task_id],
+                input_artifact_refs=[source_artifact_id],
+                gap_refs=[gap.gap_id],
+                acceptance_criteria=[
+                    "original failing Case is re-executed through the governed runtime",
+                    "reproduction reaches a conclusive trusted business result",
+                    "formal runtime execution evidence is persisted in R1",
+                ],
+                priority=10,
+            )
+            self.scheduler.register(reproduction)
+        else:
+            reproduction = self.scheduler._task_from_row(reproduction_row)
+            if (
+                reproduction.node != "EXECUTION"
+                or reproduction.task_type != "DEFECT_REPRODUCTION"
+                or reproduction.dependency_task_ids != [source_task_id]
+                or reproduction.input_artifact_refs != [source_artifact_id]
+                or reproduction.gap_refs != [gap.gap_id]
+            ):
+                raise ControlPlaneError("PRODUCT_DEFECT_REPRODUCTION_TASK_IDENTITY_MISMATCH")
+
+        qualification_task_id = _stable_id("TASK-DEFECT", gap.mission_id, gap.gap_id, "DEFECT")
+        qualification_row = self.scheduler._row(qualification_task_id)
+        if qualification_row is not None:
+            qualification = self.scheduler._task_from_row(qualification_row)
+            if (
+                qualification.node != "DEFECT"
+                or qualification.task_type != "QUALIFY_DEFECT"
+                or qualification.dependency_task_ids != [reproduction_task_id]
+                or qualification.gap_refs != [gap.gap_id]
+            ):
+                raise ControlPlaneError("PRODUCT_DEFECT_QUALIFICATION_TASK_IDENTITY_MISMATCH")
+            return qualification
+
+        qualification = Task(
+            task_id=qualification_task_id,
+            mission_id=gap.mission_id,
+            node="DEFECT",
+            task_type="QUALIFY_DEFECT",
+            objective="Qualify evidence-backed product defect: %s" % gap.description,
+            required_capabilities=list(_CAPABILITIES_BY_NODE["DEFECT"]),
+            dependency_task_ids=[reproduction_task_id],
+            input_artifact_refs=[source_artifact_id],
+            gap_refs=[gap.gap_id],
+            acceptance_criteria=list(gap.acceptance_criteria),
+            priority=20,
+        )
+        self.scheduler.register(qualification)
+        return qualification
 
     def _persist_gap(self, gap: Gap) -> None:
         rows = self.truth.query("rc7_gap", gap_id=gap.gap_id)
