@@ -31,7 +31,7 @@ jobs:
       - name: Compile RC7 runtime, release qualification and admin platform
         run: python -m compileall -q rc7_runtime rc7_release rc7_admin
       - name: Import inherited RC6 runtime and RC7 modules
-        run: python -c "import rc6_runtime; import rc6_runtime.truth; import rc7_admin; import rc7_admin.server; import rc7_release.mcp_server; import rc7_release.qualification; import rc7_release.code_qualification_strict; import rc7_release.test_design_qualification_strict; import rc7_release.script_qualification_strict; import rc7_release.execution_environment; import rc7_release.execution_qualification_strict; import rc7_release.final_qualification; import rc7_release.package"
+        run: python -c "import rc6_runtime; import rc6_runtime.truth; import rc7_admin; import rc7_admin.server; import rc7_release.mcp_server; import rc7_release.qualification; import rc7_release.code_qualification_strict; import rc7_release.test_design_qualification_strict; import rc7_release.script_qualification_strict; import rc7_release.execution_environment; import rc7_release.execution_qualification_strict; import rc7_release.real_mission_qualification; import rc7_release.delivery_qualification; import rc7_release.final_qualification; import rc7_release.package"
       - name: Validate RC7 shell qualification and admin entrypoints
         run: |
           bash -n packaging/rc7/QUALIFY-DSH-REQUIREMENT.sh
@@ -53,7 +53,10 @@ jobs:
           grep -q 'PFC_RC7_EXECUTION_ENV_MODULE' packaging/rc7/QUALIFY-EXECUTION.sh
           grep -q 'PFC_RC7_EXECUTION_TARGET_ID' packaging/rc7/QUALIFY-EXECUTION.sh
           grep -q 'rc7-execution-result.json' packaging/rc7/QUALIFY-EXECUTION.sh
+          grep -q 'rc7_release.real_mission_qualification' packaging/rc7/QUALIFY-FINAL.sh
           grep -q 'rc7_release.final_qualification' packaging/rc7/QUALIFY-FINAL.sh
+          grep -q 'PFC_RC7_R1_PATH' packaging/rc7/QUALIFY-FINAL.sh
+          grep -q 'PFC_RC7_MISSION_ID' packaging/rc7/QUALIFY-FINAL.sh
           grep -q 'PFC_RC7_REAL_MISSION_EVIDENCE' packaging/rc7/QUALIFY-FINAL.sh
           grep -q 'PFC_RC7_DELIVERY_EVIDENCE' packaging/rc7/QUALIFY-FINAL.sh
           grep -q 'rc7_admin' packaging/rc7/START-RC7-ADMIN.sh
@@ -96,14 +99,17 @@ jobs:
           if ($execution -notmatch 'PFC_RC7_EXECUTION_ENV_MODULE') { throw 'RC7 Execution environment adapter contract missing' }
           if ($execution -notmatch 'PFC_RC7_EXECUTION_TARGET_ID') { throw 'RC7 Execution target identity contract missing' }
           $final = Get-Content -Raw 'packaging/rc7/QUALIFY-FINAL.cmd'
+          if ($final -notmatch 'rc7_release\.real_mission_qualification') { throw 'RC7 real Mission qualification invocation missing' }
           if ($final -notmatch 'rc7_release\.final_qualification') { throw 'RC7 final qualification module invocation missing' }
+          if ($final -notmatch 'PFC_RC7_R1_PATH') { throw 'RC7 final R1 input contract missing' }
+          if ($final -notmatch 'PFC_RC7_MISSION_ID') { throw 'RC7 final Mission identity contract missing' }
           if ($final -notmatch 'PFC_RC7_REAL_MISSION_EVIDENCE') { throw 'RC7 real Mission evidence contract missing' }
           if ($final -notmatch 'PFC_RC7_DELIVERY_EVIDENCE') { throw 'RC7 delivery evidence contract missing' }
           $admin = Get-Content -Raw 'packaging/rc7/START-RC7-ADMIN.cmd'
           if ($admin -notmatch 'rc7_admin') { throw 'RC7 admin module invocation missing' }
           if ($admin -notmatch 'PFC_RC7_R1_PATH') { throw 'RC7 admin R1 truth path contract missing' }
       - name: Python 3.8 imports RC7 qualification, packaging, MCP and admin modules
-        run: python -c "import rc7_admin; import rc7_admin.server; import rc7_release.qualification; import rc7_release.code_qualification_strict; import rc7_release.test_design_qualification_strict; import rc7_release.script_qualification_strict; import rc7_release.execution_environment; import rc7_release.execution_qualification_strict; import rc7_release.final_qualification; import rc7_release.package; import rc7_release.mcp_server"
+        run: python -c "import rc7_admin; import rc7_admin.server; import rc7_release.qualification; import rc7_release.code_qualification_strict; import rc7_release.test_design_qualification_strict; import rc7_release.script_qualification_strict; import rc7_release.execution_environment; import rc7_release.execution_qualification_strict; import rc7_release.real_mission_qualification; import rc7_release.delivery_qualification; import rc7_release.final_qualification; import rc7_release.package; import rc7_release.mcp_server"
 
   delivery-candidate:
     name: turnkey-windows-candidate
@@ -136,45 +142,42 @@ jobs:
             source_commit = $env:GITHUB_SHA
             evidence_refs = @('tests/test_rc7_admin.py', 'github-actions:RC7 Closed-loop Core:core')
           } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/qualification/admin.json'
-      - name: Prove final gate fails closed before real bank qualification
+      - name: Prove final gate fails closed before field and delivery qualification
         shell: pwsh
         run: |
-          python -m rc7_release.final_qualification --source-commit $env:GITHUB_SHA --engineering dist/qualification/engineering.json --admin dist/qualification/admin.json --output dist/qualification/final-candidate.json
-          $q = Get-Content 'dist/qualification/final-candidate.json' | ConvertFrom-Json
+          python -m rc7_release.final_qualification --source-commit $env:GITHUB_SHA --engineering dist/qualification/engineering.json --admin dist/qualification/admin.json --output dist/qualification/final-before-delivery.json
+          $q = Get-Content 'dist/qualification/final-before-delivery.json' | ConvertFrom-Json
           if ($q.status -ne 'HOLD') { throw 'CI candidate must not become final PASS without real Mission and delivery evidence' }
           if ($q.gates.ENGINEERING_PASS -ne 'PASS') { throw 'Engineering gate should be PASS' }
           if ($q.gates.ADMIN_PLATFORM_PASS -ne 'PASS') { throw 'Admin gate should be PASS' }
-          if ($q.gates.REAL_MISSION_PASS -ne 'HOLD') { throw 'Real Mission gate must remain HOLD in CI candidate' }
-          if ($q.gates.DELIVERY_PASS -ne 'HOLD') { throw 'Delivery gate must remain HOLD in CI candidate' }
-      - name: Clean Windows unzip and package-local verification
+          if ($q.gates.REAL_MISSION_PASS -ne 'HOLD') { throw 'Real Mission gate must remain HOLD' }
+          if ($q.gates.DELIVERY_PASS -ne 'HOLD') { throw 'Delivery gate must remain HOLD before clean qualification' }
+      - name: Qualify clean Windows turnkey delivery
         shell: pwsh
         run: |
           $zip = Get-ChildItem 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10-*.zip' | Select-Object -First 1
           if (-not $zip) { throw 'RC7 ZIP missing' }
-          $unpack = Join-Path $env:RUNNER_TEMP 'rc7-clean-unpack'
-          Remove-Item $unpack -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force $unpack | Out-Null
-          Expand-Archive -Path $zip.FullName -DestinationPath $unpack -Force
-          $pkg = Join-Path $unpack 'PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
-          if (-not (Test-Path $pkg)) { throw 'RC7 package root missing after clean unzip' }
-          Push-Location $pkg
-          try {
-            $env:PYTHONPATH = $pkg
-            python -m rc7_release.package verify --package-root $pkg
-            python -m compileall -q rc6_runtime rc6_release rc7_runtime rc7_release rc7_admin
-            $env:PFC_PYTHON = (Get-Command python).Source
-            $env:PFC_AITEST_STATE_DIR = Join-Path $env:RUNNER_TEMP 'rc7-package-final-hold'
-            $env:PFC_RC7_ENGINEERING_EVIDENCE = (Resolve-Path "$env:GITHUB_WORKSPACE/dist/qualification/engineering.json").Path
-            $env:PFC_RC7_ADMIN_EVIDENCE = (Resolve-Path "$env:GITHUB_WORKSPACE/dist/qualification/admin.json").Path
-            cmd /c packaging\rc7\QUALIFY-FINAL.cmd
-            if ($LASTEXITCODE -ne 0) { throw 'Package-local final qualifier candidate invocation failed' }
-            $inside = Get-Content (Join-Path $env:PFC_AITEST_STATE_DIR 'rc7-final-qualification.json') | ConvertFrom-Json
-            if ($inside.status -ne 'HOLD') { throw 'Package-local qualifier forged final PASS' }
-            if ($inside.source_commit -ne $env:GITHUB_SHA) { throw 'Package-local qualifier source commit mismatch' }
-          } finally {
-            Pop-Location
-          }
-      - name: Upload RC7 turnkey engineering candidate
+          python -m rc7_release.delivery_qualification --zip $zip.FullName --source-commit $env:GITHUB_SHA --output dist/qualification/delivery.json --require-pass
+          $delivery = Get-Content 'dist/qualification/delivery.json' | ConvertFrom-Json
+          if ($delivery.status -ne 'PASS') { throw 'RC7 delivery qualification did not PASS' }
+          if ($delivery.clean_windows_unpack -ne 'PASS') { throw 'Clean Windows unpack not proven' }
+          if ($delivery.package_verify -ne 'PASS') { throw 'Package-local verify not proven' }
+          if ($delivery.package_entrypoint_verify -ne 'PASS') { throw 'Package final entrypoint not proven' }
+          if ($delivery.admin_startup_verify -ne 'PASS') { throw 'Package admin startup not proven' }
+          if ($delivery.admin_health.truth -ne 'R1_EVENT_STREAM') { throw 'Admin health is not R1-backed' }
+      - name: Prove only real bank Mission gate remains
+        shell: pwsh
+        run: |
+          python -m rc7_release.final_qualification --source-commit $env:GITHUB_SHA --engineering dist/qualification/engineering.json --admin dist/qualification/admin.json --delivery dist/qualification/delivery.json --output dist/qualification/final-candidate.json
+          $q = Get-Content 'dist/qualification/final-candidate.json' | ConvertFrom-Json
+          if ($q.status -ne 'HOLD') { throw 'Engineering candidate must stay HOLD without real bank Mission evidence' }
+          if ($q.gates.ENGINEERING_PASS -ne 'PASS') { throw 'Engineering gate should be PASS' }
+          if ($q.gates.ADMIN_PLATFORM_PASS -ne 'PASS') { throw 'Admin gate should be PASS' }
+          if ($q.gates.DELIVERY_PASS -ne 'PASS') { throw 'Delivery gate should be PASS after clean Windows qualification' }
+          if ($q.gates.REAL_MISSION_PASS -ne 'HOLD') { throw 'Real bank Mission must be the only remaining HOLD gate' }
+          if ($q.blocking_reasons.Count -ne 1) { throw 'Unexpected final candidate blocker count' }
+          if ($q.blocking_reasons[0] -ne 'REAL_MISSION_PASS:MISSING') { throw "Unexpected final blocker: $($q.blocking_reasons[0])" }
+      - name: Upload RC7 turnkey delivery-qualified candidate
         uses: actions/upload-artifact@v4
         with:
           name: PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10-${{ github.sha }}
