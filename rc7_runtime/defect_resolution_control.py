@@ -258,7 +258,7 @@ class DefectResolutionControl:
             expected_task_type=self.FIX_VERIFICATION_TASK_TYPE,
             defect=defect,
         )
-        if record.integrity_passed is not True or record.status == "PASS":
+        if record.integrity_passed is not True or record.status != "FAIL" or record.assertion_passed is not False:
             raise DefectResolutionControlError("FAILED_FIX_VERIFICATION_EXECUTION_REQUIRED")
         if record.tc_id not in set(defect.test_case_ids):
             raise DefectResolutionControlError("DEFECT_VERIFICATION_MUST_RUN_ORIGINAL_TEST_CASE")
@@ -308,7 +308,7 @@ class DefectResolutionControl:
                 gap_refs=[defect.source_gap_id],
                 acceptance_criteria=[
                     "execute one original defect Case from %s" % ",".join(defect.test_case_ids),
-                    "produce a conclusive formal runtime PASS for the fixed revision",
+                    "produce a conclusive formal runtime result for the fixed revision",
                 ],
                 priority=15,
             )
@@ -461,6 +461,13 @@ class DefectResolutionControl:
         defect: DefectRecord,
     ) -> Tuple[ExecutionRecord, Tuple[str, ...], Task]:
         record, evidence_ids = self._execution_record(control, artifact_id)
+        if record.status == "PASS" and record.integrity_passed and record.assertion_passed is True:
+            expected_test_result = "PASS"
+        elif record.status == "FAIL" and record.integrity_passed and record.assertion_passed is False:
+            expected_test_result = "FAIL"
+        else:
+            raise DefectResolutionControlError("DEFECT_VALIDATION_EXECUTION_NOT_CONCLUSIVE:%s" % artifact_id)
+
         artifact_rows = control.truth.query("rc7_artifact", artifact_id=artifact_id)
         artifact = artifact_rows[0]
         producer_task_id = artifact.get("producer_task_id")
@@ -493,7 +500,7 @@ class DefectResolutionControl:
             or evaluation.get("result") != "PASS"
             or artifact_id not in set(evaluation.get("artifact_refs", []))
             or not isinstance(dimensions, dict)
-            or dimensions.get("test_result") != "PASS"
+            or dimensions.get("test_result") != expected_test_result
             or dimensions.get("conclusive") is not True
             or dimensions.get("attempt_id") != record.attempt_id
         ):
