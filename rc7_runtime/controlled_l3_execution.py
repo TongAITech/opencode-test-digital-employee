@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from typing import Mapping, Optional
 
 from rc6_runtime.automation import JUnitRunnerAdapter, PytestRunnerAdapter
 from rc6_runtime.capability import ToolCapabilityBroker
+from rc6_runtime.diagnosis import DiagnosisResult
 from rc6_runtime.execution import ExecutionRuntime
 from rc6_runtime.preparation import PreparedAttempt
 
@@ -14,8 +16,9 @@ from .authority import RC7AuthorityRuntime
 from .closed_loop_control import ClosedLoopControlPlane
 from .control_plane import WorkerOutput
 from .controlled_api_execution_strict import StrictControlledApiRunnerAdapter
+from .execution_diagnosis import ExecutionDiagnosisCoordinator, ExecutionTrustFacts
 from .execution_loop import ExecutionClosedLoop
-from .models import TaskStatus
+from .models import Evidence, TaskStatus
 from .oracle_runtime import DeterministicOracleRuntime
 from .runtime_execution import RuntimeExecutionError, VerifiedScriptExecutionBundle, _EvidenceBackedProcessHarness
 from .runtime_execution_control import ClosedLoopExecutionResult, ClosedLoopRuntimeExecutionService
@@ -38,6 +41,8 @@ class ControlledL3ClosedLoopExecutionService(ClosedLoopRuntimeExecutionService):
         env: Optional[Mapping[str, str]] = None,
         diagnosis=None,
         recovery=None,
+        diagnosis_coordinator: Optional[ExecutionDiagnosisCoordinator] = None,
+        diagnosis_trust: Optional[ExecutionTrustFacts] = None,
     ) -> ClosedLoopExecutionResult:
         task = control.scheduler.task(task_id)
         if task.node != "EXECUTION":
@@ -123,20 +128,72 @@ class ControlledL3ClosedLoopExecutionService(ClosedLoopRuntimeExecutionService):
             bundle=bundle,
             raw_record=raw_record,
         )
+
+        diagnostic_evidence = None
+        effective_diagnosis = diagnosis
+        effective_recovery = recovery
+        if effective_diagnosis is None and effective_recovery is None and str(record.status).upper() != "PASS":
+            coordinator = diagnosis_coordinator or ExecutionDiagnosisCoordinator(
+                authority=authority,
+                tool_broker=tool_broker,
+                evidence_root=str(self.evidence_root),
+            )
+            closure = coordinator.diagnose(
+                record=record,
+                bundle=bundle,
+                prepared=prepared,
+                trust=diagnosis_trust,
+            )
+            if closure.evidence_ref and closure.evidence_sha256:
+                evidence_id = "EVD-EXEC-DIAG-%s" % hashlib.sha256(
+                    (control.mission_id + "\x1f" + record.attempt_id + "\x1f" + closure.evidence_sha256).encode("utf-8")
+                ).hexdigest()[:20]
+                diagnostic_evidence = Evidence(
+                    evidence_id=evidence_id,
+                    mission_id=control.mission_id,
+                    kind="RUNTIME_FAILURE_DIAGNOSIS",
+                    source_ref="runtime://execution-diagnosis",
+                    content_ref=closure.evidence_ref,
+                    subject_refs=[task_id, record.attempt_id, record.tc_id],
+                    content_hash="sha256:" + closure.evidence_sha256,
+                )
+            if closure.complete and closure.diagnosis is not None:
+                effective_diagnosis = DiagnosisResult(
+                    diagnosis_id=closure.diagnosis.diagnosis_id,
+                    attempt_id=closure.diagnosis.attempt_id,
+                    failure_class=closure.diagnosis.failure_class,
+                    evidence_refs=tuple(
+                        dict.fromkeys(
+                            tuple(record.evidence_refs)
+                            + ((diagnostic_evidence.evidence_id,) if diagnostic_evidence is not None else ())
+                        )
+                    ),
+                    cat_required=closure.diagnosis.cat_required,
+                    cat_queried=closure.diagnosis.cat_queried,
+                    rationale=closure.diagnosis.rationale,
+                    classifier_ref=closure.diagnosis.classifier_ref,
+                    failure_signature=closure.diagnosis.failure_signature,
+                    root_cause_candidate=closure.diagnosis.root_cause_candidate,
+                )
+                effective_recovery = closure.recovery
+
+        output_evidence = tuple(evidence) + (record_evidence,)
+        if diagnostic_evidence is not None:
+            output_evidence = output_evidence + (diagnostic_evidence,)
         control.submit_worker_output(
             WorkerOutput(
                 task_id=task_id,
                 worker_ref=identity.worker_id,
                 artifacts=(artifact,),
-                evidence=tuple(evidence) + (record_evidence,),
+                evidence=output_evidence,
             )
         )
         loop_result = ExecutionClosedLoop().evaluate(
             mission_id=control.mission_id,
             artifact_ref=artifact.artifact_id,
             record=record,
-            diagnosis=diagnosis,
-            recovery=recovery,
+            diagnosis=effective_diagnosis,
+            recovery=effective_recovery,
             evaluator_ref="rc7-controlled-l3-runtime-execution-gate",
         )
         accepted = control.accept_evaluation(
@@ -144,11 +201,14 @@ class ControlledL3ClosedLoopExecutionService(ClosedLoopRuntimeExecutionService):
             evaluation=loop_result.evaluation,
             gaps=loop_result.gaps,
         )
+        persisted_evidence_ids = tuple(item.evidence_id for item in evidence) + (record_evidence.evidence_id,)
+        if diagnostic_evidence is not None:
+            persisted_evidence_ids = persisted_evidence_ids + (diagnostic_evidence.evidence_id,)
         return ClosedLoopExecutionResult(
             execution_record=record,
             record_artifact_id=artifact.artifact_id,
             record_evidence_id=record_evidence.evidence_id,
-            evidence_ids=tuple(item.evidence_id for item in evidence) + (record_evidence.evidence_id,),
+            evidence_ids=persisted_evidence_ids,
             loop_result=loop_result,
             task_state=accepted.state.value,
             runtime_worker_id=identity.worker_id,
