@@ -15,8 +15,6 @@ REQUIRED_GATES = (
     "DELIVERY_PASS",
 )
 ALLOWED_SUFFICIENCY = {"SUFFICIENT", "SUFFICIENT_WITH_RESIDUAL_RISK"}
-# Final PASS is intentionally narrower than the base real-Mission diagnostic.
-# The release gate accepts only the strict R1-derived task-scoped worker proof.
 ALLOWED_REALITY_KINDS = {"BANK_REAL_MISSION_STRICT_TASK_RECEIPTS"}
 ALLOWED_DEFECT_DISPOSITIONS = {"VERIFIED", "NOT_TRIGGERED_NO_TRUSTED_FAIL"}
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
@@ -155,15 +153,17 @@ def _validate_delivery(report: Optional[Dict[str, Any]], source_commit: str) -> 
         "clean_windows_unpack",
         "package_local_python_verify",
         "package_local_codegraph_verify",
+        "package_local_browser_verify",
         "package_verify",
         "package_entrypoint_verify",
         "admin_startup_verify",
     ):
         if report.get(key) != "PASS":
             errors.append("%s:%s_NOT_PASS" % (gate, key.upper()))
-    codegraph_hash = report.get("package_local_codegraph_sha256")
-    if not isinstance(codegraph_hash, str) or not re.match(r"^[0-9a-fA-F]{64}$", codegraph_hash):
-        errors.append("%s:PACKAGE_LOCAL_CODEGRAPH_SHA256_INVALID" % gate)
+    for key in ("package_local_codegraph_sha256", "package_local_browser_sha256"):
+        value = report.get(key)
+        if not isinstance(value, str) or not re.match(r"^[0-9a-fA-F]{64}$", value):
+            errors.append("%s:%s_INVALID" % (gate, key.upper()))
     return errors
 
 
