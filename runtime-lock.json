@@ -1,68 +1,51 @@
 {
-  "schema_version": "aitest.offline-runtime-policy.v2",
+  "schema_version": "aitest.offline-runtime-policy.v3",
   "source_truth": "GIT_COMMIT",
   "version_policy": "CAPABILITY_BASED_NO_EXACT_VERSION_PIN",
+  "durable_truth": "R1_EVENT_STREAM",
   "payload_policy": {
     "bundled_at_release_build": true,
     "stored_in_git": false,
     "internet_required_on_bank_host": false,
-    "dependency_install_allowed_on_bank_host": false,
+    "core_runtime_dependency_install_required_on_bank_host": false,
+    "optional_extension_dependency_install_via_approved_internal_mirror": "ALLOWED",
+    "public_registry_install_on_bank_host": "FORBIDDEN",
     "verify_sha256_before_use": true,
-    "resolved_version_and_sha_authority": "PACKAGE_MANIFEST.json"
+    "resolved_version_and_sha_authority": "PACKAGE_MANIFEST.json",
+    "full_inventory_authority": "FULL-CAPABILITY-INVENTORY.json"
   },
   "payloads": {
-    "python": {
-      "role": "PORTABLE_RUNTIME",
-      "platform": "windows-x64",
-      "relative_target": "workspace-template/runtime/python/python.exe",
-      "resolution": "BUILD_TIME_COMPATIBLE_WINDOWS_RUNTIME",
-      "compatibility_gate": "RC7_IMPORT_COMPILE_AND_DELIVERY_QUALIFICATION_PASS",
-      "required_for_delivery": true
-    },
-    "controlled_browser": {
-      "role": "CONTROLLED_BROWSER",
-      "provider": "Chrome for Testing",
-      "platform": "win64",
-      "relative_target": "workspace-template/runtime/browser/chrome-win64/chrome.exe",
-      "resolution": "BUILD_TIME_LATEST_STABLE_OFFICIAL_CHANNEL",
-      "compatibility_gate": "PACKAGE_LOCAL_BROWSER_SMOKE_AND_DELIVERY_QUALIFICATION_PASS",
-      "required_for_delivery": true
-    },
-    "codegraph": {
-      "role": "STRUCTURAL_CODE_INTELLIGENCE",
-      "provider": "codegraph-ai/CodeGraph",
-      "platform": "windows-x64",
-      "mode": "graph-only",
-      "relative_target": "workspace-template/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe",
-      "release_asset": "codegraph-server-win32-x64.exe",
-      "resolution": "BUILD_TIME_LATEST_STABLE_OFFICIAL_RELEASE",
-      "compatibility_gate": "PACKAGE_LOCAL_CODEGRAPH_SMOKE_AND_DELIVERY_QUALIFICATION_PASS",
-      "required_for_delivery": true,
-      "change_truth_authority": false,
-      "actual_coverage_authority": false
-    },
-    "ripgrep": {
-      "role": "REFERENCE_SEARCH_ENRICHMENT",
-      "platform": "windows-x64",
-      "resolution": "CAPABILITY_OPTIONAL_WHERE_AVAILABLE",
-      "required_for_delivery": false
-    }
+    "python": {"role": "PORTABLE_RUNTIME_AND_PYTEST", "relative_target": "workspace-template/runtime/python/python.exe", "required_for_delivery": true},
+    "node": {"role": "PLUGIN_AND_BROWSER_EXECUTION_RUNTIME", "relative_target": "workspace-template/runtime/node/node.exe", "required_for_delivery": true},
+    "controlled_browser": {"role": "CONTROLLED_BROWSER", "relative_target": "workspace-template/runtime/browser/chrome-win64/chrome.exe", "required_for_delivery": true},
+    "browserskill": {"role": "SEMANTIC_BROWSER_EXECUTION", "relative_target": "workspace-template/runtime/browser/browserskill", "required_for_delivery": true},
+    "browserskill_extension": {"role": "BROWSER_OBSERVATION_EXTENSION", "relative_target": "workspace-template/runtime/browser/browserskill-extension", "required_for_delivery": true},
+    "playwright": {"role": "SCRIPTED_UI_EXECUTION", "relative_target": "workspace-template/runtime/node-execution/node_modules/playwright", "required_for_delivery": true},
+    "codegraph": {"role": "PRIMARY_STRUCTURAL_CODE_INTELLIGENCE", "relative_target": "workspace-template/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe", "required_for_delivery": true, "change_truth_authority": false, "actual_coverage_authority": false},
+    "gitnexus": {"role": "SECONDARY_CODE_GRAPH_PROVIDER", "relative_target": "workspace-template/runtime/node-execution/node_modules/gitnexus", "required_for_delivery": false, "change_truth_authority": false},
+    "ripgrep": {"role": "REFERENCE_SEARCH_FALLBACK", "relative_target": "workspace-template/runtime/ripgrep", "required_for_delivery": true},
+    "jdk": {"role": "JAVA_COMPILE_AND_UNIT_EXECUTION", "relative_target": "workspace-template/runtime/java", "required_for_delivery": true},
+    "maven": {"role": "JAVA_BUILD_AND_TEST", "relative_target": "workspace-template/runtime/maven", "required_for_delivery": true, "project_dependency_policy": "BANK_MIRROR_FIRST"},
+    "maven_bootstrap_repository": {"role": "OFFLINE_JUNIT_SUREFIRE_BOOTSTRAP", "relative_target": "workspace-template/runtime/maven-repository", "required_for_delivery": true},
+    "allure": {"role": "REPORT_RENDERER", "relative_target": "workspace-template/runtime/allure", "required_for_delivery": true, "truth_authority": false},
+    "k6": {"role": "L6_PERFORMANCE_EXECUTION", "relative_target": "workspace-template/runtime/k6", "required_for_delivery": true},
+    "zap": {"role": "L7_SECURITY_EXECUTION", "relative_target": "workspace-template/runtime/zap", "required_for_delivery": true},
+    "local_ocr_cv": {"role": "LOCAL_IMAGE_AND_SCAN_PERCEPTION", "relative_target": "workspace-template/runtime/python", "required_for_delivery": true, "public_remote_image_upload": false},
+    "dsh_plugins": {"role": "DSH_CAPABILITY_ENHANCEMENT", "relative_target": "workspace-template/runtime/dsh-plugins", "required_for_delivery": true, "install_mode": "LOCAL_LINK_ONLY"}
   },
   "external_capabilities": {
-    "dsh": {
-      "role": "AI_EXECUTION_PLANE",
-      "distribution": "BANK_HOST_CAPABILITY",
-      "bundled_in_turnkey_zip": false,
-      "resolution": "FIELD_CAPABILITY_DISCOVERY",
-      "required_for_real_mission": true,
-      "proof_authority": "R1_DSH_RUNTIME_PROOF_AND_TASK_SCOPED_TOOL_RECEIPTS"
-    },
-    "bank_4a": {
-      "role": "AUTH_RUNTIME_PREREQUISITE",
-      "distribution": "BANK_ENVIRONMENT_CAPABILITY",
-      "bundled_in_turnkey_zip": false,
-      "resolution": "FIELD_SKILL_AND_RUNTIME_ADAPTER",
-      "required_when_target_demands_auth": true
-    }
+    "dsh": {"role": "AI_EXECUTION_PLANE", "distribution": "BANK_HOST_CAPABILITY", "bundled_in_turnkey_zip": false, "required_for_real_mission": true, "compatibility": "CAPABILITY_PROBE_NOT_EXACT_VERSION_PIN"},
+    "bank_4a": {"role": "AUTH_RUNTIME_PREREQUISITE", "distribution": "BANK_FIELD_BINDING", "adapter_bundled": true, "required_when_target_demands_auth": true},
+    "cat": {"role": "LOG_ORACLE_AND_DIAGNOSIS", "distribution": "BANK_FIELD_BINDING", "adapter_bundled": true},
+    "tdsql_oceanbase_tidb": {"role": "DATA_ORACLE_AND_TEST_DATA", "distribution": "BANK_FIELD_BINDING", "adapter_bundled": true, "write_policy": "HUMAN_CONFIRMATION_REQUIRED"},
+    "maven_mirror": {"role": "PROJECT_DEPENDENCY_RESOLUTION", "distribution": "BANK_INTERNAL_MIRROR", "required_for_real_project_dependencies": true},
+    "pip_mirror": {"role": "OPTIONAL_EXTENSION_REPAIR", "distribution": "BANK_INTERNAL_MIRROR", "core_startup_must_not_depend_on_it": true},
+    "bank_vlm": {"role": "OPTIONAL_MULTIMODAL_PROVIDER", "required_for_delivery": false, "default_enabled": false, "public_remote_provider_forbidden": true}
+  },
+  "forbidden": {
+    "legacy_aitest_db_as_truth": true,
+    "public_image_upload": true,
+    "director_domain_execution": true,
+    "fake_pass_without_runtime_evidence": true
   }
 }
