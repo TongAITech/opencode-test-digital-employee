@@ -78,6 +78,13 @@ jobs:
           & $py -m rc7_release.bank_binding probe --output 'dist/qualification/bank-bindings.json'
           if ($LASTEXITCODE -ne 0) { throw 'Bank binding probe failed' }
 
+      - name: Reconcile manifest inventory checksums and seal final archive
+        shell: pwsh
+        run: |
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          python -m rc7_release.final_archive --home $pkg --output dist --source-commit $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Final archive sealing failed' }
+
       - name: Clean Windows unpack delivery qualification
         shell: pwsh
         run: |
@@ -86,7 +93,7 @@ jobs:
           python -m rc7_release.delivery_qualification --zip $zip.FullName --source-commit $env:GITHUB_SHA --output dist/qualification/delivery.json --require-pass
           if ($LASTEXITCODE -ne 0) { throw 'Clean Windows delivery qualification failed' }
 
-      - name: Verify inventory, installer and final truth
+      - name: Verify inventory installer and final truth
         shell: pwsh
         run: |
           $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
@@ -97,6 +104,10 @@ jobs:
           foreach ($l in @('L1','L2','L3','L4','L5','L6','L7')) { if (-not $inv.execution_layers.$l) { throw "Missing execution layer $l" } }
           if ($inv.durable_truth -ne 'R1_EVENT_STREAM') { throw 'R1 truth drift' }
           if ($inv.real_bank_mission -ne 'HOLD_FIELD_EVIDENCE_REQUIRED') { throw 'False bank mission pass' }
+          $manifest = Get-Content (Join-Path $pkg 'PACKAGE_MANIFEST.json') | ConvertFrom-Json
+          foreach ($entry in @('packaging/rc7/AITEST.cmd','packaging/rc7/AITEST.sh','packaging/rc7/INSTALL-RC7.cmd','packaging/rc7/QUALIFY-RC7-FINAL-UNIFIED.cmd')) {
+            if ($manifest.entrypoints -notcontains $entry) { throw "Final manifest missing entrypoint: $entry" }
+          }
           @{
             status = 'PASS'; gate = 'UNIFIED_ENGINEERING_PASS'; delivery = 'PASS'; source_commit = $env:GITHUB_SHA;
             truth = 'R1_EVENT_STREAM'; version_policy = 'CAPABILITY_BASED_NO_EXACT_VERSION_PIN';
