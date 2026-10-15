@@ -2,8 +2,8 @@
 
 Test Design may describe business meaning, but formal Execution needs a machine
 check that does not ask a model to reinterpret expected results after seeing the
-actual result.  Every executable Oracle check therefore binds an ``actual_path``
-to a fixed operator and expected value.  The runtime evaluates all checks and
+actual result. Every executable Oracle check therefore binds an ``actual_path``
+to a fixed operator and expected value. The runtime evaluates all checks and
 emits a content-addressed assertion reference/evidence reference.
 """
 
@@ -13,7 +13,7 @@ import hashlib
 import json
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Sequence, Tuple
+from typing import Any, Dict, Mapping, Tuple
 
 
 class DeterministicOracleError(RuntimeError):
@@ -195,7 +195,8 @@ class DeterministicOracleRuntime:
         return {
             "passed": all(item.passed for item in results),
             "assertion_ref": "oracle-assertion://" + digest,
-            "evidence_refs": ("oracle-runtime://" + digest,),
+            # ExecutionRuntime's stable oracle boundary is a JSON/list contract.
+            "evidence_refs": ["oracle-runtime://" + digest],
             "details": details,
         }
 
