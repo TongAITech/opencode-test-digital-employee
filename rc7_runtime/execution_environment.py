@@ -1,14 +1,19 @@
 """Evidence-backed external environment admission for RC7 Execution.
 
-Skills/prompts are not executable runtime providers.  A field environment must
+Skills/prompts are not executable runtime providers. A field environment must
 supply an explicit Python adapter that performs real target/tool probes and the
-precondition/data operations used by PreparationRuntime.  Static JSON claiming
+precondition/data operations used by PreparationRuntime. Static JSON claiming
 `success=true` is deliberately not an admission surface.
 
+Product-failure ownership is stricter than execution admission. Auth, route,
+environment and dependency trust must each carry evidence before an Oracle FAIL
+may become PRODUCT. L3/L5 (and remote L1) also pre-admit CAT because diagnosis
+cannot discover a missing diagnostic tool after the failure.
+
 Runtime secrets (cookies/tokens/passwords) may be returned by execution_env()
-for the launched process, but are never serialized by this module.  Durable R1
-truth records only adapter identity, non-secret probe metadata and evidence
-references.
+for the launched process, but are never serialized by this module. Durable R1
+truth records only adapter identity, non-secret probe/trust metadata and
+evidence references.
 """
 
 from __future__ import annotations
@@ -21,9 +26,11 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Tuple
 
 from rc6_runtime.capability import ToolCapabilityBroker
+from rc6_runtime.diagnosis import CorrelationScope
 from rc6_runtime.execution import ExecutionProfileRegistry
 
 from .closed_loop_control import ClosedLoopControlPlane
+from .execution_diagnosis import ExecutionTrustFacts
 from .models import Artifact, Evidence, TaskStatus
 from .truth_overlay import append_entity
 
@@ -50,12 +57,29 @@ class ToolProbeResult:
 
 
 @dataclass(frozen=True)
+class DiagnosisTrustProbeResult:
+    auth_verified: bool = False
+    auth_evidence_ref: Optional[str] = None
+    route_verified: bool = False
+    route_evidence_ref: Optional[str] = None
+    environment_verified: bool = False
+    environment_evidence_ref: Optional[str] = None
+    dependency_verified: bool = False
+    dependency_evidence_ref: Optional[str] = None
+    remote_integration: bool = False
+    correlation: Optional[CorrelationScope] = None
+    runner_log_refs: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class ExecutionEnvironmentAdmission:
     adapter_id: str
     target_id: str
     layer: str
     required_tools: Tuple[str, ...]
+    diagnostic_tools: Tuple[str, ...]
     probe_results: Tuple[ToolProbeResult, ...]
+    diagnosis_trust: ExecutionTrustFacts
     broker: ToolCapabilityBroker
     artifact_id: str
     evidence_ids: Tuple[str, ...]
@@ -73,7 +97,7 @@ class ExecutionEnvironmentAdapter(ABC):
 
     @abstractmethod
     def probe_tool(self, *, tool_id: str, target_id: str, layer: str) -> ToolProbeResult:
-        """Run a real probe for one required execution tool."""
+        """Run a real probe for one required execution/diagnostic tool."""
         raise NotImplementedError
 
     @abstractmethod
@@ -98,6 +122,20 @@ class ExecutionEnvironmentAdapter(ABC):
         context: Dict[str, Any],
     ) -> Dict[str, Any]:
         raise NotImplementedError
+
+    def diagnosis_trust(self, *, target_id: str, layer: str) -> DiagnosisTrustProbeResult:
+        """Evidence-backed ownership exclusions used only for failure diagnosis.
+
+        Default is deliberately fail-closed. An adapter that cannot prove a
+        dimension must leave it False, which prevents automatic PRODUCT
+        qualification rather than guessing.
+        """
+        del target_id, layer
+        return DiagnosisTrustProbeResult()
+
+    def query_cat(self, scope: CorrelationScope, context: Any) -> Dict[str, Any]:
+        del scope, context
+        raise ExecutionEnvironmentError("CAT_QUERY_NOT_IMPLEMENTED")
 
     def request_human_gate(self, request: Dict[str, Any]) -> Optional[str]:
         """Return an externally issued approval evidence ref, or None to deny."""
@@ -140,10 +178,16 @@ class ExecutionEnvironmentAdmissionService:
         profile = ExecutionProfileRegistry().get(layer)
         required_tools = tuple(profile.required_tools)
 
+        raw_trust = adapter.diagnosis_trust(target_id=target_id, layer=layer)
+        self._validate_trust(raw_trust)
+        cat_required = layer in {"L3", "L5"} or (layer == "L1" and raw_trust.remote_integration)
+        diagnostic_tools = ("cat",) if cat_required else ()
+        all_tools = tuple(dict.fromkeys(required_tools + diagnostic_tools))
+
         broker = ToolCapabilityBroker()
         probes = []
         evidence = []
-        for tool_id in required_tools:
+        for tool_id in all_tools:
             result = adapter.probe_tool(tool_id=tool_id, target_id=target_id, layer=layer)
             self._validate_probe(result, tool_id=tool_id)
             if not result.success:
@@ -179,6 +223,45 @@ class ExecutionEnvironmentAdmissionService:
                 )
             )
 
+        trust_fields = (
+            ("auth", raw_trust.auth_verified, raw_trust.auth_evidence_ref),
+            ("route", raw_trust.route_verified, raw_trust.route_evidence_ref),
+            ("environment", raw_trust.environment_verified, raw_trust.environment_evidence_ref),
+            ("dependency", raw_trust.dependency_verified, raw_trust.dependency_evidence_ref),
+        )
+        for dimension, verified, evidence_ref in trust_fields:
+            if not verified:
+                continue
+            evidence.append(
+                Evidence(
+                    evidence_id=_stable_id(
+                        "EVD-ENV-TRUST",
+                        control.mission_id,
+                        task_id,
+                        target_id,
+                        layer,
+                        dimension,
+                        str(evidence_ref),
+                    ),
+                    mission_id=control.mission_id,
+                    kind="EXECUTION_DIAGNOSIS_TRUST_EVIDENCE",
+                    source_ref="adapter://%s/trust/%s" % (adapter_id, dimension),
+                    content_ref=str(evidence_ref),
+                    subject_refs=[task_id, target_id, layer, dimension],
+                )
+            )
+
+        trust = ExecutionTrustFacts(
+            auth_verified=raw_trust.auth_verified,
+            route_verified=raw_trust.route_verified,
+            tool_verified=True,
+            environment_verified=raw_trust.environment_verified,
+            dependency_verified=raw_trust.dependency_verified,
+            remote_integration=raw_trust.remote_integration,
+            correlation=raw_trust.correlation,
+            runner_log_refs=tuple(raw_trust.runner_log_refs),
+        )
+
         folder = self.evidence_root / "environment-admission" / control.mission_id
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / (_stable_id("ENV", task_id, target_id, layer, adapter_id) + ".json")
@@ -190,8 +273,23 @@ class ExecutionEnvironmentAdmissionService:
             "target_id": target_id,
             "layer": layer,
             "required_tools": list(required_tools),
+            "diagnostic_tools": list(diagnostic_tools),
             "probes": [asdict(item) for item in probes],
-            # execution_env is intentionally omitted: it may contain secrets.
+            "diagnosis_trust": {
+                "auth_verified": raw_trust.auth_verified,
+                "auth_evidence_ref": raw_trust.auth_evidence_ref,
+                "route_verified": raw_trust.route_verified,
+                "route_evidence_ref": raw_trust.route_evidence_ref,
+                "environment_verified": raw_trust.environment_verified,
+                "environment_evidence_ref": raw_trust.environment_evidence_ref,
+                "dependency_verified": raw_trust.dependency_verified,
+                "dependency_evidence_ref": raw_trust.dependency_evidence_ref,
+                "remote_integration": raw_trust.remote_integration,
+                "runner_log_refs": list(raw_trust.runner_log_refs),
+                "correlation_present": raw_trust.correlation is not None,
+            },
+            # correlation contents and execution_env are intentionally omitted;
+            # the latter may contain secrets and the former may contain business ids.
         }
         encoded = (json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
         digest = hashlib.sha256(encoded).hexdigest()
@@ -232,7 +330,9 @@ class ExecutionEnvironmentAdmissionService:
             target_id=target_id,
             layer=layer,
             required_tools=required_tools,
+            diagnostic_tools=diagnostic_tools,
             probe_results=tuple(probes),
+            diagnosis_trust=trust,
             broker=broker,
             artifact_id=artifact.artifact_id,
             evidence_ids=evidence_ids,
@@ -317,3 +417,23 @@ class ExecutionEnvironmentAdmissionService:
                 value = getattr(result, field)
                 if not isinstance(value, str) or not value.strip():
                     raise ExecutionEnvironmentError("EXECUTION_ENVIRONMENT_REAL_PROBE_EVIDENCE_REQUIRED:%s:%s" % (tool_id, field))
+
+    @staticmethod
+    def _validate_trust(result: object) -> None:
+        if not isinstance(result, DiagnosisTrustProbeResult):
+            raise ExecutionEnvironmentError("EXECUTION_ENVIRONMENT_DIAGNOSIS_TRUST_RESULT_REQUIRED")
+        fields = (
+            ("auth", result.auth_verified, result.auth_evidence_ref),
+            ("route", result.route_verified, result.route_evidence_ref),
+            ("environment", result.environment_verified, result.environment_evidence_ref),
+            ("dependency", result.dependency_verified, result.dependency_evidence_ref),
+        )
+        for dimension, verified, evidence_ref in fields:
+            if verified and (not isinstance(evidence_ref, str) or not evidence_ref.strip()):
+                raise ExecutionEnvironmentError(
+                    "EXECUTION_ENVIRONMENT_TRUST_EVIDENCE_REQUIRED:%s" % dimension
+                )
+        if not isinstance(result.runner_log_refs, tuple) or any(
+            not isinstance(ref, str) or not ref for ref in result.runner_log_refs
+        ):
+            raise ExecutionEnvironmentError("EXECUTION_ENVIRONMENT_RUNNER_LOG_REFS_INVALID")
