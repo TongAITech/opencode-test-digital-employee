@@ -92,15 +92,17 @@ def _build_r1(tmp_path, *, include_session=True, identity_commit=COMMIT):
     path = tmp_path / "r1.jsonl"
     truth = TruthRuntime(path)
 
+    # Real runtime ordering: a Mission exists in a non-terminal state while its
+    # evidence is produced.  CONVERGED is persisted only after the durable
+    # Mission Evaluation PASS exists in R1.
     append_entity(
         truth,
         Mission(
             mission_id=MISSION,
             release_id=RELEASE,
             goal="prove real mission qualification",
-            state=MissionStatus.CONVERGED,
-            sufficiency_state="SUFFICIENT",
-            latest_evaluation_id=MISSION_EVAL,
+            state=MissionStatus.RUNNING,
+            sufficiency_state="UNKNOWN",
         ),
         release_id=RELEASE,
         artifact_version=1,
@@ -271,6 +273,19 @@ def _build_r1(tmp_path, *, include_session=True, identity_commit=COMMIT):
             },
         ),
         release_id=RELEASE,
+    )
+    append_entity(
+        truth,
+        Mission(
+            mission_id=MISSION,
+            release_id=RELEASE,
+            goal="prove real mission qualification",
+            state=MissionStatus.CONVERGED,
+            sufficiency_state="SUFFICIENT",
+            latest_evaluation_id=MISSION_EVAL,
+        ),
+        release_id=RELEASE,
+        artifact_version=2,
     )
 
     if include_session:
