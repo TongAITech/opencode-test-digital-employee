@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import socket
 import subprocess
 import sys
@@ -109,18 +108,18 @@ def _verify_final_entrypoint(package_root: Path, env: Mapping[str, str], source_
     local_env = dict(env)
     local_env["PFC_AITEST_STATE_DIR"] = str(state)
     local_env["PFC_RC7_SOURCE_COMMIT"] = source_commit
-    local_env.pop("PFC_RC7_ENGINEERING_EVIDENCE", None)
-    local_env.pop("PFC_RC7_ADMIN_EVIDENCE", None)
-    local_env.pop("PFC_RC7_REAL_MISSION_EVIDENCE", None)
-    local_env.pop("PFC_RC7_DELIVERY_EVIDENCE", None)
-    local_env.pop("PFC_RC7_R1_PATH", None)
-    local_env.pop("PFC_RC7_MISSION_ID", None)
-    local_env.pop("PFC_RC7_REQUIRE_FINAL_PASS", None)
+    for key in (
+        "PFC_RC7_ENGINEERING_EVIDENCE",
+        "PFC_RC7_ADMIN_EVIDENCE",
+        "PFC_RC7_REAL_MISSION_EVIDENCE",
+        "PFC_RC7_DELIVERY_EVIDENCE",
+        "PFC_RC7_R1_PATH",
+        "PFC_RC7_MISSION_ID",
+        "PFC_RC7_REQUIRE_FINAL_PASS",
+    ):
+        local_env.pop(key, None)
 
-    if os.name == "nt":
-        command = ["cmd", "/c", r"packaging\rc7\QUALIFY-FINAL.cmd"]
-    else:
-        command = ["bash", "packaging/rc7/QUALIFY-FINAL.sh"]
+    command = ["cmd", "/c", r"packaging\rc7\QUALIFY-FINAL.cmd"] if os.name == "nt" else ["bash", "packaging/rc7/QUALIFY-FINAL.sh"]
     _run(command, cwd=package_root, env=local_env, label="PACKAGE_FINAL_ENTRYPOINT")
     result_path = state / "rc7-final-qualification.json"
     if not result_path.is_file():
@@ -136,19 +135,18 @@ def _verify_final_entrypoint(package_root: Path, env: Mapping[str, str], source_
 def _verify_admin_startup(package_root: Path, env: Mapping[str, str], work_root: Path) -> Dict[str, Any]:
     r1_path = work_root / "admin-smoke-r1.jsonl"
     port = _free_port()
-    command = [
-        sys.executable,
-        "-m",
-        "rc7_admin",
-        "--r1",
-        str(r1_path),
-        "--host",
-        "127.0.0.1",
-        "--port",
-        str(port),
-    ]
     process = subprocess.Popen(
-        command,
+        [
+            sys.executable,
+            "-m",
+            "rc7_admin",
+            "--r1",
+            str(r1_path),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ],
         cwd=str(package_root),
         env=dict(env),
         stdout=subprocess.PIPE,
@@ -198,6 +196,8 @@ def qualify_delivery(*, zip_path: str, source_commit: str) -> Dict[str, Any]:
 
     blockers: List[str] = []
     details: Dict[str, Any] = {}
+    if os.name != "nt":
+        blockers.append("CLEAN_WINDOWS_UNPACK_REQUIRES_WINDOWS_RUNTIME")
     with tempfile.TemporaryDirectory(prefix="rc7-delivery-qualification-") as tmp:
         work_root = Path(tmp).resolve()
         try:
@@ -206,7 +206,7 @@ def qualify_delivery(*, zip_path: str, source_commit: str) -> Dict[str, Any]:
             package_root = work_root / PACKAGE_NAME
             if not package_root.is_dir():
                 raise DeliveryQualificationError("CLEAN_UNPACK_PACKAGE_ROOT_MISSING")
-            details["clean_windows_unpack"] = "PASS" if os.name == "nt" else "PASS_NON_WINDOWS_ENGINEERING"
+            details["clean_windows_unpack"] = "PASS" if os.name == "nt" else "HOLD_NON_WINDOWS"
 
             source_file = package_root / "SOURCE_COMMIT"
             if not source_file.is_file():
@@ -229,6 +229,10 @@ def qualify_delivery(*, zip_path: str, source_commit: str) -> Dict[str, Any]:
         except Exception as exc:
             blockers.append(str(exc))
 
+    digest = _sha256(archive_path)
+    refs = ["zip://%s#sha256:%s" % (archive_path.name, digest)]
+    if details.get("entrypoint_result_ref"):
+        refs.append(details["entrypoint_result_ref"])
     status = "PASS" if not blockers else "HOLD"
     return {
         "schema_version": SCHEMA_VERSION,
@@ -236,16 +240,13 @@ def qualify_delivery(*, zip_path: str, source_commit: str) -> Dict[str, Any]:
         "status": status,
         "source_commit": commit,
         "package_name": PACKAGE_NAME,
-        "package_sha256": _sha256(archive_path),
+        "package_sha256": digest,
         "clean_windows_unpack": details.get("clean_windows_unpack", "HOLD"),
         "package_verify": details.get("package_verify", "HOLD"),
         "package_entrypoint_verify": details.get("package_entrypoint_verify", "HOLD"),
         "admin_startup_verify": details.get("admin_startup_verify", "HOLD"),
         "admin_health": details.get("admin_health", {}),
-        "evidence_refs": [
-            "zip://%s#sha256:%s" % (archive_path.name, _sha256(archive_path)),
-            details.get("entrypoint_result_ref", ""),
-        ],
+        "evidence_refs": refs,
         "blocking_reasons": blockers,
         "qualification_kind": "CLEAN_TURNKEY_DELIVERY",
     }
