@@ -46,7 +46,9 @@ jobs:
         shell: pwsh
         run: |
           python -m compileall -q rc6_runtime rc6_release rc7_runtime rc7_release rc7_admin
-          python -m pytest -q tests/test_rc7_*.py
+          $tests = Get-ChildItem 'tests' -Filter 'test_rc7_*.py' | ForEach-Object { $_.FullName }
+          if (-not $tests) { throw 'No RC7 regression tests found' }
+          python -m pytest -q $tests
 
       - name: Resolve stable CodeGraph Windows payload
         shell: pwsh
