@@ -15,7 +15,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
-from .package import PACKAGE_LOCAL_PYTHON, PACKAGE_NAME
+from .package import PACKAGE_LOCAL_CODEGRAPH, PACKAGE_LOCAL_PYTHON, PACKAGE_NAME
 
 
 SCHEMA_VERSION = "pfc.aitest.rc7.delivery-qualification.v1"
@@ -55,14 +55,18 @@ def _safe_extract(archive: zipfile.ZipFile, destination: Path) -> None:
 
 
 def _run(command: Sequence[str], *, cwd: Path, env: Mapping[str, str], label: str) -> subprocess.CompletedProcess:
-    result = subprocess.run(
-        list(command),
-        cwd=str(cwd),
-        env=dict(env),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        universal_newlines=True,
-    )
+    try:
+        result = subprocess.run(
+            list(command),
+            cwd=str(cwd),
+            env=dict(env),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise DeliveryQualificationError("%s_TIMEOUT" % label) from exc
     if result.returncode != 0:
         raise DeliveryQualificationError(
             "%s_FAILED:rc=%s:stdout=%s:stderr=%s"
@@ -85,6 +89,9 @@ def _package_env(package_root: Path, python_executable: Path) -> Dict[str, str]:
     old = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(package_root) + (os.pathsep + old if old else "")
     env["PFC_PYTHON"] = str(python_executable)
+    package_codegraph = package_root / PACKAGE_LOCAL_CODEGRAPH
+    if package_codegraph.is_file():
+        env["PFC_CODEGRAPH_BIN"] = str(package_codegraph)
     return env
 
 
@@ -105,6 +112,44 @@ def _verify_package_local(
         env=env,
         label="PACKAGE_LOCAL_COMPILE",
     )
+
+
+def _verify_package_codegraph(
+    package_root: Path,
+    env: Mapping[str, str],
+    details: Dict[str, Any],
+) -> None:
+    manifest_path = package_root / "PACKAGE_MANIFEST.json"
+    if not manifest_path.is_file():
+        raise DeliveryQualificationError("PACKAGE_MANIFEST_MISSING_FOR_CODEGRAPH")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload = manifest.get("package_local_codegraph")
+    if not isinstance(payload, dict):
+        raise DeliveryQualificationError("PACKAGE_CODEGRAPH_MANIFEST_MISSING")
+    if payload.get("path") != PACKAGE_LOCAL_CODEGRAPH.as_posix():
+        raise DeliveryQualificationError("PACKAGE_CODEGRAPH_MANIFEST_PATH_INVALID")
+    if payload.get("bundled") is not True:
+        raise DeliveryQualificationError("PACKAGE_CODEGRAPH_NOT_BUNDLED")
+    expected_hash = payload.get("sha256")
+    if not isinstance(expected_hash, str) or not re.match(r"^[0-9a-fA-F]{64}$", expected_hash):
+        raise DeliveryQualificationError("PACKAGE_CODEGRAPH_MANIFEST_HASH_INVALID")
+    binary = package_root / PACKAGE_LOCAL_CODEGRAPH
+    if not binary.is_file():
+        raise DeliveryQualificationError("PACKAGE_LOCAL_CODEGRAPH_RUNTIME_MISSING")
+    actual_hash = _sha256(binary)
+    if actual_hash.lower() != expected_hash.lower():
+        raise DeliveryQualificationError("PACKAGE_LOCAL_CODEGRAPH_HASH_MISMATCH")
+    if os.name == "nt":
+        _run(
+            [str(binary), "--help"],
+            cwd=package_root,
+            env=env,
+            label="PACKAGE_LOCAL_CODEGRAPH_SMOKE",
+        )
+    details["package_local_codegraph_verify"] = "PASS" if os.name == "nt" else "HOLD_NON_WINDOWS"
+    details["package_codegraph_ref"] = "file://" + str(binary)
+    details["package_codegraph_sha256"] = actual_hash
+    details["package_codegraph_version"] = payload.get("resolved_version")
 
 
 def _verify_final_entrypoint(package_root: Path, env: Mapping[str, str], source_commit: str, work_root: Path) -> str:
@@ -204,9 +249,6 @@ def _select_qualification_python(package_root: Path, blockers: List[str], detail
         details["package_python_ref"] = "file://" + str(package_python)
         return package_python
 
-    # Non-Windows runs are structural diagnostics only. They may use the host
-    # interpreter, but the Delivery gate remains HOLD and can never certify a
-    # BANK-WIN10 turnkey package.
     blockers.append("PACKAGE_LOCAL_PYTHON_REQUIRES_WINDOWS_RUNTIME")
     details["package_local_python_verify"] = "HOLD_NON_WINDOWS"
     details["package_python_ref"] = "host-diagnostic://" + sys.executable
@@ -225,6 +267,7 @@ def qualify_delivery(*, zip_path: str, source_commit: str) -> Dict[str, Any]:
     details: Dict[str, Any] = {}
     if os.name != "nt":
         blockers.append("CLEAN_WINDOWS_UNPACK_REQUIRES_WINDOWS_RUNTIME")
+        blockers.append("PACKAGE_LOCAL_CODEGRAPH_REQUIRES_WINDOWS_RUNTIME")
     with tempfile.TemporaryDirectory(prefix="rc7-delivery-qualification-") as tmp:
         work_root = Path(tmp).resolve()
         try:
@@ -253,6 +296,8 @@ def qualify_delivery(*, zip_path: str, source_commit: str) -> Dict[str, Any]:
             _verify_package_local(package_root, env, python_executable)
             details["package_verify"] = "PASS"
 
+            _verify_package_codegraph(package_root, env, details)
+
             entrypoint_result = _verify_final_entrypoint(package_root, env, commit, work_root)
             details["package_entrypoint_verify"] = "PASS"
             details["entrypoint_result_ref"] = "file://" + entrypoint_result
@@ -269,6 +314,8 @@ def qualify_delivery(*, zip_path: str, source_commit: str) -> Dict[str, Any]:
         refs.append(details["entrypoint_result_ref"])
     if details.get("package_python_ref"):
         refs.append(details["package_python_ref"])
+    if details.get("package_codegraph_ref"):
+        refs.append(details["package_codegraph_ref"] + "#sha256:" + str(details.get("package_codegraph_sha256", "")))
     status = "PASS" if not blockers else "HOLD"
     return {
         "schema_version": SCHEMA_VERSION,
@@ -279,6 +326,9 @@ def qualify_delivery(*, zip_path: str, source_commit: str) -> Dict[str, Any]:
         "package_sha256": digest,
         "clean_windows_unpack": details.get("clean_windows_unpack", "HOLD"),
         "package_local_python_verify": details.get("package_local_python_verify", "HOLD"),
+        "package_local_codegraph_verify": details.get("package_local_codegraph_verify", "HOLD"),
+        "package_local_codegraph_version": details.get("package_codegraph_version"),
+        "package_local_codegraph_sha256": details.get("package_codegraph_sha256"),
         "package_verify": details.get("package_verify", "HOLD"),
         "package_entrypoint_verify": details.get("package_entrypoint_verify", "HOLD"),
         "admin_startup_verify": details.get("admin_startup_verify", "HOLD"),
