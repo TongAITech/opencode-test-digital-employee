@@ -24,7 +24,7 @@ export PFC_WORKSPACE="${PFC_WORKSPACE:-$ROOT}"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 ARGS=(
-  -m rc7_release.script_qualification
+  -m rc7_release.script_qualification_strict
   --state-root "$STATE"
   --workspace "$PFC_WORKSPACE"
   --test-design-result "$PFC_RC7_TEST_DESIGN_RESULT"
@@ -47,7 +47,7 @@ set -e
 
 RESULT="$STATE/qualification/rc7-dsh-script-result.json"
 if [[ -f "$RESULT" ]]; then
-  printf 'RC7 Script readiness qualification evidence: %s\n' "$RESULT" >&2
+  printf 'RC7 strict Script readiness qualification evidence: %s\n' "$RESULT" >&2
 else
   printf '%s\n' '{"status":"FAIL","reason":"SCRIPT_QUALIFICATION_RESULT_FILE_MISSING"}' >&2
   exit 11
