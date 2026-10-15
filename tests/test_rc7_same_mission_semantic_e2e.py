@@ -49,6 +49,15 @@ def _produce(control, graph, compiler, node: str, worker: str, *, tmp_path, payl
     evidence_id = "EVD-WORKER-%s" % node
     artifact_id = graph.artifact_ids[node]
     content_ref, content_hash = _persisted_candidate(tmp_path, artifact_id, payload)
+    evidence_kind = "NODE_OUTPUT_PROOF"
+    evidence_source = "worker://%s" % worker
+    evidence_subjects = [task.task_id, artifact_id]
+    if node == "EXECUTION":
+        record = payload.get("record") if isinstance(payload, dict) else None
+        assert isinstance(record, dict)
+        evidence_kind = "RUNTIME_EXECUTION_RECORD"
+        evidence_source = "runtime://formal-execution"
+        evidence_subjects.extend([str(record["attempt_id"]), str(record["tc_id"])])
     candidate = control.submit_worker_output(
         WorkerOutput(
             task_id=task.task_id,
@@ -57,10 +66,10 @@ def _produce(control, graph, compiler, node: str, worker: str, *, tmp_path, payl
                 Evidence(
                     evidence_id=evidence_id,
                     mission_id=MISSION,
-                    kind="NODE_OUTPUT_PROOF",
-                    source_ref="worker://%s" % worker,
+                    kind=evidence_kind,
+                    source_ref=evidence_source,
                     content_ref=content_ref,
-                    subject_refs=[task.task_id, artifact_id],
+                    subject_refs=evidence_subjects,
                     content_hash=content_hash,
                 ),
             ),
