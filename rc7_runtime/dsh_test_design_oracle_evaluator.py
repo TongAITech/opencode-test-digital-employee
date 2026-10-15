@@ -1,0 +1,148 @@
+"""Final RC7 Test Design guard for deterministic execution Oracles."""
+
+from __future__ import annotations
+
+import hashlib
+from typing import Dict, List, Sequence
+
+from .closed_loop_control import ClosedLoopControlPlane
+from .dsh_test_design_evaluator import DshTestDesignEvaluation
+from .dsh_test_design_parent_evaluator import DshParentAwareTestDesignEvaluator
+from .models import Evaluation, EvaluationResult, Gap, GapSeverity
+from .oracle_runtime import DeterministicOracleError, DeterministicOracleRuntime
+from .test_design_loop import TestDesignLoopResult
+
+
+def _stable_id(prefix: str, *parts: str) -> str:
+    raw = "\x1f".join(str(part) for part in parts).encode("utf-8")
+    return "%s-%s" % (prefix, hashlib.sha256(raw).hexdigest()[:20])
+
+
+class DshExecutionReadyTestDesignEvaluator(DshParentAwareTestDesignEvaluator):
+    """Parent/case guards plus a machine-executable Oracle contract."""
+
+    def evaluate(
+        self,
+        control: ClosedLoopControlPlane,
+        task_id: str,
+        artifact_id: str,
+    ) -> DshTestDesignEvaluation:
+        task = control.scheduler.task(task_id)
+        candidate = self.reader.load(
+            control.truth,
+            artifact_id,
+            expected_mission_id=control.mission_id,
+            expected_task_id=task_id,
+        )
+        oracle_reasons = self._oracle_reasons(candidate.semantic_payload.get("cases"))
+        evaluated = super().evaluate(control, task_id, artifact_id)
+        guarded = self._apply_oracle_guard(
+            control,
+            artifact_id=artifact_id,
+            base=evaluated.loop_result,
+            reasons=oracle_reasons,
+        )
+        return DshTestDesignEvaluation(
+            task_id=evaluated.task_id,
+            artifact_id=evaluated.artifact_id,
+            designer_worker_id=evaluated.designer_worker_id,
+            reviewer_worker_id=evaluated.reviewer_worker_id,
+            reviewer_session_id=evaluated.reviewer_session_id,
+            reviewer_evidence_ids=evaluated.reviewer_evidence_ids,
+            obligations=evaluated.obligations,
+            cases=evaluated.cases,
+            review=evaluated.review,
+            loop_result=guarded,
+        )
+
+    @staticmethod
+    def _oracle_reasons(raw_cases) -> Sequence[str]:
+        if not isinstance(raw_cases, list):
+            return ("TEST_CASES_REQUIRED_FOR_ORACLE",)
+        reasons = []
+        for index, case in enumerate(raw_cases):
+            if not isinstance(case, dict):
+                continue
+            tc_id = case.get("tc_id") if isinstance(case.get("tc_id"), str) else "CASE[%d]" % index
+            try:
+                DeterministicOracleRuntime.validate_contract(case.get("oracle"))
+            except DeterministicOracleError as exc:
+                reasons.append("%s:DETERMINISTIC_ORACLE_INVALID:%s" % (tc_id, exc))
+        return tuple(reasons)
+
+    @staticmethod
+    def _apply_oracle_guard(
+        control: ClosedLoopControlPlane,
+        *,
+        artifact_id: str,
+        base: TestDesignLoopResult,
+        reasons: Sequence[str],
+    ) -> TestDesignLoopResult:
+        dimensions = dict(base.evaluation.dimensions)
+        dimensions["deterministic_oracle_gap_total"] = len(reasons)
+        dimensions["deterministic_oracle_gaps"] = list(reasons)
+        dimensions["deterministic_oracle_ready"] = not reasons
+        if not reasons:
+            evaluation = Evaluation(
+                evaluation_id=base.evaluation.evaluation_id,
+                mission_id=base.evaluation.mission_id,
+                node=base.evaluation.node,
+                artifact_refs=list(base.evaluation.artifact_refs),
+                result=base.evaluation.result,
+                evaluator_ref=base.evaluation.evaluator_ref,
+                dimensions=dimensions,
+                gap_refs=list(base.evaluation.gap_refs),
+                evidence_refs=list(base.evaluation.evidence_refs),
+            )
+            return TestDesignLoopResult(
+                evaluation=evaluation,
+                gaps=base.gaps,
+                delta_requests=base.delta_requests,
+                semantic_coverage=base.semantic_coverage,
+                case_count=base.case_count,
+            )
+
+        extra: List[Gap] = []
+        for reason in sorted(set(reasons)):
+            tc_id = reason.split(":", 1)[0]
+            extra.append(
+                Gap(
+                    gap_id=_stable_id("GAP-TD-ORACLE", control.mission_id, artifact_id, reason),
+                    mission_id=control.mission_id,
+                    source_node="TEST_DESIGN",
+                    category="ORACLE_AMBIGUOUS",
+                    severity=GapSeverity.HIGH,
+                    target_node="TEST_DESIGN",
+                    description=reason,
+                    subject_refs=[artifact_id, tc_id],
+                    evidence_refs=list(base.evaluation.evidence_refs),
+                    acceptance_criteria=[
+                        "every Oracle check binds actual_path + deterministic operator + expected before execution"
+                    ],
+                )
+            )
+        gaps = tuple(list(base.gaps) + extra)
+        evaluation = Evaluation(
+            evaluation_id=_stable_id(
+                "EVAL-TD-ORACLE",
+                control.mission_id,
+                artifact_id,
+                base.evaluation.evaluation_id,
+                ",".join(sorted(set(reasons))),
+            ),
+            mission_id=control.mission_id,
+            node="TEST_DESIGN",
+            artifact_refs=[artifact_id],
+            result=EvaluationResult.REPAIR_REQUIRED,
+            evaluator_ref=base.evaluation.evaluator_ref,
+            dimensions=dimensions,
+            gap_refs=[gap.gap_id for gap in gaps],
+            evidence_refs=list(base.evaluation.evidence_refs),
+        )
+        return TestDesignLoopResult(
+            evaluation=evaluation,
+            gaps=gaps,
+            delta_requests=base.delta_requests,
+            semantic_coverage=base.semantic_coverage,
+            case_count=base.case_count,
+        )
