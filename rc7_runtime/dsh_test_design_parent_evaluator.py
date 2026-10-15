@@ -1,17 +1,19 @@
 """Parent-aware RC7 DSH Test Design evaluator.
 
 This is the canonical RC7 DSH Test Design acceptance adapter. It composes the
-independent reviewer / semantic closure evaluator with two deterministic guards:
+independent reviewer / semantic closure evaluator with deterministic guards:
 (1) the Designer cannot choose a small self-authored obligation denominator;
-(2) a semantically covered case cannot PASS if it is unusable by the downstream
-Runtime compiler. Script workers must never invent missing steps, data oracles,
-cleanup policy, or runner semantics.
+(2) a semantically covered case cannot PASS if it is unusable by downstream
+Script/Preparation/Execution Runtime. Script and Execution workers must never
+invent missing preconditions, data construction, cleanup, steps or oracles.
 """
 
 from __future__ import annotations
 
 import hashlib
 from typing import Dict, List, Sequence
+
+from rc6_runtime.preparation import CLEANUP_MODES, PRECONDITION_TYPES, STRATEGY_ORDER
 
 from .closed_loop_control import ClosedLoopControlPlane
 from .dsh_test_design_evaluator import (
@@ -33,6 +35,69 @@ def _stable_id(prefix: str, *parts: str) -> str:
 
 def _text(value) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def _preconditions_ready(value) -> bool:
+    if not isinstance(value, list):
+        return False
+    seen = set()
+    for item in value:
+        if not isinstance(item, dict):
+            return False
+        pid = item.get("id")
+        ptype = str(item.get("type") or "").upper()
+        requirement = item.get("requirement")
+        if not _text(pid) or pid in seen or ptype not in PRECONDITION_TYPES or not _text(requirement):
+            return False
+        seen.add(pid)
+    return True
+
+
+def _data_requirement_ready(item) -> bool:
+    if not isinstance(item, dict) or not _text(item.get("id")):
+        return False
+    selectors = item.get("selectors")
+    if not isinstance(selectors, dict) or not selectors:
+        return False
+    strategies = item.get("allowed_strategies")
+    if not isinstance(strategies, list) or not strategies:
+        return False
+    normalized = [str(value).upper() for value in strategies]
+    return all(value in STRATEGY_ORDER for value in normalized)
+
+
+def _test_data_ready(value) -> bool:
+    if not isinstance(value, dict):
+        return False
+    initial = value.get("initial_state")
+    inputs = value.get("input_data")
+    cleanup = value.get("cleanup_policy")
+    if not isinstance(initial, list) or not isinstance(inputs, list):
+        return False
+    requirements = list(initial) + list(inputs)
+    if any(not _data_requirement_ready(item) for item in requirements):
+        return False
+    ids = [item["id"] for item in requirements]
+    if len(ids) != len(set(ids)):
+        return False
+    if not isinstance(cleanup, dict) or str(cleanup.get("mode") or "").upper() not in CLEANUP_MODES:
+        return False
+    return True
+
+
+def _cleanup_consistent(case: Dict[str, object]) -> bool:
+    top = case.get("cleanup_policy")
+    test_data = case.get("test_data")
+    if not isinstance(top, dict) or not isinstance(test_data, dict):
+        return False
+    nested = test_data.get("cleanup_policy")
+    if not isinstance(nested, dict):
+        return False
+    left = dict(top)
+    right = dict(nested)
+    left["mode"] = str(left.get("mode") or "").upper()
+    right["mode"] = str(right.get("mode") or "").upper()
+    return left == right and left["mode"] in CLEANUP_MODES
 
 
 class DshParentAwareTestDesignEvaluator(_BaseDshTestDesignEvaluator):
@@ -101,9 +166,22 @@ class DshParentAwareTestDesignEvaluator(_BaseDshTestDesignEvaluator):
                 reasons.append("CASE[%d]:NOT_OBJECT" % index)
                 continue
             tc_id = case.get("tc_id") if _text(case.get("tc_id")) else "CASE[%d]" % index
+            test_data = case.get("test_data")
+            data_count = 0
+            if isinstance(test_data, dict):
+                initial = test_data.get("initial_state", [])
+                inputs = test_data.get("input_data", [])
+                if isinstance(initial, list) and isinstance(inputs, list):
+                    data_count = len(initial) + len(inputs)
+            refs = case.get("test_data_refs")
+            refs_ok = isinstance(refs, list) and all(_text(value) for value in refs)
+            if data_count and refs_ok:
+                refs_ok = bool(refs)
             checks = (
                 (_text(case.get("requirement_id")), "REQUIREMENT_ID_REQUIRED"),
-                (isinstance(case.get("preconditions"), list), "PRECONDITIONS_REQUIRED"),
+                (_preconditions_ready(case.get("preconditions")), "STRUCTURED_PRECONDITIONS_REQUIRED"),
+                (_test_data_ready(test_data), "STRUCTURED_TEST_DATA_REQUIRED"),
+                (_cleanup_consistent(case), "CLEANUP_POLICY_MUST_MATCH_TEST_DATA"),
                 (isinstance(case.get("steps"), list) and bool(case.get("steps")), "STEPS_REQUIRED"),
                 (_text(case.get("expected")), "EXPECTED_REQUIRED"),
                 (
@@ -112,14 +190,13 @@ class DshParentAwareTestDesignEvaluator(_BaseDshTestDesignEvaluator):
                     and all(_text(value) for value in case.get("evidence_requirements", [])),
                     "EVIDENCE_REQUIREMENTS_REQUIRED",
                 ),
-                (isinstance(case.get("test_data_refs"), list), "TEST_DATA_REFS_REQUIRED"),
+                (refs_ok, "TEST_DATA_REFS_INVALID"),
                 (
                     isinstance(case.get("oracle_refs"), list)
                     and bool(case.get("oracle_refs"))
                     and all(_text(value) for value in case.get("oracle_refs", [])),
                     "ORACLE_REFS_REQUIRED",
                 ),
-                (isinstance(case.get("cleanup_policy"), dict), "CLEANUP_POLICY_REQUIRED"),
                 (
                     _text(case.get("runner_type"))
                     and str(case.get("runner_type")).upper() in {"PYTEST", "JUNIT"},
@@ -215,7 +292,7 @@ class DshParentAwareTestDesignEvaluator(_BaseDshTestDesignEvaluator):
                     subject_refs=[artifact_id, reason.split(":", 1)[0]],
                     evidence_refs=list(base.evaluation.evidence_refs),
                     acceptance_criteria=[
-                        "TestCase carries immutable preconditions, steps, expected/oracle refs, evidence requirements, cleanup policy and PYTEST/JUNIT runner"
+                        "TestCase carries structured preconditions, deterministic data construction, steps, expected/oracle refs, evidence requirements, one cleanup policy and PYTEST/JUNIT runner"
                     ],
                 )
             )
