@@ -32,9 +32,6 @@ if defined PYTHONPATH (
 set "RC7_TIMEOUT=300"
 if defined PFC_RC7_DSH_TIMEOUT set "RC7_TIMEOUT=%PFC_RC7_DSH_TIMEOUT%"
 
-set "CWD_ARGS="
-if defined PFC_RC7_SCRIPT_CWD set "CWD_ARGS=--execution-cwd "%PFC_RC7_SCRIPT_CWD%""
-
 if defined PFC_RC7_SCRIPT_CWD (
   if defined PFC_DSH_BIN (
     "%PYTHON_BIN%" -m rc7_release.script_qualification --state-root "%PFC_AITEST_STATE_DIR%" --workspace "%PFC_WORKSPACE%" --test-design-result "%PFC_RC7_TEST_DESIGN_RESULT%" --tc-id "%PFC_RC7_SCRIPT_TC_ID%" --execution-cwd "%PFC_RC7_SCRIPT_CWD%" --dsh-bin "%PFC_DSH_BIN%" --timeout-seconds "%RC7_TIMEOUT%"
