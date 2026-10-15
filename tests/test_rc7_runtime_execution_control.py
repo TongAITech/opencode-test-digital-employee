@@ -195,7 +195,7 @@ def test_real_execution_pass_is_durable_r1_task_pass(tmp_path: Path):
     assert payload["record"]["worker_id"] == result.runtime_worker_id
 
 
-def test_real_runner_failure_becomes_diagnosis_required_not_false_pass(tmp_path: Path):
+def test_real_runner_failure_is_classified_as_script_repair_not_product_or_unknown(tmp_path: Path):
     truth, control, result = _run(tmp_path, process_fail=True)
     assert result.execution_record.actual_result["business_code"] == "OK"
     assert result.execution_record.status == "FAIL"
@@ -208,5 +208,10 @@ def test_real_runner_failure_becomes_diagnosis_required_not_false_pass(tmp_path:
     evaluation = truth.query("rc7_evaluation", evaluation_id=task.evaluation_id)[0]
     assert evaluation["result"] == "REPAIR_REQUIRED"
     assert evaluation["dimensions"]["test_result"] == "INCONCLUSIVE"
+    assert evaluation["dimensions"]["failure_class"] == "SCRIPT"
+    assert evaluation["dimensions"]["recovery_action"] == "REPAIR_SCRIPT"
     gaps = truth.query("rc7_gap", mission_id="MISSION-R1-EXEC")
-    assert any(gap["category"] == "DIAGNOSIS_REQUIRED" for gap in gaps)
+    script_gaps = [gap for gap in gaps if gap["category"] == "SCRIPT_DEFECT"]
+    assert len(script_gaps) == 1
+    assert script_gaps[0]["target_node"] == "SCRIPT_READINESS"
+    assert not any(gap["category"] in {"PRODUCT_DEFECT", "UNKNOWN_FAILURE"} for gap in gaps)
