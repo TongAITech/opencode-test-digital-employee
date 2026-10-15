@@ -1,0 +1,175 @@
+"""Public RC7 execution facade with governed diagnosis/recovery/retry.
+
+Callers submit one approved PreparedAttempt.  The runtime owns each execution,
+independent diagnosis, recovery planning and bounded DIRECT_RETRY loop.  All
+attempts remain in R1 truth; non-direct repair is returned to the owning node
+instead of being guessed or retried blindly.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Callable, Dict, Mapping, Optional
+
+from rc6_runtime.capability import ToolCapabilityBroker
+from rc6_runtime.diagnosis import CorrelationScope
+from rc6_runtime.preparation import PreparedAttempt
+
+from .authority import RC7AuthorityRuntime
+from .closed_loop_control import ClosedLoopControlPlane
+from .controlled_l3_execution import ControlledL3ClosedLoopExecutionService
+from .execution_autonomous_loop import AutonomousExecutionLoop, AutonomousExecutionLoopResult
+from .execution_diagnosis import ExecutionTrustFacts
+from .execution_recovery_control import ExecutionRecoveryController
+from .lineage_diagnosis import LineageAwareExecutionDiagnosisCoordinator
+from .runtime_execution import VerifiedScriptExecutionBundle
+from .runtime_execution_control import ClosedLoopRuntimeExecutionService
+
+
+class AutonomousClosedLoopExecutionService:
+    def __init__(
+        self,
+        *,
+        evidence_root: str,
+        timeout_seconds: int = 300,
+        max_cycles: int = 4,
+        max_transient_retries: int = 2,
+    ) -> None:
+        self.evidence_root = evidence_root
+        self.timeout_seconds = int(timeout_seconds)
+        self.max_cycles = int(max_cycles)
+        self.max_transient_retries = int(max_transient_retries)
+
+    def _coordinator(
+        self,
+        *,
+        authority: RC7AuthorityRuntime,
+        tool_broker: ToolCapabilityBroker,
+        cat_query=None,
+        evidence_collectors=None,
+        rca_resolver=None,
+    ) -> LineageAwareExecutionDiagnosisCoordinator:
+        return LineageAwareExecutionDiagnosisCoordinator(
+            authority=authority,
+            tool_broker=tool_broker,
+            evidence_root=self.evidence_root,
+            cat_query=cat_query,
+            evidence_collectors=evidence_collectors,
+            rca_resolver=rca_resolver,
+            max_transient_retries=self.max_transient_retries,
+        )
+
+    def execute_generic(
+        self,
+        control: ClosedLoopControlPlane,
+        task_id: str,
+        *,
+        bundle: VerifiedScriptExecutionBundle,
+        prepared: PreparedAttempt,
+        authority: RC7AuthorityRuntime,
+        tool_broker: ToolCapabilityBroker,
+        oracle_evaluator: Callable[[Dict[str, Any], Dict[str, Any], Dict[str, Any]], Dict[str, Any]],
+        cwd: str,
+        env: Optional[Mapping[str, str]] = None,
+        diagnosis_trust: Optional[ExecutionTrustFacts] = None,
+        cat_query=None,
+        evidence_collectors=None,
+        rca_resolver=None,
+    ) -> AutonomousExecutionLoopResult:
+        coordinator = self._coordinator(
+            authority=authority,
+            tool_broker=tool_broker,
+            cat_query=cat_query,
+            evidence_collectors=evidence_collectors,
+            rca_resolver=rca_resolver,
+        )
+        service = ClosedLoopRuntimeExecutionService(
+            evidence_root=self.evidence_root,
+            timeout_seconds=self.timeout_seconds,
+        )
+        loop = AutonomousExecutionLoop(
+            recovery_controller=ExecutionRecoveryController(evidence_root=self.evidence_root),
+            max_cycles=self.max_cycles,
+        )
+
+        def run_once(current: PreparedAttempt, current_coordinator: LineageAwareExecutionDiagnosisCoordinator):
+            attempt_env = dict(env or {})
+            attempt_env["RC7_EXECUTION_ATTEMPT_ID"] = current.attempt_id
+            return service.execute_task(
+                control,
+                task_id,
+                bundle=bundle,
+                prepared=current,
+                authority=authority,
+                tool_broker=tool_broker,
+                oracle_evaluator=oracle_evaluator,
+                cwd=cwd,
+                env=attempt_env,
+                diagnosis_coordinator=current_coordinator,
+                diagnosis_trust=diagnosis_trust,
+            )
+
+        return loop.run(
+            control,
+            source_task_id=task_id,
+            prepared=prepared,
+            coordinator=coordinator,
+            run_once=run_once,
+        )
+
+    def execute_l3(
+        self,
+        control: ClosedLoopControlPlane,
+        task_id: str,
+        *,
+        bundle: VerifiedScriptExecutionBundle,
+        prepared: PreparedAttempt,
+        authority: RC7AuthorityRuntime,
+        tool_broker: ToolCapabilityBroker,
+        target_base_url: str,
+        cwd: str,
+        env: Optional[Mapping[str, str]] = None,
+        diagnosis_trust: Optional[ExecutionTrustFacts] = None,
+        cat_query=None,
+        evidence_collectors=None,
+        rca_resolver=None,
+    ) -> AutonomousExecutionLoopResult:
+        coordinator = self._coordinator(
+            authority=authority,
+            tool_broker=tool_broker,
+            cat_query=cat_query,
+            evidence_collectors=evidence_collectors,
+            rca_resolver=rca_resolver,
+        )
+        service = ControlledL3ClosedLoopExecutionService(
+            evidence_root=self.evidence_root,
+            timeout_seconds=self.timeout_seconds,
+        )
+        loop = AutonomousExecutionLoop(
+            recovery_controller=ExecutionRecoveryController(evidence_root=self.evidence_root),
+            max_cycles=self.max_cycles,
+        )
+
+        def run_once(current: PreparedAttempt, current_coordinator: LineageAwareExecutionDiagnosisCoordinator):
+            attempt_env = dict(env or {})
+            attempt_env["RC7_EXECUTION_ATTEMPT_ID"] = current.attempt_id
+            return service.execute_task(
+                control,
+                task_id,
+                bundle=bundle,
+                prepared=current,
+                authority=authority,
+                tool_broker=tool_broker,
+                target_base_url=target_base_url,
+                cwd=cwd,
+                env=attempt_env,
+                diagnosis_coordinator=current_coordinator,
+                diagnosis_trust=diagnosis_trust,
+            )
+
+        return loop.run(
+            control,
+            source_task_id=task_id,
+            prepared=prepared,
+            coordinator=coordinator,
+            run_once=run_once,
+        )
