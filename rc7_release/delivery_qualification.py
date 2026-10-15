@@ -15,7 +15,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
-from .package import PACKAGE_LOCAL_CODEGRAPH, PACKAGE_LOCAL_PYTHON, PACKAGE_NAME
+from .package import PACKAGE_LOCAL_BROWSER, PACKAGE_LOCAL_CODEGRAPH, PACKAGE_LOCAL_PYTHON, PACKAGE_NAME
 
 
 SCHEMA_VERSION = "pfc.aitest.rc7.delivery-qualification.v1"
@@ -92,6 +92,10 @@ def _package_env(package_root: Path, python_executable: Path) -> Dict[str, str]:
     package_codegraph = package_root / PACKAGE_LOCAL_CODEGRAPH
     if package_codegraph.is_file():
         env["PFC_CODEGRAPH_BIN"] = str(package_codegraph)
+    package_browser = package_root / PACKAGE_LOCAL_BROWSER
+    if package_browser.is_file():
+        env["PFC_BROWSER_BIN"] = str(package_browser)
+        env["PFC_CHROME_BIN"] = str(package_browser)
     return env
 
 
@@ -114,42 +118,64 @@ def _verify_package_local(
     )
 
 
-def _verify_package_codegraph(
+def _runtime_payload(
     package_root: Path,
-    env: Mapping[str, str],
-    details: Dict[str, Any],
-) -> None:
+    *,
+    field: str,
+    expected_path: Path,
+    label: str,
+) -> tuple:
     manifest_path = package_root / "PACKAGE_MANIFEST.json"
     if not manifest_path.is_file():
-        raise DeliveryQualificationError("PACKAGE_MANIFEST_MISSING_FOR_CODEGRAPH")
+        raise DeliveryQualificationError("PACKAGE_MANIFEST_MISSING_FOR_%s" % label)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    payload = manifest.get("package_local_codegraph")
+    payload = manifest.get(field)
     if not isinstance(payload, dict):
-        raise DeliveryQualificationError("PACKAGE_CODEGRAPH_MANIFEST_MISSING")
-    if payload.get("path") != PACKAGE_LOCAL_CODEGRAPH.as_posix():
-        raise DeliveryQualificationError("PACKAGE_CODEGRAPH_MANIFEST_PATH_INVALID")
+        raise DeliveryQualificationError("PACKAGE_%s_MANIFEST_MISSING" % label)
+    if payload.get("path") != expected_path.as_posix():
+        raise DeliveryQualificationError("PACKAGE_%s_MANIFEST_PATH_INVALID" % label)
     if payload.get("bundled") is not True:
-        raise DeliveryQualificationError("PACKAGE_CODEGRAPH_NOT_BUNDLED")
+        raise DeliveryQualificationError("PACKAGE_%s_NOT_BUNDLED" % label)
     expected_hash = payload.get("sha256")
     if not isinstance(expected_hash, str) or not re.match(r"^[0-9a-fA-F]{64}$", expected_hash):
-        raise DeliveryQualificationError("PACKAGE_CODEGRAPH_MANIFEST_HASH_INVALID")
-    binary = package_root / PACKAGE_LOCAL_CODEGRAPH
+        raise DeliveryQualificationError("PACKAGE_%s_MANIFEST_HASH_INVALID" % label)
+    binary = package_root / expected_path
     if not binary.is_file():
-        raise DeliveryQualificationError("PACKAGE_LOCAL_CODEGRAPH_RUNTIME_MISSING")
+        raise DeliveryQualificationError("PACKAGE_LOCAL_%s_RUNTIME_MISSING" % label)
     actual_hash = _sha256(binary)
     if actual_hash.lower() != expected_hash.lower():
-        raise DeliveryQualificationError("PACKAGE_LOCAL_CODEGRAPH_HASH_MISMATCH")
+        raise DeliveryQualificationError("PACKAGE_LOCAL_%s_HASH_MISMATCH" % label)
+    return payload, binary, actual_hash
+
+
+def _verify_package_codegraph(package_root: Path, env: Mapping[str, str], details: Dict[str, Any]) -> None:
+    payload, binary, actual_hash = _runtime_payload(
+        package_root,
+        field="package_local_codegraph",
+        expected_path=PACKAGE_LOCAL_CODEGRAPH,
+        label="CODEGRAPH",
+    )
     if os.name == "nt":
-        _run(
-            [str(binary), "--help"],
-            cwd=package_root,
-            env=env,
-            label="PACKAGE_LOCAL_CODEGRAPH_SMOKE",
-        )
+        _run([str(binary), "--help"], cwd=package_root, env=env, label="PACKAGE_LOCAL_CODEGRAPH_SMOKE")
     details["package_local_codegraph_verify"] = "PASS" if os.name == "nt" else "HOLD_NON_WINDOWS"
     details["package_codegraph_ref"] = "file://" + str(binary)
     details["package_codegraph_sha256"] = actual_hash
     details["package_codegraph_version"] = payload.get("resolved_version")
+
+
+def _verify_package_browser(package_root: Path, env: Mapping[str, str], details: Dict[str, Any]) -> None:
+    payload, binary, actual_hash = _runtime_payload(
+        package_root,
+        field="package_local_browser",
+        expected_path=PACKAGE_LOCAL_BROWSER,
+        label="BROWSER",
+    )
+    if os.name == "nt":
+        _run([str(binary), "--version"], cwd=package_root, env=env, label="PACKAGE_LOCAL_BROWSER_SMOKE")
+    details["package_local_browser_verify"] = "PASS" if os.name == "nt" else "HOLD_NON_WINDOWS"
+    details["package_browser_ref"] = "file://" + str(binary)
+    details["package_browser_sha256"] = actual_hash
+    details["package_browser_version"] = payload.get("resolved_version")
 
 
 def _verify_final_entrypoint(package_root: Path, env: Mapping[str, str], source_commit: str, work_root: Path) -> str:
@@ -266,8 +292,13 @@ def qualify_delivery(*, zip_path: str, source_commit: str) -> Dict[str, Any]:
     blockers: List[str] = []
     details: Dict[str, Any] = {}
     if os.name != "nt":
-        blockers.append("CLEAN_WINDOWS_UNPACK_REQUIRES_WINDOWS_RUNTIME")
-        blockers.append("PACKAGE_LOCAL_CODEGRAPH_REQUIRES_WINDOWS_RUNTIME")
+        blockers.extend(
+            [
+                "CLEAN_WINDOWS_UNPACK_REQUIRES_WINDOWS_RUNTIME",
+                "PACKAGE_LOCAL_CODEGRAPH_REQUIRES_WINDOWS_RUNTIME",
+                "PACKAGE_LOCAL_BROWSER_REQUIRES_WINDOWS_RUNTIME",
+            ]
+        )
     with tempfile.TemporaryDirectory(prefix="rc7-delivery-qualification-") as tmp:
         work_root = Path(tmp).resolve()
         try:
@@ -297,6 +328,7 @@ def qualify_delivery(*, zip_path: str, source_commit: str) -> Dict[str, Any]:
             details["package_verify"] = "PASS"
 
             _verify_package_codegraph(package_root, env, details)
+            _verify_package_browser(package_root, env, details)
 
             entrypoint_result = _verify_final_entrypoint(package_root, env, commit, work_root)
             details["package_entrypoint_verify"] = "PASS"
@@ -310,12 +342,17 @@ def qualify_delivery(*, zip_path: str, source_commit: str) -> Dict[str, Any]:
 
     digest = _sha256(archive_path)
     refs = ["zip://%s#sha256:%s" % (archive_path.name, digest)]
+    for ref_key, hash_key in (
+        ("package_codegraph_ref", "package_codegraph_sha256"),
+        ("package_browser_ref", "package_browser_sha256"),
+    ):
+        if details.get(ref_key):
+            refs.append(str(details[ref_key]) + "#sha256:" + str(details.get(hash_key, "")))
     if details.get("entrypoint_result_ref"):
         refs.append(details["entrypoint_result_ref"])
     if details.get("package_python_ref"):
         refs.append(details["package_python_ref"])
-    if details.get("package_codegraph_ref"):
-        refs.append(details["package_codegraph_ref"] + "#sha256:" + str(details.get("package_codegraph_sha256", "")))
+
     status = "PASS" if not blockers else "HOLD"
     return {
         "schema_version": SCHEMA_VERSION,
@@ -329,6 +366,9 @@ def qualify_delivery(*, zip_path: str, source_commit: str) -> Dict[str, Any]:
         "package_local_codegraph_verify": details.get("package_local_codegraph_verify", "HOLD"),
         "package_local_codegraph_version": details.get("package_codegraph_version"),
         "package_local_codegraph_sha256": details.get("package_codegraph_sha256"),
+        "package_local_browser_verify": details.get("package_local_browser_verify", "HOLD"),
+        "package_local_browser_version": details.get("package_browser_version"),
+        "package_local_browser_sha256": details.get("package_browser_sha256"),
         "package_verify": details.get("package_verify", "HOLD"),
         "package_entrypoint_verify": details.get("package_entrypoint_verify", "HOLD"),
         "admin_startup_verify": details.get("admin_startup_verify", "HOLD"),
