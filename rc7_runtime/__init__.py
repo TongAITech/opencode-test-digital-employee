@@ -77,9 +77,15 @@ from .execution_autonomous_loop import (
     AutonomousExecutionLoopError,
     AutonomousExecutionLoopResult,
 )
+from .preparation_control import (
+    RuntimePreparationError,
+    RuntimePreparationService,
+    RuntimePreparedAttempt,
+)
 from .autonomous_execution_service import (
     AutonomousClosedLoopExecutionService,
     AutonomousExecutionServiceError,
+    PreparedAutonomousExecutionResult,
 )
 
 __all__ = [
@@ -146,6 +152,10 @@ __all__ = [
     "AutonomousExecutionLoop",
     "AutonomousExecutionLoopError",
     "AutonomousExecutionLoopResult",
+    "RuntimePreparationError",
+    "RuntimePreparationService",
+    "RuntimePreparedAttempt",
     "AutonomousClosedLoopExecutionService",
     "AutonomousExecutionServiceError",
+    "PreparedAutonomousExecutionResult",
 ]
