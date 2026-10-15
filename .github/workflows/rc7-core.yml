@@ -10,6 +10,7 @@ on:
       - 'rc7_admin/**'
       - 'packaging/rc7/**'
       - 'tests/test_rc7_*.py'
+      - 'runtime-lock.json'
       - '.github/workflows/rc7-core.yml'
   workflow_dispatch:
 
