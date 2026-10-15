@@ -8,6 +8,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import zipfile
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Union
@@ -21,6 +22,7 @@ MANIFEST_SCHEMA = "pfc.aitest.rc7.package.v1"
 SOURCE_DIRS = ("rc6_runtime", "rc6_release", "rc7_runtime", "rc7_release", "rc7_admin")
 LAUNCHER_DIR = Path("packaging") / "rc7"
 RC6_COORDINATOR_DIR = Path("packaging") / "rc6" / ".dsh" / "skills" / "pfc-full-chain-test"
+PACKAGE_LOCAL_PYTHON = Path("workspace-template") / "runtime" / "python" / "python.exe"
 RUNTIME_GENERATED_DIRS = {"runtime-state", "state", "__pycache__"}
 RUNTIME_GENERATED_SUFFIXES = {".pyc", ".pyo"}
 SECRET_MARKERS = (
@@ -71,6 +73,11 @@ def _safe_relative(path: Path) -> str:
     return value
 
 
+def _is_bundled_runtime_relative(path: Path) -> bool:
+    parts = tuple(part.lower() for part in path.parts)
+    return len(parts) >= 2 and parts[0] == "workspace-template" and parts[1] == "runtime"
+
+
 def _looks_secret(path: Path) -> bool:
     lower_parts = [part.lower() for part in path.parts]
     name = path.name.lower()
@@ -101,6 +108,39 @@ def _copy_tree(source: Path, destination: Path) -> None:
             shutil.copystat(str(item), str(target))
         else:
             shutil.copy2(str(item), str(target))
+
+
+def _copy_runtime_tree(source: Path, destination: Path) -> None:
+    """Copy a release-build runtime without applying source-tree secret-name heuristics.
+
+    Standard Python contains required modules such as token.py/tokenize.py, so the
+    source-code secret filename filter cannot be reused for third-party runtime
+    payloads. Runtime bytes remain covered by PACKAGE_MANIFEST/CHECKSUMS.
+    """
+    for item in sorted(source.rglob("*")):
+        if not item.is_file():
+            continue
+        rel = item.relative_to(source)
+        if "__pycache__" in rel.parts or item.suffix in RUNTIME_GENERATED_SUFFIXES:
+            continue
+        target = destination / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(item), str(target))
+
+
+def _bundle_current_windows_python(package_root: Path) -> bool:
+    if os.name != "nt":
+        return False
+    python_home = Path(sys.executable).resolve().parent
+    python_exe = python_home / "python.exe"
+    if not python_exe.is_file():
+        raise RuntimeError("BUILD_WINDOWS_PYTHON_RUNTIME_NOT_FOUND")
+    target_home = package_root / PACKAGE_LOCAL_PYTHON.parent
+    _copy_runtime_tree(python_home, target_home)
+    target_exe = package_root / PACKAGE_LOCAL_PYTHON
+    if not target_exe.is_file():
+        raise RuntimeError("PACKAGE_LOCAL_PYTHON_COPY_FAILED")
+    return True
 
 
 def _is_runtime_generated(root: Path, path: Path) -> bool:
@@ -144,6 +184,8 @@ def _manifest_for(package_root: Path, source_commit: str) -> Dict[str, object]:
         "bank_field_pass": False,
         "field_qualification_required": True,
         "workspace_installation": "PACKAGE_LOCAL_NO_SOURCE_INSTALL_REQUIRED",
+        "package_local_python": PACKAGE_LOCAL_PYTHON.as_posix(),
+        "package_local_python_bundled": (package_root / PACKAGE_LOCAL_PYTHON).is_file(),
         "entrypoints": list(ENTRYPOINTS),
         "static_skill_count": len(ALL_SKILLS),
         "files": files,
@@ -195,6 +237,8 @@ def build_package(
         if source.is_file():
             destination = package_root / relative.name
             shutil.copy2(str(source), str(destination))
+
+    _bundle_current_windows_python(package_root)
 
     _write_text(package_root / "SOURCE_COMMIT", source_commit + "\n")
     _write_text(package_root / "BUILD_ID", "RC7-%s\n" % source_commit[:12])
@@ -260,6 +304,8 @@ def verify_package(package_root: Union[str, Path]) -> Dict[str, object]:
         raise RuntimeError("PACKAGE_DURABLE_TRUTH_INVALID")
     if manifest.get("version_policy") != "CAPABILITY_BASED_NO_EXACT_VERSION_PIN":
         raise RuntimeError("PACKAGE_VERSION_POLICY_INVALID")
+    if manifest.get("package_local_python") != PACKAGE_LOCAL_PYTHON.as_posix():
+        raise RuntimeError("PACKAGE_LOCAL_PYTHON_MANIFEST_INVALID")
 
     source_commit = (root / "SOURCE_COMMIT").read_text(encoding="utf-8").strip()
     if manifest.get("source_commit") != source_commit:
@@ -279,7 +325,11 @@ def verify_package(package_root: Union[str, Path]) -> Dict[str, object]:
     actual = {_safe_relative(path.relative_to(root)) for path in _package_files(root)}
     if actual != set(expected):
         raise RuntimeError("PACKAGE_CHECKSUM_COVERAGE_MISMATCH")
-    secret_paths = sorted(rel for rel in actual if _looks_secret(Path(rel)))
+    secret_paths = sorted(
+        rel
+        for rel in actual
+        if not _is_bundled_runtime_relative(Path(rel)) and _looks_secret(Path(rel))
+    )
     if secret_paths:
         raise RuntimeError("PACKAGE_SECRET_PATH_FORBIDDEN:" + ",".join(secret_paths))
 
@@ -291,12 +341,17 @@ def verify_package(package_root: Union[str, Path]) -> Dict[str, object]:
     if skill_dirs != set(ALL_SKILLS):
         raise RuntimeError("PACKAGE_STATIC_SKILL_SET_MISMATCH")
 
+    local_python_bundled = (root / PACKAGE_LOCAL_PYTHON).is_file()
+    if bool(manifest.get("package_local_python_bundled")) != local_python_bundled:
+        raise RuntimeError("PACKAGE_LOCAL_PYTHON_MANIFEST_MISMATCH")
+
     return {
         "status": "PASS",
         "release_status": BUILD_STATUS,
         "source_commit": source_commit,
         "static_skill_count": len(ALL_SKILLS),
         "file_count": len(actual) + 1,
+        "package_local_python_bundled": local_python_bundled,
     }
 
 
