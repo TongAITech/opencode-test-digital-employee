@@ -81,17 +81,25 @@ def test_git_adapter_rejects_workspace_escape_and_option_injection(tmp_path, mon
 def _fake_codegraph(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     workspace.mkdir(exist_ok=True)
-    script = tmp_path / "fake-codegraph"
-    script.write_text(
-        "#!/usr/bin/env python3\n"
+    body = (
         "import json, sys\n"
         "if sys.argv[1:] == ['--help']:\n"
         "    print('fake codegraph: query search symbol callers callees references impact')\n"
         "    raise SystemExit(0)\n"
-        "print(json.dumps({'args': sys.argv[1:], 'kind': 'query-result'}, sort_keys=True))\n",
-        encoding="utf-8",
+        "print(json.dumps({'args': sys.argv[1:], 'kind': 'query-result'}, sort_keys=True))\n"
     )
-    script.chmod(0o755)
+    if os.name == "nt":
+        helper = tmp_path / "fake-codegraph.py"
+        helper.write_text(body, encoding="utf-8")
+        script = tmp_path / "fake-codegraph.cmd"
+        script.write_text(
+            '@echo off\r\n"%s" "%s" %%*\r\n' % (sys.executable, helper),
+            encoding="utf-8",
+        )
+    else:
+        script = tmp_path / "fake-codegraph"
+        script.write_text("#!/usr/bin/env python3\n" + body, encoding="utf-8")
+        script.chmod(0o755)
     monkeypatch.setenv("PFC_WORKSPACE", str(workspace))
     monkeypatch.setenv("PFC_CODEGRAPH_BIN", str(script))
     return workspace, script
