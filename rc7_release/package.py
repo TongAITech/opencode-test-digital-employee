@@ -61,10 +61,23 @@ LAUNCHER_NAMES = (
     "QUALIFY-FINAL.sh",
     "QUALIFY-BANK-FINAL.cmd",
     "QUALIFY-BANK-FINAL.sh",
+    "START-RC7-BANK-MISSION.cmd",
+    "START-RC7-BANK-MISSION.sh",
     "START-RC7-ADMIN.cmd",
     "START-RC7-ADMIN.sh",
 )
 ENTRYPOINTS = tuple("packaging/rc7/%s" % name for name in LAUNCHER_NAMES)
+REQUIRED_PRODUCT_FILES = (
+    "rc7_runtime/bank_mission.py",
+    "rc7_admin/__main__.py",
+    "rc7_admin/server.py",
+    "rc7_admin/projection.py",
+    "rc7_admin/derived.py",
+    "rc7_admin/static/index.html",
+)
+MISSION_ENTRYPOINT = "packaging/rc7/START-RC7-BANK-MISSION.cmd"
+ADMIN_ENTRYPOINT = "packaging/rc7/START-RC7-ADMIN.cmd"
+SHARED_R1_DEFAULT = "state/rc7-r1.jsonl"
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
@@ -266,6 +279,10 @@ def _manifest_for(
         "package_local_python_bundled": (package_root / PACKAGE_LOCAL_PYTHON).is_file(),
         "package_local_codegraph": _payload_manifest(package_root, PACKAGE_LOCAL_CODEGRAPH, codegraph_provenance),
         "package_local_browser": _payload_manifest(package_root, PACKAGE_LOCAL_BROWSER, browser_provenance),
+        "mission_runtime_entrypoint": MISSION_ENTRYPOINT,
+        "admin_platform_entrypoint": ADMIN_ENTRYPOINT,
+        "shared_r1_default": SHARED_R1_DEFAULT,
+        "admin_platform_embedded": True,
         "entrypoints": list(ENTRYPOINTS),
         "static_skill_count": len(ALL_SKILLS),
         "files": files,
@@ -388,6 +405,7 @@ def verify_package(package_root: Union[str, Path]) -> Dict[str, object]:
         "rc7_admin/__init__.py",
     }
     required.update(ENTRYPOINTS)
+    required.update(REQUIRED_PRODUCT_FILES)
     required.update(".dsh/skills/%s/SKILL.md" % name for name in ALL_SKILLS)
     missing = sorted(name for name in required if not (root / name).is_file())
     if missing:
@@ -407,6 +425,14 @@ def verify_package(package_root: Union[str, Path]) -> Dict[str, object]:
         raise RuntimeError("PACKAGE_VERSION_POLICY_INVALID")
     if manifest.get("package_local_python") != PACKAGE_LOCAL_PYTHON.as_posix():
         raise RuntimeError("PACKAGE_LOCAL_PYTHON_MANIFEST_INVALID")
+    if manifest.get("mission_runtime_entrypoint") != MISSION_ENTRYPOINT:
+        raise RuntimeError("PACKAGE_MISSION_ENTRYPOINT_INVALID")
+    if manifest.get("admin_platform_entrypoint") != ADMIN_ENTRYPOINT:
+        raise RuntimeError("PACKAGE_ADMIN_ENTRYPOINT_INVALID")
+    if manifest.get("shared_r1_default") != SHARED_R1_DEFAULT:
+        raise RuntimeError("PACKAGE_SHARED_R1_DEFAULT_INVALID")
+    if manifest.get("admin_platform_embedded") is not True:
+        raise RuntimeError("PACKAGE_ADMIN_PLATFORM_NOT_EMBEDDED")
 
     source_commit = (root / "SOURCE_COMMIT").read_text(encoding="utf-8").strip()
     if manifest.get("source_commit") != source_commit:
@@ -451,6 +477,10 @@ def verify_package(package_root: Union[str, Path]) -> Dict[str, object]:
         "source_commit": source_commit,
         "static_skill_count": len(ALL_SKILLS),
         "file_count": len(actual) + 1,
+        "mission_runtime_entrypoint": MISSION_ENTRYPOINT,
+        "admin_platform_entrypoint": ADMIN_ENTRYPOINT,
+        "shared_r1_default": SHARED_R1_DEFAULT,
+        "admin_platform_embedded": True,
         "package_local_python_bundled": local_python_bundled,
         "package_local_codegraph_bundled": bool(codegraph.get("bundled")),
         "package_local_codegraph_sha256": codegraph.get("sha256"),
