@@ -29,7 +29,6 @@ from rc7_runtime.models import (
     TaskStatus,
 )
 from rc7_runtime.runtime_execution import VerifiedScriptExecutionBundle
-from rc7_runtime.truth_overlay import append_entity
 
 
 MISSION = "MISSION-DEFECT-QUAL"
@@ -262,22 +261,49 @@ def _control(tmp_path: Path):
         ),
         gaps=(gap,),
     )
+    reproduction_tasks = [
+        row for row in truth.query("rc7_task", mission_id=MISSION)
+        if row.get("node") == "EXECUTION" and row.get("task_type") == "DEFECT_REPRODUCTION"
+    ]
     defect_tasks = [
         row for row in truth.query("rc7_task", mission_id=MISSION)
         if row.get("node") == "DEFECT" and row.get("task_type") == "QUALIFY_DEFECT"
     ]
+    assert len(reproduction_tasks) == 1
     assert len(defect_tasks) == 1
-    assert defect_tasks[0]["state"] == "READY"
-    return truth, control, str(defect_tasks[0]["task_id"])
+    assert reproduction_tasks[0]["state"] == "READY"
+    assert reproduction_tasks[0]["dependency_task_ids"] == [ORIGINAL_TASK]
+    assert reproduction_tasks[0]["input_artifact_refs"] == [artifact.artifact_id]
+    assert defect_tasks[0]["state"] == "REGISTERED"
+    assert defect_tasks[0]["dependency_task_ids"] == [reproduction_tasks[0]["task_id"]]
+    return (
+        truth,
+        control,
+        str(defect_tasks[0]["task_id"]),
+        str(reproduction_tasks[0]["task_id"]),
+    )
 
 
-def _durable_reproduction(truth, tmp_path: Path, *, reproduced: bool):
+def _durable_reproduction(
+    control: ClosedLoopControlPlane,
+    tmp_path: Path,
+    reproduction_task_id: str,
+    *,
+    reproduced: bool,
+):
     suffix = "YES" if reproduced else "NO"
     attempt = "ATT-REPRO-%s" % suffix
-    task_id = "TASK-REPRO-%s" % suffix
     evidence_id = "EVD-REPRO-%s" % suffix
     artifact_id = "ART-REPRO-%s" % suffix
     evaluation_id = "EVAL-REPRO-%s" % suffix
+
+    leased = control.lease_next(
+        worker_ref="repro-worker",
+        capabilities=("test_execution",),
+    )
+    assert leased is not None and leased.task_id == reproduction_task_id
+    control.start(reproduction_task_id, worker_ref="repro-worker")
+
     record = ExecutionRecord(
         attempt_id=attempt,
         tc_id="TC-DEFECT-QUAL",
@@ -324,29 +350,25 @@ def _durable_reproduction(truth, tmp_path: Path, *, reproduced: bool):
         kind="RUNTIME_EXECUTION_RECORD",
         source_ref="runtime://formal-execution",
         content_ref="file://" + str(record_path),
-        subject_refs=[task_id, attempt, "TC-DEFECT-QUAL"],
+        subject_refs=[reproduction_task_id, attempt, "TC-DEFECT-QUAL"],
         content_hash="sha256:" + digest,
     )
     artifact = Artifact(
         artifact_id=artifact_id,
         mission_id=MISSION,
         artifact_type="EXECUTION_CONCLUSION",
-        producer_task_id=task_id,
+        producer_task_id=reproduction_task_id,
         content_ref="file://" + str(record_path),
         evidence_refs=[evidence_id],
         content_hash="sha256:" + digest,
     )
-    task = Task(
-        task_id=task_id,
-        mission_id=MISSION,
-        node="EXECUTION",
-        task_type="DEFECT_REPRODUCTION",
-        objective="durable reproduction fixture",
-        state=TaskStatus.PASS,
-        required_capabilities=["test_execution"],
-        gap_refs=[PRODUCT_GAP],
-        output_artifact_refs=[artifact_id],
-        evaluation_id=evaluation_id,
+    control.submit_worker_output(
+        WorkerOutput(
+            task_id=reproduction_task_id,
+            worker_ref="repro-worker",
+            artifacts=(artifact,),
+            evidence=(evidence,),
+        )
     )
     evaluation = Evaluation(
         evaluation_id=evaluation_id,
@@ -367,10 +389,11 @@ def _durable_reproduction(truth, tmp_path: Path, *, reproduced: bool):
         },
         evidence_refs=[evidence_id],
     )
-    append_entity(truth, evidence, release_id="RC7-DEFECT-QUAL")
-    append_entity(truth, artifact, release_id="RC7-DEFECT-QUAL")
-    append_entity(truth, evaluation, release_id="RC7-DEFECT-QUAL")
-    append_entity(truth, task, release_id="RC7-DEFECT-QUAL")
+    accepted = control.accept_evaluation(
+        reproduction_task_id,
+        evaluation=evaluation,
+    )
+    assert accepted.state == TaskStatus.PASS
     return DefectReproductionResult(
         execution_record=record,
         record_artifact_id=artifact_id,
@@ -416,13 +439,20 @@ def _forged_reproduction():
 
 
 def test_reproduced_product_failure_enters_evidence_ready_without_resolving_product_gap(tmp_path: Path):
-    truth, control, defect_task_id = _control(tmp_path)
+    truth, control, defect_task_id, reproduction_task_id = _control(tmp_path)
+    reproduction = _durable_reproduction(
+        control,
+        tmp_path,
+        reproduction_task_id,
+        reproduced=True,
+    )
+    assert control.scheduler.task(defect_task_id).state == TaskStatus.READY
     result = DefectQualificationControl(evidence_root=str(tmp_path / "defect-evidence")).qualify(
         control,
         defect_task_id,
         product_gap_id=PRODUCT_GAP,
         bundle=_bundle(tmp_path),
-        reproduction=_durable_reproduction(truth, tmp_path, reproduced=True),
+        reproduction=reproduction,
     )
 
     assert result.qualified is True
@@ -440,13 +470,20 @@ def test_reproduced_product_failure_enters_evidence_ready_without_resolving_prod
 
 
 def test_non_reproduction_stays_qualifying_and_schedules_runnable_defect_repair(tmp_path: Path):
-    truth, control, defect_task_id = _control(tmp_path)
+    truth, control, defect_task_id, reproduction_task_id = _control(tmp_path)
+    reproduction = _durable_reproduction(
+        control,
+        tmp_path,
+        reproduction_task_id,
+        reproduced=False,
+    )
+    assert control.scheduler.task(defect_task_id).state == TaskStatus.READY
     result = DefectQualificationControl(evidence_root=str(tmp_path / "defect-evidence")).qualify(
         control,
         defect_task_id,
         product_gap_id=PRODUCT_GAP,
         bundle=_bundle(tmp_path),
-        reproduction=_durable_reproduction(truth, tmp_path, reproduced=False),
+        reproduction=reproduction,
     )
 
     assert result.qualified is False
@@ -466,7 +503,14 @@ def test_non_reproduction_stays_qualifying_and_schedules_runnable_defect_repair(
 
 
 def test_forged_in_memory_reproduction_cannot_qualify_product_defect(tmp_path: Path):
-    _, control, defect_task_id = _control(tmp_path)
+    _, control, defect_task_id, reproduction_task_id = _control(tmp_path)
+    _durable_reproduction(
+        control,
+        tmp_path,
+        reproduction_task_id,
+        reproduced=True,
+    )
+    assert control.scheduler.task(defect_task_id).state == TaskStatus.READY
     with pytest.raises(
         DefectQualificationControlError,
         match="REPRODUCTION_EVALUATION_NOT_DURABLE",
