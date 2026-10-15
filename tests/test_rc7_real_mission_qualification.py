@@ -93,9 +93,6 @@ def _build_r1(tmp_path, *, include_session=True, identity_commit=COMMIT):
     path = tmp_path / "r1.jsonl"
     truth = TruthRuntime(path)
 
-    # Real runtime ordering: a Mission exists in a non-terminal state while its
-    # evidence is produced. CONVERGED is persisted only after the durable
-    # Mission Evaluation PASS exists in R1.
     append_entity(
         truth,
         Mission(
@@ -360,6 +357,8 @@ def _delivery_pass():
         "package_sha256": "c" * 64,
         "clean_windows_unpack": "PASS",
         "package_local_python_verify": "PASS",
+        "package_local_codegraph_verify": "PASS",
+        "package_local_codegraph_sha256": "d" * 64,
         "package_verify": "PASS",
         "package_entrypoint_verify": "PASS",
         "admin_startup_verify": "PASS",
