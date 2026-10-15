@@ -176,7 +176,7 @@ jobs:
           if ($q.gates.DELIVERY_PASS -ne 'PASS') { throw 'Delivery gate should be PASS after clean Windows qualification' }
           if ($q.gates.REAL_MISSION_PASS -ne 'HOLD') { throw 'Real bank Mission must be the only remaining HOLD gate' }
           if ($q.blocking_reasons.Count -ne 1) { throw 'Unexpected final candidate blocker count' }
-          if ($q.blocking_reasons[0] -ne 'REAL_MISSION_PASS:MISSING') { throw "Unexpected final blocker: $($q.blocking_reasons[0])" }
+          if ($q.blocking_reasons[0] -ne 'REAL_MISSION_PASS:EVIDENCE_MISSING') { throw "Unexpected final blocker: $($q.blocking_reasons[0])" }
       - name: Upload RC7 turnkey delivery-qualified candidate
         uses: actions/upload-artifact@v4
         with:
