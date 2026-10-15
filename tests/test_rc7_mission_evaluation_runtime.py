@@ -210,7 +210,7 @@ def test_mission_evaluation_runtime_builds_snapshot_and_converges_without_caller
 
     assert result.evaluation_result == "PASS"
     assert result.sufficiency_state == "SUFFICIENT"
-    assert result.release_recommendation == "READY_FOR_RELEASE_DECISION"
+    assert result.release_recommendation == "RECOMMENDED"
     assert result.task_state == "PASS"
     assert result.mission_state == "CONVERGED"
     assert result.gap_ids == ()
