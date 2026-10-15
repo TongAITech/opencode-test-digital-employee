@@ -271,10 +271,27 @@ def test_controlled_l3_oracle_fail_auto_diagnoses_product_and_hands_off_defect(t
     gaps = truth.query("rc7_gap", mission_id=MISSION)
     product_gap = next(row for row in gaps if row["category"] == "PRODUCT_DEFECT")
     assert product_gap["state"] == "PLANNED"
-    defect_tasks = [row for row in truth.query("rc7_task", mission_id=MISSION) if row["node"] == "DEFECT"]
+
+    reproduction_tasks = [
+        row for row in truth.query("rc7_task", mission_id=MISSION)
+        if row["node"] == "EXECUTION" and row["task_type"] == "DEFECT_REPRODUCTION"
+    ]
+    defect_tasks = [
+        row for row in truth.query("rc7_task", mission_id=MISSION)
+        if row["node"] == "DEFECT" and row["task_type"] == "QUALIFY_DEFECT"
+    ]
+    assert len(reproduction_tasks) == 1
     assert len(defect_tasks) == 1
-    assert defect_tasks[0]["task_type"] == "QUALIFY_DEFECT"
-    assert defect_tasks[0]["state"] == "READY"
+    reproduction_task = reproduction_tasks[0]
+    defect_task = defect_tasks[0]
+    assert reproduction_task["state"] == "READY"
+    assert reproduction_task["gap_refs"] == [product_gap["gap_id"]]
+    assert reproduction_task["dependency_task_ids"] == [TASK]
+    assert reproduction_task["input_artifact_refs"] == [result.record_artifact_id]
+    assert defect_task["state"] == "REGISTERED"
+    assert defect_task["gap_refs"] == [product_gap["gap_id"]]
+    assert defect_task["dependency_task_ids"] == [reproduction_task["task_id"]]
+    assert defect_task["input_artifact_refs"] == [result.record_artifact_id]
 
     diagnosis_evidence = [
         row for row in truth.query("rc7_evidence", mission_id=MISSION)
