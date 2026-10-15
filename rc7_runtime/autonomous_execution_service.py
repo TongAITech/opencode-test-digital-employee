@@ -3,7 +3,9 @@
 Callers submit one approved PreparedAttempt.  The runtime owns each execution,
 independent diagnosis, recovery planning and bounded DIRECT_RETRY loop.  All
 attempts remain in R1 truth; non-direct repair is returned to the owning node
-instead of being guessed or retried blindly.
+instead of being guessed or retried blindly.  L3 is deliberately excluded from
+the generic path because API truth must be produced by the parent-controlled
+API runtime, never by a child-authored runner manifest.
 """
 
 from __future__ import annotations
@@ -11,7 +13,6 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, Mapping, Optional
 
 from rc6_runtime.capability import ToolCapabilityBroker
-from rc6_runtime.diagnosis import CorrelationScope
 from rc6_runtime.preparation import PreparedAttempt
 
 from .authority import RC7AuthorityRuntime
@@ -23,6 +24,10 @@ from .execution_recovery_control import ExecutionRecoveryController
 from .lineage_diagnosis import LineageAwareExecutionDiagnosisCoordinator
 from .runtime_execution import VerifiedScriptExecutionBundle
 from .runtime_execution_control import ClosedLoopRuntimeExecutionService
+
+
+class AutonomousExecutionServiceError(RuntimeError):
+    pass
 
 
 class AutonomousClosedLoopExecutionService:
@@ -75,6 +80,8 @@ class AutonomousClosedLoopExecutionService:
         evidence_collectors=None,
         rca_resolver=None,
     ) -> AutonomousExecutionLoopResult:
+        if str(bundle.spec.layer).upper() == "L3":
+            raise AutonomousExecutionServiceError("L3_REQUIRES_CONTROLLED_EXECUTION")
         coordinator = self._coordinator(
             authority=authority,
             tool_broker=tool_broker,
@@ -133,6 +140,8 @@ class AutonomousClosedLoopExecutionService:
         evidence_collectors=None,
         rca_resolver=None,
     ) -> AutonomousExecutionLoopResult:
+        if str(bundle.spec.layer).upper() != "L3":
+            raise AutonomousExecutionServiceError("CONTROLLED_L3_EXECUTION_REQUIRES_L3_SPEC")
         coordinator = self._coordinator(
             authority=authority,
             tool_broker=tool_broker,
