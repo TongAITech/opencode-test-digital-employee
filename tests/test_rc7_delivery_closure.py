@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from rc7_release.final_qualification import evaluate_final_qualification
-from rc7_release.package import PACKAGE_LOCAL_CODEGRAPH, PACKAGE_NAME, build_package, verify_package
+from rc7_release.package import PACKAGE_LOCAL_BROWSER, PACKAGE_LOCAL_CODEGRAPH, PACKAGE_NAME, build_package, verify_package
 
 
 COMMIT = "a" * 40
@@ -76,6 +76,8 @@ def _delivery():
             "package_local_python_verify": "PASS",
             "package_local_codegraph_verify": "PASS",
             "package_local_codegraph_sha256": "d" * 64,
+            "package_local_browser_verify": "PASS",
+            "package_local_browser_sha256": "e" * 64,
             "package_verify": "PASS",
             "package_entrypoint_verify": "PASS",
             "admin_startup_verify": "PASS",
@@ -151,6 +153,16 @@ def test_final_qualification_rejects_delivery_without_package_local_codegraph():
     assert "DELIVERY_PASS:PACKAGE_LOCAL_CODEGRAPH_SHA256_INVALID" in result["blocking_reasons"]
 
 
+def test_final_qualification_rejects_delivery_without_package_local_browser():
+    delivery = _delivery()
+    delivery.pop("package_local_browser_verify")
+    delivery.pop("package_local_browser_sha256")
+    result = evaluate_final_qualification(COMMIT, _gate("ENGINEERING_PASS"), _gate("ADMIN_PLATFORM_PASS"), _real_mission(), delivery)
+    assert result["status"] == "HOLD"
+    assert "DELIVERY_PASS:PACKAGE_LOCAL_BROWSER_VERIFY_NOT_PASS" in result["blocking_reasons"]
+    assert "DELIVERY_PASS:PACKAGE_LOCAL_BROWSER_SHA256_INVALID" in result["blocking_reasons"]
+
+
 def test_final_qualification_passes_only_with_all_current_reality_evidence():
     result = evaluate_final_qualification(COMMIT, _gate("ENGINEERING_PASS"), _gate("ADMIN_PLATFORM_PASS"), _real_mission(), _delivery())
     assert result["status"] == "PASS"
@@ -179,6 +191,8 @@ def test_rc7_turnkey_package_preserves_launcher_layout_and_never_forges_bank_pas
     assert manifest["package_local_python_bundled"] is (package_root / "workspace-template" / "runtime" / "python" / "python.exe").is_file()
     assert manifest["package_local_codegraph"]["path"] == PACKAGE_LOCAL_CODEGRAPH.as_posix()
     assert manifest["package_local_codegraph"]["bundled"] is (package_root / PACKAGE_LOCAL_CODEGRAPH).is_file()
+    assert manifest["package_local_browser"]["path"] == PACKAGE_LOCAL_BROWSER.as_posix()
+    assert manifest["package_local_browser"]["bundled"] is (package_root / PACKAGE_LOCAL_BROWSER).is_file()
     assert manifest["real_mission_pass"] is False
     assert manifest["delivery_pass"] is False
     assert manifest["bank_field_pass"] is False
