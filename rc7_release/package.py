@@ -23,6 +23,16 @@ SOURCE_DIRS = ("rc6_runtime", "rc6_release", "rc7_runtime", "rc7_release", "rc7_
 LAUNCHER_DIR = Path("packaging") / "rc7"
 RC6_COORDINATOR_DIR = Path("packaging") / "rc6" / ".dsh" / "skills" / "pfc-full-chain-test"
 PACKAGE_LOCAL_PYTHON = Path("workspace-template") / "runtime" / "python" / "python.exe"
+PACKAGE_LOCAL_CODEGRAPH = (
+    Path("workspace-template")
+    / "runtime"
+    / "code-intelligence"
+    / "codegraph"
+    / "codegraph-server-win32-x64.exe"
+)
+BUILD_CODEGRAPH_BIN_ENV = "PFC_RC7_BUILD_CODEGRAPH_BIN"
+BUILD_CODEGRAPH_VERSION_ENV = "PFC_RC7_BUILD_CODEGRAPH_VERSION"
+BUILD_CODEGRAPH_SHA256_ENV = "PFC_RC7_BUILD_CODEGRAPH_SHA256"
 RUNTIME_GENERATED_DIRS = {"runtime-state", "state", "__pycache__"}
 RUNTIME_GENERATED_SUFFIXES = {".pyc", ".pyo"}
 SECRET_MARKERS = (
@@ -56,6 +66,7 @@ LAUNCHER_NAMES = (
 )
 ENTRYPOINTS = tuple("packaging/rc7/%s" % name for name in LAUNCHER_NAMES)
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+_SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
 def sha256_file(path: Path) -> str:
@@ -111,12 +122,7 @@ def _copy_tree(source: Path, destination: Path) -> None:
 
 
 def _copy_runtime_tree(source: Path, destination: Path) -> None:
-    """Copy a release-build runtime without applying source-tree secret-name heuristics.
-
-    Standard Python contains required modules such as token.py/tokenize.py, so the
-    source-code secret filename filter cannot be reused for third-party runtime
-    payloads. Runtime bytes remain covered by PACKAGE_MANIFEST/CHECKSUMS.
-    """
+    """Copy a release-build runtime without source-tree secret-name heuristics."""
     for item in sorted(source.rglob("*")):
         if not item.is_file():
             continue
@@ -143,6 +149,39 @@ def _bundle_current_windows_python(package_root: Path) -> bool:
     return True
 
 
+def _bundle_build_codegraph(package_root: Path) -> Dict[str, object]:
+    source_value = os.environ.get(BUILD_CODEGRAPH_BIN_ENV, "").strip()
+    if not source_value:
+        return {
+            "path": PACKAGE_LOCAL_CODEGRAPH.as_posix(),
+            "bundled": False,
+            "resolved_version": None,
+            "sha256": None,
+        }
+    source = Path(source_value).expanduser().resolve()
+    if not source.is_file():
+        raise RuntimeError("BUILD_CODEGRAPH_BINARY_NOT_FOUND")
+    digest = sha256_file(source)
+    declared = os.environ.get(BUILD_CODEGRAPH_SHA256_ENV, "").strip().lower()
+    if declared:
+        if not _SHA256_RE.match(declared):
+            raise RuntimeError("BUILD_CODEGRAPH_SHA256_INVALID")
+        if digest != declared:
+            raise RuntimeError("BUILD_CODEGRAPH_SHA256_MISMATCH")
+    target = package_root / PACKAGE_LOCAL_CODEGRAPH
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(str(source), str(target))
+    if sha256_file(target) != digest:
+        raise RuntimeError("PACKAGE_CODEGRAPH_COPY_HASH_MISMATCH")
+    version = os.environ.get(BUILD_CODEGRAPH_VERSION_ENV, "").strip() or None
+    return {
+        "path": PACKAGE_LOCAL_CODEGRAPH.as_posix(),
+        "bundled": True,
+        "resolved_version": version,
+        "sha256": digest,
+    }
+
+
 def _is_runtime_generated(root: Path, path: Path) -> bool:
     rel = path.relative_to(root)
     return (
@@ -161,13 +200,29 @@ def _package_files(root: Path) -> Iterable[Path]:
         yield path
 
 
-def _manifest_for(package_root: Path, source_commit: str) -> Dict[str, object]:
+def _manifest_for(
+    package_root: Path,
+    source_commit: str,
+    *,
+    codegraph_provenance: Optional[Dict[str, object]] = None,
+) -> Dict[str, object]:
     files = []
     for path in _package_files(package_root):
         rel = _safe_relative(path.relative_to(package_root))
         if rel == "PACKAGE_MANIFEST.json":
             continue
         files.append({"path": rel, "sha256": sha256_file(path), "size": path.stat().st_size})
+    codegraph = dict(
+        codegraph_provenance
+        or {
+            "path": PACKAGE_LOCAL_CODEGRAPH.as_posix(),
+            "bundled": (package_root / PACKAGE_LOCAL_CODEGRAPH).is_file(),
+            "resolved_version": None,
+            "sha256": sha256_file(package_root / PACKAGE_LOCAL_CODEGRAPH)
+            if (package_root / PACKAGE_LOCAL_CODEGRAPH).is_file()
+            else None,
+        }
+    )
     return {
         "schema_version": MANIFEST_SCHEMA,
         "status": BUILD_STATUS,
@@ -186,6 +241,7 @@ def _manifest_for(package_root: Path, source_commit: str) -> Dict[str, object]:
         "workspace_installation": "PACKAGE_LOCAL_NO_SOURCE_INSTALL_REQUIRED",
         "package_local_python": PACKAGE_LOCAL_PYTHON.as_posix(),
         "package_local_python_bundled": (package_root / PACKAGE_LOCAL_PYTHON).is_file(),
+        "package_local_codegraph": codegraph,
         "entrypoints": list(ENTRYPOINTS),
         "static_skill_count": len(ALL_SKILLS),
         "files": files,
@@ -239,12 +295,17 @@ def build_package(
             shutil.copy2(str(source), str(destination))
 
     _bundle_current_windows_python(package_root)
+    codegraph_provenance = _bundle_build_codegraph(package_root)
 
     _write_text(package_root / "SOURCE_COMMIT", source_commit + "\n")
     _write_text(package_root / "BUILD_ID", "RC7-%s\n" % source_commit[:12])
     _write_text(package_root / "RELEASE_STATUS", BUILD_STATUS + "\n")
 
-    manifest = _manifest_for(package_root, source_commit)
+    manifest = _manifest_for(
+        package_root,
+        source_commit,
+        codegraph_provenance=codegraph_provenance,
+    )
     _write_text(
         package_root / "PACKAGE_MANIFEST.json",
         json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
@@ -311,6 +372,20 @@ def verify_package(package_root: Union[str, Path]) -> Dict[str, object]:
     if manifest.get("source_commit") != source_commit:
         raise RuntimeError("PACKAGE_SOURCE_COMMIT_MISMATCH")
 
+    codegraph = manifest.get("package_local_codegraph")
+    if not isinstance(codegraph, dict):
+        raise RuntimeError("PACKAGE_CODEGRAPH_MANIFEST_INVALID")
+    if codegraph.get("path") != PACKAGE_LOCAL_CODEGRAPH.as_posix():
+        raise RuntimeError("PACKAGE_CODEGRAPH_PATH_INVALID")
+    codegraph_path = root / PACKAGE_LOCAL_CODEGRAPH
+    codegraph_bundled = codegraph_path.is_file()
+    if bool(codegraph.get("bundled")) != codegraph_bundled:
+        raise RuntimeError("PACKAGE_CODEGRAPH_MANIFEST_MISMATCH")
+    if codegraph_bundled:
+        digest = sha256_file(codegraph_path)
+        if codegraph.get("sha256") != digest:
+            raise RuntimeError("PACKAGE_CODEGRAPH_HASH_MISMATCH")
+
     expected = {}
     for line in (root / "CHECKSUMS.sha256").read_text(encoding="utf-8").splitlines():
         if not line.strip():
@@ -352,6 +427,9 @@ def verify_package(package_root: Union[str, Path]) -> Dict[str, object]:
         "static_skill_count": len(ALL_SKILLS),
         "file_count": len(actual) + 1,
         "package_local_python_bundled": local_python_bundled,
+        "package_local_codegraph_bundled": codegraph_bundled,
+        "package_local_codegraph_sha256": codegraph.get("sha256"),
+        "package_local_codegraph_version": codegraph.get("resolved_version"),
     }
 
 
