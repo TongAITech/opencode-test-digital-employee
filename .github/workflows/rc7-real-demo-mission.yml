@@ -29,8 +29,10 @@ jobs:
 
       - name: Download verified stable CodeGraph Windows binary
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          $headers = @{ 'User-Agent'='rc7-real-demo'; 'Accept'='application/vnd.github+json' }
+          $headers = @{ 'User-Agent'='rc7-real-demo'; 'Accept'='application/vnd.github+json'; 'Authorization'="Bearer $env:GH_TOKEN" }
           $rel = Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/repos/codegraph-ai/CodeGraph/releases/latest'
           if ($rel.draft -or $rel.prerelease) { throw 'CodeGraph latest is not stable' }
           $asset = $rel.assets | Where-Object { $_.name -eq 'codegraph-server-win32-x64.exe' } | Select-Object -First 1
