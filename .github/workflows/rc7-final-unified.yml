@@ -41,6 +41,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Install isolated Windows regression dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pytest requests python-docx openpyxl python-pptx pypdf
+          if ($LASTEXITCODE -ne 0) { throw 'Windows regression dependency install failed' }
+
       - name: Full Windows RC7 regression before payload assembly
         shell: pwsh
         run: |
