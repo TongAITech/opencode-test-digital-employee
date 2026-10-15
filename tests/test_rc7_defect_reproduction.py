@@ -28,7 +28,6 @@ from rc7_runtime.script_validation import EvidenceBackedScriptReadinessValidator
 
 MISSION = "MISSION-DEFECT-REPRO"
 ORIGINAL_TASK = "TASK-EXEC-ORIGINAL"
-REPRO_TASK = "TASK-EXEC-DEFECT-REPRO"
 PRODUCT_GAP = "GAP-PRODUCT-ORIGINAL"
 TARGET = "TARGET-DEFECT-REPRO"
 
@@ -146,6 +145,27 @@ def _broker():
     return broker
 
 
+def _planned_handoff(truth):
+    reproduction = [
+        row for row in truth.query("rc7_task", mission_id=MISSION)
+        if row.get("node") == "EXECUTION" and row.get("task_type") == "DEFECT_REPRODUCTION"
+    ]
+    qualification = [
+        row for row in truth.query("rc7_task", mission_id=MISSION)
+        if row.get("node") == "DEFECT" and row.get("task_type") == "QUALIFY_DEFECT"
+    ]
+    assert len(reproduction) == 1
+    assert len(qualification) == 1
+    assert reproduction[0]["state"] == "READY"
+    assert reproduction[0]["gap_refs"] == [PRODUCT_GAP]
+    assert reproduction[0]["dependency_task_ids"] == [ORIGINAL_TASK]
+    assert reproduction[0]["input_artifact_refs"] == ["ART-ORIGINAL-PRODUCT"]
+    assert qualification[0]["state"] == "REGISTERED"
+    assert qualification[0]["dependency_task_ids"] == [reproduction[0]["task_id"]]
+    assert qualification[0]["gap_refs"] == [PRODUCT_GAP]
+    return str(reproduction[0]["task_id"]), str(qualification[0]["task_id"])
+
+
 def _control(tmp_path: Path):
     truth = TruthRuntime(tmp_path / "r1.jsonl")
     control = ClosedLoopControlPlane.bootstrap(
@@ -222,36 +242,19 @@ def _control(tmp_path: Path):
     )
     assert control.scheduler.task(ORIGINAL_TASK).state == TaskStatus.PASS
     assert truth.query("rc7_gap", gap_id=PRODUCT_GAP)[0]["state"] == "PLANNED"
-    return truth, control
-
-
-def _register_reproduction(control):
-    control.register_task(
-        Task(
-            task_id=REPRO_TASK,
-            mission_id=MISSION,
-            node="EXECUTION",
-            task_type="DEFECT_REPRODUCTION",
-            objective="independently reproduce the original product mismatch",
-            required_capabilities=["test_execution"],
-            dependency_task_ids=[ORIGINAL_TASK],
-            input_artifact_refs=["ART-ORIGINAL-PRODUCT"],
-            priority=10,
-        )
-    )
-    assert control.scheduler.task(REPRO_TASK).state == TaskStatus.READY
+    reproduction_task_id, qualification_task_id = _planned_handoff(truth)
+    return truth, control, reproduction_task_id, qualification_task_id
 
 
 def test_real_oracle_fail_reproduction_passes_reproduction_task_without_duplicate_product_gap(tmp_path: Path):
-    truth, control = _control(tmp_path)
-    _register_reproduction(control)
+    truth, control, reproduction_task_id, qualification_task_id = _control(tmp_path)
 
     result = DefectReproductionExecutionService(
         evidence_root=str(tmp_path / "evidence"),
         timeout_seconds=20,
     ).execute_task(
         control,
-        REPRO_TASK,
+        reproduction_task_id,
         source_product_gap_id=PRODUCT_GAP,
         bundle=_bundle(tmp_path, "BAD"),
         prepared=_prepared("ATT-REPRO-1"),
@@ -266,7 +269,8 @@ def test_real_oracle_fail_reproduction_passes_reproduction_task_without_duplicat
     assert result.execution_record.integrity_passed is True
     assert result.execution_record.assertion_passed is False
     assert result.task_state == "PASS"
-    assert control.scheduler.task(REPRO_TASK).state == TaskStatus.PASS
+    assert control.scheduler.task(reproduction_task_id).state == TaskStatus.PASS
+    assert control.scheduler.task(qualification_task_id).state == TaskStatus.READY
     assert len(truth.query("rc7_artifact", artifact_id=result.record_artifact_id)) == 1
     product_gaps = [
         row for row in truth.query("rc7_gap", mission_id=MISSION)
@@ -274,18 +278,18 @@ def test_real_oracle_fail_reproduction_passes_reproduction_task_without_duplicat
     ]
     assert len(product_gaps) == 1
     assert product_gaps[0]["gap_id"] == PRODUCT_GAP
+    assert product_gaps[0]["state"] == "PLANNED"
 
 
 def test_real_business_pass_is_conclusive_non_reproduction_without_new_product_gap(tmp_path: Path):
-    truth, control = _control(tmp_path)
-    _register_reproduction(control)
+    truth, control, reproduction_task_id, qualification_task_id = _control(tmp_path)
 
     result = DefectReproductionExecutionService(
         evidence_root=str(tmp_path / "evidence"),
         timeout_seconds=20,
     ).execute_task(
         control,
-        REPRO_TASK,
+        reproduction_task_id,
         source_product_gap_id=PRODUCT_GAP,
         bundle=_bundle(tmp_path, "OK"),
         prepared=_prepared("ATT-REPRO-2"),
@@ -298,8 +302,12 @@ def test_real_business_pass_is_conclusive_non_reproduction_without_new_product_g
     assert result.reproduced is False
     assert result.execution_record.status == "PASS"
     assert result.task_state == "PASS"
+    assert control.scheduler.task(reproduction_task_id).state == TaskStatus.PASS
+    assert control.scheduler.task(qualification_task_id).state == TaskStatus.READY
     product_gaps = [
         row for row in truth.query("rc7_gap", mission_id=MISSION)
         if row.get("category") == "PRODUCT_DEFECT"
     ]
     assert len(product_gaps) == 1
+    assert product_gaps[0]["gap_id"] == PRODUCT_GAP
+    assert product_gaps[0]["state"] == "PLANNED"
