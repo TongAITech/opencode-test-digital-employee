@@ -30,9 +30,9 @@ def test_bank_final_entrypoints_are_fail_closed_operator_contracts():
 
 def test_windows_final_entrypoints_prefer_bundled_python_before_host_fallback():
     repo = Path(__file__).resolve().parents[1]
-    bundled = 'if not defined PFC_PYTHON if exist "%ROOT%\\%s" set "PFC_PYTHON=%%ROOT%%\\%s"' % (
-        BUNDLED_PYTHON,
-        BUNDLED_PYTHON,
+    bundled = (
+        f'if not defined PFC_PYTHON if exist "%ROOT%\\{BUNDLED_PYTHON}" '
+        f'set "PFC_PYTHON=%ROOT%\\{BUNDLED_PYTHON}"'
     )
     fallback = 'if not defined PFC_PYTHON set "PFC_PYTHON=python"'
     for name in ("QUALIFY-BANK-FINAL.cmd", "QUALIFY-FINAL.cmd"):
