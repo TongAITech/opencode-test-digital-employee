@@ -6,6 +6,7 @@ if not defined PFC_AITEST_STATE_DIR set "PFC_AITEST_STATE_DIR=%ROOT%\runtime-sta
 if not exist "%PFC_AITEST_STATE_DIR%" mkdir "%PFC_AITEST_STATE_DIR%" >nul 2>&1
 
 set "PYTHON_BIN=%PFC_PYTHON%"
+if not defined PYTHON_BIN if exist "%ROOT%\workspace-template\runtime\python\python.exe" set "PYTHON_BIN=%ROOT%\workspace-template\runtime\python\python.exe"
 if not defined PYTHON_BIN (
   for /f "delims=" %%P in ('where python 2^>nul') do if not defined PYTHON_BIN set "PYTHON_BIN=%%P"
 )
@@ -13,6 +14,8 @@ if not defined PYTHON_BIN (
   echo {"status":"NOT_PROVEN","reason":"PYTHON_NOT_FOUND"} 1>&2
   exit /b 10
 )
+if not defined PFC_BROWSER_BIN if exist "%ROOT%\workspace-template\runtime\browser\chrome-win64\chrome.exe" set "PFC_BROWSER_BIN=%ROOT%\workspace-template\runtime\browser\chrome-win64\chrome.exe"
+if not defined PFC_CHROME_BIN if defined PFC_BROWSER_BIN set "PFC_CHROME_BIN=%PFC_BROWSER_BIN%"
 if not defined PFC_RC7_SCRIPT_RESULT (
   echo {"status":"NOT_PROVEN","reason":"PFC_RC7_SCRIPT_RESULT_REQUIRED"} 1>&2
   exit /b 2
