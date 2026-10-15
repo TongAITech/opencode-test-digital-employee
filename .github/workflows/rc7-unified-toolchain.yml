@@ -1,0 +1,157 @@
+name: RC7 Unified Offline Toolchains
+
+on:
+  push:
+    branches:
+      - work/rc7-unified-toolchain-turnkey
+  workflow_dispatch:
+
+jobs:
+  toolchain-core:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install test and offline document providers
+        run: python -m pip install --disable-pip-version-check pytest python-docx openpyxl python-pptx pypdf
+      - name: Compile unified toolchains
+        run: python -m compileall -q rc6_runtime rc6_release rc7_runtime rc7_release rc7_admin
+      - name: Run unified toolchain tests
+        run: python -m pytest -q tests/test_rc7_unified_toolchain.py
+      - name: Run professional toolchain qualification
+        run: python -m rc7_release.toolchain_qualification
+
+  windows-turnkey:
+    needs: toolchain-core
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+
+      - name: Install package-local Python dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pytest python-docx openpyxl python-pptx pypdf
+          python -c "import docx,openpyxl,pptx,pypdf; print('DOCUMENT_PROVIDERS_OK')"
+
+      - name: Run RC7 regression and unified tests
+        shell: pwsh
+        run: |
+          python -m compileall -q rc6_runtime rc6_release rc7_runtime rc7_release rc7_admin
+          python -m pytest -q tests/test_rc7_*.py
+
+      - name: Resolve stable CodeGraph Windows payload
+        shell: pwsh
+        run: |
+          $headers = @{ 'User-Agent' = 'rc7-unified-turnkey-builder'; 'Accept' = 'application/vnd.github+json' }
+          $release = Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/repos/codegraph-ai/CodeGraph/releases/latest'
+          if ($release.draft -or $release.prerelease) { throw 'Latest CodeGraph release is not stable' }
+          $asset = $release.assets | Where-Object { $_.name -eq 'codegraph-server-win32-x64.exe' } | Select-Object -First 1
+          if (-not $asset) { throw 'CodeGraph Windows x64 release asset missing' }
+          $expected = [string]$asset.digest
+          if (-not $expected.StartsWith('sha256:')) { throw 'CodeGraph release asset digest missing' }
+          $expected = $expected.Substring(7).ToLowerInvariant()
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\rc7-runtime-payloads" | Out-Null
+          $target = "$env:RUNNER_TEMP\rc7-runtime-payloads\codegraph-server-win32-x64.exe"
+          Invoke-WebRequest -Headers $headers -Uri $asset.browser_download_url -OutFile $target
+          $actual = (Get-FileHash -Algorithm SHA256 $target).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "CodeGraph digest mismatch expected=$expected actual=$actual" }
+          "PFC_RC7_BUILD_CODEGRAPH_BIN=$target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PFC_RC7_BUILD_CODEGRAPH_VERSION=$($release.tag_name)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PFC_RC7_BUILD_CODEGRAPH_SHA256=$expected" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Resolve stable Chrome for Testing Windows payload
+        shell: pwsh
+        run: |
+          $index = Invoke-RestMethod -Uri 'https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json'
+          $stable = $index.channels.Stable
+          if (-not $stable -or -not $stable.version) { throw 'Chrome for Testing Stable channel missing' }
+          $download = $stable.downloads.chrome | Where-Object { $_.platform -eq 'win64' } | Select-Object -First 1
+          if (-not $download -or -not $download.url) { throw 'Chrome for Testing win64 payload missing' }
+          $root = "$env:RUNNER_TEMP\rc7-runtime-payloads\browser"
+          $zip = "$env:RUNNER_TEMP\rc7-runtime-payloads\chrome-win64.zip"
+          Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\rc7-runtime-payloads" | Out-Null
+          Invoke-WebRequest -Uri $download.url -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $root -Force
+          $browserDir = Join-Path $root 'chrome-win64'
+          $chrome = Join-Path $browserDir 'chrome.exe'
+          if (-not (Test-Path $chrome)) { throw 'Chrome for Testing chrome.exe missing after extraction' }
+          $digest = (Get-FileHash -Algorithm SHA256 $chrome).Hash.ToLowerInvariant()
+          "PFC_RC7_BUILD_BROWSER_DIR=$browserDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PFC_RC7_BUILD_BROWSER_VERSION=$($stable.version)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PFC_RC7_BUILD_BROWSER_SHA256=$digest" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build immutable RC7 unified turnkey package
+        shell: pwsh
+        run: |
+          python -m rc7_release.package build --repo-root . --output dist --source-commit $env:GITHUB_SHA
+          New-Item -ItemType Directory -Force 'dist/qualification' | Out-Null
+
+      - name: Qualify package-local professional toolchains
+        shell: pwsh
+        run: |
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          $py = Join-Path $pkg 'workspace-template/runtime/python/python.exe'
+          $cg = Join-Path $pkg 'workspace-template/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe'
+          if (-not (Test-Path $py)) { throw 'Package-local Python missing' }
+          if (-not (Test-Path $cg)) { throw 'Package-local CodeGraph missing' }
+          & $py -c "import docx,openpyxl,pptx,pypdf; print('PACKAGE_DOCUMENT_PROVIDERS_OK')"
+          if ($LASTEXITCODE -ne 0) { throw 'Package-local document providers failed' }
+          & $py -m rc7_release.toolchain_qualification --codegraph-bin $cg --output 'dist/qualification/toolchains.json'
+          if ($LASTEXITCODE -ne 0) { throw 'Professional toolchain qualification failed' }
+          $q = Get-Content 'dist/qualification/toolchains.json' | ConvertFrom-Json
+          if ($q.status -ne 'PASS') { throw 'Unified toolchains are not PASS' }
+          foreach ($gate in @('REQUIREMENT_TOOLCHAIN_PASS','CODE_ANALYSIS_TOOLCHAIN_PASS','DIAGNOSIS_TOOLCHAIN_PASS','REPORT_TOOLCHAIN_PASS')) {
+            if ($q.gates.$gate.status -ne 'PASS') { throw "$gate not PASS" }
+          }
+
+      - name: Qualify clean Windows delivery
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10-*.zip' | Select-Object -First 1
+          if (-not $zip) { throw 'RC7 ZIP missing' }
+          python -m rc7_release.delivery_qualification --zip $zip.FullName --source-commit $env:GITHUB_SHA --output dist/qualification/delivery.json --require-pass
+          $delivery = Get-Content 'dist/qualification/delivery.json' | ConvertFrom-Json
+          if ($delivery.status -ne 'PASS') { throw 'Delivery qualification did not PASS' }
+
+      - name: Record candidate truth
+        shell: pwsh
+        run: |
+          @{
+            status = 'PASS'
+            gate = 'UNIFIED_TOOLCHAIN_DELIVERY_PASS'
+            source_commit = $env:GITHUB_SHA
+            truth = 'R1_EVENT_STREAM'
+            version_policy = 'CAPABILITY_BASED_NO_EXACT_VERSION_PIN'
+            real_bank_mission = 'HOLD_FIELD_EVIDENCE_REQUIRED'
+            included = @(
+              'RequirementDocumentParser',
+              'RequirementDiffEngine',
+              'StrictGitDiffCodeGraphQualification',
+              'MavenJUnitPytestPlaywrightApiDatabaseDiagnosisProviders',
+              'R1MissionReportBuilder',
+              'HTML',
+              'JUnitXML',
+              'AllureResults'
+            )
+          } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 'dist/qualification/unified-toolchain-delivery.json'
+
+      - name: Upload RC7 unified turnkey artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PFC-AITest-DSH-Turnkey-RC7-UNIFIED-TOOLCHAINS-${{ github.sha }}
+          path: |
+            dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10-*.zip
+            dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10-*.zip.sha256
+            dist/qualification/*.json
+          if-no-files-found: error
+          retention-days: 14
