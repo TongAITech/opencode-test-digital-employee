@@ -2,9 +2,10 @@
 
 A Script Worker never gets authority to reinterpret a TestCase. RC7 first
 reloads the runtime-hashed, accepted TEST_DESIGN_MODEL, selects one concrete
-case, freezes the exact executable fields under Runtime ownership, and compiles
-an immutable ExecutableTestSpec through the inherited RC6 builder. Missing
-steps/data/oracle/runner semantics fail before any script Worker is launched.
+case, verifies that the same Case is already usable by deterministic
+PreparationRuntime, freezes the exact executable fields under Runtime ownership,
+and compiles an immutable ExecutableTestSpec. Missing steps/data/oracle/runner
+semantics fail before any script Worker is launched.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional, Tuple
 
 from rc6_runtime.executable_spec import ExecutableTestSpec
+from rc6_runtime.preparation import PreparationContractError, PreparationSpecParser
 from rc6_runtime.truth import TruthRuntime
 
 from .candidate_payload import CandidatePayloadReader
@@ -105,12 +107,15 @@ class AcceptedTestDesignScriptContractCompiler:
         preconditions = raw_case.get("preconditions")
         if not isinstance(preconditions, list):
             raise ScriptContractError("SCRIPT_CASE_PRECONDITIONS_REQUIRED")
+        test_data = raw_case.get("test_data")
+        if not isinstance(test_data, dict):
+            raise ScriptContractError("SCRIPT_CASE_STRUCTURED_TEST_DATA_REQUIRED")
         steps = raw_case.get("steps")
         if not isinstance(steps, list) or not steps:
             raise ScriptContractError("SCRIPT_CASE_STEPS_REQUIRED")
         expected = _require_text(raw_case.get("expected"), "SCRIPT_CASE_EXPECTED_REQUIRED")
         oracle = raw_case.get("oracle")
-        if oracle in (None, "", [], {}):
+        if not isinstance(oracle, dict) or not oracle:
             raise ScriptContractError("SCRIPT_CASE_ORACLE_REQUIRED")
         evidence_requirements = _text_tuple(
             raw_case.get("evidence_requirements"),
@@ -121,10 +126,21 @@ class AcceptedTestDesignScriptContractCompiler:
         target_tuple = _text_tuple(target_requirements, "SCRIPT_TARGET_REQUIREMENTS_INVALID", nonempty=True)
         data_tuple = _text_tuple(raw_case.get("test_data_refs", []), "SCRIPT_TEST_DATA_REFS_INVALID")
         oracle_tuple = _text_tuple(raw_case.get("oracle_refs"), "SCRIPT_ORACLE_REFS_REQUIRED", nonempty=True)
-        cleanup_policy = raw_case.get("cleanup_policy")
+        cleanup_policy = test_data.get("cleanup_policy")
         if not isinstance(cleanup_policy, dict):
+            raise ScriptContractError("SCRIPT_TEST_DATA_CLEANUP_POLICY_REQUIRED")
+        declared_cleanup = raw_case.get("cleanup_policy")
+        if not isinstance(declared_cleanup, dict):
             raise ScriptContractError("SCRIPT_CLEANUP_POLICY_REQUIRED")
+        normalized_cleanup = dict(cleanup_policy)
+        normalized_cleanup["mode"] = str(normalized_cleanup.get("mode") or "").upper()
+        normalized_declared = dict(declared_cleanup)
+        normalized_declared["mode"] = str(normalized_declared.get("mode") or "").upper()
+        if normalized_cleanup != normalized_declared:
+            raise ScriptContractError("SCRIPT_CLEANUP_POLICY_DIVERGES_FROM_TEST_DATA")
         runner_type = _require_text(raw_case.get("runner_type"), "SCRIPT_RUNNER_TYPE_REQUIRED").upper()
+        if runner_type not in {"PYTEST", "JUNIT"}:
+            raise ScriptContractError("SCRIPT_RUNNER_TYPE_UNSUPPORTED")
 
         # Runtime owns the freeze. Worker-authored status/release fields cannot
         # weaken or redirect the immutable execution contract.
@@ -138,18 +154,25 @@ class AcceptedTestDesignScriptContractCompiler:
                 "layer": layer,
                 "status": "FROZEN",
                 "preconditions": preconditions,
+                "test_data": test_data,
+                "cleanup_policy": normalized_cleanup,
                 "steps": steps,
                 "expected": expected,
                 "oracle": oracle,
                 "evidence_requirements": list(evidence_requirements),
             }
         )
+        try:
+            PreparationSpecParser().parse(frozen_case)
+        except PreparationContractError as exc:
+            raise ScriptContractError("SCRIPT_CASE_NOT_PREPARATION_READY:%s" % exc) from exc
+
         spec = self.readiness.compile_execution_contract(
             case=frozen_case,
             target_requirements=target_tuple,
             test_data_refs=data_tuple,
             oracle_refs=oracle_tuple,
-            cleanup_policy=cleanup_policy,
+            cleanup_policy=normalized_cleanup,
             runner_type=runner_type,
             automation_mapping=dict(automation_mapping or {"reuse": {}}),
         )
