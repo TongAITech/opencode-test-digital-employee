@@ -21,6 +21,7 @@ from .package import PACKAGE_LOCAL_BROWSER, PACKAGE_LOCAL_CODEGRAPH, PACKAGE_LOC
 SCHEMA_VERSION = "pfc.aitest.rc7.delivery-qualification.v1"
 GATE = "DELIVERY_PASS"
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+_BROWSER_SMOKE_MARKER = "PFC_RC7_BROWSER_SMOKE_OK"
 
 
 class DeliveryQualificationError(RuntimeError):
@@ -163,6 +164,22 @@ def _verify_package_codegraph(package_root: Path, env: Mapping[str, str], detail
     details["package_codegraph_version"] = payload.get("resolved_version")
 
 
+def _browser_smoke_command(binary: Path, profile: Path) -> List[str]:
+    return [
+        str(binary),
+        "--headless",
+        "--disable-gpu",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-sync",
+        "--user-data-dir=%s" % profile,
+        "--dump-dom",
+        "data:text/html,%s" % _BROWSER_SMOKE_MARKER,
+    ]
+
+
 def _verify_package_browser(package_root: Path, env: Mapping[str, str], details: Dict[str, Any]) -> None:
     payload, binary, actual_hash = _runtime_payload(
         package_root,
@@ -171,7 +188,15 @@ def _verify_package_browser(package_root: Path, env: Mapping[str, str], details:
         label="BROWSER",
     )
     if os.name == "nt":
-        _run([str(binary), "--version"], cwd=package_root, env=env, label="PACKAGE_LOCAL_BROWSER_SMOKE")
+        with tempfile.TemporaryDirectory(prefix="rc7-browser-smoke-") as profile:
+            result = _run(
+                _browser_smoke_command(binary, Path(profile)),
+                cwd=package_root,
+                env=env,
+                label="PACKAGE_LOCAL_BROWSER_SMOKE",
+            )
+        if _BROWSER_SMOKE_MARKER not in result.stdout:
+            raise DeliveryQualificationError("PACKAGE_LOCAL_BROWSER_SMOKE_OUTPUT_INVALID")
     details["package_local_browser_verify"] = "PASS" if os.name == "nt" else "HOLD_NON_WINDOWS"
     details["package_browser_ref"] = "file://" + str(binary)
     details["package_browser_sha256"] = actual_hash
