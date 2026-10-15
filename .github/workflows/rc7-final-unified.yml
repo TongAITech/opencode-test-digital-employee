@@ -1,0 +1,117 @@
+name: RC7 Final No-Omission Unified Turnkey
+
+on:
+  push:
+    branches:
+      - work/rc7-final-unified-offline-turnkey
+  workflow_dispatch:
+
+jobs:
+  core-regression:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install --disable-pip-version-check pytest python-docx openpyxl python-pptx pypdf
+      - run: python -m compileall -q rc6_runtime rc6_release rc7_runtime rc7_release rc7_admin
+      - name: Full RC7 regression
+        run: python -m pytest -q tests/test_rc7_*.py
+      - name: Professional toolchain qualification
+        run: python -m rc7_release.toolchain_qualification
+
+  windows-final-turnkey:
+    needs: core-regression
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Assemble all final offline payloads
+        shell: pwsh
+        run: ./packaging/rc7/build-final-payloads.ps1
+
+      - name: Full Windows RC7 regression before packaging
+        shell: pwsh
+        run: |
+          python -m compileall -q rc6_runtime rc6_release rc7_runtime rc7_release rc7_admin
+          $tests = Get-ChildItem 'tests' -Filter 'test_rc7_*.py' | ForEach-Object { $_.FullName }
+          if (-not $tests) { throw 'No RC7 regression tests found' }
+          python -m pytest -q $tests
+          if ($LASTEXITCODE -ne 0) { throw 'RC7 Windows regression failed' }
+
+      - name: Build base package and final unified overlay
+        shell: pwsh
+        run: |
+          python -m rc7_release.package build --repo-root . --output dist --source-commit $env:GITHUB_SHA
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          python -m rc7_release.final_unified_overlay --package-root $pkg --output dist --source-commit $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Final unified overlay failed' }
+          New-Item -ItemType Directory -Force 'dist/qualification' | Out-Null
+
+      - name: Package-local no-omission qualification
+        shell: pwsh
+        run: |
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          $py = Join-Path $pkg 'workspace-template/runtime/python/python.exe'
+          $cg = Join-Path $pkg 'workspace-template/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe'
+          & $py -m rc7_release.toolchain_qualification --codegraph-bin $cg --output 'dist/qualification/professional-toolchains.json'
+          if ($LASTEXITCODE -ne 0) { throw 'Professional toolchain qualification failed' }
+          & $py -m rc7_release.dsh_plugins --home $pkg --profile web --dry-run --output 'dist/qualification/dsh-plugin-payload.json'
+          if ($LASTEXITCODE -ne 0) { throw 'Required DSH plugin payload qualification failed' }
+          & $py -m rc7_release.final_unified_qualification --home $pkg --output 'dist/qualification/final-unified.json' --require-pass
+          if ($LASTEXITCODE -ne 0) { throw 'Final unified qualification failed' }
+          & $py -m rc7_release.bank_binding probe --output 'dist/qualification/bank-bindings.json'
+          if ($LASTEXITCODE -ne 0) { throw 'Bank binding probe failed' }
+
+      - name: Clean Windows unpack delivery qualification
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem 'dist/PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-*.zip' | Select-Object -First 1
+          if (-not $zip) { throw 'Final unified ZIP missing' }
+          python -m rc7_release.delivery_qualification --zip $zip.FullName --source-commit $env:GITHUB_SHA --output dist/qualification/delivery.json --require-pass
+          if ($LASTEXITCODE -ne 0) { throw 'Clean Windows delivery qualification failed' }
+
+      - name: Verify inventory, installer and final truth
+        shell: pwsh
+        run: |
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          $py = Join-Path $pkg 'workspace-template/runtime/python/python.exe'
+          & $py -m rc7_release.workspace_install --source $pkg --target "$env:RUNNER_TEMP\PFC\AITest-RC7" --dry-run --output 'dist/qualification/install-dry-run.json'
+          if ($LASTEXITCODE -ne 0) { throw 'Installer dry-run failed' }
+          $inv = Get-Content (Join-Path $pkg 'FULL-CAPABILITY-INVENTORY.json') | ConvertFrom-Json
+          foreach ($l in @('L1','L2','L3','L4','L5','L6','L7')) { if (-not $inv.execution_layers.$l) { throw "Missing execution layer $l" } }
+          if ($inv.durable_truth -ne 'R1_EVENT_STREAM') { throw 'R1 truth drift' }
+          if ($inv.real_bank_mission -ne 'HOLD_FIELD_EVIDENCE_REQUIRED') { throw 'False bank mission pass' }
+          @{
+            status = 'PASS'; gate = 'UNIFIED_ENGINEERING_PASS'; delivery = 'PASS'; source_commit = $env:GITHUB_SHA;
+            truth = 'R1_EVENT_STREAM'; version_policy = 'CAPABILITY_BASED_NO_EXACT_VERSION_PIN';
+            bank_field_bindings = 'HOLD_FIELD_CONFIGURATION_REQUIRED'; real_bank_mission = 'HOLD_FIELD_EVIDENCE_REQUIRED';
+            scope = @('DSH plugins','Requirement/document/diff','Git+CodeGraph+GitNexus','L1-L7 design/execution workers','JUnit+Maven+Pytest+JaCoCo','Playwright+Chrome+BrowserSkill','local OCR+OpenCV','k6','ZAP','Allure','4A+CAT+DB adapters','route discovery','test-data/prerequisite','diagnosis+repair loop','Evidence+Defect+Report+Admin','Session A-B-C handoff','safe install/upgrade')
+          } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 'dist/qualification/final-candidate-truth.json'
+
+      - name: Upload final unified artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PFC-AITest-RC7-FINAL-UNIFIED-${{ github.sha }}
+          path: |
+            dist/PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-*.zip
+            dist/PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-*.zip.sha256
+            dist/qualification/*.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
