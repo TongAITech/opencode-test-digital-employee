@@ -314,6 +314,7 @@ class DshTaskWorkerBridge:
                         "EVD-WORKER",
                         task.mission_id,
                         task.task_id,
+                        invocation.attempt_id,
                         str(index),
                         item_content_ref,
                     ),
@@ -344,12 +345,19 @@ class DshTaskWorkerBridge:
             invocation,
             raw_output,
         )
+        existing_artifacts = self.control.truth.query("rc7_artifact", artifact_id=expected_id)
+        next_artifact_version = (
+            max(int(row.get("version", 0)) for row in existing_artifacts) + 1
+            if existing_artifacts
+            else 1
+        )
         artifact = Artifact(
             artifact_id=expected_id,
             mission_id=task.mission_id,
             artifact_type=expected_type,
             producer_task_id=task.task_id,
             content_ref=canonical_content_ref,
+            version=next_artifact_version,
             parent_refs=list(dict.fromkeys(parent_refs)),
             evidence_refs=evidence_ids,
             content_hash=runtime_hash,
@@ -412,7 +420,11 @@ class DshTaskWorkerBridge:
         return "file://" + str(target.resolve()), runtime_hash
 
     def _assign(self, task: Task, policy: DshNodePolicy) -> WorkerAssignment:
-        attempt_id = _stable_id("ATT-DSH", task.mission_id, task.task_id, str(task.updated_at))
+        task_rows = self.control.truth.query("rc7_task", task_id=task.task_id)
+        if len(task_rows) != 1:
+            raise DshWorkerBridgeError("DSH_TASK_REVISION_NOT_UNIQUE")
+        durable_task_revision = int(task_rows[0].get("artifact_version", 0))
+        attempt_id = _stable_id("ATT-DSH", task.mission_id, task.task_id, str(durable_task_revision))
         input_refs = list(task.input_artifact_refs) + ["gap://%s" % gap_id for gap_id in task.gap_refs]
         return self.launcher.assign(
             agent_id=policy.agent_id,
