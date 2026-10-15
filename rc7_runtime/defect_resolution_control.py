@@ -1,14 +1,15 @@
 """Evidence-backed RC7 Defect resolution control.
 
 Qualification only proves that a trusted PRODUCT failure deserves a Defect
-candidate.  This controller owns the later lifecycle: evidence-backed RCA,
+candidate. This controller owns the later lifecycle: evidence-backed RCA,
 engineering confirmation, exact fix revision detection, Runtime-owned original-
-case verification, impact regression, and terminal PRODUCT_DEFECT Gap resolution.
+case verification, gated impact regression, and terminal PRODUCT_DEFECT Gap
+resolution.
 
 No boolean such as ``fix_verified=True`` is accepted. Fix/verification/
-regression facts must exist in the same Mission's R1 truth, and terminal closure
-accepts only formal execution outputs produced by the validation Tasks created
-when the exact fix revision is detected.
+regression facts must exist in the same Mission's R1 truth. Impact regression
+is not even scheduled until the original failing Case has produced a trusted
+post-fix PASS.
 """
 
 from __future__ import annotations
@@ -126,7 +127,50 @@ class DefectResolutionControl:
             defect.evidence_refs.append(fix_evidence_id)
         loop.transition(defect, DefectStatus.FIX_DETECTED, fix_revision=revision)
         self._persist_next(control, defect)
-        self._ensure_fix_validation_tasks(control, defect)
+        self._ensure_fix_verification_task(control, defect)
+        return defect
+
+    def accept_fix_verification(
+        self,
+        control: ClosedLoopControlPlane,
+        defect_id: str,
+        *,
+        verification_artifact_id: str,
+    ) -> DefectRecord:
+        defect = self._defect(control, defect_id)
+        if defect.state != DefectStatus.FIX_DETECTED:
+            raise DefectResolutionControlError("DEFECT_FIX_DETECTED_REQUIRED")
+        record, evidence_ids, verification_task = self._owned_execution(
+            control,
+            verification_artifact_id,
+            expected_task_type=self.FIX_VERIFICATION_TASK_TYPE,
+            defect=defect,
+        )
+        if record.tc_id not in set(defect.test_case_ids):
+            raise DefectResolutionControlError("DEFECT_VERIFICATION_MUST_RUN_ORIGINAL_TEST_CASE")
+        if record.attempt_id in set(defect.execution_attempt_ids):
+            raise DefectResolutionControlError("DEFECT_VERIFICATION_REQUIRES_NEW_ATTEMPT")
+        if record.status != "PASS" or not record.integrity_passed or record.assertion_passed is not True:
+            raise DefectResolutionControlError("PASSING_TRUSTED_EXECUTION_REQUIRED:%s" % verification_artifact_id)
+
+        for evidence_id in evidence_ids:
+            if evidence_id not in defect.evidence_refs:
+                defect.evidence_refs.append(evidence_id)
+        loop = DefectClosedLoop()
+        loop.transition(defect, DefectStatus.VERIFYING)
+        loop.transition(
+            defect,
+            DefectStatus.FIXED,
+            verification_refs=[verification_artifact_id],
+        )
+        self._persist_next(control, defect)
+        self._ensure_impact_regression_task(
+            control,
+            defect,
+            verification_task_id=verification_task.task_id,
+        )
+        loop.transition(defect, DefectStatus.REGRESSION_TESTING)
+        self._persist_next(control, defect)
         return defect
 
     def close_after_verification(
@@ -138,10 +182,12 @@ class DefectResolutionControl:
         regression_artifact_ids: Sequence[str],
     ) -> DefectResolutionResult:
         defect = self._defect(control, defect_id)
-        if defect.state != DefectStatus.FIX_DETECTED:
-            raise DefectResolutionControlError("DEFECT_FIX_DETECTED_REQUIRED")
+        if defect.state != DefectStatus.REGRESSION_TESTING:
+            raise DefectResolutionControlError("DEFECT_REGRESSION_TESTING_REQUIRED")
         if not defect.fix_revision:
             raise DefectResolutionControlError("DEFECT_FIX_REVISION_REQUIRED")
+        if defect.verification_refs != [verification_artifact_id]:
+            raise DefectResolutionControlError("DEFECT_ACCEPTED_VERIFICATION_ARTIFACT_REQUIRED")
 
         verification_record, verification_evidence, verification_task = self._passing_execution(
             control,
@@ -151,8 +197,6 @@ class DefectResolutionControl:
         )
         if verification_record.tc_id not in set(defect.test_case_ids):
             raise DefectResolutionControlError("DEFECT_VERIFICATION_MUST_RUN_ORIGINAL_TEST_CASE")
-        if verification_record.attempt_id in set(defect.execution_attempt_ids):
-            raise DefectResolutionControlError("DEFECT_VERIFICATION_REQUIRES_NEW_ATTEMPT")
 
         regressions = tuple(dict.fromkeys(str(value) for value in regression_artifact_ids if str(value)))
         if not regressions:
@@ -175,15 +219,6 @@ class DefectResolutionControl:
             regression_evidence.extend(evidence_ids)
         if not any(case_id not in set(defect.test_case_ids) for case_id in regression_cases):
             raise DefectResolutionControlError("DEFECT_IMPACT_REGRESSION_DISTINCT_CASE_REQUIRED")
-
-        loop = DefectClosedLoop()
-        loop.transition(defect, DefectStatus.VERIFYING)
-        loop.transition(
-            defect,
-            DefectStatus.FIXED,
-            verification_refs=[verification_artifact_id],
-        )
-        loop.transition(defect, DefectStatus.REGRESSION_TESTING)
 
         task = self._owner_task(control, defect.source_gap_id)
         close_evidence = list(
@@ -217,7 +252,7 @@ class DefectResolutionControl:
             },
             evidence_refs=close_evidence,
         )
-        loop.transition(
+        DefectClosedLoop().transition(
             defect,
             DefectStatus.CLOSED,
             evaluation_id=evaluation.evaluation_id,
@@ -269,77 +304,103 @@ class DefectResolutionControl:
         loop.transition(defect, DefectStatus.VERIFYING)
         loop.transition(defect, DefectStatus.REOPENED)
         self._persist_next(control, defect)
+        regression_tasks = [
+            row
+            for row in control.truth.query("rc7_task", mission_id=control.mission_id)
+            if row.get("task_type") == self.IMPACT_REGRESSION_TASK_TYPE
+            and defect.source_gap_id in row.get("gap_refs", [])
+            and row.get("state") not in {TaskStatus.CANCELLED.value, TaskStatus.PASS.value}
+        ]
+        if regression_tasks:
+            raise DefectResolutionControlError("REGRESSION_MUST_NOT_EXIST_AFTER_FAILED_FIX_VERIFICATION")
         return defect
 
-    def _ensure_fix_validation_tasks(
+    def _ensure_fix_verification_task(
         self,
         control: ClosedLoopControlPlane,
         defect: DefectRecord,
-    ) -> Tuple[Task, Task]:
+    ) -> Task:
         if not defect.fix_revision:
             raise DefectResolutionControlError("DEFECT_FIX_REVISION_REQUIRED")
         owner = self._owner_task(control, defect.source_gap_id)
         candidate_artifact_id = owner.output_artifact_refs[0]
-        verification_task_id = self._stable_id(
+        task_id = self._stable_id(
             "TASK-DEFECT-VERIFY",
             control.mission_id,
             defect.defect_id,
             defect.fix_revision,
         )
-        regression_task_id = self._stable_id(
+        rows = control.truth.query("rc7_task", task_id=task_id)
+        if not rows:
+            control.register_task(
+                Task(
+                    task_id=task_id,
+                    mission_id=control.mission_id,
+                    node="EXECUTION",
+                    task_type=self.FIX_VERIFICATION_TASK_TYPE,
+                    objective="verify original defect case after fix %s" % defect.fix_revision,
+                    required_capabilities=["test_execution"],
+                    input_artifact_refs=[candidate_artifact_id],
+                    gap_refs=[defect.source_gap_id],
+                    acceptance_criteria=[
+                        "execute one original defect Case from %s" % ",".join(defect.test_case_ids),
+                        "produce a conclusive formal runtime result for the fixed revision",
+                    ],
+                    priority=15,
+                )
+            )
+        control.scheduler.refresh_ready(control.mission_id)
+        task = control.scheduler.task(task_id)
+        if task.task_type != self.FIX_VERIFICATION_TASK_TYPE or task.gap_refs != [defect.source_gap_id]:
+            raise DefectResolutionControlError("DEFECT_FIX_VERIFICATION_TASK_IDENTITY_MISMATCH")
+        return task
+
+    def _ensure_impact_regression_task(
+        self,
+        control: ClosedLoopControlPlane,
+        defect: DefectRecord,
+        *,
+        verification_task_id: str,
+    ) -> Task:
+        if defect.state != DefectStatus.FIXED:
+            raise DefectResolutionControlError("DEFECT_FIXED_REQUIRED_FOR_REGRESSION_PLANNING")
+        owner = self._owner_task(control, defect.source_gap_id)
+        candidate_artifact_id = owner.output_artifact_refs[0]
+        task_id = self._stable_id(
             "TASK-DEFECT-REGRESSION",
             control.mission_id,
             defect.defect_id,
-            defect.fix_revision,
+            defect.fix_revision or "",
         )
-
-        verification_rows = control.truth.query("rc7_task", task_id=verification_task_id)
-        if verification_rows:
-            verification = control.scheduler.task(verification_task_id)
-        else:
-            verification = Task(
-                task_id=verification_task_id,
-                mission_id=control.mission_id,
-                node="EXECUTION",
-                task_type=self.FIX_VERIFICATION_TASK_TYPE,
-                objective="verify original defect case after fix %s" % defect.fix_revision,
-                required_capabilities=["test_execution"],
-                input_artifact_refs=[candidate_artifact_id],
-                gap_refs=[defect.source_gap_id],
-                acceptance_criteria=[
-                    "execute one original defect Case from %s" % ",".join(defect.test_case_ids),
-                    "produce a conclusive formal runtime result for the fixed revision",
-                ],
-                priority=15,
+        rows = control.truth.query("rc7_task", task_id=task_id)
+        if not rows:
+            control.register_task(
+                Task(
+                    task_id=task_id,
+                    mission_id=control.mission_id,
+                    node="EXECUTION",
+                    task_type=self.IMPACT_REGRESSION_TASK_TYPE,
+                    objective="execute impact regression after verified fix %s" % defect.fix_revision,
+                    required_capabilities=["test_execution"],
+                    dependency_task_ids=[verification_task_id],
+                    input_artifact_refs=[candidate_artifact_id],
+                    gap_refs=[defect.source_gap_id],
+                    acceptance_criteria=[
+                        "execute at least one impact-regression Case distinct from the original defect Case",
+                        "produce a conclusive formal runtime PASS",
+                    ],
+                    priority=20,
+                )
             )
-            control.register_task(verification)
-
-        regression_rows = control.truth.query("rc7_task", task_id=regression_task_id)
-        if regression_rows:
-            regression = control.scheduler.task(regression_task_id)
-        else:
-            regression = Task(
-                task_id=regression_task_id,
-                mission_id=control.mission_id,
-                node="EXECUTION",
-                task_type=self.IMPACT_REGRESSION_TASK_TYPE,
-                objective="execute impact regression after verified fix %s" % defect.fix_revision,
-                required_capabilities=["test_execution"],
-                dependency_task_ids=[verification_task_id],
-                input_artifact_refs=[candidate_artifact_id],
-                gap_refs=[defect.source_gap_id],
-                acceptance_criteria=[
-                    "execute at least one impact-regression Case distinct from the original defect Case",
-                    "produce a conclusive formal runtime PASS",
-                ],
-                priority=20,
-            )
-            control.register_task(regression)
         control.scheduler.refresh_ready(control.mission_id)
-        return (
-            control.scheduler.task(verification_task_id),
-            control.scheduler.task(regression_task_id),
-        )
+        task = control.scheduler.task(task_id)
+        if (
+            task.task_type != self.IMPACT_REGRESSION_TASK_TYPE
+            or task.dependency_task_ids != [verification_task_id]
+            or task.gap_refs != [defect.source_gap_id]
+        ):
+            raise DefectResolutionControlError("DEFECT_IMPACT_REGRESSION_TASK_IDENTITY_MISMATCH")
+        return task
 
     def _defect(self, control: ClosedLoopControlPlane, defect_id: str) -> DefectRecord:
         rows = control.truth.query("rc7_defect", defect_id=defect_id)
