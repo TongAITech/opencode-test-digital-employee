@@ -9,6 +9,7 @@ from rc7_release.package import ENTRYPOINTS, build_package, verify_package
 COMMIT = "f" * 40
 BANK_FINAL_NAMES = ("QUALIFY-BANK-FINAL.cmd", "QUALIFY-BANK-FINAL.sh")
 BUNDLED_PYTHON = r"workspace-template\runtime\python\python.exe"
+BUNDLED_CODEGRAPH = r"workspace-template\runtime\code-intelligence\codegraph\codegraph-server-win32-x64.exe"
 PYTHON_BIN_ENTRYPOINTS = (
     "QUALIFY-DSH-REQUIREMENT.cmd",
     "QUALIFY-DSH-CODE.cmd",
@@ -61,6 +62,18 @@ def test_windows_stage_qualification_entrypoints_prefer_bundled_python_before_pa
         assert bundled in text
         assert host_lookup in text
         assert text.index(bundled) < text.index(host_lookup)
+
+
+def test_windows_codegraph_consumers_prefer_bundled_codegraph():
+    repo = Path(__file__).resolve().parents[1]
+    bundled = (
+        f'if not defined PFC_CODEGRAPH_BIN if exist "%ROOT%\\{BUNDLED_CODEGRAPH}" '
+        f'set "PFC_CODEGRAPH_BIN=%ROOT%\\{BUNDLED_CODEGRAPH}"'
+    )
+    for name in ("QUALIFY-DSH-CODE.cmd", "QUALIFY-DSH-TEST-DESIGN.cmd"):
+        text = (repo / "packaging" / "rc7" / name).read_text(encoding="utf-8")
+        assert bundled in text
+        assert "PFC_CODEGRAPH_BIN_NOT_FOUND" in text
 
 
 def test_windows_admin_entrypoint_prefers_bundled_python_before_host_fallback():

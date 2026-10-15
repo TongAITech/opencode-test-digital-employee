@@ -31,8 +31,13 @@ if not defined PFC_RC7_CODEGRAPH_QUERY_ARGS_JSON (
   echo {"status":"NOT_PROVEN","reason":"PFC_RC7_CODEGRAPH_QUERY_ARGS_JSON_REQUIRED"} 1>&2
   exit /b 2
 )
+if not defined PFC_CODEGRAPH_BIN if exist "%ROOT%\workspace-template\runtime\code-intelligence\codegraph\codegraph-server-win32-x64.exe" set "PFC_CODEGRAPH_BIN=%ROOT%\workspace-template\runtime\code-intelligence\codegraph\codegraph-server-win32-x64.exe"
 if not defined PFC_CODEGRAPH_BIN (
-  echo {"status":"NOT_PROVEN","reason":"PFC_CODEGRAPH_BIN_REQUIRED"} 1>&2
+  echo {"status":"NOT_PROVEN","reason":"PFC_CODEGRAPH_BIN_REQUIRED_OR_PACKAGE_LOCAL_CODEGRAPH_MISSING"} 1>&2
+  exit /b 2
+)
+if not exist "%PFC_CODEGRAPH_BIN%" (
+  echo {"status":"NOT_PROVEN","reason":"PFC_CODEGRAPH_BIN_NOT_FOUND"} 1>&2
   exit /b 2
 )
 
