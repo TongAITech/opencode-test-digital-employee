@@ -47,7 +47,7 @@ class LineageAwareAttemptHistory(AttemptHistory):
     def planned_parent(self, attempt_id: str) -> Optional[str]:
         return self._planned_parent.get(attempt_id)
 
-    def append_execution(self, entry: AttemptHistoryEntry) -> None:
+    def append(self, entry: AttemptHistoryEntry) -> None:
         parent = self._planned_parent.get(entry.attempt_id)
         if parent is not None:
             if entry.parent_attempt_id not in {None, parent}:
@@ -55,3 +55,6 @@ class LineageAwareAttemptHistory(AttemptHistory):
             entry = replace(entry, parent_attempt_id=parent)
         super().append(entry)
         self._planned_parent.pop(entry.attempt_id, None)
+
+    def append_execution(self, entry: AttemptHistoryEntry) -> None:
+        self.append(entry)
