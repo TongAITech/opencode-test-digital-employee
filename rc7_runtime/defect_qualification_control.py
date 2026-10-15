@@ -82,6 +82,11 @@ class DefectQualificationControl:
             raise DefectQualificationControlError("QUALIFY_DEFECT_GAP_OWNERSHIP_MISMATCH")
         if reproduction.task_state != "PASS" or not reproduction.conclusive:
             raise DefectQualificationControlError("CONCLUSIVE_REPRODUCTION_TASK_PASS_REQUIRED")
+        self._require_durable_reproduction(
+            control,
+            product_gap_id=product_gap_id,
+            reproduction=reproduction,
+        )
 
         product_gap = self._product_gap(control, product_gap_id)
         original_record, original_artifact_id = self._original_execution_record(control, product_gap_id)
@@ -210,6 +215,145 @@ class DefectQualificationControl:
             qualification_gap_ids=tuple(gap.gap_id for gap in result.gaps),
             qualification_repair_task_ids=tuple(repair_task_ids),
         )
+
+    def _require_durable_reproduction(
+        self,
+        control: ClosedLoopControlPlane,
+        *,
+        product_gap_id: str,
+        reproduction: DefectReproductionResult,
+    ) -> None:
+        if not isinstance(reproduction.reproduced, bool):
+            raise DefectQualificationControlError("REPRODUCTION_BOOLEAN_CONCLUSION_REQUIRED")
+        evaluations = control.truth.query(
+            "rc7_evaluation",
+            evaluation_id=reproduction.evaluation_id,
+        )
+        if len(evaluations) != 1:
+            raise DefectQualificationControlError("REPRODUCTION_EVALUATION_NOT_DURABLE")
+        evaluation = evaluations[0]
+        if evaluation.get("mission_id") != control.mission_id:
+            raise DefectQualificationControlError("REPRODUCTION_EVALUATION_MISSION_MISMATCH")
+        if evaluation.get("node") != "EXECUTION" or evaluation.get("result") != "PASS":
+            raise DefectQualificationControlError("REPRODUCTION_EVALUATION_PASS_REQUIRED")
+        dimensions = evaluation.get("dimensions")
+        if not isinstance(dimensions, dict):
+            raise DefectQualificationControlError("REPRODUCTION_EVALUATION_DIMENSIONS_REQUIRED")
+        expected_dimensions = {
+            "purpose": "DEFECT_REPRODUCTION",
+            "source_product_gap_id": product_gap_id,
+            "attempt_id": reproduction.execution_record.attempt_id,
+            "conclusive": True,
+            "reproduced": reproduction.reproduced,
+        }
+        for key, expected in expected_dimensions.items():
+            if dimensions.get(key) != expected:
+                raise DefectQualificationControlError(
+                    "REPRODUCTION_EVALUATION_MISMATCH:%s" % key
+                )
+
+        artifact_refs = evaluation.get("artifact_refs")
+        if artifact_refs != [reproduction.record_artifact_id]:
+            raise DefectQualificationControlError("REPRODUCTION_ARTIFACT_REF_MISMATCH")
+        artifacts = control.truth.query(
+            "rc7_artifact",
+            artifact_id=reproduction.record_artifact_id,
+        )
+        if len(artifacts) != 1:
+            raise DefectQualificationControlError("REPRODUCTION_ARTIFACT_NOT_DURABLE")
+        artifact = artifacts[0]
+        if artifact.get("mission_id") != control.mission_id:
+            raise DefectQualificationControlError("REPRODUCTION_ARTIFACT_MISSION_MISMATCH")
+        if artifact.get("artifact_type_name") != "EXECUTION_CONCLUSION":
+            raise DefectQualificationControlError("REPRODUCTION_EXECUTION_ARTIFACT_REQUIRED")
+
+        producer_task_id = artifact.get("producer_task_id")
+        if not isinstance(producer_task_id, str) or not producer_task_id:
+            raise DefectQualificationControlError("REPRODUCTION_PRODUCER_TASK_REQUIRED")
+        tasks = control.truth.query("rc7_task", task_id=producer_task_id)
+        if len(tasks) != 1:
+            raise DefectQualificationControlError("REPRODUCTION_TASK_NOT_DURABLE")
+        task = tasks[0]
+        if task.get("mission_id") != control.mission_id:
+            raise DefectQualificationControlError("REPRODUCTION_TASK_MISSION_MISMATCH")
+        if task.get("node") != "EXECUTION" or task.get("task_type") != "DEFECT_REPRODUCTION":
+            raise DefectQualificationControlError("DEFECT_REPRODUCTION_TASK_REQUIRED")
+        if task.get("state") != "PASS":
+            raise DefectQualificationControlError("DURABLE_REPRODUCTION_TASK_PASS_REQUIRED")
+        if reproduction.record_artifact_id not in task.get("output_artifact_refs", []):
+            raise DefectQualificationControlError("REPRODUCTION_TASK_OUTPUT_MISMATCH")
+        if task.get("evaluation_id") != reproduction.evaluation_id:
+            raise DefectQualificationControlError("REPRODUCTION_TASK_EVALUATION_MISMATCH")
+
+        content_ref = artifact.get("content_ref")
+        if not isinstance(content_ref, str) or not content_ref.startswith("file://"):
+            raise DefectQualificationControlError("REPRODUCTION_EXECUTION_RECORD_REF_INVALID")
+        path = Path(content_ref[len("file://"):])
+        if not path.is_file():
+            raise DefectQualificationControlError("REPRODUCTION_EXECUTION_RECORD_MISSING")
+        raw = path.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
+        if artifact.get("content_hash") != "sha256:" + digest:
+            raise DefectQualificationControlError("REPRODUCTION_EXECUTION_RECORD_HASH_MISMATCH")
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+            record = payload["record"]
+            durable_record = ExecutionRecord(
+                attempt_id=str(record["attempt_id"]),
+                tc_id=str(record["tc_id"]),
+                case_version=int(record["case_version"]),
+                target_id=str(record["target_id"]),
+                layer=str(record["layer"]),
+                worker_id=str(record["worker_id"]),
+                lease_id=str(record["lease_id"]),
+                status=str(record["status"]),
+                integrity_passed=bool(record["integrity_passed"]),
+                actual_result=record.get("actual_result"),
+                tool_call_refs=tuple(record.get("tool_call_refs", [])),
+                evidence_refs=tuple(record.get("evidence_refs", [])),
+                assertion_ref=record.get("assertion_ref"),
+                assertion_passed=record.get("assertion_passed"),
+                reason=record.get("reason"),
+            )
+        except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise DefectQualificationControlError("REPRODUCTION_EXECUTION_RECORD_INVALID") from exc
+        if durable_record != reproduction.execution_record:
+            raise DefectQualificationControlError("REPRODUCTION_RESULT_RECORD_MISMATCH")
+
+        evidence_ids = list(reproduction.evidence_ids)
+        if not evidence_ids:
+            raise DefectQualificationControlError("REPRODUCTION_EVIDENCE_REQUIRED")
+        evaluation_evidence = evaluation.get("evidence_refs")
+        artifact_evidence = artifact.get("evidence_refs")
+        if not isinstance(evaluation_evidence, list) or not isinstance(artifact_evidence, list):
+            raise DefectQualificationControlError("REPRODUCTION_EVIDENCE_LINKS_INVALID")
+        for evidence_id in evidence_ids:
+            if evidence_id not in evaluation_evidence or evidence_id not in artifact_evidence:
+                raise DefectQualificationControlError(
+                    "REPRODUCTION_EVIDENCE_LINK_MISMATCH:%s" % evidence_id
+                )
+
+        evidence_rows = []
+        for evidence_id in evidence_ids:
+            rows = control.truth.query("rc7_evidence", evidence_id=evidence_id)
+            if len(rows) != 1 or rows[0].get("mission_id") != control.mission_id:
+                raise DefectQualificationControlError(
+                    "REPRODUCTION_EVIDENCE_NOT_DURABLE:%s" % evidence_id
+                )
+            evidence_rows.append(rows[0])
+        formal_records = [
+            row
+            for row in evidence_rows
+            if row.get("kind") == "RUNTIME_EXECUTION_RECORD"
+            and row.get("source_ref") == "runtime://formal-execution"
+            and producer_task_id in set(row.get("subject_refs", []))
+            and reproduction.execution_record.attempt_id in set(row.get("subject_refs", []))
+            and reproduction.execution_record.tc_id in set(row.get("subject_refs", []))
+            and row.get("content_ref") == artifact.get("content_ref")
+            and row.get("content_hash") == artifact.get("content_hash")
+        ]
+        if len(formal_records) != 1:
+            raise DefectQualificationControlError("FORMAL_REPRODUCTION_EXECUTION_RECORD_REQUIRED")
 
     def _product_gap(self, control: ClosedLoopControlPlane, gap_id: str) -> Gap:
         rows = control.truth.query("rc7_gap", gap_id=gap_id)
