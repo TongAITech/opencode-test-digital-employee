@@ -55,6 +55,32 @@ from .dsh_test_design_oracle_evaluator import (
 )
 from .dsh_proof import DshProofError, DshR1ProofReader, DshToolCallProof, code_tool_category
 from .oracle_runtime import DeterministicOracleError, DeterministicOracleRuntime
+from .execution_diagnosis import (
+    DiagnosisClosure,
+    ExecutionDiagnosisCoordinator,
+    ExecutionTrustFacts,
+)
+from .attempt_lineage import LineageAwareAttemptHistory
+from .lineage_diagnosis import LineageAwareExecutionDiagnosisCoordinator
+from .execution_recovery import (
+    ExecutionRecoveryPlanner,
+    RecoveryPlanningError,
+    RecoveryWorkPlan,
+)
+from .execution_recovery_control import (
+    DirectRetryAuthorization,
+    ExecutionRecoveryController,
+    RecoveryControlError,
+)
+from .execution_autonomous_loop import (
+    AutonomousExecutionLoop,
+    AutonomousExecutionLoopError,
+    AutonomousExecutionLoopResult,
+)
+from .autonomous_execution_service import (
+    AutonomousClosedLoopExecutionService,
+    AutonomousExecutionServiceError,
+)
 
 __all__ = [
     "Artifact",
@@ -106,4 +132,20 @@ __all__ = [
     "code_tool_category",
     "DeterministicOracleError",
     "DeterministicOracleRuntime",
+    "DiagnosisClosure",
+    "ExecutionDiagnosisCoordinator",
+    "ExecutionTrustFacts",
+    "LineageAwareAttemptHistory",
+    "LineageAwareExecutionDiagnosisCoordinator",
+    "ExecutionRecoveryPlanner",
+    "RecoveryPlanningError",
+    "RecoveryWorkPlan",
+    "DirectRetryAuthorization",
+    "ExecutionRecoveryController",
+    "RecoveryControlError",
+    "AutonomousExecutionLoop",
+    "AutonomousExecutionLoopError",
+    "AutonomousExecutionLoopResult",
+    "AutonomousClosedLoopExecutionService",
+    "AutonomousExecutionServiceError",
 ]
