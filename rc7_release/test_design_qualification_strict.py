@@ -20,10 +20,30 @@ _CASE_CONTRACT_GUIDANCE = (
     "NONE/ROLLBACK/DELETE/RESTORE and MUST equal top-level cleanup_policy (one cleanup truth). Also include requirement_id, "
     "steps(non-empty ordered list), expected(non-empty), evidence_requirements(non-empty string list), test_data_refs(list; "
     "non-empty when structured data requirements exist), oracle_refs(non-empty immutable oracle reference list), and runner_type "
-    "exactly PYTEST or JUNIT. Do not invent these fields from convenience; derive them from Test Obligations, Requirement/Code "
-    "parents, route/data reality and the case Oracle. Missing preparation/execution semantics are a Test Design gap, not something "
-    "Script or Execution workers may fill in later."
+    "exactly PYTEST or JUNIT. Every oracle.check MUST be machine-executable before Script/Execution: include a stable id, type, "
+    "actual_path into the structured runtime actual_result, operator one of EQ/NE/GT/GTE/LT/LTE/IN/NOT_IN/CONTAINS/EXISTS/"
+    "NOT_EXISTS, expected for every operator except EXISTS/NOT_EXISTS, and durable evidence_ref. Execution Runtime will evaluate "
+    "these fields deterministically; no AI interpretation is allowed after the actual result exists. Do not invent these fields "
+    "from convenience; derive them from Test Obligations, Requirement/Code parents, route/data reality and the case Oracle. "
+    "Missing preparation/execution/oracle semantics are a Test Design gap, not something Script or Execution workers may fill in later."
 )
+
+
+def _review_contract_fields():
+    return [
+        "requirement_id",
+        "preconditions[{id,type,requirement}]",
+        "test_data{initial_state,input_data,cleanup_policy}",
+        "data requirements{id,selectors,allowed_strategies}",
+        "steps",
+        "expected",
+        "evidence_requirements",
+        "test_data_refs",
+        "oracle_refs",
+        "oracle.checks[{id,type,actual_path,operator,expected,evidence_ref}]",
+        "cleanup_policy == test_data.cleanup_policy",
+        "runner_type=PYTEST|JUNIT",
+    ]
 
 
 def _strict_objective(*, requirement_path: str, code_path: str, repo_path: str, codegraph_args: List[str]) -> str:
@@ -48,20 +68,11 @@ def _strict_reviewer_guidance(*, requirement_path: str, code_path: str, repo_pat
         return raw + _CASE_CONTRACT_GUIDANCE
     data["execution_contract_case_review"] = {
         "required": True,
-        "fields": [
-            "requirement_id",
-            "preconditions[{id,type,requirement}]",
-            "test_data{initial_state,input_data,cleanup_policy}",
-            "data requirements{id,selectors,allowed_strategies}",
-            "steps",
-            "expected",
-            "evidence_requirements",
-            "test_data_refs",
-            "oracle_refs",
-            "cleanup_policy == test_data.cleanup_policy",
-            "runner_type=PYTEST|JUNIT",
-        ],
-        "rule": "Return GAPS if any case leaves downstream Script/Preparation/Execution Runtime to invent semantics or data construction.",
+        "fields": _review_contract_fields(),
+        "rule": (
+            "Return GAPS if any case leaves downstream Script/Preparation/Execution Runtime to invent semantics, data construction, "
+            "or reinterpret the Oracle after seeing the actual result."
+        ),
     }
     return json.dumps(data, ensure_ascii=False, sort_keys=True)
 
@@ -81,15 +92,11 @@ def run_strict_test_design_qualification(**kwargs):
             return raw + _CASE_CONTRACT_GUIDANCE
         data["execution_contract_case_review"] = {
             "required": True,
-            "fields": [
-                "requirement_id",
-                "preconditions[{id,type,requirement}]",
-                "test_data{initial_state,input_data,cleanup_policy}",
-                "data requirements{id,selectors,allowed_strategies}",
-                "steps", "expected", "evidence_requirements", "test_data_refs", "oracle_refs",
-                "cleanup_policy == test_data.cleanup_policy", "runner_type=PYTEST|JUNIT",
-            ],
-            "rule": "Return GAPS if any case leaves downstream Script/Preparation/Execution Runtime to invent semantics or data construction.",
+            "fields": _review_contract_fields(),
+            "rule": (
+                "Return GAPS if any case leaves downstream Script/Preparation/Execution Runtime to invent semantics, data construction, "
+                "or reinterpret the Oracle after seeing the actual result."
+            ),
         }
         return json.dumps(data, ensure_ascii=False, sort_keys=True)
 
