@@ -75,7 +75,12 @@ def _assert_resume_graph(
     mission_id: str,
     external_inputs: Mapping[str, Sequence[str]],
 ) -> None:
-    """Prevent a resumed Mission from silently changing its source contract."""
+    """Protect the durable graph while allowing context-free Session resume.
+
+    Stable task/dependency identity is always checked.  External source refs are
+    checked only when the caller explicitly supplies them again; otherwise the
+    persisted R1 graph is authoritative and no chat/session context is needed.
+    """
     expected = MissionTaskGraphCompiler().compile(mission_id, external_inputs=external_inputs)
     actual_rows = truth.query("rc7_task", mission_id=mission_id)
     actual = {str(row["task_id"]): row for row in actual_rows}
@@ -85,7 +90,7 @@ def _assert_resume_graph(
         row = actual[task.task_id]
         if list(row.get("dependency_task_ids", [])) != list(task.dependency_task_ids):
             raise BankMissionError("MISSION_GRAPH_DEPENDENCY_MISMATCH")
-        if list(row.get("input_artifact_refs", [])) != list(task.input_artifact_refs):
+        if external_inputs and list(row.get("input_artifact_refs", [])) != list(task.input_artifact_refs):
             raise BankMissionError("MISSION_GRAPH_INPUT_MISMATCH")
 
 
