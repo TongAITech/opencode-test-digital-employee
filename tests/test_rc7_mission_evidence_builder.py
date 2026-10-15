@@ -266,8 +266,8 @@ def test_design_coverage_cannot_self_report_runtime_verification(tmp_path: Path)
     categories = {gap.category for gap in result.gaps}
     assert "CRITICAL_REQUIREMENT_NOT_VERIFIED" in categories
     assert "CRITICAL_OBLIGATION_NOT_VERIFIED" in categories
-    assert "CRITICAL_BRANCH_NOT_VERIFIED" in categories
-    assert "CRITICAL_EXECUTION_INCONCLUSIVE" in categories
+    assert "CRITICAL_BRANCH_UNVERIFIED" in categories
+    assert "INCONCLUSIVE_RESULT_GAP" in categories
 
 
 def test_conclusive_execution_drives_verified_numerators_and_snapshot_is_durable(tmp_path: Path):
