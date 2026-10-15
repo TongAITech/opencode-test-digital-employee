@@ -29,13 +29,24 @@ fi
 mkdir -p "$STATE"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
+REAL_MISSION_EVIDENCE="${PFC_RC7_REAL_MISSION_EVIDENCE:-}"
+if [[ -z "$REAL_MISSION_EVIDENCE" && -n "${PFC_RC7_R1_PATH:-}" && -n "${PFC_RC7_MISSION_ID:-}" ]]; then
+  REAL_MISSION_EVIDENCE="$STATE/rc7-real-mission-result.json"
+  "$PYTHON_BIN" -m rc7_release.real_mission_qualification \
+    --r1 "$PFC_RC7_R1_PATH" \
+    --mission-id "$PFC_RC7_MISSION_ID" \
+    --source-commit "$SOURCE_COMMIT" \
+    --output "$REAL_MISSION_EVIDENCE"
+  printf 'RC7 real Mission qualification evidence: %s\n' "$REAL_MISSION_EVIDENCE" >&2
+fi
+
 ARGS=(
   --source-commit "$SOURCE_COMMIT"
   --output "$STATE/rc7-final-qualification.json"
 )
 [[ -n "${PFC_RC7_ENGINEERING_EVIDENCE:-}" ]] && ARGS+=(--engineering "$PFC_RC7_ENGINEERING_EVIDENCE")
 [[ -n "${PFC_RC7_ADMIN_EVIDENCE:-}" ]] && ARGS+=(--admin "$PFC_RC7_ADMIN_EVIDENCE")
-[[ -n "${PFC_RC7_REAL_MISSION_EVIDENCE:-}" ]] && ARGS+=(--real-mission "$PFC_RC7_REAL_MISSION_EVIDENCE")
+[[ -n "$REAL_MISSION_EVIDENCE" ]] && ARGS+=(--real-mission "$REAL_MISSION_EVIDENCE")
 [[ -n "${PFC_RC7_DELIVERY_EVIDENCE:-}" ]] && ARGS+=(--delivery "$PFC_RC7_DELIVERY_EVIDENCE")
 [[ "${PFC_RC7_REQUIRE_FINAL_PASS:-0}" == "1" ]] && ARGS+=(--require-pass)
 
