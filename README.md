@@ -1,21 +1,23 @@
 # OpenCode Test Digital Employee
 
-Canonical engineering source for the OpenCode-based AI testing digital employee.
+RC7 closed-loop runtime is developed on `work/rc7-closed-loop-runtime`.
 
-## Source of truth
+## RC7 administration platform
 
-- Git commit SHA = Engineering Source Truth.
-- `runtime-lock.json` = pinned offline-runtime payload contract.
-- large runtime binaries/caches are derived payloads and are not stored in Git.
-- R1 Event Stream remains the product's sole durable runtime truth.
+The administration platform is a lightweight, dependency-free local web UI backed directly by the R1 Event Stream projection. It does not use `aitest.db` or a shadow business database.
 
-## Repository layout
+Start on Windows:
 
-- `workspace-template/` — product source, OpenCode agents/tools/commands, tests and configuration.
-- `packaging/` — installer/launcher source used to assemble the offline package.
-- `docs/governance/` — current formal design/governance contracts.
-- `runtime-lock.json` — pinned offline payload versions and integrity requirements.
+```bat
+packaging\rc7\START-RC7-ADMIN.cmd
+```
 
-## Never commit
+Start on macOS/Linux:
 
-Bank SUT source/data, credentials, cookies, OTP/MFA material, browser profiles, runtime databases, CodeGraph indexes, portable Python/Chromium/CodeGraph binaries, or generated Construction ZIPs.
+```sh
+packaging/rc7/START-RC7-ADMIN.sh
+```
+
+Use `PFC_RC7_R1_PATH` to point at the canonical RC7 R1 JSONL stream. The default listener is `127.0.0.1:4097` and can be changed with `PFC_RC7_ADMIN_HOST` / `PFC_RC7_ADMIN_PORT`.
+
+The UI is Chinese and provides left-side navigation, filters, list/detail views, pagination, Mission/Task/Gap/Evidence/Defect/Report projections, and controlled Test Case revision append operations.
