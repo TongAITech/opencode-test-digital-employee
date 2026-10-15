@@ -2,10 +2,15 @@
 
 The base R1 snapshot builder derives denominators and counters from durable truth.
 This production builder additionally proves that every Execution considered by
-Mission verification is backed by runtime-owned execution evidence.  Verification
+Mission verification is backed by runtime-owned execution evidence. Verification
 uses only the latest ordinary formal execution for a Case and that latest result
-must be PASS.  Defect-reproduction work remains auditable execution evidence but
+must be PASS. Defect-reproduction work remains auditable execution evidence but
 never contributes to Mission coverage numerators.
+
+"Latest" is defined by the first durable R1 append sequence of the immutable
+Evaluation, never wall-clock timestamps, lexical ids, or projection iteration
+order. This keeps fix-verification ordering deterministic across fast executions,
+process restarts, and replay.
 """
 
 from __future__ import annotations
@@ -25,6 +30,30 @@ class R1FormalMissionEvidenceSnapshotBuilder(R1MissionEvidenceSnapshotBuilder):
     FORMAL_EXECUTION_SOURCE = "runtime://formal-execution"
     NON_VERIFICATION_PURPOSES = {"DEFECT_REPRODUCTION"}
 
+    @staticmethod
+    def _evaluation_first_sequences(
+        truth: TruthRuntime,
+        *,
+        mission_id: str,
+    ) -> Dict[str, int]:
+        sequences: Dict[str, int] = {}
+        for raw in truth.store.iter_raw():
+            if raw.get("event_type") != "RC7_EVALUATION_UPSERTED":
+                continue
+            payload = raw.get("payload")
+            seq = raw.get("seq")
+            if not isinstance(payload, dict) or not isinstance(seq, int):
+                continue
+            if payload.get("mission_id") != mission_id:
+                continue
+            evaluation_id = payload.get("evaluation_id")
+            if not isinstance(evaluation_id, str) or not evaluation_id:
+                continue
+            current = sequences.get(evaluation_id)
+            if current is None or seq < current:
+                sequences[evaluation_id] = seq
+        return sequences
+
     def _execution_truth(
         self,
         truth: TruthRuntime,
@@ -32,9 +61,13 @@ class R1FormalMissionEvidenceSnapshotBuilder(R1MissionEvidenceSnapshotBuilder):
         mission_id: str,
     ) -> Tuple[Dict[str, Dict[str, Any]], List[Dict[str, Any]]]:
         _, basis = super()._execution_truth(truth, mission_id=mission_id)
-        latest_ordinary_by_case: Dict[str, Tuple[Tuple[int, int], Dict[str, Any]]] = {}
+        evaluation_sequences = self._evaluation_first_sequences(
+            truth,
+            mission_id=mission_id,
+        )
+        latest_ordinary_by_case: Dict[str, Tuple[int, Dict[str, Any]]] = {}
 
-        for index, item in enumerate(basis):
+        for item in basis:
             evaluation_id = str(item["evaluation_id"])
             attempt_id = str(item["attempt_id"])
             tc_id = str(item["tc_id"])
@@ -46,6 +79,12 @@ class R1FormalMissionEvidenceSnapshotBuilder(R1MissionEvidenceSnapshotBuilder):
                     "MISSION_EXECUTION_EVALUATION_NOT_DURABLE:%s" % evaluation_id
                 )
             evaluation = evaluations[0]
+            evaluation_seq = evaluation_sequences.get(evaluation_id)
+            if evaluation_seq is None:
+                raise MissionEvidenceBuildError(
+                    "MISSION_EXECUTION_EVALUATION_SEQUENCE_REQUIRED:%s" % evaluation_id
+                )
+
             artifact_rows = truth.query("rc7_artifact", artifact_id=artifact_id)
             if len(artifact_rows) != 1 or artifact_rows[0].get("mission_id") != mission_id:
                 raise MissionEvidenceBuildError(
@@ -116,14 +155,13 @@ class R1FormalMissionEvidenceSnapshotBuilder(R1MissionEvidenceSnapshotBuilder):
                 )
             purpose = dimensions.get("purpose")
             item["purpose"] = purpose
-            item["evaluation_created_at"] = int(evaluation.get("created_at", 0) or 0)
+            item["evaluation_r1_seq"] = evaluation_seq
             if purpose in self.NON_VERIFICATION_PURPOSES:
                 continue
 
-            ordering = (item["evaluation_created_at"], index)
             current = latest_ordinary_by_case.get(tc_id)
-            if current is None or ordering > current[0]:
-                latest_ordinary_by_case[tc_id] = (ordering, item)
+            if current is None or evaluation_seq > current[0]:
+                latest_ordinary_by_case[tc_id] = (evaluation_seq, item)
 
         verified_by_case = {
             tc_id: item
