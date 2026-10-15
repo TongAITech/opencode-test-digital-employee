@@ -40,6 +40,7 @@ jobs:
           bash -n packaging/rc7/QUALIFY-DSH-SCRIPT.sh
           bash -n packaging/rc7/QUALIFY-EXECUTION.sh
           bash -n packaging/rc7/QUALIFY-FINAL.sh
+          bash -n packaging/rc7/QUALIFY-BANK-FINAL.sh
           bash -n packaging/rc7/START-RC7-ADMIN.sh
           grep -q 'rc7_release.code_qualification_strict' packaging/rc7/QUALIFY-DSH-CODE.sh
           grep -q 'rc7_release.test_design_qualification_strict' packaging/rc7/QUALIFY-DSH-TEST-DESIGN.sh
@@ -59,6 +60,13 @@ jobs:
           grep -q 'PFC_RC7_MISSION_ID' packaging/rc7/QUALIFY-FINAL.sh
           grep -q 'PFC_RC7_REAL_MISSION_EVIDENCE' packaging/rc7/QUALIFY-FINAL.sh
           grep -q 'PFC_RC7_DELIVERY_EVIDENCE' packaging/rc7/QUALIFY-FINAL.sh
+          grep -q 'PFC_RC7_R1_PATH' packaging/rc7/QUALIFY-BANK-FINAL.sh
+          grep -q 'PFC_RC7_MISSION_ID' packaging/rc7/QUALIFY-BANK-FINAL.sh
+          grep -q 'PFC_RC7_ENGINEERING_EVIDENCE' packaging/rc7/QUALIFY-BANK-FINAL.sh
+          grep -q 'PFC_RC7_ADMIN_EVIDENCE' packaging/rc7/QUALIFY-BANK-FINAL.sh
+          grep -q 'PFC_RC7_DELIVERY_EVIDENCE' packaging/rc7/QUALIFY-BANK-FINAL.sh
+          grep -q 'PFC_RC7_REQUIRE_FINAL_PASS' packaging/rc7/QUALIFY-BANK-FINAL.sh
+          grep -q 'QUALIFY-FINAL.sh' packaging/rc7/QUALIFY-BANK-FINAL.sh
           grep -q 'rc7_admin' packaging/rc7/START-RC7-ADMIN.sh
       - name: Run RC7 closed-loop core tests
         run: python -m pytest -q tests/test_rc7_*.py
@@ -89,7 +97,7 @@ jobs:
           if ($design -notmatch 'PFC_RC7_CODE_RESULT') { throw 'RC7 Test Design upstream Code result contract missing' }
           $script = Get-Content -Raw 'packaging/rc7/QUALIFY-DSH-SCRIPT.cmd'
           if ($script -notmatch 'rc7_release\.script_qualification_strict') { throw 'RC7 strict Script qualification module invocation missing' }
-          if ($script -notmatch 'rc7-dsh-script-result\.json') { throw 'RC7 Script result contract missing' }
+          if ($script -notmatch 'rc7-dsh-script-result\.json') { throw 'RC7 Script qualification result contract missing' }
           if ($script -notmatch 'PFC_RC7_TEST_DESIGN_RESULT') { throw 'RC7 Script upstream Test Design result contract missing' }
           if ($script -notmatch 'PFC_RC7_SCRIPT_TC_ID') { throw 'RC7 Script TestCase identity contract missing' }
           $execution = Get-Content -Raw 'packaging/rc7/QUALIFY-EXECUTION.cmd'
@@ -105,6 +113,14 @@ jobs:
           if ($final -notmatch 'PFC_RC7_MISSION_ID') { throw 'RC7 final Mission identity contract missing' }
           if ($final -notmatch 'PFC_RC7_REAL_MISSION_EVIDENCE') { throw 'RC7 real Mission evidence contract missing' }
           if ($final -notmatch 'PFC_RC7_DELIVERY_EVIDENCE') { throw 'RC7 delivery evidence contract missing' }
+          $bankFinal = Get-Content -Raw 'packaging/rc7/QUALIFY-BANK-FINAL.cmd'
+          if ($bankFinal -notmatch 'PFC_RC7_R1_PATH') { throw 'RC7 bank final R1 input missing' }
+          if ($bankFinal -notmatch 'PFC_RC7_MISSION_ID') { throw 'RC7 bank final Mission identity missing' }
+          if ($bankFinal -notmatch 'PFC_RC7_ENGINEERING_EVIDENCE') { throw 'RC7 bank final engineering evidence binding missing' }
+          if ($bankFinal -notmatch 'PFC_RC7_ADMIN_EVIDENCE') { throw 'RC7 bank final admin evidence binding missing' }
+          if ($bankFinal -notmatch 'PFC_RC7_DELIVERY_EVIDENCE') { throw 'RC7 bank final delivery evidence binding missing' }
+          if ($bankFinal -notmatch 'PFC_RC7_REQUIRE_FINAL_PASS') { throw 'RC7 bank final fail-closed requirement missing' }
+          if ($bankFinal -notmatch 'QUALIFY-FINAL\.cmd') { throw 'RC7 bank final final-gate delegation missing' }
           $admin = Get-Content -Raw 'packaging/rc7/START-RC7-ADMIN.cmd'
           if ($admin -notmatch 'rc7_admin') { throw 'RC7 admin module invocation missing' }
           if ($admin -notmatch 'PFC_RC7_R1_PATH') { throw 'RC7 admin R1 truth path contract missing' }
