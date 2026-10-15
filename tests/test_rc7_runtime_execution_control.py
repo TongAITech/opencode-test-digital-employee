@@ -27,12 +27,12 @@ def _case():
         "release_id": "RC7-R1-EXEC",
         "requirement_id": "REQ-R1-EXEC",
         "sst_id": "SST-R1-EXEC",
-        "layer": "L3",
+        "layer": "L2",
         "preconditions": [],
-        "steps": [{"order": 1, "action": "execute runtime-owned API test"}],
+        "steps": [{"order": 1, "action": "execute runtime-owned component test"}],
         "expected": "business_code=OK",
         "oracle": {"checks": [{"type": "BUSINESS_RULE", "expected": "OK"}]},
-        "evidence_requirements": ["process", "api-call", "oracle"],
+        "evidence_requirements": ["process", "database-call", "oracle"],
         "target_requirements": ["REQ-R1-EXEC"],
         "test_data_refs": [],
         "oracle_refs": ["oracle://r1-exec-ok"],
@@ -43,7 +43,7 @@ def _case():
 
 def _source(*, process_fail=False):
     tail = "assert False, 'real process failed'" if process_fail else "assert True"
-    return f'''import json\nimport os\n\ndef _emit(row):\n    with open(os.environ["RC6_EXECUTION_MANIFEST"], "a", encoding="utf-8") as handle:\n        handle.write(json.dumps(row, sort_keys=True) + "\\n")\n\ndef test_r1_formal_execution():\n    _emit({{"type":"tool_call","tool_id":"api-runtime","call_ref":"api-call://r1","evidence_ref":"api-evidence://r1"}})\n    _emit({{"type":"actual_result","value":{{"business_code":"OK","origin":"subprocess"}}}})\n    {tail}\n'''
+    return f'''import json\nimport os\n\ndef _emit(row):\n    with open(os.environ["RC6_EXECUTION_MANIFEST"], "a", encoding="utf-8") as handle:\n        handle.write(json.dumps(row, sort_keys=True) + "\\n")\n\ndef test_r1_formal_execution():\n    _emit({{"type":"tool_call","tool_id":"database","call_ref":"database-call://r1","evidence_ref":"database-evidence://r1"}})\n    _emit({{"type":"actual_result","value":{{"business_code":"OK","origin":"subprocess"}}}})\n    {tail}\n'''
 
 
 def _bundle(tmp_path: Path, *, process_fail=False):
@@ -111,16 +111,16 @@ def _prepared():
 
 def _broker():
     broker = ToolCapabilityBroker()
-    broker.discover("api-runtime", "qualification://api-runtime")
-    broker.mark_executable("api-runtime", "executable://api-runtime")
-    broker.register("api-runtime", "registration://api-runtime")
+    broker.discover("database", "qualification://database")
+    broker.mark_executable("database", "executable://database")
+    broker.register("database", "registration://database")
     broker.record_probe(
-        "api-runtime",
+        "database",
         success=True,
-        tool_call_ref="probe://api-runtime",
-        evidence_ref="probe-evidence://api-runtime",
+        tool_call_ref="probe://database",
+        evidence_ref="probe-evidence://database",
     )
-    broker.mark_target_ready("api-runtime", TARGET, "target-ready://api-runtime")
+    broker.mark_target_ready("database", TARGET, "target-ready://database")
     return broker
 
 
