@@ -335,7 +335,6 @@ def test_real_mission_qualification_passes_only_from_r1_proof(tmp_path):
 def test_old_r1_cannot_be_rebound_to_new_source_commit(tmp_path):
     path = _build_r1(tmp_path, identity_commit="b" * 40)
     result = evaluate_real_mission(r1_path=str(path), mission_id=MISSION, source_commit=COMMIT)
-
     assert result["status"] == "HOLD"
     assert "RUNTIME_IDENTITY_CURRENT_COMMIT_NOT_PROVEN" in result["blocking_reasons"]
 
@@ -343,7 +342,6 @@ def test_old_r1_cannot_be_rebound_to_new_source_commit(tmp_path):
 def test_missing_session_rotation_holds_real_mission(tmp_path):
     path = _build_r1(tmp_path, include_session=False)
     result = evaluate_real_mission(r1_path=str(path), mission_id=MISSION, source_commit=COMMIT)
-
     assert result["status"] == "HOLD"
     assert "SESSION_A_TO_B_ROTATION_NOT_PROVEN" in result["blocking_reasons"]
 
@@ -359,6 +357,8 @@ def _delivery_pass():
         "package_local_python_verify": "PASS",
         "package_local_codegraph_verify": "PASS",
         "package_local_codegraph_sha256": "d" * 64,
+        "package_local_browser_verify": "PASS",
+        "package_local_browser_sha256": "e" * 64,
         "package_verify": "PASS",
         "package_entrypoint_verify": "PASS",
         "admin_startup_verify": "PASS",
@@ -370,7 +370,6 @@ def test_base_real_mission_is_diagnostic_not_final_authority(tmp_path):
     real = evaluate_real_mission(r1_path=str(path), mission_id=MISSION, source_commit=COMMIT)
     engineering = {"gate": "ENGINEERING_PASS", "status": "PASS", "source_commit": COMMIT}
     admin = {"gate": "ADMIN_PLATFORM_PASS", "status": "PASS", "source_commit": COMMIT}
-
     final = evaluate_final_qualification(COMMIT, engineering, admin, real, _delivery_pass())
     assert real["status"] == "PASS"
     assert final["status"] == "HOLD"
@@ -383,7 +382,6 @@ def test_strict_real_mission_result_is_consumed_by_final_gate(tmp_path):
     real = evaluate_real_mission_strict(r1_path=str(path), mission_id=MISSION, source_commit=COMMIT)
     engineering = {"gate": "ENGINEERING_PASS", "status": "PASS", "source_commit": COMMIT}
     admin = {"gate": "ADMIN_PLATFORM_PASS", "status": "PASS", "source_commit": COMMIT}
-
     final = evaluate_final_qualification(COMMIT, engineering, admin, real, _delivery_pass())
     assert real["status"] == "PASS"
     assert real["qualification_kind"] == "BANK_REAL_MISSION_STRICT_TASK_RECEIPTS"
