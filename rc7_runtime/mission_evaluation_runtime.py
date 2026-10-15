@@ -16,7 +16,7 @@ from typing import Tuple
 
 from .closed_loop_control import ClosedLoopControlPlane
 from .control_plane import WorkerOutput
-from .mission_evidence_builder import R1MissionEvidenceSnapshotBuilder
+from .mission_formal_evidence_builder import R1FormalMissionEvidenceSnapshotBuilder
 from .mission_sufficiency import MissionSufficiencyClosedLoop
 from .models import Task, TaskStatus
 
@@ -48,7 +48,7 @@ class MissionEvaluationRuntime:
     WORKER_REF = "rc7-runtime-mission-evidence-builder"
 
     def __init__(self, *, evidence_root: str) -> None:
-        self.builder = R1MissionEvidenceSnapshotBuilder(evidence_root=evidence_root)
+        self.builder = R1FormalMissionEvidenceSnapshotBuilder(evidence_root=evidence_root)
         self.gate = MissionSufficiencyClosedLoop()
 
     def run(self, control: ClosedLoopControlPlane) -> MissionEvaluationRuntimeResult:
