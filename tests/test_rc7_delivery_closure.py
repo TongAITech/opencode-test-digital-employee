@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from rc7_release.final_qualification import evaluate_final_qualification
-from rc7_release.package import PACKAGE_NAME, build_package, verify_package
+from rc7_release.package import PACKAGE_LOCAL_CODEGRAPH, PACKAGE_NAME, build_package, verify_package
 
 
 COMMIT = "a" * 40
@@ -74,6 +74,8 @@ def _delivery():
             "package_sha256": "b" * 64,
             "clean_windows_unpack": "PASS",
             "package_local_python_verify": "PASS",
+            "package_local_codegraph_verify": "PASS",
+            "package_local_codegraph_sha256": "d" * 64,
             "package_verify": "PASS",
             "package_entrypoint_verify": "PASS",
             "admin_startup_verify": "PASS",
@@ -83,13 +85,7 @@ def _delivery():
 
 
 def test_final_qualification_holds_without_real_mission_and_delivery():
-    result = evaluate_final_qualification(
-        COMMIT,
-        _gate("ENGINEERING_PASS"),
-        _gate("ADMIN_PLATFORM_PASS"),
-        None,
-        None,
-    )
+    result = evaluate_final_qualification(COMMIT, _gate("ENGINEERING_PASS"), _gate("ADMIN_PLATFORM_PASS"), None, None)
     assert result["status"] == "HOLD"
     assert result["gates"]["ENGINEERING_PASS"] == "PASS"
     assert result["gates"]["ADMIN_PLATFORM_PASS"] == "PASS"
@@ -100,13 +96,7 @@ def test_final_qualification_holds_without_real_mission_and_delivery():
 def test_final_qualification_rejects_stale_commit_evidence():
     mission = _real_mission()
     mission["source_commit"] = "c" * 40
-    result = evaluate_final_qualification(
-        COMMIT,
-        _gate("ENGINEERING_PASS"),
-        _gate("ADMIN_PLATFORM_PASS"),
-        mission,
-        _delivery(),
-    )
+    result = evaluate_final_qualification(COMMIT, _gate("ENGINEERING_PASS"), _gate("ADMIN_PLATFORM_PASS"), mission, _delivery())
     assert result["status"] == "HOLD"
     assert "REAL_MISSION_PASS:SOURCE_COMMIT_MISMATCH" in result["blocking_reasons"]
 
@@ -114,13 +104,7 @@ def test_final_qualification_rejects_stale_commit_evidence():
 def test_final_qualification_rejects_legacy_non_strict_real_mission():
     mission = _real_mission()
     mission["qualification_kind"] = "BANK_REAL_MISSION"
-    result = evaluate_final_qualification(
-        COMMIT,
-        _gate("ENGINEERING_PASS"),
-        _gate("ADMIN_PLATFORM_PASS"),
-        mission,
-        _delivery(),
-    )
+    result = evaluate_final_qualification(COMMIT, _gate("ENGINEERING_PASS"), _gate("ADMIN_PLATFORM_PASS"), mission, _delivery())
     assert result["status"] == "HOLD"
     assert "REAL_MISSION_PASS:REALITY_KIND_INVALID" in result["blocking_reasons"]
 
@@ -129,13 +113,7 @@ def test_final_qualification_rejects_unproven_task_scoped_worker():
     mission = _real_mission()
     mission["task_scoped_worker_proof"]["TASK-EXEC-001"]["proven"] = False
     mission["task_scoped_worker_proof"]["TASK-EXEC-001"]["tool_receipts"] = []
-    result = evaluate_final_qualification(
-        COMMIT,
-        _gate("ENGINEERING_PASS"),
-        _gate("ADMIN_PLATFORM_PASS"),
-        mission,
-        _delivery(),
-    )
+    result = evaluate_final_qualification(COMMIT, _gate("ENGINEERING_PASS"), _gate("ADMIN_PLATFORM_PASS"), mission, _delivery())
     assert result["status"] == "HOLD"
     assert "REAL_MISSION_PASS:TASK_SCOPED_WORKER_NOT_PROVEN:TASK-EXEC-001" in result["blocking_reasons"]
     assert "REAL_MISSION_PASS:TASK_TOOL_RECEIPT_MISSING:TASK-EXEC-001" in result["blocking_reasons"]
@@ -147,13 +125,7 @@ def test_final_qualification_requires_real_session_rotation_and_gap_repair():
     mission["session_continuity"]["rotation_observed"] = False
     mission["gap_repair"]["artifact_after_revision"] = 1
     mission["gap_repair"]["gap_closed_by_independent_evaluation"] = False
-    result = evaluate_final_qualification(
-        COMMIT,
-        _gate("ENGINEERING_PASS"),
-        _gate("ADMIN_PLATFORM_PASS"),
-        mission,
-        _delivery(),
-    )
+    result = evaluate_final_qualification(COMMIT, _gate("ENGINEERING_PASS"), _gate("ADMIN_PLATFORM_PASS"), mission, _delivery())
     assert result["status"] == "HOLD"
     assert "REAL_MISSION_PASS:SESSION_ROTATION_NOT_PROVEN" in result["blocking_reasons"]
     assert "REAL_MISSION_PASS:ROTATION_EVENT_NOT_PROVEN" in result["blocking_reasons"]
@@ -164,25 +136,23 @@ def test_final_qualification_requires_real_session_rotation_and_gap_repair():
 def test_final_qualification_rejects_delivery_without_package_local_python():
     delivery = _delivery()
     delivery.pop("package_local_python_verify")
-    result = evaluate_final_qualification(
-        COMMIT,
-        _gate("ENGINEERING_PASS"),
-        _gate("ADMIN_PLATFORM_PASS"),
-        _real_mission(),
-        delivery,
-    )
+    result = evaluate_final_qualification(COMMIT, _gate("ENGINEERING_PASS"), _gate("ADMIN_PLATFORM_PASS"), _real_mission(), delivery)
     assert result["status"] == "HOLD"
     assert "DELIVERY_PASS:PACKAGE_LOCAL_PYTHON_VERIFY_NOT_PASS" in result["blocking_reasons"]
 
 
+def test_final_qualification_rejects_delivery_without_package_local_codegraph():
+    delivery = _delivery()
+    delivery.pop("package_local_codegraph_verify")
+    delivery.pop("package_local_codegraph_sha256")
+    result = evaluate_final_qualification(COMMIT, _gate("ENGINEERING_PASS"), _gate("ADMIN_PLATFORM_PASS"), _real_mission(), delivery)
+    assert result["status"] == "HOLD"
+    assert "DELIVERY_PASS:PACKAGE_LOCAL_CODEGRAPH_VERIFY_NOT_PASS" in result["blocking_reasons"]
+    assert "DELIVERY_PASS:PACKAGE_LOCAL_CODEGRAPH_SHA256_INVALID" in result["blocking_reasons"]
+
+
 def test_final_qualification_passes_only_with_all_current_reality_evidence():
-    result = evaluate_final_qualification(
-        COMMIT,
-        _gate("ENGINEERING_PASS"),
-        _gate("ADMIN_PLATFORM_PASS"),
-        _real_mission(),
-        _delivery(),
-    )
+    result = evaluate_final_qualification(COMMIT, _gate("ENGINEERING_PASS"), _gate("ADMIN_PLATFORM_PASS"), _real_mission(), _delivery())
     assert result["status"] == "PASS"
     assert set(result["gates"].values()) == {"PASS"}
     assert result["blocking_reasons"] == []
@@ -207,6 +177,8 @@ def test_rc7_turnkey_package_preserves_launcher_layout_and_never_forges_bank_pas
     assert manifest["version_policy"] == "CAPABILITY_BASED_NO_EXACT_VERSION_PIN"
     assert manifest["package_local_python"] == "workspace-template/runtime/python/python.exe"
     assert manifest["package_local_python_bundled"] is (package_root / "workspace-template" / "runtime" / "python" / "python.exe").is_file()
+    assert manifest["package_local_codegraph"]["path"] == PACKAGE_LOCAL_CODEGRAPH.as_posix()
+    assert manifest["package_local_codegraph"]["bundled"] is (package_root / PACKAGE_LOCAL_CODEGRAPH).is_file()
     assert manifest["real_mission_pass"] is False
     assert manifest["delivery_pass"] is False
     assert manifest["bank_field_pass"] is False
