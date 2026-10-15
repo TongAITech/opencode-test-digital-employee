@@ -150,10 +150,17 @@ class ExecutionDiagnosisCoordinator:
 
     @staticmethod
     def _real_action_executed(record: ExecutionRecord) -> bool:
-        refs = tuple(record.tool_call_refs or ())
+        refs = tuple(str(ref) for ref in (record.tool_call_refs or ()) if isinstance(ref, str) and ref)
         if str(record.layer).upper() == "L3":
-            return any(str(ref).startswith("api-runtime://APIREC-") for ref in refs)
-        return bool(refs)
+            return any(ref.startswith("api-runtime://APIREC-") for ref in refs)
+        non_business_prefixes = (
+            "process://",
+            "runner-process://",
+            "stdout://",
+            "stderr://",
+            "validation-manifest://",
+        )
+        return any(not ref.startswith(non_business_prefixes) for ref in refs)
 
     def build_context(
         self,
