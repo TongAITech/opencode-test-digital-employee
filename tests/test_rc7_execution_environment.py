@@ -4,9 +4,11 @@ from pathlib import Path
 
 import pytest
 
+from rc6_runtime.diagnosis import CorrelationScope
 from rc6_runtime.truth import TruthRuntime
 from rc7_runtime.closed_loop_control import ClosedLoopControlPlane
 from rc7_runtime.execution_environment import (
+    DiagnosisTrustProbeResult,
     ExecutionEnvironmentAdapter,
     ExecutionEnvironmentAdmissionService,
     ExecutionEnvironmentError,
@@ -93,6 +95,39 @@ class LocalAdapter(ExecutionEnvironmentAdapter):
         return {"SECRET_SESSION_TOKEN": "must-never-be-persisted"}
 
 
+class TrustedAdapter(LocalAdapter):
+    def diagnosis_trust(self, *, target_id, layer):
+        return DiagnosisTrustProbeResult(
+            auth_verified=True,
+            auth_evidence_ref="evidence://trust/auth",
+            route_verified=True,
+            route_evidence_ref="evidence://trust/route",
+            environment_verified=True,
+            environment_evidence_ref="evidence://trust/environment",
+            dependency_verified=True,
+            dependency_evidence_ref="evidence://trust/dependency",
+            remote_integration=True,
+            correlation=CorrelationScope(
+                applications=("cfg-data",),
+                window_start=100,
+                window_end=200,
+                request_id="REQ-TRUST-1",
+            ),
+        )
+
+    def query_cat(self, scope, context):
+        return {
+            "tool_call_ref": "cat-call://%s" % scope.request_id,
+            "evidence_ref": "cat-evidence://%s" % scope.request_id,
+            "signals": {},
+        }
+
+
+class BrokenTrustAdapter(LocalAdapter):
+    def diagnosis_trust(self, *, target_id, layer):
+        return DiagnosisTrustProbeResult(auth_verified=True, auth_evidence_ref=None)
+
+
 def test_l2_environment_admission_probes_database_and_persists_non_secret_truth(tmp_path: Path):
     truth, control = _control(tmp_path)
     adapter = LocalAdapter(tmp_path)
@@ -107,6 +142,7 @@ def test_l2_environment_admission_probes_database_and_persists_non_secret_truth(
     )
 
     assert admission.required_tools == ("database",)
+    assert admission.diagnostic_tools == ()
     assert adapter.probed == [("database", TARGET, "L2")]
     probe = admission.probe_results[0]
     assert probe.success is True
@@ -127,13 +163,11 @@ def test_l2_environment_admission_probes_database_and_persists_non_secret_truth(
     assert "SECRET_SESSION_TOKEN" not in persisted
     assert "must-never-be-persisted" not in (tmp_path / "r1.jsonl").read_text(encoding="utf-8")
 
-    # The runtime execution worker binds itself later; admission already proves
-    # every pre-worker stage for the exact target.
     admission.broker.bind_worker("database", "worker-1", visible=True, permitted=True)
     assert admission.broker.admit("worker-1", ["database"], TARGET).ready is True
 
 
-def test_l3_environment_admission_requires_api_runtime_not_child_manifest(tmp_path: Path):
+def test_l3_environment_admission_requires_parent_api_runtime_and_cat(tmp_path: Path):
     _, control = _control(tmp_path)
     adapter = LocalAdapter(tmp_path)
     admission = ExecutionEnvironmentAdmissionService(
@@ -146,7 +180,57 @@ def test_l3_environment_admission_requires_api_runtime_not_child_manifest(tmp_pa
         layer="L3",
     )
     assert admission.required_tools == ("api-runtime",)
-    assert adapter.probed == [("api-runtime", TARGET, "L3")]
+    assert admission.diagnostic_tools == ("cat",)
+    assert adapter.probed == [
+        ("api-runtime", TARGET, "L3"),
+        ("cat", TARGET, "L3"),
+    ]
+
+
+def test_evidence_backed_trust_is_persisted_and_compiled_for_diagnosis(tmp_path: Path):
+    truth, control = _control(tmp_path)
+    admission = ExecutionEnvironmentAdmissionService(
+        evidence_root=str(tmp_path / "evidence")
+    ).admit(
+        control,
+        TASK,
+        adapter=TrustedAdapter(tmp_path),
+        target_id=TARGET,
+        layer="L3",
+    )
+    trust = admission.diagnosis_trust
+    assert trust.auth_verified is True
+    assert trust.route_verified is True
+    assert trust.tool_verified is True
+    assert trust.environment_verified is True
+    assert trust.dependency_verified is True
+    assert trust.remote_integration is True
+    assert trust.correlation is not None
+    rows = [
+        truth.query("rc7_evidence", evidence_id=evidence_id)[0]
+        for evidence_id in admission.evidence_ids
+    ]
+    trust_rows = [row for row in rows if row["kind"] == "EXECUTION_DIAGNOSIS_TRUST_EVIDENCE"]
+    assert len(trust_rows) == 4
+    persisted = Path(admission.content_ref[len("file://"):]).read_text(encoding="utf-8")
+    assert "REQ-TRUST-1" not in persisted
+
+
+def test_trust_boolean_without_evidence_is_rejected(tmp_path: Path):
+    _, control = _control(tmp_path)
+    with pytest.raises(
+        ExecutionEnvironmentError,
+        match="EXECUTION_ENVIRONMENT_TRUST_EVIDENCE_REQUIRED:auth",
+    ):
+        ExecutionEnvironmentAdmissionService(
+            evidence_root=str(tmp_path / "evidence")
+        ).admit(
+            control,
+            TASK,
+            adapter=BrokenTrustAdapter(tmp_path),
+            target_id=TARGET,
+            layer="L2",
+        )
 
 
 def test_successful_probe_without_real_call_evidence_is_rejected(tmp_path: Path):
