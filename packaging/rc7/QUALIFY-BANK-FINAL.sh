@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+: "${PFC_RC7_R1_PATH:?PFC_RC7_R1_PATH is required}"
+: "${PFC_RC7_MISSION_ID:?PFC_RC7_MISSION_ID is required}"
+
+if [[ ! -f "$PFC_RC7_R1_PATH" ]]; then
+  printf '%s\n' '{"status":"HOLD","reason":"R1_EVENT_STREAM_NOT_FOUND"}' >&2
+  exit 22
+fi
+
+QUAL_DIR="${PFC_RC7_QUALIFICATION_DIR:-}"
+if [[ -z "$QUAL_DIR" && -d "$ROOT/qualification" ]]; then
+  QUAL_DIR="$ROOT/qualification"
+fi
+if [[ -z "$QUAL_DIR" && -d "$ROOT/../qualification" ]]; then
+  QUAL_DIR="$(cd "$ROOT/../qualification" && pwd)"
+fi
+if [[ -z "$QUAL_DIR" ]]; then
+  printf '%s\n' '{"status":"HOLD","reason":"DELIVERY_QUALIFICATION_DIRECTORY_NOT_FOUND"}' >&2
+  exit 23
+fi
+
+export PFC_RC7_ENGINEERING_EVIDENCE="${PFC_RC7_ENGINEERING_EVIDENCE:-$QUAL_DIR/engineering.json}"
+export PFC_RC7_ADMIN_EVIDENCE="${PFC_RC7_ADMIN_EVIDENCE:-$QUAL_DIR/admin.json}"
+export PFC_RC7_DELIVERY_EVIDENCE="${PFC_RC7_DELIVERY_EVIDENCE:-$QUAL_DIR/delivery.json}"
+
+for path in "$PFC_RC7_ENGINEERING_EVIDENCE" "$PFC_RC7_ADMIN_EVIDENCE" "$PFC_RC7_DELIVERY_EVIDENCE"; do
+  if [[ ! -f "$path" ]]; then
+    printf '{"status":"HOLD","reason":"REQUIRED_PRE_FIELD_EVIDENCE_MISSING","path":"%s"}\n' "$path" >&2
+    exit 24
+  fi
+done
+
+export PFC_AITEST_STATE_DIR="${PFC_AITEST_STATE_DIR:-$ROOT/runtime-state/rc7-bank-final}"
+export PFC_RC7_REQUIRE_FINAL_PASS=1
+
+printf 'RC7 BANK FINAL qualification\n'
+printf 'Package root: %s\n' "$ROOT"
+printf 'Qualification evidence: %s\n' "$QUAL_DIR"
+printf 'R1 Event Stream: %s\n' "$PFC_RC7_R1_PATH"
+printf 'Mission: %s\n' "$PFC_RC7_MISSION_ID"
+
+exec "$SCRIPT_DIR/QUALIFY-FINAL.sh"
