@@ -1,0 +1,128 @@
+name: RC7 Real Full-Chain Demo Mission
+
+on:
+  push:
+    branches:
+      - work/rc7-real-demo-mission
+  workflow_dispatch:
+
+jobs:
+  windows-real-demo:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install demo runtime dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pytest python-docx
+          if ($LASTEXITCODE -ne 0) { throw 'Demo Python dependencies failed' }
+
+      - name: Download verified stable CodeGraph Windows binary
+        shell: pwsh
+        run: |
+          $headers = @{ 'User-Agent'='rc7-real-demo'; 'Accept'='application/vnd.github+json' }
+          $rel = Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/repos/codegraph-ai/CodeGraph/releases/latest'
+          if ($rel.draft -or $rel.prerelease) { throw 'CodeGraph latest is not stable' }
+          $asset = $rel.assets | Where-Object { $_.name -eq 'codegraph-server-win32-x64.exe' } | Select-Object -First 1
+          if (-not $asset) { throw 'CodeGraph Windows binary missing' }
+          $expected = [string]$asset.digest
+          if (-not $expected.StartsWith('sha256:')) { throw 'CodeGraph digest missing' }
+          $target = Join-Path $env:RUNNER_TEMP 'codegraph-server-win32-x64.exe'
+          Invoke-WebRequest -Headers $headers -Uri $asset.browser_download_url -OutFile $target
+          $actual = (Get-FileHash -Algorithm SHA256 $target).Hash.ToLowerInvariant()
+          if ($actual -ne $expected.Substring(7).ToLowerInvariant()) { throw 'CodeGraph digest mismatch' }
+          "RC7_DEMO_CODEGRAPH=$target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "CODEGRAPH=$($rel.tag_name) SHA256=$actual"
+
+      - name: Run real governed RC7 mission
+        shell: pwsh
+        run: |
+          python demo/real_mission/run_demo.py --out demo-output --codegraph "$env:RC7_DEMO_CODEGRAPH"
+          if ($LASTEXITCODE -ne 0) { throw 'Real RC7 demo mission failed' }
+          Get-Content demo-output/demo-summary.json
+
+      - name: Start R1-backed admin and report servers
+        shell: pwsh
+        run: |
+          $r1 = (Resolve-Path 'demo-output/state/rc7-r1.jsonl').Path
+          $adminOut = Join-Path $env:RUNNER_TEMP 'rc7-admin.out.log'
+          $adminErr = Join-Path $env:RUNNER_TEMP 'rc7-admin.err.log'
+          $reportOut = Join-Path $env:RUNNER_TEMP 'rc7-report.out.log'
+          $reportErr = Join-Path $env:RUNNER_TEMP 'rc7-report.err.log'
+          $admin = Start-Process -FilePath python -ArgumentList @('-m','rc7_admin','--r1',$r1,'--host','127.0.0.1','--port','8127') -PassThru -RedirectStandardOutput $adminOut -RedirectStandardError $adminErr
+          $report = Start-Process -FilePath python -ArgumentList @('-m','http.server','8128','--bind','127.0.0.1','--directory',(Resolve-Path 'demo-output/report').Path) -PassThru -RedirectStandardOutput $reportOut -RedirectStandardError $reportErr
+          "RC7_DEMO_ADMIN_PID=$($admin.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RC7_DEMO_REPORT_PID=$($report.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $ok = $false
+          for ($i=0; $i -lt 40; $i++) {
+            try {
+              $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8127/api/health' -TimeoutSec 2
+              if ($h.status -eq 'UP' -and $h.truth -eq 'R1_EVENT_STREAM') { $ok = $true; break }
+            } catch { Start-Sleep -Milliseconds 500 }
+          }
+          if (-not $ok) {
+            if (Test-Path $adminOut) { Get-Content $adminOut }
+            if (Test-Path $adminErr) { Get-Content $adminErr }
+            throw 'RC7 admin did not become healthy'
+          }
+          Invoke-WebRequest -Uri 'http://127.0.0.1:8128/rc7-mission-report.html' -UseBasicParsing | Out-Null
+
+      - name: Install Playwright browser for screenshot proof
+        shell: pwsh
+        run: |
+          $captureRoot = Join-Path $env:RUNNER_TEMP 'rc7-demo-capture'
+          New-Item -ItemType Directory -Force $captureRoot | Out-Null
+          npm init -y --prefix $captureRoot | Out-Null
+          npm install --prefix $captureRoot --no-audit --no-fund playwright@latest
+          if ($LASTEXITCODE -ne 0) { throw 'Playwright install failed' }
+          $env:NODE_PATH = Join-Path $captureRoot 'node_modules'
+          npx --prefix $captureRoot playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw 'Chromium install failed' }
+          "NODE_PATH=$env:NODE_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Capture real admin and report screenshots
+        shell: pwsh
+        env:
+          RC7_DEMO_ADMIN_URL: http://127.0.0.1:8127
+          RC7_DEMO_REPORT_URL: http://127.0.0.1:8128/rc7-mission-report.html
+          RC7_DEMO_SCREENSHOT_DIR: demo-output/screenshots
+        run: |
+          node demo/real_mission/capture.js
+          if ($LASTEXITCODE -ne 0) { throw 'Screenshot capture failed' }
+          $shots = Get-ChildItem demo-output/screenshots -Filter '*.png'
+          if ($shots.Count -lt 10) { throw "Expected 10 screenshots, got $($shots.Count)" }
+          $shots | Select-Object Name,Length | Format-Table -AutoSize
+
+      - name: Verify demo truth and evidence bundle
+        shell: pwsh
+        run: |
+          $s = Get-Content demo-output/demo-summary.json | ConvertFrom-Json
+          if ($s.status -ne 'PASS') { throw 'Demo summary not PASS' }
+          if ($s.gate -ne 'RC7_REAL_DEMO_RUNTIME_PASS') { throw 'Wrong demo gate' }
+          if ($s.mission_state -ne 'CONVERGED') { throw 'Mission did not converge' }
+          if ($s.defect_state -ne 'CLOSED') { throw 'Defect lifecycle not closed' }
+          if ($s.ai_worker_model_invocation -ne 'HOLD_NO_DSH_MODEL_PROVIDER_IN_GITHUB_CI') { throw 'AI model proof must remain HOLD' }
+          if (-not (Test-Path demo-output/report/rc7-mission-report.html)) { throw 'HTML report missing' }
+          if (-not (Test-Path demo-output/state/rc7-r1.jsonl)) { throw 'R1 missing' }
+          if (-not (Test-Path demo-output/evidence/codegraph-pr-context.txt)) { throw 'CodeGraph evidence missing' }
+          if (-not (Test-Path demo-output/evidence/regression-full-suite.txt)) { throw 'Regression evidence missing' }
+          Write-Host 'RC7_REAL_DEMO_EVIDENCE_PASS'
+
+      - name: Upload real demo evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: RC7-REAL-DEMO-${{ github.sha }}
+          path: demo-output
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
