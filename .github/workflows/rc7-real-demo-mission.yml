@@ -47,6 +47,7 @@ jobs:
       - name: Run real governed RC7 mission
         shell: pwsh
         run: |
+          $env:PYTHONPATH = (Resolve-Path '.').Path
           python demo/real_mission/run_demo.py --out demo-output --codegraph "$env:RC7_DEMO_CODEGRAPH"
           if ($LASTEXITCODE -ne 0) { throw 'Real RC7 demo mission failed' }
           Get-Content demo-output/demo-summary.json
