@@ -8,6 +8,7 @@ import pytest
 
 from rc6_runtime.truth import TruthRuntime
 from rc7_runtime.closed_loop_control import ClosedLoopControlPlane
+from rc7_runtime.control_plane import WorkerOutput
 from rc7_runtime.defect_loop import DefectClosedLoop, DefectRecord, DefectStatus, RootCauseHypothesis
 from rc7_runtime.defect_resolution_control import (
     DefectResolutionControl,
@@ -142,22 +143,40 @@ def _evidence(truth, evidence_id: str, kind: str, subjects):
     return item
 
 
-def _execution(tmp_path: Path, truth, *, artifact_id: str, attempt_id: str, tc_id: str, passed: bool):
-    evidence_id = "EVD-" + artifact_id
-    evidence = _evidence(truth, evidence_id, "RUNTIME_EXECUTION_RECORD", [attempt_id, tc_id])
+def _owned_execution(
+    tmp_path: Path,
+    control: ClosedLoopControlPlane,
+    *,
+    artifact_id: str,
+    attempt_id: str,
+    tc_id: str,
+    passed: bool,
+    task_type: str,
+):
+    ready = [
+        task for task in control.scheduler.ready_tasks(MISSION)
+        if task.node == "EXECUTION" and task.task_type == task_type and GAP_ID in task.gap_refs
+    ]
+    assert len(ready) == 1
+    task = ready[0]
+    worker = "runtime-%s" % attempt_id
+    leased = control.lease_next(worker_ref=worker, capabilities=("test_execution",))
+    assert leased is not None and leased.task_id == task.task_id
+    control.start(task.task_id, worker_ref=worker)
+
     record = {
         "attempt_id": attempt_id,
         "tc_id": tc_id,
         "case_version": 1,
         "target_id": "TARGET-1",
         "layer": "L2",
-        "worker_id": "runtime-execution",
+        "worker_id": worker,
         "lease_id": "LEASE-" + attempt_id,
         "status": "PASS" if passed else "FAIL",
         "integrity_passed": True,
         "actual_result": {"business_code": "OK" if passed else "BAD"},
         "tool_call_refs": ["database-call://%s" % attempt_id],
-        "evidence_refs": [evidence_id],
+        "evidence_refs": [],
         "assertion_ref": "oracle-assertion://%s" % attempt_id,
         "assertion_passed": bool(passed),
         "reason": None if passed else "ORACLE_ASSERTION_FAILED",
@@ -166,16 +185,69 @@ def _execution(tmp_path: Path, truth, *, artifact_id: str, attempt_id: str, tc_i
     encoded = (json.dumps({"record": record}, sort_keys=True, indent=2) + "\n").encode("utf-8")
     path.write_bytes(encoded)
     digest = hashlib.sha256(encoded).hexdigest()
+    evidence_id = "EVD-" + artifact_id
+    evidence = Evidence(
+        evidence_id=evidence_id,
+        mission_id=MISSION,
+        kind="RUNTIME_EXECUTION_RECORD",
+        source_ref="runtime://formal-execution",
+        content_ref="file://" + str(path),
+        subject_refs=[task.task_id, attempt_id, tc_id],
+        content_hash="sha256:" + digest,
+    )
+    # The canonical record points at the same durable evidence that the Artifact
+    # and Evaluation use. Re-write once before submission so the immutable file
+    # truth and the in-memory execution contract agree.
+    record["evidence_refs"] = [evidence_id]
+    encoded = (json.dumps({"record": record}, sort_keys=True, indent=2) + "\n").encode("utf-8")
+    path.write_bytes(encoded)
+    digest = hashlib.sha256(encoded).hexdigest()
+    evidence = Evidence(
+        evidence_id=evidence_id,
+        mission_id=MISSION,
+        kind="RUNTIME_EXECUTION_RECORD",
+        source_ref="runtime://formal-execution",
+        content_ref="file://" + str(path),
+        subject_refs=[task.task_id, attempt_id, tc_id],
+        content_hash="sha256:" + digest,
+    )
     artifact = Artifact(
         artifact_id=artifact_id,
         mission_id=MISSION,
         artifact_type="EXECUTION_CONCLUSION",
-        producer_task_id="TASK-EXEC-%s" % attempt_id,
+        producer_task_id=task.task_id,
         content_ref="file://" + str(path),
         evidence_refs=[evidence_id],
         content_hash="sha256:" + digest,
     )
-    append_entity(truth, artifact, release_id=RELEASE)
+    control.submit_worker_output(
+        WorkerOutput(
+            task_id=task.task_id,
+            worker_ref=worker,
+            artifacts=(artifact,),
+            evidence=(evidence,),
+        )
+    )
+    evaluation = Evaluation(
+        evaluation_id="EVAL-%s" % attempt_id,
+        mission_id=MISSION,
+        node="EXECUTION",
+        artifact_refs=[artifact_id],
+        result=EvaluationResult.PASS,
+        evaluator_ref="runtime-defect-validation-gate",
+        dimensions={
+            "test_result": "PASS" if passed else "FAIL",
+            "execution_status": "PASS" if passed else "FAIL",
+            "integrity_passed": True,
+            "assertion_passed": bool(passed),
+            "failure_class": None if passed else "PRODUCT",
+            "conclusive": True,
+            "attempt_id": attempt_id,
+        },
+        evidence_refs=[evidence_id],
+    )
+    accepted = control.accept_evaluation(task.task_id, evaluation=evaluation, gaps=())
+    assert accepted.state == TaskStatus.PASS
     return artifact
 
 
@@ -208,27 +280,40 @@ def _confirm_and_detect_fix(tmp_path: Path, truth, control):
         fix_evidence_id=fix_evidence.evidence_id,
     )
     assert detected.state == DefectStatus.FIX_DETECTED
+    verification_tasks = [
+        task for task in control.scheduler.ready_tasks(MISSION)
+        if task.task_type == resolution.FIX_VERIFICATION_TASK_TYPE
+    ]
+    assert len(verification_tasks) == 1
     return resolution, fix_revision
 
 
 def test_defect_closes_only_after_original_case_verification_and_distinct_regression(tmp_path: Path):
     truth, control = _setup(tmp_path)
     resolution, fix_revision = _confirm_and_detect_fix(tmp_path, truth, control)
-    verification = _execution(
+    verification = _owned_execution(
         tmp_path,
-        truth,
+        control,
         artifact_id="ART-VERIFY-1",
         attempt_id="ATT-VERIFY-1",
         tc_id=ORIGINAL_TC,
         passed=True,
+        task_type=resolution.FIX_VERIFICATION_TASK_TYPE,
     )
-    regression = _execution(
+    fixed = resolution.accept_fix_verification(
+        control,
+        DEFECT_ID,
+        verification_artifact_id=verification.artifact_id,
+    )
+    assert fixed.state == DefectStatus.REGRESSION_TESTING
+    regression = _owned_execution(
         tmp_path,
-        truth,
+        control,
         artifact_id="ART-REGRESSION-1",
         attempt_id="ATT-REGRESSION-1",
         tc_id="TC-IMPACT-REGRESSION",
         passed=True,
+        task_type=resolution.IMPACT_REGRESSION_TASK_TYPE,
     )
 
     result = resolution.close_after_verification(
@@ -279,13 +364,14 @@ def test_fix_revision_cannot_be_self_reported_without_matching_r1_evidence(tmp_p
 def test_failed_original_case_fix_verification_reopens_defect_and_keeps_product_gap_open(tmp_path: Path):
     truth, control = _setup(tmp_path)
     resolution, _ = _confirm_and_detect_fix(tmp_path, truth, control)
-    failed = _execution(
+    failed = _owned_execution(
         tmp_path,
-        truth,
+        control,
         artifact_id="ART-VERIFY-FAIL",
         attempt_id="ATT-VERIFY-FAIL",
         tc_id=ORIGINAL_TC,
         passed=False,
+        task_type=resolution.FIX_VERIFICATION_TASK_TYPE,
     )
 
     defect = resolution.reopen_after_failed_verification(
@@ -298,3 +384,8 @@ def test_failed_original_case_fix_verification_reopens_defect_and_keeps_product_
     assert control.scheduler.task(TASK_ID).state == TaskStatus.OUTPUT_PRODUCED
     durable = truth.query("rc7_defect", defect_id=DEFECT_ID)[0]
     assert durable["state"] == "REOPENED"
+    regression_tasks = [
+        row for row in truth.query("rc7_task", mission_id=MISSION)
+        if row.get("task_type") == resolution.IMPACT_REGRESSION_TASK_TYPE
+    ]
+    assert regression_tasks == []
