@@ -16,7 +16,7 @@ def _real_mission():
     payload = _gate("REAL_MISSION_PASS")
     payload.update(
         {
-            "qualification_kind": "BANK_REAL_MISSION",
+            "qualification_kind": "BANK_REAL_MISSION_STRICT_TASK_RECEIPTS",
             "mission_id": "M-BANK-RC7-QUALIFICATION",
             "mission_state": "CONVERGED",
             "test_sufficiency": "SUFFICIENT",
@@ -27,6 +27,24 @@ def _real_mission():
                 "real_dsh": True,
                 "tool_receipts": ["TOOL-RECEIPT-001"],
                 "director_did_domain_work": False,
+            },
+            "task_scoped_worker_proof": {
+                "TASK-REQ-001": {
+                    "lease_owner": "worker-requirement",
+                    "dsh_runtime_workers": ["worker-requirement"],
+                    "owner_dsh_runtime_proven": True,
+                    "tool_receipts": ["tool://requirement/1"],
+                    "task_scope": "task:TASK-REQ-001",
+                    "proven": True,
+                },
+                "TASK-EXEC-001": {
+                    "lease_owner": "worker-execution",
+                    "dsh_runtime_workers": ["worker-execution"],
+                    "owner_dsh_runtime_proven": True,
+                    "tool_receipts": ["tool://execution/1"],
+                    "task_scope": "task:TASK-EXEC-001",
+                    "proven": True,
+                },
             },
             "session_continuity": {
                 "session_ids": ["SESSION-A", "SESSION-B"],
@@ -55,6 +73,7 @@ def _delivery():
             "package_name": PACKAGE_NAME + "-aaaaaaaaaaaa.zip",
             "package_sha256": "b" * 64,
             "clean_windows_unpack": "PASS",
+            "package_local_python_verify": "PASS",
             "package_verify": "PASS",
             "package_entrypoint_verify": "PASS",
             "admin_startup_verify": "PASS",
@@ -92,6 +111,36 @@ def test_final_qualification_rejects_stale_commit_evidence():
     assert "REAL_MISSION_PASS:SOURCE_COMMIT_MISMATCH" in result["blocking_reasons"]
 
 
+def test_final_qualification_rejects_legacy_non_strict_real_mission():
+    mission = _real_mission()
+    mission["qualification_kind"] = "BANK_REAL_MISSION"
+    result = evaluate_final_qualification(
+        COMMIT,
+        _gate("ENGINEERING_PASS"),
+        _gate("ADMIN_PLATFORM_PASS"),
+        mission,
+        _delivery(),
+    )
+    assert result["status"] == "HOLD"
+    assert "REAL_MISSION_PASS:REALITY_KIND_INVALID" in result["blocking_reasons"]
+
+
+def test_final_qualification_rejects_unproven_task_scoped_worker():
+    mission = _real_mission()
+    mission["task_scoped_worker_proof"]["TASK-EXEC-001"]["proven"] = False
+    mission["task_scoped_worker_proof"]["TASK-EXEC-001"]["tool_receipts"] = []
+    result = evaluate_final_qualification(
+        COMMIT,
+        _gate("ENGINEERING_PASS"),
+        _gate("ADMIN_PLATFORM_PASS"),
+        mission,
+        _delivery(),
+    )
+    assert result["status"] == "HOLD"
+    assert "REAL_MISSION_PASS:TASK_SCOPED_WORKER_NOT_PROVEN:TASK-EXEC-001" in result["blocking_reasons"]
+    assert "REAL_MISSION_PASS:TASK_TOOL_RECEIPT_MISSING:TASK-EXEC-001" in result["blocking_reasons"]
+
+
 def test_final_qualification_requires_real_session_rotation_and_gap_repair():
     mission = _real_mission()
     mission["session_continuity"]["session_ids"] = ["SESSION-A"]
@@ -110,6 +159,20 @@ def test_final_qualification_requires_real_session_rotation_and_gap_repair():
     assert "REAL_MISSION_PASS:ROTATION_EVENT_NOT_PROVEN" in result["blocking_reasons"]
     assert "REAL_MISSION_PASS:ARTIFACT_REVISION_DID_NOT_ADVANCE" in result["blocking_reasons"]
     assert "REAL_MISSION_PASS:GAP_NOT_CLOSED_BY_EVALUATION" in result["blocking_reasons"]
+
+
+def test_final_qualification_rejects_delivery_without_package_local_python():
+    delivery = _delivery()
+    delivery.pop("package_local_python_verify")
+    result = evaluate_final_qualification(
+        COMMIT,
+        _gate("ENGINEERING_PASS"),
+        _gate("ADMIN_PLATFORM_PASS"),
+        _real_mission(),
+        delivery,
+    )
+    assert result["status"] == "HOLD"
+    assert "DELIVERY_PASS:PACKAGE_LOCAL_PYTHON_VERIFY_NOT_PASS" in result["blocking_reasons"]
 
 
 def test_final_qualification_passes_only_with_all_current_reality_evidence():
@@ -142,6 +205,8 @@ def test_rc7_turnkey_package_preserves_launcher_layout_and_never_forges_bank_pas
     assert manifest["source_commit"] == COMMIT
     assert manifest["durable_truth"] == "R1_EVENT_STREAM"
     assert manifest["version_policy"] == "CAPABILITY_BASED_NO_EXACT_VERSION_PIN"
+    assert manifest["package_local_python"] == "workspace-template/runtime/python/python.exe"
+    assert manifest["package_local_python_bundled"] is (package_root / "workspace-template" / "runtime" / "python" / "python.exe").is_file()
     assert manifest["real_mission_pass"] is False
     assert manifest["delivery_pass"] is False
     assert manifest["bank_field_pass"] is False
