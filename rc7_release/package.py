@@ -20,6 +20,7 @@ PACKAGE_NAME = "PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10"
 MANIFEST_SCHEMA = "pfc.aitest.rc7.package.v1"
 SOURCE_DIRS = ("rc6_runtime", "rc6_release", "rc7_runtime", "rc7_release", "rc7_admin")
 LAUNCHER_DIR = Path("packaging") / "rc7"
+RC6_COORDINATOR_DIR = Path("packaging") / "rc6" / ".dsh" / "skills" / "pfc-full-chain-test"
 RUNTIME_GENERATED_DIRS = {"runtime-state", "state", "__pycache__"}
 RUNTIME_GENERATED_SUFFIXES = {".pyc", ".pyo"}
 SECRET_MARKERS = (
@@ -33,7 +34,7 @@ SECRET_MARKERS = (
     "apikey",
     "api_key",
 )
-ENTRYPOINTS = (
+LAUNCHER_NAMES = (
     "QUALIFY-DSH-REQUIREMENT.cmd",
     "QUALIFY-DSH-REQUIREMENT.sh",
     "QUALIFY-DSH-CODE.cmd",
@@ -49,6 +50,7 @@ ENTRYPOINTS = (
     "START-RC7-ADMIN.cmd",
     "START-RC7-ADMIN.sh",
 )
+ENTRYPOINTS = tuple("packaging/rc7/%s" % name for name in LAUNCHER_NAMES)
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
@@ -178,8 +180,12 @@ def build_package(
     launcher_root = repo / LAUNCHER_DIR
     if not launcher_root.is_dir():
         raise RuntimeError("MISSING_RC7_LAUNCHERS")
-    _copy_tree(launcher_root, package_root)
+    _copy_tree(launcher_root, package_root / LAUNCHER_DIR)
 
+    coordinator = repo / RC6_COORDINATOR_DIR
+    if not coordinator.is_dir():
+        raise RuntimeError("MISSING_RC6_COORDINATOR_SKILL")
+    _copy_tree(coordinator, package_root / ".dsh" / "skills" / "pfc-full-chain-test")
     materialize_professional_skills(package_root)
 
     for relative in (Path("docs") / "RC7_ACCEPTANCE_BASELINE.md", Path("runtime-lock.json")):
@@ -199,8 +205,8 @@ def build_package(
     )
     write_checksums(package_root)
 
-    for name in ENTRYPOINTS:
-        path = package_root / name
+    for relative in ENTRYPOINTS:
+        path = package_root / relative
         if path.suffix.lower() == ".sh" and path.exists():
             path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
