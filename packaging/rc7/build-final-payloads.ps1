@@ -126,9 +126,9 @@ New-Item -ItemType Directory -Force "$mvnProj\src\test\java\rc7" | Out-Null
 <project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>rc7</groupId><artifactId>seed</artifactId><version>1</version><properties><maven.compiler.source>8</maven.compiler.source><maven.compiler.target>8</maven.compiler.target></properties><dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.11.4</version><scope>test</scope></dependency></dependencies><build><plugins><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.2</version></plugin><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-failsafe-plugin</artifactId><version>3.5.2</version></plugin><plugin><groupId>org.jacoco</groupId><artifactId>jacoco-maven-plugin</artifactId><version>0.8.12</version></plugin></plugins></build></project>
 '@ | Set-Content -Encoding utf8 "$mvnProj\pom.xml"
 'package rc7; import org.junit.jupiter.api.Test; import static org.junit.jupiter.api.Assertions.*; class SeedTest { @Test void ok(){ assertEquals(2,1+1); } }' | Set-Content -Encoding utf8 "$mvnProj\src\test\java\rc7\SeedTest.java"
-mvn -q -Dmaven.repo.local="$m2" test
+mvn -q -f "$mvnProj\pom.xml" -Dmaven.repo.local="$m2" test
 if ($LASTEXITCODE -ne 0) { throw 'Maven JUnit seed failed' }
-mvn -q -Dmaven.repo.local="$m2" dependency:go-offline
+mvn -q -f "$mvnProj\pom.xml" -Dmaven.repo.local="$m2" dependency:go-offline
 if ($LASTEXITCODE -ne 0) { throw 'Maven offline bootstrap seed failed' }
 "PFC_RC7_BUILD_M2_DIR=$m2" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
