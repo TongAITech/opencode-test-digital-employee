@@ -192,6 +192,8 @@ class DefectQualificationControl:
             task = planner.plan(gap, priority=30)
             if task is not None:
                 repair_task_ids.append(task.task_id)
+        if repair_task_ids:
+            control.scheduler.refresh_ready(control.mission_id)
 
         task_after = control.scheduler.task(defect_task_id)
         if task_after.state != TaskStatus.OUTPUT_PRODUCED:
