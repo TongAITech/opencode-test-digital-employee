@@ -4,6 +4,7 @@ import rc6_runtime.agent_runtime  # noqa: F401
 from rc6_runtime.truth import TruthRuntime
 from rc7_release.final_qualification import evaluate_final_qualification
 from rc7_release.real_mission_qualification import evaluate_real_mission
+from rc7_release.real_mission_qualification_strict import evaluate_real_mission_strict
 from rc7_runtime.models import (
     Artifact,
     Evaluation,
@@ -93,7 +94,7 @@ def _build_r1(tmp_path, *, include_session=True, identity_commit=COMMIT):
     truth = TruthRuntime(path)
 
     # Real runtime ordering: a Mission exists in a non-terminal state while its
-    # evidence is produced.  CONVERGED is persisted only after the durable
+    # evidence is produced. CONVERGED is persisted only after the durable
     # Mission Evaluation PASS exists in R1.
     append_entity(
         truth,
@@ -350,24 +351,42 @@ def test_missing_session_rotation_holds_real_mission(tmp_path):
     assert "SESSION_A_TO_B_ROTATION_NOT_PROVEN" in result["blocking_reasons"]
 
 
-def test_real_mission_result_is_consumed_by_final_gate(tmp_path):
-    path = _build_r1(tmp_path)
-    real = evaluate_real_mission(r1_path=str(path), mission_id=MISSION, source_commit=COMMIT)
-    engineering = {"gate": "ENGINEERING_PASS", "status": "PASS", "source_commit": COMMIT}
-    admin = {"gate": "ADMIN_PLATFORM_PASS", "status": "PASS", "source_commit": COMMIT}
-    delivery = {
+def _delivery_pass():
+    return {
         "gate": "DELIVERY_PASS",
         "status": "PASS",
         "source_commit": COMMIT,
         "package_name": "PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10",
         "package_sha256": "c" * 64,
         "clean_windows_unpack": "PASS",
+        "package_local_python_verify": "PASS",
         "package_verify": "PASS",
         "package_entrypoint_verify": "PASS",
         "admin_startup_verify": "PASS",
     }
 
-    final = evaluate_final_qualification(COMMIT, engineering, admin, real, delivery)
+
+def test_base_real_mission_is_diagnostic_not_final_authority(tmp_path):
+    path = _build_r1(tmp_path)
+    real = evaluate_real_mission(r1_path=str(path), mission_id=MISSION, source_commit=COMMIT)
+    engineering = {"gate": "ENGINEERING_PASS", "status": "PASS", "source_commit": COMMIT}
+    admin = {"gate": "ADMIN_PLATFORM_PASS", "status": "PASS", "source_commit": COMMIT}
+
+    final = evaluate_final_qualification(COMMIT, engineering, admin, real, _delivery_pass())
     assert real["status"] == "PASS"
+    assert final["status"] == "HOLD"
+    assert "REAL_MISSION_PASS:REALITY_KIND_INVALID" in final["blocking_reasons"]
+    assert "REAL_MISSION_PASS:TASK_SCOPED_WORKER_PROOF_MISSING" in final["blocking_reasons"]
+
+
+def test_strict_real_mission_result_is_consumed_by_final_gate(tmp_path):
+    path = _build_r1(tmp_path)
+    real = evaluate_real_mission_strict(r1_path=str(path), mission_id=MISSION, source_commit=COMMIT)
+    engineering = {"gate": "ENGINEERING_PASS", "status": "PASS", "source_commit": COMMIT}
+    admin = {"gate": "ADMIN_PLATFORM_PASS", "status": "PASS", "source_commit": COMMIT}
+
+    final = evaluate_final_qualification(COMMIT, engineering, admin, real, _delivery_pass())
+    assert real["status"] == "PASS"
+    assert real["qualification_kind"] == "BANK_REAL_MISSION_STRICT_TASK_RECEIPTS"
     assert final["status"] == "PASS"
     assert set(final["gates"].values()) == {"PASS"}
