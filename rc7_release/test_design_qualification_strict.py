@@ -12,12 +12,17 @@ from . import test_design_qualification as legacy
 
 
 _CASE_CONTRACT_GUIDANCE = (
-    " Every semantic_payload.cases item MUST also be downstream execution-contract-ready: "
-    "include requirement_id, preconditions(list), steps(non-empty ordered list), expected(non-empty), "
-    "evidence_requirements(non-empty string list), test_data_refs(list, may be empty only when no data setup is needed), "
-    "oracle_refs(non-empty immutable oracle reference list), cleanup_policy(object), and runner_type exactly PYTEST or JUNIT. "
-    "Do not invent these fields from convenience; derive them from the Test Obligation, Requirement/Code parents, real route/data reality, "
-    "and the case Oracle. Missing execution semantics are a Test Design gap, not something the Script Worker may fill in later."
+    " Every semantic_payload.cases item MUST also be downstream execution-contract-ready. "
+    "preconditions MUST be a list of structured objects {id,type,requirement}, with type one of "
+    "ENVIRONMENT/AUTH/BUSINESS_STATE/DATA/DEPENDENCY. test_data MUST be an object with initial_state and input_data lists; "
+    "each data requirement MUST contain id, non-empty selectors, and allowed_strategies chosen from "
+    "REUSE_EXISTING/DERIVE/API_CREATE/UI_CREATE/DB_CREATE/FIXTURE/MOCK. test_data.cleanup_policy MUST contain mode "
+    "NONE/ROLLBACK/DELETE/RESTORE and MUST equal top-level cleanup_policy (one cleanup truth). Also include requirement_id, "
+    "steps(non-empty ordered list), expected(non-empty), evidence_requirements(non-empty string list), test_data_refs(list; "
+    "non-empty when structured data requirements exist), oracle_refs(non-empty immutable oracle reference list), and runner_type "
+    "exactly PYTEST or JUNIT. Do not invent these fields from convenience; derive them from Test Obligations, Requirement/Code "
+    "parents, route/data reality and the case Oracle. Missing preparation/execution semantics are a Test Design gap, not something "
+    "Script or Execution workers may fill in later."
 )
 
 
@@ -45,16 +50,18 @@ def _strict_reviewer_guidance(*, requirement_path: str, code_path: str, repo_pat
         "required": True,
         "fields": [
             "requirement_id",
-            "preconditions",
+            "preconditions[{id,type,requirement}]",
+            "test_data{initial_state,input_data,cleanup_policy}",
+            "data requirements{id,selectors,allowed_strategies}",
             "steps",
             "expected",
             "evidence_requirements",
             "test_data_refs",
             "oracle_refs",
-            "cleanup_policy",
+            "cleanup_policy == test_data.cleanup_policy",
             "runner_type=PYTEST|JUNIT",
         ],
-        "rule": "Return GAPS if any case leaves downstream Script Runtime to invent execution semantics.",
+        "rule": "Return GAPS if any case leaves downstream Script/Preparation/Execution Runtime to invent semantics or data construction.",
     }
     return json.dumps(data, ensure_ascii=False, sort_keys=True)
 
@@ -62,11 +69,9 @@ def _strict_reviewer_guidance(*, requirement_path: str, code_path: str, repo_pat
 def run_strict_test_design_qualification(**kwargs):
     original_objective = legacy._design_objective
     original_reviewer = legacy._reviewer_guidance
-    # The strict helpers intentionally call the original functions captured here
-    # rather than recursively calling patched globals.
+
     def objective(**values):
-        base = original_objective(**values)
-        return base + _CASE_CONTRACT_GUIDANCE
+        return original_objective(**values) + _CASE_CONTRACT_GUIDANCE
 
     def reviewer(**values):
         raw = original_reviewer(**values)
@@ -77,11 +82,14 @@ def run_strict_test_design_qualification(**kwargs):
         data["execution_contract_case_review"] = {
             "required": True,
             "fields": [
-                "requirement_id", "preconditions", "steps", "expected",
-                "evidence_requirements", "test_data_refs", "oracle_refs",
-                "cleanup_policy", "runner_type=PYTEST|JUNIT",
+                "requirement_id",
+                "preconditions[{id,type,requirement}]",
+                "test_data{initial_state,input_data,cleanup_policy}",
+                "data requirements{id,selectors,allowed_strategies}",
+                "steps", "expected", "evidence_requirements", "test_data_refs", "oracle_refs",
+                "cleanup_policy == test_data.cleanup_policy", "runner_type=PYTEST|JUNIT",
             ],
-            "rule": "Return GAPS if any case leaves downstream Script Runtime to invent execution semantics.",
+            "rule": "Return GAPS if any case leaves downstream Script/Preparation/Execution Runtime to invent semantics or data construction.",
         }
         return json.dumps(data, ensure_ascii=False, sort_keys=True)
 
