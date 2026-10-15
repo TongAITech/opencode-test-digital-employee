@@ -35,7 +35,11 @@ from rc6_runtime.execution import ExecutionRecord
 from rc6_runtime.preparation import PreparedAttempt
 
 from .authority import RC7AuthorityRuntime
-from .execution_recovery import ExecutionRecoveryPlanner, RecoveryWorkPlan
+from .execution_recovery import (
+    ExecutionRecoveryPlanner,
+    RecoveryPlanningError,
+    RecoveryWorkPlan,
+)
 from .oracle_runtime import DeterministicOracleRuntime
 from .runtime_execution import VerifiedScriptExecutionBundle
 
@@ -124,6 +128,12 @@ class ExecutionDiagnosisCoordinator:
         elif context.http_status in {408, 425, 429, 502, 503, 504}:
             failure_class = "TRANSIENT"
             reason_parts.append("HTTP_TRANSIENT_STATUS")
+        elif "runnerprocessfailed:124" in exception:
+            failure_class = "TRANSIENT"
+            reason_parts.append("RUNNER_PROCESS_TIMEOUT")
+        elif "runnerprocessfailed:" in exception:
+            failure_class = "SCRIPT"
+            reason_parts.append("RUNNER_PROCESS_NONZERO_EXIT")
         elif any(token in exception for token in ("importerror", "modulenotfound", "syntaxerror")):
             failure_class = "SCRIPT"
             reason_parts.append("SCRIPT_LOAD_EXCEPTION")
@@ -153,7 +163,7 @@ class ExecutionDiagnosisCoordinator:
             reason_parts.append("OWNERSHIP_NOT_PROVEN")
         return {
             "failure_class": failure_class,
-            "classifier_ref": "rc7-runtime-deterministic-failure-classifier/v2",
+            "classifier_ref": "rc7-runtime-deterministic-failure-classifier/v3",
             "rationale": ",".join(reason_parts),
             "evidence_refs": [],
         }
@@ -295,7 +305,7 @@ class ExecutionDiagnosisCoordinator:
                 worker.worker_id,
                 lease.lease_id,
             )
-        except (DiagnosisContractError, RuntimeError) as exc:
+        except (DiagnosisContractError, RecoveryPlanningError) as exc:
             return self._finish(
                 context,
                 None,
