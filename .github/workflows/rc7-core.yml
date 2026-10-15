@@ -43,6 +43,7 @@ jobs:
           bash -n packaging/rc7/QUALIFY-BANK-FINAL.sh
           bash -n packaging/rc7/START-RC7-ADMIN.sh
           grep -q 'rc7_release.code_qualification_strict' packaging/rc7/QUALIFY-DSH-CODE.sh
+          grep -q 'workspace-template/runtime/code-intelligence/codegraph' packaging/rc7/QUALIFY-DSH-CODE.sh
           grep -q 'rc7_release.test_design_qualification_strict' packaging/rc7/QUALIFY-DSH-TEST-DESIGN.sh
           grep -q 'PFC_RC7_REQUIREMENT_RESULT' packaging/rc7/QUALIFY-DSH-TEST-DESIGN.sh
           grep -q 'PFC_RC7_CODE_RESULT' packaging/rc7/QUALIFY-DSH-TEST-DESIGN.sh
@@ -90,9 +91,10 @@ jobs:
           if ($code -notmatch 'rc7_release\.code_qualification_strict') { throw 'RC7 strict Code qualification module invocation missing' }
           if ($code -notmatch 'rc7-dsh-code-result\.json') { throw 'RC7 Code qualification result contract missing' }
           if ($code -notmatch 'PFC_RC7_CODEGRAPH_QUERY_ARGS_JSON') { throw 'RC7 CodeGraph query contract missing' }
+          if ($code -notmatch 'workspace-template\\runtime\\code-intelligence\\codegraph') { throw 'RC7 package-local CodeGraph fallback missing' }
           $design = Get-Content -Raw 'packaging/rc7/QUALIFY-DSH-TEST-DESIGN.cmd'
           if ($design -notmatch 'rc7_release\.test_design_qualification_strict') { throw 'RC7 strict Test Design qualification module invocation missing' }
-          if ($design -notmatch 'rc7-dsh-test-design-result\.json') { throw 'RC7 Test Design result contract missing' }
+          if ($design -notmatch 'rc7-dsh-test-design-result\.json') { throw 'RC7 Test Design qualification result contract missing' }
           if ($design -notmatch 'PFC_RC7_REQUIREMENT_RESULT') { throw 'RC7 Test Design upstream Requirement result contract missing' }
           if ($design -notmatch 'PFC_RC7_CODE_RESULT') { throw 'RC7 Test Design upstream Code result contract missing' }
           $script = Get-Content -Raw 'packaging/rc7/QUALIFY-DSH-SCRIPT.cmd'
@@ -136,12 +138,39 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.8'
+      - name: Resolve latest stable CodeGraph Windows payload
+        shell: pwsh
+        run: |
+          $headers = @{ 'User-Agent' = 'rc7-turnkey-builder'; 'Accept' = 'application/vnd.github+json' }
+          $release = Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/repos/codegraph-ai/CodeGraph/releases/latest'
+          if ($release.draft -or $release.prerelease) { throw 'Latest CodeGraph release is not stable' }
+          $asset = $release.assets | Where-Object { $_.name -eq 'codegraph-server-win32-x64.exe' } | Select-Object -First 1
+          if (-not $asset) { throw 'CodeGraph Windows x64 release asset missing' }
+          $expected = [string]$asset.digest
+          if (-not $expected.StartsWith('sha256:')) { throw 'CodeGraph release asset digest missing' }
+          $expected = $expected.Substring(7).ToLowerInvariant()
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\rc7-runtime-payloads" | Out-Null
+          $target = "$env:RUNNER_TEMP\rc7-runtime-payloads\codegraph-server-win32-x64.exe"
+          Invoke-WebRequest -Headers $headers -Uri $asset.browser_download_url -OutFile $target
+          $actual = (Get-FileHash -Algorithm SHA256 $target).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "CodeGraph digest mismatch expected=$expected actual=$actual" }
+          "PFC_RC7_BUILD_CODEGRAPH_BIN=$target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PFC_RC7_BUILD_CODEGRAPH_VERSION=$($release.tag_name)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PFC_RC7_BUILD_CODEGRAPH_SHA256=$expected" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Build immutable RC7 turnkey candidate
         shell: pwsh
         run: python -m rc7_release.package build --repo-root . --output dist --source-commit $env:GITHUB_SHA
       - name: Verify built RC7 package
         shell: pwsh
-        run: python -m rc7_release.package verify --package-root dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10
+        run: |
+          python -m rc7_release.package verify --package-root dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10
+          $manifest = Get-Content 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10/PACKAGE_MANIFEST.json' | ConvertFrom-Json
+          if (-not $manifest.package_local_codegraph.bundled) { throw 'Package-local CodeGraph was not bundled' }
+          if (-not $manifest.package_local_codegraph.sha256) { throw 'Package-local CodeGraph digest missing' }
+          if (-not $manifest.package_local_codegraph.resolved_version) { throw 'Package-local CodeGraph provenance version missing' }
+          $codegraph = 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10/workspace-template/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe'
+          if (-not (Test-Path $codegraph)) { throw 'Package-local CodeGraph binary missing' }
+          if ((Get-FileHash -Algorithm SHA256 $codegraph).Hash.ToLowerInvariant() -ne $manifest.package_local_codegraph.sha256) { throw 'Package-local CodeGraph manifest hash mismatch' }
       - name: Create current-head engineering and admin evidence
         shell: pwsh
         run: |
@@ -177,6 +206,7 @@ jobs:
           $delivery = Get-Content 'dist/qualification/delivery.json' | ConvertFrom-Json
           if ($delivery.status -ne 'PASS') { throw 'RC7 delivery qualification did not PASS' }
           if ($delivery.clean_windows_unpack -ne 'PASS') { throw 'Clean Windows unpack not proven' }
+          if ($delivery.package_local_python_verify -ne 'PASS') { throw 'Package-local Python not proven' }
           if ($delivery.package_verify -ne 'PASS') { throw 'Package-local verify not proven' }
           if ($delivery.package_entrypoint_verify -ne 'PASS') { throw 'Package final entrypoint not proven' }
           if ($delivery.admin_startup_verify -ne 'PASS') { throw 'Package admin startup not proven' }
