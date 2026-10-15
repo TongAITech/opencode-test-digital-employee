@@ -271,7 +271,10 @@ def test_real_parent_proxy_call_can_reach_durable_l3_pass(tmp_path: Path):
     evaluation = truth.query("rc7_evaluation", evaluation_id=task.evaluation_id)[0]
     assert evaluation["result"] == "PASS"
     evidence = truth.query("rc7_evidence", mission_id="MISSION-CONTROLLED-L3")
-    receipt_rows = [row for row in evidence if row.get("content_ref", "").find("/api-runtime/") >= 0]
+    receipt_rows = [
+        row for row in evidence
+        if "/api-runtime/" in str(row.get("content_ref", "")).replace("\\", "/")
+    ]
     assert receipt_rows
     assert all(Path(row["content_ref"][len("file://"):]).is_file() for row in receipt_rows)
 
