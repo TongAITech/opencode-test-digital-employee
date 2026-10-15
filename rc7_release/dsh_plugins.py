@@ -15,6 +15,8 @@ REQUIRED = (
     "dsh-context",
     "dsh-plugin-bridge",
     "@nanmicoder/dsh-agent-teams",
+)
+DIAGNOSTIC_OPTIONAL = (
     "@perrylink/dsh-plugin-doctor",
 )
 OPTIONAL_DISABLED = (
@@ -71,15 +73,27 @@ def prepare_env(home: Path) -> Dict[str, str]:
 def install(home: Path, profile: str, dry_run: bool = False) -> Dict[str, object]:
     vendor = home / "workspace-template" / "runtime" / "dsh-plugins"
     dsh = shutil.which("dsh", path=prepare_env(home).get("PATH"))
-    discovered = {}
-    for package in REQUIRED + OPTIONAL_DISABLED:
+    discovered: Dict[str, Dict[str, object]] = {}
+    for package in REQUIRED + DIAGNOSTIC_OPTIONAL + OPTIONAL_DISABLED:
         p = package_path(vendor, package)
-        discovered[package] = {"path": str(p), "bundled": (p / "package.json").is_file()}
+        discovered[package] = {
+            "path": str(p),
+            "bundled": (p / "package.json").is_file(),
+            "tier": "P0_MISSION" if package in REQUIRED else ("DIAGNOSTIC" if package in DIAGNOSTIC_OPTIONAL else "OPTIONAL_DISABLED"),
+        }
     missing = [name for name in REQUIRED if not discovered[name]["bundled"]]
     if missing:
         return {"status": "FAIL", "reason": "REQUIRED_DSH_PLUGIN_PAYLOAD_MISSING", "missing": missing, "plugins": discovered}
     if dry_run:
-        return {"status": "PASS", "mode": "DRY_RUN", "dsh": dsh, "plugins": discovered, "optional_default": "DISABLED"}
+        return {
+            "status": "PASS",
+            "mode": "DRY_RUN",
+            "dsh": dsh,
+            "plugins": discovered,
+            "optional_default": "DISABLED",
+            "mission_required": list(REQUIRED),
+            "diagnostic_optional": list(DIAGNOSTIC_OPTIONAL),
+        }
     if not dsh:
         return {"status": "HOLD", "reason": "BANK_DSH_HOST_NOT_FOUND", "plugins": discovered, "field_binding_required": True}
 
@@ -90,7 +104,7 @@ def install(home: Path, profile: str, dry_run: bool = False) -> Dict[str, object
 
     installs = []
     for package in REQUIRED:
-        p = Path(discovered[package]["path"])
+        p = Path(str(discovered[package]["path"]))
         spec = "link:" + str(p)
         code, out = run([dsh, "plugin", "--profile", profile, "add", spec], env)
         accepted = code == 0 or "already" in out.lower() or "exist" in out.lower()
@@ -98,12 +112,22 @@ def install(home: Path, profile: str, dry_run: bool = False) -> Dict[str, object
         if not accepted:
             return {"status": "FAIL", "reason": "DSH_PLUGIN_INSTALL_FAILED", "dsh_version": version_out.strip(), "installs": installs}
 
+    diagnostic = []
+    for package in DIAGNOSTIC_OPTIONAL:
+        if not discovered[package]["bundled"]:
+            continue
+        p = Path(str(discovered[package]["path"]))
+        spec = "link:" + str(p)
+        code, out = run([dsh, "plugin", "--profile", profile, "add", spec], env)
+        diagnostic.append({"package": package, "spec": spec, "exit_code": code, "accepted": code == 0, "output_tail": out[-1000:]})
+
     code, dump = run([dsh, "--profile", profile, "--dump-config"], env)
     return {
         "status": "PASS" if code == 0 else "FAIL",
         "dsh_version": version_out.strip(),
         "profile": profile,
         "installs": installs,
+        "diagnostic_installs": diagnostic,
         "config_probe_exit_code": code,
         "config_probe_tail": dump[-4000:],
         "optional_default": "DISABLED",
