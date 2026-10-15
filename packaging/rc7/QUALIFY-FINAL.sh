@@ -32,12 +32,12 @@ export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 REAL_MISSION_EVIDENCE="${PFC_RC7_REAL_MISSION_EVIDENCE:-}"
 if [[ -z "$REAL_MISSION_EVIDENCE" && -n "${PFC_RC7_R1_PATH:-}" && -n "${PFC_RC7_MISSION_ID:-}" ]]; then
   REAL_MISSION_EVIDENCE="$STATE/rc7-real-mission-result.json"
-  "$PYTHON_BIN" -m rc7_release.real_mission_qualification \
+  "$PYTHON_BIN" -m rc7_release.real_mission_qualification_strict \
     --r1 "$PFC_RC7_R1_PATH" \
     --mission-id "$PFC_RC7_MISSION_ID" \
     --source-commit "$SOURCE_COMMIT" \
     --output "$REAL_MISSION_EVIDENCE"
-  printf 'RC7 real Mission qualification evidence: %s\n' "$REAL_MISSION_EVIDENCE" >&2
+  printf 'RC7 strict real Mission qualification evidence: %s\n' "$REAL_MISSION_EVIDENCE" >&2
 fi
 
 ARGS=(
