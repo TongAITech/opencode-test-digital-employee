@@ -241,6 +241,13 @@ def _append_design_truth(tmp_path: Path, truth: TruthRuntime):
                     "risk": "CRITICAL",
                     "required": True,
                 },
+                {
+                    "obligation_id": "OBL-PRODUCT-REGRESSION",
+                    "kind": "BUSINESS_RULE",
+                    "layer": "L3",
+                    "risk": "HIGH",
+                    "required": True,
+                },
             ],
             "cases": [
                 {
@@ -250,7 +257,14 @@ def _append_design_truth(tmp_path: Path, truth: TruthRuntime):
                         {"subject_id": "OBL-PRODUCT-RULE", "evidence_ref": "evidence://design-rule"},
                         {"subject_id": "OBL-PRODUCT-CODE", "evidence_ref": "evidence://design-code"},
                     ],
-                }
+                },
+                {
+                    "tc_id": REGRESSION_TC,
+                    "risk": "HIGH",
+                    "coverage_links": [
+                        {"subject_id": "OBL-PRODUCT-REGRESSION", "evidence_ref": "evidence://design-regression"},
+                    ],
+                },
             ],
         },
     }
@@ -319,7 +333,8 @@ def _append_resolution_evidence(truth: TruthRuntime, *, evidence_id: str, kind: 
 
 
 def test_product_fail_reproduces_closes_after_fix_and_converges_with_historical_fail(tmp_path: Path):
-    truth = TruthRuntime(tmp_path / "r1.jsonl")
+    r1_path = tmp_path / "r1.jsonl"
+    truth = TruthRuntime(r1_path)
     control = ClosedLoopControlPlane.bootstrap(
         truth,
         Mission(
@@ -535,6 +550,26 @@ def test_product_fail_reproduces_closes_after_fix_and_converges_with_historical_
     assert mission.release_recommendation == "RECOMMENDED"
     assert mission.mission_state == "CONVERGED"
 
+    snapshot_row = truth.query("rc7_artifact", artifact_id=mission.snapshot_artifact_id)[0]
+    snapshot_path = Path(snapshot_row["content_ref"][len("file://"):])
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    assert snapshot["critical_requirement_refs"] == ["OBL-PRODUCT-REGRESSION", "OBL-PRODUCT-RULE"]
+    assert snapshot["verified_requirement_refs"] == ["OBL-PRODUCT-REGRESSION", "OBL-PRODUCT-RULE"]
+    assert snapshot["critical_obligation_refs"] == [
+        "OBL-PRODUCT-CODE",
+        "OBL-PRODUCT-REGRESSION",
+        "OBL-PRODUCT-RULE",
+    ]
+    assert snapshot["verified_obligation_refs"] == [
+        "OBL-PRODUCT-CODE",
+        "OBL-PRODUCT-REGRESSION",
+        "OBL-PRODUCT-RULE",
+    ]
+    assert snapshot["critical_branch_refs"] == ["OBL-PRODUCT-CODE"]
+    assert snapshot["verified_branch_refs"] == ["OBL-PRODUCT-CODE"]
+    assert snapshot["critical_execution_refs"] == [ORIGINAL_TC, REGRESSION_TC]
+    assert snapshot["conclusive_execution_refs"] == [ORIGINAL_TC, REGRESSION_TC]
+
     report = RC7FinalReportBuilder(truth).build(
         MISSION,
         str(tmp_path / "final-report"),
@@ -547,7 +582,7 @@ def test_product_fail_reproduces_closes_after_fix_and_converges_with_historical_
         row.get("test_result") == "FAIL" and row.get("failure_class") == "PRODUCT"
         for row in report["execution_results"]
     )
-    assert any(row.get("test_result") == "PASS" for row in report["execution_results"])
+    assert sum(1 for row in report["execution_results"] if row.get("test_result") == "PASS") >= 2
     assert RC7FinalReportBuilder(truth).reconcile(report)["status"] == "PASS"
 
     # R1 truth retains all attempts: original product failure, reproduction,
@@ -565,3 +600,10 @@ def test_product_fail_reproduces_closes_after_fix_and_converges_with_historical_
     ]
     assert "FAIL" in normal_results
     assert "PASS" in normal_results
+
+    replay = TruthRuntime(r1_path)
+    recovered = ClosedLoopControlPlane(replay, RELEASE, MISSION)
+    assert recovered.snapshot()["mission_state"] == "CONVERGED"
+    replay_report = RC7FinalReportBuilder(replay).snapshot(MISSION)
+    assert replay_report["truth_digest"] == report["truth_digest"]
+    assert replay_report["execution_results"] == report["execution_results"]
