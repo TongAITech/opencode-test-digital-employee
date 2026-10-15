@@ -15,7 +15,9 @@ REQUIRED_GATES = (
     "DELIVERY_PASS",
 )
 ALLOWED_SUFFICIENCY = {"SUFFICIENT", "SUFFICIENT_WITH_RESIDUAL_RISK"}
-ALLOWED_REALITY_KINDS = {"BANK_REAL_MISSION", "REAL_RUNTIME"}
+# Final PASS is intentionally narrower than the base real-Mission diagnostic.
+# The release gate accepts only the strict R1-derived task-scoped worker proof.
+ALLOWED_REALITY_KINDS = {"BANK_REAL_MISSION_STRICT_TASK_RECEIPTS"}
 ALLOWED_DEFECT_DISPOSITIONS = {"VERIFIED", "NOT_TRIGGERED_NO_TRUSTED_FAIL"}
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
@@ -85,6 +87,23 @@ def _validate_real_mission(report: Optional[Dict[str, Any]], source_commit: str)
         if worker.get("director_did_domain_work") is not False:
             errors.append("%s:DIRECTOR_DOMAIN_WORK_NOT_EXCLUDED" % gate)
 
+    task_proof = report.get("task_scoped_worker_proof")
+    if not isinstance(task_proof, dict) or not task_proof:
+        errors.append("%s:TASK_SCOPED_WORKER_PROOF_MISSING" % gate)
+    else:
+        for task_id, proof in sorted(task_proof.items()):
+            if not isinstance(task_id, str) or not task_id.strip() or not isinstance(proof, dict):
+                errors.append("%s:TASK_SCOPED_WORKER_PROOF_INVALID" % gate)
+                continue
+            if proof.get("proven") is not True:
+                errors.append("%s:TASK_SCOPED_WORKER_NOT_PROVEN:%s" % (gate, task_id))
+            if not isinstance(proof.get("lease_owner"), str) or not proof.get("lease_owner", "").strip():
+                errors.append("%s:TASK_LEASE_OWNER_MISSING:%s" % (gate, task_id))
+            if proof.get("owner_dsh_runtime_proven") is not True:
+                errors.append("%s:TASK_DSH_OWNER_NOT_PROVEN:%s" % (gate, task_id))
+            if not _nonempty_list(proof.get("tool_receipts")):
+                errors.append("%s:TASK_TOOL_RECEIPT_MISSING:%s" % (gate, task_id))
+
     session = report.get("session_continuity")
     if not isinstance(session, dict):
         errors.append("%s:SESSION_CONTINUITY_MISSING" % gate)
@@ -132,7 +151,13 @@ def _validate_delivery(report: Optional[Dict[str, Any]], source_commit: str) -> 
     digest = report.get("package_sha256")
     if not isinstance(digest, str) or not re.match(r"^[0-9a-fA-F]{64}$", digest):
         errors.append("%s:PACKAGE_SHA256_INVALID" % gate)
-    for key in ("clean_windows_unpack", "package_verify", "package_entrypoint_verify", "admin_startup_verify"):
+    for key in (
+        "clean_windows_unpack",
+        "package_local_python_verify",
+        "package_verify",
+        "package_entrypoint_verify",
+        "admin_startup_verify",
+    ):
         if report.get(key) != "PASS":
             errors.append("%s:%s_NOT_PASS" % (gate, key.upper()))
     return errors
