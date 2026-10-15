@@ -43,7 +43,7 @@ def _case():
         "layer": "L2",
         "preconditions": [],
         "steps": [{"order": 1, "action": "execute defect-qualifying behavior"}],
-        "expected": {"business_code": "OK"},
+        "expected": "business_code equals OK",
         "oracle": {
             "checks": [
                 {
@@ -146,178 +146,149 @@ def _control(tmp_path: Path):
             mission_id=MISSION,
             node="EXECUTION",
             task_type="EXECUTE",
-            objective="original trusted product fail",
+            objective="produce a trustworthy product failure",
             required_capabilities=["test_execution"],
         )
     )
-    leased = control.lease_next(worker_ref="execution-worker", capabilities=("test_execution",))
-    assert leased is not None and leased.task_id == ORIGINAL_TASK
-    control.start(ORIGINAL_TASK, worker_ref="execution-worker")
-
-    record_payload = {
-        "record": {
-            "attempt_id": "ATT-ORIGINAL",
-            "tc_id": "TC-DEFECT-QUAL",
-            "case_version": 1,
-            "target_id": "TARGET-1",
-            "layer": "L2",
-            "worker_id": "execution-worker",
-            "lease_id": "lease-original",
-            "status": "FAIL",
-            "integrity_passed": True,
-            "actual_result": {"business_code": "BAD"},
-            "tool_call_refs": ["database-call://original"],
-            "evidence_refs": ["EVD-RUNTIME-RAW"],
-            "assertion_ref": "assertion://business",
-            "assertion_passed": False,
-            "reason": "ORACLE_ASSERTION_FAILED",
-        }
-    }
-    record_path = tmp_path / "original-record.json"
-    record_digest = _write_json(record_path, record_payload)
-    record_evidence = Evidence(
-        evidence_id="EVD-ORIGINAL-RECORD",
-        mission_id=MISSION,
-        kind="RUNTIME_EXECUTION_RECORD",
-        source_ref="runtime://execution",
-        content_ref="file://" + str(record_path),
-        subject_refs=[ORIGINAL_TASK, "ATT-ORIGINAL", "TC-DEFECT-QUAL"],
-        content_hash="sha256:" + record_digest,
-    )
-
-    context = {
-        "preparation_verified": True,
-        "real_action_executed": True,
-        "assertion_failed": True,
-        "case_oracle_verified": True,
-        "executable_spec_verified": True,
-        "script_validated": True,
-        "data_verified": True,
-        "auth_verified": True,
-        "route_verified": True,
-        "tool_verified": True,
-        "environment_verified": True,
-        "dependency_verified": True,
-    }
-    diagnosis_path = tmp_path / "diagnosis.json"
-    diagnosis_digest = _write_json(
-        diagnosis_path,
-        {"context": context, "diagnosis": {"failure_class": "PRODUCT"}},
-    )
-    diagnosis_evidence = Evidence(
-        evidence_id="EVD-PRODUCT-DIAGNOSIS",
-        mission_id=MISSION,
-        kind="RUNTIME_FAILURE_DIAGNOSIS",
-        source_ref="runtime://execution-diagnosis",
-        content_ref="file://" + str(diagnosis_path),
-        subject_refs=[ORIGINAL_TASK, "ATT-ORIGINAL", "TC-DEFECT-QUAL"],
-        content_hash="sha256:" + diagnosis_digest,
-    )
-    artifact = Artifact(
-        artifact_id="ART-ORIGINAL-EXECUTION",
+    execution_artifact = Artifact(
+        artifact_id="ART-EXEC-DEFECT-QUAL",
         mission_id=MISSION,
         artifact_type="EXECUTION_CONCLUSION",
         producer_task_id=ORIGINAL_TASK,
-        content_ref="file://" + str(record_path),
-        evidence_refs=[record_evidence.evidence_id, diagnosis_evidence.evidence_id],
-        content_hash="sha256:" + record_digest,
+        content_ref="file://execution.json",
+        evidence_refs=["EVD-EXEC-DEFECT-QUAL"],
+        content_hash="sha256:execution",
     )
+    execution_evidence = Evidence(
+        evidence_id="EVD-EXEC-DEFECT-QUAL",
+        mission_id=MISSION,
+        kind="RUNTIME_EXECUTION_RECORD",
+        source_ref="runtime://formal-execution",
+        content_ref="file://execution.json",
+        subject_refs=[ORIGINAL_TASK, "ATT-DEFECT-QUAL", "TC-DEFECT-QUAL"],
+        content_hash="sha256:execution",
+    )
+    leased = control.lease_next(worker_ref="runtime-execution-worker", capabilities=("test_execution",))
+    assert leased is not None and leased.task_id == ORIGINAL_TASK
+    control.start(ORIGINAL_TASK, worker_ref="runtime-execution-worker")
     control.submit_worker_output(
         WorkerOutput(
             task_id=ORIGINAL_TASK,
-            worker_ref="execution-worker",
-            artifacts=(artifact,),
-            evidence=(record_evidence, diagnosis_evidence),
+            worker_ref="runtime-execution-worker",
+            artifacts=(execution_artifact,),
+            evidence=(execution_evidence,),
         )
     )
-    gap = Gap(
+    product_gap = Gap(
         gap_id=PRODUCT_GAP,
         mission_id=MISSION,
         source_node="EXECUTION",
         category="PRODUCT_DEFECT",
         severity=GapSeverity.HIGH,
         target_node="DEFECT",
-        description="trusted business mismatch",
-        subject_refs=["ATT-ORIGINAL", "TC-DEFECT-QUAL"],
-        evidence_refs=[record_evidence.evidence_id, diagnosis_evidence.evidence_id],
-        acceptance_criteria=["complete evidence-backed defect lifecycle"],
+        subject_refs=[ORIGINAL_TASK, "ATT-DEFECT-QUAL", "TC-DEFECT-QUAL"],
+        evidence_refs=["EVD-EXEC-DEFECT-QUAL"],
+        acceptance_criteria=["trusted product failure is qualified as a defect"],
     )
-    control.accept_evaluation(
+    execution_evaluation = Evaluation(
+        evaluation_id="EVAL-EXEC-DEFECT-QUAL",
+        mission_id=MISSION,
+        node="EXECUTION",
+        evaluator_ref="runtime-execution-gate",
+        artifact_refs=[execution_artifact.artifact_id],
+        result=EvaluationResult.PASS,
+        evidence_refs=[execution_evidence.evidence_id],
+        gap_refs=[product_gap.gap_id],
+        dimensions={"test_result": "FAIL", "failure_class": "PRODUCT"},
+    )
+    accepted = control.accept_evaluation(
         ORIGINAL_TASK,
-        evaluation=Evaluation(
-            evaluation_id="EVAL-ORIGINAL-PRODUCT",
-            mission_id=MISSION,
-            node="EXECUTION",
-            artifact_refs=[artifact.artifact_id],
-            result=EvaluationResult.PASS,
-            evaluator_ref="runtime-execution-gate",
-            dimensions={"test_result": "FAIL", "failure_class": "PRODUCT"},
-            gap_refs=[gap.gap_id],
-            evidence_refs=[record_evidence.evidence_id, diagnosis_evidence.evidence_id],
-        ),
-        gaps=(gap,),
+        evaluation=execution_evaluation,
+        gaps=(product_gap,),
     )
+    assert accepted.state == TaskStatus.PASS
     defect_tasks = [
-        row for row in truth.query("rc7_task", mission_id=MISSION)
-        if row.get("node") == "DEFECT" and row.get("task_type") == "QUALIFY_DEFECT"
+        row
+        for row in truth.query("rc7_task", mission_id=MISSION)
+        if row.get("node") == "DEFECT" and PRODUCT_GAP in row.get("gap_refs", [])
     ]
     assert len(defect_tasks) == 1
-    assert defect_tasks[0]["state"] == "READY"
-    return truth, control, str(defect_tasks[0]["task_id"])
+    return truth, control, defect_tasks[0]["task_id"]
 
 
-def _reproduction(truth, *, reproduced: bool):
-    attempt = "ATT-REPRO-YES" if reproduced else "ATT-REPRO-NO"
-    evidence = Evidence(
-        evidence_id="EVD-REPRO-YES" if reproduced else "EVD-REPRO-NO",
-        mission_id=MISSION,
-        kind="RUNTIME_EXECUTION_RECORD",
-        source_ref="runtime://defect-reproduction",
-        content_ref="evidence://reproduction/%s" % attempt,
-        subject_refs=[attempt, "TC-DEFECT-QUAL"],
+def _persist_source_execution(truth: TruthRuntime, tmp_path: Path):
+    execution_payload = {
+        "attempt_id": "ATT-DEFECT-QUAL",
+        "tc_id": "TC-DEFECT-QUAL",
+        "case_version": 1,
+        "target_id": "TARGET-DEFECT-QUAL",
+        "layer": "L2",
+        "worker_id": "runtime-execution-worker",
+        "lease_id": "LEASE-DEFECT-QUAL",
+        "status": "FAIL",
+        "integrity_passed": True,
+        "actual_result": {"business_code": "ERR"},
+        "tool_call_refs": ["database-call://source"],
+        "evidence_refs": ["EVD-EXEC-DEFECT-QUAL"],
+        "assertion_ref": "oracle-assertion://defect-qual",
+        "assertion_passed": False,
+        "reason": "ORACLE_ASSERTION_FAILED",
+    }
+    execution_path = tmp_path / "source-execution.json"
+    digest = _write_json(execution_path, {"record": execution_payload})
+    append_entity(
+        truth,
+        Evidence(
+            evidence_id="EVD-SOURCE-EXEC-DEFECT-QUAL",
+            mission_id=MISSION,
+            kind="RUNTIME_EXECUTION_RECORD",
+            source_ref="runtime://formal-execution",
+            content_ref="file://" + str(execution_path),
+            subject_refs=[ORIGINAL_TASK, "ATT-DEFECT-QUAL", "TC-DEFECT-QUAL"],
+            content_hash="sha256:" + digest,
+        ),
+        release_id="RC7-DEFECT-QUAL",
+        artifact_version=1,
     )
-    append_entity(truth, evidence, release_id="RC7-DEFECT-QUAL")
-    artifact = Artifact(
-        artifact_id="ART-REPRO-YES" if reproduced else "ART-REPRO-NO",
-        mission_id=MISSION,
-        artifact_type="EXECUTION_CONCLUSION",
-        producer_task_id="TASK-REPRO-FIXTURE",
-        content_ref="artifact://reproduction/%s" % attempt,
-        evidence_refs=[evidence.evidence_id],
+    append_entity(
+        truth,
+        Artifact(
+            artifact_id="ART-SOURCE-EXEC-DEFECT-QUAL",
+            mission_id=MISSION,
+            artifact_type="EXECUTION_CONCLUSION",
+            producer_task_id=ORIGINAL_TASK,
+            content_ref="file://" + str(execution_path),
+            evidence_refs=["EVD-SOURCE-EXEC-DEFECT-QUAL"],
+            content_hash="sha256:" + digest,
+        ),
+        release_id="RC7-DEFECT-QUAL",
+        artifact_version=1,
     )
-    append_entity(truth, artifact, release_id="RC7-DEFECT-QUAL")
-    record = ExecutionRecord(
-        attempt_id=attempt,
-        tc_id="TC-DEFECT-QUAL",
-        case_version=1,
-        target_id="TARGET-1",
-        layer="L2",
-        worker_id="repro-worker",
-        lease_id="repro-lease",
-        status="FAIL" if reproduced else "PASS",
-        integrity_passed=True,
-        actual_result={"business_code": "BAD" if reproduced else "OK"},
-        tool_call_refs=("database-call://reproduction",),
-        evidence_refs=(evidence.evidence_id,),
-        assertion_ref="assertion://business",
-        assertion_passed=False if reproduced else True,
-        reason="ORACLE_ASSERTION_FAILED" if reproduced else None,
-    )
-    return DefectReproductionResult(
-        execution_record=record,
-        record_artifact_id=artifact.artifact_id,
-        evidence_ids=(evidence.evidence_id,),
-        evaluation_id="EVAL-REPRO-FIXTURE",
-        task_state="PASS",
+    return ExecutionRecord(**execution_payload)
+
+
+def _reproduction(truth: TruthRuntime, *, reproduced: bool):
+    result = DefectReproductionResult(
         reproduced=reproduced,
-        conclusive=True,
-        runtime_worker_id="repro-worker",
-        runtime_lease_id="repro-lease",
+        attempt_ids=("ATT-DEFECT-QUAL", "ATT-DEFECT-QUAL-R1") if reproduced else ("ATT-DEFECT-QUAL",),
+        evidence_refs=("EVD-EXEC-DEFECT-QUAL",),
+        failure_signature_id="FSIG-DEFECT-QUAL",
+        stop_reason="SIGNATURE_REPRODUCED" if reproduced else "REPRODUCTION_NOT_CONFIRMED",
     )
+    return result
+
+
+def _qualify(control: ClosedLoopControlPlane, task_id: str, worker_ref: str = "defect-qualifier"):
+    leased = control.lease_next(worker_ref=worker_ref, capabilities=("defect_qualification",))
+    assert leased is not None and leased.task_id == task_id
+    control.start(task_id, worker_ref=worker_ref)
+    return leased
 
 
 def test_reproduced_product_failure_enters_evidence_ready_without_resolving_product_gap(tmp_path: Path):
     truth, control, defect_task_id = _control(tmp_path)
+    _persist_source_execution(truth, tmp_path)
+    _qualify(control, defect_task_id)
     result = DefectQualificationControl(evidence_root=str(tmp_path / "defect-evidence")).qualify(
         control,
         defect_task_id,
@@ -325,23 +296,16 @@ def test_reproduced_product_failure_enters_evidence_ready_without_resolving_prod
         bundle=_bundle(tmp_path),
         reproduction=_reproduction(truth, reproduced=True),
     )
-
-    assert result.qualified is True
-    assert result.defect_state == "EVIDENCE_READY"
-    assert result.defect_task_state == "OUTPUT_PRODUCED"
-    assert result.qualification_gap_ids == ()
-    assert result.qualification_repair_task_ids == ()
-    defect = truth.query("rc7_defect", defect_id=result.defect_id)[0]
-    assert defect["state"] == "EVIDENCE_READY"
-    assert defect["reproduction_attempts"] == 1
-    assert defect["reproduction_passes"] == 1
-    product_gap = truth.query("rc7_gap", gap_id=PRODUCT_GAP)[0]
-    assert product_gap["state"] == "REPAIRING"
-    assert product_gap["resolution_evaluation_id"] is None
+    assert result.defect.state.value == "EVIDENCE_READY"
+    assert result.evaluation.result == EvaluationResult.REPAIR_REQUIRED
+    assert control.scheduler.task(defect_task_id).state == TaskStatus.REPAIR_REQUIRED
+    assert truth.query("rc7_gap", gap_id=PRODUCT_GAP)[0]["state"] == "PLANNED"
 
 
 def test_non_reproduction_stays_qualifying_and_schedules_runnable_defect_repair(tmp_path: Path):
     truth, control, defect_task_id = _control(tmp_path)
+    _persist_source_execution(truth, tmp_path)
+    _qualify(control, defect_task_id)
     result = DefectQualificationControl(evidence_root=str(tmp_path / "defect-evidence")).qualify(
         control,
         defect_task_id,
@@ -349,18 +313,13 @@ def test_non_reproduction_stays_qualifying_and_schedules_runnable_defect_repair(
         bundle=_bundle(tmp_path),
         reproduction=_reproduction(truth, reproduced=False),
     )
-
-    assert result.qualified is False
-    assert result.defect_state == "QUALIFYING"
-    assert len(result.qualification_gap_ids) == 1
-    assert len(result.qualification_repair_task_ids) == 1
-    gap = truth.query("rc7_gap", gap_id=result.qualification_gap_ids[0])[0]
-    assert gap["category"] == "DEFECT_QUALIFICATION_INCOMPLETE"
-    assert gap["state"] == "PLANNED"
-    repair = control.scheduler.task(result.qualification_repair_task_ids[0])
-    assert repair.node == "DEFECT"
-    assert repair.state == TaskStatus.READY
-    defect = truth.query("rc7_defect", defect_id=result.defect_id)[0]
-    assert defect["state"] == "QUALIFYING"
-    assert defect["reproduction_attempts"] == 1
-    assert defect["reproduction_passes"] == 0
+    assert result.defect.state.value == "QUALIFYING"
+    assert result.evaluation.result == EvaluationResult.REPAIR_REQUIRED
+    assert control.scheduler.task(defect_task_id).state == TaskStatus.REPAIR_REQUIRED
+    repair_tasks = [
+        row
+        for row in truth.query("rc7_task", mission_id=MISSION)
+        if row.get("task_type") == "REPAIR" and PRODUCT_GAP in row.get("gap_refs", [])
+    ]
+    assert repair_tasks
+    assert any(row.get("state") == "READY" for row in repair_tasks)
