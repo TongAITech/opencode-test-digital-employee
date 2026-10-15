@@ -13,6 +13,7 @@ from .real_mission_qualification import DOMAIN_NODES, evaluate_real_mission
 
 
 SCHEMA_VERSION = "pfc.aitest.rc7.real-mission-qualification.strict.v1"
+STRICT_DOMAIN_NODES = set(DOMAIN_NODES) | {"EXECUTION"}
 
 
 def _write_json(path: str, payload: Mapping[str, Any]) -> None:
@@ -54,6 +55,27 @@ def _task_scoped_receipts(
     return receipts
 
 
+def _task_scoped_dsh_runtime_workers(
+    truth: TruthRuntime,
+    *,
+    mission_id: str,
+) -> Dict[str, Set[str]]:
+    task_workers: Dict[str, Set[str]] = {}
+    for row in truth.query("rc7_evidence", mission_id=mission_id):
+        if row.get("kind") != "DSH_RUNTIME_PROOF":
+            continue
+        source_ref = row.get("source_ref")
+        if not isinstance(source_ref, str) or not source_ref.startswith("dsh://worker/"):
+            continue
+        worker = source_ref[len("dsh://worker/"):]
+        if not worker:
+            continue
+        for subject in row.get("subject_refs", []):
+            if isinstance(subject, str) and subject:
+                task_workers.setdefault(subject, set()).add(worker)
+    return task_workers
+
+
 def evaluate_real_mission_strict(
     *,
     r1_path: str,
@@ -70,12 +92,13 @@ def evaluate_real_mission_strict(
     install_rc7_truth_overlay()
     truth = TruthRuntime(Path(r1_path).resolve())
     scoped = _task_scoped_receipts(truth, mission_id=mission_id)
+    dsh_runtime_workers = _task_scoped_dsh_runtime_workers(truth, mission_id=mission_id)
     task_proof: Dict[str, Dict[str, Any]] = {}
 
     domain_tasks = [
         row
         for row in truth.query("rc7_task", mission_id=mission_id)
-        if row.get("node") in DOMAIN_NODES
+        if row.get("node") in STRICT_DOMAIN_NODES
         and row.get("task_type") != "EVALUATE"
         and row.get("state") == "PASS"
     ]
@@ -88,12 +111,18 @@ def evaluate_real_mission_strict(
             for value in task_receipts
             if owner and value.startswith(owner + "|")
         ]
+        task_dsh_workers = sorted(dsh_runtime_workers.get(task_id, set()))
+        owner_dsh_runtime_proven = bool(owner and owner in task_dsh_workers)
         task_proof[task_id] = {
             "lease_owner": owner,
+            "dsh_runtime_workers": task_dsh_workers,
+            "owner_dsh_runtime_proven": owner_dsh_runtime_proven,
             "tool_receipts": owner_receipts,
             "task_scope": "task:%s" % task_id,
-            "proven": bool(owner and owner_receipts),
+            "proven": bool(owner and owner_dsh_runtime_proven and owner_receipts),
         }
+        if not owner_dsh_runtime_proven:
+            blockers.append("DOMAIN_TASK_DSH_OWNER_PROOF_MISSING:%s" % task_id)
         if not owner_receipts:
             blockers.append("DOMAIN_TASK_REAL_TOOL_CALL_MISSING:%s" % task_id)
 
