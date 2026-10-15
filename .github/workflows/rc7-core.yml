@@ -30,7 +30,7 @@ jobs:
       - name: Compile RC7 runtime and release qualification
         run: python -m compileall -q rc7_runtime rc7_release
       - name: Import inherited RC6 runtime and RC7 qualification modules
-        run: python -c "import rc6_runtime; import rc6_runtime.truth; import rc7_release.mcp_server; import rc7_release.qualification; import rc7_release.code_qualification_strict; import rc7_release.test_design_qualification_strict; import rc7_release.script_qualification"
+        run: python -c "import rc6_runtime; import rc6_runtime.truth; import rc7_release.mcp_server; import rc7_release.qualification; import rc7_release.code_qualification_strict; import rc7_release.test_design_qualification_strict; import rc7_release.script_qualification_strict"
       - name: Validate RC7 shell qualification entrypoints
         run: |
           bash -n packaging/rc7/QUALIFY-DSH-REQUIREMENT.sh
@@ -41,7 +41,7 @@ jobs:
           grep -q 'rc7_release.test_design_qualification_strict' packaging/rc7/QUALIFY-DSH-TEST-DESIGN.sh
           grep -q 'PFC_RC7_REQUIREMENT_RESULT' packaging/rc7/QUALIFY-DSH-TEST-DESIGN.sh
           grep -q 'PFC_RC7_CODE_RESULT' packaging/rc7/QUALIFY-DSH-TEST-DESIGN.sh
-          grep -q 'rc7_release.script_qualification' packaging/rc7/QUALIFY-DSH-SCRIPT.sh
+          grep -q 'rc7_release.script_qualification_strict' packaging/rc7/QUALIFY-DSH-SCRIPT.sh
           grep -q 'PFC_RC7_TEST_DESIGN_RESULT' packaging/rc7/QUALIFY-DSH-SCRIPT.sh
           grep -q 'PFC_RC7_SCRIPT_TC_ID' packaging/rc7/QUALIFY-DSH-SCRIPT.sh
       - name: Run RC7 closed-loop core tests
@@ -72,9 +72,9 @@ jobs:
           if ($design -notmatch 'PFC_RC7_REQUIREMENT_RESULT') { throw 'RC7 Test Design upstream Requirement result contract missing' }
           if ($design -notmatch 'PFC_RC7_CODE_RESULT') { throw 'RC7 Test Design upstream Code result contract missing' }
           $script = Get-Content -Raw 'packaging/rc7/QUALIFY-DSH-SCRIPT.cmd'
-          if ($script -notmatch 'rc7_release\.script_qualification') { throw 'RC7 Script qualification module invocation missing' }
+          if ($script -notmatch 'rc7_release\.script_qualification_strict') { throw 'RC7 strict Script qualification module invocation missing' }
           if ($script -notmatch 'rc7-dsh-script-result\.json') { throw 'RC7 Script result contract missing' }
           if ($script -notmatch 'PFC_RC7_TEST_DESIGN_RESULT') { throw 'RC7 Script upstream Test Design result contract missing' }
           if ($script -notmatch 'PFC_RC7_SCRIPT_TC_ID') { throw 'RC7 Script TestCase identity contract missing' }
       - name: Python 3.8 imports RC7 qualification and MCP modules
-        run: python -c "import rc7_release.qualification; import rc7_release.code_qualification_strict; import rc7_release.test_design_qualification_strict; import rc7_release.script_qualification; import rc7_release.mcp_server"
+        run: python -c "import rc7_release.qualification; import rc7_release.code_qualification_strict; import rc7_release.test_design_qualification_strict; import rc7_release.script_qualification_strict; import rc7_release.mcp_server"
