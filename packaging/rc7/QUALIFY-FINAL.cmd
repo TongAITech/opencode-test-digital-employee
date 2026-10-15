@@ -17,10 +17,18 @@ if not defined SOURCE_COMMIT (
 if not exist "%PFC_AITEST_STATE_DIR%" mkdir "%PFC_AITEST_STATE_DIR%"
 set "PYTHONPATH=%ROOT%;%PYTHONPATH%"
 
+set "REAL_MISSION_EVIDENCE=%PFC_RC7_REAL_MISSION_EVIDENCE%"
+if not defined REAL_MISSION_EVIDENCE if defined PFC_RC7_R1_PATH if defined PFC_RC7_MISSION_ID (
+  set "REAL_MISSION_EVIDENCE=%PFC_AITEST_STATE_DIR%\rc7-real-mission-result.json"
+  call "%PFC_PYTHON%" -m rc7_release.real_mission_qualification --r1 "%PFC_RC7_R1_PATH%" --mission-id "%PFC_RC7_MISSION_ID%" --source-commit "%SOURCE_COMMIT%" --output "!REAL_MISSION_EVIDENCE!"
+  if errorlevel 1 exit /b !ERRORLEVEL!
+  echo RC7 real Mission qualification evidence: !REAL_MISSION_EVIDENCE! 1>&2
+)
+
 set "ARGS=--source-commit "%SOURCE_COMMIT%" --output "%PFC_AITEST_STATE_DIR%\rc7-final-qualification.json""
 if defined PFC_RC7_ENGINEERING_EVIDENCE set "ARGS=!ARGS! --engineering "%PFC_RC7_ENGINEERING_EVIDENCE%""
 if defined PFC_RC7_ADMIN_EVIDENCE set "ARGS=!ARGS! --admin "%PFC_RC7_ADMIN_EVIDENCE%""
-if defined PFC_RC7_REAL_MISSION_EVIDENCE set "ARGS=!ARGS! --real-mission "%PFC_RC7_REAL_MISSION_EVIDENCE%""
+if defined REAL_MISSION_EVIDENCE set "ARGS=!ARGS! --real-mission "!REAL_MISSION_EVIDENCE!""
 if defined PFC_RC7_DELIVERY_EVIDENCE set "ARGS=!ARGS! --delivery "%PFC_RC7_DELIVERY_EVIDENCE%""
 if "%PFC_RC7_REQUIRE_FINAL_PASS%"=="1" set "ARGS=!ARGS! --require-pass"
 
