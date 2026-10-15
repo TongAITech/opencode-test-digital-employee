@@ -34,15 +34,15 @@ if defined PFC_RC7_DSH_TIMEOUT set "RC7_TIMEOUT=%PFC_RC7_DSH_TIMEOUT%"
 
 if defined PFC_RC7_SCRIPT_CWD (
   if defined PFC_DSH_BIN (
-    "%PYTHON_BIN%" -m rc7_release.script_qualification --state-root "%PFC_AITEST_STATE_DIR%" --workspace "%PFC_WORKSPACE%" --test-design-result "%PFC_RC7_TEST_DESIGN_RESULT%" --tc-id "%PFC_RC7_SCRIPT_TC_ID%" --execution-cwd "%PFC_RC7_SCRIPT_CWD%" --dsh-bin "%PFC_DSH_BIN%" --timeout-seconds "%RC7_TIMEOUT%"
+    "%PYTHON_BIN%" -m rc7_release.script_qualification_strict --state-root "%PFC_AITEST_STATE_DIR%" --workspace "%PFC_WORKSPACE%" --test-design-result "%PFC_RC7_TEST_DESIGN_RESULT%" --tc-id "%PFC_RC7_SCRIPT_TC_ID%" --execution-cwd "%PFC_RC7_SCRIPT_CWD%" --dsh-bin "%PFC_DSH_BIN%" --timeout-seconds "%RC7_TIMEOUT%"
   ) else (
-    "%PYTHON_BIN%" -m rc7_release.script_qualification --state-root "%PFC_AITEST_STATE_DIR%" --workspace "%PFC_WORKSPACE%" --test-design-result "%PFC_RC7_TEST_DESIGN_RESULT%" --tc-id "%PFC_RC7_SCRIPT_TC_ID%" --execution-cwd "%PFC_RC7_SCRIPT_CWD%" --timeout-seconds "%RC7_TIMEOUT%"
+    "%PYTHON_BIN%" -m rc7_release.script_qualification_strict --state-root "%PFC_AITEST_STATE_DIR%" --workspace "%PFC_WORKSPACE%" --test-design-result "%PFC_RC7_TEST_DESIGN_RESULT%" --tc-id "%PFC_RC7_SCRIPT_TC_ID%" --execution-cwd "%PFC_RC7_SCRIPT_CWD%" --timeout-seconds "%RC7_TIMEOUT%"
   )
 ) else (
   if defined PFC_DSH_BIN (
-    "%PYTHON_BIN%" -m rc7_release.script_qualification --state-root "%PFC_AITEST_STATE_DIR%" --workspace "%PFC_WORKSPACE%" --test-design-result "%PFC_RC7_TEST_DESIGN_RESULT%" --tc-id "%PFC_RC7_SCRIPT_TC_ID%" --dsh-bin "%PFC_DSH_BIN%" --timeout-seconds "%RC7_TIMEOUT%"
+    "%PYTHON_BIN%" -m rc7_release.script_qualification_strict --state-root "%PFC_AITEST_STATE_DIR%" --workspace "%PFC_WORKSPACE%" --test-design-result "%PFC_RC7_TEST_DESIGN_RESULT%" --tc-id "%PFC_RC7_SCRIPT_TC_ID%" --dsh-bin "%PFC_DSH_BIN%" --timeout-seconds "%RC7_TIMEOUT%"
   ) else (
-    "%PYTHON_BIN%" -m rc7_release.script_qualification --state-root "%PFC_AITEST_STATE_DIR%" --workspace "%PFC_WORKSPACE%" --test-design-result "%PFC_RC7_TEST_DESIGN_RESULT%" --tc-id "%PFC_RC7_SCRIPT_TC_ID%" --timeout-seconds "%RC7_TIMEOUT%"
+    "%PYTHON_BIN%" -m rc7_release.script_qualification_strict --state-root "%PFC_AITEST_STATE_DIR%" --workspace "%PFC_WORKSPACE%" --test-design-result "%PFC_RC7_TEST_DESIGN_RESULT%" --tc-id "%PFC_RC7_SCRIPT_TC_ID%" --timeout-seconds "%RC7_TIMEOUT%"
   )
 )
 set "RC=%ERRORLEVEL%"
@@ -51,5 +51,5 @@ if not exist "%RESULT%" (
   echo {"status":"FAIL","reason":"SCRIPT_QUALIFICATION_RESULT_FILE_MISSING"} 1>&2
   exit /b 11
 )
-echo RC7 Script readiness qualification evidence: %RESULT% 1>&2
+echo RC7 strict Script readiness qualification evidence: %RESULT% 1>&2
 exit /b %RC%
