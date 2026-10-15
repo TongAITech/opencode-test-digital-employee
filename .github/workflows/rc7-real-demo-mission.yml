@@ -56,31 +56,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Real RC7 demo mission failed' }
           Get-Content demo-output/demo-summary.json
 
-      - name: Start R1-backed admin and report servers
+      - name: Validate R1 and report inputs
         shell: pwsh
         run: |
-          $r1 = (Resolve-Path 'demo-output/state/rc7-r1.jsonl').Path
-          $adminOut = Join-Path $env:RUNNER_TEMP 'rc7-admin.out.log'
-          $adminErr = Join-Path $env:RUNNER_TEMP 'rc7-admin.err.log'
-          $reportOut = Join-Path $env:RUNNER_TEMP 'rc7-report.out.log'
-          $reportErr = Join-Path $env:RUNNER_TEMP 'rc7-report.err.log'
-          $admin = Start-Process -FilePath python -ArgumentList @('-m','rc7_admin','--r1',$r1,'--host','127.0.0.1','--port','8127') -PassThru -RedirectStandardOutput $adminOut -RedirectStandardError $adminErr
-          $report = Start-Process -FilePath python -ArgumentList @('-m','http.server','8128','--bind','127.0.0.1','--directory',(Resolve-Path 'demo-output/report').Path) -PassThru -RedirectStandardOutput $reportOut -RedirectStandardError $reportErr
-          "RC7_DEMO_ADMIN_PID=$($admin.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "RC7_DEMO_REPORT_PID=$($report.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          $ok = $false
-          for ($i=0; $i -lt 40; $i++) {
-            try {
-              $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8127/api/health' -TimeoutSec 2
-              if ($h.status -eq 'UP' -and $h.truth -eq 'R1_EVENT_STREAM') { $ok = $true; break }
-            } catch { Start-Sleep -Milliseconds 500 }
-          }
-          if (-not $ok) {
-            if (Test-Path $adminOut) { Get-Content $adminOut }
-            if (Test-Path $adminErr) { Get-Content $adminErr }
-            throw 'RC7 admin did not become healthy'
-          }
-          Invoke-WebRequest -Uri 'http://127.0.0.1:8128/rc7-mission-report.html' -UseBasicParsing | Out-Null
+          if (-not (Test-Path demo-output/state/rc7-r1.jsonl)) { throw 'R1 missing before admin startup' }
+          if (-not (Test-Path demo-output/report/rc7-mission-report.html)) { throw 'HTML report missing before screenshot' }
+          Write-Host 'R1_REPORT_INPUTS_READY'
 
       - name: Install Playwright browser for screenshot proof
         shell: pwsh
@@ -95,18 +76,44 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Chromium install failed' }
           "NODE_PATH=$env:NODE_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Capture real admin and report screenshots
+      - name: Start R1-backed admin and capture real screenshots
         shell: pwsh
         env:
           RC7_DEMO_ADMIN_URL: http://127.0.0.1:8127
           RC7_DEMO_REPORT_URL: http://127.0.0.1:8128/rc7-mission-report.html
           RC7_DEMO_SCREENSHOT_DIR: demo-output/screenshots
         run: |
-          node demo/real_mission/capture.js
-          if ($LASTEXITCODE -ne 0) { throw 'Screenshot capture failed' }
-          $shots = Get-ChildItem demo-output/screenshots -Filter '*.png'
-          if ($shots.Count -lt 10) { throw "Expected 10 screenshots, got $($shots.Count)" }
-          $shots | Select-Object Name,Length | Format-Table -AutoSize
+          $r1 = (Resolve-Path 'demo-output/state/rc7-r1.jsonl').Path
+          $adminOut = Join-Path $env:RUNNER_TEMP 'rc7-admin.out.log'
+          $adminErr = Join-Path $env:RUNNER_TEMP 'rc7-admin.err.log'
+          $reportOut = Join-Path $env:RUNNER_TEMP 'rc7-report.out.log'
+          $reportErr = Join-Path $env:RUNNER_TEMP 'rc7-report.err.log'
+          $admin = Start-Process -FilePath python -ArgumentList @('-m','rc7_admin','--r1',$r1,'--host','127.0.0.1','--port','8127') -PassThru -RedirectStandardOutput $adminOut -RedirectStandardError $adminErr
+          $report = Start-Process -FilePath python -ArgumentList @('-m','http.server','8128','--bind','127.0.0.1','--directory',(Resolve-Path 'demo-output/report').Path) -PassThru -RedirectStandardOutput $reportOut -RedirectStandardError $reportErr
+          try {
+            $ok = $false
+            for ($i=0; $i -lt 40; $i++) {
+              try {
+                $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8127/api/health' -TimeoutSec 2
+                if ($h.status -eq 'UP' -and $h.truth -eq 'R1_EVENT_STREAM') { $ok = $true; break }
+              } catch { Start-Sleep -Milliseconds 500 }
+            }
+            if (-not $ok) {
+              if (Test-Path $adminOut) { Get-Content $adminOut }
+              if (Test-Path $adminErr) { Get-Content $adminErr }
+              throw 'RC7 admin did not become healthy'
+            }
+            Invoke-WebRequest -Uri 'http://127.0.0.1:8128/rc7-mission-report.html' -UseBasicParsing | Out-Null
+            node demo/real_mission/capture.js
+            if ($LASTEXITCODE -ne 0) { throw 'Screenshot capture failed' }
+            $shots = Get-ChildItem demo-output/screenshots -Filter '*.png'
+            if ($shots.Count -lt 10) { throw "Expected 10 screenshots, got $($shots.Count)" }
+            $shots | Select-Object Name,Length | Format-Table -AutoSize
+          }
+          finally {
+            if ($admin -and -not $admin.HasExited) { Stop-Process -Id $admin.Id -Force -ErrorAction SilentlyContinue }
+            if ($report -and -not $report.HasExited) { Stop-Process -Id $report.Id -Force -ErrorAction SilentlyContinue }
+          }
 
       - name: Verify demo truth and evidence bundle
         shell: pwsh
@@ -115,12 +122,15 @@ jobs:
           if ($s.status -ne 'PASS') { throw 'Demo summary not PASS' }
           if ($s.gate -ne 'RC7_REAL_DEMO_RUNTIME_PASS') { throw 'Wrong demo gate' }
           if ($s.mission_state -ne 'CONVERGED') { throw 'Mission did not converge' }
+          if ($s.sufficiency_state -ne 'SUFFICIENT') { throw 'Mission not sufficient' }
           if ($s.defect_state -ne 'CLOSED') { throw 'Defect lifecycle not closed' }
           if ($s.ai_worker_model_invocation -ne 'HOLD_NO_DSH_MODEL_PROVIDER_IN_GITHUB_CI') { throw 'AI model proof must remain HOLD' }
           if (-not (Test-Path demo-output/report/rc7-mission-report.html)) { throw 'HTML report missing' }
           if (-not (Test-Path demo-output/state/rc7-r1.jsonl)) { throw 'R1 missing' }
           if (-not (Test-Path demo-output/evidence/codegraph-pr-context.txt)) { throw 'CodeGraph evidence missing' }
           if (-not (Test-Path demo-output/evidence/regression-full-suite.txt)) { throw 'Regression evidence missing' }
+          $shots = Get-ChildItem demo-output/screenshots -Filter '*.png'
+          if ($shots.Count -lt 10) { throw 'Screenshot evidence incomplete' }
           Write-Host 'RC7_REAL_DEMO_EVIDENCE_PASS'
 
       - name: Upload real demo evidence
