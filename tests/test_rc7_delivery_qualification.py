@@ -27,15 +27,20 @@ def test_delivery_qualification_executes_unpacked_package_not_source_tree(tmp_pa
     assert result["admin_health"]["truth"] == "R1_EVENT_STREAM"
     assert len(result["package_sha256"]) == 64
     assert result["package_name"] == PACKAGE_NAME
+    assert result["qualification_kind"] == "CLEAN_TURNKEY_DELIVERY_PACKAGE_LOCAL_RUNTIME"
 
     if os.name == "nt":
         assert result["status"] == "PASS"
         assert result["clean_windows_unpack"] == "PASS"
+        assert result["package_local_python_verify"] == "PASS"
+        assert any(ref.startswith("file://") and ref.lower().endswith("/python.exe") or ref.lower().endswith("\\python.exe") for ref in result["evidence_refs"])
         assert not result["blocking_reasons"]
     else:
         assert result["status"] == "HOLD"
         assert result["clean_windows_unpack"] == "HOLD_NON_WINDOWS"
+        assert result["package_local_python_verify"] == "HOLD_NON_WINDOWS"
         assert "CLEAN_WINDOWS_UNPACK_REQUIRES_WINDOWS_RUNTIME" in result["blocking_reasons"]
+        assert "PACKAGE_LOCAL_PYTHON_REQUIRES_WINDOWS_RUNTIME" in result["blocking_reasons"]
 
 
 def test_delivery_qualification_rejects_package_from_other_commit(tmp_path):
