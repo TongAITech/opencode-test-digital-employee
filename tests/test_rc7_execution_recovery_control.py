@@ -93,20 +93,28 @@ def _submit_first_failure(control: ClosedLoopControlPlane):
         content_ref="evidence://exec-first",
         subject_refs=[SOURCE_TASK, "ATT-1"],
     )
+    diagnosis = Evidence(
+        evidence_id="EVD-DIAG-1",
+        mission_id=MISSION,
+        kind="RUNTIME_FAILURE_DIAGNOSIS",
+        source_ref="runtime://execution-diagnosis",
+        content_ref="evidence://diag-first",
+        subject_refs=[SOURCE_TASK, "ATT-1", "TC-DIRECT-RETRY"],
+    )
     artifact = Artifact(
         artifact_id="ART-EXEC-FIRST",
         mission_id=MISSION,
         artifact_type="EXECUTION_CONCLUSION",
         producer_task_id=SOURCE_TASK,
         content_ref="artifact://exec-first",
-        evidence_refs=[evidence.evidence_id],
+        evidence_refs=[evidence.evidence_id, diagnosis.evidence_id],
     )
     control.submit_worker_output(
         WorkerOutput(
             task_id=SOURCE_TASK,
             worker_ref=WORKER,
             artifacts=(artifact,),
-            evidence=(evidence,),
+            evidence=(evidence, diagnosis),
         )
     )
     gap = Gap(
@@ -118,7 +126,7 @@ def _submit_first_failure(control: ClosedLoopControlPlane):
         target_node="EXECUTION",
         description="evidence-backed transient timeout",
         subject_refs=["ATT-1", "TC-DIRECT-RETRY"],
-        evidence_refs=[evidence.evidence_id],
+        evidence_refs=[evidence.evidence_id, diagnosis.evidence_id],
         acceptance_criteria=["authorized successor attempt is executed and independently reevaluated"],
     )
     evaluation = Evaluation(
@@ -135,7 +143,7 @@ def _submit_first_failure(control: ClosedLoopControlPlane):
             "attempt_id": "ATT-1",
         },
         gap_refs=[gap.gap_id],
-        evidence_refs=[evidence.evidence_id],
+        evidence_refs=[evidence.evidence_id, diagnosis.evidence_id],
     )
     control.accept_evaluation(SOURCE_TASK, evaluation=evaluation, gaps=(gap,))
 
@@ -170,6 +178,7 @@ def test_direct_retry_is_authorized_through_repair_task_then_source_pass_closes_
 
     assert authorization.successor_attempt_id == "ATT-2"
     assert authorization.prepared.attempt_id == "ATT-2"
+    assert authorization.diagnosis_evidence_id == "EVD-DIAG-1"
     assert control.scheduler.task(SOURCE_TASK).state == TaskStatus.READY
     assert truth.query("rc7_gap", gap_id=GAP_ID)[0]["state"] == "EVIDENCE_PENDING"
     repair_rows = [
@@ -178,7 +187,9 @@ def test_direct_retry_is_authorized_through_repair_task_then_source_pass_closes_
     ]
     assert len(repair_rows) == 1
     assert repair_rows[0]["state"] == "PASS"
-    assert len(truth.query("rc7_artifact", artifact_id=authorization.plan_artifact_id)) == 1
+    plan_artifact = truth.query("rc7_artifact", artifact_id=authorization.plan_artifact_id)
+    assert len(plan_artifact) == 1
+    assert "EVD-DIAG-1" in plan_artifact[0]["evidence_refs"]
     assert len(truth.query("rc7_evidence", evidence_id=authorization.plan_evidence_id)) == 1
     ExecutionRecoveryController.verify_successor(authorization, authorization.prepared)
     with pytest.raises(RecoveryControlError, match="UNAUTHORIZED_RETRY_ATTEMPT_ID"):
