@@ -1,0 +1,149 @@
+name: RC6 Admin Final Windows Qualification
+
+on:
+  push:
+    branches:
+      - work/rc6-admin-control-plane-final
+    paths:
+      - '.github/workflows/rc6-admin-final.yml'
+  workflow_dispatch:
+
+jobs:
+  windows-final:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Install qualification dependencies
+        run: python -m pip install -U pytest
+      - name: Run full RC6 regression on Windows Python 3.8
+        run: python -m pytest -q tests
+      - name: Build immutable engineering candidate
+        shell: pwsh
+        run: python -m rc6_release.package build --repo-root . --output dist --source-commit $env:GITHUB_SHA
+      - name: Verify built package
+        shell: pwsh
+        run: python -m rc6_release.package verify --package-root dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10
+      - name: RC6 Admin real HTTP and R1 projection qualification
+        shell: pwsh
+        run: |
+          $root = (Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10').Path
+          if (-not (Test-Path "$root/rc6_release/admin_server.py")) { Write-Error 'admin_server.py missing'; exit 1 }
+          $state = Join-Path $env:RUNNER_TEMP 'rc6-admin-state'
+          $ws = Join-Path $env:RUNNER_TEMP 'rc6-admin-workspace'
+          Remove-Item $state,$ws -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force "$state/r1","$state/missions","$ws/.dsh/rc6" | Out-Null
+          $event = @{seq=1;event_id='admin-ci-1';event_type='TEST_CASE_UPSERTED';entity_type='test_case';entity_id='tc-admin';entity_version=1;payload=@{tc_id='tc-admin';release_id='BLOAN-PF1.2.0';requirement_id='STBB19-322';layer='L3';objective='admin projection'}} | ConvertTo-Json -Compress -Depth 6
+          [IO.File]::WriteAllText("$state/r1/event-stream.jsonl", $event + "`n", [Text.UTF8Encoding]::new($false))
+          [IO.File]::WriteAllText("$state/missions/M-CI.json", '{"mission_id":"M-CI","release_id":"BLOAN-PF1.2.0","stage":"TEST_DESIGN"}', [Text.UTF8Encoding]::new($false))
+          [IO.File]::WriteAllText("$ws/.dsh/rc6/TOOL_PROFILE.json", '{"tools":[{"tool_id":"codegraph","status":"PROBE_PASS"}]}', [Text.UTF8Encoding]::new($false))
+          $env:PFC_AITEST_HOME = $root
+          $env:PFC_AITEST_STATE_DIR = $state
+          $env:PFC_WORKSPACE = $ws
+          $proc = Start-Process python -ArgumentList '-m','rc6_release.admin_server','--host','127.0.0.1','--port','18765' -WorkingDirectory $root -PassThru -WindowStyle Hidden
+          try {
+            $ready = $false
+            for ($i=0; $i -lt 40; $i++) {
+              Start-Sleep -Milliseconds 250
+              try { $health = Invoke-RestMethod 'http://127.0.0.1:18765/api/health'; if ($health.status -eq 'PASS') { $ready=$true; break } } catch {}
+            }
+            if (-not $ready) { Write-Error 'RC6 Admin did not become ready'; exit 1 }
+            if ($health.runtime.durable_truth -ne 'R1_EVENT_STREAM') { Write-Error 'Admin truth is not R1'; exit 1 }
+            if ($health.runtime.legacy_aitest_db_used -ne $false) { Write-Error 'legacy aitest.db forbidden'; exit 1 }
+            $page = (Invoke-WebRequest 'http://127.0.0.1:18765/').Content
+            if ($page -notmatch 'RC6 测试后管' -or $page -notmatch '版本管理' -or $page -notmatch '测试用例') { Write-Error 'Chinese admin UI missing'; exit 1 }
+            $cases = Invoke-RestMethod 'http://127.0.0.1:18765/api/test-cases?version=BLOAN-PF1.2.0&requirement=STBB19-322'
+            if ($cases.total -ne 1) { Write-Error 'R1 test-case projection failed'; exit 1 }
+          } finally { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+      - name: Static skill and line-ending qualification
+        shell: pwsh
+        run: |
+          $root = 'dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10'
+          $skills = @(Get-ChildItem "$root/.dsh/skills" -Directory | Where-Object { $_.Name -like 'pfc-*' })
+          if ($skills.Count -ne 26) { Write-Error "expected 26 static RC6 skills, got $($skills.Count)"; exit 1 }
+          $professional = @($skills | Where-Object { $_.Name -ne 'pfc-full-chain-test' })
+          if ($professional.Count -ne 25) { Write-Error 'expected 25 professional RC6 skills'; exit 1 }
+          python -c "import glob,zipfile; p=glob.glob(r'dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10-*.zip')[0]; z=zipfile.ZipFile(p); bad=[n for n in z.namelist() if n.endswith('.sh') and b'\r\n' in z.read(n)]; assert not bad, bad"
+      - name: Git Bash package-only verification
+        shell: bash
+        run: ./dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10/VERIFY.sh --package-only
+      - name: Fresh install and legacy upgrade qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG="$GITHUB_WORKSPACE/dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10"
+          FRESH="$RUNNER_TEMP/rc6-pfc-fresh"
+          LEGACY="$RUNNER_TEMP/rc6-pfc-legacy"
+          rm -rf "$FRESH" "$LEGACY"
+          PFC_WORKSPACE="$FRESH" "$PKG/INSTALL-AITEST.sh"
+          PFC_WORKSPACE="$FRESH" "$PKG/VERIFY-RC6-PROFILE.sh"
+          test "$(find "$FRESH/.dsh/skills" -mindepth 1 -maxdepth 1 -type d -name 'pfc-*' | wc -l | tr -d ' ')" = "26"
+          PFC_WORKSPACE="$FRESH" "$PKG/INSTALL-AITEST.sh" | grep -q '"install_mode": "RC6_REPAIR"'
+          mkdir -p "$LEGACY/.dsh/skills/pfc-old-rc5" "$LEGACY/.dsh/skills/custom-bank" "$LEGACY/.agents/skills/pfc-old-agent" "$LEGACY/.opencode/skills/pfc-bank-context" "$LEGACY/.opencode/skills/custom-opencode" "$LEGACY/.opencode/agents"
+          printf 'legacy\n' > "$LEGACY/.dsh/skills/pfc-old-rc5/SKILL.md"
+          printf 'keep\n' > "$LEGACY/.dsh/skills/custom-bank/SKILL.md"
+          printf 'legacy-agent\n' > "$LEGACY/.agents/skills/pfc-old-agent/SKILL.md"
+          printf 'legacy-bank-context\n' > "$LEGACY/.opencode/skills/pfc-bank-context/SKILL.md"
+          printf 'legacy-opencode-agent\n' > "$LEGACY/.opencode/agents/pfc-old-agent.md"
+          printf 'keep-opencode\n' > "$LEGACY/.opencode/skills/custom-opencode/SKILL.md"
+          PFC_WORKSPACE="$LEGACY" "$PKG/INSTALL-AITEST.sh" | grep -q '"install_mode": "UPGRADE_FROM_LEGACY"'
+          PFC_WORKSPACE="$LEGACY" "$PKG/VERIFY-RC6-PROFILE.sh"
+          test "$(find "$LEGACY/.dsh/skills" -mindepth 1 -maxdepth 1 -type d -name 'pfc-*' | wc -l | tr -d ' ')" = "26"
+          test -f "$LEGACY/.dsh/skills/custom-bank/SKILL.md"
+          test -f "$LEGACY/.opencode/skills/custom-opencode/SKILL.md"
+          test -z "$(find "$LEGACY/.agents/skills" -maxdepth 1 -name 'pfc-*' -print -quit 2>/dev/null || true)"
+      - name: Historical runtime-context and offline tool bridge qualification
+        shell: pwsh
+        run: |
+          $ws = Join-Path $env:RUNNER_TEMP 'rc6-tool-bootstrap'
+          $root = (Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10').Path
+          Remove-Item $ws -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force (Join-Path $ws 'tools') | Out-Null
+          New-Item -ItemType Directory -Force (Join-Path $ws 'aitest-runtime-context/secrets') | Out-Null
+          Set-Content -Path (Join-Path $ws 'tools/foura_auth.py') -Value "def login():`n    return 'not-executed'`n" -Encoding utf8
+          $catPath = Join-Path $ws 'aitest-runtime-context/secrets/cat.json'
+          Set-Content -Path $catPath -Value '{"password":"CI_SECRET_MUST_NOT_LEAK"}' -Encoding utf8
+          $pythonPath = (Get-Command python).Source
+          $registry = @{ schema_version='legacy.field.registry.v1'; tools=@{ codegraph=@{ tool_id='codegraph'; executable=$pythonPath } } }
+          $registry | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $ws 'aitest-runtime-context/registry.json') -Encoding utf8
+          python -m rc6_release.legacy_field_bridge --workspace $ws --package-root $root --output (Join-Path $ws 'legacy-field-env.sh')
+          $bridgeText = Get-Content "$ws/.dsh/rc6/LEGACY_FIELD_BRIDGE.json" -Raw
+          if ($bridgeText -match 'CI_SECRET_MUST_NOT_LEAK') { exit 1 }
+          $bridge = $bridgeText | ConvertFrom-Json
+          $codegraph = @($bridge.bindings | Where-Object { $_.tool_id -eq 'codegraph' })[0]
+          $catBridge = @($bridge.bindings | Where-Object { $_.tool_id -eq 'cat' })[0]
+          if (-not $bridge.registry_present -or -not $codegraph.found -or -not $catBridge.found) { exit 1 }
+          if ($bridge.secret_contents_read -ne $false -or $bridge.target_ready_forged -ne $false) { exit 1 }
+          $env:PFC_CODEGRAPH_BIN = $codegraph.path
+          $env:PFC_CAT_CONFIG = $catBridge.path
+          $env:PFC_GIT_BIN = (Get-Command git).Source
+          $env:PFC_PYTHON = $pythonPath
+          python -m rc6_release.tool_bootstrap bootstrap --workspace $ws
+          python -m rc6_release.tool_bootstrap verify --workspace $ws
+          $profile = Get-Content "$ws/.dsh/rc6/TOOL_PROFILE.json" | ConvertFrom-Json
+          $git = @($profile.tools | Where-Object { $_.tool_id -eq 'git' })[0]
+          $cg = @($profile.tools | Where-Object { $_.tool_id -eq 'codegraph' })[0]
+          $foura = @($profile.tools | Where-Object { $_.tool_id -eq '4a' })[0]
+          $cat = @($profile.tools | Where-Object { $_.tool_id -eq 'cat' })[0]
+          if ($git.status -ne 'PROBE_PASS' -or $cg.status -ne 'PROBE_PASS') { exit 1 }
+          if ($foura.status -ne 'BLOCKED_FIELD_AUTH' -or $cat.status -ne 'BLOCKED_FIELD_LOGIN') { exit 1 }
+          if (@($profile.tools | Where-Object { $_.target_ready -eq $true }).Count -ne 0 -or $profile.summary.target_ready -ne 0) { exit 1 }
+      - name: Pre-bank truth and required runtime payload qualification
+        shell: pwsh
+        run: |
+          $root = 'dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10'
+          $manifest = Get-Content "$root/PACKAGE_MANIFEST.json" | ConvertFrom-Json
+          if ($manifest.agent_runtime_bank_final_gate -ne 'NOT_PROVEN_UNTIL_REAL_DSH_VERTICAL_SLICE_PASS') { exit 1 }
+          if ($manifest.autonomous_testing_pass -ne $false -or $manifest.full_chain_real -ne $false -or $manifest.bank_field_pass -ne $false) { exit 1 }
+          if ($manifest.workspace_installation -ne 'AUTO_FRESH_OR_UPGRADE' -or $manifest.static_skill_count -ne 26) { exit 1 }
+          $required = @('rc6_release/admin_server.py','rc6_release/mcp_server.py','rc6_release/tool_bootstrap.py','rc6_release/legacy_field_bridge.py','rc6_runtime/truth.py','rc6_runtime/execution_overlay.py','START-AITEST.sh','STOP-AITEST.sh','STATUS.sh','INSTALL-AITEST.sh','.dsh/skills/pfc-full-chain-test/SKILL.md','.dsh/skills/pfc-requirement-analysis/SKILL.md','.dsh/skills/pfc-code-analysis/SKILL.md','.dsh/skills/pfc-l3-test-design/SKILL.md','.dsh/skills/pfc-automation-engineer/SKILL.md','.dsh/skills/pfc-failure-diagnosis/SKILL.md')
+          foreach ($file in $required) { if (-not (Test-Path "$root/$file")) { Write-Error "missing $file"; exit 1 } }
+      - name: Upload RC6 final engineering candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10-${{ github.sha }}
+          path: dist/PFC-AITest-DSH-Turnkey-RC6-BANK-WIN10-*.zip
+          if-no-files-found: error
+          retention-days: 14
