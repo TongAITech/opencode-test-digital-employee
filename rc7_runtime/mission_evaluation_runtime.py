@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Tuple
 
 from .closed_loop_control import ClosedLoopControlPlane
 from .control_plane import WorkerOutput
-from .mission_evidence_builder import BuiltMissionEvidenceSnapshot, R1MissionEvidenceSnapshotBuilder
-from .mission_sufficiency import MissionSufficiencyClosedLoop, MissionSufficiencyResult
-from .models import MissionStatus, Task, TaskStatus
+from .mission_evidence_builder import R1MissionEvidenceSnapshotBuilder
+from .mission_sufficiency import MissionSufficiencyClosedLoop
+from .models import Task, TaskStatus
 
 
 class MissionEvaluationRuntimeError(RuntimeError):
@@ -95,11 +95,11 @@ class MissionEvaluationRuntime:
                     1 for item in built.snapshot.residual_risks if item.disposition.upper() == "PENDING"
                 ),
             )
+            mission_state = mission.state.value
         else:
             rows = control.truth.query("rc7_mission", mission_id=control.mission_id)
             if len(rows) != 1:
                 raise MissionEvaluationRuntimeError("MISSION_TRUTH_NOT_UNIQUE_AFTER_EVALUATION")
-            mission = None
             mission_state = str(rows[0]["state"])
 
         return MissionEvaluationRuntimeResult(
@@ -111,7 +111,7 @@ class MissionEvaluationRuntime:
             evaluation_result=result.evaluation.result.value,
             sufficiency_state=result.sufficiency_state,
             release_recommendation=result.release_recommendation,
-            mission_state=mission.state.value if mission is not None else mission_state,
+            mission_state=mission_state,
             gap_ids=tuple(gap.gap_id for gap in result.gaps),
         )
 
@@ -131,11 +131,7 @@ class MissionEvaluationRuntime:
             if row.get("node") == "MISSION_EVALUATION":
                 continue
             state = str(row.get("state"))
-            if state not in {
-                TaskStatus.PASS.value,
-                TaskStatus.CANCELLED.value,
-                TaskStatus.SUPERSEDED.value,
-            }:
+            if state not in {TaskStatus.PASS.value, TaskStatus.CANCELLED.value}:
                 blockers.append(str(row.get("task_id")))
         if blockers:
             raise MissionEvaluationRuntimeError(
