@@ -154,12 +154,16 @@ def _validate_delivery(report: Optional[Dict[str, Any]], source_commit: str) -> 
     for key in (
         "clean_windows_unpack",
         "package_local_python_verify",
+        "package_local_codegraph_verify",
         "package_verify",
         "package_entrypoint_verify",
         "admin_startup_verify",
     ):
         if report.get(key) != "PASS":
             errors.append("%s:%s_NOT_PASS" % (gate, key.upper()))
+    codegraph_hash = report.get("package_local_codegraph_sha256")
+    if not isinstance(codegraph_hash, str) or not re.match(r"^[0-9a-fA-F]{64}$", codegraph_hash):
+        errors.append("%s:PACKAGE_LOCAL_CODEGRAPH_SHA256_INVALID" % gate)
     return errors
 
 
