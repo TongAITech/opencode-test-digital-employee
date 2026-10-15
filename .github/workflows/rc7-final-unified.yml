@@ -41,11 +41,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Assemble all final offline payloads
-        shell: pwsh
-        run: ./packaging/rc7/build-final-payloads.ps1
-
-      - name: Full Windows RC7 regression before packaging
+      - name: Full Windows RC7 regression before payload assembly
         shell: pwsh
         run: |
           python -m compileall -q rc6_runtime rc6_release rc7_runtime rc7_release rc7_admin
@@ -53,6 +49,10 @@ jobs:
           if (-not $tests) { throw 'No RC7 regression tests found' }
           python -m pytest -q $tests
           if ($LASTEXITCODE -ne 0) { throw 'RC7 Windows regression failed' }
+
+      - name: Assemble all final offline payloads
+        shell: pwsh
+        run: ./packaging/rc7/build-final-payloads.ps1
 
       - name: Build base package and final unified overlay
         shell: pwsh
