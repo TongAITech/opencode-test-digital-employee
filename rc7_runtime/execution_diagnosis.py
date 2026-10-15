@@ -35,6 +35,7 @@ from rc6_runtime.execution import ExecutionRecord
 from rc6_runtime.preparation import PreparedAttempt
 
 from .authority import RC7AuthorityRuntime
+from .execution_recovery import ExecutionRecoveryPlanner, RecoveryWorkPlan
 from .oracle_runtime import DeterministicOracleRuntime
 from .runtime_execution import VerifiedScriptExecutionBundle
 
@@ -64,6 +65,7 @@ class DiagnosisClosure:
     context: FailureContext
     diagnosis: Optional[DiagnosisResult]
     recovery: Optional[RecoveryDecision]
+    work_plan: Optional[RecoveryWorkPlan]
     unavailable_reason: Optional[str]
     diagnostic_worker_id: Optional[str]
     diagnostic_lease_id: Optional[str]
@@ -72,7 +74,12 @@ class DiagnosisClosure:
 
     @property
     def complete(self) -> bool:
-        return self.diagnosis is not None and self.recovery is not None and self.unavailable_reason is None
+        return (
+            self.diagnosis is not None
+            and self.recovery is not None
+            and self.work_plan is not None
+            and self.unavailable_reason is None
+        )
 
 
 class ExecutionDiagnosisCoordinator:
@@ -106,20 +113,35 @@ class ExecutionDiagnosisCoordinator:
     @staticmethod
     def _default_classifier(context: FailureContext, signals: Dict[str, Any]) -> Dict[str, Any]:
         del signals
-        exception = str(context.exception_type or "").lower()
+        exception = str(context.exception_type or "").lower().replace("_", "").replace("-", "")
         reason_parts = []
-        if context.http_status in {401, 403}:
+        if context.http_status in {401, 403} or "auth" in exception:
             failure_class = "AUTH"
-            reason_parts.append("HTTP_AUTH_STATUS")
-        elif context.http_status == 404:
+            reason_parts.append("AUTH_FAILURE_SIGNAL")
+        elif context.http_status == 404 or "routenotfound" in exception or "endpointnotfound" in exception:
             failure_class = "ROUTE"
-            reason_parts.append("HTTP_ROUTE_NOT_FOUND")
+            reason_parts.append("ROUTE_FAILURE_SIGNAL")
         elif context.http_status in {408, 425, 429, 502, 503, 504}:
             failure_class = "TRANSIENT"
             reason_parts.append("HTTP_TRANSIENT_STATUS")
         elif any(token in exception for token in ("importerror", "modulenotfound", "syntaxerror")):
             failure_class = "SCRIPT"
             reason_parts.append("SCRIPT_LOAD_EXCEPTION")
+        elif "precondition" in exception:
+            failure_class = "PRECONDITION"
+            reason_parts.append("PRECONDITION_FAILURE_SIGNAL")
+        elif any(token in exception for token in ("databinding", "testdata", "dataunavailable")):
+            failure_class = "DATA"
+            reason_parts.append("DATA_FAILURE_SIGNAL")
+        elif "dependency" in exception:
+            failure_class = "DEPENDENCY"
+            reason_parts.append("DEPENDENCY_FAILURE_SIGNAL")
+        elif "environment" in exception:
+            failure_class = "ENVIRONMENT"
+            reason_parts.append("ENVIRONMENT_FAILURE_SIGNAL")
+        elif "tool" in exception:
+            failure_class = "TOOL"
+            reason_parts.append("TOOL_FAILURE_SIGNAL")
         elif any(token in exception for token in ("timeout", "connectionerror", "connectionreset")):
             failure_class = "TRANSIENT"
             reason_parts.append("TRANSPORT_EXCEPTION")
@@ -131,7 +153,7 @@ class ExecutionDiagnosisCoordinator:
             reason_parts.append("OWNERSHIP_NOT_PROVEN")
         return {
             "failure_class": failure_class,
-            "classifier_ref": "rc7-runtime-deterministic-failure-classifier/v1",
+            "classifier_ref": "rc7-runtime-deterministic-failure-classifier/v2",
             "rationale": ",".join(reason_parts),
             "evidence_refs": [],
         }
@@ -200,7 +222,7 @@ class ExecutionDiagnosisCoordinator:
             tool_verified=trust.tool_verified,
             environment_verified=trust.environment_verified,
             dependency_verified=trust.dependency_verified,
-            exception_type=trust.exception_type,
+            exception_type=(trust.exception_type if trust.exception_type is not None else record.reason),
             root_stack_frame=trust.root_stack_frame,
             http_status=trust.http_status if trust.http_status is not None else http_status,
             business_error_code=trust.business_error_code,
@@ -223,7 +245,7 @@ class ExecutionDiagnosisCoordinator:
     ) -> DiagnosisClosure:
         context = self.build_context(record=record, bundle=bundle, prepared=prepared, trust=trust)
         if str(record.status).upper() == "PASS":
-            return self._finish(context, None, None, "PASS_DOES_NOT_REQUIRE_FAILURE_DIAGNOSIS", None, None)
+            return self._finish(context, None, None, None, "PASS_DOES_NOT_REQUIRE_FAILURE_DIAGNOSIS", None, None)
 
         cat_required = CATPolicy().required(context)
         tools = ["cat"] if cat_required else []
@@ -241,7 +263,6 @@ class ExecutionDiagnosisCoordinator:
             try:
                 self.tool_broker.bind_worker("cat", worker.worker_id, visible=True, permitted=True)
             except Exception:
-                # DiagnosisRuntime will emit the canonical fail-closed reason.
                 pass
 
         runtime = DiagnosisRuntime(
@@ -264,17 +285,20 @@ class ExecutionDiagnosisCoordinator:
                 self.history,
                 max_transient_retries=self.max_transient_retries,
             ).decide(context, diagnosis)
+            work_plan = ExecutionRecoveryPlanner().compile(recovery)
             return self._finish(
                 context,
                 diagnosis,
                 recovery,
+                work_plan,
                 None,
                 worker.worker_id,
                 lease.lease_id,
             )
-        except DiagnosisContractError as exc:
+        except (DiagnosisContractError, RuntimeError) as exc:
             return self._finish(
                 context,
+                None,
                 None,
                 None,
                 str(exc),
@@ -287,6 +311,7 @@ class ExecutionDiagnosisCoordinator:
         context: FailureContext,
         diagnosis: Optional[DiagnosisResult],
         recovery: Optional[RecoveryDecision],
+        work_plan: Optional[RecoveryWorkPlan],
         unavailable_reason: Optional[str],
         worker_id: Optional[str],
         lease_id: Optional[str],
@@ -298,6 +323,7 @@ class ExecutionDiagnosisCoordinator:
             "context": asdict(context),
             "diagnosis": asdict(diagnosis) if diagnosis is not None else None,
             "recovery": asdict(recovery) if recovery is not None else None,
+            "work_plan": asdict(work_plan) if work_plan is not None else None,
             "unavailable_reason": unavailable_reason,
             "diagnostic_worker_id": worker_id,
             "diagnostic_lease_id": lease_id,
@@ -309,6 +335,7 @@ class ExecutionDiagnosisCoordinator:
             context=context,
             diagnosis=diagnosis,
             recovery=recovery,
+            work_plan=work_plan,
             unavailable_reason=unavailable_reason,
             diagnostic_worker_id=worker_id,
             diagnostic_lease_id=lease_id,
