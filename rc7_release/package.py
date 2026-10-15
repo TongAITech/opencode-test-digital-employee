@@ -24,15 +24,15 @@ LAUNCHER_DIR = Path("packaging") / "rc7"
 RC6_COORDINATOR_DIR = Path("packaging") / "rc6" / ".dsh" / "skills" / "pfc-full-chain-test"
 PACKAGE_LOCAL_PYTHON = Path("workspace-template") / "runtime" / "python" / "python.exe"
 PACKAGE_LOCAL_CODEGRAPH = (
-    Path("workspace-template")
-    / "runtime"
-    / "code-intelligence"
-    / "codegraph"
-    / "codegraph-server-win32-x64.exe"
+    Path("workspace-template") / "runtime" / "code-intelligence" / "codegraph" / "codegraph-server-win32-x64.exe"
 )
+PACKAGE_LOCAL_BROWSER = Path("workspace-template") / "runtime" / "browser" / "chrome-win64" / "chrome.exe"
 BUILD_CODEGRAPH_BIN_ENV = "PFC_RC7_BUILD_CODEGRAPH_BIN"
 BUILD_CODEGRAPH_VERSION_ENV = "PFC_RC7_BUILD_CODEGRAPH_VERSION"
 BUILD_CODEGRAPH_SHA256_ENV = "PFC_RC7_BUILD_CODEGRAPH_SHA256"
+BUILD_BROWSER_DIR_ENV = "PFC_RC7_BUILD_BROWSER_DIR"
+BUILD_BROWSER_VERSION_ENV = "PFC_RC7_BUILD_BROWSER_VERSION"
+BUILD_BROWSER_SHA256_ENV = "PFC_RC7_BUILD_BROWSER_SHA256"
 RUNTIME_GENERATED_DIRS = {"runtime-state", "state", "__pycache__"}
 RUNTIME_GENERATED_SUFFIXES = {".pyc", ".pyo"}
 SECRET_MARKERS = (
@@ -122,7 +122,6 @@ def _copy_tree(source: Path, destination: Path) -> None:
 
 
 def _copy_runtime_tree(source: Path, destination: Path) -> None:
-    """Copy a release-build runtime without source-tree secret-name heuristics."""
     for item in sorted(source.rglob("*")):
         if not item.is_file():
             continue
@@ -152,12 +151,7 @@ def _bundle_current_windows_python(package_root: Path) -> bool:
 def _bundle_build_codegraph(package_root: Path) -> Dict[str, object]:
     source_value = os.environ.get(BUILD_CODEGRAPH_BIN_ENV, "").strip()
     if not source_value:
-        return {
-            "path": PACKAGE_LOCAL_CODEGRAPH.as_posix(),
-            "bundled": False,
-            "resolved_version": None,
-            "sha256": None,
-        }
+        return {"path": PACKAGE_LOCAL_CODEGRAPH.as_posix(), "bundled": False, "resolved_version": None, "sha256": None}
     source = Path(source_value).expanduser().resolve()
     if not source.is_file():
         raise RuntimeError("BUILD_CODEGRAPH_BINARY_NOT_FOUND")
@@ -173,11 +167,38 @@ def _bundle_build_codegraph(package_root: Path) -> Dict[str, object]:
     shutil.copy2(str(source), str(target))
     if sha256_file(target) != digest:
         raise RuntimeError("PACKAGE_CODEGRAPH_COPY_HASH_MISMATCH")
-    version = os.environ.get(BUILD_CODEGRAPH_VERSION_ENV, "").strip() or None
     return {
         "path": PACKAGE_LOCAL_CODEGRAPH.as_posix(),
         "bundled": True,
-        "resolved_version": version,
+        "resolved_version": os.environ.get(BUILD_CODEGRAPH_VERSION_ENV, "").strip() or None,
+        "sha256": digest,
+    }
+
+
+def _bundle_build_browser(package_root: Path) -> Dict[str, object]:
+    source_value = os.environ.get(BUILD_BROWSER_DIR_ENV, "").strip()
+    if not source_value:
+        return {"path": PACKAGE_LOCAL_BROWSER.as_posix(), "bundled": False, "resolved_version": None, "sha256": None}
+    source = Path(source_value).expanduser().resolve()
+    source_exe = source / "chrome.exe"
+    if not source.is_dir() or not source_exe.is_file():
+        raise RuntimeError("BUILD_BROWSER_RUNTIME_NOT_FOUND")
+    digest = sha256_file(source_exe)
+    declared = os.environ.get(BUILD_BROWSER_SHA256_ENV, "").strip().lower()
+    if declared:
+        if not _SHA256_RE.match(declared):
+            raise RuntimeError("BUILD_BROWSER_SHA256_INVALID")
+        if digest != declared:
+            raise RuntimeError("BUILD_BROWSER_SHA256_MISMATCH")
+    target_dir = package_root / PACKAGE_LOCAL_BROWSER.parent
+    _copy_runtime_tree(source, target_dir)
+    target_exe = package_root / PACKAGE_LOCAL_BROWSER
+    if not target_exe.is_file() or sha256_file(target_exe) != digest:
+        raise RuntimeError("PACKAGE_BROWSER_COPY_HASH_MISMATCH")
+    return {
+        "path": PACKAGE_LOCAL_BROWSER.as_posix(),
+        "bundled": True,
+        "resolved_version": os.environ.get(BUILD_BROWSER_VERSION_ENV, "").strip() or None,
         "sha256": digest,
     }
 
@@ -200,11 +221,24 @@ def _package_files(root: Path) -> Iterable[Path]:
         yield path
 
 
+def _payload_manifest(package_root: Path, path: Path, provenance: Optional[Dict[str, object]]) -> Dict[str, object]:
+    if provenance is not None:
+        return dict(provenance)
+    target = package_root / path
+    return {
+        "path": path.as_posix(),
+        "bundled": target.is_file(),
+        "resolved_version": None,
+        "sha256": sha256_file(target) if target.is_file() else None,
+    }
+
+
 def _manifest_for(
     package_root: Path,
     source_commit: str,
     *,
     codegraph_provenance: Optional[Dict[str, object]] = None,
+    browser_provenance: Optional[Dict[str, object]] = None,
 ) -> Dict[str, object]:
     files = []
     for path in _package_files(package_root):
@@ -212,17 +246,6 @@ def _manifest_for(
         if rel == "PACKAGE_MANIFEST.json":
             continue
         files.append({"path": rel, "sha256": sha256_file(path), "size": path.stat().st_size})
-    codegraph = dict(
-        codegraph_provenance
-        or {
-            "path": PACKAGE_LOCAL_CODEGRAPH.as_posix(),
-            "bundled": (package_root / PACKAGE_LOCAL_CODEGRAPH).is_file(),
-            "resolved_version": None,
-            "sha256": sha256_file(package_root / PACKAGE_LOCAL_CODEGRAPH)
-            if (package_root / PACKAGE_LOCAL_CODEGRAPH).is_file()
-            else None,
-        }
-    )
     return {
         "schema_version": MANIFEST_SCHEMA,
         "status": BUILD_STATUS,
@@ -241,7 +264,8 @@ def _manifest_for(
         "workspace_installation": "PACKAGE_LOCAL_NO_SOURCE_INSTALL_REQUIRED",
         "package_local_python": PACKAGE_LOCAL_PYTHON.as_posix(),
         "package_local_python_bundled": (package_root / PACKAGE_LOCAL_PYTHON).is_file(),
-        "package_local_codegraph": codegraph,
+        "package_local_codegraph": _payload_manifest(package_root, PACKAGE_LOCAL_CODEGRAPH, codegraph_provenance),
+        "package_local_browser": _payload_manifest(package_root, PACKAGE_LOCAL_BROWSER, browser_provenance),
         "entrypoints": list(ENTRYPOINTS),
         "static_skill_count": len(ALL_SKILLS),
         "files": files,
@@ -296,6 +320,7 @@ def build_package(
 
     _bundle_current_windows_python(package_root)
     codegraph_provenance = _bundle_build_codegraph(package_root)
+    browser_provenance = _bundle_build_browser(package_root)
 
     _write_text(package_root / "SOURCE_COMMIT", source_commit + "\n")
     _write_text(package_root / "BUILD_ID", "RC7-%s\n" % source_commit[:12])
@@ -305,11 +330,9 @@ def build_package(
         package_root,
         source_commit,
         codegraph_provenance=codegraph_provenance,
+        browser_provenance=browser_provenance,
     )
-    _write_text(
-        package_root / "PACKAGE_MANIFEST.json",
-        json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
-    )
+    _write_text(package_root / "PACKAGE_MANIFEST.json", json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
     write_checksums(package_root)
 
     for relative in ENTRYPOINTS:
@@ -331,6 +354,23 @@ def build_package(
                     archive.write(str(path), arc.as_posix())
         _write_text(Path(str(zip_path) + ".sha256"), "%s  %s\n" % (sha256_file(zip_path), zip_path.name))
     return package_root
+
+
+def _verify_runtime_payload(root: Path, manifest: Dict[str, object], field: str, expected_path: Path) -> Dict[str, object]:
+    payload = manifest.get(field)
+    if not isinstance(payload, dict):
+        raise RuntimeError("PACKAGE_RUNTIME_MANIFEST_INVALID:%s" % field)
+    if payload.get("path") != expected_path.as_posix():
+        raise RuntimeError("PACKAGE_RUNTIME_PATH_INVALID:%s" % field)
+    target = root / expected_path
+    bundled = target.is_file()
+    if bool(payload.get("bundled")) != bundled:
+        raise RuntimeError("PACKAGE_RUNTIME_MANIFEST_MISMATCH:%s" % field)
+    if bundled:
+        digest = sha256_file(target)
+        if payload.get("sha256") != digest:
+            raise RuntimeError("PACKAGE_RUNTIME_HASH_MISMATCH:%s" % field)
+    return payload
 
 
 def verify_package(package_root: Union[str, Path]) -> Dict[str, object]:
@@ -372,19 +412,8 @@ def verify_package(package_root: Union[str, Path]) -> Dict[str, object]:
     if manifest.get("source_commit") != source_commit:
         raise RuntimeError("PACKAGE_SOURCE_COMMIT_MISMATCH")
 
-    codegraph = manifest.get("package_local_codegraph")
-    if not isinstance(codegraph, dict):
-        raise RuntimeError("PACKAGE_CODEGRAPH_MANIFEST_INVALID")
-    if codegraph.get("path") != PACKAGE_LOCAL_CODEGRAPH.as_posix():
-        raise RuntimeError("PACKAGE_CODEGRAPH_PATH_INVALID")
-    codegraph_path = root / PACKAGE_LOCAL_CODEGRAPH
-    codegraph_bundled = codegraph_path.is_file()
-    if bool(codegraph.get("bundled")) != codegraph_bundled:
-        raise RuntimeError("PACKAGE_CODEGRAPH_MANIFEST_MISMATCH")
-    if codegraph_bundled:
-        digest = sha256_file(codegraph_path)
-        if codegraph.get("sha256") != digest:
-            raise RuntimeError("PACKAGE_CODEGRAPH_HASH_MISMATCH")
+    codegraph = _verify_runtime_payload(root, manifest, "package_local_codegraph", PACKAGE_LOCAL_CODEGRAPH)
+    browser = _verify_runtime_payload(root, manifest, "package_local_browser", PACKAGE_LOCAL_BROWSER)
 
     expected = {}
     for line in (root / "CHECKSUMS.sha256").read_text(encoding="utf-8").splitlines():
@@ -400,11 +429,7 @@ def verify_package(package_root: Union[str, Path]) -> Dict[str, object]:
     actual = {_safe_relative(path.relative_to(root)) for path in _package_files(root)}
     if actual != set(expected):
         raise RuntimeError("PACKAGE_CHECKSUM_COVERAGE_MISMATCH")
-    secret_paths = sorted(
-        rel
-        for rel in actual
-        if not _is_bundled_runtime_relative(Path(rel)) and _looks_secret(Path(rel))
-    )
+    secret_paths = sorted(rel for rel in actual if not _is_bundled_runtime_relative(Path(rel)) and _looks_secret(Path(rel)))
     if secret_paths:
         raise RuntimeError("PACKAGE_SECRET_PATH_FORBIDDEN:" + ",".join(secret_paths))
 
@@ -427,9 +452,12 @@ def verify_package(package_root: Union[str, Path]) -> Dict[str, object]:
         "static_skill_count": len(ALL_SKILLS),
         "file_count": len(actual) + 1,
         "package_local_python_bundled": local_python_bundled,
-        "package_local_codegraph_bundled": codegraph_bundled,
+        "package_local_codegraph_bundled": bool(codegraph.get("bundled")),
         "package_local_codegraph_sha256": codegraph.get("sha256"),
         "package_local_codegraph_version": codegraph.get("resolved_version"),
+        "package_local_browser_bundled": bool(browser.get("bundled")),
+        "package_local_browser_sha256": browser.get("sha256"),
+        "package_local_browser_version": browser.get("resolved_version"),
     }
 
 
