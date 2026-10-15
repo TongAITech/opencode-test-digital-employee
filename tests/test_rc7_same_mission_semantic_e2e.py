@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
+from dataclasses import asdict
+
 from rc6_runtime.automation import ScriptArtifact
 from rc6_runtime.execution import ExecutionRecord
 from rc6_runtime.truth import TruthRuntime
@@ -15,7 +19,7 @@ from rc7_runtime import (
 from rc7_runtime.code_loop import CodeAnalysisClosedLoop
 from rc7_runtime.control_plane import WorkerOutput
 from rc7_runtime.execution_loop import ExecutionClosedLoop
-from rc7_runtime.mission_sufficiency import MissionEvidenceSnapshot, MissionSufficiencyClosedLoop
+from rc7_runtime.mission_evaluation_runtime import MissionEvaluationRuntime
 from rc7_runtime.requirement_loop import RequirementClosedLoop
 from rc7_runtime.script_readiness_loop import ScriptReadinessClosedLoop
 from rc7_runtime.test_design_loop import TestDesignClosedLoop, TestObligation
@@ -25,7 +29,16 @@ MISSION = "MISSION-SEMANTIC-E2E"
 TARGET = "TARGET-CFG-DATA"
 
 
-def _produce(control, graph, compiler, node: str, worker: str):
+def _persisted_candidate(tmp_path, artifact_id: str, payload):
+    folder = tmp_path / "semantic-e2e-artifacts"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / (artifact_id + ".json")
+    encoded = (json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2, default=str) + "\n").encode("utf-8")
+    path.write_bytes(encoded)
+    return "file://" + str(path), "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _produce(control, graph, compiler, node: str, worker: str, *, tmp_path, payload):
     task = graph.task(node)
     leased = control.lease_next(
         worker_ref=worker,
@@ -35,6 +48,7 @@ def _produce(control, graph, compiler, node: str, worker: str):
     control.start(task.task_id, worker_ref=worker)
     evidence_id = "EVD-WORKER-%s" % node
     artifact_id = graph.artifact_ids[node]
+    content_ref, content_hash = _persisted_candidate(tmp_path, artifact_id, payload)
     candidate = control.submit_worker_output(
         WorkerOutput(
             task_id=task.task_id,
@@ -45,7 +59,9 @@ def _produce(control, graph, compiler, node: str, worker: str):
                     mission_id=MISSION,
                     kind="NODE_OUTPUT_PROOF",
                     source_ref="worker://%s" % worker,
-                    content_ref="evidence://%s" % evidence_id,
+                    content_ref=content_ref,
+                    subject_refs=[task.task_id, artifact_id],
+                    content_hash=content_hash,
                 ),
             ),
             artifacts=(
@@ -54,9 +70,10 @@ def _produce(control, graph, compiler, node: str, worker: str):
                     mission_id=MISSION,
                     artifact_type=compiler.OUTPUT_TYPES[node],
                     producer_task_id=task.task_id,
-                    content_ref="artifact://%s" % artifact_id,
+                    content_ref=content_ref,
                     parent_refs=list(task.input_artifact_refs),
                     evidence_refs=[evidence_id],
+                    content_hash=content_hash,
                 ),
             ),
         )
@@ -174,17 +191,25 @@ def _obligations():
             risk="CRITICAL",
             evidence_refs=("EVD-BOUNDARY-E2E",),
         ),
+        TestObligation(
+            obligation_id="OBL-CODE-IMPACT-E2E",
+            kind="CODE_IMPACT",
+            layer="L3",
+            risk="CRITICAL",
+            evidence_refs=("EVD-CODE-IMPACT-E2E",),
+        ),
     ]
 
 
-def _case(tc_id: str, obligation_id: str):
+def _case(tc_id: str, obligation_ids):
     return {
         "tc_id": tc_id,
         "layer": "L3",
         "risk": "HIGH",
         "status": "CANDIDATE",
         "coverage_links": [
-            {"subject_id": obligation_id, "evidence_ref": "EVD-%s-COVERAGE" % tc_id}
+            {"subject_id": obligation_id, "evidence_ref": "EVD-%s-%s-COVERAGE" % (tc_id, obligation_id)}
+            for obligation_id in obligation_ids
         ],
         "action_semantics": {
             "state_changing": False,
@@ -233,43 +258,84 @@ def test_real_semantic_gates_compose_inside_one_r1_mission(tmp_path) -> None:
     compiler = MissionTaskGraphCompiler()
     graph = compiler.install(control, MISSION)
 
-    req_task, req_artifact = _produce(control, graph, compiler, "REQUIREMENT_ANALYSIS", "worker-requirement")
+    requirement_analysis = _requirement_analysis()
+    requirement_review = _requirement_review()
+    req_task, req_artifact = _produce(
+        control,
+        graph,
+        compiler,
+        "REQUIREMENT_ANALYSIS",
+        "worker-requirement",
+        tmp_path=tmp_path,
+        payload={"analysis": requirement_analysis, "review": requirement_review},
+    )
     req_result = RequirementClosedLoop().evaluate(
         mission_id=MISSION,
         artifact_ref=req_artifact,
-        analysis=_requirement_analysis(),
-        review=_requirement_review(),
+        analysis=requirement_analysis,
+        review=requirement_review,
     )
     assert req_result.evaluation.result == EvaluationResult.PASS
     control.accept_evaluation(req_task.task_id, evaluation=req_result.evaluation)
 
-    code_task, code_artifact = _produce(control, graph, compiler, "CODE_ANALYSIS", "worker-code")
+    code_analysis = _code_analysis()
+    code_review = _code_review()
+    code_task, code_artifact = _produce(
+        control,
+        graph,
+        compiler,
+        "CODE_ANALYSIS",
+        "worker-code",
+        tmp_path=tmp_path,
+        payload={"analysis": code_analysis, "review": code_review},
+    )
     code_result = CodeAnalysisClosedLoop().evaluate(
         mission_id=MISSION,
         artifact_ref=code_artifact,
         target_id=TARGET,
-        analysis=_code_analysis(),
-        review=_code_review(),
+        analysis=code_analysis,
+        review=code_review,
     )
     assert code_result.evaluation.result == EvaluationResult.PASS
     assert code_result.evaluation.dimensions["metrics"]["codegraph_evidence_calls"] == 1
     control.accept_evaluation(code_task.task_id, evaluation=code_result.evaluation)
 
-    design_task, design_artifact = _produce(control, graph, compiler, "TEST_DESIGN", "worker-design")
+    obligations = _obligations()
+    cases = [
+        _case(
+            "TC-RATE-E2E",
+            ["OBL-RULE-E2E", "OBL-BOUNDARY-E2E", "OBL-CODE-IMPACT-E2E"],
+        )
+    ]
+    design_payload = {
+        "artifact": {
+            "artifact_id": graph.artifact_ids["TEST_DESIGN"],
+            "artifact_type": "TEST_DESIGN_MODEL",
+        },
+        "semantic_payload": {
+            "obligations": [asdict(item) for item in obligations],
+            "cases": cases,
+        },
+    }
+    design_task, design_artifact = _produce(
+        control,
+        graph,
+        compiler,
+        "TEST_DESIGN",
+        "worker-design",
+        tmp_path=tmp_path,
+        payload=design_payload,
+    )
     design_result = TestDesignClosedLoop().evaluate(
         mission_id=MISSION,
         artifact_ref=design_artifact,
-        obligations=_obligations(),
-        cases=[
-            _case("TC-RULE-E2E", "OBL-RULE-E2E"),
-            _case("TC-BOUNDARY-E2E", "OBL-BOUNDARY-E2E"),
-        ],
+        obligations=obligations,
+        cases=cases,
     )
     assert design_result.evaluation.result == EvaluationResult.PASS
     assert design_result.semantic_coverage == 1.0
     control.accept_evaluation(design_task.task_id, evaluation=design_result.evaluation)
 
-    script_task, script_artifact = _produce(control, graph, compiler, "SCRIPT_READINESS", "worker-script")
     script_loop = ScriptReadinessClosedLoop(validation_timeout_seconds=60)
     spec = script_loop.compile_execution_contract(
         case=_frozen_case(),
@@ -298,6 +364,19 @@ def test_real_semantic_gates_compose_inside_one_r1_mission(tmp_path) -> None:
         revision=1,
     )
     validation = script_loop.validate_script(spec=spec, script=script, cwd=str(tmp_path))
+    script_task, script_artifact = _produce(
+        control,
+        graph,
+        compiler,
+        "SCRIPT_READINESS",
+        "worker-script",
+        tmp_path=tmp_path,
+        payload={
+            "spec": asdict(spec),
+            "script": asdict(script),
+            "validation": asdict(validation),
+        },
+    )
     script_result = script_loop.evaluate(
         mission_id=MISSION,
         artifact_ref=script_artifact,
@@ -309,7 +388,6 @@ def test_real_semantic_gates_compose_inside_one_r1_mission(tmp_path) -> None:
     assert script_result.evaluation.dimensions["business_assertion_executed"] is False
     control.accept_evaluation(script_task.task_id, evaluation=script_result.evaluation)
 
-    exec_task, exec_artifact = _produce(control, graph, compiler, "EXECUTION", "worker-execution")
     record = ExecutionRecord(
         attempt_id="ATT-E2E-1",
         tc_id="TC-RATE-E2E",
@@ -322,10 +400,19 @@ def test_real_semantic_gates_compose_inside_one_r1_mission(tmp_path) -> None:
         integrity_passed=True,
         actual_result={"business_code": "ACCEPTED"},
         tool_call_refs=("call://api/rate-adjustment",),
-        evidence_refs=("EVD-EXEC-E2E",),
+        evidence_refs=("EVD-WORKER-EXECUTION",),
         assertion_ref="assertion://rate-accepted",
         assertion_passed=True,
         reason="ORACLE_PASS",
+    )
+    exec_task, exec_artifact = _produce(
+        control,
+        graph,
+        compiler,
+        "EXECUTION",
+        "worker-execution",
+        tmp_path=tmp_path,
+        payload={"record": asdict(record)},
     )
     exec_result = ExecutionClosedLoop().evaluate(
         mission_id=MISSION,
@@ -336,25 +423,27 @@ def test_real_semantic_gates_compose_inside_one_r1_mission(tmp_path) -> None:
     assert exec_result.evaluation.result == EvaluationResult.PASS
     control.accept_evaluation(exec_task.task_id, evaluation=exec_result.evaluation)
 
-    snapshot = MissionEvidenceSnapshot(
-        mission_id=MISSION,
-        release_id="RC7",
-        snapshot_ref="SNAPSHOT-SEMANTIC-E2E",
-        evidence_refs=("EVD-MISSION-E2E",),
-        critical_requirements_total=1,
-        critical_requirements_verified=1,
-        critical_obligations_total=2,
-        critical_obligations_verified=2,
-        critical_branches_total=1,
-        critical_branches_verified=1,
-        critical_executions_total=1,
-        critical_executions_conclusive=1,
-    )
-    sufficiency = MissionSufficiencyClosedLoop().evaluate(snapshot)
-    assert sufficiency.evaluation.result == EvaluationResult.PASS
-    assert sufficiency.sufficiency_state == "SUFFICIENT"
-    mission = control.converge_mission(sufficiency.evaluation)
-    assert mission.state.value == "CONVERGED"
+    mission_result = MissionEvaluationRuntime(
+        evidence_root=str(tmp_path / "mission-evidence")
+    ).run(control)
+    assert mission_result.evaluation_result == "PASS"
+    assert mission_result.sufficiency_state == "SUFFICIENT"
+    assert mission_result.release_recommendation == "RECOMMENDED"
+    assert mission_result.mission_state == "CONVERGED"
+    assert mission_result.gap_ids == ()
+
+    snapshot_rows = truth.query("rc7_artifact", artifact_id=mission_result.snapshot_artifact_id)
+    assert len(snapshot_rows) == 1
+    assert snapshot_rows[0]["artifact_type_name"] == "MISSION_EVIDENCE_SNAPSHOT"
+    snapshot_path = snapshot_rows[0]["content_ref"]
+    assert snapshot_path.startswith("file://")
+    snapshot_payload = json.loads(open(snapshot_path[len("file://"):], "r", encoding="utf-8").read())
+    assert snapshot_payload["critical_requirement_refs"] == ["OBL-BOUNDARY-E2E", "OBL-RULE-E2E"]
+    assert snapshot_payload["verified_requirement_refs"] == ["OBL-BOUNDARY-E2E", "OBL-RULE-E2E"]
+    assert snapshot_payload["critical_branch_refs"] == ["OBL-CODE-IMPACT-E2E"]
+    assert snapshot_payload["verified_branch_refs"] == ["OBL-CODE-IMPACT-E2E"]
+    assert snapshot_payload["critical_execution_refs"] == ["TC-RATE-E2E"]
+    assert snapshot_payload["conclusive_execution_refs"] == ["TC-RATE-E2E"]
 
     replay = TruthRuntime(path)
     recovered = ClosedLoopControlPlane(replay, "RC7", MISSION)
@@ -364,3 +453,10 @@ def test_real_semantic_gates_compose_inside_one_r1_mission(tmp_path) -> None:
         recovered.scheduler.task(graph.task(node).task_id).state == TaskStatus.PASS
         for node in compiler.NODE_ORDER
     )
+    mission_tasks = [
+        row
+        for row in replay.query("rc7_task", mission_id=MISSION)
+        if row.get("node") == "MISSION_EVALUATION"
+    ]
+    assert len(mission_tasks) == 1
+    assert mission_tasks[0]["state"] == "PASS"
