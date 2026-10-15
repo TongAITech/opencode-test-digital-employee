@@ -1,9 +1,11 @@
 """Formal-execution guard for RC7 Mission Evidence snapshots.
 
 The base R1 snapshot builder derives denominators and counters from durable truth.
-This production builder additionally proves that every conclusive Execution used
-as Mission verification is backed by runtime-owned execution evidence.  A model
-or generic worker NODE_OUTPUT_PROOF can never certify a Test Case as verified.
+This production builder additionally proves that every Execution considered by
+Mission verification is backed by runtime-owned execution evidence.  Verification
+uses only the latest ordinary formal execution for a Case and that latest result
+must be PASS.  Defect-reproduction work remains auditable execution evidence but
+never contributes to Mission coverage numerators.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from .mission_evidence_builder import (
 class R1FormalMissionEvidenceSnapshotBuilder(R1MissionEvidenceSnapshotBuilder):
     FORMAL_EXECUTION_KIND = "RUNTIME_EXECUTION_RECORD"
     FORMAL_EXECUTION_SOURCE = "runtime://formal-execution"
+    NON_VERIFICATION_PURPOSES = {"DEFECT_REPRODUCTION"}
 
     def _execution_truth(
         self,
@@ -28,8 +31,10 @@ class R1FormalMissionEvidenceSnapshotBuilder(R1MissionEvidenceSnapshotBuilder):
         *,
         mission_id: str,
     ) -> Tuple[Dict[str, Dict[str, Any]], List[Dict[str, Any]]]:
-        by_case, basis = super()._execution_truth(truth, mission_id=mission_id)
-        for item in basis:
+        _, basis = super()._execution_truth(truth, mission_id=mission_id)
+        latest_ordinary_by_case: Dict[str, Tuple[Tuple[int, int], Dict[str, Any]]] = {}
+
+        for index, item in enumerate(basis):
             evaluation_id = str(item["evaluation_id"])
             attempt_id = str(item["attempt_id"])
             tc_id = str(item["tc_id"])
@@ -40,6 +45,7 @@ class R1FormalMissionEvidenceSnapshotBuilder(R1MissionEvidenceSnapshotBuilder):
                 raise MissionEvidenceBuildError(
                     "MISSION_EXECUTION_EVALUATION_NOT_DURABLE:%s" % evaluation_id
                 )
+            evaluation = evaluations[0]
             artifact_rows = truth.query("rc7_artifact", artifact_id=artifact_id)
             if len(artifact_rows) != 1 or artifact_rows[0].get("mission_id") != mission_id:
                 raise MissionEvidenceBuildError(
@@ -58,7 +64,7 @@ class R1FormalMissionEvidenceSnapshotBuilder(R1MissionEvidenceSnapshotBuilder):
             evidence_ids = []
             for source in (
                 artifact_rows[0].get("evidence_refs", []),
-                evaluations[0].get("evidence_refs", []),
+                evaluation.get("evidence_refs", []),
                 record.get("evidence_refs", []),
             ):
                 if not isinstance(source, list):
@@ -102,4 +108,26 @@ class R1FormalMissionEvidenceSnapshotBuilder(R1MissionEvidenceSnapshotBuilder):
             item["formal_execution_evidence_ids"] = sorted(
                 str(row["evidence_id"]) for row in formal
             )
-        return by_case, basis
+
+            dimensions = evaluation.get("dimensions")
+            if not isinstance(dimensions, dict):
+                raise MissionEvidenceBuildError(
+                    "MISSION_EXECUTION_EVALUATION_DIMENSIONS_REQUIRED:%s" % evaluation_id
+                )
+            purpose = dimensions.get("purpose")
+            item["purpose"] = purpose
+            item["evaluation_created_at"] = int(evaluation.get("created_at", 0) or 0)
+            if purpose in self.NON_VERIFICATION_PURPOSES:
+                continue
+
+            ordering = (item["evaluation_created_at"], index)
+            current = latest_ordinary_by_case.get(tc_id)
+            if current is None or ordering > current[0]:
+                latest_ordinary_by_case[tc_id] = (ordering, item)
+
+        verified_by_case = {
+            tc_id: item
+            for tc_id, (_, item) in latest_ordinary_by_case.items()
+            if item.get("conclusive") is True and item.get("test_result") == "PASS"
+        }
+        return verified_by_case, basis
