@@ -14,9 +14,21 @@ from rc7_runtime import (
     Task,
     TaskStatus,
 )
+from rc7_runtime.dsh_script_execution_guard import DshExecutionReadyScriptEvaluator
 from rc7_runtime.truth_overlay import append_entity
 
 from . import script_qualification as legacy
+
+
+_L3_CONTROLLED_API_GUIDANCE = (
+    " L3 FORMAL EXECUTION CONTRACT: the generated script MUST send every business HTTP request through the loopback URL "
+    "provided at execution time in RC7_API_RUNTIME_PROXY_URL. The script sends a JSON command to that URL with method, "
+    "target-relative path, optional headers/body, and capture_as=actual_result for exactly the response that feeds the Oracle. "
+    "Do not hard-code or directly call the business target host. Do not use rc6_runtime.runner_manifest.record_tool_call or "
+    "record_actual_result to claim api-runtime evidence/results: formal L3 Execution discards child-authored API claims and accepts "
+    "only parent-owned APIREC receipts from the controlled proxy. Readiness will reject L3 source that does not bind the proxy or "
+    "that self-attests tool calls/results."
+)
 
 
 def _fixed_import_accepted_design(
@@ -28,14 +40,7 @@ def _fixed_import_accepted_design(
     envelope: Mapping[str, object],
     raw: bytes,
 ) -> Tuple[str, str]:
-    """Import an upstream PASS as evidence, then re-evaluate it in this Mission.
-
-    Durable RC7 truth forbids copying an Evaluation id from another Mission into
-    a current-Mission PASS Task. The imported candidate is therefore persisted
-    first, followed by a local Runtime-owned PASS Evaluation that explicitly
-    records upstream provenance. Only that local Evaluation may authorize the
-    imported Test Design Task to enter PASS.
-    """
+    """Import an upstream PASS as evidence, then re-evaluate it in this Mission."""
     mission_id = control.mission_id
     producer_task_id = legacy._stable_id(
         "TASK-IMPORT-DESIGN", mission_id, str(upstream_result_path)
@@ -151,22 +156,48 @@ def _fixed_import_accepted_design(
     return artifact_id, relative.as_posix()
 
 
-def run_strict_script_qualification(**kwargs):
-    original = legacy._import_accepted_design
+def _install_strict_overrides():
+    original_import = legacy._import_accepted_design
+    original_objective = legacy._worker_objective
+    original_evaluator = legacy.DshScriptReadinessEvaluator
+
+    def strict_objective(*, contract, imported_design_path, reuse_targets):
+        text = original_objective(
+            contract=contract,
+            imported_design_path=imported_design_path,
+            reuse_targets=reuse_targets,
+        )
+        if str(contract.spec.layer).upper() == "L3":
+            text += _L3_CONTROLLED_API_GUIDANCE
+        return text
+
     legacy._import_accepted_design = _fixed_import_accepted_design
+    legacy._worker_objective = strict_objective
+    legacy.DshScriptReadinessEvaluator = DshExecutionReadyScriptEvaluator
+    return original_import, original_objective, original_evaluator
+
+
+def _restore_strict_overrides(originals) -> None:
+    original_import, original_objective, original_evaluator = originals
+    legacy._import_accepted_design = original_import
+    legacy._worker_objective = original_objective
+    legacy.DshScriptReadinessEvaluator = original_evaluator
+
+
+def run_strict_script_qualification(**kwargs):
+    originals = _install_strict_overrides()
     try:
         return legacy.run_real_script_qualification(**kwargs)
     finally:
-        legacy._import_accepted_design = original
+        _restore_strict_overrides(originals)
 
 
 def main(argv=None) -> int:
-    original = legacy._import_accepted_design
-    legacy._import_accepted_design = _fixed_import_accepted_design
+    originals = _install_strict_overrides()
     try:
         return legacy.main(argv)
     finally:
-        legacy._import_accepted_design = original
+        _restore_strict_overrides(originals)
 
 
 if __name__ == "__main__":
