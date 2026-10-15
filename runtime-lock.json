@@ -1,48 +1,68 @@
 {
-  "schema_version": "aitest.offline-runtime-lock.v1",
+  "schema_version": "aitest.offline-runtime-policy.v2",
   "source_truth": "GIT_COMMIT",
+  "version_policy": "CAPABILITY_BASED_NO_EXACT_VERSION_PIN",
   "payload_policy": {
     "bundled_at_release_build": true,
     "stored_in_git": false,
     "internet_required_on_bank_host": false,
     "dependency_install_allowed_on_bank_host": false,
-    "verify_sha256_before_use": true
+    "verify_sha256_before_use": true,
+    "resolved_version_and_sha_authority": "PACKAGE_MANIFEST.json"
   },
   "payloads": {
     "python": {
       "role": "PORTABLE_RUNTIME",
-      "version": "3.12.10",
       "platform": "windows-x64",
       "relative_target": "workspace-template/runtime/python/python.exe",
-      "status": "PINNED_VERSION_FROM_CURRENT_CONSTRUCTION",
-      "sha256": "TO_BE_PINNED_FROM_CANONICAL_PAYLOAD_REGISTRY"
+      "resolution": "BUILD_TIME_COMPATIBLE_WINDOWS_RUNTIME",
+      "compatibility_gate": "RC7_IMPORT_COMPILE_AND_DELIVERY_QUALIFICATION_PASS",
+      "required_for_delivery": true
     },
-    "chromium": {
+    "controlled_browser": {
       "role": "CONTROLLED_BROWSER",
-      "version": "151.0.7922.34",
-      "platform": "windows-x64",
+      "provider": "Chrome for Testing",
+      "platform": "win64",
       "relative_target": "workspace-template/runtime/browser/chrome-win64/chrome.exe",
-      "status": "PINNED_VERSION_FROM_CURRENT_CONSTRUCTION",
-      "sha256": "TO_BE_PINNED_FROM_CANONICAL_PAYLOAD_REGISTRY"
+      "resolution": "BUILD_TIME_LATEST_STABLE_OFFICIAL_CHANNEL",
+      "compatibility_gate": "PACKAGE_LOCAL_BROWSER_SMOKE_AND_DELIVERY_QUALIFICATION_PASS",
+      "required_for_delivery": true
     },
     "codegraph": {
       "role": "STRUCTURAL_CODE_INTELLIGENCE",
       "provider": "codegraph-ai/CodeGraph",
-      "version": "0.20.1",
       "platform": "windows-x64",
       "mode": "graph-only",
       "relative_target": "workspace-template/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe",
       "release_asset": "codegraph-server-win32-x64.exe",
-      "sha256": "aa1b6108217c119af6ac444b8652a0eadcfe2c343bff78ead2edd15b6b7b15b1",
-      "status": "SELECTED_FOR_REPAIR_WAVE_2_INTEGRATION",
+      "resolution": "BUILD_TIME_LATEST_STABLE_OFFICIAL_RELEASE",
+      "compatibility_gate": "PACKAGE_LOCAL_CODEGRAPH_SMOKE_AND_DELIVERY_QUALIFICATION_PASS",
+      "required_for_delivery": true,
       "change_truth_authority": false,
       "actual_coverage_authority": false
     },
     "ripgrep": {
       "role": "REFERENCE_SEARCH_ENRICHMENT",
       "platform": "windows-x64",
-      "status": "CAPABILITY_REQUIRED_WHERE_AVAILABLE_VERSION_NOT_YET_PINNED",
-      "sha256": "TO_BE_PINNED_FROM_CANONICAL_PAYLOAD_REGISTRY"
+      "resolution": "CAPABILITY_OPTIONAL_WHERE_AVAILABLE",
+      "required_for_delivery": false
+    }
+  },
+  "external_capabilities": {
+    "dsh": {
+      "role": "AI_EXECUTION_PLANE",
+      "distribution": "BANK_HOST_CAPABILITY",
+      "bundled_in_turnkey_zip": false,
+      "resolution": "FIELD_CAPABILITY_DISCOVERY",
+      "required_for_real_mission": true,
+      "proof_authority": "R1_DSH_RUNTIME_PROOF_AND_TASK_SCOPED_TOOL_RECEIPTS"
+    },
+    "bank_4a": {
+      "role": "AUTH_RUNTIME_PREREQUISITE",
+      "distribution": "BANK_ENVIRONMENT_CAPABILITY",
+      "bundled_in_turnkey_zip": false,
+      "resolution": "FIELD_SKILL_AND_RUNTIME_ADAPTER",
+      "required_when_target_demands_auth": true
     }
   }
 }
