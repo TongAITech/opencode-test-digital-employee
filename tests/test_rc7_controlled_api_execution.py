@@ -7,7 +7,7 @@ import threading
 
 from rc6_runtime.automation import PytestRunnerAdapter, ScriptArtifact
 from rc6_runtime.executable_spec import ExecutableSpecBuilder
-from rc7_runtime.controlled_api_execution import ControlledApiRunnerAdapter
+from rc7_runtime.controlled_api_execution_strict import StrictControlledApiRunnerAdapter
 from rc7_runtime.runtime_execution import _EvidenceBackedProcessHarness
 from rc7_runtime.script_validation import EvidenceBackedScriptReadinessValidator
 
@@ -122,7 +122,7 @@ def _run(tmp_path: Path, target_url: str, source: str):
     delegate.harness = _EvidenceBackedProcessHarness(
         evidence_root=str(tmp_path / "process-evidence"), timeout_seconds=20
     )
-    adapter = ControlledApiRunnerAdapter(
+    adapter = StrictControlledApiRunnerAdapter(
         delegate=delegate,
         target_base_url=target_url,
         evidence_root=str(tmp_path / "api-evidence"),
