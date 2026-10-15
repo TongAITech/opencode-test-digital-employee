@@ -41,6 +41,7 @@ class DirectRetryAuthorization:
     gap_id: str
     plan_artifact_id: str
     plan_evidence_id: str
+    diagnosis_evidence_id: str
     successor_attempt_id: str
     prepared: PreparedAttempt
 
@@ -70,6 +71,18 @@ class ExecutionRecoveryController:
             raise RecoveryControlError("DIRECT_RETRY_SUCCESSOR_REQUIRED")
         if prepared.attempt_id != plan.source_attempt_id:
             raise RecoveryControlError("DIRECT_RETRY_SOURCE_ATTEMPT_MISMATCH")
+        if not isinstance(diagnosis_evidence_id, str) or not diagnosis_evidence_id:
+            raise RecoveryControlError("DIRECT_RETRY_DIAGNOSIS_EVIDENCE_REQUIRED")
+        diagnosis_rows = control.truth.query("rc7_evidence", evidence_id=diagnosis_evidence_id)
+        if len(diagnosis_rows) != 1:
+            raise RecoveryControlError("DIRECT_RETRY_DIAGNOSIS_EVIDENCE_NOT_UNIQUE")
+        diagnosis_row = diagnosis_rows[0]
+        if diagnosis_row.get("mission_id") != control.mission_id:
+            raise RecoveryControlError("DIRECT_RETRY_DIAGNOSIS_EVIDENCE_MISSION_MISMATCH")
+        if diagnosis_row.get("kind") != "RUNTIME_FAILURE_DIAGNOSIS":
+            raise RecoveryControlError("DIRECT_RETRY_DIAGNOSIS_EVIDENCE_KIND_INVALID")
+        if plan.source_attempt_id not in list(diagnosis_row.get("subject_refs", [])):
+            raise RecoveryControlError("DIRECT_RETRY_DIAGNOSIS_ATTEMPT_NOT_PROVEN")
 
         source = control.scheduler.task(source_task_id)
         if source.node != "EXECUTION" or source.state != TaskStatus.REPAIR_REQUIRED:
@@ -135,7 +148,7 @@ class ExecutionRecoveryController:
         digest = hashlib.sha256(encoded).hexdigest()
         evidence_id = _stable_id("EVD-RECOVERY-PLAN", control.mission_id, gap_id, digest)
         artifact_id = _stable_id("ART-RECOVERY-PLAN", control.mission_id, gap_id, digest)
-        evidence_refs = [evidence_id]
+        evidence_refs = [evidence_id, diagnosis_evidence_id]
         evidence = Evidence(
             evidence_id=evidence_id,
             mission_id=control.mission_id,
@@ -176,6 +189,7 @@ class ExecutionRecoveryController:
                 "successor_attempt_id": plan.successor_attempt_id,
                 "retry_allowed": True,
                 "reprepare_required": False,
+                "diagnosis_evidence_id": diagnosis_evidence_id,
             },
             evidence_refs=evidence_refs,
         )
@@ -195,6 +209,7 @@ class ExecutionRecoveryController:
             gap_id=gap_id,
             plan_artifact_id=artifact_id,
             plan_evidence_id=evidence_id,
+            diagnosis_evidence_id=diagnosis_evidence_id,
             successor_attempt_id=plan.successor_attempt_id,
             prepared=successor,
         )
