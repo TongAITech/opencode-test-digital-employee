@@ -6,6 +6,9 @@ ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 STATE="${PFC_AITEST_STATE_DIR:-$ROOT/runtime-state/rc7-dsh-code-qualification}"
 PYTHON_BIN="${PFC_PYTHON:-}"
 
+if [[ -z "$PYTHON_BIN" && -x "$ROOT/workspace-template/runtime/python/python.exe" ]]; then
+  PYTHON_BIN="$ROOT/workspace-template/runtime/python/python.exe"
+fi
 if [[ -z "$PYTHON_BIN" ]]; then
   PYTHON_BIN="$(command -v python 2>/dev/null || command -v python3 2>/dev/null || true)"
 fi
@@ -19,7 +22,18 @@ fi
 : "${PFC_RC7_CODE_HEAD_REF:?PFC_RC7_CODE_HEAD_REF is required}"
 : "${PFC_RC7_CODE_TARGET_ID:?PFC_RC7_CODE_TARGET_ID is required}"
 : "${PFC_RC7_CODEGRAPH_QUERY_ARGS_JSON:?PFC_RC7_CODEGRAPH_QUERY_ARGS_JSON is required, e.g. [\"callers\",\"RateService.adjustRate\",\"--json\"]}"
-: "${PFC_CODEGRAPH_BIN:?PFC_CODEGRAPH_BIN is required}"
+
+if [[ -z "${PFC_CODEGRAPH_BIN:-}" && -f "$ROOT/workspace-template/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe" ]]; then
+  export PFC_CODEGRAPH_BIN="$ROOT/workspace-template/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe"
+fi
+if [[ -z "${PFC_CODEGRAPH_BIN:-}" ]]; then
+  printf '%s\n' '{"status":"NOT_PROVEN","reason":"PFC_CODEGRAPH_BIN_REQUIRED_OR_PACKAGE_LOCAL_CODEGRAPH_MISSING"}' >&2
+  exit 2
+fi
+if [[ ! -f "$PFC_CODEGRAPH_BIN" ]]; then
+  printf '%s\n' '{"status":"NOT_PROVEN","reason":"PFC_CODEGRAPH_BIN_NOT_FOUND"}' >&2
+  exit 2
+fi
 
 mkdir -p "$STATE"
 export PFC_AITEST_HOME="$ROOT"
