@@ -15,7 +15,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
-from .package import PACKAGE_NAME
+from .package import PACKAGE_LOCAL_PYTHON, PACKAGE_NAME
 
 
 SCHEMA_VERSION = "pfc.aitest.rc7.delivery-qualification.v1"
@@ -80,23 +80,27 @@ def _free_port() -> int:
         sock.close()
 
 
-def _package_env(package_root: Path) -> Dict[str, str]:
+def _package_env(package_root: Path, python_executable: Path) -> Dict[str, str]:
     env = dict(os.environ)
     old = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(package_root) + (os.pathsep + old if old else "")
-    env["PFC_PYTHON"] = sys.executable
+    env["PFC_PYTHON"] = str(python_executable)
     return env
 
 
-def _verify_package_local(package_root: Path, env: Mapping[str, str]) -> None:
+def _verify_package_local(
+    package_root: Path,
+    env: Mapping[str, str],
+    python_executable: Path,
+) -> None:
     _run(
-        [sys.executable, "-m", "rc7_release.package", "verify", "--package-root", str(package_root)],
+        [str(python_executable), "-m", "rc7_release.package", "verify", "--package-root", str(package_root)],
         cwd=package_root,
         env=env,
         label="PACKAGE_LOCAL_VERIFY",
     )
     _run(
-        [sys.executable, "-m", "compileall", "-q", "rc6_runtime", "rc6_release", "rc7_runtime", "rc7_release", "rc7_admin"],
+        [str(python_executable), "-m", "compileall", "-q", "rc6_runtime", "rc6_release", "rc7_runtime", "rc7_release", "rc7_admin"],
         cwd=package_root,
         env=env,
         label="PACKAGE_LOCAL_COMPILE",
@@ -132,12 +136,17 @@ def _verify_final_entrypoint(package_root: Path, env: Mapping[str, str], source_
     return str(result_path)
 
 
-def _verify_admin_startup(package_root: Path, env: Mapping[str, str], work_root: Path) -> Dict[str, Any]:
+def _verify_admin_startup(
+    package_root: Path,
+    env: Mapping[str, str],
+    work_root: Path,
+    python_executable: Path,
+) -> Dict[str, Any]:
     r1_path = work_root / "admin-smoke-r1.jsonl"
     port = _free_port()
     process = subprocess.Popen(
         [
-            sys.executable,
+            str(python_executable),
             "-m",
             "rc7_admin",
             "--r1",
@@ -186,6 +195,24 @@ def _verify_admin_startup(package_root: Path, env: Mapping[str, str], work_root:
                 process.wait(timeout=5)
 
 
+def _select_qualification_python(package_root: Path, blockers: List[str], details: Dict[str, Any]) -> Path:
+    package_python = package_root / PACKAGE_LOCAL_PYTHON
+    if os.name == "nt":
+        if not package_python.is_file():
+            raise DeliveryQualificationError("PACKAGE_LOCAL_PYTHON_RUNTIME_MISSING")
+        details["package_local_python_verify"] = "PASS"
+        details["package_python_ref"] = "file://" + str(package_python)
+        return package_python
+
+    # Non-Windows runs are structural diagnostics only. They may use the host
+    # interpreter, but the Delivery gate remains HOLD and can never certify a
+    # BANK-WIN10 turnkey package.
+    blockers.append("PACKAGE_LOCAL_PYTHON_REQUIRES_WINDOWS_RUNTIME")
+    details["package_local_python_verify"] = "HOLD_NON_WINDOWS"
+    details["package_python_ref"] = "host-diagnostic://" + sys.executable
+    return Path(sys.executable)
+
+
 def qualify_delivery(*, zip_path: str, source_commit: str) -> Dict[str, Any]:
     commit = source_commit.strip().lower() if isinstance(source_commit, str) else ""
     if not _SHA_RE.match(commit):
@@ -215,15 +242,22 @@ def qualify_delivery(*, zip_path: str, source_commit: str) -> Dict[str, Any]:
             if package_commit != commit:
                 raise DeliveryQualificationError("PACKAGE_SOURCE_COMMIT_MISMATCH")
 
-            env = _package_env(package_root)
-            _verify_package_local(package_root, env)
+            python_executable = _select_qualification_python(package_root, blockers, details)
+            env = _package_env(package_root, python_executable)
+            _run(
+                [str(python_executable), "-c", "import sys; print(sys.executable)"],
+                cwd=package_root,
+                env=env,
+                label="PACKAGE_LOCAL_PYTHON_SMOKE",
+            )
+            _verify_package_local(package_root, env, python_executable)
             details["package_verify"] = "PASS"
 
             entrypoint_result = _verify_final_entrypoint(package_root, env, commit, work_root)
             details["package_entrypoint_verify"] = "PASS"
             details["entrypoint_result_ref"] = "file://" + entrypoint_result
 
-            health = _verify_admin_startup(package_root, env, work_root)
+            health = _verify_admin_startup(package_root, env, work_root, python_executable)
             details["admin_startup_verify"] = "PASS"
             details["admin_health"] = health
         except Exception as exc:
@@ -233,6 +267,8 @@ def qualify_delivery(*, zip_path: str, source_commit: str) -> Dict[str, Any]:
     refs = ["zip://%s#sha256:%s" % (archive_path.name, digest)]
     if details.get("entrypoint_result_ref"):
         refs.append(details["entrypoint_result_ref"])
+    if details.get("package_python_ref"):
+        refs.append(details["package_python_ref"])
     status = "PASS" if not blockers else "HOLD"
     return {
         "schema_version": SCHEMA_VERSION,
@@ -242,13 +278,14 @@ def qualify_delivery(*, zip_path: str, source_commit: str) -> Dict[str, Any]:
         "package_name": PACKAGE_NAME,
         "package_sha256": digest,
         "clean_windows_unpack": details.get("clean_windows_unpack", "HOLD"),
+        "package_local_python_verify": details.get("package_local_python_verify", "HOLD"),
         "package_verify": details.get("package_verify", "HOLD"),
         "package_entrypoint_verify": details.get("package_entrypoint_verify", "HOLD"),
         "admin_startup_verify": details.get("admin_startup_verify", "HOLD"),
         "admin_health": details.get("admin_health", {}),
         "evidence_refs": refs,
         "blocking_reasons": blockers,
-        "qualification_kind": "CLEAN_TURNKEY_DELIVERY",
+        "qualification_kind": "CLEAN_TURNKEY_DELIVERY_PACKAGE_LOCAL_RUNTIME",
     }
 
 
