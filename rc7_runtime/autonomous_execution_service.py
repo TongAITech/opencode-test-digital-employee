@@ -1,15 +1,19 @@
-"""Public RC7 execution facade with governed diagnosis/recovery/retry.
+"""Public RC7 execution facade with governed preparation/diagnosis/recovery.
 
-Callers submit one approved PreparedAttempt.  The runtime owns each execution,
-independent diagnosis, recovery planning and bounded DIRECT_RETRY loop.  All
-attempts remain in R1 truth; non-direct repair is returned to the owning node
-instead of being guessed or retried blindly.  L3 is deliberately excluded from
-the generic path because API truth must be produced by the parent-controlled
-API runtime, never by a child-authored runner manifest.
+Low-level execute_generic/execute_l3 remain compatibility surfaces for callers
+that already own a verified PreparedAttempt.  The formal product entrypoints
+prepare_and_execute_generic/prepare_and_execute_l3 start from the frozen Case:
+Runtime resolves preconditions and data, persists immutable R1 preparation
+truth, then owns execution, diagnosis, recovery planning and bounded retry.
+
+L3 is deliberately excluded from the generic path because API truth must be
+produced by the parent-controlled API runtime, never by a child-authored runner
+manifest.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, Mapping, Optional
 
 from rc6_runtime.capability import ToolCapabilityBroker
@@ -22,12 +26,19 @@ from .execution_autonomous_loop import AutonomousExecutionLoop, AutonomousExecut
 from .execution_diagnosis import ExecutionTrustFacts
 from .execution_recovery_control import ExecutionRecoveryController
 from .lineage_diagnosis import LineageAwareExecutionDiagnosisCoordinator
+from .preparation_control import RuntimePreparationService, RuntimePreparedAttempt
 from .runtime_execution import VerifiedScriptExecutionBundle
 from .runtime_execution_control import ClosedLoopRuntimeExecutionService
 
 
 class AutonomousExecutionServiceError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class PreparedAutonomousExecutionResult:
+    preparation: RuntimePreparedAttempt
+    execution: AutonomousExecutionLoopResult
 
 
 class AutonomousClosedLoopExecutionService:
@@ -62,6 +73,110 @@ class AutonomousClosedLoopExecutionService:
             rca_resolver=rca_resolver,
             max_transient_retries=self.max_transient_retries,
         )
+
+    def prepare_and_execute_generic(
+        self,
+        control: ClosedLoopControlPlane,
+        task_id: str,
+        *,
+        bundle: VerifiedScriptExecutionBundle,
+        attempt_id: str,
+        target_id: str,
+        precondition_resolvers: Mapping[str, Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]]],
+        data_strategies: Mapping[str, Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]]],
+        data_verifier: Callable[[Dict[str, Any], Dict[str, Any], Dict[str, Any]], Dict[str, Any]],
+        authority: RC7AuthorityRuntime,
+        tool_broker: ToolCapabilityBroker,
+        oracle_evaluator: Callable[[Dict[str, Any], Dict[str, Any], Dict[str, Any]], Dict[str, Any]],
+        cwd: str,
+        human_gate: Optional[Callable[[Dict[str, Any]], Optional[str]]] = None,
+        env: Optional[Mapping[str, str]] = None,
+        diagnosis_trust: Optional[ExecutionTrustFacts] = None,
+        cat_query=None,
+        evidence_collectors=None,
+        rca_resolver=None,
+    ) -> PreparedAutonomousExecutionResult:
+        if str(bundle.spec.layer).upper() == "L3":
+            raise AutonomousExecutionServiceError("L3_REQUIRES_CONTROLLED_EXECUTION")
+        preparation = RuntimePreparationService(evidence_root=self.evidence_root).prepare(
+            control,
+            task_id,
+            case=bundle.frozen_case,
+            attempt_id=attempt_id,
+            target_id=target_id,
+            precondition_resolvers=precondition_resolvers,
+            data_strategies=data_strategies,
+            data_verifier=data_verifier,
+            human_gate=human_gate,
+        )
+        execution = self.execute_generic(
+            control,
+            task_id,
+            bundle=bundle,
+            prepared=preparation.prepared,
+            authority=authority,
+            tool_broker=tool_broker,
+            oracle_evaluator=oracle_evaluator,
+            cwd=cwd,
+            env=env,
+            diagnosis_trust=diagnosis_trust,
+            cat_query=cat_query,
+            evidence_collectors=evidence_collectors,
+            rca_resolver=rca_resolver,
+        )
+        return PreparedAutonomousExecutionResult(preparation=preparation, execution=execution)
+
+    def prepare_and_execute_l3(
+        self,
+        control: ClosedLoopControlPlane,
+        task_id: str,
+        *,
+        bundle: VerifiedScriptExecutionBundle,
+        attempt_id: str,
+        target_id: str,
+        precondition_resolvers: Mapping[str, Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]]],
+        data_strategies: Mapping[str, Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]]],
+        data_verifier: Callable[[Dict[str, Any], Dict[str, Any], Dict[str, Any]], Dict[str, Any]],
+        authority: RC7AuthorityRuntime,
+        tool_broker: ToolCapabilityBroker,
+        target_base_url: str,
+        cwd: str,
+        human_gate: Optional[Callable[[Dict[str, Any]], Optional[str]]] = None,
+        env: Optional[Mapping[str, str]] = None,
+        diagnosis_trust: Optional[ExecutionTrustFacts] = None,
+        cat_query=None,
+        evidence_collectors=None,
+        rca_resolver=None,
+    ) -> PreparedAutonomousExecutionResult:
+        if str(bundle.spec.layer).upper() != "L3":
+            raise AutonomousExecutionServiceError("CONTROLLED_L3_EXECUTION_REQUIRES_L3_SPEC")
+        preparation = RuntimePreparationService(evidence_root=self.evidence_root).prepare(
+            control,
+            task_id,
+            case=bundle.frozen_case,
+            attempt_id=attempt_id,
+            target_id=target_id,
+            precondition_resolvers=precondition_resolvers,
+            data_strategies=data_strategies,
+            data_verifier=data_verifier,
+            human_gate=human_gate,
+        )
+        execution = self.execute_l3(
+            control,
+            task_id,
+            bundle=bundle,
+            prepared=preparation.prepared,
+            authority=authority,
+            tool_broker=tool_broker,
+            target_base_url=target_base_url,
+            cwd=cwd,
+            env=env,
+            diagnosis_trust=diagnosis_trust,
+            cat_query=cat_query,
+            evidence_collectors=evidence_collectors,
+            rca_resolver=rca_resolver,
+        )
+        return PreparedAutonomousExecutionResult(preparation=preparation, execution=execution)
 
     def execute_generic(
         self,
