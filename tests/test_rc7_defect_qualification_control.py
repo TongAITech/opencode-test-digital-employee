@@ -367,10 +367,10 @@ def _durable_reproduction(truth, tmp_path: Path, *, reproduced: bool):
         },
         evidence_refs=[evidence_id],
     )
-    append_entity(truth, task, release_id="RC7-DEFECT-QUAL")
     append_entity(truth, evidence, release_id="RC7-DEFECT-QUAL")
     append_entity(truth, artifact, release_id="RC7-DEFECT-QUAL")
     append_entity(truth, evaluation, release_id="RC7-DEFECT-QUAL")
+    append_entity(truth, task, release_id="RC7-DEFECT-QUAL")
     return DefectReproductionResult(
         execution_record=record,
         record_artifact_id=artifact_id,
