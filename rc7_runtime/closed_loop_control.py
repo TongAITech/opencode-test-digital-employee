@@ -26,6 +26,7 @@ from .models import (
     Task,
     TaskStatus,
 )
+from .runtime_identity import attest_runtime_identity
 from .session_continuity import SessionContinuityManager
 from .state_machine import (
     ConvergenceInput,
@@ -88,6 +89,11 @@ class ClosedLoopControlPlane:
         if truth.query("rc7_mission", mission_id=mission.mission_id):
             raise ClosedLoopControlError("MISSION_ALREADY_REGISTERED")
         append_entity(truth, mission, release_id=mission.release_id, artifact_version=1)
+        attest_runtime_identity(
+            truth,
+            mission_id=mission.mission_id,
+            release_id=mission.release_id,
+        )
         return cls(truth, mission.release_id, mission.mission_id)
 
     def register_task(self, task: Task) -> Task:
