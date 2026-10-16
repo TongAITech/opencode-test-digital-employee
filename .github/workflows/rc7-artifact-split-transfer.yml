@@ -1,0 +1,110 @@
+name: RC7 Artifact Split Transfer
+
+on:
+  push:
+    branches:
+      - work/rc7-artifact-split-transfer
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  split-original-artifact:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download exact original RC7 artifact
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: '11979686013'
+          path: source
+          github-token: ${{ github.token }}
+          repository: TongAITech/opencode-test-digital-employee
+          run-id: '38743232437'
+
+      - name: Verify original inner ZIP and split losslessly
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP=$(find source -type f -name 'PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-71f32e6af0ae.zip' -print -quit)
+          if [ -z "${ZIP}" ]; then
+            echo 'Original inner ZIP not found'
+            find source -maxdepth 3 -type f -printf '%p %s bytes\n'
+            exit 1
+          fi
+          EXPECTED='0c662fdf6d16ffbdae53d580d475e80eff47ef89d98ae5d2ae808d614e7342d3'
+          ACTUAL=$(sha256sum "$ZIP" | awk '{print $1}')
+          echo "original_zip=$ZIP"
+          echo "original_sha256=$ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "SHA256 mismatch expected=$EXPECTED actual=$ACTUAL"
+            exit 1
+          fi
+          mkdir -p parts manifest
+          split -b 260M -d -a 3 "$ZIP" parts/PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-71f32e6af0ae.zip.part-
+          COUNT=$(find parts -type f | wc -l | tr -d ' ')
+          if [ "$COUNT" != '5' ]; then
+            echo "Expected 5 parts, got $COUNT"
+            find parts -type f -printf '%f %s bytes\n'
+            exit 1
+          fi
+          sha256sum parts/* > manifest/parts.sha256
+          stat -c '%n %s' parts/* > manifest/parts.sizes
+          printf '%s  %s\n' "$EXPECTED" 'PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-71f32e6af0ae.zip' > manifest/original.sha256
+          cat manifest/parts.sizes
+          cat manifest/parts.sha256
+
+      - name: Upload part 000
+        uses: actions/upload-artifact@v4
+        with:
+          name: RC7-TRANSFER-PART-000
+          path: parts/*.part-000
+          compression-level: 0
+          retention-days: 2
+          if-no-files-found: error
+
+      - name: Upload part 001
+        uses: actions/upload-artifact@v4
+        with:
+          name: RC7-TRANSFER-PART-001
+          path: parts/*.part-001
+          compression-level: 0
+          retention-days: 2
+          if-no-files-found: error
+
+      - name: Upload part 002
+        uses: actions/upload-artifact@v4
+        with:
+          name: RC7-TRANSFER-PART-002
+          path: parts/*.part-002
+          compression-level: 0
+          retention-days: 2
+          if-no-files-found: error
+
+      - name: Upload part 003
+        uses: actions/upload-artifact@v4
+        with:
+          name: RC7-TRANSFER-PART-003
+          path: parts/*.part-003
+          compression-level: 0
+          retention-days: 2
+          if-no-files-found: error
+
+      - name: Upload part 004
+        uses: actions/upload-artifact@v4
+        with:
+          name: RC7-TRANSFER-PART-004
+          path: parts/*.part-004
+          compression-level: 0
+          retention-days: 2
+          if-no-files-found: error
+
+      - name: Upload transfer manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: RC7-TRANSFER-MANIFEST
+          path: manifest/*
+          compression-level: 0
+          retention-days: 2
+          if-no-files-found: error
