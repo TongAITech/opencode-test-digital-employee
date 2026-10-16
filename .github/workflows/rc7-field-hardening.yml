@@ -1,0 +1,66 @@
+name: RC7 Field Hardening
+
+on:
+  push:
+    branches:
+      - work/rc7-field-hardening
+  pull_request:
+    paths:
+      - 'rc7_release/**'
+      - 'rc7_runtime/**'
+      - 'packaging/rc7/**'
+      - 'tests/test_rc7_field_hardening.py'
+      - 'tests/test_rc7_truth_overlay.py'
+      - '.github/workflows/rc7-field-hardening.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  field-hardening-source-regression:
+    name: Source regression (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test runner
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile hardened modules
+        run: >-
+          python -m py_compile
+          rc7_release/mcp_server.py
+          rc7_release/dsh_plugins.py
+          rc7_release/dsh.py
+          rc7_release/final_unified_qualification.py
+          rc7_runtime/truth_overlay.py
+      - name: Run field-hardening regressions
+        run: >-
+          python -m pytest -q
+          tests/test_rc7_field_hardening.py
+          tests/test_rc7_truth_overlay.py
+
+  rc7-source-suite:
+    name: RC7 source suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test runner
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Run RC7-focused source tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find tests -maxdepth 1 -type f -name 'test_rc7*.py' -print | sort)
+          printf 'RC7 tests (%s):\n' "${#tests[@]}"
+          printf ' - %s\n' "${tests[@]}"
+          python -m pytest -q "${tests[@]}"
