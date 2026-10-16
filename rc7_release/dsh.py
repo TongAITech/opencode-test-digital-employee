@@ -37,6 +37,7 @@ def write_patch(
     target = Path(output)
     root = str(Path(home).resolve())
     python_cmd = python_executable or sys.executable
+    state_root = os.environ.get("PFC_AITEST_STATE_DIR") or str(Path(root) / "runtime-state")
     lines = [
         "- insert:",
         "    - id: mcp-pfc-aitest-rc7",
@@ -48,6 +49,7 @@ def write_patch(
         "        args: ['-m', 'rc7_release.mcp_server']",
         "        env:",
         "          PFC_AITEST_HOME: %s" % _yaml_quote(root),
+        "          PFC_AITEST_STATE_DIR: %s" % _yaml_quote(state_root),
         "          PYTHONPATH: %s" % _yaml_quote(root),
     ]
     if not os.environ.get("PFC_WORKSPACE"):
