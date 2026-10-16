@@ -1,6 +1,6 @@
 """Durable RC7 BANK Mission bootstrap/resume entrypoint.
 
-New bank Missions default to graph v2.  Existing Missions always resume the
+New bank Missions default to graph v2. Existing Missions always resume the
 graph identity already persisted in R1; pre-v2 field Missions are inferred as
 v1 and are never silently upgraded.
 """
@@ -92,6 +92,9 @@ def _persisted_graph_version(truth: TruthRuntime, mission_id: str) -> Optional[s
         if version not in MissionTaskGraphCompiler.SUPPORTED_GRAPH_VERSIONS:
             raise BankMissionError("MISSION_GRAPH_VERSION_UNSUPPORTED:%s" % version)
         return version
+
+    # Compatibility for Missions created before graph-version evidence existed.
+    # Their persisted Task inventory is the authority; never upgrade them.
     task_rows = truth.query("rc7_task", mission_id=mission_id)
     if not task_rows:
         return None
@@ -155,14 +158,23 @@ def start_or_resume(*, r1_path: str, mission_id: str, release_id: str, goal: str
     ready = sorted(({"task_id": str(x["task_id"]), "node": str(x["node"])} for x in task_rows if x.get("state") == "READY"),
                    key=lambda item: (item["node"], item["task_id"]))
     return {
-        "status": action, "mission_id": mission_id, "release_id": release_id, "goal": goal,
+        "status": action,
+        "mission_id": mission_id,
+        "release_id": release_id,
+        "goal": goal,
         "graph_version": compiler.graph_version,
-        "logical_stages": list(compiler.logical_stages), "conditional_stages": list(compiler.conditional_stages),
+        "logical_stages": list(compiler.logical_stages),
+        "stage_ownership": dict(compiler.stage_ownership),
+        "runtime_substages": list(compiler.runtime_substages),
+        "conditional_stages": list(compiler.conditional_stages),
+        "post_convergence_stages": list(compiler.post_convergence_stages),
         "mission_state": str(current.get("state") or "UNKNOWN"),
         "sufficiency_state": str(current.get("sufficiency_state") or "UNKNOWN"),
-        "r1_path": str(r1), "task_count": len(task_rows),
+        "r1_path": str(r1),
+        "task_count": len(task_rows),
         "open_gap_count": len([x for x in gap_rows if x.get("state") in {"OPEN","PLANNED","REPAIRING","EVIDENCE_PENDING","HUMAN_REQUIRED","BLOCKED"}]),
-        "ready_tasks": ready, "real_mission_pass": False,
+        "ready_tasks": ready,
+        "real_mission_pass": False,
         "completion_authority": "INDEPENDENT_EVALUATION_AND_MISSION_SUFFICIENCY",
     }
 

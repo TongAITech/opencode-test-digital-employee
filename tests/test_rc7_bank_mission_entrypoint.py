@@ -12,6 +12,7 @@ from rc7_release.package import (
     REQUIRED_PRODUCT_FILES,
     SHARED_R1_DEFAULT,
 )
+from rc7_runtime import ClosedLoopControlPlane, Mission, MissionTaskGraphCompiler
 from rc7_runtime.bank_mission import BankMissionError, start_or_resume
 
 
@@ -22,6 +23,7 @@ SOURCE_COMMIT = "a" * 40
 def test_bank_mission_start_and_resume_are_durable(monkeypatch, tmp_path):
     monkeypatch.setenv("PFC_RC7_SOURCE_COMMIT", SOURCE_COMMIT)
     r1 = tmp_path / "runtime-state" / "r1" / "event-stream.jsonl"
+    v2 = MissionTaskGraphCompiler(MissionTaskGraphCompiler.GRAPH_V2)
 
     started = start_or_resume(
         r1_path=str(r1),
@@ -30,9 +32,15 @@ def test_bank_mission_start_and_resume_are_durable(monkeypatch, tmp_path):
         goal="Validate one real bank release through the governed closed loop",
     )
     assert started["status"] == "STARTED"
-    assert started["task_count"] == 5
+    assert started["graph_version"] == "v2"
+    assert started["task_count"] == len(v2.NODE_ORDER)
     assert started["real_mission_pass"] is False
-    assert [item["node"] for item in started["ready_tasks"]] == ["REQUIREMENT_ANALYSIS"]
+    assert [item["node"] for item in started["ready_tasks"]] == ["REALITY_RECON"]
+    assert started["stage_ownership"]["REALITY_RECON"] == "RUNTIME"
+    assert started["stage_ownership"]["REQUIREMENT_SUFFICIENCY"] == "INDEPENDENT_AUTHORITY"
+    assert started["stage_ownership"]["FINAL_REPORT"] == "POST_CONVERGENCE"
+    assert started["runtime_substages"] == ["PRECONDITIONS", "TEST_DATA_PREPARATION", "ACTUAL_RESULT", "ORACLE"]
+    assert started["post_convergence_stages"] == ["FINAL_REPORT"]
     assert Path(started["r1_path"]) == r1.resolve()
 
     resumed = start_or_resume(
@@ -42,14 +50,42 @@ def test_bank_mission_start_and_resume_are_durable(monkeypatch, tmp_path):
         goal="Validate one real bank release through the governed closed loop",
     )
     assert resumed["status"] == "RESUMED"
-    assert resumed["task_count"] == 5
+    assert resumed["graph_version"] == "v2"
+    assert resumed["task_count"] == len(v2.NODE_ORDER)
     assert resumed["real_mission_pass"] is False
 
     truth = TruthRuntime(r1)
     assert len(truth.query("rc7_mission", mission_id="BANK-MISSION-001")) == 1
-    assert len(truth.query("rc7_task", mission_id="BANK-MISSION-001")) == 5
+    assert len(truth.query("rc7_task", mission_id="BANK-MISSION-001")) == len(v2.NODE_ORDER)
     identity = truth.query("rc7_evidence", mission_id="BANK-MISSION-001")
     assert any(row.get("kind") == "RC7_RUNTIME_IDENTITY" for row in identity)
+    graph_contract = [row for row in identity if row.get("kind") == "MISSION_GRAPH_CONTRACT"]
+    assert len(graph_contract) == 1
+    assert graph_contract[0]["source_ref"].endswith("/v2")
+
+
+def test_pre_graph_contract_v1_mission_resumes_without_upgrade(monkeypatch, tmp_path):
+    monkeypatch.setenv("PFC_RC7_SOURCE_COMMIT", SOURCE_COMMIT)
+    r1 = tmp_path / "runtime-state" / "r1" / "event-stream.jsonl"
+    truth = TruthRuntime(r1)
+    control = ClosedLoopControlPlane.bootstrap(
+        truth,
+        Mission(mission_id="LEGACY-V1", release_id="REL-V1", goal="legacy field mission"),
+    )
+    v1 = MissionTaskGraphCompiler(MissionTaskGraphCompiler.GRAPH_V1)
+    v1.install(control, "LEGACY-V1")
+    assert not [row for row in truth.query("rc7_evidence", mission_id="LEGACY-V1") if row.get("kind") == "MISSION_GRAPH_CONTRACT"]
+
+    resumed = start_or_resume(
+        r1_path=str(r1),
+        mission_id="LEGACY-V1",
+        release_id="REL-V1",
+        goal="legacy field mission",
+    )
+    assert resumed["status"] == "RESUMED"
+    assert resumed["graph_version"] == "v1"
+    assert resumed["task_count"] == 5
+    assert [item["node"] for item in resumed["ready_tasks"]] == ["REQUIREMENT_ANALYSIS"]
 
 
 def test_bank_mission_resume_rejects_identity_drift(monkeypatch, tmp_path):
