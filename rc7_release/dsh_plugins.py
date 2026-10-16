@@ -9,14 +9,10 @@ import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from .plugin_payload import REQUIRED_PLUGIN_NAMES, materialize_payload, package_path
 
-REQUIRED = (
-    "dsh-routing-suite",
-    "@wxg-prc-cpg/browser-skill-dsh-plugin",
-    "dsh-context",
-    "dsh-plugin-bridge",
-    "@nanmicoder/dsh-agent-teams",
-)
+
+REQUIRED = REQUIRED_PLUGIN_NAMES
 DIAGNOSTIC_OPTIONAL = (
     "@perrylink/dsh-plugin-doctor",
 )
@@ -28,17 +24,10 @@ OPTIONAL_DISABLED = (
 )
 
 # Bank profiles may contain private provider/auth plugins (for example the
-# wizard provider).  Field validation proved that running plugin add/install on
-# the existing web profile can rewrite its dependency tree and remove those
-# private plugins.  RC7 therefore treats bank profiles as immutable by default.
+# wizard provider). Running plugin add/install on the existing web profile can
+# rewrite its dependency tree and remove those private plugins. RC7 therefore
+# treats bank profiles as immutable by default.
 DEFAULT_PROTECTED_PROFILES = ("web",)
-
-
-def package_path(vendor: Path, package: str) -> Path:
-    if package.startswith("@"):
-        scope, name = package.split("/", 1)
-        return vendor / "node_modules" / scope / name
-    return vendor / "node_modules" / package
 
 
 def _decode(data: bytes) -> str:
@@ -103,7 +92,16 @@ def install(
     allow_profile_mutation: bool = False,
     include_diagnostic: bool = False,
 ) -> Dict[str, object]:
-    vendor = home / "workspace-template" / "runtime" / "dsh-plugins"
+    try:
+        vendor = materialize_payload(home)
+    except Exception as exc:
+        return {
+            "status": "FAIL",
+            "reason": "REQUIRED_DSH_PLUGIN_PAYLOAD_MISSING",
+            "detail": str(exc),
+            "mission_required": list(REQUIRED),
+        }
+
     env = prepare_env(home)
     dsh = shutil.which("dsh", path=env.get("PATH"))
     discovered: Dict[str, Dict[str, object]] = {}
@@ -116,7 +114,13 @@ def install(
         }
     missing = [name for name in REQUIRED if not discovered[name]["bundled"]]
     if missing:
-        return {"status": "FAIL", "reason": "REQUIRED_DSH_PLUGIN_PAYLOAD_MISSING", "missing": missing, "plugins": discovered}
+        return {
+            "status": "FAIL",
+            "reason": "REQUIRED_DSH_PLUGIN_PAYLOAD_MISSING",
+            "missing": missing,
+            "plugins": discovered,
+            "vendor": str(vendor),
+        }
 
     is_protected = profile in protected_profiles()
     if dry_run:
@@ -127,6 +131,7 @@ def install(
             "profile": profile,
             "protected_profile": is_protected,
             "plugins": discovered,
+            "vendor": str(vendor),
             "optional_default": "DISABLED",
             "mission_required": list(REQUIRED),
             "diagnostic_optional": list(DIAGNOSTIC_OPTIONAL),
@@ -148,7 +153,12 @@ def install(
             "plugins": discovered,
         }
     if not dsh:
-        return {"status": "HOLD", "reason": "BANK_DSH_HOST_NOT_FOUND", "plugins": discovered, "field_binding_required": True}
+        return {
+            "status": "HOLD",
+            "reason": "BANK_DSH_HOST_NOT_FOUND",
+            "plugins": discovered,
+            "field_binding_required": True,
+        }
 
     version_code, version_out = run([dsh, "--version"], env)
     if version_code != 0:
@@ -157,15 +167,29 @@ def install(
     installs = []
     for package in REQUIRED:
         p = Path(str(discovered[package]["path"]))
-        # file: materializes the dependency in the isolated profile.  link:
-        # leaves peer-dependency resolution to the host profile and failed in
-        # the bank field environment, especially on paths containing spaces.
+        # Package-local payloads include their regular runtime dependencies.
+        # file: keeps the field installation registry-independent; DSH still
+        # owns peer-dependency compatibility checks against the actual host.
         spec = "file:" + str(p)
         code, out = run([dsh, "plugin", "--profile", profile, "add", spec], env)
         accepted = code == 0 or "already" in out.lower() or "exist" in out.lower()
-        installs.append({"package": package, "spec": spec, "exit_code": code, "accepted": accepted, "output_tail": out[-2000:]})
+        installs.append(
+            {
+                "package": package,
+                "spec": spec,
+                "exit_code": code,
+                "accepted": accepted,
+                "output_tail": out[-2000:],
+            }
+        )
         if not accepted:
-            return {"status": "FAIL", "reason": "DSH_PLUGIN_INSTALL_FAILED", "dsh_version": version_out.strip(), "installs": installs}
+            return {
+                "status": "FAIL",
+                "reason": "DSH_PLUGIN_INSTALL_FAILED",
+                "dsh_version": version_out.strip(),
+                "installs": installs,
+                "vendor": str(vendor),
+            }
 
     diagnostic = []
     if include_diagnostic:
@@ -175,7 +199,15 @@ def install(
             p = Path(str(discovered[package]["path"]))
             spec = "file:" + str(p)
             code, out = run([dsh, "plugin", "--profile", profile, "add", spec], env)
-            diagnostic.append({"package": package, "spec": spec, "exit_code": code, "accepted": code == 0, "output_tail": out[-1000:]})
+            diagnostic.append(
+                {
+                    "package": package,
+                    "spec": spec,
+                    "exit_code": code,
+                    "accepted": code == 0,
+                    "output_tail": out[-1000:],
+                }
+            )
 
     code, dump = run([dsh, "--profile", profile, "--dump-config"], env)
     return {
@@ -183,6 +215,7 @@ def install(
         "mode": "ISOLATED_PROFILE_MUTATION",
         "dsh_version": version_out.strip(),
         "profile": profile,
+        "vendor": str(vendor),
         "installs": installs,
         "diagnostic_installs": diagnostic,
         "config_probe_exit_code": code,
@@ -193,14 +226,14 @@ def install(
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    p = argparse.ArgumentParser()
-    p.add_argument("--home", required=True)
-    p.add_argument("--profile", default="web")
-    p.add_argument("--dry-run", action="store_true")
-    p.add_argument("--allow-profile-mutation", action="store_true")
-    p.add_argument("--include-diagnostic", action="store_true")
-    p.add_argument("--output")
-    args = p.parse_args(argv)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--home", required=True)
+    parser.add_argument("--profile", default="web")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--allow-profile-mutation", action="store_true")
+    parser.add_argument("--include-diagnostic", action="store_true")
+    parser.add_argument("--output")
+    args = parser.parse_args(argv)
     result = install(
         Path(args.home).resolve(),
         args.profile,
