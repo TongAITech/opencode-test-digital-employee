@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import locale
 import os
 import subprocess
 import tempfile
@@ -52,10 +53,39 @@ def find_one(root: Path, name: str) -> Optional[Path]:
     return matches[0] if matches else None
 
 
+def _decode_output(data: bytes) -> str:
+    # Windows field hosts may emit a mixture of UTF-8, GBK/GB18030 and native
+    # program bytes.  Qualification must never crash merely while decoding a
+    # diagnostic probe.  Preserve as much text as possible and replace only
+    # undecodable bytes at the final fallback.
+    candidates = ("utf-8", locale.getpreferredencoding(False), "gb18030")
+    seen = set()
+    for encoding in candidates:
+        if not encoding or encoding.lower() in seen:
+            continue
+        seen.add(encoding.lower())
+        try:
+            return data.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            pass
+    return data.decode("utf-8", errors="replace")
+
+
 def run(cmd: Sequence[str], env: Optional[Dict[str, str]] = None, cwd: Optional[Path] = None, timeout: int = 45) -> Tuple[bool, str]:
     try:
-        proc = subprocess.run(list(cmd), cwd=str(cwd) if cwd else None, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=timeout)
-        return proc.returncode == 0, proc.stdout[-6000:]
+        proc = subprocess.run(
+            list(cmd),
+            cwd=str(cwd) if cwd else None,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+        )
+        out = _decode_output(proc.stdout or b"")
+        return proc.returncode == 0, out[-6000:]
+    except subprocess.TimeoutExpired as exc:
+        partial = exc.stdout if isinstance(exc.stdout, bytes) else b""
+        return False, "TimeoutExpired:%s\n%s" % (exc, _decode_output(partial)[-5000:])
     except Exception as exc:
         return False, "%s:%s" % (type(exc).__name__, exc)
 
@@ -68,6 +98,9 @@ def tool_result(path: Optional[Path], probe: Optional[Sequence[str]] = None, env
         ok, out = run(probe, env=env, timeout=timeout)
         result["status"] = "PASS" if ok else "FAIL"
         result["probe_tail"] = out
+        result["evidence_level"] = "PROBED"
+    else:
+        result["evidence_level"] = "DISCOVERED"
     return result
 
 
@@ -80,12 +113,40 @@ def maven_offline_smoke(java_home: Path, maven: Path, repo: Path) -> Dict[str, o
         test_dir.mkdir(parents=True)
         (project / "pom.xml").write_text("""<project xmlns=\"http://maven.apache.org/POM/4.0.0\"><modelVersion>4.0.0</modelVersion><groupId>rc7</groupId><artifactId>offline-smoke</artifactId><version>1</version><properties><maven.compiler.source>8</maven.compiler.source><maven.compiler.target>8</maven.compiler.target></properties><dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.11.4</version><scope>test</scope></dependency></dependencies><build><plugins><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.2</version></plugin></plugins></build></project>""", encoding="utf-8")
         (test_dir / "OfflineSmokeTest.java").write_text("""package rc7; import org.junit.jupiter.api.Test; import static org.junit.jupiter.api.Assertions.*; class OfflineSmokeTest { @Test void works(){ assertEquals(4, 2+2); } }""", encoding="utf-8")
+        # Do not inherit the bank user's ~/.m2/settings.xml.  Field validation
+        # proved that mirror/repository-id differences can make a complete
+        # portable repository look unavailable in offline mode.
+        settings = project / "settings.xml"
+        settings.write_text(
+            """<settings xmlns=\"http://maven.apache.org/SETTINGS/1.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd\"><offline>true</offline></settings>""",
+            encoding="utf-8",
+        )
         env = dict(os.environ)
         env["JAVA_HOME"] = str(java_home)
         env["PATH"] = str(java_home / "bin") + os.pathsep + str(maven.parent) + os.pathsep + env.get("PATH", "")
-        ok, out = run([str(maven), "-o", "-q", "-Dmaven.repo.local=%s" % repo, "test"], env=env, cwd=project, timeout=90)
+        ok, out = run(
+            [
+                str(maven),
+                "-o",
+                "-q",
+                "-s",
+                str(settings),
+                "-Dmaven.legacyLocalRepo=true",
+                "-Dmaven.repo.local=%s" % repo,
+                "test",
+            ],
+            env=env,
+            cwd=project,
+            timeout=90,
+        )
         reports = list(project.glob("target/surefire-reports/TEST-*.xml"))
-        return {"status": "PASS" if ok and reports else "FAIL", "junit_xml": bool(reports), "probe_tail": out}
+        return {
+            "status": "PASS" if ok and reports else "FAIL",
+            "junit_xml": bool(reports),
+            "probe_tail": out,
+            "evidence_level": "REAL_EXECUTED",
+            "isolated_settings": True,
+        }
 
 
 def playwright_smoke(node: Path, modules: Path, chrome: Path) -> Dict[str, object]:
@@ -95,7 +156,7 @@ def playwright_smoke(node: Path, modules: Path, chrome: Path) -> Dict[str, objec
     env["NODE_PATH"] = str(modules)
     script = "const { chromium }=require('playwright'); (async()=>{const b=await chromium.launch({headless:true,executablePath:process.argv[1]});const p=await b.newPage();await p.setContent('<button aria-label=\\\"submit\\\">OK</button>');const t=await p.getByRole('button').innerText();console.log(t);await b.close();if(t!=='OK')process.exit(2)})().catch(e=>{console.error(e);process.exit(1)})"
     ok, out = run([str(node), "-e", script, str(chrome)], env=env, timeout=60)
-    return {"status": "PASS" if ok else "FAIL", "probe_tail": out}
+    return {"status": "PASS" if ok else "FAIL", "probe_tail": out, "evidence_level": "REAL_EXECUTED"}
 
 
 def semantic_closed_loop(home: Path) -> Dict[str, object]:
@@ -119,7 +180,7 @@ def semantic_closed_loop(home: Path) -> Dict[str, object]:
         "EVIDENCE_DEFECT_REPORT_CHAIN": skills["pfc-defect-review"]["status"] == "PASS" and skills["pfc-report"]["status"] == "PASS" and runtime["rc7_runtime/reporting.py"]["status"] == "PASS",
     }
     ok = all(v["status"] == "PASS" for v in skills.values()) and all(v["status"] == "PASS" for v in runtime.values()) and all(bool(v) for v in policies.values())
-    return {"status": "PASS" if ok else "FAIL", "skills": skills, "runtime": runtime, "policies": policies}
+    return {"status": "PASS" if ok else "FAIL", "skills": skills, "runtime": runtime, "policies": policies, "evidence_level": "DISCOVERED"}
 
 
 def qualify(home: Path) -> Dict[str, object]:
@@ -156,7 +217,7 @@ def qualify(home: Path) -> Dict[str, object]:
     tools["codegraph"] = tool_result(codegraph, [str(codegraph), "--help"] if codegraph.is_file() else None)
     tools["chrome"] = tool_result(chrome)
     tools["browserskill"] = tool_result(bsk, [str(bsk), "--version"] if bsk else None)
-    tools["browserskill_extension"] = {"status": "PASS" if extension.is_dir() and any(extension.rglob("*")) else "FAIL", "path": str(extension)}
+    tools["browserskill_extension"] = {"status": "PASS" if extension.is_dir() and any(extension.rglob("*")) else "FAIL", "path": str(extension), "evidence_level": "DISCOVERED"}
     tools["ripgrep"] = tool_result(rg, [str(rg), "--version"] if rg else None)
     tools["k6"] = tool_result(k6, [str(k6), "version"] if k6 else None)
     tools["allure"] = tool_result(allure, [str(allure), "--version"] if allure else None, env=java_env)
@@ -166,12 +227,12 @@ def qualify(home: Path) -> Dict[str, object]:
     python_import = {"status": "FAIL"}
     if py.is_file():
         ok, out = run([str(py), "-c", "import docx,openpyxl,pptx,pypdf,cv2,onnxruntime,rapidocr_onnxruntime; print('PYTHON_PROVIDERS_OK')"], timeout=60)
-        python_import = {"status": "PASS" if ok else "FAIL", "probe_tail": out, "public_remote_image_upload": False}
+        python_import = {"status": "PASS" if ok else "FAIL", "probe_tail": out, "public_remote_image_upload": False, "evidence_level": "REAL_EXECUTED"}
 
     plugins = {}
     for name in REQUIRED_DSH_PACKAGES:
         path = npm_package_path(vendor, name) / "package.json"
-        plugins[name] = {"status": "PASS" if path.is_file() else "FAIL", "path": str(path), "tier": "P0_MISSION"}
+        plugins[name] = {"status": "PASS" if path.is_file() else "FAIL", "path": str(path), "tier": "P0_MISSION", "evidence_level": "DISCOVERED"}
 
     l1 = maven_offline_smoke(java_home, maven, m2)
     l4 = playwright_smoke(node, exec_modules, chrome)
@@ -179,7 +240,7 @@ def qualify(home: Path) -> Dict[str, object]:
     for level in range(1, 8):
         design = home / ".dsh" / "skills" / ("pfc-l%d-test-design" % level) / "SKILL.md"
         execution = home / ".dsh" / "skills" / ("pfc-l%d-test-execution" % level) / "SKILL.md"
-        layer_skills["L%d" % level] = {"status": "PASS" if design.is_file() and execution.is_file() else "FAIL", "design": design.is_file(), "execution": execution.is_file()}
+        layer_skills["L%d" % level] = {"status": "PASS" if design.is_file() and execution.is_file() else "FAIL", "design": design.is_file(), "execution": execution.is_file(), "evidence_level": "DISCOVERED"}
 
     semantic = semantic_closed_loop(home)
     required_tool_names = ["python", "pytest", "node", "java", "javac", "maven", "codegraph", "chrome", "browserskill", "browserskill_extension", "ripgrep", "k6", "allure", "zap"]
@@ -189,6 +250,7 @@ def qualify(home: Path) -> Dict[str, object]:
     gates = {
         "CORE_RUNTIME_PASS": "PASS" if tools_pass else "FAIL",
         "DSH_PLUGIN_PAYLOAD_PASS": "PASS" if plugin_pass else "FAIL",
+        "DSH_PLUGIN_RUNTIME": "HOLD_ISOLATED_PROFILE_QUALIFICATION_REQUIRED",
         "LOCAL_VISION_DOCUMENT_PASS": python_import["status"],
         "L1_JUNIT_MAVEN_OFFLINE_PASS": l1["status"],
         "L4_PLAYWRIGHT_BROWSER_PASS": l4["status"],
@@ -197,9 +259,13 @@ def qualify(home: Path) -> Dict[str, object]:
         "BANK_BINDINGS": "HOLD_FIELD_CONFIGURATION_REQUIRED",
         "REAL_BANK_MISSION": "HOLD_FIELD_EVIDENCE_REQUIRED",
     }
-    engineering_pass = all(value == "PASS" for key, value in gates.items() if key not in ("BANK_BINDINGS", "REAL_BANK_MISSION"))
+    engineering_pass = all(
+        value == "PASS"
+        for key, value in gates.items()
+        if key not in ("DSH_PLUGIN_RUNTIME", "BANK_BINDINGS", "REAL_BANK_MISSION")
+    )
     return {
-        "schema_version": "pfc.aitest.rc7.final-unified-qualification.v2",
+        "schema_version": "pfc.aitest.rc7.final-unified-qualification.v3",
         "status": "PASS" if engineering_pass else "FAIL",
         "engineering_gate": "UNIFIED_ENGINEERING_PASS" if engineering_pass else "UNIFIED_ENGINEERING_FAIL",
         "durable_truth": "R1_EVENT_STREAM",
