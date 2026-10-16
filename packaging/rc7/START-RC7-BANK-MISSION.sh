@@ -5,7 +5,8 @@ PYTHON_BIN=${PFC_PYTHON_BIN:-python3}
 if [ -x "$ROOT/workspace-template/runtime/python/python.exe" ] && [ -z "${PFC_PYTHON_BIN:-}" ]; then
   PYTHON_BIN="$ROOT/workspace-template/runtime/python/python.exe"
 fi
-R1_PATH=${PFC_RC7_R1_PATH:-"$ROOT/state/rc7-r1.jsonl"}
+STATE_ROOT=${PFC_AITEST_STATE_DIR:-"$ROOT/runtime-state"}
+R1_PATH=${PFC_RC7_R1_PATH:-"$STATE_ROOT/r1/event-stream.jsonl"}
 if [ -z "${PFC_RC7_SOURCE_COMMIT:-}" ] && [ -f "$ROOT/SOURCE_COMMIT" ]; then
   PFC_RC7_SOURCE_COMMIT=$(tr -d '\r\n' < "$ROOT/SOURCE_COMMIT")
   export PFC_RC7_SOURCE_COMMIT
@@ -15,7 +16,7 @@ fi
 : "${PFC_RC7_MISSION_GOAL:?PFC_RC7_MISSION_GOAL is required}"
 mkdir -p "$(dirname "$R1_PATH")"
 PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
-export PYTHONPATH
+export PYTHONPATH PFC_AITEST_STATE_DIR="$STATE_ROOT"
 cd "$ROOT"
 echo "[RC7] Mission R1: $R1_PATH"
 exec "$PYTHON_BIN" -m rc7_runtime.bank_mission \
