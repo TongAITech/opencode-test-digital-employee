@@ -12,6 +12,9 @@ export PFC_CODEGRAPH_BIN="$ROOT/workspace-template/runtime/code-intelligence/cod
 export PFC_CHROMIUM_BIN="$ROOT/workspace-template/runtime/browser/chrome-win64/chrome.exe"
 export PFC_JAVA_BIN="$ROOT/workspace-template/runtime/java/bin/java.exe"
 export PFC_MAVEN_BIN="$ROOT/workspace-template/runtime/maven/bin/mvn.cmd"
+export PFC_MAVEN_REPO="$ROOT/workspace-template/runtime/maven-repository"
+export PFC_MAVEN_SETTINGS="$ROOT/packaging/rc7/maven-offline-settings.xml"
+export MAVEN_ARGS="-o -s \"$PFC_MAVEN_SETTINGS\" -Dmaven.legacyLocalRepo=true -Dmaven.repo.local=\"$PFC_MAVEN_REPO\""
 export PFC_K6_BIN="$ROOT/workspace-template/runtime/k6/k6.exe"
 export PFC_RC7_DSH_PROFILE="${PFC_RC7_DSH_PROFILE:-web}"
 
@@ -28,7 +31,7 @@ if [[ "${PFC_RC7_SKIP_QUALIFY:-0}" != "1" ]]; then
   "$PY" -m rc7_release.final_unified_qualification --home "$ROOT" --require-pass
 fi
 
-# Normal startup must not mutate the existing bank DSH profile.  Payload
+# Normal startup must not mutate the existing bank DSH profile. Payload
 # discovery is read-only; plugin runtime qualification belongs to an isolated
 # profile and requires explicit mutation authorization.
 "$PY" -m rc7_release.dsh_plugins --home "$ROOT" --profile "$PFC_RC7_DSH_PROFILE" --dry-run --output "$ROOT/state/dsh-plugin-payload.json"
@@ -41,5 +44,6 @@ fi
 "$PY" -m rc7_release.dsh --output "$ROOT/state/rc7-dsh.patch.yml" --home "$ROOT" --python "$PY"
 echo "[RC7] Protected bank DSH profile: $PFC_RC7_DSH_PROFILE"
 echo "[RC7] Canonical R1: $PFC_AITEST_STATE_DIR/r1/event-stream.jsonl"
+echo "[RC7] Maven repo: $PFC_MAVEN_REPO"
 echo "[RC7] Starting DSH with runtime-only RC7 MCP patch; bank profile files will not be modified."
 exec dsh --profile "$PFC_RC7_DSH_PROFILE" --patch "$ROOT/state/rc7-dsh.patch.yml"
