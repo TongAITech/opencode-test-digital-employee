@@ -6,6 +6,7 @@ import sys
 from typing import Any, Dict, Mapping, Optional, Tuple
 
 from rc6_release import mcp_server as rc6
+from rc7_runtime.case_runtime import CasePreparationService
 from rc7_runtime.node_tool_conformance import (
     NODE_TOOL_REQUIREMENTS,
     contract_enabled,
@@ -22,10 +23,6 @@ PROTOCOL_VERSION = rc6.PROTOCOL_VERSION
 SERVER_NAME = "pfc-aitest-rc7"
 SERVER_VERSION = "7.0-field-hardened-runtime-candidate"
 
-# RC7 owns additional durable control-plane entities but intentionally reuses
-# the RC6 R1 implementation.  The overlay must be installed before any RC6 MCP
-# tool constructs TruthRuntime; otherwise replay of RC7 events fails closed as
-# UNSUPPORTED_EVENT_TYPE.  Installation is idempotent (dict update only).
 install_rc7_truth_overlay()
 
 _TRACKED_BASE_TOOLS = {
@@ -85,16 +82,7 @@ def _extra_tools():
         {
             "name": "read_text",
             "description": "Read one UTF-8 source file contained by PFC_WORKSPACE or PFC_AITEST_STATE_DIR. Read-only and path-escape protected. Supply mission_context for durable graph-v2 node/tool evidence.",
-            "inputSchema": _object(
-                _with_context(
-                    {
-                        "path": s,
-                        "scope": {"type": "string", "enum": ["workspace", "state"]},
-                        "max_chars": {"type": "integer", "minimum": 1000, "maximum": 1000000},
-                    }
-                ),
-                ["path"],
-            ),
+            "inputSchema": _object(_with_context({"path": s, "scope": {"type": "string", "enum": ["workspace", "state"]}, "max_chars": {"type": "integer", "minimum": 1000, "maximum": 1000000}}), ["path"]),
         },
         {
             "name": "git_show_revision",
@@ -104,18 +92,7 @@ def _extra_tools():
         {
             "name": "git_diff",
             "description": "Read resolved Git revisions, changed files and diff between two refs. Read-only; paths are workspace-contained. Supply mission_context for durable graph-v2 node/tool evidence.",
-            "inputSchema": _object(
-                _with_context(
-                    {
-                        "repo_path": s,
-                        "base_ref": s,
-                        "head_ref": s,
-                        "paths": a,
-                        "max_chars": {"type": "integer", "minimum": 1000, "maximum": 1000000},
-                    }
-                ),
-                ["base_ref", "head_ref"],
-            ),
+            "inputSchema": _object(_with_context({"repo_path": s, "base_ref": s, "head_ref": s, "paths": a, "max_chars": {"type": "integer", "minimum": 1000, "maximum": 1000000}}), ["base_ref", "head_ref"]),
         },
         {
             "name": "codegraph_probe",
@@ -125,44 +102,27 @@ def _extra_tools():
         {
             "name": "codegraph_query",
             "description": "Legacy allowlisted CodeGraph CLI query adapter retained for CLI-capable binaries. Prefer codegraph_mcp_tools/codegraph_mcp_call when the configured binary exposes MCP stdio. Supply mission_context for durable graph-v2 node/tool evidence.",
-            "inputSchema": _object(
-                _with_context(
-                    {
-                        "repo_path": s,
-                        "args": a,
-                        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300},
-                        "max_chars": {"type": "integer", "minimum": 1000, "maximum": 1000000},
-                    }
-                ),
-                ["args"],
-            ),
+            "inputSchema": _object(_with_context({"repo_path": s, "args": a, "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300}, "max_chars": {"type": "integer", "minimum": 1000, "maximum": 1000000}}), ["args"]),
         },
         {
             "name": "codegraph_mcp_tools",
             "description": "Start the configured CodeGraph MCP server, dynamically list its real tool names/schemas and label which tools are admitted as read-only. Uses Windows-safe reader threads rather than select(). Supply mission_context for durable graph-v2 node/tool evidence.",
-            "inputSchema": _object(
-                _with_context(
-                    {
-                        "repo_path": s,
-                        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300},
-                    }
-                )
-            ),
+            "inputSchema": _object(_with_context({"repo_path": s, "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300}})),
         },
         {
             "name": "codegraph_mcp_call",
             "description": "Call one tool only after it was dynamically discovered from CodeGraph tools/list and admitted by the read-only policy. Mutating/index/build tools are rejected. Supply mission_context for durable graph-v2 node/tool evidence.",
-            "inputSchema": _object(
-                _with_context(
-                    {
-                        "repo_path": s,
-                        "tool_name": s,
-                        "arguments": obj,
-                        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300},
-                    }
-                ),
-                ["tool_name"],
-            ),
+            "inputSchema": _object(_with_context({"repo_path": s, "tool_name": s, "arguments": obj, "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300}}), ["tool_name"]),
+        },
+        {
+            "name": "case_prepare_plan",
+            "description": "Runtime-owned preflight for one frozen Case. Reports required field capabilities and DB Human Gate exposure without executing providers or constructing data. Must run on the active EXECUTION task.",
+            "inputSchema": _object(_with_context({"case": obj, "attempt_id": s, "target_id": s}), ["case", "attempt_id", "target_id", "mission_context"]),
+        },
+        {
+            "name": "case_prepare_execute",
+            "description": "Runtime-owned Case preparation. RC7 itself invokes configured precondition/data providers, hashes responses, persists R1 evidence, and returns PREPARED only after verification. DB_CREATE cannot run without a trusted Human Gate approval outside the Agent MCP surface.",
+            "inputSchema": _object(_with_context({"case": obj, "attempt_id": s, "target_id": s}), ["case", "attempt_id", "target_id", "mission_context"]),
         },
     ]
 
@@ -172,19 +132,15 @@ def _text(value: Any) -> Dict[str, Any]:
 
 
 def _rc7_runtime_status() -> Dict[str, Any]:
-    # Reuse the RC6 status facts, but never expose the inherited server identity
-    # as the active runtime.  Field validation proved that this ambiguity hid a
-    # real RC7 wiring defect.
     base = dict(rc6._runtime_status())
-    base.update(
-        {
-            "server": SERVER_NAME,
-            "server_version": SERVER_VERSION,
-            "rc7_truth_overlay": True,
-            "canonical_r1_path": str(rc6._state_root() / "r1" / "event-stream.jsonl"),
-            "node_tool_conformance": "DURABLE_R1_CALL_EVIDENCE",
-        }
-    )
+    base.update({
+        "server": SERVER_NAME,
+        "server_version": SERVER_VERSION,
+        "rc7_truth_overlay": True,
+        "canonical_r1_path": str(rc6._state_root() / "r1" / "event-stream.jsonl"),
+        "node_tool_conformance": "DURABLE_R1_CALL_EVIDENCE",
+        "case_preparation_runtime": "TRUSTED_PROVIDER_EXECUTION_AND_HUMAN_GATE",
+    })
     return base
 
 
@@ -215,57 +171,41 @@ def _record_tool_call(name: str, context: Optional[Dict[str, str]], result: obje
     truth = rc6._truth_runtime()
     if not contract_enabled(truth, context["mission_id"]):
         return
-    record_successful_call(
-        truth,
-        mission_id=context["mission_id"],
-        task_id=context["task_id"],
-        worker_id=context["worker_id"],
-        tool_name=name,
-        result=result,
-    )
+    record_successful_call(truth, mission_id=context["mission_id"], task_id=context["task_id"], worker_id=context["worker_id"], tool_name=name, result=result)
 
 
-def _invoke_extra(name: str, arguments: Dict[str, Any]) -> object:
+def _case_service() -> CasePreparationService:
+    return CasePreparationService(rc6._truth_runtime(), rc6._state_root())
+
+
+def _invoke_extra(name: str, arguments: Dict[str, Any], context: Optional[Dict[str, str]] = None) -> object:
     if name == "read_text":
-        return read_text(
-            path=arguments["path"],
-            scope=str(arguments.get("scope") or "workspace"),
-            max_chars=int(arguments.get("max_chars", 200000)),
-        )
+        return read_text(path=arguments["path"], scope=str(arguments.get("scope") or "workspace"), max_chars=int(arguments.get("max_chars", 200000)))
     if name == "git_show_revision":
-        return git_show_revision(
-            repo_path=str(arguments.get("repo_path") or "."),
-            ref=str(arguments.get("ref") or "HEAD"),
-        )
+        return git_show_revision(repo_path=str(arguments.get("repo_path") or "."), ref=str(arguments.get("ref") or "HEAD"))
     if name == "git_diff":
-        return git_diff(
-            repo_path=str(arguments.get("repo_path") or "."),
-            base_ref=arguments["base_ref"],
-            head_ref=arguments["head_ref"],
-            paths=arguments.get("paths") or (),
-            max_chars=int(arguments.get("max_chars", 200000)),
-        )
+        return git_diff(repo_path=str(arguments.get("repo_path") or "."), base_ref=arguments["base_ref"], head_ref=arguments["head_ref"], paths=arguments.get("paths") or (), max_chars=int(arguments.get("max_chars", 200000)))
     if name == "codegraph_probe":
         return codegraph_probe(repo_path=str(arguments.get("repo_path") or "."))
     if name == "codegraph_query":
-        return codegraph_query(
-            args=arguments["args"],
-            repo_path=str(arguments.get("repo_path") or "."),
-            timeout_seconds=int(arguments.get("timeout_seconds", 60)),
-            max_chars=int(arguments.get("max_chars", 200000)),
-        )
+        return codegraph_query(args=arguments["args"], repo_path=str(arguments.get("repo_path") or "."), timeout_seconds=int(arguments.get("timeout_seconds", 60)), max_chars=int(arguments.get("max_chars", 200000)))
     if name == "codegraph_mcp_tools":
-        return list_codegraph_tools(
-            repo_path=str(arguments.get("repo_path") or "."),
-            timeout_seconds=int(arguments.get("timeout_seconds", 30)),
-        )
+        return list_codegraph_tools(repo_path=str(arguments.get("repo_path") or "."), timeout_seconds=int(arguments.get("timeout_seconds", 30)))
     if name == "codegraph_mcp_call":
-        return call_codegraph_tool(
-            tool_name=arguments["tool_name"],
-            arguments=arguments.get("arguments") or {},
-            repo_path=str(arguments.get("repo_path") or "."),
-            timeout_seconds=int(arguments.get("timeout_seconds", 60)),
-        )
+        return call_codegraph_tool(tool_name=arguments["tool_name"], arguments=arguments.get("arguments") or {}, repo_path=str(arguments.get("repo_path") or "."), timeout_seconds=int(arguments.get("timeout_seconds", 60)))
+    if name in {"case_prepare_plan", "case_prepare_execute"}:
+        if context is None:
+            raise RuntimeError("MISSION_CONTEXT_REQUIRED_FOR_CASE_PREPARATION")
+        service = _case_service()
+        payload = {
+            "mission_id": context["mission_id"],
+            "task_id": context["task_id"],
+            "worker_id": context["worker_id"],
+            "case": arguments["case"],
+            "attempt_id": arguments["attempt_id"],
+            "target_id": arguments["target_id"],
+        }
+        return service.plan(**payload) if name == "case_prepare_plan" else service.prepare(**payload)
     raise RuntimeError("RC7_EXTRA_TOOL_UNKNOWN:%s" % name)
 
 
@@ -292,6 +232,8 @@ def _augment_base_tool_schemas(tools):
         description = str(tool.get("description") or "")
         if "mission_context" not in description:
             tool["description"] = description + " Supply mission_context for durable graph-v2 node/tool evidence."
+        if tool.get("name") == "runner_execute":
+            tool["description"] += " For a contracted RC7 Mission, prepared_attempt must exactly match durable CASE_PREPARED_ATTEMPT R1 evidence produced by case_prepare_execute."
     return tools
 
 
@@ -299,6 +241,11 @@ def _call_base_with_context(message: Dict[str, Any], name: str) -> Dict[str, Any
     forwarded = copy.deepcopy(message)
     params = forwarded.setdefault("params", {})
     clean, context = _pop_context(params.get("arguments") or {})
+    if name == "runner_execute" and context is not None and contract_enabled(rc6._truth_runtime(), context["mission_id"]):
+        prepared = clean.get("prepared_attempt")
+        if not isinstance(prepared, dict):
+            raise RuntimeError("DURABLE_PREPARED_ATTEMPT_REQUIRED")
+        _case_service().require_prepared(mission_id=context["mission_id"], task_id=context["task_id"], prepared_attempt=prepared)
     params["arguments"] = clean
     response = rc6.handle(forwarded)
     if context is not None and not _response_is_error(response):
@@ -315,13 +262,12 @@ def handle(message: Dict[str, Any]):
             response["result"]["serverInfo"] = {"name": SERVER_NAME, "version": SERVER_VERSION}
             response["result"]["instructions"] = (
                 "RC7 closed-loop testing control plane. RC6 governed tools remain available. "
-                "RC7 durable control entities are registered into the same canonical R1 Event Stream. "
-                "read_text reads real source files from controlled roots. git_show_revision/git_diff "
-                "are real read-only Git execution. CodeGraph MCP tools are capability-discovered at runtime; "
-                "mutating/index/build operations are never admitted. For graph-v2 producer work, send "
-                "mission_context with mission_id/task_id/worker_id on professional tool calls; successful "
-                "calls are persisted automatically as NODE_TOOL_CALL evidence. Tool calls are runtime evidence "
-                "only; Workers never own PASS authority."
+                "RC7 durable control entities use the canonical R1 Event Stream. read_text and Git/CodeGraph "
+                "tools are real read-only execution. Graph-v2 producer calls should carry mission_context so "
+                "successful calls become NODE_TOOL_CALL evidence. Case preparation is runtime-owned: Agents "
+                "request case_prepare_execute, but RC7 itself invokes field providers and DB_CREATE requires a "
+                "trusted Human Gate approval outside the Agent MCP surface. runner_execute rejects fabricated "
+                "prepared_attempt payloads. Workers never own PASS authority."
             )
         return response
     if method == "tools/list":
@@ -346,29 +292,16 @@ def handle(message: Dict[str, Any]):
             try:
                 return _call_base_with_context(message, name)
             except Exception as exc:
-                return {
-                    "jsonrpc": "2.0",
-                    "id": msg_id,
-                    "result": {
-                        "isError": True,
-                        "content": [{"type": "text", "text": str(exc)}],
-                    },
-                }
+                return {"jsonrpc": "2.0", "id": msg_id, "result": {"isError": True, "content": [{"type": "text", "text": str(exc)}]}}
         if any(tool["name"] == name for tool in _extra_tools()):
             try:
                 clean, context = _pop_context(params.get("arguments") or {})
-                raw_result = _invoke_extra(name, clean)
-                _record_tool_call(name, context, raw_result)
+                raw_result = _invoke_extra(name, clean, context)
+                if name not in {"case_prepare_plan", "case_prepare_execute"}:
+                    _record_tool_call(name, context, raw_result)
                 return {"jsonrpc": "2.0", "id": msg_id, "result": _text(raw_result)}
             except Exception as exc:
-                return {
-                    "jsonrpc": "2.0",
-                    "id": msg_id,
-                    "result": {
-                        "isError": True,
-                        "content": [{"type": "text", "text": str(exc)}],
-                    },
-                }
+                return {"jsonrpc": "2.0", "id": msg_id, "result": {"isError": True, "content": [{"type": "text", "text": str(exc)}]}}
     return rc6.handle(message)
 
 
@@ -380,11 +313,7 @@ def main() -> int:
         try:
             response = handle(json.loads(raw))
         except Exception as exc:
-            response = {
-                "jsonrpc": "2.0",
-                "id": None,
-                "error": {"code": -32700, "message": str(exc)},
-            }
+            response = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": str(exc)}}
         if response is not None:
             sys.stdout.write(json.dumps(response, ensure_ascii=False, separators=(",", ":")) + "\n")
             sys.stdout.flush()
