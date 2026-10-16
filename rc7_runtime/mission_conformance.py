@@ -16,6 +16,12 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 from rc6_runtime.truth import TruthRuntime
 
 from .mission_graph import MissionTaskGraphCompiler
+from .node_tool_conformance import (
+    NODE_TOOL_REQUIREMENTS,
+    NodeToolConformanceChecker,
+    NodeToolConformanceError,
+    contract_row as node_tool_contract_row,
+)
 
 
 class MissionConformanceError(RuntimeError):
@@ -72,6 +78,13 @@ class MissionConformanceChecker:
         actual = {str(row.get("task_id") or ""): row for row in task_rows}
         violations: List[str] = []
 
+        try:
+            node_tool_contract = node_tool_contract_row(self.truth, mission_id)
+        except NodeToolConformanceError as exc:
+            node_tool_contract = None
+            violations.append("NODE_TOOL_CONTRACT_INVALID:%s" % str(exc))
+        node_tool_checker = NodeToolConformanceChecker(self.truth)
+
         expected_ids = {task.task_id for task in expected.tasks}
         for task in expected.tasks:
             row = actual.get(task.task_id)
@@ -86,6 +99,19 @@ class MissionConformanceChecker:
             if str(row.get("task_type") or "") != expected_type:
                 violations.append("CANONICAL_TASK_OWNER_TYPE_MISMATCH:%s" % task.node)
             self._check_self_evaluation(row, violations)
+            if (
+                node_tool_contract is not None
+                and task.node in NODE_TOOL_REQUIREMENTS
+                and str(row.get("state") or "") == "PASS"
+            ):
+                tool_result = node_tool_checker.check_task(mission_id, task.task_id)
+                if tool_result.status != "PASS":
+                    violations.append(
+                        "NODE_TOOL_CONFORMANCE_FAILED:%s:%s" % (
+                            task.node,
+                            ",".join(tool_result.missing_capabilities),
+                        )
+                    )
 
         if graph_version == MissionTaskGraphCompiler.GRAPH_V2:
             if graph_evidence is None:
@@ -108,6 +134,16 @@ class MissionConformanceChecker:
             row = actual.get(reality.task_id)
             if row is not None and str(row.get("task_type") or "") != "RUNTIME":
                 violations.append("REALITY_RECON_MUST_BE_RUNTIME_OWNED")
+            if node_tool_contract is not None:
+                covered = set(node_tool_contract.get("subject_refs") or [])
+                missing_contract_tasks = sorted(
+                    task.task_id for task in expected.tasks
+                    if task.node in NODE_TOOL_REQUIREMENTS and task.task_id not in covered
+                )
+                if missing_contract_tasks:
+                    violations.append(
+                        "NODE_TOOL_CONTRACT_TASK_COVERAGE_MISSING:%s" % ",".join(missing_contract_tasks)
+                    )
 
         canonical_rows = [row for task_id, row in actual.items() if task_id in expected_ids]
         mission_state = str(mission.get("state") or "UNKNOWN")

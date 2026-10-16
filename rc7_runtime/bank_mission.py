@@ -16,6 +16,7 @@ from rc6_runtime.truth import TruthRuntime
 from .closed_loop_control import ClosedLoopControlPlane
 from .mission_graph import MissionTaskGraphCompiler
 from .models import Evidence, Mission
+from .node_tool_conformance import contract_enabled as node_tool_contract_enabled, persist_contract as persist_node_tool_contract
 from .truth_overlay import append_entity
 
 
@@ -136,8 +137,23 @@ def start_or_resume(*, r1_path: str, mission_id: str, release_id: str, goal: str
         compiler = MissionTaskGraphCompiler(selected)
         control = ClosedLoopControlPlane.bootstrap(truth, Mission(mission_id=mission_id, release_id=release_id, goal=goal))
         graph = compiler.install(control, mission_id, external_inputs=inputs)
-        _persist_graph_contract(truth, mission_id=mission_id, release_id=release_id, compiler=compiler,
-                                task_ids=[task.task_id for task in graph.tasks])
+        task_ids = [task.task_id for task in graph.tasks]
+        _persist_graph_contract(
+            truth,
+            mission_id=mission_id,
+            release_id=release_id,
+            compiler=compiler,
+            task_ids=task_ids,
+        )
+        # New Bank graph-v2 Missions opt into durable node/tool enforcement.
+        # Existing persisted Missions are never silently upgraded on resume.
+        if compiler.graph_version == MissionTaskGraphCompiler.GRAPH_V2:
+            persist_node_tool_contract(
+                truth,
+                mission_id=mission_id,
+                release_id=release_id,
+                task_ids=task_ids,
+            )
         action = "STARTED"
     else:
         _assert_resume_identity(row, release_id, goal)
@@ -174,6 +190,7 @@ def start_or_resume(*, r1_path: str, mission_id: str, release_id: str, goal: str
         "task_count": len(task_rows),
         "open_gap_count": len([x for x in gap_rows if x.get("state") in {"OPEN","PLANNED","REPAIRING","EVIDENCE_PENDING","HUMAN_REQUIRED","BLOCKED"}]),
         "ready_tasks": ready,
+        "node_tool_contract_enabled": node_tool_contract_enabled(truth, mission_id),
         "real_mission_pass": False,
         "completion_authority": "INDEPENDENT_EVALUATION_AND_MISSION_SUFFICIENCY",
     }
