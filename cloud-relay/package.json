@@ -1,0 +1,8 @@
+{
+  "name": "rc7-cloud-relay",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {"start": "node server.js"},
+  "dependencies": {"express": "4.21.2", "unzipper": "0.12.3"}
+}
