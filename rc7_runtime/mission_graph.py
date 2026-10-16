@@ -1,16 +1,10 @@
-"""Canonical RC7 mission task graph compiler.
+"""Versioned deterministic RC7 Mission graph compiler.
 
-The runtime, not the chat coordinator, owns the Mission graph.  Graph v2 makes
-bank-runtime prerequisites, execution preparation and reporting explicit while
-keeping repair/diagnosis/defect work event-driven.  Independent sufficiency
-stages are part of the durable graph contract but are not ordinary producer
-Tasks: acceptance authority remains in Evaluation truth, never in the worker
-that produced the candidate.
-
-Graph versions are deterministic.  Existing v1 Missions can therefore resume
-without graph drift while new v2 Missions can opt in to the expanded contract.
+The generic compiler preserves the original v1 default for source/API
+compatibility.  Bank Mission bootstrap explicitly opts new Missions into v2.
+Persisted graph identity prevents an existing Mission from silently changing
+shape after a runtime upgrade.
 """
-
 from __future__ import annotations
 
 import hashlib
@@ -36,40 +30,24 @@ class MissionTaskGraph:
     conditional_stages: Tuple[str, ...]
 
     def task(self, node: str) -> Task:
-        matches = [task for task in self.tasks if task.node == node]
-        if len(matches) != 1:
+        rows = [task for task in self.tasks if task.node == node]
+        if len(rows) != 1:
             raise KeyError("MISSION_GRAPH_NODE_NOT_UNIQUE:%s" % node)
-        return matches[0]
+        return rows[0]
 
 
 class MissionTaskGraphCompiler:
-    """Compile/install deterministic RC7 Mission DAGs.
-
-    v1 is the field baseline shipped in the original RC7 package.
-    v2 is the hardened contract:
-
-      Reality -> Requirement -> Code -> Test Design -> Script Readiness
-      -> Precondition/Data -> Execution -> Report -> Mission Convergence
-
-    Requirement/Code/Test-Design sufficiency remain independent Evaluation
-    authority and are represented explicitly in ``logical_stages``.  Failure
-    diagnosis/recovery and defect review are conditional stages spawned by
-    trusted execution gaps rather than unconditional happy-path tasks.
-    """
-
     GRAPH_V1 = "v1"
     GRAPH_V2 = "v2"
     SUPPORTED_GRAPH_VERSIONS = (GRAPH_V1, GRAPH_V2)
-    DEFAULT_GRAPH_VERSION = GRAPH_V2
+    # Generic/internal callers keep field-baseline semantics.  The bank entry
+    # point explicitly selects GRAPH_V2 for new Missions.
+    DEFAULT_GRAPH_VERSION = GRAPH_V1
+    BANK_DEFAULT_GRAPH_VERSION = GRAPH_V2
 
-    # Legacy public constants are retained for callers that import the class
-    # attributes directly.  Instance attributes are version-specific.
     NODE_ORDER = (
-        "REQUIREMENT_ANALYSIS",
-        "CODE_ANALYSIS",
-        "TEST_DESIGN",
-        "SCRIPT_READINESS",
-        "EXECUTION",
+        "REQUIREMENT_ANALYSIS", "CODE_ANALYSIS", "TEST_DESIGN",
+        "SCRIPT_READINESS", "EXECUTION",
     )
     REQUIRED_CAPABILITIES = {
         "REQUIREMENT_ANALYSIS": ("requirement_reasoning",),
@@ -86,44 +64,29 @@ class MissionTaskGraphCompiler:
         "EXECUTION": "EXECUTION_CONCLUSION",
     }
     PRIORITY = {
-        "REQUIREMENT_ANALYSIS": 10,
-        "CODE_ANALYSIS": 20,
-        "TEST_DESIGN": 30,
-        "SCRIPT_READINESS": 40,
-        "EXECUTION": 50,
+        "REQUIREMENT_ANALYSIS": 10, "CODE_ANALYSIS": 20,
+        "TEST_DESIGN": 30, "SCRIPT_READINESS": 40, "EXECUTION": 50,
     }
-
-    _V1_DEPENDENCIES = {
+    _V1_DEPS = {
         "REQUIREMENT_ANALYSIS": (),
         "CODE_ANALYSIS": ("REQUIREMENT_ANALYSIS",),
         "TEST_DESIGN": ("REQUIREMENT_ANALYSIS", "CODE_ANALYSIS"),
         "SCRIPT_READINESS": ("TEST_DESIGN",),
         "EXECUTION": ("SCRIPT_READINESS",),
     }
-    _V1_INPUTS = dict(_V1_DEPENDENCIES)
-    _V1_LOGICAL_STAGES = (
-        "REQUIREMENT_ANALYSIS",
-        "REQUIREMENT_SUFFICIENCY",
-        "CODE_ANALYSIS",
-        "CODE_SUFFICIENCY",
-        "TEST_DESIGN",
-        "TEST_DESIGN_SUFFICIENCY",
-        "SCRIPT_READINESS",
-        "EXECUTION",
+    _V1_LOGICAL = (
+        "REQUIREMENT_ANALYSIS", "REQUIREMENT_SUFFICIENCY",
+        "CODE_ANALYSIS", "CODE_SUFFICIENCY", "TEST_DESIGN",
+        "TEST_DESIGN_SUFFICIENCY", "SCRIPT_READINESS", "EXECUTION",
         "MISSION_CONVERGENCE",
     )
 
-    _V2_NODE_ORDER = (
-        "REALITY_RECON",
-        "REQUIREMENT_ANALYSIS",
-        "CODE_ANALYSIS",
-        "TEST_DESIGN",
-        "SCRIPT_READINESS",
-        "PRECONDITION_DATA",
-        "EXECUTION",
-        "REPORT",
+    _V2_NODES = (
+        "REALITY_RECON", "REQUIREMENT_ANALYSIS", "CODE_ANALYSIS",
+        "TEST_DESIGN", "SCRIPT_READINESS", "PRECONDITION_DATA",
+        "EXECUTION", "REPORT",
     )
-    _V2_REQUIRED_CAPABILITIES = {
+    _V2_CAPS = {
         "REALITY_RECON": ("bank_reality", "code_reality"),
         "REQUIREMENT_ANALYSIS": ("requirement_reasoning",),
         "CODE_ANALYSIS": ("code_reasoning", "code_reality"),
@@ -133,7 +96,7 @@ class MissionTaskGraphCompiler:
         "EXECUTION": ("test_execution",),
         "REPORT": ("test_reporting",),
     }
-    _V2_OUTPUT_TYPES = {
+    _V2_OUTPUTS = {
         "REALITY_RECON": "BANK_REALITY_SNAPSHOT",
         "REQUIREMENT_ANALYSIS": "REQUIREMENT_MODEL",
         "CODE_ANALYSIS": "CODE_IMPACT_MODEL",
@@ -144,16 +107,12 @@ class MissionTaskGraphCompiler:
         "REPORT": "MISSION_REPORT_CANDIDATE",
     }
     _V2_PRIORITY = {
-        "REALITY_RECON": 5,
-        "REQUIREMENT_ANALYSIS": 10,
-        "CODE_ANALYSIS": 20,
-        "TEST_DESIGN": 30,
-        "SCRIPT_READINESS": 40,
-        "PRECONDITION_DATA": 45,
-        "EXECUTION": 50,
-        "REPORT": 80,
+        "REALITY_RECON": 5, "REQUIREMENT_ANALYSIS": 10,
+        "CODE_ANALYSIS": 20, "TEST_DESIGN": 30,
+        "SCRIPT_READINESS": 40, "PRECONDITION_DATA": 45,
+        "EXECUTION": 50, "REPORT": 80,
     }
-    _V2_DEPENDENCIES = {
+    _V2_DEPS = {
         "REALITY_RECON": (),
         "REQUIREMENT_ANALYSIS": ("REALITY_RECON",),
         "CODE_ANALYSIS": ("REALITY_RECON", "REQUIREMENT_ANALYSIS"),
@@ -173,30 +132,16 @@ class MissionTaskGraphCompiler:
         "EXECUTION": ("PRECONDITION_DATA",),
         "REPORT": ("REQUIREMENT_ANALYSIS", "CODE_ANALYSIS", "TEST_DESIGN", "EXECUTION"),
     }
-    _V2_LOGICAL_STAGES = (
-        "REALITY_RECON",
-        "REQUIREMENT_ANALYSIS",
-        "REQUIREMENT_SUFFICIENCY",
-        "CODE_ANALYSIS",
-        "CODE_SUFFICIENCY",
-        "TEST_DESIGN",
-        "TEST_DESIGN_SUFFICIENCY",
-        "SCRIPT_READINESS",
-        "PRECONDITION_DATA",
-        "EXECUTION",
-        "FAILURE_DIAGNOSIS",
-        "RECOVERY_RETRY",
-        "DEFECT_REVIEW",
-        "REPORT",
-        "MISSION_CONVERGENCE",
+    _V2_LOGICAL = (
+        "REALITY_RECON", "REQUIREMENT_ANALYSIS", "REQUIREMENT_SUFFICIENCY",
+        "CODE_ANALYSIS", "CODE_SUFFICIENCY", "TEST_DESIGN",
+        "TEST_DESIGN_SUFFICIENCY", "SCRIPT_READINESS", "PRECONDITION_DATA",
+        "EXECUTION", "FAILURE_DIAGNOSIS", "RECOVERY_RETRY", "DEFECT_REVIEW",
+        "REPORT", "MISSION_CONVERGENCE",
     )
-    _V2_CONDITIONAL_STAGES = (
-        "FAILURE_DIAGNOSIS",
-        "RECOVERY_RETRY",
-        "DEFECT_REVIEW",
-    )
+    _V2_CONDITIONAL = ("FAILURE_DIAGNOSIS", "RECOVERY_RETRY", "DEFECT_REVIEW")
 
-    def __init__(self, graph_version: str = DEFAULT_GRAPH_VERSION) -> None:
+    def __init__(self, graph_version: str = GRAPH_V1) -> None:
         version = str(graph_version or "").strip().lower()
         if version not in self.SUPPORTED_GRAPH_VERSIONS:
             raise ValueError("MISSION_GRAPH_VERSION_UNSUPPORTED:%s" % graph_version)
@@ -206,19 +151,19 @@ class MissionTaskGraphCompiler:
             self.REQUIRED_CAPABILITIES = dict(type(self).REQUIRED_CAPABILITIES)
             self.OUTPUT_TYPES = dict(type(self).OUTPUT_TYPES)
             self.PRIORITY = dict(type(self).PRIORITY)
-            self._dependency_nodes = dict(self._V1_DEPENDENCIES)
-            self._input_nodes = dict(self._V1_INPUTS)
-            self.logical_stages = tuple(self._V1_LOGICAL_STAGES)
+            self._deps = dict(self._V1_DEPS)
+            self._inputs = dict(self._V1_DEPS)
+            self.logical_stages = tuple(self._V1_LOGICAL)
             self.conditional_stages = ()
         else:
-            self.NODE_ORDER = tuple(self._V2_NODE_ORDER)
-            self.REQUIRED_CAPABILITIES = dict(self._V2_REQUIRED_CAPABILITIES)
-            self.OUTPUT_TYPES = dict(self._V2_OUTPUT_TYPES)
+            self.NODE_ORDER = tuple(self._V2_NODES)
+            self.REQUIRED_CAPABILITIES = dict(self._V2_CAPS)
+            self.OUTPUT_TYPES = dict(self._V2_OUTPUTS)
             self.PRIORITY = dict(self._V2_PRIORITY)
-            self._dependency_nodes = dict(self._V2_DEPENDENCIES)
-            self._input_nodes = dict(self._V2_INPUTS)
-            self.logical_stages = tuple(self._V2_LOGICAL_STAGES)
-            self.conditional_stages = tuple(self._V2_CONDITIONAL_STAGES)
+            self._deps = dict(self._V2_DEPS)
+            self._inputs = dict(self._V2_INPUTS)
+            self.logical_stages = tuple(self._V2_LOGICAL)
+            self.conditional_stages = tuple(self._V2_CONDITIONAL)
 
     def contract(self) -> Dict[str, Any]:
         payload = {
@@ -226,48 +171,36 @@ class MissionTaskGraphCompiler:
             "task_nodes": list(self.NODE_ORDER),
             "logical_stages": list(self.logical_stages),
             "conditional_stages": list(self.conditional_stages),
-            "dependencies": {key: list(value) for key, value in self._dependency_nodes.items()},
+            "dependencies": {k: list(v) for k, v in self._deps.items()},
             "output_types": dict(self.OUTPUT_TYPES),
         }
-        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        payload["contract_sha256"] = hashlib.sha256(encoded).hexdigest()
+        body = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        payload["contract_sha256"] = hashlib.sha256(body).hexdigest()
         return payload
 
-    def compile(
-        self,
-        mission_id: str,
-        *,
-        external_inputs: Optional[Mapping[str, Sequence[str]]] = None,
-    ) -> MissionTaskGraph:
+    def compile(self, mission_id: str, *, external_inputs: Optional[Mapping[str, Sequence[str]]] = None) -> MissionTaskGraph:
         if not isinstance(mission_id, str) or not mission_id.strip():
             raise ValueError("MISSION_ID_REQUIRED")
         mission_id = mission_id.strip()
         external_inputs = dict(external_inputs or {})
-        unknown_nodes = sorted(set(external_inputs).difference(self.NODE_ORDER))
-        if unknown_nodes:
-            raise ValueError("MISSION_GRAPH_EXTERNAL_INPUT_NODE_UNKNOWN:%s" % ",".join(unknown_nodes))
-        normalized_external: Dict[str, Tuple[str, ...]] = {}
+        unknown = sorted(set(external_inputs).difference(self.NODE_ORDER))
+        if unknown:
+            raise ValueError("MISSION_GRAPH_EXTERNAL_INPUT_NODE_UNKNOWN:%s" % ",".join(unknown))
+        normalized: Dict[str, Tuple[str, ...]] = {}
         for node, refs in external_inputs.items():
             if isinstance(refs, (str, bytes)):
                 raise ValueError("MISSION_GRAPH_EXTERNAL_INPUTS_MUST_BE_SEQUENCE:%s" % node)
-            refs_tuple = tuple(refs)
-            values = tuple(ref.strip() for ref in refs_tuple if isinstance(ref, str) and ref.strip())
-            if len(values) != len(refs_tuple):
+            items = tuple(refs)
+            values = tuple(ref.strip() for ref in items if isinstance(ref, str) and ref.strip())
+            if len(values) != len(items):
                 raise ValueError("MISSION_GRAPH_EXTERNAL_INPUT_REF_INVALID:%s" % node)
-            normalized_external[node] = tuple(dict.fromkeys(values))
+            normalized[node] = tuple(dict.fromkeys(values))
 
-        task_ids: Dict[str, str] = {
-            node: _stable_id("TASK", mission_id, node) for node in self.NODE_ORDER
-        }
-        artifact_ids: Dict[str, str] = {
-            node: _stable_id("ART", mission_id, self.OUTPUT_TYPES[node])
-            for node in self.NODE_ORDER
-        }
-
+        task_ids = {node: _stable_id("TASK", mission_id, node) for node in self.NODE_ORDER}
+        artifact_ids = {node: _stable_id("ART", mission_id, self.OUTPUT_TYPES[node]) for node in self.NODE_ORDER}
         tasks = []
         for node in self.NODE_ORDER:
-            inherited_inputs = [artifact_ids[name] for name in self._input_nodes[node]]
-            node_inputs = list(normalized_external.get(node, ()))
+            inherited = [artifact_ids[name] for name in self._inputs[node]]
             criteria = [
                 "independent evaluator accepts %s output" % node,
                 "output and acceptance evidence are durable in R1",
@@ -277,39 +210,22 @@ class MissionTaskGraphCompiler:
             if node == "PRECONDITION_DATA":
                 criteria.append("preconditions and test data are verified before execution; writes require governed authorization")
             if node == "REPORT":
-                criteria.append("report is derived from durable Mission evidence and cannot declare TEST_SUFFICIENT")
-            tasks.append(
-                Task(
-                    task_id=task_ids[node],
-                    mission_id=mission_id,
-                    node=node,
-                    task_type="PRODUCE",
-                    objective="Produce evaluator-ready %s output" % self.OUTPUT_TYPES[node],
-                    required_capabilities=list(self.REQUIRED_CAPABILITIES[node]),
-                    dependency_task_ids=[task_ids[name] for name in self._dependency_nodes[node]],
-                    input_artifact_refs=list(dict.fromkeys(inherited_inputs + node_inputs)),
-                    acceptance_criteria=criteria,
-                    priority=self.PRIORITY[node],
-                )
-            )
-
+                criteria.append("report is evidence-derived and cannot declare TEST_SUFFICIENT")
+            tasks.append(Task(
+                task_id=task_ids[node], mission_id=mission_id, node=node, task_type="PRODUCE",
+                objective="Produce evaluator-ready %s output" % self.OUTPUT_TYPES[node],
+                required_capabilities=list(self.REQUIRED_CAPABILITIES[node]),
+                dependency_task_ids=[task_ids[name] for name in self._deps[node]],
+                input_artifact_refs=list(dict.fromkeys(inherited + list(normalized.get(node, ())))),
+                acceptance_criteria=criteria, priority=self.PRIORITY[node],
+            ))
         return MissionTaskGraph(
-            mission_id=mission_id,
-            graph_version=self.graph_version,
-            tasks=tuple(tasks),
-            artifact_ids=dict(artifact_ids),
-            logical_stages=tuple(self.logical_stages),
+            mission_id=mission_id, graph_version=self.graph_version, tasks=tuple(tasks),
+            artifact_ids=dict(artifact_ids), logical_stages=tuple(self.logical_stages),
             conditional_stages=tuple(self.conditional_stages),
         )
 
-    def install(
-        self,
-        control_plane: Any,
-        mission_id: str,
-        *,
-        external_inputs: Optional[Mapping[str, Sequence[str]]] = None,
-    ) -> MissionTaskGraph:
-        """Persist the compiled Task graph through the canonical control plane."""
+    def install(self, control_plane: Any, mission_id: str, *, external_inputs: Optional[Mapping[str, Sequence[str]]] = None) -> MissionTaskGraph:
         graph = self.compile(mission_id, external_inputs=external_inputs)
         for task in graph.tasks:
             control_plane.register_task(task)
