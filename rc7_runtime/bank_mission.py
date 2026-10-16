@@ -1,24 +1,14 @@
 """Productized RC7 BANK Mission bootstrap and resume entrypoint.
 
-This module is deliberately a thin durable activation layer over the RC7
-R1-backed control plane.  It does not perform professional test work and it
-never converts startup success into Mission PASS.  Its responsibilities are:
-
-* bind one explicit R1 Event Stream path;
-* bootstrap a new Mission plus the canonical task graph exactly once;
-* resume the same durable Mission after process/session restart;
-* fail closed if callers try to reuse a Mission id for a different release or
-  goal; and
-* expose machine-readable startup/status facts for launch scripts, the admin
-  platform and final qualification to share.
-
-Professional work remains Worker-owned and acceptance remains independent
-Evaluator/Mission-sufficiency authority.
+This module is a thin durable activation layer over the RC7 R1-backed control
+plane.  Graph identity is persisted in R1 so an existing Mission never changes
+shape merely because a newer runtime is installed.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Dict, Mapping, Optional, Sequence, Tuple
@@ -27,11 +17,15 @@ from rc6_runtime.truth import TruthRuntime
 
 from .closed_loop_control import ClosedLoopControlPlane
 from .mission_graph import MissionTaskGraphCompiler
-from .models import Mission
+from .models import Evidence, Mission
+from .truth_overlay import append_entity
 
 
 class BankMissionError(RuntimeError):
     pass
+
+
+GRAPH_EVIDENCE_KIND = "MISSION_GRAPH_CONTRACT"
 
 
 def _required(value: str, name: str) -> str:
@@ -70,18 +64,74 @@ def _assert_resume_identity(row: Mapping[str, object], release_id: str, goal: st
         raise BankMissionError("MISSION_GOAL_MISMATCH")
 
 
+def _graph_evidence_id(mission_id: str, graph_version: str) -> str:
+    raw = (mission_id + "\x1f" + graph_version).encode("utf-8")
+    return "EVD-GRAPH-" + hashlib.sha256(raw).hexdigest()[:20]
+
+
+def _persist_graph_contract(
+    truth: TruthRuntime,
+    *,
+    mission_id: str,
+    release_id: str,
+    compiler: MissionTaskGraphCompiler,
+    task_ids: Sequence[str],
+) -> None:
+    contract = compiler.contract()
+    append_entity(
+        truth,
+        Evidence(
+            evidence_id=_graph_evidence_id(mission_id, compiler.graph_version),
+            mission_id=mission_id,
+            kind=GRAPH_EVIDENCE_KIND,
+            source_ref="runtime://mission-graph-compiler/%s" % compiler.graph_version,
+            content_ref="mission-graph://%s/%s" % (
+                compiler.graph_version,
+                contract["contract_sha256"],
+            ),
+            subject_refs=list(task_ids),
+            content_hash=str(contract["contract_sha256"]),
+        ),
+        release_id=release_id,
+        artifact_version=1,
+    )
+
+
+def _persisted_graph_version(truth: TruthRuntime, mission_id: str) -> Optional[str]:
+    rows = [
+        row for row in truth.query("rc7_evidence", mission_id=mission_id)
+        if row.get("kind") == GRAPH_EVIDENCE_KIND
+    ]
+    if len(rows) > 1:
+        raise BankMissionError("MISSION_GRAPH_CONTRACT_NOT_UNIQUE")
+    if rows:
+        source = str(rows[0].get("source_ref") or "")
+        version = source.rsplit("/", 1)[-1].strip().lower()
+        if version not in MissionTaskGraphCompiler.SUPPORTED_GRAPH_VERSIONS:
+            raise BankMissionError("MISSION_GRAPH_VERSION_UNSUPPORTED:%s" % version)
+        return version
+
+    # Compatibility for Missions created by the original RC7 package before
+    # graph-version evidence existed.  Their persisted task inventory is the
+    # authority; never silently upgrade them to v2 during resume.
+    task_rows = truth.query("rc7_task", mission_id=mission_id)
+    if task_rows:
+        nodes = {str(row.get("node") or "") for row in task_rows}
+        if nodes.issubset(set(MissionTaskGraphCompiler.NODE_ORDER)):
+            return MissionTaskGraphCompiler.GRAPH_V1
+        if {"REALITY_RECON", "PRECONDITION_DATA", "REPORT"}.intersection(nodes):
+            return MissionTaskGraphCompiler.GRAPH_V2
+        raise BankMissionError("MISSION_GRAPH_VERSION_CANNOT_BE_INFERRED")
+    return None
+
+
 def _assert_resume_graph(
     truth: TruthRuntime,
     mission_id: str,
     external_inputs: Mapping[str, Sequence[str]],
+    compiler: MissionTaskGraphCompiler,
 ) -> None:
-    """Protect the durable graph while allowing context-free Session resume.
-
-    Stable task/dependency identity is always checked.  External source refs are
-    checked only when the caller explicitly supplies them again; otherwise the
-    persisted R1 graph is authoritative and no chat/session context is needed.
-    """
-    expected = MissionTaskGraphCompiler().compile(mission_id, external_inputs=external_inputs)
+    expected = compiler.compile(mission_id, external_inputs=external_inputs)
     actual_rows = truth.query("rc7_task", mission_id=mission_id)
     actual = {str(row["task_id"]): row for row in actual_rows}
     if set(actual) != {task.task_id for task in expected.tasks}:
@@ -101,6 +151,7 @@ def start_or_resume(
     release_id: str,
     goal: str,
     external_inputs: Optional[Mapping[str, Sequence[str]]] = None,
+    graph_version: Optional[str] = None,
 ) -> Dict[str, object]:
     r1 = Path(_required(r1_path, "r1_path")).expanduser().resolve()
     mission_id = _required(mission_id, "mission_id")
@@ -111,20 +162,31 @@ def start_or_resume(
     normalized_inputs = dict(external_inputs or {})
     truth = TruthRuntime(r1)
     row = _mission_row(truth, mission_id)
+    persisted_version = _persisted_graph_version(truth, mission_id)
+
     if row is None:
+        selected_version = str(graph_version or MissionTaskGraphCompiler.DEFAULT_GRAPH_VERSION).lower()
+        compiler = MissionTaskGraphCompiler(selected_version)
         control = ClosedLoopControlPlane.bootstrap(
             truth,
             Mission(mission_id=mission_id, release_id=release_id, goal=goal),
         )
-        MissionTaskGraphCompiler().install(
-            control,
-            mission_id,
-            external_inputs=normalized_inputs,
+        graph = compiler.install(control, mission_id, external_inputs=normalized_inputs)
+        _persist_graph_contract(
+            truth,
+            mission_id=mission_id,
+            release_id=release_id,
+            compiler=compiler,
+            task_ids=[task.task_id for task in graph.tasks],
         )
         action = "STARTED"
     else:
         _assert_resume_identity(row, release_id, goal)
-        _assert_resume_graph(truth, mission_id, normalized_inputs)
+        selected_version = persisted_version or MissionTaskGraphCompiler.GRAPH_V1
+        if graph_version is not None and str(graph_version).lower() != selected_version:
+            raise BankMissionError("MISSION_GRAPH_VERSION_MISMATCH")
+        compiler = MissionTaskGraphCompiler(selected_version)
+        _assert_resume_graph(truth, mission_id, normalized_inputs, compiler)
         control = ClosedLoopControlPlane(truth, release_id, mission_id)
         control.refresh_ready()
         action = "RESUMED"
@@ -147,6 +209,9 @@ def start_or_resume(
         "mission_id": mission_id,
         "release_id": release_id,
         "goal": goal,
+        "graph_version": compiler.graph_version,
+        "logical_stages": list(compiler.logical_stages),
+        "conditional_stages": list(compiler.conditional_stages),
         "mission_state": str(current.get("state") or "UNKNOWN"),
         "sufficiency_state": str(current.get("sufficiency_state") or "UNKNOWN"),
         "r1_path": str(r1),
@@ -172,6 +237,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--release-id", required=True)
     parser.add_argument("--goal", required=True)
     parser.add_argument(
+        "--graph-version",
+        choices=MissionTaskGraphCompiler.SUPPORTED_GRAPH_VERSIONS,
+        default=None,
+        help="Graph version for a new Mission; an existing Mission always resumes its persisted version",
+    )
+    parser.add_argument(
         "--input",
         action="append",
         default=[],
@@ -190,6 +261,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             release_id=args.release_id,
             goal=args.goal,
             external_inputs=_parse_inputs(args.input),
+            graph_version=args.graph_version,
         )
     except Exception as exc:
         print(json.dumps({"status": "HOLD", "reason": str(exc)}, ensure_ascii=False, sort_keys=True))
