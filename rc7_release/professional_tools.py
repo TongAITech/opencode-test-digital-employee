@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import locale
 import os
 import shutil
 import subprocess
@@ -108,6 +109,21 @@ def _resolve_binary(env_name: str, fallback: Optional[str] = None) -> str:
     raise ProfessionalToolError("%s_NOT_CONFIGURED" % env_name)
 
 
+def _decode_tool_bytes(value: bytes) -> str:
+    """Decode Windows tool output without allowing locale noise to crash a mission."""
+    candidates = ("utf-8", locale.getpreferredencoding(False), "gb18030")
+    seen = set()
+    for encoding in candidates:
+        if not encoding or encoding.lower() in seen:
+            continue
+        seen.add(encoding.lower())
+        try:
+            return value.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            pass
+    return value.decode("utf-8", errors="replace")
+
+
 def _bounded_text(value: str, max_chars: int) -> Dict[str, Any]:
     if not isinstance(max_chars, int) or max_chars < 1000 or max_chars > 1000000:
         raise ProfessionalToolError("MAX_CHARS_INVALID")
@@ -135,16 +151,23 @@ def _run(
         proc = subprocess.run(
             list(command),
             cwd=str(cwd),
-            capture_output=True,
-            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             timeout=timeout_seconds,
             check=False,
             shell=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired as exc:
+        stdout = _decode_tool_bytes(exc.stdout if isinstance(exc.stdout, bytes) else b"")
+        stderr = _decode_tool_bytes(exc.stderr if isinstance(exc.stderr, bytes) else b"")
+        detail = (stderr or stdout or "timeout")[:1000]
+        raise ProfessionalToolError("TOOL_EXECUTION_FAILED:TimeoutExpired:%s" % detail) from exc
+    except OSError as exc:
         raise ProfessionalToolError("TOOL_EXECUTION_FAILED:%s" % type(exc).__name__) from exc
-    stdout = _bounded_text(proc.stdout or "", max_chars)
-    stderr = _bounded_text(proc.stderr or "", min(max_chars, 50000))
+    stdout_text = _decode_tool_bytes(proc.stdout or b"")
+    stderr_text = _decode_tool_bytes(proc.stderr or b"")
+    stdout = _bounded_text(stdout_text, max_chars)
+    stderr = _bounded_text(stderr_text, min(max_chars, 50000))
     result = {
         "command": [str(item) for item in command],
         "cwd": str(cwd),
@@ -153,7 +176,7 @@ def _run(
         "stderr": stderr,
     }
     if proc.returncode != 0:
-        message = (proc.stderr or proc.stdout or "tool failed").strip()
+        message = (stderr_text or stdout_text or "tool failed").strip()
         raise ProfessionalToolError("TOOL_EXIT_NONZERO:%s" % message[:1000])
     return result
 
