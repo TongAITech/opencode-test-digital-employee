@@ -19,6 +19,9 @@ set "PFC_CODEGRAPH_BIN=%RC7_HOME%\workspace-template\runtime\code-intelligence\c
 set "PFC_CHROMIUM_BIN=%RC7_HOME%\workspace-template\runtime\browser\chrome-win64\chrome.exe"
 set "PFC_JAVA_BIN=%RC7_HOME%\workspace-template\runtime\java\bin\java.exe"
 set "PFC_MAVEN_BIN=%RC7_HOME%\workspace-template\runtime\maven\bin\mvn.cmd"
+set "PFC_MAVEN_REPO=%RC7_HOME%\workspace-template\runtime\maven-repository"
+set "PFC_MAVEN_SETTINGS=%RC7_HOME%\packaging\rc7\maven-offline-settings.xml"
+set "MAVEN_ARGS=-o -s "%PFC_MAVEN_SETTINGS%" -Dmaven.legacyLocalRepo=true -Dmaven.repo.local="%PFC_MAVEN_REPO%""
 set "PFC_K6_BIN=%RC7_HOME%\workspace-template\runtime\k6\k6.exe"
 if not defined PFC_RC7_DSH_PROFILE set "PFC_RC7_DSH_PROFILE=web"
 
@@ -31,8 +34,8 @@ if errorlevel 1 exit /b %errorlevel%
 
 :payload
 rem Normal startup is intentionally read-only with respect to the bank DSH
-rem profile.  Field validation proved that plugin install/add on the existing
-rem web profile can remove private provider/auth plugins.  Runtime plugin
+rem profile. Field validation proved that plugin install/add on the existing
+rem web profile can remove private provider/auth plugins. Runtime plugin
 rem qualification is performed separately in an isolated profile.
 "%PY%" -m rc7_release.dsh_plugins --home "%RC7_HOME%" --profile "%PFC_RC7_DSH_PROFILE%" --dry-run --output "%RC7_HOME%\state\dsh-plugin-payload.json"
 if errorlevel 1 exit /b %errorlevel%
@@ -48,6 +51,7 @@ if errorlevel 1 exit /b %errorlevel%
 
 echo [RC7] Protected bank DSH profile: %PFC_RC7_DSH_PROFILE%
 echo [RC7] Canonical R1: %PFC_AITEST_STATE_DIR%\r1\event-stream.jsonl
+echo [RC7] Maven repo: %PFC_MAVEN_REPO%
 echo [RC7] Starting DSH with runtime-only RC7 MCP patch; bank profile files will not be modified.
 dsh --profile "%PFC_RC7_DSH_PROFILE%" --patch "%RC7_HOME%\state\rc7-dsh.patch.yml"
 exit /b %errorlevel%
