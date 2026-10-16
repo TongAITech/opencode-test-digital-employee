@@ -42,7 +42,11 @@ jobs:
           rc7_release/dsh.py
           rc7_release/professional_tools.py
           rc7_release/final_unified_qualification.py
+          rc7_release/windows_clean_qualification.py
           rc7_runtime/truth_overlay.py
+          rc7_runtime/reality_recon.py
+          rc7_runtime/mission_conformance.py
+          rc7_runtime/mission_stage_dispatch.py
       - name: Run field-hardening regressions
         run: >-
           python -m pytest -q
@@ -70,3 +74,87 @@ jobs:
           printf 'RC7 tests (%s):\n' "${#tests[@]}"
           printf ' - %s\n' "${tests[@]}"
           python -m pytest -q "${tests[@]}"
+
+  windows-clean-qualification:
+    name: Windows clean package qualification
+    needs:
+      - field-hardening-source-regression
+      - rc7-source-suite
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build, checksum, re-extract and qualify clean Windows package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $commit = (git rev-parse HEAD).Trim()
+          $packageName = 'PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          python -m rc7_release.package build --repo-root . --output .\dist-clean --source-commit $commit
+          if ($LASTEXITCODE -ne 0) { throw 'RC7 package build failed' }
+
+          $zips = @(Get-ChildItem -Path .\dist-clean -Filter '*.zip' -File)
+          if ($zips.Count -ne 1) { throw "Expected exactly one RC7 zip, got $($zips.Count)" }
+          $zip = $zips[0]
+          $checksumPath = "$($zip.FullName).sha256"
+          if (-not (Test-Path -LiteralPath $checksumPath)) { throw 'ZIP checksum sidecar missing' }
+          $expected = ((Get-Content -LiteralPath $checksumPath -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          $actual = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) { throw 'ZIP checksum mismatch before extraction' }
+
+          $builtRoot = Join-Path (Resolve-Path .\dist-clean).Path $packageName
+          if (Test-Path -LiteralPath $builtRoot) { Remove-Item -LiteralPath $builtRoot -Recurse -Force }
+          $cleanRoot = [System.IO.Path]::GetFullPath((Join-Path $PWD 'clean-extract'))
+          if (Test-Path -LiteralPath $cleanRoot) { Remove-Item -LiteralPath $cleanRoot -Recurse -Force }
+          New-Item -ItemType Directory -Path $cleanRoot | Out-Null
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $cleanRoot -Force
+
+          $packageRoot = Join-Path $cleanRoot $packageName
+          $packagePython = Join-Path $packageRoot 'workspace-template\runtime\python\python.exe'
+          if (-not (Test-Path -LiteralPath $packagePython)) { throw 'Package-local Python missing after clean extraction' }
+          Push-Location $packageRoot
+          try {
+            & $packagePython -m rc7_release.windows_clean_qualification --package-root $packageRoot
+            if ($LASTEXITCODE -ne 0) { throw 'Windows clean package qualification failed' }
+          }
+          finally {
+            Pop-Location
+          }
+
+  field-hardened-package:
+    name: Rebuild RC7 Field-Hardened transport package
+    needs: windows-clean-qualification
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Rebuild final transport artifact from qualified HEAD
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $commit = (git rev-parse HEAD).Trim()
+          $packageName = 'PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          python -m rc7_release.package build --repo-root . --output .\dist --source-commit $commit
+          if ($LASTEXITCODE -ne 0) { throw 'RC7 final transport package build failed' }
+          $packageRoot = [System.IO.Path]::GetFullPath((Join-Path '.\dist' $packageName))
+          $packagePython = Join-Path $packageRoot 'workspace-template\runtime\python\python.exe'
+          Push-Location $packageRoot
+          try {
+            & $packagePython -m rc7_release.package verify --package-root $packageRoot
+            if ($LASTEXITCODE -ne 0) { throw 'RC7 final transport package verification failed' }
+          }
+          finally {
+            Pop-Location
+          }
+      - name: Upload RC7 Field-Hardened transport package
+        uses: actions/upload-artifact@v4
+        with:
+          name: RC7-Field-Hardened-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            dist/*.zip
+            dist/*.zip.sha256
