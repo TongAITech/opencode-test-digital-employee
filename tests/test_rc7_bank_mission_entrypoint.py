@@ -21,7 +21,7 @@ SOURCE_COMMIT = "a" * 40
 
 def test_bank_mission_start_and_resume_are_durable(monkeypatch, tmp_path):
     monkeypatch.setenv("PFC_RC7_SOURCE_COMMIT", SOURCE_COMMIT)
-    r1 = tmp_path / "state" / "rc7-r1.jsonl"
+    r1 = tmp_path / "runtime-state" / "r1" / "event-stream.jsonl"
 
     started = start_or_resume(
         r1_path=str(r1),
@@ -54,7 +54,7 @@ def test_bank_mission_start_and_resume_are_durable(monkeypatch, tmp_path):
 
 def test_bank_mission_resume_rejects_identity_drift(monkeypatch, tmp_path):
     monkeypatch.setenv("PFC_RC7_SOURCE_COMMIT", SOURCE_COMMIT)
-    r1 = tmp_path / "rc7-r1.jsonl"
+    r1 = tmp_path / "runtime-state" / "r1" / "event-stream.jsonl"
     start_or_resume(
         r1_path=str(r1),
         mission_id="BANK-MISSION-002",
@@ -85,10 +85,18 @@ def test_turnkey_mission_and_admin_share_the_same_r1_contract():
     mission_sh = (REPO_ROOT / "packaging" / "rc7" / "START-RC7-BANK-MISSION.sh").read_text(encoding="utf-8")
     admin_sh = (REPO_ROOT / "packaging" / "rc7" / "START-RC7-ADMIN.sh").read_text(encoding="utf-8")
 
-    assert "%ROOT%\\state\\rc7-r1.jsonl" in mission_cmd
-    assert "%ROOT%\\state\\rc7-r1.jsonl" in admin_cmd
-    assert '"$ROOT/state/rc7-r1.jsonl"' in mission_sh
-    assert '"$ROOT/state/rc7-r1.jsonl"' in admin_sh
+    assert "%ROOT%\\runtime-state" in mission_cmd
+    assert "%ROOT%\\runtime-state" in admin_cmd
+    assert "%PFC_AITEST_STATE_DIR%\\r1\\event-stream.jsonl" in mission_cmd
+    assert "%PFC_AITEST_STATE_DIR%\\r1\\event-stream.jsonl" in admin_cmd
+    assert '"$ROOT/runtime-state"' in mission_sh
+    assert '"$ROOT/runtime-state"' in admin_sh
+    assert '"$STATE_ROOT/r1/event-stream.jsonl"' in mission_sh
+    assert '"$STATE_ROOT/r1/event-stream.jsonl"' in admin_sh
+    assert "state\\rc7-r1.jsonl" not in mission_cmd
+    assert "state\\rc7-r1.jsonl" not in admin_cmd
+    assert "state/rc7-r1.jsonl" not in mission_sh
+    assert "state/rc7-r1.jsonl" not in admin_sh
     assert "workspace-template\\runtime\\python\\python.exe" in mission_cmd
     assert "-m rc7_runtime.bank_mission" in mission_cmd
     assert "-m rc7_admin" in admin_cmd
@@ -97,7 +105,7 @@ def test_turnkey_mission_and_admin_share_the_same_r1_contract():
 def test_turnkey_package_contract_requires_mission_and_full_admin_platform():
     assert MISSION_ENTRYPOINT in ENTRYPOINTS
     assert ADMIN_ENTRYPOINT in ENTRYPOINTS
-    assert SHARED_R1_DEFAULT == "state/rc7-r1.jsonl"
+    assert SHARED_R1_DEFAULT == "runtime-state/r1/event-stream.jsonl"
     required = set(REQUIRED_PRODUCT_FILES)
     assert "rc7_runtime/bank_mission.py" in required
     assert "rc7_admin/__main__.py" in required
