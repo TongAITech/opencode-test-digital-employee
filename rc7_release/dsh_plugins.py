@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import locale
 import os
 import shutil
 import subprocess
@@ -26,6 +27,12 @@ OPTIONAL_DISABLED = (
     "dsh-error-handling",
 )
 
+# Bank profiles may contain private provider/auth plugins (for example the
+# wizard provider).  Field validation proved that running plugin add/install on
+# the existing web profile can rewrite its dependency tree and remove those
+# private plugins.  RC7 therefore treats bank profiles as immutable by default.
+DEFAULT_PROTECTED_PROFILES = ("web",)
+
 
 def package_path(vendor: Path, package: str) -> Path:
     if package.startswith("@"):
@@ -34,9 +41,26 @@ def package_path(vendor: Path, package: str) -> Path:
     return vendor / "node_modules" / package
 
 
+def _decode(data: bytes) -> str:
+    for encoding in ("utf-8", locale.getpreferredencoding(False), "gb18030"):
+        if not encoding:
+            continue
+        try:
+            return data.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            pass
+    return data.decode("utf-8", errors="replace")
+
+
 def run(cmd: List[str], env: Dict[str, str]) -> Tuple[int, str]:
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, env=env)
-    return proc.returncode, proc.stdout
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    return proc.returncode, _decode(proc.stdout or b"")
+
+
+def protected_profiles() -> Tuple[str, ...]:
+    configured = os.environ.get("PFC_RC7_PROTECTED_DSH_PROFILES", "")
+    extra = tuple(item.strip() for item in configured.split(",") if item.strip())
+    return tuple(dict.fromkeys(DEFAULT_PROTECTED_PROFILES + extra))
 
 
 def prepare_env(home: Path) -> Dict[str, str]:
@@ -64,15 +88,24 @@ def prepare_env(home: Path) -> Dict[str, str]:
                 break
     env["PATH"] = os.pathsep.join(flat + [env.get("PATH", "")])
     env.setdefault("PFC_AITEST_HOME", str(home))
+    env.setdefault("PFC_AITEST_STATE_DIR", str(home / "runtime-state"))
     env.setdefault("PFC_PYTHON", str(runtime / "python" / "python.exe"))
     env.setdefault("PFC_CODEGRAPH_BIN", str(runtime / "code-intelligence" / "codegraph" / "codegraph-server-win32-x64.exe"))
     env.setdefault("PFC_CHROMIUM_BIN", str(runtime / "browser" / "chrome-win64" / "chrome.exe"))
     return env
 
 
-def install(home: Path, profile: str, dry_run: bool = False) -> Dict[str, object]:
+def install(
+    home: Path,
+    profile: str,
+    dry_run: bool = False,
+    *,
+    allow_profile_mutation: bool = False,
+    include_diagnostic: bool = False,
+) -> Dict[str, object]:
     vendor = home / "workspace-template" / "runtime" / "dsh-plugins"
-    dsh = shutil.which("dsh", path=prepare_env(home).get("PATH"))
+    env = prepare_env(home)
+    dsh = shutil.which("dsh", path=env.get("PATH"))
     discovered: Dict[str, Dict[str, object]] = {}
     for package in REQUIRED + DIAGNOSTIC_OPTIONAL + OPTIONAL_DISABLED:
         p = package_path(vendor, package)
@@ -84,20 +117,39 @@ def install(home: Path, profile: str, dry_run: bool = False) -> Dict[str, object
     missing = [name for name in REQUIRED if not discovered[name]["bundled"]]
     if missing:
         return {"status": "FAIL", "reason": "REQUIRED_DSH_PLUGIN_PAYLOAD_MISSING", "missing": missing, "plugins": discovered}
+
+    is_protected = profile in protected_profiles()
     if dry_run:
         return {
             "status": "PASS",
-            "mode": "DRY_RUN",
+            "mode": "PAYLOAD_ONLY_NO_PROFILE_MUTATION",
             "dsh": dsh,
+            "profile": profile,
+            "protected_profile": is_protected,
             "plugins": discovered,
             "optional_default": "DISABLED",
             "mission_required": list(REQUIRED),
             "diagnostic_optional": list(DIAGNOSTIC_OPTIONAL),
         }
+
+    if is_protected:
+        return {
+            "status": "FAIL",
+            "reason": "PROTECTED_BANK_PROFILE_MUTATION_FORBIDDEN",
+            "profile": profile,
+            "protected_profiles": list(protected_profiles()),
+            "plugins": discovered,
+        }
+    if not allow_profile_mutation:
+        return {
+            "status": "FAIL",
+            "reason": "EXPLICIT_PROFILE_MUTATION_AUTHORIZATION_REQUIRED",
+            "profile": profile,
+            "plugins": discovered,
+        }
     if not dsh:
         return {"status": "HOLD", "reason": "BANK_DSH_HOST_NOT_FOUND", "plugins": discovered, "field_binding_required": True}
 
-    env = prepare_env(home)
     version_code, version_out = run([dsh, "--version"], env)
     if version_code != 0:
         return {"status": "FAIL", "reason": "DSH_VERSION_PROBE_FAILED", "output": version_out}
@@ -105,7 +157,10 @@ def install(home: Path, profile: str, dry_run: bool = False) -> Dict[str, object
     installs = []
     for package in REQUIRED:
         p = Path(str(discovered[package]["path"]))
-        spec = "link:" + str(p)
+        # file: materializes the dependency in the isolated profile.  link:
+        # leaves peer-dependency resolution to the host profile and failed in
+        # the bank field environment, especially on paths containing spaces.
+        spec = "file:" + str(p)
         code, out = run([dsh, "plugin", "--profile", profile, "add", spec], env)
         accepted = code == 0 or "already" in out.lower() or "exist" in out.lower()
         installs.append({"package": package, "spec": spec, "exit_code": code, "accepted": accepted, "output_tail": out[-2000:]})
@@ -113,17 +168,19 @@ def install(home: Path, profile: str, dry_run: bool = False) -> Dict[str, object
             return {"status": "FAIL", "reason": "DSH_PLUGIN_INSTALL_FAILED", "dsh_version": version_out.strip(), "installs": installs}
 
     diagnostic = []
-    for package in DIAGNOSTIC_OPTIONAL:
-        if not discovered[package]["bundled"]:
-            continue
-        p = Path(str(discovered[package]["path"]))
-        spec = "link:" + str(p)
-        code, out = run([dsh, "plugin", "--profile", profile, "add", spec], env)
-        diagnostic.append({"package": package, "spec": spec, "exit_code": code, "accepted": code == 0, "output_tail": out[-1000:]})
+    if include_diagnostic:
+        for package in DIAGNOSTIC_OPTIONAL:
+            if not discovered[package]["bundled"]:
+                continue
+            p = Path(str(discovered[package]["path"]))
+            spec = "file:" + str(p)
+            code, out = run([dsh, "plugin", "--profile", profile, "add", spec], env)
+            diagnostic.append({"package": package, "spec": spec, "exit_code": code, "accepted": code == 0, "output_tail": out[-1000:]})
 
     code, dump = run([dsh, "--profile", profile, "--dump-config"], env)
     return {
         "status": "PASS" if code == 0 else "FAIL",
+        "mode": "ISOLATED_PROFILE_MUTATION",
         "dsh_version": version_out.strip(),
         "profile": profile,
         "installs": installs,
@@ -140,9 +197,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--home", required=True)
     p.add_argument("--profile", default="web")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--allow-profile-mutation", action="store_true")
+    p.add_argument("--include-diagnostic", action="store_true")
     p.add_argument("--output")
     args = p.parse_args(argv)
-    result = install(Path(args.home).resolve(), args.profile, args.dry_run)
+    result = install(
+        Path(args.home).resolve(),
+        args.profile,
+        args.dry_run,
+        allow_profile_mutation=args.allow_profile_mutation,
+        include_diagnostic=args.include_diagnostic,
+    )
     text = json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2)
     if args.output:
         target = Path(args.output)
