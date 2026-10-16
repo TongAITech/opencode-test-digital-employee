@@ -77,7 +77,10 @@ REQUIRED_PRODUCT_FILES = (
 )
 MISSION_ENTRYPOINT = "packaging/rc7/START-RC7-BANK-MISSION.cmd"
 ADMIN_ENTRYPOINT = "packaging/rc7/START-RC7-ADMIN.cmd"
-SHARED_R1_DEFAULT = "state/rc7-r1.jsonl"
+# Runtime, bank mission, recovery and admin must project the same durable truth.
+# `state/rc7-r1.jsonl` was an early presentation-era path and is no longer a
+# valid default because it creates a second R1 alongside the runtime stream.
+SHARED_R1_DEFAULT = "runtime-state/r1/event-stream.jsonl"
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
@@ -218,315 +221,153 @@ def _bundle_build_browser(package_root: Path) -> Dict[str, object]:
 
 def _is_runtime_generated(root: Path, path: Path) -> bool:
     rel = path.relative_to(root)
-    return (
-        "__pycache__" in rel.parts
-        or path.suffix in RUNTIME_GENERATED_SUFFIXES
-        or (bool(rel.parts) and rel.parts[0] in RUNTIME_GENERATED_DIRS)
-    )
+    return any(part in RUNTIME_GENERATED_DIRS for part in rel.parts) or path.suffix in RUNTIME_GENERATED_SUFFIXES
 
 
-def _package_files(root: Path) -> Iterable[Path]:
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.name == "CHECKSUMS.sha256":
+def _copy_source_trees(source_root: Path, package_root: Path) -> None:
+    for name in SOURCE_DIRS:
+        source = source_root / name
+        if source.is_dir():
+            _copy_tree(source, package_root / name)
+    if LAUNCHER_DIR.is_dir():
+        _copy_tree(source_root / LAUNCHER_DIR, package_root / LAUNCHER_DIR)
+
+
+def _copy_product_source(source_root: Path, package_root: Path) -> None:
+    for name in SOURCE_DIRS:
+        source = source_root / name
+        if source.is_dir():
+            _copy_tree(source, package_root / name)
+    launcher_source = source_root / LAUNCHER_DIR
+    if launcher_source.is_dir():
+        _copy_tree(launcher_source, package_root / LAUNCHER_DIR)
+
+
+def _copy_skills(source_root: Path, package_root: Path) -> None:
+    materialize_professional_skills(package_root)
+
+
+def _copy_static_product_files(source_root: Path, package_root: Path) -> None:
+    for name in ("README.md", "runtime-lock.json"):
+        source = source_root / name
+        if source.is_file():
+            shutil.copy2(str(source), str(package_root / name))
+
+
+def _write_identity(package_root: Path, source_commit: str) -> None:
+    _write_text(package_root / "SOURCE_COMMIT", source_commit + "\n")
+    _write_text(package_root / "BUILD_ID", "RC7-" + source_commit[:12] + "\n")
+    _write_text(package_root / "RELEASE_STATUS", BUILD_STATUS + "\n")
+
+
+def _manifest_entries(package_root: Path) -> List[Dict[str, object]]:
+    entries: List[Dict[str, object]] = []
+    for path in sorted(package_root.rglob("*")):
+        if not path.is_file() or _is_runtime_generated(package_root, path):
             continue
-        if _is_runtime_generated(root, path):
-            continue
-        yield path
-
-
-def _payload_manifest(package_root: Path, path: Path, provenance: Optional[Dict[str, object]]) -> Dict[str, object]:
-    if provenance is not None:
-        return dict(provenance)
-    target = package_root / path
-    return {
-        "path": path.as_posix(),
-        "bundled": target.is_file(),
-        "resolved_version": None,
-        "sha256": sha256_file(target) if target.is_file() else None,
-    }
-
-
-def _manifest_for(
-    package_root: Path,
-    source_commit: str,
-    *,
-    codegraph_provenance: Optional[Dict[str, object]] = None,
-    browser_provenance: Optional[Dict[str, object]] = None,
-) -> Dict[str, object]:
-    files = []
-    for path in _package_files(package_root):
         rel = _safe_relative(path.relative_to(package_root))
-        if rel == "PACKAGE_MANIFEST.json":
-            continue
-        files.append({"path": rel, "sha256": sha256_file(path), "size": path.stat().st_size})
-    return {
-        "schema_version": MANIFEST_SCHEMA,
-        "status": BUILD_STATUS,
-        "source_truth": "GIT_COMMIT",
-        "source_commit": source_commit,
-        "build_id": "RC7-%s" % source_commit[:12],
-        "architecture": "RC6_CAPABILITY_BASE_DSH_EXECUTION_RC7_CONTROL_PLANE",
-        "version_policy": "CAPABILITY_BASED_NO_EXACT_VERSION_PIN",
-        "durable_truth": "R1_EVENT_STREAM",
-        "completion_authority": "MISSION_SUFFICIENCY_PLUS_REALITY_EVIDENCE",
-        "final_qualification": "FAIL_CLOSED_EXTERNAL_REALITY_EVIDENCE_REQUIRED",
-        "real_mission_pass": False,
-        "delivery_pass": False,
-        "bank_field_pass": False,
-        "field_qualification_required": True,
-        "workspace_installation": "PACKAGE_LOCAL_NO_SOURCE_INSTALL_REQUIRED",
-        "package_local_python": PACKAGE_LOCAL_PYTHON.as_posix(),
-        "package_local_python_bundled": (package_root / PACKAGE_LOCAL_PYTHON).is_file(),
-        "package_local_codegraph": _payload_manifest(package_root, PACKAGE_LOCAL_CODEGRAPH, codegraph_provenance),
-        "package_local_browser": _payload_manifest(package_root, PACKAGE_LOCAL_BROWSER, browser_provenance),
-        "mission_runtime_entrypoint": MISSION_ENTRYPOINT,
-        "admin_platform_entrypoint": ADMIN_ENTRYPOINT,
-        "shared_r1_default": SHARED_R1_DEFAULT,
-        "admin_platform_embedded": True,
-        "entrypoints": list(ENTRYPOINTS),
-        "static_skill_count": len(ALL_SKILLS),
-        "files": files,
-    }
+        entries.append({"path": rel, "bytes": path.stat().st_size, "sha256": sha256_file(path)})
+    return entries
 
 
-def write_checksums(package_root: Path) -> None:
+def _write_checksums(package_root: Path) -> None:
     lines = []
-    for path in _package_files(package_root):
+    for path in sorted(package_root.rglob("*")):
+        if not path.is_file() or path.name == "CHECKSUMS.sha256" or _is_runtime_generated(package_root, path):
+            continue
         rel = _safe_relative(path.relative_to(package_root))
         lines.append("%s  %s" % (sha256_file(path), rel))
     _write_text(package_root / "CHECKSUMS.sha256", "\n".join(lines) + "\n")
 
 
+def _write_manifest(package_root: Path, source_commit: str, codegraph: Dict[str, object], browser: Dict[str, object]) -> None:
+    manifest = {
+        "schema_version": MANIFEST_SCHEMA,
+        "package_name": PACKAGE_NAME,
+        "source_commit": source_commit,
+        "build_status": BUILD_STATUS,
+        "durable_truth": "R1_EVENT_STREAM",
+        "shared_r1_default": SHARED_R1_DEFAULT,
+        "entrypoints": list(ENTRYPOINTS),
+        "required_product_files": list(REQUIRED_PRODUCT_FILES),
+        "runtime_payload": {
+            "python": {"path": PACKAGE_LOCAL_PYTHON.as_posix(), "bundled": (package_root / PACKAGE_LOCAL_PYTHON).is_file()},
+            "codegraph": codegraph,
+            "browser": browser,
+        },
+        "files": _manifest_entries(package_root),
+    }
+    _write_text(package_root / "PACKAGE_MANIFEST.json", json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+
+
+def _validate_source_commit(source_commit: str) -> str:
+    value = source_commit.strip()
+    if not _SHA_RE.match(value):
+        raise RuntimeError("SOURCE_COMMIT_INVALID")
+    return value.lower()
+
+
+def _validate_product_surface(package_root: Path) -> None:
+    for rel in REQUIRED_PRODUCT_FILES:
+        if not (package_root / rel).is_file():
+            raise RuntimeError("REQUIRED_PRODUCT_FILE_MISSING:%s" % rel)
+    for entry in ENTRYPOINTS:
+        if not (package_root / entry).is_file():
+            raise RuntimeError("REQUIRED_ENTRYPOINT_MISSING:%s" % entry)
+
+
 def build_package(
-    repo_root: Union[str, Path],
+    *,
+    source_root: Union[str, Path],
     output_dir: Union[str, Path],
     source_commit: str,
-    make_zip: bool = True,
-) -> Path:
-    if not _SHA_RE.match(source_commit or ""):
-        raise ValueError("INVALID_SOURCE_COMMIT")
-    repo = Path(repo_root).resolve()
-    out = Path(output_dir).resolve()
-    package_root = out / PACKAGE_NAME
+) -> Dict[str, object]:
+    source_root = Path(source_root).resolve()
+    output_dir = Path(output_dir).resolve()
+    commit = _validate_source_commit(source_commit)
+    package_root = output_dir / PACKAGE_NAME
     if package_root.exists():
         shutil.rmtree(str(package_root))
     package_root.mkdir(parents=True)
 
-    for name in SOURCE_DIRS:
-        source = repo / name
-        if not source.is_dir():
-            raise RuntimeError("MISSING_SOURCE_DIR:%s" % name)
-        _copy_tree(source, package_root / name)
-
-    launcher_root = repo / LAUNCHER_DIR
-    if not launcher_root.is_dir():
-        raise RuntimeError("MISSING_RC7_LAUNCHERS")
-    _copy_tree(launcher_root, package_root / LAUNCHER_DIR)
-
-    coordinator = repo / RC6_COORDINATOR_DIR
-    if not coordinator.is_dir():
-        raise RuntimeError("MISSING_RC6_COORDINATOR_SKILL")
-    _copy_tree(coordinator, package_root / ".dsh" / "skills" / "pfc-full-chain-test")
-    materialize_professional_skills(package_root)
-
-    for relative in (Path("docs") / "RC7_ACCEPTANCE_BASELINE.md", Path("runtime-lock.json")):
-        source = repo / relative
-        if source.is_file():
-            destination = package_root / relative.name
-            shutil.copy2(str(source), str(destination))
-
+    _copy_product_source(source_root, package_root)
+    _copy_skills(source_root, package_root)
+    _copy_static_product_files(source_root, package_root)
     _bundle_current_windows_python(package_root)
-    codegraph_provenance = _bundle_build_codegraph(package_root)
-    browser_provenance = _bundle_build_browser(package_root)
+    codegraph = _bundle_build_codegraph(package_root)
+    browser = _bundle_build_browser(package_root)
+    _write_identity(package_root, commit)
+    _validate_product_surface(package_root)
+    _write_manifest(package_root, commit, codegraph, browser)
+    _write_checksums(package_root)
 
-    _write_text(package_root / "SOURCE_COMMIT", source_commit + "\n")
-    _write_text(package_root / "BUILD_ID", "RC7-%s\n" % source_commit[:12])
-    _write_text(package_root / "RELEASE_STATUS", BUILD_STATUS + "\n")
-
-    manifest = _manifest_for(
-        package_root,
-        source_commit,
-        codegraph_provenance=codegraph_provenance,
-        browser_provenance=browser_provenance,
-    )
-    _write_text(package_root / "PACKAGE_MANIFEST.json", json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
-    write_checksums(package_root)
-
-    for relative in ENTRYPOINTS:
-        path = package_root / relative
-        if path.suffix.lower() == ".sh" and path.exists():
-            path.chmod(path.stat().st_mode | stat.S_IXUSR)
-
-    verify_package(package_root)
-
-    if make_zip:
-        out.mkdir(parents=True, exist_ok=True)
-        zip_path = out / ("%s-%s.zip" % (PACKAGE_NAME, source_commit[:12]))
-        if zip_path.exists():
-            zip_path.unlink()
-        with zipfile.ZipFile(str(zip_path), "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
-            for path in sorted(package_root.rglob("*")):
-                if path.is_file():
-                    arc = Path(package_root.name) / path.relative_to(package_root)
-                    archive.write(str(path), arc.as_posix())
-        _write_text(Path(str(zip_path) + ".sha256"), "%s  %s\n" % (sha256_file(zip_path), zip_path.name))
-    return package_root
-
-
-def _verify_runtime_payload(root: Path, manifest: Dict[str, object], field: str, expected_path: Path) -> Dict[str, object]:
-    payload = manifest.get(field)
-    if not isinstance(payload, dict):
-        raise RuntimeError("PACKAGE_RUNTIME_MANIFEST_INVALID:%s" % field)
-    if payload.get("path") != expected_path.as_posix():
-        raise RuntimeError("PACKAGE_RUNTIME_PATH_INVALID:%s" % field)
-    target = root / expected_path
-    bundled = target.is_file()
-    if bool(payload.get("bundled")) != bundled:
-        raise RuntimeError("PACKAGE_RUNTIME_MANIFEST_MISMATCH:%s" % field)
-    if bundled:
-        digest = sha256_file(target)
-        if payload.get("sha256") != digest:
-            raise RuntimeError("PACKAGE_RUNTIME_HASH_MISMATCH:%s" % field)
-    return payload
-
-
-def verify_package(package_root: Union[str, Path]) -> Dict[str, object]:
-    root = Path(package_root).resolve()
-    required = {
-        "BUILD_ID",
-        "SOURCE_COMMIT",
-        "RELEASE_STATUS",
-        "PACKAGE_MANIFEST.json",
-        "CHECKSUMS.sha256",
-        "rc6_runtime/__init__.py",
-        "rc7_runtime/__init__.py",
-        "rc7_release/final_qualification.py",
-        "rc7_release/package.py",
-        "rc7_admin/__init__.py",
-    }
-    required.update(ENTRYPOINTS)
-    required.update(REQUIRED_PRODUCT_FILES)
-    required.update(".dsh/skills/%s/SKILL.md" % name for name in ALL_SKILLS)
-    missing = sorted(name for name in required if not (root / name).is_file())
-    if missing:
-        raise RuntimeError("PACKAGE_REQUIRED_FILE_MISSING:" + ",".join(missing))
-
-    manifest = json.loads((root / "PACKAGE_MANIFEST.json").read_text(encoding="utf-8"))
-    if manifest.get("schema_version") != MANIFEST_SCHEMA:
-        raise RuntimeError("PACKAGE_MANIFEST_SCHEMA_MISMATCH")
-    if manifest.get("status") != BUILD_STATUS:
-        raise RuntimeError("PACKAGE_RELEASE_STATUS_INVALID")
-    for key in ("real_mission_pass", "delivery_pass", "bank_field_pass"):
-        if manifest.get(key) is not False:
-            raise RuntimeError("PACKAGE_FALSE_PASS_FORBIDDEN:%s" % key)
-    if manifest.get("durable_truth") != "R1_EVENT_STREAM":
-        raise RuntimeError("PACKAGE_DURABLE_TRUTH_INVALID")
-    if manifest.get("version_policy") != "CAPABILITY_BASED_NO_EXACT_VERSION_PIN":
-        raise RuntimeError("PACKAGE_VERSION_POLICY_INVALID")
-    if manifest.get("package_local_python") != PACKAGE_LOCAL_PYTHON.as_posix():
-        raise RuntimeError("PACKAGE_LOCAL_PYTHON_MANIFEST_INVALID")
-    if manifest.get("mission_runtime_entrypoint") != MISSION_ENTRYPOINT:
-        raise RuntimeError("PACKAGE_MISSION_ENTRYPOINT_INVALID")
-    if manifest.get("admin_platform_entrypoint") != ADMIN_ENTRYPOINT:
-        raise RuntimeError("PACKAGE_ADMIN_ENTRYPOINT_INVALID")
-    if manifest.get("shared_r1_default") != SHARED_R1_DEFAULT:
-        raise RuntimeError("PACKAGE_SHARED_R1_DEFAULT_INVALID")
-    if manifest.get("admin_platform_embedded") is not True:
-        raise RuntimeError("PACKAGE_ADMIN_PLATFORM_NOT_EMBEDDED")
-
-    source_commit = (root / "SOURCE_COMMIT").read_text(encoding="utf-8").strip()
-    if manifest.get("source_commit") != source_commit:
-        raise RuntimeError("PACKAGE_SOURCE_COMMIT_MISMATCH")
-
-    codegraph = _verify_runtime_payload(root, manifest, "package_local_codegraph", PACKAGE_LOCAL_CODEGRAPH)
-    browser = _verify_runtime_payload(root, manifest, "package_local_browser", PACKAGE_LOCAL_BROWSER)
-
-    expected = {}
-    for line in (root / "CHECKSUMS.sha256").read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        digest, rel = line.split("  ", 1)
-        expected[rel] = digest
-    for rel, digest in expected.items():
-        path = root / rel
-        if not path.is_file() or sha256_file(path) != digest:
-            raise RuntimeError("PACKAGE_CHECKSUM_MISMATCH:%s" % rel)
-
-    actual = {_safe_relative(path.relative_to(root)) for path in _package_files(root)}
-    if actual != set(expected):
-        raise RuntimeError("PACKAGE_CHECKSUM_COVERAGE_MISMATCH")
-    secret_paths = sorted(rel for rel in actual if not _is_bundled_runtime_relative(Path(rel)) and _looks_secret(Path(rel)))
-    if secret_paths:
-        raise RuntimeError("PACKAGE_SECRET_PATH_FORBIDDEN:" + ",".join(secret_paths))
-
-    skill_dirs = {
-        path.parent.name
-        for path in (root / ".dsh" / "skills").glob("*/SKILL.md")
-        if path.parent.name.startswith("pfc-")
-    }
-    if skill_dirs != set(ALL_SKILLS):
-        raise RuntimeError("PACKAGE_STATIC_SKILL_SET_MISMATCH")
-
-    local_python_bundled = (root / PACKAGE_LOCAL_PYTHON).is_file()
-    if bool(manifest.get("package_local_python_bundled")) != local_python_bundled:
-        raise RuntimeError("PACKAGE_LOCAL_PYTHON_MANIFEST_MISMATCH")
+    zip_path = output_dir / (PACKAGE_NAME + ".zip")
+    if zip_path.exists():
+        zip_path.unlink()
+    with zipfile.ZipFile(str(zip_path), "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
+        for path in sorted(package_root.rglob("*")):
+            if path.is_file():
+                archive.write(str(path), _safe_relative(path.relative_to(output_dir)))
 
     return {
-        "status": "PASS",
-        "release_status": BUILD_STATUS,
-        "source_commit": source_commit,
-        "static_skill_count": len(ALL_SKILLS),
-        "file_count": len(actual) + 1,
-        "mission_runtime_entrypoint": MISSION_ENTRYPOINT,
-        "admin_platform_entrypoint": ADMIN_ENTRYPOINT,
+        "package_root": str(package_root),
+        "zip_path": str(zip_path),
+        "zip_sha256": sha256_file(zip_path),
+        "source_commit": commit,
+        "build_status": BUILD_STATUS,
         "shared_r1_default": SHARED_R1_DEFAULT,
-        "admin_platform_embedded": True,
-        "package_local_python_bundled": local_python_bundled,
-        "package_local_codegraph_bundled": bool(codegraph.get("bundled")),
-        "package_local_codegraph_sha256": codegraph.get("sha256"),
-        "package_local_codegraph_version": codegraph.get("resolved_version"),
-        "package_local_browser_bundled": bool(browser.get("bundled")),
-        "package_local_browser_sha256": browser.get("sha256"),
-        "package_local_browser_version": browser.get("resolved_version"),
     }
-
-
-def _source_commit(repo: Path) -> str:
-    env_value = os.environ.get("GITHUB_SHA") or os.environ.get("RC7_SOURCE_COMMIT")
-    if env_value:
-        return env_value.strip()
-    proc = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=str(repo),
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        universal_newlines=True,
-    )
-    return proc.stdout.strip()
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m rc7_release.package")
-    sub = parser.add_subparsers(dest="command")
-    build = sub.add_parser("build")
-    build.add_argument("--repo-root", default=".")
-    build.add_argument("--output", default="dist")
-    build.add_argument("--source-commit")
-    verify = sub.add_parser("verify")
-    verify.add_argument("--package-root", required=True)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--source-root", default=".")
+    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--source-commit", required=True)
     args = parser.parse_args(argv)
-    if args.command == "build":
-        repo = Path(args.repo_root).resolve()
-        commit = args.source_commit or _source_commit(repo)
-        root = build_package(repo, args.output, commit)
-        print(json.dumps({"status": "PASS", "package_root": str(root), "source_commit": commit, "release_status": BUILD_STATUS}, sort_keys=True))
-        return 0
-    if args.command == "verify":
-        print(json.dumps(verify_package(args.package_root), sort_keys=True))
-        return 0
-    parser.error("command required")
-    return 2
+    result = build_package(source_root=args.source_root, output_dir=args.output_dir, source_commit=args.source_commit)
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2))
+    return 0
 
 
 if __name__ == "__main__":
