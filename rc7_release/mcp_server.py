@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 
 from rc6_release import mcp_server as rc6
 from rc7_runtime.truth_overlay import install_rc7_truth_overlay
+from .codegraph_mcp import call_codegraph_tool, list_codegraph_tools
 from .professional_tools import codegraph_probe, codegraph_query, git_diff, git_show_revision
 from .source_tools import read_text
 
@@ -33,6 +34,7 @@ def _object(properties: Dict[str, Any], required=None, *, additional: bool = Fal
 def _extra_tools():
     s = {"type": "string"}
     a = {"type": "array", "items": s}
+    obj = {"type": "object", "additionalProperties": True}
     return [
         {
             "name": "read_text",
@@ -49,9 +51,7 @@ def _extra_tools():
         {
             "name": "git_show_revision",
             "description": "Read one Git commit identity from a workspace-contained repository. Read-only; shell is never used.",
-            "inputSchema": _object(
-                {"repo_path": s, "ref": s},
-            ),
+            "inputSchema": _object({"repo_path": s, "ref": s}),
         },
         {
             "name": "git_diff",
@@ -69,12 +69,12 @@ def _extra_tools():
         },
         {
             "name": "codegraph_probe",
-            "description": "Probe the configured CodeGraph executable with --help only. This does not establish query readiness by itself.",
+            "description": "Probe the configured CodeGraph executable with --help only. This is discovery evidence, not query readiness.",
             "inputSchema": _object({"repo_path": s}),
         },
         {
             "name": "codegraph_query",
-            "description": "Execute one allowlisted read-only CodeGraph query in the configured workspace. Index/build/write/update operations are rejected.",
+            "description": "Legacy allowlisted CodeGraph CLI query adapter retained for CLI-capable binaries. Prefer codegraph_mcp_tools/codegraph_mcp_call when the configured binary exposes MCP stdio.",
             "inputSchema": _object(
                 {
                     "repo_path": s,
@@ -83,6 +83,29 @@ def _extra_tools():
                     "max_chars": {"type": "integer", "minimum": 1000, "maximum": 1000000},
                 },
                 ["args"],
+            ),
+        },
+        {
+            "name": "codegraph_mcp_tools",
+            "description": "Start the configured CodeGraph MCP server, dynamically list its real tool names/schemas and label which tools are admitted as read-only. Uses Windows-safe reader threads rather than select().",
+            "inputSchema": _object(
+                {
+                    "repo_path": s,
+                    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300},
+                }
+            ),
+        },
+        {
+            "name": "codegraph_mcp_call",
+            "description": "Call one tool only after it was dynamically discovered from CodeGraph tools/list and admitted by the read-only policy. Mutating/index/build tools are rejected.",
+            "inputSchema": _object(
+                {
+                    "repo_path": s,
+                    "tool_name": s,
+                    "arguments": obj,
+                    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300},
+                },
+                ["tool_name"],
             ),
         },
     ]
@@ -145,6 +168,22 @@ def _call_extra(name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]
                 max_chars=int(arguments.get("max_chars", 200000)),
             )
         )
+    if name == "codegraph_mcp_tools":
+        return _text(
+            list_codegraph_tools(
+                repo_path=str(arguments.get("repo_path") or "."),
+                timeout_seconds=int(arguments.get("timeout_seconds", 30)),
+            )
+        )
+    if name == "codegraph_mcp_call":
+        return _text(
+            call_codegraph_tool(
+                tool_name=arguments["tool_name"],
+                arguments=arguments.get("arguments") or {},
+                repo_path=str(arguments.get("repo_path") or "."),
+                timeout_seconds=int(arguments.get("timeout_seconds", 60)),
+            )
+        )
     return None
 
 
@@ -159,9 +198,9 @@ def handle(message: Dict[str, Any]):
                 "RC7 closed-loop testing control plane. RC6 governed tools remain available. "
                 "RC7 durable control entities are registered into the same canonical R1 Event Stream. "
                 "read_text reads real source files from controlled roots. git_show_revision/git_diff "
-                "are real read-only Git execution. codegraph_query is a fixed-binary, workspace-contained, "
-                "allowlisted read-only query adapter. Tool calls are runtime evidence only; Workers never "
-                "own PASS authority."
+                "are real read-only Git execution. CodeGraph MCP tools are capability-discovered at runtime; "
+                "mutating/index/build operations are never admitted. Tool calls are runtime evidence only; "
+                "Workers never own PASS authority."
             )
         return response
     if method == "tools/list":
