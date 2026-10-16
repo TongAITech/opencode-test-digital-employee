@@ -3,8 +3,10 @@
 This is deliberately narrower than Bank Final qualification. It proves that a
 freshly built and freshly extracted Windows transport package can boot its own
 bundled Python, create/resume a graph-v2 Bank Mission, execute the Runtime-owned
-Reality Recon stage against R1, pass Mission Conformance, and hand off only the
-next Producer stage. It never sets real_mission_pass or bank_field_pass.
+Reality Recon stage against R1, hand the next Producer task to a worker session,
+rotate that same active task A -> B -> C through durable R1 handoffs, and remain
+Mission-Conformant after process recreation. It never sets real_mission_pass or
+bank_field_pass.
 """
 from __future__ import annotations
 
@@ -36,6 +38,7 @@ REQUIRED_FIELD_HARDENED_FILES = (
     "rc7_runtime/reality_recon.py",
     "rc7_runtime/mission_conformance.py",
     "rc7_runtime/mission_stage_dispatch.py",
+    "rc7_runtime/session_continuity.py",
     "rc7_release/windows_clean_qualification.py",
 )
 
@@ -49,6 +52,14 @@ def _require_productized_files(root: Path) -> None:
     if missing:
         raise WindowsCleanQualificationError(
             "FIELD_HARDENED_PRODUCT_FILE_MISSING:%s" % ",".join(sorted(missing))
+        )
+
+
+def _require_conformance(truth: TruthRuntime, mission_id: str, phase: str) -> None:
+    result = MissionConformanceChecker(truth).check(mission_id)
+    if result.status != "PASS":
+        raise WindowsCleanQualificationError(
+            "%s_MISSION_CONFORMANCE_FAILED:%s" % (phase, ",".join(result.violations))
         )
 
 
@@ -78,7 +89,7 @@ def qualify(package_root: Path) -> Dict[str, object]:
     run_token = uuid.uuid4().hex[:12]
     mission_id = "RC7-WINDOWS-CLEAN-%s-%s" % (source_commit[:12], run_token)
     release_id = "RC7-FIELD-HARDENED-%s" % source_commit[:12]
-    goal = "Qualify freshly extracted RC7 Windows package Mission Graph v2 runtime handoff"
+    goal = "Qualify freshly extracted RC7 Windows package Mission Graph v2 runtime and session continuity"
     state_root = root / "runtime-state" / "windows-clean-qualification"
     r1 = state_root / "r1" / "event-stream.jsonl"
 
@@ -93,11 +104,7 @@ def qualify(package_root: Path) -> Dict[str, object]:
 
     truth = TruthRuntime(r1)
     control = ClosedLoopControlPlane(truth, release_id, mission_id)
-    initial_conformance = MissionConformanceChecker(truth).check(mission_id)
-    if initial_conformance.status != "PASS":
-        raise WindowsCleanQualificationError(
-            "INITIAL_MISSION_CONFORMANCE_FAILED:%s" % ",".join(initial_conformance.violations)
-        )
+    _require_conformance(truth, mission_id, "INITIAL")
 
     dispatcher = MissionStageDispatcher(control)
     initial_route = dispatcher.next_route()
@@ -124,22 +131,71 @@ def qualify(package_root: Path) -> Dict[str, object]:
     if snapshot.task_state != "PASS":
         raise WindowsCleanQualificationError("RUNTIME_REALITY_RECON_DID_NOT_PASS")
 
-    # Recreate Truth/Control objects to prove the transition is durable rather
-    # than an in-memory side effect of the first process objects.
-    replay_truth = TruthRuntime(r1)
-    replay_control = ClosedLoopControlPlane(replay_truth, release_id, mission_id)
-    after_reality = MissionConformanceChecker(replay_truth).check(mission_id)
-    if after_reality.status != "PASS":
-        raise WindowsCleanQualificationError(
-            "POST_REALITY_MISSION_CONFORMANCE_FAILED:%s" % ",".join(after_reality.violations)
-        )
-
-    next_route = MissionStageDispatcher(replay_control).next_route()
+    # Session A starts only the canonical Producer task released by durable
+    # Reality Recon. Director/coordinator does not execute the domain task.
+    truth_a = TruthRuntime(r1)
+    control_a = ClosedLoopControlPlane(truth_a, release_id, mission_id)
+    _require_conformance(truth_a, mission_id, "POST_REALITY")
+    next_route = MissionStageDispatcher(control_a).next_route()
     if next_route is None or next_route.node != "REQUIREMENT_ANALYSIS":
         raise WindowsCleanQualificationError("REQUIREMENT_PRODUCER_HANDOFF_REQUIRED")
     if next_route.owner != "PRODUCER_WORKER" or next_route.action != "PRODUCER_WORKER":
         raise WindowsCleanQualificationError("REQUIREMENT_MUST_ROUTE_TO_PRODUCER_WORKER")
 
+    producer_task = control_a.scheduler.task(next_route.task_id)
+    leased = control_a.lease_next(
+        worker_ref="SESSION-A",
+        capabilities=producer_task.required_capabilities,
+    )
+    if leased is None or leased.task_id != next_route.task_id or leased.lease_owner != "SESSION-A":
+        raise WindowsCleanQualificationError("SESSION_A_PRODUCER_LEASE_REQUIRED")
+    running = control_a.start(next_route.task_id, worker_ref="SESSION-A")
+    if running.state.value != "RUNNING":
+        raise WindowsCleanQualificationError("SESSION_A_PRODUCER_START_REQUIRED")
+
+    handoff_ab = control_a.sessions.prepare(
+        mission_id=mission_id,
+        task_id=next_route.task_id,
+        predecessor_session_ref="SESSION-A",
+        artifact_refs=(snapshot.artifact_id,),
+    )
+    control_a.sessions.activate(handoff_ab.handoff_id, "SESSION-B")
+
+    # Recreate runtime objects at B and prove the same Task, state and durable
+    # artifact context were transferred without conversation/transcript state.
+    truth_b = TruthRuntime(r1)
+    control_b = ClosedLoopControlPlane(truth_b, release_id, mission_id)
+    _require_conformance(truth_b, mission_id, "SESSION_B")
+    envelope_b = control_b.sessions.resume_envelope(handoff_ab.handoff_id)
+    if envelope_b.get("task_id") != next_route.task_id or envelope_b.get("task_state") != "RUNNING":
+        raise WindowsCleanQualificationError("SESSION_B_TASK_ID_STATE_CONTINUITY_REQUIRED")
+    if envelope_b.get("active_session_ref") != "SESSION-B":
+        raise WindowsCleanQualificationError("SESSION_B_LEASE_REQUIRED")
+    if "conversation" in envelope_b or "transcript" in envelope_b:
+        raise WindowsCleanQualificationError("SESSION_HANDOFF_CHAT_HISTORY_FORBIDDEN")
+
+    handoff_bc = control_b.sessions.prepare(
+        mission_id=mission_id,
+        task_id=next_route.task_id,
+        predecessor_session_ref="SESSION-B",
+        artifact_refs=tuple(envelope_b.get("artifact_refs", ())),
+        gap_refs=tuple(envelope_b.get("gap_refs", ())),
+    )
+    control_b.sessions.activate(handoff_bc.handoff_id, "SESSION-C")
+
+    truth_c = TruthRuntime(r1)
+    control_c = ClosedLoopControlPlane(truth_c, release_id, mission_id)
+    _require_conformance(truth_c, mission_id, "SESSION_C")
+    envelope_c = control_c.sessions.resume_envelope(handoff_bc.handoff_id)
+    if envelope_c.get("task_id") != next_route.task_id or envelope_c.get("task_state") != "RUNNING":
+        raise WindowsCleanQualificationError("SESSION_C_TASK_ID_STATE_CONTINUITY_REQUIRED")
+    if envelope_c.get("active_session_ref") != "SESSION-C" or int(envelope_c.get("generation", 0)) != 2:
+        raise WindowsCleanQualificationError("SESSION_C_SECOND_GENERATION_LEASE_REQUIRED")
+    if "conversation" in envelope_c or "transcript" in envelope_c:
+        raise WindowsCleanQualificationError("SESSION_HANDOFF_CHAT_HISTORY_FORBIDDEN")
+
+    # The Bank Mission entrypoint must resume the same graph-v2 Mission after
+    # A -> B -> C rather than recompiling/upgrading/recreating its Tasks.
     resumed = start_or_resume(
         r1_path=str(r1),
         mission_id=mission_id,
@@ -148,9 +204,15 @@ def qualify(package_root: Path) -> Dict[str, object]:
     )
     if resumed.get("status") != "RESUMED" or resumed.get("graph_version") != "v2":
         raise WindowsCleanQualificationError("CLEAN_BANK_MISSION_RESUME_REQUIRED")
+    task_rows = truth_c.query("rc7_task", mission_id=mission_id)
+    if len(task_rows) != int(started.get("task_count", -1)):
+        raise WindowsCleanQualificationError("SESSION_ROTATION_TASK_RECREATION_FORBIDDEN")
+    active_rows = [row for row in task_rows if row.get("task_id") == next_route.task_id]
+    if len(active_rows) != 1 or active_rows[0].get("lease_owner") != "SESSION-C":
+        raise WindowsCleanQualificationError("SESSION_C_DURABLE_LEASE_REQUIRED")
 
     identities = [
-        row for row in replay_truth.query("rc7_evidence", mission_id=mission_id)
+        row for row in truth_c.query("rc7_evidence", mission_id=mission_id)
         if row.get("kind") == "RC7_RUNTIME_IDENTITY"
     ]
     if len(identities) != 1 or identities[0].get("content_ref") != "git://%s" % source_commit:
@@ -165,7 +227,7 @@ def qualify(package_root: Path) -> Dict[str, object]:
     return {
         "status": "PASS",
         "qualification": "WINDOWS_CLEAN_PACKAGE",
-        "scope": "PACKAGE_BOOTSTRAP_R1_GRAPH_V2_RUNTIME_HANDOFF",
+        "scope": "PACKAGE_BOOTSTRAP_R1_GRAPH_V2_RUNTIME_HANDOFF_SESSION_A_B_C",
         "source_commit": source_commit,
         "package_root": str(root),
         "package_local_python": str(expected_python),
@@ -177,10 +239,18 @@ def qualify(package_root: Path) -> Dict[str, object]:
             "owner": initial_route.owner,
             "action": initial_route.action,
         },
-        "next_route": {
+        "producer_route": {
             "node": next_route.node,
             "owner": next_route.owner,
             "action": next_route.action,
+        },
+        "session_rotation": {
+            "task_id": next_route.task_id,
+            "task_state": envelope_c.get("task_state"),
+            "a_to_b_generation": handoff_ab.generation,
+            "b_to_c_generation": handoff_bc.generation,
+            "active_session_ref": envelope_c.get("active_session_ref"),
+            "chat_history_transferred": False,
         },
         "reality_snapshot_hash": snapshot.content_hash,
         "runtime_identity_evidence_id": identities[0].get("evidence_id"),
