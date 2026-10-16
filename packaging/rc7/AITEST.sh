@@ -42,9 +42,28 @@ fi
   --dry-run \
   --output "$ROOT/state/dsh-plugin-payload.json"
 
-if ! command -v dsh >/dev/null 2>&1; then
+DSH_SHELL_BIN="$(command -v dsh 2>/dev/null || true)"
+if [[ -z "$DSH_SHELL_BIN" ]]; then
   echo "[RC7] Bank DSH host is not on PATH. Bind the bank DSH host and rerun ./packaging/rc7/AITEST.sh." >&2
   exit 3
+fi
+
+# Git Bash usually invokes an extensionless POSIX wrapper while Windows Python
+# must execute the adjacent native launcher (normally dsh.cmd). Bridge that
+# launcher explicitly so plugin qualification does not depend on PATH syntax
+# translation between the two runtimes.
+DSH_NATIVE_BIN="$DSH_SHELL_BIN"
+case "${DSH_NATIVE_BIN,,}" in
+  *.cmd|*.exe) ;;
+  *)
+    [[ -f "${DSH_SHELL_BIN}.cmd" ]] && DSH_NATIVE_BIN="${DSH_SHELL_BIN}.cmd"
+    [[ "$DSH_NATIVE_BIN" == "$DSH_SHELL_BIN" && -f "${DSH_SHELL_BIN}.exe" ]] && DSH_NATIVE_BIN="${DSH_SHELL_BIN}.exe"
+    ;;
+esac
+if command -v cygpath >/dev/null 2>&1; then
+  export PFC_RC7_DSH_BIN="$(cygpath -w "$DSH_NATIVE_BIN")"
+else
+  export PFC_RC7_DSH_BIN="$DSH_NATIVE_BIN"
 fi
 
 if [[ "$PFC_RC7_DSH_PROFILE" == "$PFC_RC7_DSH_BASE_PROFILE" ]]; then

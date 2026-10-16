@@ -84,6 +84,48 @@ def prepare_env(home: Path) -> Dict[str, str]:
     return env
 
 
+def _resolve_dsh(env: Dict[str, str]) -> Optional[str]:
+    """Resolve the DSH launcher for package-local Windows Python.
+
+    Git Bash may find a POSIX wrapper named ``dsh`` while Windows Python sees a
+    semicolon-delimited PATH and cannot rediscover it. AITEST.sh therefore
+    bridges the launcher through PFC_RC7_DSH_BIN. Native shells still use PATH.
+    """
+    configured = str(env.get("PFC_RC7_DSH_BIN") or "").strip()
+    if configured:
+        target = Path(configured).expanduser()
+        if target.is_file():
+            return str(target.resolve())
+    for name in ("dsh.cmd", "dsh.exe", "dsh"):
+        found = shutil.which(name, path=env.get("PATH"))
+        if found:
+            return found
+    return None
+
+
+def _msys_path(path: Path) -> str:
+    resolved = path.resolve()
+    drive = resolved.drive.rstrip(":").lower()
+    text = resolved.as_posix()
+    if drive and len(text) >= 2 and text[1] == ":":
+        return "/%s/%s" % (drive, text[3:])
+    return text
+
+
+def run_dsh(dsh: str, args: List[str], env: Dict[str, str]) -> Tuple[int, str]:
+    """Run native dsh.cmd/exe or an extensionless Git-Bash launcher safely."""
+    target = Path(dsh)
+    if os.name == "nt" and target.suffix.lower() not in (".cmd", ".bat", ".exe", ".com"):
+        bash = shutil.which("bash.exe", path=env.get("PATH")) or shutil.which("bash.exe")
+        if not bash:
+            git_bash = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "bash.exe"
+            bash = str(git_bash) if git_bash.is_file() else None
+        if not bash:
+            return 127, "GIT_BASH_REQUIRED_FOR_DSH_POSIX_LAUNCHER"
+        return run([bash, _msys_path(target)] + list(args), env)
+    return run([dsh] + list(args), env)
+
+
 def install(
     home: Path,
     profile: str,
@@ -103,7 +145,7 @@ def install(
         }
 
     env = prepare_env(home)
-    dsh = shutil.which("dsh", path=env.get("PATH"))
+    dsh = _resolve_dsh(env)
     discovered: Dict[str, Dict[str, object]] = {}
     for package in REQUIRED + DIAGNOSTIC_OPTIONAL + OPTIONAL_DISABLED:
         p = package_path(vendor, package)
@@ -160,18 +202,18 @@ def install(
             "field_binding_required": True,
         }
 
-    version_code, version_out = run([dsh, "--version"], env)
+    version_code, version_out = run_dsh(dsh, ["--version"], env)
     if version_code != 0:
-        return {"status": "FAIL", "reason": "DSH_VERSION_PROBE_FAILED", "output": version_out}
+        return {"status": "FAIL", "reason": "DSH_VERSION_PROBE_FAILED", "output": version_out, "dsh": dsh}
 
     installs = []
     for package in REQUIRED:
         p = Path(str(discovered[package]["path"]))
         # Package-local payloads include their regular runtime dependencies.
-        # file: keeps the field installation registry-independent; DSH still
-        # owns peer-dependency compatibility checks against the actual host.
+        # file: keeps field installation registry-independent; DSH still owns
+        # peer-dependency/engine compatibility checks against the actual host.
         spec = "file:" + str(p)
-        code, out = run([dsh, "plugin", "--profile", profile, "add", spec], env)
+        code, out = run_dsh(dsh, ["plugin", "--profile", profile, "add", spec], env)
         accepted = code == 0 or "already" in out.lower() or "exist" in out.lower()
         installs.append(
             {
@@ -187,6 +229,7 @@ def install(
                 "status": "FAIL",
                 "reason": "DSH_PLUGIN_INSTALL_FAILED",
                 "dsh_version": version_out.strip(),
+                "dsh": dsh,
                 "installs": installs,
                 "vendor": str(vendor),
             }
@@ -198,7 +241,7 @@ def install(
                 continue
             p = Path(str(discovered[package]["path"]))
             spec = "file:" + str(p)
-            code, out = run([dsh, "plugin", "--profile", profile, "add", spec], env)
+            code, out = run_dsh(dsh, ["plugin", "--profile", profile, "add", spec], env)
             diagnostic.append(
                 {
                     "package": package,
@@ -209,10 +252,11 @@ def install(
                 }
             )
 
-    code, dump = run([dsh, "--profile", profile, "--dump-config"], env)
+    code, dump = run_dsh(dsh, ["--profile", profile, "--dump-config"], env)
     return {
         "status": "PASS" if code == 0 else "FAIL",
         "mode": "ISOLATED_PROFILE_MUTATION",
+        "dsh": dsh,
         "dsh_version": version_out.strip(),
         "profile": profile,
         "vendor": str(vendor),
