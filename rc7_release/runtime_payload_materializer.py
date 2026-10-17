@@ -20,6 +20,7 @@ from .runtime_delivery_contract import OCR_CV_MARKER, verify_runtime_delivery
 SCHEMA_VERSION = "pfc.aitest.rc7.runtime-payload-materializer.v1"
 INVENTORY_FILE = "RUNTIME_PAYLOADS.json"
 USER_AGENT = "PFC-AITest-RC7-Turnkey-Builder"
+_REMOTE_JSON_CACHE: Dict[str, Mapping[str, Any]] = {}
 
 
 class RuntimePayloadMaterializerError(RuntimeError):
@@ -71,12 +72,50 @@ def _sha256(path: Path) -> str:
     return sha256_file(path)
 
 
+def _github_authorization() -> Optional[str]:
+    # Prefer an explicitly supplied build token when callers provide one.
+    # GitHub Actions does not always export github.token as GITHUB_TOKEN, so
+    # fall back to the credential persisted by actions/checkout.  The value is
+    # used only as an HTTP Authorization header and is never logged/persisted.
+    for key in ("GITHUB_TOKEN", "GH_TOKEN"):
+        token = str(os.environ.get(key) or "").strip()
+        if token:
+            return "Bearer %s" % token
+    try:
+        proc = subprocess.run(
+            ["git", "config", "--get", "http.https://github.com/.extraheader"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    for line in (proc.stdout or "").splitlines():
+        if line.lower().startswith("authorization:"):
+            value = line.split(":", 1)[1].strip()
+            if value:
+                return value
+    return None
+
+
 def _request_json(url: str) -> Mapping[str, Any]:
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"})
+    cached = _REMOTE_JSON_CACHE.get(url)
+    if cached is not None:
+        return cached
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"}
+    authorization = _github_authorization()
+    if authorization:
+        headers["Authorization"] = authorization
+    request = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(request, timeout=60) as response:
         payload = json.loads(response.read().decode("utf-8"))
     if not isinstance(payload, Mapping):
         raise RuntimePayloadMaterializerError("REMOTE_JSON_INVALID:%s" % url)
+    _REMOTE_JSON_CACHE[url] = payload
     return payload
 
 
