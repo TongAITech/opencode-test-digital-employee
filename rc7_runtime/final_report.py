@@ -17,6 +17,8 @@ from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 from rc6_runtime.truth import TruthRuntime
 
+from .mission_convergence_conformance import MissionConvergenceConformanceChecker
+
 
 class FinalReportError(RuntimeError):
     pass
@@ -93,6 +95,20 @@ class RC7FinalReportBuilder:
         mission = missions[0]
         if mission.get("state") != "CONVERGED":
             raise FinalReportError("FINAL_REPORT_REQUIRES_CONVERGED_MISSION")
+
+        # CONVERGED is necessary but not sufficient for a contracted RC7 Bank
+        # Mission. Re-read canonical R1 truth before emitting any report so a
+        # forged/direct Mission state transition cannot bypass Recovery,
+        # Actual Result/Oracle or Defect Review authorities. Legacy Missions
+        # without the additive recovery contract remain NOT_ENFORCED here.
+        try:
+            convergence_guard = MissionConvergenceConformanceChecker(self.truth).require_pass(mission_id)
+        except Exception as exc:
+            raise FinalReportError(
+                "FINAL_REPORT_CONVERGENCE_CONFORMANCE_FAILED:%s" % str(exc)
+            ) from exc
+        if convergence_guard.enforced and convergence_guard.status != "PASS":
+            raise FinalReportError("FINAL_REPORT_CONVERGENCE_CONFORMANCE_FAILED")
 
         evaluation_id = mission.get("latest_evaluation_id")
         evaluations = self.truth.query("rc7_evaluation", mission_id=mission_id)
