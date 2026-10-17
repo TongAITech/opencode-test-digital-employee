@@ -53,7 +53,15 @@ jobs:
           rc7_runtime/reality_recon.py
           rc7_runtime/mission_conformance.py
           rc7_runtime/mission_stage_dispatch.py
+          rc7_runtime/control_plane.py
+          rc7_runtime/closed_loop_control.py
           rc7_runtime/case_runtime.py
+          rc7_runtime/case_fanout_conformance.py
+          rc7_runtime/script_fanout_evaluator.py
+          rc7_runtime/execution_fanout_conformance.py
+          rc7_runtime/execution_fanout_evaluator.py
+          rc7_runtime/runtime_execution_control.py
+          rc7_runtime/autonomous_execution_service.py
           rc7_runtime/bank_field_services.py
           rc7_runtime/execution_recovery_conformance.py
           rc7_runtime/oracle_runtime.py
@@ -61,7 +69,6 @@ jobs:
           rc7_runtime/defect_review_conformance.py
           rc7_runtime/mission_convergence_conformance.py
           rc7_runtime/mission_formal_evidence_builder.py
-          rc7_runtime/closed_loop_control.py
           rc7_runtime/final_report.py
       - name: Run field-hardening regressions
         run: >-
@@ -80,6 +87,12 @@ jobs:
           tests/test_rc7_professional_windows_decode.py
           tests/test_rc7_truth_overlay.py
           tests/test_rc7_case_runtime.py
+          tests/test_rc7_case_fanout_conformance.py
+          tests/test_rc7_script_fanout_control_gate.py
+          tests/test_rc7_execution_fanout_conformance.py
+          tests/test_rc7_execution_fanout_defect_handoff.py
+          tests/test_rc7_bank_fanout_preparation_guard.py
+          tests/test_rc7_runtime_execution_control.py
           tests/test_rc7_execution_recovery_conformance.py
           tests/test_rc7_contracted_runner.py
           tests/test_rc7_oracle_conformance.py
