@@ -285,11 +285,12 @@ class DshScriptReadinessEvaluator:
     ) -> Tuple[Path, str]:
         runner = contract.spec.runner_type.upper()
         suffix = ".py" if runner == "PYTEST" else ".java" if runner == "JUNIT" else ".txt"
-        digest = hashlib.sha256(source_text.encode("utf-8")).hexdigest()
+        source_bytes = source_text.encode("utf-8")
+        digest = hashlib.sha256(source_bytes).hexdigest()
         folder = self.evidence_root / "script-sources" / control.mission_id
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / ("%s-%s%s" % (contract.spec.tc_id, digest[:16], suffix))
-        path.write_text(source_text, encoding="utf-8")
+        path.write_bytes(source_bytes)
         evidence_id = _stable_id("EVD-SCRIPT-SOURCE", control.mission_id, artifact_id, digest)
         if not control.truth.query("rc7_evidence", evidence_id=evidence_id):
             append_entity(
