@@ -7,7 +7,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import urllib.request
 import zipfile
@@ -164,6 +163,17 @@ def _materialize_node(root: Path) -> Dict[str, Any]:
     return _record("node", target, version=version, source="RUNNER_DISCOVERY", sha256=_sha256(target))
 
 
+def _chrome_version_from_layout(application_dir: Path) -> Optional[str]:
+    versions = []
+    for child in application_dir.iterdir():
+        if not child.is_dir() or not re.fullmatch(r"\d+(?:\.\d+){3}", child.name):
+            continue
+        versions.append((tuple(int(part) for part in child.name.split(".")), child.name))
+    if not versions:
+        return None
+    return max(versions)[1]
+
+
 def _materialize_browser(root: Path) -> Dict[str, Any]:
     candidates = []
     for env_name in ("PROGRAMFILES", "PROGRAMFILES(X86)"):
@@ -176,10 +186,29 @@ def _materialize_browser(root: Path) -> Dict[str, Any]:
     source = next((path.resolve() for path in candidates if path.is_file()), None)
     if source is None:
         raise RuntimePayloadMaterializerError("RUNNER_CHROME_NOT_FOUND")
+    version = _chrome_version_from_layout(source.parent)
     target_dir = root / PACKAGE_LOCAL_BROWSER.parent
     _copy_tree(source.parent, target_dir)
     target = root / PACKAGE_LOCAL_BROWSER
-    version = _run([str(target), "--version"], cwd=root, timeout=30).strip()
+    with tempfile.TemporaryDirectory(prefix="rc7-chrome-profile-") as profile:
+        output = _run(
+            [
+                str(target),
+                "--headless=new",
+                "--disable-gpu",
+                "--disable-background-networking",
+                "--disable-component-update",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--user-data-dir=%s" % profile,
+                "--dump-dom",
+                "about:blank",
+            ],
+            cwd=root,
+            timeout=60,
+        )
+    if "<html" not in output.lower():
+        raise RuntimePayloadMaterializerError("PACKAGE_BROWSER_HEADLESS_SMOKE_FAILED")
     return _record("controlled_browser", target, version=version, source="RUNNER_IMAGE_GOOGLE_CHROME", sha256=_sha256(target))
 
 
@@ -274,10 +303,25 @@ def _materialize_browserskill(root: Path) -> List[Dict[str, Any]]:
 
 def _materialize_codegraph(root: Path) -> Dict[str, Any]:
     release, asset = _release_asset("codegraph-ai/CodeGraph", name="codegraph-server-win32-x64.exe")
+    dll_release, dll_asset = _release_asset("codegraph-ai/CodeGraph", name="onnxruntime.dll")
+    release_tag = str(release.get("tag_name") or release.get("name") or "")
+    dll_tag = str(dll_release.get("tag_name") or dll_release.get("name") or "")
+    if release_tag != dll_tag:
+        raise RuntimePayloadMaterializerError("CODEGRAPH_COMPANION_RELEASE_MISMATCH:%s:%s" % (release_tag, dll_tag))
     target = root / PACKAGE_LOCAL_CODEGRAPH
+    dll_target = target.parent / "onnxruntime.dll"
     digest = _download(str(asset["browser_download_url"]), target, str(asset["digest"]))
+    dll_digest = _download(str(dll_asset["browser_download_url"]), dll_target, str(dll_asset["digest"]))
     _run([str(target), "--help"], cwd=root, timeout=60)
-    return _record("codegraph", target, version=str(release.get("tag_name") or release.get("name") or ""), source=str(asset["browser_download_url"]), sha256=digest)
+    row = _record("codegraph", target, version=release_tag, source=str(asset["browser_download_url"]), sha256=digest)
+    row["companion_files"] = [
+        {
+            "path": dll_target.as_posix(),
+            "source": str(dll_asset["browser_download_url"]),
+            "sha256": dll_digest,
+        }
+    ]
+    return row
 
 
 def _materialize_playwright(root: Path) -> Dict[str, Any]:
