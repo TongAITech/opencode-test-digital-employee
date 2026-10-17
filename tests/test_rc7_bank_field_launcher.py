@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 from rc6_runtime.truth import TruthRuntime
@@ -122,3 +124,22 @@ def test_launcher_requires_complete_delivery_qualification(tmp_path: Path) -> No
     assert result["status"] == "FIELD_REQUIRED"
     assert result["reason"] == "DELIVERY_QUALIFICATION_DIRECTORY_NOT_READY"
     assert "admin.json" in result["qualification_candidates"][0]["missing"]
+
+
+def test_existing_bank_final_entrypoints_delegate_to_unique_context_launcher() -> None:
+    root = Path(__file__).resolve().parents[1]
+    cmd = (root / "packaging" / "rc7" / "QUALIFY-BANK-FINAL.cmd").read_text(encoding="utf-8")
+    sh_path = root / "packaging" / "rc7" / "QUALIFY-BANK-FINAL.sh"
+    sh = sh_path.read_text(encoding="utf-8")
+
+    assert "rc7_release.bank_field_launcher run" in cmd
+    assert "rc7_release.bank_field_launcher run" in sh
+    assert "AUTO_RESOLVE" in cmd
+    assert 'PFC_RC7_R1_PATH:-' in sh
+    assert 'PFC_RC7_MISSION_ID:-' in sh
+    assert 'PFC_RC7_BANK_TARGET_ID:-' in sh
+
+    bash = shutil.which("bash")
+    if bash:
+        completed = subprocess.run([bash, "-n", str(sh_path)], check=False)
+        assert completed.returncode == 0
