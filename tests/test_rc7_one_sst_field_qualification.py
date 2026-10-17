@@ -149,16 +149,19 @@ def test_one_sst_packaging_entrypoints_are_thin_and_portable() -> None:
 def test_windows_cmd_entrypoint_executes_bound_python_cli() -> None:
     root = Path(__file__).resolve().parents[1]
     cmd_path = root / "packaging" / "rc7" / "FIELD-QUALIFY-ONE-SST.cmd"
+    assert cmd_path.is_file()
     env = dict(os.environ)
     env["PFC_PYTHON_BIN"] = sys.executable
+    command = subprocess.list2cmdline([str(cmd_path), "--help"])
     proc = subprocess.run(
-        ["cmd.exe", "/d", "/s", "/c", 'call "%s" --help' % cmd_path],
+        command,
         cwd=str(root),
         env=env,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
+        shell=True,
     )
     assert proc.returncode == 0, proc.stderr
     assert "start-sst" in proc.stdout
