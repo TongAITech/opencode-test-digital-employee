@@ -7,6 +7,11 @@ uses only the latest ordinary formal execution for a Case and that latest result
 must be PASS. Defect-reproduction work remains auditable execution evidence but
 never contributes to Mission coverage numerators.
 
+A matching evidence id/subject label is not sufficient.  The formal execution
+record must be a content-addressed file whose SHA256 matches R1 and whose core
+ExecutionRecord fields are identical to the EXECUTION_CONCLUSION being counted.
+This prevents evidence splicing from inflating Mission coverage.
+
 "Latest" is defined by the first durable R1 append sequence of the immutable
 Evaluation, never wall-clock timestamps, lexical ids, or projection iteration
 order. This keeps fix-verification ordering deterministic across fast executions,
@@ -15,7 +20,10 @@ process restarts, and replay.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+import hashlib
+import json
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Tuple
 
 from rc6_runtime.truth import TruthRuntime
 
@@ -29,6 +37,18 @@ class R1FormalMissionEvidenceSnapshotBuilder(R1MissionEvidenceSnapshotBuilder):
     FORMAL_EXECUTION_KIND = "RUNTIME_EXECUTION_RECORD"
     FORMAL_EXECUTION_SOURCE = "runtime://formal-execution"
     NON_VERIFICATION_PURPOSES = {"DEFECT_REPRODUCTION"}
+    _BOUND_RECORD_FIELDS = (
+        "attempt_id",
+        "tc_id",
+        "case_version",
+        "target_id",
+        "layer",
+        "status",
+        "integrity_passed",
+        "actual_result",
+        "assertion_ref",
+        "assertion_passed",
+    )
 
     @staticmethod
     def _evaluation_first_sequences(
@@ -53,6 +73,64 @@ class R1FormalMissionEvidenceSnapshotBuilder(R1MissionEvidenceSnapshotBuilder):
             if current is None or seq < current:
                 sequences[evaluation_id] = seq
         return sequences
+
+    @classmethod
+    def _bound_formal_execution_record(
+        cls,
+        row: Mapping[str, Any],
+        *,
+        attempt_id: str,
+        tc_id: str,
+        conclusion_record: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        evidence_id = str(row.get("evidence_id") or "")
+        if row.get("kind") != cls.FORMAL_EXECUTION_KIND or row.get("source_ref") != cls.FORMAL_EXECUTION_SOURCE:
+            raise MissionEvidenceBuildError(
+                "MISSION_FORMAL_RUNTIME_EXECUTION_IDENTITY_INVALID:%s" % evidence_id
+            )
+        subjects = set(row.get("subject_refs", []))
+        if attempt_id not in subjects or tc_id not in subjects:
+            raise MissionEvidenceBuildError(
+                "MISSION_FORMAL_RUNTIME_EXECUTION_SUBJECT_MISMATCH:%s" % evidence_id
+            )
+        content_ref = row.get("content_ref")
+        if not isinstance(content_ref, str) or not content_ref.startswith("file://"):
+            raise MissionEvidenceBuildError(
+                "MISSION_FORMAL_RUNTIME_EXECUTION_FILE_REQUIRED:%s" % evidence_id
+            )
+        path = Path(content_ref[len("file://"):])
+        if not path.is_file():
+            raise MissionEvidenceBuildError(
+                "MISSION_FORMAL_RUNTIME_EXECUTION_FILE_MISSING:%s" % evidence_id
+            )
+        raw = path.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
+        if row.get("content_hash") != "sha256:" + digest:
+            raise MissionEvidenceBuildError(
+                "MISSION_FORMAL_RUNTIME_EXECUTION_HASH_MISMATCH:%s" % evidence_id
+            )
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise MissionEvidenceBuildError(
+                "MISSION_FORMAL_RUNTIME_EXECUTION_JSON_INVALID:%s" % evidence_id
+            ) from exc
+        if not isinstance(payload, dict) or not isinstance(payload.get("record"), dict):
+            raise MissionEvidenceBuildError(
+                "MISSION_FORMAL_RUNTIME_EXECUTION_RECORD_REQUIRED:%s" % evidence_id
+            )
+        formal_record = payload["record"]
+        mismatched = [
+            field
+            for field in cls._BOUND_RECORD_FIELDS
+            if formal_record.get(field) != conclusion_record.get(field)
+        ]
+        if mismatched:
+            raise MissionEvidenceBuildError(
+                "MISSION_FORMAL_RUNTIME_EXECUTION_RECORD_MISMATCH:%s:%s"
+                % (evidence_id, ",".join(mismatched))
+            )
+        return formal_record
 
     def _execution_truth(
         self,
@@ -144,9 +222,19 @@ class R1FormalMissionEvidenceSnapshotBuilder(R1MissionEvidenceSnapshotBuilder):
                     "MISSION_FORMAL_RUNTIME_EXECUTION_PROOF_REQUIRED:%s:%s"
                     % (attempt_id, tc_id)
                 )
-            item["formal_execution_evidence_ids"] = sorted(
-                str(row["evidence_id"]) for row in formal
+            if len(formal) != 1:
+                raise MissionEvidenceBuildError(
+                    "MISSION_FORMAL_RUNTIME_EXECUTION_PROOF_NOT_UNIQUE:%s:%s:%d"
+                    % (attempt_id, tc_id, len(formal))
+                )
+            self._bound_formal_execution_record(
+                formal[0],
+                attempt_id=attempt_id,
+                tc_id=tc_id,
+                conclusion_record=record,
             )
+            item["formal_execution_evidence_ids"] = [str(formal[0]["evidence_id"])]
+            item["formal_execution_content_hash"] = formal[0].get("content_hash")
 
             dimensions = evaluation.get("dimensions")
             if not isinstance(dimensions, dict):
