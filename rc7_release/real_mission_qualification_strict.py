@@ -13,12 +13,13 @@ from rc7_runtime.execution_recovery_conformance import (
 )
 from rc7_runtime.mission_conformance import MissionConformanceChecker
 from rc7_runtime.node_tool_conformance import contract_enabled as node_tool_contract_enabled
+from rc7_runtime.oracle_conformance import ActualResultOracleConformanceChecker
 from rc7_runtime.truth_overlay import install_rc7_truth_overlay
 
 from .real_mission_qualification import DOMAIN_NODES, evaluate_real_mission
 
 
-SCHEMA_VERSION = "pfc.aitest.rc7.real-mission-qualification.strict.v2"
+SCHEMA_VERSION = "pfc.aitest.rc7.real-mission-qualification.strict.v3"
 STRICT_DOMAIN_NODES = set(DOMAIN_NODES) | {"EXECUTION"}
 
 
@@ -87,11 +88,13 @@ def _bank_field_contracts(
     *,
     mission_id: str,
 ) -> Dict[str, Any]:
-    """Read-only Bank Final contract qualification from canonical R1 truth.
+    """Read-only Bank Final conformance from canonical R1 truth.
 
-    Ordinary/legacy real-mission qualification intentionally does not require
-    these additive graph-v2 contracts. Bank Final explicitly opts into this
-    function so an old Mission cannot accidentally qualify a new RC7 package.
+    Generic/legacy qualification intentionally does not require these graph-v2
+    field gates. Bank Final opts in so old Missions stay resumable but cannot
+    certify a new RC7 package. Execution recovery proves ordering/recovery;
+    ActualResultOracleConformance independently proves the exact runtime actual
+    result and deterministic assertion that drove the terminal test status.
     """
     blockers: List[str] = []
     try:
@@ -117,21 +120,23 @@ def _bank_field_contracts(
     recovery_payload: Dict[str, Any] = {
         "status": "NOT_ENFORCED" if not recovery_contract else "NOT_READY",
     }
-    if recovery_contract:
-        execution_rows = [
-            row
-            for row in truth.query("rc7_task", mission_id=mission_id)
-            if str(row.get("node") or "") == "EXECUTION"
-        ]
-        if len(execution_rows) != 1:
-            blockers.append("BANK_FIELD_EXECUTION_TASK_NOT_UNIQUE:%d" % len(execution_rows))
-            recovery_payload = {
-                "status": "FAIL",
-                "reason": "EXECUTION_TASK_NOT_UNIQUE",
-                "count": len(execution_rows),
-            }
-        else:
-            execution_task_id = str(execution_rows[0].get("task_id") or "")
+    oracle_payload: Dict[str, Any] = {"status": "NOT_READY"}
+    execution_rows = [
+        row
+        for row in truth.query("rc7_task", mission_id=mission_id)
+        if str(row.get("node") or "") == "EXECUTION"
+    ]
+    if len(execution_rows) != 1:
+        blockers.append("BANK_FIELD_EXECUTION_TASK_NOT_UNIQUE:%d" % len(execution_rows))
+        recovery_payload = {
+            "status": "FAIL",
+            "reason": "EXECUTION_TASK_NOT_UNIQUE",
+            "count": len(execution_rows),
+        }
+        oracle_payload = dict(recovery_payload)
+    else:
+        execution_task_id = str(execution_rows[0].get("task_id") or "")
+        if recovery_contract:
             try:
                 recovery = ExecutionRecoveryConformanceChecker(truth).check_task(
                     mission_id,
@@ -147,12 +152,28 @@ def _bank_field_contracts(
                 recovery_payload = {"status": "FAIL", "reason": str(exc)}
                 blockers.append("BANK_FIELD_EXECUTION_RECOVERY_ERROR:%s" % str(exc))
 
+        try:
+            oracle = ActualResultOracleConformanceChecker(truth).check_task(
+                mission_id,
+                execution_task_id,
+            )
+            oracle_payload = oracle.as_dict()
+            if oracle.status != "PASS":
+                blockers.append(
+                    "BANK_FIELD_ACTUAL_RESULT_ORACLE_FAILED:%s"
+                    % ",".join(oracle.violations)
+                )
+        except Exception as exc:
+            oracle_payload = {"status": "FAIL", "reason": str(exc)}
+            blockers.append("BANK_FIELD_ACTUAL_RESULT_ORACLE_ERROR:%s" % str(exc))
+
     return {
         "status": "PASS" if not blockers else "HOLD",
         "mission_conformance": mission_payload,
         "node_tool_contract": "PASS" if node_contract else "HOLD",
         "execution_recovery_contract": "PASS" if recovery_contract else "HOLD",
         "execution_recovery_conformance": recovery_payload,
+        "actual_result_oracle_conformance": oracle_payload,
         "blocking_reasons": blockers,
     }
 
