@@ -36,6 +36,7 @@ jobs:
           python -m py_compile
           rc7_release/runtime_delivery_contract.py
           rc7_release/runtime_clean_smoke.py
+          rc7_release/runtime_turnkey_certificate.py
           rc7_release/runtime_payload_materializer.py
           rc7_release/runtime_build_bootstrap.py
           rc7_release/mcp_server.py
@@ -81,6 +82,7 @@ jobs:
           python -m pytest -q
           tests/test_rc7_runtime_delivery_contract.py
           tests/test_rc7_runtime_clean_smoke.py
+          tests/test_rc7_runtime_turnkey_certificate.py
           tests/test_rc7_runtime_payload_materializer.py
           tests/test_rc7_runtime_build_bootstrap.py
           tests/test_rc7_field_hardening.py
@@ -282,7 +284,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'npm is required to build the offline DSH plugin payload' }
           python -m rc7_release.plugin_payload acquire --repo-root .
           if ($LASTEXITCODE -ne 0) { throw 'RC7 DSH plugin payload acquisition failed' }
-      - name: Rebuild final transport artifact from qualified HEAD
+      - name: Rebuild, clean-smoke, certify and verify final transport artifact
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -305,7 +307,50 @@ jobs:
             & $packagePython -m rc7_release.plugin_payload inspect --home $packageRoot
             if ($LASTEXITCODE -ne 0) { throw 'RC7 final transport DSH plugin payload verification failed' }
             & $packagePython -m rc7_release.package verify --package-root $packageRoot
-            if ($LASTEXITCODE -ne 0) { throw 'RC7 final transport package verification failed' }
+            if ($LASTEXITCODE -ne 0) { throw 'RC7 final transport package verification failed before certificate' }
+          }
+          finally {
+            Pop-Location
+          }
+
+          $preCertExtract = [System.IO.Path]::GetFullPath((Join-Path $PWD 'final-pre-cert-extract'))
+          if (Test-Path -LiteralPath $preCertExtract) { Remove-Item -LiteralPath $preCertExtract -Recurse -Force }
+          New-Item -ItemType Directory -Path $preCertExtract | Out-Null
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $preCertExtract -Force
+          $cleanPackageRoot = Join-Path $preCertExtract $packageName
+
+          python -m rc7_release.runtime_turnkey_certificate issue --package-root $packageRoot --clean-package-root $cleanPackageRoot --transport-zip $zip.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'RC7 turnkey runtime certificate issuance failed' }
+
+          $finalExpected = ((Get-Content -LiteralPath "$($zip.FullName).sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          $finalActual = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($finalExpected -ne $finalActual) { throw 'Certified final ZIP checksum mismatch' }
+
+          Push-Location $packageRoot
+          try {
+            & $packagePython -m rc7_release.runtime_turnkey_certificate verify --package-root $packageRoot
+            if ($LASTEXITCODE -ne 0) { throw 'RC7 built-root turnkey runtime certificate verification failed' }
+            & $packagePython -m rc7_release.package verify --package-root $packageRoot
+            if ($LASTEXITCODE -ne 0) { throw 'RC7 final transport package verification failed after certificate' }
+          }
+          finally {
+            Pop-Location
+          }
+
+          $certifiedExtract = [System.IO.Path]::GetFullPath((Join-Path $PWD 'final-certified-extract'))
+          if (Test-Path -LiteralPath $certifiedExtract) { Remove-Item -LiteralPath $certifiedExtract -Recurse -Force }
+          New-Item -ItemType Directory -Path $certifiedExtract | Out-Null
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $certifiedExtract -Force
+          $certifiedRoot = Join-Path $certifiedExtract $packageName
+          $certifiedPython = Join-Path $certifiedRoot 'workspace-template\runtime\python\python.exe'
+          Push-Location $certifiedRoot
+          try {
+            & $certifiedPython -m rc7_release.runtime_turnkey_certificate verify --package-root $certifiedRoot
+            if ($LASTEXITCODE -ne 0) { throw 'RC7 certified ZIP runtime certificate verification failed' }
+            & $certifiedPython -m rc7_release.runtime_delivery_contract --package-root $certifiedRoot
+            if ($LASTEXITCODE -ne 0) { throw 'RC7 certified ZIP runtime contract failed' }
+            & $certifiedPython -m rc7_release.package verify --package-root $certifiedRoot
+            if ($LASTEXITCODE -ne 0) { throw 'RC7 certified ZIP package verification failed' }
           }
           finally {
             Pop-Location
