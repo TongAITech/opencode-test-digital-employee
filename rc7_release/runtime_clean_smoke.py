@@ -109,9 +109,12 @@ def _minimal_env(root: Path, *, java: bool = False, maven: bool = False) -> Dict
 
 
 def _cmd_script(script: Path, *args: str) -> List[str]:
-    command = '"%s"' % script.resolve()
-    if args:
-        command += " " + " ".join(args)
+    # ``cmd /c \"C:\\path with spaces\\tool.cmd\"`` is parsed inconsistently by
+    # cmd.exe when the command body itself starts with a quoted path.  Prefixing
+    # with ``call`` keeps the command body unambiguous while preserving the
+    # package-local absolute launcher path.  list2cmdline supplies Windows-safe
+    # quoting for both the launcher and any future arguments containing spaces.
+    command = "call " + subprocess.list2cmdline([str(script.resolve()), *args])
     return [_system_cmd(), "/d", "/s", "/c", command]
 
 
