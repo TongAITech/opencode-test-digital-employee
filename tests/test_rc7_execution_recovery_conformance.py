@@ -5,10 +5,12 @@ from pathlib import Path
 import pytest
 
 from rc6_runtime.truth import TruthRuntime
+from rc7_runtime.attempt_cat import ATTEMPT_CAT_QUERY_KIND
 from rc7_runtime.bank_mission import start_or_resume
 from rc7_runtime.case_runtime import PREPARED_ATTEMPT_KIND
 from rc7_runtime.closed_loop_control import ClosedLoopControlError, ClosedLoopControlPlane
 from rc7_runtime.control_plane import WorkerOutput
+from rc7_runtime.execution_chain_evidence import record_chain_call
 from rc7_runtime.execution_recovery_conformance import (
     ExecutionRecoveryConformanceChecker,
     contract_enabled as recovery_contract_enabled,
@@ -66,7 +68,7 @@ def _prepare(truth: TruthRuntime, attempt_id: str, tc_id: str = "TC-1") -> None:
     )
 
 
-def _attempt(truth: TruthRuntime, attempt_id: str, status: str, tc_id: str = "TC-1") -> None:
+def _attempt(truth: TruthRuntime, attempt_id: str, status: str, tc_id: str = "TC-1", layer: str = "L2") -> None:
     truth.append_atomic(
         "EXECUTION_ATTEMPT_UPSERTED",
         {
@@ -76,7 +78,7 @@ def _attempt(truth: TruthRuntime, attempt_id: str, status: str, tc_id: str = "TC
             "tc_id": tc_id,
             "case_version": 1,
             "target_id": "TARGET-1",
-            "layer": "L2",
+            "layer": layer,
             "status": status,
             "actual_result": {"status": status},
             "tool_call_refs": ["tool://runner/%s" % attempt_id],
@@ -107,6 +109,18 @@ def _tool(truth: TruthRuntime, name: str, marker: str) -> None:
         worker_id=WORKER,
         tool_name=name,
         result={"tool": name, "marker": marker, "status": "PASS"},
+    )
+
+
+def _chain(truth: TruthRuntime, attempt_id: str, name: str, worker: str) -> None:
+    record_chain_call(
+        truth,
+        mission_id=MISSION,
+        task_id=TASK,
+        worker_id=worker,
+        tool_name=name,
+        attempt_id=attempt_id,
+        result={"tool": name, "attempt_id": attempt_id, "status": "PASS"},
     )
 
 
@@ -149,6 +163,7 @@ def test_failed_attempt_cannot_fake_pass_without_diagnosis_and_decision(tmp_path
     assert result.status == "FAIL"
     assert any(item.startswith("FAILURE_DIAGNOSIS_NOT_UNIQUE:ATTEMPT-FAIL") for item in result.violations)
     assert any(item.startswith("RECOVERY_DECISION_NOT_UNIQUE:ATTEMPT-FAIL") for item in result.violations)
+    assert "FAILURE_DIAGNOSE_CHAIN_CALL_REQUIRED:ATTEMPT-FAIL" in result.violations
 
     control.submit_worker_output(WorkerOutput(task_id=TASK, worker_ref=WORKER))
     with pytest.raises(ClosedLoopControlError, match="EXECUTION_RECOVERY_CONFORMANCE_FAILED"):
@@ -165,7 +180,7 @@ def test_failed_attempt_cannot_fake_pass_without_diagnosis_and_decision(tmp_path
         )
 
 
-def test_nonterminal_failure_requires_verified_recovery_and_successor_execution(tmp_path: Path) -> None:
+def test_nonterminal_failure_uses_separate_diagnostic_recovery_roles(tmp_path: Path) -> None:
     truth, control = _active_execution(tmp_path)
     first = "ATTEMPT-1"
     second = "ATTEMPT-2"
@@ -184,6 +199,9 @@ def test_nonterminal_failure_requires_verified_recovery_and_successor_execution(
             "rationale": "test data stale",
             "failure_signature_id": "SIG-1",
             "root_cause_candidate_id": None,
+            "cat_required": False,
+            "cat_queried": False,
+            "cat_query_evidence_id": None,
         },
     )
     truth.append_atomic(
@@ -219,12 +237,17 @@ def test_nonterminal_failure_requires_verified_recovery_and_successor_execution(
     _convergence(truth, first, "RECOVERY_ALLOWED")
     _attempt(truth, second, "PASS")
     _convergence(truth, second, "PASS")
-    for name in ("runner_execute", "failure_diagnose", "recovery_decide", "recovery_execute", "execution_convergence"):
-        _tool(truth, name, name)
+    _tool(truth, "runner_execute", "real-runner")
+    _tool(truth, "execution_convergence", "runtime-convergence")
+    _chain(truth, first, "failure_diagnose", "WORKER-DIAGNOSTIC")
+    _chain(truth, first, "recovery_decide", "WORKER-RECOVERY-PLANNER")
+    _chain(truth, first, "recovery_execute", "WORKER-RECOVERY-EXECUTOR")
 
     result = ExecutionRecoveryConformanceChecker(truth).check_task(MISSION, TASK)
     assert result.status == "PASS"
     assert "PASS" in result.terminal_statuses
+    assert "failure_diagnose" in result.observed_tools
+    assert "recovery_execute" in result.observed_tools
 
     control.submit_worker_output(WorkerOutput(task_id=TASK, worker_ref=WORKER))
     passed = control.accept_evaluation(
@@ -239,3 +262,73 @@ def test_nonterminal_failure_requires_verified_recovery_and_successor_execution(
         ),
     )
     assert passed.state.value == "PASS"
+
+
+def test_cat_required_failure_cannot_pass_without_attempt_scoped_cat_evidence(tmp_path: Path) -> None:
+    truth, _ = _active_execution(tmp_path)
+    attempt_id = "ATTEMPT-CAT"
+    _prepare(truth, attempt_id)
+    _attempt(truth, attempt_id, "FAIL", layer="L3")
+    truth.append_atomic(
+        "FAILURE_DIAGNOSIS_UPSERTED",
+        {
+            "diagnosis_id": "DIAG-CAT",
+            "release_id": RELEASE,
+            "attempt_id": attempt_id,
+            "failure_class": "PRODUCT",
+            "evidence_refs": ["evidence://diag/cat"],
+            "classifier_ref": "classifier://runtime",
+            "rationale": "downstream product failure",
+            "failure_signature_id": "SIG-CAT",
+            "root_cause_candidate_id": None,
+            "cat_required": True,
+            "cat_queried": True,
+            "cat_query_evidence_id": "EVD-CAT-MISSING",
+        },
+    )
+    truth.append_atomic(
+        "RECOVERY_DECISION_UPSERTED",
+        {
+            "decision_id": "RDEC-CAT",
+            "release_id": RELEASE,
+            "diagnosis_id": "DIAG-CAT",
+            "attempt_id": attempt_id,
+            "action": "PRODUCT_DEFECT",
+            "terminal": True,
+            "next_attempt_id": None,
+            "retry_allowed": False,
+            "reprepare_allowed": False,
+            "reason": "trusted product failure",
+        },
+    )
+    _convergence(truth, attempt_id, "PRODUCT_DEFECT_CONFIRMED")
+    _tool(truth, "runner_execute", "cat-run")
+    _tool(truth, "execution_convergence", "cat-convergence")
+    _chain(truth, attempt_id, "failure_diagnose", "WORKER-DIAGNOSTIC")
+    _chain(truth, attempt_id, "recovery_decide", "WORKER-RECOVERY-PLANNER")
+
+    failed = ExecutionRecoveryConformanceChecker(truth).check_task(MISSION, TASK)
+    assert failed.status == "FAIL"
+    assert "ATTEMPT_CAT_QUERY_EVIDENCE_NOT_UNIQUE:%s" % attempt_id in failed.violations
+
+    append_entity(
+        truth,
+        Evidence(
+            evidence_id="EVD-CAT-REAL",
+            mission_id=MISSION,
+            kind=ATTEMPT_CAT_QUERY_KIND,
+            source_ref="provider://bank-cat/BANK_CAT_QUERY",
+            content_ref="state://attempt-cat/query.json",
+            subject_refs=[TASK, "WORKER-DIAGNOSTIC", attempt_id, "TARGET-1", "CATQ-1"],
+            content_hash="c" * 64,
+        ),
+        release_id=RELEASE,
+    )
+    row = truth.query("failure_diagnosis", diagnosis_id="DIAG-CAT")[0]
+    updated = dict(row)
+    updated["artifact_version"] = int(row["artifact_version"]) + 1
+    updated["cat_query_evidence_id"] = "EVD-CAT-REAL"
+    truth.append_atomic("FAILURE_DIAGNOSIS_UPSERTED", updated)
+
+    passed = ExecutionRecoveryConformanceChecker(truth).check_task(MISSION, TASK)
+    assert passed.status == "PASS"

@@ -4,7 +4,7 @@ The contract is additive and independently versioned so existing graph-v2
 Missions carrying the earlier node/tool contract can resume without hash drift.
 For an EXECUTION task to PASS, durable R1 truth must prove the real attempt path:
 prepared attempt -> runner result -> diagnosis/decision/recovery when needed ->
-execution convergence.  Agent prose or a forged pass_observed flag is never
+execution convergence. Agent prose or a forged pass_observed flag is never
 sufficient.
 """
 from __future__ import annotations
@@ -16,7 +16,9 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from rc6_runtime.truth import TruthRuntime
 
+from .attempt_cat import ATTEMPT_CAT_QUERY_KIND
 from .case_runtime import PREPARED_ATTEMPT_KIND
+from .execution_chain_evidence import observed_chain_tools
 from .models import Evidence, Task
 from .node_tool_conformance import NODE_TOOL_CALL_KIND
 from .truth_overlay import append_entity
@@ -33,6 +35,9 @@ class ExecutionRecoveryConformanceError(RuntimeError):
 
 
 def _contract_payload() -> Dict[str, object]:
+    # Keep this frozen. Runtime hardening may add stronger validation of these
+    # truth categories, but changing this payload would hash-drift persisted v1
+    # contracts and break durable Mission resume.
     return {
         "schema_version": "pfc.aitest.rc7.execution-recovery-contract.v1",
         "contract_version": CONTRACT_VERSION,
@@ -147,7 +152,7 @@ def _prepared_attempt_ids(truth: TruthRuntime, mission_id: str, task_id: str) ->
         refs = [str(x) for x in list(row.get("subject_refs") or [])]
         candidates = [ref for ref in refs if ref != task_id and ref.startswith("ATTEMPT-")]
         if not candidates:
-            # Field attempt IDs are not required to use a fixed prefix.  The
+            # Field attempt IDs are not required to use a fixed prefix. The
             # prepared evidence layout is [task, worker, attempt, tc, target].
             if len(refs) >= 3:
                 candidates = [refs[2]]
@@ -160,6 +165,38 @@ def _exact_one(rows: Sequence[Mapping[str, object]], code: str, violations: List
         violations.append("%s:%d" % (code, len(rows)))
         return None
     return rows[0]
+
+
+def _check_cat_truth(
+    truth: TruthRuntime,
+    *,
+    mission_id: str,
+    task_id: str,
+    attempt_id: str,
+    diagnosis: Mapping[str, object],
+    violations: List[str],
+) -> None:
+    if "cat_required" not in diagnosis or "cat_queried" not in diagnosis:
+        violations.append("FAILURE_DIAGNOSIS_CAT_POLICY_NOT_RECORDED:%s" % attempt_id)
+        return
+    required = bool(diagnosis.get("cat_required"))
+    queried = bool(diagnosis.get("cat_queried"))
+    evidence_id = str(diagnosis.get("cat_query_evidence_id") or "").strip()
+    if not required:
+        if queried or evidence_id:
+            violations.append("CAT_QUERY_RECORDED_WHEN_NOT_REQUIRED:%s" % attempt_id)
+        return
+    if not queried or not evidence_id:
+        violations.append("CAT_REQUIRED_BUT_NOT_QUERIED:%s" % attempt_id)
+        return
+    rows = truth.query("rc7_evidence", evidence_id=evidence_id)
+    if len(rows) != 1:
+        violations.append("ATTEMPT_CAT_QUERY_EVIDENCE_NOT_UNIQUE:%s" % attempt_id)
+        return
+    row = rows[0]
+    refs = list(row.get("subject_refs") or [])
+    if row.get("kind") != ATTEMPT_CAT_QUERY_KIND or task_id not in refs or attempt_id not in refs:
+        violations.append("ATTEMPT_CAT_QUERY_EVIDENCE_IDENTITY_MISMATCH:%s" % attempt_id)
 
 
 @dataclass(frozen=True)
@@ -210,16 +247,17 @@ class ExecutionRecoveryConformanceChecker:
 
         violations: List[str] = []
         attempt_ids = _prepared_attempt_ids(self.truth, mission_id, task_id)
-        tools = _node_tool_names(self.truth, mission_id, task_id)
-        tool_set = set(tools)
+        node_tools = _node_tool_names(self.truth, mission_id, task_id)
+        node_tool_set = set(node_tools)
+        all_tools = set(node_tools)
         terminal_statuses: List[str] = []
         successor_targets = set()
 
         if not attempt_ids:
             violations.append("CASE_PREPARED_ATTEMPT_REQUIRED")
-        if "runner_execute" not in tool_set:
+        if "runner_execute" not in node_tool_set:
             violations.append("RUNNER_EXECUTE_TOOL_CALL_REQUIRED")
-        if "execution_convergence" not in tool_set:
+        if "execution_convergence" not in node_tool_set:
             violations.append("EXECUTION_CONVERGENCE_TOOL_CALL_REQUIRED")
 
         for attempt_id in attempt_ids:
@@ -249,10 +287,12 @@ class ExecutionRecoveryConformanceChecker:
                 violations.append("EXECUTION_TASK_PASS_FORBIDS_NONEXECUTED_ATTEMPT:%s:%s" % (attempt_id, exec_status or "UNKNOWN"))
                 continue
 
-            if "failure_diagnose" not in tool_set:
-                violations.append("FAILURE_DIAGNOSE_TOOL_CALL_REQUIRED")
-            if "recovery_decide" not in tool_set:
-                violations.append("RECOVERY_DECIDE_TOOL_CALL_REQUIRED")
+            chain_tools = set(observed_chain_tools(self.truth, mission_id=mission_id, task_id=task_id, attempt_id=attempt_id))
+            all_tools.update(chain_tools)
+            if "failure_diagnose" not in chain_tools:
+                violations.append("FAILURE_DIAGNOSE_CHAIN_CALL_REQUIRED:%s" % attempt_id)
+            if "recovery_decide" not in chain_tools:
+                violations.append("RECOVERY_DECIDE_CHAIN_CALL_REQUIRED:%s" % attempt_id)
 
             diagnosis = _exact_one(
                 self.truth.query("failure_diagnosis", attempt_id=attempt_id),
@@ -264,6 +304,15 @@ class ExecutionRecoveryConformanceChecker:
                 "RECOVERY_DECISION_NOT_UNIQUE:%s" % attempt_id,
                 violations,
             )
+            if diagnosis is not None:
+                _check_cat_truth(
+                    self.truth,
+                    mission_id=mission_id,
+                    task_id=task_id,
+                    attempt_id=attempt_id,
+                    diagnosis=diagnosis,
+                    violations=violations,
+                )
             if diagnosis is not None and decision is not None:
                 if str(decision.get("diagnosis_id") or "") != str(diagnosis.get("diagnosis_id") or ""):
                     violations.append("RECOVERY_DECISION_DIAGNOSIS_MISMATCH:%s" % attempt_id)
@@ -280,8 +329,8 @@ class ExecutionRecoveryConformanceChecker:
                 elif convergence_status:
                     terminal_statuses.append(convergence_status)
             else:
-                if "recovery_execute" not in tool_set:
-                    violations.append("RECOVERY_EXECUTE_TOOL_CALL_REQUIRED")
+                if "recovery_execute" not in chain_tools:
+                    violations.append("RECOVERY_EXECUTE_CHAIN_CALL_REQUIRED:%s" % attempt_id)
                 actions = [
                     row for row in self.truth.query("recovery_action")
                     if str(row.get("prior_attempt_id") or "") == attempt_id
@@ -304,9 +353,6 @@ class ExecutionRecoveryConformanceChecker:
                 if convergence_status != "RECOVERY_ALLOWED":
                     violations.append("NONTERMINAL_DECISION_REQUIRES_RECOVERY_ALLOWED:%s:%s" % (attempt_id, convergence_status or "MISSING"))
 
-        # A successor is meaningful only if it was actually executed; the loop
-        # above independently checks every prepared successor for execution and
-        # convergence.  Keep the set in the contract result via validation only.
         _ = successor_targets
         return ExecutionRecoveryConformanceResult(
             mission_id=mission_id,
@@ -314,7 +360,7 @@ class ExecutionRecoveryConformanceChecker:
             status="PASS" if not violations else "FAIL",
             violations=tuple(sorted(dict.fromkeys(violations))),
             attempt_ids=attempt_ids,
-            observed_tools=tools,
+            observed_tools=tuple(sorted(all_tools)),
             terminal_statuses=tuple(sorted(terminal_statuses)),
         )
 
