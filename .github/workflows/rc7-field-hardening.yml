@@ -93,6 +93,7 @@ jobs:
           tests/test_rc7_script_fanout_control_gate.py
           tests/test_rc7_execution_fanout_conformance.py
           tests/test_rc7_execution_fanout_defect_handoff.py
+          tests/test_rc7_multi_case_defect_control_plane_bridge.py
           tests/test_rc7_bank_fanout_preparation_guard.py
           tests/test_rc7_active_execution_preparation.py
           tests/test_rc7_three_case_execution_qualification.py
