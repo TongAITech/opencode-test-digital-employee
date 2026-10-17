@@ -345,8 +345,8 @@ jobs:
           $certifiedPython = Join-Path $certifiedRoot 'workspace-template\runtime\python\python.exe'
           Push-Location $certifiedRoot
           try {
-            & $certifiedPython -m rc7_release.runtime_turnkey_certificate verify --package-root $certifiedRoot
-            if ($LASTEXITCODE -ne 0) { throw 'RC7 certified ZIP runtime certificate verification failed' }
+            & $certifiedPython -m rc7_release.runtime_turnkey_certificate verify --package-root $certifiedRoot --rerun-smoke
+            if ($LASTEXITCODE -ne 0) { throw 'RC7 certified ZIP offline rerun-smoke verification failed' }
             & $certifiedPython -m rc7_release.runtime_delivery_contract --package-root $certifiedRoot
             if ($LASTEXITCODE -ne 0) { throw 'RC7 certified ZIP runtime contract failed' }
             & $certifiedPython -m rc7_release.package verify --package-root $certifiedRoot
