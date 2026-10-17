@@ -3,31 +3,64 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import urllib.request
 import zipfile
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Dict, Mapping, Optional, Sequence
 
 
 SCHEMA_VERSION = "pfc.aitest.rc7.runtime-build-bootstrap.v1"
 USER_AGENT = "PFC-AITest-RC7-Turnkey-Builder"
+_REMOTE_JSON_CACHE: Dict[str, Mapping[str, Any]] = {}
 
 
 class RuntimeBuildBootstrapError(RuntimeError):
     pass
 
 
+def _github_authorization() -> Optional[str]:
+    for key in ("GITHUB_TOKEN", "GH_TOKEN"):
+        token = str(os.environ.get(key) or "").strip()
+        if token:
+            return "Bearer %s" % token
+    try:
+        proc = subprocess.run(
+            ["git", "config", "--get", "http.https://github.com/.extraheader"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    for line in (proc.stdout or "").splitlines():
+        if line.lower().startswith("authorization:"):
+            value = line.split(":", 1)[1].strip()
+            if value:
+                return value
+    return None
+
+
 def _request_json(url: str) -> Mapping[str, Any]:
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"},
-    )
+    cached = _REMOTE_JSON_CACHE.get(url)
+    if cached is not None:
+        return cached
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"}
+    authorization = _github_authorization()
+    if authorization:
+        headers["Authorization"] = authorization
+    request = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(request, timeout=60) as response:
         payload = json.loads(response.read().decode("utf-8"))
     if not isinstance(payload, Mapping):
         raise RuntimeBuildBootstrapError("REMOTE_JSON_INVALID:%s" % url)
+    _REMOTE_JSON_CACHE[url] = payload
     return payload
 
 
@@ -143,7 +176,7 @@ def acquire_ripgrep(output: Path | str, github_path: Optional[Path | str] = None
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m rc7_release.runtime_build_bootstrap")
+    parser = argparse.ArgumentParser(prog="python -m rc7_release.runtime-build-bootstrap")
     sub = parser.add_subparsers(dest="command", required=True)
     ripgrep = sub.add_parser("ripgrep")
     ripgrep.add_argument("--output", required=True)
