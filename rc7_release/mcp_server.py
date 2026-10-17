@@ -15,6 +15,7 @@ from rc7_runtime.node_tool_conformance import (
 )
 from rc7_runtime.truth_overlay import install_rc7_truth_overlay
 from .codegraph_mcp import call_codegraph_tool, list_codegraph_tools
+from .contracted_runner import execute_contracted_runner
 from .professional_tools import codegraph_probe, codegraph_query, git_diff, git_show_revision
 from .source_tools import read_text
 
@@ -140,6 +141,7 @@ def _rc7_runtime_status() -> Dict[str, Any]:
         "canonical_r1_path": str(rc6._state_root() / "r1" / "event-stream.jsonl"),
         "node_tool_conformance": "DURABLE_R1_CALL_EVIDENCE",
         "case_preparation_runtime": "TRUSTED_PROVIDER_EXECUTION_AND_HUMAN_GATE",
+        "execution_oracle_runtime": "RC7_DETERMINISTIC_ACTUAL_PATH_OPERATOR_EXPECTED",
     })
     return base
 
@@ -233,7 +235,7 @@ def _augment_base_tool_schemas(tools):
         if "mission_context" not in description:
             tool["description"] = description + " Supply mission_context for durable graph-v2 node/tool evidence."
         if tool.get("name") == "runner_execute":
-            tool["description"] += " For a contracted RC7 Mission, prepared_attempt must exactly match durable CASE_PREPARED_ATTEMPT R1 evidence produced by case_prepare_execute."
+            tool["description"] += " For a contracted RC7 Mission, prepared_attempt must exactly match durable CASE_PREPARED_ATTEMPT R1 evidence produced by case_prepare_execute and Oracle evaluation is runtime-owned/deterministic."
     return tools
 
 
@@ -241,13 +243,37 @@ def _call_base_with_context(message: Dict[str, Any], name: str) -> Dict[str, Any
     forwarded = copy.deepcopy(message)
     params = forwarded.setdefault("params", {})
     clean, context = _pop_context(params.get("arguments") or {})
-    if name == "runner_execute" and context is not None and contract_enabled(rc6._truth_runtime(), context["mission_id"]):
+    contracted_runner = (
+        name == "runner_execute"
+        and context is not None
+        and contract_enabled(rc6._truth_runtime(), context["mission_id"])
+    )
+    if contracted_runner:
         prepared = clean.get("prepared_attempt")
         if not isinstance(prepared, dict):
             raise RuntimeError("DURABLE_PREPARED_ATTEMPT_REQUIRED")
-        _case_service().require_prepared(mission_id=context["mission_id"], task_id=context["task_id"], prepared_attempt=prepared)
-    params["arguments"] = clean
-    response = rc6.handle(forwarded)
+        _case_service().require_prepared(
+            mission_id=context["mission_id"],
+            task_id=context["task_id"],
+            prepared_attempt=prepared,
+        )
+        raw_result = execute_contracted_runner(
+            clean,
+            authority=rc6._authority_runtime(),
+            truth=rc6._truth_runtime(),
+            broker=rc6._capability_broker(),
+            state_root=rc6._state_root(),
+            mission_id=context["mission_id"],
+            task_id=context["task_id"],
+        )
+        response = {
+            "jsonrpc": "2.0",
+            "id": forwarded.get("id"),
+            "result": _text(raw_result),
+        }
+    else:
+        params["arguments"] = clean
+        response = rc6.handle(forwarded)
     if context is not None and not _response_is_error(response):
         _record_tool_call(name, context, response)
     return response
@@ -267,7 +293,8 @@ def handle(message: Dict[str, Any]):
                 "successful calls become NODE_TOOL_CALL evidence. Case preparation is runtime-owned: Agents "
                 "request case_prepare_execute, but RC7 itself invokes field providers and DB_CREATE requires a "
                 "trusted Human Gate approval outside the Agent MCP surface. runner_execute rejects fabricated "
-                "prepared_attempt payloads. Workers never own PASS authority."
+                "prepared_attempt payloads and contracted Missions use the RC7 deterministic Oracle. Workers "
+                "never own PASS authority."
             )
         return response
     if method == "tools/list":
