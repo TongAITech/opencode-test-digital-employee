@@ -7,6 +7,7 @@ from pathlib import Path
 from rc6_runtime.truth import TruthRuntime
 from rc7_runtime.closed_loop_control import ClosedLoopControlPlane
 from rc7_runtime.control_plane import WorkerOutput
+from rc7_runtime.defect_review_conformance import DefectReviewConformanceChecker
 from rc7_runtime.execution_fanout_conformance import (
     EXECUTION_TERMINAL_KIND,
     deferred_product_defect_gaps,
@@ -236,10 +237,21 @@ def test_multi_case_aggregate_hands_deferred_defect_to_real_control_plane(tmp_pa
     assert DEFECT_GAP in snapshot["open_gap_ids"]
     assert reproduction_row["task_id"] in snapshot["ready_task_ids"]
 
-    # Process/session recreation must preserve the exact defect source binding.
-    resumed = ClosedLoopControlPlane(TruthRuntime(r1), RELEASE, MISSION)
+    review = DefectReviewConformanceChecker(truth).check_mission(MISSION)
+    assert review.triggered is True
+    assert review.status == "FAIL"
+    assert "PRODUCT_DEFECT_GAP_NOT_RESOLVED:%s" % DEFECT_GAP in review.violations
+    assert "PRODUCT_DEFECT_RECORD_NOT_UNIQUE:%s:0" % DEFECT_GAP in review.violations
+
+    # Process/session recreation must preserve both the exact defect source and
+    # the unresolved review gate. R1 alone remains the continuation truth.
+    resumed_truth = TruthRuntime(r1)
+    resumed = ClosedLoopControlPlane(resumed_truth, RELEASE, MISSION)
     resumed_repro = resumed.scheduler.task(reproduction_row["task_id"])
     resumed_qualify = resumed.scheduler.task(qualification_row["task_id"])
     assert resumed_repro.input_artifact_refs == [DEFECT_ARTIFACT]
     assert resumed_qualify.input_artifact_refs == [DEFECT_ARTIFACT]
     assert resumed.snapshot()["gap_states"][DEFECT_GAP] == "PLANNED"
+    resumed_review = DefectReviewConformanceChecker(resumed_truth).check_mission(MISSION)
+    assert resumed_review.status == "FAIL"
+    assert "PRODUCT_DEFECT_GAP_NOT_RESOLVED:%s" % DEFECT_GAP in resumed_review.violations
