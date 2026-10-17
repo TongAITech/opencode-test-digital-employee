@@ -2,11 +2,18 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && { pwd -W 2>/dev/null || pwd; })"
+PY="${PFC_PYTHON:-$ROOT/workspace-template/runtime/python/python.exe}"
+if [[ ! -f "$PY" && "$PY" == "$ROOT/workspace-template/runtime/python/python.exe" ]]; then
+  PY="python"
+fi
 
-: "${PFC_RC7_R1_PATH:?PFC_RC7_R1_PATH is required}"
-: "${PFC_RC7_MISSION_ID:?PFC_RC7_MISSION_ID is required}"
-: "${PFC_RC7_BANK_TARGET_ID:?PFC_RC7_BANK_TARGET_ID is required}"
+# Preserve the strict Bank Final gate while removing manual environment
+# stitching. Auto-resolution is unique-only; any Mission/Target ambiguity is
+# a HOLD and the launcher never applies a latest/newest heuristic.
+if [[ -z "${PFC_RC7_R1_PATH:-}" || -z "${PFC_RC7_MISSION_ID:-}" || -z "${PFC_RC7_BANK_TARGET_ID:-}" ]]; then
+  exec "$PY" -m rc7_release.bank_field_launcher run --package-root "$ROOT" "$@"
+fi
 
 if [[ ! -f "$PFC_RC7_R1_PATH" ]]; then
   printf '%s\n' '{"status":"HOLD","reason":"R1_EVENT_STREAM_NOT_FOUND"}' >&2
