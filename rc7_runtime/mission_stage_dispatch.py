@@ -5,10 +5,10 @@ work itself. It only reads durable R1 truth, selects the highest-priority READY
 task, and delegates it to a governed execution authority.
 
 Canonical graph tasks use the versioned Mission Graph owner contract. Dynamic
-repair/defect tasks are admitted only through an explicit node/task-type policy;
-unknown noncanonical work still fails closed. Runtime-owned canonical work must
-never fall through to DSH workers, and producer work must never be executed by
-the coordinator/Director.
+repair/defect tasks are admitted only through an explicit node/task-type policy
+and must reference an existing governed Gap; unknown noncanonical work still
+fails closed. Runtime-owned canonical work must never fall through to DSH
+workers, and producer work must never be executed by the coordinator/Director.
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ class MissionStageRoute:
 class MissionStageDispatcher:
     """Route one READY task to its actual execution authority."""
 
-    # Dynamic tasks are created only by governed Gap/Defect controllers.  They
+    # Dynamic tasks are created only by governed Gap/Defect controllers. They
     # are not top-level graph nodes, so their owner must be explicit here rather
     # than inferred from arbitrary worker-authored task metadata.
     _DYNAMIC_PRODUCER_TASKS = {
@@ -88,10 +88,29 @@ class MissionStageDispatcher:
         if task.node in compiler.NODE_ORDER:
             return compiler.task_owner(task.node)
         if (task.node, task.task_type) in self._DYNAMIC_PRODUCER_TASKS:
+            self._require_governed_gap_refs(task)
             return compiler.OWNER_PRODUCER
         raise MissionStageDispatchError(
             "READY_NONCANONICAL_TASK_FORBIDDEN:%s:%s" % (task.node, task.task_type)
         )
+
+    def _require_governed_gap_refs(self, task: Task) -> None:
+        if not task.gap_refs:
+            raise MissionStageDispatchError("DYNAMIC_TASK_GOVERNED_GAP_REQUIRED:%s" % task.task_id)
+        for gap_id in task.gap_refs:
+            rows = self.control.truth.query("rc7_gap", gap_id=gap_id)
+            if len(rows) != 1:
+                raise MissionStageDispatchError(
+                    "DYNAMIC_TASK_GOVERNED_GAP_NOT_UNIQUE:%s:%s" % (task.task_id, gap_id)
+                )
+            if str(rows[0].get("mission_id") or "") != self.control.mission_id:
+                raise MissionStageDispatchError(
+                    "DYNAMIC_TASK_GOVERNED_GAP_MISSION_MISMATCH:%s:%s" % (task.task_id, gap_id)
+                )
+            if str(rows[0].get("target_node") or "") != task.node:
+                raise MissionStageDispatchError(
+                    "DYNAMIC_TASK_GOVERNED_GAP_TARGET_MISMATCH:%s:%s" % (task.task_id, gap_id)
+                )
 
     def dispatch_next(self) -> Any:
         route = self.next_route()
