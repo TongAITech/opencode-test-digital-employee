@@ -6,6 +6,7 @@ ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 : "${PFC_RC7_R1_PATH:?PFC_RC7_R1_PATH is required}"
 : "${PFC_RC7_MISSION_ID:?PFC_RC7_MISSION_ID is required}"
+: "${PFC_RC7_BANK_TARGET_ID:?PFC_RC7_BANK_TARGET_ID is required}"
 
 if [[ ! -f "$PFC_RC7_R1_PATH" ]]; then
   printf '%s\n' '{"status":"HOLD","reason":"R1_EVENT_STREAM_NOT_FOUND"}' >&2
@@ -36,6 +37,13 @@ for path in "$PFC_RC7_ENGINEERING_EVIDENCE" "$PFC_RC7_ADMIN_EVIDENCE" "$PFC_RC7_
 done
 
 export PFC_AITEST_STATE_DIR="${PFC_AITEST_STATE_DIR:-$ROOT/runtime-state/rc7-bank-final}"
+
+# One Bank Final entrypoint owns the field-service preflight. Read-only probes
+# and 4A/CAT/DB_READ are replay-safe. DB_WRITE stops at the mandatory Human
+# Gate on the first run; after explicit approval, rerunning this same command
+# resumes and never repeats already-qualified capability probes.
+"$SCRIPT_DIR/QUALIFY-BANK-SERVICES.sh"
+
 export PFC_RC7_REQUIRE_FINAL_PASS=1
 # Bank Final is intentionally stricter than generic final qualification: only
 # a new graph-v2 Mission carrying durable node/tool + execution/recovery
@@ -48,5 +56,6 @@ printf 'Package root: %s\n' "$ROOT"
 printf 'Qualification evidence: %s\n' "$QUAL_DIR"
 printf 'R1 Event Stream: %s\n' "$PFC_RC7_R1_PATH"
 printf 'Mission: %s\n' "$PFC_RC7_MISSION_ID"
+printf 'Bank target: %s\n' "$PFC_RC7_BANK_TARGET_ID"
 
 exec "$SCRIPT_DIR/QUALIFY-FINAL.sh"

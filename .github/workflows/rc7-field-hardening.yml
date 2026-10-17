@@ -52,6 +52,7 @@ jobs:
           rc7_runtime/mission_conformance.py
           rc7_runtime/mission_stage_dispatch.py
           rc7_runtime/case_runtime.py
+          rc7_runtime/bank_field_services.py
           rc7_runtime/execution_recovery_conformance.py
       - name: Run field-hardening regressions
         run: >-
@@ -61,7 +62,10 @@ jobs:
           tests/test_rc7_dsh_runtime_profile.py
           tests/test_rc7_dsh_plugin_qualification.py
           tests/test_rc7_plugin_effect_qualification.py
+          tests/test_rc7_plugin_effect_bank_entrypoint.py
           tests/test_rc7_bank_field_conformance.py
+          tests/test_rc7_bank_field_services.py
+          tests/test_rc7_bank_field_services_entrypoint.py
           tests/test_rc7_mcp_stdio.py
           tests/test_rc7_professional_windows_decode.py
           tests/test_rc7_truth_overlay.py
@@ -140,6 +144,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Package-local DSH plugin payload missing after clean extraction' }
             & $packagePython -m rc7_release.windows_clean_qualification --package-root $packageRoot
             if ($LASTEXITCODE -ne 0) { throw 'Windows clean package qualification failed' }
+            if (-not (Test-Path -LiteralPath (Join-Path $packageRoot 'packaging\rc7\QUALIFY-BANK-SERVICES.cmd'))) { throw 'Bank service qualification entrypoint missing from final package' }
+            if (-not (Test-Path -LiteralPath (Join-Path $packageRoot 'packaging\rc7\bank-field-providers.example.json'))) { throw 'Bank field provider template missing from final package' }
           }
           finally {
             Pop-Location
@@ -189,6 +195,7 @@ jobs:
           grep -q '"protected_bank_profile_integrity": "PASS"' state/rc7-dsh-runtime-profile.json
           grep -q -- '--profile rc7-bank' "$RUNNER_TEMP/rc7-dsh-final-invocation.txt"
           grep -q -- '--patch' "$RUNNER_TEMP/rc7-dsh-final-invocation.txt"
+          test -x ./packaging/rc7/QUALIFY-BANK-SERVICES.sh
 
   field-hardened-package:
     name: Rebuild RC7 Field-Hardened transport package

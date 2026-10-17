@@ -1,0 +1,54 @@
+{
+  "schema_version": "pfc.aitest.rc7.bank-field-providers.example.v1",
+  "notes": [
+    "Copy this file to state/bank-field-providers.json in the extracted RC7 package and replace only the command bindings.",
+    "Do not place passwords, cookies, tokens or private keys in provider stdout. Return durable evidence references instead.",
+    "BANK_DB_WRITE is executed only after RC7 Human Gate approval and must return verification plus cleanup_ref or rollback_ref.",
+    "Commands are capability bindings, not exact-version pins. The bank environment may point BANK_AUTH_4A at the existing foura_auth.py adapter."
+  ],
+  "providers": {
+    "BANK_AUTH_4A": {
+      "provider_id": "bank-4a-adapter",
+      "command": ["python", "PATH_TO_BANK_ADAPTER.py", "auth-4a"],
+      "timeout_seconds": 180
+    },
+    "BANK_CAT_QUERY": {
+      "provider_id": "bank-cat-adapter",
+      "command": ["python", "PATH_TO_BANK_ADAPTER.py", "cat-query"],
+      "timeout_seconds": 120
+    },
+    "BANK_DB_READ": {
+      "provider_id": "bank-db-adapter",
+      "command": ["python", "PATH_TO_BANK_ADAPTER.py", "db-read-probe"],
+      "timeout_seconds": 120
+    },
+    "BANK_DB_WRITE": {
+      "provider_id": "bank-db-adapter",
+      "command": ["python", "PATH_TO_BANK_ADAPTER.py", "db-write-reversible-probe"],
+      "timeout_seconds": 120
+    }
+  },
+  "provider_response_contract": {
+    "common": {
+      "success": true,
+      "target_verified": true,
+      "tool_call_ref": "non-secret durable reference",
+      "evidence_ref": "non-secret durable reference"
+    },
+    "BANK_AUTH_4A": {
+      "auth_evidence_ref": "non-secret login/session proof reference"
+    },
+    "BANK_CAT_QUERY": {
+      "cat_evidence_ref": "non-secret CAT query proof reference",
+      "correlation_ref": "non-secret correlation proof reference"
+    },
+    "BANK_DB_READ": {
+      "read_evidence_ref": "non-secret DB read proof reference"
+    },
+    "BANK_DB_WRITE": {
+      "write_evidence_ref": "non-secret DB write proof reference",
+      "verification_ref": "post-write verification proof reference",
+      "cleanup_ref_or_rollback_ref": "post-probe cleanup or rollback proof reference"
+    }
+  }
+}

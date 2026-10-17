@@ -27,6 +27,16 @@ if "%PFC_RC7_REQUIRE_BANK_FIELD_CONFORMANCE%"=="1" (
     echo {"status":"HOLD","reason":"PFC_RC7_MISSION_ID_REQUIRED_FOR_BANK_FIELD"} 1>&2
     exit /b 21
   )
+  if not defined PFC_RC7_BANK_TARGET_ID (
+    echo {"status":"HOLD","reason":"PFC_RC7_BANK_TARGET_ID_REQUIRED_FOR_BANK_FIELD"} 1>&2
+    exit /b 22
+  )
+
+  if not defined PFC_RC7_BANK_SERVICE_EVIDENCE set "PFC_RC7_BANK_SERVICE_EVIDENCE=%PFC_AITEST_STATE_DIR%\rc7-bank-service-qualification.json"
+  call "%PFC_PYTHON%" -m rc7_runtime.bank_field_services qualify --r1 "%PFC_RC7_R1_PATH%" --mission-id "%PFC_RC7_MISSION_ID%" --target-id "%PFC_RC7_BANK_TARGET_ID%" --output "%PFC_RC7_BANK_SERVICE_EVIDENCE%" --require-pass
+  if errorlevel 1 exit /b !ERRORLEVEL!
+  echo RC7 Bank Field service evidence: %PFC_RC7_BANK_SERVICE_EVIDENCE% 1>&2
+
   if not defined PFC_RC7_DSH_RUNTIME_PROFILE_EVIDENCE set "PFC_RC7_DSH_RUNTIME_PROFILE_EVIDENCE=%ROOT%\state\rc7-dsh-runtime-profile.json"
   if not defined PFC_RC7_PLUGIN_EFFECT_EVIDENCE set "PFC_RC7_PLUGIN_EFFECT_EVIDENCE=%PFC_AITEST_STATE_DIR%\rc7-plugin-effect-qualification.json"
   call "%PFC_PYTHON%" -m rc7_release.plugin_effect_qualification --r1 "%PFC_RC7_R1_PATH%" --mission-id "%PFC_RC7_MISSION_ID%" --runtime-profile-evidence "%PFC_RC7_DSH_RUNTIME_PROFILE_EVIDENCE%" --output "%PFC_RC7_PLUGIN_EFFECT_EVIDENCE%" --require-pass

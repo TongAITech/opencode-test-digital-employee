@@ -33,13 +33,23 @@ fi
 mkdir -p "$STATE"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
-# Bank Final additionally proves that every P0 plugin is active in the isolated
-# rc7-bank profile and that its capability effect is visible in real Mission R1
-# receipts. Generic final qualification intentionally does not impose this
-# field-only gate.
+# Bank Final additionally requires both the platform bank-service probes and
+# real P0-plugin effects. Generic final qualification intentionally does not
+# impose these bank-only gates.
 if [[ "${PFC_RC7_REQUIRE_BANK_FIELD_CONFORMANCE:-0}" == "1" ]]; then
   : "${PFC_RC7_R1_PATH:?PFC_RC7_R1_PATH is required for Bank Field qualification}"
   : "${PFC_RC7_MISSION_ID:?PFC_RC7_MISSION_ID is required for Bank Field qualification}"
+  : "${PFC_RC7_BANK_TARGET_ID:?PFC_RC7_BANK_TARGET_ID is required for Bank Field qualification}"
+
+  BANK_SERVICE_EVIDENCE="${PFC_RC7_BANK_SERVICE_EVIDENCE:-$STATE/rc7-bank-service-qualification.json}"
+  "$PYTHON_BIN" -m rc7_runtime.bank_field_services qualify \
+    --r1 "$PFC_RC7_R1_PATH" \
+    --mission-id "$PFC_RC7_MISSION_ID" \
+    --target-id "$PFC_RC7_BANK_TARGET_ID" \
+    --output "$BANK_SERVICE_EVIDENCE" \
+    --require-pass
+  printf 'RC7 Bank Field service evidence: %s\n' "$BANK_SERVICE_EVIDENCE" >&2
+
   DSH_RUNTIME_PROFILE_EVIDENCE="${PFC_RC7_DSH_RUNTIME_PROFILE_EVIDENCE:-$ROOT/state/rc7-dsh-runtime-profile.json}"
   PLUGIN_EFFECT_EVIDENCE="${PFC_RC7_PLUGIN_EFFECT_EVIDENCE:-$STATE/rc7-plugin-effect-qualification.json}"
   "$PYTHON_BIN" -m rc7_release.plugin_effect_qualification \
