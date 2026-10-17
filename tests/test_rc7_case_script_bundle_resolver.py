@@ -137,7 +137,7 @@ def _setup(tmp_path: Path, monkeypatch):
     )
     source_text = "def test_bundle_case():\n    actual = 1\n    assert actual == 1\n"
     source_path = tmp_path / "test_bundle_generated.py"
-    source_path.write_text(source_text, encoding="utf-8")
+    source_path.write_bytes(source_text.encode("utf-8"))
     source_digest = hashlib.sha256(source_text.encode()).hexdigest()
     script_id = _stable_id("SCRIPT-RC7", MISSION, contract.spec.spec_id, source_digest, "test_bundle_case")
     binding = {
@@ -280,7 +280,7 @@ def test_resolver_rebuilds_current_case_bundle_without_session_state(tmp_path, m
 
 def test_resolver_rejects_source_drift_even_when_ready_receipt_still_exists(tmp_path, monkeypatch):
     truth, source_path, _receipt_id, _script_id, _contract = _setup(tmp_path, monkeypatch)
-    source_path.write_text("def test_bundle_case():\n    assert False\n", encoding="utf-8")
+    source_path.write_bytes(b"def test_bundle_case():\n    assert False\n")
 
     with pytest.raises(CaseScriptBundleResolverError, match="CASE_SCRIPT_SOURCE_(CANDIDATE_DRIFT|HASH_MISMATCH)"):
         CaseScriptExecutionBundleResolver(
