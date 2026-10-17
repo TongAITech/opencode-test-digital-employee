@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -141,3 +143,23 @@ def test_one_sst_packaging_entrypoints_are_thin_and_portable() -> None:
     if bash:
         completed = subprocess.run([bash, "-n", str(sh_path)], check=False)
         assert completed.returncode == 0
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows cmd qualification")
+def test_windows_cmd_entrypoint_executes_bound_python_cli() -> None:
+    root = Path(__file__).resolve().parents[1]
+    cmd_path = root / "packaging" / "rc7" / "FIELD-QUALIFY-ONE-SST.cmd"
+    env = dict(os.environ)
+    env["PFC_PYTHON_BIN"] = sys.executable
+    proc = subprocess.run(
+        ["cmd.exe", "/d", "/s", "/c", '"%s" --help' % cmd_path],
+        cwd=str(root),
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "start-sst" in proc.stdout
+    assert "finalize" in proc.stdout
