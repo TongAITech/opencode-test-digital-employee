@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import Optional
 
 import rc6_runtime.execution_overlay  # noqa: F401
 from rc6_runtime.truth import TruthRuntime
@@ -22,7 +23,7 @@ ASSERTION = "assertion://oracle/1"
 FINGERPRINT = "oracle-fingerprint-1"
 
 
-def _seed(tmp_path: Path, *, assertion_passed: bool = True, execution_status: str | None = None):
+def _seed(tmp_path: Path, *, assertion_passed: bool = True, execution_status: Optional[str] = None):
     install_rc7_truth_overlay()
     truth = TruthRuntime(tmp_path / "r1.jsonl")
     append_entity(truth, Mission(mission_id=MISSION, release_id=RELEASE, goal="oracle conformance"), release_id=RELEASE)
