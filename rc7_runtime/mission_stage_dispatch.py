@@ -4,11 +4,11 @@ The dispatcher is deliberately thin. It never performs Requirement/Code/Test
 work itself. It only reads durable R1 truth, selects the highest-priority READY
 task, and delegates it to a governed execution authority.
 
-Canonical graph tasks use the versioned Mission Graph owner contract. Dynamic
-repair/defect tasks are admitted only through an explicit node/task-type policy
-and must reference an existing governed Gap; unknown noncanonical work still
-fails closed. Runtime-owned canonical work must never fall through to DSH
-workers, and producer work must never be executed by the coordinator/Director.
+Only the exact compiled canonical Task identities inherit Mission Graph owner
+semantics. A dynamic task cannot borrow a canonical node name to bypass Gap
+governance. Dynamic repair/defect work is admitted only through an explicit
+(node, task_type) policy and must reference existing governed Gaps in the same
+Mission and target node.
 """
 from __future__ import annotations
 
@@ -37,13 +37,18 @@ class MissionStageRoute:
 class MissionStageDispatcher:
     """Route one READY task to its actual execution authority."""
 
-    # Dynamic tasks are created only by governed Gap/Defect controllers. They
-    # are not top-level graph nodes, so their owner must be explicit here rather
-    # than inferred from arbitrary worker-authored task metadata.
+    # Dynamic producer tasks are deliberately separate from canonical graph
+    # tasks. They need governed Gap refs before a DSH worker may own them.
     _DYNAMIC_PRODUCER_TASKS = {
         ("RUNTIME", "REPAIR"),
         ("DEFECT", "REPAIR"),
         ("DEFECT", "QUALIFY_DEFECT"),
+    }
+    # Per-Case execution fan-out is Runtime-owned. A dynamic EXECUTION/REPAIR
+    # is valid only when created from an EXECUTION-targeted governed Gap (for
+    # example EXECUTION_CASE_PENDING). It must never fall through to DSH.
+    _DYNAMIC_RUNTIME_TASKS = {
+        ("EXECUTION", "REPAIR"),
     }
 
     def __init__(
@@ -85,9 +90,22 @@ class MissionStageDispatcher:
         )
 
     def _task_owner(self, task: Task, compiler: MissionTaskGraphCompiler) -> str:
-        if task.node in compiler.NODE_ORDER:
-            return compiler.task_owner(task.node)
-        if (task.node, task.task_type) in self._DYNAMIC_PRODUCER_TASKS:
+        canonical = compiler.compile(self.control.mission_id)
+        canonical_by_id = {item.task_id: item for item in canonical.tasks}
+        expected = canonical_by_id.get(task.task_id)
+        if expected is not None:
+            if task.node != expected.node:
+                raise MissionStageDispatchError(
+                    "CANONICAL_TASK_NODE_IDENTITY_MISMATCH:%s:%s:%s"
+                    % (task.task_id, task.node, expected.node)
+                )
+            return compiler.task_owner(expected.node)
+
+        key = (task.node, task.task_type)
+        if key in self._DYNAMIC_RUNTIME_TASKS:
+            self._require_governed_gap_refs(task)
+            return compiler.OWNER_RUNTIME
+        if key in self._DYNAMIC_PRODUCER_TASKS:
             self._require_governed_gap_refs(task)
             return compiler.OWNER_PRODUCER
         raise MissionStageDispatchError(
