@@ -1,10 +1,14 @@
 """Owner-aware dispatcher for durable RC7 Mission stages.
 
 The dispatcher is deliberately thin. It never performs Requirement/Code/Test
-work itself. It only reads the durable graph contract, selects the highest
-priority READY task, and delegates that task to the owner defined by Mission
-Graph v2. Runtime-owned work must never fall through to DSH workers; producer
-work must never be executed by the coordinator/Director.
+work itself. It only reads durable R1 truth, selects the highest-priority READY
+task, and delegates it to a governed execution authority.
+
+Canonical graph tasks use the versioned Mission Graph owner contract. Dynamic
+repair/defect tasks are admitted only through an explicit node/task-type policy;
+unknown noncanonical work still fails closed. Runtime-owned canonical work must
+never fall through to DSH workers, and producer work must never be executed by
+the coordinator/Director.
 """
 from __future__ import annotations
 
@@ -31,7 +35,16 @@ class MissionStageRoute:
 
 
 class MissionStageDispatcher:
-    """Route one READY canonical task to its actual execution authority."""
+    """Route one READY task to its actual execution authority."""
+
+    # Dynamic tasks are created only by governed Gap/Defect controllers.  They
+    # are not top-level graph nodes, so their owner must be explicit here rather
+    # than inferred from arbitrary worker-authored task metadata.
+    _DYNAMIC_PRODUCER_TASKS = {
+        ("RUNTIME", "REPAIR"),
+        ("DEFECT", "REPAIR"),
+        ("DEFECT", "QUALIFY_DEFECT"),
+    }
 
     def __init__(
         self,
@@ -56,9 +69,7 @@ class MissionStageDispatcher:
             return None
         task = ready[0]
         compiler = MissionTaskGraphCompiler(conformance.graph_version)
-        if task.node not in compiler.NODE_ORDER:
-            raise MissionStageDispatchError("READY_NONCANONICAL_TASK_FORBIDDEN:%s" % task.node)
-        owner = compiler.task_owner(task.node)
+        owner = self._task_owner(task, compiler)
         if owner == compiler.OWNER_RUNTIME:
             action = "RUNTIME_HANDLER"
         elif owner == compiler.OWNER_PRODUCER:
@@ -71,6 +82,15 @@ class MissionStageDispatcher:
             graph_version=compiler.graph_version,
             owner=owner,
             action=action,
+        )
+
+    def _task_owner(self, task: Task, compiler: MissionTaskGraphCompiler) -> str:
+        if task.node in compiler.NODE_ORDER:
+            return compiler.task_owner(task.node)
+        if (task.node, task.task_type) in self._DYNAMIC_PRODUCER_TASKS:
+            return compiler.OWNER_PRODUCER
+        raise MissionStageDispatchError(
+            "READY_NONCANONICAL_TASK_FORBIDDEN:%s:%s" % (task.node, task.task_type)
         )
 
     def dispatch_next(self) -> Any:
