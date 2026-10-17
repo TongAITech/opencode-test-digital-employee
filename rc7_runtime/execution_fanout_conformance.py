@@ -1,14 +1,15 @@
 """Runtime-owned per-Case execution terminal receipts and aggregate barrier.
 
-The accepted Test Design is the denominator.  A top-level EXECUTION task is not
+The accepted Test Design is the denominator. A top-level EXECUTION task is not
 allowed to PASS because one Case ran successfully: every accepted Case must have
 one current, immutable, runtime-backed terminal receipt tied to the same Design,
 its Script-Ready receipt, durable Preparation truth, real execution record and
 Oracle/diagnosis conclusion.
 
-Old graph-v2 Missions without CASE_FANOUT_CONTRACT remain unaffected.  This
-module adds no new top-level graph node and gives no Agent authority over
-execution completion.
+A trusted PRODUCT_DEFECT is terminal for its Case but is never dropped while
+sibling Cases are still pending. The exact governed Gap and source execution
+artifact are frozen into the Case terminal receipt and are rehydrated only when
+the aggregate execution barrier is ready to hand defects to the Defect node.
 """
 from __future__ import annotations
 
@@ -23,13 +24,12 @@ from rc6_runtime.truth import TruthRuntime
 
 from .case_fanout_conformance import (
     AcceptedCaseInventoryReader,
-    CaseFanoutConformanceError,
     SCRIPT_READY_KIND,
     contract_enabled,
 )
 from .case_runtime import PREPARED_ATTEMPT_KIND
 from .execution_loop import ExecutionLoopResult
-from .models import Evidence, EvaluationResult
+from .models import Evidence, EvaluationResult, Gap, GapSeverity
 from .truth_overlay import append_entity
 
 
@@ -69,6 +69,24 @@ def _file_payload(row: Mapping[str, object], *, code: str) -> Mapping[str, objec
         raise ExecutionFanoutConformanceError("%s_JSON_INVALID" % code) from exc
     if not isinstance(payload, dict):
         raise ExecutionFanoutConformanceError("%s_OBJECT_REQUIRED" % code)
+    return payload
+
+
+def load_execution_terminal_receipt(
+    truth: TruthRuntime,
+    *,
+    mission_id: str,
+    receipt_id: str,
+) -> Mapping[str, object]:
+    rows = truth.query("rc7_evidence", evidence_id=receipt_id)
+    if len(rows) != 1:
+        raise ExecutionFanoutConformanceError("CASE_EXECUTION_TERMINAL_NOT_UNIQUE:%s" % receipt_id)
+    row = rows[0]
+    if row.get("mission_id") != mission_id or row.get("kind") != EXECUTION_TERMINAL_KIND:
+        raise ExecutionFanoutConformanceError("CASE_EXECUTION_TERMINAL_IDENTITY_MISMATCH:%s" % receipt_id)
+    payload = _file_payload(row, code="CASE_EXECUTION_TERMINAL")
+    if payload.get("mission_id") != mission_id:
+        raise ExecutionFanoutConformanceError("CASE_EXECUTION_TERMINAL_MISSION_MISMATCH:%s" % receipt_id)
     return payload
 
 
@@ -154,6 +172,31 @@ def _terminal_outcome(record: ExecutionRecord, loop_result: ExecutionLoopResult)
     raise ExecutionFanoutConformanceError("CASE_EXECUTION_TERMINAL_OUTCOME_UNSUPPORTED:%s" % record.tc_id)
 
 
+def _product_gap_snapshot(loop_result: ExecutionLoopResult, outcome: str) -> Optional[Dict[str, object]]:
+    if outcome != "PRODUCT_DEFECT":
+        return None
+    product = [
+        gap for gap in loop_result.gaps
+        if gap.category == "PRODUCT_DEFECT" and gap.target_node == "DEFECT"
+    ]
+    if len(product) != 1:
+        raise ExecutionFanoutConformanceError("PRODUCT_DEFECT_GAP_NOT_UNIQUE")
+    gap = product[0]
+    return {
+        "gap_id": gap.gap_id,
+        "mission_id": gap.mission_id,
+        "source_node": gap.source_node,
+        "category": gap.category,
+        "severity": gap.severity.value,
+        "target_node": gap.target_node,
+        "description": gap.description,
+        "subject_refs": list(gap.subject_refs),
+        "evidence_refs": list(gap.evidence_refs),
+        "root_gap_id": gap.root_gap_id,
+        "acceptance_criteria": list(gap.acceptance_criteria),
+    }
+
+
 def record_execution_terminal(
     truth: TruthRuntime,
     *,
@@ -227,6 +270,22 @@ def record_execution_terminal(
         if persisted_record.get(field) != value:
             raise ExecutionFanoutConformanceError("CASE_RUNTIME_EXECUTION_RECORD_DRIFT:%s:%s" % (case.tc_id, field))
 
+    artifact_refs = list(loop_result.evaluation.artifact_refs)
+    if len(artifact_refs) != 1:
+        raise ExecutionFanoutConformanceError("CASE_EXECUTION_SOURCE_ARTIFACT_REQUIRED:%s" % case.tc_id)
+    execution_artifact_id = str(artifact_refs[0])
+    artifacts = truth.query("rc7_artifact", artifact_id=execution_artifact_id)
+    if len(artifacts) != 1:
+        raise ExecutionFanoutConformanceError("CASE_EXECUTION_SOURCE_ARTIFACT_NOT_UNIQUE:%s" % case.tc_id)
+    artifact = artifacts[0]
+    if (
+        artifact.get("mission_id") != mission_id
+        or artifact.get("producer_task_id") != task_id
+        or artifact.get("artifact_type_name") != "EXECUTION_CONCLUSION"
+        or record_evidence_id not in list(artifact.get("evidence_refs") or [])
+    ):
+        raise ExecutionFanoutConformanceError("CASE_EXECUTION_SOURCE_ARTIFACT_IDENTITY_MISMATCH:%s" % case.tc_id)
+
     outcome = _terminal_outcome(record, loop_result)
     payload = {
         "schema_version": SCHEMA_VERSION,
@@ -239,6 +298,7 @@ def record_execution_terminal(
         "layer": case.layer,
         "target_id": record.target_id,
         "execution_task_id": task_id,
+        "execution_artifact_id": execution_artifact_id,
         "attempt_id": record.attempt_id,
         "outcome": outcome,
         "script_receipt_id": script_receipt_id,
@@ -249,6 +309,7 @@ def record_execution_terminal(
         "record_evidence_id": record_evidence_id,
         "evaluation_id": loop_result.evaluation.evaluation_id,
         "gap_ids": sorted(gap.gap_id for gap in loop_result.gaps),
+        "product_defect_gap": _product_gap_snapshot(loop_result, outcome),
     }
     body = _canonical(payload)
     digest = "sha256:" + hashlib.sha256(body).hexdigest()
@@ -283,6 +344,7 @@ def record_execution_terminal(
                     case.tc_id,
                     record.attempt_id,
                     task_id,
+                    execution_artifact_id,
                     script_receipt_id,
                     prepared_evidence_id,
                     record_evidence_id,
@@ -342,6 +404,12 @@ def check_execution_barrier(truth: TruthRuntime, mission_id: str) -> ExecutionFa
         outcome = str(payload.get("outcome") or "")
         if outcome not in PASS_READY_OUTCOMES | {"BLOCKED"}:
             raise ExecutionFanoutConformanceError("CASE_EXECUTION_TERMINAL_OUTCOME_INVALID:%s" % tc_id)
+        if outcome == "PRODUCT_DEFECT":
+            snapshot = payload.get("product_defect_gap")
+            if not isinstance(snapshot, dict) or snapshot.get("category") != "PRODUCT_DEFECT" or snapshot.get("target_node") != "DEFECT":
+                raise ExecutionFanoutConformanceError("CASE_PRODUCT_DEFECT_SNAPSHOT_REQUIRED:%s" % tc_id)
+            if not isinstance(payload.get("execution_artifact_id"), str) or not payload.get("execution_artifact_id"):
+                raise ExecutionFanoutConformanceError("CASE_PRODUCT_DEFECT_SOURCE_ARTIFACT_REQUIRED:%s" % tc_id)
         by_case[tc_id].append((int(row.get("created_at", 0)), str(row.get("evidence_id") or ""), outcome))
 
     pass_ready = []
@@ -367,3 +435,63 @@ def check_execution_barrier(truth: TruthRuntime, mission_id: str) -> ExecutionFa
         missing_tc_ids=missing,
         receipt_ids=tuple(selected_receipts),
     )
+
+
+def deferred_product_defect_gaps(
+    truth: TruthRuntime,
+    *,
+    mission_id: str,
+    receipt_ids: Sequence[str],
+) -> Tuple[Gap, ...]:
+    gaps = []
+    seen = set()
+    for receipt_id in receipt_ids:
+        payload = load_execution_terminal_receipt(
+            truth,
+            mission_id=mission_id,
+            receipt_id=str(receipt_id),
+        )
+        if payload.get("outcome") != "PRODUCT_DEFECT":
+            continue
+        snapshot = payload.get("product_defect_gap")
+        if not isinstance(snapshot, dict):
+            raise ExecutionFanoutConformanceError("DEFERRED_PRODUCT_DEFECT_SNAPSHOT_REQUIRED:%s" % receipt_id)
+        gap_id = str(snapshot.get("gap_id") or "")
+        if not gap_id or gap_id in seen:
+            if gap_id in seen:
+                continue
+            raise ExecutionFanoutConformanceError("DEFERRED_PRODUCT_DEFECT_GAP_ID_REQUIRED:%s" % receipt_id)
+        if snapshot.get("mission_id") != mission_id or snapshot.get("source_node") != "EXECUTION" or snapshot.get("category") != "PRODUCT_DEFECT" or snapshot.get("target_node") != "DEFECT":
+            raise ExecutionFanoutConformanceError("DEFERRED_PRODUCT_DEFECT_IDENTITY_INVALID:%s" % receipt_id)
+        try:
+            severity = GapSeverity(str(snapshot.get("severity") or ""))
+        except ValueError as exc:
+            raise ExecutionFanoutConformanceError("DEFERRED_PRODUCT_DEFECT_SEVERITY_INVALID:%s" % receipt_id) from exc
+        evidence_refs = [
+            str(ref) for ref in list(snapshot.get("evidence_refs") or [])
+            if isinstance(ref, str) and ref
+        ]
+        evidence_refs.append(str(receipt_id))
+        gaps.append(
+            Gap(
+                gap_id=gap_id,
+                mission_id=mission_id,
+                source_node="EXECUTION",
+                category="PRODUCT_DEFECT",
+                severity=severity,
+                target_node="DEFECT",
+                description=str(snapshot.get("description") or "trusted product mismatch"),
+                subject_refs=[
+                    str(ref) for ref in list(snapshot.get("subject_refs") or [])
+                    if isinstance(ref, str) and ref
+                ],
+                evidence_refs=list(dict.fromkeys(evidence_refs)),
+                root_gap_id=snapshot.get("root_gap_id") if isinstance(snapshot.get("root_gap_id"), str) else None,
+                acceptance_criteria=[
+                    str(value) for value in list(snapshot.get("acceptance_criteria") or [])
+                    if isinstance(value, str) and value
+                ],
+            )
+        )
+        seen.add(gap_id)
+    return tuple(gaps)
