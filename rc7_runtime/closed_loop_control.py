@@ -15,6 +15,11 @@ from typing import Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from rc6_runtime.truth import TruthRuntime
 
+from .case_fanout_conformance import (
+    CaseFanoutConformanceError,
+    check_script_barrier,
+    contract_enabled as case_fanout_contract_enabled,
+)
 from .control_plane import ControlPlaneError, GapRepairPlanner, TaskScheduler, WorkerOutput
 from .execution_recovery_conformance import (
     ExecutionRecoveryConformanceChecker,
@@ -193,6 +198,8 @@ class ClosedLoopControlPlane:
                 raise ClosedLoopControlError("PASS_EVALUATION_GAP_NOT_HANDOFF_ELIGIBLE")
         if evaluation.result == EvaluationResult.REPAIR_REQUIRED and not gaps:
             raise ClosedLoopControlError("REPAIR_EVALUATION_REQUIRES_GAPS")
+        if evaluation.result == EvaluationResult.PASS and task.node == "SCRIPT_READINESS":
+            self._require_script_fanout_pass_ready(task, evaluation)
         if evaluation.result == EvaluationResult.PASS and task.node == "EXECUTION":
             self._require_execution_recovery_pass_ready(task)
 
@@ -383,6 +390,25 @@ class ClosedLoopControlPlane:
         mission.sufficiency_state = sufficiency_state
         self._sync_mission(mission)
         return mission
+
+    def _require_script_fanout_pass_ready(self, task: Task, evaluation: Evaluation) -> None:
+        if task.node != "SCRIPT_READINESS" or task.task_type != "PRODUCE":
+            return
+        try:
+            if not case_fanout_contract_enabled(self.truth, self.mission_id):
+                return
+            barrier = check_script_barrier(self.truth, self.mission_id)
+        except CaseFanoutConformanceError as exc:
+            raise ClosedLoopControlError("SCRIPT_FANOUT_CONFORMANCE_FAILED:%s" % exc) from exc
+        if barrier.status != "PASS":
+            raise ClosedLoopControlError(
+                "SCRIPT_FANOUT_BARRIER_INCOMPLETE:%s" % ",".join(barrier.missing_tc_ids)
+            )
+        missing_receipts = sorted(set(barrier.receipt_ids) - set(evaluation.evidence_refs))
+        if missing_receipts:
+            raise ClosedLoopControlError(
+                "SCRIPT_FANOUT_RECEIPT_BINDING_MISSING:%s" % ",".join(missing_receipts)
+            )
 
     def _require_execution_recovery_pass_ready(self, task: Optional[Task] = None) -> None:
         if not execution_recovery_contract_enabled(self.truth, self.mission_id):
