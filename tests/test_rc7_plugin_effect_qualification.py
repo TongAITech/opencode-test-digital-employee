@@ -73,6 +73,9 @@ def _build_r1(tmp_path: Path, *, browser_call: bool = True) -> Path:
         Mission(mission_id=MISSION, release_id=RELEASE, goal="qualify plugin effects"),
         release_id=RELEASE,
     )
+    # Keep the fixture in an actual active task state. Durable PASS is never
+    # fabricated merely to exercise the plugin-effect reader; the product's
+    # existing truth gate correctly requires an independent evaluation first.
     tasks = (
         Task(
             task_id="TASK-REQ",
@@ -80,7 +83,7 @@ def _build_r1(tmp_path: Path, *, browser_call: bool = True) -> Path:
             node="REQUIREMENT_ANALYSIS",
             task_type="PRODUCE",
             objective="requirement",
-            state=TaskStatus.PASS,
+            state=TaskStatus.RUNNING,
             lease_owner="WORKER-REQ",
         ),
         Task(
@@ -89,7 +92,7 @@ def _build_r1(tmp_path: Path, *, browser_call: bool = True) -> Path:
             node="EXECUTION",
             task_type="PRODUCE",
             objective="execution",
-            state=TaskStatus.PASS,
+            state=TaskStatus.RUNNING,
             lease_owner="WORKER-EXEC",
         ),
     )
