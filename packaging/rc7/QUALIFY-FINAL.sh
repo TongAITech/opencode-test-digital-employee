@@ -7,7 +7,11 @@ PYTHON_BIN="${PFC_PYTHON:-}"
 STATE="${PFC_AITEST_STATE_DIR:-$ROOT/runtime-state/rc7-final-qualification}"
 
 if [[ -z "$PYTHON_BIN" ]]; then
-  PYTHON_BIN="$(command -v python 2>/dev/null || command -v python3 2>/dev/null || true)"
+  if [[ -f "$ROOT/workspace-template/runtime/python/python.exe" ]]; then
+    PYTHON_BIN="$ROOT/workspace-template/runtime/python/python.exe"
+  else
+    PYTHON_BIN="$(command -v python 2>/dev/null || command -v python3 2>/dev/null || true)"
+  fi
 fi
 if [[ -z "$PYTHON_BIN" ]]; then
   printf '%s\n' '{"status":"HOLD","reason":"PYTHON_NOT_FOUND"}' >&2
@@ -28,6 +32,24 @@ fi
 
 mkdir -p "$STATE"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+
+# Bank Final additionally proves that every P0 plugin is active in the isolated
+# rc7-bank profile and that its capability effect is visible in real Mission R1
+# receipts. Generic final qualification intentionally does not impose this
+# field-only gate.
+if [[ "${PFC_RC7_REQUIRE_BANK_FIELD_CONFORMANCE:-0}" == "1" ]]; then
+  : "${PFC_RC7_R1_PATH:?PFC_RC7_R1_PATH is required for Bank Field qualification}"
+  : "${PFC_RC7_MISSION_ID:?PFC_RC7_MISSION_ID is required for Bank Field qualification}"
+  DSH_RUNTIME_PROFILE_EVIDENCE="${PFC_RC7_DSH_RUNTIME_PROFILE_EVIDENCE:-$ROOT/state/rc7-dsh-runtime-profile.json}"
+  PLUGIN_EFFECT_EVIDENCE="${PFC_RC7_PLUGIN_EFFECT_EVIDENCE:-$STATE/rc7-plugin-effect-qualification.json}"
+  "$PYTHON_BIN" -m rc7_release.plugin_effect_qualification \
+    --r1 "$PFC_RC7_R1_PATH" \
+    --mission-id "$PFC_RC7_MISSION_ID" \
+    --runtime-profile-evidence "$DSH_RUNTIME_PROFILE_EVIDENCE" \
+    --output "$PLUGIN_EFFECT_EVIDENCE" \
+    --require-pass
+  printf 'RC7 Bank Field plugin effect evidence: %s\n' "$PLUGIN_EFFECT_EVIDENCE" >&2
+fi
 
 REAL_MISSION_EVIDENCE="${PFC_RC7_REAL_MISSION_EVIDENCE:-}"
 if [[ -z "$REAL_MISSION_EVIDENCE" && -n "${PFC_RC7_R1_PATH:-}" && -n "${PFC_RC7_MISSION_ID:-}" ]]; then

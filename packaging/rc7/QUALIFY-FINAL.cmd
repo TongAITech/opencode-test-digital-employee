@@ -18,6 +18,22 @@ if not defined SOURCE_COMMIT (
 if not exist "%PFC_AITEST_STATE_DIR%" mkdir "%PFC_AITEST_STATE_DIR%"
 set "PYTHONPATH=%ROOT%;%PYTHONPATH%"
 
+if "%PFC_RC7_REQUIRE_BANK_FIELD_CONFORMANCE%"=="1" (
+  if not defined PFC_RC7_R1_PATH (
+    echo {"status":"HOLD","reason":"PFC_RC7_R1_PATH_REQUIRED_FOR_BANK_FIELD"} 1>&2
+    exit /b 20
+  )
+  if not defined PFC_RC7_MISSION_ID (
+    echo {"status":"HOLD","reason":"PFC_RC7_MISSION_ID_REQUIRED_FOR_BANK_FIELD"} 1>&2
+    exit /b 21
+  )
+  if not defined PFC_RC7_DSH_RUNTIME_PROFILE_EVIDENCE set "PFC_RC7_DSH_RUNTIME_PROFILE_EVIDENCE=%ROOT%\state\rc7-dsh-runtime-profile.json"
+  if not defined PFC_RC7_PLUGIN_EFFECT_EVIDENCE set "PFC_RC7_PLUGIN_EFFECT_EVIDENCE=%PFC_AITEST_STATE_DIR%\rc7-plugin-effect-qualification.json"
+  call "%PFC_PYTHON%" -m rc7_release.plugin_effect_qualification --r1 "%PFC_RC7_R1_PATH%" --mission-id "%PFC_RC7_MISSION_ID%" --runtime-profile-evidence "%PFC_RC7_DSH_RUNTIME_PROFILE_EVIDENCE%" --output "%PFC_RC7_PLUGIN_EFFECT_EVIDENCE%" --require-pass
+  if errorlevel 1 exit /b !ERRORLEVEL!
+  echo RC7 Bank Field plugin effect evidence: %PFC_RC7_PLUGIN_EFFECT_EVIDENCE% 1>&2
+)
+
 set "REAL_MISSION_EVIDENCE=%PFC_RC7_REAL_MISSION_EVIDENCE%"
 if not defined REAL_MISSION_EVIDENCE if defined PFC_RC7_R1_PATH if defined PFC_RC7_MISSION_ID (
   set "REAL_MISSION_EVIDENCE=%PFC_AITEST_STATE_DIR%\rc7-real-mission-result.json"

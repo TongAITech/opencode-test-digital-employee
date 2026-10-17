@@ -41,10 +41,12 @@ jobs:
           rc7_release/dsh_plugins.py
           rc7_release/dsh_runtime_profile.py
           rc7_release/dsh_plugin_qualification.py
+          rc7_release/plugin_effect_qualification.py
           rc7_release/dsh.py
           rc7_release/professional_tools.py
           rc7_release/final_unified_qualification.py
           rc7_release/windows_clean_qualification.py
+          rc7_release/real_mission_qualification_strict.py
           rc7_runtime/truth_overlay.py
           rc7_runtime/reality_recon.py
           rc7_runtime/mission_conformance.py
@@ -58,6 +60,8 @@ jobs:
           tests/test_rc7_plugin_payload.py
           tests/test_rc7_dsh_runtime_profile.py
           tests/test_rc7_dsh_plugin_qualification.py
+          tests/test_rc7_plugin_effect_qualification.py
+          tests/test_rc7_bank_field_conformance.py
           tests/test_rc7_mcp_stdio.py
           tests/test_rc7_professional_windows_decode.py
           tests/test_rc7_truth_overlay.py
