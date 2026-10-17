@@ -65,6 +65,76 @@ def test_manifest_update_marks_codegraph_browser_bundled_but_not_delivery_comple
     assert updated["runtime_payload_inventory"] == materializer.INVENTORY_FILE
 
 
+def test_browser_materializer_uses_headless_execution_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    program_files = tmp_path / "Program Files"
+    application = program_files / "Google/Chrome/Application"
+    application.mkdir(parents=True)
+    (application / "chrome.exe").write_bytes(b"chrome")
+    (application / "155.0.8059.40").mkdir()
+    monkeypatch.setenv("PROGRAMFILES", str(program_files))
+    monkeypatch.delenv("PROGRAMFILES(X86)", raising=False)
+    monkeypatch.setattr(materializer.shutil, "which", lambda name: None)
+    commands = []
+
+    def fake_run(command, **kwargs):
+        commands.append(list(command))
+        return "<html><head></head><body></body></html>"
+
+    monkeypatch.setattr(materializer, "_run", fake_run)
+    row = materializer._materialize_browser(tmp_path)
+
+    assert row["resolved_version"] == "155.0.8059.40"
+    assert (tmp_path / materializer.PACKAGE_LOCAL_BROWSER).is_file()
+    assert commands
+    assert "--headless=new" in commands[0]
+    assert "--dump-dom" in commands[0]
+    assert "--version" not in commands[0]
+
+
+def test_codegraph_materializer_downloads_required_onnx_companion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    exe_digest = "a" * 64
+    dll_digest = "b" * 64
+
+    def fake_release(repo, *, name=None, contains=(), tag=None):
+        assert repo == "codegraph-ai/CodeGraph"
+        if name == "codegraph-server-win32-x64.exe":
+            return {"tag_name": "v0.21.0"}, {
+                "name": name,
+                "digest": "sha256:" + exe_digest,
+                "browser_download_url": "https://example/codegraph.exe",
+            }
+        if name == "onnxruntime.dll":
+            return {"tag_name": "v0.21.0"}, {
+                "name": name,
+                "digest": "sha256:" + dll_digest,
+                "browser_download_url": "https://example/onnxruntime.dll",
+            }
+        raise AssertionError(name)
+
+    def fake_download(url, destination, expected_sha256):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"runtime")
+        return str(expected_sha256).removeprefix("sha256:")
+
+    monkeypatch.setattr(materializer, "_release_asset", fake_release)
+    monkeypatch.setattr(materializer, "_download", fake_download)
+    monkeypatch.setattr(materializer, "_run", lambda *args, **kwargs: "help")
+
+    row = materializer._materialize_codegraph(tmp_path)
+
+    assert (tmp_path / PACKAGE_LOCAL_CODEGRAPH).is_file()
+    dll = tmp_path / PACKAGE_LOCAL_CODEGRAPH.parent / "onnxruntime.dll"
+    assert dll.is_file()
+    assert row["sha256"] == exe_digest
+    assert row["companion_files"] == [
+        {
+            "path": dll.as_posix(),
+            "source": "https://example/onnxruntime.dll",
+            "sha256": dll_digest,
+        }
+    ]
+
+
 def test_materializer_refuses_non_windows_host(tmp_path: Path) -> None:
     if materializer.os.name == "nt":
         pytest.skip("non-Windows contract")
