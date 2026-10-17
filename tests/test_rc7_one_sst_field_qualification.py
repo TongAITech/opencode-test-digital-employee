@@ -74,6 +74,28 @@ def test_start_one_sst_binds_requirement_input_and_resume_identity(tmp_path: Pat
         )
 
 
+def test_one_sst_rejects_multiple_distinct_ssts_but_duplicate_same_id_is_idempotent(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+
+    duplicate = start_one_sst(
+        package_root=str(root),
+        mission_id=MISSION,
+        release_id=RELEASE,
+        sst_ids=[SST, "sst://" + SST, SST],
+        goal=GOAL,
+    )
+    assert duplicate["sst_ids"] == [SST]
+
+    with pytest.raises(Exception, match="EXACTLY_ONE_SST_REQUIRED"):
+        start_one_sst(
+            package_root=str(root),
+            mission_id="MISSION-ONE-SST-INVALID",
+            release_id=RELEASE,
+            sst_ids=[SST, "STB-FIELD-0002"],
+            goal=GOAL,
+        )
+
+
 def test_fresh_one_sst_status_is_in_progress_and_never_claims_bank_final(tmp_path: Path) -> None:
     root = _root(tmp_path)
     start_one_sst(
