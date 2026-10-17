@@ -100,6 +100,27 @@ def test_verify_rejects_runtime_inventory_tamper(tmp_path: Path, monkeypatch):
         certificate.verify_turnkey_certificate(built)
 
 
+def test_verify_rejects_certificate_tamper_against_package_checksums(tmp_path: Path, monkeypatch):
+    built = tmp_path / "built" / "PFC"
+    clean = tmp_path / "clean" / "PFC"
+    _fake_package(built)
+    _fake_package(clean)
+    transport = _transport_zip(tmp_path, built)
+    monkeypatch.setattr(certificate, "_run_clean_smoke", lambda root: _fake_smoke())
+    certificate.issue_turnkey_certificate(built, clean, transport)
+
+    cert_path = built / certificate.CERTIFICATE_FILE
+    cert = json.loads(cert_path.read_text(encoding="utf-8"))
+    cert["unqualified_extra_claim"] = "tampered"
+    _write_json(cert_path, cert)
+
+    with pytest.raises(
+        certificate.TurnkeyRuntimeCertificateError,
+        match="CHECKSUM_MISMATCH:TURNKEY_RUNTIME_QUALIFICATION.json",
+    ):
+        certificate.verify_turnkey_certificate(built)
+
+
 def test_issue_rejects_non_pass_clean_smoke(tmp_path: Path, monkeypatch):
     built = tmp_path / "built" / "PFC"
     clean = tmp_path / "clean" / "PFC"
