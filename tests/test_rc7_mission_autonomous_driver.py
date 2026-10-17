@@ -149,9 +149,11 @@ def test_driver_runs_runtime_then_worker_then_independent_evaluator_and_stops_at
         if row.get("node") == "REQUIREMENT_ANALYSIS" and row.get("task_type") == "PRODUCE"
     ][0]
     assert requirement["state"] == "HUMAN_REQUIRED"
-    assert requirement["lease_owner"] == "worker-requirement"
+    # Terminal ownership releases the producer lease; the independent
+    # Evaluation remains durable and must not impersonate that producer.
+    assert requirement["lease_owner"] is None
     assert requirement["evaluation_id"] == "EVAL-REQ-HUMAN-AUTONOMY"
-    assert control.truth.query("rc7_evaluation", evaluation_id="EVAL-REQ-HUMAN-AUTONOMY")[0]["evaluator_ref"] != requirement["lease_owner"]
+    assert control.truth.query("rc7_evaluation", evaluation_id="EVAL-REQ-HUMAN-AUTONOMY")[0]["evaluator_ref"] != "worker-requirement"
 
 
 def test_driver_rejects_success_looking_producer_that_does_not_change_r1(monkeypatch, tmp_path) -> None:
