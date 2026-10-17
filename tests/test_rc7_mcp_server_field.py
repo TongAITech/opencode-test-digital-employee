@@ -164,5 +164,9 @@ def test_attempt_cat_query_runs_provider_and_agent_cat_result_is_forbidden(tmp_p
     assert forbidden["result"]["isError"] is True
     assert "AGENT_SUPPLIED_CAT_RESULT_FORBIDDEN" in forbidden["result"]["content"][0]["text"]
 
+    # The MCP wrapper intentionally opens its own TruthRuntime over the same R1
+    # stream. Rebuild this test reader's disposable projection before asserting
+    # durable cross-instance visibility.
+    truth.rebuild_projection()
     rows = [row for row in truth.query("rc7_evidence", mission_id=MISSION) if row.get("kind") == "ATTEMPT_CAT_QUERY"]
     assert len(rows) == 1
