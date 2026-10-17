@@ -10,8 +10,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
@@ -134,6 +136,35 @@ def _assert_under_root(root: Path, path: Path, label: str) -> None:
         raise RuntimeCleanSmokeError("%s_ESCAPES_PACKAGE:%s" % (label, path)) from exc
 
 
+@contextmanager
+def _preserve_directory_state(path: Path, label: str):
+    """Restore a known runtime-owned mutable directory after an execution smoke.
+
+    Chrome writes SetupMetrics under its installation directory even when the
+    user-data-dir is redirected.  That telemetry state is not test evidence and
+    must never mutate the immutable transport payload that the checksum gate
+    verifies.  Only the explicitly supplied directory is restored; any other
+    package mutation remains visible to the downstream checksum gate.
+    """
+    existed = path.exists()
+    if existed and not path.is_dir():
+        raise RuntimeCleanSmokeError("%s_NOT_DIRECTORY:%s" % (label, path))
+    with tempfile.TemporaryDirectory(prefix="rc7-runtime-state-backup-") as backup_root:
+        backup = Path(backup_root) / "snapshot"
+        if existed:
+            shutil.copytree(str(path), str(backup))
+        try:
+            yield
+        finally:
+            if path.exists():
+                if path.is_dir():
+                    shutil.rmtree(str(path))
+                else:
+                    path.unlink()
+            if existed:
+                shutil.copytree(str(backup), str(path))
+
+
 def qualify_runtime_clean_smoke(
     package_root: Path | str,
     *,
@@ -180,23 +211,25 @@ def qualify_runtime_clean_smoke(
     execute("python", [str(python), "-c", "import sys; print(sys.executable)"])
     execute("node", [str(node), "--version"])
 
-    with tempfile.TemporaryDirectory(prefix="rc7-runtime-clean-browser-") as profile:
-        browser_command = [
-            str(chrome),
-            "--headless=new",
-            "--disable-gpu",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--disable-background-networking",
-            "--disable-component-update",
-            "--disable-sync",
-            "--user-data-dir=%s" % profile,
-            "--dump-dom",
-            "data:text/html,<html><body>%s</body></html>" % _BROWSER_MARKER,
-        ]
-        browser_output = execute("controlled_browser", browser_command, timeout=60)
-        if _BROWSER_MARKER not in browser_output:
-            raise RuntimeCleanSmokeError("CONTROLLED_BROWSER_MARKER_MISSING")
+    setup_metrics = chrome.parent / "SetupMetrics"
+    with _preserve_directory_state(setup_metrics, "CONTROLLED_BROWSER_SETUP_METRICS"):
+        with tempfile.TemporaryDirectory(prefix="rc7-runtime-clean-browser-") as profile:
+            browser_command = [
+                str(chrome),
+                "--headless=new",
+                "--disable-gpu",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-background-networking",
+                "--disable-component-update",
+                "--disable-sync",
+                "--user-data-dir=%s" % profile,
+                "--dump-dom",
+                "data:text/html,<html><body>%s</body></html>" % _BROWSER_MARKER,
+            ]
+            browser_output = execute("controlled_browser", browser_command, timeout=60)
+            if _BROWSER_MARKER not in browser_output:
+                raise RuntimeCleanSmokeError("CONTROLLED_BROWSER_MARKER_MISSING")
 
     browserskill_root = _require_dir(runtime / "browser/browserskill", "BROWSERSKILL")
     bsk = _unique_file(browserskill_root, "bsk.exe", "BROWSERSKILL")
