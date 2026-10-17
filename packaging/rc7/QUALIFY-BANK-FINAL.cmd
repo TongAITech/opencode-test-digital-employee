@@ -6,18 +6,20 @@ for %%I in ("%SCRIPT_DIR%..\..") do set "ROOT=%%~fI"
 if not defined PFC_PYTHON if exist "%ROOT%\workspace-template\runtime\python\python.exe" set "PFC_PYTHON=%ROOT%\workspace-template\runtime\python\python.exe"
 if not defined PFC_PYTHON set "PFC_PYTHON=python"
 
-if not defined PFC_RC7_R1_PATH (
-  echo {"status":"HOLD","reason":"PFC_RC7_R1_PATH_REQUIRED"} 1>&2
-  exit /b 20
-)
-if not defined PFC_RC7_MISSION_ID (
-  echo {"status":"HOLD","reason":"PFC_RC7_MISSION_ID_REQUIRED"} 1>&2
-  exit /b 21
-)
-if not defined PFC_RC7_BANK_TARGET_ID (
-  echo {"status":"HOLD","reason":"PFC_RC7_BANK_TARGET_ID_REQUIRED"} 1>&2
-  exit /b 22
-)
+rem Preserve the strict Bank Final gate while removing manual environment
+rem stitching. If any canonical identity is missing, delegate to the resolver.
+rem The resolver only auto-selects a unique graph-v2 Mission and unique formal
+rem execution target; ambiguity returns HOLD and never uses a latest-wins rule.
+if not defined PFC_RC7_R1_PATH goto AUTO_RESOLVE
+if not defined PFC_RC7_MISSION_ID goto AUTO_RESOLVE
+if not defined PFC_RC7_BANK_TARGET_ID goto AUTO_RESOLVE
+goto HAVE_CONTEXT
+
+:AUTO_RESOLVE
+"%PFC_PYTHON%" -m rc7_release.bank_field_launcher run --package-root "%ROOT%" %*
+exit /b %ERRORLEVEL%
+
+:HAVE_CONTEXT
 if not exist "%PFC_RC7_R1_PATH%" (
   echo {"status":"HOLD","reason":"R1_EVENT_STREAM_NOT_FOUND"} 1>&2
   exit /b 23
