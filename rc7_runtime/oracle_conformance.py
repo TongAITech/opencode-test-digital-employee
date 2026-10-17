@@ -1,6 +1,6 @@
 """Bank-field conformance for Runtime-owned Actual Result and Oracle truth.
 
-ExecutionRecoveryConformance proves the attempt/recovery sequence.  This gate
+ExecutionRecoveryConformance proves the attempt/recovery sequence. This gate
 proves a different invariant: a terminal test result is backed by the exact
 runtime-observed actual result and deterministic assertion that decided it.
 It is intentionally additive and does not change the frozen execution recovery
@@ -14,13 +14,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
+import rc6_runtime.execution_overlay  # noqa: F401 - register execution/assertion R1 types
 from rc6_runtime.truth import TruthRuntime
 
 from .case_runtime import PREPARED_ATTEMPT_KIND
-from .contracted_runner import RUNTIME_EVIDENCE_KIND if False else None
 
 
-# Keep literals local to avoid a release->runtime dependency cycle.
+# Keep literals local to avoid a runtime -> release dependency cycle.
 RUNTIME_EXECUTION_RECORD_KIND = "RUNTIME_EXECUTION_RECORD"
 RUNTIME_EXECUTION_SOURCE = "runtime://formal-execution"
 CONTRACTED_RUNNER_SCHEMA = "pfc.aitest.rc7.contracted-runner.v1"
@@ -156,8 +156,6 @@ class ActualResultOracleConformanceChecker:
                 continue
             if status == "PASS" and assertion_passed is not True:
                 violations.append("EXECUTION_PASS_REQUIRES_ORACLE_PASS:%s" % attempt_id)
-            if assertion_passed is False and status == "PASS":
-                violations.append("ORACLE_FAIL_CANNOT_EXECUTION_PASS:%s" % attempt_id)
             if str(assertion.get("tc_id") or "") != str(execution.get("tc_id") or ""):
                 violations.append("ORACLE_ASSERTION_TC_MISMATCH:%s" % attempt_id)
             if str(assertion.get("oracle_fingerprint") or "") != str(execution.get("oracle_fingerprint") or ""):
@@ -205,12 +203,9 @@ class ActualResultOracleConformanceChecker:
             if status == "PASS" and record.get("integrity_passed") is not True:
                 violations.append("FORMAL_EXECUTION_PASS_INTEGRITY_REQUIRED:%s" % attempt_id)
 
-            before = len(violations)
-            # Count this attempt as proven only if no violation mentions it.
             if not any(attempt_id in violation for violation in violations):
                 proven.append(attempt_id)
                 evidence_ids.append(str(formal_row.get("evidence_id") or ""))
-            _ = before
 
         if not proven:
             violations.append("AT_LEAST_ONE_RUNTIME_ORACLE_PROVEN_ATTEMPT_REQUIRED")
