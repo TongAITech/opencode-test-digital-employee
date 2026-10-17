@@ -17,6 +17,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 from rc6_runtime.truth import TruthRuntime
 
+from .case_coverage_field_summary import CaseCoverageFieldSummaryBuilder
 from .mission_convergence_conformance import MissionConvergenceConformanceChecker
 
 
@@ -110,6 +111,21 @@ class RC7FinalReportBuilder:
         if convergence_guard.enforced and convergence_guard.status != "PASS":
             raise FinalReportError("FINAL_REPORT_CONVERGENCE_CONFORMANCE_FAILED")
 
+        # Case coverage is independently reconstructed from R1 so a forged
+        # CONVERGED state or a partial Execution aggregate cannot hide Test
+        # Design -> Script -> Execution shrinkage in the final report. Legacy
+        # Missions without CASE_FANOUT_CONTRACT remain visible as NOT_ENFORCED.
+        try:
+            case_coverage = CaseCoverageFieldSummaryBuilder(self.truth).build(mission_id)
+        except Exception as exc:
+            raise FinalReportError("FINAL_REPORT_CASE_COVERAGE_ERROR:%s" % str(exc)) from exc
+        if case_coverage.enforced and case_coverage.status != "PASS":
+            raise FinalReportError(
+                "FINAL_REPORT_CASE_COVERAGE_INCOMPLETE:%s"
+                % ",".join(case_coverage.blocking_reasons)
+            )
+        case_coverage_payload = case_coverage.as_dict()
+
         evaluation_id = mission.get("latest_evaluation_id")
         evaluations = self.truth.query("rc7_evaluation", mission_id=mission_id)
         final_evaluations = [
@@ -168,10 +184,11 @@ class RC7FinalReportBuilder:
             "gap_status": _count_by(gaps, "state"),
             "defect_status": _count_by(defects, "state"),
             "execution_results": execution_results,
+            "case_coverage": case_coverage_payload,
             "residual_risk_ids": sorted(str(x) for x in mission.get("residual_risk_ids", [])),
         }
         manifest = {
-            "schema_version": "RC7_FINAL_REPORT_V1",
+            "schema_version": "RC7_FINAL_REPORT_V2",
             "source": "R1_EVENT_STREAM_PROJECTION",
             "generated_at": int(time.time()),
             "mission_id": mission_id,
@@ -191,6 +208,7 @@ class RC7FinalReportBuilder:
             "gap_status": truth_basis["gap_status"],
             "defect_status": truth_basis["defect_status"],
             "execution_results": execution_results,
+            "case_coverage": case_coverage_payload,
             "residual_risk_ids": truth_basis["residual_risk_ids"],
             "identity_index": identity_index,
             "truth_digest": _digest(truth_basis),
@@ -211,6 +229,7 @@ class RC7FinalReportBuilder:
             "gap_status",
             "defect_status",
             "execution_results",
+            "case_coverage",
             "residual_risk_ids",
             "identity_index",
             "truth_digest",
@@ -236,15 +255,29 @@ class RC7FinalReportBuilder:
             )
             for item in manifest.get("execution_results", [])
         )
+        coverage = manifest.get("case_coverage", {})
+        coverage_summary = {
+            "status": coverage.get("status"),
+            "accepted_case_count": coverage.get("accepted_case_count"),
+            "script_ready_case_count": coverage.get("script_ready_case_count"),
+            "execution_terminal_case_count": coverage.get("execution_terminal_case_count"),
+            "recovered_case_count": coverage.get("recovered_case_count"),
+            "product_defect_case_count": coverage.get("product_defect_case_count"),
+            "unresolved_product_defect_count": coverage.get("unresolved_product_defect_count"),
+            "missing_script_tc_ids": coverage.get("missing_script_tc_ids", []),
+            "missing_execution_tc_ids": coverage.get("missing_execution_tc_ids", []),
+        }
         return """<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">
 <title>RC7 最终测试报告</title><style>body{font-family:Arial,'Microsoft YaHei',sans-serif;max-width:1100px;margin:32px auto}table{border-collapse:collapse;width:100%%}td,th{border:1px solid #ddd;padding:8px;text-align:left}pre{white-space:pre-wrap}</style></head><body>
 <h1>RC7 最终测试报告</h1><p>Mission：%s</p><p>版本：%s</p><p>Mission 状态：%s</p><p>测试充分度：%s</p><p>数据源：R1 Event Stream 派生投影</p>
+<h2>Case 覆盖闭环</h2><pre>%s</pre>
 <h2>执行结论</h2><table><tr><th>Evaluation</th><th>测试结果</th><th>失败分类</th><th>结论可信</th></tr>%s</table>
 <h2>缺陷状态</h2><pre>%s</pre><h2>Gap 状态</h2><pre>%s</pre><h2>残余风险</h2><pre>%s</pre><p>Truth digest：%s</p></body></html>""" % (
             escape(str(manifest.get("mission_id", ""))),
             escape(str(manifest.get("release_id", ""))),
             escape(str(manifest.get("mission_state", ""))),
             escape(str(manifest.get("sufficiency_state", ""))),
+            escape(json.dumps(coverage_summary, ensure_ascii=False, indent=2)),
             execution_rows,
             escape(json.dumps(manifest.get("defect_status", {}), ensure_ascii=False, indent=2)),
             escape(json.dumps(manifest.get("gap_status", {}), ensure_ascii=False, indent=2)),
