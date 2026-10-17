@@ -15,6 +15,11 @@ from typing import Iterable, Mapping, Optional, Sequence, Set, Tuple
 
 from rc6_runtime.truth import TruthRuntime
 
+from .execution_fanout_conformance import (
+    EXECUTION_TERMINAL_KIND,
+    ExecutionFanoutConformanceError,
+    load_execution_terminal_receipt,
+)
 from .gap_router import GapRouter
 from .models import (
     Artifact,
@@ -276,6 +281,60 @@ class GapRepairPlanner:
         return task
 
     def _product_defect_source(self, gap: Gap) -> Tuple[str, str]:
+        receipt_source = self._product_defect_source_from_terminal_receipt(gap)
+        if receipt_source is not None:
+            return receipt_source
+        return self._legacy_product_defect_source(gap)
+
+    def _product_defect_source_from_terminal_receipt(self, gap: Gap) -> Optional[Tuple[str, str]]:
+        candidate_ids = []
+        for evidence_id in gap.evidence_refs:
+            rows = self.truth.query("rc7_evidence", evidence_id=evidence_id)
+            if len(rows) == 1 and rows[0].get("kind") == EXECUTION_TERMINAL_KIND:
+                candidate_ids.append(str(evidence_id))
+        candidate_ids = sorted(set(candidate_ids))
+        if not candidate_ids:
+            return None
+        if len(candidate_ids) != 1:
+            raise ControlPlaneError("PRODUCT_DEFECT_TERMINAL_RECEIPT_NOT_UNIQUE")
+        receipt_id = candidate_ids[0]
+        try:
+            payload = load_execution_terminal_receipt(
+                self.truth,
+                mission_id=gap.mission_id,
+                receipt_id=receipt_id,
+            )
+        except ExecutionFanoutConformanceError as exc:
+            raise ControlPlaneError("PRODUCT_DEFECT_TERMINAL_RECEIPT_INVALID:%s" % exc) from exc
+        if payload.get("outcome") != "PRODUCT_DEFECT":
+            raise ControlPlaneError("PRODUCT_DEFECT_TERMINAL_RECEIPT_OUTCOME_INVALID")
+        snapshot = payload.get("product_defect_gap")
+        if not isinstance(snapshot, dict) or snapshot.get("gap_id") != gap.gap_id:
+            raise ControlPlaneError("PRODUCT_DEFECT_TERMINAL_GAP_BINDING_MISMATCH")
+        artifact_id = str(payload.get("execution_artifact_id") or "")
+        if not artifact_id:
+            raise ControlPlaneError("PRODUCT_DEFECT_TERMINAL_SOURCE_ARTIFACT_REQUIRED")
+        artifacts = self.truth.query("rc7_artifact", artifact_id=artifact_id)
+        if len(artifacts) != 1:
+            raise ControlPlaneError("PRODUCT_DEFECT_SOURCE_ARTIFACT_NOT_UNIQUE")
+        artifact = artifacts[0]
+        if artifact.get("mission_id") != gap.mission_id:
+            raise ControlPlaneError("PRODUCT_DEFECT_SOURCE_ARTIFACT_MISSION_MISMATCH")
+        if artifact.get("artifact_type_name") != "EXECUTION_CONCLUSION":
+            raise ControlPlaneError("PRODUCT_DEFECT_SOURCE_EXECUTION_ARTIFACT_REQUIRED")
+        producer_task_id = str(artifact.get("producer_task_id") or "")
+        if not producer_task_id or producer_task_id != str(payload.get("execution_task_id") or ""):
+            raise ControlPlaneError("PRODUCT_DEFECT_SOURCE_TASK_BINDING_MISMATCH")
+        source_task = self.scheduler._row(producer_task_id)
+        if source_task is None:
+            raise ControlPlaneError("PRODUCT_DEFECT_SOURCE_TASK_NOT_FOUND")
+        if source_task.get("mission_id") != gap.mission_id or source_task.get("node") != "EXECUTION":
+            raise ControlPlaneError("PRODUCT_DEFECT_SOURCE_TASK_IDENTITY_MISMATCH")
+        if source_task.get("state") != TaskStatus.PASS.value:
+            raise ControlPlaneError("PRODUCT_DEFECT_SOURCE_EXECUTION_TASK_PASS_REQUIRED")
+        return producer_task_id, artifact_id
+
+    def _legacy_product_defect_source(self, gap: Gap) -> Tuple[str, str]:
         evaluations = [
             row
             for row in self.truth.query("rc7_evaluation", mission_id=gap.mission_id)
