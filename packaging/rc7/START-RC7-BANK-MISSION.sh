@@ -11,17 +11,22 @@ if [ -z "${PFC_RC7_SOURCE_COMMIT:-}" ] && [ -f "$ROOT/SOURCE_COMMIT" ]; then
   PFC_RC7_SOURCE_COMMIT=$(tr -d '\r\n' < "$ROOT/SOURCE_COMMIT")
   export PFC_RC7_SOURCE_COMMIT
 fi
-: "${PFC_RC7_MISSION_ID:?PFC_RC7_MISSION_ID is required}"
-: "${PFC_RC7_RELEASE_ID:?PFC_RC7_RELEASE_ID is required}"
-: "${PFC_RC7_MISSION_GOAL:?PFC_RC7_MISSION_GOAL is required}"
 mkdir -p "$(dirname "$R1_PATH")"
 PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH PFC_AITEST_STATE_DIR="$STATE_ROOT"
 cd "$ROOT"
 echo "[RC7] Mission R1: $R1_PATH"
-exec "$PYTHON_BIN" -m rc7_runtime.bank_mission \
-  --r1 "$R1_PATH" \
-  --mission-id "$PFC_RC7_MISSION_ID" \
-  --release-id "$PFC_RC7_RELEASE_ID" \
-  --goal "$PFC_RC7_MISSION_GOAL" \
-  "$@"
+
+# Backward compatible environment mode. Otherwise pass normal CLI arguments
+# straight to the durable Bank Mission entrypoint, so no prior export commands
+# are required.
+if [ -n "${PFC_RC7_MISSION_ID:-}" ] && [ -n "${PFC_RC7_RELEASE_ID:-}" ] && [ -n "${PFC_RC7_MISSION_GOAL:-}" ]; then
+  exec "$PYTHON_BIN" -m rc7_runtime.bank_mission \
+    --r1 "$R1_PATH" \
+    --mission-id "$PFC_RC7_MISSION_ID" \
+    --release-id "$PFC_RC7_RELEASE_ID" \
+    --goal "$PFC_RC7_MISSION_GOAL" \
+    "$@"
+fi
+
+exec "$PYTHON_BIN" -m rc7_runtime.bank_mission --r1 "$R1_PATH" "$@"
