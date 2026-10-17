@@ -1,9 +1,17 @@
 """R1/control-plane integration for runtime-owned formal execution.
 
-The same runtime-issued layer identity leases the RC7 EXECUTION Task, launches
-the approved runner, persists process/result evidence and an
-EXECUTION_CONCLUSION Artifact, then submits the independent ExecutionClosedLoop
-Evaluation.  No model/worker can provide the authoritative execution status.
+Field Case Preparation must run under the same governed EXECUTION ownership that
+will later launch the business runner.  This service therefore exposes a
+strict two-phase lifecycle:
+
+1. ``activate_task`` issues Runtime identity/authority lease, admits tools and
+   leases the durable Task but does not start business execution.
+2. Field Case Runtime may prepare data/preconditions while that lease is active.
+3. ``execute_active_task`` verifies the exact ownership and starts the real
+   runner, Oracle/diagnosis/fan-out pipeline.
+
+``execute_task`` remains the compatibility wrapper for already-prepared callers.
+No model/worker can provide the authoritative execution status.
 """
 
 from __future__ import annotations
@@ -42,6 +50,17 @@ def _stable_id(prefix: str, *parts: str) -> str:
 
 
 @dataclass(frozen=True)
+class ActiveRuntimeExecution:
+    task_id: str
+    tc_id: str
+    case_version: int
+    target_id: str
+    layer: str
+    runtime_worker_id: str
+    runtime_lease_id: str
+
+
+@dataclass(frozen=True)
 class ClosedLoopExecutionResult:
     execution_record: ExecutionRecord
     record_artifact_id: str
@@ -67,37 +86,29 @@ class ClosedLoopRuntimeExecutionService:
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
 
-    def execute_task(
+    def activate_task(
         self,
         control: ClosedLoopControlPlane,
         task_id: str,
         *,
         bundle: VerifiedScriptExecutionBundle,
-        prepared: PreparedAttempt,
+        target_id: str,
         authority: RC7AuthorityRuntime,
         tool_broker: ToolCapabilityBroker,
-        oracle_evaluator: Callable[[Dict[str, Any], Dict[str, Any], Dict[str, Any]], Dict[str, Any]],
-        cwd: str,
-        env: Optional[Mapping[str, str]] = None,
-        diagnosis: Optional[DiagnosisResult] = None,
-        recovery: Optional[RecoveryDecision] = None,
-        diagnosis_coordinator: Optional[ExecutionDiagnosisCoordinator] = None,
-        diagnosis_trust: Optional[ExecutionTrustFacts] = None,
-    ) -> ClosedLoopExecutionResult:
+    ) -> ActiveRuntimeExecution:
         task = control.scheduler.task(task_id)
         if task.node != "EXECUTION":
             raise RuntimeExecutionError("FORMAL_EXECUTION_TASK_NODE_MISMATCH")
         if task.state != TaskStatus.READY:
             raise RuntimeExecutionError("FORMAL_EXECUTION_TASK_NOT_READY")
-        if prepared.tc_id != bundle.spec.tc_id or prepared.case_version != bundle.spec.case_version:
-            raise RuntimeExecutionError("PREPARED_ATTEMPT_SCRIPT_CASE_MISMATCH")
-        if prepared.status != "PREPARED":
-            raise RuntimeExecutionError("FORMAL_EXECUTION_REQUIRES_PREPARED_ATTEMPT")
+        target_id = str(target_id or "").strip()
+        if not target_id:
+            raise RuntimeExecutionError("FORMAL_EXECUTION_TARGET_ID_REQUIRED")
 
         runtime = ExecutionRuntime(
             authority=authority,
             tool_broker=tool_broker,
-            oracle_evaluator=oracle_evaluator,
+            oracle_evaluator=lambda *_args, **_kwargs: {"passed": False},
         )
         profile = runtime.profiles.get(bundle.spec.layer)
         identity = authority.issue_identity(
@@ -121,17 +132,111 @@ class ClosedLoopRuntimeExecutionService:
                 raise RuntimeExecutionError(
                     "EXECUTION_TOOL_RUNTIME_BIND_FAILED:%s:%s" % (tool_id, exc)
                 ) from exc
-        admission = tool_broker.admit(identity.worker_id, profile.required_tools, prepared.target_id)
+        admission = tool_broker.admit(identity.worker_id, profile.required_tools, target_id)
         if not admission.ready:
             raise RuntimeExecutionError("EXECUTION_TOOL_ADMISSION_NOT_READY:%s" % admission.blocked)
-
         leased = control.lease_next(
             worker_ref=identity.worker_id,
             capabilities=("test_execution",),
         )
         if leased is None or leased.task_id != task_id:
             raise RuntimeExecutionError("FORMAL_EXECUTION_SCHEDULER_LEASE_MISMATCH")
-        control.start(task_id, worker_ref=identity.worker_id)
+        return ActiveRuntimeExecution(
+            task_id=task_id,
+            tc_id=bundle.spec.tc_id,
+            case_version=bundle.spec.case_version,
+            target_id=target_id,
+            layer=bundle.spec.layer,
+            runtime_worker_id=identity.worker_id,
+            runtime_lease_id=lease.lease_id,
+        )
+
+    def execute_task(
+        self,
+        control: ClosedLoopControlPlane,
+        task_id: str,
+        *,
+        bundle: VerifiedScriptExecutionBundle,
+        prepared: PreparedAttempt,
+        authority: RC7AuthorityRuntime,
+        tool_broker: ToolCapabilityBroker,
+        oracle_evaluator: Callable[[Dict[str, Any], Dict[str, Any], Dict[str, Any]], Dict[str, Any]],
+        cwd: str,
+        env: Optional[Mapping[str, str]] = None,
+        diagnosis: Optional[DiagnosisResult] = None,
+        recovery: Optional[RecoveryDecision] = None,
+        diagnosis_coordinator: Optional[ExecutionDiagnosisCoordinator] = None,
+        diagnosis_trust: Optional[ExecutionTrustFacts] = None,
+    ) -> ClosedLoopExecutionResult:
+        active = self.activate_task(
+            control,
+            task_id,
+            bundle=bundle,
+            target_id=prepared.target_id,
+            authority=authority,
+            tool_broker=tool_broker,
+        )
+        return self.execute_active_task(
+            control,
+            task_id,
+            bundle=bundle,
+            prepared=prepared,
+            active=active,
+            authority=authority,
+            tool_broker=tool_broker,
+            oracle_evaluator=oracle_evaluator,
+            cwd=cwd,
+            env=env,
+            diagnosis=diagnosis,
+            recovery=recovery,
+            diagnosis_coordinator=diagnosis_coordinator,
+            diagnosis_trust=diagnosis_trust,
+        )
+
+    def execute_active_task(
+        self,
+        control: ClosedLoopControlPlane,
+        task_id: str,
+        *,
+        bundle: VerifiedScriptExecutionBundle,
+        prepared: PreparedAttempt,
+        active: ActiveRuntimeExecution,
+        authority: RC7AuthorityRuntime,
+        tool_broker: ToolCapabilityBroker,
+        oracle_evaluator: Callable[[Dict[str, Any], Dict[str, Any], Dict[str, Any]], Dict[str, Any]],
+        cwd: str,
+        env: Optional[Mapping[str, str]] = None,
+        diagnosis: Optional[DiagnosisResult] = None,
+        recovery: Optional[RecoveryDecision] = None,
+        diagnosis_coordinator: Optional[ExecutionDiagnosisCoordinator] = None,
+        diagnosis_trust: Optional[ExecutionTrustFacts] = None,
+    ) -> ClosedLoopExecutionResult:
+        task = control.scheduler.task(task_id)
+        if task.node != "EXECUTION" or task.state != TaskStatus.LEASED:
+            raise RuntimeExecutionError("FORMAL_EXECUTION_ACTIVE_TASK_LEASE_REQUIRED")
+        if task.lease_owner != active.runtime_worker_id:
+            raise RuntimeExecutionError("FORMAL_EXECUTION_ACTIVE_OWNER_MISMATCH")
+        if active.task_id != task_id:
+            raise RuntimeExecutionError("FORMAL_EXECUTION_ACTIVE_TASK_MISMATCH")
+        if (
+            active.tc_id != bundle.spec.tc_id
+            or active.case_version != bundle.spec.case_version
+            or active.layer != bundle.spec.layer
+        ):
+            raise RuntimeExecutionError("FORMAL_EXECUTION_ACTIVE_BUNDLE_MISMATCH")
+        if prepared.tc_id != bundle.spec.tc_id or prepared.case_version != bundle.spec.case_version:
+            raise RuntimeExecutionError("PREPARED_ATTEMPT_SCRIPT_CASE_MISMATCH")
+        if prepared.target_id != active.target_id:
+            raise RuntimeExecutionError("PREPARED_ATTEMPT_ACTIVE_TARGET_MISMATCH")
+        if prepared.status != "PREPARED":
+            raise RuntimeExecutionError("FORMAL_EXECUTION_REQUIRES_PREPARED_ATTEMPT")
+
+        runtime = ExecutionRuntime(
+            authority=authority,
+            tool_broker=tool_broker,
+            oracle_evaluator=oracle_evaluator,
+        )
+        control.start(task_id, worker_ref=active.runtime_worker_id)
 
         if bundle.spec.runner_type == "PYTEST":
             runner = PytestRunnerAdapter(timeout_seconds=self.timeout_seconds)
@@ -150,8 +255,8 @@ class ClosedLoopRuntimeExecutionService:
             script=bundle.script,
             validation=bundle.validation,
             prepared=prepared,
-            worker_id=identity.worker_id,
-            lease_id=lease.lease_id,
+            worker_id=active.runtime_worker_id,
+            lease_id=active.runtime_lease_id,
             runner=runner,
             cwd=cwd,
             env=env,
@@ -220,7 +325,7 @@ class ClosedLoopRuntimeExecutionService:
         control.submit_worker_output(
             WorkerOutput(
                 task_id=task_id,
-                worker_ref=identity.worker_id,
+                worker_ref=active.runtime_worker_id,
                 artifacts=(record_artifact,),
                 evidence=output_evidence,
             )
@@ -259,8 +364,8 @@ class ClosedLoopRuntimeExecutionService:
             evidence_ids=evidence_ids,
             loop_result=loop_result,
             task_state=accepted.state.value,
-            runtime_worker_id=identity.worker_id,
-            runtime_lease_id=lease.lease_id,
+            runtime_worker_id=active.runtime_worker_id,
+            runtime_lease_id=active.runtime_lease_id,
         )
 
     def _persistable_output(
