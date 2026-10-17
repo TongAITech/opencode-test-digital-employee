@@ -14,6 +14,10 @@ from typing import Dict, Mapping, Optional, Sequence, Tuple
 
 from rc6_runtime.truth import TruthRuntime
 from .closed_loop_control import ClosedLoopControlPlane
+from .execution_recovery_conformance import (
+    contract_enabled as execution_recovery_contract_enabled,
+    persist_contract as persist_execution_recovery_contract,
+)
 from .mission_graph import MissionTaskGraphCompiler
 from .models import Evidence, Mission
 from .node_tool_conformance import contract_enabled as node_tool_contract_enabled, persist_contract as persist_node_tool_contract
@@ -145,14 +149,24 @@ def start_or_resume(*, r1_path: str, mission_id: str, release_id: str, goal: str
             compiler=compiler,
             task_ids=task_ids,
         )
-        # New Bank graph-v2 Missions opt into durable node/tool enforcement.
-        # Existing persisted Missions are never silently upgraded on resume.
+        # New Bank graph-v2 Missions opt into durable node/tool and execution
+        # recovery enforcement. Existing persisted Missions are never silently
+        # upgraded on resume, preserving frozen contract identity.
         if compiler.graph_version == MissionTaskGraphCompiler.GRAPH_V2:
             persist_node_tool_contract(
                 truth,
                 mission_id=mission_id,
                 release_id=release_id,
                 task_ids=task_ids,
+            )
+            execution_tasks = [task for task in graph.tasks if task.node == "EXECUTION"]
+            if len(execution_tasks) != 1:
+                raise BankMissionError("V2_EXECUTION_TASK_NOT_UNIQUE")
+            persist_execution_recovery_contract(
+                truth,
+                mission_id=mission_id,
+                release_id=release_id,
+                execution_task_id=execution_tasks[0].task_id,
             )
         action = "STARTED"
     else:
@@ -191,6 +205,7 @@ def start_or_resume(*, r1_path: str, mission_id: str, release_id: str, goal: str
         "open_gap_count": len([x for x in gap_rows if x.get("state") in {"OPEN","PLANNED","REPAIRING","EVIDENCE_PENDING","HUMAN_REQUIRED","BLOCKED"}]),
         "ready_tasks": ready,
         "node_tool_contract_enabled": node_tool_contract_enabled(truth, mission_id),
+        "execution_recovery_contract_enabled": execution_recovery_contract_enabled(truth, mission_id),
         "real_mission_pass": False,
         "completion_authority": "INDEPENDENT_EVALUATION_AND_MISSION_SUFFICIENCY",
     }

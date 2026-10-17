@@ -49,6 +49,8 @@ jobs:
           rc7_runtime/reality_recon.py
           rc7_runtime/mission_conformance.py
           rc7_runtime/mission_stage_dispatch.py
+          rc7_runtime/case_runtime.py
+          rc7_runtime/execution_recovery_conformance.py
       - name: Run field-hardening regressions
         run: >-
           python -m pytest -q
@@ -59,6 +61,8 @@ jobs:
           tests/test_rc7_mcp_stdio.py
           tests/test_rc7_professional_windows_decode.py
           tests/test_rc7_truth_overlay.py
+          tests/test_rc7_case_runtime.py
+          tests/test_rc7_execution_recovery_conformance.py
 
   rc7-source-suite:
     name: RC7 source suite

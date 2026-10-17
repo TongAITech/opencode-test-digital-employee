@@ -15,6 +15,11 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from rc6_runtime.truth import TruthRuntime
 
+from .execution_recovery_conformance import (
+    ExecutionRecoveryConformanceChecker,
+    ExecutionRecoveryConformanceError,
+    contract_row as execution_recovery_contract_row,
+)
 from .mission_graph import MissionTaskGraphCompiler
 from .node_tool_conformance import (
     NODE_TOOL_REQUIREMENTS,
@@ -85,6 +90,13 @@ class MissionConformanceChecker:
             violations.append("NODE_TOOL_CONTRACT_INVALID:%s" % str(exc))
         node_tool_checker = NodeToolConformanceChecker(self.truth)
 
+        try:
+            execution_recovery_contract = execution_recovery_contract_row(self.truth, mission_id)
+        except ExecutionRecoveryConformanceError as exc:
+            execution_recovery_contract = None
+            violations.append("EXECUTION_RECOVERY_CONTRACT_INVALID:%s" % str(exc))
+        execution_recovery_checker = ExecutionRecoveryConformanceChecker(self.truth)
+
         expected_ids = {task.task_id for task in expected.tasks}
         for task in expected.tasks:
             row = actual.get(task.task_id)
@@ -111,6 +123,16 @@ class MissionConformanceChecker:
                             task.node,
                             ",".join(tool_result.missing_capabilities),
                         )
+                    )
+            if (
+                execution_recovery_contract is not None
+                and task.node == "EXECUTION"
+                and str(row.get("state") or "") == "PASS"
+            ):
+                recovery_result = execution_recovery_checker.check_task(mission_id, task.task_id)
+                if recovery_result.status != "PASS":
+                    violations.append(
+                        "EXECUTION_RECOVERY_CONFORMANCE_FAILED:%s" % ",".join(recovery_result.violations)
                     )
 
         if graph_version == MissionTaskGraphCompiler.GRAPH_V2:
@@ -144,6 +166,10 @@ class MissionConformanceChecker:
                     violations.append(
                         "NODE_TOOL_CONTRACT_TASK_COVERAGE_MISSING:%s" % ",".join(missing_contract_tasks)
                     )
+            if execution_recovery_contract is not None:
+                execution_task = expected.task("EXECUTION")
+                if execution_task.task_id not in set(execution_recovery_contract.get("subject_refs") or []):
+                    violations.append("EXECUTION_RECOVERY_CONTRACT_TASK_COVERAGE_MISSING:%s" % execution_task.task_id)
 
         canonical_rows = [row for task_id, row in actual.items() if task_id in expected_ids]
         mission_state = str(mission.get("state") or "UNKNOWN")

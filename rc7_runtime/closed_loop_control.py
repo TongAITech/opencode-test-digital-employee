@@ -16,6 +16,11 @@ from typing import Iterable, List, Mapping, Optional, Sequence, Tuple
 from rc6_runtime.truth import TruthRuntime
 
 from .control_plane import ControlPlaneError, GapRepairPlanner, TaskScheduler, WorkerOutput
+from .execution_recovery_conformance import (
+    ExecutionRecoveryConformanceChecker,
+    ExecutionRecoveryConformanceError,
+    contract_enabled as execution_recovery_contract_enabled,
+)
 from .models import (
     Evaluation,
     EvaluationResult,
@@ -171,6 +176,8 @@ class ClosedLoopControlPlane:
                 raise ClosedLoopControlError("PASS_EVALUATION_GAP_NOT_HANDOFF_ELIGIBLE")
         if evaluation.result == EvaluationResult.REPAIR_REQUIRED and not gaps:
             raise ClosedLoopControlError("REPAIR_EVALUATION_REQUIRES_GAPS")
+        if evaluation.result == EvaluationResult.PASS and task.node == "EXECUTION":
+            self._require_execution_recovery_pass_ready(task)
 
         append_entity(self.truth, evaluation, release_id=self.release_id, artifact_version=1)
         transition_task(task, TaskStatus.EVALUATING)
@@ -313,6 +320,7 @@ class ClosedLoopControlPlane:
             raise ClosedLoopControlError("MISSION_EVALUATION_IDENTITY_MISMATCH")
         if evaluation.result != EvaluationResult.PASS:
             raise ClosedLoopControlError("MISSION_EVALUATION_MUST_PASS")
+        self._require_execution_recovery_pass_ready()
         active = [
             row["task_id"]
             for row in self.truth.query("rc7_task", mission_id=self.mission_id)
@@ -358,6 +366,25 @@ class ClosedLoopControlPlane:
         mission.sufficiency_state = sufficiency_state
         self._sync_mission(mission)
         return mission
+
+    def _require_execution_recovery_pass_ready(self, task: Optional[Task] = None) -> None:
+        if not execution_recovery_contract_enabled(self.truth, self.mission_id):
+            return
+        execution_task = task
+        if execution_task is None:
+            rows = [
+                row for row in self.truth.query("rc7_task", mission_id=self.mission_id)
+                if str(row.get("node") or "") == "EXECUTION"
+            ]
+            if len(rows) != 1:
+                raise ClosedLoopControlError("EXECUTION_TASK_NOT_UNIQUE_FOR_RECOVERY_CONFORMANCE")
+            execution_task = self.scheduler.task(str(rows[0]["task_id"]))
+        if execution_task.node != "EXECUTION":
+            return
+        try:
+            ExecutionRecoveryConformanceChecker(self.truth).require_task_pass_ready(execution_task)
+        except ExecutionRecoveryConformanceError as exc:
+            raise ClosedLoopControlError(str(exc)) from exc
 
     def snapshot(self) -> Mapping[str, object]:
         mission = self._mission_row()
