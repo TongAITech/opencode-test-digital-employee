@@ -18,6 +18,7 @@ MISSION = "MISSION-ONE-SST-FIELD"
 RELEASE = "BLOAN-PF-FIELD"
 SST = "STB-FIELD-0001"
 COMMIT = "a" * 40
+GOAL = "Qualify one fixed Bank SST field identity"
 
 
 def _root(tmp_path: Path) -> Path:
@@ -33,6 +34,7 @@ def test_start_one_sst_binds_requirement_input_and_resume_identity(tmp_path: Pat
         mission_id=MISSION,
         release_id=RELEASE,
         sst_ids=[SST],
+        goal=GOAL,
     )
     assert started["status"] == "STARTED"
     assert started["graph_version"] == "v2"
@@ -53,18 +55,20 @@ def test_start_one_sst_binds_requirement_input_and_resume_identity(tmp_path: Pat
         mission_id=MISSION,
         release_id=RELEASE,
         sst_ids=[SST],
+        goal=GOAL,
     )
     assert resumed["status"] == "RESUMED"
     assert resumed["sst_ids"] == [SST]
 
-    # A resume is the same durable Mission, not a way to silently retarget it
-    # to another SST.
+    # Hold the Mission goal constant so this assertion proves the SST input
+    # identity itself cannot be silently retargeted on resume.
     with pytest.raises(Exception, match="MISSION_GRAPH_INPUT_MISMATCH"):
         start_one_sst(
             package_root=str(root),
             mission_id=MISSION,
             release_id=RELEASE,
             sst_ids=["STB-FIELD-DIFFERENT"],
+            goal=GOAL,
         )
 
 
