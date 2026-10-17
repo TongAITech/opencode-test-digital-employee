@@ -150,6 +150,29 @@ def test_browser_smoke_requires_expected_dom_marker(tmp_path: Path) -> None:
         qualify_runtime_clean_smoke(root, runner=FakeRunner(browser_ok=False), require_windows=False)
 
 
+def test_browser_smoke_restores_setup_metrics_package_state(tmp_path: Path) -> None:
+    root = _layout(tmp_path)
+    original = _file(
+        root,
+        "workspace-template/runtime/browser/chrome-win64/SetupMetrics/original.pma",
+        "transport-state",
+    )
+    created = root / "workspace-template/runtime/browser/chrome-win64/SetupMetrics/runtime-created.pma"
+
+    class MutatingBrowserRunner(FakeRunner):
+        def __call__(self, command, *, cwd, env, label, timeout=60):
+            if label == "controlled_browser":
+                original.write_text("mutated-by-chrome", encoding="utf-8")
+                created.write_text("runtime-telemetry", encoding="utf-8")
+            return super().__call__(command, cwd=cwd, env=env, label=label, timeout=timeout)
+
+    result = qualify_runtime_clean_smoke(root, runner=MutatingBrowserRunner(), require_windows=False)
+
+    assert result["status"] == "PASS"
+    assert original.read_text(encoding="utf-8") == "transport-state"
+    assert not created.exists()
+
+
 def test_ambiguous_runtime_binary_fails_closed(tmp_path: Path) -> None:
     root = _layout(tmp_path)
     _file(root, "workspace-template/runtime/ripgrep/other/rg.exe")
