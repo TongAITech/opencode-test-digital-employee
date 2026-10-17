@@ -1,10 +1,10 @@
 """Public RC7 execution facade with governed preparation/diagnosis/recovery.
 
 Low-level execute_generic/execute_l3 remain compatibility surfaces for callers
-that already own a verified PreparedAttempt.  The formal product entrypoints
-prepare_and_execute_generic/prepare_and_execute_l3 start from the frozen Case:
-Runtime resolves preconditions and data, persists immutable R1 preparation
-truth, then owns execution, diagnosis, recovery planning and bounded retry.
+that already own a verified PreparedAttempt. The legacy prepare-and-execute
+helpers use the older in-process preparation adapter and therefore are not
+allowed to prepare a new Bank Case-fanout Mission: those Missions require the
+Field Case Runtime and its durable CASE_PREPARED_ATTEMPT/Human-Gate truth.
 
 L3 is deliberately excluded from the generic path because API truth must be
 produced by the parent-controlled API runtime, never by a child-authored runner
@@ -20,6 +20,7 @@ from rc6_runtime.capability import ToolCapabilityBroker
 from rc6_runtime.preparation import PreparedAttempt
 
 from .authority import RC7AuthorityRuntime
+from .case_fanout_conformance import contract_enabled as case_fanout_contract_enabled
 from .closed_loop_control import ClosedLoopControlPlane
 from .controlled_l3_execution import ControlledL3ClosedLoopExecutionService
 from .execution_autonomous_loop import AutonomousExecutionLoop, AutonomousExecutionLoopResult
@@ -54,6 +55,13 @@ class AutonomousClosedLoopExecutionService:
         self.timeout_seconds = int(timeout_seconds)
         self.max_cycles = int(max_cycles)
         self.max_transient_retries = int(max_transient_retries)
+
+    @staticmethod
+    def _reject_legacy_preparation_for_case_fanout(control: ClosedLoopControlPlane) -> None:
+        if case_fanout_contract_enabled(control.truth, control.mission_id):
+            raise AutonomousExecutionServiceError(
+                "BANK_CASE_FANOUT_REQUIRES_FIELD_CASE_RUNTIME:CASE_PREPARED_ATTEMPT"
+            )
 
     def _coordinator(
         self,
@@ -98,6 +106,7 @@ class AutonomousClosedLoopExecutionService:
     ) -> PreparedAutonomousExecutionResult:
         if str(bundle.spec.layer).upper() == "L3":
             raise AutonomousExecutionServiceError("L3_REQUIRES_CONTROLLED_EXECUTION")
+        self._reject_legacy_preparation_for_case_fanout(control)
         preparation = RuntimePreparationService(evidence_root=self.evidence_root).prepare(
             control,
             task_id,
@@ -150,6 +159,7 @@ class AutonomousClosedLoopExecutionService:
     ) -> PreparedAutonomousExecutionResult:
         if str(bundle.spec.layer).upper() != "L3":
             raise AutonomousExecutionServiceError("CONTROLLED_L3_EXECUTION_REQUIRES_L3_SPEC")
+        self._reject_legacy_preparation_for_case_fanout(control)
         preparation = RuntimePreparationService(evidence_root=self.evidence_root).prepare(
             control,
             task_id,
