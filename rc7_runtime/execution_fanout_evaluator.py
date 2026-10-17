@@ -1,11 +1,12 @@
 """Runtime-only fan-out overlay for canonical EXECUTION.
 
-One real execution attempt concludes one accepted Case.  For Missions carrying
+One real execution attempt concludes one accepted Case. For Missions carrying
 CASE_FANOUT_CONTRACT, the first successful Case is never allowed to collapse
-the top-level EXECUTION task.  Its terminal proof is recorded, missing Cases
+the top-level EXECUTION task. Its terminal proof is recorded, missing Cases
 become deterministic EXECUTION_CASE_PENDING gaps, and their REPAIR tasks remain
-Runtime-owned.  Only the final aggregate pass binds every current Case terminal
-receipt.
+Runtime-owned. Trusted product defects are frozen in their Case receipts while
+siblings run and are replayed as governed PRODUCT_DEFECT handoffs only when the
+aggregate barrier is complete.
 """
 from __future__ import annotations
 
@@ -19,8 +20,8 @@ from .case_fanout_conformance import SCRIPT_READY_KIND, contract_enabled
 from .case_runtime import PREPARED_ATTEMPT_KIND
 from .closed_loop_control import ClosedLoopControlPlane
 from .execution_fanout_conformance import (
-    ExecutionFanoutConformanceError,
     check_execution_barrier,
+    deferred_product_defect_gaps,
     record_execution_terminal,
 )
 from .execution_loop import ExecutionLoopResult
@@ -73,9 +74,6 @@ class RuntimeCaseFanoutExecutionEvaluator:
         task = control.scheduler.task(task_id)
         if task.node != "EXECUTION":
             raise ExecutionCaseFanoutEvaluatorError("EXECUTION_FANOUT_REQUIRES_EXECUTION_TASK")
-        # Inconclusive/repair outcomes are governed by the existing diagnosis
-        # and recovery loop.  A terminal receipt is created only once the Case
-        # itself has a conclusive runtime outcome.
         if not loop_result.conclusive:
             return loop_result
 
@@ -105,14 +103,21 @@ class RuntimeCaseFanoutExecutionEvaluator:
             evidence_root=self.evidence_root,
         )
 
-        # A Runtime-owned repair task corresponds to exactly one pending Case.
-        # It may complete its source Gap; it never owns the aggregate barrier.
+        # A Runtime repair owns only its pre-existing EXECUTION_CASE_PENDING Gap.
+        # Any product defect discovered while repairing is frozen in the receipt
+        # above and deliberately omitted from this repair evaluation; otherwise
+        # ClosedLoopControl's REPAIR branch could create a non-durable handoff.
         if task.task_type == "REPAIR":
-            return self._bind_receipt(loop_result, (receipt_id,), aggregate=False)
+            return self._case_terminal_result(loop_result, receipt_id)
 
         barrier = check_execution_barrier(control.truth, control.mission_id)
         if barrier.status == "PASS":
-            return self._bind_receipt(loop_result, barrier.receipt_ids, aggregate=True)
+            defects = deferred_product_defect_gaps(
+                control.truth,
+                mission_id=control.mission_id,
+                receipt_ids=barrier.receipt_ids,
+            )
+            return self._aggregate_result(loop_result, barrier, defects)
 
         gaps = tuple(
             Gap(
@@ -147,6 +152,13 @@ class RuntimeCaseFanoutExecutionEvaluator:
                 "blocked_tc_ids": list(barrier.blocked_tc_ids),
                 "missing_tc_ids": list(barrier.missing_tc_ids),
                 "case_execution_receipt_ids": list(barrier.receipt_ids),
+                "deferred_product_defect_count": len(
+                    deferred_product_defect_gaps(
+                        control.truth,
+                        mission_id=control.mission_id,
+                        receipt_ids=barrier.receipt_ids,
+                    )
+                ),
             }
         )
         evaluation = Evaluation(
@@ -264,25 +276,69 @@ class RuntimeCaseFanoutExecutionEvaluator:
             raise ExecutionCaseFanoutEvaluatorError("EXECUTION_RECORD_PAYLOAD_INVALID") from exc
 
     @staticmethod
-    def _bind_receipt(
-        loop_result: ExecutionLoopResult,
-        receipt_ids: Tuple[str, ...],
-        *,
-        aggregate: bool,
-    ) -> ExecutionLoopResult:
+    def _case_terminal_result(loop_result: ExecutionLoopResult, receipt_id: str) -> ExecutionLoopResult:
         evaluation = loop_result.evaluation
         dimensions = dict(evaluation.dimensions)
-        dimensions["case_execution_fanout"] = "PASS" if aggregate else "CASE_TERMINAL"
-        dimensions["case_execution_receipt_ids"] = list(receipt_ids)
+        dimensions.update(
+            {
+                "case_execution_fanout": "CASE_TERMINAL",
+                "case_execution_receipt_ids": [receipt_id],
+                "product_defect_deferred": loop_result.recovery_action == "PRODUCT_DEFECT",
+            }
+        )
         bound = Evaluation(
             evaluation_id=evaluation.evaluation_id,
             mission_id=evaluation.mission_id,
             node=evaluation.node,
             artifact_refs=list(evaluation.artifact_refs),
-            result=evaluation.result,
+            result=EvaluationResult.PASS,
             evaluator_ref=evaluation.evaluator_ref,
             dimensions=dimensions,
-            gap_refs=list(evaluation.gap_refs),
-            evidence_refs=list(dict.fromkeys(list(evaluation.evidence_refs) + list(receipt_ids))),
+            gap_refs=[],
+            evidence_refs=list(dict.fromkeys(list(evaluation.evidence_refs) + [receipt_id])),
         )
-        return replace(loop_result, evaluation=bound)
+        return ExecutionLoopResult(
+            evaluation=bound,
+            gaps=(),
+            test_result=loop_result.test_result,
+            conclusive=True,
+            recovery_action=loop_result.recovery_action,
+        )
+
+    @staticmethod
+    def _aggregate_result(loop_result, barrier, defects: Tuple[Gap, ...]) -> ExecutionLoopResult:
+        evaluation = loop_result.evaluation
+        dimensions = dict(evaluation.dimensions)
+        dimensions.update(
+            {
+                "case_execution_fanout": "PASS",
+                "required_case_count": len(barrier.required_tc_ids),
+                "pass_ready_case_count": len(barrier.pass_ready_tc_ids),
+                "case_execution_receipt_ids": list(barrier.receipt_ids),
+                "product_defect_count": len(defects),
+                "test_result": "FAIL" if defects else "PASS",
+                "failure_class": "PRODUCT" if defects else dimensions.get("failure_class"),
+            }
+        )
+        bound = Evaluation(
+            evaluation_id=_stable_id(
+                "EVAL-CASE-EXEC-AGG",
+                evaluation.mission_id,
+                ",".join(sorted(barrier.receipt_ids)),
+            ),
+            mission_id=evaluation.mission_id,
+            node=evaluation.node,
+            artifact_refs=list(evaluation.artifact_refs),
+            result=EvaluationResult.PASS,
+            evaluator_ref="rc7-runtime-case-execution-fanout-barrier",
+            dimensions=dimensions,
+            gap_refs=[gap.gap_id for gap in defects],
+            evidence_refs=list(dict.fromkeys(list(evaluation.evidence_refs) + list(barrier.receipt_ids))),
+        )
+        return ExecutionLoopResult(
+            evaluation=bound,
+            gaps=defects,
+            test_result="FAIL" if defects else "PASS",
+            conclusive=True,
+            recovery_action="PRODUCT_DEFECT" if defects else None,
+        )
