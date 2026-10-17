@@ -92,6 +92,8 @@ jobs:
           tests/test_rc7_execution_fanout_conformance.py
           tests/test_rc7_execution_fanout_defect_handoff.py
           tests/test_rc7_bank_fanout_preparation_guard.py
+          tests/test_rc7_active_execution_preparation.py
+          tests/test_rc7_three_case_execution_qualification.py
           tests/test_rc7_runtime_execution_control.py
           tests/test_rc7_execution_recovery_conformance.py
           tests/test_rc7_contracted_runner.py
