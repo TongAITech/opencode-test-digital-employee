@@ -41,6 +41,7 @@ for %%F in ("%PFC_RC7_ENGINEERING_EVIDENCE%" "%PFC_RC7_ADMIN_EVIDENCE%" "%PFC_RC
 
 if not defined PFC_AITEST_STATE_DIR set "PFC_AITEST_STATE_DIR=%ROOT%\runtime-state\rc7-bank-final"
 set "PFC_RC7_REQUIRE_FINAL_PASS=1"
+set "PFC_RC7_REQUIRE_BANK_FIELD_CONFORMANCE=1"
 
 echo RC7 BANK FINAL qualification
 echo Package root: %ROOT%

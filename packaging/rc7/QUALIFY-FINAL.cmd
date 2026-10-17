@@ -21,7 +21,9 @@ set "PYTHONPATH=%ROOT%;%PYTHONPATH%"
 set "REAL_MISSION_EVIDENCE=%PFC_RC7_REAL_MISSION_EVIDENCE%"
 if not defined REAL_MISSION_EVIDENCE if defined PFC_RC7_R1_PATH if defined PFC_RC7_MISSION_ID (
   set "REAL_MISSION_EVIDENCE=%PFC_AITEST_STATE_DIR%\rc7-real-mission-result.json"
-  call "%PFC_PYTHON%" -m rc7_release.real_mission_qualification_strict --r1 "%PFC_RC7_R1_PATH%" --mission-id "%PFC_RC7_MISSION_ID%" --source-commit "%SOURCE_COMMIT%" --output "!REAL_MISSION_EVIDENCE!"
+  set "STRICT_ARGS=--r1 "%PFC_RC7_R1_PATH%" --mission-id "%PFC_RC7_MISSION_ID%" --source-commit "%SOURCE_COMMIT%" --output "!REAL_MISSION_EVIDENCE!""
+  if "%PFC_RC7_REQUIRE_BANK_FIELD_CONFORMANCE%"=="1" set "STRICT_ARGS=!STRICT_ARGS! --require-bank-field-conformance"
+  call "%PFC_PYTHON%" -m rc7_release.real_mission_qualification_strict !STRICT_ARGS!
   if errorlevel 1 exit /b !ERRORLEVEL!
   echo RC7 strict real Mission qualification evidence: !REAL_MISSION_EVIDENCE! 1>&2
 )

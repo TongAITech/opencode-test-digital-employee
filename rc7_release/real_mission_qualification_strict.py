@@ -7,12 +7,18 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Set
 
 import rc6_runtime.agent_runtime  # noqa: F401
 from rc6_runtime.truth import TruthRuntime
+from rc7_runtime.execution_recovery_conformance import (
+    ExecutionRecoveryConformanceChecker,
+    contract_enabled as execution_recovery_contract_enabled,
+)
+from rc7_runtime.mission_conformance import MissionConformanceChecker
+from rc7_runtime.node_tool_conformance import contract_enabled as node_tool_contract_enabled
 from rc7_runtime.truth_overlay import install_rc7_truth_overlay
 
 from .real_mission_qualification import DOMAIN_NODES, evaluate_real_mission
 
 
-SCHEMA_VERSION = "pfc.aitest.rc7.real-mission-qualification.strict.v1"
+SCHEMA_VERSION = "pfc.aitest.rc7.real-mission-qualification.strict.v2"
 STRICT_DOMAIN_NODES = set(DOMAIN_NODES) | {"EXECUTION"}
 
 
@@ -76,11 +82,87 @@ def _task_scoped_dsh_runtime_workers(
     return task_workers
 
 
+def _bank_field_contracts(
+    truth: TruthRuntime,
+    *,
+    mission_id: str,
+) -> Dict[str, Any]:
+    """Read-only Bank Final contract qualification from canonical R1 truth.
+
+    Ordinary/legacy real-mission qualification intentionally does not require
+    these additive graph-v2 contracts. Bank Final explicitly opts into this
+    function so an old Mission cannot accidentally qualify a new RC7 package.
+    """
+    blockers: List[str] = []
+    try:
+        mission = MissionConformanceChecker(truth).check(mission_id)
+        mission_payload = mission.as_dict()
+        if mission.status != "PASS":
+            blockers.append(
+                "BANK_FIELD_MISSION_CONFORMANCE_FAILED:%s"
+                % ",".join(mission.violations)
+            )
+    except Exception as exc:
+        mission_payload = {"status": "FAIL", "reason": str(exc)}
+        blockers.append("BANK_FIELD_MISSION_CONFORMANCE_ERROR:%s" % str(exc))
+
+    node_contract = node_tool_contract_enabled(truth, mission_id)
+    if not node_contract:
+        blockers.append("BANK_FIELD_NODE_TOOL_CONTRACT_REQUIRED")
+
+    recovery_contract = execution_recovery_contract_enabled(truth, mission_id)
+    if not recovery_contract:
+        blockers.append("BANK_FIELD_EXECUTION_RECOVERY_CONTRACT_REQUIRED")
+
+    recovery_payload: Dict[str, Any] = {
+        "status": "NOT_ENFORCED" if not recovery_contract else "NOT_READY",
+    }
+    if recovery_contract:
+        execution_rows = [
+            row
+            for row in truth.query("rc7_task", mission_id=mission_id)
+            if str(row.get("node") or "") == "EXECUTION"
+        ]
+        if len(execution_rows) != 1:
+            blockers.append("BANK_FIELD_EXECUTION_TASK_NOT_UNIQUE:%d" % len(execution_rows))
+            recovery_payload = {
+                "status": "FAIL",
+                "reason": "EXECUTION_TASK_NOT_UNIQUE",
+                "count": len(execution_rows),
+            }
+        else:
+            execution_task_id = str(execution_rows[0].get("task_id") or "")
+            try:
+                recovery = ExecutionRecoveryConformanceChecker(truth).check_task(
+                    mission_id,
+                    execution_task_id,
+                )
+                recovery_payload = recovery.as_dict()
+                if recovery.status != "PASS":
+                    blockers.append(
+                        "BANK_FIELD_EXECUTION_RECOVERY_FAILED:%s"
+                        % ",".join(recovery.violations)
+                    )
+            except Exception as exc:
+                recovery_payload = {"status": "FAIL", "reason": str(exc)}
+                blockers.append("BANK_FIELD_EXECUTION_RECOVERY_ERROR:%s" % str(exc))
+
+    return {
+        "status": "PASS" if not blockers else "HOLD",
+        "mission_conformance": mission_payload,
+        "node_tool_contract": "PASS" if node_contract else "HOLD",
+        "execution_recovery_contract": "PASS" if recovery_contract else "HOLD",
+        "execution_recovery_conformance": recovery_payload,
+        "blocking_reasons": blockers,
+    }
+
+
 def evaluate_real_mission_strict(
     *,
     r1_path: str,
     mission_id: str,
     source_commit: str,
+    require_bank_field_conformance: bool = False,
 ) -> Dict[str, Any]:
     result = evaluate_real_mission(
         r1_path=r1_path,
@@ -126,6 +208,14 @@ def evaluate_real_mission_strict(
         if not owner_receipts:
             blockers.append("DOMAIN_TASK_REAL_TOOL_CALL_MISSING:%s" % task_id)
 
+    bank_field = {
+        "status": "NOT_REQUIRED",
+        "blocking_reasons": [],
+    }
+    if require_bank_field_conformance:
+        bank_field = _bank_field_contracts(truth, mission_id=mission_id)
+        blockers.extend(bank_field.get("blocking_reasons", []))
+
     # Preserve stable order while eliminating duplicate blockers inherited from
     # the base qualification or repeated malformed evidence.
     deduped: List[str] = []
@@ -136,6 +226,8 @@ def evaluate_real_mission_strict(
     result["schema_version"] = SCHEMA_VERSION
     result["qualification_kind"] = "BANK_REAL_MISSION_STRICT_TASK_RECEIPTS"
     result["task_scoped_worker_proof"] = task_proof
+    result["bank_field_conformance_required"] = bool(require_bank_field_conformance)
+    result["bank_field_conformance"] = bank_field
     result["blocking_reasons"] = deduped
     result["status"] = "PASS" if not deduped else "HOLD"
     return result
@@ -148,12 +240,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--output")
     parser.add_argument("--require-pass", action="store_true")
+    parser.add_argument("--require-bank-field-conformance", action="store_true")
     args = parser.parse_args(argv)
 
     result = evaluate_real_mission_strict(
         r1_path=args.r1,
         mission_id=args.mission_id,
         source_commit=args.source_commit,
+        require_bank_field_conformance=args.require_bank_field_conformance,
     )
     if args.output:
         _write_json(args.output, result)

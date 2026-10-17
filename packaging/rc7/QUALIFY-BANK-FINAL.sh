@@ -37,6 +37,11 @@ done
 
 export PFC_AITEST_STATE_DIR="${PFC_AITEST_STATE_DIR:-$ROOT/runtime-state/rc7-bank-final}"
 export PFC_RC7_REQUIRE_FINAL_PASS=1
+# Bank Final is intentionally stricter than generic final qualification: only
+# a new graph-v2 Mission carrying durable node/tool + execution/recovery
+# contracts may qualify. Old Missions remain resumable but cannot certify the
+# new package as BANK_FIELD_QUALIFIED.
+export PFC_RC7_REQUIRE_BANK_FIELD_CONFORMANCE=1
 
 printf 'RC7 BANK FINAL qualification\n'
 printf 'Package root: %s\n' "$ROOT"
