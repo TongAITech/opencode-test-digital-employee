@@ -36,6 +36,7 @@ jobs:
           python -m py_compile
           rc7_release/runtime_delivery_contract.py
           rc7_release/runtime_payload_materializer.py
+          rc7_release/runtime_build_bootstrap.py
           rc7_release/mcp_server.py
           rc7_release/mcp_server_field.py
           rc7_release/mcp_stdio.py
@@ -79,6 +80,7 @@ jobs:
           python -m pytest -q
           tests/test_rc7_runtime_delivery_contract.py
           tests/test_rc7_runtime_payload_materializer.py
+          tests/test_rc7_runtime_build_bootstrap.py
           tests/test_rc7_field_hardening.py
           tests/test_rc7_plugin_payload.py
           tests/test_rc7_dsh_runtime_profile.py
@@ -144,6 +146,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Bootstrap SHA-verified Windows build tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m rc7_release.runtime_build_bootstrap ripgrep --output .\.build-runtime\ripgrep --github-path $env:GITHUB_PATH
+          if ($LASTEXITCODE -ne 0) { throw 'RC7 ripgrep build bootstrap failed' }
       - name: Materialize package-local DSH plugin payload
         shell: pwsh
         run: |
@@ -256,6 +264,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Bootstrap SHA-verified Windows build tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m rc7_release.runtime_build_bootstrap ripgrep --output .\.build-runtime\ripgrep --github-path $env:GITHUB_PATH
+          if ($LASTEXITCODE -ne 0) { throw 'RC7 ripgrep build bootstrap failed' }
       - name: Materialize package-local DSH plugin payload
         shell: pwsh
         run: |
