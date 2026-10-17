@@ -313,11 +313,6 @@ def _seed_closed_defect(tmp_path: Path) -> TruthRuntime:
         evidence_refs=["EVD-RCA"],
     )
     append_entity(truth, gap, release_id=RELEASE, artifact_version=1)
-    gap.state = GapStatus.EVIDENCE_PENDING
-    append_entity(truth, gap, release_id=RELEASE, artifact_version=2)
-    gap.state = GapStatus.RESOLVED
-    gap.resolution_evaluation_id = CLOSE
-    append_entity(truth, gap, release_id=RELEASE, artifact_version=3)
 
     hypothesis = RootCauseHypothesis(
         hypothesis_id="RCA-1",
@@ -379,6 +374,12 @@ def _seed_closed_defect(tmp_path: Path) -> TruthRuntime:
         latest_evaluation_id=CLOSE,
     )
     append_entity(truth, closed, release_id=RELEASE, artifact_version=3)
+
+    gap.state = GapStatus.EVIDENCE_PENDING
+    append_entity(truth, gap, release_id=RELEASE, artifact_version=2)
+    gap.state = GapStatus.RESOLVED
+    gap.resolution_evaluation_id = CLOSE
+    append_entity(truth, gap, release_id=RELEASE, artifact_version=3)
     return truth
 
 
@@ -403,9 +404,6 @@ def test_defect_review_conformance_is_not_triggered_without_product_failure(tmp_
 
 def test_defect_review_conformance_rejects_terminal_label_without_runtime_lineage(tmp_path: Path):
     truth = _seed_closed_defect(tmp_path)
-    # Build a second Product Gap with a terminal-looking Defect but no
-    # reproduction/qualification/fix-verification lineage. R1 accepts the
-    # structurally valid records; the Bank Final conformance gate must not.
     gap_id = "GAP-FAKE-CLOSED"
     defect_id = "DEFECT-FAKE-CLOSED"
     eval_id = "EVAL-FAKE-CLOSED"
@@ -422,21 +420,17 @@ def test_defect_review_conformance_rejects_terminal_label_without_runtime_lineag
         ),
         release_id=RELEASE,
     )
-    append_entity(
-        truth,
-        Gap(
-            gap_id=gap_id,
-            mission_id=MISSION,
-            source_node="EXECUTION",
-            category="PRODUCT_DEFECT",
-            severity=GapSeverity.HIGH,
-            target_node="DEFECT",
-            description="fake resolved label",
-            state=GapStatus.RESOLVED,
-            resolution_evaluation_id=eval_id,
-        ),
-        release_id=RELEASE,
+    fake_gap = Gap(
+        gap_id=gap_id,
+        mission_id=MISSION,
+        source_node="EXECUTION",
+        category="PRODUCT_DEFECT",
+        severity=GapSeverity.HIGH,
+        target_node="DEFECT",
+        description="fake resolved label",
+        state=GapStatus.REPAIRING,
     )
+    append_entity(truth, fake_gap, release_id=RELEASE, artifact_version=1)
     append_entity(
         truth,
         DefectRecord(
@@ -457,6 +451,11 @@ def test_defect_review_conformance_rejects_terminal_label_without_runtime_lineag
         ),
         release_id=RELEASE,
     )
+    fake_gap.state = GapStatus.EVIDENCE_PENDING
+    append_entity(truth, fake_gap, release_id=RELEASE, artifact_version=2)
+    fake_gap.state = GapStatus.RESOLVED
+    fake_gap.resolution_evaluation_id = eval_id
+    append_entity(truth, fake_gap, release_id=RELEASE, artifact_version=3)
 
     result = DefectReviewConformanceChecker(truth).check_mission(MISSION)
     assert result.status == "FAIL"
