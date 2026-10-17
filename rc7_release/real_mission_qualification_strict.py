@@ -7,9 +7,11 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Set
 
 import rc6_runtime.agent_runtime  # noqa: F401
 from rc6_runtime.truth import TruthRuntime
+from rc7_runtime.defect_review_conformance import DefectReviewConformanceChecker
 from rc7_runtime.execution_recovery_conformance import (
     ExecutionRecoveryConformanceChecker,
     contract_enabled as execution_recovery_contract_enabled,
+    contract_row as execution_recovery_contract_row,
 )
 from rc7_runtime.mission_conformance import MissionConformanceChecker
 from rc7_runtime.node_tool_conformance import contract_enabled as node_tool_contract_enabled
@@ -19,7 +21,7 @@ from rc7_runtime.truth_overlay import install_rc7_truth_overlay
 from .real_mission_qualification import DOMAIN_NODES, evaluate_real_mission
 
 
-SCHEMA_VERSION = "pfc.aitest.rc7.real-mission-qualification.strict.v3"
+SCHEMA_VERSION = "pfc.aitest.rc7.real-mission-qualification.strict.v4"
 STRICT_DOMAIN_NODES = set(DOMAIN_NODES) | {"EXECUTION"}
 
 
@@ -83,6 +85,41 @@ def _task_scoped_dsh_runtime_workers(
     return task_workers
 
 
+def _canonical_execution_task_id(
+    truth: TruthRuntime,
+    *,
+    mission_id: str,
+    blockers: List[str],
+) -> str:
+    """Resolve the frozen graph-v2 EXECUTION task from its recovery contract.
+
+    Defect handling legitimately creates additional EXECUTION tasks for
+    reproduction/fix verification/regression. They must never make Bank Final
+    misidentify the canonical top-level graph node.
+    """
+    try:
+        row = execution_recovery_contract_row(truth, mission_id)
+    except Exception as exc:
+        blockers.append("BANK_FIELD_EXECUTION_RECOVERY_CONTRACT_INVALID:%s" % str(exc))
+        return ""
+    if row is None:
+        return ""
+    refs = [str(value) for value in list(row.get("subject_refs") or []) if str(value)]
+    if len(refs) != 1:
+        blockers.append("BANK_FIELD_CANONICAL_EXECUTION_CONTRACT_SUBJECT_INVALID:%d" % len(refs))
+        return ""
+    task_id = refs[0]
+    rows = truth.query("rc7_task", task_id=task_id)
+    if (
+        len(rows) != 1
+        or rows[0].get("mission_id") != mission_id
+        or rows[0].get("node") != "EXECUTION"
+    ):
+        blockers.append("BANK_FIELD_CANONICAL_EXECUTION_TASK_INVALID:%s" % task_id)
+        return ""
+    return task_id
+
+
 def _bank_field_contracts(
     truth: TruthRuntime,
     *,
@@ -92,9 +129,10 @@ def _bank_field_contracts(
 
     Generic/legacy qualification intentionally does not require these graph-v2
     field gates. Bank Final opts in so old Missions stay resumable but cannot
-    certify a new RC7 package. Execution recovery proves ordering/recovery;
-    ActualResultOracleConformance independently proves the exact runtime actual
-    result and deterministic assertion that drove the terminal test status.
+    certify a new RC7 package. Recovery proves attempt ordering; Oracle proves
+    actual-result/assertion integrity; Defect Review proves any PRODUCT_DEFECT
+    disposition traversed reproduction/review/fix/regression rather than being
+    closed by label alone.
     """
     blockers: List[str] = []
     try:
@@ -121,36 +159,26 @@ def _bank_field_contracts(
         "status": "NOT_ENFORCED" if not recovery_contract else "NOT_READY",
     }
     oracle_payload: Dict[str, Any] = {"status": "NOT_READY"}
-    execution_rows = [
-        row
-        for row in truth.query("rc7_task", mission_id=mission_id)
-        if str(row.get("node") or "") == "EXECUTION"
-    ]
-    if len(execution_rows) != 1:
-        blockers.append("BANK_FIELD_EXECUTION_TASK_NOT_UNIQUE:%d" % len(execution_rows))
-        recovery_payload = {
-            "status": "FAIL",
-            "reason": "EXECUTION_TASK_NOT_UNIQUE",
-            "count": len(execution_rows),
-        }
-        oracle_payload = dict(recovery_payload)
-    else:
-        execution_task_id = str(execution_rows[0].get("task_id") or "")
-        if recovery_contract:
-            try:
-                recovery = ExecutionRecoveryConformanceChecker(truth).check_task(
-                    mission_id,
-                    execution_task_id,
+    execution_task_id = _canonical_execution_task_id(
+        truth,
+        mission_id=mission_id,
+        blockers=blockers,
+    ) if recovery_contract else ""
+    if recovery_contract and execution_task_id:
+        try:
+            recovery = ExecutionRecoveryConformanceChecker(truth).check_task(
+                mission_id,
+                execution_task_id,
+            )
+            recovery_payload = recovery.as_dict()
+            if recovery.status != "PASS":
+                blockers.append(
+                    "BANK_FIELD_EXECUTION_RECOVERY_FAILED:%s"
+                    % ",".join(recovery.violations)
                 )
-                recovery_payload = recovery.as_dict()
-                if recovery.status != "PASS":
-                    blockers.append(
-                        "BANK_FIELD_EXECUTION_RECOVERY_FAILED:%s"
-                        % ",".join(recovery.violations)
-                    )
-            except Exception as exc:
-                recovery_payload = {"status": "FAIL", "reason": str(exc)}
-                blockers.append("BANK_FIELD_EXECUTION_RECOVERY_ERROR:%s" % str(exc))
+        except Exception as exc:
+            recovery_payload = {"status": "FAIL", "reason": str(exc)}
+            blockers.append("BANK_FIELD_EXECUTION_RECOVERY_ERROR:%s" % str(exc))
 
         try:
             oracle = ActualResultOracleConformanceChecker(truth).check_task(
@@ -166,14 +194,31 @@ def _bank_field_contracts(
         except Exception as exc:
             oracle_payload = {"status": "FAIL", "reason": str(exc)}
             blockers.append("BANK_FIELD_ACTUAL_RESULT_ORACLE_ERROR:%s" % str(exc))
+    elif recovery_contract:
+        recovery_payload = {"status": "FAIL", "reason": "CANONICAL_EXECUTION_TASK_NOT_RESOLVED"}
+        oracle_payload = dict(recovery_payload)
+
+    try:
+        defect_review = DefectReviewConformanceChecker(truth).check_mission(mission_id)
+        defect_payload = defect_review.as_dict()
+        if defect_review.status != "PASS":
+            blockers.append(
+                "BANK_FIELD_DEFECT_REVIEW_FAILED:%s"
+                % ",".join(defect_review.violations)
+            )
+    except Exception as exc:
+        defect_payload = {"status": "FAIL", "reason": str(exc)}
+        blockers.append("BANK_FIELD_DEFECT_REVIEW_ERROR:%s" % str(exc))
 
     return {
         "status": "PASS" if not blockers else "HOLD",
         "mission_conformance": mission_payload,
         "node_tool_contract": "PASS" if node_contract else "HOLD",
         "execution_recovery_contract": "PASS" if recovery_contract else "HOLD",
+        "canonical_execution_task_id": execution_task_id,
         "execution_recovery_conformance": recovery_payload,
         "actual_result_oracle_conformance": oracle_payload,
+        "defect_review_conformance": defect_payload,
         "blocking_reasons": blockers,
     }
 
@@ -237,8 +282,6 @@ def evaluate_real_mission_strict(
         bank_field = _bank_field_contracts(truth, mission_id=mission_id)
         blockers.extend(bank_field.get("blocking_reasons", []))
 
-    # Preserve stable order while eliminating duplicate blockers inherited from
-    # the base qualification or repeated malformed evidence.
     deduped: List[str] = []
     for blocker in blockers:
         if blocker not in deduped:
