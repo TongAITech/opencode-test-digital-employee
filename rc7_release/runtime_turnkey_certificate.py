@@ -29,6 +29,7 @@ SCHEMA_VERSION = "pfc.aitest.rc7.turnkey-runtime-qualification.v1"
 CERTIFICATE_FILE = "TURNKEY_RUNTIME_QUALIFICATION.json"
 INVENTORY_FILE = "RUNTIME_PAYLOADS.json"
 LOCK_FILE = "runtime-lock.json"
+CHECKSUM_FILE = "CHECKSUMS.sha256"
 EVIDENCE_SCOPE = "CLEAN_EXTRACT_PACKAGE_LOCAL_RUNTIME_SMOKE"
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -68,6 +69,27 @@ def _same_file_digest(left: Path, right: Path, label: str) -> str:
     if left_digest != right_digest:
         raise TurnkeyRuntimeCertificateError("%s_CLEAN_EXTRACT_MISMATCH" % label)
     return left_digest
+
+
+def _verify_checksum_binding(root: Path, relative: str) -> None:
+    checksum_path = root / CHECKSUM_FILE
+    if not checksum_path.is_file():
+        raise TurnkeyRuntimeCertificateError("TURNKEY_RUNTIME_CHECKSUMS_REQUIRED")
+    matches = []
+    for raw in checksum_path.read_text(encoding="utf-8").splitlines():
+        if not raw.strip():
+            continue
+        try:
+            digest, rel = raw.split("  ", 1)
+        except ValueError as exc:
+            raise TurnkeyRuntimeCertificateError("TURNKEY_RUNTIME_CHECKSUMS_INVALID") from exc
+        if rel == relative:
+            matches.append(digest.lower())
+    if len(matches) != 1 or not _SHA256_RE.fullmatch(matches[0]):
+        raise TurnkeyRuntimeCertificateError("TURNKEY_RUNTIME_CHECKSUM_BINDING_REQUIRED:%s" % relative)
+    target = root / relative
+    if not target.is_file() or sha256_file(target) != matches[0]:
+        raise TurnkeyRuntimeCertificateError("TURNKEY_RUNTIME_CHECKSUM_MISMATCH:%s" % relative)
 
 
 def _canonical_smoke_summary(smoke: Mapping[str, Any]) -> Dict[str, Any]:
@@ -258,6 +280,8 @@ def verify_turnkey_certificate(package_root: Path | str, *, rerun_smoke: bool = 
     root = Path(package_root).expanduser().resolve()
     if not root.is_dir():
         raise TurnkeyRuntimeCertificateError("PACKAGE_ROOT_NOT_FOUND:%s" % root)
+    _verify_checksum_binding(root, CERTIFICATE_FILE)
+    _verify_checksum_binding(root, "PACKAGE_MANIFEST.json")
     cert = _load_json(root / CERTIFICATE_FILE, "TURNKEY_RUNTIME_CERTIFICATE_REQUIRED")
     if cert.get("schema_version") != SCHEMA_VERSION or cert.get("status") != "PASS":
         raise TurnkeyRuntimeCertificateError("TURNKEY_RUNTIME_CERTIFICATE_INVALID")
