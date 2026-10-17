@@ -4,7 +4,10 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 from rc6_runtime.truth import TruthRuntime
+from rc7_runtime.mission_evidence_builder import MissionEvidenceBuildError
 from rc7_runtime.mission_formal_evidence_builder import R1FormalMissionEvidenceSnapshotBuilder
 from rc7_runtime.models import Artifact, Evaluation, EvaluationResult, Evidence, Mission, Task, TaskStatus
 from rc7_runtime.truth_overlay import append_entity
@@ -122,13 +125,15 @@ def _execution(
     suffix: str,
     passed: bool,
     purpose=None,
+    formal_overrides=None,
 ):
     task_id = "TASK-EXEC-%s" % suffix
     artifact_id = "ART-EXEC-%s" % suffix
     evidence_id = "EVD-EXEC-%s" % suffix
     evaluation_id = "EVAL-EXEC-%s" % suffix
     attempt_id = "ATT-%s" % suffix
-    path = tmp_path / ("execution-%s.json" % suffix.lower())
+    conclusion_path = tmp_path / ("execution-conclusion-%s.json" % suffix.lower())
+    formal_path = tmp_path / ("execution-formal-%s.json" % suffix.lower())
     record = {
         "attempt_id": attempt_id,
         "tc_id": TC_ID,
@@ -146,24 +151,28 @@ def _execution(
         "assertion_passed": passed,
         "reason": "ORACLE_PASS" if passed else "ORACLE_ASSERTION_FAILED",
     }
-    digest = _write(path, {"record": record})
+    formal_record = json.loads(json.dumps(record))
+    if formal_overrides:
+        formal_record.update(formal_overrides)
+    artifact_digest = _write(conclusion_path, {"record": record})
+    formal_digest = _write(formal_path, {"record": formal_record})
     evidence = Evidence(
         evidence_id=evidence_id,
         mission_id=MISSION,
         kind="RUNTIME_EXECUTION_RECORD",
         source_ref="runtime://formal-execution",
-        content_ref="file://" + str(path),
+        content_ref="file://" + str(formal_path),
         subject_refs=[task_id, attempt_id, TC_ID],
-        content_hash=digest,
+        content_hash=formal_digest,
     )
     artifact = Artifact(
         artifact_id=artifact_id,
         mission_id=MISSION,
         artifact_type="EXECUTION_CONCLUSION",
         producer_task_id=task_id,
-        content_ref="file://" + str(path),
+        content_ref="file://" + str(conclusion_path),
         evidence_refs=[evidence_id],
-        content_hash=digest,
+        content_hash=artifact_digest,
     )
     dimensions = {
         "test_result": "PASS" if passed else "FAIL",
@@ -204,6 +213,7 @@ def _execution(
         ),
         release_id=RELEASE,
     )
+    return formal_path
 
 
 def _build(tmp_path: Path, truth: TruthRuntime):
@@ -266,3 +276,39 @@ def test_defect_reproduction_does_not_override_latest_ordinary_pass(tmp_path: Pa
     assert snapshot.critical_branches_verified == 1
     assert snapshot.critical_executions_conclusive == 1
     assert not snapshot.inconclusive_execution_refs
+
+
+def test_formal_execution_hash_tamper_cannot_contribute_to_mission_coverage(tmp_path: Path):
+    truth = _truth(tmp_path)
+    formal_path = _execution(tmp_path, truth, suffix="01-PASS", passed=True)
+    payload = json.loads(formal_path.read_text(encoding="utf-8"))
+    payload["record"]["actual_result"] = {"business_code": "TAMPERED"}
+    formal_path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+
+    with pytest.raises(
+        MissionEvidenceBuildError,
+        match="MISSION_FORMAL_RUNTIME_EXECUTION_HASH_MISMATCH",
+    ):
+        _build(tmp_path, truth)
+
+
+def test_matching_subject_labels_cannot_splice_different_execution_record(tmp_path: Path):
+    truth = _truth(tmp_path)
+    _execution(
+        tmp_path,
+        truth,
+        suffix="01-PASS",
+        passed=True,
+        formal_overrides={
+            "status": "FAIL",
+            "actual_result": {"business_code": "SPLICED"},
+            "assertion_ref": "oracle://different-execution",
+            "assertion_passed": False,
+        },
+    )
+
+    with pytest.raises(
+        MissionEvidenceBuildError,
+        match="MISSION_FORMAL_RUNTIME_EXECUTION_RECORD_MISMATCH:.*status.*actual_result.*assertion_ref.*assertion_passed",
+    ):
+        _build(tmp_path, truth)
