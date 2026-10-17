@@ -21,6 +21,11 @@ from .execution_recovery_conformance import (
     ExecutionRecoveryConformanceError,
     contract_enabled as execution_recovery_contract_enabled,
 )
+from .mission_convergence_conformance import (
+    MissionConvergenceConformanceChecker,
+    MissionConvergenceConformanceError,
+    canonical_execution_task_id,
+)
 from .models import (
     Evaluation,
     EvaluationResult,
@@ -75,6 +80,18 @@ _PASS_HANDOFF_GAPS = {
 }
 
 _DEFECT_RESOLUTION_STATES = {"CLOSED", "DUPLICATE", "NOT_A_DEFECT"}
+
+# These EXECUTION tasks are dynamically created by governed recovery/defect
+# controllers.  They are not the frozen graph-v2 top-level EXECUTION task and
+# therefore must not be evaluated against its Execution Recovery Contract.
+# Each path has its own runtime control/evidence authority and is rechecked by
+# Defect Review or source-gap re-evaluation before Mission convergence.
+_NONCANONICAL_EXECUTION_TASK_TYPES = {
+    "REPAIR",
+    "DEFECT_REPRODUCTION",
+    "DEFECT_FIX_VERIFICATION",
+    "DEFECT_IMPACT_REGRESSION",
+}
 
 
 class ClosedLoopControlPlane:
@@ -320,7 +337,6 @@ class ClosedLoopControlPlane:
             raise ClosedLoopControlError("MISSION_EVALUATION_IDENTITY_MISMATCH")
         if evaluation.result != EvaluationResult.PASS:
             raise ClosedLoopControlError("MISSION_EVALUATION_MUST_PASS")
-        self._require_execution_recovery_pass_ready()
         active = [
             row["task_id"]
             for row in self.truth.query("rc7_task", mission_id=self.mission_id)
@@ -335,6 +351,7 @@ class ClosedLoopControlPlane:
         ]
         if open_gaps:
             raise ClosedLoopControlError("MISSION_HAS_OPEN_GAPS")
+        self._require_mission_convergence_pass_ready()
         convergence = decide_convergence(
             ConvergenceInput(
                 mission_sufficiency_result=evaluation.result,
@@ -370,20 +387,36 @@ class ClosedLoopControlPlane:
     def _require_execution_recovery_pass_ready(self, task: Optional[Task] = None) -> None:
         if not execution_recovery_contract_enabled(self.truth, self.mission_id):
             return
+        try:
+            canonical_task_id = canonical_execution_task_id(self.truth, self.mission_id)
+        except (ExecutionRecoveryConformanceError, MissionConvergenceConformanceError) as exc:
+            raise ClosedLoopControlError(str(exc)) from exc
+
         execution_task = task
-        if execution_task is None:
-            rows = [
-                row for row in self.truth.query("rc7_task", mission_id=self.mission_id)
-                if str(row.get("node") or "") == "EXECUTION"
-            ]
-            if len(rows) != 1:
-                raise ClosedLoopControlError("EXECUTION_TASK_NOT_UNIQUE_FOR_RECOVERY_CONFORMANCE")
-            execution_task = self.scheduler.task(str(rows[0]["task_id"]))
-        if execution_task.node != "EXECUTION":
-            return
+        if execution_task is not None:
+            if execution_task.node != "EXECUTION":
+                return
+            if execution_task.task_id != canonical_task_id:
+                if execution_task.task_type in _NONCANONICAL_EXECUTION_TASK_TYPES:
+                    return
+                raise ClosedLoopControlError(
+                    "NONCANONICAL_EXECUTION_TASK_NOT_COVERED_BY_RUNTIME_CONTRACT:%s:%s"
+                    % (execution_task.task_id, execution_task.task_type)
+                )
+        else:
+            execution_task = self.scheduler.task(canonical_task_id)
+
         try:
             ExecutionRecoveryConformanceChecker(self.truth).require_task_pass_ready(execution_task)
         except ExecutionRecoveryConformanceError as exc:
+            raise ClosedLoopControlError(str(exc)) from exc
+
+    def _require_mission_convergence_pass_ready(self) -> None:
+        if not execution_recovery_contract_enabled(self.truth, self.mission_id):
+            return
+        try:
+            MissionConvergenceConformanceChecker(self.truth).require_pass(self.mission_id)
+        except MissionConvergenceConformanceError as exc:
             raise ClosedLoopControlError(str(exc)) from exc
 
     def snapshot(self) -> Mapping[str, object]:
