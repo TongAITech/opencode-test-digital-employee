@@ -17,8 +17,16 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 from rc6_runtime.truth import TruthRuntime
 
 from .attempt_cat import ATTEMPT_CAT_QUERY_KIND
+from .case_fanout_conformance import (
+    CaseFanoutConformanceError,
+    contract_enabled as case_fanout_contract_enabled,
+)
 from .case_runtime import PREPARED_ATTEMPT_KIND
 from .execution_chain_evidence import observed_chain_tools
+from .execution_fanout_conformance import (
+    ExecutionFanoutConformanceError,
+    check_execution_barrier,
+)
 from .models import Evidence, Task
 from .node_tool_conformance import NODE_TOOL_CALL_KIND
 from .truth_overlay import append_entity
@@ -352,6 +360,17 @@ class ExecutionRecoveryConformanceChecker:
                         successor_targets.add(next_attempt)
                 if convergence_status != "RECOVERY_ALLOWED":
                     violations.append("NONTERMINAL_DECISION_REQUIRES_RECOVERY_ALLOWED:%s:%s" % (attempt_id, convergence_status or "MISSING"))
+
+        if case_fanout_contract_enabled(self.truth, mission_id):
+            try:
+                barrier = check_execution_barrier(self.truth, mission_id)
+            except (CaseFanoutConformanceError, ExecutionFanoutConformanceError) as exc:
+                violations.append("CASE_EXECUTION_FANOUT_INVALID:%s" % exc)
+            else:
+                if barrier.status != "PASS":
+                    violations.append(
+                        "CASE_EXECUTION_FANOUT_INCOMPLETE:%s" % ",".join(barrier.missing_tc_ids)
+                    )
 
         _ = successor_targets
         return ExecutionRecoveryConformanceResult(
