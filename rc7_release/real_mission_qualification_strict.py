@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Set
 
 import rc6_runtime.agent_runtime  # noqa: F401
 from rc6_runtime.truth import TruthRuntime
+from rc7_runtime.case_coverage_field_summary import CaseCoverageFieldSummaryBuilder
+from rc7_runtime.case_fanout_conformance import contract_enabled as case_fanout_contract_enabled
 from rc7_runtime.defect_review_conformance import DefectReviewConformanceChecker
 from rc7_runtime.execution_recovery_conformance import (
     ExecutionRecoveryConformanceChecker,
@@ -21,7 +23,7 @@ from rc7_runtime.truth_overlay import install_rc7_truth_overlay
 from .real_mission_qualification import DOMAIN_NODES, evaluate_real_mission
 
 
-SCHEMA_VERSION = "pfc.aitest.rc7.real-mission-qualification.strict.v4"
+SCHEMA_VERSION = "pfc.aitest.rc7.real-mission-qualification.strict.v5"
 STRICT_DOMAIN_NODES = set(DOMAIN_NODES) | {"EXECUTION"}
 
 
@@ -130,9 +132,9 @@ def _bank_field_contracts(
     Generic/legacy qualification intentionally does not require these graph-v2
     field gates. Bank Final opts in so old Missions stay resumable but cannot
     certify a new RC7 package. Recovery proves attempt ordering; Oracle proves
-    actual-result/assertion integrity; Defect Review proves any PRODUCT_DEFECT
-    disposition traversed reproduction/review/fix/regression rather than being
-    closed by label alone.
+    actual-result/assertion integrity; accepted-Case coverage proves Test Design
+    did not silently shrink during Script/Execution; Defect Review proves any
+    PRODUCT_DEFECT disposition traversed reproduction/review/fix/regression.
     """
     blockers: List[str] = []
     try:
@@ -154,6 +156,28 @@ def _bank_field_contracts(
     recovery_contract = execution_recovery_contract_enabled(truth, mission_id)
     if not recovery_contract:
         blockers.append("BANK_FIELD_EXECUTION_RECOVERY_CONTRACT_REQUIRED")
+
+    case_contract = case_fanout_contract_enabled(truth, mission_id)
+    if not case_contract:
+        blockers.append("BANK_FIELD_CASE_FANOUT_CONTRACT_REQUIRED")
+
+    case_coverage_payload: Dict[str, Any] = {
+        "status": "NOT_ENFORCED" if not case_contract else "NOT_READY",
+        "enforced": bool(case_contract),
+        "blocking_reasons": [] if case_contract else ["CASE_FANOUT_CONTRACT_REQUIRED"],
+    }
+    if case_contract:
+        try:
+            case_coverage = CaseCoverageFieldSummaryBuilder(truth).build(mission_id)
+            case_coverage_payload = case_coverage.as_dict()
+            if case_coverage.status != "PASS":
+                blockers.append(
+                    "BANK_FIELD_CASE_COVERAGE_FAILED:%s"
+                    % ",".join(case_coverage.blocking_reasons)
+                )
+        except Exception as exc:
+            case_coverage_payload = {"status": "FAIL", "enforced": True, "reason": str(exc)}
+            blockers.append("BANK_FIELD_CASE_COVERAGE_ERROR:%s" % str(exc))
 
     recovery_payload: Dict[str, Any] = {
         "status": "NOT_ENFORCED" if not recovery_contract else "NOT_READY",
@@ -215,6 +239,8 @@ def _bank_field_contracts(
         "mission_conformance": mission_payload,
         "node_tool_contract": "PASS" if node_contract else "HOLD",
         "execution_recovery_contract": "PASS" if recovery_contract else "HOLD",
+        "case_fanout_contract": "PASS" if case_contract else "HOLD",
+        "case_coverage": case_coverage_payload,
         "canonical_execution_task_id": execution_task_id,
         "execution_recovery_conformance": recovery_payload,
         "actual_result_oracle_conformance": oracle_payload,
