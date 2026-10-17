@@ -10,7 +10,7 @@ stream.
 The control surface is intentionally small:
 
 * ``start-sst`` creates or resumes one graph-v2 Bank Mission and durably binds
-  the selected SST identifiers to the Requirement Analysis task.
+  exactly one selected SST identifier to the Requirement Analysis task.
 * ``status`` reconstructs current field progress from R1 and exposes the exact
   strict blockers (including Case Coverage / Recovery / Oracle / Defect Review).
 * ``finalize`` is fail-closed: it delegates to Bank Final only after the Mission
@@ -102,6 +102,8 @@ def _normalize_ssts(values: Iterable[str]) -> Tuple[str, ...]:
             rows.append(value)
     if not rows:
         raise OneSstFieldQualificationError("SST_ID_REQUIRED")
+    if len(rows) != 1:
+        raise OneSstFieldQualificationError("EXACTLY_ONE_SST_REQUIRED")
     return tuple(rows)
 
 
