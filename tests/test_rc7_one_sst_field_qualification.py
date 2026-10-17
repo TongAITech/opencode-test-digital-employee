@@ -152,7 +152,7 @@ def test_windows_cmd_entrypoint_executes_bound_python_cli() -> None:
     env = dict(os.environ)
     env["PFC_PYTHON_BIN"] = sys.executable
     proc = subprocess.run(
-        ["cmd.exe", "/d", "/s", "/c", '"%s" --help' % cmd_path],
+        ["cmd.exe", "/d", "/s", "/c", 'call "%s" --help' % cmd_path],
         cwd=str(root),
         env=env,
         text=True,
