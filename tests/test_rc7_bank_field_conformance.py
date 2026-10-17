@@ -35,15 +35,27 @@ def test_bank_final_strict_mode_requires_real_execution_recovery_before_pass(tmp
     )
 
     field = result["bank_field_conformance"]
+    assert result["schema_version"] == "pfc.aitest.rc7.real-mission-qualification.strict.v5"
     assert result["bank_field_conformance_required"] is True
     assert field["mission_conformance"]["status"] == "PASS"
     assert field["node_tool_contract"] == "PASS"
     assert field["execution_recovery_contract"] == "PASS"
+    assert field["case_fanout_contract"] == "PASS"
+    assert field["case_coverage"]["status"] == "HOLD"
+    assert field["case_coverage"]["enforced"] is True
+    assert any(
+        reason.startswith("ACCEPTED_CASE_INVENTORY_NOT_READY:")
+        for reason in field["case_coverage"]["blocking_reasons"]
+    )
     assert field["canonical_execution_task_id"]
     assert field["execution_recovery_conformance"]["status"] == "FAIL"
     assert field["actual_result_oracle_conformance"]["status"] == "FAIL"
     assert field["defect_review_conformance"]["status"] == "PASS"
     assert field["defect_review_conformance"]["triggered"] is False
+    assert any(
+        reason.startswith("BANK_FIELD_CASE_COVERAGE_FAILED:")
+        for reason in result["blocking_reasons"]
+    )
     assert any(
         reason.startswith("BANK_FIELD_EXECUTION_RECOVERY_FAILED:")
         for reason in result["blocking_reasons"]
@@ -111,8 +123,11 @@ def test_old_v1_mission_remains_resumable_but_cannot_certify_bank_final(tmp_path
     field = result["bank_field_conformance"]
     assert field["node_tool_contract"] == "HOLD"
     assert field["execution_recovery_contract"] == "HOLD"
+    assert field["case_fanout_contract"] == "HOLD"
+    assert field["case_coverage"]["status"] == "NOT_ENFORCED"
     assert "BANK_FIELD_NODE_TOOL_CONTRACT_REQUIRED" in result["blocking_reasons"]
     assert "BANK_FIELD_EXECUTION_RECOVERY_CONTRACT_REQUIRED" in result["blocking_reasons"]
+    assert "BANK_FIELD_CASE_FANOUT_CONTRACT_REQUIRED" in result["blocking_reasons"]
     assert result["status"] == "HOLD"
 
 
