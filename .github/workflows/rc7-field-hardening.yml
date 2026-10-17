@@ -35,8 +35,10 @@ jobs:
         run: >-
           python -m py_compile
           rc7_release/mcp_server.py
+          rc7_release/mcp_server_field.py
           rc7_release/mcp_stdio.py
           rc7_release/codegraph_mcp.py
+          rc7_release/contracted_runner.py
           rc7_release/plugin_payload.py
           rc7_release/dsh_plugins.py
           rc7_release/dsh_runtime_profile.py
@@ -54,6 +56,12 @@ jobs:
           rc7_runtime/case_runtime.py
           rc7_runtime/bank_field_services.py
           rc7_runtime/execution_recovery_conformance.py
+          rc7_runtime/oracle_runtime.py
+          rc7_runtime/oracle_conformance.py
+          rc7_runtime/defect_review_conformance.py
+          rc7_runtime/mission_convergence_conformance.py
+          rc7_runtime/closed_loop_control.py
+          rc7_runtime/final_report.py
       - name: Run field-hardening regressions
         run: >-
           python -m pytest -q
@@ -67,10 +75,18 @@ jobs:
           tests/test_rc7_bank_field_services.py
           tests/test_rc7_bank_field_services_entrypoint.py
           tests/test_rc7_mcp_stdio.py
+          tests/test_rc7_mcp_server_field.py
           tests/test_rc7_professional_windows_decode.py
           tests/test_rc7_truth_overlay.py
           tests/test_rc7_case_runtime.py
           tests/test_rc7_execution_recovery_conformance.py
+          tests/test_rc7_contracted_runner.py
+          tests/test_rc7_oracle_conformance.py
+          tests/test_rc7_defect_review_conformance.py
+          tests/test_rc7_mission_convergence_conformance.py
+          tests/test_rc7_final_report.py
+          tests/test_rc7_final_report_convergence_guard.py
+          tests/test_rc7_product_defect_mission_e2e.py
 
   rc7-source-suite:
     name: RC7 source suite
