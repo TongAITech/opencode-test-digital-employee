@@ -61,6 +61,8 @@ LAUNCHER_NAMES = (
     "QUALIFY-FINAL.sh",
     "QUALIFY-BANK-FINAL.cmd",
     "QUALIFY-BANK-FINAL.sh",
+    "FIELD-QUALIFY-ONE-SST.cmd",
+    "FIELD-QUALIFY-ONE-SST.sh",
     "START-RC7-BANK-MISSION.cmd",
     "START-RC7-BANK-MISSION.sh",
     "START-RC7-ADMIN.cmd",
@@ -76,6 +78,7 @@ REQUIRED_PRODUCT_FILES = (
     "rc7_admin/static/index.html",
 )
 MISSION_ENTRYPOINT = "packaging/rc7/START-RC7-BANK-MISSION.cmd"
+FIELD_QUALIFICATION_ENTRYPOINT = "packaging/rc7/FIELD-QUALIFY-ONE-SST.cmd"
 ADMIN_ENTRYPOINT = "packaging/rc7/START-RC7-ADMIN.cmd"
 SHARED_R1_DEFAULT = "runtime-state/r1/event-stream.jsonl"
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
@@ -280,6 +283,7 @@ def _manifest_for(
         "package_local_codegraph": _payload_manifest(package_root, PACKAGE_LOCAL_CODEGRAPH, codegraph_provenance),
         "package_local_browser": _payload_manifest(package_root, PACKAGE_LOCAL_BROWSER, browser_provenance),
         "mission_runtime_entrypoint": MISSION_ENTRYPOINT,
+        "field_qualification_entrypoint": FIELD_QUALIFICATION_ENTRYPOINT,
         "admin_platform_entrypoint": ADMIN_ENTRYPOINT,
         "shared_r1_default": SHARED_R1_DEFAULT,
         "admin_platform_embedded": True,
@@ -427,6 +431,8 @@ def verify_package(package_root: Union[str, Path]) -> Dict[str, object]:
         raise RuntimeError("PACKAGE_LOCAL_PYTHON_MANIFEST_INVALID")
     if manifest.get("mission_runtime_entrypoint") != MISSION_ENTRYPOINT:
         raise RuntimeError("PACKAGE_MISSION_ENTRYPOINT_INVALID")
+    if manifest.get("field_qualification_entrypoint") != FIELD_QUALIFICATION_ENTRYPOINT:
+        raise RuntimeError("PACKAGE_FIELD_QUALIFICATION_ENTRYPOINT_INVALID")
     if manifest.get("admin_platform_entrypoint") != ADMIN_ENTRYPOINT:
         raise RuntimeError("PACKAGE_ADMIN_ENTRYPOINT_INVALID")
     if manifest.get("shared_r1_default") != SHARED_R1_DEFAULT:
@@ -478,6 +484,7 @@ def verify_package(package_root: Union[str, Path]) -> Dict[str, object]:
         "static_skill_count": len(ALL_SKILLS),
         "file_count": len(actual) + 1,
         "mission_runtime_entrypoint": MISSION_ENTRYPOINT,
+        "field_qualification_entrypoint": FIELD_QUALIFICATION_ENTRYPOINT,
         "admin_platform_entrypoint": ADMIN_ENTRYPOINT,
         "shared_r1_default": SHARED_R1_DEFAULT,
         "admin_platform_embedded": True,
