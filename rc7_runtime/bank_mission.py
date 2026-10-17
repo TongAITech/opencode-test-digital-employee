@@ -13,6 +13,10 @@ from pathlib import Path
 from typing import Dict, Mapping, Optional, Sequence, Tuple
 
 from rc6_runtime.truth import TruthRuntime
+from .case_fanout_conformance import (
+    contract_enabled as case_fanout_contract_enabled,
+    persist_contract as persist_case_fanout_contract,
+)
 from .closed_loop_control import ClosedLoopControlPlane
 from .execution_recovery_conformance import (
     contract_enabled as execution_recovery_contract_enabled,
@@ -149,9 +153,10 @@ def start_or_resume(*, r1_path: str, mission_id: str, release_id: str, goal: str
             compiler=compiler,
             task_ids=task_ids,
         )
-        # New Bank graph-v2 Missions opt into durable node/tool and execution
-        # recovery enforcement. Existing persisted Missions are never silently
-        # upgraded on resume, preserving frozen contract identity.
+        # New Bank graph-v2 Missions opt into durable node/tool, execution
+        # recovery, and accepted-Case fan-out enforcement. Existing persisted
+        # Missions are never silently upgraded on resume, preserving frozen
+        # contract identity.
         if compiler.graph_version == MissionTaskGraphCompiler.GRAPH_V2:
             persist_node_tool_contract(
                 truth,
@@ -159,13 +164,23 @@ def start_or_resume(*, r1_path: str, mission_id: str, release_id: str, goal: str
                 release_id=release_id,
                 task_ids=task_ids,
             )
+            script_tasks = [task for task in graph.tasks if task.node == "SCRIPT_READINESS"]
             execution_tasks = [task for task in graph.tasks if task.node == "EXECUTION"]
+            if len(script_tasks) != 1:
+                raise BankMissionError("V2_SCRIPT_TASK_NOT_UNIQUE")
             if len(execution_tasks) != 1:
                 raise BankMissionError("V2_EXECUTION_TASK_NOT_UNIQUE")
             persist_execution_recovery_contract(
                 truth,
                 mission_id=mission_id,
                 release_id=release_id,
+                execution_task_id=execution_tasks[0].task_id,
+            )
+            persist_case_fanout_contract(
+                truth,
+                mission_id=mission_id,
+                release_id=release_id,
+                script_task_id=script_tasks[0].task_id,
                 execution_task_id=execution_tasks[0].task_id,
             )
         action = "STARTED"
@@ -206,6 +221,7 @@ def start_or_resume(*, r1_path: str, mission_id: str, release_id: str, goal: str
         "ready_tasks": ready,
         "node_tool_contract_enabled": node_tool_contract_enabled(truth, mission_id),
         "execution_recovery_contract_enabled": execution_recovery_contract_enabled(truth, mission_id),
+        "case_fanout_contract_enabled": case_fanout_contract_enabled(truth, mission_id),
         "real_mission_pass": False,
         "completion_authority": "INDEPENDENT_EVALUATION_AND_MISSION_SUFFICIENCY",
     }
