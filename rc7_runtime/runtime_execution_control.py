@@ -22,9 +22,11 @@ from rc6_runtime.execution import ExecutionRecord, ExecutionRuntime
 from rc6_runtime.preparation import PreparedAttempt
 
 from .authority import RC7AuthorityRuntime
+from .case_fanout_conformance import contract_enabled as case_fanout_contract_enabled
 from .closed_loop_control import ClosedLoopControlPlane
 from .control_plane import WorkerOutput
 from .execution_diagnosis import ExecutionDiagnosisCoordinator, ExecutionTrustFacts
+from .execution_fanout_evaluator import RuntimeCaseFanoutExecutionEvaluator
 from .execution_loop import ExecutionClosedLoop, ExecutionLoopResult
 from .models import Artifact, Evidence, TaskStatus
 from .runtime_execution import (
@@ -52,8 +54,15 @@ class ClosedLoopExecutionResult:
 
 
 class ClosedLoopRuntimeExecutionService:
-    def __init__(self, *, evidence_root: str, timeout_seconds: int = 300) -> None:
+    def __init__(
+        self,
+        *,
+        evidence_root: str,
+        timeout_seconds: int = 300,
+        state_root: Optional[str] = None,
+    ) -> None:
         self.evidence_root = Path(evidence_root).resolve()
+        self.state_root = Path(state_root or evidence_root).resolve()
         self.timeout_seconds = int(timeout_seconds)
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
@@ -224,6 +233,17 @@ class ClosedLoopRuntimeExecutionService:
             recovery=effective_recovery,
             evaluator_ref="rc7-runtime-owned-execution-gate",
         )
+        if case_fanout_contract_enabled(control.truth, control.mission_id):
+            loop_result = RuntimeCaseFanoutExecutionEvaluator(
+                state_root=str(self.state_root),
+                evidence_root=str(self.evidence_root),
+            ).apply(
+                control,
+                task_id,
+                bundle=bundle,
+                record_evidence_id=record_evidence.evidence_id,
+                loop_result=loop_result,
+            )
         accepted = control.accept_evaluation(
             task_id,
             evaluation=loop_result.evaluation,
