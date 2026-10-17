@@ -22,7 +22,7 @@ ASSERTION = "assertion://oracle/1"
 FINGERPRINT = "oracle-fingerprint-1"
 
 
-def _seed(tmp_path: Path, *, assertion_passed: bool = True):
+def _seed(tmp_path: Path, *, assertion_passed: bool = True, execution_status: str | None = None):
     install_rc7_truth_overlay()
     truth = TruthRuntime(tmp_path / "r1.jsonl")
     append_entity(truth, Mission(mission_id=MISSION, release_id=RELEASE, goal="oracle conformance"), release_id=RELEASE)
@@ -52,7 +52,7 @@ def _seed(tmp_path: Path, *, assertion_passed: bool = True):
         release_id=RELEASE,
     )
     actual = {"http": {"status": 200}, "body": {"business_code": "OK"}}
-    status = "PASS" if assertion_passed else "FAIL"
+    status = str(execution_status or ("PASS" if assertion_passed else "FAIL")).upper()
     truth.append_atomic(
         "EXECUTION_ATTEMPT_UPSERTED",
         {
@@ -155,28 +155,10 @@ def test_actual_result_oracle_conformance_rejects_record_tampering(tmp_path: Pat
 
 
 def test_actual_result_oracle_conformance_rejects_pass_without_oracle_pass(tmp_path: Path):
-    truth, path = _seed(tmp_path, assertion_passed=False)
-    # Forge only the execution status to PASS while keeping assertion FAIL and
-    # rebuild matching formal bytes/hash is intentionally not enough: R1
-    # execution/assertion consistency must still fail.
-    truth.append_atomic(
-        "EXECUTION_ATTEMPT_UPSERTED",
-        {
-            "attempt_id": ATTEMPT,
-            "release_id": RELEASE,
-            "requirement_id": "REQ-1",
-            "tc_id": TC,
-            "case_version": 1,
-            "target_id": TARGET,
-            "layer": "L3",
-            "status": "PASS",
-            "actual_result": {"http": {"status": 200}, "body": {"business_code": "OK"}},
-            "tool_call_refs": ["tool://api/1"],
-            "evidence_refs": ["evidence://api/1", "oracle-runtime://1"],
-            "spec_id": "SPEC-1",
-            "oracle_fingerprint": FINGERPRINT,
-        },
-    )
+    # Seed the contradictory truth exactly once. R1 immutability is itself a
+    # hard invariant, so this test must not rewrite attempt@version=1 merely to
+    # manufacture the contradiction under test.
+    truth, _path = _seed(tmp_path, assertion_passed=False, execution_status="PASS")
     result = ActualResultOracleConformanceChecker(truth).check_task(MISSION, TASK)
     assert result.status == "FAIL"
     assert "EXECUTION_PASS_REQUIRES_ORACLE_PASS:%s" % ATTEMPT in result.violations
