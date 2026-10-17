@@ -34,6 +34,7 @@ jobs:
       - name: Compile hardened modules
         run: >-
           python -m py_compile
+          rc7_release/runtime_delivery_contract.py
           rc7_release/mcp_server.py
           rc7_release/mcp_server_field.py
           rc7_release/mcp_stdio.py
@@ -75,6 +76,7 @@ jobs:
       - name: Run field-hardening regressions
         run: >-
           python -m pytest -q
+          tests/test_rc7_runtime_delivery_contract.py
           tests/test_rc7_field_hardening.py
           tests/test_rc7_plugin_payload.py
           tests/test_rc7_dsh_runtime_profile.py
@@ -157,6 +159,10 @@ jobs:
           python -m rc7_release.package build --repo-root . --output .\dist-clean --source-commit $commit
           if ($LASTEXITCODE -ne 0) { throw 'RC7 package build failed' }
 
+          $builtRoot = Join-Path (Resolve-Path .\dist-clean).Path $packageName
+          python -m rc7_release.runtime_delivery_contract --package-root $builtRoot
+          if ($LASTEXITCODE -ne 0) { throw 'RC7 turnkey runtime contract failed on built package' }
+
           $zips = @(Get-ChildItem -Path .\dist-clean -Filter '*.zip' -File)
           if ($zips.Count -ne 1) { throw "Expected exactly one RC7 zip, got $($zips.Count)" }
           $zip = $zips[0]
@@ -166,7 +172,6 @@ jobs:
           $actual = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($expected -ne $actual) { throw 'ZIP checksum mismatch before extraction' }
 
-          $builtRoot = Join-Path (Resolve-Path .\dist-clean).Path $packageName
           if (Test-Path -LiteralPath $builtRoot) { Remove-Item -LiteralPath $builtRoot -Recurse -Force }
           $cleanRoot = [System.IO.Path]::GetFullPath((Join-Path $PWD 'clean-extract'))
           if (Test-Path -LiteralPath $cleanRoot) { Remove-Item -LiteralPath $cleanRoot -Recurse -Force }
@@ -178,6 +183,8 @@ jobs:
           if (-not (Test-Path -LiteralPath $packagePython)) { throw 'Package-local Python missing after clean extraction' }
           Push-Location $packageRoot
           try {
+            & $packagePython -m rc7_release.runtime_delivery_contract --package-root $packageRoot
+            if ($LASTEXITCODE -ne 0) { throw 'RC7 turnkey runtime contract failed after clean extraction' }
             & $packagePython -m rc7_release.plugin_payload inspect --home $packageRoot
             if ($LASTEXITCODE -ne 0) { throw 'Package-local DSH plugin payload missing after clean extraction' }
             & $packagePython -m rc7_release.windows_clean_qualification --package-root $packageRoot
@@ -264,6 +271,8 @@ jobs:
           $packagePython = Join-Path $packageRoot 'workspace-template\runtime\python\python.exe'
           Push-Location $packageRoot
           try {
+            & $packagePython -m rc7_release.runtime_delivery_contract --package-root $packageRoot
+            if ($LASTEXITCODE -ne 0) { throw 'RC7 final transport runtime contract failed' }
             & $packagePython -m rc7_release.plugin_payload inspect --home $packageRoot
             if ($LASTEXITCODE -ne 0) { throw 'RC7 final transport DSH plugin payload verification failed' }
             & $packagePython -m rc7_release.package verify --package-root $packageRoot
