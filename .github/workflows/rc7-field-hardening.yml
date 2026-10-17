@@ -57,6 +57,7 @@ jobs:
           rc7_runtime/closed_loop_control.py
           rc7_runtime/case_runtime.py
           rc7_runtime/case_fanout_conformance.py
+          rc7_runtime/case_script_bundle_resolver.py
           rc7_runtime/script_fanout_evaluator.py
           rc7_runtime/execution_fanout_conformance.py
           rc7_runtime/execution_fanout_evaluator.py
@@ -88,6 +89,7 @@ jobs:
           tests/test_rc7_truth_overlay.py
           tests/test_rc7_case_runtime.py
           tests/test_rc7_case_fanout_conformance.py
+          tests/test_rc7_case_script_bundle_resolver.py
           tests/test_rc7_script_fanout_control_gate.py
           tests/test_rc7_execution_fanout_conformance.py
           tests/test_rc7_execution_fanout_defect_handoff.py
