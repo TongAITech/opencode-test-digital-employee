@@ -121,7 +121,7 @@ jobs:
           done
           ollama pull qwen3:4b | tee validation-artifacts/ollama-pull.log
 
-      - name: Build exact mainline governed DSH patch
+      - name: Build governed DSH patch with proven local-Qwen compatibility
         shell: bash
         run: |
           set -euo pipefail
@@ -133,27 +133,16 @@ jobs:
           python -m rc7_release.dsh \
             --output validation-artifacts/dsh/rc7-mcp.patch.yml \
             --home "$GITHUB_WORKSPACE" --python "$(which python)"
-          cat > validation-artifacts/dsh/model.patch.yml <<'YAML'
-          - id: llm-pi-ai
-            config:
-              providers:
-                local-ollama:
-                  apiKeyEnv: LOCAL_MODEL_API_KEY
-                  api: openai-completions
-                  baseURL: http://127.0.0.1:11434/v1
-                  models:
-                    - id: qwen3:4b
-                      contextWindow: 32768
-                      maxTokens: 4096
-          - id: agent-default-model
-            config:
-              provider: local-ollama
-              model: qwen3:4b
-          YAML
-          cat validation-artifacts/dsh/model.patch.yml \
+          cat validation/dsh/qwen3-ollama-none.patch.yml \
               validation/dsh/rc7-headless-minimal.patch.yml \
               validation-artifacts/dsh/rc7-mcp.patch.yml \
             > validation-artifacts/dsh/agiletc.patch.yml
+          dsh --profile headless --patch validation-artifacts/dsh/agiletc.patch.yml --dump-config \
+            > validation-artifacts/dsh/effective-config.yml
+          grep -q 'minimal: none' validation-artifacts/dsh/effective-config.yml
+          grep -q 'supportsReasoningEffort: true' validation-artifacts/dsh/effective-config.yml
+          grep -Eq "reasoningEffort: ['\"]?minimal['\"]?" validation-artifacts/dsh/effective-config.yml
+          grep -A2 '^\- id: session-title-llm' validation-artifacts/dsh/effective-config.yml | grep -q 'disabled: true'
 
       - name: Run only real Requirement producer with 180s diagnostic bound
         id: requirement
@@ -180,7 +169,7 @@ jobs:
           echo "$rc" > validation-artifacts/requirement-probe.exit
           exit "$rc"
 
-      - name: Summarize diagnostic truth
+      - name: Enforce real Requirement producer proof from R1
         if: always()
         shell: bash
         run: |
@@ -189,40 +178,81 @@ jobs:
           import json
           from pathlib import Path
 
-          root=Path('validation-artifacts')
-          input_path=root/'requirement-probe-input.json'
-          summary_path=root/'fullflow-summary.json'
-          r1_path=root/'runtime-state/r1/event-stream.jsonl'
-          result={
-              'input': json.loads(input_path.read_text()) if input_path.exists() else None,
-              'fullflow': json.loads(summary_path.read_text()) if summary_path.exists() else None,
-              'timeout_partial_events': [],
-              'worker_evidence_files': [],
-          }
+          root = Path('validation-artifacts')
+          r1_path = root / 'runtime-state/r1/event-stream.jsonl'
+          rows = []
           if r1_path.exists():
               for line in r1_path.read_text(encoding='utf-8', errors='replace').splitlines():
-                  try: row=json.loads(line)
-                  except Exception: continue
-                  payload=row.get('payload') if isinstance(row,dict) else None
-                  if row.get('event_type')=='ROUTING_INTEGRITY_FAIL' and isinstance(payload,dict) and payload.get('reason')=='DSH_WORKER_TIMEOUT_PARTIAL':
-                      result['timeout_partial_events'].append(payload)
-          evidence_root=root/'runtime-state/worker-evidence'
+                  try:
+                      rows.append(json.loads(line))
+                  except Exception:
+                      pass
+
+          task_versions = [r.get('payload', {}) for r in rows
+                           if r.get('entity_type') == 'rc7_task'
+                           and (r.get('payload') or {}).get('node') == 'REQUIREMENT_ANALYSIS']
+          latest_task = task_versions[-1] if task_versions else {}
+          task_id = latest_task.get('task_id')
+          worker_id = latest_task.get('lease_owner')
+
+          runtime = [r.get('payload', {}) for r in rows
+                     if r.get('entity_type') == 'agent_runtime_event'
+                     and (r.get('payload') or {}).get('worker_instance_id') == worker_id]
+          names = [p.get('event_name') for p in runtime]
+          tool_events = [p for p in runtime if p.get('event_name') == 'WORKER_TOOL_CALLED']
+          tool_names = []
+          for p in tool_events:
+              call = p.get('tool_call') or {}
+              tool_names.append(call.get('tool_name') or call.get('tool') or '')
+          completed_pass = any(p.get('event_name') == 'WORKER_COMPLETED' and p.get('result') == 'PASS' for p in runtime)
+          handoff = any(p.get('event_name') == 'HANDOFF_RETURNED' for p in runtime)
+          timeout_partial = [r.get('payload', {}) for r in rows
+                             if r.get('event_type') == 'ROUTING_INTEGRITY_FAIL'
+                             and (r.get('payload') or {}).get('reason') == 'DSH_WORKER_TIMEOUT_PARTIAL'
+                             and (r.get('payload') or {}).get('worker_instance_id') == worker_id]
+          output_refs = latest_task.get('output_artifact_refs') or []
+          mcp_calls = [name for name in tool_names if str(name).startswith('mcp__pfc_aitest_rc7__')]
+
+          evidence_root = root / 'runtime-state/worker-evidence'
+          worker_files = []
           if evidence_root.exists():
               for path in evidence_root.rglob('*.jsonl'):
-                  result['worker_evidence_files'].append({
+                  worker_files.append({
                       'path': str(path),
                       'bytes': path.stat().st_size,
                       'preview': path.read_text(encoding='utf-8', errors='replace')[-12000:],
                   })
-          (root/'requirement-probe-result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2,sort_keys=True)+'\n',encoding='utf-8')
-          print(json.dumps({
-              'input': result['input'],
-              'timeout_partial_event_count': len(result['timeout_partial_events']),
-              'worker_evidence_file_count': len(result['worker_evidence_files']),
-              'blocking_reason': (result['fullflow'] or {}).get('blocking_reason'),
-          }, ensure_ascii=False, sort_keys=True))
-          if result['input'] is None:
-              raise SystemExit('REQUIREMENT_PROBE_DID_NOT_REACH_WORKER')
+
+          result = {
+              'status': 'PASS' if (
+                  bool(task_id)
+                  and latest_task.get('state') == 'OUTPUT_PRODUCED'
+                  and bool(output_refs)
+                  and bool(mcp_calls)
+                  and completed_pass
+                  and handoff
+                  and not timeout_partial
+              ) else 'FAIL',
+              'task_id': task_id,
+              'worker_instance_id': worker_id,
+              'task_state': latest_task.get('state'),
+              'output_artifact_refs': output_refs,
+              'runtime_event_names': names,
+              'tool_names': tool_names,
+              'mcp_tool_call_count': len(mcp_calls),
+              'completed_pass': completed_pass,
+              'handoff_returned': handoff,
+              'timeout_partial_count': len(timeout_partial),
+              'scenario_exit': int((root/'requirement-probe.exit').read_text().strip()) if (root/'requirement-probe.exit').exists() else None,
+              'scenario_blocking_reason': (json.loads((root/'fullflow-summary.json').read_text()).get('blocking_reason') if (root/'fullflow-summary.json').exists() else None),
+              'worker_evidence_files': worker_files,
+          }
+          (root/'requirement-probe-result.json').write_text(
+              json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          print(json.dumps({k:v for k,v in result.items() if k != 'worker_evidence_files'}, ensure_ascii=False, sort_keys=True))
+          raise SystemExit(0 if result['status'] == 'PASS' else 2)
           PY
 
       - name: Upload Requirement diagnostic evidence
