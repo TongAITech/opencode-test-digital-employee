@@ -1,0 +1,40 @@
+name: RC7 DSH Authority Targeted
+
+on:
+  push:
+    branches:
+      - validation/agiletc-fullflow-work
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc7-authority-targeted-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  authority-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile changed authority modules
+        run: |
+          python -m py_compile \
+            rc7_release/dsh.py \
+            rc7_release/mcp_server_authorized.py \
+            rc7_runtime/authorized_dsh_launcher.py \
+            rc7_runtime/mcp_tool_authority.py
+      - name: Run targeted RC7 authority regressions
+        run: |
+          python -m pytest -q \
+            tests/test_rc7_dsh_tool_authority.py \
+            tests/test_rc7_external_input_readiness.py \
+            tests/test_rc7_bank_dsh_tool_policy.py \
+            tests/test_rc7_node_tool_conformance.py
