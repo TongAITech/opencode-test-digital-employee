@@ -1,10 +1,26 @@
 # Diagnostic-only override for the isolated AgileTC Requirement wire trace.
-# The canonical local-Qwen compatibility profile remains unchanged; this layer
-# only routes its OpenAI-compatible HTTP traffic through a metadata-only local
-# proxy that forwards requests byte-for-byte to Ollama on 127.0.0.1:11434.
+#
+# DSH patch composition replaces a repeated provider block instead of merging
+# provider fields recursively. Therefore this diagnostic layer intentionally
+# repeats the canonical local-Ollama provider shape and changes only baseURL.
+# Keep validation/dsh/qwen3-ollama-none.patch.yml as the source of truth; this
+# file exists only to route the exact same profile through the metadata-only
+# trace proxy at 127.0.0.1:11435.
 
 - id: llm-pi-ai
   config:
     providers:
       local-ollama:
+        apiKeyEnv: LOCAL_MODEL_API_KEY
+        api: openai-completions
         baseURL: http://127.0.0.1:11435/v1
+        models:
+          - id: qwen3:4b
+            contextWindow: 32768
+            maxTokens: 1024
+            reasoningEfforts:
+              minimal: none
+              medium: medium
+            compat:
+              thinkingFormat: openai
+              supportsReasoningEffort: true
