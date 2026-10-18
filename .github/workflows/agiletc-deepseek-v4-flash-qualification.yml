@@ -23,10 +23,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
-      DEEPSEEK_PUBLIC_API_KEY: public-validation-no-secret
+      BAZAARLINK_API_KEY: ${{ secrets.BAZAARLINK_API_KEY }}
       DSH_PERMISSION_MODE: read-only
-      DEEPSEEK_PUBLIC_BASE_URL: https://q5dh1rfszfym23hj.us-east-2.aws.endpoints.huggingface.cloud/v1
-      DEEPSEEK_PUBLIC_MODEL: deepseek-ai/DeepSeek-V4-Flash-0731
+      DEEPSEEK_PUBLIC_BASE_URL: https://api.bazaarlink.ai/v1
+      DEEPSEEK_PUBLIC_MODEL: deepseek/deepseek-v4-flash-0731free
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +36,71 @@ jobs:
       - uses: actions/setup-node@v4
         with: {node-version: '22'}
 
+      - name: Acquire one unpaid validation credential when no secret is configured
+        shell: bash
+        timeout-minutes: 1
+        run: |
+          set -euo pipefail
+          if [ -n "${BAZAARLINK_API_KEY:-}" ]; then
+            echo "::add-mask::$BAZAARLINK_API_KEY"
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          Path('bazaar-registration-safe.json').write_text(json.dumps({
+              'source': 'configured_secret',
+              'ephemeral_registration': False,
+          }, indent=2, sort_keys=True) + '\n')
+          PY
+            exit 0
+          fi
+
+          status=$(curl -sS --max-time 30 \
+            -o /tmp/bazaar-agent-register.json \
+            -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            https://api.bazaarlink.ai/api/v1/agents/register \
+            -d '{"name":"rc7-agiletc-deepseek-v4-flash","description":"One-run public synthetic RC7 AgileTC DeepSeek V4 Flash qualification; no Bank data."}')
+          printf '%s\n' "$status" > bazaar-registration.status
+          if [ "$status" != 201 ]; then
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('/tmp/bazaar-agent-register.json')
+          try:
+              d=json.loads(p.read_text(encoding='utf-8'))
+          except Exception:
+              d={}
+          safe={k:d.get(k) for k in ('error','code','message','detail') if d.get(k) is not None}
+          print('Bazaar unpaid agent registration failed: '+json.dumps(safe, ensure_ascii=False), flush=True)
+          PY
+            rm -f /tmp/bazaar-agent-register.json
+            exit 2
+          fi
+
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=Path('/tmp/bazaar-agent-register.json')
+          d=json.loads(p.read_text(encoding='utf-8'))
+          key=str(d.get('api_key') or '')
+          if not key:
+              raise SystemExit('registration returned 201 without api_key')
+          print(f'::add-mask::{key}')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as f:
+              f.write('BAZAARLINK_API_KEY='+key+'\n')
+          safe={
+              'source':'unpaid_agent_registration',
+              'ephemeral_registration':True,
+              'credits':d.get('credits'),
+              'credits_usd':d.get('credits_usd'),
+              'free_model':d.get('free_model'),
+              'base_url':d.get('base_url'),
+              'has_claim_token':bool(d.get('claim_token')),
+          }
+          Path('bazaar-registration-safe.json').write_text(json.dumps(safe, indent=2, sort_keys=True)+'\n')
+          PY
+          rm -f /tmp/bazaar-agent-register.json
+
       - name: Install DSH
         shell: bash
         run: |
@@ -43,7 +108,7 @@ jobs:
           npm install -g @deepseek-ai/dsh
           dsh --version | tee dsh-version.txt
 
-      - name: Probe public DeepSeek V4 Flash endpoint
+      - name: Prove exact free DeepSeek V4 Flash chat route
         shell: bash
         timeout-minutes: 3
         run: |
@@ -51,46 +116,81 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          payload = {
-              'model': 'deepseek-ai/DeepSeek-V4-Flash-0731',
-              'messages': [{'role': 'user', 'content': 'Return exactly OK and nothing else.'}],
+          payload={
+              'model':'deepseek/deepseek-v4-flash-0731free',
+              'messages':[{'role':'user','content':'Return exactly OK and nothing else.'}],
+              'max_tokens':32,
+              'temperature':0,
           }
-          Path('deepseek-health-request.json').write_text(json.dumps(payload, separators=(',', ':')) + '\n')
+          Path('deepseek-health-request.json').write_text(json.dumps(payload,separators=(',',':'))+'\n')
           PY
           started=$(date +%s)
           status=$(curl -sS --max-time 120 \
+            -D deepseek-health.headers \
             -o deepseek-health-response.json \
             -w '%{http_code}' \
+            -H "Authorization: Bearer $BAZAARLINK_API_KEY" \
             -H 'Content-Type: application/json' \
+            -H 'X-Free-Fallback: false' \
             "$DEEPSEEK_PUBLIC_BASE_URL/chat/completions" \
             --data-binary @deepseek-health-request.json)
           elapsed=$(($(date +%s)-started))
           printf '%s\n' "$status" > deepseek-health.status
           printf '%s\n' "$elapsed" > deepseek-health.elapsed
           if [ "$status" != 200 ]; then
-            echo "DeepSeek public endpoint health HTTP=$status" >&2
-            cat deepseek-health-response.json >&2 || true
+            echo "DeepSeek exact free route HTTP=$status" >&2
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          try:d=json.loads(Path('deepseek-health-response.json').read_text(encoding='utf-8'))
+          except Exception:d={}
+          print(json.dumps({k:d.get(k) for k in ('error','code','message','detail') if d.get(k) is not None},ensure_ascii=False))
+          PY
             exit 2
           fi
           python - <<'PY'
           import json
           from pathlib import Path
           d=json.loads(Path('deepseek-health-response.json').read_text(encoding='utf-8'))
+          headers=Path('deepseek-health.headers').read_text(encoding='utf-8',errors='replace').splitlines()
+          resolved=''
+          fallback=''
+          for line in headers:
+              low=line.lower()
+              if low.startswith('x-auto-resolved-model:'):
+                  resolved=line.split(':',1)[1].strip()
+              if low.startswith('x-bl-free-fallback:'):
+                  fallback=line.split(':',1)[1].strip()
           choices=d.get('choices') or []
-          content=str(((choices[0].get('message') if choices else {}) or {}).get('content') or '')
+          usage=d.get('usage') or {}
+          cost=usage.get('cost')
+          requested='deepseek/deepseek-v4-flash-0731free'
+          model=str(d.get('model') or '')
+          ok=(
+              bool(choices)
+              and model==requested
+              and (not resolved or resolved==requested)
+              and not fallback
+              and cost is not None
+              and float(cost)==0.0
+              and int(Path('deepseek-health.elapsed').read_text())<120
+          )
           result={
-              'status':'PASS' if choices else 'FAIL',
-              'http_status':int(Path('deepseek-health.status').read_text()),
+              'status':'PASS' if ok else 'FAIL',
+              'requested_model':requested,
+              'response_model':model,
+              'resolved_model_header':resolved,
+              'free_fallback_header':fallback,
+              'usage_cost':cost,
               'elapsed_seconds':int(Path('deepseek-health.elapsed').read_text()),
-              'response_model':str(d.get('model') or ''),
-              'content':content,
+              'finish_reason':choices[0].get('finish_reason') if choices else None,
           }
           Path('deepseek-health-result.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
           print(json.dumps(result,sort_keys=True))
-          raise SystemExit(0 if result['status']=='PASS' else 2)
+          raise SystemExit(0 if ok else 2)
           PY
 
-      - name: Prove public DeepSeek V4 Flash native tool call
+      - name: Prove exact free DeepSeek V4 Flash native tool call
         shell: bash
         timeout-minutes: 3
         run: |
@@ -98,31 +198,32 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          payload = {
-              'model': 'deepseek-ai/DeepSeek-V4-Flash-0731',
-              'messages': [
-                  {'role': 'user', 'content': 'Call rc7_probe exactly once with proof deepseek_v4_flash. Do not answer in prose.'},
-              ],
-              'tools': [{
-                  'type': 'function',
-                  'function': {
-                      'name': 'rc7_probe',
-                      'parameters': {
-                          'type': 'object',
-                          'properties': {'proof': {'type': 'string'}},
-                          'required': ['proof'],
-                      },
+          payload={
+              'model':'deepseek/deepseek-v4-flash-0731free',
+              'messages':[{'role':'user','content':'Call rc7_probe exactly once with proof deepseek_v4_flash. Do not answer in prose.'}],
+              'tools':[{'type':'function','function':{
+                  'name':'rc7_probe',
+                  'description':'Return RC7 qualification proof',
+                  'parameters':{
+                      'type':'object',
+                      'properties':{'proof':{'type':'string'}},
+                      'required':['proof'],
                   },
-              }],
-              'tool_choice': 'auto',
+              }}],
+              'tool_choice':'required',
+              'max_tokens':128,
+              'temperature':0,
           }
-          Path('deepseek-tool-request.json').write_text(json.dumps(payload, separators=(',', ':')) + '\n')
+          Path('deepseek-tool-request.json').write_text(json.dumps(payload,separators=(',',':'))+'\n')
           PY
           started=$(date +%s)
           status=$(curl -sS --max-time 120 \
+            -D deepseek-tool.headers \
             -o deepseek-tool-response.json \
             -w '%{http_code}' \
+            -H "Authorization: Bearer $BAZAARLINK_API_KEY" \
             -H 'Content-Type: application/json' \
+            -H 'X-Free-Fallback: false' \
             "$DEEPSEEK_PUBLIC_BASE_URL/chat/completions" \
             --data-binary @deepseek-tool-request.json)
           elapsed=$(($(date +%s)-started))
@@ -130,43 +231,60 @@ jobs:
           printf '%s\n' "$elapsed" > deepseek-tool.elapsed
           if [ "$status" != 200 ]; then
             echo "DeepSeek native tool-call HTTP=$status" >&2
-            cat deepseek-tool-response.json >&2 || true
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          try:d=json.loads(Path('deepseek-tool-response.json').read_text(encoding='utf-8'))
+          except Exception:d={}
+          print(json.dumps({k:d.get(k) for k in ('error','code','message','detail') if d.get(k) is not None},ensure_ascii=False))
+          PY
             exit 2
           fi
           python - <<'PY'
           import json
           from pathlib import Path
-          d = json.loads(Path('deepseek-tool-response.json').read_text(encoding='utf-8'))
-          choices = d.get('choices') or []
-          msg = (choices[0].get('message') if choices else {}) or {}
-          calls = msg.get('tool_calls') or []
-          parsed = []
-          for call in calls:
-              fn = call.get('function') or {}
-              raw = fn.get('arguments') or '{}'
-              try:
-                  args = json.loads(raw) if isinstance(raw, str) else raw
-              except Exception:
-                  args = None
-              parsed.append({'name': fn.get('name'), 'arguments': args})
-          elapsed = int(Path('deepseek-tool.elapsed').read_text())
-          ok = (
-              len(parsed) == 1
-              and parsed[0].get('name') == 'rc7_probe'
-              and (parsed[0].get('arguments') or {}).get('proof') == 'deepseek_v4_flash'
-              and elapsed < 120
+          d=json.loads(Path('deepseek-tool-response.json').read_text(encoding='utf-8'))
+          headers=Path('deepseek-tool.headers').read_text(encoding='utf-8',errors='replace').splitlines()
+          resolved=''; fallback=''
+          for line in headers:
+              low=line.lower()
+              if low.startswith('x-auto-resolved-model:'): resolved=line.split(':',1)[1].strip()
+              if low.startswith('x-bl-free-fallback:'): fallback=line.split(':',1)[1].strip()
+          choices=d.get('choices') or []
+          msg=(choices[0].get('message') if choices else {}) or {}
+          parsed=[]
+          for call in msg.get('tool_calls') or []:
+              fn=call.get('function') or {}
+              raw=fn.get('arguments') or '{}'
+              try:args=json.loads(raw) if isinstance(raw,str) else raw
+              except Exception:args=None
+              parsed.append({'name':fn.get('name'),'arguments':args})
+          requested='deepseek/deepseek-v4-flash-0731free'
+          model=str(d.get('model') or '')
+          cost=(d.get('usage') or {}).get('cost')
+          ok=(
+              model==requested
+              and (not resolved or resolved==requested)
+              and not fallback
+              and cost is not None and float(cost)==0.0
+              and len(parsed)==1
+              and parsed[0].get('name')=='rc7_probe'
+              and (parsed[0].get('arguments') or {}).get('proof')=='deepseek_v4_flash'
+              and int(Path('deepseek-tool.elapsed').read_text())<120
           )
-          result = {
-              'status': 'PASS' if ok else 'FAIL',
-              'requested_model': 'deepseek-ai/DeepSeek-V4-Flash-0731',
-              'response_model': str(d.get('model') or ''),
-              'http_status': int(Path('deepseek-tool.status').read_text()),
-              'elapsed_seconds': elapsed,
-              'tool_calls': parsed,
-              'finish_reason': choices[0].get('finish_reason') if choices else None,
+          result={
+              'status':'PASS' if ok else 'FAIL',
+              'requested_model':requested,
+              'response_model':model,
+              'resolved_model_header':resolved,
+              'free_fallback_header':fallback,
+              'usage_cost':cost,
+              'elapsed_seconds':int(Path('deepseek-tool.elapsed').read_text()),
+              'tool_calls':parsed,
+              'finish_reason':choices[0].get('finish_reason') if choices else None,
           }
-          Path('deepseek-tool-result.json').write_text(json.dumps(result, indent=2, sort_keys=True) + '\n')
-          print(json.dumps(result, sort_keys=True))
+          Path('deepseek-tool-result.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(result,sort_keys=True))
           raise SystemExit(0 if ok else 2)
           PY
 
@@ -180,8 +298,8 @@ jobs:
           dsh --profile headless --patch deepseek-effective.patch.yml --dump-config \
             > deepseek-effective-config.yml
           grep -q 'provider: public-deepseek-v4-flash' deepseek-effective-config.yml
-          grep -q 'model: deepseek-ai/DeepSeek-V4-Flash-0731' deepseek-effective-config.yml
-          grep -q 'q5dh1rfszfym23hj.us-east-2.aws.endpoints.huggingface.cloud/v1' deepseek-effective-config.yml
+          grep -q 'model: deepseek/deepseek-v4-flash-0731free' deepseek-effective-config.yml
+          grep -q 'baseURL: https://api.bazaarlink.ai/v1' deepseek-effective-config.yml
 
       - name: Prove DSH DeepSeek headless lifecycle closes after final JSON
         shell: bash
@@ -202,33 +320,23 @@ jobs:
           import json
           from pathlib import Path
           from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
-          text = Path('dsh-deepseek.jsonl').read_text(encoding='utf-8', errors='replace')
-          events = tuple(DshHeadlessWorkerLauncher._parse_json_lines(text))
-          final = DshHeadlessWorkerLauncher._final_json(events)
-          thinking_chars = sum(
-              len(str(e.get('text') or ''))
-              for e in events
-              if str(e.get('type') or '').lower() == 'thinking'
-          )
-          rc = int(Path('dsh-deepseek.exit').read_text())
-          elapsed = int(Path('dsh-deepseek.elapsed').read_text())
-          out = {
-              'process_exit': rc,
-              'elapsed_seconds': elapsed,
-              'thinking_chars_observed': thinking_chars,
-              'event_count': len(events),
-              'final_json': final,
+          text=Path('dsh-deepseek.jsonl').read_text(encoding='utf-8',errors='replace')
+          events=tuple(DshHeadlessWorkerLauncher._parse_json_lines(text))
+          final=DshHeadlessWorkerLauncher._final_json(events)
+          thinking_chars=sum(len(str(e.get('text') or '')) for e in events if str(e.get('type') or '').lower()=='thinking')
+          rc=int(Path('dsh-deepseek.exit').read_text())
+          elapsed=int(Path('dsh-deepseek.elapsed').read_text())
+          out={
+              'process_exit':rc,
+              'elapsed_seconds':elapsed,
+              'thinking_chars_observed':thinking_chars,
+              'event_count':len(events),
+              'final_json':final,
           }
-          ok = (
-              rc == 0
-              and elapsed < 120
-              and isinstance(final, dict)
-              and final.get('status') == 'PASS'
-              and final.get('proof') == 'dsh_deepseek_v4_flash_lifecycle'
-          )
-          out['status'] = 'PASS' if ok else 'FAIL'
-          Path('dsh-deepseek-result.json').write_text(json.dumps(out, indent=2, sort_keys=True) + '\n')
-          print(json.dumps(out, sort_keys=True))
+          ok=(rc==0 and elapsed<120 and isinstance(final,dict) and final.get('status')=='PASS' and final.get('proof')=='dsh_deepseek_v4_flash_lifecycle')
+          out['status']='PASS' if ok else 'FAIL'
+          Path('dsh-deepseek-result.json').write_text(json.dumps(out,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(out,sort_keys=True))
           raise SystemExit(0 if ok else 2)
           PY
 
@@ -238,14 +346,18 @@ jobs:
         with:
           name: rc7-deepseek-v4-flash-qualification-${{ github.sha }}
           path: |
+            bazaar-registration-safe.json
+            bazaar-registration.status
             dsh-version.txt
             deepseek-health-request.json
             deepseek-health-response.json
+            deepseek-health.headers
             deepseek-health.status
             deepseek-health.elapsed
             deepseek-health-result.json
             deepseek-tool-request.json
             deepseek-tool-response.json
+            deepseek-tool.headers
             deepseek-tool.status
             deepseek-tool.elapsed
             deepseek-tool-result.json

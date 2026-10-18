@@ -1,23 +1,22 @@
 # Public-validation-only DeepSeek V4 Flash provider.
 #
-# This endpoint serves the public DeepSeek-V4-Flash-0731 weights through an
-# OpenAI-compatible API and is used only with public AgileTC / synthetic probe
-# data. It is NOT a Bank endpoint and must never receive Bank requirements,
-# source, credentials, logs, or customer data.
+# BazaarLink currently exposes the exact DeepSeek V4 Flash 0731 model with a
+# rate-limited free allowance. This profile is only for public AgileTC and
+# synthetic RC7 qualification data. Never send Bank requirements, source,
+# credentials, logs, customer data, or other non-public material through it.
 #
-# Keep model reasoning compatibility capability-based: unlike the local Qwen
-# profile, do not map DSH reasoningEffort values to provider-specific wire
-# values until a DeepSeek capability probe proves such a mapping is required.
+# Do not inherit the local-Qwen reasoning compatibility mapping. DeepSeek must
+# prove its own DSH compatibility before any provider-specific mapping is added.
 - id: llm-pi-ai
   config:
     providers:
       public-deepseek-v4-flash:
-        apiKeyEnv: DEEPSEEK_PUBLIC_API_KEY
+        apiKeyEnv: BAZAARLINK_API_KEY
         api: openai-completions
-        baseURL: https://q5dh1rfszfym23hj.us-east-2.aws.endpoints.huggingface.cloud/v1
+        baseURL: https://api.bazaarlink.ai/v1
         models:
-          - id: deepseek-ai/DeepSeek-V4-Flash-0731
-            contextWindow: 393216
+          - id: deepseek/deepseek-v4-flash-0731free
+            contextWindow: 1048576
             maxTokens: 512
             compat:
               maxTokensField: max_tokens
@@ -25,9 +24,9 @@
 - id: agent-default-model
   config:
     provider: public-deepseek-v4-flash
-    model: deepseek-ai/DeepSeek-V4-Flash-0731
+    model: deepseek/deepseek-v4-flash-0731free
 
-# One-shot headless qualification sessions do not need a title-generation LLM
-# request. This also removes a known source of extra background model activity.
+# A one-shot headless qualification Worker does not need an auxiliary title LLM
+# call. This removes unrelated background model activity from lifecycle proof.
 - id: session-title-llm
   disabled: true
