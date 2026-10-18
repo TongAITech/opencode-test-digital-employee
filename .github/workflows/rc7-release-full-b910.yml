@@ -1,0 +1,67 @@
+name: RC7 Release Full B910
+
+on:
+  push:
+    branches:
+      - delivery/rc7-internal-transport-0bbb8239
+    paths:
+      - .github/workflows/rc7-release-full-b910.yml
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish-release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download verified transport parts
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: TongAITech/opencode-test-digital-employee
+          run-id: 39138152950
+          pattern: rc7-transport-part-*-b910cf62
+          merge-multiple: true
+          path: parts
+
+      - name: Reassemble and verify exact final ZIP
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem parts -Filter '*.part*' | Sort-Object Name
+          if ($parts.Count -ne 5) { throw "Expected 5 parts, found $($parts.Count)" }
+          $out = 'PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-b910cf6271df.zip'
+          $stream = [System.IO.File]::Create($out)
+          try {
+            foreach ($part in $parts) {
+              $input = [System.IO.File]::OpenRead($part.FullName)
+              try { $input.CopyTo($stream) } finally { $input.Dispose() }
+            }
+          } finally { $stream.Dispose() }
+          $sha = (Get-FileHash -Algorithm SHA256 $out).Hash.ToLowerInvariant()
+          if ($sha -ne 'e4fd9d7fcd9f24c808bdb8914d079d0891315558f7f6c3e2637bcc18460654bb') {
+            throw "Full ZIP SHA256 mismatch: $sha"
+          }
+          if ((Get-Item $out).Length -ne 1309644908) { throw 'Full ZIP size mismatch' }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $out))
+          try {
+            if ($zip.Entries.Count -ne 35049) { throw "Unexpected ZIP entry count: $($zip.Entries.Count)" }
+          } finally { $zip.Dispose() }
+          "$sha  $out" | Set-Content -Encoding ascii RC7-SHA256SUMS.txt
+
+      - name: Publish or update prerelease asset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = 'rc7-internal-b910cf62'
+          $asset = 'PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-b910cf6271df.zip'
+          gh release view $tag --repo TongAITech/opencode-test-digital-employee *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --repo TongAITech/opencode-test-digital-employee --target b910cf6271df3c2c51e057c42230e8a7c800804f --title 'RC7 Internal Transport Candidate b910cf62' --prerelease --notes 'Verified Windows transport candidate. Engineering/delivery gates PASS. Real bank mission and Requirement provider E2E remain field-evidence HOLD; this release must not be represented as Bank Final.'
+            if ($LASTEXITCODE -ne 0) { throw 'Release creation failed' }
+          }
+          gh release upload $tag $asset RC7-SHA256SUMS.txt --repo TongAITech/opencode-test-digital-employee --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Release asset upload failed' }
