@@ -1,0 +1,139 @@
+name: RC7 Apply Py38 Authorized Regression Repair
+
+on:
+  push:
+    branches:
+      - repair/rc7-py38-authorized-regression
+    paths:
+      - .github/workflows/rc7-apply-py38-authorized-repair.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair-and-verify:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout live validation branch
+        uses: actions/checkout@v4
+        with:
+          ref: validation/agiletc-worker-timeout-evidence
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+
+      - name: Apply fail-closed compatibility and assertion repair
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit("PATCH_CARDINALITY:%s:%s" % (path, count))
+              p.write_text(text.replace(old, new), encoding="utf-8")
+
+          cert = "rc7_release/runtime_turnkey_certificate.py"
+          replace_once(
+              cert,
+              "class TurnkeyRuntimeCertificateError(RuntimeError):\n    pass\n\n\n",
+              "class TurnkeyRuntimeCertificateError(RuntimeError):\n    pass\n\n\ndef _write_text_lf(path: Path, text: str) -> None:\n    # pathlib.Path.write_text gained the newline parameter after Python 3.8.\n    # RC7's bank-compatible build profile still exercises Python 3.8, so keep\n    # newline normalization explicit without weakening any qualification gate.\n    with path.open(\"w\", encoding=\"utf-8\", newline=\"\\n\") as handle:\n        handle.write(text)\n\n\n",
+          )
+          replace_once(
+              cert,
+              "    Path(str(zip_path) + \".sha256\").write_text(\n        \"%s  %s\\n\" % (digest, zip_path.name), encoding=\"utf-8\", newline=\"\\n\"\n    )",
+              "    _write_text_lf(Path(str(zip_path) + \".sha256\"), \"%s  %s\\n\" % (digest, zip_path.name))",
+          )
+          replace_once(
+              cert,
+              "    cert_path.write_text(\n        json.dumps(certificate, ensure_ascii=False, sort_keys=True, indent=2) + \"\\n\",\n        encoding=\"utf-8\",\n        newline=\"\\n\",\n    )",
+              "    _write_text_lf(\n        cert_path,\n        json.dumps(certificate, ensure_ascii=False, sort_keys=True, indent=2) + \"\\n\",\n    )",
+          )
+          replace_once(
+              cert,
+              "    manifest_path.write_text(\n        json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + \"\\n\",\n        encoding=\"utf-8\",\n        newline=\"\\n\",\n    )",
+              "    _write_text_lf(\n        manifest_path,\n        json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + \"\\n\",\n    )",
+          )
+
+          replace_once(
+              "tests/test_rc7_case_script_bundle_resolver.py",
+              "    assert Path(bundle.spec_ref.removeprefix(\"file://\")).is_file()",
+              "    spec_ref = bundle.spec_ref[len(\"file://\") :] if bundle.spec_ref.startswith(\"file://\") else bundle.spec_ref\n    assert Path(spec_ref).is_file()",
+          )
+          replace_once(
+              "tests/test_rc7_runtime_payload_materializer.py",
+              "        return str(expected_sha256).removeprefix(\"sha256:\")",
+              "        value = str(expected_sha256)\n        return value[len(\"sha256:\") :] if value.startswith(\"sha256:\") else value",
+          )
+          replace_once(
+              "tests/test_rc7_runtime_clean_smoke.py",
+              "            assert Path(command[0]).resolve().is_relative_to(root.resolve())",
+              "            resolved_command = Path(command[0]).resolve()\n            resolved_root = root.resolve()\n            assert resolved_command == resolved_root or resolved_root in resolved_command.parents",
+          )
+          replace_once(
+              "tests/test_rc7_mcp_server_field.py",
+              "    assert \"rc7_release.mcp_server_field\" in patch\n    assert \"rc7_release.mcp_server']\" not in patch",
+              "    assert \"args: ['-m', 'rc7_release.mcp_server_authorized']\" in patch\n    assert \"args: ['-m', 'rc7_release.mcp_server_field']\" not in patch\n    assert \"rc7_release.mcp_server']\" not in patch",
+          )
+          replace_once(
+              "tests/test_rc7_professional_tools.py",
+              "    assert \"args: ['-m', 'rc7_release.mcp_server_field']\" in text",
+              "    assert \"args: ['-m', 'rc7_release.mcp_server_authorized']\" in text\n    assert \"args: ['-m', 'rc7_release.mcp_server_field']\" not in text",
+          )
+          replace_once(
+              "tests/test_rc7_mcp_stdio_protocol.py",
+              "    payload = json.loads(called[\"result\"][\"content\"][0][\"text\"])\n    assert payload[\"server\"] == field.SERVER_NAME\n    assert payload[\"rc7_truth_overlay\"] is True",
+              "    assert called[\"result\"][\"content\"][0][\"text\"] == \"MCP_AUTH_MISSION_CONTEXT_REQUIRED\"",
+          )
+          '@ | Set-Content -Encoding utf8 "$env:RUNNER_TEMP\patch_rc7.py"
+          python "$env:RUNNER_TEMP\patch_rc7.py"
+          if ($LASTEXITCODE -ne 0) { throw 'Patch application failed closed' }
+
+      - name: Install regression dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pytest requests python-docx openpyxl python-pptx pypdf
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency install failed' }
+
+      - name: Run exact failing set first
+        shell: pwsh
+        run: |
+          python -m pytest -q `
+            tests/test_rc7_case_script_bundle_resolver.py `
+            tests/test_rc7_mcp_server_field.py `
+            tests/test_rc7_mcp_stdio_protocol.py `
+            tests/test_rc7_professional_tools.py `
+            tests/test_rc7_runtime_clean_smoke.py `
+            tests/test_rc7_runtime_payload_materializer.py `
+            tests/test_rc7_runtime_turnkey_certificate.py
+          if ($LASTEXITCODE -ne 0) { throw 'Targeted regression remains red' }
+
+      - name: Run full Python 3.8 RC7 regression
+        shell: pwsh
+        run: |
+          python -m compileall -q rc6_runtime rc6_release rc7_runtime rc7_release rc7_admin
+          if ($LASTEXITCODE -ne 0) { throw 'compileall failed' }
+          $tests = Get-ChildItem 'tests' -Filter 'test_rc7_*.py' | ForEach-Object { $_.FullName }
+          python -m pytest -q $tests
+          if ($LASTEXITCODE -ne 0) { throw 'Full RC7 regression remains red' }
+
+      - name: Commit verified repair to validation branch
+        shell: pwsh
+        run: |
+          git config user.name "RC7 Delivery Bot"
+          git config user.email "rc7-delivery-bot@users.noreply.github.com"
+          git add rc7_release/runtime_turnkey_certificate.py tests/test_rc7_case_script_bundle_resolver.py tests/test_rc7_mcp_server_field.py tests/test_rc7_mcp_stdio_protocol.py tests/test_rc7_professional_tools.py tests/test_rc7_runtime_clean_smoke.py tests/test_rc7_runtime_payload_materializer.py
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "fix(rc7): restore py38 regression and authorized MCP assertions"
+            if ($LASTEXITCODE -ne 0) { throw 'Repair commit failed' }
+            git push origin HEAD:refs/heads/validation/agiletc-worker-timeout-evidence
+            if ($LASTEXITCODE -ne 0) { throw 'Repair push failed' }
+          } else {
+            throw 'Repair produced no changes'
+          }
