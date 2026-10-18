@@ -14,6 +14,9 @@ changing the base RC6 worker contract:
 4. If DSH times out, any partial stdout/stderr is persisted as failure evidence
    and summarized in R1. Partial calls are diagnostics only; they are never
    promoted to WORKER_TOOL_CALLED or accepted handoff evidence.
+5. If a provider explicitly returns an HTTP rate-limit error before strict JSON
+   handoff, preserve that external failure class in R1 instead of mislabeling it
+   as a model JSON-format failure.
 
 The DSH-side restriction and MCP pre-execution check are preventative. The
 post-observation signed-lease check is fail-closed defense in depth.
@@ -22,6 +25,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from rc6_runtime.agent_runtime import (
@@ -39,6 +43,13 @@ MCP_TASK_ID_ENV = "PFC_RC7_MCP_TASK_ID"
 MCP_WORKER_ID_ENV = "PFC_RC7_MCP_WORKER_ID"
 MCP_LEASE_ID_ENV = "PFC_RC7_MCP_LEASE_ID"
 MCP_SCOPE_REF_ENV = "PFC_RC7_MCP_SCOPE_REF"
+
+_PROVIDER_RATE_LIMIT_MARKERS = (
+    "rate_limit",
+    "free_daily_limit",
+    "free_global_rate_limited",
+    "too many requests",
+)
 
 
 class Rc7AuthorizedDshHeadlessWorkerLauncher(DshHeadlessWorkerLauncher):
@@ -120,6 +131,66 @@ class Rc7AuthorizedDshHeadlessWorkerLauncher(DshHeadlessWorkerLauncher):
         if isinstance(value, bytes):
             return value.decode("utf-8", errors="replace")
         return str(value)
+
+    @staticmethod
+    def _provider_failure_reason_from_text(text: str) -> str:
+        """Classify only explicit provider 429/rate-limit evidence.
+
+        Do not infer provider failure from missing JSON alone. Requiring both a
+        429 signal and an explicit rate-limit marker keeps ordinary model-format
+        failures classified as STRICT_JSON_OUTPUT_MISSING.
+        """
+        lowered = str(text or "").lower()
+        if "429" not in lowered:
+            return ""
+        if any(marker in lowered for marker in _PROVIDER_RATE_LIMIT_MARKERS):
+            return "MODEL_PROVIDER_RATE_LIMIT"
+        return ""
+
+    def _raw_failure_text(self, raw_ref: str) -> str:
+        """Read only this launcher's already-persisted evidence under state_root."""
+        if not isinstance(raw_ref, str) or not raw_ref.startswith("file://"):
+            return ""
+        path = Path(raw_ref[len("file://") :]).expanduser().resolve()
+        try:
+            path.relative_to(self.state_root)
+        except ValueError:
+            return ""
+        try:
+            return path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ""
+
+    def _fail_invocation(
+        self,
+        invocation: WorkerInvocation,
+        exit_code: int,
+        raw_ref: str,
+        reason: str,
+    ) -> None:
+        mapped_reason = reason
+        if reason == "STRICT_JSON_OUTPUT_MISSING":
+            provider_reason = self._provider_failure_reason_from_text(
+                self._raw_failure_text(raw_ref)
+            )
+            if provider_reason:
+                mapped_reason = provider_reason
+                self.emit_control_event(
+                    "ROUTING_INTEGRITY_FAIL",
+                    invocation.mission_id,
+                    reason=provider_reason,
+                    worker_instance_id=invocation.worker_instance_id,
+                    assignment_id=invocation.assignment_id,
+                    lease_id=invocation.lease_id,
+                    raw_output_ref=raw_ref,
+                    original_failure=reason,
+                )
+        return super()._fail_invocation(
+            invocation,
+            exit_code,
+            raw_ref,
+            mapped_reason,
+        )
 
     def _persist_timeout_diagnostic(
         self,
