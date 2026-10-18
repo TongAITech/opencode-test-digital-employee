@@ -42,17 +42,38 @@ def test_optional_probe_never_hides_required_dsh_payload_blocker(tmp_path: Path,
     assert result["public_registry_forbidden_on_bank_host"] is True
 
 
-def test_vision_prefers_local_ocr_until_router_is_actually_active(tmp_path: Path, monkeypatch) -> None:
+def test_optional_acquire_rejects_public_registry_even_when_approved(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("PFC_NPM_REGISTRY_URL", "https://registry.npmjs.org")
+    monkeypatch.setenv("PFC_NPM_REGISTRY_APPROVED", "1")
+    result = optional_enhancements.acquire(tmp_path, ["dsh-vision-router"])
+    assert result["status"] == "FAIL"
+    assert result["reason"] == "PUBLIC_NPM_REGISTRY_FORBIDDEN"
+
+
+def test_vision_prefers_local_ocr_until_dsh_activation_is_proven(tmp_path: Path, monkeypatch) -> None:
     home = tmp_path / "package"; marker = home / "workspace-template/runtime/python/.rc7-capabilities/local_ocr_cv.json"
     marker.parent.mkdir(parents=True, exist_ok=True); marker.write_text('{"status":"PASS"}\n', encoding="utf-8")
     state = tmp_path / "state"; monkeypatch.setenv("PFC_AITEST_STATE_DIR", str(state)); _write_plugin(state / "plugin-runtime" / "optional-enhancements", "dsh-vision-router")
-    monkeypatch.delenv("PFC_RC7_VISION_ROUTER_ACTIVE", raising=False); monkeypatch.delenv("PFC_BANK_VLM_ENDPOINT", raising=False); monkeypatch.delenv("PFC_BANK_VLM_APPROVED", raising=False)
+    monkeypatch.setenv("PFC_RC7_VISION_ROUTER_ACTIVE", "1")
+    monkeypatch.delenv("PFC_BANK_VLM_ENDPOINT", raising=False); monkeypatch.delenv("PFC_BANK_VLM_APPROVED", raising=False)
     result = probe_vision(home)
     assert result["status"] == "PASS"
     assert result["selected_provider"] == "LOCAL_OCR_CV"
     assert result["dsh_vision_router"]["available"] is True
     assert result["dsh_vision_router"]["active"] is False
+    assert result["dsh_vision_router"]["activation_authority"] == "DSH_PROFILE_ACTIVATION_RECEIPT"
     assert result["public_remote_image_upload"] is False
+
+
+def test_vision_selects_dsh_only_after_activation_receipt(tmp_path: Path, monkeypatch) -> None:
+    home = tmp_path / "package"; state = tmp_path / "state"; monkeypatch.setenv("PFC_AITEST_STATE_DIR", str(state)); monkeypatch.setenv("PFC_RC7_DSH_PROFILE", "rc7-field")
+    _write_plugin(state / "plugin-runtime" / "optional-enhancements", "dsh-vision-router")
+    receipt = optional_enhancements.activation_receipt_path(home, "rc7-field", "dsh-vision-router")
+    receipt.parent.mkdir(parents=True, exist_ok=True); receipt.write_text(json.dumps({"status": "ACTIVE", "plugin": "dsh-vision-router", "profile": "rc7-field"}), encoding="utf-8")
+    result = probe_vision(home)
+    assert result["status"] == "PASS"
+    assert result["selected_provider"] == "DSH_VISION_ROUTER"
+    assert result["dsh_vision_router"]["active"] is True
 
 
 def test_repository_release_metadata_has_no_stale_wave2_candidate() -> None:
@@ -63,4 +84,5 @@ def test_repository_release_metadata_has_no_stale_wave2_candidate() -> None:
     assert "repair/g3-g4-wave2" not in text
     assert "884947012a7c7735f11708734f1955ee552cf1fe" not in text
     assert data["turnkey_delivery"]["required_runtime_payload_count"] == 16
+    assert data["turnkey_delivery"]["optional_plugin_explicit_enable_fails_closed_when_unavailable"] is True
     assert data["release_invariants"]["bank_final_requires_real_bank_mission"] is True
