@@ -13,20 +13,23 @@ from .plugin_payload import REQUIRED_PLUGIN_NAMES, materialize_payload, package_
 
 
 REQUIRED = REQUIRED_PLUGIN_NAMES
+DEFAULT_ENABLED_RUNTIME = (
+    "dsh-vision-router",
+    "dsh-memento",
+)
 DIAGNOSTIC_OPTIONAL = (
     "@perrylink/dsh-plugin-doctor",
 )
-OPTIONAL_DISABLED = (
-    "dsh-vision-router",
+CONDITIONAL_OPTIONAL = (
     "dsh-plugin-anydoc",
-    "dsh-memento",
     "dsh-error-handling",
 )
 
 # Bank profiles may contain private provider/auth plugins (for example the
 # wizard provider). Running plugin add/install on the existing web profile can
 # rewrite its dependency tree and remove those private plugins. RC7 therefore
-# treats bank profiles as immutable by default.
+# treats bank profiles as immutable by default. Default enhancements are loaded
+# only by the per-process RC7 --patch layer; they are never installed into web.
 DEFAULT_PROTECTED_PROFILES = ("web",)
 
 
@@ -85,12 +88,6 @@ def prepare_env(home: Path) -> Dict[str, str]:
 
 
 def _resolve_dsh(env: Dict[str, str]) -> Optional[str]:
-    """Resolve the DSH launcher for package-local Windows Python.
-
-    Git Bash may find a POSIX wrapper named ``dsh`` while Windows Python sees a
-    semicolon-delimited PATH and cannot rediscover it. AITEST.sh therefore
-    bridges the launcher through PFC_RC7_DSH_BIN. Native shells still use PATH.
-    """
     configured = str(env.get("PFC_RC7_DSH_BIN") or "").strip()
     if configured:
         target = Path(configured).expanduser()
@@ -113,7 +110,6 @@ def _msys_path(path: Path) -> str:
 
 
 def run_dsh(dsh: str, args: List[str], env: Dict[str, str]) -> Tuple[int, str]:
-    """Run native dsh.cmd/exe or an extensionless Git-Bash launcher safely."""
     target = Path(dsh)
     if os.name == "nt" and target.suffix.lower() not in (".cmd", ".bat", ".exe", ".com"):
         bash = shutil.which("bash.exe", path=env.get("PATH")) or shutil.which("bash.exe")
@@ -124,6 +120,16 @@ def run_dsh(dsh: str, args: List[str], env: Dict[str, str]) -> Tuple[int, str]:
             return 127, "GIT_BASH_REQUIRED_FOR_DSH_POSIX_LAUNCHER"
         return run([bash, _msys_path(target)] + list(args), env)
     return run([dsh] + list(args), env)
+
+
+def _tier(package: str) -> str:
+    if package in REQUIRED:
+        return "P0_MISSION"
+    if package in DEFAULT_ENABLED_RUNTIME:
+        return "P1_DEFAULT_RUNTIME"
+    if package in DIAGNOSTIC_OPTIONAL:
+        return "DIAGNOSTIC"
+    return "CONDITIONAL_OPTIONAL"
 
 
 def install(
@@ -147,12 +153,13 @@ def install(
     env = prepare_env(home)
     dsh = _resolve_dsh(env)
     discovered: Dict[str, Dict[str, object]] = {}
-    for package in REQUIRED + DIAGNOSTIC_OPTIONAL + OPTIONAL_DISABLED:
+    all_packages = REQUIRED + DEFAULT_ENABLED_RUNTIME + DIAGNOSTIC_OPTIONAL + CONDITIONAL_OPTIONAL
+    for package in all_packages:
         p = package_path(vendor, package)
         discovered[package] = {
             "path": str(p),
             "bundled": (p / "package.json").is_file(),
-            "tier": "P0_MISSION" if package in REQUIRED else ("DIAGNOSTIC" if package in DIAGNOSTIC_OPTIONAL else "OPTIONAL_DISABLED"),
+            "tier": _tier(package),
         }
     missing = [name for name in REQUIRED if not discovered[name]["bundled"]]
     if missing:
@@ -163,55 +170,70 @@ def install(
             "plugins": discovered,
             "vendor": str(vendor),
         }
-
-    is_protected = profile in protected_profiles()
-    if dry_run:
+    missing_default = [name for name in DEFAULT_ENABLED_RUNTIME if not discovered[name]["bundled"]]
+    if missing_default:
         return {
-            "status": "PASS",
-            "mode": "PAYLOAD_ONLY_NO_PROFILE_MUTATION",
-            "dsh": dsh,
-            "profile": profile,
-            "protected_profile": is_protected,
+            "status": "FAIL",
+            "reason": "DEFAULT_RUNTIME_ENHANCEMENT_PAYLOAD_MISSING",
+            "missing": missing_default,
             "plugins": discovered,
             "vendor": str(vendor),
-            "optional_default": "DISABLED",
-            "mission_required": list(REQUIRED),
-            "diagnostic_optional": list(DIAGNOSTIC_OPTIONAL),
         }
 
+    is_protected = profile in protected_profiles()
+    base = {
+        "profile": profile,
+        "protected_profile": is_protected,
+        "plugins": discovered,
+        "vendor": str(vendor),
+        "mission_required": list(REQUIRED),
+        "default_runtime_enhancements": list(DEFAULT_ENABLED_RUNTIME),
+        "diagnostic_optional": list(DIAGNOSTIC_OPTIONAL),
+        "conditional_optional": list(CONDITIONAL_OPTIONAL),
+        "remote_vision_policy": "LOCAL_ONLY_PUBLIC_REMOTE_FORBIDDEN",
+        "memento_truth_policy": "NON_AUTHORITATIVE_R1_EVENT_STREAM_ONLY",
+        "protected_profile_mutation": "FORBIDDEN",
+    }
+    if dry_run:
+        result = dict(base)
+        result.update(
+            {
+                "status": "PASS",
+                "mode": "PAYLOAD_ONLY_NO_PROFILE_MUTATION",
+                "dsh": dsh,
+                "default_enhancements": "RUNTIME_PATCH_ENABLED",
+            }
+        )
+        return result
+
     if is_protected:
-        return {
-            "status": "FAIL",
-            "reason": "PROTECTED_BANK_PROFILE_MUTATION_FORBIDDEN",
-            "profile": profile,
-            "protected_profiles": list(protected_profiles()),
-            "plugins": discovered,
-        }
+        result = dict(base)
+        result.update(
+            {
+                "status": "FAIL",
+                "reason": "PROTECTED_BANK_PROFILE_MUTATION_FORBIDDEN",
+                "protected_profiles": list(protected_profiles()),
+            }
+        )
+        return result
     if not allow_profile_mutation:
-        return {
-            "status": "FAIL",
-            "reason": "EXPLICIT_PROFILE_MUTATION_AUTHORIZATION_REQUIRED",
-            "profile": profile,
-            "plugins": discovered,
-        }
+        result = dict(base)
+        result.update({"status": "FAIL", "reason": "EXPLICIT_PROFILE_MUTATION_AUTHORIZATION_REQUIRED"})
+        return result
     if not dsh:
-        return {
-            "status": "HOLD",
-            "reason": "BANK_DSH_HOST_NOT_FOUND",
-            "plugins": discovered,
-            "field_binding_required": True,
-        }
+        result = dict(base)
+        result.update({"status": "HOLD", "reason": "BANK_DSH_HOST_NOT_FOUND", "field_binding_required": True})
+        return result
 
     version_code, version_out = run_dsh(dsh, ["--version"], env)
     if version_code != 0:
         return {"status": "FAIL", "reason": "DSH_VERSION_PROBE_FAILED", "output": version_out, "dsh": dsh}
 
     installs = []
+    # Only P0 bundle dependencies may be installed into an explicitly mutable,
+    # isolated profile. P1 default enhancements remain runtime-patch-only.
     for package in REQUIRED:
         p = Path(str(discovered[package]["path"]))
-        # Package-local payloads include their regular runtime dependencies.
-        # file: keeps field installation registry-independent; DSH still owns
-        # peer-dependency/engine compatibility checks against the actual host.
         spec = "file:" + str(p)
         code, out = run_dsh(dsh, ["plugin", "--profile", profile, "add", spec], env)
         accepted = code == 0 or "already" in out.lower() or "exist" in out.lower()
@@ -253,20 +275,21 @@ def install(
             )
 
     code, dump = run_dsh(dsh, ["--profile", profile, "--dump-config"], env)
-    return {
-        "status": "PASS" if code == 0 else "FAIL",
-        "mode": "ISOLATED_PROFILE_MUTATION",
-        "dsh": dsh,
-        "dsh_version": version_out.strip(),
-        "profile": profile,
-        "vendor": str(vendor),
-        "installs": installs,
-        "diagnostic_installs": diagnostic,
-        "config_probe_exit_code": code,
-        "config_probe_tail": dump[-4000:],
-        "optional_default": "DISABLED",
-        "remote_vision_policy": "PUBLIC_REMOTE_FORBIDDEN",
-    }
+    result = dict(base)
+    result.update(
+        {
+            "status": "PASS" if code == 0 else "FAIL",
+            "mode": "ISOLATED_PROFILE_MUTATION",
+            "dsh": dsh,
+            "dsh_version": version_out.strip(),
+            "installs": installs,
+            "diagnostic_installs": diagnostic,
+            "config_probe_exit_code": code,
+            "config_probe_tail": dump[-4000:],
+            "default_enhancements": "RUNTIME_PATCH_ENABLED",
+        }
+    )
+    return result
 
 
 def main(argv: Optional[List[str]] = None) -> int:
