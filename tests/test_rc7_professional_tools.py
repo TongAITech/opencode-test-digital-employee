@@ -169,7 +169,8 @@ def test_rc7_patch_uses_additive_rc7_mcp_server_and_passes_tool_env(tmp_path, mo
     patch = write_patch(tmp_path / "rc7.cordis.yml", home, sys.executable)
     text = patch.read_text(encoding="utf-8")
     assert "serverName: pfc_aitest_rc7" in text
-    assert "args: ['-m', 'rc7_release.mcp_server_field']" in text
+    assert "args: ['-m', 'rc7_release.mcp_server_authorized']" in text
+    assert "args: ['-m', 'rc7_release.mcp_server_field']" not in text
     assert "PFC_WORKSPACE:" in text
     assert "PFC_CODEGRAPH_BIN:" in text
     assert "rc6_release.mcp_server" not in text

@@ -275,7 +275,8 @@ def test_resolver_rebuilds_current_case_bundle_without_session_state(tmp_path, m
     assert bundle.script.source_ref == "file://" + str(source_path.resolve())
     assert bundle.validation.ready is True
     assert bundle.upstream_result_ref.endswith(receipt_id + ".json")
-    assert Path(bundle.spec_ref.removeprefix("file://")).is_file()
+    spec_ref = bundle.spec_ref[len("file://") :] if bundle.spec_ref.startswith("file://") else bundle.spec_ref
+    assert Path(spec_ref).is_file()
 
 
 def test_resolver_rejects_source_drift_even_when_ready_receipt_still_exists(tmp_path, monkeypatch):

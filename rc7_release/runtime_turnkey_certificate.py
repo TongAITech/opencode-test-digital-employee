@@ -39,6 +39,14 @@ class TurnkeyRuntimeCertificateError(RuntimeError):
     pass
 
 
+def _write_text_lf(path: Path, text: str) -> None:
+    # pathlib.Path.write_text gained the newline parameter after Python 3.8.
+    # RC7's bank-compatible build profile still exercises Python 3.8, so keep
+    # newline normalization explicit without weakening any qualification gate.
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
+
+
 def _load_json(path: Path, error: str) -> Mapping[str, Any]:
     if not path.is_file():
         raise TurnkeyRuntimeCertificateError("%s:%s" % (error, path))
@@ -184,9 +192,7 @@ def _repack_transport(package_root: Path, zip_path: Path) -> str:
                 arc = Path(package_root.name) / path.relative_to(package_root)
                 archive.write(str(path), arc.as_posix())
     digest = sha256_file(zip_path)
-    Path(str(zip_path) + ".sha256").write_text(
-        "%s  %s\n" % (digest, zip_path.name), encoding="utf-8", newline="\n"
-    )
+    _write_text_lf(Path(str(zip_path) + ".sha256"), "%s  %s\n" % (digest, zip_path.name))
     return digest
 
 
@@ -237,10 +243,9 @@ def issue_turnkey_certificate(
         "version_policy": "CAPABILITY_BASED_NO_EXACT_VERSION_PIN",
     }
     cert_path = root / CERTIFICATE_FILE
-    cert_path.write_text(
+    _write_text_lf(
+        cert_path,
         json.dumps(certificate, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
-        encoding="utf-8",
-        newline="\n",
     )
 
     manifest_path = root / "PACKAGE_MANIFEST.json"
@@ -256,10 +261,9 @@ def issue_turnkey_certificate(
         "required_payload_count": smoke_summary["required_payload_count"],
         "smoke_count": smoke_summary["smoke_count"],
     }
-    manifest_path.write_text(
+    _write_text_lf(
+        manifest_path,
         json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
-        encoding="utf-8",
-        newline="\n",
     )
 
     final_zip_sha256 = _repack_transport(root, zip_path)

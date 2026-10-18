@@ -114,7 +114,8 @@ def test_codegraph_materializer_downloads_required_onnx_companion(tmp_path: Path
     def fake_download(url, destination, expected_sha256):
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(b"runtime")
-        return str(expected_sha256).removeprefix("sha256:")
+        value = str(expected_sha256)
+        return value[len("sha256:") :] if value.startswith("sha256:") else value
 
     monkeypatch.setattr(materializer, "_release_asset", fake_release)
     monkeypatch.setattr(materializer, "_download", fake_download)

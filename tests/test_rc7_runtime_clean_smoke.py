@@ -127,7 +127,9 @@ def test_clean_runtime_smoke_uses_package_local_product_tools(tmp_path: Path) ->
     for call in runner.calls:
         command = call["command"]
         if call["label"] in product_labels:
-            assert Path(command[0]).resolve().is_relative_to(root.resolve())
+            resolved_command = Path(command[0]).resolve()
+            resolved_root = root.resolve()
+            assert resolved_command == resolved_root or resolved_root in resolved_command.parents
         if call["label"] in {"maven", "allure"}:
             # cmd.exe is an OS script host; the actual launcher embedded in the
             # command line must be package-local.

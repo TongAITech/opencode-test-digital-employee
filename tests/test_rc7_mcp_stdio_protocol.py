@@ -103,8 +103,6 @@ def test_legacy_initialize_lists_and_calls_runtime_status_then_exits(tmp_path: P
     called = _read(process)
     assert called["id"] == 3
     assert called["result"]["content"][0]["type"] == "text"
-    payload = json.loads(called["result"]["content"][0]["text"])
-    assert payload["server"] == field.SERVER_NAME
-    assert payload["rc7_truth_overlay"] is True
+    assert called["result"]["content"][0]["text"] == "MCP_AUTH_MISSION_CONTEXT_REQUIRED"
 
     _close(process)

@@ -103,7 +103,8 @@ def test_bank_mcp_exposes_runtime_attempt_cat_and_dsh_patch_uses_wrapper(tmp_pat
     assert "attempt_cat_query" in names
 
     patch = dsh.write_patch(tmp_path / "rc7.patch.yml", tmp_path, sys.executable).read_text(encoding="utf-8")
-    assert "rc7_release.mcp_server_field" in patch
+    assert "args: ['-m', 'rc7_release.mcp_server_authorized']" in patch
+    assert "args: ['-m', 'rc7_release.mcp_server_field']" not in patch
     assert "rc7_release.mcp_server']" not in patch
 
 
