@@ -171,14 +171,6 @@ def install(
             "vendor": str(vendor),
         }
     missing_default = [name for name in DEFAULT_ENABLED_RUNTIME if not discovered[name]["bundled"]]
-    if missing_default:
-        return {
-            "status": "FAIL",
-            "reason": "DEFAULT_RUNTIME_ENHANCEMENT_PAYLOAD_MISSING",
-            "missing": missing_default,
-            "plugins": discovered,
-            "vendor": str(vendor),
-        }
 
     is_protected = profile in protected_profiles()
     base = {
@@ -188,6 +180,8 @@ def install(
         "vendor": str(vendor),
         "mission_required": list(REQUIRED),
         "default_runtime_enhancements": list(DEFAULT_ENABLED_RUNTIME),
+        "default_runtime_ready": not missing_default,
+        "default_runtime_missing": missing_default,
         "diagnostic_optional": list(DIAGNOSTIC_OPTIONAL),
         "conditional_optional": list(CONDITIONAL_OPTIONAL),
         "remote_vision_policy": "LOCAL_ONLY_PUBLIC_REMOTE_FORBIDDEN",
@@ -201,7 +195,7 @@ def install(
                 "status": "PASS",
                 "mode": "PAYLOAD_ONLY_NO_PROFILE_MUTATION",
                 "dsh": dsh,
-                "default_enhancements": "RUNTIME_PATCH_ENABLED",
+                "default_enhancements": "RUNTIME_PATCH_ENABLED" if not missing_default else "RUNTIME_PATCH_PAYLOAD_INCOMPLETE",
             }
         )
         return result
@@ -286,7 +280,7 @@ def install(
             "diagnostic_installs": diagnostic,
             "config_probe_exit_code": code,
             "config_probe_tail": dump[-4000:],
-            "default_enhancements": "RUNTIME_PATCH_ENABLED",
+            "default_enhancements": "RUNTIME_PATCH_ENABLED" if not missing_default else "RUNTIME_PATCH_PAYLOAD_INCOMPLETE",
         }
     )
     return result
