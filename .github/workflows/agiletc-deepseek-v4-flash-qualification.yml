@@ -1,0 +1,211 @@
+name: RC7 DeepSeek V4 Flash Qualification
+
+on:
+  push:
+    branches: [validation/agiletc-worker-timeout-evidence]
+    paths:
+      - '.github/workflows/agiletc-deepseek-v4-flash-qualification.yml'
+      - 'validation/dsh/deepseek-v4-flash-public.patch.yml'
+      - 'validation/dsh/rc7-headless-minimal.patch.yml'
+      - 'rc6_runtime/agent_runtime.py'
+      - 'rc7_runtime/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agiletc-deepseek-v4-flash-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      DEEPSEEK_PUBLIC_API_KEY: public-validation-no-secret
+      DSH_PERMISSION_MODE: read-only
+      DEEPSEEK_PUBLIC_BASE_URL: https://q5dh1rfszfym23hj.us-east-2.aws.endpoints.huggingface.cloud/v1
+      DEEPSEEK_PUBLIC_MODEL: deepseek-ai/DeepSeek-V4-Flash-0731
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+
+      - name: Install DSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g @deepseek-ai/dsh
+          dsh --version | tee dsh-version.txt
+
+      - name: Probe public DeepSeek V4 Flash model identity and native tool call
+        shell: bash
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          payload = {
+              'model': 'deepseek-ai/DeepSeek-V4-Flash-0731',
+              'messages': [
+                  {'role': 'system', 'content': 'RC7 public qualification probe. Use the supplied native tool exactly as requested. Do not reveal reasoning.'},
+                  {'role': 'user', 'content': 'Call rc7_probe exactly once with proof deepseek_v4_flash. Do not answer in prose.'},
+              ],
+              'tools': [{
+                  'type': 'function',
+                  'function': {
+                      'name': 'rc7_probe',
+                      'description': 'Return RC7 qualification proof',
+                      'parameters': {
+                          'type': 'object',
+                          'properties': {'proof': {'type': 'string'}},
+                          'required': ['proof'],
+                          'additionalProperties': False,
+                      },
+                  },
+              }],
+              'tool_choice': 'auto',
+              'stream': False,
+              'max_tokens': 128,
+              'temperature': 0,
+          }
+          Path('deepseek-direct-request.json').write_text(json.dumps(payload, separators=(',', ':')) + '\n')
+          PY
+          started=$(date +%s)
+          curl -fsS --max-time 120 \
+            -H 'Content-Type: application/json' \
+            -H 'Authorization: Bearer public-validation-no-secret' \
+            "$DEEPSEEK_PUBLIC_BASE_URL/chat/completions" \
+            --data-binary @deepseek-direct-request.json \
+            > deepseek-direct-response.json
+          elapsed=$(($(date +%s)-started))
+          echo "$elapsed" > deepseek-direct.elapsed
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d = json.loads(Path('deepseek-direct-response.json').read_text(encoding='utf-8'))
+          choices = d.get('choices') or []
+          msg = (choices[0].get('message') if choices else {}) or {}
+          calls = msg.get('tool_calls') or []
+          parsed = []
+          for call in calls:
+              fn = call.get('function') or {}
+              raw = fn.get('arguments') or '{}'
+              try:
+                  args = json.loads(raw) if isinstance(raw, str) else raw
+              except Exception:
+                  args = None
+              parsed.append({'name': fn.get('name'), 'arguments': args})
+          elapsed = int(Path('deepseek-direct.elapsed').read_text())
+          model = str(d.get('model') or '')
+          ok = (
+              len(parsed) == 1
+              and parsed[0].get('name') == 'rc7_probe'
+              and (parsed[0].get('arguments') or {}).get('proof') == 'deepseek_v4_flash'
+              and elapsed < 120
+          )
+          result = {
+              'status': 'PASS' if ok else 'FAIL',
+              'requested_model': 'deepseek-ai/DeepSeek-V4-Flash-0731',
+              'response_model': model,
+              'elapsed_seconds': elapsed,
+              'tool_calls': parsed,
+              'finish_reason': choices[0].get('finish_reason') if choices else None,
+          }
+          Path('deepseek-direct-result.json').write_text(json.dumps(result, indent=2, sort_keys=True) + '\n')
+          print(json.dumps(result, sort_keys=True))
+          raise SystemExit(0 if ok else 2)
+          PY
+
+      - name: Build DeepSeek DSH qualification patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat validation/dsh/deepseek-v4-flash-public.patch.yml \
+              validation/dsh/rc7-headless-minimal.patch.yml \
+            > deepseek-effective.patch.yml
+          dsh --profile headless --patch deepseek-effective.patch.yml --dump-config \
+            > deepseek-effective-config.yml
+          grep -q 'provider: public-deepseek-v4-flash' deepseek-effective-config.yml
+          grep -q 'model: deepseek-ai/DeepSeek-V4-Flash-0731' deepseek-effective-config.yml
+          grep -q 'q5dh1rfszfym23hj.us-east-2.aws.endpoints.huggingface.cloud/v1' deepseek-effective-config.yml
+          if grep -q 'reasoningEffort:' deepseek-effective-config.yml; then
+            echo 'Unexpected provider-specific reasoningEffort mapping in DeepSeek qualification config' >&2
+            exit 2
+          fi
+
+      - name: Prove DSH DeepSeek headless lifecycle closes after final JSON
+        shell: bash
+        timeout-minutes: 3
+        run: |
+          set +e
+          started=$(date +%s)
+          timeout --signal=TERM --kill-after=10s 120s \
+            dsh --profile headless --patch deepseek-effective.patch.yml --json \
+              'Return exactly one JSON object and nothing else: {"status":"PASS","proof":"dsh_deepseek_v4_flash_lifecycle"}. Do not call any tool.' \
+            > dsh-deepseek.jsonl 2> dsh-deepseek.stderr
+          rc=$?
+          elapsed=$(($(date +%s)-started))
+          echo "$rc" > dsh-deepseek.exit
+          echo "$elapsed" > dsh-deepseek.elapsed
+          set -e
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
+          text = Path('dsh-deepseek.jsonl').read_text(encoding='utf-8', errors='replace')
+          events = tuple(DshHeadlessWorkerLauncher._parse_json_lines(text))
+          final = DshHeadlessWorkerLauncher._final_json(events)
+          thinking_chars = sum(
+              len(str(e.get('text') or ''))
+              for e in events
+              if str(e.get('type') or '').lower() == 'thinking'
+          )
+          rc = int(Path('dsh-deepseek.exit').read_text())
+          elapsed = int(Path('dsh-deepseek.elapsed').read_text())
+          out = {
+              'process_exit': rc,
+              'elapsed_seconds': elapsed,
+              'thinking_chars_observed': thinking_chars,
+              'event_count': len(events),
+              'final_json': final,
+          }
+          ok = (
+              rc == 0
+              and elapsed < 120
+              and isinstance(final, dict)
+              and final.get('status') == 'PASS'
+              and final.get('proof') == 'dsh_deepseek_v4_flash_lifecycle'
+          )
+          out['status'] = 'PASS' if ok else 'FAIL'
+          Path('dsh-deepseek-result.json').write_text(json.dumps(out, indent=2, sort_keys=True) + '\n')
+          print(json.dumps(out, sort_keys=True))
+          raise SystemExit(0 if ok else 2)
+          PY
+
+      - name: Upload DeepSeek qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc7-deepseek-v4-flash-qualification-${{ github.sha }}
+          path: |
+            dsh-version.txt
+            deepseek-direct-request.json
+            deepseek-direct-response.json
+            deepseek-direct.elapsed
+            deepseek-direct-result.json
+            deepseek-effective.patch.yml
+            deepseek-effective-config.yml
+            dsh-deepseek.jsonl
+            dsh-deepseek.stderr
+            dsh-deepseek.exit
+            dsh-deepseek.elapsed
+            dsh-deepseek-result.json
+          if-no-files-found: warn
+          retention-days: 14
