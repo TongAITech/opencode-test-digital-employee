@@ -16,7 +16,7 @@ from .plugin_payload import package_path
 OPTIONAL_PLUGIN_SPECS: Tuple[Tuple[str, str], ...] = (
     ("@perrylink/dsh-plugin-doctor", "@perrylink/dsh-plugin-doctor"),
     ("dsh-vision-router", "dsh-vision-router"),
-    ("dsh-plugin-anydoc", "github:beancookie/dsh-plugin-anydoc#3af159ed06f62f3d2c61ab21c6a2475c71efbfa4"),
+    ("dsh-plugin-anydoc", "github:beancookie/dsh-plugin-anydoc#main"),
     ("dsh-memento", "dsh-memento"),
 )
 OPTIONAL_PLUGIN_NAMES = tuple(name for name, _ in OPTIONAL_PLUGIN_SPECS)
