@@ -139,10 +139,21 @@ jobs:
             > validation-artifacts/dsh/agiletc.patch.yml
           dsh --profile headless --patch validation-artifacts/dsh/agiletc.patch.yml --dump-config \
             > validation-artifacts/dsh/effective-config.yml
-          grep -q 'minimal: none' validation-artifacts/dsh/effective-config.yml
+          grep -Eq "minimal: ['\"]?none['\"]?" validation-artifacts/dsh/effective-config.yml
           grep -q 'supportsReasoningEffort: true' validation-artifacts/dsh/effective-config.yml
           grep -Eq "reasoningEffort: ['\"]?minimal['\"]?" validation-artifacts/dsh/effective-config.yml
-          grep -A2 '^\- id: session-title-llm' validation-artifacts/dsh/effective-config.yml | grep -q 'disabled: true'
+          python - <<'PY'
+          from pathlib import Path
+          lines = Path('validation-artifacts/dsh/effective-config.yml').read_text(encoding='utf-8').splitlines()
+          start = next((i for i, line in enumerate(lines) if line.strip() == '- id: session-title-llm'), None)
+          if start is None:
+              raise SystemExit('session-title-llm component missing')
+          end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith('- id: ')), len(lines))
+          block = lines[start:end]
+          if not any(line.strip() == 'disabled: true' for line in block):
+              raise SystemExit('session-title-llm is not disabled in effective config')
+          print('SESSION_TITLE_LLM_DISABLED=PASS')
+          PY
 
       - name: Run only real Requirement producer with 180s diagnostic bound
         id: requirement
