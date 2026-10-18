@@ -1,0 +1,159 @@
+name: RC7 Qwen None Mapping Probe
+
+on:
+  push:
+    branches: [validation/agiletc-worker-timeout-evidence]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      LOCAL_MODEL_API_KEY: ollama-local
+      DSH_PERMISSION_MODE: read-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+
+      - name: Install DSH and Ollama Qwen3
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          npm install -g @deepseek-ai/dsh
+          dsh --version | tee dsh-version.txt
+          curl -fsSL https://ollama.com/install.sh | sh
+          if ! curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+            nohup ollama serve > ollama.log 2>&1 &
+          fi
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:11434/api/tags > ollama-tags.json && break
+            sleep 2
+          done
+          test -s ollama-tags.json
+          ollama pull qwen3:4b | tee ollama-pull.log
+
+      - name: Prove Ollama OpenAI reasoning none
+        shell: bash
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          prompt='Return exactly one JSON object and nothing else: {"status":"PASS","proof":"openai_none"}.'
+          started=$(date +%s)
+          curl -fsS --max-time 180 \
+            -H 'Content-Type: application/json' \
+            -H 'Authorization: Bearer ollama-local' \
+            http://127.0.0.1:11434/v1/chat/completions \
+            -d "$(python -c 'import json,sys; print(json.dumps({"model":"qwen3:4b","messages":[{"role":"user","content":sys.argv[1]}],"stream":False,"max_tokens":128,"reasoning_effort":"none"}))' "$prompt")" \
+            > openai-none.json
+          elapsed=$(($(date +%s)-started))
+          echo "$elapsed" > openai-none.elapsed
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('openai-none.json').read_text())
+          choices=d.get('choices') or []
+          msg=(choices[0].get('message') if choices else {}) or {}
+          content=str(msg.get('content') or '')
+          reasoning=str(msg.get('reasoning') or msg.get('reasoning_content') or '')
+          elapsed=int(Path('openai-none.elapsed').read_text())
+          result={'elapsed_seconds':elapsed,'content':content,'content_chars':len(content),'reasoning_chars':len(reasoning)}
+          ok=reasoning=='' and 'openai_none' in content and elapsed < 60
+          result['status']='PASS' if ok else 'FAIL'
+          Path('openai-none-result.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(result,sort_keys=True))
+          raise SystemExit(0 if ok else 2)
+          PY
+
+      - name: Build DSH minimal-to-none compatibility patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > qwen-none.patch.yml <<'YAML'
+          - id: llm-pi-ai
+            config:
+              providers:
+                local-ollama:
+                  apiKeyEnv: LOCAL_MODEL_API_KEY
+                  api: openai-completions
+                  baseURL: http://127.0.0.1:11434/v1
+                  models:
+                    - id: qwen3:4b
+                      contextWindow: 32768
+                      maxTokens: 256
+                      reasoningEfforts:
+                        minimal: none
+                        medium: medium
+          - id: agent-default-model
+            config:
+              provider: local-ollama
+              model: qwen3:4b
+              reasoningEffort: minimal
+          YAML
+          cat qwen-none.patch.yml validation/dsh/rc7-headless-minimal.patch.yml > effective.patch.yml
+          dsh --profile headless --patch effective.patch.yml --dump-config > effective-config.yml
+          grep -q 'minimal: none' effective-config.yml
+          grep -Eq "reasoningEffort: ['\"]?minimal['\"]?" effective-config.yml
+
+      - name: Prove DSH dispatches none without thinking
+        shell: bash
+        timeout-minutes: 4
+        run: |
+          set +e
+          started=$(date +%s)
+          timeout --signal=TERM --kill-after=15s 180s \
+            dsh --profile headless --patch effective.patch.yml --json \
+              'Return exactly one JSON object and nothing else: {"status":"PASS","proof":"dsh_none_mapping"}. Do not call any tool.' \
+            > dsh-none.jsonl 2> dsh-none.stderr
+          rc=$?
+          elapsed=$(($(date +%s)-started))
+          echo "$rc" > dsh-none.exit
+          echo "$elapsed" > dsh-none.elapsed
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
+          text=Path('dsh-none.jsonl').read_text(encoding='utf-8',errors='replace')
+          events=tuple(DshHeadlessWorkerLauncher._parse_json_lines(text))
+          final=DshHeadlessWorkerLauncher._final_json(events)
+          thinking_chars=sum(len(str(e.get('text') or '')) for e in events if str(e.get('type') or '').lower()=='thinking')
+          rc=int(Path('dsh-none.exit').read_text())
+          elapsed=int(Path('dsh-none.elapsed').read_text())
+          out={'process_exit':rc,'elapsed_seconds':elapsed,'thinking_chars':thinking_chars,'event_count':len(events),'final_json':final}
+          ok=rc==0 and thinking_chars==0 and elapsed < 60 and isinstance(final,dict) and final.get('status')=='PASS' and final.get('proof')=='dsh_none_mapping'
+          out['status']='PASS' if ok else 'FAIL'
+          Path('dsh-none-result.json').write_text(json.dumps(out,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(out,sort_keys=True))
+          raise SystemExit(0 if ok else 2)
+          PY
+
+      - name: Upload proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc7-qwen-none-mapping-${{ github.sha }}
+          path: |
+            dsh-version.txt
+            ollama-tags.json
+            ollama.log
+            ollama-pull.log
+            openai-none.json
+            openai-none.elapsed
+            openai-none-result.json
+            qwen-none.patch.yml
+            effective.patch.yml
+            effective-config.yml
+            dsh-none.jsonl
+            dsh-none.stderr
+            dsh-none.exit
+            dsh-none.elapsed
+            dsh-none-result.json
+          if-no-files-found: warn
+          retention-days: 14
