@@ -1,9 +1,9 @@
 """Diagnostic entrypoint that runs the real AgileTC Mission through the Requirement producer only.
 
-This is validation-only.  It reuses the production RC7 authorized launcher and
+This is validation-only. It reuses the production RC7 authorized launcher and
 Bank-field node policy, but bounds the worker to a shorter diagnostic timeout
 and stops before the independent reviewer once producer evidence has been
-captured.  No partial output is promoted to accepted Task evidence.
+captured. No partial output is promoted to accepted Task evidence.
 """
 from __future__ import annotations
 
@@ -25,11 +25,12 @@ class _RequirementProbeLauncher(Rc7AuthorizedDshHeadlessWorkerLauncher):
         super().__init__(*args, **kwargs)
 
     def execute(self, assignment, prompt):
-        # Validation-only provider compatibility seam. Qwen3's soft switch is
-        # interpreted from the latest user instruction by some templates, so
-        # keep the real RC7 worker contract unchanged and append the directive
-        # to the actual headless user task only in this local-Qwen probe.
-        suffix = os.environ.get("PFC_REQUIREMENT_PROBE_USER_SUFFIX", "/no_think").strip()
+        # Validation-only provider compatibility seam. Keep it opt-in: the
+        # real runner proved the local Qwen /no_think soft switch does not
+        # guarantee direct action, so it must never be a hidden qualification
+        # default. Any future provider experiment can still set the env var
+        # explicitly without changing the production worker contract.
+        suffix = os.environ.get("PFC_REQUIREMENT_PROBE_USER_SUFFIX", "").strip()
         effective_prompt = prompt.rstrip()
         if suffix:
             effective_prompt += "\n" + suffix
