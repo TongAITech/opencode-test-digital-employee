@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 
 from rc6_runtime.agent_runtime import AgentRuntimeError
-from rc6_runtime.authority import AuthorityRuntime
 from rc6_runtime.truth import TruthRuntime
 from rc7_release import dsh
+from rc7_runtime.authority import RC7AuthorityRuntime
 from rc7_runtime.authorized_dsh_launcher import (
     ALLOWED_TOOLS_ENV,
     Rc7AuthorizedDshHeadlessWorkerLauncher,
@@ -97,7 +97,7 @@ def _launcher(tmp_path: Path, tool_name: str, captured: dict):
     patch = tmp_path / "patch.yml"
     patch.write_text("stub", encoding="utf-8")
     truth = TruthRuntime(tmp_path / "r1.jsonl")
-    authority = AuthorityRuntime(b"0123456789abcdef-rc7-tool-authority")
+    authority = RC7AuthorityRuntime(b"0123456789abcdef-rc7-tool-authority")
 
     def runner(command, **kwargs):
         captured["env"] = dict(kwargs.get("env") or {})
@@ -124,7 +124,7 @@ def _launcher(tmp_path: Path, tool_name: str, captured: dict):
     )
     assignment = launcher.assign(
         agent_id="requirement-analysis",
-        role="REQUIREMENT_ANALYZER",
+        role="RC7_REQUIREMENT_WORKER",
         phase="REQUIREMENT_ANALYSIS",
         mission_id="MISSION-1",
         attempt_id="attempt-1",
