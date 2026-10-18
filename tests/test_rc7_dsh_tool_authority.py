@@ -36,11 +36,21 @@ def test_generated_dsh_patch_has_package_local_fail_closed_tool_filter(tmp_path:
     assert "PFC_RC7_DSH_ALLOWED_TOOLS" in source
     assert "capabilityAliases.has(tool)" in source
     assert "return []" in source
+    assert "first assistant action MUST be one native structured call" in source
+    assert "Do not emit planning, reasoning, or narration before that first call" in source
     assert "name: './rc7-tool-policy.ts'" in text
     assert "rc7_release.mcp_server_authorized" in text
     assert "rc7_release.mcp_server_field" not in text
     assert "reconnect:" in text
     assert "enabled: false" in text
+
+
+def test_headless_profile_requires_immediate_native_tool_action() -> None:
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "validation/dsh/rc7-headless-minimal.patch.yml").read_text(encoding="utf-8")
+    assert "Do not narrate reasoning, planning, or" in text
+    assert "first assistant action MUST be a native structured call" in text
+    assert "emit no prose before that call" in text
 
 
 class _TaskTruth:
@@ -96,7 +106,7 @@ def test_mcp_authority_allows_only_tools_from_durable_node_policy() -> None:
         )
 
 
-def _launcher(tmp_path: Path, tool_name: str, captured: dict):
+def _launcher(tmp_path: Path, tool_name: str | None, captured: dict):
     dsh_bin = tmp_path / "dsh"
     dsh_bin.write_text("stub", encoding="utf-8")
     patch = tmp_path / "patch.yml"
@@ -106,14 +116,33 @@ def _launcher(tmp_path: Path, tool_name: str, captured: dict):
 
     def runner(command, **kwargs):
         captured["env"] = dict(kwargs.get("env") or {})
-        stdout = "\n".join(
-            [
-                json.dumps({"type": "session", "sessionId": "session-rc7-authority"}),
-                json.dumps({"type": "tool_call", "tool": tool_name, "callId": "call-1"}),
-                json.dumps({"type": "tool_result", "callId": "call-1", "status": "success"}),
-                json.dumps({"type": "final", "text": json.dumps({"ok": True})}),
-            ]
-        )
+        rows = [
+            {"type": "session", "sessionId": "session-rc7-authority"},
+        ]
+        if tool_name is not None:
+            rows.extend(
+                [
+                    {"type": "tool_call", "tool": tool_name, "callId": "call-1"},
+                    {"type": "tool_result", "callId": "call-1", "status": "success"},
+                    {"type": "final", "text": json.dumps({"ok": True})},
+                ]
+            )
+        else:
+            rows.extend(
+                [
+                    {
+                        "type": "text",
+                        "text": "I should call the read tool next, but this is only narration.",
+                    },
+                    {
+                        "type": "status",
+                        "phase": "step_end",
+                        "reason": {"kind": "max-tokens"},
+                    },
+                    {"type": "final", "text": json.dumps({"ok": True})},
+                ]
+            )
+        stdout = "\n".join(json.dumps(row) for row in rows)
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
 
     launcher = Rc7AuthorizedDshHeadlessWorkerLauncher(
@@ -161,6 +190,21 @@ def test_authorized_launcher_rejects_observed_unleased_generic_tool(tmp_path: Pa
 
     event_names = [event["event_type"] for event in truth.store.iter_raw()]
     assert "ROUTING_INTEGRITY_FAIL" in event_names
+    assert "HANDOFF_RETURNED" not in event_names
+
+
+def test_authorized_launcher_rejects_text_only_max_tokens_as_tool_call(tmp_path: Path) -> None:
+    captured = {}
+    launcher, assignment, truth = _launcher(tmp_path, None, captured)
+
+    with pytest.raises(AgentRuntimeError, match="REAL_TOOL_CALL_MISSING"):
+        launcher.execute(assignment, "analyze")
+
+    rows = list(truth.store.iter_raw())
+    event_names = [row["event_type"] for row in rows]
+    serialized = json.dumps(rows, sort_keys=True)
+    assert "REAL_TOOL_CALL_MISSING" in serialized
+    assert "WORKER_TOOL_CALLED" not in event_names
     assert "HANDOFF_RETURNED" not in event_names
 
 
