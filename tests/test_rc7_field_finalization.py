@@ -5,7 +5,7 @@ import zipfile
 from pathlib import Path
 
 from rc7_admin.requirement_hierarchy import RequirementHierarchyView
-from rc7_release import optional_enhancements
+from rc7_release import optional_enhancements, optional_plugin_payload
 from rc7_release.optional_plugin_payload import PAYLOAD_ARCHIVE_RELATIVE
 from rc7_release.vision_capability import probe as probe_vision
 
@@ -91,6 +91,14 @@ def test_vision_selects_dsh_only_after_activation_receipt(tmp_path: Path, monkey
     assert result["status"] == "PASS"
     assert result["selected_provider"] == "DSH_VISION_ROUTER"
     assert result["dsh_vision_router"]["active"] is True
+
+
+def test_anydoc_uses_pinned_github_source_and_canonical_admin_is_product_surface() -> None:
+    specs = dict(optional_plugin_payload.OPTIONAL_PLUGIN_SPECS)
+    assert specs["dsh-plugin-anydoc"] == "github:beancookie/dsh-plugin-anydoc#3af159ed06f62f3d2c61ab21c6a2475c71efbfa4"
+    root = Path(__file__).resolve().parents[1]
+    entry = (root / "rc7_admin" / "__main__.py").read_text(encoding="utf-8")
+    assert "from .product_server import main" in entry
 
 
 def test_repository_release_metadata_has_no_stale_wave2_candidate() -> None:
