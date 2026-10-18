@@ -65,14 +65,17 @@ jobs:
                   api: openai-completions
                   baseURL: http://127.0.0.1:11434/v1
                   reasoning: off
-                  compat:
-                    thinkingFormat: qwen
                   models:
                     - id: qwen3:4b
                       contextWindow: 32768
                       maxTokens: 4096
                       reasoningEfforts:
                         off:
+                      compat:
+                        thinkingFormat: qwen-chat-template
+                        chatTemplateKwargs:
+                          enable_thinking:
+                            $var: thinking.enabled
           - id: agent-default-model
             config:
               provider: local-ollama
@@ -84,7 +87,8 @@ jobs:
             > effective.patch.yml
           dsh --profile headless --patch effective.patch.yml --dump-config \
             > effective-config.yml
-          grep -q 'thinkingFormat: qwen' effective-config.yml
+          grep -q 'thinkingFormat: qwen-chat-template' effective-config.yml
+          grep -q 'enable_thinking:' effective-config.yml
           grep -Eq "reasoningEffort: ['\"]?off['\"]?" effective-config.yml
 
       - name: Prove Qwen3 thinking is disabled
