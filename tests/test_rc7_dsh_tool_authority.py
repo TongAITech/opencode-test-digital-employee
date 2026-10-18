@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,6 +15,7 @@ from rc7_runtime.authorized_dsh_launcher import (
     ALLOWED_TOOLS_ENV,
     Rc7AuthorizedDshHeadlessWorkerLauncher,
 )
+from rc7_runtime.dsh_worker_bridge import DshTaskWorkerBridge
 from rc7_runtime.mcp_tool_authority import McpToolAuthorityError, authorize_mcp_tool
 
 
@@ -52,6 +54,38 @@ def test_headless_profile_requires_immediate_native_tool_action() -> None:
     assert "Do not narrate reasoning, planning, or intended tool use" in normalized
     assert "first assistant action MUST be a native structured call" in normalized
     assert "emit no prose before that call" in normalized
+
+
+def test_worker_first_action_compiles_exact_leased_read_and_input_path() -> None:
+    task = SimpleNamespace(
+        input_artifact_refs=(
+            "file://validation/agiletc_fixture/project/README.md",
+            "file://validation/agiletc_fixture/docs/requirements.md",
+        )
+    )
+    assignment = SimpleNamespace(allowed_tools=(REQ_READ, REQ_TRUTH))
+
+    directive = DshTaskWorkerBridge.first_action_directive(task, assignment)
+
+    assert directive.startswith("MANDATORY_FIRST_ACTION=")
+    first_line = directive.splitlines()[0]
+    action = json.loads(first_line.split("=", 1)[1])
+    assert action == {
+        "tool": REQ_READ,
+        "arguments": {"path": "validation/agiletc_fixture/project/README.md"},
+    }
+    assert "Before any assistant prose, emit this exact native structured tool call" in directive
+    assert "Do not explain, plan, restate, or simulate it" in directive
+
+
+def test_worker_first_action_never_widens_lease_or_invents_source() -> None:
+    task = SimpleNamespace(input_artifact_refs=("file://validation/input.md",))
+    no_read = SimpleNamespace(allowed_tools=(REQ_TRUTH, CODE_DIFF))
+    no_file = SimpleNamespace(input_artifact_refs=("artifact://ART-1",))
+    read_assignment = SimpleNamespace(allowed_tools=(REQ_READ, REQ_TRUTH))
+
+    assert DshTaskWorkerBridge.first_action_directive(task, no_read) == ""
+    assert DshTaskWorkerBridge.first_action_directive(no_file, read_assignment) == ""
 
 
 class _TaskTruth:
@@ -202,7 +236,7 @@ def test_authorized_launcher_rejects_text_only_max_tokens_as_tool_call(tmp_path:
         launcher.execute(assignment, "analyze")
 
     rows = list(truth.store.iter_raw())
-    event_names = [row["event_type"] for row in rows]
+    event_names = [row["event_type"] for event in rows]
     serialized = json.dumps(rows, sort_keys=True)
     assert "REAL_TOOL_CALL_MISSING" in serialized
     assert "WORKER_TOOL_CALLED" not in event_names
