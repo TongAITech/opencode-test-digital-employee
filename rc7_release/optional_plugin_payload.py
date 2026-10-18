@@ -16,7 +16,7 @@ from .plugin_payload import package_path
 OPTIONAL_PLUGIN_SPECS: Tuple[Tuple[str, str], ...] = (
     ("@perrylink/dsh-plugin-doctor", "@perrylink/dsh-plugin-doctor"),
     ("dsh-vision-router", "dsh-vision-router"),
-    ("dsh-plugin-anydoc", "dsh-plugin-anydoc"),
+    ("dsh-plugin-anydoc", "github:beancookie/dsh-plugin-anydoc#3af159ed06f62f3d2c61ab21c6a2475c71efbfa4"),
     ("dsh-memento", "dsh-memento"),
     ("dsh-error-handling", "dsh-error-handling"),
 )
@@ -76,13 +76,13 @@ def _pack_one(npm: str, expected_name: str, spec: str, vendor: Path, work: Path)
     pack_dir.mkdir(parents=True, exist_ok=True)
     code, output = _run([npm, "pack", spec, "--json", "--ignore-scripts"], cwd=pack_dir)
     if code != 0:
-        return {"name": expected_name, "status": "UNAVAILABLE", "stage": "npm_pack", "output_tail": output[-1500:]}
+        return {"name": expected_name, "requested_spec": spec, "status": "UNAVAILABLE", "stage": "npm_pack", "output_tail": output[-1500:]}
     try:
         rows = json.loads(output)
         row = rows[-1] if isinstance(rows, list) else rows
         archive = pack_dir / str(row["filename"])
     except Exception as exc:
-        return {"name": expected_name, "status": "UNAVAILABLE", "stage": "npm_pack_parse", "reason": str(exc)}
+        return {"name": expected_name, "requested_spec": spec, "status": "UNAVAILABLE", "stage": "npm_pack_parse", "reason": str(exc)}
     target = package_path(vendor, expected_name)
     try:
         if target.exists():
@@ -100,9 +100,10 @@ def _pack_one(npm: str, expected_name: str, spec: str, vendor: Path, work: Path)
             ], cwd=target)
             if install_code != 0:
                 shutil.rmtree(str(target), ignore_errors=True)
-                return {"name": expected_name, "status": "UNAVAILABLE", "stage": "runtime_dependencies", "output_tail": install_output[-1500:]}
+                return {"name": expected_name, "requested_spec": spec, "status": "UNAVAILABLE", "stage": "runtime_dependencies", "output_tail": install_output[-1500:]}
         return {
             "name": expected_name,
+            "requested_spec": spec,
             "status": "BUNDLED",
             "resolved_version": manifest.get("version"),
             "engines": manifest.get("engines") or {},
@@ -112,7 +113,7 @@ def _pack_one(npm: str, expected_name: str, spec: str, vendor: Path, work: Path)
         }
     except Exception as exc:
         shutil.rmtree(str(target), ignore_errors=True)
-        return {"name": expected_name, "status": "UNAVAILABLE", "stage": "materialize", "reason": str(exc)}
+        return {"name": expected_name, "requested_spec": spec, "status": "UNAVAILABLE", "stage": "materialize", "reason": str(exc)}
 
 
 def inspect_vendor(vendor: Path) -> Dict[str, object]:
