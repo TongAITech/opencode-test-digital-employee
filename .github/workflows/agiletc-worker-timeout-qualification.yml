@@ -1,0 +1,160 @@
+name: RC7 AgileTC Worker Timeout Qualification
+
+on:
+  push:
+    branches: [validation/agiletc-worker-timeout-evidence]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      LOCAL_MODEL_API_KEY: ollama-local
+      OLLAMA_HOST: 127.0.0.1:11434
+      DSH_PERMISSION_MODE: read-only
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+
+      - name: Unit qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check pytest
+          python -m pytest -q \
+            tests/test_rc7_dsh_tool_authority.py \
+            tests/test_rc7_external_input_readiness.py \
+            tests/test_rc7_bank_dsh_tool_policy.py \
+            tests/test_rc7_node_tool_conformance.py
+
+      - name: Install DSH and local Qwen3
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          npm install -g @deepseek-ai/dsh
+          dsh --version | tee dsh-version.txt
+          curl -fsSL https://ollama.com/install.sh | sh
+          nohup ollama serve > ollama.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:11434/api/tags >/dev/null && break
+            sleep 2
+          done
+          ollama pull qwen3:4b | tee ollama-pull.log
+
+      - name: Build reasoning-off patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > qwen-reasoning-off.patch.yml <<'YAML'
+          - id: llm-pi-ai
+            config:
+              providers:
+                local-ollama:
+                  apiKeyEnv: LOCAL_MODEL_API_KEY
+                  api: openai-completions
+                  baseURL: http://127.0.0.1:11434/v1
+                  reasoning: off
+                  compat:
+                    thinkingFormat: qwen
+                    supportsReasoningEffort: false
+                  models:
+                    - id: qwen3:4b
+                      contextWindow: 32768
+                      maxTokens: 4096
+                      reasoningEfforts:
+                        off:
+          - id: agent-default-model
+            config:
+              provider: local-ollama
+              model: qwen3:4b
+              reasoningEffort: off
+          YAML
+          cat qwen-reasoning-off.patch.yml \
+              validation/dsh/rc7-headless-minimal.patch.yml \
+            > effective.patch.yml
+          dsh --profile headless --patch effective.patch.yml --dump-config \
+            > effective-config.yml
+          grep -q 'thinkingFormat: qwen' effective-config.yml
+          grep -q 'reasoningEffort: off' effective-config.yml
+
+      - name: Prove Qwen3 thinking is disabled
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set +e
+          started=$(date +%s)
+          timeout --signal=TERM --kill-after=15s 240s \
+            dsh --profile headless --patch effective.patch.yml --json \
+              'Return exactly one JSON object and nothing else: {"status":"PASS","proof":"reasoning_off"}. Do not call any tool.' \
+            > reasoning-off.jsonl 2> reasoning-off.stderr
+          rc=$?
+          ended=$(date +%s)
+          echo "$rc" > reasoning-off.exit
+          echo "$((ended-started))" > reasoning-off.elapsed
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
+
+          text = Path('reasoning-off.jsonl').read_text(encoding='utf-8', errors='replace')
+          events = tuple(DshHeadlessWorkerLauncher._parse_json_lines(text))
+          final = DshHeadlessWorkerLauncher._final_json(events)
+          thinking_chars = sum(
+              len(str(event.get('text') or ''))
+              for event in events
+              if str(event.get('type') or '').lower() == 'thinking'
+          )
+          exit_code = int(Path('reasoning-off.exit').read_text().strip())
+          elapsed = int(Path('reasoning-off.elapsed').read_text().strip())
+          result = {
+              'process_exit': exit_code,
+              'elapsed_seconds': elapsed,
+              'thinking_chars': thinking_chars,
+              'final_json': final,
+          }
+          ok = (
+              exit_code == 0
+              and thinking_chars == 0
+              and isinstance(final, dict)
+              and final.get('status') == 'PASS'
+              and final.get('proof') == 'reasoning_off'
+          )
+          result['status'] = 'PASS' if ok else 'FAIL'
+          Path('reasoning-off-result.json').write_text(
+              json.dumps(result, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          print(json.dumps(result, sort_keys=True))
+          raise SystemExit(0 if ok else 2)
+          PY
+
+      - name: Upload qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc7-worker-timeout-qualification-${{ github.sha }}
+          path: |
+            dsh-version.txt
+            ollama.log
+            ollama-pull.log
+            qwen-reasoning-off.patch.yml
+            effective.patch.yml
+            effective-config.yml
+            reasoning-off.jsonl
+            reasoning-off.stderr
+            reasoning-off.exit
+            reasoning-off.elapsed
+            reasoning-off-result.json
+          if-no-files-found: warn
+          retention-days: 14
