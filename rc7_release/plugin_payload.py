@@ -74,19 +74,10 @@ def _npm() -> str:
 
 
 def _run(command: Sequence[str], *, cwd: Optional[Path] = None, timeout: int = 300) -> str:
-    proc = subprocess.run(
-        list(command),
-        cwd=str(cwd) if cwd else None,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        timeout=timeout,
-        check=False,
-    )
+    proc = subprocess.run(list(command), cwd=str(cwd) if cwd else None, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout, check=False)
     text = (proc.stdout or b"").decode("utf-8", errors="replace")
     if proc.returncode != 0:
-        raise PluginPayloadError(
-            "COMMAND_FAILED:%s\n%s" % (" ".join(command), text[-4000:])
-        )
+        raise PluginPayloadError("COMMAND_FAILED:%s\n%s" % (" ".join(command), text[-4000:]))
     return text
 
 
@@ -114,11 +105,7 @@ def _safe_tar_extract(archive: Path, destination: Path) -> None:
 def _pack_one(npm: str, expected_name: str, spec: str, vendor: Path, work: Path) -> Dict[str, object]:
     pack_dir = work / hashlib.sha256(expected_name.encode("utf-8")).hexdigest()[:12]
     pack_dir.mkdir(parents=True, exist_ok=True)
-    output = _run(
-        [npm, "pack", spec, "--json", "--ignore-scripts"],
-        cwd=pack_dir,
-        timeout=300,
-    )
+    output = _run([npm, "pack", spec, "--json", "--ignore-scripts"], cwd=pack_dir, timeout=300)
     try:
         rows = json.loads(output)
         row = rows[-1] if isinstance(rows, list) else rows
@@ -128,7 +115,6 @@ def _pack_one(npm: str, expected_name: str, spec: str, vendor: Path, work: Path)
     archive = pack_dir / str(filename)
     if not archive.is_file():
         raise PluginPayloadError("NPM_PACK_ARCHIVE_MISSING:%s" % expected_name)
-
     target = package_path(vendor, expected_name)
     if target.exists():
         shutil.rmtree(str(target))
@@ -139,29 +125,10 @@ def _pack_one(npm: str, expected_name: str, spec: str, vendor: Path, work: Path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     actual_name = str(manifest.get("name") or "")
     if actual_name != expected_name:
-        raise PluginPayloadError(
-            "PLUGIN_PACKAGE_NAME_MISMATCH:%s:%s" % (expected_name, actual_name or "<empty>")
-        )
-
-    # Materialize regular runtime dependencies inside each plugin payload. Peer
-    # dependencies belong to the bank DSH host and are deliberately not copied.
+        raise PluginPayloadError("PLUGIN_PACKAGE_NAME_MISMATCH:%s:%s" % (expected_name, actual_name or "<empty>"))
     dependencies = manifest.get("dependencies") or {}
     if dependencies:
-        _run(
-            [
-                npm,
-                "install",
-                "--omit=dev",
-                "--ignore-scripts",
-                "--legacy-peer-deps",
-                "--no-audit",
-                "--no-fund",
-                "--package-lock=false",
-            ],
-            cwd=target,
-            timeout=300,
-        )
-
+        _run([npm, "install", "--omit=dev", "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund", "--package-lock=false"], cwd=target, timeout=300)
     return {
         "name": expected_name,
         "requested_spec": spec,
@@ -194,11 +161,7 @@ def inspect_vendor(vendor: Path) -> Dict[str, object]:
             "engines": manifest.get("engines") or {},
             "peer_dependencies": manifest.get("peerDependencies") or {},
         }
-    return {
-        "status": "PASS" if not missing else "FAIL",
-        "missing": missing,
-        "plugins": rows,
-    }
+    return {"status": "PASS" if not missing else "FAIL", "missing": missing, "plugins": rows}
 
 
 def acquire(repo_root: Path, output_archive: Optional[Path] = None) -> Dict[str, object]:
@@ -207,19 +170,14 @@ def acquire(repo_root: Path, output_archive: Optional[Path] = None) -> Dict[str,
     manifest_sidecar = repo / PAYLOAD_MANIFEST_RELATIVE
     npm = _npm()
     specs = _resolved_specs()
-
     with tempfile.TemporaryDirectory(prefix="rc7-dsh-plugin-payload-") as temp:
         work = Path(temp)
         vendor = work / "payload"
         (vendor / "node_modules").mkdir(parents=True, exist_ok=True)
-        resolved = []
-        for name, spec in specs:
-            resolved.append(_pack_one(npm, name, spec, vendor, work / "packs"))
+        resolved = [_pack_one(npm, name, spec, vendor, work / "packs") for name, spec in specs]
         inspection = inspect_vendor(vendor)
         if inspection.get("status") != "PASS":
-            raise PluginPayloadError(
-                "REQUIRED_PLUGIN_PAYLOAD_INCOMPLETE:%s" % ",".join(inspection.get("missing", []))
-            )
+            raise PluginPayloadError("REQUIRED_PLUGIN_PAYLOAD_INCOMPLETE:%s" % ",".join(inspection.get("missing", [])))
         payload_manifest = {
             "schema_version": PAYLOAD_SCHEMA,
             "version_policy": "CAPABILITY_BASED_NO_EXACT_VERSION_PIN",
@@ -227,10 +185,7 @@ def acquire(repo_root: Path, output_archive: Optional[Path] = None) -> Dict[str,
             "required_plugins": list(REQUIRED_PLUGIN_NAMES),
             "resolved_plugins": resolved,
         }
-        (vendor / "payload-manifest.json").write_text(
-            json.dumps(payload_manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        (vendor / "payload-manifest.json").write_text(json.dumps(payload_manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         archive.parent.mkdir(parents=True, exist_ok=True)
         if archive.exists():
             archive.unlink()
@@ -238,7 +193,6 @@ def acquire(repo_root: Path, output_archive: Optional[Path] = None) -> Dict[str,
             for path in sorted(vendor.rglob("*")):
                 if path.is_file():
                     target.write(str(path), path.relative_to(vendor).as_posix())
-
     result = {
         "status": "PASS",
         "archive": str(archive),
@@ -249,10 +203,17 @@ def acquire(repo_root: Path, output_archive: Optional[Path] = None) -> Dict[str,
         "plugins": resolved,
     }
     manifest_sidecar.parent.mkdir(parents=True, exist_ok=True)
-    manifest_sidecar.write_text(
-        json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    manifest_sidecar.write_text(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    if output_archive is None:
+        try:
+            from .optional_plugin_payload import acquire as acquire_optional_payload
+            result["optional_enhancement_payload"] = acquire_optional_payload(repo)
+        except Exception as exc:
+            result["optional_enhancement_payload"] = {
+                "status": "UNAVAILABLE",
+                "reason": str(exc),
+                "policy": "OPTIONAL_RELEASE_BUNDLE_FAILURE_MUST_NOT_DOWNGRADE_REQUIRED_P0_PAYLOAD",
+            }
     return result
 
 
@@ -278,11 +239,9 @@ def materialize_payload(home: Path) -> Path:
         if inspect_vendor(vendor).get("status") != "PASS":
             raise PluginPayloadError("PLUGIN_VENDOR_OVERRIDE_INCOMPLETE")
         return vendor
-
     legacy = Path(home).resolve() / "workspace-template" / "runtime" / "dsh-plugins"
     if legacy.is_dir() and inspect_vendor(legacy).get("status") == "PASS":
         return legacy
-
     root = Path(home).resolve()
     archive = root / PAYLOAD_ARCHIVE_RELATIVE
     if not archive.is_file():
@@ -299,9 +258,7 @@ def materialize_payload(home: Path) -> Path:
     _safe_zip_extract(archive, vendor)
     inspection = inspect_vendor(vendor)
     if inspection.get("status") != "PASS":
-        raise PluginPayloadError(
-            "MATERIALIZED_PLUGIN_PAYLOAD_INCOMPLETE:%s" % ",".join(inspection.get("missing", []))
-        )
+        raise PluginPayloadError("MATERIALIZED_PLUGIN_PAYLOAD_INCOMPLETE:%s" % ",".join(inspection.get("missing", [])))
     marker.write_text(digest + "\n", encoding="utf-8")
     return vendor
 
@@ -317,10 +274,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "acquire":
-            result = acquire(
-                Path(args.repo_root),
-                Path(args.output).resolve() if args.output else None,
-            )
+            result = acquire(Path(args.repo_root), Path(args.output).resolve() if args.output else None)
         elif args.command == "inspect":
             vendor = materialize_payload(Path(args.home))
             result = inspect_vendor(vendor)
