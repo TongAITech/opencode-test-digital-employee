@@ -236,7 +236,7 @@ def test_authorized_launcher_rejects_text_only_max_tokens_as_tool_call(tmp_path:
         launcher.execute(assignment, "analyze")
 
     rows = list(truth.store.iter_raw())
-    event_names = [row["event_type"] for event in rows]
+    event_names = [row["event_type"] for row in rows]
     serialized = json.dumps(rows, sort_keys=True)
     assert "REAL_TOOL_CALL_MISSING" in serialized
     assert "WORKER_TOOL_CALLED" not in event_names
