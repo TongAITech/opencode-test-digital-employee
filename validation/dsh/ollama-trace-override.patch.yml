@@ -17,10 +17,11 @@
         models:
           - id: qwen3:4b
             contextWindow: 32768
-            maxTokens: 1024
+            maxTokens: 256
             reasoningEfforts:
               minimal: none
               medium: medium
             compat:
               thinkingFormat: openai
               supportsReasoningEffort: true
+              maxTokensField: max_tokens

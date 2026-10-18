@@ -1,12 +1,14 @@
 # Validation-only local Ollama/Qwen3 compatibility profile.
 #
-# DSH 0.2.x translates its semantic `off` effort to an omitted reasoning
-# parameter. Ollama/Qwen3 defaults to thinking when the parameter is omitted,
-# so use an executable non-off DSH level whose provider wire spelling is
-# `none`. Explicit OpenAI reasoning compat prevents endpoint heuristics from
-# selecting the wrong dialect. This profile is for public AgileTC validation;
-# it is not Bank model policy.
-
+# DSH 0.2.0-rc.2 treats reasoningEffort=off as omission. Ollama Qwen3 thinks by
+# default, so map the executable DSH "minimal" level to Ollama's OpenAI-compatible
+# wire value "none". This is not Bank model policy; it keeps the CPU-only CI
+# validation substrate bounded and capability-based.
+#
+# Keep a small explicit per-step output cap. The model catalog's maxTokens is a
+# capacity declaration only unless the deployment explicitly configures it;
+# 256 is sufficient for the local qualification worker to choose/call a tool
+# without allowing one CPU-only response to consume the full diagnostic bound.
 - id: llm-pi-ai
   config:
     providers:
@@ -17,13 +19,14 @@
         models:
           - id: qwen3:4b
             contextWindow: 32768
-            maxTokens: 1024
+            maxTokens: 256
             reasoningEfforts:
               minimal: none
               medium: medium
             compat:
               thinkingFormat: openai
               supportsReasoningEffort: true
+              maxTokensField: max_tokens
 
 - id: agent-default-model
   config:
