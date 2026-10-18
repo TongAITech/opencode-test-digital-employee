@@ -1,0 +1,10 @@
+# Diagnostic-only override for the isolated AgileTC Requirement wire trace.
+# The canonical local-Qwen compatibility profile remains unchanged; this layer
+# only routes its OpenAI-compatible HTTP traffic through a metadata-only local
+# proxy that forwards requests byte-for-byte to Ollama on 127.0.0.1:11434.
+
+- id: llm-pi-ai
+  config:
+    providers:
+      local-ollama:
+        baseURL: http://127.0.0.1:11435/v1
