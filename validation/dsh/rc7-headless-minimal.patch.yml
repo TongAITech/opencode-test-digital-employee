@@ -1,0 +1,57 @@
+# Validation composition for RC7 DSH workers.
+# The headless bundle runs directly over dsh-base; this overlay removes the
+# general-purpose coding-agent tool surface. RC7 MCP tools are inserted by a
+# separate generated patch after this file when domain tools are required.
+#
+# This is capability reduction, not a prompt request. The dedicated validation
+# profile remains native tool presentation and fail-closed on unexpected host
+# capabilities.
+
+- id: system-prompt
+  config:
+    personaPrefix: >-
+      You are an RC7 testing digital employee worker. Follow only the current
+      task and its output contract. Never invent tool results. Use only tools
+      actually exposed in this session. Return the requested structured output
+      exactly; do not perform unrelated coding or repository changes.
+
+- id: tools
+  config:
+    mode: native
+
+# General-purpose / mutation / orchestration tools are not part of the RC7
+# worker surface. RC7 domain reads/execution are mediated by the governed MCP.
+- id: user-questions
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: plan-mode
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-todo
+  disabled: true
+- id: tool-goal
+  disabled: true
+- id: tool-web
+  disabled: true
+- id: mcp-resources
+  disabled: true
