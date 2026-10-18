@@ -2,16 +2,20 @@
 
 The package is only a transport candidate when every payload declared
 ``required_for_delivery=true`` by ``runtime-lock.json`` is physically present
-in the clean package.  This validator deliberately treats the lock file as the
-release authority; CI/package code must not silently downgrade required
-payloads to optional because build inputs were omitted.
+in the clean package. Turnkey-only enhancement bundles may remain optional at
+runtime while still being required to be physically carried by a field package
+through ``turnkey_bundle_required=true``. This validator treats the lock file as
+the release authority; CI/package code must not silently downgrade either gate.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import zipfile
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
+
+from .optional_plugin_payload import OPTIONAL_PLUGIN_NAMES
 
 
 SCHEMA_VERSION = "pfc.aitest.rc7.runtime-delivery-contract.v1"
@@ -72,6 +76,70 @@ def _manifest_bundled(manifest: Mapping[str, Any], payload_name: str) -> Optiona
     return bool(row.get("bundled"))
 
 
+def _optional_package_manifest_path(plugin_name: str) -> str:
+    if plugin_name.startswith("@"):
+        scope, name = plugin_name.split("/", 1)
+        return "node_modules/%s/%s/package.json" % (scope, name)
+    return "node_modules/%s/package.json" % plugin_name
+
+
+def _verify_optional_turnkey_bundle(archive: Path) -> Dict[str, Any]:
+    result: Dict[str, Any] = {
+        "status": "FAIL",
+        "archive": str(archive),
+        "target_count": len(OPTIONAL_PLUGIN_NAMES),
+        "bundled": [],
+        "missing": [],
+        "invalid": [],
+    }
+    if not archive.is_file() or archive.stat().st_size <= 0:
+        result["reason"] = "ARCHIVE_MISSING"
+        result["missing"] = list(OPTIONAL_PLUGIN_NAMES)
+        return result
+    try:
+        with zipfile.ZipFile(str(archive), "r") as source:
+            names = set(source.namelist())
+            for plugin in OPTIONAL_PLUGIN_NAMES:
+                member = _optional_package_manifest_path(plugin)
+                if member not in names:
+                    result["missing"].append(plugin)
+                    continue
+                try:
+                    payload = json.loads(source.read(member).decode("utf-8"))
+                except Exception:
+                    result["invalid"].append(plugin)
+                    continue
+                if not isinstance(payload, Mapping) or payload.get("name") != plugin:
+                    result["invalid"].append(plugin)
+                    continue
+                result["bundled"].append(plugin)
+
+            if "payload-manifest.json" not in names:
+                result["reason"] = "PAYLOAD_MANIFEST_MISSING"
+                return result
+            try:
+                manifest = json.loads(source.read("payload-manifest.json").decode("utf-8"))
+            except Exception:
+                result["reason"] = "PAYLOAD_MANIFEST_INVALID"
+                return result
+            expected = set(OPTIONAL_PLUGIN_NAMES)
+            manifest_bundled = set(manifest.get("bundled") or []) if isinstance(manifest, Mapping) else set()
+            manifest_missing = set(manifest.get("missing") or []) if isinstance(manifest, Mapping) else expected
+            if not isinstance(manifest, Mapping) or manifest.get("status") != "PASS" or manifest_bundled != expected or manifest_missing:
+                result["reason"] = "PAYLOAD_MANIFEST_NOT_PASS"
+                return result
+    except (OSError, zipfile.BadZipFile) as exc:
+        result["reason"] = "ARCHIVE_INVALID:%s" % type(exc).__name__
+        return result
+
+    if result["missing"] or result["invalid"] or set(result["bundled"]) != set(OPTIONAL_PLUGIN_NAMES):
+        result["reason"] = "PLUGIN_SET_INCOMPLETE"
+        return result
+    result["status"] = "PASS"
+    result["reason"] = None
+    return result
+
+
 def verify_runtime_delivery(package_root: Path | str) -> Dict[str, Any]:
     root = Path(package_root).expanduser().resolve()
     if not root.is_dir():
@@ -91,20 +159,20 @@ def verify_runtime_delivery(package_root: Path | str) -> Dict[str, Any]:
     missing: List[str] = []
     marker_missing: List[str] = []
     manifest_mismatch: List[str] = []
+    turnkey_bundle_failures: List[str] = []
+    turnkey_bundles: List[Dict[str, Any]] = []
 
     for name in sorted(payloads):
         spec = payloads[name]
         if not isinstance(spec, Mapping):
             raise RuntimeDeliveryContractError("RUNTIME_PAYLOAD_SPEC_INVALID:%s" % name)
         required = bool(spec.get("required_for_delivery"))
+        turnkey_bundle_required = bool(spec.get("turnkey_bundle_required"))
         target = _safe_target(spec.get("relative_target"))
         absolute = root / target
         present = bool(_meaningful_files(absolute))
         marker_status: Optional[bool] = None
 
-        # local_ocr_cv shares the Python target.  Python's presence must never
-        # masquerade as OCR/CV capability; acquisition writes this marker only
-        # after package-local import/smoke probes succeed.
         if name == "local_ocr_cv" and required:
             marker_status = bool(_meaningful_files(root / OCR_CV_MARKER))
             if not marker_status:
@@ -116,14 +184,28 @@ def verify_runtime_delivery(package_root: Path | str) -> Dict[str, Any]:
         if required and bundled is False:
             manifest_mismatch.append(name)
 
+        turnkey_status: Optional[str] = None
+        if turnkey_bundle_required:
+            if name != "dsh_optional_plugins":
+                turnkey_result = {"status": "FAIL", "reason": "UNSUPPORTED_TURNKEY_BUNDLE_VALIDATOR", "payload": name}
+            else:
+                turnkey_result = _verify_optional_turnkey_bundle(absolute)
+            turnkey_result["payload"] = name
+            turnkey_bundles.append(turnkey_result)
+            turnkey_status = str(turnkey_result.get("status") or "FAIL")
+            if turnkey_status != "PASS":
+                turnkey_bundle_failures.append("%s:%s" % (name, turnkey_result.get("reason") or "INCOMPLETE"))
+
         rows.append(
             {
                 "payload": name,
                 "required_for_delivery": required,
+                "turnkey_bundle_required": turnkey_bundle_required,
                 "relative_target": target.as_posix(),
                 "present": present,
                 "marker_present": marker_status,
                 "manifest_bundled": bundled,
+                "turnkey_bundle_status": turnkey_status,
             }
         )
 
@@ -134,13 +216,17 @@ def verify_runtime_delivery(package_root: Path | str) -> Dict[str, Any]:
         blockers.append("REQUIRED_CAPABILITY_MARKER_MISSING:" + ",".join(marker_missing))
     if manifest_mismatch:
         blockers.append("REQUIRED_PAYLOAD_MANIFEST_FALSE:" + ",".join(manifest_mismatch))
+    if turnkey_bundle_failures:
+        blockers.append("TURNKEY_BUNDLE_INCOMPLETE:" + ",".join(turnkey_bundle_failures))
 
     result = {
         "schema_version": SCHEMA_VERSION,
         "status": "PASS" if not blockers else "FAIL",
         "delivery_runtime_complete": not blockers,
         "required_payload_count": sum(1 for row in rows if row["required_for_delivery"]),
+        "turnkey_bundle_count": sum(1 for row in rows if row["turnkey_bundle_required"]),
         "payloads": rows,
+        "turnkey_bundles": turnkey_bundles,
         "blocking_reasons": blockers,
     }
     if blockers:
