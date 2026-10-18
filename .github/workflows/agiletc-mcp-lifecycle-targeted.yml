@@ -1,0 +1,36 @@
+name: RC7 MCP Lifecycle Targeted Qualification
+
+on:
+  push:
+    branches:
+      - validation/agiletc-mcp-lifecycle-fix
+
+permissions:
+  contents: read
+
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Bootstrap pytest
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile changed modules
+        run: |
+          python -m py_compile \
+            rc7_release/dsh.py \
+            rc7_release/mcp_server_authorized.py \
+            tests/test_rc7_dsh_tool_authority.py \
+            tests/test_rc7_mcp_stdio_protocol.py
+      - name: Run authority and MCP lifecycle regressions
+        run: |
+          python -m pytest -q \
+            tests/test_rc7_dsh_tool_authority.py \
+            tests/test_rc7_mcp_stdio_protocol.py \
+            tests/test_rc7_bank_dsh_tool_policy.py \
+            tests/test_rc7_node_tool_conformance.py \
+            tests/test_rc7_external_input_readiness.py
