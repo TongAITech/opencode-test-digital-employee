@@ -25,9 +25,19 @@ class _RequirementProbeLauncher(Rc7AuthorizedDshHeadlessWorkerLauncher):
         super().__init__(*args, **kwargs)
 
     def execute(self, assignment, prompt):
+        # Validation-only provider compatibility seam.  Qwen3's soft switch is
+        # interpreted from the latest user instruction by some templates, so
+        # keep the real RC7 worker contract unchanged and append the configured
+        # directive to the actual headless user task only in this probe.
+        suffix = os.environ.get("PFC_REQUIREMENT_PROBE_USER_SUFFIX", "").strip()
+        effective_prompt = prompt.rstrip()
+        if suffix:
+            effective_prompt += "\n" + suffix
+
         state_dir = Path(os.environ["PFC_AITEST_STATE_DIR"]).resolve()
         out = state_dir.parent / "requirement-probe-input.json"
-        encoded = prompt.encode("utf-8")
+        original_encoded = prompt.encode("utf-8")
+        effective_encoded = effective_prompt.encode("utf-8")
         out.write_text(
             json.dumps(
                 {
@@ -38,8 +48,13 @@ class _RequirementProbeLauncher(Rc7AuthorizedDshHeadlessWorkerLauncher):
                     "allowed_tools": list(assignment.allowed_tools),
                     "allowed_tool_count": len(assignment.allowed_tools),
                     "prompt_chars": len(prompt),
-                    "prompt_utf8_bytes": len(encoded),
-                    "prompt_sha256": hashlib.sha256(encoded).hexdigest(),
+                    "prompt_utf8_bytes": len(original_encoded),
+                    "prompt_sha256": hashlib.sha256(original_encoded).hexdigest(),
+                    "effective_prompt_chars": len(effective_prompt),
+                    "effective_prompt_utf8_bytes": len(effective_encoded),
+                    "effective_prompt_sha256": hashlib.sha256(effective_encoded).hexdigest(),
+                    "user_suffix_enabled": bool(suffix),
+                    "user_suffix_chars": len(suffix),
                     "timeout_seconds": self.timeout_seconds,
                 },
                 indent=2,
@@ -48,7 +63,7 @@ class _RequirementProbeLauncher(Rc7AuthorizedDshHeadlessWorkerLauncher):
             + "\n",
             encoding="utf-8",
         )
-        return super().execute(assignment, prompt)
+        return super().execute(assignment, effective_prompt)
 
 
 class _BankFieldBridge(_BaseBridge):
