@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
-from typing import Optional, Union
+from typing import List, Optional, Tuple, Union
 
 
 TOOL_ENV_KEYS = (
@@ -27,6 +28,10 @@ TOOL_ENV_KEYS = (
 )
 
 TOOL_POLICY_PLUGIN_NAME = "rc7-tool-policy.ts"
+DEFAULT_RUNTIME_ENHANCEMENTS: Tuple[Tuple[str, str], ...] = (
+    ("vision-router", "dsh-vision-router"),
+    ("memento", "dsh-memento"),
+)
 
 _LEGACY_CAPABILITY_ALIASES = (
     "filesystem",
@@ -131,30 +136,19 @@ export function apply(ctx) {
       throw new Error('RC7_DSH_ALLOWED_TOOLS_EMPTY')
     }
 
-    // DSH may append runtime/instruction snapshots after the actual headless
-    // task, while OpenAI-compatible routes flatten all of them to user-role
-    // messages. Small local models then treat the newest injected snapshot as
-    // the active request. Delegate first so every built-in has composed the
-    // final batch, then keep all injected context intact but put genuine human
-    // messages last. This changes presentation order only; it does not remove
-    // policy context or alter execution authority.
     scope.on('agent/pre-step', async (_payload, next) => {
       const decision = await next()
       return humanRequestLast(decision)
     }, { prepend: true })
 
-    // Execution authority is monotonic: a later plugin cannot turn this denial
-    // back into permission. This also covers tools registered in a scope that a
-    // registry restriction cannot mask.
+    // Runtime authority stays lease-bound even when enhancement plugins register
+    // extra tools (vision_*, memory, etc.). Loading a plugin never grants a tool.
     scope.effect(() => scope.tools.guard((execution) =>
       allowSet.has(execution.name)
         ? undefined
         : `RC7_DSH_TOOL_NOT_AUTHORIZED:${execution.name}`
     ))
 
-    // system-prompt/assemble is the authoritative per-step model projection.
-    // Re-read the live registry after all plugin startup work and replace the
-    // possibly stale pre-waterfall snapshot with exactly the signed-lease set.
     scope.on('system-prompt/assemble', async (assembly, _context, next) => {
       const resolved = await next()
       const live = scope.tools.schemas(agent)
@@ -173,36 +167,108 @@ export function apply(ctx) {
       order: 50,
       text: () => `RC7 runtime authority exposes only these executable tools for this worker: ${JSON.stringify(allow)}. Do not invent or call any other tool. When real tool evidence is required, your first assistant action MUST be one native structured call to an exposed tool. Do not emit planning, reasoning, or narration before that first call.`,
     })
+    scope.systemPrompt.section({
+      name: 'rc7:truth-authority',
+      order: 51,
+      text: () => 'RC7 canonical runtime truth is runtime-state/r1/event-stream.jsonl. Memento/memory is non-authoritative experience context only and MUST NOT be used to assert execution status, PASS, defect existence, or evidence completion without canonical R1 evidence.',
+    })
   })
 }
 """ % aliases
+
+
+def _plugin_package_root(home: Path, package_name: str) -> Path:
+    if package_name.startswith("@"):
+        scope, name = package_name.split("/", 1)
+        return home / "workspace-template" / "runtime" / "dsh-plugins" / "node_modules" / scope / name
+    return home / "workspace-template" / "runtime" / "dsh-plugins" / "node_modules" / package_name
+
+
+def _plugin_entry(home: Path, package_name: str, require_present: bool) -> Path:
+    root = _plugin_package_root(home, package_name)
+    manifest_path = root / "package.json"
+    main = "index.js"
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            configured = manifest.get("main")
+            if isinstance(configured, str) and configured.strip():
+                main = configured.strip()
+            elif (root / "index.mjs").is_file():
+                main = "index.mjs"
+        except Exception as exc:
+            if require_present:
+                raise RuntimeError("RC7_DEFAULT_ENHANCEMENT_MANIFEST_INVALID:%s:%s" % (package_name, exc))
+    elif package_name == "dsh-memento":
+        main = "index.mjs"
+    elif package_name == "dsh-vision-router":
+        main = "lib/public-entry.js"
+    entry = (root / main).resolve()
+    if require_present and (not manifest_path.is_file() or not entry.is_file()):
+        raise RuntimeError("RC7_DEFAULT_ENHANCEMENT_MISSING:%s:%s" % (package_name, entry))
+    return entry
+
+
+def _enhancement_patch_lines(home: Path, state_root: Path, require_present: bool) -> List[str]:
+    vision = _plugin_entry(home, "dsh-vision-router", require_present)
+    memento = _plugin_entry(home, "dsh-memento", require_present)
+    memory_db = (state_root / "memento" / "memory.db").resolve()
+    memory_db.parent.mkdir(parents=True, exist_ok=True)
+    return [
+        "    - id: vision-router",
+        "      name: %s" % _yaml_quote(str(vision)),
+        "      config:",
+        "        tool: true",
+        "        progressiveTools: false",
+        "        autoActivateOnImage: true",
+        "        desktopScreenshot: false",
+        "        localOnlyVision: true",
+        "        freeFallback: false",
+        "    - id: memento",
+        "      name: %s" % _yaml_quote(str(memento)),
+        "      config:",
+        "        enabled: true",
+        "        writePolicy: ask",
+        "        language: zh",
+        "        dbPath: %s" % _yaml_quote(str(memory_db)),
+        "        proposals:",
+        "          enabled: true",
+    ]
 
 
 def write_patch(
     output: Union[str, Path],
     home: Union[str, Path],
     python_executable: Optional[str] = None,
+    *,
+    require_default_enhancements: bool = False,
 ) -> Path:
     target = Path(output)
-    root = str(Path(home).resolve())
+    home_path = Path(home).resolve()
+    root = str(home_path)
     python_cmd = python_executable or sys.executable
-    state_root = os.environ.get("PFC_AITEST_STATE_DIR") or str(Path(root) / "runtime-state")
+    state_root = Path(os.environ.get("PFC_AITEST_STATE_DIR") or (home_path / "runtime-state")).resolve()
     lines = [
         "- insert:",
         "    - id: rc7-tool-policy",
         "      name: './%s'" % TOOL_POLICY_PLUGIN_NAME,
-        "    - id: mcp-pfc-aitest-rc7",
-        "      name: '@deepseek-ai/dsh-mcp-client'",
-        "      config:",
-        "        serverName: pfc_aitest_rc7",
-        "        transport: stdio",
-        "        command: %s" % _yaml_quote(python_cmd),
-        "        args: ['-m', 'rc7_release.mcp_server_authorized']",
-        "        env:",
-        "          PFC_AITEST_HOME: %s" % _yaml_quote(root),
-        "          PFC_AITEST_STATE_DIR: %s" % _yaml_quote(state_root),
-        "          PYTHONPATH: %s" % _yaml_quote(root),
     ]
+    lines.extend(_enhancement_patch_lines(home_path, state_root, require_default_enhancements))
+    lines.extend(
+        [
+            "    - id: mcp-pfc-aitest-rc7",
+            "      name: '@deepseek-ai/dsh-mcp-client'",
+            "      config:",
+            "        serverName: pfc_aitest_rc7",
+            "        transport: stdio",
+            "        command: %s" % _yaml_quote(python_cmd),
+            "        args: ['-m', 'rc7_release.mcp_server_authorized']",
+            "        env:",
+            "          PFC_AITEST_HOME: %s" % _yaml_quote(root),
+            "          PFC_AITEST_STATE_DIR: %s" % _yaml_quote(str(state_root)),
+            "          PYTHONPATH: %s" % _yaml_quote(root),
+        ]
+    )
     if not os.environ.get("PFC_WORKSPACE"):
         lines.append("          PFC_WORKSPACE: %s" % _yaml_quote(root))
     for key in TOOL_ENV_KEYS:
@@ -233,8 +299,19 @@ def main(argv=None) -> int:
     parser.add_argument("--output", required=True)
     parser.add_argument("--home", required=True)
     parser.add_argument("--python")
+    parser.add_argument("--require-default-enhancements", action="store_true")
     args = parser.parse_args(argv)
-    print(write_patch(args.output, args.home, args.python))
+    try:
+        patch = write_patch(
+            args.output,
+            args.home,
+            args.python,
+            require_default_enhancements=args.require_default_enhancements,
+        )
+    except Exception as exc:
+        print("RC7_DSH_PATCH_BUILD_FAILED:%s" % exc, file=sys.stderr)
+        return 2
+    print(patch)
     return 0
 
 
