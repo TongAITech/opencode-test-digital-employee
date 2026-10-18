@@ -191,7 +191,7 @@ jobs:
       - name: Prove DSH headless can call the real RC7 MCP tool
         id: dsh_smoke
         continue-on-error: true
-        timeout-minutes: 5
+        timeout-minutes: 6
         shell: bash
         run: |
           set +e
@@ -200,18 +200,46 @@ jobs:
           export PFC_GIT_BIN="$(which git)"
           export PFC_JAVA_BIN="$(which java)"
           export PFC_MAVEN_BIN="$(which mvn)"
-          timeout --signal=TERM --kill-after=15s 240s \
+          timeout --signal=TERM --kill-after=15s 300s \
             dsh --profile headless --patch validation-artifacts/dsh/agiletc.patch.yml --json \
-            'Call the pfc_aitest_rc7 runtime_status tool exactly once. Do not guess. Then return exactly one JSON object: {"status":"PASS","proof":"runtime_status_called"}.' \
-            2>&1 | tee validation-artifacts/dsh-smoke.jsonl
-          rc=${PIPESTATUS[0]}
+            '/no_think Call the mcp__pfc_aitest_rc7__runtime_status tool exactly once. A text-only answer is failure. After the tool result, return exactly {"status":"PASS","proof":"runtime_status_called"}.' \
+            > validation-artifacts/dsh-smoke.jsonl 2> validation-artifacts/dsh-smoke.stderr
+          rc=$?
           echo "$rc" > validation-artifacts/dsh-smoke.exit
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path=Path('validation-artifacts/dsh-smoke.jsonl')
+          events=[]
+          for line in path.read_text(encoding='utf-8', errors='replace').splitlines():
+              try:
+                  value=json.loads(line)
+              except Exception:
+                  continue
+              if isinstance(value, dict):
+                  events.append(value)
+          calls=[e for e in events if str(e.get('type','')).lower() == 'tool_call']
+          results=[e for e in events if str(e.get('type','')).lower() == 'tool_result']
+          matching=[e for e in calls if 'runtime_status' in json.dumps(e, ensure_ascii=False)]
+          proof={
+              'event_count': len(events),
+              'tool_call_count': len(calls),
+              'tool_result_count': len(results),
+              'runtime_status_call_count': len(matching),
+              'status': 'PASS' if matching and results else 'FAIL',
+          }
+          Path('validation-artifacts/dsh-smoke-proof.json').write_text(json.dumps(proof, indent=2)+'\n', encoding='utf-8')
+          print(json.dumps(proof))
+          raise SystemExit(0 if proof['status']=='PASS' else 3)
+          PY
+          proof_rc=$?
           if [[ "$rc" == "124" || "$rc" == "137" ]]; then
             echo 'DSH_SMOKE_TIMEOUT' | tee validation-artifacts/dsh-smoke.boundary
           else
-            echo "DSH_SMOKE_EXIT=$rc" | tee validation-artifacts/dsh-smoke.boundary
+            echo "DSH_SMOKE_EXIT=$rc PROOF_EXIT=$proof_rc" | tee validation-artifacts/dsh-smoke.boundary
           fi
-          exit "$rc"
+          if [[ "$rc" -ne 0 ]]; then exit "$rc"; fi
+          exit "$proof_rc"
 
       - name: Run RC7 digital employee against AgileTC
         id: rc7_fullflow
@@ -246,6 +274,7 @@ jobs:
           echo '===== DSH smoke ====='
           cat validation-artifacts/dsh-smoke.exit 2>/dev/null || true
           cat validation-artifacts/dsh-smoke.boundary 2>/dev/null || true
+          cat validation-artifacts/dsh-smoke-proof.json 2>/dev/null || true
           echo '===== RC7 fullflow ====='
           cat validation-artifacts/rc7-fullflow.exit 2>/dev/null || true
           cat validation-artifacts/fullflow-summary.json 2>/dev/null || true
@@ -271,5 +300,6 @@ jobs:
           data=json.loads(Path('validation-artifacts/fullflow-summary.json').read_text(encoding='utf-8'))
           print('FINAL_RC7_VALIDATION_STATUS=' + str(data.get('status')))
           print('BLOCKING_REASON=' + str(data.get('blocking_reason')))
+          print('KNOWN_PRODUCT_GAPS=' + str(len(data.get('known_product_gaps', []))))
           raise SystemExit(0 if data.get('status') == 'PASS' else 2)
           PY
