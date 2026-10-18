@@ -25,11 +25,11 @@ class _RequirementProbeLauncher(Rc7AuthorizedDshHeadlessWorkerLauncher):
         super().__init__(*args, **kwargs)
 
     def execute(self, assignment, prompt):
-        # Validation-only provider compatibility seam.  Qwen3's soft switch is
+        # Validation-only provider compatibility seam. Qwen3's soft switch is
         # interpreted from the latest user instruction by some templates, so
-        # keep the real RC7 worker contract unchanged and append the configured
-        # directive to the actual headless user task only in this probe.
-        suffix = os.environ.get("PFC_REQUIREMENT_PROBE_USER_SUFFIX", "").strip()
+        # keep the real RC7 worker contract unchanged and append the directive
+        # to the actual headless user task only in this local-Qwen probe.
+        suffix = os.environ.get("PFC_REQUIREMENT_PROBE_USER_SUFFIX", "/no_think").strip()
         effective_prompt = prompt.rstrip()
         if suffix:
             effective_prompt += "\n" + suffix
