@@ -51,7 +51,7 @@ jobs:
             -H 'Content-Type: application/json' \
             -H 'Authorization: Bearer ollama-local' \
             http://127.0.0.1:11434/v1/chat/completions \
-            -d "$(python -c 'import json,sys; print(json.dumps({"model":"qwen3:4b","messages":[{"role":"system","content":"/no_think\nProtocol probe: do not narrate reasoning or planning. Return only the exact JSON requested by the user."},{"role":"user","content":sys.argv[1]}],"stream":False,"max_tokens":128,"reasoning_effort":"none"}))' "$prompt")" \
+            -d "$(python -c 'import json,sys; print(json.dumps({"model":"qwen3:4b","messages":[{"role":"user","content":sys.argv[1]+"\n/no_think"}],"stream":False,"max_tokens":128,"reasoning_effort":"none"}))' "$prompt")" \
             > openai-none.json
           elapsed=$(($(date +%s)-started))
           echo "$elapsed" > openai-none.elapsed
@@ -60,7 +60,8 @@ jobs:
           from pathlib import Path
           d=json.loads(Path('openai-none.json').read_text())
           choices=d.get('choices') or []
-          msg=(choices[0].get('message') if choices else {}) or {}
+          choice=(choices[0] if choices else {}) or {}
+          msg=(choice.get('message') if isinstance(choice,dict) else {}) or {}
           content=str(msg.get('content') or '')
           reasoning=str(msg.get('reasoning') or msg.get('reasoning_content') or '')
           elapsed=int(Path('openai-none.elapsed').read_text())
@@ -69,7 +70,14 @@ jobs:
               parsed=json.loads(content)
           except Exception:
               parsed=None
-          result={'elapsed_seconds':elapsed,'content':content,'content_chars':len(content),'reasoning_chars':len(reasoning),'parsed_json':parsed}
+          result={
+              'elapsed_seconds':elapsed,
+              'content':content,
+              'content_chars':len(content),
+              'reasoning_chars':len(reasoning),
+              'finish_reason':choice.get('finish_reason') if isinstance(choice,dict) else None,
+              'parsed_json':parsed,
+          }
           ok=reasoning=='' and parsed==expected and elapsed < 60
           result['status']='PASS' if ok else 'FAIL'
           Path('openai-none-result.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
@@ -107,7 +115,7 @@ jobs:
           started=$(date +%s)
           timeout --signal=TERM --kill-after=15s 180s \
             dsh --profile headless --patch effective.patch.yml --json \
-              $'/no_think\nReturn exactly one JSON object and nothing else: {"status":"PASS","proof":"dsh_none_mapping"}. Do not call any tool.' \
+              $'Return exactly one JSON object and nothing else: {"status":"PASS","proof":"dsh_none_mapping"}. Do not call any tool.\n/no_think' \
             > dsh-none.jsonl 2> dsh-none.stderr
           rc=$?
           elapsed=$(($(date +%s)-started))
