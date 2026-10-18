@@ -137,10 +137,9 @@ def write_patch(
         "        serverName: pfc_aitest_rc7",
         "        transport: stdio",
         "        command: %s" % _yaml_quote(python_cmd),
-        # Bank-field wrapper preserves the base RC7 MCP compatibility surface
-        # and adds Runtime-owned attempt CAT + separated diagnosis/recovery
-        # receipts for contracted graph-v2 Missions.
-        "        args: ['-m', 'rc7_release.mcp_server_field']",
+        # The authorized wrapper validates durable Task/node/tool authority
+        # before delegating to the Bank-field tool implementation.
+        "        args: ['-m', 'rc7_release.mcp_server_authorized']",
         "        env:",
         "          PFC_AITEST_HOME: %s" % _yaml_quote(root),
         "          PFC_AITEST_STATE_DIR: %s" % _yaml_quote(state_root),
