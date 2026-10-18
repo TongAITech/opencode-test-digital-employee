@@ -29,16 +29,27 @@ foreach ($pkg in $required) {
   npm install --prefix $pluginRoot --legacy-peer-deps --no-audit --no-fund "$pkg@latest"
   if ($LASTEXITCODE -ne 0) { throw "Required DSH plugin install failed: $pkg" }
 }
+
+$pluginState = @{}
 $diagnostic = '@perrylink/dsh-plugin-doctor'
 npm install --prefix $pluginRoot --legacy-peer-deps --no-audit --no-fund "$diagnostic@latest"
-$doctorState = if ($LASTEXITCODE -eq 0) { 'BUNDLED_DIAGNOSTIC' } else { 'OPTIONAL_NOT_RESOLVED' }
-$optional = @('dsh-vision-router','dsh-plugin-anydoc','dsh-memento','dsh-error-handling')
-$optionalState = @{ $diagnostic = $doctorState }
-foreach ($pkg in $optional) {
+$pluginState[$diagnostic] = if ($LASTEXITCODE -eq 0) { 'BUNDLED_DIAGNOSTIC' } else { 'OPTIONAL_NOT_RESOLVED' }
+
+$defaultRuntime = @('dsh-vision-router','dsh-memento')
+foreach ($pkg in $defaultRuntime) {
   npm install --prefix $pluginRoot --legacy-peer-deps --no-audit --no-fund "$pkg@latest"
-  $optionalState[$pkg] = if ($LASTEXITCODE -eq 0) { 'BUNDLED_DISABLED_BY_DEFAULT' } else { 'OPTIONAL_NOT_RESOLVED' }
+  if ($LASTEXITCODE -ne 0) { throw "Default runtime enhancement install failed: $pkg" }
+  $pluginState[$pkg] = 'BUNDLED_DEFAULT_ENABLED_RUNTIME'
 }
-$optionalState | ConvertTo-Json | Set-Content -Encoding utf8 "$pluginRoot\OPTIONAL_PLUGIN_STATE.json"
+
+# AnyDoc is not published as a normal npm @latest package. Bundle its known
+# GitHub source when available, but keep it conditional at runtime.
+npm install --prefix $pluginRoot --legacy-peer-deps --no-audit --no-fund 'github:beancookie/dsh-plugin-anydoc#main'
+$pluginState['dsh-plugin-anydoc'] = if ($LASTEXITCODE -eq 0) { 'BUNDLED_CONDITIONAL' } else { 'OPTIONAL_NOT_RESOLVED' }
+
+# Error handling is a Bank DSH host skill/capability, not a portable npm plugin.
+$pluginState['dsh-error-handling'] = 'BANK_DSH_HOST_CAPABILITY'
+$pluginState | ConvertTo-Json | Set-Content -Encoding utf8 "$pluginRoot\OPTIONAL_PLUGIN_STATE.json"
 "PFC_RC7_BUILD_DSH_PLUGINS_DIR=$pluginRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
 $execRoot = "$root\node-execution"
@@ -50,7 +61,7 @@ npm install --prefix $execRoot --legacy-peer-deps --no-audit --no-fund playwrigh
 if ($LASTEXITCODE -ne 0) { throw 'Playwright/GitNexus vendor install failed' }
 node -e "require('$($execRoot.Replace('\','/'))/node_modules/playwright'); console.log('PLAYWRIGHT_NODE_OK')"
 if ($LASTEXITCODE -ne 0) { throw 'Playwright Node import failed' }
-"PFC_RC7_BUILD_EXECUTION_NODE_DIR=$execRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+"PFC_RC7_BUILD_EXECUTION_NODE_DIR=$execRoot" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
 $headers = @{ 'User-Agent'='rc7-final-turnkey-builder'; 'Accept'='application/vnd.github+json' }
 function Get-LatestRelease([string]$repo) {
