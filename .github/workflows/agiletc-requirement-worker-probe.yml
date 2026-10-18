@@ -65,7 +65,9 @@ jobs:
           set -euo pipefail
           mkdir -p validation-artifacts/{dsh,evidence,runtime-state/r1}
           python -m pip install --disable-pip-version-check pytest
-          python -m py_compile validation/agiletc_requirement_probe.py
+          python -m py_compile \
+            validation/agiletc_requirement_probe.py \
+            validation/ollama_openai_trace_proxy.py
           python -m pytest -q \
             tests/test_rc7_dsh_tool_authority.py \
             tests/test_rc7_external_input_readiness.py \
@@ -121,6 +123,30 @@ jobs:
           done
           ollama pull qwen3:4b | tee validation-artifacts/ollama-pull.log
 
+      - name: Start metadata-only Ollama wire trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > validation-artifacts/ollama-wire-trace.jsonl
+          nohup python validation/ollama_openai_trace_proxy.py \
+            --listen-host 127.0.0.1 --listen-port 11435 \
+            --upstream-host 127.0.0.1 --upstream-port 11434 \
+            --log validation-artifacts/ollama-wire-trace.jsonl \
+            > validation-artifacts/ollama-wire-proxy.stdout \
+            2> validation-artifacts/ollama-wire-proxy.stderr &
+          echo "$!" > validation-artifacts/ollama-wire-proxy.pid
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:11435/__trace_health \
+              > validation-artifacts/ollama-wire-health.json; then
+              ok=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ok" = 1
+          grep -q '"status":"ok"' validation-artifacts/ollama-wire-health.json
+
       - name: Build governed DSH patch with proven local-Qwen compatibility
         shell: bash
         run: |
@@ -136,12 +162,14 @@ jobs:
           cat validation/dsh/qwen3-ollama-none.patch.yml \
               validation/dsh/rc7-headless-minimal.patch.yml \
               validation-artifacts/dsh/rc7-mcp.patch.yml \
+              validation/dsh/ollama-trace-override.patch.yml \
             > validation-artifacts/dsh/agiletc.patch.yml
           dsh --profile headless --patch validation-artifacts/dsh/agiletc.patch.yml --dump-config \
             > validation-artifacts/dsh/effective-config.yml
           grep -Eq "minimal: ['\"]?none['\"]?" validation-artifacts/dsh/effective-config.yml
           grep -q 'supportsReasoningEffort: true' validation-artifacts/dsh/effective-config.yml
           grep -Eq "reasoningEffort: ['\"]?minimal['\"]?" validation-artifacts/dsh/effective-config.yml
+          grep -q 'baseURL: http://127.0.0.1:11435/v1' validation-artifacts/dsh/effective-config.yml
           python - <<'PY'
           from pathlib import Path
           lines = Path('validation-artifacts/dsh/effective-config.yml').read_text(encoding='utf-8').splitlines()
@@ -234,6 +262,25 @@ jobs:
                       'preview': path.read_text(encoding='utf-8', errors='replace')[-12000:],
                   })
 
+          wire_rows = []
+          wire_path = root / 'ollama-wire-trace.jsonl'
+          if wire_path.exists():
+              for line in wire_path.read_text(encoding='utf-8', errors='replace').splitlines():
+                  try:
+                      wire_rows.append(json.loads(line))
+                  except Exception:
+                      pass
+          request_rows = [row for row in wire_rows if row.get('event') == 'request_received']
+          last_request = request_rows[-1] if request_rows else {}
+          safe_wire = {
+              key: last_request.get(key)
+              for key in (
+                  'path', 'body_bytes', 'model', 'stream', 'max_tokens',
+                  'reasoning_effort', 'message_count', 'message_chars',
+                  'message_roles', 'tool_count', 'tool_schema_bytes',
+              )
+          } if last_request else {}
+
           result = {
               'status': 'PASS' if (
                   bool(task_id)
@@ -254,6 +301,8 @@ jobs:
               'completed_pass': completed_pass,
               'handoff_returned': handoff,
               'timeout_partial_count': len(timeout_partial),
+              'wire_request_count': len(request_rows),
+              'last_wire_request': safe_wire,
               'scenario_exit': int((root/'requirement-probe.exit').read_text().strip()) if (root/'requirement-probe.exit').exists() else None,
               'scenario_blocking_reason': (json.loads((root/'fullflow-summary.json').read_text()).get('blocking_reason') if (root/'fullflow-summary.json').exists() else None),
               'worker_evidence_files': worker_files,
