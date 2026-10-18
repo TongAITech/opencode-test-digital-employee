@@ -22,13 +22,13 @@ packaging\rc7\PROBE-RC7-ENHANCEMENTS.cmd
 - 既有 P0 Mission DSH 插件：仍由原交付门禁保证；
 - 可选插件：默认关闭，只允许包内本地目录或显式批准的行内 npm 镜像；
 - 本地 OCR/CV：交付必需；
-- DSH Vision Router：可选，只有本地物化且实际启用后才算 ACTIVE；
+- DSH Vision Router：可选，只有本地物化并真实 `plugin add file:` 成功、生成 profile activation receipt 后才算 ACTIVE；
 - 行内 VLM：必须配置 `PFC_BANK_VLM_ENDPOINT` 且显式设置 `PFC_BANK_VLM_APPROVED=1`；
-- 公网图片上传始终禁止。
+- 公网 npm registry 与公网图片上传始终禁止。
 
 可选增强插件包括：`@perrylink/dsh-plugin-doctor`、`dsh-vision-router`、`dsh-plugin-anydoc`、`dsh-memento`、`dsh-error-handling`。
 
-如果包内没有某个可选插件，而行内 npm 镜像已批准，可设置：
+如果包内没有某个可选插件，而行内 npm 镜像已批准，可先物化：
 
 ```bat
 set PFC_NPM_REGISTRY_URL=<行内npm镜像>
@@ -36,7 +36,16 @@ set PFC_NPM_REGISTRY_APPROVED=1
 workspace-template\runtime\python\python.exe -m rc7_release.optional_enhancements --home . acquire
 ```
 
-该命令不会访问公网 registry；未批准镜像时会 HOLD。
+未批准镜像时会 HOLD；显式请求的插件在批准镜像中仍拿不到时同样 HOLD，不会伪装 PASS。
+
+建议使用隔离的增强 profile，例如 `rc7-field`，不要直接改受保护的行内 `web` profile：
+
+```bat
+set PFC_RC7_DSH_PROFILE=rc7-field
+workspace-template\runtime\python\python.exe -m rc7_release.optional_enhancements --home . activate --profile rc7-field --plugin dsh-vision-router --allow-profile-mutation
+```
+
+只有真实 DSH 激活成功才会写 activation receipt。随后再次运行 `PROBE-RC7-ENHANCEMENTS.cmd`，`dsh-vision-router` 才能成为视觉路由候选。需要其他插件时重复 `--plugin <插件名>`；未物化、DSH 不存在、profile 受保护或激活失败都会 fail-closed。
 
 ## 3. 行内绑定
 
