@@ -45,12 +45,86 @@ jobs:
           npm install -g @deepseek-ai/dsh
           dsh --version | tee dsh-version.txt
           curl -fsSL https://ollama.com/install.sh | sh
-          nohup ollama serve > ollama.log 2>&1 &
+          if curl -fsS http://127.0.0.1:11434/api/tags > ollama-prestart-tags.json 2>/dev/null; then
+            echo prestarted | tee ollama-service-mode.txt
+          else
+            echo explicit-serve | tee ollama-service-mode.txt
+            nohup ollama serve > ollama.log 2>&1 &
+          fi
           for i in $(seq 1 60); do
-            curl -fsS http://127.0.0.1:11434/api/tags >/dev/null && break
+            curl -fsS http://127.0.0.1:11434/api/tags > ollama-tags.json && break
             sleep 2
           done
+          test -s ollama-tags.json
           ollama pull qwen3:4b | tee ollama-pull.log
+
+      - name: Direct Ollama latency probes
+        shell: bash
+        run: |
+          set +e
+          prompt='Return exactly one JSON object and nothing else: {"status":"PASS","proof":"direct_probe"}.'
+
+          native_started=$(date +%s)
+          curl -sS --max-time 180 \
+            -H 'Content-Type: application/json' \
+            http://127.0.0.1:11434/api/chat \
+            -d "$(python -c 'import json,sys; print(json.dumps({"model":"qwen3:4b","messages":[{"role":"user","content":sys.argv[1]}],"think":False,"stream":False,"options":{"num_predict":64}}))' "$prompt")" \
+            > native-chat.json 2> native-chat.stderr
+          native_rc=$?
+          native_elapsed=$(($(date +%s)-native_started))
+          printf '%s\n' "$native_rc" > native-chat.exit
+          printf '%s\n' "$native_elapsed" > native-chat.elapsed
+
+          openai_started=$(date +%s)
+          curl -sS --max-time 180 \
+            -H 'Content-Type: application/json' \
+            -H 'Authorization: Bearer ollama-local' \
+            http://127.0.0.1:11434/v1/chat/completions \
+            -d "$(python -c 'import json,sys; print(json.dumps({"model":"qwen3:4b","messages":[{"role":"user","content":sys.argv[1]}],"stream":False,"max_tokens":64,"chat_template_kwargs":{"enable_thinking":False}}))' "$prompt")" \
+            > openai-chat.json 2> openai-chat.stderr
+          openai_rc=$?
+          openai_elapsed=$(($(date +%s)-openai_started))
+          printf '%s\n' "$openai_rc" > openai-chat.exit
+          printf '%s\n' "$openai_elapsed" > openai-chat.elapsed
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          def read_json(path):
+              try:
+                  return json.loads(Path(path).read_text(encoding='utf-8'))
+              except Exception as exc:
+                  return {'_parse_error': repr(exc), '_raw': Path(path).read_text(encoding='utf-8', errors='replace') if Path(path).exists() else ''}
+
+          native = read_json('native-chat.json')
+          openai = read_json('openai-chat.json')
+          native_message = native.get('message') if isinstance(native, dict) else None
+          native_content = native_message.get('content') if isinstance(native_message, dict) else None
+          native_thinking = native_message.get('thinking') if isinstance(native_message, dict) else None
+          choices = openai.get('choices') if isinstance(openai, dict) else None
+          openai_message = choices[0].get('message') if isinstance(choices, list) and choices and isinstance(choices[0], dict) else None
+          result = {
+              'native': {
+                  'exit': int(Path('native-chat.exit').read_text()),
+                  'elapsed_seconds': int(Path('native-chat.elapsed').read_text()),
+                  'content_chars': len(str(native_content or '')),
+                  'thinking_chars': len(str(native_thinking or '')),
+                  'done': native.get('done') if isinstance(native, dict) else None,
+                  'error': native.get('error') if isinstance(native, dict) else None,
+              },
+              'openai': {
+                  'exit': int(Path('openai-chat.exit').read_text()),
+                  'elapsed_seconds': int(Path('openai-chat.elapsed').read_text()),
+                  'content_chars': len(str(openai_message.get('content') or '')) if isinstance(openai_message, dict) else 0,
+                  'reasoning_chars': len(str(openai_message.get('reasoning_content') or '')) if isinstance(openai_message, dict) else 0,
+                  'error': openai.get('error') if isinstance(openai, dict) else None,
+              },
+          }
+          Path('direct-probe-result.json').write_text(json.dumps(result, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          print(json.dumps(result, sort_keys=True))
+          PY
+          exit 0
 
       - name: Build reasoning-off patch
         shell: bash
@@ -68,7 +142,7 @@ jobs:
                   models:
                     - id: qwen3:4b
                       contextWindow: 32768
-                      maxTokens: 4096
+                      maxTokens: 128
                       reasoningEfforts:
                         off:
                         medium: medium
@@ -92,13 +166,13 @@ jobs:
           grep -q 'enable_thinking:' effective-config.yml
           grep -Eq "reasoningEffort: ['\"]?off['\"]?" effective-config.yml
 
-      - name: Prove Qwen3 thinking is disabled
+      - name: Prove DSH Qwen3 reasoning-off path
         shell: bash
-        timeout-minutes: 5
+        timeout-minutes: 4
         run: |
           set +e
           started=$(date +%s)
-          timeout --signal=TERM --kill-after=15s 240s \
+          timeout --signal=TERM --kill-after=15s 180s \
             dsh --profile headless --patch effective.patch.yml --json \
               'Return exactly one JSON object and nothing else: {"status":"PASS","proof":"reasoning_off"}. Do not call any tool.' \
             > reasoning-off.jsonl 2> reasoning-off.stderr
@@ -125,6 +199,7 @@ jobs:
               'process_exit': exit_code,
               'elapsed_seconds': elapsed,
               'thinking_chars': thinking_chars,
+              'event_count': len(events),
               'final_json': final,
           }
           ok = (
@@ -150,8 +225,20 @@ jobs:
           name: rc7-worker-timeout-qualification-${{ github.sha }}
           path: |
             dsh-version.txt
+            ollama-service-mode.txt
+            ollama-prestart-tags.json
+            ollama-tags.json
             ollama.log
             ollama-pull.log
+            native-chat.json
+            native-chat.stderr
+            native-chat.exit
+            native-chat.elapsed
+            openai-chat.json
+            openai-chat.stderr
+            openai-chat.exit
+            openai-chat.elapsed
+            direct-probe-result.json
             qwen-reasoning-off.patch.yml
             effective.patch.yml
             effective-config.yml
