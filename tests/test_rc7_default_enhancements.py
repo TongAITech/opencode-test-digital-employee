@@ -40,6 +40,8 @@ def test_default_enhancements_are_bundled_and_runtime_enabled(tmp_path: Path) ->
     assert result["status"] == "PASS"
     assert result["protected_profile"] is True
     assert result["default_enhancements"] == "RUNTIME_PATCH_ENABLED"
+    assert result["default_runtime_ready"] is True
+    assert result["default_runtime_missing"] == []
     assert result["default_runtime_enhancements"] == ["dsh-vision-router", "dsh-memento"]
     assert result["plugins"]["dsh-vision-router"]["tier"] == "P1_DEFAULT_RUNTIME"
     assert result["plugins"]["dsh-memento"]["tier"] == "P1_DEFAULT_RUNTIME"
@@ -47,7 +49,7 @@ def test_default_enhancements_are_bundled_and_runtime_enabled(tmp_path: Path) ->
     assert result["memento_truth_policy"] == "NON_AUTHORITATIVE_R1_EVENT_STREAM_ONLY"
 
 
-def test_default_enhancement_missing_fails_closed(tmp_path: Path) -> None:
+def test_default_enhancement_missing_is_reported_but_strictness_stays_at_startup_gate(tmp_path: Path) -> None:
     home = _fake_home(tmp_path)
     vision = package_path(home / "workspace-template" / "runtime" / "dsh-plugins", "dsh-vision-router")
     for item in sorted(vision.rglob("*"), reverse=True):
@@ -58,9 +60,10 @@ def test_default_enhancement_missing_fails_closed(tmp_path: Path) -> None:
     vision.rmdir()
 
     result = dsh_plugins.install(home, "web", dry_run=True)
-    assert result["status"] == "FAIL"
-    assert result["reason"] == "DEFAULT_RUNTIME_ENHANCEMENT_PAYLOAD_MISSING"
-    assert "dsh-vision-router" in result["missing"]
+    assert result["status"] == "PASS"
+    assert result["default_runtime_ready"] is False
+    assert "dsh-vision-router" in result["default_runtime_missing"]
+    assert result["default_enhancements"] == "RUNTIME_PATCH_PAYLOAD_INCOMPLETE"
 
 
 def test_runtime_patch_enables_vision_local_only_and_memento_nontruth(tmp_path: Path) -> None:
