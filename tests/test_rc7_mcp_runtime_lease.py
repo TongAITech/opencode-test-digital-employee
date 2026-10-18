@@ -169,6 +169,88 @@ def test_mcp_server_rejects_model_claim_that_differs_from_runtime_projection(mon
     assert "MCP_AUTH_CONTEXT_WORKER_ID_MISMATCH" in result["result"]["content"][0]["text"]
 
 
+def test_absolute_read_path_inside_workspace_is_canonicalized_without_mutating_claim(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    source = workspace / "docs" / "README_zh-CN.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("real source", encoding="utf-8")
+    monkeypatch.setenv("PFC_WORKSPACE", str(workspace))
+
+    message = {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+            "name": "read_text",
+            "arguments": {
+                "path": str(source.resolve()),
+                "mission_context": {
+                    "mission_id": "MISSION-1",
+                    "task_id": "TASK-REQ-1",
+                    "worker_id": "wrk-real",
+                },
+            },
+        },
+    }
+    delegated = mcp_server_authorized._canonicalize_scoped_source_path(message)
+
+    assert delegated["params"]["arguments"]["path"] == "docs/README_zh-CN.md"
+    assert delegated["params"]["arguments"]["scope"] == "workspace"
+    assert message["params"]["arguments"]["path"] == str(source.resolve())
+    assert "scope" not in message["params"]["arguments"]
+
+
+def test_absolute_read_path_outside_workspace_is_rejected(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside.md"
+    outside.write_text("outside", encoding="utf-8")
+    monkeypatch.setenv("PFC_WORKSPACE", str(workspace))
+
+    message = {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {
+            "name": "read_text",
+            "arguments": {
+                "path": str(outside.resolve()),
+                "mission_context": {
+                    "mission_id": "MISSION-1",
+                    "task_id": "TASK-REQ-1",
+                    "worker_id": "wrk-real",
+                },
+            },
+        },
+    }
+    with pytest.raises(McpToolAuthorityError, match="MCP_AUTH_SOURCE_PATH_OUTSIDE_SCOPE"):
+        mcp_server_authorized._canonicalize_scoped_source_path(message)
+
+
+def test_relative_read_path_remains_unchanged(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setenv("PFC_WORKSPACE", str(workspace))
+    message = {
+        "method": "tools/call",
+        "params": {
+            "name": "read_text",
+            "arguments": {
+                "path": "docs/README.md",
+                "scope": "workspace",
+                "mission_context": {
+                    "mission_id": "MISSION-1",
+                    "task_id": "TASK-REQ-1",
+                    "worker_id": "wrk-real",
+                },
+            },
+        },
+    }
+    delegated = mcp_server_authorized._canonicalize_scoped_source_path(message)
+    assert delegated["params"]["arguments"]["path"] == "docs/README.md"
+    assert delegated["params"]["arguments"]["scope"] == "workspace"
+
+
 def test_launcher_binds_exact_runtime_identity_into_prompt() -> None:
     assignment = SimpleNamespace(
         mission_id="MISSION-1",
