@@ -86,7 +86,7 @@ jobs:
           dsh --profile headless --patch effective.patch.yml --dump-config \
             > effective-config.yml
           grep -q 'thinkingFormat: qwen' effective-config.yml
-          grep -q 'reasoningEffort: off' effective-config.yml
+          grep -Eq "reasoningEffort: ['\"]?off['\"]?" effective-config.yml
 
       - name: Prove Qwen3 thinking is disabled
         shell: bash
