@@ -110,8 +110,9 @@ def test_repository_release_metadata_has_no_stale_wave2_candidate() -> None:
     assert "884947012a7c7735f11708734f1955ee552cf1fe" not in text
     assert data["turnkey_delivery"]["required_runtime_payload_count"] == 16
     assert data["turnkey_delivery"]["dsh_optional_plugin_target_count"] == 4
+    assert data["turnkey_delivery"]["dsh_optional_plugins_turnkey_bundle_required"] is True
+    assert data["turnkey_delivery"]["dsh_optional_plugins_activation_optional"] is True
     assert data["turnkey_delivery"]["dsh_error_handling_model"] == "BUILTIN_DSH_SKILL_NOT_NPM_PLUGIN"
     assert data["turnkey_delivery"]["canonical_admin_launcher_uses_product_surface"] is True
-    assert data["turnkey_delivery"]["dsh_optional_plugins_best_effort_bundle"] is True
     assert data["turnkey_delivery"]["optional_plugin_explicit_enable_fails_closed_when_unavailable"] is True
     assert data["release_invariants"]["bank_final_requires_real_bank_mission"] is True
