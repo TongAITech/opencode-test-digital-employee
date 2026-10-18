@@ -141,7 +141,7 @@ export function apply(ctx) {
     scope.systemPrompt.section({
       name: 'rc7:tool-authority',
       order: 50,
-      text: () => `RC7 runtime authority exposes only these executable tools for this worker: ${JSON.stringify(allow)}. Do not invent or call any other tool.`,
+      text: () => `RC7 runtime authority exposes only these executable tools for this worker: ${JSON.stringify(allow)}. Do not invent or call any other tool. When real tool evidence is required, your first assistant action MUST be one native structured call to an exposed tool. Do not emit planning, reasoning, or narration before that first call.`,
     })
   })
 }
