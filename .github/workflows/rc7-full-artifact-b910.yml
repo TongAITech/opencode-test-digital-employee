@@ -1,0 +1,62 @@
+name: RC7 Full Artifact B910
+
+on:
+  push:
+    branches:
+      - delivery/rc7-internal-transport-0bbb8239
+    paths:
+      - .github/workflows/rc7-full-artifact-b910.yml
+  workflow_dispatch:
+
+jobs:
+  publish-full:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Download verified transport parts
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: TongAITech/opencode-test-digital-employee
+          run-id: 39138152950
+          pattern: rc7-transport-part-*-b910cf62
+          merge-multiple: true
+          path: parts
+
+      - name: Reassemble exact final ZIP
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem parts -Filter '*.part*' | Sort-Object Name
+          if ($parts.Count -ne 5) { throw "Expected 5 parts, found $($parts.Count)" }
+          $out = 'PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-b910cf6271df.zip'
+          $stream = [System.IO.File]::Create($out)
+          try {
+            foreach ($part in $parts) {
+              $input = [System.IO.File]::OpenRead($part.FullName)
+              try { $input.CopyTo($stream) } finally { $input.Dispose() }
+            }
+          } finally { $stream.Dispose() }
+          $sha = (Get-FileHash -Algorithm SHA256 $out).Hash.ToLowerInvariant()
+          if ($sha -ne 'e4fd9d7fcd9f24c808bdb8914d079d0891315558f7f6c3e2637bcc18460654bb') {
+            throw "Full ZIP SHA256 mismatch: $sha"
+          }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $out))
+          try {
+            if ($zip.Entries.Count -ne 35049) { throw "Unexpected ZIP entry count: $($zip.Entries.Count)" }
+          } finally { $zip.Dispose() }
+          Write-Host "FULL_ZIP=$out"
+          Write-Host "SIZE=$((Get-Item $out).Length)"
+          Write-Host "SHA256=$sha"
+
+      - name: Upload single complete transport package
+        uses: actions/upload-artifact@v4
+        with:
+          name: PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-b910cf6271df
+          path: PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-b910cf6271df.zip
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
