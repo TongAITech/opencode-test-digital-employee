@@ -12,6 +12,7 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
 from .plugin_payload import materialize_payload, package_path
+from .optional_plugin_payload import materialize_payload as materialize_bundled_optional_payload
 
 OPTIONAL_PLUGINS: Tuple[Tuple[str, str], ...] = (
     ("@perrylink/dsh-plugin-doctor", "DIAGNOSTIC"),
@@ -77,25 +78,41 @@ def _manifest(path: Path) -> Optional[Mapping[str, object]]:
     return value if isinstance(value, Mapping) else None
 
 
-def _scan(home: Path) -> Dict[str, Dict[str, object]]:
-    roots = [home / "workspace-template" / "runtime" / "dsh-optional-plugins", _optional_root(home)]
+def _scan(home: Path) -> Tuple[Dict[str, Dict[str, object]], Dict[str, object]]:
+    roots: List[Tuple[str, Path]] = []
+    static = home / "workspace-template" / "runtime" / "dsh-optional-plugins"
+    if static.is_dir():
+        roots.append(("PACKAGE_RUNTIME", static))
+    bundled_status: Dict[str, object] = {"present": False, "materialized": False, "path": "", "reason": None}
+    try:
+        bundled = materialize_bundled_optional_payload(home)
+        if bundled is not None:
+            roots.append(("PACKAGE_VENDOR_ARCHIVE", bundled))
+            bundled_status.update({"present": True, "materialized": True, "path": str(bundled)})
+    except Exception as exc:
+        bundled_status.update({"present": True, "materialized": False, "reason": str(exc)})
+    internal = _optional_root(home)
+    if internal.is_dir():
+        roots.append(("APPROVED_INTERNAL_MIRROR", internal))
     result: Dict[str, Dict[str, object]] = {}
     for name, tier in OPTIONAL_PLUGINS:
         chosen = None
         manifest = None
-        for root in roots:
+        source = None
+        for source_name, root in roots:
             candidate = package_path(root, name)
             value = _manifest(candidate)
             if value is not None:
-                chosen, manifest = candidate, value
+                chosen, manifest, source = candidate, value, source_name
                 break
         result[name] = {
             "tier": tier,
             "available": chosen is not None,
             "path": str(chosen) if chosen else "",
             "version": manifest.get("version") if manifest else None,
+            "source": source,
         }
-    return result
+    return result, bundled_status
 
 
 def probe(home: Path, profile: Optional[str] = None) -> Dict[str, object]:
@@ -107,7 +124,7 @@ def probe(home: Path, profile: Optional[str] = None) -> Dict[str, object]:
     except Exception as exc:
         required_payload = "FAIL"
         required_error = str(exc)
-    plugins = _scan(root)
+    plugins, bundled_status = _scan(root)
     target_profile = str(profile or os.environ.get("PFC_RC7_DSH_PROFILE") or "rc7-field").strip()
     for name, row in plugins.items():
         row["active_profile"] = target_profile
@@ -118,7 +135,8 @@ def probe(home: Path, profile: Optional[str] = None) -> Dict[str, object]:
         "status": "PASS" if required_payload == "PASS" else "FAIL",
         "required_dsh_payload": required_payload,
         "required_payload_error": required_error,
-        "optional_policy": "DISABLED_BY_DEFAULT_LOCAL_OR_APPROVED_INTERNAL_MIRROR_ONLY",
+        "optional_policy": "BUNDLED_FIRST_THEN_APPROVED_INTERNAL_MIRROR_DISABLED_BY_DEFAULT",
+        "bundled_optional_payload": bundled_status,
         "public_registry_forbidden_on_bank_host": True,
         "registry_configured": bool(registry),
         "registry_approved": _enabled(APPROVAL_ENV),
@@ -187,10 +205,10 @@ def acquire(home: Path, names: Optional[Iterable[str]] = None) -> Dict[str, obje
     vendor = _optional_root(root)
     vendor.mkdir(parents=True, exist_ok=True)
     receipts: List[Dict[str, object]] = []
-    existing = _scan(root)
+    existing, _ = _scan(root)
     for name in selected:
         if existing.get(name, {}).get("available"):
-            receipts.append({"plugin": name, "status": "ALREADY_MATERIALIZED", "path": existing[name]["path"], "version": existing[name]["version"]})
+            receipts.append({"plugin": name, "status": "ALREADY_MATERIALIZED", "path": existing[name]["path"], "version": existing[name]["version"], "source": existing[name].get("source")})
             continue
         with tempfile.TemporaryDirectory(prefix="rc7-optional-plugin-") as temp:
             proc = subprocess.run([npm, "pack", name, "--json", "--ignore-scripts", "--registry", registry], cwd=temp, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
@@ -223,7 +241,6 @@ def acquire(home: Path, names: Optional[Iterable[str]] = None) -> Dict[str, obje
 
 def activate(home: Path, profile: str, names: Iterable[str], *, allow_profile_mutation: bool = False) -> Dict[str, object]:
     from . import dsh_plugins
-
     root = Path(home).expanduser().resolve()
     selected, unknown = _selected(names)
     if unknown:
@@ -237,7 +254,7 @@ def activate(home: Path, profile: str, names: Iterable[str], *, allow_profile_mu
         return {"status": "FAIL", "reason": "PROTECTED_BANK_PROFILE_MUTATION_FORBIDDEN", "profile": target_profile}
     if not allow_profile_mutation:
         return {"status": "FAIL", "reason": "EXPLICIT_PROFILE_MUTATION_AUTHORIZATION_REQUIRED", "profile": target_profile}
-    scanned = _scan(root)
+    scanned, _ = _scan(root)
     missing = [name for name in selected if not scanned.get(name, {}).get("available")]
     if missing:
         return {"status": "HOLD", "reason": "OPTIONAL_PLUGIN_NOT_MATERIALIZED", "missing": missing, "profile": target_profile}
