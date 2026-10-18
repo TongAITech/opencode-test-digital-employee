@@ -185,6 +185,48 @@ class DshTaskWorkerBridge:
             task_state=candidate.state.value,
         )
 
+    @staticmethod
+    def first_action_directive(task: Task, assignment: WorkerAssignment) -> str:
+        """Compile a deterministic first native read when the signed lease permits it.
+
+        This is only an action contract presented to the independent Worker. It
+        never executes the tool on the coordinator's behalf, never widens the
+        lease, and never manufactures runtime evidence. The launcher/R1 gates
+        still require an observed native DSH tool call and successful result.
+        """
+        read_tool = next(
+            (
+                str(tool)
+                for tool in assignment.allowed_tools
+                if isinstance(tool, str) and tool.endswith("__read_text")
+            ),
+            None,
+        )
+        first_file_ref = next(
+            (
+                str(ref)
+                for ref in task.input_artifact_refs
+                if isinstance(ref, str) and ref.startswith("file://")
+            ),
+            None,
+        )
+        if not read_tool or not first_file_ref:
+            return ""
+        path = first_file_ref[len("file://") :]
+        if not path:
+            return ""
+        action = {
+            "tool": read_tool,
+            "arguments": {"path": path},
+        }
+        return (
+            "MANDATORY_FIRST_ACTION="
+            + json.dumps(action, ensure_ascii=False, sort_keys=True)
+            + "\nBefore any assistant prose, emit this exact native structured tool call. "
+            "Do not explain, plan, restate, or simulate it. Wait for the real tool result, then "
+            "continue the leased task and use further allowed tools when evidence requires them."
+        )
+
     def compile_prompt(self, task: Task, assignment: WorkerAssignment) -> str:
         expected_id, expected_type = self.expected_output(task)
         contract = {
@@ -227,7 +269,7 @@ class DshTaskWorkerBridge:
                 }
             ],
         }
-        return (
+        prompt = (
             "You are an RC7 professional worker executing one leased task. "
             "Do not evaluate or mark the task PASS. Do not return an Evaluation object. "
             "You MUST call at least one allowed real tool; a text-only answer is invalid. "
@@ -237,6 +279,10 @@ class DshTaskWorkerBridge:
             "TASK_CONTRACT=" + json.dumps(contract, ensure_ascii=False, sort_keys=True) + "\n"
             "RETURN_SCHEMA=" + json.dumps(schema, ensure_ascii=False, sort_keys=True)
         )
+        first_action = self.first_action_directive(task, assignment)
+        if first_action:
+            prompt += "\n" + first_action
+        return prompt
 
     def normalize_output(
         self,
