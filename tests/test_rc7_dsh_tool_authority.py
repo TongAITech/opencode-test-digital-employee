@@ -29,13 +29,18 @@ def test_generated_dsh_patch_has_package_local_fail_closed_tool_filter(tmp_path:
 
     assert plugin.is_file()
     source = plugin.read_text(encoding="utf-8")
-    assert "scope.tools.restrict({ allow })" in source
+    assert "scope.tools.guard" in source
+    assert "system-prompt/assemble" in source
+    assert "scope.tools.schemas(agent)" in source
+    assert "RC7_DSH_REQUIRED_TOOL_NOT_REGISTERED" in source
     assert "PFC_RC7_DSH_ALLOWED_TOOLS" in source
     assert "capabilityAliases.has(tool)" in source
     assert "return []" in source
     assert "name: './rc7-tool-policy.ts'" in text
     assert "rc7_release.mcp_server_authorized" in text
     assert "rc7_release.mcp_server_field" not in text
+    assert "reconnect:" in text
+    assert "enabled: false" in text
 
 
 class _TaskTruth:
