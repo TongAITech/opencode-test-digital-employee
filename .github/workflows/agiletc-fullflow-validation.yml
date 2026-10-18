@@ -53,6 +53,13 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Bootstrap validation harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p validation-artifacts
+          python -m pip install --disable-pip-version-check pytest
+
       - name: RC7 external-input readiness regression
         shell: bash
         run: |
@@ -286,6 +293,7 @@ jobs:
         if: always() && steps.rc7_fullflow.outcome == 'skipped'
         shell: bash
         run: |
+          mkdir -p validation-artifacts
           python - <<'PY'
           import json
           from pathlib import Path
