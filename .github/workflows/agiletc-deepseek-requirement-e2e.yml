@@ -6,7 +6,15 @@ on:
     paths:
       - '.github/workflows/agiletc-deepseek-requirement-e2e.yml'
       - 'validation/agiletc_requirement_e2e_probe.py'
+      - 'validation/agiletc_rc7_fullflow.py'
       - 'validation/dsh/deepseek-v4-flash-public.patch.yml'
+      - 'validation/dsh/rc7-headless-minimal.patch.yml'
+      - 'rc7_runtime/dsh_worker_bridge.py'
+      - 'rc7_runtime/dsh_requirement_evaluator.py'
+      - 'rc7_runtime/authorized_dsh_launcher.py'
+      - 'rc7_release/mcp_server_authorized.py'
+      - 'tests/test_rc7_dsh_requirement_prompt_contract.py'
+      - 'tests/test_rc7_mcp_runtime_lease.py'
   workflow_dispatch:
 
 permissions:
@@ -76,7 +84,9 @@ jobs:
             tests/test_rc7_dsh_tool_authority.py \
             tests/test_rc7_external_input_readiness.py \
             tests/test_rc7_bank_dsh_tool_policy.py \
-            tests/test_rc7_node_tool_conformance.py
+            tests/test_rc7_node_tool_conformance.py \
+            tests/test_rc7_dsh_requirement_prompt_contract.py \
+            tests/test_rc7_mcp_runtime_lease.py
           git -C target/AgileTC rev-parse HEAD | tee validation-artifacts/agiletc-source-revision.txt
           test "$(cat validation-artifacts/agiletc-source-revision.txt)" = "8604b4bedb55b3611035aa4ba3781df4118aa4f2"
 
