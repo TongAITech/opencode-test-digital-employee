@@ -1,0 +1,396 @@
+name: RC7 AgileTC DeepSeek Requirement E2E
+
+on:
+  push:
+    branches: [validation/agiletc-worker-timeout-evidence]
+    paths:
+      - '.github/workflows/agiletc-deepseek-requirement-e2e.yml'
+      - 'validation/agiletc_requirement_e2e_probe.py'
+      - 'validation/dsh/deepseek-v4-flash-public.patch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agiletc-deepseek-requirement-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  requirement-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      mysql:
+        image: mysql:5.7
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: case_manager
+        ports: ['3301:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      PFC_AITEST_STATE_DIR: ${{ github.workspace }}/validation-artifacts/runtime-state
+      PFC_WORKSPACE: ${{ github.workspace }}/target/AgileTC
+      DSH_PERMISSION_MODE: read-only
+      PFC_RC7_DSH_TOOL_AUDIT: '1'
+      PFC_REQUIREMENT_PROBE_TIMEOUT_SECONDS: '180'
+      PFC_REQUIREMENT_PROBE_USER_SUFFIX: ''
+      BAZAARLINK_API_KEY: ${{ secrets.BAZAARLINK_API_KEY }}
+      DEEPSEEK_PUBLIC_BASE_URL: https://api.bazaarlink.ai/v1
+      DEEPSEEK_PUBLIC_MODEL: deepseek/deepseek-v4-flash-0731free
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout frozen AgileTC target
+        uses: actions/checkout@v4
+        with:
+          repository: didi/AgileTC
+          ref: 8604b4bedb55b3611035aa4ba3781df4118aa4f2
+          path: target/AgileTC
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+          cache: maven
+          cache-dependency-path: target/AgileTC/case-server/pom.xml
+
+      - name: Bootstrap Requirement E2E and authority regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p validation-artifacts/{dsh,evidence,runtime-state/r1}
+          python -m pip install --disable-pip-version-check pytest
+          python -m py_compile validation/agiletc_requirement_e2e_probe.py
+          python -m pytest -q \
+            tests/test_rc7_dsh_tool_authority.py \
+            tests/test_rc7_external_input_readiness.py \
+            tests/test_rc7_bank_dsh_tool_policy.py \
+            tests/test_rc7_node_tool_conformance.py
+          git -C target/AgileTC rev-parse HEAD | tee validation-artifacts/agiletc-source-revision.txt
+          test "$(cat validation-artifacts/agiletc-source-revision.txt)" = "8604b4bedb55b3611035aa4ba3781df4118aa4f2"
+
+      - name: Real AgileTC MySQL Maven HTTP reality
+        shell: bash
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq default-mysql-client
+          mysql -h127.0.0.1 -P3301 -uroot -proot case_manager < target/AgileTC/case-server/sql/case-server.sql
+          mysql -h127.0.0.1 -P3301 -uroot -proot -N \
+            -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='case_manager';" \
+            | tee validation-artifacts/agiletc-db-table-count.txt
+          (cd target/AgileTC/case-server && mvn -B -ntp test) \
+            2>&1 | tee validation-artifacts/agiletc-maven-test.log
+          pushd target/AgileTC/case-server >/dev/null
+          nohup mvn -B -ntp -DskipTests spring-boot:run \
+            > "$GITHUB_WORKSPACE/validation-artifacts/agiletc-app.log" 2>&1 &
+          app_pid=$!
+          popd >/dev/null
+          echo "$app_pid" > validation-artifacts/agiletc-app.pid
+          : > validation-artifacts/agiletc-http-probe.txt
+          ok=0
+          for i in $(seq 1 90); do
+            code=$(curl -sS -o validation-artifacts/agiletc-http-body.html \
+              -w '%{http_code}' http://127.0.0.1:8094/case/caseList/1 || true)
+            printf 'attempt=%s http_code=%s\n' "$i" "$code" | tee -a validation-artifacts/agiletc-http-probe.txt
+            if [[ "$code" =~ ^(200|301|302)$ ]]; then ok=1; break; fi
+            sleep 2
+          done
+          test "$ok" = 1
+
+      - name: Acquire one unpaid validation credential when no secret is configured
+        shell: bash
+        timeout-minutes: 1
+        run: |
+          set -euo pipefail
+          if [ -n "${BAZAARLINK_API_KEY:-}" ]; then
+            echo "::add-mask::$BAZAARLINK_API_KEY"
+            printf '{"source":"configured_secret","ephemeral_registration":false}\n' \
+              > validation-artifacts/bazaar-registration-safe.json
+            exit 0
+          fi
+          status=$(curl -sS --max-time 30 \
+            -o /tmp/bazaar-agent-register.json \
+            -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            https://api.bazaarlink.ai/api/v1/agents/register \
+            -d '{"name":"rc7-agiletc-requirement-deepseek","description":"One-run public AgileTC Requirement E2E qualification; no Bank data."}')
+          printf '%s\n' "$status" > validation-artifacts/bazaar-registration.status
+          test "$status" = 201
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=Path('/tmp/bazaar-agent-register.json')
+          d=json.loads(p.read_text(encoding='utf-8'))
+          key=str(d.get('api_key') or '')
+          if not key:
+              raise SystemExit('registration returned no api_key')
+          print(f'::add-mask::{key}')
+          with open(os.environ['GITHUB_ENV'],'a',encoding='utf-8') as f:
+              f.write('BAZAARLINK_API_KEY='+key+'\n')
+          safe={
+              'source':'unpaid_agent_registration',
+              'ephemeral_registration':True,
+              'credits':d.get('credits'),
+              'credits_usd':d.get('credits_usd'),
+              'free_model':d.get('free_model'),
+              'base_url':d.get('base_url'),
+              'has_claim_token':bool(d.get('claim_token')),
+          }
+          Path('validation-artifacts/bazaar-registration-safe.json').write_text(
+              json.dumps(safe,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+          PY
+          rm -f /tmp/bazaar-agent-register.json
+
+      - name: Install DSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g @deepseek-ai/dsh
+          dsh --version | tee validation-artifacts/dsh-version.txt
+
+      - name: Gate exact free DeepSeek V4 Flash route
+        shell: bash
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          cat > validation-artifacts/deepseek-route-request.json <<'JSON'
+          {"model":"deepseek/deepseek-v4-flash-0731free","messages":[{"role":"user","content":"Return exactly OK."}],"max_tokens":16,"temperature":0}
+          JSON
+          status=$(curl -sS --max-time 90 \
+            -o validation-artifacts/deepseek-route-response.json \
+            -w '%{http_code}' \
+            -H "Authorization: Bearer $BAZAARLINK_API_KEY" \
+            -H 'Content-Type: application/json' \
+            -H 'X-Free-Fallback: false' \
+            "$DEEPSEEK_PUBLIC_BASE_URL/chat/completions" \
+            --data-binary @validation-artifacts/deepseek-route-request.json)
+          printf '%s\n' "$status" > validation-artifacts/deepseek-route.status
+          test "$status" = 200
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('validation-artifacts/deepseek-route-response.json').read_text(encoding='utf-8'))
+          requested='deepseek/deepseek-v4-flash-0731free'
+          cost=(d.get('usage') or {}).get('cost')
+          result={
+              'requested_model':requested,
+              'response_model':d.get('model'),
+              'usage_cost':cost,
+              'choice_count':len(d.get('choices') or []),
+          }
+          ok=(result['response_model']==requested and result['choice_count']>0 and cost is not None and float(cost)==0.0)
+          result['status']='PASS' if ok else 'FAIL'
+          Path('validation-artifacts/deepseek-route-result.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(result,sort_keys=True))
+          raise SystemExit(0 if ok else 2)
+          PY
+
+      - name: Build governed RC7 MCP patch for DeepSeek
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE"
+          export PFC_PYTHON="$(which python)"
+          export PFC_GIT_BIN="$(which git)"
+          export PFC_JAVA_BIN="$(which java)"
+          export PFC_MAVEN_BIN="$(which mvn)"
+          python -m rc7_release.dsh \
+            --output validation-artifacts/dsh/rc7-mcp.patch.yml \
+            --home "$GITHUB_WORKSPACE" --python "$(which python)"
+          test -f validation-artifacts/dsh/rc7-tool-policy.ts
+          cat validation/dsh/deepseek-v4-flash-public.patch.yml \
+              validation/dsh/rc7-headless-minimal.patch.yml \
+              validation-artifacts/dsh/rc7-mcp.patch.yml \
+            > validation-artifacts/dsh/agiletc-deepseek.patch.yml
+          dsh --profile headless --patch validation-artifacts/dsh/agiletc-deepseek.patch.yml --dump-config \
+            > validation-artifacts/dsh/effective-config.yml
+          grep -q 'provider: public-deepseek-v4-flash' validation-artifacts/dsh/effective-config.yml
+          grep -q 'model: deepseek/deepseek-v4-flash-0731free' validation-artifacts/dsh/effective-config.yml
+          grep -q 'baseURL: https://api.bazaarlink.ai/v1' validation-artifacts/dsh/effective-config.yml
+          python - <<'PY'
+          from pathlib import Path
+          text=Path('validation-artifacts/dsh/effective-config.yml').read_text(encoding='utf-8')
+          lines=text.splitlines()
+          start=next((i for i,line in enumerate(lines) if line.strip()=='- id: session-title-llm'),None)
+          if start is None: raise SystemExit('session-title-llm missing')
+          end=next((i for i in range(start+1,len(lines)) if lines[i].startswith('- id: ')),len(lines))
+          if not any(line.strip()=='disabled: true' for line in lines[start:end]):
+              raise SystemExit('session-title-llm not disabled')
+          if 'reasoningEffort:' in text:
+              raise SystemExit('unproven DeepSeek reasoningEffort mapping present')
+          print('DEEPSEEK_DSH_CONFIG_GATE=PASS')
+          PY
+
+      - name: Run real Requirement producer plus independent evaluator
+        id: requirement
+        continue-on-error: true
+        shell: bash
+        timeout-minutes: 8
+        run: |
+          set +e
+          export PYTHONPATH="$GITHUB_WORKSPACE"
+          export PFC_PYTHON="$(which python)"
+          export PFC_GIT_BIN="$(which git)"
+          export PFC_JAVA_BIN="$(which java)"
+          export PFC_MAVEN_BIN="$(which mvn)"
+          revision=$(cat validation-artifacts/agiletc-source-revision.txt)
+          python validation/agiletc_requirement_e2e_probe.py \
+            --target target/AgileTC \
+            --source-revision "$revision" \
+            --dsh-bin "$(which dsh)" \
+            --patch validation-artifacts/dsh/agiletc-deepseek.patch.yml \
+            --output-root validation-artifacts \
+            > validation-artifacts/requirement-e2e.stdout \
+            2> validation-artifacts/requirement-e2e.stderr
+          rc=$?
+          echo "$rc" > validation-artifacts/requirement-e2e.exit
+          exit "$rc"
+
+      - name: Enforce Requirement producer evaluator truth from R1
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from rc7_runtime.bank_dsh_tool_policy import REQUIREMENT_PRODUCER_TOOLS
+          from validation.agiletc_rc7_fullflow import RC7_RUNTIME_STATUS_TOOL
+
+          root=Path('validation-artifacts')
+          r1=root/'runtime-state/r1/event-stream.jsonl'
+          rows=[]
+          if r1.exists():
+              for line in r1.read_text(encoding='utf-8',errors='replace').splitlines():
+                  try: rows.append(json.loads(line))
+                  except Exception: pass
+
+          assignments=[]
+          ap=root/'requirement-e2e-assignments.jsonl'
+          if ap.exists():
+              for line in ap.read_text(encoding='utf-8',errors='replace').splitlines():
+                  try: assignments.append(json.loads(line))
+                  except Exception: pass
+          producers=[a for a in assignments if a.get('role')=='RC7_REQUIREMENT_WORKER']
+          reviewers=[a for a in assignments if a.get('role')=='REQUIREMENT_REVIEWER']
+          producer=producers[0] if len(producers)==1 else {}
+          reviewer=reviewers[0] if len(reviewers)==1 else {}
+          producer_id=producer.get('worker_instance_id')
+          reviewer_id=reviewer.get('worker_instance_id')
+
+          task_versions=[r.get('payload',{}) for r in rows
+                         if r.get('entity_type')=='rc7_task'
+                         and (r.get('payload') or {}).get('node')=='REQUIREMENT_ANALYSIS']
+          latest_task=task_versions[-1] if task_versions else {}
+          task_id=latest_task.get('task_id')
+          evaluation_id=latest_task.get('evaluation_id')
+          evaluations=[r.get('payload',{}) for r in rows
+                       if r.get('entity_type')=='rc7_evaluation'
+                       and (r.get('payload') or {}).get('evaluation_id')==evaluation_id]
+          evaluation=evaluations[-1] if evaluations else {}
+          reviewer_evidence=[r.get('payload',{}) for r in rows
+                             if r.get('entity_type')=='rc7_evidence'
+                             and (r.get('payload') or {}).get('kind')=='INDEPENDENT_REQUIREMENT_REVIEW_PROOF']
+
+          def runtime_for(worker):
+              return [r.get('payload',{}) for r in rows
+                      if r.get('entity_type')=='agent_runtime_event'
+                      and (r.get('payload') or {}).get('worker_instance_id')==worker]
+          def tool_names(events):
+              out=[]
+              for p in events:
+                  if p.get('event_name')!='WORKER_TOOL_CALLED': continue
+                  call=p.get('tool_call') or {}
+                  out.append(call.get('tool_name') or call.get('tool') or '')
+              return out
+          def completed_pass(events):
+              return any(p.get('event_name')=='WORKER_COMPLETED' and p.get('result')=='PASS' for p in events)
+          def handoff(events):
+              return any(p.get('event_name')=='HANDOFF_RETURNED' for p in events)
+
+          pruntime=runtime_for(producer_id)
+          rruntime=runtime_for(reviewer_id)
+          ptools=tool_names(pruntime)
+          rtools=tool_names(rruntime)
+          timeout_workers={
+              (r.get('payload') or {}).get('worker_instance_id')
+              for r in rows
+              if (r.get('payload') or {}).get('reason')=='DSH_WORKER_TIMEOUT_PARTIAL'
+          }
+          expected_producer=list(REQUIREMENT_PRODUCER_TOOLS)
+          expected_reviewer=[RC7_RUNTIME_STATUS_TOOL]
+          summary={}
+          sp=root/'fullflow-summary.json'
+          if sp.exists():
+              try: summary=json.loads(sp.read_text(encoding='utf-8'))
+              except Exception: summary={}
+          expected_boundary='RuntimeError:REQUIREMENT_EVALUATOR_PROBE_COMPLETE'
+
+          checks={
+              'exactly_one_producer_assignment':len(producers)==1,
+              'exactly_one_reviewer_assignment':len(reviewers)==1,
+              'independent_workers':bool(producer_id and reviewer_id and producer_id!=reviewer_id),
+              'producer_lease_present':bool(producer.get('lease_id')),
+              'reviewer_lease_present':bool(reviewer.get('lease_id')),
+              'producer_exact_allowed_tools':producer.get('allowed_tools')==expected_producer,
+              'reviewer_exact_allowed_tools':reviewer.get('allowed_tools')==expected_reviewer,
+              'producer_actual_tools_authorized':bool(ptools) and all(t in expected_producer for t in ptools),
+              'reviewer_actual_tools_authorized':bool(rtools) and all(t in expected_reviewer for t in rtools),
+              'producer_real_rc7_mcp_call':any(str(t).startswith('mcp__pfc_aitest_rc7__') for t in ptools),
+              'reviewer_real_rc7_mcp_call':any(str(t).startswith('mcp__pfc_aitest_rc7__') for t in rtools),
+              'producer_completed_pass':completed_pass(pruntime),
+              'producer_handoff_returned':handoff(pruntime),
+              'reviewer_completed_pass':completed_pass(rruntime),
+              'reviewer_handoff_returned':handoff(rruntime),
+              'no_timeout_partial':producer_id not in timeout_workers and reviewer_id not in timeout_workers,
+              'requirement_task_pass':latest_task.get('state')=='PASS',
+              'candidate_output_present':bool(latest_task.get('output_artifact_refs')),
+              'canonical_evaluation_present':bool(evaluation_id and evaluation),
+              'canonical_evaluation_pass':evaluation.get('result')=='PASS',
+              'reviewer_evidence_present':bool(reviewer_evidence),
+              'stopped_only_after_requirement_evaluator':str(summary.get('blocking_reason') or '')==expected_boundary,
+          }
+          result={
+              'status':'PASS' if all(checks.values()) else 'FAIL',
+              'checks':checks,
+              'task_id':task_id,
+              'task_state':latest_task.get('state'),
+              'evaluation_id':evaluation_id,
+              'evaluation_result':evaluation.get('result'),
+              'producer_worker_id':producer_id,
+              'reviewer_worker_id':reviewer_id,
+              'producer_tools':ptools,
+              'reviewer_tools':rtools,
+              'producer_allowed_tools':producer.get('allowed_tools'),
+              'reviewer_allowed_tools':reviewer.get('allowed_tools'),
+              'reviewer_evidence_count':len(reviewer_evidence),
+              'scenario_exit':int((root/'requirement-e2e.exit').read_text().strip()) if (root/'requirement-e2e.exit').exists() else None,
+              'scenario_boundary':summary.get('blocking_reason'),
+          }
+          (root/'requirement-e2e-result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(result,ensure_ascii=False,sort_keys=True))
+          raise SystemExit(0 if result['status']=='PASS' else 2)
+          PY
+
+      - name: Upload DeepSeek Requirement E2E evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc7-agiletc-deepseek-requirement-e2e-${{ github.sha }}
+          path: validation-artifacts
+          if-no-files-found: error
+          retention-days: 14
