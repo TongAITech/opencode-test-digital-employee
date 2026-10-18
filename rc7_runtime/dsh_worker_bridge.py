@@ -125,10 +125,81 @@ _SEMANTIC_PAYLOAD_HINTS = {
     "RUNTIME": "recovery action and evidence proving the runtime prerequisite was restored",
 }
 
+_REQUIREMENT_TRACE_CONTRACT = {
+    "trace_link_required_field": "evidence_ref",
+    "evidence_ref_rule": (
+        "Every semantic_payload.trace_links item MUST set evidence_ref to the exact content_ref or "
+        "source_ref of one evidence item returned in the top-level evidence array. Runtime will bind "
+        "that durable alias to its canonical R1 Evidence id before independent evaluation."
+    ),
+    "forbidden": [
+        "invented EVID-* aliases",
+        "a source field used instead of evidence_ref",
+        "trace links that cannot resolve to returned durable evidence",
+    ],
+}
+
+_COMPACT_OUTPUT_CONTRACT = (
+    "Return one compact JSON object only. Do not copy source documents, MCP responses, tool transcripts, "
+    "or full R1 rows into the final JSON. Use short atomic assertions and stable refs/ids; deduplicate "
+    "evidence so the structured handoff closes within the configured output budget."
+)
+
 
 def _stable_id(prefix: str, *parts: str) -> str:
     raw = "\x1f".join(str(part) for part in parts).encode("utf-8")
     return "%s-%s" % (prefix, hashlib.sha256(raw).hexdigest()[:20])
+
+
+def _compact_artifact_input_projection(truth: Any, input_refs: Tuple[str, ...]) -> list:
+    """Project only canonical R1 metadata needed to consume ART-* task inputs.
+
+    This is orchestration metadata, not domain analysis. It prevents a Worker
+    from guessing R1 entity types while keeping source content behind governed
+    tools. Missing/non-unique refs are surfaced as unresolved rather than being
+    fabricated.
+    """
+    projected = []
+    for raw_ref in input_refs:
+        if not isinstance(raw_ref, str) or not raw_ref.startswith("ART-"):
+            continue
+        query = {"artifact_type": "rc7_artifact", "filters": {"artifact_id": raw_ref}}
+        rows = truth.query("rc7_artifact", artifact_id=raw_ref)
+        item: Dict[str, Any] = {
+            "artifact_id": raw_ref,
+            "canonical_truth_query": query,
+            "projection_status": "UNRESOLVED" if not rows else "NON_UNIQUE",
+        }
+        if len(rows) == 1:
+            row = rows[0]
+            item.update(
+                {
+                    "projection_status": "RESOLVED",
+                    "artifact_type_name": row.get("artifact_type_name") or row.get("artifact_type"),
+                    "producer_task_id": row.get("producer_task_id"),
+                    "content_ref": row.get("content_ref"),
+                    "evidence_refs": list(row.get("evidence_refs") or []),
+                }
+            )
+            evidence_aliases = []
+            for evidence_id in item["evidence_refs"]:
+                if not isinstance(evidence_id, str) or not evidence_id:
+                    continue
+                evidence_rows = truth.query("rc7_evidence", evidence_id=evidence_id)
+                if len(evidence_rows) != 1:
+                    continue
+                evidence_row = evidence_rows[0]
+                evidence_aliases.append(
+                    {
+                        "evidence_id": evidence_id,
+                        "content_ref": evidence_row.get("content_ref"),
+                        "source_ref": evidence_row.get("source_ref"),
+                    }
+                )
+            if evidence_aliases:
+                item["evidence_aliases"] = evidence_aliases
+        projected.append(item)
+    return projected
 
 
 class DshTaskWorkerBridge:
@@ -229,6 +300,10 @@ class DshTaskWorkerBridge:
 
     def compile_prompt(self, task: Task, assignment: WorkerAssignment) -> str:
         expected_id, expected_type = self.expected_output(task)
+        artifact_projection = _compact_artifact_input_projection(
+            self.control.truth,
+            tuple(task.input_artifact_refs),
+        )
         contract = {
             "mission_id": task.mission_id,
             "task_id": task.task_id,
@@ -237,6 +312,11 @@ class DshTaskWorkerBridge:
             "objective": task.objective,
             "scope": assignment.scope,
             "input_artifact_refs": list(task.input_artifact_refs),
+            "canonical_input_artifacts": artifact_projection,
+            "artifact_input_rule": (
+                "For each ART-* input, use canonical_input_artifacts. If re-query is necessary, use its "
+                "canonical_truth_query exactly; never guess artifact_type or probe alternative R1 entity names."
+            ),
             "gap_refs": list(task.gap_refs),
             "acceptance_criteria": list(task.acceptance_criteria),
             "required_capabilities": list(task.required_capabilities),
@@ -246,7 +326,7 @@ class DshTaskWorkerBridge:
                 "artifact_type": expected_type,
             },
         }
-        schema = {
+        schema: Dict[str, Any] = {
             "task_id": task.task_id,
             "artifact": {
                 "artifact_id": expected_id,
@@ -268,14 +348,17 @@ class DshTaskWorkerBridge:
                     "content_hash": "optional source evidence hash",
                 }
             ],
+            "output_budget_contract": _COMPACT_OUTPUT_CONTRACT,
         }
+        if task.node == "REQUIREMENT_ANALYSIS":
+            schema["semantic_payload"]["requirement_trace_contract"] = dict(_REQUIREMENT_TRACE_CONTRACT)
         prompt = (
             "You are an RC7 professional worker executing one leased task. "
             "Do not evaluate or mark the task PASS. Do not return an Evaluation object. "
             "You MUST call at least one allowed real tool; a text-only answer is invalid. "
             "Read/use every input_artifact_ref that is relevant to the task, produce evidence-backed "
             "candidate output, put the professional node result in semantic_payload, and return "
-            "exactly one JSON object.\n"
+            "exactly one JSON object. Keep the final JSON compact and obey RETURN_SCHEMA evidence binding exactly.\n"
             "TASK_CONTRACT=" + json.dumps(contract, ensure_ascii=False, sort_keys=True) + "\n"
             "RETURN_SCHEMA=" + json.dumps(schema, ensure_ascii=False, sort_keys=True)
         )
