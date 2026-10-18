@@ -67,7 +67,6 @@ jobs:
                   reasoning: off
                   compat:
                     thinkingFormat: qwen
-                    supportsReasoningEffort: false
                   models:
                     - id: qwen3:4b
                       contextWindow: 32768
