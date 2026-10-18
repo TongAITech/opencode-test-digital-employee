@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from rc7_runtime.authorized_dsh_launcher import Rc7AuthorizedDshHeadlessWorkerLauncher
 from rc7_runtime.dsh_worker_bridge import (
     _COMPACT_OUTPUT_CONTRACT,
     _REQUIREMENT_TRACE_CONTRACT,
@@ -90,3 +91,34 @@ def test_requirement_trace_contract_reuses_durable_evidence_alias_instead_of_inv
     assert any("invented EVID-*" in item for item in _REQUIREMENT_TRACE_CONTRACT["forbidden"])
     assert "Do not copy source documents" in _COMPACT_OUTPUT_CONTRACT
     assert "configured output budget" in _COMPACT_OUTPUT_CONTRACT
+
+
+def test_explicit_provider_429_rate_limit_is_classified_without_json_guessing():
+    raw = (
+        '{"type":"status","phase":"turn_end","reason":{"kind":"error",'
+        '"error":{"message":"429: daily quota reached","code":"RATE_LIMIT"}}}\n'
+        '{"type":"stderr","text":"dsh: RATE_LIMIT: 429: '
+        '{\\"code\\":\\"free_daily_limit\\"}"}\n'
+    )
+    assert (
+        Rc7AuthorizedDshHeadlessWorkerLauncher._provider_failure_reason_from_text(raw)
+        == "MODEL_PROVIDER_RATE_LIMIT"
+    )
+
+
+def test_global_free_rate_limit_is_classified():
+    raw = 'HTTP 429 {"code":"free_global_rate_limited","type":"rate_limit_error"}'
+    assert (
+        Rc7AuthorizedDshHeadlessWorkerLauncher._provider_failure_reason_from_text(raw)
+        == "MODEL_PROVIDER_RATE_LIMIT"
+    )
+
+
+def test_plain_strict_json_failure_is_not_reclassified_as_provider_rate_limit():
+    raw = '{"type":"final","text":"not-json"}'
+    assert Rc7AuthorizedDshHeadlessWorkerLauncher._provider_failure_reason_from_text(raw) == ""
+
+
+def test_429_without_rate_limit_marker_is_not_overclassified():
+    raw = 'HTTP 429 but no provider classification payload was preserved'
+    assert Rc7AuthorizedDshHeadlessWorkerLauncher._provider_failure_reason_from_text(raw) == ""
