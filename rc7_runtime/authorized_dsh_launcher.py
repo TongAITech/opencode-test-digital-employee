@@ -6,15 +6,17 @@ changing the base RC6 worker contract:
 
 1. The exact signed-lease tool set is exported to the package-local DSH tool
    policy plugin before the first model step, so generic built-ins are hidden.
-2. Every tool call observed in a completed DSH run is re-authorized against the
+2. The runtime-issued worker/mission/task/lease identity is projected into the
+   DSH/MCP subprocess environment and into the prompt. Model-supplied identity
+   is never authority; it must match this trusted projection.
+3. Every tool call observed in a completed DSH run is re-authorized against the
    signed TaskLease before RC7 accepts the Worker event or handoff.
-3. If DSH times out, any partial stdout/stderr is persisted as failure evidence
+4. If DSH times out, any partial stdout/stderr is persisted as failure evidence
    and summarized in R1. Partial calls are diagnostics only; they are never
    promoted to WORKER_TOOL_CALLED or accepted handoff evidence.
 
-The DSH-side restriction is preventative. The post-observation check is
-fail-closed defense in depth; MCP calls additionally have their own durable
-Mission/Task/node authorization in the RC7 MCP server.
+The DSH-side restriction and MCP pre-execution check are preventative. The
+post-observation signed-lease check is fail-closed defense in depth.
 """
 from __future__ import annotations
 
@@ -32,33 +34,84 @@ from rc6_runtime.authority import AuthorityError
 
 
 ALLOWED_TOOLS_ENV = "PFC_RC7_DSH_ALLOWED_TOOLS"
+MCP_MISSION_ID_ENV = "PFC_RC7_MCP_MISSION_ID"
+MCP_TASK_ID_ENV = "PFC_RC7_MCP_TASK_ID"
+MCP_WORKER_ID_ENV = "PFC_RC7_MCP_WORKER_ID"
+MCP_LEASE_ID_ENV = "PFC_RC7_MCP_LEASE_ID"
+MCP_SCOPE_REF_ENV = "PFC_RC7_MCP_SCOPE_REF"
 
 
 class Rc7AuthorizedDshHeadlessWorkerLauncher(DshHeadlessWorkerLauncher):
     """Run RC7 workers with model-visible and observed-call lease enforcement."""
+
+    def _runtime_task_id(self, assignment: WorkerAssignment) -> str:
+        scope = str(assignment.scope or "").strip()
+        if scope.startswith("task:") and scope[len("task:") :].strip():
+            return scope[len("task:") :].strip()
+        rows = self.truth.query("rc7_artifact", artifact_id=scope) if scope else []
+        if len(rows) == 1:
+            task_id = str(rows[0].get("producer_task_id") or "").strip()
+            if task_id:
+                return task_id
+        return ""
+
+    @staticmethod
+    def _bind_runtime_identity_prompt(
+        prompt: str,
+        assignment: WorkerAssignment,
+        task_id: str,
+    ) -> str:
+        if not task_id:
+            return prompt
+        context = {
+            "mission_id": assignment.mission_id,
+            "task_id": task_id,
+            "worker_id": assignment.worker_instance_id,
+        }
+        return (
+            "RC7_RUNTIME_MISSION_CONTEXT="
+            + json.dumps(context, ensure_ascii=False, sort_keys=True)
+            + "\nFor every allowed mcp__pfc_aitest_rc7__* native tool call, include "
+            "mission_context exactly equal to RC7_RUNTIME_MISSION_CONTEXT. Never invent, "
+            "abbreviate, substitute, or reuse a logical role name as worker_id. If an embedded "
+            "MANDATORY_FIRST_ACTION omits mission_context, augment only its arguments with this "
+            "exact mission_context; do not change the tool name or any other argument.\n"
+            + prompt
+        )
 
     def execute(
         self,
         assignment: WorkerAssignment,
         prompt: str,
     ) -> Tuple[WorkerInvocation, Dict[str, Any]]:
-        previous = self.env.get(ALLOWED_TOOLS_ENV)
-        self.env[ALLOWED_TOOLS_ENV] = json.dumps(
-            list(assignment.allowed_tools),
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
+        task_id = self._runtime_task_id(assignment)
+        projected = {
+            ALLOWED_TOOLS_ENV: json.dumps(
+                list(assignment.allowed_tools),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            MCP_MISSION_ID_ENV: assignment.mission_id,
+            MCP_TASK_ID_ENV: task_id,
+            MCP_WORKER_ID_ENV: assignment.worker_instance_id,
+            MCP_LEASE_ID_ENV: assignment.lease.lease_id,
+            MCP_SCOPE_REF_ENV: assignment.lease.scope_ref,
+        }
+        previous = {key: self.env.get(key) for key in projected}
+        self.env.update(projected)
+        bound_prompt = self._bind_runtime_identity_prompt(prompt, assignment, task_id)
         try:
             try:
-                return super().execute(assignment, prompt)
+                return super().execute(assignment, bound_prompt)
             except AgentRuntimeError as exc:
                 self._persist_timeout_diagnostic(assignment, exc)
                 raise
         finally:
-            if previous is None:
-                self.env.pop(ALLOWED_TOOLS_ENV, None)
-            else:
-                self.env[ALLOWED_TOOLS_ENV] = previous
+            for key, value in previous.items():
+                if value is None:
+                    self.env.pop(key, None)
+                else:
+                    self.env[key] = value
 
     @staticmethod
     def _partial_text(value: Any) -> str:

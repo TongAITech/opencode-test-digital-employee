@@ -7,6 +7,10 @@
 #
 # Do not inherit the local-Qwen reasoning compatibility mapping. DeepSeek must
 # prove its own DSH compatibility before any provider-specific mapping is added.
+#
+# 4096 is an execution cap, not a model-capability claim. 512 truncated the real
+# Requirement handoff JSON in field qualification; keep the worker timeout
+# unchanged and give the structured candidate enough output budget to close.
 - id: llm-pi-ai
   config:
     providers:
@@ -17,7 +21,7 @@
         models:
           - id: deepseek/deepseek-v4-flash-0731free
             contextWindow: 1048576
-            maxTokens: 512
+            maxTokens: 4096
             compat:
               maxTokensField: max_tokens
 
