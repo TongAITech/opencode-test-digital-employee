@@ -93,9 +93,9 @@ def test_vision_selects_dsh_only_after_activation_receipt(tmp_path: Path, monkey
     assert result["dsh_vision_router"]["active"] is True
 
 
-def test_anydoc_uses_pinned_github_source_and_canonical_admin_is_product_surface() -> None:
+def test_anydoc_uses_github_build_source_and_canonical_admin_is_product_surface() -> None:
     specs = dict(optional_plugin_payload.OPTIONAL_PLUGIN_SPECS)
-    assert specs["dsh-plugin-anydoc"] == "github:beancookie/dsh-plugin-anydoc#3af159ed06f62f3d2c61ab21c6a2475c71efbfa4"
+    assert specs["dsh-plugin-anydoc"] == "github:beancookie/dsh-plugin-anydoc#main"
     root = Path(__file__).resolve().parents[1]
     entry = (root / "rc7_admin" / "__main__.py").read_text(encoding="utf-8")
     assert "from .product_server import main" in entry
@@ -109,6 +109,9 @@ def test_repository_release_metadata_has_no_stale_wave2_candidate() -> None:
     assert "repair/g3-g4-wave2" not in text
     assert "884947012a7c7735f11708734f1955ee552cf1fe" not in text
     assert data["turnkey_delivery"]["required_runtime_payload_count"] == 16
+    assert data["turnkey_delivery"]["dsh_optional_plugin_target_count"] == 4
+    assert data["turnkey_delivery"]["dsh_error_handling_model"] == "BUILTIN_DSH_SKILL_NOT_NPM_PLUGIN"
+    assert data["turnkey_delivery"]["canonical_admin_launcher_uses_product_surface"] is True
     assert data["turnkey_delivery"]["dsh_optional_plugins_best_effort_bundle"] is True
     assert data["turnkey_delivery"]["optional_plugin_explicit_enable_fails_closed_when_unavailable"] is True
     assert data["release_invariants"]["bank_final_requires_real_bank_mission"] is True
