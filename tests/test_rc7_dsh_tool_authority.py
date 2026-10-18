@@ -162,3 +162,77 @@ def test_authorized_launcher_rejects_observed_unleased_generic_tool(tmp_path: Pa
     event_names = [event["event_type"] for event in truth.store.iter_raw()]
     assert "ROUTING_INTEGRITY_FAIL" in event_names
     assert "HANDOFF_RETURNED" not in event_names
+
+
+def test_authorized_launcher_persists_partial_output_when_dsh_times_out(tmp_path: Path) -> None:
+    dsh_bin = tmp_path / "dsh"
+    dsh_bin.write_text("stub", encoding="utf-8")
+    patch = tmp_path / "patch.yml"
+    patch.write_text("stub", encoding="utf-8")
+    truth = TruthRuntime(tmp_path / "r1.jsonl")
+    authority = RC7AuthorityRuntime(b"0123456789abcdef-rc7-timeout-evidence")
+    partial = "\n".join(
+        [
+            json.dumps({"type": "session", "sessionId": "session-timeout-partial"}),
+            json.dumps({"type": "thinking", "text": "still reasoning"}),
+            json.dumps({"type": "tool_call", "tool": REQ_READ, "callId": "partial-call"}),
+        ]
+    )
+
+    def timeout_runner(command, **kwargs):
+        raise subprocess.TimeoutExpired(
+            cmd=command,
+            timeout=7,
+            output=partial.encode("utf-8"),
+            stderr=b"partial stderr",
+        )
+
+    launcher = Rc7AuthorizedDshHeadlessWorkerLauncher(
+        dsh_bin=str(dsh_bin),
+        patch_path=str(patch),
+        cwd=str(tmp_path),
+        truth=truth,
+        authority=authority,
+        coordinator_instance_id="coordinator-timeout",
+        release_id="R-TIMEOUT",
+        state_root=str(tmp_path / "state"),
+        timeout_seconds=7,
+        command_runner=timeout_runner,
+    )
+    assignment = launcher.assign(
+        agent_id="requirement-analysis",
+        role="RC7_REQUIREMENT_WORKER",
+        phase="REQUIREMENT_ANALYSIS",
+        mission_id="MISSION-TIMEOUT",
+        attempt_id="attempt-timeout",
+        scope="REQ-TIMEOUT",
+        input_refs=("file://README.md",),
+        allowed_artifact_types=("rc7_requirement_candidate",),
+        allowed_tools=(REQ_READ, REQ_TRUTH),
+    )
+
+    with pytest.raises(AgentRuntimeError, match="DSH_LAUNCH_FAILED"):
+        launcher.execute(assignment, "analyze")
+
+    raw_path = (
+        tmp_path
+        / "state"
+        / "worker-evidence"
+        / "MISSION-TIMEOUT"
+        / (assignment.assignment_id + ".jsonl")
+    )
+    assert raw_path.is_file()
+    raw = raw_path.read_text(encoding="utf-8")
+    assert "session-timeout-partial" in raw
+    assert "partial-call" in raw
+    assert "partial stderr" in raw
+
+    rows = list(truth.store.iter_raw())
+    serialized = json.dumps(rows, sort_keys=True)
+    assert "DSH_WORKER_TIMEOUT_PARTIAL" in serialized
+    assert '"partial_tool_call_count": 1' in serialized
+    assert "session-timeout-partial" in serialized
+
+    event_names = [row["event_type"] for row in rows]
+    assert "WORKER_TOOL_CALLED" not in event_names
+    assert "HANDOFF_RETURNED" not in event_names
