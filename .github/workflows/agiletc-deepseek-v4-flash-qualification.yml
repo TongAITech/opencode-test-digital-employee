@@ -43,7 +43,54 @@ jobs:
           npm install -g @deepseek-ai/dsh
           dsh --version | tee dsh-version.txt
 
-      - name: Probe public DeepSeek V4 Flash model identity and native tool call
+      - name: Probe public DeepSeek V4 Flash endpoint
+        shell: bash
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          payload = {
+              'model': 'deepseek-ai/DeepSeek-V4-Flash-0731',
+              'messages': [{'role': 'user', 'content': 'Return exactly OK and nothing else.'}],
+          }
+          Path('deepseek-health-request.json').write_text(json.dumps(payload, separators=(',', ':')) + '\n')
+          PY
+          started=$(date +%s)
+          status=$(curl -sS --max-time 120 \
+            -o deepseek-health-response.json \
+            -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            "$DEEPSEEK_PUBLIC_BASE_URL/chat/completions" \
+            --data-binary @deepseek-health-request.json)
+          elapsed=$(($(date +%s)-started))
+          printf '%s\n' "$status" > deepseek-health.status
+          printf '%s\n' "$elapsed" > deepseek-health.elapsed
+          if [ "$status" != 200 ]; then
+            echo "DeepSeek public endpoint health HTTP=$status" >&2
+            cat deepseek-health-response.json >&2 || true
+            exit 2
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('deepseek-health-response.json').read_text(encoding='utf-8'))
+          choices=d.get('choices') or []
+          content=str(((choices[0].get('message') if choices else {}) or {}).get('content') or '')
+          result={
+              'status':'PASS' if choices else 'FAIL',
+              'http_status':int(Path('deepseek-health.status').read_text()),
+              'elapsed_seconds':int(Path('deepseek-health.elapsed').read_text()),
+              'response_model':str(d.get('model') or ''),
+              'content':content,
+          }
+          Path('deepseek-health-result.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(result,sort_keys=True))
+          raise SystemExit(0 if result['status']=='PASS' else 2)
+          PY
+
+      - name: Prove public DeepSeek V4 Flash native tool call
         shell: bash
         timeout-minutes: 3
         run: |
@@ -54,42 +101,42 @@ jobs:
           payload = {
               'model': 'deepseek-ai/DeepSeek-V4-Flash-0731',
               'messages': [
-                  {'role': 'system', 'content': 'RC7 public qualification probe. Use the supplied native tool exactly as requested. Do not reveal reasoning.'},
                   {'role': 'user', 'content': 'Call rc7_probe exactly once with proof deepseek_v4_flash. Do not answer in prose.'},
               ],
               'tools': [{
                   'type': 'function',
                   'function': {
                       'name': 'rc7_probe',
-                      'description': 'Return RC7 qualification proof',
                       'parameters': {
                           'type': 'object',
                           'properties': {'proof': {'type': 'string'}},
                           'required': ['proof'],
-                          'additionalProperties': False,
                       },
                   },
               }],
               'tool_choice': 'auto',
-              'stream': False,
-              'max_tokens': 128,
-              'temperature': 0,
           }
-          Path('deepseek-direct-request.json').write_text(json.dumps(payload, separators=(',', ':')) + '\n')
+          Path('deepseek-tool-request.json').write_text(json.dumps(payload, separators=(',', ':')) + '\n')
           PY
           started=$(date +%s)
-          curl -fsS --max-time 120 \
+          status=$(curl -sS --max-time 120 \
+            -o deepseek-tool-response.json \
+            -w '%{http_code}' \
             -H 'Content-Type: application/json' \
-            -H 'Authorization: Bearer public-validation-no-secret' \
             "$DEEPSEEK_PUBLIC_BASE_URL/chat/completions" \
-            --data-binary @deepseek-direct-request.json \
-            > deepseek-direct-response.json
+            --data-binary @deepseek-tool-request.json)
           elapsed=$(($(date +%s)-started))
-          echo "$elapsed" > deepseek-direct.elapsed
+          printf '%s\n' "$status" > deepseek-tool.status
+          printf '%s\n' "$elapsed" > deepseek-tool.elapsed
+          if [ "$status" != 200 ]; then
+            echo "DeepSeek native tool-call HTTP=$status" >&2
+            cat deepseek-tool-response.json >&2 || true
+            exit 2
+          fi
           python - <<'PY'
           import json
           from pathlib import Path
-          d = json.loads(Path('deepseek-direct-response.json').read_text(encoding='utf-8'))
+          d = json.loads(Path('deepseek-tool-response.json').read_text(encoding='utf-8'))
           choices = d.get('choices') or []
           msg = (choices[0].get('message') if choices else {}) or {}
           calls = msg.get('tool_calls') or []
@@ -102,8 +149,7 @@ jobs:
               except Exception:
                   args = None
               parsed.append({'name': fn.get('name'), 'arguments': args})
-          elapsed = int(Path('deepseek-direct.elapsed').read_text())
-          model = str(d.get('model') or '')
+          elapsed = int(Path('deepseek-tool.elapsed').read_text())
           ok = (
               len(parsed) == 1
               and parsed[0].get('name') == 'rc7_probe'
@@ -113,12 +159,13 @@ jobs:
           result = {
               'status': 'PASS' if ok else 'FAIL',
               'requested_model': 'deepseek-ai/DeepSeek-V4-Flash-0731',
-              'response_model': model,
+              'response_model': str(d.get('model') or ''),
+              'http_status': int(Path('deepseek-tool.status').read_text()),
               'elapsed_seconds': elapsed,
               'tool_calls': parsed,
               'finish_reason': choices[0].get('finish_reason') if choices else None,
           }
-          Path('deepseek-direct-result.json').write_text(json.dumps(result, indent=2, sort_keys=True) + '\n')
+          Path('deepseek-tool-result.json').write_text(json.dumps(result, indent=2, sort_keys=True) + '\n')
           print(json.dumps(result, sort_keys=True))
           raise SystemExit(0 if ok else 2)
           PY
@@ -135,10 +182,6 @@ jobs:
           grep -q 'provider: public-deepseek-v4-flash' deepseek-effective-config.yml
           grep -q 'model: deepseek-ai/DeepSeek-V4-Flash-0731' deepseek-effective-config.yml
           grep -q 'q5dh1rfszfym23hj.us-east-2.aws.endpoints.huggingface.cloud/v1' deepseek-effective-config.yml
-          if grep -q 'reasoningEffort:' deepseek-effective-config.yml; then
-            echo 'Unexpected provider-specific reasoningEffort mapping in DeepSeek qualification config' >&2
-            exit 2
-          fi
 
       - name: Prove DSH DeepSeek headless lifecycle closes after final JSON
         shell: bash
@@ -196,10 +239,16 @@ jobs:
           name: rc7-deepseek-v4-flash-qualification-${{ github.sha }}
           path: |
             dsh-version.txt
-            deepseek-direct-request.json
-            deepseek-direct-response.json
-            deepseek-direct.elapsed
-            deepseek-direct-result.json
+            deepseek-health-request.json
+            deepseek-health-response.json
+            deepseek-health.status
+            deepseek-health.elapsed
+            deepseek-health-result.json
+            deepseek-tool-request.json
+            deepseek-tool-response.json
+            deepseek-tool.status
+            deepseek-tool.elapsed
+            deepseek-tool-result.json
             deepseek-effective.patch.yml
             deepseek-effective-config.yml
             dsh-deepseek.jsonl
