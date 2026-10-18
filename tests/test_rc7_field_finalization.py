@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import zipfile
 from pathlib import Path
 
 from rc7_admin.requirement_hierarchy import RequirementHierarchyView
 from rc7_release import optional_enhancements
+from rc7_release.optional_plugin_payload import PAYLOAD_ARCHIVE_RELATIVE
 from rc7_release.vision_capability import probe as probe_vision
 
 
@@ -40,6 +42,21 @@ def test_optional_probe_never_hides_required_dsh_payload_blocker(tmp_path: Path,
     assert result["required_dsh_payload"] == "FAIL"
     assert "dsh-vision-router" in result["available_optional"]
     assert result["public_registry_forbidden_on_bank_host"] is True
+
+
+def test_bundled_optional_payload_is_materialized_without_bank_network(tmp_path: Path, monkeypatch) -> None:
+    home = tmp_path / "package"; state = tmp_path / "state"; monkeypatch.setenv("PFC_AITEST_STATE_DIR", str(state))
+    archive = home / PAYLOAD_ARCHIVE_RELATIVE; archive.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as target:
+        target.writestr("node_modules/dsh-vision-router/package.json", json.dumps({"name": "dsh-vision-router", "version": "bundled-test"}))
+        target.writestr("payload-manifest.json", json.dumps({"status": "PARTIAL", "bundled": ["dsh-vision-router"]}))
+    result = optional_enhancements.probe(home)
+    row = result["plugins"]["dsh-vision-router"]
+    assert row["available"] is True
+    assert row["source"] == "PACKAGE_VENDOR_ARCHIVE"
+    assert row["version"] == "bundled-test"
+    assert result["bundled_optional_payload"]["materialized"] is True
+    assert not result["registry_configured"]
 
 
 def test_optional_acquire_rejects_public_registry_even_when_approved(tmp_path: Path, monkeypatch) -> None:
@@ -84,5 +101,6 @@ def test_repository_release_metadata_has_no_stale_wave2_candidate() -> None:
     assert "repair/g3-g4-wave2" not in text
     assert "884947012a7c7735f11708734f1955ee552cf1fe" not in text
     assert data["turnkey_delivery"]["required_runtime_payload_count"] == 16
+    assert data["turnkey_delivery"]["dsh_optional_plugins_best_effort_bundle"] is True
     assert data["turnkey_delivery"]["optional_plugin_explicit_enable_fails_closed_when_unavailable"] is True
     assert data["release_invariants"]["bank_final_requires_real_bank_mission"] is True
