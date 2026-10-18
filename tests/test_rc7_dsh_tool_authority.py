@@ -48,9 +48,10 @@ def test_generated_dsh_patch_has_package_local_fail_closed_tool_filter(tmp_path:
 def test_headless_profile_requires_immediate_native_tool_action() -> None:
     root = Path(__file__).resolve().parents[1]
     text = (root / "validation/dsh/rc7-headless-minimal.patch.yml").read_text(encoding="utf-8")
-    assert "Do not narrate reasoning, planning, or" in text
-    assert "first assistant action MUST be a native structured call" in text
-    assert "emit no prose before that call" in text
+    normalized = " ".join(text.split())
+    assert "Do not narrate reasoning, planning, or intended tool use" in normalized
+    assert "first assistant action MUST be a native structured call" in normalized
+    assert "emit no prose before that call" in normalized
 
 
 class _TaskTruth:
