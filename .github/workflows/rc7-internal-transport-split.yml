@@ -1,0 +1,242 @@
+name: RC7 Internal Transport Exact Head
+
+on:
+  push:
+    branches:
+      - delivery/rc7-internal-transport-0bbb8239
+  workflow_dispatch:
+
+env:
+  SOURCE_COMMIT: 0bbb82394a66b67b2741076167c23f8b0834990d
+
+jobs:
+  windows-transport:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact product source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install isolated regression dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pytest requests python-docx openpyxl python-pptx pypdf
+          if ($LASTEXITCODE -ne 0) { throw 'Windows regression dependency install failed' }
+
+      - name: Compile and full RC7 regression
+        shell: pwsh
+        run: |
+          python -m compileall -q rc6_runtime rc6_release rc7_runtime rc7_release rc7_admin
+          if ($LASTEXITCODE -ne 0) { throw 'compileall failed' }
+          $tests = Get-ChildItem 'tests' -Filter 'test_rc7_*.py' | ForEach-Object { $_.FullName }
+          if (-not $tests) { throw 'No RC7 regression tests found' }
+          python -m pytest -q $tests
+          if ($LASTEXITCODE -ne 0) { throw 'RC7 Windows regression failed' }
+
+      - name: Assemble final offline payloads
+        shell: pwsh
+        run: |
+          ./packaging/rc7/build-final-payloads.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'offline payload assembly failed' }
+
+      - name: Build final unified package
+        shell: pwsh
+        run: |
+          python -m rc7_release.package build --repo-root . --output dist --source-commit $env:SOURCE_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'base package build failed' }
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          python -m rc7_release.final_unified_overlay --package-root $pkg --output dist --source-commit $env:SOURCE_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'Final unified overlay failed' }
+          New-Item -ItemType Directory -Force 'dist/qualification' | Out-Null
+
+      - name: Package-local toolchain qualification
+        shell: pwsh
+        run: |
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          $py = Join-Path $pkg 'workspace-template/runtime/python/python.exe'
+          $cg = Join-Path $pkg 'workspace-template/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe'
+          & $py -m rc7_release.toolchain_qualification --codegraph-bin $cg --output 'dist/qualification/professional-toolchains.json'
+          if ($LASTEXITCODE -ne 0) { throw 'Professional toolchain qualification failed' }
+          & $py -m rc7_release.dsh_plugins --home $pkg --profile web --dry-run --output 'dist/qualification/dsh-plugin-payload.json'
+          if ($LASTEXITCODE -ne 0) { throw 'Required DSH plugin payload qualification failed' }
+          & $py -m rc7_release.final_unified_qualification --home $pkg --output 'dist/qualification/final-unified.json' --require-pass
+          if ($LASTEXITCODE -ne 0) { throw 'Final unified qualification failed' }
+          & $py -m rc7_release.bank_binding probe --output 'dist/qualification/bank-bindings.json'
+          if ($LASTEXITCODE -ne 0) { throw 'Bank binding probe failed' }
+
+      - name: Seal archive and clean-unpack qualification
+        shell: pwsh
+        run: |
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          python -m rc7_release.final_archive --home $pkg --output dist --source-commit $env:SOURCE_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'Final archive sealing failed' }
+          $zip = Get-ChildItem 'dist/PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-*.zip' | Select-Object -First 1
+          if (-not $zip) { throw 'Final unified ZIP missing' }
+          python -m rc7_release.delivery_qualification --zip $zip.FullName --source-commit $env:SOURCE_COMMIT --output dist/qualification/delivery.json --require-pass
+          if ($LASTEXITCODE -ne 0) { throw 'Clean Windows delivery qualification failed' }
+
+      - name: Verify installer inventory and truthful field state
+        shell: pwsh
+        run: |
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          $py = Join-Path $pkg 'workspace-template/runtime/python/python.exe'
+          & $py -m rc7_release.workspace_install --source $pkg --target "$env:RUNNER_TEMP\PFC\AITest-RC7" --dry-run --output 'dist/qualification/install-dry-run.json'
+          if ($LASTEXITCODE -ne 0) { throw 'Installer dry-run failed' }
+          $inv = Get-Content (Join-Path $pkg 'FULL-CAPABILITY-INVENTORY.json') | ConvertFrom-Json
+          foreach ($l in @('L1','L2','L3','L4','L5','L6','L7')) { if (-not $inv.execution_layers.$l) { throw "Missing execution layer $l" } }
+          if ($inv.durable_truth -ne 'R1_EVENT_STREAM') { throw 'R1 truth drift' }
+          if ($inv.real_bank_mission -ne 'HOLD_FIELD_EVIDENCE_REQUIRED') { throw 'False bank mission pass' }
+          $manifest = Get-Content (Join-Path $pkg 'PACKAGE_MANIFEST.json') | ConvertFrom-Json
+          foreach ($entry in @('packaging/rc7/AITEST.cmd','packaging/rc7/AITEST.sh','packaging/rc7/INSTALL-RC7.cmd','packaging/rc7/QUALIFY-RC7-FINAL-UNIFIED.cmd')) {
+            if ($manifest.entrypoints -notcontains $entry) { throw "Final manifest missing entrypoint: $entry" }
+          }
+          @{
+            status = 'PASS'; gate = 'UNIFIED_ENGINEERING_PASS'; delivery = 'PASS'; source_commit = $env:SOURCE_COMMIT;
+            truth = 'R1_EVENT_STREAM'; version_policy = 'CAPABILITY_BASED_NO_EXACT_VERSION_PIN';
+            bank_field_bindings = 'HOLD_FIELD_CONFIGURATION_REQUIRED'; real_bank_mission = 'HOLD_FIELD_EVIDENCE_REQUIRED';
+            requirement_e2e = 'HOLD_REAL_PROVIDER_FIELD_EVIDENCE_REQUIRED';
+            scope = @('DSH plugins','Requirement/document/diff','Git+CodeGraph+GitNexus','L1-L7 design/execution workers','JUnit+Maven+Pytest+JaCoCo','Playwright+Chrome+BrowserSkill','local OCR+OpenCV','k6','ZAP','Allure','4A+CAT+DB adapters','route discovery','test-data/prerequisite','diagnosis+repair loop','Evidence+Defect+Report+Admin','Session A-B-C handoff','safe install/upgrade')
+          } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 'dist/qualification/internal-transport-truth.json'
+
+      - name: Measure archive and split for transport
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = Get-ChildItem 'dist/PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-*.zip' | Select-Object -First 1
+          if (-not $zip) { throw 'Final unified ZIP missing before split' }
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($zip.FullName)
+          $count = $archive.Entries.Count
+          $uncompressed = ($archive.Entries | Measure-Object -Property Length -Sum).Sum
+          $archive.Dispose()
+          $sha = (Get-FileHash -Algorithm SHA256 $zip.FullName).Hash.ToLowerInvariant()
+          New-Item -ItemType Directory -Force 'dist/parts' | Out-Null
+          $chunkSize = 300MB
+          $buffer = New-Object byte[] (4MB)
+          $input = [System.IO.File]::OpenRead($zip.FullName)
+          $partNames = @()
+          $index = 1
+          while ($input.Position -lt $input.Length) {
+            $partName = ('{0}.part{1:d3}' -f $zip.Name, $index)
+            $partPath = Join-Path 'dist/parts' $partName
+            $output = [System.IO.File]::Create($partPath)
+            try {
+              [long]$remaining = [Math]::Min([long]$chunkSize, [long]($input.Length - $input.Position))
+              while ($remaining -gt 0) {
+                $toRead = [int][Math]::Min([long]$buffer.Length, $remaining)
+                $read = $input.Read($buffer, 0, $toRead)
+                if ($read -le 0) { throw 'Unexpected EOF while splitting archive' }
+                $output.Write($buffer, 0, $read)
+                $remaining -= $read
+              }
+            } finally { $output.Dispose() }
+            $partNames += $partName
+            $index++
+          }
+          $input.Dispose()
+          $partInfo = foreach ($name in $partNames) {
+            $p = Join-Path 'dist/parts' $name
+            @{ name = $name; size_bytes = (Get-Item $p).Length; sha256 = (Get-FileHash -Algorithm SHA256 $p).Hash.ToLowerInvariant() }
+          }
+          $metadata = @{
+            status = 'PASS'; product_source_commit = $env:SOURCE_COMMIT; archive_name = $zip.Name;
+            archive_size_bytes = $zip.Length; archive_sha256 = $sha; file_count = $count;
+            uncompressed_size_bytes = [long]$uncompressed; split_size_bytes = [long]$chunkSize;
+            part_count = $partNames.Count; parts = @($partInfo);
+            truth = 'R1_EVENT_STREAM'; real_bank_mission = 'HOLD_FIELD_EVIDENCE_REQUIRED';
+            requirement_e2e = 'HOLD_REAL_PROVIDER_FIELD_EVIDENCE_REQUIRED'
+          }
+          $metadata | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 'dist/transport-metadata.json'
+          Copy-Item 'dist/transport-metadata.json' 'dist/parts/transport-metadata.json'
+          Copy-Item 'dist/qualification/*.json' 'dist/parts/'
+
+      - name: Recombine parts and verify byte identity
+        shell: pwsh
+        run: |
+          $meta = Get-Content 'dist/transport-metadata.json' | ConvertFrom-Json
+          $outPath = 'dist/recombined-verification.zip'
+          $output = [System.IO.File]::Create($outPath)
+          try {
+            foreach ($part in $meta.parts) {
+              $p = Join-Path 'dist/parts' $part.name
+              $bytes = [System.IO.File]::ReadAllBytes($p)
+              $output.Write($bytes, 0, $bytes.Length)
+            }
+          } finally { $output.Dispose() }
+          $actual = (Get-FileHash -Algorithm SHA256 $outPath).Hash.ToLowerInvariant()
+          if ($actual -ne $meta.archive_sha256) { throw "Recombined SHA256 mismatch: $actual" }
+          python -m rc7_release.delivery_qualification --zip $outPath --source-commit $env:SOURCE_COMMIT --output dist/qualification/recombined-delivery.json --require-pass
+          if ($LASTEXITCODE -ne 0) { throw 'Recombined archive delivery qualification failed' }
+          Remove-Item $outPath -Force
+
+      - name: Upload transport metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc7-transport-metadata-0bbb8239
+          path: |
+            dist/transport-metadata.json
+            dist/qualification/*.json
+          compression-level: 9
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload part 001
+        if: ${{ hashFiles('dist/parts/*.part001') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc7-transport-part-001-0bbb8239
+          path: dist/parts/*.part001
+          compression-level: 0
+          retention-days: 14
+      - name: Upload part 002
+        if: ${{ hashFiles('dist/parts/*.part002') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc7-transport-part-002-0bbb8239
+          path: dist/parts/*.part002
+          compression-level: 0
+          retention-days: 14
+      - name: Upload part 003
+        if: ${{ hashFiles('dist/parts/*.part003') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc7-transport-part-003-0bbb8239
+          path: dist/parts/*.part003
+          compression-level: 0
+          retention-days: 14
+      - name: Upload part 004
+        if: ${{ hashFiles('dist/parts/*.part004') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc7-transport-part-004-0bbb8239
+          path: dist/parts/*.part004
+          compression-level: 0
+          retention-days: 14
+      - name: Upload part 005
+        if: ${{ hashFiles('dist/parts/*.part005') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc7-transport-part-005-0bbb8239
+          path: dist/parts/*.part005
+          compression-level: 0
+          retention-days: 14
+      - name: Upload part 006
+        if: ${{ hashFiles('dist/parts/*.part006') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc7-transport-part-006-0bbb8239
+          path: dist/parts/*.part006
+          compression-level: 0
+          retention-days: 14
