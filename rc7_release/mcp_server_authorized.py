@@ -7,9 +7,11 @@ scope and node policy before delegating to the field tool implementation.
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Any, Dict, Mapping
 
 from rc7_release import mcp_server_field as field
@@ -25,6 +27,10 @@ _TASK_ID_ENV = "PFC_RC7_MCP_TASK_ID"
 _WORKER_ID_ENV = "PFC_RC7_MCP_WORKER_ID"
 _LEASE_ID_ENV = "PFC_RC7_MCP_LEASE_ID"
 _SCOPE_REF_ENV = "PFC_RC7_MCP_SCOPE_REF"
+_SOURCE_SCOPE_ENVS = {
+    "workspace": "PFC_WORKSPACE",
+    "state": "PFC_AITEST_STATE_DIR",
+}
 
 
 def _error(msg_id: object, exc: Exception) -> Dict[str, Any]:
@@ -107,14 +113,65 @@ def _authorize_call(message: Mapping[str, Any]) -> None:
     )
 
 
+def _canonicalize_scoped_source_path(message: Dict[str, Any]) -> Dict[str, Any]:
+    """Translate trusted in-scope absolute read_text paths to its relative contract.
+
+    Durable input references are canonical file:// URIs, while the read_text MCP
+    contract deliberately accepts only paths relative to an approved scope root.
+    DSH may therefore receive an absolute path compiled from a durable input ref.
+    This adapter narrows that path back to the configured scope only when the
+    fully resolved target is contained by that scope. It never makes arbitrary
+    absolute paths readable and leaves already-relative calls unchanged.
+    """
+    delegated = copy.deepcopy(message)
+    params = delegated.get("params") or {}
+    if not isinstance(params, dict) or str(params.get("name") or "").strip() != "read_text":
+        return delegated
+    arguments = params.get("arguments") or {}
+    if not isinstance(arguments, dict):
+        return delegated
+    raw_path = arguments.get("path")
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return delegated
+    target = Path(raw_path.strip()).expanduser()
+    if not target.is_absolute():
+        return delegated
+
+    scope = str(arguments.get("scope") or "workspace").strip()
+    env_name = _SOURCE_SCOPE_ENVS.get(scope)
+    if env_name is None:
+        raise McpToolAuthorityError("MCP_AUTH_SOURCE_SCOPE_INVALID")
+    root_value = str(os.environ.get(env_name) or "").strip()
+    if not root_value and scope == "workspace":
+        root_value = str(os.environ.get("PFC_AITEST_HOME") or "").strip()
+    if not root_value:
+        raise McpToolAuthorityError("MCP_AUTH_SOURCE_SCOPE_ROOT_REQUIRED:%s" % scope)
+
+    root = Path(root_value).expanduser().resolve()
+    resolved = target.resolve()
+    try:
+        relative = resolved.relative_to(root)
+    except ValueError as exc:
+        raise McpToolAuthorityError("MCP_AUTH_SOURCE_PATH_OUTSIDE_SCOPE") from exc
+    if not relative.parts:
+        raise McpToolAuthorityError("MCP_AUTH_SOURCE_PATH_FILE_REQUIRED")
+    arguments["path"] = relative.as_posix()
+    arguments["scope"] = scope
+    params["arguments"] = arguments
+    delegated["params"] = params
+    return delegated
+
+
 def handle(message: Dict[str, Any]):
     method = message.get("method")
+    delegated = message
     if method == "tools/call":
         try:
             _authorize_call(message)
+            delegated = _canonicalize_scoped_source_path(message)
         except Exception as exc:
             return _error(message.get("id"), exc)
-    response = field.handle(message)
+    response = field.handle(delegated)
     if method == "initialize":
         return _truthful_initialize(response)
     return response
