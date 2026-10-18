@@ -6,6 +6,12 @@ on:
       - delivery/rc7-default-enhancements
     paths:
       - .github/workflows/rc7-default-enhancements-turnkey.yml
+      - rc7_release/dsh.py
+      - rc7_release/dsh_plugins.py
+      - packaging/rc7/AITEST.cmd
+      - packaging/rc7/AITEST.sh
+      - packaging/rc7/build-final-payloads.ps1
+      - tests/test_rc7_default_enhancements.py
   workflow_dispatch:
 
 permissions:
@@ -96,10 +102,15 @@ jobs:
           if (-not $policy.Contains('Memento/memory is non-authoritative')) { throw 'memento non-truth policy missing' }
           $plugins = Get-Content dist/qualification/dsh-plugin-payload.json | ConvertFrom-Json
           if ($plugins.status -ne 'PASS') { throw 'plugin payload not PASS' }
+          if (-not $plugins.default_runtime_ready) { throw "default enhancement payload incomplete: $($plugins.default_runtime_missing -join ',')" }
           foreach ($name in @('dsh-vision-router','dsh-memento')) {
             if (-not $plugins.plugins.$name.bundled) { throw "default enhancement not bundled: $name" }
             if ($plugins.plugins.$name.tier -ne 'P1_DEFAULT_RUNTIME') { throw "wrong enhancement tier: $name" }
           }
+          $stateMeta = Get-Content (Join-Path $pkg 'workspace-template/runtime/dsh-plugins/OPTIONAL_PLUGIN_STATE.json') | ConvertFrom-Json
+          if ($stateMeta.'dsh-vision-router' -ne 'BUNDLED_DEFAULT_ENABLED_RUNTIME') { throw 'vision plugin bundle metadata drift' }
+          if ($stateMeta.'dsh-memento' -ne 'BUNDLED_DEFAULT_ENABLED_RUNTIME') { throw 'memento plugin bundle metadata drift' }
+          if ($stateMeta.'dsh-error-handling' -ne 'BANK_DSH_HOST_CAPABILITY') { throw 'error-handling capability metadata drift' }
           $cmd = Get-Content (Join-Path $pkg 'packaging/rc7/AITEST.cmd') -Raw
           foreach ($needle in @('PFC_RC7_DSH_BASE_PROFILE=web','PFC_RC7_DSH_PROFILE=rc7-bank','rc7_release.dsh_runtime_profile','--require-default-enhancements')) {
             if (-not $cmd.Contains($needle)) { throw "Windows turnkey startup gate missing: $needle" }
@@ -115,6 +126,8 @@ jobs:
             memento_db_scope='RC7_RUNTIME_STATE'
             protected_web_profile_policy='READ_ONLY_CLONE_REQUIRED'
             windows_runtime_profile='rc7-bank'
+            error_handling='BANK_DSH_HOST_CAPABILITY'
+            anydoc=$stateMeta.'dsh-plugin-anydoc'
           }
           $q | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 dist/qualification/default-enhancements-qualification.json
 
