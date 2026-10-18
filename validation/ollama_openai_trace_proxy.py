@@ -207,7 +207,7 @@ class TraceHandler(BaseHTTPRequestHandler):
 
             if self.command != "HEAD":
                 while True:
-                    chunk = response.read(8192)
+                    chunk = response.read1(8192)
                     if not chunk:
                         break
                     if first_byte_ms is None:
