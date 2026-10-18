@@ -1,0 +1,38 @@
+# Validation-only local Ollama/Qwen3 compatibility profile.
+#
+# DSH 0.2.x translates its semantic `off` effort to an omitted reasoning
+# parameter. Ollama/Qwen3 defaults to thinking when the parameter is omitted,
+# so use an executable non-off DSH level whose provider wire spelling is
+# `none`. Explicit OpenAI reasoning compat prevents endpoint heuristics from
+# selecting the wrong dialect. This profile is for public AgileTC validation;
+# it is not Bank model policy.
+
+- id: llm-pi-ai
+  config:
+    providers:
+      local-ollama:
+        apiKeyEnv: LOCAL_MODEL_API_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:11434/v1
+        models:
+          - id: qwen3:4b
+            contextWindow: 32768
+            maxTokens: 1024
+            reasoningEfforts:
+              minimal: none
+              medium: medium
+            compat:
+              thinkingFormat: openai
+              supportsReasoningEffort: true
+
+- id: agent-default-model
+  config:
+    provider: local-ollama
+    model: qwen3:4b
+    reasoningEffort: minimal
+
+# A one-shot headless Worker does not need an auxiliary model call merely to
+# title its transient DSH session. Keep fallback title bookkeeping, but remove
+# the background first-prompt LLM request from the qualification path.
+- id: session-title-llm
+  disabled: true
