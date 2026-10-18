@@ -1,0 +1,37 @@
+name: AgileTC Authority Integration Check
+
+on:
+  push:
+    branches: [validation/agiletc-authority-integration]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile secure composition
+        run: |
+          python -m py_compile \
+            rc7_release/dsh.py \
+            rc7_release/mcp_server_authorized.py \
+            rc7_runtime/authorized_dsh_launcher.py \
+            rc7_runtime/mcp_tool_authority.py \
+            validation/agiletc_rc7_fullflow_secure.py
+      - name: Run targeted authority and graph regressions
+        run: |
+          python -m pytest -q \
+            tests/test_rc7_external_input_readiness.py \
+            tests/test_rc7_dsh_tool_authority.py \
+            tests/test_rc7_bank_dsh_tool_policy.py \
+            tests/test_rc7_node_tool_conformance.py
+      - name: Import secure fullflow wrapper
+        run: python -c "import validation.agiletc_rc7_fullflow_secure as s; assert callable(s.main)"
