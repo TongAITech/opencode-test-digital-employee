@@ -20,15 +20,17 @@ packaging\rc7\PROBE-RC7-ENHANCEMENTS.cmd
 
 输出会明确区分：
 - 既有 P0 Mission DSH 插件：仍由原交付门禁保证；
-- 可选插件：默认关闭，只允许包内本地目录或显式批准的行内 npm 镜像；
+- 可选插件：默认关闭，优先使用包内离线 payload，只允许显式批准的行内 npm 镜像作为补充；
 - 本地 OCR/CV：交付必需；
 - DSH Vision Router：可选，只有本地物化并真实 `plugin add file:` 成功、生成 profile activation receipt 后才算 ACTIVE；
 - 行内 VLM：必须配置 `PFC_BANK_VLM_ENDPOINT` 且显式设置 `PFC_BANK_VLM_APPROVED=1`；
 - 公网 npm registry 与公网图片上传始终禁止。
 
-可选增强插件包括：`@perrylink/dsh-plugin-doctor`、`dsh-vision-router`、`dsh-plugin-anydoc`、`dsh-memento`、`dsh-error-handling`。
+可选插件目标为 4 个：`@perrylink/dsh-plugin-doctor`、`dsh-vision-router`、`dsh-plugin-anydoc`、`dsh-memento`。其中 AnyDoc 使用构建时固定 GitHub commit 物化到离线 payload，不依赖行内公网访问。
 
-如果包内没有某个可选插件，而行内 npm 镜像已批准，可先物化：
+`dsh-error-handling` 是 DSH 的内建 Skill/工程规范能力，不是 npm 插件；不要执行 `npm install dsh-error-handling`。增强探测会把它单独显示为 DSH Skill 能力。
+
+如果包内没有某个可选插件，而行内 npm 镜像已批准，可先物化镜像中存在的插件：
 
 ```bat
 set PFC_NPM_REGISTRY_URL=<行内npm镜像>
@@ -65,15 +67,15 @@ workspace-template\runtime\python\python.exe -m rc7_release.bank_binding probe
 
 ## 4. 产品化后管
 
-启动新增产品化页面：
+标准后管入口已经直接启动产品化页面，不需要记额外命令：
 
 ```bat
-packaging\rc7\START-RC7-ADMIN-PRODUCT.cmd
+packaging\rc7\START-RC7-ADMIN.cmd
 ```
 
 默认使用 canonical R1：`runtime-state/r1/event-stream.jsonl`。
 
-产品化页面新增 `BR/SR/TR` 视图，支持版本、需求、BR/SR/TR 层级、状态和全文查询；数据从 `requirement_analysis` 的 R1 产物实时派生，不建立第二套业务真相库。页面仍可跳转原有完整用例维护页。
+产品化页面包含 `BR/SR/TR` 视图，支持版本、需求、BR/SR/TR 层级、状态和全文查询；数据从 `requirement_analysis` 的 R1 产物实时派生，不建立第二套业务真相库。页面仍可跳转完整用例维护页。
 
 ## 5. 真实业务验证
 
