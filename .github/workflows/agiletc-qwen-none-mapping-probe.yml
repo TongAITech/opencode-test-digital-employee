@@ -51,7 +51,7 @@ jobs:
             -H 'Content-Type: application/json' \
             -H 'Authorization: Bearer ollama-local' \
             http://127.0.0.1:11434/v1/chat/completions \
-            -d "$(python -c 'import json,sys; print(json.dumps({"model":"qwen3:4b","messages":[{"role":"user","content":sys.argv[1]}],"stream":False,"max_tokens":128,"reasoning_effort":"none"}))' "$prompt")" \
+            -d "$(python -c 'import json,sys; print(json.dumps({"model":"qwen3:4b","messages":[{"role":"system","content":"/no_think\nProtocol probe: do not narrate reasoning or planning. Return only the exact JSON requested by the user."},{"role":"user","content":sys.argv[1]}],"stream":False,"max_tokens":128,"reasoning_effort":"none"}))' "$prompt")" \
             > openai-none.json
           elapsed=$(($(date +%s)-started))
           echo "$elapsed" > openai-none.elapsed
@@ -64,8 +64,13 @@ jobs:
           content=str(msg.get('content') or '')
           reasoning=str(msg.get('reasoning') or msg.get('reasoning_content') or '')
           elapsed=int(Path('openai-none.elapsed').read_text())
-          result={'elapsed_seconds':elapsed,'content':content,'content_chars':len(content),'reasoning_chars':len(reasoning)}
-          ok=reasoning=='' and 'openai_none' in content and elapsed < 60
+          expected={'status':'PASS','proof':'openai_none'}
+          try:
+              parsed=json.loads(content)
+          except Exception:
+              parsed=None
+          result={'elapsed_seconds':elapsed,'content':content,'content_chars':len(content),'reasoning_chars':len(reasoning),'parsed_json':parsed}
+          ok=reasoning=='' and parsed==expected and elapsed < 60
           result['status']='PASS' if ok else 'FAIL'
           Path('openai-none-result.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
           print(json.dumps(result,sort_keys=True))
@@ -76,31 +81,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat > qwen-none.patch.yml <<'YAML'
-          - id: llm-pi-ai
-            config:
-              providers:
-                local-ollama:
-                  apiKeyEnv: LOCAL_MODEL_API_KEY
-                  api: openai-completions
-                  baseURL: http://127.0.0.1:11434/v1
-                  models:
-                    - id: qwen3:4b
-                      contextWindow: 32768
-                      maxTokens: 256
-                      reasoningEfforts:
-                        minimal: none
-                        medium: medium
-          - id: agent-default-model
-            config:
-              provider: local-ollama
-              model: qwen3:4b
-              reasoningEffort: minimal
-          YAML
+          cp validation/dsh/qwen3-ollama-none.patch.yml qwen-none.patch.yml
           cat qwen-none.patch.yml validation/dsh/rc7-headless-minimal.patch.yml > effective.patch.yml
           dsh --profile headless --patch effective.patch.yml --dump-config > effective-config.yml
           grep -q 'minimal: none' effective-config.yml
           grep -Eq "reasoningEffort: ['\"]?minimal['\"]?" effective-config.yml
+          grep -q 'maxTokensField: max_tokens' effective-config.yml
+          python - <<'PY'
+          from pathlib import Path
+          lines=Path('effective-config.yml').read_text(encoding='utf-8').splitlines()
+          start=next((i for i,line in enumerate(lines) if line.strip()=='- id: session-title-llm'),None)
+          if start is None:
+              raise SystemExit('session-title-llm component missing')
+          end=next((i for i in range(start+1,len(lines)) if lines[i].startswith('- id: ')),len(lines))
+          if not any(line.strip()=='disabled: true' for line in lines[start:end]):
+              raise SystemExit('session-title-llm is not disabled')
+          print('SESSION_TITLE_LLM_DISABLED=PASS')
+          PY
 
       - name: Prove DSH dispatches none without thinking
         shell: bash
@@ -110,7 +107,7 @@ jobs:
           started=$(date +%s)
           timeout --signal=TERM --kill-after=15s 180s \
             dsh --profile headless --patch effective.patch.yml --json \
-              'Return exactly one JSON object and nothing else: {"status":"PASS","proof":"dsh_none_mapping"}. Do not call any tool.' \
+              $'/no_think\nReturn exactly one JSON object and nothing else: {"status":"PASS","proof":"dsh_none_mapping"}. Do not call any tool.' \
             > dsh-none.jsonl 2> dsh-none.stderr
           rc=$?
           elapsed=$(($(date +%s)-started))
