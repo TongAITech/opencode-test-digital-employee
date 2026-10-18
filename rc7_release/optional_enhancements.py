@@ -19,8 +19,8 @@ OPTIONAL_PLUGINS: Tuple[Tuple[str, str], ...] = (
     ("dsh-vision-router", "VISION"),
     ("dsh-plugin-anydoc", "DOCUMENT"),
     ("dsh-memento", "MEMORY"),
-    ("dsh-error-handling", "RESILIENCE"),
 )
+BUILTIN_DSH_SKILLS = ("dsh-error-handling",)
 APPROVAL_ENV = "PFC_NPM_REGISTRY_APPROVED"
 REGISTRY_ENV = "PFC_NPM_REGISTRY_URL"
 STATE_SUBDIR = Path("plugin-runtime") / "optional-enhancements"
@@ -146,6 +146,8 @@ def probe(home: Path, profile: Optional[str] = None) -> Dict[str, object]:
         "available_optional": [name for name, row in plugins.items() if row["available"]],
         "active_optional": [name for name, row in plugins.items() if row["activation_proven"]],
         "missing_optional": [name for name, row in plugins.items() if not row["available"]],
+        "builtin_dsh_skills": list(BUILTIN_DSH_SKILLS),
+        "error_handling_model": "DSH_BUILTIN_SKILL_NOT_NPM_PLUGIN",
     }
 
 
