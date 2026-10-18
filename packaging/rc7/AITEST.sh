@@ -28,10 +28,6 @@ export PATH="$PATH_ADD:$PATH"
 
 mkdir -p "$PFC_AITEST_STATE_DIR/r1" "$ROOT/state"
 
-# Startup preflight verifies transport integrity and P0 plugin payload only.
-# Full toolchain / Bank Final qualification is a separate explicit gate; normal
-# startup must not be blocked merely because a mission-conditional tool is not
-# yet field-bound.
 if [[ "${PFC_RC7_SKIP_QUALIFY:-0}" != "1" ]]; then
   "$PY" -m rc7_release.package verify --package-root "$ROOT"
 fi
@@ -48,10 +44,6 @@ if [[ -z "$DSH_SHELL_BIN" ]]; then
   exit 3
 fi
 
-# Git Bash usually invokes an extensionless POSIX wrapper while Windows Python
-# must execute the adjacent native launcher (normally dsh.cmd). Bridge that
-# launcher explicitly so plugin qualification does not depend on PATH syntax
-# translation between the two runtimes.
 DSH_NATIVE_BIN="$DSH_SHELL_BIN"
 case "${DSH_NATIVE_BIN,,}" in
   *.cmd|*.exe) ;;
@@ -71,9 +63,6 @@ if [[ "$PFC_RC7_DSH_PROFILE" == "$PFC_RC7_DSH_BASE_PROFILE" ]]; then
   exit 4
 fi
 
-# Clone the real bank profile (including private provider/auth dependencies) to
-# an RC7-owned profile, install package-local P0 plugins only into the clone,
-# and fail closed if the protected source profile changes at all.
 "$PY" -m rc7_release.dsh_runtime_profile \
   --home "$ROOT" \
   --base-profile "$PFC_RC7_DSH_BASE_PROFILE" \
@@ -81,10 +70,17 @@ fi
   --output "$ROOT/state/rc7-dsh-runtime-profile.json" \
   --require-pass
 
-"$PY" -m rc7_release.dsh --output "$ROOT/state/rc7-dsh.patch.yml" --home "$ROOT" --python "$PY"
+"$PY" -m rc7_release.dsh \
+  --output "$ROOT/state/rc7-dsh.patch.yml" \
+  --home "$ROOT" \
+  --python "$PY" \
+  --require-default-enhancements
+
 echo "[RC7] Protected bank DSH profile: $PFC_RC7_DSH_BASE_PROFILE (read-only source)"
 echo "[RC7] RC7 DSH runtime profile: $PFC_RC7_DSH_PROFILE"
+echo "[RC7] Vision Router: DEFAULT ON / LOCAL-ONLY / PUBLIC REMOTE FORBIDDEN"
+echo "[RC7] Memento: DEFAULT ON / RC7 LOCAL DB / R1 NON-AUTHORITATIVE"
 echo "[RC7] Canonical R1: $PFC_AITEST_STATE_DIR/r1/event-stream.jsonl"
 echo "[RC7] Maven repo: $PFC_MAVEN_REPO"
-echo "[RC7] Starting DSH with RC7 plugin clone + runtime-only RC7 MCP patch."
+echo "[RC7] Starting DSH with RC7 plugin clone + runtime-only enhancement/MCP patch."
 exec dsh --profile "$PFC_RC7_DSH_PROFILE" --patch "$ROOT/state/rc7-dsh.patch.yml"
