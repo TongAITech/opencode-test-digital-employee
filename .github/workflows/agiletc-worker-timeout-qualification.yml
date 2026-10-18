@@ -71,6 +71,7 @@ jobs:
                       maxTokens: 4096
                       reasoningEfforts:
                         off:
+                        medium: medium
                       compat:
                         thinkingFormat: qwen-chat-template
                         chatTemplateKwargs:
