@@ -11,6 +11,8 @@
 # 4096 is an execution cap, not a model-capability claim. 512 truncated the real
 # Requirement handoff JSON in field qualification; keep the worker timeout
 # unchanged and give the structured candidate enough output budget to close.
+# This profile is also the public E2E trigger for validating governed MCP source
+# path canonicalization against the real AgileTC workspace boundary.
 - id: llm-pi-ai
   config:
     providers:
