@@ -57,6 +57,28 @@ _CAPABILITIES_BY_NODE = {
     "RUNTIME": ("runtime_recovery",),
 }
 
+# Mission Graph external inputs are references, not RC7 Artifact identities.
+# Keep this deliberately narrow: only source classes that RC7 currently owns
+# and validates through a real downstream tool/runtime are admitted. Unknown
+# URI schemes and bare strings fail closed instead of silently bypassing R1.
+_EXTERNAL_INPUT_SCHEMES = frozenset({
+    "file",
+    "git",
+    "git-empty-tree",
+    "sst",
+    "starlink",
+})
+
+
+def _is_governed_external_input_ref(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    raw = value.strip()
+    if not raw or "://" not in raw:
+        return False
+    scheme, target = raw.split("://", 1)
+    return scheme.lower() in _EXTERNAL_INPUT_SCHEMES and bool(target.strip())
+
 
 def _stable_id(prefix: str, *parts: str) -> str:
     raw = "\x1f".join(str(part) for part in parts).encode("utf-8")
@@ -176,9 +198,13 @@ class TaskScheduler:
         return self._task_from_row(self._required_row(task_id))
 
     def _inputs_valid(self, artifact_refs: Sequence[str]) -> bool:
-        for artifact_id in artifact_refs:
-            rows = self.truth.query("rc7_artifact", artifact_id=artifact_id)
-            if not rows or rows[0]["state"] != ArtifactStatus.VALID.value:
+        for ref in artifact_refs:
+            rows = self.truth.query("rc7_artifact", artifact_id=ref)
+            if rows:
+                if len(rows) != 1 or rows[0]["state"] != ArtifactStatus.VALID.value:
+                    return False
+                continue
+            if not _is_governed_external_input_ref(ref):
                 return False
         return True
 
