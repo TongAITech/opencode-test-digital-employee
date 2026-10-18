@@ -104,6 +104,24 @@ function audit(toolNames) {
   console.error(`[rc7-tool-policy] visible-tools=${JSON.stringify(toolNames)}`)
 }
 
+function auditPreStep(humanCount, injectedCount) {
+  if (process.env.PFC_RC7_DSH_TOOL_AUDIT !== '1') return
+  console.error(`[rc7-tool-policy] pre-step-order=${JSON.stringify({ injected: injectedCount, human: humanCount, humanLast: true })}`)
+}
+
+function humanRequestLast(decision) {
+  if (!decision || decision.kind !== 'enter' || !Array.isArray(decision.messages)) return decision
+  const human = []
+  const injected = []
+  for (const message of decision.messages) {
+    if (message && message.source && message.source.kind === 'user') human.push(message)
+    else injected.push(message)
+  }
+  if (human.length === 0 || injected.length === 0) return decision
+  auditPreStep(human.length, injected.length)
+  return { ...decision, messages: [...injected, ...human] }
+}
+
 export function apply(ctx) {
   ctx.on('agent/created', ({ agent }) => {
     const scope = agent.ctx
@@ -112,6 +130,18 @@ export function apply(ctx) {
     if (allow.length === 0) {
       throw new Error('RC7_DSH_ALLOWED_TOOLS_EMPTY')
     }
+
+    // DSH may append runtime/instruction snapshots after the actual headless
+    // task, while OpenAI-compatible routes flatten all of them to user-role
+    // messages. Small local models then treat the newest injected snapshot as
+    // the active request. Delegate first so every built-in has composed the
+    // final batch, then keep all injected context intact but put genuine human
+    // messages last. This changes presentation order only; it does not remove
+    // policy context or alter execution authority.
+    scope.on('agent/pre-step', async (_payload, next) => {
+      const decision = await next()
+      return humanRequestLast(decision)
+    }, { prepend: true })
 
     // Execution authority is monotonic: a later plugin cannot turn this denial
     // back into permission. This also covers tools registered in a scope that a
