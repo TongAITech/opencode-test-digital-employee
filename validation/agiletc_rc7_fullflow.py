@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import sys
 import traceback
 from pathlib import Path
+from types import MethodType
+from urllib.parse import urlparse
 
 from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
 from rc6_runtime.truth import TruthRuntime
@@ -17,6 +17,9 @@ from rc7_runtime.dsh_requirement_evaluator import DshRequirementEvaluator
 from rc7_runtime.dsh_test_design_evaluator import DshTestDesignEvaluator
 from rc7_runtime.dsh_worker_bridge import DshTaskWorkerBridge
 from rc7_runtime.reality_recon import RuntimeRealityReconService
+
+
+RC7_RUNTIME_STATUS_TOOL = "mcp__pfc_aitest_rc7__runtime_status"
 
 
 def _write(path: Path, payload: object) -> None:
@@ -38,6 +41,53 @@ def _snapshot(truth: TruthRuntime, mission_id: str) -> dict:
         "evaluations": truth.query("rc7_evaluation", mission_id=mission_id),
         "agent_runtime_events": truth.query("agent_runtime_event", mission_id=mission_id),
     }
+
+
+def _external_ref_valid(ref: str, *, target: Path, source_revision: str) -> bool:
+    if ref.startswith("file://"):
+        return Path(ref[len("file://"):]).exists()
+    if ref.startswith("git://"):
+        return source_revision in ref and "didi/AgileTC" in ref
+    if ref.startswith("git-empty-tree://"):
+        return ref == "git-empty-tree://4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+    parsed = urlparse(ref)
+    if parsed.scheme == "env":
+        return bool(parsed.netloc or parsed.path)
+    return False
+
+
+def _install_external_input_validation_shim(
+    control: ClosedLoopControlPlane,
+    *,
+    target: Path,
+    source_revision: str,
+) -> None:
+    """Validation-only continuation after recording the product scheduler defect.
+
+    Stable RC7 currently treats every input_artifact_ref as an R1 Artifact id.
+    Mission Graph external URI inputs therefore never become READY even after
+    Reality Recon passes.  This shim does not fabricate Artifacts: canonical
+    Artifact refs still use the original scheduler check, while external refs
+    must resolve to the checked-out AgileTC reality captured above.
+    """
+    scheduler = control.scheduler
+    canonical_validator = scheduler._inputs_valid
+
+    def _validation_inputs_valid(self, refs):
+        canonical = []
+        external = []
+        for value in refs:
+            ref = str(value)
+            if "://" in ref:
+                external.append(ref)
+            else:
+                canonical.append(ref)
+        return canonical_validator(canonical) and all(
+            _external_ref_valid(ref, target=target, source_revision=source_revision)
+            for ref in external
+        )
+
+    scheduler._inputs_valid = MethodType(_validation_inputs_valid, scheduler)
 
 
 def main() -> int:
@@ -65,12 +115,14 @@ def main() -> int:
         "real execution, oracle/evidence, diagnosis/defect, convergence and report."
     )
     summary = {
-        "schema_version": "pfc.aitest.rc7.agiletc-fullflow-validation.v1",
+        "schema_version": "pfc.aitest.rc7.agiletc-fullflow-validation.v2",
         "mission_id": mission_id,
         "release_id": release_id,
         "source_revision": args.source_revision,
         "target": str(target),
         "stages": [],
+        "known_product_gaps": [],
+        "validation_shims": [],
         "status": "IN_PROGRESS",
         "blocking_reason": None,
     }
@@ -133,6 +185,36 @@ def main() -> int:
         )
         stage("REALITY_RECON", reality.task_state, artifact_id=reality.artifact_id, evidence_ids=list(reality.evidence_ids))
 
+        requirement_task = next(
+            row for row in truth.query("rc7_task", mission_id=mission_id)
+            if row.get("node") == "REQUIREMENT_ANALYSIS"
+        )
+        if requirement_task.get("state") != "READY":
+            external_refs = [str(ref) for ref in requirement_task.get("input_artifact_refs", []) if "://" in str(ref)]
+            if not external_refs:
+                raise RuntimeError("REQUIREMENT_NOT_READY_WITHOUT_EXTERNAL_INPUTS")
+            if not all(_external_ref_valid(ref, target=target, source_revision=args.source_revision) for ref in external_refs):
+                raise RuntimeError("EXTERNAL_INPUT_REALITY_VALIDATION_FAILED")
+            summary["known_product_gaps"].append({
+                "id": "RC7-AGILETC-001",
+                "title": "Mission external URI inputs are treated as Artifact ids by TaskScheduler",
+                "impact": "Reality PASS cannot release Requirement/Code tasks when file:// or git:// inputs are present",
+                "proof": {
+                    "requirement_state_after_reality": requirement_task.get("state"),
+                    "external_refs": external_refs,
+                    "scheduler_contract": "TaskScheduler._inputs_valid queries rc7_artifact for every input_artifact_ref",
+                },
+            })
+            _install_external_input_validation_shim(control, target=target, source_revision=args.source_revision)
+            summary["validation_shims"].append("EXTERNAL_INPUT_REALITY_AWARE_READINESS")
+            refreshed = control.refresh_ready()
+            stage(
+                "EXTERNAL_INPUT_SCHEDULER_GAP",
+                "DEFECT_RECORDED_CONTINUATION_SHIM_ACTIVE",
+                defect_id="RC7-AGILETC-001",
+                ready_after_shim=[task.node for task in refreshed],
+            )
+
         authority = RC7AuthorityRuntime(b"agiletc-rc7-validation-signing-key-2026")
         launcher = DshHeadlessWorkerLauncher(
             dsh_bin=args.dsh_bin,
@@ -166,11 +248,18 @@ def main() -> int:
             artifact_ids=list(req_run.output_artifact_ids),
             evidence_ids=list(req_run.evidence_ids),
         )
-        req_eval = DshRequirementEvaluator(launcher).evaluate_and_apply(
-            control,
-            req_run.task_id,
-            req_run.output_artifact_ids[0],
-        )
+
+        summary["known_product_gaps"].append({
+            "id": "RC7-AGILETC-002",
+            "title": "Independent DSH evaluators default to stale RC6 runtime_status MCP tool alias",
+            "impact": "RC7-only MCP profile may expose no mcp__pfc_aitest_rc6__runtime_status tool",
+            "continuation": "Validation passes the actual RC7 runtime_status alias explicitly; stable product code remains unchanged",
+        })
+        summary["validation_shims"].append("RC7_REVIEWER_RUNTIME_STATUS_TOOL_ALIAS")
+        req_eval = DshRequirementEvaluator(
+            launcher,
+            allowed_tools=(RC7_RUNTIME_STATUS_TOOL,),
+        ).evaluate_and_apply(control, req_run.task_id, req_run.output_artifact_ids[0])
         req_state = _task_state(control, req_run.task_id)
         stage(
             "REQUIREMENT_SUFFICIENCY",
@@ -195,7 +284,10 @@ def main() -> int:
             artifact_ids=list(code_run.output_artifact_ids),
             evidence_ids=list(code_run.evidence_ids),
         )
-        code_eval = DshCodeEvaluator(launcher).evaluate_and_apply(
+        code_eval = DshCodeEvaluator(
+            launcher,
+            reviewer_allowed_tools=(RC7_RUNTIME_STATUS_TOOL, "git", "codegraph"),
+        ).evaluate_and_apply(
             control,
             code_run.task_id,
             code_run.output_artifact_ids[0],
@@ -226,11 +318,10 @@ def main() -> int:
             artifact_ids=list(design_run.output_artifact_ids),
             evidence_ids=list(design_run.evidence_ids),
         )
-        design_eval = DshTestDesignEvaluator(launcher).evaluate_and_apply(
-            control,
-            design_run.task_id,
-            design_run.output_artifact_ids[0],
-        )
+        design_eval = DshTestDesignEvaluator(
+            launcher,
+            reviewer_allowed_tools=(RC7_RUNTIME_STATUS_TOOL, "read_text", "codegraph_query"),
+        ).evaluate_and_apply(control, design_run.task_id, design_run.output_artifact_ids[0])
         design_state = _task_state(control, design_run.task_id)
         stage(
             "TEST_DESIGN_SUFFICIENCY",
@@ -245,10 +336,6 @@ def main() -> int:
         if design_state != "PASS":
             raise RuntimeError("TEST_DESIGN_NOT_ACCEPTED:%s" % design_state)
 
-        # Reaching this boundary is itself a product integration check.  The
-        # next phase must be wired through the canonical Script Contract ->
-        # Script Readiness -> Field Case Runtime -> Execution path rather than
-        # bypassing RC7 with an ad-hoc pytest/maven command.
         script_task = next(
             row for row in truth.query("rc7_task", mission_id=mission_id)
             if row.get("node") == "SCRIPT_READINESS"
@@ -269,12 +356,12 @@ def main() -> int:
         print(json.dumps({"status": "HOLD", "reason": summary["blocking_reason"]}, ensure_ascii=False))
         return 2
 
-    summary["status"] = "PASS"
-    summary["blocking_reason"] = None
+    summary["status"] = "PASS" if not summary["known_product_gaps"] else "HOLD_PRODUCT_GAPS"
+    summary["blocking_reason"] = None if summary["status"] == "PASS" else "KNOWN_PRODUCT_GAPS_REQUIRE_STABLE_FIX"
     summary["r1_snapshot"] = _snapshot(TruthRuntime(r1), mission_id)
     _write(output / "fullflow-summary.json", summary)
-    print(json.dumps({"status": "PASS", "mission_id": mission_id}, ensure_ascii=False))
-    return 0
+    print(json.dumps({"status": summary["status"], "mission_id": mission_id}, ensure_ascii=False))
+    return 0 if summary["status"] == "PASS" else 2
 
 
 if __name__ == "__main__":
