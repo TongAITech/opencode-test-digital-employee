@@ -1,0 +1,244 @@
+name: AgileTC RC7 Minimal-DSH Fullflow
+
+on:
+  push:
+    branches: [validation/agiletc-fullflow]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agiletc-rc7-minimal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    services:
+      mysql:
+        image: mysql:5.7
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: case_manager
+        ports: ['3301:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      PFC_AITEST_STATE_DIR: ${{ github.workspace }}/validation-artifacts/runtime-state
+      PFC_WORKSPACE: ${{ github.workspace }}/target/AgileTC
+      LOCAL_MODEL_API_KEY: ollama-local
+      OLLAMA_HOST: 127.0.0.1:11434
+      DSH_PERMISSION_MODE: read-only
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: didi/AgileTC
+          ref: master
+          path: target/AgileTC
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+          cache: maven
+          cache-dependency-path: target/AgileTC/case-server/pom.xml
+
+      - name: Bootstrap harness and regression gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p validation-artifacts/{dsh,evidence,runtime-state/r1}
+          python -m pip install --disable-pip-version-check pytest
+          python -m pytest -q tests/test_rc7_external_input_readiness.py
+          git -C target/AgileTC rev-parse HEAD | tee validation-artifacts/agiletc-source-revision.txt
+          git -C target/AgileTC log -1 --format=fuller | tee validation-artifacts/agiletc-source-commit.txt
+
+      - name: Real AgileTC MySQL + Maven + HTTP
+        shell: bash
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq default-mysql-client
+          mysql -h127.0.0.1 -P3301 -uroot -proot case_manager < target/AgileTC/case-server/sql/case-server.sql
+          mysql -h127.0.0.1 -P3301 -uroot -proot -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='case_manager';" | tee validation-artifacts/agiletc-db-table-count.txt
+          (cd target/AgileTC/case-server && mvn -B -ntp test) 2>&1 | tee validation-artifacts/agiletc-maven-test.log
+          (cd target/AgileTC/case-server && nohup mvn -B -ntp -DskipTests spring-boot:run > ../../../validation-artifacts/agiletc-app.log 2>&1 & echo $! > ../../../validation-artifacts/agiletc-app.pid)
+          ok=0
+          for i in $(seq 1 90); do
+            code=$(curl -sS -o validation-artifacts/agiletc-http-body.html -w '%{http_code}' http://127.0.0.1:8094/case/caseList/1 || true)
+            printf 'attempt=%s http_code=%s\n' "$i" "$code" | tee -a validation-artifacts/agiletc-http-probe.txt
+            if [[ "$code" =~ ^(200|301|302)$ ]]; then ok=1; break; fi
+            sleep 2
+          done
+          test "$ok" = 1
+
+      - name: Install DSH, Ollama model and CodeGraph
+        shell: bash
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          npm install -g @deepseek-ai/dsh
+          dsh --version | tee validation-artifacts/dsh-version.txt
+          curl -fsSL https://ollama.com/install.sh | sh
+          nohup ollama serve > validation-artifacts/ollama.log 2>&1 &
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 2; done
+          ollama pull qwen3:4b | tee validation-artifacts/ollama-pull.log
+          mkdir -p validation-tools/codegraph
+          curl -fL --retry 3 -o validation-tools/codegraph/codegraph-server-linux-x64 https://github.com/codegraph-ai/CodeGraph/releases/download/v0.21.0/codegraph-server-linux-x64
+          echo '15ef4a714bb163284a00dfdad88a244280659c4b240328c38953cfcd4bfbffba  validation-tools/codegraph/codegraph-server-linux-x64' | sha256sum -c -
+          chmod +x validation-tools/codegraph/codegraph-server-linux-x64
+          validation-tools/codegraph/codegraph-server-linux-x64 --help > validation-artifacts/codegraph-help.txt
+          echo "PFC_CODEGRAPH_BIN=$GITHUB_WORKSPACE/validation-tools/codegraph/codegraph-server-linux-x64" >> "$GITHUB_ENV"
+
+      - name: Build minimal task patch and governed RC7 MCP patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE"
+          export PFC_PYTHON="$(which python)"
+          export PFC_GIT_BIN="$(which git)"
+          export PFC_JAVA_BIN="$(which java)"
+          export PFC_MAVEN_BIN="$(which mvn)"
+          python -m rc7_release.dsh --output validation-artifacts/dsh/rc7-mcp.patch.yml --home "$GITHUB_WORKSPACE" --python "$(which python)"
+          cat > validation-artifacts/dsh/model.patch.yml <<'YAML'
+          - id: llm-pi-ai
+            config:
+              providers:
+                local-ollama:
+                  apiKeyEnv: LOCAL_MODEL_API_KEY
+                  api: openai-completions
+                  baseURL: http://127.0.0.1:11434/v1
+                  models:
+                    - id: qwen3:4b
+                      contextWindow: 32768
+                      maxTokens: 4096
+          - id: agent-default-model
+            config:
+              provider: local-ollama
+              model: qwen3:4b
+          YAML
+          cat validation-artifacts/dsh/model.patch.yml validation/dsh/rc7-headless-minimal.patch.yml > validation-artifacts/dsh/task.patch.yml
+          cat validation-artifacts/dsh/model.patch.yml validation/dsh/rc7-headless-minimal.patch.yml validation-artifacts/dsh/rc7-mcp.patch.yml > validation-artifacts/dsh/agiletc.patch.yml
+          cp validation-artifacts/dsh/agiletc.patch.yml validation-artifacts/dsh/effective.patch.yml
+
+      - name: DSH positional task semantic probe with zero domain tools
+        id: task_probe
+        continue-on-error: true
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set +e
+          export PYTHONPATH="$GITHUB_WORKSPACE"
+          timeout --signal=TERM --kill-after=15s 270s dsh --profile headless --patch validation-artifacts/dsh/task.patch.yml --json \
+            'Return exactly one JSON object and nothing else: {"status":"PASS","proof":"positional_task_received"}. Do not call any tool.' \
+            > validation-artifacts/dsh-task-probe.jsonl 2> validation-artifacts/dsh-task-probe.stderr
+          rc=$?
+          echo "$rc" > validation-artifacts/dsh-task-probe.exit
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
+          text=Path('validation-artifacts/dsh-task-probe.jsonl').read_text(encoding='utf-8',errors='replace')
+          events=tuple(DshHeadlessWorkerLauncher._parse_json_lines(text))
+          final=DshHeadlessWorkerLauncher._final_json(events)
+          tool_calls=[e for e in events if str(e.get('type','')).lower()=='tool_call']
+          out={'process_exit':int(Path('validation-artifacts/dsh-task-probe.exit').read_text()),'final_json':final,'tool_call_count':len(tool_calls)}
+          ok=out['process_exit']==0 and out['tool_call_count']==0 and isinstance(final,dict) and final.get('status')=='PASS' and final.get('proof')=='positional_task_received'
+          out['status']='PASS' if ok else 'FAIL'
+          Path('validation-artifacts/dsh-task-probe-result.json').write_text(json.dumps(out,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(out,sort_keys=True))
+          raise SystemExit(0 if ok else 2)
+          PY
+
+      - name: Real DSH to RC7 MCP runtime-status semantic probe
+        id: mcp_probe
+        if: steps.task_probe.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 7
+        shell: bash
+        run: |
+          set +e
+          export PYTHONPATH="$GITHUB_WORKSPACE"
+          export PFC_PYTHON="$(which python)"
+          export PFC_GIT_BIN="$(which git)"
+          export PFC_JAVA_BIN="$(which java)"
+          export PFC_MAVEN_BIN="$(which mvn)"
+          timeout --signal=TERM --kill-after=15s 390s dsh --profile headless --patch validation-artifacts/dsh/agiletc.patch.yml --json \
+            'Call the pfc_aitest_rc7 runtime_status tool exactly once. A text-only answer is failure. After the real tool result return exactly {"status":"PASS","proof":"runtime_status_called"}.' \
+            > validation-artifacts/dsh-smoke.jsonl 2> validation-artifacts/dsh-smoke.stderr
+          rc=$?
+          echo "$rc" > validation-artifacts/dsh-smoke.exit
+          if [[ "$rc" -ne 0 ]]; then exit "$rc"; fi
+          python validation/validate_dsh_smoke.py --input validation-artifacts/dsh-smoke.jsonl --output validation-artifacts/dsh-smoke-result.json
+
+      - name: Run RC7 DSH digital employee fullflow against AgileTC
+        id: fullflow
+        if: steps.task_probe.outcome == 'success' && steps.mcp_probe.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 45
+        shell: bash
+        run: |
+          set +e
+          export PYTHONPATH="$GITHUB_WORKSPACE"
+          export PFC_PYTHON="$(which python)"
+          export PFC_GIT_BIN="$(which git)"
+          export PFC_JAVA_BIN="$(which java)"
+          export PFC_MAVEN_BIN="$(which mvn)"
+          revision=$(cat validation-artifacts/agiletc-source-revision.txt)
+          timeout --signal=TERM --kill-after=30s 2640s python validation/agiletc_rc7_fullflow.py \
+            --target target/AgileTC --source-revision "$revision" --dsh-bin "$(which dsh)" \
+            --patch validation-artifacts/dsh/agiletc.patch.yml --output-root validation-artifacts
+          rc=$?
+          echo "$rc" > validation-artifacts/rc7-fullflow.exit
+          exit "$rc"
+
+      - name: Persist boundary when fullflow did not start
+        if: always() && steps.fullflow.outcome == 'skipped'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          tp=Path('validation-artifacts/dsh-task-probe-result.json')
+          mp=Path('validation-artifacts/dsh-smoke-result.json')
+          reason='DSH_TASK_PROBE_FAILED'
+          if tp.exists() and json.loads(tp.read_text()).get('status')=='PASS': reason='DSH_RC7_MCP_SMOKE_FAILED'
+          if mp.exists() and json.loads(mp.read_text()).get('status')=='FAIL': reason='DSH_RC7_MCP_SEMANTIC_PROOF_FAILED'
+          p={'schema_version':'pfc.aitest.rc7.agiletc-fullflow-validation.v2','status':'HOLD','blocking_reason':reason,'phase':'DSH_BOUNDARY'}
+          Path('validation-artifacts/fullflow-summary.json').write_text(json.dumps(p,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(p,sort_keys=True))
+          PY
+
+      - name: Upload durable evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agiletc-rc7-minimal-dsh-${{ github.sha }}
+          path: validation-artifacts
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce evidence-based result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f validation-artifacts/fullflow-summary.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('validation-artifacts/fullflow-summary.json').read_text())
+          print('FINAL_RC7_VALIDATION_STATUS='+str(d.get('status')))
+          print('BLOCKING_REASON='+str(d.get('blocking_reason')))
+          raise SystemExit(0 if d.get('status')=='PASS' else 2)
+          PY
