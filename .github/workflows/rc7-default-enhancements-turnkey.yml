@@ -1,0 +1,180 @@
+name: RC7 Default Enhancements Turnkey
+
+on:
+  push:
+    branches:
+      - delivery/rc7-default-enhancements
+    paths:
+      - .github/workflows/rc7-default-enhancements-turnkey.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_COMMIT: ${{ github.sha }}
+
+jobs:
+  windows-turnkey:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact enhanced product source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Full RC7 Windows regression
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pytest requests python-docx openpyxl python-pptx pypdf
+          if ($LASTEXITCODE -ne 0) { throw 'dependency install failed' }
+          python -m compileall -q rc6_runtime rc6_release rc7_runtime rc7_release rc7_admin
+          if ($LASTEXITCODE -ne 0) { throw 'compileall failed' }
+          $tests = Get-ChildItem tests -Filter 'test_rc7_*.py' | ForEach-Object { $_.FullName }
+          if (-not $tests) { throw 'No RC7 tests found' }
+          python -m pytest -q $tests
+          if ($LASTEXITCODE -ne 0) { throw 'RC7 regression failed' }
+
+      - name: Assemble all offline payloads
+        shell: pwsh
+        run: |
+          ./packaging/rc7/build-final-payloads.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'offline payload assembly failed' }
+
+      - name: Build unified turnkey package
+        shell: pwsh
+        run: |
+          python -m rc7_release.package build --repo-root . --output dist --source-commit $env:SOURCE_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'base package build failed' }
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          python -m rc7_release.final_unified_overlay --package-root $pkg --output dist --source-commit $env:SOURCE_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'unified overlay failed' }
+          New-Item -ItemType Directory -Force dist/qualification | Out-Null
+
+      - name: Professional toolchain qualification
+        shell: pwsh
+        run: |
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          $py = Join-Path $pkg 'workspace-template/runtime/python/python.exe'
+          $cg = Join-Path $pkg 'workspace-template/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe'
+          & $py -m rc7_release.toolchain_qualification --codegraph-bin $cg --output dist/qualification/professional-toolchains.json
+          if ($LASTEXITCODE -ne 0) { throw 'toolchain qualification failed' }
+          & $py -m rc7_release.dsh_plugins --home $pkg --profile web --dry-run --output dist/qualification/dsh-plugin-payload.json
+          if ($LASTEXITCODE -ne 0) { throw 'DSH plugin payload qualification failed' }
+          & $py -m rc7_release.final_unified_qualification --home $pkg --output dist/qualification/final-unified.json --require-pass
+          if ($LASTEXITCODE -ne 0) { throw 'final unified qualification failed' }
+          & $py -m rc7_release.bank_binding probe --output dist/qualification/bank-bindings.json
+          if ($LASTEXITCODE -ne 0) { throw 'bank binding probe failed' }
+
+      - name: Default enhancement hard gates
+        shell: pwsh
+        run: |
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          $py = Join-Path $pkg 'workspace-template/runtime/python/python.exe'
+          $state = Join-Path $env:RUNNER_TEMP 'rc7-enhancement-state'
+          New-Item -ItemType Directory -Force $state | Out-Null
+          & $py -m rc7_release.dsh --home $pkg --python $py --output (Join-Path $state 'rc7-dsh.patch.yml') --require-default-enhancements
+          if ($LASTEXITCODE -ne 0) { throw 'strict enhancement patch generation failed' }
+          $patch = Get-Content (Join-Path $state 'rc7-dsh.patch.yml') -Raw
+          foreach ($needle in @('id: vision-router','localOnlyVision: true','freeFallback: false','id: memento','writePolicy: ask','language: zh')) {
+            if (-not $patch.Contains($needle)) { throw "enhancement patch gate missing: $needle" }
+          }
+          $policy = Get-Content (Join-Path $state 'rc7-tool-policy.ts') -Raw
+          if (-not $policy.Contains('runtime-state/r1/event-stream.jsonl')) { throw 'canonical R1 truth policy missing' }
+          if (-not $policy.Contains('Memento/memory is non-authoritative')) { throw 'memento non-truth policy missing' }
+          $plugins = Get-Content dist/qualification/dsh-plugin-payload.json | ConvertFrom-Json
+          if ($plugins.status -ne 'PASS') { throw 'plugin payload not PASS' }
+          foreach ($name in @('dsh-vision-router','dsh-memento')) {
+            if (-not $plugins.plugins.$name.bundled) { throw "default enhancement not bundled: $name" }
+            if ($plugins.plugins.$name.tier -ne 'P1_DEFAULT_RUNTIME') { throw "wrong enhancement tier: $name" }
+          }
+          $cmd = Get-Content (Join-Path $pkg 'packaging/rc7/AITEST.cmd') -Raw
+          foreach ($needle in @('PFC_RC7_DSH_BASE_PROFILE=web','PFC_RC7_DSH_PROFILE=rc7-bank','rc7_release.dsh_runtime_profile','--require-default-enhancements')) {
+            if (-not $cmd.Contains($needle)) { throw "Windows turnkey startup gate missing: $needle" }
+          }
+          $q = [ordered]@{
+            status='PASS'
+            source_commit=$env:SOURCE_COMMIT
+            vision_router_default_active='PASS'
+            vision_router_local_only='PASS'
+            public_remote_vision_forbidden='PASS'
+            memento_default_active='PASS'
+            memento_truth_authority='NON_AUTHORITATIVE_R1_EVENT_STREAM_ONLY'
+            memento_db_scope='RC7_RUNTIME_STATE'
+            protected_web_profile_policy='READ_ONLY_CLONE_REQUIRED'
+            windows_runtime_profile='rc7-bank'
+          }
+          $q | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 dist/qualification/default-enhancements-qualification.json
+
+      - name: Seal archive and clean-unpack qualification
+        shell: pwsh
+        run: |
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          python -m rc7_release.final_archive --home $pkg --output dist --source-commit $env:SOURCE_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'archive sealing failed' }
+          $zip = Get-ChildItem 'dist/PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-*.zip' | Select-Object -First 1
+          if (-not $zip) { throw 'Final ZIP missing' }
+          python -m rc7_release.delivery_qualification --zip $zip.FullName --source-commit $env:SOURCE_COMMIT --output dist/qualification/delivery.json --require-pass
+          if ($LASTEXITCODE -ne 0) { throw 'clean unpack delivery qualification failed' }
+          $py = Join-Path $pkg 'workspace-template/runtime/python/python.exe'
+          & $py -m rc7_release.workspace_install --source $pkg --target "$env:RUNNER_TEMP\PFC\AITest-RC7" --dry-run --output dist/qualification/install-dry-run.json
+          if ($LASTEXITCODE -ne 0) { throw 'installer dry-run failed' }
+
+      - name: Measure final archive
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = Get-ChildItem 'dist/PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-*.zip' | Select-Object -First 1
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($zip.FullName)
+          $count = $archive.Entries.Count
+          $uncompressed = ($archive.Entries | Measure-Object Length -Sum).Sum
+          $archive.Dispose()
+          $sha = (Get-FileHash -Algorithm SHA256 $zip.FullName).Hash.ToLowerInvariant()
+          $short = $env:SOURCE_COMMIT.Substring(0,12)
+          $releaseName = "PFC-AITest-RC7-TURNKEY-DEFAULT-ENHANCEMENTS-WIN10-$short.zip"
+          Copy-Item $zip.FullName (Join-Path dist $releaseName)
+          @{
+            status='PASS'; source_commit=$env:SOURCE_COMMIT; archive_name=$releaseName;
+            archive_size_bytes=(Get-Item (Join-Path dist $releaseName)).Length; archive_sha256=$sha;
+            file_count=$count; uncompressed_size_bytes=[long]$uncompressed;
+            truth='R1_EVENT_STREAM'; real_bank_mission='HOLD_FIELD_EVIDENCE_REQUIRED';
+            requirement_e2e='HOLD_REAL_PROVIDER_FIELD_EVIDENCE_REQUIRED';
+            vision_router='DEFAULT_ON_LOCAL_ONLY'; memento='DEFAULT_ON_NON_AUTHORITATIVE'
+          } | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 dist/turnkey-metadata.json
+          "$sha  $releaseName" | Set-Content -Encoding ascii dist/RC7-SHA256SUMS.txt
+
+      - name: Upload qualification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc7-default-enhancements-evidence-${{ github.sha }}
+          path: |
+            dist/turnkey-metadata.json
+            dist/RC7-SHA256SUMS.txt
+            dist/qualification/*.json
+          compression-level: 9
+          retention-days: 30
+
+      - name: Publish verified full ZIP prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $short = $env:SOURCE_COMMIT.Substring(0,12)
+          $tag = "rc7-internal-enhanced-$short"
+          $asset = "dist/PFC-AITest-RC7-TURNKEY-DEFAULT-ENHANCEMENTS-WIN10-$short.zip"
+          gh release create $tag --repo TongAITech/opencode-test-digital-employee --target $env:SOURCE_COMMIT --title "RC7 Internal Turnkey Default Enhancements $short" --prerelease --notes "Verified Windows turnkey candidate. Vision Router and Memento are default-on through runtime-only patch; protected bank web profile remains read-only and Vision Router is forced local-only. Engineering/delivery gates PASS. Real bank mission and real-provider Requirement E2E remain field-evidence HOLD; this is not Bank Final."
+          if ($LASTEXITCODE -ne 0) { throw 'release creation failed' }
+          gh release upload $tag $asset dist/RC7-SHA256SUMS.txt dist/qualification/default-enhancements-qualification.json --repo TongAITech/opencode-test-digital-employee
+          if ($LASTEXITCODE -ne 0) { throw 'release asset upload failed' }
