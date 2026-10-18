@@ -9,10 +9,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: agiletc-rc7-fullflow-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   agiletc-fullflow:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 75
     services:
       mysql:
         image: mysql:5.7
@@ -101,6 +105,7 @@ jobs:
         id: app_probe
         continue-on-error: true
         shell: bash
+        timeout-minutes: 5
         run: |
           set +e
           cd target/AgileTC/case-server
@@ -127,6 +132,7 @@ jobs:
 
       - name: Start local OpenAI-compatible model for DSH
         shell: bash
+        timeout-minutes: 12
         run: |
           set -euo pipefail
           curl -fsSL https://ollama.com/install.sh | sh
@@ -140,6 +146,7 @@ jobs:
 
       - name: Install real CodeGraph Linux capability
         shell: bash
+        timeout-minutes: 5
         run: |
           set -euo pipefail
           mkdir -p validation-tools/codegraph
@@ -172,7 +179,7 @@ jobs:
                   models:
                     - id: qwen3:4b
                       contextWindow: 32768
-                      maxTokens: 8192
+                      maxTokens: 4096
           - id: agent-default-model
             config:
               provider: local-ollama
@@ -184,6 +191,7 @@ jobs:
       - name: Prove DSH headless can call the real RC7 MCP tool
         id: dsh_smoke
         continue-on-error: true
+        timeout-minutes: 5
         shell: bash
         run: |
           set +e
@@ -192,16 +200,23 @@ jobs:
           export PFC_GIT_BIN="$(which git)"
           export PFC_JAVA_BIN="$(which java)"
           export PFC_MAVEN_BIN="$(which mvn)"
-          dsh --profile headless --patch validation-artifacts/dsh/agiletc.patch.yml --json \
+          timeout --signal=TERM --kill-after=15s 240s \
+            dsh --profile headless --patch validation-artifacts/dsh/agiletc.patch.yml --json \
             'Call the pfc_aitest_rc7 runtime_status tool exactly once. Do not guess. Then return exactly one JSON object: {"status":"PASS","proof":"runtime_status_called"}.' \
             2>&1 | tee validation-artifacts/dsh-smoke.jsonl
           rc=${PIPESTATUS[0]}
           echo "$rc" > validation-artifacts/dsh-smoke.exit
+          if [[ "$rc" == "124" || "$rc" == "137" ]]; then
+            echo 'DSH_SMOKE_TIMEOUT' | tee validation-artifacts/dsh-smoke.boundary
+          else
+            echo "DSH_SMOKE_EXIT=$rc" | tee validation-artifacts/dsh-smoke.boundary
+          fi
           exit "$rc"
 
       - name: Run RC7 digital employee against AgileTC
         id: rc7_fullflow
         continue-on-error: true
+        timeout-minutes: 45
         shell: bash
         run: |
           set +e
@@ -211,12 +226,13 @@ jobs:
           export PFC_JAVA_BIN="$(which java)"
           export PFC_MAVEN_BIN="$(which mvn)"
           revision=$(cat validation-artifacts/agiletc-source-revision.txt)
-          python validation/agiletc_rc7_fullflow.py \
-            --target target/AgileTC \
-            --source-revision "$revision" \
-            --dsh-bin "$(which dsh)" \
-            --patch validation-artifacts/dsh/agiletc.patch.yml \
-            --output-root validation-artifacts
+          timeout --signal=TERM --kill-after=30s 2640s \
+            python validation/agiletc_rc7_fullflow.py \
+              --target target/AgileTC \
+              --source-revision "$revision" \
+              --dsh-bin "$(which dsh)" \
+              --patch validation-artifacts/dsh/agiletc.patch.yml \
+              --output-root validation-artifacts
           rc=$?
           echo "$rc" > validation-artifacts/rc7-fullflow.exit
           exit "$rc"
@@ -229,6 +245,7 @@ jobs:
           cat validation-artifacts/agiletc-maven-test.exit 2>/dev/null || true
           echo '===== DSH smoke ====='
           cat validation-artifacts/dsh-smoke.exit 2>/dev/null || true
+          cat validation-artifacts/dsh-smoke.boundary 2>/dev/null || true
           echo '===== RC7 fullflow ====='
           cat validation-artifacts/rc7-fullflow.exit 2>/dev/null || true
           cat validation-artifacts/fullflow-summary.json 2>/dev/null || true
