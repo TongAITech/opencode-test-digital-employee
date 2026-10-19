@@ -12,6 +12,7 @@ from . import dsh_plugins
 
 
 PROFILE_MARKER = ".rc7-profile-origin.json"
+PROFILE_SCHEMA = "pfc.aitest.rc7.dsh-runtime-profile.v2"
 DEFAULT_BASE_PROFILE = "web"
 DEFAULT_RUNTIME_PROFILE = "rc7-bank"
 
@@ -79,10 +80,37 @@ def _safe_runtime_name(name: str) -> None:
 def _copy_bank_profile(base: Path, target: Path) -> None:
     if target.exists():
         shutil.rmtree(str(target))
-    # Follow links into an independent physical copy.  The clone may be mutated
-    # by the DSH package manager; the protected bank profile must never share a
-    # writable node_modules target with the RC7 clone.
+    # Follow links into an independent physical copy. The RC7 runtime clone may
+    # later be repaired after DSH has started, but the protected bank profile
+    # must never share writable package-manager state with that clone.
     shutil.copytree(str(base), str(target), symlinks=False)
+
+
+def _package_dir(profile: Path, package: str) -> Path:
+    if package.startswith("@"):
+        scope, name = package.split("/", 1)
+        return profile / "node_modules" / scope / name
+    return profile / "node_modules" / package
+
+
+def required_plugin_state(profile: Path) -> Dict[str, object]:
+    plugins: Dict[str, Dict[str, object]] = {}
+    missing: List[str] = []
+    for package in dsh_plugins.REQUIRED:
+        root = _package_dir(profile, package)
+        manifest = root / "package.json"
+        present = manifest.is_file()
+        if not present:
+            missing.append(package)
+        plugins[package] = {
+            "present_in_clone": present,
+            "path": str(root),
+        }
+    return {
+        "ready_from_clone": not missing,
+        "missing": missing,
+        "plugins": plugins,
+    }
 
 
 def prepare_runtime_profile(
@@ -91,6 +119,15 @@ def prepare_runtime_profile(
     base_profile: str = DEFAULT_BASE_PROFILE,
     runtime_profile: str = DEFAULT_RUNTIME_PROFILE,
 ) -> Dict[str, object]:
+    """Prepare a clean RC7 runtime profile without invoking a package manager.
+
+    Bank field evidence showed that ``dsh plugin add`` can fail inside the host
+    npm/package-manager chain before DSH gets a chance to start. Startup must
+    therefore be monotonic: clone the protected bank profile, prove the source
+    stayed unchanged, report plugin readiness, and *never* install packages in
+    this pre-start phase. Persistent plugin repair belongs to the post-start,
+    non-blocking bootstrap path.
+    """
     _safe_runtime_name(runtime_profile)
     if base_profile not in dsh_plugins.protected_profiles():
         raise DshRuntimeProfileError("RC7_BASE_PROFILE_MUST_BE_PROTECTED")
@@ -104,6 +141,7 @@ def prepare_runtime_profile(
             "base_profile": base_profile,
             "runtime_profile": runtime_profile,
             "field_binding_required": True,
+            "package_manager_prestart": "FORBIDDEN",
         }
 
     before = profile_snapshot(base_profile)
@@ -112,10 +150,12 @@ def prepare_runtime_profile(
             "status": "FAIL",
             "reason": "BANK_DSH_BASE_PROFILE_CONTRACT_EMPTY",
             "base_profile_before": before,
+            "package_manager_prestart": "FORBIDDEN",
         }
 
     marker_path = target / PROFILE_MARKER
     rebuild_reason: Optional[str] = None
+    marker: Dict[str, object] = {}
     if not target.is_dir():
         rebuild_reason = "RUNTIME_PROFILE_MISSING"
     else:
@@ -123,21 +163,28 @@ def prepare_runtime_profile(
             marker = json.loads(marker_path.read_text(encoding="utf-8")) if marker_path.is_file() else {}
         except Exception:
             marker = {}
-        if marker.get("base_profile") != base_profile:
+        if marker.get("schema_version") != PROFILE_SCHEMA:
+            # v1 runtime clones may have been partially mutated by a failed
+            # pre-start dsh plugin add. Never reuse them after this repair.
+            rebuild_reason = "RUNTIME_PROFILE_POLICY_UPGRADE"
+        elif marker.get("base_profile") != base_profile:
             rebuild_reason = "RUNTIME_PROFILE_ORIGIN_MISMATCH"
         elif marker.get("base_digest") != before.get("digest"):
             rebuild_reason = "BANK_BASE_PROFILE_DRIFT"
 
     if rebuild_reason:
         _copy_bank_profile(base, target)
+        marker_path = target / PROFILE_MARKER
         marker_path.write_text(
             json.dumps(
                 {
-                    "schema_version": "pfc.aitest.rc7.dsh-runtime-profile.v1",
+                    "schema_version": PROFILE_SCHEMA,
                     "base_profile": base_profile,
                     "base_digest": before.get("digest"),
                     "runtime_profile": runtime_profile,
                     "clone_policy": "PHYSICAL_COPY_PROTECTED_SOURCE_IMMUTABLE",
+                    "startup_policy": "CLONE_FIRST_NO_PACKAGE_MANAGER",
+                    "plugin_bootstrap_policy": "POST_START_NON_BLOCKING",
                 },
                 ensure_ascii=False,
                 sort_keys=True,
@@ -147,13 +194,9 @@ def prepare_runtime_profile(
             encoding="utf-8",
         )
 
-    install = dsh_plugins.install(
-        Path(home).resolve(),
-        runtime_profile,
-        dry_run=False,
-        allow_profile_mutation=True,
-        include_diagnostic=False,
-    )
+    # This is deliberately only an observation. Do not call dsh_plugins.install
+    # here: DSH must be allowed to start even when its package manager is broken.
+    plugin_state = required_plugin_state(target)
     after = profile_snapshot(base_profile)
     protected_unchanged = (
         before.get("exists") == after.get("exists")
@@ -166,18 +209,14 @@ def prepare_runtime_profile(
             "base_profile_before": before,
             "base_profile_after": after,
             "runtime_profile": runtime_profile,
-            "install": install,
-        }
-    if install.get("status") != "PASS":
-        return {
-            "status": install.get("status", "FAIL"),
-            "reason": "RC7_RUNTIME_PLUGIN_INSTALL_NOT_READY",
-            "base_profile_before": before,
-            "base_profile_after": after,
-            "runtime_profile": runtime_profile,
-            "install": install,
+            "package_manager_prestart": "FORBIDDEN",
         }
 
+    capability_state = (
+        "READY_FROM_CLONE"
+        if plugin_state.get("ready_from_clone")
+        else "DEGRADED_MISSING_REQUIRED_PLUGIN_MANIFESTS"
+    )
     return {
         "status": "PASS",
         "base_profile": base_profile,
@@ -186,7 +225,19 @@ def prepare_runtime_profile(
         "rebuild_reason": rebuild_reason,
         "protected_bank_profile_integrity": "PASS",
         "base_profile_digest": before.get("digest"),
-        "install": install,
+        "startup_policy": "CLONE_FIRST_NO_PACKAGE_MANAGER",
+        "package_manager_prestart": "FORBIDDEN",
+        "plugin_bootstrap_policy": "POST_START_NON_BLOCKING",
+        "persistent_install_attempted": False,
+        "required_plugin_state": plugin_state,
+        "capability_state": capability_state,
+        "startup_blocked_by_plugin_readiness": False,
+        # Compatibility field for older evidence readers. This is intentionally
+        # SKIPPED, not PASS: no install occurred in the startup path.
+        "install": {
+            "status": "SKIPPED",
+            "reason": "PRESTART_PACKAGE_MANAGER_FORBIDDEN",
+        },
     }
 
 
@@ -205,7 +256,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             runtime_profile=args.runtime_profile,
         )
     except Exception as exc:
-        result = {"status": "FAIL", "reason": str(exc)}
+        result = {"status": "FAIL", "reason": str(exc), "package_manager_prestart": "FORBIDDEN"}
     text = json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2)
     if args.output:
         target = Path(args.output)
