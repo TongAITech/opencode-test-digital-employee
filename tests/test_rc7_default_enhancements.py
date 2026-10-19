@@ -107,12 +107,20 @@ def test_protected_web_profile_still_cannot_be_mutated(tmp_path: Path) -> None:
     assert result["protected_profile_mutation"] == "FORBIDDEN"
 
 
-def test_windows_turnkey_uses_clone_and_strict_runtime_patch() -> None:
+def test_windows_turnkey_clone_startup_has_no_prestart_persistent_install() -> None:
     root = Path(__file__).resolve().parents[1]
     cmd = (root / "packaging" / "rc7" / "AITEST.cmd").read_text(encoding="utf-8")
+    helper = (root / "packaging" / "rc7" / "DSH-PLUGIN-BOOTSTRAP.cmd").read_text(encoding="utf-8")
     assert "PFC_RC7_DSH_BASE_PROFILE=web" in cmd
     assert "PFC_RC7_DSH_PROFILE=rc7-bank" in cmd
     assert "rc7_release.dsh_runtime_profile" in cmd
     assert "--require-default-enhancements" in cmd
+    assert "rc7_release.dsh_post_bootstrap" in cmd
+    assert "--allow-profile-mutation" not in cmd
+    assert "--attempt-persistent-install" not in cmd
+    assert "Starting DSH now" in cmd
     assert "LOCAL-ONLY" in cmd
     assert "R1 NON-AUTHORITATIVE" in cmd
+    assert "--attempt-persistent-install" in helper
+    assert "POST-START" in helper
+    assert "NON-BLOCKING" in helper
