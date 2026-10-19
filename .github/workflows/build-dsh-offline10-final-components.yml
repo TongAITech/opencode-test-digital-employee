@@ -1,0 +1,97 @@
+name: Build DSH Offline10 Final Components
+
+on:
+  push:
+    branches: [build/dsh-plugin-pack-9-offline-20261019]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+      - name: Build exact offline components
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          git config --global core.longpaths true
+          git config --global url."https://github.com/".insteadOf ssh://git@github.com/
+          git config --global --add url."https://github.com/".insteadOf git@github.com:
+          $npm=(Get-Command npm.cmd -ErrorAction Stop).Source
+          node --version
+          & $npm --version
+
+          $out=Join-Path $env:RUNNER_TEMP 'offline10'
+          $vendor=Join-Path $out 'payload\vendor'
+          $modules=Join-Path $vendor 'node_modules'
+          $browser=Join-Path $out 'runtime\browser\browserskill'
+          $extension=Join-Path $out 'runtime\browser\extension'
+          New-Item -ItemType Directory -Force -Path $modules,$browser,$extension|Out-Null
+
+          $plugins=@(
+            @{n='dsh-routing-suite';t='npm';s='dsh-routing-suite'},
+            @{n='@wxg-prc-cpg/browser-skill-dsh-plugin';t='npm';s='@wxg-prc-cpg/browser-skill-dsh-plugin'},
+            @{n='dsh-context';t='npm';s='dsh-context'},
+            @{n='dsh-plugin-bridge';t='npm';s='dsh-plugin-bridge'},
+            @{n='@nanmicoder/dsh-agent-teams';t='npm';s='@nanmicoder/dsh-agent-teams'},
+            @{n='@perrylink/dsh-plugin-doctor';t='npm';s='@perrylink/dsh-plugin-doctor'},
+            @{n='dsh-vision-router';t='npm';s='dsh-vision-router'},
+            @{n='dsh-plugin-anydoc';t='git';s='github:beancookie/dsh-plugin-anydoc#main'},
+            @{n='dsh-memento';t='npm';s='dsh-memento'},
+            @{n='dsh-error-handling';t='git';s='github:satan9394/dsh-error-handling#33802021af78fd8717ce53fe2c731dfd4195bf0d'}
+          )
+
+          function PackagePath([string]$name){
+            if($name.StartsWith('@')){$a=$name.Split('/');return Join-Path $modules ($a[0]+'\'+$a[1])}
+            return Join-Path $modules $name
+          }
+          function RuntimeDeps($m,[string]$dst,[string]$safe){
+            $deps=[ordered]@{}; if($m.dependencies){foreach($x in $m.dependencies.PSObject.Properties){$deps[$x.Name]=$x.Value}}
+            $opt=[ordered]@{}; if($m.optionalDependencies){foreach($x in $m.optionalDependencies.PSObject.Properties){$opt[$x.Name]=$x.Value}}
+            if(($deps.Count+$opt.Count)-eq 0){return 0}
+            $stage=Join-Path $env:RUNNER_TEMP ('deps-'+$safe);New-Item -ItemType Directory -Force -Path $stage|Out-Null
+            ([ordered]@{name=('pfc-'+$safe);version='1.0.0';private=$true;dependencies=$deps;optionalDependencies=$opt}|ConvertTo-Json -Depth 10)|Set-Content -Encoding UTF8 (Join-Path $stage 'package.json')
+            Push-Location $stage
+            try{& $npm install --omit=dev --legacy-peer-deps --no-audit --no-fund --package-lock=false;if($LASTEXITCODE -ne 0){throw "deps failed $($m.name)"}}finally{Pop-Location}
+            $src=Join-Path $stage 'node_modules';if(Test-Path $src){$dm=Join-Path $dst 'node_modules';New-Item -ItemType Directory -Force -Path $dm|Out-Null;robocopy $src $dm /E /NFL /NDL /NJH /NJS /NC /NS|Out-Null;if($LASTEXITCODE -gt 7){throw "copy deps failed $($m.name)"}}
+            return ($deps.Count+$opt.Count)
+          }
+
+          $resolved=@();$work=Join-Path $env:RUNNER_TEMP 'packs';New-Item -ItemType Directory -Force -Path $work|Out-Null
+          foreach($p in $plugins){
+            $spec=$p.s
+            if($p.t -eq 'npm'){$v=((& $npm view $spec version --json 2>&1|Out-String)|ConvertFrom-Json);if(-not $v){throw "version missing $($p.n)"};$spec="$spec@$v"}
+            $safe=($p.n -replace '[@/]','_');$wd=Join-Path $work $safe;New-Item -ItemType Directory -Force -Path $wd|Out-Null;Push-Location $wd
+            try{
+              Write-Host "PACK $($p.n) <= $spec"
+              $txt=(& $npm pack $spec --json --ignore-scripts 2>&1|Out-String);if($LASTEXITCODE -ne 0){throw "pack failed $($p.n)`n$txt"};$rows=$txt|ConvertFrom-Json;if($rows -is [array]){$r=$rows[-1]}else{$r=$rows}
+              $ex=Join-Path $wd 'ex';New-Item -ItemType Directory -Force -Path $ex|Out-Null;tar -xzf (Join-Path $wd $r.filename) -C $ex;if($LASTEXITCODE -ne 0){throw "extract failed $($p.n)"}
+              $dst=PackagePath $p.n;New-Item -ItemType Directory -Force -Path (Split-Path $dst -Parent)|Out-Null;if(Test-Path $dst){Remove-Item -Recurse -Force $dst};Move-Item (Join-Path $ex 'package') $dst
+              $mp=Join-Path $dst 'package.json';$m=Get-Content $mp -Raw|ConvertFrom-Json;if($m.name -ne $p.n){throw "name mismatch $($p.n) -> $($m.name)"};$dc=RuntimeDeps $m $dst $safe
+              $resolved += [ordered]@{name=$p.n;requested=$p.s;packed=$spec;version=$m.version;runtime_dependency_roots=$dc;engines=$m.engines;peerDependencies=$m.peerDependencies;package_json_sha256=(Get-FileHash $mp -Algorithm SHA256).Hash.ToLowerInvariant()}
+            }finally{Pop-Location}
+          }
+
+          $bsk=Join-Path $env:RUNNER_TEMP 'bsk.zip';Invoke-WebRequest -UseBasicParsing 'https://github.com/Tencent/BrowserSkill/releases/download/cli-v0.3.3/bsk-v0.3.3-x86_64-pc-windows-msvc.zip' -OutFile $bsk
+          $bh=(Get-FileHash $bsk -Algorithm SHA256).Hash.ToLowerInvariant();if($bh -ne '5ed6aa00e60c0538a637febac6bfbc6a0bd55a11083cd90a987968cff4bc0e02'){throw 'bsk sha mismatch'};Expand-Archive $bsk $browser -Force;$be=Get-ChildItem $browser -Filter bsk.exe -Recurse|Select-Object -First 1;if(-not $be){throw 'bsk.exe missing'};if($be.FullName -ne (Join-Path $browser 'bsk.exe')){Copy-Item $be.FullName (Join-Path $browser 'bsk.exe') -Force}
+          $ez=Join-Path $extension 'browser-skill-extension-v0.3.3-chrome.zip';Invoke-WebRequest -UseBasicParsing 'https://github.com/Tencent/BrowserSkill/releases/download/ext-v0.3.3/browser-skill-extension-v0.3.3-chrome.zip' -OutFile $ez;$eh=(Get-FileHash $ez -Algorithm SHA256).Hash.ToLowerInvariant();if($eh -ne '10ef76e68f352893fa22dd4cce2f1b96cb90ed957b815d656e13180d07d3c6ea'){throw 'extension sha mismatch'}
+
+          foreach($p in $plugins){if(-not(Test-Path (Join-Path (PackagePath $p.n) 'package.json'))){throw "VERIFY_MISSING $($p.n)"}}
+          ([ordered]@{schema='pfc.aitest.offline10.components.v2';target='windows-x64';node=(node --version);npm=(& $npm --version);plugin_count=10;plugins=$resolved;browser_skill=[ordered]@{cli='0.3.3';cli_sha256=$bh;extension='0.3.3';extension_sha256=$eh}}|ConvertTo-Json -Depth 15)|Set-Content -Encoding UTF8 (Join-Path $out 'COMPONENTS_MANIFEST.json')
+          $payload=Join-Path $out 'payload\dsh-plugins-offline10-payload.zip';Compress-Archive -Path (Join-Path $vendor '*') -DestinationPath $payload -CompressionLevel Optimal -Force
+          $final=Join-Path $env:GITHUB_WORKSPACE 'DSH-OFFLINE10-COMPONENTS-WIN-X64.zip';Compress-Archive -Path (Join-Path $out '*') -DestinationPath $final -CompressionLevel Optimal -Force
+          Write-Host "SIZE=$((Get-Item $final).Length)";Get-FileHash $final -Algorithm SHA256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DSH-OFFLINE10-COMPONENTS-WIN-X64-FINAL
+          path: DSH-OFFLINE10-COMPONENTS-WIN-X64.zip
+          if-no-files-found: error
+          retention-days: 7
