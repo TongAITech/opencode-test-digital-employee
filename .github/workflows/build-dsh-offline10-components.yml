@@ -1,0 +1,143 @@
+name: Build DSH Offline10 Components
+
+on:
+  push:
+    branches:
+      - build/dsh-plugin-pack-9-offline-20261019
+
+permissions:
+  contents: read
+
+jobs:
+  build-components:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+
+      - name: Materialize 10 plugins and Windows runtime dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          git config --global core.longpaths true
+          $npm=(Get-Command npm.cmd -ErrorAction Stop).Source
+          Write-Host "npm=$npm"
+          & node --version
+          & $npm --version
+
+          $Out=Join-Path $env:RUNNER_TEMP 'offline10-components'
+          $Vendor=Join-Path $Out 'payload\vendor'
+          $Modules=Join-Path $Vendor 'node_modules'
+          $Browser=Join-Path $Out 'runtime\browser\browserskill'
+          $Extension=Join-Path $Out 'runtime\browser\extension'
+          New-Item -ItemType Directory -Force -Path $Modules,$Browser,$Extension | Out-Null
+
+          $plugins=@(
+            @{name='dsh-routing-suite';type='npm';spec='dsh-routing-suite'},
+            @{name='@wxg-prc-cpg/browser-skill-dsh-plugin';type='npm';spec='@wxg-prc-cpg/browser-skill-dsh-plugin'},
+            @{name='dsh-context';type='npm';spec='dsh-context'},
+            @{name='dsh-plugin-bridge';type='npm';spec='dsh-plugin-bridge'},
+            @{name='@nanmicoder/dsh-agent-teams';type='npm';spec='@nanmicoder/dsh-agent-teams'},
+            @{name='@perrylink/dsh-plugin-doctor';type='npm';spec='@perrylink/dsh-plugin-doctor'},
+            @{name='dsh-vision-router';type='npm';spec='dsh-vision-router'},
+            @{name='dsh-plugin-anydoc';type='git';spec='github:beancookie/dsh-plugin-anydoc#main'},
+            @{name='dsh-memento';type='npm';spec='dsh-memento'},
+            @{name='dsh-error-handling';type='git';spec='github:satan9394/dsh-error-handling#33802021af78fd8717ce53fe2c731dfd4195bf0d'}
+          )
+
+          function Target([string]$name){
+            if($name.StartsWith('@')){$p=$name.Split('/');return Join-Path $Modules ($p[0]+'\'+$p[1])}
+            return Join-Path $Modules $name
+          }
+
+          function RuntimeDeps($manifest,[string]$target,[string]$safe){
+            $deps=[ordered]@{}
+            if($manifest.dependencies){foreach($x in $manifest.dependencies.PSObject.Properties){$deps[$x.Name]=$x.Value}}
+            $opt=[ordered]@{}
+            if($manifest.optionalDependencies){foreach($x in $manifest.optionalDependencies.PSObject.Properties){$opt[$x.Name]=$x.Value}}
+            if(($deps.Count+$opt.Count)-eq 0){return 0}
+            $stage=Join-Path $env:RUNNER_TEMP ('deps-'+$safe)
+            if(Test-Path $stage){Remove-Item -Recurse -Force $stage}
+            New-Item -ItemType Directory -Force -Path $stage|Out-Null
+            ([ordered]@{name=('offline-deps-'+$safe);version='1.0.0';private=$true;dependencies=$deps;optionalDependencies=$opt}|ConvertTo-Json -Depth 12) | Set-Content -Encoding UTF8 (Join-Path $stage 'package.json')
+            Push-Location $stage
+            try{
+              & $npm install --omit=dev --legacy-peer-deps --no-audit --no-fund --package-lock=false
+              if($LASTEXITCODE -ne 0){throw "dependency install failed: $($manifest.name)"}
+            }finally{Pop-Location}
+            $src=Join-Path $stage 'node_modules'
+            if(Test-Path $src){
+              $dst=Join-Path $target 'node_modules';New-Item -ItemType Directory -Force -Path $dst|Out-Null
+              robocopy $src $dst /E /NFL /NDL /NJH /NJS /NC /NS|Out-Null
+              if($LASTEXITCODE -gt 7){throw "robocopy failed: $($manifest.name):$LASTEXITCODE"}
+            }
+            return ($deps.Count+$opt.Count)
+          }
+
+          $resolved=@()
+          $Work=Join-Path $env:RUNNER_TEMP 'offline10-pack-work';New-Item -ItemType Directory -Force -Path $Work|Out-Null
+          foreach($p in $plugins){
+            $name=$p.name;$spec=$p.spec
+            if($p.type -eq 'npm'){
+              $verText=(& $npm view $spec version --json 2>&1|Out-String)
+              if($LASTEXITCODE -ne 0){throw "npm view failed: $name`n$verText"}
+              $ver=$verText|ConvertFrom-Json
+              $spec="$spec@$ver"
+            }
+            $safe=($name -replace '[@/]','_')
+            $dir=Join-Path $Work $safe;New-Item -ItemType Directory -Force -Path $dir|Out-Null
+            Push-Location $dir
+            try{
+              Write-Host "PACK $name <= $spec"
+              $packText=(& $npm pack $spec --json --ignore-scripts 2>&1|Out-String)
+              if($LASTEXITCODE -ne 0){throw "npm pack failed: $name`n$packText"}
+              $rows=$packText|ConvertFrom-Json;if($rows -is [array]){$row=$rows[-1]}else{$row=$rows}
+              $tgz=Join-Path $dir $row.filename
+              $ex=Join-Path $dir 'extract';New-Item -ItemType Directory -Force -Path $ex|Out-Null
+              tar -xzf $tgz -C $ex;if($LASTEXITCODE -ne 0){throw "tar failed: $name"}
+              $src=Join-Path $ex 'package';$dst=Target $name
+              if(Test-Path $dst){Remove-Item -Recurse -Force $dst}
+              New-Item -ItemType Directory -Force -Path (Split-Path $dst -Parent)|Out-Null
+              Move-Item $src $dst
+              $mp=Join-Path $dst 'package.json';$m=Get-Content $mp -Raw|ConvertFrom-Json
+              if($m.name -ne $name){throw "name mismatch: expected $name got $($m.name)"}
+              $depRoots=RuntimeDeps $m $dst $safe
+              $resolved += [ordered]@{name=$name;requested=$p.spec;packed=$spec;version=$m.version;runtime_dependency_roots=$depRoots;engines=$m.engines;peerDependencies=$m.peerDependencies;package_json_sha256=(Get-FileHash $mp -Algorithm SHA256).Hash.ToLowerInvariant()}
+            }finally{Pop-Location}
+          }
+
+          # BrowserSkill native Windows CLI and extension.
+          $bskZip=Join-Path $env:RUNNER_TEMP 'bsk-win.zip'
+          Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/Tencent/BrowserSkill/releases/download/cli-v0.3.3/bsk-v0.3.3-x86_64-pc-windows-msvc.zip' -OutFile $bskZip
+          $bh=(Get-FileHash $bskZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($bh -ne '5ed6aa00e60c0538a637febac6bfbc6a0bd55a11083cd90a987968cff4bc0e02'){throw "bsk sha mismatch:$bh"}
+          Expand-Archive -LiteralPath $bskZip -DestinationPath $Browser -Force
+          $be=Get-ChildItem $Browser -Filter bsk.exe -Recurse|Select-Object -First 1
+          if(-not $be){throw 'bsk.exe missing'}
+          if($be.FullName -ne (Join-Path $Browser 'bsk.exe')){Copy-Item $be.FullName (Join-Path $Browser 'bsk.exe') -Force}
+
+          $ext=Join-Path $Extension 'browser-skill-extension-v0.3.3-chrome.zip'
+          Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/Tencent/BrowserSkill/releases/download/ext-v0.3.3/browser-skill-extension-v0.3.3-chrome.zip' -OutFile $ext
+          $eh=(Get-FileHash $ext -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($eh -ne '10ef76e68f352893fa22dd4cce2f1b96cb90ed957b815d656e13180d07d3c6ea'){throw "extension sha mismatch:$eh"}
+
+          ([ordered]@{schema='pfc.aitest.offline10.components.v1';target='windows-x64';node=(node --version);npm=(& $npm --version);plugin_count=10;plugins=$resolved;browser_skill=[ordered]@{cli='0.3.3';cli_sha256=$bh;extension='0.3.3';extension_sha256=$eh}}|ConvertTo-Json -Depth 15) | Set-Content -Encoding UTF8 (Join-Path $Out 'COMPONENTS_MANIFEST.json')
+
+          # Verify all ten package roots and payload content.
+          foreach($p in $plugins){$pp=Target $p.name;if(-not(Test-Path (Join-Path $pp 'package.json'))){throw "VERIFY_MISSING:$($p.name)"}}
+          $payload=Join-Path $Out 'payload\dsh-plugins-offline10-payload.zip'
+          Compress-Archive -Path (Join-Path $Vendor '*') -DestinationPath $payload -CompressionLevel Optimal -Force
+          if((Get-Item $payload).Length -lt 10000){throw 'payload unexpectedly small'}
+          $final=Join-Path $env:GITHUB_WORKSPACE 'DSH-OFFLINE10-COMPONENTS-WIN-X64.zip'
+          Compress-Archive -Path (Join-Path $Out '*') -DestinationPath $final -CompressionLevel Optimal -Force
+          Get-FileHash $final -Algorithm SHA256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DSH-OFFLINE10-COMPONENTS-WIN-X64
+          path: DSH-OFFLINE10-COMPONENTS-WIN-X64.zip
+          if-no-files-found: error
+          retention-days: 7
