@@ -1,4 +1,4 @@
-name: Build DSH Offline9 Temporary Pack
+name: Build DSH Offline10 Turnkey Pack
 
 on:
   push:
@@ -9,31 +9,31 @@ permissions:
   contents: read
 
 jobs:
-  build-offline9:
+  build-offline10:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.11.1
-          cache: npm
+          node-version: 22.20.0
 
-      - name: Build Windows x64 offline plugin payload
+      - name: Build Windows x64 offline 10-plugin turnkey pack
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           git config --global core.longpaths true
 
-          $PackName = 'PFC-AITest-DSH-PLUGIN-PACK-BANK-WIN10-OFFLINE9-v1.0.0'
+          $PackName = 'PFC-AITest-DSH-PLUGIN-PACK-BANK-WIN10-OFFLINE10-v1.0.0'
           $Root = Join-Path $env:RUNNER_TEMP $PackName
           $PayloadRoot = Join-Path $Root 'payload\vendor'
           $NodeModules = Join-Path $PayloadRoot 'node_modules'
           $BrowserRuntime = Join-Path $Root 'runtime\browser\browserskill'
           $BrowserExtension = Join-Path $Root 'runtime\browser\extension'
           $Logs = Join-Path $Root 'logs'
-          New-Item -ItemType Directory -Force -Path $NodeModules,$BrowserRuntime,$BrowserExtension,$Logs | Out-Null
+          $Scripts = Join-Path $Root 'scripts'
+          New-Item -ItemType Directory -Force -Path $NodeModules,$BrowserRuntime,$BrowserExtension,$Logs,$Scripts | Out-Null
 
           $plugins = @(
             @{ name='dsh-routing-suite'; source='npm'; spec='dsh-routing-suite' },
@@ -41,6 +41,7 @@ jobs:
             @{ name='dsh-context'; source='npm'; spec='dsh-context' },
             @{ name='dsh-plugin-bridge'; source='npm'; spec='dsh-plugin-bridge' },
             @{ name='@nanmicoder/dsh-agent-teams'; source='npm'; spec='@nanmicoder/dsh-agent-teams' },
+            @{ name='@perrylink/dsh-plugin-doctor'; source='npm'; spec='@perrylink/dsh-plugin-doctor' },
             @{ name='dsh-vision-router'; source='npm'; spec='dsh-vision-router' },
             @{ name='dsh-plugin-anydoc'; source='github'; spec='github:beancookie/dsh-plugin-anydoc#main' },
             @{ name='dsh-memento'; source='npm'; spec='dsh-memento' },
@@ -55,8 +56,49 @@ jobs:
             return Join-Path $NodeModules $name
           }
 
+          function Install-RuntimeDeps($manifest, [string]$target, [string]$safeName) {
+            $deps = [ordered]@{}
+            if ($manifest.dependencies) {
+              foreach ($prop in $manifest.dependencies.PSObject.Properties) { $deps[$prop.Name] = $prop.Value }
+            }
+            $optional = [ordered]@{}
+            if ($manifest.optionalDependencies) {
+              foreach ($prop in $manifest.optionalDependencies.PSObject.Properties) { $optional[$prop.Name] = $prop.Value }
+            }
+            if (($deps.Count + $optional.Count) -eq 0) {
+              Write-Host "No regular runtime dependencies for $($manifest.name); peer deps are supplied by DSH host."
+              return 0
+            }
+
+            $stage = Join-Path $env:RUNNER_TEMP ('runtime-deps-' + $safeName)
+            if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+            New-Item -ItemType Directory -Force -Path $stage | Out-Null
+            $depManifest = [ordered]@{
+              name = 'pfc-offline-runtime-deps-' + $safeName
+              version = '1.0.0'
+              private = $true
+              dependencies = $deps
+              optionalDependencies = $optional
+            }
+            $depManifest | ConvertTo-Json -Depth 10 | Set-Content -Encoding UTF8 (Join-Path $stage 'package.json')
+            Push-Location $stage
+            try {
+              npm install --omit=dev --legacy-peer-deps --no-audit --no-fund --package-lock=false
+              if ($LASTEXITCODE -ne 0) { throw "runtime dependency install failed for $($manifest.name)" }
+            } finally { Pop-Location }
+
+            $stagedModules = Join-Path $stage 'node_modules'
+            if (Test-Path $stagedModules) {
+              $targetModules = Join-Path $target 'node_modules'
+              New-Item -ItemType Directory -Force -Path $targetModules | Out-Null
+              robocopy $stagedModules $targetModules /E /NFL /NDL /NJH /NJS /NC /NS | Out-Null
+              if ($LASTEXITCODE -gt 7) { throw "robocopy runtime deps failed for $($manifest.name): $LASTEXITCODE" }
+            }
+            return ($deps.Count + $optional.Count)
+          }
+
           $resolved = @()
-          $work = Join-Path $env:RUNNER_TEMP 'offline9-packs'
+          $work = Join-Path $env:RUNNER_TEMP 'offline10-packs'
           New-Item -ItemType Directory -Force -Path $work | Out-Null
 
           foreach ($p in $plugins) {
@@ -95,29 +137,22 @@ jobs:
               $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
               if ($manifest.name -ne $name) { throw "package name mismatch: expected $name got $($manifest.name)" }
 
-              Push-Location $target
-              try {
-                # Resolve and materialize Windows x64 runtime dependencies now.
-                # This runner is Windows, so native optional packages match the bank target.
-                npm install --omit=dev --legacy-peer-deps --no-audit --no-fund --package-lock=false
-                if ($LASTEXITCODE -ne 0) { throw "runtime dependency install failed for $name" }
-              } finally { Pop-Location }
-
-              $depCount = 0
-              if ($manifest.dependencies) { $depCount = @($manifest.dependencies.PSObject.Properties).Count }
+              $runtimeDepCount = Install-RuntimeDeps $manifest $target $safe
+              $packageHash = (Get-FileHash $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
               $resolved += [ordered]@{
                 name=$name
                 requested_spec=$p.spec
                 packed_spec=$spec
                 resolved_version=$manifest.version
-                dependencies=$depCount
+                runtime_dependency_roots=$runtimeDepCount
                 engines=$manifest.engines
                 peerDependencies=$manifest.peerDependencies
+                package_json_sha256=$packageHash
               }
             } finally { Pop-Location }
           }
 
-          # BrowserSkill needs the Windows bsk CLI in addition to the DSH plugin.
+          # BrowserSkill Windows runtime + extension are also carried offline.
           $bskZip = Join-Path $env:RUNNER_TEMP 'bsk-win.zip'
           Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/Tencent/BrowserSkill/releases/download/cli-v0.3.3/bsk-v0.3.3-x86_64-pc-windows-msvc.zip' -OutFile $bskZip
           $bskHash = (Get-FileHash $bskZip -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -125,20 +160,20 @@ jobs:
           Expand-Archive -LiteralPath $bskZip -DestinationPath $BrowserRuntime -Force
           $bskExe = Get-ChildItem -Path $BrowserRuntime -Filter bsk.exe -Recurse | Select-Object -First 1
           if (-not $bskExe) { throw 'bsk.exe missing after extraction' }
-          Copy-Item $bskExe.FullName (Join-Path $BrowserRuntime 'bsk.exe') -Force
+          if ($bskExe.FullName -ne (Join-Path $BrowserRuntime 'bsk.exe')) { Copy-Item $bskExe.FullName (Join-Path $BrowserRuntime 'bsk.exe') -Force }
 
-          # Include the matching Chrome extension ZIP for offline/manual loading.
           $extZip = Join-Path $BrowserExtension 'browser-skill-extension-v0.3.3-chrome.zip'
           Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/Tencent/BrowserSkill/releases/download/ext-v0.3.3/browser-skill-extension-v0.3.3-chrome.zip' -OutFile $extZip
           $extHash = (Get-FileHash $extZip -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($extHash -ne '10ef76e68f352893fa22dd4cce2f1b96cb90ed957b815d656e13180d07d3c6ea') { throw "extension checksum mismatch: $extHash" }
 
           $payloadManifest = [ordered]@{
-            schema_version='pfc.aitest.dsh-plugin-offline9-payload.v1'
+            schema_version='pfc.aitest.dsh-plugin-offline10-payload.v1'
             target='windows-x64'
+            bank_node_target='22.20.x'
             build_node=(node --version)
             npm=(npm --version)
-            plugin_count=9
+            plugin_count=10
             plugins=$resolved
             browser_skill=[ordered]@{
               cli_version='0.3.3'
@@ -149,8 +184,8 @@ jobs:
           }
           $payloadManifest | ConvertTo-Json -Depth 12 | Set-Content -Encoding UTF8 (Join-Path $PayloadRoot 'payload-manifest.json')
 
-          # Build local payload zip containing all plugin directories + node_modules dependencies.
-          $payloadZip = Join-Path $Root 'payload\dsh-plugins-offline9-payload.zip'
+          # This is the portable payload: package code plus regular runtime dependencies.
+          $payloadZip = Join-Path $Root 'payload\dsh-plugins-offline10-payload.zip'
           Compress-Archive -Path (Join-Path $PayloadRoot '*') -DestinationPath $payloadZip -CompressionLevel Optimal -Force
 
           @'
@@ -160,12 +195,10 @@ jobs:
           set "ROOT=%~dp0"
           set "PROFILE=pfc-aitest"
           if not "%~1"=="" set "PROFILE=%~1"
-
           if /I "%PROFILE%"=="web" (
             echo [FAIL] web profile is protected. Use isolated profile pfc-aitest first.
             exit /b 2
           )
-
           if exist "%ROOT%runtime\browser\browserskill\bsk.exe" set "PATH=%ROOT%runtime\browser\browserskill;%PATH%"
           if defined PFC_DSH_BIN goto :have_dsh
           for /f "delims=" %%D in ('where dsh.cmd 2^>nul') do if not defined PFC_DSH_BIN set "PFC_DSH_BIN=%%D"
@@ -174,12 +207,13 @@ jobs:
           :have_dsh
           if not defined PFC_DSH_BIN (
             echo [FAIL] DSH not found. Set PFC_DSH_BIN to dsh.cmd/dsh.exe.
+            pause
             exit /b 2
           )
-
-          echo Installing 9 offline plugins into profile %PROFILE% ...
-          powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\install-offline9.ps1" -Profile "%PROFILE%" -DshBin "%PFC_DSH_BIN%"
-          exit /b %ERRORLEVEL%
+          powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\install-offline10.ps1" -Profile "%PROFILE%" -DshBin "%PFC_DSH_BIN%"
+          set RC=%ERRORLEVEL%
+          if "%RC%"=="0" call "%ROOT%DOCTOR.cmd"
+          exit /b %RC%
           '@ | Set-Content -Encoding ASCII (Join-Path $Root 'INSTALL.cmd')
 
           @'
@@ -187,12 +221,20 @@ jobs:
           setlocal
           chcp 65001 >nul 2>nul
           if exist "%~dp0runtime\browser\browserskill\bsk.exe" set "PATH=%~dp0runtime\browser\browserskill;%PATH%"
-          powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\doctor-offline9.ps1" -Profile pfc-aitest
+          powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\doctor-offline10.ps1" -Profile pfc-aitest
+          set RC=%ERRORLEVEL%
           pause
-          exit /b %ERRORLEVEL%
+          exit /b %RC%
           '@ | Set-Content -Encoding ASCII (Join-Path $Root 'DOCTOR.cmd')
 
-          New-Item -ItemType Directory -Force -Path (Join-Path $Root 'scripts') | Out-Null
+          @'
+          @echo off
+          setlocal
+          chcp 65001 >nul 2>nul
+          powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\uninstall-offline10.ps1" -Profile pfc-aitest
+          pause
+          '@ | Set-Content -Encoding ASCII (Join-Path $Root 'UNINSTALL.cmd')
+
           @'
           param(
             [string]$Profile = 'pfc-aitest',
@@ -201,9 +243,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $Root = Split-Path $PSScriptRoot -Parent
           if ($Profile -ieq 'web') { throw 'PROTECTED_PROFILE_MUTATION_FORBIDDEN:web' }
-          $Payload = Join-Path $Root 'payload\dsh-plugins-offline9-payload.zip'
-          if (-not (Test-Path $Payload)) { throw 'OFFLINE9_PAYLOAD_MISSING' }
-          $Vendor = Join-Path $Root 'runtime\plugin-runtime\offline9'
+          $nodeVersion = (& node --version 2>&1 | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'NODE_NOT_FOUND' }
+          $v = $nodeVersion.TrimStart('v').Split('.')
+          if(([int]$v[0] -lt 22) -or (([int]$v[0] -eq 22) -and ([int]$v[1] -lt 20))){ throw "NODE_22_20_REQUIRED_FOUND:$nodeVersion" }
+          $Payload = Join-Path $Root 'payload\dsh-plugins-offline10-payload.zip'
+          if (-not (Test-Path $Payload)) { throw 'OFFLINE10_PAYLOAD_MISSING' }
+          $Vendor = Join-Path $Root 'runtime\plugin-runtime\offline10'
           if (Test-Path $Vendor) { Remove-Item -Recurse -Force $Vendor }
           New-Item -ItemType Directory -Force -Path $Vendor | Out-Null
           Expand-Archive -LiteralPath $Payload -DestinationPath $Vendor -Force
@@ -212,12 +258,15 @@ jobs:
           $env:npm_config_offline = 'true'
           $env:npm_config_audit = 'false'
           $env:npm_config_fund = 'false'
+          $env:PFC_VISION_POLICY = 'LOCAL_ONLY'
+          $env:PFC_PUBLIC_REMOTE_VISION = 'FORBIDDEN'
           $names = @(
             'dsh-routing-suite',
             '@wxg-prc-cpg/browser-skill-dsh-plugin',
             'dsh-context',
             'dsh-plugin-bridge',
             '@nanmicoder/dsh-agent-teams',
+            '@perrylink/dsh-plugin-doctor',
             'dsh-vision-router',
             'dsh-plugin-anydoc',
             'dsh-memento',
@@ -243,68 +292,119 @@ jobs:
           $result=[ordered]@{
             status= if($missing.Count -eq 0){'PASS'}else{'HOLD'}
             profile=$Profile
-            plugin_count=9
+            node=$nodeVersion
+            plugin_count=10
             installs=$results
             missing_in_dump=$missing
             bsk= if(Test-Path $bsk){(& $bsk --version 2>&1 | Out-String).Trim()}else{'MISSING'}
+            install_network_policy='OFFLINE'
           }
           $result | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 (Join-Path $Root 'logs\install-latest.json')
           $result | ConvertTo-Json -Depth 8
           if($missing.Count -gt 0){exit 1}
-          '@ | Set-Content -Encoding UTF8 (Join-Path $Root 'scripts\install-offline9.ps1')
+          '@ | Set-Content -Encoding UTF8 (Join-Path $Scripts 'install-offline10.ps1')
 
           @'
           param([string]$Profile='pfc-aitest')
           $ErrorActionPreference='Continue'
           $Root=Split-Path $PSScriptRoot -Parent
           $checks=@()
-          $nodeOut=(node --version 2>&1 | Out-String).Trim(); $checks += [ordered]@{name='Node';status=if($LASTEXITCODE -eq 0){'PASS'}else{'FAIL'};detail=$nodeOut}
+          $nodeOut=(node --version 2>&1 | Out-String).Trim()
+          $nodeOk=$false
+          if($LASTEXITCODE -eq 0){$v=$nodeOut.TrimStart('v').Split('.');$nodeOk=(([int]$v[0] -gt 22)-or(([int]$v[0]-eq 22)-and([int]$v[1]-ge 20)))}
+          $checks += [ordered]@{name='Node>=22.20';status=if($nodeOk){'PASS'}else{'FAIL'};detail=$nodeOut}
           $bsk=Join-Path $Root 'runtime\browser\browserskill\bsk.exe'
           if(Test-Path $bsk){$bskOut=(& $bsk --version 2>&1 | Out-String).Trim();$checks += [ordered]@{name='BrowserSkill CLI';status='PASS';detail=$bskOut}}else{$checks += [ordered]@{name='BrowserSkill CLI';status='FAIL';detail='MISSING'}}
-          $payload=Join-Path $Root 'payload\dsh-plugins-offline9-payload.zip';$checks += [ordered]@{name='Offline9 payload';status=if(Test-Path $payload){'PASS'}else{'FAIL'};detail=$payload}
+          $payload=Join-Path $Root 'payload\dsh-plugins-offline10-payload.zip';$checks += [ordered]@{name='Offline10 payload';status=if(Test-Path $payload){'PASS'}else{'FAIL'};detail=$payload}
           $dsh=$env:PFC_DSH_BIN
-          if(-not $dsh){$dsh=(Get-Command dsh.cmd -ErrorAction SilentlyContinue).Source}
-          if(-not $dsh){$dsh=(Get-Command dsh.exe -ErrorAction SilentlyContinue).Source}
-          if(-not $dsh){$dsh=(Get-Command dsh -ErrorAction SilentlyContinue).Source}
-          if($dsh){$v=(& $dsh --version 2>&1 | Out-String).Trim();$checks += [ordered]@{name='DSH';status=if($LASTEXITCODE -eq 0){'PASS'}else{'FAIL'};detail=$v}}else{$checks += [ordered]@{name='DSH';status='FAIL';detail='NOT_FOUND'}}
-          $overall=if(@($checks|?{$_.status -eq 'FAIL'}).Count -eq 0){'PASS'}else{'FAIL'}
-          $r=[ordered]@{status=$overall;profile=$Profile;checks=$checks}
+          if(-not $dsh){$cmd=Get-Command dsh.cmd -ErrorAction SilentlyContinue;if($cmd){$dsh=$cmd.Source}}
+          if(-not $dsh){$cmd=Get-Command dsh.exe -ErrorAction SilentlyContinue;if($cmd){$dsh=$cmd.Source}}
+          if(-not $dsh){$cmd=Get-Command dsh -ErrorAction SilentlyContinue;if($cmd){$dsh=$cmd.Source}}
+          if($dsh){$dv=(& $dsh --version 2>&1 | Out-String).Trim();$checks += [ordered]@{name='DSH';status=if($LASTEXITCODE -eq 0){'PASS'}else{'FAIL'};detail=$dv}}else{$checks += [ordered]@{name='DSH';status='FAIL';detail='NOT_FOUND'}}
+          $installLog=Join-Path $Root 'logs\install-latest.json'
+          if(Test-Path $installLog){
+            try{$ir=Get-Content $installLog -Raw|ConvertFrom-Json;$checks += [ordered]@{name='Installed plugins';status=if(($ir.plugin_count -eq 10)-and($ir.missing_in_dump.Count -eq 0)){'PASS'}else{'HOLD'};detail=('count='+$ir.plugin_count+' missing='+($ir.missing_in_dump -join ','))}}catch{$checks += [ordered]@{name='Installed plugins';status='HOLD';detail='install log unreadable'}}
+          }else{$checks += [ordered]@{name='Installed plugins';status='HOLD';detail='INSTALL.cmd not run yet'}}
+          $overall=if(@($checks|?{$_.status -eq 'FAIL'}).Count -gt 0){'FAIL'}elseif(@($checks|?{$_.status -eq 'HOLD'}).Count -gt 0){'HOLD'}else{'PASS'}
+          $r=[ordered]@{status=$overall;profile=$Profile;plugin_count=10;checks=$checks}
           $r|ConvertTo-Json -Depth 6|Set-Content -Encoding UTF8 (Join-Path $Root 'logs\doctor-latest.json')
           $r|ConvertTo-Json -Depth 6
-          if($overall -ne 'PASS'){exit 2}
-          '@ | Set-Content -Encoding UTF8 (Join-Path $Root 'scripts\doctor-offline9.ps1')
+          if($overall -eq 'FAIL'){exit 2}
+          '@ | Set-Content -Encoding UTF8 (Join-Path $Scripts 'doctor-offline10.ps1')
 
           @'
-          # DSH Offline9 开箱即用搬运包
+          param([string]$Profile='pfc-aitest')
+          $ErrorActionPreference='Continue'
+          if($Profile -ieq 'web'){Write-Error 'web profile protected';exit 2}
+          $dsh=$env:PFC_DSH_BIN
+          if(-not $dsh){$cmd=Get-Command dsh.cmd -ErrorAction SilentlyContinue;if($cmd){$dsh=$cmd.Source}}
+          if(-not $dsh){$cmd=Get-Command dsh.exe -ErrorAction SilentlyContinue;if($cmd){$dsh=$cmd.Source}}
+          if(-not $dsh){$cmd=Get-Command dsh -ErrorAction SilentlyContinue;if($cmd){$dsh=$cmd.Source}}
+          if(-not $dsh){Write-Error 'DSH_NOT_FOUND';exit 2}
+          $names=@('dsh-routing-suite','@wxg-prc-cpg/browser-skill-dsh-plugin','dsh-context','dsh-plugin-bridge','@nanmicoder/dsh-agent-teams','@perrylink/dsh-plugin-doctor','dsh-vision-router','dsh-plugin-anydoc','dsh-memento','dsh-error-handling')
+          foreach($name in [array]::Reverse([object[]]$names)){}
+          for($i=$names.Count-1;$i-ge 0;$i--){& $dsh plugin --profile $Profile remove $names[$i] | Out-Host}
+          '@ | Set-Content -Encoding UTF8 (Join-Path $Scripts 'uninstall-offline10.ps1')
 
-          本包已去掉 `dsh-plugin-doctor`，其余 9 个插件及运行依赖已在 Windows x64 构建机固化进离线 payload。
+          @'
+          # DSH 10 插件开箱即用离线搬运包
 
-          ## 使用
-          1. 解压到行内 Windows。
-          2. 如 DSH 不在 PATH：`set PFC_DSH_BIN=D:\path\to\dsh.cmd`
+          ## 环境
+          - Windows 10/11 x64
+          - 行内 Node.js 22.20.x 或更高兼容版本
+          - 已安装 DSH
+          - 安装阶段无需 npm、GitHub 或公网
+
+          ## 包含的 10 个插件
+          1. dsh-routing-suite
+          2. @wxg-prc-cpg/browser-skill-dsh-plugin
+          3. dsh-context
+          4. dsh-plugin-bridge
+          5. @nanmicoder/dsh-agent-teams
+          6. @perrylink/dsh-plugin-doctor
+          7. dsh-vision-router
+          8. dsh-plugin-anydoc
+          9. dsh-memento
+          10. dsh-error-handling
+
+          插件代码和 regular runtime dependencies 已在 Windows x64 + Node 22.20 构建机固化到 `payload/dsh-plugins-offline10-payload.zip`。
+          DSH 自己提供的 peer dependencies 不重复打包。
+
+          ## 安装
+          1. 解压 ZIP。
+          2. 如果 DSH 不在 PATH，在 CMD 中执行：`set PFC_DSH_BIN=D:\你的DSH目录\dsh.cmd`
           3. 双击 `INSTALL.cmd`。
-          4. 双击 `DOCTOR.cmd`。
+          4. 安装完成后会自动执行 DOCTOR；也可以再次双击 `DOCTOR.cmd`。
 
-          默认安装到 `pfc-aitest`，`web` profile 受保护不会被修改。
+          默认写入独立 `pfc-aitest` profile；`web` profile 默认受保护。
 
           ## BrowserSkill
-          本包包含 Windows x64 `bsk.exe` 0.3.3 和 Chrome 扩展 ZIP。
-          首次使用浏览器能力时，将 `runtime\browser\extension\browser-skill-extension-v0.3.3-chrome.zip` 解压到固定目录，在 Chrome/Edge 扩展管理页以“加载已解压的扩展”方式安装，然后启用本地连接。
+          已携带 Windows x64 `bsk.exe` v0.3.3 和对应 Chrome 扩展 ZIP：
+          `runtime/browser/extension/browser-skill-extension-v0.3.3-chrome.zip`
+
+          如浏览器扩展尚未安装，将该 ZIP 解压到固定目录，在 Chrome/Edge 扩展管理页选择“加载已解压的扩展”。
 
           ## 视觉安全
-          `dsh-vision-router` 插件实体和依赖已离线携带，但其默认公共云视觉 fallback 不适合银行敏感数据。正式行内使用前必须配置为本地/内网视觉提供方并禁用公共远端 fallback。
+          `dsh-vision-router` 插件和依赖已包含，但银行敏感数据必须配置本地/内网视觉提供方。本安装器设置 `PFC_VISION_POLICY=LOCAL_ONLY` 并禁止公共远端视觉 fallback。
 
           ## 验收
-          安装器会在 `npm_config_offline=true` 下调用 DSH 安装，确保安装阶段不从 npm 拉取依赖。安装后还需做真实 capability probe，不能只看文件存在。
+          `DOCTOR.cmd` 只验证环境、离线载荷、BrowserSkill CLI 和 10 插件配置出现情况。正式 READY 还要做真实 routing、浏览器、文档解析、视觉、记忆和错误处理 capability probe。
           '@ | Set-Content -Encoding UTF8 (Join-Path $Root '安装教程.md')
 
-          # Integrity manifest + checksums
+          # Validate payload before publishing.
+          $verifyDir = Join-Path $env:RUNNER_TEMP 'offline10-verify'
+          Expand-Archive -LiteralPath $payloadZip -DestinationPath $verifyDir -Force
+          $expected=@('dsh-routing-suite','@wxg-prc-cpg/browser-skill-dsh-plugin','dsh-context','dsh-plugin-bridge','@nanmicoder/dsh-agent-teams','@perrylink/dsh-plugin-doctor','dsh-vision-router','dsh-plugin-anydoc','dsh-memento','dsh-error-handling')
+          foreach($name in $expected){
+            if($name.StartsWith('@')){$parts=$name.Split('/');$p=Join-Path $verifyDir ('node_modules\'+$parts[0]+'\'+$parts[1]+'\package.json')}else{$p=Join-Path $verifyDir ('node_modules\'+$name+'\package.json')}
+            if(-not(Test-Path $p)){throw "offline payload verification missing $name"}
+          }
+          if(-not(Test-Path (Join-Path $BrowserRuntime 'bsk.exe'))){throw 'browser runtime verify failed'}
+
           $files = Get-ChildItem -Path $Root -File -Recurse
           $rows=@()
-          foreach($f in $files){
-            $rows += [ordered]@{path=$f.FullName.Substring($Root.Length+1);size=$f.Length;sha256=(Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
-          }
-          ([ordered]@{schema='pfc.aitest.offline9.pack.v1';source_head='33433c8664ad73627409b27646d437e9efe66144';plugin_count=9;files=$rows}|ConvertTo-Json -Depth 8) | Set-Content -Encoding UTF8 (Join-Path $Root 'PACK_MANIFEST.json')
+          foreach($f in $files){$rows += [ordered]@{path=$f.FullName.Substring($Root.Length+1);size=$f.Length;sha256=(Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}}
+          ([ordered]@{schema='pfc.aitest.offline10.pack.v1';source_head='33433c8664ad73627409b27646d437e9efe66144';target='windows-x64';bank_node='22.20.x';plugin_count=10;install_network='OFFLINE';files=$rows}|ConvertTo-Json -Depth 8) | Set-Content -Encoding UTF8 (Join-Path $Root 'PACK_MANIFEST.json')
 
           $FinalZip = Join-Path $env:GITHUB_WORKSPACE ($PackName + '.zip')
           if(Test-Path $FinalZip){Remove-Item -Force $FinalZip}
@@ -314,30 +414,21 @@ jobs:
           Write-Host "FINAL_ZIP=$FinalZip"
           Write-Host "FINAL_SHA256=$FinalHash"
 
-      - name: Offline payload sanity check
+      - name: Artifact sanity check
         shell: pwsh
         run: |
-          $zip = Get-ChildItem 'PFC-AITest-DSH-PLUGIN-PACK-BANK-WIN10-OFFLINE9-v1.0.0.zip' | Select-Object -First 1
-          if(-not $zip){throw 'final ZIP missing'}
-          $test = Join-Path $env:RUNNER_TEMP 'offline9-verify'
-          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $test -Force
-          $payload = Join-Path $test 'payload\dsh-plugins-offline9-payload.zip'
-          if(-not (Test-Path $payload)){throw 'payload missing from final ZIP'}
-          $pdir=Join-Path $env:RUNNER_TEMP 'offline9-payload-verify'
-          Expand-Archive -LiteralPath $payload -DestinationPath $pdir -Force
-          $manifest=Get-Content (Join-Path $pdir 'payload-manifest.json') -Raw | ConvertFrom-Json
-          if($manifest.plugin_count -ne 9){throw "plugin_count=$($manifest.plugin_count)"}
-          foreach($p in $manifest.plugins){
-            $path = if($p.name.StartsWith('@')){ $parts=$p.name.Split('/'); Join-Path $pdir ('node_modules\'+$parts[0]+'\'+$parts[1]+'\package.json') } else { Join-Path $pdir ('node_modules\'+$p.name+'\package.json') }
-            if(-not (Test-Path $path)){throw "plugin missing: $($p.name)"}
-          }
-          Write-Host 'OFFLINE9_PAYLOAD_SANITY=PASS'
+          $zip='PFC-AITest-DSH-PLUGIN-PACK-BANK-WIN10-OFFLINE10-v1.0.0.zip'
+          if(-not(Test-Path $zip)){throw 'final zip missing'}
+          $size=(Get-Item $zip).Length
+          if($size -lt 1000000){throw "final zip unexpectedly small: $size"}
+          Write-Host "FINAL_SIZE=$size"
+          Get-FileHash $zip -Algorithm SHA256
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dsh-offline9-bank-win10
+          name: PFC-AITest-DSH-PLUGIN-PACK-BANK-WIN10-OFFLINE10-v1.0.0
           path: |
-            PFC-AITest-DSH-PLUGIN-PACK-BANK-WIN10-OFFLINE9-v1.0.0.zip
-            PFC-AITest-DSH-PLUGIN-PACK-BANK-WIN10-OFFLINE9-v1.0.0.zip.sha256
+            PFC-AITest-DSH-PLUGIN-PACK-BANK-WIN10-OFFLINE10-v1.0.0.zip
+            PFC-AITest-DSH-PLUGIN-PACK-BANK-WIN10-OFFLINE10-v1.0.0.zip.sha256
           if-no-files-found: error
           retention-days: 7
