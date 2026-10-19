@@ -34,9 +34,10 @@ if "%PFC_RC7_SKIP_QUALIFY%"=="1" goto :payload
 if errorlevel 1 exit /b %errorlevel%
 
 :payload
-rem Protected bank profile is read-only. P0 plugins are installed only into a
-rem physical RC7-owned clone; vision-router and memento are loaded only by the
-rem per-process runtime patch, never by mutating the bank web profile.
+rem Startup rule: NEVER invoke dsh plugin add/install before DSH starts.
+rem The protected web profile is read-only. We only verify the package payload,
+rem then physically clone web to rc7-bank. Persistent plugin repair is a
+rem separate POST-START, NON-BLOCKING action.
 "%PY%" -m rc7_release.dsh_plugins --home "%RC7_HOME%" --profile "%PFC_RC7_DSH_BASE_PROFILE%" --dry-run --output "%RC7_HOME%\state\dsh-plugin-payload.json"
 if errorlevel 1 exit /b %errorlevel%
 
@@ -52,18 +53,25 @@ if /I "%PFC_RC7_DSH_PROFILE%"=="%PFC_RC7_DSH_BASE_PROFILE%" (
   exit /b 4
 )
 
+rem Clone-only preflight. v1 rc7-bank clones are rebuilt automatically so a
+rem clone touched by an earlier failed package-manager attempt is not reused.
 "%PY%" -m rc7_release.dsh_runtime_profile --home "%RC7_HOME%" --base-profile "%PFC_RC7_DSH_BASE_PROFILE%" --runtime-profile "%PFC_RC7_DSH_PROFILE%" --output "%RC7_HOME%\state\rc7-dsh-runtime-profile.json" --require-pass
 if errorlevel 1 exit /b %errorlevel%
 
 "%PY%" -m rc7_release.dsh --output "%RC7_HOME%\state\rc7-dsh.patch.yml" --home "%RC7_HOME%" --python "%PFC_PYTHON%" --require-default-enhancements
 if errorlevel 1 exit /b %errorlevel%
 
+rem Probe clone readiness only. DEGRADED is intentionally exit-code 0 here;
+rem plugin persistence has no authority to block the DSH host from starting.
+"%PY%" -m rc7_release.dsh_post_bootstrap --home "%RC7_HOME%" --profile "%PFC_RC7_DSH_PROFILE%" --output "%RC7_HOME%\state\dsh-post-bootstrap-probe.json"
+
 echo [RC7] Protected bank DSH profile: %PFC_RC7_DSH_BASE_PROFILE% ^(read-only source^)
-echo [RC7] RC7 DSH runtime profile: %PFC_RC7_DSH_PROFILE%
+echo [RC7] RC7 DSH runtime profile: %PFC_RC7_DSH_PROFILE% ^(clean clone, no pre-start npm/plugin install^)
 echo [RC7] Vision Router: DEFAULT ON / LOCAL-ONLY / PUBLIC REMOTE FORBIDDEN
 echo [RC7] Memento: DEFAULT ON / RC7 LOCAL DB / R1 NON-AUTHORITATIVE
 echo [RC7] Canonical R1: %PFC_AITEST_STATE_DIR%\r1\event-stream.jsonl
 echo [RC7] Maven repo: %PFC_MAVEN_REPO%
-echo [RC7] Starting DSH with protected-profile clone plus runtime-only RC7 enhancement/MCP patch.
-dsh --profile "%PFC_RC7_DSH_PROFILE%" --patch "%RC7_HOME%\state\rc7-dsh.patch.yml"
+echo [RC7] Persistent plugin repair is POST-START and NON-BLOCKING: packaging\rc7\DSH-PLUGIN-BOOTSTRAP.cmd --install
+echo [RC7] Starting DSH now. Startup will not call dsh plugin add/install.
+call "%PFC_RC7_DSH_BIN%" --profile "%PFC_RC7_DSH_PROFILE%" --patch "%RC7_HOME%\state\rc7-dsh.patch.yml"
 exit /b %errorlevel%
