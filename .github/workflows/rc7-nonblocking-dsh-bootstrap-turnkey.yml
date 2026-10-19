@@ -1,0 +1,239 @@
+name: RC7 Nonblocking DSH Bootstrap Turnkey
+
+on:
+  push:
+    branches:
+      - repair/rc7-nonblocking-dsh-bootstrap
+    paths:
+      - .github/workflows/rc7-nonblocking-dsh-bootstrap-turnkey.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_COMMIT: ${{ github.sha }}
+
+jobs:
+  windows-turnkey:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact repaired source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Full RC7 Windows regression
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pytest requests python-docx openpyxl python-pptx pypdf
+          if ($LASTEXITCODE -ne 0) { throw 'dependency install failed' }
+          python -m compileall -q rc6_runtime rc6_release rc7_runtime rc7_release rc7_admin
+          if ($LASTEXITCODE -ne 0) { throw 'compileall failed' }
+          $tests = Get-ChildItem tests -Filter 'test_rc7_*.py' | ForEach-Object { $_.FullName }
+          if (-not $tests) { throw 'No RC7 tests found' }
+          python -m pytest -q $tests
+          if ($LASTEXITCODE -ne 0) { throw 'RC7 regression failed' }
+
+      - name: Assemble offline payloads
+        shell: pwsh
+        run: |
+          ./packaging/rc7/build-final-payloads.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'offline payload assembly failed' }
+
+      - name: Build unified repaired package
+        shell: pwsh
+        run: |
+          python -m rc7_release.package build --repo-root . --output dist --source-commit $env:SOURCE_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'base package build failed' }
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          python -m rc7_release.final_unified_overlay --package-root $pkg --output dist --source-commit $env:SOURCE_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'unified overlay failed' }
+          New-Item -ItemType Directory -Force dist/qualification | Out-Null
+
+      - name: Professional toolchain qualification
+        shell: pwsh
+        run: |
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          $py = Join-Path $pkg 'workspace-template/runtime/python/python.exe'
+          $cg = Join-Path $pkg 'workspace-template/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe'
+          & $py -m rc7_release.toolchain_qualification --codegraph-bin $cg --output dist/qualification/professional-toolchains.json
+          if ($LASTEXITCODE -ne 0) { throw 'toolchain qualification failed' }
+          & $py -m rc7_release.dsh_plugins --home $pkg --profile web --dry-run --output dist/qualification/dsh-plugin-payload.json
+          if ($LASTEXITCODE -ne 0) { throw 'DSH plugin payload qualification failed' }
+          & $py -m rc7_release.final_unified_qualification --home $pkg --output dist/qualification/final-unified.json --require-pass
+          if ($LASTEXITCODE -ne 0) { throw 'final unified qualification failed' }
+          & $py -m rc7_release.bank_binding probe --output dist/qualification/bank-bindings.json
+          if ($LASTEXITCODE -ne 0) { throw 'bank binding probe failed' }
+
+      - name: Field-mode nonblocking DSH bootstrap gate
+        shell: pwsh
+        run: |
+          $pkg = (Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10').Path
+          $py = Join-Path $pkg 'workspace-template/runtime/python/python.exe'
+          $field = Join-Path $env:RUNNER_TEMP 'rc7-field-sim'
+          $dshHome = Join-Path $field '.dsh'
+          $web = Join-Path $dshHome 'profiles/web'
+          $runtime = Join-Path $dshHome 'profiles/rc7-bank'
+          $fakeBin = Join-Path $field 'bin'
+          New-Item -ItemType Directory -Force $web,$fakeBin,$runtime | Out-Null
+
+          # Seed a realistic bank web profile whose required plugins already
+          # exist. This matches field evidence and must eliminate any need for
+          # package-manager work before DSH starts.
+          & $py -c "import json,pathlib; from rc7_release import dsh_plugins; root=pathlib.Path(r'$web'); (root/'package.json').write_text(json.dumps({'name':'bank-web'}),encoding='utf-8'); [((root/'node_modules'/pathlib.Path(*p.split('/'))).mkdir(parents=True,exist_ok=True),(root/'node_modules'/pathlib.Path(*p.split('/'))/'package.json').write_text(json.dumps({'name':p,'version':'field'}),encoding='utf-8')) for p in dsh_plugins.REQUIRED]"
+          if ($LASTEXITCODE -ne 0) { throw 'field web profile seed failed' }
+
+          # Seed a dirty legacy v1 runtime clone to prove the repaired startup
+          # discards state that might have been touched by the old failed
+          # dsh plugin add path.
+          '{"name":"dirty-half-installed"}' | Set-Content -Encoding utf8 (Join-Path $runtime 'package.json')
+          '{"schema_version":"pfc.aitest.rc7.dsh-runtime-profile.v1","base_profile":"web","base_digest":"legacy","runtime_profile":"rc7-bank"}' | Set-Content -Encoding utf8 (Join-Path $runtime '.rc7-profile-origin.json')
+
+          $calls = Join-Path $field 'dsh-calls.txt'
+          $bad = Join-Path $field 'PRESTART_PLUGIN_ADD_FORBIDDEN.txt'
+          $started = Join-Path $field 'DSH_STARTED.txt'
+          @"
+          @echo off
+          echo %*>>"$calls"
+          echo %*| findstr /I /C:" plugin " /C:"plugin add" /C:"plugin install" >nul
+          if not errorlevel 1 (
+            echo forbidden>"$bad"
+            exit /b 91
+          )
+          echo started>"$started"
+          exit /b 0
+          "@ | Set-Content -Encoding ascii (Join-Path $fakeBin 'dsh.cmd')
+
+          $env:DSH_HOME = $dshHome
+          $env:PATH = "$fakeBin;$env:PATH"
+          $env:PFC_RC7_SKIP_QUALIFY = '1'
+          & (Join-Path $pkg 'packaging/rc7/AITEST.cmd')
+          $rc = $LASTEXITCODE
+          if ($rc -ne 0) { throw "AITEST.cmd failed in field simulation rc=$rc" }
+          if (Test-Path $bad) { throw 'PRESTART dsh plugin add/install was invoked' }
+          if (-not (Test-Path $started)) { throw 'DSH host was never started' }
+
+          $profileEvidence = Get-Content (Join-Path $pkg 'state/rc7-dsh-runtime-profile.json') | ConvertFrom-Json
+          if ($profileEvidence.status -ne 'PASS') { throw 'runtime profile preparation not PASS' }
+          if ($profileEvidence.package_manager_prestart -ne 'FORBIDDEN') { throw 'prestart package-manager policy drift' }
+          if ($profileEvidence.persistent_install_attempted) { throw 'persistent install unexpectedly attempted before startup' }
+          if ($profileEvidence.rebuild_reason -ne 'RUNTIME_PROFILE_POLICY_UPGRADE') { throw 'dirty v1 runtime clone was not rebuilt' }
+          if ($profileEvidence.capability_state -ne 'READY_FROM_CLONE') { throw "required plugins not ready from clone: $($profileEvidence.capability_state)" }
+          $cloneManifest = Get-Content (Join-Path $runtime 'package.json') | ConvertFrom-Json
+          if ($cloneManifest.name -ne 'bank-web') { throw 'dirty runtime clone survived repair' }
+
+          $probe = Get-Content (Join-Path $pkg 'state/dsh-post-bootstrap-probe.json') | ConvertFrom-Json
+          if ($probe.status -ne 'PASS') { throw "post bootstrap probe not PASS: $($probe.status)" }
+          if ($probe.persistent_install_attempted) { throw 'probe attempted package-manager persistence' }
+
+          $cmd = Get-Content (Join-Path $pkg 'packaging/rc7/AITEST.cmd') -Raw
+          if ($cmd.Contains('--attempt-persistent-install')) { throw 'AITEST startup contains persistent install flag' }
+          if (-not $cmd.Contains('Starting DSH now')) { throw 'startup marker missing' }
+          if (-not (Test-Path (Join-Path $pkg 'packaging/rc7/DSH-PLUGIN-BOOTSTRAP.cmd'))) { throw 'post-start bootstrap helper missing' }
+          if (-not (Test-Path (Join-Path $pkg 'rc7_release/dsh_post_bootstrap.py'))) { throw 'post-start bootstrap module missing' }
+
+          [ordered]@{
+            status='PASS'
+            source_commit=$env:SOURCE_COMMIT
+            field_failure_reproduction='DSH_PLUGIN_ADD_MODULE_NOT_FOUND_PRESTART'
+            repaired_policy='CLONE_FIRST_NO_PACKAGE_MANAGER'
+            dirty_v1_clone_rebuilt='PASS'
+            protected_web_profile='READ_ONLY'
+            required_plugins='READY_FROM_CLONE'
+            prestart_plugin_add='FORBIDDEN_AND_NOT_CALLED'
+            dsh_host_started='PASS'
+            persistent_plugin_repair='POST_START_NON_BLOCKING_ONLY'
+          } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 dist/qualification/nonblocking-dsh-bootstrap.json
+
+      - name: Enhancement runtime patch gates
+        shell: pwsh
+        run: |
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          $py = Join-Path $pkg 'workspace-template/runtime/python/python.exe'
+          $state = Join-Path $env:RUNNER_TEMP 'rc7-enhancement-state'
+          New-Item -ItemType Directory -Force $state | Out-Null
+          & $py -m rc7_release.dsh --home $pkg --python $py --output (Join-Path $state 'rc7-dsh.patch.yml') --require-default-enhancements
+          if ($LASTEXITCODE -ne 0) { throw 'strict enhancement patch generation failed' }
+          $patch = Get-Content (Join-Path $state 'rc7-dsh.patch.yml') -Raw
+          foreach ($needle in @('id: vision-router','localOnlyVision: true','freeFallback: false','id: memento','writePolicy: ask','language: zh')) {
+            if (-not $patch.Contains($needle)) { throw "enhancement patch gate missing: $needle" }
+          }
+          $policy = Get-Content (Join-Path $state 'rc7-tool-policy.ts') -Raw
+          if (-not $policy.Contains('runtime-state/r1/event-stream.jsonl')) { throw 'canonical R1 truth policy missing' }
+          if (-not $policy.Contains('Memento/memory is non-authoritative')) { throw 'memento non-truth policy missing' }
+
+      - name: Seal archive and clean-unpack qualification
+        shell: pwsh
+        run: |
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          python -m rc7_release.final_archive --home $pkg --output dist --source-commit $env:SOURCE_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'archive sealing failed' }
+          $zip = Get-ChildItem 'dist/PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-*.zip' | Select-Object -First 1
+          if (-not $zip) { throw 'Final ZIP missing' }
+          python -m rc7_release.delivery_qualification --zip $zip.FullName --source-commit $env:SOURCE_COMMIT --output dist/qualification/delivery.json --require-pass
+          if ($LASTEXITCODE -ne 0) { throw 'clean unpack delivery qualification failed' }
+          $py = Join-Path $pkg 'workspace-template/runtime/python/python.exe'
+          & $py -m rc7_release.workspace_install --source $pkg --target "$env:RUNNER_TEMP\PFC\AITest-RC7" --dry-run --output dist/qualification/install-dry-run.json
+          if ($LASTEXITCODE -ne 0) { throw 'installer dry-run failed' }
+
+      - name: Measure repaired archive
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = Get-ChildItem 'dist/PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-*.zip' | Select-Object -First 1
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($zip.FullName)
+          $count = $archive.Entries.Count
+          $uncompressed = ($archive.Entries | Measure-Object Length -Sum).Sum
+          $archive.Dispose()
+          $sha = (Get-FileHash -Algorithm SHA256 $zip.FullName).Hash.ToLowerInvariant()
+          $short = $env:SOURCE_COMMIT.Substring(0,12)
+          $releaseName = "PFC-AITest-RC7-TURNKEY-NONBLOCKING-DSH-WIN10-$short.zip"
+          Copy-Item $zip.FullName (Join-Path dist $releaseName)
+          @{
+            status='PASS'; source_commit=$env:SOURCE_COMMIT; archive_name=$releaseName;
+            archive_size_bytes=(Get-Item (Join-Path dist $releaseName)).Length; archive_sha256=$sha;
+            file_count=$count; uncompressed_size_bytes=[long]$uncompressed;
+            truth='R1_EVENT_STREAM'; real_bank_mission='HOLD_FIELD_EVIDENCE_REQUIRED';
+            requirement_e2e='HOLD_REAL_PROVIDER_FIELD_EVIDENCE_REQUIRED';
+            dsh_bootstrap='CLONE_FIRST_NO_PACKAGE_MANAGER';
+            plugin_persistence='POST_START_NON_BLOCKING';
+            vision_router='DEFAULT_ON_LOCAL_ONLY'; memento='DEFAULT_ON_NON_AUTHORITATIVE'
+          } | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 dist/turnkey-metadata.json
+          "$sha  $releaseName" | Set-Content -Encoding ascii dist/RC7-SHA256SUMS.txt
+
+      - name: Upload qualification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc7-nonblocking-dsh-evidence-${{ github.sha }}
+          path: |
+            dist/turnkey-metadata.json
+            dist/RC7-SHA256SUMS.txt
+            dist/qualification/*.json
+          compression-level: 9
+          retention-days: 30
+
+      - name: Publish repaired full ZIP prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $short = $env:SOURCE_COMMIT.Substring(0,12)
+          $tag = "rc7-internal-nonblocking-dsh-$short"
+          $asset = "dist/PFC-AITest-RC7-TURNKEY-NONBLOCKING-DSH-WIN10-$short.zip"
+          gh release create $tag --repo TongAITech/opencode-test-digital-employee --target $env:SOURCE_COMMIT --title "RC7 Internal Turnkey Nonblocking DSH Bootstrap $short" --prerelease --notes "Field-startup repair candidate. DSH starts from a clean read-only-derived rc7-bank clone without any pre-start dsh plugin add/install. Legacy v1 clones are rebuilt. Persistent plugin repair is post-start and non-blocking only. Vision Router remains default-on local-only; Memento remains default-on and non-authoritative. Engineering/delivery gates PASS. Real bank mission still requires field evidence; this is not Bank Final."
+          if ($LASTEXITCODE -ne 0) { throw 'release creation failed' }
+          gh release upload $tag $asset dist/RC7-SHA256SUMS.txt dist/qualification/nonblocking-dsh-bootstrap.json --repo TongAITech/opencode-test-digital-employee
+          if ($LASTEXITCODE -ne 0) { throw 'release asset upload failed' }
