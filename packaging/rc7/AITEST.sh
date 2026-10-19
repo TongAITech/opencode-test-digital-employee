@@ -32,6 +32,8 @@ if [[ "${PFC_RC7_SKIP_QUALIFY:-0}" != "1" ]]; then
   "$PY" -m rc7_release.package verify --package-root "$ROOT"
 fi
 
+# Payload verification is read-only. Never invoke dsh plugin add/install in the
+# startup path; package-manager persistence is post-start and non-blocking.
 "$PY" -m rc7_release.dsh_plugins \
   --home "$ROOT" \
   --profile "$PFC_RC7_DSH_BASE_PROFILE" \
@@ -63,6 +65,8 @@ if [[ "$PFC_RC7_DSH_PROFILE" == "$PFC_RC7_DSH_BASE_PROFILE" ]]; then
   exit 4
 fi
 
+# Clone-only preflight; v1 clones are rebuilt so any half-mutated profile from
+# an earlier failed package-manager attempt is discarded.
 "$PY" -m rc7_release.dsh_runtime_profile \
   --home "$ROOT" \
   --base-profile "$PFC_RC7_DSH_BASE_PROFILE" \
@@ -76,11 +80,17 @@ fi
   --python "$PY" \
   --require-default-enhancements
 
+# Observation only; DEGRADED returns zero by design and cannot block DSH.
+"$PY" -m rc7_release.dsh_post_bootstrap \
+  --home "$ROOT" \
+  --profile "$PFC_RC7_DSH_PROFILE" \
+  --output "$ROOT/state/dsh-post-bootstrap-probe.json" || true
+
 echo "[RC7] Protected bank DSH profile: $PFC_RC7_DSH_BASE_PROFILE (read-only source)"
-echo "[RC7] RC7 DSH runtime profile: $PFC_RC7_DSH_PROFILE"
+echo "[RC7] RC7 DSH runtime profile: $PFC_RC7_DSH_PROFILE (clean clone, no pre-start npm/plugin install)"
 echo "[RC7] Vision Router: DEFAULT ON / LOCAL-ONLY / PUBLIC REMOTE FORBIDDEN"
 echo "[RC7] Memento: DEFAULT ON / RC7 LOCAL DB / R1 NON-AUTHORITATIVE"
 echo "[RC7] Canonical R1: $PFC_AITEST_STATE_DIR/r1/event-stream.jsonl"
 echo "[RC7] Maven repo: $PFC_MAVEN_REPO"
-echo "[RC7] Starting DSH with RC7 plugin clone + runtime-only enhancement/MCP patch."
+echo "[RC7] Starting DSH now. Startup will not call dsh plugin add/install."
 exec dsh --profile "$PFC_RC7_DSH_PROFILE" --patch "$ROOT/state/rc7-dsh.patch.yml"
