@@ -23,6 +23,8 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           git config --global core.longpaths true
+          git config --global url."https://github.com/".insteadOf ssh://git@github.com/
+          git config --global --add url."https://github.com/".insteadOf git@github.com:
           $npm=(Get-Command npm.cmd -ErrorAction Stop).Source
           Write-Host "npm=$npm"
           & node --version
@@ -109,7 +111,6 @@ jobs:
             }finally{Pop-Location}
           }
 
-          # BrowserSkill native Windows CLI and extension.
           $bskZip=Join-Path $env:RUNNER_TEMP 'bsk-win.zip'
           Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/Tencent/BrowserSkill/releases/download/cli-v0.3.3/bsk-v0.3.3-x86_64-pc-windows-msvc.zip' -OutFile $bskZip
           $bh=(Get-FileHash $bskZip -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -126,7 +127,6 @@ jobs:
 
           ([ordered]@{schema='pfc.aitest.offline10.components.v1';target='windows-x64';node=(node --version);npm=(& $npm --version);plugin_count=10;plugins=$resolved;browser_skill=[ordered]@{cli='0.3.3';cli_sha256=$bh;extension='0.3.3';extension_sha256=$eh}}|ConvertTo-Json -Depth 15) | Set-Content -Encoding UTF8 (Join-Path $Out 'COMPONENTS_MANIFEST.json')
 
-          # Verify all ten package roots and payload content.
           foreach($p in $plugins){$pp=Target $p.name;if(-not(Test-Path (Join-Path $pp 'package.json'))){throw "VERIFY_MISSING:$($p.name)"}}
           $payload=Join-Path $Out 'payload\dsh-plugins-offline10-payload.zip'
           Compress-Archive -Path (Join-Path $Vendor '*') -DestinationPath $payload -CompressionLevel Optimal -Force
