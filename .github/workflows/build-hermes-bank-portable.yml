@@ -1,0 +1,37 @@
+name: Build Hermes Bank Portable
+
+on:
+  push:
+    branches:
+      - work/hermes-bank-portable-package
+    paths:
+      - '.github/workflows/build-hermes-bank-portable.yml'
+      - 'tools/hermes-portable/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-portable:
+    name: Windows x64 portable package
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build and relocation-verify package
+        shell: powershell
+        run: .\tools\hermes-portable\build-hermes-bank-portable.ps1
+
+      - name: Upload final ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64
+          path: |
+            out/Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64.zip
+            out/Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64.sha256.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
