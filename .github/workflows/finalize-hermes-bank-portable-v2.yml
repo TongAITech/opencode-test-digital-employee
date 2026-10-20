@@ -1,0 +1,222 @@
+name: Finalize Hermes Bank Portable V2
+
+on:
+  push:
+    branches:
+      - work/hermes-bank-portable-package
+    paths:
+      - '.github/workflows/finalize-hermes-bank-portable-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  finalize:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified base package
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force recovered | Out-Null
+          gh run download 39368486541 --repo TongAITech/opencode-test-digital-employee --name Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64 --dir recovered
+
+      - name: Extract base package
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force finalstage | Out-Null
+          7z x -y -ofinalstage recovered/Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64.zip
+          if ($LASTEXITCODE -ne 0) { throw 'extract failed' }
+          if (-not (Test-Path 'finalstage/payload/hermes/hermes-agent/venv/Scripts/python.exe')) { throw 'portable venv missing' }
+
+      - name: Finalize portable runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $payload=(Resolve-Path 'finalstage/payload').Path
+          if (((& subst 2>$null) -join "`n") -match '(?im)^R:\\:') { subst R: /D | Out-Null }
+          subst R: $payload
+          if ($LASTEXITCODE -ne 0) { throw 'subst failed' }
+          try {
+            $env:HERMES_HOME='R:\hermes'
+            $env:PLAYWRIGHT_BROWSERS_PATH='R:\hermes\browser\ms-playwright'
+            $env:AGENT_BROWSER_EXECUTABLE_PATH='R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe'
+            $env:HERMES_GIT_BASH_PATH='R:\hermes\git\bin\bash.exe'
+            $env:PYTHONPATH='R:\hermes\hermes-agent'
+            $env:PYTHONUTF8='1'
+            $env:PYTHONIOENCODING='utf-8'
+            $env:Path=(@('R:\hermes\hermes-agent\venv\Scripts','R:\hermes\node','R:\hermes\node\node_modules\.bin','R:\hermes\git\cmd','R:\hermes\git\bin','R:\hermes\git\usr\bin','R:\hermes\tools\rg','R:\hermes\tools\ffmpeg\bin',$env:Path)-join ';')
+            $py='R:\hermes\hermes-agent\venv\Scripts\python.exe'
+
+            & $py -c "import hermes_cli,openai,yaml; print('HERMES_IMPORT_OK=' + hermes_cli.__file__)"
+            if ($LASTEXITCODE -ne 0) { throw 'relocated Hermes import failed' }
+            & $py -m hermes_cli.main --version
+            if ($LASTEXITCODE -ne 0) { throw 'relocated Hermes main failed' }
+
+            & $py -m hermes_cli.main pm install cua-driver
+            if ($LASTEXITCODE -ne 0) { throw 'cua-driver install failed' }
+
+            $config=@'
+          model:
+            default: "aicoder-plus"
+            provider: "custom:wizard-bank"
+            base_url: "https://wizard-ai.paic.com.cn/code_pilot/api/v1"
+            context_length: 148000
+            supports_vision: false
+          providers:
+            wizard-bank:
+              name: "Wizard Bank / aicoder-plus"
+              api: "https://wizard-ai.paic.com.cn/code_pilot/api/v1"
+              transport: "chat_completions"
+              default_model: "aicoder-plus"
+              key_cmd: 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "R:\hermes\bank\auth\get-wizard-token.ps1"'
+              discover_models: false
+              context_length: 148000
+              request_timeout_seconds: 1800
+              models:
+                aicoder-plus:
+                  context_length: 148000
+                  supports_vision: false
+          security:
+            allow_lazy_installs: false
+          plugins:
+            auto_update_check_hours: 0
+          agent:
+            disabled_toolsets:
+              - web
+            environment_probe: true
+            execution_guidance: true
+            task_completion_guidance: true
+            stall_guards: true
+          terminal:
+            backend: local
+            timeout: 300
+          browser:
+            command_timeout: 60
+            auto_local_for_private_urls: true
+          computer_use:
+            autostart: false
+          '@
+            $config=($config -split "`r?`n" | ForEach-Object { if ($_ -match '^          ') { $_.Substring(10) } else { $_ } }) -join "`r`n"
+            Set-Content -LiteralPath 'R:\hermes\config.yaml' -Value $config -Encoding UTF8
+
+            $dotenv=@'
+          PLAYWRIGHT_BROWSERS_PATH=R:\hermes\browser\ms-playwright
+          AGENT_BROWSER_EXECUTABLE_PATH=R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe
+          HERMES_GIT_BASH_PATH=R:\hermes\git\bin\bash.exe
+          PYTHONPATH=R:\hermes\hermes-agent
+          '@
+            $dotenv=($dotenv -split "`r?`n" | ForEach-Object { if ($_ -match '^          ') { $_.Substring(10) } else { $_ } }) -join "`r`n"
+            Set-Content -LiteralPath 'R:\hermes\.env' -Value $dotenv -Encoding UTF8
+
+            $start=@'
+          param([Parameter(ValueFromRemainingArguments=$true)][string[]]$HermesArgs)
+          $ErrorActionPreference='Stop'
+          $root=Split-Path -Parent $MyInvocation.MyCommand.Path
+          $payload=Join-Path $root 'payload'
+          $expected=[System.IO.Path]::GetFullPath($payload).TrimEnd('\')
+          $lines=(& subst 2>$null) -join "`n"
+          $mapped=$null
+          if ($lines -match '(?im)^R:\\:\s*=>\s*(.+)$') { $mapped=$Matches[1].Trim().TrimEnd('\') }
+          if ($mapped -and -not $mapped.Equals($expected,[System.StringComparison]::OrdinalIgnoreCase)) { throw "R: already mapped to $mapped" }
+          if (-not $mapped) { subst R: $expected; if ($LASTEXITCODE -ne 0) { throw 'cannot map R:' } }
+          $env:HERMES_HOME='R:\hermes'
+          $env:PLAYWRIGHT_BROWSERS_PATH='R:\hermes\browser\ms-playwright'
+          $env:AGENT_BROWSER_EXECUTABLE_PATH='R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe'
+          $env:HERMES_GIT_BASH_PATH='R:\hermes\git\bin\bash.exe'
+          $env:PYTHONPATH='R:\hermes\hermes-agent'
+          $env:PYTHONUTF8='1'
+          $env:PYTHONIOENCODING='utf-8'
+          $env:Path=(@('R:\hermes\hermes-agent\venv\Scripts','R:\hermes\node','R:\hermes\node\node_modules\.bin','R:\hermes\git\cmd','R:\hermes\git\bin','R:\hermes\git\usr\bin','R:\hermes\tools\rg','R:\hermes\tools\ffmpeg\bin',$env:Path)-join ';')
+          $py='R:\hermes\hermes-agent\venv\Scripts\python.exe'
+          if (-not (Test-Path $py)) { throw 'bundled Python missing' }
+          & $py -m hermes_cli.main @HermesArgs
+          exit $LASTEXITCODE
+          '@
+            $start=($start -split "`r?`n" | ForEach-Object { if ($_ -match '^          ') { $_.Substring(10) } else { $_ } }) -join "`r`n"
+            Set-Content -LiteralPath 'finalstage/START-HERMES.ps1' -Value $start -Encoding UTF8
+
+            $verify=@'
+          $ErrorActionPreference='Stop'
+          $root=Split-Path -Parent $MyInvocation.MyCommand.Path
+          & (Join-Path $root 'START-HERMES.ps1') '--version'
+          if ($LASTEXITCODE -ne 0) { throw 'Hermes main failed' }
+          $required=@('R:\hermes\hermes-agent\venv\Scripts\python.exe','R:\hermes\node\node.exe','R:\hermes\node\npm.cmd','R:\hermes\git\cmd\git.exe','R:\hermes\git\bin\bash.exe','R:\hermes\tools\rg\rg.exe','R:\hermes\tools\ffmpeg\bin\ffmpeg.exe','R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe','R:\hermes\config.yaml','R:\hermes\bank\auth\get-wizard-token.ps1')
+          foreach($p in $required){ if(-not(Test-Path $p)){throw "missing $p"}; Write-Host "[OK] $p" -ForegroundColor Green }
+          $env:PYTHONPATH='R:\hermes\hermes-agent'
+          & 'R:\hermes\hermes-agent\venv\Scripts\python.exe' -c "import hermes_cli,openai,yaml; print('IMPORTS_OK')"
+          if($LASTEXITCODE -ne 0){throw 'Python imports failed'}
+          Write-Host 'PORTABLE_RUNTIME_OK' -ForegroundColor Green
+          '@
+            $verify=($verify -split "`r?`n" | ForEach-Object { if ($_ -match '^          ') { $_.Substring(10) } else { $_ } }) -join "`r`n"
+            Set-Content -LiteralPath 'finalstage/VERIFY-PORTABLE.ps1' -Value $verify -Encoding UTF8
+
+            $model=& $py -m hermes_cli.main config get model | Out-String
+            if($LASTEXITCODE -ne 0 -or $model -notmatch 'custom:wizard-bank'){throw "bad model config: $model"}
+            $providers=& $py -m hermes_cli.main config get providers | Out-String
+            if($LASTEXITCODE -ne 0 -or $providers -notmatch 'wizard-bank'){throw 'bad provider config'}
+            & $py -m hermes_cli.main pm list
+            if($LASTEXITCODE -ne 0){throw 'pm list failed'}
+            if(-not(Get-ChildItem -Path 'R:\hermes' -Filter 'cua-driver*' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1)){throw 'cua-driver not found'}
+            Add-Content -LiteralPath 'finalstage/README-行内直接使用.md' -Encoding UTF8 -Value "`r`nFINAL V2: relocatable launcher uses bundled venv Python; canonical provider is custom:wizard-bank; official cua-driver is bundled."
+          } finally { subst R: /D | Out-Null }
+
+      - name: Package and relocation test
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force outfinal | Out-Null
+          $zip=(Resolve-Path outfinal).Path+'\Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64-FINAL.zip'
+          Push-Location finalstage
+          try { 7z a -tzip -mx=1 -mmt=on $zip '.\*'; if($LASTEXITCODE -ne 0){throw 'zip failed'} } finally { Pop-Location }
+          $test=Join-Path $env:RUNNER_TEMP 'hermes-final-relocation'
+          Remove-Item -Recurse -Force $test -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $test | Out-Null
+          7z x -y "-o$test" $zip
+          if($LASTEXITCODE -ne 0){throw 'relocation extract failed'}
+          $payload=Join-Path $test 'payload'
+          if(((& subst 2>$null)-join "`n") -match '(?im)^R:\\:'){subst R: /D|Out-Null}
+          subst R: $payload
+          try {
+            $env:HERMES_HOME='R:\hermes'
+            $env:PLAYWRIGHT_BROWSERS_PATH='R:\hermes\browser\ms-playwright'
+            $env:AGENT_BROWSER_EXECUTABLE_PATH='R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe'
+            $env:HERMES_GIT_BASH_PATH='R:\hermes\git\bin\bash.exe'
+            $env:PYTHONPATH='R:\hermes\hermes-agent'
+            $env:PYTHONUTF8='1'
+            $env:PYTHONIOENCODING='utf-8'
+            $env:Path=(@('R:\hermes\hermes-agent\venv\Scripts','R:\hermes\node','R:\hermes\node\node_modules\.bin','R:\hermes\git\cmd','R:\hermes\git\bin','R:\hermes\git\usr\bin','R:\hermes\tools\rg','R:\hermes\tools\ffmpeg\bin',$env:Path)-join ';')
+            $py='R:\hermes\hermes-agent\venv\Scripts\python.exe'
+            & $py -c "import hermes_cli,openai,yaml; print('RELOCATED_IMPORTS_OK=' + hermes_cli.__file__)"
+            if($LASTEXITCODE -ne 0){throw 'relocated imports failed'}
+            & $py -m hermes_cli.main --version
+            if($LASTEXITCODE -ne 0){throw 'relocated main failed'}
+            $model=& $py -m hermes_cli.main config get model | Out-String
+            if($LASTEXITCODE -ne 0 -or $model -notmatch 'custom:wizard-bank'){throw "relocated config failed: $model"}
+            if(-not(Test-Path 'R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe')){throw 'chrome missing'}
+            if(-not(Get-ChildItem -Path 'R:\hermes' -Filter 'cua-driver*' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1)){throw 'cua missing'}
+            Write-Host 'FINAL_RELOCATION_IMPORT_CONFIG_TOOLS_OK'
+          } finally { subst R: /D|Out-Null }
+          $hash=(Get-FileHash $zip -Algorithm SHA256).Hash
+          $name=Split-Path $zip -Leaf
+          "$hash  $name"|Set-Content 'outfinal/Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64-FINAL.sha256.txt' -Encoding ASCII
+          Write-Host "FINAL_SHA256=$hash"
+          Write-Host "FINAL_SIZE=$((Get-Item $zip).Length)"
+
+      - name: Upload final package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64-FINAL
+          path: |
+            outfinal/Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64-FINAL.zip
+            outfinal/Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64-FINAL.sha256.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
