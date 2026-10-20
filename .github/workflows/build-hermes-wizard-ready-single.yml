@@ -1,0 +1,71 @@
+name: Build Hermes Wizard Ready Single Package
+
+on:
+  push:
+    branches:
+      - work/hermes-bank-wizard-ready-single-artifact
+    paths:
+      - '.github/workflows/build-hermes-wizard-ready-single.yml'
+      - 'tools/hermes-portable/wizard-integration/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  package:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified base Hermes portable artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          Invoke-WebRequest -Headers $headers -Uri 'https://api.github.com/repos/TongAITech/opencode-test-digital-employee/actions/artifacts/12239709371/zip' -OutFile base-artifact.zip
+          Expand-Archive -Path base-artifact.zip -DestinationPath base-artifact -Force
+          $base = Get-ChildItem base-artifact -Filter 'Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64.zip' -Recurse | Select-Object -First 1
+          if (-not $base) { throw 'Verified base portable ZIP not found in artifact' }
+          Copy-Item $base.FullName '.\Hermes-Agent-Bank-Wizard-Ready-v2026.9.14-Win10-x64.zip' -Force
+
+      - name: Apply Wizard Ready integration overlay
+        shell: pwsh
+        run: |
+          $b64 = Get-Content '.\tools\hermes-portable\wizard-integration\Hermes-Wizard-Bank-Integration-Overlay-v1.zip.b64' -Raw
+          [IO.File]::WriteAllBytes('.\overlay.zip', [Convert]::FromBase64String($b64.Trim()))
+          Remove-Item '.\overlay' -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive '.\overlay.zip' '.\overlay' -Force
+          Push-Location '.\overlay'
+          try {
+            & 7z.exe u -tzip -mx=1 '..\Hermes-Agent-Bank-Wizard-Ready-v2026.9.14-Win10-x64.zip' '.\*'
+            if ($LASTEXITCODE -ne 0) { throw "7z update failed: $LASTEXITCODE" }
+          } finally { Pop-Location }
+
+      - name: Verify final ZIP and write SHA256
+        shell: pwsh
+        run: |
+          & 7z.exe t '.\Hermes-Agent-Bank-Wizard-Ready-v2026.9.14-Win10-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw '7z integrity test failed' }
+          $hash = (Get-FileHash '.\Hermes-Agent-Bank-Wizard-Ready-v2026.9.14-Win10-x64.zip' -Algorithm SHA256).Hash
+          "$hash  Hermes-Agent-Bank-Wizard-Ready-v2026.9.14-Win10-x64.zip" | Set-Content '.\Hermes-Agent-Bank-Wizard-Ready-v2026.9.14-Win10-x64.sha256.txt' -Encoding ASCII
+          Get-Item '.\Hermes-Agent-Bank-Wizard-Ready-v2026.9.14-Win10-x64.zip' | Format-List Name,Length
+          Write-Host "FINAL_SHA256=$hash"
+
+      - name: Upload one complete package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hermes-Agent-Bank-Wizard-Ready-v2026.9.14-Win10-x64-COMPLETE
+          path: |
+            Hermes-Agent-Bank-Wizard-Ready-v2026.9.14-Win10-x64.zip
+            Hermes-Agent-Bank-Wizard-Ready-v2026.9.14-Win10-x64.sha256.txt
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
