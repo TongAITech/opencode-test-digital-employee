@@ -21,6 +21,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Patch Windows PowerShell 5 parser compatibility
+        shell: powershell
+        run: |
+          $p = '.\tools\hermes-portable\build-hermes-bank-portable.ps1'
+          $text = Get-Content -LiteralPath $p -Raw
+          $text = $text.Replace('$LASTEXITCODE:', '${LASTEXITCODE}:')
+          Set-Content -LiteralPath $p -Value $text -Encoding UTF8
+
       - name: Build and relocation-verify package
         shell: powershell
         run: .\tools\hermes-portable\build-hermes-bank-portable.ps1
