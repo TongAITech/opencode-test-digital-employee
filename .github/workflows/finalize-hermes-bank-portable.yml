@@ -36,9 +36,9 @@ jobs:
           New-Item -ItemType Directory -Force finalstage | Out-Null
           7z x -y -ofinalstage recovered/Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64.zip
           if ($LASTEXITCODE -ne 0) { throw '7z extract failed' }
-          if (-not (Test-Path 'finalstage/payload/hermes/bin/hermes.exe')) { throw 'Hermes launcher missing after extract' }
+          if (-not (Test-Path 'finalstage/payload/hermes/hermes-agent/venv/Scripts/python.exe')) { throw 'Hermes portable venv Python missing after extract' }
 
-      - name: Install optional official Computer Use driver and canonicalize Wizard provider
+      - name: Canonicalize Wizard provider, install CUA, and replace launcher with portable Python entrypoint
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
@@ -54,8 +54,9 @@ jobs:
             $env:HERMES_GIT_BASH_PATH = 'R:\hermes\git\bin\bash.exe'
             $env:PYTHONUTF8='1'
             $env:PYTHONIOENCODING='utf-8'
+            $env:PYTHONPATH='R:\hermes\hermes-agent'
             $env:Path = (@(
-              'R:\hermes\bin',
+              'R:\hermes\hermes-agent\venv\Scripts',
               'R:\hermes\node',
               'R:\hermes\node\node_modules\.bin',
               'R:\hermes\git\cmd',
@@ -66,8 +67,17 @@ jobs:
               $env:Path
             ) -join ';')
 
+            $py = 'R:\hermes\hermes-agent\venv\Scripts\python.exe'
+            if (-not (Test-Path $py)) { throw "Portable venv Python missing: $py" }
+
+            # Prove the actual relocated Python runtime can import Hermes (the old generated hermes.exe only proved its fast --version path).
+            & $py -c "import hermes_cli,sys; print('HERMES_IMPORT_OK=' + hermes_cli.__file__); print('PY=' + sys.executable)"
+            if ($LASTEXITCODE -ne 0) { throw 'Relocated venv cannot import hermes_cli' }
+            & $py -m hermes_cli.main --version
+            if ($LASTEXITCODE -ne 0) { throw 'Relocated Hermes Python entrypoint failed' }
+
             Write-Host 'Installing official optional Computer Use driver into portable PM store...'
-            & 'R:\hermes\bin\hermes.exe' pm install cua-driver
+            & $py -m hermes_cli.main pm install cua-driver
             if ($LASTEXITCODE -ne 0) { throw "hermes pm install cua-driver failed: $LASTEXITCODE" }
 
             $config = @'
@@ -126,36 +136,105 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH=R:\hermes\browser\ms-playwright
           AGENT_BROWSER_EXECUTABLE_PATH=R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe
           HERMES_GIT_BASH_PATH=R:\hermes\git\bin\bash.exe
+          PYTHONPATH=R:\hermes\hermes-agent
           '@
             $envFile = ($envFile -split "`r?`n" | ForEach-Object { if ($_ -match '^          ') { $_.Substring(10) } else { $_ } }) -join "`r`n"
             Set-Content -LiteralPath 'R:\hermes\.env' -Value $envFile -Encoding UTF8
 
-            # Add browser executable env to the portable launcher itself.
-            $launcher = 'finalstage/START-HERMES.ps1'
-            $launcherText = Get-Content -LiteralPath $launcher -Raw
-            if ($launcherText -notmatch 'AGENT_BROWSER_EXECUTABLE_PATH') {
-              $needle = '$env:PLAYWRIGHT_BROWSERS_PATH = ''R:\hermes\browser\ms-playwright'''
-              $replacement = $needle + "`r`n" + '$env:AGENT_BROWSER_EXECUTABLE_PATH = ''R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe'''
-              $launcherText = $launcherText.Replace($needle, $replacement)
-              Set-Content -LiteralPath $launcher -Value $launcherText -Encoding UTF8
-            }
+            # Replace the generated launcher completely. It now runs the bundled venv Python from fixed R: and therefore survives relocation.
+            $startPs = @'
+          param([Parameter(ValueFromRemainingArguments=$true)][string[]]$HermesArgs)
+          $ErrorActionPreference = 'Stop'
+          $root = Split-Path -Parent $MyInvocation.MyCommand.Path
+          $payload = Join-Path $root 'payload'
+          if (-not (Test-Path (Join-Path $payload 'hermes'))) { throw "payload\hermes not found under $root" }
 
-            # Replace README statements so the package truthfully describes the finalized contents.
+          $expected = [System.IO.Path]::GetFullPath($payload).TrimEnd('\')
+          $substLines = (& subst 2>$null) -join "`n"
+          $mapped = $null
+          if ($substLines -match '(?im)^R:\\:\s*=>\s*(.+)$') { $mapped = $Matches[1].Trim().TrimEnd('\') }
+          if ($mapped -and -not $mapped.Equals($expected, [System.StringComparison]::OrdinalIgnoreCase)) {
+              throw "R: is already mapped to '$mapped'. Hermes portable requires R: -> '$expected'."
+          }
+          if (-not $mapped) {
+              & subst R: $expected
+              if ($LASTEXITCODE -ne 0) { throw "Could not map R: to $expected" }
+          }
+
+          $env:HERMES_HOME = 'R:\hermes'
+          $env:PLAYWRIGHT_BROWSERS_PATH = 'R:\hermes\browser\ms-playwright'
+          $env:AGENT_BROWSER_EXECUTABLE_PATH = 'R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe'
+          $env:HERMES_GIT_BASH_PATH = 'R:\hermes\git\bin\bash.exe'
+          $env:PYTHONUTF8 = '1'
+          $env:PYTHONIOENCODING = 'utf-8'
+          $env:PYTHONPATH = 'R:\hermes\hermes-agent'
+          $env:Path = (@(
+              'R:\hermes\hermes-agent\venv\Scripts',
+              'R:\hermes\node',
+              'R:\hermes\node\node_modules\.bin',
+              'R:\hermes\git\cmd',
+              'R:\hermes\git\bin',
+              'R:\hermes\git\usr\bin',
+              'R:\hermes\tools\rg',
+              'R:\hermes\tools\ffmpeg\bin',
+              $env:Path
+          ) -join ';')
+
+          $python = 'R:\hermes\hermes-agent\venv\Scripts\python.exe'
+          if (-not (Test-Path -LiteralPath $python)) { throw "Bundled Python missing: $python" }
+          if (-not (Test-Path -LiteralPath 'R:\hermes\hermes-agent\hermes_cli\main.py')) { throw 'Hermes CLI source missing in portable payload.' }
+
+          Write-Host "Hermes portable root: $root" -ForegroundColor Cyan
+          Write-Host 'Model: custom:wizard-bank / aicoder-plus (context 148000)' -ForegroundColor Cyan
+          & $python -m hermes_cli.main @HermesArgs
+          exit $LASTEXITCODE
+          '@
+            $startPs = ($startPs -split "`r?`n" | ForEach-Object { if ($_ -match '^          ') { $_.Substring(10) } else { $_ } }) -join "`r`n"
+            Set-Content -LiteralPath 'finalstage/START-HERMES.ps1' -Value $startPs -Encoding UTF8
+
+            $verifyPs = @'
+          $ErrorActionPreference = 'Stop'
+          $root = Split-Path -Parent $MyInvocation.MyCommand.Path
+          & (Join-Path $root 'START-HERMES.ps1') '--version'
+          if ($LASTEXITCODE -ne 0) { throw 'Portable Hermes Python entrypoint failed' }
+
+          $required = @(
+            'R:\hermes\hermes-agent\venv\Scripts\python.exe',
+            'R:\hermes\node\node.exe',
+            'R:\hermes\node\npm.cmd',
+            'R:\hermes\git\cmd\git.exe',
+            'R:\hermes\git\bin\bash.exe',
+            'R:\hermes\tools\rg\rg.exe',
+            'R:\hermes\tools\ffmpeg\bin\ffmpeg.exe',
+            'R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe',
+            'R:\hermes\config.yaml',
+            'R:\hermes\bank\auth\get-wizard-token.ps1'
+          )
+          foreach ($p in $required) {
+            if (-not (Test-Path -LiteralPath $p)) { throw "Missing: $p" }
+            Write-Host "[OK] $p" -ForegroundColor Green
+          }
+          $env:PYTHONPATH='R:\hermes\hermes-agent'
+          & 'R:\hermes\hermes-agent\venv\Scripts\python.exe' -c "import hermes_cli,openai,yaml; print('IMPORTS_OK')"
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled Python imports failed' }
+          Write-Host 'PORTABLE_RUNTIME_OK' -ForegroundColor Green
+          '@
+            $verifyPs = ($verifyPs -split "`r?`n" | ForEach-Object { if ($_ -match '^          ') { $_.Substring(10) } else { $_ } }) -join "`r`n"
+            Set-Content -LiteralPath 'finalstage/VERIFY-PORTABLE.ps1' -Value $verifyPs -Encoding UTF8
+
+            # README truth update.
             $readme = 'finalstage/README-行内直接使用.md'
             $r = Get-Content -LiteralPath $readme -Raw
-            $r = $r.Replace('- Camofox browser package 1.5.2', "- Camofox browser package 1.5.2`r`n- Hermes official cua-driver (Computer Use driver; installed in PM store, autostart disabled by default)")
+            $r = $r.Replace('- Camofox browser package 1.5.2', "- Camofox browser package 1.5.2`r`n- Hermes official cua-driver (Computer Use driver; bundled in the PM store, autostart disabled by default)")
+            $r += "`r`n`r`n### 便携启动实现`r`n最终版不依赖安装器生成的 hermes.exe 入口；START-HERMES.ps1 通过包内 venv Python + PYTHONPATH=R:\hermes\hermes-agent 启动 hermes_cli.main，并在换目录解压后做真实 import/config 验证。`r`n"
             Set-Content -LiteralPath $readme -Value $r -Encoding UTF8
 
             Write-Host 'Validating canonical config without calling the bank model endpoint...'
-            & 'R:\hermes\bin\hermes.exe' config get model
-            if ($LASTEXITCODE -ne 0) { throw 'hermes config get model failed' }
-            & 'R:\hermes\bin\hermes.exe' config get providers
-            if ($LASTEXITCODE -ne 0) { throw 'hermes config get providers failed' }
-            & 'R:\hermes\bin\hermes.exe' --version
-            if ($LASTEXITCODE -ne 0) { throw 'hermes --version failed' }
-
-            Write-Host 'Checking cua-driver is available through Hermes PM...'
-            & 'R:\hermes\bin\hermes.exe' pm list
+            $model = & $py -m hermes_cli.main config get model | Out-String
+            if ($LASTEXITCODE -ne 0 -or $model -notmatch 'custom:wizard-bank') { throw "Model config invalid: $model" }
+            $providers = & $py -m hermes_cli.main config get providers | Out-String
+            if ($LASTEXITCODE -ne 0 -or $providers -notmatch 'wizard-bank') { throw "Provider config invalid: $providers" }
+            & $py -m hermes_cli.main pm list
             if ($LASTEXITCODE -ne 0) { throw 'hermes pm list failed' }
 
             $cua = Get-ChildItem -Path 'R:\hermes' -Filter 'cua-driver*' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -165,7 +244,7 @@ jobs:
             subst R: /D | Out-Null
           }
 
-      - name: Repackage and relocation verify finalized package
+      - name: Repackage and real relocation verify finalized package
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
@@ -182,6 +261,8 @@ jobs:
           New-Item -ItemType Directory -Force $testDir | Out-Null
           7z x -y "-o$testDir" $zip
           if ($LASTEXITCODE -ne 0) { throw '7z relocation extract failed' }
+
+          $root = $testDir
           $payload = Join-Path $testDir 'payload'
           $subst = (& subst 2>$null) -join "`n"
           if ($subst -match '(?im)^R:\\:') { subst R: /D | Out-Null }
@@ -192,14 +273,20 @@ jobs:
             $env:PLAYWRIGHT_BROWSERS_PATH='R:\hermes\browser\ms-playwright'
             $env:AGENT_BROWSER_EXECUTABLE_PATH='R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe'
             $env:HERMES_GIT_BASH_PATH='R:\hermes\git\bin\bash.exe'
-            $env:Path = (@('R:\hermes\bin','R:\hermes\node','R:\hermes\node\node_modules\.bin','R:\hermes\git\cmd','R:\hermes\git\bin','R:\hermes\git\usr\bin','R:\hermes\tools\rg','R:\hermes\tools\ffmpeg\bin',$env:Path) -join ';')
-            & 'R:\hermes\bin\hermes.exe' --version
-            if ($LASTEXITCODE -ne 0) { throw 'relocated Hermes failed' }
-            $model = & 'R:\hermes\bin\hermes.exe' config get model | Out-String
+            $env:PYTHONPATH='R:\hermes\hermes-agent'
+            $env:PYTHONUTF8='1'
+            $env:PYTHONIOENCODING='utf-8'
+            $env:Path = (@('R:\hermes\hermes-agent\venv\Scripts','R:\hermes\node','R:\hermes\node\node_modules\.bin','R:\hermes\git\cmd','R:\hermes\git\bin','R:\hermes\git\usr\bin','R:\hermes\tools\rg','R:\hermes\tools\ffmpeg\bin',$env:Path) -join ';')
+            $py='R:\hermes\hermes-agent\venv\Scripts\python.exe'
+            & $py -c "import hermes_cli,openai,yaml; print('RELOCATED_IMPORTS_OK=' + hermes_cli.__file__)"
+            if ($LASTEXITCODE -ne 0) { throw 'relocated import test failed' }
+            & $py -m hermes_cli.main --version
+            if ($LASTEXITCODE -ne 0) { throw 'relocated Hermes main failed' }
+            $model = & $py -m hermes_cli.main config get model | Out-String
             if ($LASTEXITCODE -ne 0 -or $model -notmatch 'custom:wizard-bank') { throw "relocated model config not canonical: $model" }
             if (-not (Test-Path 'R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe')) { throw 'relocated bundled Chrome missing' }
             if (-not (Get-ChildItem -Path 'R:\hermes' -Filter 'cua-driver*' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1)) { throw 'relocated cua-driver missing' }
-            Write-Host 'FINAL_RELOCATION_AND_CONFIG_OK'
+            Write-Host 'FINAL_RELOCATION_IMPORT_CONFIG_AND_TOOLS_OK'
           } finally { subst R: /D | Out-Null }
 
           $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
