@@ -28,15 +28,10 @@ jobs:
           $text = Get-Content -LiteralPath $p -Raw
           $text = $text.Replace('$LASTEXITCODE:', '${LASTEXITCODE}:')
 
-          $oldBrowser = @'
-              Invoke-Checked $agentBrowser 'install'
-              $chromiumDir = Get-ChildItem -Path $env:PLAYWRIGHT_BROWSERS_PATH -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^chromium' } | Select-Object -First 1
-              if (-not $chromiumDir) { throw "Chromium was not installed under $env:PLAYWRIGHT_BROWSERS_PATH" }
-          '@.Replace('              ','    ')
+          $pattern = '(?ms)^    Invoke-Checked \$agentBrowser ''install''\r?\n    \$chromiumDir = Get-ChildItem -Path \$env:PLAYWRIGHT_BROWSERS_PATH.*?\r?\n    if \(-not \$chromiumDir\) \{ throw "Chromium was not installed under \$env:PLAYWRIGHT_BROWSERS_PATH" \}\r?\n'
           $newBrowser = @'
               Invoke-Checked $agentBrowser 'install'
-              # agent-browser keeps its Chrome-for-Testing cache in ~/.agent-browser rather than PLAYWRIGHT_BROWSERS_PATH.
-              # Copy the complete chrome.exe directory into the portable payload and pin Hermes to that fixed path.
+              # agent-browser stores Chrome in ~/.agent-browser. Copy the complete executable directory into the portable payload.
               $agentBrowserCache = Join-Path $env:USERPROFILE '.agent-browser\browsers'
               $sourceChromeExe = Get-ChildItem -Path $agentBrowserCache -Filter 'chrome.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
               if (-not $sourceChromeExe) { throw "agent-browser Chrome install succeeded but chrome.exe was not found under $agentBrowserCache" }
@@ -46,12 +41,14 @@ jobs:
               Copy-Item -Path (Join-Path $sourceChromeExe.Directory.FullName '*') -Destination $portableChromeDir -Recurse -Force
               if (-not (Test-Path (Join-Path $portableChromeDir 'chrome.exe'))) { throw 'Portable chrome.exe copy failed' }
               $chromiumDir = Get-Item $portableChromeDir
-          '@.Replace('              ','    ')
-          if (-not $text.Contains($oldBrowser)) { throw 'Browser block patch target not found' }
-          $text = $text.Replace($oldBrowser, $newBrowser)
+          '@
+          $newBrowser = ($newBrowser -split "`r?`n" | ForEach-Object { if ($_ -match '^              ') { $_.Substring(10) } else { $_ } }) -join "`r`n"
+          $re = [regex]::new($pattern)
+          if (-not $re.IsMatch($text)) { throw 'Browser block regex patch target not found' }
+          $text = $re.Replace($text, $newBrowser + "`r`n", 1)
 
           $oldEnv = 'HERMES_GIT_BASH_PATH=R:\hermes\git\bin\bash.exe'
-          $newEnv = "HERMES_GIT_BASH_PATH=R:\hermes\git\bin\bash.exe`nAGENT_BROWSER_EXECUTABLE_PATH=R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe"
+          $newEnv = "HERMES_GIT_BASH_PATH=R:\hermes\git\bin\bash.exe`r`nAGENT_BROWSER_EXECUTABLE_PATH=R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe"
           $text = $text.Replace($oldEnv, $newEnv)
 
           Set-Content -LiteralPath $p -Value $text -Encoding UTF8
