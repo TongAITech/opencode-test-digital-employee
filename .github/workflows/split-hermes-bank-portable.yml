@@ -1,0 +1,141 @@
+name: Split Hermes Bank Portable Artifact
+
+on:
+  push:
+    branches:
+      - work/hermes-bank-portable-package
+    paths:
+      - '.github/workflows/split-hermes-bank-portable.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  split-transfer:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download verified full package from successful build run
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force recovered | Out-Null
+          gh run download 39368486541 --repo TongAITech/opencode-test-digital-employee --name Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64 --dir recovered
+          Get-ChildItem recovered | Format-Table Name,Length
+
+      - name: Split final ZIP into <=350 MiB transfer chunks
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = (Resolve-Path 'recovered/Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64.zip').Path
+          $outDir = Join-Path $PWD 'transfer'
+          New-Item -ItemType Directory -Force $outDir | Out-Null
+          $chunkSize = 350MB
+          $bufferSize = 8MB
+          $input = [System.IO.File]::OpenRead($source)
+          try {
+            $index = 1
+            while ($input.Position -lt $input.Length) {
+              $partPath = Join-Path $outDir ((Split-Path $source -Leaf) + ('.part{0:D3}' -f $index))
+              $output = [System.IO.File]::Create($partPath)
+              try {
+                $remaining = [Math]::Min([int64]$chunkSize, $input.Length - $input.Position)
+                $buffer = New-Object byte[] $bufferSize
+                while ($remaining -gt 0) {
+                  $toRead = [int][Math]::Min([int64]$buffer.Length, $remaining)
+                  $read = $input.Read($buffer, 0, $toRead)
+                  if ($read -le 0) { throw 'Unexpected EOF while splitting package' }
+                  $output.Write($buffer, 0, $read)
+                  $remaining -= $read
+                }
+              } finally {
+                $output.Dispose()
+              }
+              $index++
+            }
+          } finally {
+            $input.Dispose()
+          }
+          Copy-Item 'recovered/Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64.sha256.txt' $outDir
+          $parts = Get-ChildItem $outDir -Filter '*.part*' | Sort-Object Name
+          "parts=$($parts.Count)" | Set-Content $env:GITHUB_OUTPUT
+          $parts | ForEach-Object { Write-Host "$($_.Name) $($_.Length)" }
+          if ($parts.Count -gt 8) { throw "Unexpected part count $($parts.Count)" }
+
+      - name: Upload part001
+        if: ${{ hashFiles('transfer/*.part001') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hermes-Portable-part001
+          path: transfer/*.part001
+          compression-level: 0
+          retention-days: 7
+      - name: Upload part002
+        if: ${{ hashFiles('transfer/*.part002') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hermes-Portable-part002
+          path: transfer/*.part002
+          compression-level: 0
+          retention-days: 7
+      - name: Upload part003
+        if: ${{ hashFiles('transfer/*.part003') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hermes-Portable-part003
+          path: transfer/*.part003
+          compression-level: 0
+          retention-days: 7
+      - name: Upload part004
+        if: ${{ hashFiles('transfer/*.part004') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hermes-Portable-part004
+          path: transfer/*.part004
+          compression-level: 0
+          retention-days: 7
+      - name: Upload part005
+        if: ${{ hashFiles('transfer/*.part005') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hermes-Portable-part005
+          path: transfer/*.part005
+          compression-level: 0
+          retention-days: 7
+      - name: Upload part006
+        if: ${{ hashFiles('transfer/*.part006') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hermes-Portable-part006
+          path: transfer/*.part006
+          compression-level: 0
+          retention-days: 7
+      - name: Upload part007
+        if: ${{ hashFiles('transfer/*.part007') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hermes-Portable-part007
+          path: transfer/*.part007
+          compression-level: 0
+          retention-days: 7
+      - name: Upload part008
+        if: ${{ hashFiles('transfer/*.part008') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hermes-Portable-part008
+          path: transfer/*.part008
+          compression-level: 0
+          retention-days: 7
+      - name: Upload SHA256
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hermes-Portable-sha256
+          path: transfer/*.sha256.txt
+          compression-level: 0
+          retention-days: 7
