@@ -40,7 +40,8 @@ jobs:
         shell: pwsh
         run: |
           $b64 = Get-Content '.\tools\hermes-portable\wizard-integration\Hermes-Wizard-Bank-Integration-Overlay-v1.zip.b64' -Raw
-          [IO.File]::WriteAllBytes('.\overlay.zip', [Convert]::FromBase64String($b64.Trim()))
+          $clean = $b64 -replace '[^A-Za-z0-9+/=]', ''
+          [IO.File]::WriteAllBytes('.\overlay.zip', [Convert]::FromBase64String($clean))
           Remove-Item '.\overlay' -Recurse -Force -ErrorAction SilentlyContinue
           Expand-Archive '.\overlay.zip' '.\overlay' -Force
           Push-Location '.\overlay'
