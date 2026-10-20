@@ -1,0 +1,220 @@
+name: Finalize Hermes Bank Portable
+
+on:
+  push:
+    branches:
+      - work/hermes-bank-portable-package
+    paths:
+      - '.github/workflows/finalize-hermes-bank-portable.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  finalize:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download previously relocation-verified package
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force recovered | Out-Null
+          gh run download 39368486541 --repo TongAITech/opencode-test-digital-employee --name Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64 --dir recovered
+          Get-ChildItem recovered | Format-Table Name,Length
+
+      - name: Extract package
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force finalstage | Out-Null
+          7z x -y -ofinalstage recovered/Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64.zip
+          if ($LASTEXITCODE -ne 0) { throw '7z extract failed' }
+          if (-not (Test-Path 'finalstage/payload/hermes/bin/hermes.exe')) { throw 'Hermes launcher missing after extract' }
+
+      - name: Install optional official Computer Use driver and canonicalize Wizard provider
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $payload = (Resolve-Path 'finalstage/payload').Path
+          $subst = (& subst 2>$null) -join "`n"
+          if ($subst -match '(?im)^R:\\:') { subst R: /D | Out-Null }
+          subst R: $payload
+          if ($LASTEXITCODE -ne 0) { throw 'subst R: failed' }
+          try {
+            $env:HERMES_HOME = 'R:\hermes'
+            $env:PLAYWRIGHT_BROWSERS_PATH = 'R:\hermes\browser\ms-playwright'
+            $env:AGENT_BROWSER_EXECUTABLE_PATH = 'R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe'
+            $env:HERMES_GIT_BASH_PATH = 'R:\hermes\git\bin\bash.exe'
+            $env:PYTHONUTF8='1'
+            $env:PYTHONIOENCODING='utf-8'
+            $env:Path = (@(
+              'R:\hermes\bin',
+              'R:\hermes\node',
+              'R:\hermes\node\node_modules\.bin',
+              'R:\hermes\git\cmd',
+              'R:\hermes\git\bin',
+              'R:\hermes\git\usr\bin',
+              'R:\hermes\tools\rg',
+              'R:\hermes\tools\ffmpeg\bin',
+              $env:Path
+            ) -join ';')
+
+            Write-Host 'Installing official optional Computer Use driver into portable PM store...'
+            & 'R:\hermes\bin\hermes.exe' pm install cua-driver
+            if ($LASTEXITCODE -ne 0) { throw "hermes pm install cua-driver failed: $LASTEXITCODE" }
+
+            $config = @'
+          model:
+            default: "aicoder-plus"
+            provider: "custom:wizard-bank"
+            base_url: "https://wizard-ai.paic.com.cn/code_pilot/api/v1"
+            context_length: 148000
+            supports_vision: false
+
+          providers:
+            wizard-bank:
+              name: "Wizard Bank / aicoder-plus"
+              api: "https://wizard-ai.paic.com.cn/code_pilot/api/v1"
+              transport: "chat_completions"
+              default_model: "aicoder-plus"
+              key_cmd: 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "R:\hermes\bank\auth\get-wizard-token.ps1"'
+              discover_models: false
+              context_length: 148000
+              request_timeout_seconds: 1800
+              models:
+                aicoder-plus:
+                  context_length: 148000
+                  supports_vision: false
+
+          security:
+            allow_lazy_installs: false
+
+          plugins:
+            auto_update_check_hours: 0
+
+          agent:
+            disabled_toolsets:
+              - web
+            environment_probe: true
+            execution_guidance: true
+            task_completion_guidance: true
+            stall_guards: true
+
+          terminal:
+            backend: local
+            timeout: 300
+
+          browser:
+            command_timeout: 60
+            auto_local_for_private_urls: true
+
+          computer_use:
+            autostart: false
+          '@
+            $config = ($config -split "`r?`n" | ForEach-Object { if ($_ -match '^          ') { $_.Substring(10) } else { $_ } }) -join "`r`n"
+            Set-Content -LiteralPath 'R:\hermes\config.yaml' -Value $config -Encoding UTF8
+
+            $envFile = @'
+          # No secrets are stored in this portable package.
+          PLAYWRIGHT_BROWSERS_PATH=R:\hermes\browser\ms-playwright
+          AGENT_BROWSER_EXECUTABLE_PATH=R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe
+          HERMES_GIT_BASH_PATH=R:\hermes\git\bin\bash.exe
+          '@
+            $envFile = ($envFile -split "`r?`n" | ForEach-Object { if ($_ -match '^          ') { $_.Substring(10) } else { $_ } }) -join "`r`n"
+            Set-Content -LiteralPath 'R:\hermes\.env' -Value $envFile -Encoding UTF8
+
+            # Add browser executable env to the portable launcher itself.
+            $launcher = 'finalstage/START-HERMES.ps1'
+            $launcherText = Get-Content -LiteralPath $launcher -Raw
+            if ($launcherText -notmatch 'AGENT_BROWSER_EXECUTABLE_PATH') {
+              $needle = '$env:PLAYWRIGHT_BROWSERS_PATH = ''R:\hermes\browser\ms-playwright'''
+              $replacement = $needle + "`r`n" + '$env:AGENT_BROWSER_EXECUTABLE_PATH = ''R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe'''
+              $launcherText = $launcherText.Replace($needle, $replacement)
+              Set-Content -LiteralPath $launcher -Value $launcherText -Encoding UTF8
+            }
+
+            # Replace README statements so the package truthfully describes the finalized contents.
+            $readme = 'finalstage/README-行内直接使用.md'
+            $r = Get-Content -LiteralPath $readme -Raw
+            $r = $r.Replace('- Camofox browser package 1.5.2', "- Camofox browser package 1.5.2`r`n- Hermes official cua-driver (Computer Use driver; installed in PM store, autostart disabled by default)")
+            Set-Content -LiteralPath $readme -Value $r -Encoding UTF8
+
+            Write-Host 'Validating canonical config without calling the bank model endpoint...'
+            & 'R:\hermes\bin\hermes.exe' config get model
+            if ($LASTEXITCODE -ne 0) { throw 'hermes config get model failed' }
+            & 'R:\hermes\bin\hermes.exe' config get providers
+            if ($LASTEXITCODE -ne 0) { throw 'hermes config get providers failed' }
+            & 'R:\hermes\bin\hermes.exe' --version
+            if ($LASTEXITCODE -ne 0) { throw 'hermes --version failed' }
+
+            Write-Host 'Checking cua-driver is available through Hermes PM...'
+            & 'R:\hermes\bin\hermes.exe' pm list
+            if ($LASTEXITCODE -ne 0) { throw 'hermes pm list failed' }
+
+            $cua = Get-ChildItem -Path 'R:\hermes' -Filter 'cua-driver*' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $cua) { throw 'cua-driver installation completed but no cua-driver artifact was found under HERMES_HOME' }
+            Write-Host "CUA_DRIVER_PRESENT=$($cua.FullName)"
+          } finally {
+            subst R: /D | Out-Null
+          }
+
+      - name: Repackage and relocation verify finalized package
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force outfinal | Out-Null
+          $zip = (Resolve-Path outfinal).Path + '\Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64-FINAL.zip'
+          Push-Location finalstage
+          try {
+            7z a -tzip -mx=1 -mmt=on $zip '.\*'
+            if ($LASTEXITCODE -ne 0) { throw '7z package failed' }
+          } finally { Pop-Location }
+
+          $testDir = Join-Path $env:RUNNER_TEMP 'hermes-final-relocation'
+          Remove-Item -Recurse -Force $testDir -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $testDir | Out-Null
+          7z x -y "-o$testDir" $zip
+          if ($LASTEXITCODE -ne 0) { throw '7z relocation extract failed' }
+          $payload = Join-Path $testDir 'payload'
+          $subst = (& subst 2>$null) -join "`n"
+          if ($subst -match '(?im)^R:\\:') { subst R: /D | Out-Null }
+          subst R: $payload
+          if ($LASTEXITCODE -ne 0) { throw 'relocation subst failed' }
+          try {
+            $env:HERMES_HOME='R:\hermes'
+            $env:PLAYWRIGHT_BROWSERS_PATH='R:\hermes\browser\ms-playwright'
+            $env:AGENT_BROWSER_EXECUTABLE_PATH='R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe'
+            $env:HERMES_GIT_BASH_PATH='R:\hermes\git\bin\bash.exe'
+            $env:Path = (@('R:\hermes\bin','R:\hermes\node','R:\hermes\node\node_modules\.bin','R:\hermes\git\cmd','R:\hermes\git\bin','R:\hermes\git\usr\bin','R:\hermes\tools\rg','R:\hermes\tools\ffmpeg\bin',$env:Path) -join ';')
+            & 'R:\hermes\bin\hermes.exe' --version
+            if ($LASTEXITCODE -ne 0) { throw 'relocated Hermes failed' }
+            $model = & 'R:\hermes\bin\hermes.exe' config get model | Out-String
+            if ($LASTEXITCODE -ne 0 -or $model -notmatch 'custom:wizard-bank') { throw "relocated model config not canonical: $model" }
+            if (-not (Test-Path 'R:\hermes\browser\ms-playwright\chromium-bundled\chrome.exe')) { throw 'relocated bundled Chrome missing' }
+            if (-not (Get-ChildItem -Path 'R:\hermes' -Filter 'cua-driver*' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1)) { throw 'relocated cua-driver missing' }
+            Write-Host 'FINAL_RELOCATION_AND_CONFIG_OK'
+          } finally { subst R: /D | Out-Null }
+
+          $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
+          $name = Split-Path $zip -Leaf
+          "$hash  $name" | Set-Content -LiteralPath 'outfinal/Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64-FINAL.sha256.txt' -Encoding ASCII
+          Write-Host "FINAL_SHA256=$hash"
+          Write-Host "FINAL_SIZE=$((Get-Item $zip).Length)"
+
+      - name: Upload finalized full package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64-FINAL
+          path: |
+            outfinal/Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64-FINAL.zip
+            outfinal/Hermes-Agent-Bank-Portable-v2026.9.14-Win10-x64-FINAL.sha256.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
