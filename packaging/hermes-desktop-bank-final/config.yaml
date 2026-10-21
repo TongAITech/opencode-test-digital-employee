@@ -1,0 +1,46 @@
+model:
+  default: "aicoder-plus"
+  provider: "wizard-bank-local"
+  base_url: "http://127.0.0.1:17891/wizard/v1"
+  context_length: 148000
+  streaming: true
+
+providers:
+  wizard-bank-local:
+    name: "Wizard aicoder-plus via Bank Gateway"
+    base_url: "http://127.0.0.1:17891/wizard/v1"
+    api_mode: chat_completions
+    model: "aicoder-plus"
+    api_key: "local-gateway"
+    context_length: 148000
+    discover_models: false
+
+  bankgpt-local:
+    name: "BankGPT via Bank Gateway"
+    base_url: "http://127.0.0.1:17891/bankgpt/v1"
+    api_mode: chat_completions
+    model: "wizard-bankgpt"
+    api_key: "local-gateway"
+    context_length: 256000
+    discover_models: false
+
+delegation:
+  max_concurrent_children: 3
+  independent_completions: false
+  surface_child_process_notifications: false
+
+security:
+  allow_lazy_installs: false
+
+terminal:
+  backend: local
+  timeout: 300
+
+computer_use:
+  permission_mode: smart
+
+skills:
+  create_dir: "R:/hermes/skills"
+
+updates:
+  check: false
