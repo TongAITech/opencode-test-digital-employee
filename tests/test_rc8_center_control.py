@@ -154,7 +154,7 @@ def test_runtime_event_requires_active_node_lease_and_matching_test_run(tmp_path
         event_type="TOOL_EXECUTED",
         sequence=2,
     )
-    with pytest.raises(CenterControlError, match="RUNTIME_EVENT_TEST_RUN_MISMATCH"):
+    with pytest.raises(CenterControlError, match="WORK_ITEM_TEST_RUN_MISMATCH"):
         center.append_runtime_event(wrong_run)
 
     clock.advance(11)
