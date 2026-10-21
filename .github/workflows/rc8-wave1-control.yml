@@ -8,7 +8,9 @@ on:
       - 'rc8_center/**'
       - 'rc8_node/**'
       - 'rc8_runtime/**'
+      - 'packaging/rc8/**'
       - 'tests/test_rc8_center_control.py'
+      - 'tests/test_rc8_center_node_http.py'
       - '.github/workflows/rc8-wave1-control.yml'
   workflow_dispatch:
 
@@ -28,18 +30,28 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.8'
-      - name: Compile W1 control plane
+      - name: Compile W1 control plane and node agent
         shell: bash
         run: |
           python -m py_compile \
             rc8_center/__init__.py \
             rc8_center/control_plane.py \
-            tests/test_rc8_center_control.py
-      - name: Run W1 control-plane tests
+            rc8_center/http_server.py \
+            rc8_node/__init__.py \
+            rc8_node/agent.py \
+            rc8_node/__main__.py \
+            tests/test_rc8_center_control.py \
+            tests/test_rc8_center_node_http.py
+      - name: Verify canonical shell entrypoint
+        shell: bash
+        run: |
+          bash packaging/rc8/rc8-node.sh --help >/dev/null
+      - name: Run W1 control-plane and transport tests
         shell: bash
         run: |
           python -m pip install --disable-pip-version-check pytest
           python -m pytest -q \
             tests/test_rc8_truth_identity_contracts.py \
             tests/test_rc8_r1_runtime.py \
-            tests/test_rc8_center_control.py
+            tests/test_rc8_center_control.py \
+            tests/test_rc8_center_node_http.py
