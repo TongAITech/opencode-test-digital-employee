@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
@@ -133,7 +134,9 @@ def test_successful_probe_uploads_center_artifact_before_verified(tmp_path: Path
         assert stored is not None and stored.state == CapabilityState.VERIFIED
         artifact = artifact_repo.get("ART-CAP-MVN-1")
         assert artifact is not None and artifact.availability.value == "AVAILABLE"
-        assert artifact.sha256 == Path(adapter.evidence_dir / "maven-junit-probe.json").read_bytes() and False
+        evidence_bytes = (adapter.evidence_dir / "maven-junit-probe.json").read_bytes()
+        assert artifact.sha256 == hashlib.sha256(evidence_bytes).hexdigest()
+        assert artifact_store.content_path("ART-CAP-MVN-1").read_bytes() == evidence_bytes
     finally:
         server.shutdown()
         server.server_close()
