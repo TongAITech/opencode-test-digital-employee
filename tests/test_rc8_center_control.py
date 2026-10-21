@@ -172,7 +172,7 @@ def test_runtime_event_requires_active_node_lease_and_matching_test_run(tmp_path
         center.append_runtime_event(expired)
 
 
-def test_complete_work_item_returns_node_to_idle(tmp_path: Path) -> None:
+def test_complete_work_item_releases_lease_and_blocks_late_runtime_facts(tmp_path: Path) -> None:
     clock = Clock()
     center, repo, _ = _center(tmp_path, clock)
     center.register_node(_node())
@@ -181,4 +181,20 @@ def test_complete_work_item_returns_node_to_idle(tmp_path: Path) -> None:
     center.start_work_item("WI-1", "NODE-1")
     done = center.complete_work_item("WI-1", "NODE-1")
     assert done.state == WorkItemState.COMPLETED
+    assert done.lease_id is None
+    assert done.lease_owner_node_id is None
+    assert done.lease_expires_at is None
     assert repo.get_node("NODE-1").status == NodeStatus.IDLE
+
+    late = runtime_event(
+        event_id="EV-LATE",
+        test_run_id="RUN-1",
+        work_item_id="WI-1",
+        node_id="NODE-1",
+        producer_kind=RuntimeProducerKind.TOOL,
+        producer_ref="codegraph",
+        event_type="TOOL_EXECUTED",
+        sequence=1,
+    )
+    with pytest.raises(CenterControlError, match="ACTIVE_WORK_ITEM_LEASE_REQUIRED"):
+        center.append_runtime_event(late)

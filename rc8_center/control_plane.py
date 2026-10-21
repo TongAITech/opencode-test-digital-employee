@@ -19,7 +19,6 @@ from rc8_runtime import (
     CapabilityState,
     CentralR1RuntimeLedger,
     NodeIdentity,
-    RC8ContractError,
     RuntimeEventEnvelope,
     WorkItemIdentity,
 )
@@ -140,8 +139,6 @@ class CenterControlPlane:
         current = self.repository.get_node(identity.node_id)
         if current is not None:
             if current.identity != identity:
-                # registered_at belongs to identity and is stable; a node id may
-                # not silently change operator/platform identity.
                 raise CenterControlError("NODE_IDENTITY_CONFLICT")
             updated = replace(current, status=NodeStatus.ONLINE, last_heartbeat_at=now)
             self.repository.upsert_node(updated)
@@ -229,7 +226,13 @@ class CenterControlPlane:
 
     def complete_work_item(self, work_item_id: str, node_id: str) -> WorkItemRecord:
         work = self._require_active_lease(work_item_id, node_id)
-        updated = replace(work, state=WorkItemState.COMPLETED)
+        updated = replace(
+            work,
+            state=WorkItemState.COMPLETED,
+            lease_id=None,
+            lease_owner_node_id=None,
+            lease_expires_at=None,
+        )
         self.repository.upsert_work_item(updated)
         node = self._require_node(node_id)
         self.repository.upsert_node(replace(node, status=NodeStatus.IDLE, last_heartbeat_at=self._now()))

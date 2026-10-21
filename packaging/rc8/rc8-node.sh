@@ -5,6 +5,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT"
 
+# Windows Python inherits the host console code page by default. RC8 CLI and
+# product text are Chinese-first, so force UTF-8 consistently in Git Bash and
+# Linux instead of degrading user-facing text to ASCII/English.
+export PYTHONUTF8="${PYTHONUTF8:-1}"
+export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
+
 UNAME_S="$(uname -s 2>/dev/null || true)"
 case "$UNAME_S" in
   MINGW*|MSYS*|CYGWIN*)
