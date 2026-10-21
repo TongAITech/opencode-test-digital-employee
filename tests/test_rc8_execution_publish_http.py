@@ -74,8 +74,8 @@ def test_real_center_http_artifact_response_is_accepted_before_r1(tmp_path: Path
         assert all(artifact_repo.get(artifact_id).availability.value == "AVAILABLE" for artifact_id in published["artifact_ids"])
         events = ledger.runtime_events(test_run_id="RUN-EXEC-HTTP")
         assert len(events) == 1
-        assert events[0].event_id == "EV-EXEC-HTTP"
-        assert events[0].refs == published["artifact_ids"]
+        assert events[0]["event_id"] == "EV-EXEC-HTTP"
+        assert events[0]["refs"] == published["artifact_ids"]
     finally:
         server.shutdown()
         server.server_close()
