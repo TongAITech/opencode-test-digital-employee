@@ -1,0 +1,68 @@
+{
+  "schema_version": "aitest.rc8.rc7-offline-toolset.v1",
+  "status": "FROZEN_SOURCE_INPUT",
+  "source_code_baseline": "2c2eecbf18dde97ecdb10b65264e8c5c2a88ef72",
+  "source_transport_baseline": "af59027e7227fa1861fea95c6d05ff73aefb8572",
+  "transport_lineage_base": "0bbb82394a66b67b2741076167c23f8b0834990d",
+  "version_policy": "CAPABILITY_BASED_NO_EXACT_VERSION_PIN",
+  "runtime_public_internet_install_allowed": false,
+  "notes": [
+    "RC8 source/capability migration follows the newer default-enhancements lineage.",
+    "RC8 offline payload completeness is additionally checked against the verified RC7 internal-transport lineage.",
+    "Exact versions are package-build metadata; dispatch uses verified capability rather than hard version pins."
+  ],
+  "runtime_components": [
+    {"id": "NODE_RUNTIME", "required": true, "capability": "CAN_NODE_RUNTIME"},
+    {"id": "JDK", "required": true, "capability": "CAN_JAVA"},
+    {"id": "MAVEN", "required": true, "capability": "CAN_MAVEN"},
+    {"id": "MAVEN_OFFLINE_REPOSITORY", "required": true, "capability": "CAN_JUNIT_OFFLINE", "seeded_capabilities": ["JUnit Jupiter", "Surefire", "Failsafe", "JaCoCo"]},
+    {"id": "PYTHON_DOCUMENT_TEST_RUNTIME", "required": true, "capability": "CAN_PYTHON_TEST_TOOLING", "packages": ["pytest", "requests", "python-docx", "openpyxl", "python-pptx", "pypdf"]},
+    {"id": "LOCAL_OCR_CV_RUNTIME", "required": true, "capability": "CAN_LOCAL_OCR_CV", "packages": ["numpy<2", "onnxruntime<1.20", "opencv-python-headless<4.11", "rapidocr-onnxruntime"]},
+    {"id": "PLAYWRIGHT_NODE", "required": true, "capability": "CAN_PLAYWRIGHT"},
+    {"id": "GITNEXUS", "required": true, "capability": "CAN_CODE_GRAPH_CLIENT"},
+    {"id": "CODEGRAPH_SERVER", "required": true, "capability": "CAN_CODEGRAPH"},
+    {"id": "CHROMIUM_OR_CHROME_FOR_TESTING", "required": true, "capability": "CAN_BROWSER"},
+    {"id": "BROWSERSKILL_CLI", "required": true, "capability": "CAN_BROWSER_SKILL"},
+    {"id": "BROWSERSKILL_EXTENSION", "required": true, "capability": "CAN_BROWSER_EXTENSION"},
+    {"id": "ALLURE", "required": true, "capability": "CAN_ALLURE_REPORT"},
+    {"id": "K6", "required": true, "capability": "CAN_PERFORMANCE_BASELINE"},
+    {"id": "ZAP", "required": true, "capability": "CAN_SECURITY_BASELINE"},
+    {"id": "RIPGREP", "required": true, "capability": "CAN_RIPGREP"}
+  ],
+  "required_dsh_plugins": [
+    "dsh-routing-suite",
+    "@wxg-prc-cpg/browser-skill-dsh-plugin",
+    "dsh-context",
+    "dsh-plugin-bridge",
+    "@nanmicoder/dsh-agent-teams"
+  ],
+  "diagnostic_dsh_plugins": [
+    "@perrylink/dsh-plugin-doctor"
+  ],
+  "optional_bundled_dsh_plugins": [
+    "dsh-vision-router",
+    "dsh-plugin-anydoc",
+    "dsh-memento",
+    "dsh-error-handling"
+  ],
+  "rc7_capability_adapters_to_preserve": [
+    "R1 runtime/event-stream",
+    "4A fresh login/re-login",
+    "routing",
+    "BrowserSkill",
+    "CodeGraph",
+    "Maven/JUnit",
+    "pytest",
+    "AnyDoc/document parsing",
+    "local OCR/CV",
+    "performance baseline",
+    "security baseline",
+    "report/evidence generation"
+  ],
+  "platform_rule": {
+    "windows": "Git Bash canonical shell; Windows-compatible payload variants",
+    "xinchuang_linux": "bash canonical shell; Linux architecture-specific payload variants",
+    "dispatch": "verified capabilities only"
+  },
+  "qualification_rule": "Presence in package does not imply VERIFIED capability. Every node must run the component-specific reality probe."
+}
