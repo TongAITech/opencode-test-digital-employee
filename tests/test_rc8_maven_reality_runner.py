@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import json
 import os
 import threading
 from pathlib import Path
 
+import pytest
+
 from rc8_center import CenterControlPlane, MemoryCenterRepository
 from rc8_center.artifacts import FileArtifactStore, MemoryArtifactRepository
 from rc8_center.http_server import CenterHttpApplication, create_server
-from rc8_node.reality_maven import run_maven_reality
+from rc8_node.reality_maven import MavenRealityError, run_maven_reality
 from rc8_runtime import CentralR1RuntimeLedger
 
 
@@ -72,7 +75,15 @@ def test_reality_runner_proves_complete_center_node_maven_chain_in_contract_envi
         assert repo.get_work_item("REALITY-CONTRACT-1-execution").state.value == "COMPLETED"
         assert len(ledger.runtime_events(test_run_id="REALITY-CONTRACT-1")) == 1
         assert all(artifacts.get(artifact_id).availability.value == "AVAILABLE" for artifact_id in summary["artifact_ids"])
-        assert (tmp_path / "node-state" / "reality" / "REALITY-CONTRACT-1" / "reality-result.json").is_file()
+        result_path = tmp_path / "node-state" / "reality" / "REALITY-CONTRACT-1" / "reality-result.json"
+        preflight_path = tmp_path / "node-state" / "reality" / "REALITY-CONTRACT-1" / "preflight.json"
+        assert result_path.is_file()
+        assert preflight_path.is_file()
+        preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+        assert preflight["status"] == "PREFLIGHT_PASS"
+        assert preflight["pom_exists"] is True
+        assert preflight["maven_command_resolved"] is True
+        assert preflight["truth_note"].startswith("PREFLIGHT_PASS proves prerequisites")
     finally:
         server.shutdown()
         server.server_close()
@@ -104,3 +115,68 @@ def test_reality_runner_distinguishes_verified_chain_from_failed_junit_actual(tm
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_strict_portability_rejects_implicit_default_maven_repository(tmp_path: Path) -> None:
+    server, thread, _, _, _, center_url = _center(tmp_path)
+    try:
+        with pytest.raises(MavenRealityError, match="STRICT_PORTABILITY_REQUIRES_EXPLICIT_MAVEN_REPO"):
+            run_maven_reality(
+                center_url=center_url,
+                node_id="NODE-STRICT-1",
+                operator_ref="tester",
+                state_dir=str(tmp_path / "strict-state"),
+                project_dir=str(_project(tmp_path)),
+                maven_command=_fake_maven(tmp_path),
+                run_id="REALITY-STRICT-1",
+                allow_online=False,
+                strict_portability=True,
+            )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_strict_portability_uses_explicit_offline_repository_and_records_preflight(tmp_path: Path) -> None:
+    server, thread, _, _, _, center_url = _center(tmp_path)
+    try:
+        repo_dir = tmp_path / "offline-m2"
+        repo_dir.mkdir()
+        code, summary = run_maven_reality(
+            center_url=center_url,
+            node_id="NODE-STRICT-2",
+            operator_ref="tester",
+            state_dir=str(tmp_path / "strict-state-2"),
+            project_dir=str(_project(tmp_path)),
+            maven_command=_fake_maven(tmp_path),
+            run_id="REALITY-STRICT-2",
+            maven_repo=str(repo_dir),
+            allow_online=False,
+            strict_portability=True,
+        )
+        assert code == 0
+        assert summary["strict_portability"] is True
+        assert summary["goals"][0] == "-o"
+        assert summary["goals"][1] == "-Dmaven.repo.local=%s" % repo_dir.resolve()
+        preflight = json.loads(Path(summary["preflight_path"]).read_text(encoding="utf-8"))
+        assert preflight["explicit_maven_repository"] is True
+        assert preflight["strict_portability"] is True
+        assert preflight["maven_local_repository"] == str(repo_dir.resolve())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_unsafe_run_id_is_rejected_before_center_or_artifact_mutation(tmp_path: Path) -> None:
+    with pytest.raises(MavenRealityError, match="REALITY_RUN_ID_UNSAFE"):
+        run_maven_reality(
+            center_url="http://127.0.0.1:1",
+            node_id="NODE-UNSAFE",
+            operator_ref="tester",
+            state_dir=str(tmp_path / "unsafe-state"),
+            project_dir=str(_project(tmp_path)),
+            maven_command=_fake_maven(tmp_path),
+            run_id="bad/run:id",
+        )
