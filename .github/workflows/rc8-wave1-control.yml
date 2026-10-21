@@ -1,0 +1,45 @@
+name: RC8 W1 Center Node Control
+
+on:
+  push:
+    branches:
+      - work/rc8
+    paths:
+      - 'rc8_center/**'
+      - 'rc8_node/**'
+      - 'rc8_runtime/**'
+      - 'tests/test_rc8_center_control.py'
+      - '.github/workflows/rc8-wave1-control.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  control-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Compile W1 control plane
+        shell: bash
+        run: |
+          python -m py_compile \
+            rc8_center/__init__.py \
+            rc8_center/control_plane.py \
+            tests/test_rc8_center_control.py
+      - name: Run W1 control-plane tests
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check pytest
+          python -m pytest -q \
+            tests/test_rc8_truth_identity_contracts.py \
+            tests/test_rc8_r1_runtime.py \
+            tests/test_rc8_center_control.py
