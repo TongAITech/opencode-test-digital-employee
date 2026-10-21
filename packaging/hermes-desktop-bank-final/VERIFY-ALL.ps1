@@ -18,21 +18,29 @@ function Find-Plugin {
   throw 'wizard-opencode-plugin not found'
 }
 function Import-BankGpt {
-  $p=Join-Path $env:USERPROFILE '.config\opencode\opencode.json';if(-not(Test-Path $p)){return $false}
-  try{$cfg=Get-Content $p -Raw -Encoding UTF8|ConvertFrom-Json;$x=$cfg.provider.'wizard-bankgpt'.options;if($x.baseURL){$env:BANKGPT_BASE_URL=[string]$x.baseURL};if($x.apiKey){$env:BANKGPT_API_KEY=[string]$x.apiKey};return [bool]($env:BANKGPT_BASE_URL -and $env:BANKGPT_API_KEY)}catch{return $false}
+  $paths=@((Join-Path $env:USERPROFILE '.config\opencode\opencode.json'),(Join-Path $env:USERPROFILE '.config\opencode\config.json'))
+  foreach($p in $paths){if(-not(Test-Path $p)){continue};try{$cfg=Get-Content $p -Raw -Encoding UTF8|ConvertFrom-Json;$x=$cfg.provider.'wizard-bankgpt'.options;if($x.baseURL){$env:BANKGPT_BASE_URL=[string]$x.baseURL};if($x.apiKey){$env:BANKGPT_API_KEY=[string]$x.apiKey};if($env:BANKGPT_BASE_URL -and $env:BANKGPT_API_KEY){return $true}}catch{}}
+  return $false
+}
+function Find-PortableChrome {
+  $root='R:\hermes\browser\agent-browser';if(-not(Test-Path $root)){throw 'portable browser root missing'}
+  $hit=Get-ChildItem $root -Filter chrome.exe -File -Recurse -ErrorAction SilentlyContinue|Select-Object -First 1
+  if(-not$hit){throw 'portable chrome.exe missing'}
+  return $hit.FullName
 }
 
 Mount-Root
 $env:HERMES_HOME='R:\hermes';$env:PYTHONPATH='R:\hermes\hermes-agent';$env:PYTHONUTF8='1';$env:PYTHONIOENCODING='utf-8';$env:BANK_TZ_OFFSET_MINUTES='480';$env:BANK_MODEL_REQUEST_LIMIT_10MIN='100';$env:BANK_MODEL_REQUEST_SAFETY_LIMIT_10MIN='90';$env:BANK_MODEL_QUOTA_09_18='40000000';$env:BANK_MODEL_QUOTA_18_21='40000000'
-$env:WIZARD_UPSTREAM_BASE_URL='https://wizard-ai.paic.com.cn/code_pilot/api/v1';$env:WIZARD_MODEL='aicoder-plus'
+$env:WIZARD_UPSTREAM_BASE_URL='https://wizard-ai.paic.com.cn/code_pilot/api/v1';$env:WIZARD_MODEL='aicoder-plus';$env:NPM_CONFIG_OFFLINE='true';$env:CUA_TELEMETRY='0';$env:DO_NOT_TRACK='1';$env:PATH='R:\hermes\node;R:\hermes\node\node_modules\.bin;'+$env:PATH
 if(Test-Path 'R:\hermes\cua-driver\bin\cua-driver.exe'){$env:HERMES_CUA_DRIVER_CMD='R:\hermes\cua-driver\bin\cua-driver.exe'}
+$env:AGENT_BROWSER_EXECUTABLE_PATH=Find-PortableChrome
 
 Step 'P01_HERMES_CLI' { $v=& 'R:\hermes\bin\hermes.exe' --version 2>&1; if($LASTEXITCODE -ne 0 -or -not($v -match 'Hermes')){throw "hermes --version failed: $v"} }
 Step 'P02_DESKTOP' { $d=Get-ChildItem 'R:\hermes\hermes-agent\apps\desktop\release' -Filter Hermes.exe -File -Recurse -ErrorAction Stop|Select-Object -First 1;if(-not$d){throw 'Hermes.exe missing'} }
 Step 'P03_CONFIG' { & 'R:\hermes\bin\hermes.exe' config check | Out-Host; if($LASTEXITCODE -ne 0){throw 'config check failed'} }
 Step 'P04_CUA_DRIVER' { if(-not$env:HERMES_CUA_DRIVER_CMD -or -not(Test-Path $env:HERMES_CUA_DRIVER_CMD)){throw 'portable cua-driver missing'};$m=& $env:HERMES_CUA_DRIVER_CMD manifest 2>&1;if($LASTEXITCODE -ne 0 -or -not($m -match 'binary_version')){throw "cua manifest failed: $m"} }
 Step 'P05_COMPUTER_USE_STATUS' { & 'R:\hermes\bin\hermes.exe' computer-use status | Out-Host;if($LASTEXITCODE -ne 0){throw 'computer-use status failed'} }
-Step 'P06_BROWSER_ASSETS' { $hits=Get-ChildItem 'R:\hermes' -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'agent-browser|chromium|chrome.exe' } | Select-Object -First 2;if(@($hits).Count -lt 2){throw 'agent-browser/Chromium assets not found'} }
+Step 'P06_BROWSER_ASSETS' { $ab='R:\hermes\node\agent-browser.cmd';if(-not(Test-Path $ab)){throw 'agent-browser missing'};if(-not(Test-Path $env:AGENT_BROWSER_EXECUTABLE_PATH)){throw 'bundled chrome missing'};$v=& $ab --version 2>&1;if($LASTEXITCODE -ne 0 -or -not($v -match 'agent-browser')){throw "agent-browser failed: $v"};Write-Host "Browser executable: $env:AGENT_BROWSER_EXECUTABLE_PATH" }
 Step 'P07_TEST_SKILL' { if(-not(Test-Path 'R:\hermes\skills\test-digital-employee\SKILL.md')){throw 'test digital employee skill missing'} }
 Step 'P08_GATEWAY_SYNTAX' { $node='R:\hermes\node\node.exe';if(-not(Test-Path $node)){throw 'portable node missing'};& $node --check 'R:\hermes\bank\bank-model-gateway.mjs' | Out-Null;if($LASTEXITCODE -ne 0){throw 'gateway syntax invalid'} }
 
