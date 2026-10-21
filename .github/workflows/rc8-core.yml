@@ -1,0 +1,27 @@
+name: RC8 Core Foundation
+
+on:
+  push:
+    branches:
+      - 'work/rc8-*'
+  pull_request:
+    paths:
+      - 'rc8_control/**'
+      - 'tests/test_rc8_*.py'
+      - 'docs/rc8/**'
+      - '.github/workflows/rc8-core.yml'
+
+jobs:
+  rc8-control-plane:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Install test runner
+        run: python -m pip install pytest
+      - name: RC8 node registry tests
+        run: python -m pytest -q tests/test_rc8_node_registry.py
+      - name: RC7 compatibility import smoke
+        run: python -c "import rc7_runtime; import rc8_control"
