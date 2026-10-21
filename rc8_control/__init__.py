@@ -1,8 +1,8 @@
 """RC8 central control-plane contracts.
 
 RC8 extends the RC7 execution core with durable shared identities, node
-qualification and leasing semantics.  It does not replace RC7 worker/tool
-execution contracts.
+qualification, leasing and transport semantics. It does not replace RC7
+worker/tool execution contracts or R1 runtime truth.
 """
 
 from .models import (
@@ -15,6 +15,7 @@ from .models import (
     WorkItemLease,
 )
 from .node_registry import NodeRegistry, NodeRegistryError
+from .runtime_contracts import ArtifactAvailability, ArtifactManifest, RuntimeEventEnvelope
 
 __all__ = [
     "CapabilityState",
@@ -26,4 +27,7 @@ __all__ = [
     "WorkItemLease",
     "NodeRegistry",
     "NodeRegistryError",
+    "ArtifactAvailability",
+    "ArtifactManifest",
+    "RuntimeEventEnvelope",
 ]
