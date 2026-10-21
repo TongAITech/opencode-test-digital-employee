@@ -17,6 +17,7 @@ on:
       - 'tests/test_rc8_center_cli.py'
       - 'tests/test_rc8_real_capability_adapter.py'
       - 'tests/test_rc8_maven_execution_adapter.py'
+      - 'tests/test_rc8_execution_publish.py'
       - '.github/workflows/rc8-wave1-control.yml'
   workflow_dispatch:
 
@@ -51,6 +52,7 @@ jobs:
             rc8_node/agent.py \
             rc8_node/capabilities.py \
             rc8_node/execution.py \
+            rc8_node/execution_publish.py \
             rc8_node/__main__.py \
             tests/test_rc8_center_control.py \
             tests/test_rc8_center_node_http.py \
@@ -59,7 +61,8 @@ jobs:
             tests/test_rc8_durable_repository.py \
             tests/test_rc8_center_cli.py \
             tests/test_rc8_real_capability_adapter.py \
-            tests/test_rc8_maven_execution_adapter.py
+            tests/test_rc8_maven_execution_adapter.py \
+            tests/test_rc8_execution_publish.py
       - name: Verify canonical shell entrypoints
         shell: bash
         run: |
@@ -79,4 +82,5 @@ jobs:
             tests/test_rc8_durable_repository.py \
             tests/test_rc8_center_cli.py \
             tests/test_rc8_real_capability_adapter.py \
-            tests/test_rc8_maven_execution_adapter.py
+            tests/test_rc8_maven_execution_adapter.py \
+            tests/test_rc8_execution_publish.py
