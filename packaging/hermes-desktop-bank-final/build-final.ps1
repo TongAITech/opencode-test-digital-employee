@@ -29,7 +29,11 @@ try {
   Write-Host '=== 1. Official Hermes install: Desktop + Browser + Computer Use ===' -ForegroundColor Cyan
   $installer=Join-Path $Work 'install.ps1'
   Invoke-WebRequest "https://raw.githubusercontent.com/NousResearch/hermes-agent/$HermesTag/scripts/install.ps1" -OutFile $installer
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -HermesHome 'R:\hermes' -InstallDir 'R:\hermes\hermes-agent' -Tag $HermesTag -NonInteractive -IncludeDesktop
+  # Clone the release ref directly. Using -Tag makes the upstream installer clone main first,
+  # run source-completion mutations, then checkout the tag; on hosted Windows that can leave
+  # generated website files dirty and block checkout. `git clone -b <tag>` is immutable enough
+  # for this one-shot package build and avoids that drift window entirely.
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -HermesHome 'R:\hermes' -InstallDir 'R:\hermes\hermes-agent' -Branch $HermesTag -NonInteractive -IncludeDesktop
   if($LASTEXITCODE -ne 0){throw "Hermes installer failed: $LASTEXITCODE"}
   Assert-File (HermesExe)
   Assert-File 'R:\hermes\hermes-agent\hermes_cli\main.py'
