@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -10,12 +11,25 @@ from rc8_runtime import CapabilityState
 
 
 def _fake_maven(tmp_path: Path, *, success: bool) -> str:
-    path = tmp_path / "mvn"
-    if success:
-        path.write_text("#!/usr/bin/env bash\necho 'Apache Maven RC8-test'\nexit 0\n", encoding="utf-8")
+    """Create a directly executable fake Maven command on both CI platforms.
+
+    Windows CreateProcess does not execute an extensionless bash script directly,
+    so use a .cmd shim there. Linux keeps the executable bash script. This keeps
+    the adapter test about a real subprocess rather than mocking subprocess.run.
+    """
+    if os.name == "nt":
+        path = tmp_path / "mvn.cmd"
+        if success:
+            path.write_text("@echo off\r\necho Apache Maven RC8-test\r\nexit /b 0\r\n", encoding="utf-8")
+        else:
+            path.write_text("@echo off\r\necho broken maven 1>&2\r\nexit /b 9\r\n", encoding="utf-8")
     else:
-        path.write_text("#!/usr/bin/env bash\necho 'broken maven' >&2\nexit 9\n", encoding="utf-8")
-    path.chmod(0o755)
+        path = tmp_path / "mvn"
+        if success:
+            path.write_text("#!/usr/bin/env bash\necho 'Apache Maven RC8-test'\nexit 0\n", encoding="utf-8")
+        else:
+            path.write_text("#!/usr/bin/env bash\necho 'broken maven' >&2\nexit 9\n", encoding="utf-8")
+        path.chmod(0o755)
     return str(path)
 
 
