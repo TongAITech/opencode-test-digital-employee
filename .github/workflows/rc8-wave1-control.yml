@@ -13,6 +13,7 @@ on:
       - 'tests/test_rc8_center_node_http.py'
       - 'tests/test_rc8_artifact_sync.py'
       - 'tests/test_rc8_artifact_http.py'
+      - 'tests/test_rc8_durable_repository.py'
       - '.github/workflows/rc8-wave1-control.yml'
   workflow_dispatch:
 
@@ -32,7 +33,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.8'
-      - name: Compile W1 control plane, node agent and artifact sync
+      - name: Compile W1 control plane, node agent and durable sync
         shell: bash
         run: |
           python -m py_compile \
@@ -40,6 +41,7 @@ jobs:
             rc8_center/control_plane.py \
             rc8_center/http_server.py \
             rc8_center/artifacts.py \
+            rc8_center/json_repository.py \
             rc8_runtime/artifacts.py \
             rc8_node/__init__.py \
             rc8_node/agent.py \
@@ -47,12 +49,13 @@ jobs:
             tests/test_rc8_center_control.py \
             tests/test_rc8_center_node_http.py \
             tests/test_rc8_artifact_sync.py \
-            tests/test_rc8_artifact_http.py
+            tests/test_rc8_artifact_http.py \
+            tests/test_rc8_durable_repository.py
       - name: Verify canonical shell entrypoint
         shell: bash
         run: |
           bash packaging/rc8/rc8-node.sh --help >/dev/null
-      - name: Run W1 control-plane, transport and artifact tests
+      - name: Run W1 control-plane, transport and durable artifact tests
         shell: bash
         run: |
           python -m pip install --disable-pip-version-check pytest
@@ -62,4 +65,5 @@ jobs:
             tests/test_rc8_center_control.py \
             tests/test_rc8_center_node_http.py \
             tests/test_rc8_artifact_sync.py \
-            tests/test_rc8_artifact_http.py
+            tests/test_rc8_artifact_http.py \
+            tests/test_rc8_durable_repository.py

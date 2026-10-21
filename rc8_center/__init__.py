@@ -10,11 +10,15 @@ from .control_plane import (
     WorkItemRecord,
     WorkItemState,
 )
+from .json_repository import DurableRepositoryError, JsonFileArtifactRepository, JsonFileCenterRepository
 
 __all__ = [
     "CenterControlError",
     "CenterControlPlane",
     "CenterRepository",
+    "DurableRepositoryError",
+    "JsonFileArtifactRepository",
+    "JsonFileCenterRepository",
     "MemoryCenterRepository",
     "NodeRecord",
     "NodeStatus",
