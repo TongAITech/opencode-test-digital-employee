@@ -4,8 +4,9 @@ Repository: `TongAITech/opencode-test-digital-employee`
 Branch: `work/rc8`
 RC7 source/capability base: `delivery/rc7-default-enhancements@2c2eecbf18dde97ecdb10b65264e8c5c2a88ef72`
 RC7 transport/toolset reference: `delivery/rc7-internal-transport-0bbb8239@af59027e7227fa1861fea95c6d05ff73aefb8572`
-Current verified code HEAD before this handoff update: `21dc97a3bcfe7445aa9c7faffdf7b9bc9379f2cc`
-Current wave: `W0 -> W1 entry`
+Latest CI-verified code HEAD: `b0f35a8a45e29e68d4ac0a3dc725e3b5104d7d80`
+Latest CI proof: workflow run `39696048518` SUCCESS on Ubuntu + Windows.
+Current wave: `W1 - Center + Single Node Reality Gate`
 
 ## Do not re-plan
 RC8 direction is frozen by:
@@ -18,56 +19,93 @@ RC8 direction is frozen by:
 - `docs/rc8/RC8-W1-SINGLE-NODE-VERTICAL-SLICE.md`
 - `packaging/rc8/RC7_OFFLINE_TOOLSET_MANIFEST.json`
 
-New sessions must read these files and verify current Git HEAD before editing. Git/HEAD + R1 runtime truth + evidence are authoritative; chat memory is not.
+New sessions must read these files and verify current Git HEAD and newest CI before editing. Git/HEAD + R1 runtime truth + evidence are authoritative; chat memory is not.
 
-## Implemented so far
+## Implemented and CI-verified so far
 1. RC8 master/architecture/product/gap/traceability baselines.
-2. RC8 identity contracts for Node, ProductionBatch, RequirementDeliveryScope, TestRun and WorkItem.
-3. Separate plan/runtime event envelopes; runtime producer is Node Agent/Worker/Tool, not Director/model claim.
-4. EvidenceManifest with hash/provenance/availability/assertion/runtime-event binding.
-5. Capability qualification state machine where VERIFIED requires real probe/evidence/time.
-6. Completion contract where plan completion does not imply test sufficiency.
-7. Central R1 runtime ledger boundary:
-   - runtime-only append;
-   - plan rejection;
-   - event-id idempotency/conflict fail-closed;
-   - deterministic replay;
-   - per-node sequence/stale check.
-8. Windows/Ubuntu Python 3.8 + bash CI gates.
-9. W1 single-node vertical slice acceptance contract.
-10. RC7 offline toolset dual-source freeze: newer capability source line + verified transport/toolset reference line.
+2. Identity contracts for Node, ProductionBatch, RequirementDeliveryScope, TestRun and WorkItem.
+3. Plan/runtime split; Director/model claims cannot create runtime truth.
+4. Evidence/Artifact hash, provenance, availability and assertion-reference contracts.
+5. Capability qualification state machine; VERIFIED requires real probe evidence.
+6. Completion semantics where `PLAN_COMPLETE != TEST_SUFFICIENT`.
+7. Central R1 ledger: runtime-only append, idempotency, conflict fail-close, replay, node sequence.
+8. Center Node Registry/heartbeat/capability/WorkItem lease/start/complete.
+9. Node-owned lease; no DSH Session authority.
+10. Node Agent outbound Center protocol and stable local Node identity.
+11. `rc8-node.sh` and `rc8-center.sh`, Windows Git Bash + Linux bash compatible.
+12. Windows UTF-8 shell hardening for Chinese CLI.
+13. Artifact Sync with resumable offset upload, size/SHA-256 verification and AVAILABLE gate.
+14. Active WorkItem lease authorization for runtime/artifact writes; late writes fail closed.
+15. Zero-byte Artifact support for real empty logs such as successful Maven stderr.
+16. Durable W1 fallback repository proving Center restart preservation for Node/Capability/WorkItem/Artifact metadata and bytes.
+17. First real capability adapter: Maven/JUnit.
+18. Maven capability probe -> Center Artifact AVAILABLE -> VERIFIED chain.
+19. Maven/JUnit execution adapter derives Actual from Surefire/Failsafe XML; exit code alone never proves PASS.
+20. Execution publication uploads Actual/stdout/stderr/JUnit XML before R1.
+21. Complete WorkItem order: lease -> start -> tool execution -> Artifact AVAILABLE -> R1 -> complete.
+22. Real Center HTTP response shape is covered; mocks cannot hide nested Artifact response mismatches.
+23. Maven/JUnit bank reality runner: `rc8_node/reality_maven.py`.
+24. Cross-platform bank reality shell: `packaging/rc8/rc8-maven-reality.sh`.
+25. Reality Runner defaults offline, supports explicit Maven repo, strict portability, preflight and result records.
+26. Strict portability forbids using implicit developer `~/.m2` as portability proof.
+27. Unsafe run IDs are rejected before Center/Artifact mutation.
 
-## CI truth
-- `392a9203` -> workflow run `39624034428` SUCCESS (Ubuntu + Windows).
-- `21dc97a3` -> workflow run `39624713143` SUCCESS (Ubuntu + Windows), including R1 tests.
+## Latest verified CI truth
+Code HEAD: `b0f35a8a45e29e68d4ac0a3dc725e3b5104d7d80`
+Run: `39696048518`
+- Ubuntu: SUCCESS
+- Windows: SUCCESS
+- Python 3.8
+- shell entrypoints: PASS
+- W1 control/runtime/artifact/capability/execution/reality-runner tests: PASS
 
-These are automated contract gates, not bank reality certification.
+This is `CI_VERIFIED`, not target-bank `REALITY_VERIFIED`.
+CI uses deterministic synthetic Maven/JUnit fixtures to prove protocol and truth semantics. Never report these fixtures as a successful bank Maven/JUnit run.
+
+## Current single hard gate
+Run the first target-bank Maven/JUnit reality slice. Do not add broad multi-node scheduling or all product pages first.
+
+Required real chain:
+1. start actual RC8 Center;
+2. use one real office-PC Node;
+3. Windows uses Git Bash; Xinchuang Linux uses bash;
+4. point `RC8_MVN` / `--maven` at actual Maven;
+5. point `--project-dir` at an actual Maven project containing `pom.xml`;
+6. use `--strict-portability --maven-repo <explicit offline repo>`;
+7. qualification probe must upload to Center before `maven-junit` becomes VERIFIED;
+8. execution WorkItem must be leased by that Node;
+9. Maven/JUnit must produce actual Surefire/Failsafe XML;
+10. Actual/stdout/stderr/JUnit XML must be AVAILABLE in Center;
+11. R1 event must be persistence-verified and reference those artifacts;
+12. WorkItem must complete only after evidence/R1 success;
+13. preserve `preflight.json` and `reality-result.json` as acceptance evidence.
+
+Only after this chain runs on the real bank target may Maven/JUnit status move to `REALITY_VERIFIED` / `BANK_ENV_VERIFIED`.
+
+## After the bank single-node gate
+Build only the first two truthful product sample surfaces:
+1. 测试任务
+2. 执行节点
+
+These surfaces must explain scope, Node, WorkItem, Actual, evidence, R1 state and blockers without reading DSH logs.
+
+Then continue W1 hardening/restart recovery and only later expand capabilities/multi-node/product pages according to the frozen plan.
 
 ## RC7 transport inheritance note
-Do not assume `2c2eecb` alone contains every transport-only commit. `af59027` is on a diverged internal-transport line from merge base `0bbb8239`. RC8 must preserve newer source/capability changes from `2c2eecb` while checking node offline payload completeness against the transport line/manifest.
+Do not assume `2c2eecb` alone contains every transport-only commit. Keep the dual authority: newer source/capability line + verified `af59027` transport/toolset completeness reference. RC8 node packages must not silently omit RC7 offline capabilities.
 
 ## One authoritative-input hold
-Exact final certification wording/severity for `GAP-ADD-03`, `GAP-ADD-06`, `GAP-ADD-10` was not found in current Git tree/search. Keep them OPEN_INPUT; do not guess. This blocks final RC7-gap certification closure but does not block W1 construction.
-
-## Next unique construction entry
-Enter W1; do not broaden to multi-node or all pages.
-1. Implement Center-side Node Registry + heartbeat + capability projection using durable interfaces.
-2. Implement Node Agent registration/heartbeat client and canonical `rc8-node.sh` entrypoint compatible with Windows Git Bash and Linux bash.
-3. Implement WorkItem lease contract/service tied to `TestRunIdentity`, not Session.
-4. Connect Node runtime events to `CentralR1RuntimeLedger` through the Center service boundary.
-5. Build Artifact Sync minimum path: manifest -> upload -> hash verify -> AVAILABLE.
-6. Adapt one real RC7 capability behind the Node Agent; no fake tool.
-7. Build only two first product sample surfaces: `测试任务` and `执行节点`.
-8. Reality-test the full single-node chain before expanding.
+Exact final certification wording/severity for `GAP-ADD-03`, `GAP-ADD-06`, `GAP-ADD-10` is still unavailable in current Git sources. Keep them `OPEN_INPUT`; never guess them.
 
 ## Prohibited shortcuts
-- no claim of REALITY_VERIFIED from CI/unit tests alone;
+- no CI fixture => bank Reality Verified claim;
 - no direct DSH/tool write to Center DB;
-- no plugin-installed => VERIFIED shortcut;
-- no Director/model-generated execution truth;
+- no plugin installed => VERIFIED shortcut;
+- no Director/model-generated runtime truth;
 - no Session authority;
-- no PASS without AVAILABLE assertion-bound evidence;
-- no broad multi-node scheduling before single-node slice passes;
-- no building all product pages before sample surfaces are accepted;
-- no dropping requirements/gaps because architecture is harder;
-- no RC8 node package that silently omits transport-only RC7 offline capabilities.
+- no PASS without real Actual and AVAILABLE evidence;
+- no Maven exit code 0 => PASS shortcut;
+- no implicit `~/.m2` portability proof in strict mode;
+- no broad multi-node scheduling before single-node real slice passes;
+- no all-page product build before the two truthful sample surfaces;
+- no node package that omits transport-only RC7 offline capabilities.
