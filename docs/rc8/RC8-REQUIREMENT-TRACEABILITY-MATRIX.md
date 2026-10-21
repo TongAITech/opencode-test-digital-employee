@@ -10,7 +10,7 @@ Status values: OPEN -> IMPLEMENTED -> TESTED -> REALITY_VERIFIED -> CLOSED
 | RC8-R004 | Single node supports full functional chain | Architecture Baseline | W1-W6 | OPEN |
 | RC8-R005 | Multiple DSH nodes share one central platform | Architecture Baseline | W7 | OPEN |
 | RC8-R006 | Central product is team-accessible shared system | Product Baseline | W1/W8 | OPEN |
-| RC8-R007 | Node registers/heartbeats and exposes verified capabilities | Node control plane | W1 | OPEN |
+| RC8-R007 | Node registers/heartbeats and exposes verified capabilities | Node control plane | W1 | TESTED |
 | RC8-R008 | WorkItem leasing and safe lease recovery | Node control plane | W1/W3 | OPEN |
 | RC8-R009 | Resource leasing for accounts/test data/business objects | Architecture Baseline | W7 | OPEN |
 | RC8-R010 | Node downloadable from Center | Deployment | W9 | OPEN |
@@ -18,9 +18,9 @@ Status values: OPEN -> IMPLEMENTED -> TESTED -> REALITY_VERIFIED -> CLOSED
 | RC8-R012 | Windows node starts via Git Bash shell | Deployment | W9 | OPEN |
 | RC8-R013 | Xinchuan Linux node starts via bash | Deployment | W9 | OPEN |
 | RC8-R014 | Platform/CPU adapters are capability-based, not exact-version pinned | Architecture Baseline | W1/W9 | OPEN |
-| RC8-R015 | Runtime artifacts upload through Node Agent, never direct DB writes | Artifact Sync | W3 | OPEN |
+| RC8-R015 | Runtime artifacts upload through Node Agent, never direct DB writes | Artifact Sync | W3 | TESTED |
 | RC8-R016 | Screenshot/video/log/HAR/JSON/script/data artifacts are centrally persisted | Artifact Sync | W3 | OPEN |
-| RC8-R017 | Evidence binds to case/attempt/step/assertion | Artifact Sync | W3 | OPEN |
+| RC8-R017 | Evidence binds to case/attempt/step/assertion | Artifact Sync | W3 | TESTED |
 | RC8-R018 | Large artifacts support durable/resumable upload | Artifact Sync | W3 | OPEN |
 | RC8-R019 | Node keeps durable upload queue during Center/network outage | Artifact Sync | W3 | OPEN |
 | RC8-R020 | Center-to-node artifact sync supplies task-scoped assets | Artifact Sync | W3/W6 | OPEN |
@@ -40,9 +40,9 @@ Status values: OPEN -> IMPLEMENTED -> TESTED -> REALITY_VERIFIED -> CLOSED
 | RC8-R034 | Runtime learning improves later tasks through verified reuse | Evolution | W6 | OPEN |
 | RC8-R035 | Test data supports discovery/construction/validation/lease/reuse/reclaim | Test Data | W5/W7 | OPEN |
 | RC8-R036 | Production batch/date is top-level release scope | Domain Model | W0/W8 | OPEN |
-| RC8-R037 | Requirement can span multiple system versions/apps/SSTs in one production | Domain Model | W0/W8 | OPEN |
+| RC8-R037 | Requirement can span multiple system versions/apps/SSTs in one production | Domain Model | W0/W8 | TESTED |
 | RC8-R038 | Requirement can iterate across multiple production batches | Domain Model | W0/W8 | OPEN |
-| RC8-R039 | RequirementDeliveryScope is canonical implementation/testing scope identity | Domain Model | W0 | OPEN |
+| RC8-R039 | RequirementDeliveryScope is canonical implementation/testing scope identity | Domain Model | W0 | TESTED |
 | RC8-R040 | Code analysis query by version/requirement/SST/application | Product | W8 | OPEN |
 | RC8-R041 | Code analysis is snapshot/versioned and CodeGraph evidenced | Code Analysis | W2/W8 | OPEN |
 | RC8-R042 | Test API management exposes runtime-captured request samples and auth behavior | Product / Flow | W4/W8 | OPEN |
@@ -62,7 +62,13 @@ Status values: OPEN -> IMPLEMENTED -> TESTED -> REALITY_VERIFIED -> CLOSED
 | RC8-R056 | Center and node packages support clean install, smoke, upgrade and rollback | Deployment | W9 | OPEN |
 | RC8-R057 | Install PASS requires real end-to-end smoke | Deployment | W9 | OPEN |
 | RC8-R058 | Restart of Center/node/DSH does not lose durable TestRun/knowledge/evidence | Recovery | W3/W9 | OPEN |
-| RC8-R059 | Capability verification is execution/evidence based, not package-presence based | Capability Registry | W1/W2 | OPEN |
+| RC8-R059 | Capability verification is execution/evidence based, not package-presence based | Capability Registry | W1/W2 | TESTED |
 | RC8-R060 | Director/control plane cannot fabricate worker/tool execution evidence | Authority | W0/W2 | OPEN |
+
+## Evidence notes for current TESTED rows
+
+- RC8-R007 / RC8-R059: `rc8_control/models.py`, `rc8_control/node_registry.py`, `tests/test_rc8_node_registry.py`; automated RC8 Core Foundation gate. Runtime/package changes force capability requalification.
+- RC8-R015 / RC8-R017: `rc8_control/runtime_contracts.py`, `runtime_ingest.py`, `rc8_node/agent.py`, `tests/test_rc8_runtime_contracts.py`, `tests/test_rc8_runtime_ingest.py`, `tests/test_rc8_single_node_vertical.py`. This is an automated in-process vertical slice; PostgreSQL/object-storage/real-network reality verification remains open.
+- RC8-R037 / RC8-R039: `RequirementDeliveryScope` plus mapping tests prove the canonical relationship can represent one requirement spanning multiple system-version/application/SST scopes. Full production-batch CRUD/read model remains open.
 
 Every row must eventually link to concrete implementation files, automated tests, reality evidence and closure decision. Code existence alone is insufficient.
