@@ -33,6 +33,26 @@ def _artifact_id(work_item_id: str, role: str, path: Path) -> str:
     return "exec-%s-%s" % (role, hashlib.sha256(seed).hexdigest()[:20])
 
 
+def _completed_artifact(response: Dict[str, object], artifact_id: str) -> Dict[str, object]:
+    """Normalize the Center Artifact Sync response without weakening truth checks.
+
+    Real Center returns {"artifact": {...}}. Some local test doubles historically
+    returned the artifact object directly. Support both shapes, but require the
+    authoritative artifact id and AVAILABLE state in either case.
+    """
+    artifact = response.get("artifact") if isinstance(response, dict) else None
+    if artifact is None:
+        artifact = response
+    if not isinstance(artifact, dict):
+        raise NodeAgentError("EXECUTION_EVIDENCE_RESPONSE_INVALID:%s" % artifact_id)
+    if str(artifact.get("artifact_id") or artifact_id) != artifact_id:
+        raise NodeAgentError("EXECUTION_EVIDENCE_ARTIFACT_MISMATCH:%s" % artifact_id)
+    availability = str(artifact.get("availability") or artifact.get("status") or "")
+    if availability.upper() != ArtifactAvailability.AVAILABLE.value:
+        raise NodeAgentError("EXECUTION_EVIDENCE_NOT_AVAILABLE:%s" % artifact_id)
+    return artifact
+
+
 def publish_maven_junit_execution(
     agent: NodeAgent,
     *,
@@ -71,9 +91,7 @@ def publish_maven_junit_execution(
             metadata={"media_type": media_type, "truth_role": role},
         )
         completed = agent.upload_artifact_file(manifest, str(path))
-        availability = str(completed.get("availability") or completed.get("status") or "")
-        if "AVAILABLE" not in availability.upper():
-            raise NodeAgentError("EXECUTION_EVIDENCE_NOT_AVAILABLE:%s" % artifact_id)
+        _completed_artifact(completed, artifact_id)
         artifact_ids.append(artifact_id)
 
     actual = result.actual
