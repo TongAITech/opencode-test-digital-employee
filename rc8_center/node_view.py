@@ -40,10 +40,8 @@ class NodeReadModel:
         query: Optional[str] = None,
         now: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
-        self.center.nodes.refresh_liveness(now=now)
         rows = []
-        for node_id in sorted(self.center.nodes._nodes):
-            node = self.center.nodes._nodes[node_id]
+        for node in self.center.nodes.all_nodes(now=now):
             if status and node.status.value != status:
                 continue
             if operator and node.operator != operator:
@@ -80,7 +78,7 @@ class NodeReadModel:
 
     def _summary(self, node: ExecutionNode, now: Optional[int] = None) -> Dict[str, Any]:
         verified = sum(1 for cap in node.capabilities.values() if cap.is_verified)
-        current_leases = self._leases_for_node(node.node_id, now=now)
+        current_leases = [item for item in self._leases_for_node(node.node_id, now=now) if item["state"] == LeaseState.ACTIVE.value]
         current_work_item = current_leases[0]["work_item_id"] if current_leases else None
         return {
             "node_id": node.node_id,
@@ -98,23 +96,14 @@ class NodeReadModel:
         }
 
     def _leases_for_node(self, node_id: str, now: Optional[int] = None) -> List[Dict[str, Any]]:
-        timestamp = self.center.nodes._now() if now is None else int(now)
-        rows: List[Dict[str, Any]] = []
-        for work_item_id in sorted(self.center.nodes._leases_by_work_item):
-            lease = self.center.nodes._leases_by_work_item[work_item_id]
-            if lease.node_id != node_id:
-                continue
-            if lease.state == LeaseState.ACTIVE and timestamp >= lease.expires_at:
-                lease.state = LeaseState.EXPIRED
-            rows.append(
-                {
-                    "lease_id": lease.lease_id,
-                    "work_item_id": lease.work_item_id,
-                    "state": lease.state.value,
-                    "issued_at": lease.issued_at,
-                    "expires_at": lease.expires_at,
-                    "required_capabilities": list(lease.required_capabilities),
-                }
-            )
-        rows.sort(key=lambda item: item["issued_at"], reverse=True)
-        return rows
+        return [
+            {
+                "lease_id": lease.lease_id,
+                "work_item_id": lease.work_item_id,
+                "state": lease.state.value,
+                "issued_at": lease.issued_at,
+                "expires_at": lease.expires_at,
+                "required_capabilities": list(lease.required_capabilities),
+            }
+            for lease in self.center.nodes.leases_for_node(node_id, now=now)
+        ]
