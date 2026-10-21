@@ -15,7 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from rc8_runtime import CapabilityQualification, CapabilityState
+from rc8_runtime import ArtifactAvailability, CapabilityQualification, CapabilityState, RuntimeProducerKind
+from rc8_runtime.artifacts import ArtifactManifest
 
 
 class CapabilityAdapterError(RuntimeError):
@@ -116,3 +117,57 @@ class MavenJUnitCapabilityAdapter:
             evidence_refs=[artifact_id.strip()],
             verified_at=int(verified_at if verified_at is not None else time.time()),
         )
+
+    def qualify_through_center(
+        self,
+        agent,
+        *,
+        test_run_id: str,
+        work_item_id: str,
+        artifact_id: str,
+        verified_at: Optional[int] = None,
+    ) -> CapabilityQualification:
+        """Probe, upload immutable evidence through the leased Center path, then VERIFY.
+
+        The caller must already own an active qualification WorkItem lease. This
+        deliberately reuses the same authorization boundary as runtime evidence;
+        a node cannot self-assert VERIFIED without Center accepting the artifact.
+        """
+        result = self.probe()
+        preliminary = self.qualification_before_upload(agent.identity.node_id, result)
+        agent.report_capability(preliminary)
+        if result.state != CapabilityState.PROBING or result.returncode != 0:
+            return preliminary
+
+        evidence = Path(result.evidence_path)
+        content_size = evidence.stat().st_size
+        manifest = ArtifactManifest(
+            artifact_id=artifact_id,
+            test_run_id=test_run_id,
+            work_item_id=work_item_id,
+            node_id=agent.identity.node_id,
+            kind="CAPABILITY_PROBE",
+            producer_kind=RuntimeProducerKind.TOOL,
+            producer_ref=self.capability_id,
+            file_name=evidence.name,
+            sha256=result.sha256,
+            size_bytes=content_size,
+            availability=ArtifactAvailability.PENDING_UPLOAD,
+            refs=["capability:%s" % self.capability_id],
+            metadata={"probe_returncode": result.returncode, "probe_finished_at": result.finished_at},
+        )
+        completed = agent.upload_artifact_file(manifest, result.evidence_path)
+        artifact = completed.get("artifact") if isinstance(completed, dict) else None
+        if not isinstance(artifact, dict) or artifact.get("availability") != ArtifactAvailability.AVAILABLE.value:
+            raise CapabilityAdapterError("CAPABILITY_EVIDENCE_NOT_AVAILABLE")
+        if artifact.get("artifact_id") != artifact_id:
+            raise CapabilityAdapterError("CAPABILITY_EVIDENCE_ARTIFACT_MISMATCH")
+
+        verified = self.verified_qualification(
+            agent.identity.node_id,
+            result,
+            artifact_id,
+            verified_at=verified_at,
+        )
+        agent.report_capability(verified)
+        return verified
