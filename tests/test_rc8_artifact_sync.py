@@ -50,6 +50,21 @@ def test_artifact_is_not_available_until_size_and_hash_verify(tmp_path: Path) ->
     assert store.content_path("ART-1").read_bytes() == content
 
 
+def test_zero_byte_artifact_can_be_hash_verified_and_published(tmp_path: Path) -> None:
+    content = b""
+    repo = MemoryArtifactRepository()
+    store = FileArtifactStore(str(tmp_path / "assets"), repo)
+    started = store.begin(_manifest(content, artifact_id="ART-ZERO"))
+    assert started.availability == ArtifactAvailability.PENDING_UPLOAD
+    assert store.current_offset("ART-ZERO") == 0
+
+    completed = store.complete("ART-ZERO")
+    assert completed.availability == ArtifactAvailability.AVAILABLE
+    assert store.content_path("ART-ZERO").is_file()
+    assert store.content_path("ART-ZERO").read_bytes() == b""
+    assert completed.sha256 == hashlib.sha256(b"").hexdigest()
+
+
 def test_artifact_resume_uses_existing_offset(tmp_path: Path) -> None:
     content = b"resume-me"
     repo = MemoryArtifactRepository()
