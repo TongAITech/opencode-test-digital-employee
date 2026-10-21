@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RC8 测试数字员工</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-block">
+        <div class="brand">RC8 测试数字员工</div>
+        <div class="brand-subtitle">中央测试平台</div>
+      </div>
+      <nav class="nav" aria-label="主导航">
+        <button disabled>投产管理</button>
+        <button disabled>版本管理</button>
+        <button disabled>需求管理</button>
+        <button disabled>代码分析</button>
+        <button disabled>业务流程</button>
+        <button disabled>测试接口</button>
+        <button disabled>测试用例</button>
+        <button disabled>测试任务</button>
+        <button disabled>测试报告</button>
+        <button disabled>缺陷管理</button>
+        <button disabled>知识库</button>
+        <button class="active" aria-current="page">执行节点</button>
+        <button disabled>系统信息</button>
+      </nav>
+      <div class="sidebar-footer">运行事实来自 R1 事件流</div>
+    </aside>
+
+    <main class="main">
+      <header class="page-header">
+        <div>
+          <div class="eyebrow">执行节点</div>
+          <h1>节点查询与运行状态</h1>
+          <p>查看团队执行节点、已验证能力和当前测试任务。节点状态来自中央控制平面。</p>
+        </div>
+        <div class="connection" id="connection">正在连接中央平台…</div>
+      </header>
+
+      <section class="query-bar" aria-label="查询条件">
+        <label>
+          <span>状态</span>
+          <select id="status">
+            <option value="">全部</option>
+            <option value="ONLINE">在线</option>
+            <option value="IDLE">空闲</option>
+            <option value="RUNNING">执行中</option>
+            <option value="MAINTENANCE">维护中</option>
+            <option value="ERROR">异常</option>
+            <option value="OFFLINE">离线</option>
+          </select>
+        </label>
+        <label>
+          <span>执行人</span>
+          <input id="operator" placeholder="输入执行人">
+        </label>
+        <label>
+          <span>能力</span>
+          <input id="capability" placeholder="例如 CAN_BROWSER">
+        </label>
+        <label class="query-wide">
+          <span>关键词</span>
+          <input id="q" placeholder="节点名称、编号、平台">
+        </label>
+        <div class="query-actions">
+          <button class="button secondary" id="reset">重置</button>
+          <button class="button primary" id="search">查询</button>
+        </div>
+      </section>
+
+      <section class="table-section">
+        <div class="section-heading">
+          <div>
+            <h2>执行节点</h2>
+            <span id="count">0 个节点</span>
+          </div>
+        </div>
+        <div id="error" class="error" hidden></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>节点</th>
+                <th>执行人</th>
+                <th>运行平台</th>
+                <th>已验证能力</th>
+                <th>当前任务</th>
+                <th>最后心跳</th>
+                <th>状态</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+          <div id="empty" class="empty" hidden>
+            <strong>暂无匹配节点</strong>
+            <span>调整查询条件后重试。</span>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="modal" hidden>
+    <section class="detail-shell" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+      <header class="detail-header">
+        <div>
+          <div class="detail-kicker">执行节点</div>
+          <h2 id="detailTitle">节点详情</h2>
+          <div id="detailMeta" class="detail-meta"></div>
+        </div>
+        <button class="icon-button" id="close" aria-label="关闭">×</button>
+      </header>
+      <div class="tabs" id="tabs">
+        <button class="active" data-tab="basic">基本信息</button>
+        <button data-tab="capabilities">能力</button>
+        <button data-tab="task">当前任务</button>
+        <button data-tab="history">历史任务</button>
+        <button data-tab="resources">资源占用</button>
+        <button data-tab="runtime">运行记录</button>
+      </div>
+      <div class="detail-body" id="detailBody"></div>
+    </section>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
