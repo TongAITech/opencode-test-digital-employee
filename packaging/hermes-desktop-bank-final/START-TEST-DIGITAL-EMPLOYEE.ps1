@@ -4,17 +4,20 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Payload = [IO.Path]::GetFullPath((Join-Path $Root 'payload')).TrimEnd('\\')
+$Payload = [IO.Path]::GetFullPath((Join-Path $Root 'payload')).TrimEnd('\')
 
 function Mount-PortableRoot {
   $mapped = $null
   foreach ($line in (& subst 2>$null)) {
-    if ($line -match '^R:\\:\s*=>\s*(.+)$') { $mapped = $Matches[1].Trim().TrimEnd('\\'); break }
+    if ($line -match '^R:\\:\s*=>\s*(.+)$') { $mapped = $Matches[1].Trim().TrimEnd('\'); break }
   }
   if ($mapped -and -not $mapped.Equals($Payload,[StringComparison]::OrdinalIgnoreCase)) {
     throw "R: 已被占用：$mapped。当前 Hermes 便携运行时要求 R: 映射，请先释放 R:。"
   }
-  if (-not $mapped) { & subst R: $Payload | Out-Null; if ($LASTEXITCODE -ne 0) { throw '无法创建 R: 便携映射' } }
+  if (-not $mapped) {
+    & subst R: $Payload | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw '无法创建 R: 便携映射' }
+  }
 }
 
 function Find-WizardPlugin {
@@ -92,6 +95,10 @@ $env:PYTHONPATH = 'R:\hermes\hermes-agent'
 $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
 $env:PLAYWRIGHT_BROWSERS_PATH = 'R:\hermes\browser\ms-playwright'
+$env:PATH = 'R:\hermes\node;R:\hermes\node\node_modules\.bin;' + $env:PATH
+$env:NPM_CONFIG_OFFLINE = 'true'
+$env:CUA_TELEMETRY = '0'
+$env:DO_NOT_TRACK = '1'
 $env:BANK_TZ_OFFSET_MINUTES = '480'
 $env:BANK_MODEL_REQUEST_LIMIT_10MIN = '100'
 $env:BANK_MODEL_REQUEST_SAFETY_LIMIT_10MIN = '90'
@@ -100,8 +107,13 @@ $env:BANK_MODEL_QUOTA_18_21 = '40000000'
 $env:WIZARD_UPSTREAM_BASE_URL = 'https://wizard-ai.paic.com.cn/code_pilot/api/v1'
 $env:WIZARD_MODEL = 'aicoder-plus'
 
+if (-not (Test-Path 'R:\hermes\node\agent-browser.cmd')) { throw '便携 agent-browser 缺失，包不完整。' }
+$chromium = Get-ChildItem 'R:\hermes\browser\ms-playwright' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^chromium(_headless_shell)?-' } | Select-Object -First 1
+if (-not $chromium) { throw '便携 Chromium 缺失，包不完整。' }
+
 $cua = 'R:\hermes\cua-driver\bin\cua-driver.exe'
-if (Test-Path $cua) { $env:HERMES_CUA_DRIVER_CMD = $cua }
+if (-not (Test-Path $cua)) { throw '便携 cua-driver 缺失，包不完整。' }
+$env:HERMES_CUA_DRIVER_CMD = $cua
 
 $plugin = Find-WizardPlugin
 $env:WIZARD_PLUGIN_DIR = $plugin
@@ -112,7 +124,8 @@ $configTemplate = if ($Model -eq 'bankgpt') { 'R:\hermes\bank\config-bankgpt.yam
 if ($Model -eq 'bankgpt' -and -not $bankgpt) { throw '选择了 bankgpt，但未从行内 OpenCode 配置中发现 wizard-bankgpt baseURL/apiKey。' }
 Copy-Item -LiteralPath $configTemplate -Destination 'R:\hermes\config.yaml' -Force
 
-$logs = Join-Path $Root 'logs'; New-Item -ItemType Directory -Force -Path $logs | Out-Null
+$logs = Join-Path $Root 'logs'
+New-Item -ItemType Directory -Force -Path $logs | Out-Null
 $outLog = Join-Path $logs 'bank-model-gateway.out.log'
 $errLog = Join-Path $logs 'bank-model-gateway.err.log'
 Remove-Item $outLog,$errLog -Force -ErrorAction SilentlyContinue
@@ -122,29 +135,38 @@ Set-Content -LiteralPath (Join-Path $logs 'bank-model-gateway.pid') -Value $gate
 try {
   for ($i=0; $i -lt 120; $i++) {
     if ($gateway.HasExited) { throw "Bank model gateway 提前退出，请看 $errLog" }
-    try { $h = Invoke-RestMethod 'http://127.0.0.1:17891/health' -TimeoutSec 2; if ($h.status -eq 'UP') { break } } catch {}
+    try {
+      $h = Invoke-RestMethod 'http://127.0.0.1:17891/health' -TimeoutSec 2
+      if ($h.status -eq 'UP') { break }
+    } catch {}
     Start-Sleep -Milliseconds 250
   }
+
   if (-not $SkipFreshCas -and $Model -eq 'aicoder-plus') {
     Write-Host '正在打开 fresh CAS 登录...' -ForegroundColor Yellow
     $a = Invoke-RestMethod 'http://127.0.0.1:17891/auth/login' -Method Post -TimeoutSec 1800
     if ($a.cas -ne 'READY' -or $a.apiKey -ne 'READY') { throw 'Wizard CAS 未达到 READY' }
   }
+
   $budget = Invoke-RestMethod 'http://127.0.0.1:17891/budget/status' -TimeoutSec 3
   Write-Host ("模型预算：10分钟 {0}/{1} 请求；当前窗口 {2}；剩余额度 {3}" -f $budget.requests_last_10min,$budget.safety_limit_10min,$budget.quota_window,$budget.quota_remaining_tokens) -ForegroundColor Cyan
   Write-Host "Wizard plugin: $plugin" -ForegroundColor DarkGray
   Write-Host "Node: $node" -ForegroundColor DarkGray
+  Write-Host "agent-browser: R:\hermes\node\agent-browser.cmd" -ForegroundColor DarkGray
+  Write-Host "Chromium: $($chromium.FullName)" -ForegroundColor DarkGray
   Write-Host "Computer Use driver: $env:HERMES_CUA_DRIVER_CMD" -ForegroundColor DarkGray
 
   $desktop = Find-DesktopExe
-  $workspace = Join-Path $Root 'workspace'; New-Item -ItemType Directory -Force -Path $workspace | Out-Null
+  $workspace = Join-Path $Root 'workspace'
+  New-Item -ItemType Directory -Force -Path $workspace | Out-Null
   Push-Location $workspace
   try {
     Write-Host "启动 Hermes Desktop：$desktop" -ForegroundColor Green
     $p = Start-Process -FilePath $desktop -PassThru -WorkingDirectory $workspace
     $p.WaitForExit()
   } finally { Pop-Location }
-} finally {
+}
+finally {
   try { if ($gateway -and -not $gateway.HasExited) { Stop-Process -Id $gateway.Id -Force -ErrorAction SilentlyContinue } } catch {}
   Remove-Item (Join-Path $logs 'bank-model-gateway.pid') -Force -ErrorAction SilentlyContinue
 }
