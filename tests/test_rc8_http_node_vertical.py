@@ -33,28 +33,26 @@ def test_real_http_node_protocol_updates_same_product_control_plane():
             package_version="rc8-dev",
         )
         agent = NodeAgent(node=node, center=HttpCenterClient(base))
-        agent.connect(now=100)
+        agent.connect()
 
         for state in (
             CapabilityState.REGISTERED,
             CapabilityState.EXECUTED,
             CapabilityState.ASSERTED,
         ):
-            agent.report_capability("CAN_JUNIT", state, now=101)
+            agent.report_capability("CAN_JUNIT", state)
         agent.report_capability(
             "CAN_JUNIT",
             CapabilityState.EVIDENCE_PERSISTED,
             evidence_refs=["ART-CAP-JUNIT"],
-            now=101,
         )
         agent.report_capability(
             "CAN_JUNIT",
             CapabilityState.VERIFIED,
             evidence_refs=["ART-CAP-JUNIT"],
-            now=101,
         )
 
-        lease = agent.lease_work_item("WORK-NET-01", ["CAN_JUNIT"], ttl_seconds=60, now=110)
+        lease = agent.lease_work_item("WORK-NET-01", ["CAN_JUNIT"], ttl_seconds=60)
         assert lease.node_id == "NODE-NET-01"
 
         event = RuntimeEventEnvelope(
