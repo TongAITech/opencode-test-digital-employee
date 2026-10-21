@@ -14,6 +14,7 @@ on:
       - 'tests/test_rc8_artifact_sync.py'
       - 'tests/test_rc8_artifact_http.py'
       - 'tests/test_rc8_durable_repository.py'
+      - 'tests/test_rc8_center_cli.py'
       - '.github/workflows/rc8-wave1-control.yml'
   workflow_dispatch:
 
@@ -33,11 +34,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.8'
-      - name: Compile W1 control plane, node agent and durable sync
+      - name: Compile W1 control plane, launchers and durable sync
         shell: bash
         run: |
           python -m py_compile \
             rc8_center/__init__.py \
+            rc8_center/__main__.py \
             rc8_center/control_plane.py \
             rc8_center/http_server.py \
             rc8_center/artifacts.py \
@@ -50,11 +52,13 @@ jobs:
             tests/test_rc8_center_node_http.py \
             tests/test_rc8_artifact_sync.py \
             tests/test_rc8_artifact_http.py \
-            tests/test_rc8_durable_repository.py
-      - name: Verify canonical shell entrypoint
+            tests/test_rc8_durable_repository.py \
+            tests/test_rc8_center_cli.py
+      - name: Verify canonical shell entrypoints
         shell: bash
         run: |
           bash packaging/rc8/rc8-node.sh --help >/dev/null
+          bash packaging/rc8/rc8-center.sh --help >/dev/null
       - name: Run W1 control-plane, transport and durable artifact tests
         shell: bash
         run: |
@@ -66,4 +70,5 @@ jobs:
             tests/test_rc8_center_node_http.py \
             tests/test_rc8_artifact_sync.py \
             tests/test_rc8_artifact_http.py \
-            tests/test_rc8_durable_repository.py
+            tests/test_rc8_durable_repository.py \
+            tests/test_rc8_center_cli.py
