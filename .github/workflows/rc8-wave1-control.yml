@@ -18,7 +18,9 @@ on:
       - 'tests/test_rc8_real_capability_adapter.py'
       - 'tests/test_rc8_maven_execution_adapter.py'
       - 'tests/test_rc8_execution_publish.py'
+      - 'tests/test_rc8_execution_publish_http.py'
       - 'tests/test_rc8_work_item_execution.py'
+      - 'tests/test_rc8_maven_reality_runner.py'
       - '.github/workflows/rc8-wave1-control.yml'
   workflow_dispatch:
 
@@ -55,6 +57,7 @@ jobs:
             rc8_node/execution.py \
             rc8_node/execution_publish.py \
             rc8_node/work_item_execution.py \
+            rc8_node/reality_maven.py \
             rc8_node/__main__.py \
             tests/test_rc8_center_control.py \
             tests/test_rc8_center_node_http.py \
@@ -65,12 +68,15 @@ jobs:
             tests/test_rc8_real_capability_adapter.py \
             tests/test_rc8_maven_execution_adapter.py \
             tests/test_rc8_execution_publish.py \
-            tests/test_rc8_work_item_execution.py
+            tests/test_rc8_execution_publish_http.py \
+            tests/test_rc8_work_item_execution.py \
+            tests/test_rc8_maven_reality_runner.py
       - name: Verify canonical shell entrypoints
         shell: bash
         run: |
           bash packaging/rc8/rc8-node.sh --help >/dev/null
           bash packaging/rc8/rc8-center.sh --help >/dev/null
+          bash packaging/rc8/rc8-maven-reality.sh --help >/dev/null
       - name: Run W1 control-plane, transport, artifact, capability and execution tests
         shell: bash
         run: |
@@ -87,4 +93,6 @@ jobs:
             tests/test_rc8_real_capability_adapter.py \
             tests/test_rc8_maven_execution_adapter.py \
             tests/test_rc8_execution_publish.py \
-            tests/test_rc8_work_item_execution.py
+            tests/test_rc8_execution_publish_http.py \
+            tests/test_rc8_work_item_execution.py \
+            tests/test_rc8_maven_reality_runner.py
