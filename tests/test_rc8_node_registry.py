@@ -11,14 +11,14 @@ from rc8_control.models import (
 from rc8_control.node_registry import NodeRegistry, NodeRegistryError
 
 
-def _node(node_id="node-a"):
+def _node(node_id="node-a", package_version="rc8-dev", platform="windows-git-bash"):
     return ExecutionNode(
         node_id=node_id,
         display_name="办公电脑-A",
-        platform="windows-git-bash",
+        platform=platform,
         architecture="x86_64",
         operator="tester-a",
-        package_version="rc8-dev",
+        package_version=package_version,
     )
 
 
@@ -90,6 +90,26 @@ def test_scheduler_only_uses_reality_verified_capabilities():
 
     eligible = registry.eligible_nodes(["CAN_BROWSER"], now=120)
     assert [item.node_id for item in eligible] == ["node-a"]
+
+
+def test_node_runtime_change_invalidates_old_verified_capabilities():
+    registry = NodeRegistry(offline_after_seconds=300)
+    registry.register(_node(package_version="rc8-dev-1"), now=100)
+    _verify(registry, "node-a", "CAN_BROWSER", now=101)
+    assert registry.get("node-a").has_verified_capabilities(["CAN_BROWSER"])
+
+    registry.register(_node(package_version="rc8-dev-2"), now=120)
+    assert not registry.get("node-a").has_verified_capabilities(["CAN_BROWSER"])
+    assert registry.get("node-a").capabilities == {}
+
+
+def test_same_runtime_reconnect_preserves_verified_capabilities():
+    registry = NodeRegistry(offline_after_seconds=300)
+    registry.register(_node(package_version="rc8-dev-1"), now=100)
+    _verify(registry, "node-a", "CAN_BROWSER", now=101)
+
+    registry.register(_node(package_version="rc8-dev-1"), now=120)
+    assert registry.get("node-a").has_verified_capabilities(["CAN_BROWSER"])
 
 
 def test_offline_node_cannot_receive_new_lease():
