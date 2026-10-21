@@ -76,8 +76,8 @@ try {
 
   $env:PATH = 'R:\hermes\node;R:\hermes\node\node_modules\.bin;' + $env:PATH
 
-  Write-Host '=== 3. Make agent-browser + Chromium explicitly portable/offline ===' -ForegroundColor Cyan
-  New-Item -ItemType Directory -Force 'R:\hermes\browser\ms-playwright' | Out-Null
+  Write-Host '=== 3. Make agent-browser + Chrome explicitly portable/offline ===' -ForegroundColor Cyan
+  New-Item -ItemType Directory -Force 'R:\hermes\browser\agent-browser' | Out-Null
 
   # Hermes v0.21.3 resolves agent-browser lazily via npx. For a bank/offline package we install
   # the same supported range into the portable Node prefix so first use never needs npm/network.
@@ -93,15 +93,28 @@ try {
   & $agentBrowser --version
   if ($LASTEXITCODE -ne 0) { throw 'agent-browser --version failed' }
 
-  # Install Chromium into a package-owned Playwright directory, never into the build user's cache.
+  # agent-browser 0.26 installs Chrome under ~/.agent-browser/browsers rather than PLAYWRIGHT_BROWSERS_PATH.
+  # Build online, then copy that exact browser tree into the portable payload and force Hermes to use it.
   & $agentBrowser install
-  if ($LASTEXITCODE -ne 0) { throw 'agent-browser Chromium install failed' }
+  if ($LASTEXITCODE -ne 0) { throw 'agent-browser Chrome install failed' }
 
-  $chromium = Get-ChildItem 'R:\hermes\browser\ms-playwright' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^chromium(_headless_shell)?-' } | Select-Object -First 1
-  if (-not $chromium) { throw 'portable Chromium was not installed under R:\hermes\browser\ms-playwright' }
-  Write-Host "[OK] Chromium: $($chromium.FullName)" -ForegroundColor Green
+  $agentBrowserCache = Join-Path $env:USERPROFILE '.agent-browser\browsers'
+  $chromeSource = Get-ChildItem $agentBrowserCache -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '^chrome-' } |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+  if (-not $chromeSource) { throw "agent-browser installed Chrome but no chrome-* directory was found under $agentBrowserCache" }
 
-  # Also run Hermes' supported post-setup hook so Browser Use CLI/provider bookkeeping is prepared.
+  $portableChromeDir = Join-Path 'R:\hermes\browser\agent-browser' $chromeSource.Name
+  if (Test-Path $portableChromeDir) { Remove-Item $portableChromeDir -Recurse -Force }
+  Copy-Item -LiteralPath $chromeSource.FullName -Destination $portableChromeDir -Recurse -Force
+
+  $portableChromeExe = Get-ChildItem $portableChromeDir -Filter chrome.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $portableChromeExe) { throw "portable Chrome copy does not contain chrome.exe: $portableChromeDir" }
+  $env:AGENT_BROWSER_EXECUTABLE_PATH = $portableChromeExe.FullName
+  Write-Host "[OK] Portable Chrome: $env:AGENT_BROWSER_EXECUTABLE_PATH" -ForegroundColor Green
+
+  # Keep Hermes' supported bookkeeping hook, but no bank runtime may depend on it downloading anything.
   & (HermesExe) tools post-setup agent_browser
   if ($LASTEXITCODE -ne 0) { throw 'hermes tools post-setup agent_browser failed' }
 
@@ -161,7 +174,7 @@ try {
   Write-Host '=== 6. Assert Desktop/browser/CUA/test assets ===' -ForegroundColor Cyan
   Assert-File $desktop.FullName
   Assert-File $agentBrowser
-  Assert-Dir 'R:\hermes\browser\ms-playwright'
+  Assert-File $env:AGENT_BROWSER_EXECUTABLE_PATH
   Assert-File 'R:\hermes\cua-driver\bin\cua-driver.exe'
   Assert-File 'R:\hermes\skills\test-digital-employee\SKILL.md'
 
@@ -210,13 +223,14 @@ Hermes Test Digital Employee Desktop Final
 
 1. 行内免安装、免构建：解压后先运行 VERIFY-ALL.cmd，再运行 START-TEST-DIGITAL-EMPLOYEE.cmd。
 2. 保持行内 deepseek-harness\wizard-opencode-plugin 原目录不变。
-3. 本包自带 Hermes Desktop、Python、Node、agent-browser、Chromium、cua-driver 和测试数字员工 Skill。
+3. 本包自带 Hermes Desktop、Python、Node、agent-browser、Chrome、cua-driver 和测试数字员工 Skill。
 4. 行内不会执行 pip/npm/browser/cua 安装器；security.allow_lazy_installs=false。
 5. BankGPT 已在 OpenCode 配置好时，可运行 START-BANKGPT-DIRECTOR.cmd；密钥不会写入本包。
 6. DSH 3080 保留；Hermes Bank Model Gateway 使用 127.0.0.1:17891。
 7. Computer Use 使用包内 cua-driver；CUA_TELEMETRY=0、DO_NOT_TRACK=1。
-8. 网页测试优先 DOM/browser；Computer Use 用于桌面客户端、系统弹窗、文件选择框等补充场景。
-9. 模型限制：10分钟100请求；本包安全阈值90。09-18 40,000,000 tokens；18-21 独立40,000,000；21-09额度不限。
+8. Browser 使用包内 Chrome，通过 AGENT_BROWSER_EXECUTABLE_PATH 固定，不依赖用户缓存或在线下载。
+9. 网页测试优先 DOM/browser；Computer Use 用于桌面客户端、系统弹窗、文件选择框等补充场景。
+10. 模型限制：10分钟100请求；本包安全阈值90。09-18 40,000,000 tokens；18-21 独立40,000,000；21-09额度不限。
 
 外部构建只能证明包结构/依赖/桌面/CUA contract/browser资产完整。
 CAS、wkey、BankGPT、PFC 业务执行必须由 VERIFY-ALL.cmd 和真实 Agent Loop 在行内验收，禁止伪报 PASS。
@@ -228,6 +242,7 @@ CAS、wkey、BankGPT、PFC 业务执行必须由 VERIFY-ALL.cmd 和真实 Agent 
 
   & $agentBrowser --version | Out-Host
   if ($LASTEXITCODE -ne 0) { throw 'portable agent-browser smoke failed' }
+  if (-not (Test-Path -LiteralPath $env:AGENT_BROWSER_EXECUTABLE_PATH -PathType Leaf)) { throw 'portable Chrome executable smoke failed' }
 
   & 'R:\hermes\cua-driver\bin\cua-driver.exe' manifest | Out-Null
   if ($LASTEXITCODE -ne 0) { throw 'portable cua-driver manifest smoke failed' }
