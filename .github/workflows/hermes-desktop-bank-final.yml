@@ -1,0 +1,63 @@
+name: Hermes Desktop Bank Final
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - work/hermes-desktop-bank-final
+    paths:
+      - 'packaging/hermes-desktop-bank-final/**'
+      - '.github/workflows/hermes-desktop-bank-final.yml'
+
+permissions:
+  contents: read
+
+env:
+  HERMES_TAG: v2026.9.14
+
+jobs:
+  build-windows-portable:
+    name: Build Windows Desktop + Computer Use + Test Digital Employee
+    runs-on: windows-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show build identity
+        shell: pwsh
+        run: |
+          Write-Host "Repository: $env:GITHUB_REPOSITORY"
+          Write-Host "SHA: $env:GITHUB_SHA"
+          Write-Host "Hermes: $env:HERMES_TAG"
+          Get-ComputerInfo | Select-Object WindowsProductName,WindowsVersion,OsArchitecture
+
+      - name: Build complete portable package
+        shell: powershell
+        run: |
+          Set-StrictMode -Version Latest
+          .\packaging\hermes-desktop-bank-final\build-final.ps1 -HermesTag $env:HERMES_TAG -OutputDir "$env:GITHUB_WORKSPACE\dist"
+
+      - name: Final artifact reality audit
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $zip=Join-Path $env:GITHUB_WORKSPACE 'dist\Hermes-Test-Digital-Employee-Desktop-Final-Win10-x64.zip'
+          if(-not(Test-Path $zip)){throw 'final zip missing'}
+          if((Get-Item $zip).Length -lt 500MB){throw "final zip suspiciously small: $((Get-Item $zip).Length)"}
+          & 7z t $zip
+          if($LASTEXITCODE -ne 0){throw 'final ZIP integrity failed'}
+          $sha=(Get-FileHash $zip -Algorithm SHA256).Hash.ToUpperInvariant()
+          Write-Host "FINAL_SIZE=$((Get-Item $zip).Length)"
+          Write-Host "FINAL_SHA256=$sha"
+
+      - name: Upload complete portable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hermes-Test-Digital-Employee-Desktop-Final-Win10-x64-COMPLETE
+          path: |
+            dist/Hermes-Test-Digital-Employee-Desktop-Final-Win10-x64.zip
+            dist/Hermes-Test-Digital-Employee-Desktop-Final-Win10-x64.zip.sha256.txt
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
