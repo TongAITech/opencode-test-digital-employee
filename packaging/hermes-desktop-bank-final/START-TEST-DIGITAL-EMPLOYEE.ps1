@@ -89,12 +89,19 @@ function Find-DesktopExe {
   throw '最终包中未找到 Hermes Desktop Hermes.exe。'
 }
 
+function Find-PortableChrome {
+  $root = 'R:\hermes\browser\agent-browser'
+  if (-not (Test-Path $root)) { throw '便携 Browser 目录缺失，包不完整。' }
+  $hit = Get-ChildItem $root -Filter chrome.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $hit) { throw '便携 Chrome 缺失，包不完整。' }
+  return $hit.FullName
+}
+
 Mount-PortableRoot
 $env:HERMES_HOME = 'R:\hermes'
 $env:PYTHONPATH = 'R:\hermes\hermes-agent'
 $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
-$env:PLAYWRIGHT_BROWSERS_PATH = 'R:\hermes\browser\ms-playwright'
 $env:PATH = 'R:\hermes\node;R:\hermes\node\node_modules\.bin;' + $env:PATH
 $env:NPM_CONFIG_OFFLINE = 'true'
 $env:CUA_TELEMETRY = '0'
@@ -108,8 +115,7 @@ $env:WIZARD_UPSTREAM_BASE_URL = 'https://wizard-ai.paic.com.cn/code_pilot/api/v1
 $env:WIZARD_MODEL = 'aicoder-plus'
 
 if (-not (Test-Path 'R:\hermes\node\agent-browser.cmd')) { throw '便携 agent-browser 缺失，包不完整。' }
-$chromium = Get-ChildItem 'R:\hermes\browser\ms-playwright' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^chromium(_headless_shell)?-' } | Select-Object -First 1
-if (-not $chromium) { throw '便携 Chromium 缺失，包不完整。' }
+$env:AGENT_BROWSER_EXECUTABLE_PATH = Find-PortableChrome
 
 $cua = 'R:\hermes\cua-driver\bin\cua-driver.exe'
 if (-not (Test-Path $cua)) { throw '便携 cua-driver 缺失，包不完整。' }
@@ -153,7 +159,7 @@ try {
   Write-Host "Wizard plugin: $plugin" -ForegroundColor DarkGray
   Write-Host "Node: $node" -ForegroundColor DarkGray
   Write-Host "agent-browser: R:\hermes\node\agent-browser.cmd" -ForegroundColor DarkGray
-  Write-Host "Chromium: $($chromium.FullName)" -ForegroundColor DarkGray
+  Write-Host "Chrome: $env:AGENT_BROWSER_EXECUTABLE_PATH" -ForegroundColor DarkGray
   Write-Host "Computer Use driver: $env:HERMES_CUA_DRIVER_CMD" -ForegroundColor DarkGray
 
   $desktop = Find-DesktopExe
