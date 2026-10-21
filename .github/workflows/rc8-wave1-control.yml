@@ -15,6 +15,7 @@ on:
       - 'tests/test_rc8_artifact_http.py'
       - 'tests/test_rc8_durable_repository.py'
       - 'tests/test_rc8_center_cli.py'
+      - 'tests/test_rc8_real_capability_adapter.py'
       - '.github/workflows/rc8-wave1-control.yml'
   workflow_dispatch:
 
@@ -34,7 +35,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.8'
-      - name: Compile W1 control plane, launchers and durable sync
+      - name: Compile W1 control plane, launchers and real capability adapter
         shell: bash
         run: |
           python -m py_compile \
@@ -47,19 +48,21 @@ jobs:
             rc8_runtime/artifacts.py \
             rc8_node/__init__.py \
             rc8_node/agent.py \
+            rc8_node/capabilities.py \
             rc8_node/__main__.py \
             tests/test_rc8_center_control.py \
             tests/test_rc8_center_node_http.py \
             tests/test_rc8_artifact_sync.py \
             tests/test_rc8_artifact_http.py \
             tests/test_rc8_durable_repository.py \
-            tests/test_rc8_center_cli.py
+            tests/test_rc8_center_cli.py \
+            tests/test_rc8_real_capability_adapter.py
       - name: Verify canonical shell entrypoints
         shell: bash
         run: |
           bash packaging/rc8/rc8-node.sh --help >/dev/null
           bash packaging/rc8/rc8-center.sh --help >/dev/null
-      - name: Run W1 control-plane, transport and durable artifact tests
+      - name: Run W1 control-plane, transport, artifact and capability tests
         shell: bash
         run: |
           python -m pip install --disable-pip-version-check pytest
@@ -71,4 +74,5 @@ jobs:
             tests/test_rc8_artifact_sync.py \
             tests/test_rc8_artifact_http.py \
             tests/test_rc8_durable_repository.py \
-            tests/test_rc8_center_cli.py
+            tests/test_rc8_center_cli.py \
+            tests/test_rc8_real_capability_adapter.py
