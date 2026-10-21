@@ -1,6 +1,6 @@
 """Deterministic RC8 node registry and lease rules for W1.
 
-This first slice is storage-agnostic on purpose.  PostgreSQL/Redis adapters can
+This first slice is storage-agnostic on purpose. PostgreSQL/Redis adapters can
 persist/coordinate these contracts later without changing qualification rules.
 """
 
@@ -25,44 +25,14 @@ class NodeRegistryError(RuntimeError):
 
 
 _ALLOWED_CAPABILITY_TRANSITIONS = {
-    CapabilityState.DISCOVERED: {
-        CapabilityState.REGISTERED,
-        CapabilityState.ERROR,
-        CapabilityState.UNAVAILABLE,
-    },
-    CapabilityState.REGISTERED: {
-        CapabilityState.EXECUTED,
-        CapabilityState.ERROR,
-        CapabilityState.UNAVAILABLE,
-    },
-    CapabilityState.EXECUTED: {
-        CapabilityState.ASSERTED,
-        CapabilityState.ERROR,
-        CapabilityState.UNAVAILABLE,
-    },
-    CapabilityState.ASSERTED: {
-        CapabilityState.EVIDENCE_PERSISTED,
-        CapabilityState.ERROR,
-        CapabilityState.UNAVAILABLE,
-    },
-    CapabilityState.EVIDENCE_PERSISTED: {
-        CapabilityState.VERIFIED,
-        CapabilityState.ERROR,
-        CapabilityState.UNAVAILABLE,
-    },
-    CapabilityState.VERIFIED: {
-        CapabilityState.ERROR,
-        CapabilityState.UNAVAILABLE,
-        CapabilityState.REGISTERED,
-    },
-    CapabilityState.ERROR: {
-        CapabilityState.REGISTERED,
-        CapabilityState.UNAVAILABLE,
-    },
-    CapabilityState.UNAVAILABLE: {
-        CapabilityState.REGISTERED,
-        CapabilityState.DISCOVERED,
-    },
+    CapabilityState.DISCOVERED: {CapabilityState.REGISTERED, CapabilityState.ERROR, CapabilityState.UNAVAILABLE},
+    CapabilityState.REGISTERED: {CapabilityState.EXECUTED, CapabilityState.ERROR, CapabilityState.UNAVAILABLE},
+    CapabilityState.EXECUTED: {CapabilityState.ASSERTED, CapabilityState.ERROR, CapabilityState.UNAVAILABLE},
+    CapabilityState.ASSERTED: {CapabilityState.EVIDENCE_PERSISTED, CapabilityState.ERROR, CapabilityState.UNAVAILABLE},
+    CapabilityState.EVIDENCE_PERSISTED: {CapabilityState.VERIFIED, CapabilityState.ERROR, CapabilityState.UNAVAILABLE},
+    CapabilityState.VERIFIED: {CapabilityState.ERROR, CapabilityState.UNAVAILABLE, CapabilityState.REGISTERED},
+    CapabilityState.ERROR: {CapabilityState.REGISTERED, CapabilityState.UNAVAILABLE},
+    CapabilityState.UNAVAILABLE: {CapabilityState.REGISTERED, CapabilityState.DISCOVERED},
 }
 
 
@@ -84,19 +54,8 @@ class NodeRegistry:
         timestamp = self._now() if now is None else int(now)
         existing = self._nodes.get(node.node_id)
         if existing is not None:
-            previous_runtime = (
-                existing.platform,
-                existing.architecture,
-                existing.package_version,
-            )
-            incoming_runtime = (
-                node.platform,
-                node.architecture,
-                node.package_version,
-            )
-            # Same durable node identity may reconnect without requalifying every
-            # capability, but a platform/architecture/package change invalidates
-            # old VERIFIED capability evidence and forces a fresh qualification.
+            previous_runtime = (existing.platform, existing.architecture, existing.package_version)
+            incoming_runtime = (node.platform, node.architecture, node.package_version)
             if previous_runtime != incoming_runtime:
                 existing.capabilities = {}
             existing.display_name = node.display_name
@@ -118,6 +77,11 @@ class NodeRegistry:
             return self._nodes[node_id]
         except KeyError:
             raise NodeRegistryError("NODE_NOT_REGISTERED:%s" % node_id)
+
+    def all_nodes(self, now: Optional[int] = None) -> List[ExecutionNode]:
+        """Return nodes in stable identity order after liveness refresh."""
+        self.refresh_liveness(now=now)
+        return [self._nodes[node_id] for node_id in sorted(self._nodes)]
 
     def heartbeat(self, node_id: str, now: Optional[int] = None) -> ExecutionNode:
         node = self.get(node_id)
@@ -160,7 +124,6 @@ class NodeRegistry:
         if current is None:
             current = NodeCapability(capability=capability_name)
             node.capabilities[capability_name] = current
-
         if state != current.state:
             allowed = _ALLOWED_CAPABILITY_TRANSITIONS[current.state]
             if state not in allowed:
@@ -168,11 +131,8 @@ class NodeRegistry:
                     "CAPABILITY_TRANSITION_FORBIDDEN:%s:%s->%s"
                     % (capability_name, current.state.value, state.value)
                 )
-
         if state == CapabilityState.VERIFIED and not evidence:
-            # A node cannot become scheduler-eligible from self-report alone.
             raise NodeRegistryError("VERIFIED_CAPABILITY_REQUIRES_EVIDENCE:%s" % capability_name)
-
         current.state = state
         current.evidence_refs = evidence
         current.detail = detail
@@ -223,7 +183,6 @@ class NodeRegistry:
         active = self._active_lease(work_item_id, timestamp)
         if active is not None:
             raise NodeRegistryError("WORK_ITEM_ALREADY_LEASED:%s:%s" % (work_item_id, active.node_id))
-
         lease = WorkItemLease(
             lease_id="LEASE-%s" % uuid.uuid4().hex,
             work_item_id=work_item_id,
@@ -270,3 +229,18 @@ class NodeRegistry:
     def lease_for(self, work_item_id: str, now: Optional[int] = None) -> Optional[WorkItemLease]:
         timestamp = self._now() if now is None else int(now)
         return self._active_lease(work_item_id, timestamp)
+
+    def leases_for_node(self, node_id: str, now: Optional[int] = None) -> List[WorkItemLease]:
+        """Return all node leases, updating expired state deterministically."""
+        self.get(node_id)
+        timestamp = self._now() if now is None else int(now)
+        rows: List[WorkItemLease] = []
+        for work_item_id in sorted(self._leases_by_work_item):
+            lease = self._leases_by_work_item[work_item_id]
+            if lease.node_id != node_id:
+                continue
+            if lease.state == LeaseState.ACTIVE and timestamp >= lease.expires_at:
+                lease.state = LeaseState.EXPIRED
+            rows.append(lease)
+        rows.sort(key=lambda item: item.issued_at, reverse=True)
+        return rows
