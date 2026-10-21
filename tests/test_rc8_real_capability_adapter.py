@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from pathlib import Path
 
 import pytest
 
+from rc8_center import CenterControlPlane, MemoryCenterRepository
+from rc8_center.artifacts import FileArtifactStore, MemoryArtifactRepository
+from rc8_center.http_server import CenterHttpApplication, create_server
+from rc8_node import HttpCenterClient, NodeAgent, NodeIdentityStore
 from rc8_node.capabilities import CapabilityAdapterError, MavenJUnitCapabilityAdapter
-from rc8_runtime import CapabilityState
+from rc8_runtime import CapabilityState, CentralR1RuntimeLedger
 
 
 def _fake_maven(tmp_path: Path, *, success: bool) -> str:
@@ -73,3 +78,63 @@ def test_missing_maven_is_unavailable_not_verified(tmp_path: Path) -> None:
     assert result.state == CapabilityState.UNAVAILABLE
     qualification = adapter.qualification_before_upload("node-1", result)
     assert qualification.state == CapabilityState.UNAVAILABLE
+
+
+def test_successful_probe_uploads_center_artifact_before_verified(tmp_path: Path) -> None:
+    repo = MemoryCenterRepository()
+    ledger = CentralR1RuntimeLedger(str(tmp_path / "r1.jsonl"))
+    control = CenterControlPlane(repo, ledger)
+    artifact_repo = MemoryArtifactRepository()
+    artifact_store = FileArtifactStore(str(tmp_path / "artifacts"), artifact_repo)
+    server = create_server(CenterHttpApplication(control, artifact_store), "127.0.0.1", 0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = HttpCenterClient("http://127.0.0.1:%s" % server.server_address[1])
+        identity = NodeIdentityStore(str(tmp_path / "node.json")).load_or_create(
+            node_id="NODE-CAP-1",
+            operator_ref="tester",
+            os_family="windows",
+            architecture="x86_64",
+            shell="git-bash",
+            now=100,
+        )
+        agent = NodeAgent(identity, client)
+        agent.register()
+        agent.heartbeat()
+        client.post(
+            "/api/v1/work-items/register",
+            {
+                "work_item_id": "WI-CAP-1",
+                "test_run_id": "RUN-CAP-1",
+                "stage": "CAPABILITY_QUALIFICATION",
+                "scope_refs": ["NODE-CAP-1"],
+                "required_capabilities": [],
+            },
+        )
+        agent.lease("WI-CAP-1", ttl_seconds=120)
+        agent.start("WI-CAP-1")
+
+        adapter = MavenJUnitCapabilityAdapter(
+            str(tmp_path / "probe-evidence"),
+            maven_command=_fake_maven(tmp_path, success=True),
+        )
+        qualification = adapter.qualify_through_center(
+            agent,
+            test_run_id="RUN-CAP-1",
+            work_item_id="WI-CAP-1",
+            artifact_id="ART-CAP-MVN-1",
+            verified_at=123,
+        )
+
+        assert qualification.state == CapabilityState.VERIFIED
+        assert qualification.evidence_refs == ["ART-CAP-MVN-1"]
+        stored = repo.get_capability("NODE-CAP-1", "maven-junit")
+        assert stored is not None and stored.state == CapabilityState.VERIFIED
+        artifact = artifact_repo.get("ART-CAP-MVN-1")
+        assert artifact is not None and artifact.availability.value == "AVAILABLE"
+        assert artifact.sha256 == Path(adapter.evidence_dir / "maven-junit-probe.json").read_bytes() and False
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
