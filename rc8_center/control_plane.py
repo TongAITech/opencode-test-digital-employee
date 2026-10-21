@@ -216,11 +216,20 @@ class CenterControlPlane:
         self.repository.upsert_work_item(updated)
         return updated
 
+    def authorize_work_item_write(self, *, test_run_id: str, work_item_id: str, node_id: str) -> WorkItemRecord:
+        """Authorize a runtime/event/artifact write against the active node lease."""
+        self._require_node(node_id)
+        work = self._require_active_lease(work_item_id, node_id)
+        if work.identity.test_run_id != test_run_id:
+            raise CenterControlError("WORK_ITEM_TEST_RUN_MISMATCH")
+        return work
+
     def append_runtime_event(self, event: RuntimeEventEnvelope) -> Dict[str, object]:
-        self._require_node(event.node_id)
-        work = self._require_active_lease(event.work_item_id, event.node_id)
-        if work.identity.test_run_id != event.test_run_id:
-            raise CenterControlError("RUNTIME_EVENT_TEST_RUN_MISMATCH")
+        self.authorize_work_item_write(
+            test_run_id=event.test_run_id,
+            work_item_id=event.work_item_id,
+            node_id=event.node_id,
+        )
         self.runtime_ledger.assert_next_node_sequence(event)
         return self.runtime_ledger.append_runtime(event)
 

@@ -6,6 +6,7 @@ credentials and never writes Center storage directly.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
@@ -17,6 +18,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from rc8_runtime import CapabilityQualification, NodeIdentity, RuntimeEventEnvelope
+from rc8_runtime.artifacts import ArtifactManifest
 
 
 class NodeAgentError(RuntimeError):
@@ -41,6 +43,15 @@ class HttpCenterClient:
             data=data,
             method="POST",
             headers={"Accept": "application/json", "Content-Type": "application/json; charset=utf-8"},
+        )
+        return self._send(request)
+
+    def put_bytes(self, path: str, data: bytes) -> Dict[str, Any]:
+        request = Request(
+            self.base_url + path,
+            data=data,
+            method="PUT",
+            headers={"Accept": "application/json", "Content-Type": "application/octet-stream"},
         )
         return self._send(request)
 
@@ -144,6 +155,59 @@ class NodeAgent:
         payload["plane"] = event.plane.value
         payload["producer_kind"] = event.producer_kind.value
         return self.center.post("/api/v1/runtime-events", payload)
+
+    def upload_artifact_file(
+        self,
+        manifest: ArtifactManifest,
+        file_path: str,
+        *,
+        chunk_size: int = 1024 * 1024,
+    ) -> Dict[str, Any]:
+        if manifest.node_id != self.identity.node_id:
+            raise NodeAgentError("ARTIFACT_NODE_MISMATCH")
+        if not isinstance(chunk_size, int) or chunk_size <= 0:
+            raise NodeAgentError("ARTIFACT_CHUNK_SIZE_INVALID")
+        path = Path(file_path)
+        if not path.is_file():
+            raise NodeAgentError("ARTIFACT_FILE_NOT_FOUND")
+        actual_size = path.stat().st_size
+        if actual_size != manifest.size_bytes:
+            raise NodeAgentError("ARTIFACT_LOCAL_SIZE_MISMATCH")
+        digest = hashlib.sha256()
+        with path.open("rb") as fh:
+            while True:
+                block = fh.read(1024 * 1024)
+                if not block:
+                    break
+                digest.update(block)
+        if digest.hexdigest().lower() != manifest.sha256.lower():
+            raise NodeAgentError("ARTIFACT_LOCAL_HASH_MISMATCH")
+
+        payload = asdict(manifest)
+        payload["availability"] = manifest.availability.value
+        payload["producer_kind"] = manifest.producer_kind.value
+        self.center.post("/api/v1/artifacts/begin", payload)
+        offset_payload = self.center.get("/api/v1/artifacts/%s/offset" % manifest.artifact_id)
+        offset = int(offset_payload.get("offset") or 0)
+        if offset < 0 or offset > manifest.size_bytes:
+            raise NodeAgentError("ARTIFACT_REMOTE_OFFSET_INVALID")
+
+        with path.open("rb") as fh:
+            fh.seek(offset)
+            while offset < manifest.size_bytes:
+                chunk = fh.read(min(chunk_size, manifest.size_bytes - offset))
+                if not chunk:
+                    raise NodeAgentError("ARTIFACT_LOCAL_READ_UNEXPECTED_EOF")
+                uploaded = self.center.put_bytes(
+                    "/api/v1/artifacts/%s/content?offset=%s" % (manifest.artifact_id, offset),
+                    chunk,
+                )
+                next_offset = int(uploaded.get("next_offset") or -1)
+                expected = offset + len(chunk)
+                if next_offset != expected:
+                    raise NodeAgentError("ARTIFACT_REMOTE_OFFSET_DIVERGED:%s:%s" % (next_offset, expected))
+                offset = next_offset
+        return self.center.post("/api/v1/artifacts/%s/complete" % manifest.artifact_id, {})
 
     def complete(self, work_item_id: str) -> Dict[str, Any]:
         return self.center.post(

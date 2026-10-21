@@ -12,6 +12,7 @@ on:
       - 'tests/test_rc8_center_control.py'
       - 'tests/test_rc8_center_node_http.py'
       - 'tests/test_rc8_artifact_sync.py'
+      - 'tests/test_rc8_artifact_http.py'
       - '.github/workflows/rc8-wave1-control.yml'
   workflow_dispatch:
 
@@ -45,7 +46,8 @@ jobs:
             rc8_node/__main__.py \
             tests/test_rc8_center_control.py \
             tests/test_rc8_center_node_http.py \
-            tests/test_rc8_artifact_sync.py
+            tests/test_rc8_artifact_sync.py \
+            tests/test_rc8_artifact_http.py
       - name: Verify canonical shell entrypoint
         shell: bash
         run: |
@@ -59,4 +61,5 @@ jobs:
             tests/test_rc8_r1_runtime.py \
             tests/test_rc8_center_control.py \
             tests/test_rc8_center_node_http.py \
-            tests/test_rc8_artifact_sync.py
+            tests/test_rc8_artifact_sync.py \
+            tests/test_rc8_artifact_http.py
