@@ -50,10 +50,19 @@ class FileArtifactStore:
         if current is not None:
             if self._identity_tuple(current) != self._identity_tuple(manifest):
                 raise ArtifactSyncError("ARTIFACT_ID_CONFLICT")
+            if current.availability != ArtifactAvailability.AVAILABLE:
+                part = self._part_path(manifest.artifact_id)
+                part.parent.mkdir(parents=True, exist_ok=True)
+                part.touch(exist_ok=True)
             return current
         pending = replace(manifest, availability=ArtifactAvailability.PENDING_UPLOAD)
         self.repository.upsert(pending)
-        self._part_path(manifest.artifact_id).parent.mkdir(parents=True, exist_ok=True)
+        part = self._part_path(manifest.artifact_id)
+        part.parent.mkdir(parents=True, exist_ok=True)
+        # Always materialize the pending file, including size==0 artifacts such
+        # as an empty stderr.log from a successful Maven execution. Otherwise
+        # complete() would have no byte stream to hash/atomically publish.
+        part.touch(exist_ok=True)
         return pending
 
     def current_offset(self, artifact_id: str) -> int:
@@ -75,6 +84,7 @@ class FileArtifactStore:
         if current + len(data) > manifest.size_bytes:
             raise ArtifactSyncError("ARTIFACT_SIZE_OVERFLOW")
         path = self._part_path(artifact_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("ab") as fh:
             fh.write(bytes(data))
             fh.flush()
@@ -88,7 +98,13 @@ class FileArtifactStore:
         if manifest.availability == ArtifactAvailability.AVAILABLE:
             return manifest
         part = self._part_path(artifact_id)
-        actual_size = part.stat().st_size if part.exists() else 0
+        if not part.exists():
+            if manifest.size_bytes == 0:
+                part.parent.mkdir(parents=True, exist_ok=True)
+                part.touch()
+            else:
+                raise ArtifactSyncError("ARTIFACT_PART_MISSING")
+        actual_size = part.stat().st_size
         if actual_size != manifest.size_bytes:
             raise ArtifactSyncError("ARTIFACT_SIZE_MISMATCH:%s:%s" % (actual_size, manifest.size_bytes))
         digest = hashlib.sha256()
