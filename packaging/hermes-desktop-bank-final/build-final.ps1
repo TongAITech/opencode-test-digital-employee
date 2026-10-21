@@ -2,121 +2,199 @@ param(
   [string]$HermesTag = 'v2026.9.14',
   [string]$OutputDir = ''
 )
-$ErrorActionPreference='Stop'
-$ProgressPreference='SilentlyContinue'
-$RepoRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
-if(-not $OutputDir){$OutputDir=Join-Path $RepoRoot 'dist'}
-New-Item -ItemType Directory -Force $OutputDir|Out-Null
-$Work=Join-Path $env:RUNNER_TEMP ('hermes-desktop-bank-'+[guid]::NewGuid().ToString('N'))
-$Payload=Join-Path $Work 'payload'
-New-Item -ItemType Directory -Force (Join-Path $Payload 'hermes')|Out-Null
+
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+$RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+if (-not $OutputDir) { $OutputDir = Join-Path $RepoRoot 'dist' }
+New-Item -ItemType Directory -Force $OutputDir | Out-Null
+
+$Work = Join-Path $env:RUNNER_TEMP ('hermes-desktop-bank-' + [guid]::NewGuid().ToString('N'))
+$Payload = Join-Path $Work 'payload'
+New-Item -ItemType Directory -Force (Join-Path $Payload 'hermes') | Out-Null
 
 function Mount-R {
-  $mapped=$null;foreach($line in (& subst 2>$null)){if($line -match '^R:\\:\s*=>\s*(.+)$'){$mapped=$Matches[1].Trim().TrimEnd('\\');break}}
-  if($mapped){& subst R: /D|Out-Null}
-  & subst R: $Payload|Out-Null
-  if($LASTEXITCODE -ne 0){throw 'subst R failed'}
+  $mapped = $null
+  foreach ($line in (& subst 2>$null)) {
+    if ($line -match '^R:\\:\s*=>\s*(.+)$') { $mapped = $Matches[1].Trim().TrimEnd('\'); break }
+  }
+  if ($mapped) { & subst R: /D | Out-Null }
+  & subst R: $Payload | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'subst R failed' }
 }
+
 function HermesExe { return 'R:\hermes\bin\hermes.exe' }
-function Assert-File([string]$P){if(-not(Test-Path $P)){throw "missing: $P"}}
+function Assert-File([string]$Path) { if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "missing file: $Path" } }
+function Assert-Dir([string]$Path) { if (-not (Test-Path -LiteralPath $Path -PathType Container)) { throw "missing dir: $Path" } }
 
 try {
   Mount-R
-  $env:HERMES_HOME='R:\hermes'
-  $env:PYTHONPATH='R:\hermes\hermes-agent'
-  $env:PYTHONUTF8='1';$env:PYTHONIOENCODING='utf-8'
 
-  Write-Host '=== 1. Official Hermes install: Desktop + Browser + Computer Use ===' -ForegroundColor Cyan
-  $installer=Join-Path $Work 'install.ps1'
+  $env:HERMES_HOME = 'R:\hermes'
+  $env:PYTHONPATH = 'R:\hermes\hermes-agent'
+  $env:PYTHONUTF8 = '1'
+  $env:PYTHONIOENCODING = 'utf-8'
+  $env:PLAYWRIGHT_BROWSERS_PATH = 'R:\hermes\browser\ms-playwright'
+  $env:CUA_TELEMETRY = '0'
+  $env:DO_NOT_TRACK = '1'
+
+  Write-Host '=== 1. Official Hermes install: Desktop + base runtime + Computer Use bootstrap ===' -ForegroundColor Cyan
+  $installer = Join-Path $Work 'install.ps1'
   Invoke-WebRequest "https://raw.githubusercontent.com/NousResearch/hermes-agent/$HermesTag/scripts/install.ps1" -OutFile $installer
-  # Clone the release ref directly. Using -Tag makes the upstream installer clone main first,
-  # run source-completion mutations, then checkout the tag; on hosted Windows that can leave
-  # generated website files dirty and block checkout. `git clone -b <tag>` is immutable enough
-  # for this one-shot package build and avoids that drift window entirely.
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -HermesHome 'R:\hermes' -InstallDir 'R:\hermes\hermes-agent' -Branch $HermesTag -NonInteractive -IncludeDesktop
-  if($LASTEXITCODE -ne 0){throw "Hermes installer failed: $LASTEXITCODE"}
+
+  # Clone the release ref directly. This avoids main->tag checkout drift on hosted Windows.
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer `
+      -HermesHome 'R:\hermes' `
+      -InstallDir 'R:\hermes\hermes-agent' `
+      -Branch $HermesTag `
+      -NonInteractive `
+      -IncludeDesktop
+  if ($LASTEXITCODE -ne 0) { throw "Hermes installer failed: $LASTEXITCODE" }
+
   Assert-File (HermesExe)
   Assert-File 'R:\hermes\hermes-agent\hermes_cli\main.py'
   & (HermesExe) --version
-  if($LASTEXITCODE -ne 0){throw 'hermes --version failed'}
+  if ($LASTEXITCODE -ne 0) { throw 'hermes --version failed' }
 
-  Write-Host '=== 2. Ensure Browser and Computer Use packages ===' -ForegroundColor Cyan
-  & (HermesExe) pm install agent-browser
-  if($LASTEXITCODE -ne 0){throw 'hermes pm install agent-browser failed'}
-  & (HermesExe) computer-use install
-  if($LASTEXITCODE -ne 0){throw 'hermes computer-use install failed'}
-  & (HermesExe) computer-use status
-  if($LASTEXITCODE -ne 0){throw 'computer-use status failed on build host'}
+  $desktop = Get-ChildItem 'R:\hermes\hermes-agent\apps\desktop\release' -Filter Hermes.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $desktop) { throw 'Hermes Desktop Hermes.exe missing after -IncludeDesktop' }
+  Write-Host "[OK] Desktop: $($desktop.FullName)" -ForegroundColor Green
 
-  Write-Host '=== 3. Make cua-driver explicitly portable ===' -ForegroundColor Cyan
-  $py=Get-ChildItem 'R:\hermes' -Filter python.exe -File -Recurse -ErrorAction SilentlyContinue | Where-Object {$_.FullName -notmatch 'node_modules'} | Select-Object -First 1
-  if(-not$py){throw 'Hermes private Python not found'}
-  $cuaPath=(& $py.FullName -c "import sys;sys.path.insert(0,r'R:\hermes\hermes-agent');from tools.computer_use.cua_backend_driver import resolve_cua_driver_cmd;print(resolve_cua_driver_cmd() or '')" 2>$null|Out-String).Trim()
-  if(-not$cuaPath -or -not(Test-Path $cuaPath)){throw "Cannot resolve installed cua-driver: $cuaPath"}
-  $cuaBinDir=Split-Path $cuaPath -Parent
-  $cuaRoot=Split-Path $cuaBinDir -Parent
-  if(Test-Path 'R:\hermes\cua-driver'){Remove-Item 'R:\hermes\cua-driver' -Recurse -Force}
-  Copy-Item $cuaRoot 'R:\hermes\cua-driver' -Recurse -Force
-  Assert-File 'R:\hermes\cua-driver\bin\cua-driver.exe'
-  $env:HERMES_CUA_DRIVER_CMD='R:\hermes\cua-driver\bin\cua-driver.exe'
-  $manifest=& $env:HERMES_CUA_DRIVER_CMD manifest 2>&1
-  if($LASTEXITCODE -ne 0 -or -not($manifest -match 'binary_version')){throw 'portable cua-driver manifest failed'}
-
-  Write-Host '=== 4. Add known-compatible portable Node for bank wkey bridge ===' -ForegroundColor Cyan
-  $nodeZip=Join-Path $Work 'node.zip';$nodeTmp=Join-Path $Work 'node-unpack'
+  Write-Host '=== 2. Add known-compatible portable Node for bank wkey + browser runtime ===' -ForegroundColor Cyan
+  $nodeZip = Join-Path $Work 'node.zip'
+  $nodeTmp = Join-Path $Work 'node-unpack'
   Invoke-WebRequest 'https://nodejs.org/dist/v20.11.1/node-v20.11.1-win-x64.zip' -OutFile $nodeZip
   Expand-Archive $nodeZip $nodeTmp -Force
-  $nodeSrc=Get-ChildItem $nodeTmp -Directory|Select-Object -First 1
-  if(Test-Path 'R:\hermes\node'){Remove-Item 'R:\hermes\node' -Recurse -Force}
+  $nodeSrc = Get-ChildItem $nodeTmp -Directory | Select-Object -First 1
+  if (-not $nodeSrc) { throw 'portable Node archive did not contain a directory' }
+  if (Test-Path 'R:\hermes\node') { Remove-Item 'R:\hermes\node' -Recurse -Force }
   Copy-Item $nodeSrc.FullName 'R:\hermes\node' -Recurse -Force
   Assert-File 'R:\hermes\node\node.exe'
+  Assert-File 'R:\hermes\node\npm.cmd'
   & 'R:\hermes\node\node.exe' --version
+  if ($LASTEXITCODE -ne 0) { throw 'portable node failed' }
+
+  $env:PATH = 'R:\hermes\node;R:\hermes\node\node_modules\.bin;' + $env:PATH
+
+  Write-Host '=== 3. Make agent-browser + Chromium explicitly portable/offline ===' -ForegroundColor Cyan
+  New-Item -ItemType Directory -Force 'R:\hermes\browser\ms-playwright' | Out-Null
+
+  # Hermes v0.21.3 resolves agent-browser lazily via npx. For a bank/offline package we install
+  # the same supported range into the portable Node prefix so first use never needs npm/network.
+  & 'R:\hermes\node\npm.cmd' install --global --prefix 'R:\hermes\node' --ignore-scripts --no-audit --no-fund 'agent-browser@^0.26.0'
+  if ($LASTEXITCODE -ne 0) { throw 'portable agent-browser npm install failed' }
+
+  $agentBrowser = 'R:\hermes\node\agent-browser.cmd'
+  if (-not (Test-Path $agentBrowser)) {
+    $hit = Get-ChildItem 'R:\hermes\node' -Filter 'agent-browser.cmd' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($hit) { $agentBrowser = $hit.FullName }
+  }
+  Assert-File $agentBrowser
+  & $agentBrowser --version
+  if ($LASTEXITCODE -ne 0) { throw 'agent-browser --version failed' }
+
+  # Install Chromium into a package-owned Playwright directory, never into the build user's cache.
+  & $agentBrowser install
+  if ($LASTEXITCODE -ne 0) { throw 'agent-browser Chromium install failed' }
+
+  $chromium = Get-ChildItem 'R:\hermes\browser\ms-playwright' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^chromium(_headless_shell)?-' } | Select-Object -First 1
+  if (-not $chromium) { throw 'portable Chromium was not installed under R:\hermes\browser\ms-playwright' }
+  Write-Host "[OK] Chromium: $($chromium.FullName)" -ForegroundColor Green
+
+  # Also run Hermes' supported post-setup hook so Browser Use CLI/provider bookkeeping is prepared.
+  & (HermesExe) tools post-setup agent_browser
+  if ($LASTEXITCODE -ne 0) { throw 'hermes tools post-setup agent_browser failed' }
+
+  Write-Host '=== 4. Extract cua-driver into the portable payload and validate Hermes contract ===' -ForegroundColor Cyan
+  $cuaCandidates = @(
+    (Join-Path $env:LOCALAPPDATA 'Programs\Cua\cua-driver\bin\cua-driver.exe'),
+    (Join-Path $env:USERPROFILE '.cua-driver\packages\current\cua-driver.exe'),
+    (Join-Path $env:USERPROFILE '.local\bin\cua-driver.exe')
+  )
+  try { $cmd = (Get-Command cua-driver.exe -ErrorAction Stop).Source; if ($cmd) { $cuaCandidates = @($cmd) + $cuaCandidates } } catch {}
+
+  $cuaSource = $cuaCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
+  if (-not $cuaSource) {
+    Write-Host '[INFO] cua-driver not found after installer bootstrap; retrying Hermes install hook once.' -ForegroundColor Yellow
+    & (HermesExe) computer-use install
+    $cuaSource = $cuaCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
+  }
+  if (-not $cuaSource) { throw 'cannot locate installed cua-driver.exe to make portable' }
+
+  $cuaSourceDir = Split-Path $cuaSource -Parent
+  if (Test-Path 'R:\hermes\cua-driver') { Remove-Item 'R:\hermes\cua-driver' -Recurse -Force }
+  New-Item -ItemType Directory -Force 'R:\hermes\cua-driver\bin' | Out-Null
+  Copy-Item -LiteralPath $cuaSource -Destination 'R:\hermes\cua-driver\bin\cua-driver.exe' -Force
+
+  $uiaSource = Join-Path $cuaSourceDir 'cua-driver-uia.exe'
+  if (Test-Path -LiteralPath $uiaSource -PathType Leaf) {
+    Copy-Item -LiteralPath $uiaSource -Destination 'R:\hermes\cua-driver\bin\cua-driver-uia.exe' -Force
+  }
+
+  Assert-File 'R:\hermes\cua-driver\bin\cua-driver.exe'
+  $env:HERMES_CUA_DRIVER_CMD = 'R:\hermes\cua-driver\bin\cua-driver.exe'
+
+  $manifestText = (& $env:HERMES_CUA_DRIVER_CMD manifest 2>&1 | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0) { throw "portable cua-driver manifest failed: $manifestText" }
+  try { $manifest = $manifestText | ConvertFrom-Json } catch { throw "cua-driver manifest is not JSON: $manifestText" }
+  if (-not $manifest.binary_version) { throw 'cua-driver manifest missing binary_version' }
+  Write-Host "[OK] cua-driver $($manifest.binary_version)" -ForegroundColor Green
+
+  & (HermesExe) computer-use status
+  if ($LASTEXITCODE -ne 0) { throw 'portable cua-driver does not satisfy Hermes computer-use runtime contract' }
 
   Write-Host '=== 5. Install bank integration overlay ===' -ForegroundColor Cyan
-  New-Item -ItemType Directory -Force 'R:\hermes\bank'|Out-Null
+  New-Item -ItemType Directory -Force 'R:\hermes\bank' | Out-Null
   Copy-Item (Join-Path $PSScriptRoot 'bank-model-gateway.mjs') 'R:\hermes\bank\bank-model-gateway.mjs' -Force
   Copy-Item (Join-Path $PSScriptRoot 'probe-wkey.cjs') 'R:\hermes\bank\probe-wkey.cjs' -Force
   Copy-Item (Join-Path $PSScriptRoot 'config.yaml') 'R:\hermes\bank\config-aicoder.yaml' -Force
   Copy-Item (Join-Path $PSScriptRoot 'config-bankgpt.yaml') 'R:\hermes\bank\config-bankgpt.yaml' -Force
   Copy-Item 'R:\hermes\bank\config-aicoder.yaml' 'R:\hermes\config.yaml' -Force
+
   & 'R:\hermes\node\node.exe' --check 'R:\hermes\bank\bank-model-gateway.mjs'
-  if($LASTEXITCODE -ne 0){throw 'bank-model-gateway syntax check failed'}
+  if ($LASTEXITCODE -ne 0) { throw 'bank-model-gateway syntax check failed' }
 
-  New-Item -ItemType Directory -Force 'R:\hermes\skills\test-digital-employee'|Out-Null
+  New-Item -ItemType Directory -Force 'R:\hermes\skills\test-digital-employee' | Out-Null
   Copy-Item (Join-Path $PSScriptRoot 'skills\test-digital-employee\SKILL.md') 'R:\hermes\skills\test-digital-employee\SKILL.md' -Force
-  New-Item -ItemType Directory -Force 'R:\hermes\runtime-state\r1','R:\hermes\missions'|Out-Null
+  New-Item -ItemType Directory -Force 'R:\hermes\runtime-state\r1','R:\hermes\missions' | Out-Null
 
-  Write-Host '=== 6. Assert Desktop binary and tool assets ===' -ForegroundColor Cyan
-  $desktop=Get-ChildItem 'R:\hermes\hermes-agent\apps\desktop\release' -Filter Hermes.exe -File -Recurse -ErrorAction SilentlyContinue|Select-Object -First 1
-  if(-not$desktop){throw 'Hermes Desktop Hermes.exe missing after -IncludeDesktop'}
-  $browserHits=Get-ChildItem 'R:\hermes' -Recurse -ErrorAction SilentlyContinue|Where-Object{$_.Name -match 'agent-browser|chromium|chrome.exe'}|Select-Object -First 3
-  if(@($browserHits).Count -lt 2){throw 'Browser/Chromium portable assets not found'}
+  Write-Host '=== 6. Assert Desktop/browser/CUA/test assets ===' -ForegroundColor Cyan
+  Assert-File $desktop.FullName
+  Assert-File $agentBrowser
+  Assert-Dir 'R:\hermes\browser\ms-playwright'
+  Assert-File 'R:\hermes\cua-driver\bin\cua-driver.exe'
+  Assert-File 'R:\hermes\skills\test-digital-employee\SKILL.md'
 
   Write-Host '=== 7. Package root launchers/workspace ===' -ForegroundColor Cyan
   Copy-Item (Join-Path $PSScriptRoot 'START-TEST-DIGITAL-EMPLOYEE.ps1') (Join-Path $Work 'START-TEST-DIGITAL-EMPLOYEE.ps1') -Force
   Copy-Item (Join-Path $PSScriptRoot 'VERIFY-ALL.ps1') (Join-Path $Work 'VERIFY-ALL.ps1') -Force
+
   @'
 @echo off
 chcp 65001 >nul
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0START-TEST-DIGITAL-EMPLOYEE.ps1" -Model aicoder-plus
 '@ | Set-Content -Encoding ASCII (Join-Path $Work 'START-TEST-DIGITAL-EMPLOYEE.cmd')
+
   @'
 @echo off
 chcp 65001 >nul
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0START-TEST-DIGITAL-EMPLOYEE.ps1" -Model bankgpt
 '@ | Set-Content -Encoding ASCII (Join-Path $Work 'START-BANKGPT-DIRECTOR.cmd')
+
   @'
 @echo off
 chcp 65001 >nul
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0VERIFY-ALL.ps1"
 pause
 '@ | Set-Content -Encoding ASCII (Join-Path $Work 'VERIFY-ALL.cmd')
+
   @'
 @echo off
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$p='%~dp0logs\bank-model-gateway.pid'; if(Test-Path $p){$id=[int](Get-Content $p -Raw); Stop-Process -Id $id -Force -ErrorAction SilentlyContinue; Remove-Item $p -Force}; subst R: /D 2>$null"
 '@ | Set-Content -Encoding ASCII (Join-Path $Work 'STOP-ALL.cmd')
 
-  $workspace=Join-Path $Work 'workspace';New-Item -ItemType Directory -Force $workspace|Out-Null
+  $workspace = Join-Path $Work 'workspace'
+  New-Item -ItemType Directory -Force $workspace | Out-Null
   @'
 # PFC / Bank Test Workspace
 
@@ -124,43 +202,59 @@ Use the `test-digital-employee` skill for all formal testing.
 R1 event stream is sole runtime truth. Do not claim PASS without real execution + assertion + evidence.
 DSH owns localhost:3080; never bind Hermes services to 3080. Bank model gateway uses 127.0.0.1:17891.
 '@ | Set-Content -Encoding UTF8 (Join-Path $workspace '.hermes.md')
-  New-Item -ItemType Directory -Force (Join-Path $workspace 'evidence'),(Join-Path $workspace 'defects'),(Join-Path $workspace 'reports')|Out-Null
+  New-Item -ItemType Directory -Force (Join-Path $workspace 'evidence'),(Join-Path $workspace 'defects'),(Join-Path $workspace 'reports') | Out-Null
 
   @"
 Hermes Test Digital Employee Desktop Final
 =========================================
 
-1. 不需要安装、不需要构建。
+1. 行内免安装、免构建：解压后先运行 VERIFY-ALL.cmd，再运行 START-TEST-DIGITAL-EMPLOYEE.cmd。
 2. 保持行内 deepseek-harness\wizard-opencode-plugin 原目录不变。
-3. 首次运行 VERIFY-ALL.cmd；会打开 fresh CAS 并真实验证 aicoder-plus。
-4. 日常运行 START-TEST-DIGITAL-EMPLOYEE.cmd。
+3. 本包自带 Hermes Desktop、Python、Node、agent-browser、Chromium、cua-driver 和测试数字员工 Skill。
+4. 行内不会执行 pip/npm/browser/cua 安装器；security.allow_lazy_installs=false。
 5. BankGPT 已在 OpenCode 配置好时，可运行 START-BANKGPT-DIRECTOR.cmd；密钥不会写入本包。
 6. DSH 3080 保留；Hermes Bank Model Gateway 使用 127.0.0.1:17891。
-7. Computer Use 已包含 cua-driver；网页优先 browser，文本模型桌面控制优先 Accessibility/AX 模式。
-8. 模型限制：10分钟100请求；本包安全阈值90。09-18 40,000,000 tokens；18-21 独立40,000,000；21-09额度不限。
+7. Computer Use 使用包内 cua-driver；CUA_TELEMETRY=0、DO_NOT_TRACK=1。
+8. 网页测试优先 DOM/browser；Computer Use 用于桌面客户端、系统弹窗、文件选择框等补充场景。
+9. 模型限制：10分钟100请求；本包安全阈值90。09-18 40,000,000 tokens；18-21 独立40,000,000；21-09额度不限。
 
-外部构建只能证明包结构/依赖/桌面/cua/browser完整。CAS、wkey、BankGPT、业务系统必须由 VERIFY-ALL.cmd 在行内真实验收，禁止外部伪报 PASS。
+外部构建只能证明包结构/依赖/桌面/CUA contract/browser资产完整。
+CAS、wkey、BankGPT、PFC 业务执行必须由 VERIFY-ALL.cmd 和真实 Agent Loop 在行内验收，禁止伪报 PASS。
 "@ | Set-Content -Encoding UTF8 (Join-Path $Work 'README-行内直接使用.txt')
 
-  Write-Host '=== 8. External relocation smoke ===' -ForegroundColor Cyan
-  & (HermesExe) config check|Out-Host
-  if($LASTEXITCODE -ne 0){throw 'Hermes config check failed'}
-  & 'R:\hermes\cua-driver\bin\cua-driver.exe' manifest|Out-Null
-  if($LASTEXITCODE -ne 0){throw 'cua portable manifest failed'}
+  Write-Host '=== 8. External relocation/runtime smoke ===' -ForegroundColor Cyan
+  & (HermesExe) config check | Out-Host
+  if ($LASTEXITCODE -ne 0) { throw 'Hermes config check failed' }
+
+  & $agentBrowser --version | Out-Host
+  if ($LASTEXITCODE -ne 0) { throw 'portable agent-browser smoke failed' }
+
+  & 'R:\hermes\cua-driver\bin\cua-driver.exe' manifest | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'portable cua-driver manifest smoke failed' }
+
+  & (HermesExe) computer-use status | Out-Host
+  if ($LASTEXITCODE -ne 0) { throw 'portable computer-use status smoke failed' }
+
   & 'R:\hermes\node\node.exe' --check 'R:\hermes\bank\bank-model-gateway.mjs'
-  if($LASTEXITCODE -ne 0){throw 'gateway syntax failed'}
+  if ($LASTEXITCODE -ne 0) { throw 'gateway syntax smoke failed' }
 
   Write-Host '=== 9. Create final ZIP ===' -ForegroundColor Cyan
-  $final=Join-Path $OutputDir 'Hermes-Test-Digital-Employee-Desktop-Final-Win10-x64.zip'
-  if(Test-Path $final){Remove-Item $final -Force}
+  $final = Join-Path $OutputDir 'Hermes-Test-Digital-Employee-Desktop-Final-Win10-x64.zip'
+  if (Test-Path $final) { Remove-Item $final -Force }
   Push-Location $Work
-  try { & 7z a -tzip -mx=5 $final '.\*'; if($LASTEXITCODE -ne 0){throw '7z create failed'} } finally { Pop-Location }
+  try {
+    & 7z a -tzip -mx=5 $final '.\*'
+    if ($LASTEXITCODE -ne 0) { throw '7z create failed' }
+  } finally { Pop-Location }
+
   & 7z t $final
-  if($LASTEXITCODE -ne 0){throw '7z integrity test failed'}
-  $sha=(Get-FileHash $final -Algorithm SHA256).Hash.ToUpperInvariant()
-  "$sha  $(Split-Path $final -Leaf)"|Set-Content -Encoding ASCII ($final+'.sha256.txt')
+  if ($LASTEXITCODE -ne 0) { throw '7z integrity test failed' }
+
+  $sha = (Get-FileHash $final -Algorithm SHA256).Hash.ToUpperInvariant()
+  "$sha  $(Split-Path $final -Leaf)" | Set-Content -Encoding ASCII ($final + '.sha256.txt')
   Write-Host "FINAL=$final" -ForegroundColor Green
   Write-Host "SHA256=$sha" -ForegroundColor Green
-} finally {
-  try { & subst R: /D|Out-Null } catch {}
+}
+finally {
+  try { & subst R: /D | Out-Null } catch {}
 }
