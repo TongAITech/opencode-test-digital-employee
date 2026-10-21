@@ -84,9 +84,21 @@ class NodeRegistry:
         timestamp = self._now() if now is None else int(now)
         existing = self._nodes.get(node.node_id)
         if existing is not None:
-            # Durable node identity is stable; a re-registration updates runtime
-            # metadata but never silently carries a VERIFIED capability that the
-            # new registration did not report/qualify.
+            previous_runtime = (
+                existing.platform,
+                existing.architecture,
+                existing.package_version,
+            )
+            incoming_runtime = (
+                node.platform,
+                node.architecture,
+                node.package_version,
+            )
+            # Same durable node identity may reconnect without requalifying every
+            # capability, but a platform/architecture/package change invalidates
+            # old VERIFIED capability evidence and forces a fresh qualification.
+            if previous_runtime != incoming_runtime:
+                existing.capabilities = {}
             existing.display_name = node.display_name
             existing.platform = node.platform
             existing.architecture = node.architecture
