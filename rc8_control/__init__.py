@@ -16,6 +16,7 @@ from .models import (
 )
 from .node_registry import NodeRegistry, NodeRegistryError
 from .runtime_contracts import ArtifactAvailability, ArtifactManifest, RuntimeEventEnvelope
+from .runtime_ingest import RuntimeIngestError, RuntimeIngestStore
 
 __all__ = [
     "CapabilityState",
@@ -30,4 +31,6 @@ __all__ = [
     "ArtifactAvailability",
     "ArtifactManifest",
     "RuntimeEventEnvelope",
+    "RuntimeIngestError",
+    "RuntimeIngestStore",
 ]
