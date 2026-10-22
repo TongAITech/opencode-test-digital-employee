@@ -42,25 +42,34 @@
         "contract:RC8-CENTER-TECHNOLOGY-STACK-CONTRACT",
         "code:rc8_center/api/fastapi_app.py",
         "code:rc8_center/infrastructure/postgres.py",
+        "code:rc8_center/infrastructure/postgres_governance.py",
+        "code:rc8_center/infrastructure/postgres_artifact.py",
         "code:rc8_center/infrastructure/redis_coordination.py",
+        "code:rc8_center/formal_app.py",
         "code:center/migrations/versions/0001_formal_center_foundation.py",
+        "code:center/migrations/versions/0002_governance_projection_semantics.py",
+        "code:center/migrations/versions/0003_artifact_metadata.py",
+        "code:center/migrations/versions/0004_legacy_scope_ref.py",
         "code:center-web/src/App.vue",
         "code:center/docker-compose.yml",
         "ci:39759029266:formal-center-integration:SUCCESS",
         "ci:39759029266:vue-product-shell:SUCCESS",
-        "ci:39759029266:container-contract:SUCCESS"
+        "ci:39759029266:container-contract:SUCCESS",
+        "ci:39760992656:r1-postgres-fastapi-governance:SUCCESS",
+        "ci:39760992656:vue-product-shell:SUCCESS",
+        "ci:39760992656:container-contract:SUCCESS"
       ],
       "reality_refs": [],
       "coverage_refs": [],
       "unresolved_gap_ids": [
-        "GAP:CENTER_R1_POSTGRES_GOVERNANCE_PROJECTION",
-        "GAP:CENTER_FORMAL_GOVERNANCE_API",
+        "GAP:CENTER_FORMAL_RUNTIME_EVENT_AUTHORIZATION",
+        "GAP:CENTER_FORMAL_NODE_WORKITEM_PERSISTENCE",
         "GAP:CENTER_FULL_13_PRODUCT_SURFACES",
         "GAP:CENTER_RESTART_RECOVERY_REALITY",
         "GAP:CENTER_BANK_SERVER_DEPLOYMENT_REALITY"
       ],
       "dependency_claim_refs": [],
-      "notes": "Formal FastAPI/PostgreSQL/Redis/Vue/Nginx/Docker Compose foundation is implemented and CI-verified. Product completion, R1-backed PostgreSQL projection, restart recovery and target-bank server deployment remain open; stdlib HTTP/JSON fallback cannot close this claim."
+      "notes": "Formal FastAPI/PostgreSQL/Redis/Vue/Nginx/Docker Compose foundation plus R1-first PostgreSQL governance projection are CI-verified. Runtime-event ingress remains intentionally closed until PostgreSQL Node/Capability/WorkItem persistence and Redis lease authorization are formalized. Product completion, restart recovery and target-bank server deployment remain open."
     },
     {
       "claim_id": "TOOL:MAVEN_JUNIT",
