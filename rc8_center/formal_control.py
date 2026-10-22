@@ -35,11 +35,13 @@ class FormalCenterControlPlane:
         projector: GovernanceEventProjector,
         *,
         now_fn: Optional[Callable[[], int]] = None,
+        progression: Optional[object] = None,
     ) -> None:
         self.repository = repository
         self.coordination = coordination
         self.runtime_ledger = runtime_ledger
         self.projector = projector
+        self.progression = progression
         self._now = now_fn or (lambda: int(time.time()))
 
     def register_node(self, identity: NodeIdentity) -> NodeRecord:
@@ -105,6 +107,16 @@ class FormalCenterControlPlane:
         if node.status in {NodeStatus.MAINTENANCE, NodeStatus.OFFLINE, NodeStatus.ERROR}:
             raise CenterControlError("NODE_NOT_LEASE_ELIGIBLE")
         run_filter = str(test_run_id or "").strip() or None
+
+        # Reconcile a crash window before looking for new work. A WorkItem may
+        # already be durably COMPLETED while its Stage/downstream materialization
+        # lagged. Reconciliation is evidence-gated and idempotent.
+        if self.progression is not None and run_filter is not None:
+            try:
+                self.progression.reconcile_test_run(run_filter)
+            except Exception as exc:
+                raise CenterControlError(str(exc)) from exc
+
         verified = {
             item.capability_id
             for item in self.repository.list_capabilities(node_id)
@@ -162,6 +174,11 @@ class FormalCenterControlPlane:
                 raise CenterControlError("WORK_ITEM_LEASE_RENEW_FAILED")
             renewed = replace(work, state=WorkItemState.LEASED if work.state != WorkItemState.RUNNING else WorkItemState.RUNNING, lease_expires_at=now + ttl_seconds)
             self.repository.upsert_work_item(renewed)
+            if self.progression is not None:
+                try:
+                    self.progression.on_work_item_leased(work_item_id)
+                except Exception as exc:
+                    raise CenterControlError(str(exc)) from exc
             return renewed
 
         if work.lease_id is not None or work.state in {WorkItemState.LEASED, WorkItemState.RUNNING}:
@@ -173,10 +190,26 @@ class FormalCenterControlPlane:
         leased = replace(work, state=WorkItemState.LEASED, lease_id=lease_id, lease_owner_node_id=node_id, lease_expires_at=now + ttl_seconds)
         self.repository.upsert_work_item(leased)
         self.repository.upsert_node(replace(node, status=NodeStatus.EXECUTING, last_heartbeat_at=now))
+        if self.progression is not None:
+            try:
+                self.progression.on_work_item_leased(work_item_id)
+            except Exception as exc:
+                # Compensate the fresh lease when Stage synchronization rejects
+                # the transition. Do not leave a schedulable mission item owned
+                # by Redis while Center reports the lease call as failed.
+                self.coordination.release_lease("work-item", work_item_id, node_id, lease_id=lease_id)
+                self.repository.upsert_work_item(replace(work, state=WorkItemState.READY))
+                self.repository.upsert_node(replace(node, status=NodeStatus.IDLE, last_heartbeat_at=now))
+                raise CenterControlError(str(exc)) from exc
         return leased
 
     def start_work_item(self, work_item_id: str, node_id: str, lease_id: str) -> WorkItemRecord:
         work = self._require_active_lease(work_item_id, node_id, lease_id)
+        if self.progression is not None:
+            try:
+                self.progression.on_work_item_started(work_item_id)
+            except Exception as exc:
+                raise CenterControlError(str(exc)) from exc
         updated = replace(work, state=WorkItemState.RUNNING)
         self.repository.upsert_work_item(updated)
         return updated
@@ -197,6 +230,12 @@ class FormalCenterControlPlane:
 
     def complete_work_item(self, work_item_id: str, node_id: str, lease_id: str) -> WorkItemRecord:
         work = self._require_active_lease(work_item_id, node_id, lease_id)
+        if self.progression is not None:
+            try:
+                self.progression.assert_work_item_completable(work_item_id)
+            except Exception as exc:
+                raise CenterControlError(str(exc)) from exc
+
         terminal_with_mirror = replace(work, state=WorkItemState.COMPLETED)
         self.repository.upsert_work_item(terminal_with_mirror)
         try:
@@ -211,6 +250,15 @@ class FormalCenterControlPlane:
         self.repository.upsert_work_item(completed)
         node = self._require_node(node_id)
         self.repository.upsert_node(replace(node, status=NodeStatus.IDLE, last_heartbeat_at=self._now()))
+
+        if self.progression is not None:
+            try:
+                self.progression.reconcile_completed_work_item(work_item_id)
+            except Exception as exc:
+                # The WorkItem and R1 evidence are already durable. Keep that
+                # truth and fail visibly; claim-next reconciliation will retry
+                # idempotently instead of duplicating execution.
+                raise CenterControlError("MISSION_PROGRESSION_RECONCILE_REQUIRED:%s" % exc) from exc
         return completed
 
     def _require_node(self, node_id: str) -> NodeRecord:
