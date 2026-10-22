@@ -50,6 +50,7 @@ from .governance import (
     route_gap,
     transition_stage,
 )
+from .mission_graph import MissionGraphRuntime, MissionStageType, SUFFICIENCY_STAGES, validate_edge
 from .r1_runtime import CentralR1RuntimeLedger, R1ConflictError, R1TruthError, runtime_event
 
 __all__ = [
@@ -71,7 +72,9 @@ __all__ = [
     "GapStatus",
     "GapType",
     "InvalidationRecord",
+    "MissionGraphRuntime",
     "MissionRuntimeState",
+    "MissionStageType",
     "NodeIdentity",
     "PlanEventEnvelope",
     "ProductionBatch",
@@ -84,6 +87,7 @@ __all__ = [
     "RequirementIdentity",
     "RuntimeEventEnvelope",
     "RuntimeProducerKind",
+    "SUFFICIENCY_STAGES",
     "ScopedStatusClaim",
     "StageInstance",
     "StageState",
@@ -98,4 +102,5 @@ __all__ = [
     "runtime_event",
     "transition_capability",
     "transition_stage",
+    "validate_edge",
 ]
