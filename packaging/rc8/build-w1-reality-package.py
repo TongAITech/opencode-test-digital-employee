@@ -25,6 +25,7 @@ RUNTIME_FILES = (
     "rc8_runtime/artifacts.py",
     "rc8_runtime/r1_runtime.py",
     "rc8_runtime/governance.py",
+    "rc8_runtime/coverage.py",
     "rc8_runtime/mission_graph.py",
     "rc8_center/__init__.py",
     "rc8_center/__main__.py",
@@ -32,6 +33,9 @@ RUNTIME_FILES = (
     "rc8_center/http_server.py",
     "rc8_center/artifacts.py",
     "rc8_center/json_repository.py",
+    "rc8_center/governance_repository.py",
+    "rc8_center/coverage_repository.py",
+    "rc8_center/governance_projection.py",
     "rc8_node/__init__.py",
     "rc8_node/__main__.py",
     "rc8_node/agent.py",
@@ -136,7 +140,7 @@ def _write_readme(root: Path, head: str) -> str:
         "- Maven/JUnit Tool Reality\n"
         "- CodeGraph Tool Reality\n"
         "- Code Analysis 构建中的结构/语义链\n"
-        "- No-Discount Governance + Mission Graph Runtime\n\n"
+        "- No-Discount Governance + Mission Graph Runtime + durable governance projection\n\n"
         "重要：Tool Reality 不能提升为 L1/L1-L7/TestRun 充分度。先运行 `python scripts/rc8_validate_governance.py` 可核对当前机器声明。\n\n"
         "## 1. 校验与永久 Node state\n"
         "```bash\n"
@@ -198,6 +202,8 @@ def _write_manifest(root: Path, head: str, files: List[str]) -> str:
             "ARTIFACT_SYNC",
             "NO_DISCOUNT_GOVERNANCE",
             "MISSION_GRAPH_RUNTIME",
+            "GOVERNANCE_DURABLE_PROJECTION",
+            "COVERAGE_PROVENANCE",
             "MAVEN_JUNIT_REALITY",
             "CODEGRAPH_REALITY",
             "CODE_ANALYSIS_STRUCTURAL_LOOP",
@@ -238,9 +244,10 @@ def _verify_python(root: Path) -> None:
 
 def _verify_runtime_imports(root: Path) -> None:
     code = (
-        "from rc8_runtime import MissionGraphRuntime, MissionRuntimeState, ScopedStatusClaim; "
-        "from rc8_runtime.governance import StatusScope, ClaimState; "
-        "assert MissionGraphRuntime and MissionRuntimeState and ScopedStatusClaim; "
+        "from rc8_runtime import CoverageObservation, MissionGraphRuntime, MissionRuntimeState, ScopedStatusClaim; "
+        "from rc8_center import GovernanceProjectionService, JsonFileCoverageRepository, JsonFileGovernanceRepository; "
+        "assert CoverageObservation and MissionGraphRuntime and MissionRuntimeState and ScopedStatusClaim; "
+        "assert GovernanceProjectionService and JsonFileCoverageRepository and JsonFileGovernanceRepository; "
         "print('RC8_PACKAGE_RUNTIME_IMPORT_PASS')"
     )
     proc = subprocess.run(
