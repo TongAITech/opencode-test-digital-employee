@@ -9,9 +9,12 @@ from sqlalchemy import BigInteger, JSON, String, UniqueConstraint, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column
 
+from rc8_center.control_plane import WorkItemState
+from rc8_center.mission_planner import plan_test_round_mission
 from rc8_center.test_rounds import TestRound, TestRoundDelivery, TestRoundState
 
-from .postgres import Base, PostgresStore, TestRunRow
+from .postgres import Base, MissionStageRow, PostgresStore, TestRunRow
+from .postgres_control import StageWorkItemLinkRow, WorkItemRow
 from .postgres_delivery import (
     ProductionBatchRow,
     RequirementDeliveryRow,
@@ -206,7 +209,13 @@ class PostgresTestRoundRepository:
         payload: Optional[Dict[str, Any]] = None,
         now: Optional[int] = None,
     ) -> Tuple[TestRound, TestRunRow]:
-        """Atomically activate a round and create its single top-level TestRun."""
+        """Atomically activate a round, create its Mission Graph and ready work.
+
+        Scope validation, TestRun creation, Stage graph persistence, initial
+        READY WorkItems, Stage<->WorkItem lineage and PLANNED->ACTIVE transition
+        share one PostgreSQL transaction. A crash or invariant failure therefore
+        cannot leave an empty/partially bootstrapped production TestRun.
+        """
         timestamp = self._now(now)
         with self.store.session() as session:
             round_row = session.get(TestRoundRow, test_round_id)
@@ -253,6 +262,11 @@ class PostgresTestRoundRepository:
                 delivery_ids.append(link.delivery_id)
                 scope_ids.extend(scope.scope_id for scope in scopes)
 
+            plan = plan_test_round_mission(
+                test_run_id=test_run_id,
+                test_round_id=test_round_id,
+                scope_refs=scope_ids,
+            )
             run_payload = dict(payload or {})
             run_payload.update(
                 {
@@ -261,6 +275,10 @@ class PostgresTestRoundRepository:
                     "test_round_no": int(round_row.round_no),
                     "requirement_delivery_ids": delivery_ids,
                     "delivery_scope_ids": scope_ids,
+                    "mission_plan_policy": plan.policy_version,
+                    "mission_stage_count": plan.stage_count,
+                    "mission_initial_ready_stage_ids": list(plan.initial_ready_stage_ids),
+                    "mission_initial_work_item_ids": list(plan.initial_work_item_ids),
                 }
             )
             run_row = TestRunRow(
@@ -274,6 +292,60 @@ class PostgresTestRoundRepository:
                 payload=run_payload,
             )
             session.add(run_row)
+
+            for stage in plan.stages:
+                if session.get(MissionStageRow, stage.stage_instance_id) is not None:
+                    raise ValueError("MISSION_STAGE_ALREADY_EXISTS")
+                session.add(
+                    MissionStageRow(
+                        stage_instance_id=stage.stage_instance_id,
+                        test_run_id=stage.test_run_id,
+                        stage_type=stage.stage_type,
+                        scope_version=stage.scope_version,
+                        attempt_no=int(stage.attempt_no),
+                        state=stage.state.value,
+                        input_refs=list(stage.input_refs),
+                        output_refs=list(stage.output_refs),
+                        gap_refs=list(stage.gap_refs),
+                        invalidation_refs=list(stage.invalidation_refs),
+                        predecessor_ids=list(stage.predecessor_ids),
+                        successor_ids=list(stage.successor_ids),
+                        assigned_worker=stage.assigned_worker,
+                        evaluator_id=stage.evaluator_id,
+                        policy_version=stage.policy_version,
+                        started_at=stage.started_at,
+                        finished_at=stage.finished_at,
+                        created_at=timestamp,
+                        updated_at=timestamp,
+                        payload={},
+                    )
+                )
+
+            for planned_work in plan.initial_work_items:
+                identity = planned_work.identity
+                if session.get(WorkItemRow, identity.work_item_id) is not None:
+                    raise ValueError("WORK_ITEM_ALREADY_EXISTS")
+                session.add(
+                    WorkItemRow(
+                        work_item_id=identity.work_item_id,
+                        test_run_id=identity.test_run_id,
+                        stage=identity.stage,
+                        scope_refs=list(identity.scope_refs),
+                        required_capabilities=list(identity.required_capabilities),
+                        state=WorkItemState.READY.value,
+                        lease_id=None,
+                        lease_owner_node_id=None,
+                        lease_expires_at=None,
+                    )
+                )
+                session.add(
+                    StageWorkItemLinkRow(
+                        work_item_id=identity.work_item_id,
+                        stage_instance_id=planned_work.stage_instance_id,
+                        test_run_id=test_run_id,
+                        created_at=timestamp,
+                    )
+                )
 
             if TestRoundState(round_row.state) == TestRoundState.PLANNED:
                 round_row.state = TestRoundState.ACTIVE.value
