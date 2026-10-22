@@ -4,7 +4,8 @@ Rules are deliberately conservative:
 - lost LEASED work with zero R1 runtime facts can be reset READY safely;
 - RUNNING or any work with runtime facts is never blindly replayed;
 - requeue/abort of uncertain work requires an explicit decision/evidence ref;
-- terminal PG truth can clean only the matching stale Redis owner+token.
+- terminal PG truth can clean only the matching stale Redis owner+token;
+- non-leased durable states must never retain an active Redis lease.
 """
 from __future__ import annotations
 
@@ -61,7 +62,9 @@ class LeaseRecoveryCoordinator:
                     reason = RecoveryReason.REDIS_LEASE_DIVERGED
             elif work.state in {WorkItemState.COMPLETED, WorkItemState.FAILED} and active is not None:
                 reason = RecoveryReason.STALE_REDIS_LEASE_AFTER_TERMINAL
-            elif work.state in {WorkItemState.PENDING, WorkItemState.READY} and active is not None:
+            elif work.state in {WorkItemState.REGISTERED, WorkItemState.READY, WorkItemState.BLOCKED} and active is not None:
+                # These durable states do not own an execution lease. Any Redis
+                # key is divergent transient state and must be governed/reconciled.
                 reason = RecoveryReason.REDIS_LEASE_DIVERGED
 
             if reason is None:
