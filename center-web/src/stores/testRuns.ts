@@ -30,21 +30,5 @@ export const useTestRunStore = defineStore('testRuns', {
         this.loading = false
       }
     },
-    async create(testRunId: string, productionBatchId: string) {
-      const response = await fetch('/api/v1/test-runs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          test_run_id: testRunId,
-          production_batch_id: productionBatchId || null,
-          payload: { source: 'RC8_PRODUCT_UI' },
-        }),
-      })
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}))
-        throw new Error(body.detail || `测试任务创建失败：${response.status}`)
-      }
-      await this.load()
-    },
   },
 })
