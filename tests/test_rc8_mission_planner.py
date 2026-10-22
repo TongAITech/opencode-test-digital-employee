@@ -18,6 +18,7 @@ def test_two_scopes_plan_parallel_chains_then_converge_to_mission_sufficiency() 
     assert plan.scope_refs == ("SCOPE-A", "SCOPE-B")
     assert plan.stage_count == 26
     assert len(plan.initial_ready_stage_ids) == 2
+    assert len(plan.initial_work_items) == 2
 
     by_id = {stage.stage_instance_id: stage for stage in plan.stages}
     ready = [by_id[stage_id] for stage_id in plan.initial_ready_stage_ids]
@@ -26,6 +27,17 @@ def test_two_scopes_plan_parallel_chains_then_converge_to_mission_sufficiency() 
         "delivery-scope:SCOPE-A",
         "delivery-scope:SCOPE-B",
     }
+
+    work_stage_ids = {item.stage_instance_id for item in plan.initial_work_items}
+    assert work_stage_ids == set(plan.initial_ready_stage_ids)
+    assert len(set(plan.initial_work_item_ids)) == 2
+    for item in plan.initial_work_items:
+        identity = item.identity
+        assert identity.test_run_id == "TR-1"
+        assert identity.stage == MissionStageType.SCOPE_INTAKE.value
+        assert "stage-instance:%s" % item.stage_instance_id in identity.scope_refs
+        assert "test-round:ROUND-1" in identity.scope_refs
+        assert identity.required_capabilities == tuple()
 
     mission = by_id[plan.mission_sufficiency_stage_id]
     assert mission.stage_type == MissionStageType.MISSION_SUFFICIENCY.value
@@ -89,7 +101,7 @@ def test_plan_is_deterministic_for_same_round_run_and_scope_snapshot() -> None:
     assert first == second
 
 
-def test_scope_order_does_not_change_stage_identity() -> None:
+def test_scope_order_does_not_change_stage_or_work_item_identity() -> None:
     first = plan_test_round_mission(
         test_run_id="TR-1",
         test_round_id="ROUND-1",
@@ -104,6 +116,7 @@ def test_scope_order_does_not_change_stage_identity() -> None:
     second_ids = {stage.stage_instance_id for stage in second.stages}
     assert first_ids == second_ids
     assert set(first.initial_ready_stage_ids) == set(second.initial_ready_stage_ids)
+    assert set(first.initial_work_item_ids) == set(second.initial_work_item_ids)
 
 
 def test_duplicate_or_empty_scope_is_fail_closed() -> None:
