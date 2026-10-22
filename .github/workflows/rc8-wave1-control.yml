@@ -13,6 +13,7 @@ on:
       - 'docs/rc8/RC8-CODE-ANALYSIS-REALITY-RUNBOOK.md'
       - 'tests/test_rc8_center_control.py'
       - 'tests/test_rc8_center_node_http.py'
+      - 'tests/test_rc8_formal_node_agent.py'
       - 'tests/test_rc8_artifact_sync.py'
       - 'tests/test_rc8_artifact_http.py'
       - 'tests/test_rc8_durable_repository.py'
@@ -61,6 +62,7 @@ jobs:
             rc8_runtime/artifacts.py \
             rc8_node/__init__.py \
             rc8_node/agent.py \
+            rc8_node/formal_agent.py \
             rc8_node/capabilities.py \
             rc8_node/execution.py \
             rc8_node/execution_publish.py \
@@ -77,6 +79,7 @@ jobs:
             packaging/rc8/build-w1-reality-package.py \
             tests/test_rc8_center_control.py \
             tests/test_rc8_center_node_http.py \
+            tests/test_rc8_formal_node_agent.py \
             tests/test_rc8_artifact_sync.py \
             tests/test_rc8_artifact_http.py \
             tests/test_rc8_durable_repository.py \
@@ -125,6 +128,7 @@ jobs:
             tests/test_rc8_r1_runtime.py \
             tests/test_rc8_center_control.py \
             tests/test_rc8_center_node_http.py \
+            tests/test_rc8_formal_node_agent.py \
             tests/test_rc8_artifact_sync.py \
             tests/test_rc8_artifact_http.py \
             tests/test_rc8_durable_repository.py \
@@ -163,6 +167,7 @@ jobs:
           with zipfile.ZipFile(files[0], 'r') as zf:
               assert zf.testzip() is None
               names = zf.namelist()
+              assert any(name.endswith('/rc8_node/formal_agent.py') for name in names)
               assert any(name.endswith('/rc8_node/reality_maven.py') for name in names)
               assert any(name.endswith('/rc8_node/reality_codegraph.py') for name in names)
               assert any(name.endswith('/rc8_node/code_analysis.py') for name in names)
