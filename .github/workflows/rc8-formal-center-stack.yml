@@ -1,0 +1,101 @@
+name: RC8 Formal Center Stack
+
+on:
+  push:
+    branches: ["work/rc8"]
+    paths:
+      - "rc8_center/**"
+      - "rc8_runtime/**"
+      - "center/**"
+      - "center-web/**"
+      - "scripts/rc8_formal_center_stack_test.py"
+      - ".github/workflows/rc8-formal-center-stack.yml"
+  workflow_dispatch:
+
+jobs:
+  formal-center-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgresql:
+        image: postgres:16
+        env:
+          POSTGRES_DB: rc8
+          POSTGRES_USER: rc8
+          POSTGRES_PASSWORD: rc8
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rc8 -d rc8"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      RC8_DATABASE_URL: postgresql+psycopg://rc8:rc8@127.0.0.1:5432/rc8
+      RC8_REDIS_URL: redis://127.0.0.1:6379/0
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install formal Center dependencies
+        run: pip install -r center/requirements.txt
+      - name: Compile formal Center Python
+        run: python -m py_compile rc8_center/formal_settings.py rc8_center/formal_app.py rc8_center/api/fastapi_app.py rc8_center/infrastructure/postgres.py rc8_center/infrastructure/redis_coordination.py
+      - name: Apply Alembic schema
+        run: alembic -c center/alembic.ini upgrade head
+      - name: Run real FastAPI PostgreSQL Redis integration assertions
+        run: python scripts/rc8_formal_center_stack_test.py
+      - name: Verify schema is at head and reversible SQL is renderable
+        run: |
+          alembic -c center/alembic.ini current
+          alembic -c center/alembic.ini upgrade head
+          alembic -c center/alembic.ini downgrade base --sql > /tmp/rc8-downgrade.sql
+          test -s /tmp/rc8-downgrade.sql
+
+  vue-product-shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Vue product dependencies
+        working-directory: center-web
+        run: npm install
+      - name: Typecheck and build frozen 13-route product shell
+        working-directory: center-web
+        run: npm run build
+      - name: Verify frozen navigation routes and no dashboard-first regression
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          router = Path('center-web/src/router.ts').read_text(encoding='utf-8')
+          app = Path('center-web/src/App.vue').read_text(encoding='utf-8')
+          required = ['投产管理','版本管理','需求管理','代码分析','业务流程','测试接口','测试用例','测试任务','测试报告','缺陷管理','知识库','执行节点','系统信息']
+          for name in required:
+              assert name in router, name
+              assert name in app, name
+          assert 'Dashboard' not in router
+          print('RC8_VUE_13_ROUTE_PRODUCT_SHELL_PASS')
+          PY
+
+  container-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Docker Compose topology
+        run: docker compose -f center/docker-compose.yml config > /tmp/rc8-compose.yml
+      - name: Build formal Center and Web images
+        run: |
+          docker build -f center/Dockerfile -t rc8-center:ci .
+          docker build -f center-web/Dockerfile -t rc8-web:ci .
