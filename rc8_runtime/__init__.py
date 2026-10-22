@@ -50,6 +50,7 @@ from .governance import (
     route_gap,
     transition_stage,
 )
+from .coverage import CoverageObservation
 from .mission_graph import MissionGraphRuntime, MissionStageType, SUFFICIENCY_STAGES, validate_edge
 from .r1_runtime import CentralR1RuntimeLedger, R1ConflictError, R1TruthError, runtime_event
 
@@ -64,6 +65,7 @@ __all__ = [
     "CompletionClaim",
     "CoverageDimension",
     "CoverageMetric",
+    "CoverageObservation",
     "EventPlane",
     "EvidenceManifest",
     "FailureOwnership",
