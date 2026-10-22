@@ -157,30 +157,14 @@ def register_test_round_routes(app: FastAPI) -> None:
         request: TestRoundCreate,
         response: Response,
     ) -> Dict[str, Any]:
-        repo = repository()
-        now = int(time.time())
         try:
-            round_no = repo.next_round_no(production_batch_id)
-            test_round_id = request.test_round_id or "%s-round-%s" % (production_batch_id, round_no)
-            value = TestRound(
-                test_round_id=test_round_id,
-                production_batch_id=production_batch_id,
-                round_no=round_no,
-                name=request.name or "第%s轮测试" % round_no,
-                state=TestRoundState.PLANNED,
-                created_at=now,
+            value, included = repository().create_next_round(
+                production_batch_id,
+                request.delivery_ids,
+                requested_test_round_id=request.test_round_id,
+                name=request.name,
                 payload=request.payload,
             )
-            included = [
-                TestRoundDelivery(
-                    round_delivery_id=_round_delivery_id(value.test_round_id, delivery_id),
-                    test_round_id=value.test_round_id,
-                    delivery_id=delivery_id,
-                    included_at=now,
-                )
-                for delivery_id in request.delivery_ids
-            ]
-            repo.create_round_with_deliveries(value, included)
         except ValueError as exc:
             raise _error(exc) from exc
         response.headers["Location"] = (
