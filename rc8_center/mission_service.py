@@ -3,6 +3,7 @@
 Mission/Stage topology is durable control-domain state owned by Center. Runtime
 facts (Attempt/Coverage/Gap/Sufficiency) arrive through R1 projection; this
 service consumes those persisted facts to unlock, rework or invalidate stages.
+Storage is behind the GovernanceRepository port.
 """
 from __future__ import annotations
 
@@ -13,11 +14,11 @@ from rc8_runtime import RC8ContractError
 from rc8_runtime.governance import StageInstance, StageState, StatusScope, SufficiencyResult
 from rc8_runtime.mission_graph import MissionGraphRuntime, MissionStageType, SUFFICIENCY_STAGES
 
-from .governance_repository import JsonFileGovernanceRepository
+from .repository_ports import GovernanceRepository
 
 
 class CenterMissionService:
-    def __init__(self, repository: JsonFileGovernanceRepository) -> None:
+    def __init__(self, repository: GovernanceRepository) -> None:
         self.repository = repository
 
     def _hydrate(self, test_run_id: str) -> MissionGraphRuntime:
