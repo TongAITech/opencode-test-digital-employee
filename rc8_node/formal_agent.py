@@ -36,9 +36,6 @@ class FormalNodeAgent:
     def report_capability(self, value: CapabilityQualification) -> Dict[str, Any]:
         if value.node_id != self.identity.node_id:
             raise NodeAgentError("CAPABILITY_NODE_MISMATCH")
-        # The node identity is authoritative in the URL path. Keep the request
-        # body aligned to CapabilityRequest exactly so dataclass fields cannot
-        # leak into the strict FastAPI/Pydantic wire contract.
         payload = {
             "capability_id": value.capability_id,
             "state": value.state.value,
@@ -147,9 +144,6 @@ class FormalNodeAgent:
             "X-RC8-Node-Id": self.identity.node_id,
             "X-RC8-Lease-Id": lease,
         }
-        # The begin response is authoritative for a brand-new transfer, but a
-        # separate status read proves resumability and prevents client-side
-        # assumptions when retrying after a Node/Center process restart.
         status = self.center.get(
             "/api/v1/artifacts/%s/upload-status" % manifest.artifact_id,
             headers=auth_headers,
@@ -185,6 +179,13 @@ class FormalNodeAgent:
     def complete(self, work_item_id: str, *, lease_id: str) -> Dict[str, Any]:
         return self.center.post(
             "/api/v1/work-items/%s/complete" % work_item_id,
+            {"node_id": self.identity.node_id, "lease_id": self._required_lease(lease_id)},
+        )
+
+    def fail(self, work_item_id: str, *, lease_id: str) -> Dict[str, Any]:
+        """Terminalize only after RC8 R1 contains evidenced FAILED/BLOCKED Attempt truth."""
+        return self.center.post(
+            "/api/v1/work-items/%s/fail" % work_item_id,
             {"node_id": self.identity.node_id, "lease_id": self._required_lease(lease_id)},
         )
 
