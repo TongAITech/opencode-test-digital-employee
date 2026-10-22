@@ -1,29 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useTestRunStore } from '../stores/testRuns'
 
 const store = useTestRunStore()
-const testRunId = ref('')
-const productionBatchId = ref('')
-const submitting = ref(false)
-const submitError = ref('')
-
 onMounted(() => store.load())
-
-async function createRun() {
-  if (!testRunId.value.trim()) return
-  submitting.value = true
-  submitError.value = ''
-  try {
-    await store.create(testRunId.value.trim(), productionBatchId.value.trim())
-    testRunId.value = ''
-    productionBatchId.value = ''
-  } catch (error) {
-    submitError.value = error instanceof Error ? error.message : String(error)
-  } finally {
-    submitting.value = false
-  }
-}
 </script>
 
 <template>
@@ -31,18 +12,17 @@ async function createRun() {
     <header class="page-header page-header-actions">
       <div>
         <h1>测试任务</h1>
-        <p>TestRun 是 Mission 的持久身份；执行结果、充分度和发布状态保持分离。</p>
+        <p>测试任务从已确认的投产批次范围创建；这里查看 Mission、Attempt、Gap、覆盖率和闭环结果。</p>
       </div>
       <button class="secondary-button" :disabled="store.loading" @click="store.load">刷新</button>
     </header>
 
-    <form class="inline-form" @submit.prevent="createRun">
-      <input v-model="testRunId" required placeholder="任务编号，例如 TR-20261022-001" />
-      <input v-model="productionBatchId" placeholder="投产批次（可选）" />
-      <button class="primary-button" :disabled="submitting">{{ submitting ? '创建中…' : '创建任务' }}</button>
-    </form>
+    <div class="task-entry-strip">
+      <span>新建测试任务请先确认投产日、需求、系统版本和 SST。</span>
+      <RouterLink class="primary-button link-button" to="/productions">前往投产管理</RouterLink>
+    </div>
 
-    <p v-if="submitError || store.error" class="error-strip">{{ submitError || store.error }}</p>
+    <p v-if="store.error" class="error-strip">{{ store.error }}</p>
 
     <div class="table-shell">
       <table>
@@ -58,7 +38,7 @@ async function createRun() {
             <td>{{ new Date(item.updated_at * 1000).toLocaleString() }}</td>
           </tr>
           <tr v-if="!store.loading && store.items.length === 0">
-            <td colspan="5" class="empty-row">暂无测试任务</td>
+            <td colspan="5" class="empty-row">暂无测试任务，请先在投产管理确认范围并开始自主测试。</td>
           </tr>
         </tbody>
       </table>
