@@ -54,7 +54,7 @@ def upgrade() -> None:
         "rc8_requirement_delivery_scope",
         sa.Column("scope_id", sa.String(length=220), primary_key=True),
         sa.Column("delivery_id", sa.String(length=200), nullable=False),
-        sa.Column("scope_identity", sa.String(length=900), nullable=False),
+        sa.Column("scope_identity", sa.String(length=64), nullable=False),
         sa.Column("system_id", sa.String(length=240), nullable=False),
         sa.Column("system_version", sa.String(length=240), nullable=False),
         sa.Column("application_id", sa.String(length=240), nullable=True),
