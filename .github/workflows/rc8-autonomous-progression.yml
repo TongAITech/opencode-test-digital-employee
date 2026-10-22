@@ -12,9 +12,11 @@ on:
       - "rc8_center/mission_planner.py"
       - "rc8_center/api/__init__.py"
       - "rc8_center/api/claim_routes.py"
+      - "rc8_center/api/failure_routes.py"
       - "rc8_center/api/test_round_routes.py"
       - "rc8_center/infrastructure/**"
       - "rc8_node/autonomous_claim_client.py"
+      - "rc8_node/formal_agent.py"
       - "center/Dockerfile"
       - "scripts/rc8_autonomous_progression_http_test.py"
       - "tests/test_rc8_autonomous_progression.py"
@@ -62,19 +64,22 @@ jobs:
           python-version: "3.12"
       - name: Install formal Center dependencies
         run: pip install -r center/requirements.txt pytest
-      - name: Compile autonomous handoff slice
+      - name: Compile autonomous handoff and failure slice
         run: |
           python -m py_compile \
             rc8_center/autonomous_progression.py \
             rc8_center/autonomous_formal_app.py \
             rc8_center/formal_app.py \
             rc8_center/formal_control.py \
+            rc8_center/mission_service.py \
             rc8_center/api/__init__.py \
             rc8_center/api/claim_routes.py \
+            rc8_center/api/failure_routes.py \
             rc8_node/autonomous_claim_client.py \
+            rc8_node/formal_agent.py \
             scripts/rc8_autonomous_progression_http_test.py \
             tests/test_rc8_autonomous_progression.py
-      - name: Verify evidence gate unit contracts
+      - name: Verify completion and failure evidence gate unit contracts
         run: python -m pytest -q tests/test_rc8_autonomous_progression.py
       - name: Apply formal PostgreSQL schema
         run: alembic -c center/alembic.ini upgrade head
@@ -83,7 +88,7 @@ jobs:
           mkdir -p "$RC8_R1_ROOT" "$RC8_ARTIFACT_ROOT"
           python -m uvicorn rc8_center.formal_app:app --host 127.0.0.1 --port 18080 > /tmp/rc8-autonomous-center.log 2>&1 &
           echo $! > /tmp/rc8-autonomous-center.pid
-      - name: Prove TestRound to evidence-gated downstream autonomous claim
+      - name: Prove autonomous handoff, frozen revision refs and evidenced failure terminalization
         run: python scripts/rc8_autonomous_progression_http_test.py
       - name: Preserve Center log on failure context
         if: always()
