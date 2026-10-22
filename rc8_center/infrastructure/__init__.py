@@ -16,6 +16,11 @@ from .postgres_delivery import (
 )
 from .postgres_governance import PostgresCoverageRepository, PostgresGovernanceRepository
 from .postgres_recovery import PostgresRecoveryRepository, RecoveryIncidentRow
+from .postgres_test_round import (
+    PostgresTestRoundRepository,
+    TestRoundDeliveryRow,
+    TestRoundRow,
+)
 from .redis_coordination import RedisCoordination
 
 __all__ = [
@@ -30,12 +35,15 @@ __all__ = [
     "PostgresRecoveryRepository",
     "PostgresRequirementDeliveryRepository",
     "PostgresStore",
+    "PostgresTestRoundRepository",
     "ProductionBatchRow",
     "RecoveryIncidentRow",
     "RedisCoordination",
     "RequirementDeliveryRow",
     "RequirementDeliveryScopeRow",
     "RequirementRow",
+    "TestRoundDeliveryRow",
+    "TestRoundRow",
     "WorkItemRow",
     "build_engine",
 ]
