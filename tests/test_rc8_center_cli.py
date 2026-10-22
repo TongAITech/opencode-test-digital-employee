@@ -8,7 +8,7 @@ from rc8_center.__main__ import build_application, main
 from rc8_runtime import NodeIdentity
 
 
-def test_center_check_initializes_durable_state_and_r1(tmp_path: Path, capsys) -> None:
+def test_center_check_initializes_durable_state_r1_and_governance(tmp_path: Path, capsys) -> None:
     state_dir = tmp_path / "center"
     assert main(["--state-dir", str(state_dir), "--check"]) == 0
     payload = json.loads(capsys.readouterr().out.strip())
@@ -16,8 +16,14 @@ def test_center_check_initializes_durable_state_and_r1(tmp_path: Path, capsys) -
     assert payload["mode"] == "CHECK"
     assert payload["r1_runtime_only"] is True
     assert payload["artifact_store"] == "READY"
+    assert payload["governance_projection"] == "READY"
+    assert payload["product_api"] == "READY"
+    assert payload["governance_state"] == "READY"
+    assert payload["coverage_state"] == "READY"
     assert (state_dir / "center-state.json").is_file()
     assert (state_dir / "artifact-metadata.json").is_file()
+    assert (state_dir / "governance-state.json").is_file()
+    assert (state_dir / "coverage-state.json").is_file()
     assert (state_dir / "runtime-state" / "r1" / "event-stream.jsonl").is_file()
 
 
@@ -43,3 +49,5 @@ def test_center_application_reopens_same_durable_state(tmp_path: Path) -> None:
     restored = second.control.repository.get_node("NODE-1")
     assert restored is not None
     assert restored.identity.node_id == "NODE-1"
+    assert second.get("/api/v1/test-runs/RUN-NONE/governance")["test_run"]["test_run_id"] == "RUN-NONE"
+    assert second.get("/api/v1/test-runs/RUN-NONE/governance")["test_run"]["latest_mission_sufficiency"] is None
