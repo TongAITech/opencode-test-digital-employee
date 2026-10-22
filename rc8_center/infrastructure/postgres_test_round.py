@@ -1,10 +1,12 @@
 """PostgreSQL persistence for TestRounds inside one production date."""
 from __future__ import annotations
 
+import hashlib
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import BigInteger, JSON, String, UniqueConstraint, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column
 
 from rc8_center.test_rounds import TestRound, TestRoundDelivery, TestRoundState
@@ -57,7 +59,13 @@ class PostgresTestRoundRepository:
     def _now(now: Optional[int] = None) -> int:
         return int(now if now is not None else time.time())
 
+    @staticmethod
+    def _round_delivery_identity(test_round_id: str, delivery_id: str) -> str:
+        digest = hashlib.sha256((test_round_id + "\x1f" + delivery_id).encode("utf-8")).hexdigest()
+        return "round-delivery-" + digest
+
     def next_round_no(self, production_batch_id: str) -> int:
+        """Read-only preview. Product creation must use create_next_round()."""
         with self.store.session() as session:
             if session.get(ProductionBatchRow, production_batch_id) is None:
                 raise ValueError("PRODUCTION_BATCH_NOT_FOUND")
@@ -94,34 +102,107 @@ class PostgresTestRoundRepository:
         value: TestRound,
         deliveries: Sequence[TestRoundDelivery],
     ) -> TestRound:
-        """Atomically create a round and its initial RequirementDelivery scope."""
+        """Atomically create a caller-numbered round and its initial scope."""
         values = list(deliveries)
         with self.store.session() as session:
             self._validate_round_identity(session, value)
-            seen_delivery_ids = set()
-            seen_link_ids = set()
-            for link in values:
-                if link.test_round_id != value.test_round_id:
-                    raise ValueError("TEST_ROUND_DELIVERY_ROUND_MISMATCH")
-                if link.delivery_id in seen_delivery_ids:
-                    raise ValueError("REQUIREMENT_DELIVERY_ALREADY_IN_TEST_ROUND")
-                if link.round_delivery_id in seen_link_ids:
-                    raise ValueError("TEST_ROUND_DELIVERY_ALREADY_EXISTS")
-                seen_delivery_ids.add(link.delivery_id)
-                seen_link_ids.add(link.round_delivery_id)
-
-                delivery_row = session.get(RequirementDeliveryRow, link.delivery_id)
-                if delivery_row is None:
-                    raise ValueError("REQUIREMENT_DELIVERY_NOT_FOUND")
-                if delivery_row.production_batch_id != value.production_batch_id:
-                    raise ValueError("TEST_ROUND_DELIVERY_PRODUCTION_DATE_MISMATCH")
-                if session.get(TestRoundDeliveryRow, link.round_delivery_id) is not None:
-                    raise ValueError("TEST_ROUND_DELIVERY_ALREADY_EXISTS")
-
+            self._validate_initial_deliveries(session, value, values)
             session.add(self._round_row(value))
             for link in values:
                 session.add(self._round_delivery_row(link))
         return value
+
+    def create_next_round(
+        self,
+        production_batch_id: str,
+        delivery_ids: Sequence[str],
+        *,
+        requested_test_round_id: Optional[str] = None,
+        name: str = "",
+        payload: Optional[Dict[str, Any]] = None,
+        now: Optional[int] = None,
+    ) -> Tuple[TestRound, List[TestRoundDelivery]]:
+        """Serialize round-number allocation and create the round atomically.
+
+        The ProductionBatch row is locked until commit. Concurrent requests for
+        the same production date therefore cannot both observe the same max
+        round number. The unique DB constraint remains the final fail-closed
+        guard if another writer bypasses this repository.
+        """
+        timestamp = self._now(now)
+        raw_delivery_ids = list(delivery_ids)
+        try:
+            with self.store.session() as session:
+                batch = session.scalar(
+                    select(ProductionBatchRow)
+                    .where(ProductionBatchRow.production_batch_id == production_batch_id)
+                    .with_for_update()
+                )
+                if batch is None:
+                    raise ValueError("PRODUCTION_BATCH_NOT_FOUND")
+
+                current = session.scalar(
+                    select(func.max(TestRoundRow.round_no)).where(
+                        TestRoundRow.production_batch_id == production_batch_id
+                    )
+                )
+                round_no = int(current or 0) + 1
+                test_round_id = requested_test_round_id or "%s-round-%s" % (production_batch_id, round_no)
+                value = TestRound(
+                    test_round_id=test_round_id,
+                    production_batch_id=production_batch_id,
+                    round_no=round_no,
+                    name=name or "第%s轮测试" % round_no,
+                    state=TestRoundState.PLANNED,
+                    created_at=timestamp,
+                    payload=dict(payload or {}),
+                )
+                if session.get(TestRoundRow, test_round_id) is not None:
+                    raise ValueError("TEST_ROUND_ALREADY_EXISTS")
+
+                links = [
+                    TestRoundDelivery(
+                        round_delivery_id=self._round_delivery_identity(test_round_id, delivery_id),
+                        test_round_id=test_round_id,
+                        delivery_id=delivery_id,
+                        included_at=timestamp,
+                    )
+                    for delivery_id in raw_delivery_ids
+                ]
+                self._validate_initial_deliveries(session, value, links)
+                session.add(self._round_row(value))
+                for link in links:
+                    session.add(self._round_delivery_row(link))
+            return value, links
+        except IntegrityError as exc:
+            detail = str(getattr(exc, "orig", exc))
+            if "uq_rc8_test_round_batch_no" in detail:
+                raise ValueError("TEST_ROUND_NO_ALREADY_EXISTS_IN_PRODUCTION_DATE") from exc
+            if "rc8_test_round_pkey" in detail:
+                raise ValueError("TEST_ROUND_ALREADY_EXISTS") from exc
+            raise
+
+    @staticmethod
+    def _validate_initial_deliveries(session, value: TestRound, values: Sequence[TestRoundDelivery]) -> None:
+        seen_delivery_ids = set()
+        seen_link_ids = set()
+        for link in values:
+            if link.test_round_id != value.test_round_id:
+                raise ValueError("TEST_ROUND_DELIVERY_ROUND_MISMATCH")
+            if link.delivery_id in seen_delivery_ids:
+                raise ValueError("REQUIREMENT_DELIVERY_ALREADY_IN_TEST_ROUND")
+            if link.round_delivery_id in seen_link_ids:
+                raise ValueError("TEST_ROUND_DELIVERY_ALREADY_EXISTS")
+            seen_delivery_ids.add(link.delivery_id)
+            seen_link_ids.add(link.round_delivery_id)
+
+            delivery_row = session.get(RequirementDeliveryRow, link.delivery_id)
+            if delivery_row is None:
+                raise ValueError("REQUIREMENT_DELIVERY_NOT_FOUND")
+            if delivery_row.production_batch_id != value.production_batch_id:
+                raise ValueError("TEST_ROUND_DELIVERY_PRODUCTION_DATE_MISMATCH")
+            if session.get(TestRoundDeliveryRow, link.round_delivery_id) is not None:
+                raise ValueError("TEST_ROUND_DELIVERY_ALREADY_EXISTS")
 
     def start_runtime_mission(
         self,
