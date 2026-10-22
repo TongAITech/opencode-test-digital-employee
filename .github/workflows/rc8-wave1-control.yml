@@ -78,13 +78,28 @@ jobs:
             tests/test_rc8_maven_reality_runner.py \
             tests/test_rc8_codegraph_adapter.py \
             tests/test_rc8_codegraph_reality_runner.py
-      - name: Verify canonical shell entrypoints
+      - name: Verify canonical shell entrypoints and durable node-state guard
         shell: bash
         run: |
           bash packaging/rc8/rc8-node.sh --help >/dev/null
           bash packaging/rc8/rc8-center.sh --help >/dev/null
           bash packaging/rc8/rc8-maven-reality.sh --help >/dev/null
           bash packaging/rc8/rc8-codegraph-reality.sh --help >/dev/null
+          STATE_A="$PWD/.ci-node-state-a"
+          STATE_B="$PWD/.ci-node-state-b"
+          mkdir -p "$STATE_A" "$STATE_B"
+          for entry in rc8-node.sh rc8-maven-reality.sh rc8-codegraph-reality.sh; do
+            LOG="$PWD/.ci-${entry}.log"
+            if RC8_NODE_STATE="$STATE_A" bash "packaging/rc8/$entry" --state-dir "$STATE_B" --help >"$LOG" 2>&1; then
+              echo "$entry accepted divergent durable node state" >&2
+              cat "$LOG" >&2
+              exit 1
+            else
+              STATUS=$?
+            fi
+            test "$STATUS" -eq 4
+            grep -q 'RC8_NODE_STATE_CONFLICT' "$LOG"
+          done
       - name: Run W1 control-plane, transport, artifact, capability and execution tests
         shell: bash
         run: |
