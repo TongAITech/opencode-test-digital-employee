@@ -33,12 +33,27 @@ class CenterProductApplication:
     def artifact_store(self):
         return self.base_application.artifact_store
 
+    def _replay(self) -> Optional[Dict[str, Any]]:
+        if self.governance_ingestor is None:
+            return None
+        replay = getattr(self.governance_ingestor, "replay", None)
+        if replay is None:
+            raise TypeError("GOVERNANCE_INGESTOR_REPLAY_INVALID")
+        result = replay()
+        if not isinstance(result, dict):
+            raise TypeError("GOVERNANCE_REPLAY_RESULT_INVALID")
+        return result
+
     def get(self, path: str) -> Dict[str, Any]:
         clean = path.strip("/")
         parts = clean.split("/")
         if len(parts) == 5 and parts[:3] == ["api", "v1", "test-runs"] and parts[4] == "governance":
+            replay = self._replay()
             test_run_id = parts[3]
-            return {"test_run": self.governance_projection.test_run(test_run_id)}
+            result: Dict[str, Any] = {"test_run": self.governance_projection.test_run(test_run_id)}
+            if replay is not None:
+                result["projection_replay"] = replay
+            return result
         return self.base_application.get(path)
 
     def post(self, path: str, body: Dict[str, Any]) -> Dict[str, Any]:
@@ -49,7 +64,10 @@ class CenterProductApplication:
             ingest = getattr(self.governance_ingestor, "ingest", None)
             if ingest is None:
                 raise TypeError("GOVERNANCE_INGESTOR_INVALID")
-            ingest(body)
+            result = ingest(body)
+            if not isinstance(result, dict):
+                raise TypeError("GOVERNANCE_INGEST_RESULT_INVALID")
+            response["governance_projection"] = result
         return response
 
     def put(self, path: str, query: Dict[str, Any], data: bytes) -> Dict[str, Any]:
