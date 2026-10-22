@@ -8,6 +8,7 @@ from .delivery_routes import register_delivery_routes
 from .failure_routes import register_failure_routes
 from .fastapi_app import create_app as _create_app
 from .revision_routes import register_revision_routes
+from .runtime_sequence_routes import register_runtime_sequence_routes
 from .test_round_routes import register_test_round_routes
 
 
@@ -32,6 +33,7 @@ def create_app(
     register_test_round_routes(app)
     register_claim_routes(app)
     register_failure_routes(app)
+    register_runtime_sequence_routes(app)
     return app
 
 
