@@ -36,6 +36,7 @@ RUNTIME_FILES = (
     "rc8_center/governance_repository.py",
     "rc8_center/coverage_repository.py",
     "rc8_center/governance_projection.py",
+    "rc8_center/governance_event_projector.py",
     "rc8_center/product_api.py",
     "rc8_node/__init__.py",
     "rc8_node/__main__.py",
@@ -142,6 +143,7 @@ def _write_readme(root: Path, head: str) -> str:
         "- CodeGraph Tool Reality\n"
         "- Code Analysis 构建中的结构/语义链\n"
         "- No-Discount Governance + Mission Graph Runtime + durable governance projection\n"
+        "- R1-first Governance Projector：运行事实必须先持久化 R1，Center Projection 可重放恢复\n"
         "- Product API: `/api/v1/test-runs/{id}/governance`（记录事实，不自行推导PASS）\n\n"
         "重要：Tool Reality 不能提升为 L1/L1-L7/TestRun 充分度。先运行 `python scripts/rc8_validate_governance.py` 可核对当前机器声明。\n\n"
         "## 1. 校验与永久 Node state\n"
@@ -192,7 +194,7 @@ def _write_readme(root: Path, head: str) -> str:
 def _write_manifest(root: Path, head: str, files: List[str]) -> str:
     relative = "PACKAGE-MANIFEST.json"
     payload: Dict[str, object] = {
-        "schema_version": "rc8.bank-reality-package.v5",
+        "schema_version": "rc8.bank-reality-package.v6",
         "package_type": "FULL_STANDALONE_REALITY_VALIDATION_PACKAGE",
         "patch_package": False,
         "git_head": head,
@@ -206,6 +208,7 @@ def _write_manifest(root: Path, head: str, files: List[str]) -> str:
             "MISSION_GRAPH_RUNTIME",
             "GOVERNANCE_DURABLE_PROJECTION",
             "COVERAGE_PROVENANCE",
+            "R1_GOVERNANCE_REPLAY",
             "GOVERNANCE_PRODUCT_API",
             "MAVEN_JUNIT_REALITY",
             "CODEGRAPH_REALITY",
@@ -248,9 +251,10 @@ def _verify_python(root: Path) -> None:
 def _verify_runtime_imports(root: Path) -> None:
     code = (
         "from rc8_runtime import CoverageObservation, MissionGraphRuntime, MissionRuntimeState, ScopedStatusClaim; "
-        "from rc8_center import CenterProductApplication, GovernanceProjectionService, JsonFileCoverageRepository, JsonFileGovernanceRepository; "
+        "from rc8_center import CenterProductApplication, GovernanceEventProjector, GovernanceProjectionService, JsonFileCoverageRepository, JsonFileGovernanceRepository; "
         "assert CoverageObservation and MissionGraphRuntime and MissionRuntimeState and ScopedStatusClaim; "
-        "assert CenterProductApplication and GovernanceProjectionService and JsonFileCoverageRepository and JsonFileGovernanceRepository; "
+        "assert CenterProductApplication and GovernanceEventProjector and GovernanceProjectionService; "
+        "assert JsonFileCoverageRepository and JsonFileGovernanceRepository; "
         "print('RC8_PACKAGE_RUNTIME_IMPORT_PASS')"
     )
     proc = subprocess.run(
@@ -274,6 +278,18 @@ def _verify_runtime_imports(root: Path) -> None:
     if governance.returncode != 0:
         detail = ((governance.stdout or b"") + (governance.stderr or b"")).decode("utf-8", errors="replace")[-2000:]
         raise RuntimeError("PACKAGE_GOVERNANCE_VALIDATION_FAILED:%s" % detail)
+
+    center_check = subprocess.run(
+        [sys.executable, "-m", "rc8_center", "--check", "--state-dir", str(root / ".package-smoke-center")],
+        cwd=str(root),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if center_check.returncode != 0:
+        detail = ((center_check.stdout or b"") + (center_check.stderr or b"")).decode("utf-8", errors="replace")[-2000:]
+        raise RuntimeError("PACKAGE_CENTER_CHECK_FAILED:%s" % detail)
+    shutil.rmtree(str(root / ".package-smoke-center"), ignore_errors=True)
 
 
 def _zip_tree(root: Path, output_zip: Path) -> None:
