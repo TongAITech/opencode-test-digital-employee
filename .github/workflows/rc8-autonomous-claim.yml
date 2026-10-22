@@ -1,0 +1,67 @@
+name: RC8 Autonomous Claim
+
+on:
+  push:
+    branches: ["work/rc8"]
+    paths:
+      - "rc8_center/formal_control.py"
+      - "rc8_center/control_plane.py"
+      - "rc8_center/infrastructure/postgres_control.py"
+      - "rc8_center/infrastructure/redis_coordination.py"
+      - "tests/test_rc8_claim_next_scheduler.py"
+      - "scripts/rc8_claim_next_reality_test.py"
+      - ".github/workflows/rc8-autonomous-claim.yml"
+  workflow_dispatch:
+
+jobs:
+  claim-next:
+    runs-on: ubuntu-latest
+    services:
+      postgresql:
+        image: postgres:16
+        env:
+          POSTGRES_DB: rc8
+          POSTGRES_USER: rc8
+          POSTGRES_PASSWORD: rc8
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rc8 -d rc8"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      RC8_DATABASE_URL: postgresql+psycopg://rc8:rc8@127.0.0.1:5432/rc8
+      RC8_REDIS_URL: redis://127.0.0.1:6379/15
+      PYTHONPATH: ${{ github.workspace }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install formal Center dependencies
+        run: pip install -r center/requirements.txt pytest
+      - name: Compile scheduler slice
+        run: |
+          python -m py_compile \
+            rc8_center/formal_control.py \
+            rc8_center/infrastructure/postgres_control.py \
+            rc8_center/infrastructure/redis_coordination.py \
+            tests/test_rc8_claim_next_scheduler.py \
+            scripts/rc8_claim_next_reality_test.py
+      - name: Apply formal PostgreSQL schema
+        run: alembic -c center/alembic.ini upgrade head
+      - name: Run capability and contention contracts
+        run: python -m pytest -q tests/test_rc8_claim_next_scheduler.py
+      - name: Prove two-node claim race on real PostgreSQL and Redis
+        run: python scripts/rc8_claim_next_reality_test.py
