@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -64,6 +65,18 @@ def _result(tmp_path: Path) -> MavenExecutionResult:
     )
 
 
+def _fully_covered_result(tmp_path: Path) -> MavenExecutionResult:
+    base = _result(tmp_path)
+    assert base.coverage is not None
+    full_coverage = replace(
+        base.coverage,
+        changed_line=CoverageActual(4, 4),
+        changed_branch=CoverageActual(4, 4),
+        sha256="3" * 64,
+    )
+    return replace(base, coverage=full_coverage)
+
+
 def _context() -> CoveragePublishContext:
     return CoveragePublishContext(
         stage_instance_id="stage-l1-execution",
@@ -114,6 +127,8 @@ def test_coverage_evidence_is_available_before_three_r1_coverage_events(tmp_path
     assert all(call[0] == "artifact" for call in agent.calls[:first_r1])
     assert len(published["coverage_events"]) == 3
     assert published["gap_events"] == []
+    assert published["gap_closure_events"] == []
+    assert published["retained_gap_ids"] == []
     assert published["actual_passed"] is True
 
 
@@ -149,6 +164,8 @@ def test_unsatisfied_changed_coverage_opens_governed_test_design_gaps_only(tmp_p
     assert all(event.attempt_id == "attempt-1" for event in gap_events)
     assert len({event.data["gap_id"] for event in gap_events}) == 2
     assert len(published["gap_events"]) == 2
+    assert published["gap_closure_events"] == []
+    assert published["retained_gap_ids"] == []
     # Coverage/Gap production is evidence and feedback only. It cannot emit a
     # Stage/Layer/Mission/Release promotion event.
     assert not any("SUFFIC" in event.event_type or "PASS" in event.event_type for event in agent.events)
@@ -182,6 +199,115 @@ def test_gap_identity_is_stable_across_attempt_event_ids_for_same_snapshot_and_s
 
     assert [item["gap_id"] for item in first["gap_events"]] == [item["gap_id"] for item in second["gap_events"]]
     assert [item["event_id"] for item in first["gap_events"]] != [item["event_id"] for item in second["gap_events"]]
+
+
+def test_targeted_rerun_closes_only_center_supplied_stable_gap_with_fresh_coverage(tmp_path: Path) -> None:
+    first_agent = RecordingAgent()
+    first = publish_maven_junit_execution(
+        first_agent,
+        test_run_id="run-1",
+        work_item_id="wi-initial",
+        result=_result(tmp_path),
+        event_id="evt-initial",
+        sequence=400,
+        coverage_context=_strict_context(),
+    )
+    gap_map = {item["dimension"]: item["gap_id"] for item in first["gap_events"]}
+    assert set(gap_map) == {"CHANGED_LINE", "CHANGED_BRANCH"}
+
+    rerun_agent = RecordingAgent()
+    rerun = publish_maven_junit_execution(
+        rerun_agent,
+        test_run_id="run-1",
+        work_item_id="wi-rerun",
+        result=_fully_covered_result(tmp_path),
+        event_id="evt-rerun",
+        sequence=500,
+        coverage_context=CoveragePublishContext(
+            stage_instance_id="stage-l1-rerun",
+            attempt_id="attempt-2",
+            subject_ref="sst:SST-001",
+            open_gap_ids=gap_map,
+        ),
+    )
+
+    assert [event.event_type for event in rerun_agent.events] == [
+        "MAVEN_JUNIT_ACTUAL_RECORDED",
+        "COVERAGE_COLLECTED",
+        "COVERAGE_COLLECTED",
+        "COVERAGE_COLLECTED",
+        "GAP_CLOSED",
+        "GAP_CLOSED",
+    ]
+    closures = rerun_agent.events[4:]
+    assert [event.data["coverage_dimension"] for event in closures] == ["CHANGED_LINE", "CHANGED_BRANCH"]
+    assert [event.data["gap_id"] for event in closures] == [gap_map["CHANGED_LINE"], gap_map["CHANGED_BRANCH"]]
+    assert all(event.data["closure_evidence_refs"] for event in closures)
+    assert all(event.data["closure_reason"] == "TARGETED_RERUN_COVERAGE_THRESHOLD_SATISFIED" for event in closures)
+    assert rerun["gap_events"] == []
+    assert rerun["retained_gap_ids"] == []
+    assert len(rerun["gap_closure_events"]) == 2
+    assert not any("SUFFIC" in event.event_type or "PASS" in event.event_type for event in rerun_agent.events)
+
+
+def test_targeted_rerun_that_still_misses_threshold_retains_gap_without_duplicate_open(tmp_path: Path) -> None:
+    first_agent = RecordingAgent()
+    first = publish_maven_junit_execution(
+        first_agent,
+        test_run_id="run-1",
+        work_item_id="wi-initial",
+        result=_result(tmp_path),
+        event_id="evt-initial-retain",
+        sequence=600,
+        coverage_context=_strict_context(),
+    )
+    gap_map = {item["dimension"]: item["gap_id"] for item in first["gap_events"]}
+
+    rerun_agent = RecordingAgent()
+    rerun = publish_maven_junit_execution(
+        rerun_agent,
+        test_run_id="run-1",
+        work_item_id="wi-rerun",
+        result=_result(tmp_path),
+        event_id="evt-rerun-retain",
+        sequence=700,
+        coverage_context=CoveragePublishContext(
+            stage_instance_id="stage-l1-rerun",
+            attempt_id="attempt-2",
+            subject_ref="sst:SST-001",
+            open_gap_ids=gap_map,
+        ),
+    )
+
+    assert [event.event_type for event in rerun_agent.events] == [
+        "MAVEN_JUNIT_ACTUAL_RECORDED",
+        "COVERAGE_COLLECTED",
+        "COVERAGE_COLLECTED",
+        "COVERAGE_COLLECTED",
+    ]
+    assert rerun["gap_events"] == []
+    assert rerun["gap_closure_events"] == []
+    assert rerun["retained_gap_ids"] == [gap_map["CHANGED_LINE"], gap_map["CHANGED_BRANCH"]]
+
+
+def test_mismatched_center_gap_id_is_rejected_before_upload_or_r1(tmp_path: Path) -> None:
+    agent = RecordingAgent()
+    with pytest.raises(NodeAgentError, match="COVERAGE_GAP_ID_MISMATCH"):
+        publish_maven_junit_execution(
+            agent,
+            test_run_id="run-1",
+            work_item_id="wi-rerun",
+            result=_fully_covered_result(tmp_path),
+            event_id="evt-rerun-wrong-gap",
+            sequence=800,
+            coverage_context=CoveragePublishContext(
+                stage_instance_id="stage-l1-rerun",
+                attempt_id="attempt-2",
+                subject_ref="sst:SST-001",
+                open_gap_ids={"CHANGED_LINE": "gap-wrong"},
+            ),
+        )
+    assert agent.calls == []
 
 
 def test_coverage_result_without_governance_context_is_rejected_before_upload(tmp_path: Path) -> None:
