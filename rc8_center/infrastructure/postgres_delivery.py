@@ -64,7 +64,7 @@ class RequirementDeliveryScopeRow(Base):
 
     scope_id: Mapped[str] = mapped_column(String(220), primary_key=True)
     delivery_id: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
-    scope_identity: Mapped[str] = mapped_column(String(900), nullable=False)
+    scope_identity: Mapped[str] = mapped_column(String(64), nullable=False)
     system_id: Mapped[str] = mapped_column(String(240), nullable=False)
     system_version: Mapped[str] = mapped_column(String(240), nullable=False)
     application_id: Mapped[Optional[str]] = mapped_column(String(240), nullable=True)
