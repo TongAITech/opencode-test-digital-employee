@@ -127,6 +127,7 @@ class PostgresRequirementDeliveryRepository:
             return self._requirement(row) if row is not None else None
 
     def create_delivery(self, value: RequirementDelivery) -> RequirementDelivery:
+        """Create Delivery and its immutable revision binding atomically."""
         self._required(value.delivery_id, "REQUIREMENT_DELIVERY_ID_REQUIRED")
         with self.store.session() as session:
             if session.get(RequirementDeliveryRow, value.delivery_id) is not None:
@@ -151,15 +152,33 @@ class PostgresRequirementDeliveryRepository:
                     raise ValueError("CONTINUATION_REQUIREMENT_MISMATCH")
                 if previous.production_batch_id == value.production_batch_id:
                     raise ValueError("CONTINUATION_MUST_USE_DIFFERENT_BATCH")
-            session.add(self._delivery_row(value))
-        return value
+            row = self._delivery_row(value)
+            session.add(row)
+            session.flush()
+            from .postgres_revision import PostgresRequirementRevisionRepository
+
+            binding = PostgresRequirementRevisionRepository(self.store).ensure_delivery_binding_in_session(
+                session,
+                row,
+                requirement_revision_id=value.requirement_revision_id,
+                scope_revision_id=value.scope_revision_id,
+                now=value.created_at,
+            )
+            return self._delivery_with_binding(row, binding.requirement_revision_id, binding.scope_revision_id)
 
     def get_delivery(self, delivery_id: str) -> Optional[RequirementDelivery]:
         with self.store.session() as session:
             row = session.get(RequirementDeliveryRow, delivery_id)
-            return self._delivery(row) if row is not None else None
+            value = self._delivery(row) if row is not None else None
+        return self._with_revision_binding(value) if value is not None else None
 
-    def transition_delivery(self, delivery_id: str, target: RequirementDeliveryState, *, now: Optional[int] = None) -> RequirementDelivery:
+    def transition_delivery(
+        self,
+        delivery_id: str,
+        target: RequirementDeliveryState,
+        *,
+        now: Optional[int] = None,
+    ) -> RequirementDelivery:
         target = RequirementDeliveryState(target)
         with self.store.session() as session:
             row = session.get(RequirementDeliveryRow, delivery_id)
@@ -169,16 +188,10 @@ class PostgresRequirementDeliveryRepository:
             next_value = current.transition_to(target)
             row.state = next_value.state.value
             row.updated_at = self._now(now)
-            return RequirementDelivery(
-                delivery_id=next_value.delivery_id,
-                production_batch_id=next_value.production_batch_id,
-                requirement_id=next_value.requirement_id,
-                state=next_value.state,
-                continuation_of_delivery_id=next_value.continuation_of_delivery_id,
-                created_at=next_value.created_at,
-                updated_at=int(row.updated_at),
-                payload=dict(next_value.payload),
-            )
+        hydrated = self.get_delivery(delivery_id)
+        if hydrated is None:
+            raise ValueError("REQUIREMENT_DELIVERY_NOT_FOUND")
+        return hydrated
 
     def create_scope(self, value: RequirementDeliveryScope) -> RequirementDeliveryScope:
         for raw, error in (
@@ -228,7 +241,7 @@ class PostgresRequirementDeliveryRepository:
                 .where(RequirementDeliveryRow.requirement_id == requirement_id)
                 .order_by(ProductionBatchRow.production_date, RequirementDeliveryRow.created_at)
             ).all()
-        deliveries = [self._delivery(row) for row, _batch in rows]
+        deliveries = [self._with_revision_binding(self._delivery(row)) for row, _batch in rows]
         scopes: Dict[str, List[RequirementDeliveryScope]] = {
             delivery.delivery_id: self.list_scopes(delivery.delivery_id) for delivery in deliveries
         }
@@ -246,7 +259,8 @@ class PostgresRequirementDeliveryRepository:
             )
             deliveries = [self._delivery(row) for row in rows]
         items = []
-        for delivery in deliveries:
+        for raw_delivery in deliveries:
+            delivery = self._with_revision_binding(raw_delivery)
             requirement = self.get_requirement(delivery.requirement_id)
             items.append(
                 {
@@ -256,6 +270,47 @@ class PostgresRequirementDeliveryRepository:
                 }
             )
         return {"batch": batch, "requirements": items}
+
+    def _with_revision_binding(self, value: RequirementDelivery) -> RequirementDelivery:
+        from .postgres_revision import PostgresRequirementRevisionRepository
+
+        revisions = PostgresRequirementRevisionRepository(self.store)
+        binding = revisions.get_delivery_binding(value.delivery_id)
+        if binding is None:
+            binding = revisions.ensure_delivery_binding(value.delivery_id, now=value.created_at)
+        return RequirementDelivery(
+            delivery_id=value.delivery_id,
+            production_batch_id=value.production_batch_id,
+            requirement_id=value.requirement_id,
+            state=value.state,
+            continuation_of_delivery_id=value.continuation_of_delivery_id,
+            created_at=value.created_at,
+            updated_at=value.updated_at,
+            payload=dict(value.payload),
+            requirement_revision_id=binding.requirement_revision_id,
+            scope_revision_id=binding.scope_revision_id,
+        )
+
+    @classmethod
+    def _delivery_with_binding(
+        cls,
+        row: RequirementDeliveryRow,
+        requirement_revision_id: str,
+        scope_revision_id: str,
+    ) -> RequirementDelivery:
+        value = cls._delivery(row)
+        return RequirementDelivery(
+            delivery_id=value.delivery_id,
+            production_batch_id=value.production_batch_id,
+            requirement_id=value.requirement_id,
+            state=value.state,
+            continuation_of_delivery_id=value.continuation_of_delivery_id,
+            created_at=value.created_at,
+            updated_at=value.updated_at,
+            payload=dict(value.payload),
+            requirement_revision_id=requirement_revision_id,
+            scope_revision_id=scope_revision_id,
+        )
 
     @staticmethod
     def _batch_row(value: ProductionBatch) -> ProductionBatchRow:
