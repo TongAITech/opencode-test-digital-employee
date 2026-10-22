@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .artifact_read_routes import register_artifact_read_routes
 from .claim_routes import register_claim_routes
 from .delivery_routes import register_delivery_routes
 from .failure_routes import register_failure_routes
@@ -34,6 +35,7 @@ def create_app(
     register_claim_routes(app)
     register_failure_routes(app)
     register_runtime_sequence_routes(app)
+    register_artifact_read_routes(app)
     return app
 
 
