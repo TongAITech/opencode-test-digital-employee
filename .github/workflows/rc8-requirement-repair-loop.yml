@@ -13,12 +13,16 @@ on:
       - "rc8_center/api/artifact_read_routes.py"
       - "rc8_center/api/claim_routes.py"
       - "rc8_center/api/__init__.py"
+      - "rc8_node/__main__.py"
       - "rc8_node/autonomous_claim_client.py"
       - "rc8_node/autonomous_dispatcher.py"
+      - "rc8_node/dsh_json_runner.py"
       - "rc8_node/scope_intake_worker.py"
       - "rc8_node/requirement_sufficiency_worker.py"
       - "rc8_runtime/mission_graph.py"
       - "rc8_runtime/governance.py"
+      - "tests/test_rc8_node_autonomous_entry.py"
+      - "tests/test_rc8_dsh_json_runner.py"
       - "tests/test_rc8_autonomous_dispatcher.py"
       - "tests/test_rc8_scope_intake_worker.py"
       - "tests/test_rc8_requirement_repair_loop.py"
@@ -46,15 +50,23 @@ jobs:
             rc8_center/scope_aware_governance_projector.py \
             rc8_center/api/artifact_read_routes.py \
             rc8_center/api/claim_routes.py \
+            rc8_node/__main__.py \
             rc8_node/autonomous_claim_client.py \
             rc8_node/autonomous_dispatcher.py \
+            rc8_node/dsh_json_runner.py \
             rc8_node/scope_intake_worker.py \
             rc8_node/requirement_sufficiency_worker.py \
+            tests/test_rc8_node_autonomous_entry.py \
+            tests/test_rc8_dsh_json_runner.py \
             tests/test_rc8_autonomous_dispatcher.py \
             tests/test_rc8_scope_intake_worker.py \
             tests/test_rc8_requirement_repair_loop.py \
             tests/test_rc8_requirement_sufficiency_worker.py \
             tests/test_rc8_scope_aware_sufficiency_projection.py
+      - name: Prove nested DSH JSON root preservation
+        run: python -m pytest -q tests/test_rc8_dsh_json_runner.py
+      - name: Prove autonomous node entry stage whitelist
+        run: python -m pytest -q tests/test_rc8_node_autonomous_entry.py
       - name: Prove stage-safe dispatcher and scope intake evidence
         run: python -m pytest -q tests/test_rc8_autonomous_dispatcher.py tests/test_rc8_scope_intake_worker.py
       - name: Prove deterministic requirement sufficiency worker
