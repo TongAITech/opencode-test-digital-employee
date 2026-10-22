@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import replace
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Sequence
 
 from rc8_runtime import (
     CapabilityQualification,
@@ -91,6 +91,7 @@ class FormalCenterControlPlane:
         *,
         ttl_seconds: int = 60,
         test_run_id: Optional[str] = None,
+        allowed_stage_types: Optional[Sequence[str]] = None,
     ) -> Optional[WorkItemRecord]:
         if not isinstance(ttl_seconds, int) or ttl_seconds <= 0:
             raise CenterControlError("LEASE_TTL_INVALID")
@@ -98,6 +99,15 @@ class FormalCenterControlPlane:
         if node.status in {NodeStatus.MAINTENANCE, NodeStatus.OFFLINE, NodeStatus.ERROR}:
             raise CenterControlError("NODE_NOT_LEASE_ELIGIBLE")
         run_filter = str(test_run_id or "").strip() or None
+        stage_filter = None
+        if allowed_stage_types is not None:
+            stage_filter = {
+                str(value or "").strip()
+                for value in allowed_stage_types
+                if str(value or "").strip()
+            }
+            if not stage_filter:
+                return None
 
         if self.progression is not None and run_filter is not None:
             try:
@@ -115,6 +125,7 @@ class FormalCenterControlPlane:
             for item in self.repository.list_work_items()
             if item.state == WorkItemState.READY
             and (run_filter is None or item.identity.test_run_id == run_filter)
+            and (stage_filter is None or item.identity.stage in stage_filter)
             and set(item.identity.required_capabilities).issubset(verified)
         ]
         candidates.sort(key=lambda item: (item.identity.test_run_id, item.identity.stage, item.identity.work_item_id))
