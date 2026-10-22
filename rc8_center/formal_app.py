@@ -4,6 +4,10 @@ Formal runtime chain:
 Node -> PostgreSQL identity/state + Redis active lease authorization
 -> R1 Event Stream -> replayable projector -> PostgreSQL governance/coverage
 projection -> FastAPI -> Vue.
+
+Lost Redis lease is not blind-replayed: the recovery coordinator records a
+durable incident and requires either a provably safe reset or an explicit
+evidence-backed recovery decision.
 """
 from __future__ import annotations
 
@@ -20,10 +24,12 @@ from rc8_center.infrastructure import (
     PostgresCenterRepository,
     PostgresCoverageRepository,
     PostgresGovernanceRepository,
+    PostgresRecoveryRepository,
     PostgresStore,
     RedisCoordination,
     build_engine,
 )
+from rc8_center.recovery_service import LeaseRecoveryCoordinator
 
 
 def build_app():
@@ -34,6 +40,7 @@ def build_app():
     coverage_repository = PostgresCoverageRepository(postgres)
     artifact_repository = PostgresArtifactRepository(postgres)
     control_repository = PostgresCenterRepository(postgres)
+    recovery_repository = PostgresRecoveryRepository(postgres)
 
     r1_path = Path(settings.r1_root) / "event-stream.jsonl"
     ledger = CentralR1RuntimeLedger(str(r1_path))
@@ -46,6 +53,12 @@ def build_app():
         ledger,
         projector,
     )
+    recovery_coordinator = LeaseRecoveryCoordinator(
+        control_repository,
+        recovery_repository,
+        redis_coordination,
+        ledger,
+    )
 
     app = create_app(
         settings=settings,
@@ -53,6 +66,7 @@ def build_app():
         redis_coordination=redis_coordination,
         governance_projection=projection,
         formal_control=formal_control,
+        recovery_coordinator=recovery_coordinator,
         product_application=None,
     )
     app.state.r1_ledger = ledger
@@ -62,7 +76,9 @@ def build_app():
     app.state.coverage_repository = coverage_repository
     app.state.artifact_repository = artifact_repository
     app.state.control_repository = control_repository
+    app.state.recovery_repository = recovery_repository
     app.state.formal_control = formal_control
+    app.state.recovery_coordinator = recovery_coordinator
     return app
 
 
