@@ -37,6 +37,7 @@ RUNTIME_FILES = (
     "rc8_center/coverage_repository.py",
     "rc8_center/governance_projection.py",
     "rc8_center/governance_event_projector.py",
+    "rc8_center/mission_service.py",
     "rc8_center/product_api.py",
     "rc8_node/__init__.py",
     "rc8_node/__main__.py",
@@ -139,6 +140,7 @@ def _write_readme(root: Path, head: str) -> str:
         + "这是完整替换包，不是补丁包。解压到新目录运行；Node identity/state 必须放在版本包之外。\n\n"
         "## 当前能力边界\n"
         "- Center / Node / WorkItem / R1 / Artifact Sync\n"
+        "- Center Mission Graph / scope-aware Stage control\n"
         "- Maven/JUnit Tool Reality\n"
         "- CodeGraph Tool Reality\n"
         "- Code Analysis 构建中的结构/语义链\n"
@@ -194,7 +196,7 @@ def _write_readme(root: Path, head: str) -> str:
 def _write_manifest(root: Path, head: str, files: List[str]) -> str:
     relative = "PACKAGE-MANIFEST.json"
     payload: Dict[str, object] = {
-        "schema_version": "rc8.bank-reality-package.v6",
+        "schema_version": "rc8.bank-reality-package.v7",
         "package_type": "FULL_STANDALONE_REALITY_VALIDATION_PACKAGE",
         "patch_package": False,
         "git_head": head,
@@ -202,6 +204,7 @@ def _write_manifest(root: Path, head: str, files: List[str]) -> str:
         "public_internet_install_required": False,
         "included_runtime_capabilities": [
             "CENTER_NODE_CONTROL",
+            "CENTER_MISSION_SERVICE",
             "R1_RUNTIME_TRUTH",
             "ARTIFACT_SYNC",
             "NO_DISCOUNT_GOVERNANCE",
@@ -251,9 +254,9 @@ def _verify_python(root: Path) -> None:
 def _verify_runtime_imports(root: Path) -> None:
     code = (
         "from rc8_runtime import CoverageObservation, MissionGraphRuntime, MissionRuntimeState, ScopedStatusClaim; "
-        "from rc8_center import CenterProductApplication, GovernanceEventProjector, GovernanceProjectionService, JsonFileCoverageRepository, JsonFileGovernanceRepository; "
+        "from rc8_center import CenterMissionService, CenterProductApplication, GovernanceEventProjector, GovernanceProjectionService, JsonFileCoverageRepository, JsonFileGovernanceRepository; "
         "assert CoverageObservation and MissionGraphRuntime and MissionRuntimeState and ScopedStatusClaim; "
-        "assert CenterProductApplication and GovernanceEventProjector and GovernanceProjectionService; "
+        "assert CenterMissionService and CenterProductApplication and GovernanceEventProjector and GovernanceProjectionService; "
         "assert JsonFileCoverageRepository and JsonFileGovernanceRepository; "
         "print('RC8_PACKAGE_RUNTIME_IMPORT_PASS')"
     )
