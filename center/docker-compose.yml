@@ -1,0 +1,64 @@
+services:
+  postgresql:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: rc8
+      POSTGRES_USER: rc8
+      POSTGRES_PASSWORD: rc8
+    volumes:
+      - rc8-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rc8 -d rc8"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - rc8-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rc8-center:
+    build:
+      context: ..
+      dockerfile: center/Dockerfile
+    environment:
+      RC8_ENVIRONMENT: integration
+      RC8_DATABASE_URL: postgresql+psycopg://rc8:rc8@postgresql:5432/rc8
+      RC8_REDIS_URL: redis://redis:6379/0
+      RC8_ARTIFACT_ROOT: /var/lib/rc8/artifacts
+      RC8_R1_ROOT: /var/lib/rc8/r1
+    volumes:
+      - rc8-center-data:/var/lib/rc8
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["sh", "-c", "alembic -c center/alembic.ini upgrade head && uvicorn rc8_center.formal_app:app --host 0.0.0.0 --port 8080"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).read()"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
+  rc8-web:
+    build:
+      context: ..
+      dockerfile: center-web/Dockerfile
+    depends_on:
+      rc8-center:
+        condition: service_healthy
+    ports:
+      - "8088:80"
+
+volumes:
+  rc8-postgres:
+  rc8-redis:
+  rc8-center-data:
