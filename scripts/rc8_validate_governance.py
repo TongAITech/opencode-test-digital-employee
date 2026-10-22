@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Validate RC8 machine-readable no-discount capability governance.
 
-CI runs this on Windows and Linux.  The validator deliberately fails closed when
-claims are promoted without the gates/evidence required by their scope.
+CI runs this on Windows and Linux. The validator deliberately fails closed when
+claims are promoted without the gates/evidence required by their scope or when
+the frozen formal Center technology stack is silently substituted.
 """
 from __future__ import annotations
 
@@ -35,6 +36,26 @@ KNOWN_GATES = {
     "mission_sufficient",
 }
 
+REQUIRED_TECH_STACK = {
+    "center_backend": "FastAPI",
+    "api_validation": "Pydantic",
+    "durable_persistence": "PostgreSQL",
+    "orm": "SQLAlchemy",
+    "migration": "Alembic",
+    "coordination": "Redis",
+    "frontend": "Vue 3",
+    "frontend_language": "TypeScript",
+    "frontend_build": "Vite",
+    "frontend_router": "Vue Router",
+    "frontend_state": "Pinia",
+    "web_edge": "Nginx",
+    "center_deployment": "Docker Compose",
+    "stdlib_http_role": "MINIMAL_PROTOCOL_TEST_ADAPTER_ONLY",
+    "version_policy": "CAPABILITY_BASED_NO_EXACT_VERSION_PIN",
+}
+
+REQUIRED_TECH_STACK_CONTRACT = "docs/rc8/RC8-CENTER-TECHNOLOGY-STACK-CONTRACT.md"
+
 
 def _strings(value: Any, name: str) -> List[str]:
     if not isinstance(value, list):
@@ -61,14 +82,28 @@ def _claim_from_row(row: Mapping[str, Any]) -> ScopedStatusClaim:
     )
 
 
+def _validate_technology_stack(payload: Mapping[str, Any]) -> None:
+    stack = payload.get("technology_stack")
+    if not isinstance(stack, dict):
+        raise ValueError("CENTER_TECHNOLOGY_STACK_REQUIRED")
+    for key, expected in REQUIRED_TECH_STACK.items():
+        actual = stack.get(key)
+        if actual != expected:
+            raise ValueError("CENTER_TECHNOLOGY_STACK_MISMATCH:%s:%s!=%s" % (key, actual, expected))
+
+
 def validate(path: Path, root: Path) -> Dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("schema_version") != 1:
         raise ValueError("GOVERNANCE_SCHEMA_VERSION_UNSUPPORTED")
 
+    _validate_technology_stack(payload)
+
     contract_refs = _strings(payload.get("frozen_contract_refs", []), "frozen_contract_refs")
     if not contract_refs:
         raise ValueError("FROZEN_CONTRACT_REFS_REQUIRED")
+    if REQUIRED_TECH_STACK_CONTRACT not in contract_refs:
+        raise ValueError("CENTER_TECHNOLOGY_STACK_CONTRACT_MUST_BE_FROZEN")
     missing_contracts = [ref for ref in contract_refs if not (root / ref).is_file()]
     if missing_contracts:
         raise ValueError("FROZEN_CONTRACT_MISSING:%s" % ",".join(missing_contracts))
@@ -144,11 +179,20 @@ def validate(path: Path, root: Path) -> Dict[str, Any]:
     if typed["TOOL:MAVEN_JUNIT"].scope == typed["LAYER:L1"].scope:
         raise ValueError("TOOL_LAYER_SCOPE_COLLAPSED")
 
+    # Freeze the formal Center stack as a separate incomplete capability until
+    # FastAPI/PostgreSQL/Redis/Vue/Nginx/Compose implementation and reality gates pass.
+    stack_claim = typed.get("STAGE:CENTER_PRODUCT_STACK")
+    if stack_claim is None:
+        raise ValueError("CENTER_PRODUCT_STACK_SCOPED_CLAIM_REQUIRED")
+    if stack_claim.state == ClaimState.REALITY_VERIFIED and by_id["STAGE:CENTER_PRODUCT_STACK"].get("completed_gates") != by_id["STAGE:CENTER_PRODUCT_STACK"].get("required_gates"):
+        raise ValueError("CENTER_PRODUCT_STACK_REALITY_CANNOT_SKIP_GATES")
+
     return {
         "status": "PASS",
         "schema_version": 1,
         "claim_count": len(typed),
         "contract_count": len(contract_refs),
+        "technology_stack": dict(REQUIRED_TECH_STACK),
         "claims": {claim_id: claim.state.value for claim_id, claim in typed.items()},
     }
 
