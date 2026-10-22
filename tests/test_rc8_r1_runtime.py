@@ -9,7 +9,10 @@ from rc8_runtime import RuntimeProducerKind
 from rc8_runtime.r1_runtime import CentralR1RuntimeLedger, R1ConflictError, R1TruthError, runtime_event
 
 
-def _event(*, event_id="EV-1", sequence=1, event_type="TOOL_EXECUTED"):
+_FIXED_OCCURRED_AT = 1792673151
+
+
+def _event(*, event_id="EV-1", sequence=1, event_type="TOOL_EXECUTED", occurred_at=_FIXED_OCCURRED_AT):
     return runtime_event(
         event_id=event_id,
         test_run_id="RUN-1",
@@ -23,6 +26,7 @@ def _event(*, event_id="EV-1", sequence=1, event_type="TOOL_EXECUTED"):
         attempt_id="ATT-1",
         step_id="STEP-1",
         data={"status": "PASS"},
+        occurred_at=occurred_at,
     )
 
 
@@ -38,6 +42,7 @@ def test_r1_accepts_runtime_event_and_replays_deterministically(tmp_path: Path) 
     assert events[0]["event_type"] == "TOOL_EXECUTED"
     assert events[0]["producer_kind"] == "TOOL"
     assert events[0]["plane"] == "RUNTIME"
+    assert events[0]["occurred_at"] == _FIXED_OCCURRED_AT
 
 
 def test_r1_rejects_plan_event_at_runtime_truth_boundary(tmp_path: Path) -> None:
@@ -60,6 +65,18 @@ def test_r1_duplicate_event_id_conflict_fails_closed(tmp_path: Path) -> None:
     ledger.append_runtime(_event())
     with pytest.raises(R1ConflictError, match="R1_EVENT_ID_CONFLICT:EV-1"):
         ledger.append_runtime(_event(event_type="DIFFERENT_FACT"))
+
+
+def test_r1_duplicate_event_id_with_different_occurrence_time_conflicts(tmp_path: Path) -> None:
+    ledger = CentralR1RuntimeLedger(str(tmp_path / "r1.jsonl"))
+    ledger.append_runtime(_event())
+    with pytest.raises(R1ConflictError, match="R1_EVENT_ID_CONFLICT:EV-1"):
+        ledger.append_runtime(_event(occurred_at=_FIXED_OCCURRED_AT + 1))
+
+
+def test_runtime_event_rejects_invalid_explicit_occurrence_time() -> None:
+    with pytest.raises(R1TruthError, match="RUNTIME_EVENT_OCCURRED_AT_INVALID"):
+        _event(occurred_at=-1)
 
 
 def test_r1_node_sequence_can_detect_stale_new_event(tmp_path: Path) -> None:
