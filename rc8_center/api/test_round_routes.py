@@ -112,15 +112,6 @@ def register_test_round_routes(app: FastAPI) -> None:
             )
         return value
 
-    def delivery_repository():
-        value = getattr(app.state, "delivery_repository", None)
-        if value is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="REQUIREMENT_DELIVERY_REPOSITORY_NOT_CONFIGURED",
-            )
-        return value
-
     def postgres():
         value = getattr(app.state, "postgres", None)
         if value is None:
@@ -248,55 +239,14 @@ def register_test_round_routes(app: FastAPI) -> None:
         request: TestRoundTestRunCreate,
         response: Response,
     ) -> Dict[str, Any]:
-        round_value = require_round_in_batch(production_batch_id, test_round_id)
+        require_round_in_batch(production_batch_id, test_round_id)
+        test_run_id = request.test_run_id or _default_test_run_id(test_round_id)
         try:
-            if round_value.state in {TestRoundState.COMPLETED, TestRoundState.CANCELLED}:
-                raise ValueError("TEST_ROUND_NOT_STARTABLE")
-
-            links = repository().list_round_deliveries(test_round_id)
-            if not links:
-                raise ValueError("TEST_ROUND_HAS_NO_REQUIREMENTS")
-
-            delivery_repo = delivery_repository()
-            delivery_ids: List[str] = []
-            scope_ids: List[str] = []
-            for link in links:
-                delivery = delivery_repo.get_delivery(link.delivery_id)
-                if delivery is None:
-                    raise ValueError("REQUIREMENT_DELIVERY_NOT_FOUND")
-                if delivery.production_batch_id != production_batch_id:
-                    raise ValueError("TEST_ROUND_DELIVERY_PRODUCTION_DATE_MISMATCH")
-                scopes = delivery_repo.list_scopes(link.delivery_id)
-                if not scopes:
-                    raise ValueError("TEST_ROUND_SCOPE_INCOMPLETE")
-                delivery_ids.append(link.delivery_id)
-                scope_ids.extend(scope.scope_id for scope in scopes)
-
-            store = postgres()
-            if store.get_test_run_for_round(test_round_id) is not None:
-                raise ValueError("TEST_ROUND_ALREADY_HAS_TEST_RUN")
-            test_run_id = request.test_run_id or _default_test_run_id(test_round_id)
-            if store.get_test_run(test_run_id) is not None:
-                raise ValueError("TEST_RUN_ALREADY_EXISTS")
-
-            payload = dict(request.payload)
-            payload.update(
-                {
-                    "task_scope_source": "TEST_ROUND_REQUIREMENT_DELIVERY",
-                    "test_round_id": test_round_id,
-                    "test_round_no": int(round_value.round_no),
-                    "requirement_delivery_ids": delivery_ids,
-                    "delivery_scope_ids": scope_ids,
-                }
-            )
-            row = store.create_test_run(
+            round_value, row = repository().start_runtime_mission(
+                test_round_id,
                 test_run_id,
-                production_batch_id=production_batch_id,
-                test_round_id=test_round_id,
-                payload=payload,
+                payload=request.payload,
             )
-            if round_value.state == TestRoundState.PLANNED:
-                round_value = repository().transition_round(test_round_id, TestRoundState.ACTIVE)
         except ValueError as exc:
             raise _error(exc) from exc
 
