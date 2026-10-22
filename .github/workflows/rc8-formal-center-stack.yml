@@ -9,11 +9,14 @@ on:
       - "rc8_node/**"
       - "center/**"
       - "center-web/**"
+      - "docs/rc8/production-requirement-task-model.md"
       - "scripts/rc8_formal_center_stack_test.py"
       - "scripts/rc8_formal_artifact_upload_test.py"
       - "scripts/rc8_formal_center_restart_test.py"
       - "tests/test_rc8_formal_node_agent.py"
       - "tests/test_rc8_recovery_state_contract.py"
+      - "tests/test_rc8_production_requirement_delivery.py"
+      - "tests/test_rc8_production_requirement_api.py"
       - ".github/workflows/rc8-formal-center-stack.yml"
   workflow_dispatch:
 
@@ -55,11 +58,15 @@ jobs:
       - name: Install formal Center dependencies
         run: pip install -r center/requirements.txt
       - name: Compile formal Center Python
-        run: python -m py_compile rc8_center/formal_settings.py rc8_center/formal_app.py rc8_center/formal_artifacts.py rc8_center/api/fastapi_app.py rc8_center/api/schemas.py rc8_center/infrastructure/postgres.py rc8_center/infrastructure/redis_coordination.py rc8_node/formal_agent.py
+        run: python -m py_compile rc8_center/formal_settings.py rc8_center/formal_app.py rc8_center/formal_artifacts.py rc8_center/delivery.py rc8_center/api/fastapi_app.py rc8_center/api/delivery_routes.py rc8_center/api/schemas.py rc8_center/infrastructure/postgres.py rc8_center/infrastructure/postgres_delivery.py rc8_center/infrastructure/redis_coordination.py rc8_node/formal_agent.py
       - name: Run formal Node wire-contract and recovery state regressions
         run: |
           python tests/test_rc8_formal_node_agent.py
           python tests/test_rc8_recovery_state_contract.py
+      - name: Verify production-batch requirement task organization
+        run: |
+          python tests/test_rc8_production_requirement_delivery.py
+          python tests/test_rc8_production_requirement_api.py
       - name: Apply Alembic schema
         run: alembic -c center/alembic.ini upgrade head
       - name: Run real FastAPI PostgreSQL Redis integration assertions
