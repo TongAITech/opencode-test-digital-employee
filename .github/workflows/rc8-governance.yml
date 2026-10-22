@@ -13,6 +13,7 @@ on:
       - 'rc8_center/coverage_repository.py'
       - 'rc8_center/governance_projection.py'
       - 'rc8_center/governance_event_projector.py'
+      - 'rc8_center/mission_service.py'
       - 'rc8_center/product_api.py'
       - 'rc8_center/__main__.py'
       - 'rc8_center/__init__.py'
@@ -20,6 +21,9 @@ on:
       - 'scripts/rc8_validate_governance.py'
       - 'tests/test_rc8_runtime_governance.py'
       - 'tests/test_rc8_mission_graph.py'
+      - 'tests/test_rc8_mission_graph_scopes.py'
+      - 'tests/test_rc8_mission_rework_routing.py'
+      - 'tests/test_rc8_center_mission_service.py'
       - 'tests/test_rc8_governance_manifest.py'
       - 'tests/test_rc8_governance_persistence.py'
       - 'tests/test_rc8_governance_product_api.py'
@@ -52,7 +56,7 @@ jobs:
         with:
           python-version: '3.8'
 
-      - name: Compile governance runtime, R1 projector, Center launcher and validator
+      - name: Compile governance runtime, Mission service, R1 projector, Center launcher and validator
         shell: bash
         run: |
           python -m py_compile \
@@ -66,12 +70,16 @@ jobs:
             rc8_center/coverage_repository.py \
             rc8_center/governance_projection.py \
             rc8_center/governance_event_projector.py \
+            rc8_center/mission_service.py \
             rc8_center/product_api.py \
             rc8_center/__main__.py \
             rc8_center/__init__.py \
             scripts/rc8_validate_governance.py \
             tests/test_rc8_runtime_governance.py \
             tests/test_rc8_mission_graph.py \
+            tests/test_rc8_mission_graph_scopes.py \
+            tests/test_rc8_mission_rework_routing.py \
+            tests/test_rc8_center_mission_service.py \
             tests/test_rc8_governance_manifest.py \
             tests/test_rc8_governance_persistence.py \
             tests/test_rc8_governance_product_api.py \
@@ -83,13 +91,16 @@ jobs:
         run: |
           python scripts/rc8_validate_governance.py
 
-      - name: Run no-discount, R1 replay, persistence and product projection regressions
+      - name: Run no-discount, scope/rework, R1 replay, persistence and product projection regressions
         shell: bash
         run: |
           python -m pip install --disable-pip-version-check pytest
           python -m pytest -q \
             tests/test_rc8_runtime_governance.py \
             tests/test_rc8_mission_graph.py \
+            tests/test_rc8_mission_graph_scopes.py \
+            tests/test_rc8_mission_rework_routing.py \
+            tests/test_rc8_center_mission_service.py \
             tests/test_rc8_governance_manifest.py \
             tests/test_rc8_governance_persistence.py \
             tests/test_rc8_governance_product_api.py \
