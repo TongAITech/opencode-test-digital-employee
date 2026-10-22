@@ -9,6 +9,7 @@ Business truth:
 """
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -91,7 +92,11 @@ class RequirementDelivery:
         if target == self.state:
             return self
         if target not in _ALLOWED_DELIVERY_TRANSITIONS[self.state]:
-            raise ValueError("REQUIREMENT_DELIVERY_TERMINAL_STATE_IMMUTABLE" if self.state in TERMINAL_DELIVERY_STATES else "REQUIREMENT_DELIVERY_STATE_TRANSITION_INVALID")
+            raise ValueError(
+                "REQUIREMENT_DELIVERY_TERMINAL_STATE_IMMUTABLE"
+                if self.state in TERMINAL_DELIVERY_STATES
+                else "REQUIREMENT_DELIVERY_STATE_TRANSITION_INVALID"
+            )
         return RequirementDelivery(
             delivery_id=self.delivery_id,
             production_batch_id=self.production_batch_id,
@@ -117,7 +122,14 @@ class RequirementDeliveryScope:
 
     @property
     def scope_identity(self) -> str:
-        return "|".join(
+        """Stable compact identity for delivery/system-version/application/SST.
+
+        Raw identifiers can legally approach their individual API limits and are
+        unsafe as a wide PostgreSQL unique-index key. Hash the normalized tuple
+        so duplicate detection is independent of identifier length while the
+        original values remain stored in explicit columns for product display.
+        """
+        canonical = "\x1f".join(
             [
                 self.delivery_id.strip(),
                 self.system_id.strip(),
@@ -126,6 +138,7 @@ class RequirementDeliveryScope:
                 self.sst_id.strip(),
             ]
         )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
