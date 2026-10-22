@@ -17,6 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from rc8_center.control_plane import CenterControlError, NodeStatus
 from rc8_center.formal_settings import CenterSettings
 from rc8_center.infrastructure import PostgresStore, RedisCoordination
+from rc8_center.recovery import RecoveryResolution
+from rc8_center.recovery_service import RecoveryError
 from rc8_runtime import (
     CapabilityQualification,
     CapabilityState,
@@ -32,6 +34,7 @@ from .schemas import (
     LeaseRequest,
     NodeHeartbeatRequest,
     NodeRegistrationRequest,
+    RecoveryResolveRequest,
     RuntimeEventRequest,
     WorkItemRegistrationRequest,
 )
@@ -102,6 +105,19 @@ def _control_http_error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=code, detail=detail)
 
 
+def _recovery_http_error(exc: Exception) -> HTTPException:
+    detail = str(exc)
+    conflict_prefixes = (
+        "RESET_READY_",
+        "REQUEUE_",
+        "ABORT_",
+        "STALE_LEASE_",
+        "RECOVERY_RESOLUTION_IMMUTABLE",
+    )
+    code = status.HTTP_409_CONFLICT if detail.startswith(conflict_prefixes) else status.HTTP_400_BAD_REQUEST
+    return HTTPException(status_code=code, detail=detail)
+
+
 def create_app(
     *,
     settings: Optional[CenterSettings] = None,
@@ -109,6 +125,7 @@ def create_app(
     redis_coordination: Optional[RedisCoordination] = None,
     governance_projection: Optional[object] = None,
     formal_control: Optional[object] = None,
+    recovery_coordinator: Optional[object] = None,
     product_application: Optional[object] = None,
 ) -> FastAPI:
     cfg = settings or CenterSettings()
@@ -124,12 +141,19 @@ def create_app(
     app.state.redis_coordination = redis_coordination
     app.state.governance_projection = governance_projection
     app.state.formal_control = formal_control
+    app.state.recovery_coordinator = recovery_coordinator
     app.state.product_application = product_application
 
     def control() -> object:
         value = app.state.formal_control
         if value is None:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="FORMAL_CONTROL_NOT_CONFIGURED")
+        return value
+
+    def recovery() -> object:
+        value = app.state.recovery_coordinator
+        if value is None:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="RECOVERY_COORDINATOR_NOT_CONFIGURED")
         return value
 
     @app.get("/health", response_model=HealthView)
@@ -159,6 +183,7 @@ def create_app(
                 "redis_authoritative": False,
                 "ui_may_infer_pass": False,
                 "runtime_write_requires_pg_and_redis_lease_token": True,
+                "lost_lease_never_blind_replays": True,
                 "stdlib_http_role": "MINIMAL_PROTOCOL_TEST_ADAPTER_ONLY",
             },
         }
@@ -289,5 +314,35 @@ def create_app(
             return {"work_item": _jsonable(control().complete_work_item(work_item_id, request.node_id, request.lease_id))}
         except (CenterControlError, ValueError) as exc:
             raise _control_http_error(exc) from exc
+
+    @app.post("/api/v1/recovery/reconcile")
+    def reconcile_recovery() -> Dict[str, Any]:
+        try:
+            incidents = recovery().reconcile()
+            return {"items": _jsonable(incidents), "count": len(incidents), "truth_note": "LOST_LEASE_NEVER_BLIND_REPLAYS"}
+        except (RecoveryError, ValueError) as exc:
+            raise _recovery_http_error(exc) from exc
+
+    @app.get("/api/v1/recovery/incidents")
+    def list_recovery_incidents() -> Dict[str, Any]:
+        try:
+            incidents = recovery().list_open()
+            return {"items": _jsonable(incidents), "count": len(incidents)}
+        except (RecoveryError, ValueError) as exc:
+            raise _recovery_http_error(exc) from exc
+
+    @app.post("/api/v1/recovery/incidents/{incident_id}/resolve")
+    def resolve_recovery(incident_id: str, request: RecoveryResolveRequest) -> Dict[str, Any]:
+        try:
+            incident = recovery().resolve(
+                incident_id,
+                RecoveryResolution(request.resolution),
+                decision_ref=request.decision_ref,
+                evidence_ref=request.evidence_ref,
+                explanation=request.explanation,
+            )
+            return {"incident": _jsonable(incident)}
+        except (RecoveryError, ValueError) as exc:
+            raise _recovery_http_error(exc) from exc
 
     return app
