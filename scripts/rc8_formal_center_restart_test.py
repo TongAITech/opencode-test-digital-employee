@@ -14,6 +14,19 @@ from pathlib import Path
 import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from rc8_node import FormalNodeAgent, HttpCenterClient
+from rc8_runtime import (
+    ArtifactAvailability,
+    CapabilityQualification,
+    CapabilityState,
+    NodeIdentity,
+    RuntimeProducerKind,
+    runtime_event,
+)
+from rc8_runtime.artifacts import ArtifactManifest
 
 
 def free_port() -> int:
@@ -50,17 +63,9 @@ def stop_process(process: subprocess.Popen) -> None:
         process.wait(timeout=5)
 
 
-def must(response: httpx.Response, code: int) -> dict:
-    if response.status_code != code:
-        raise AssertionError("HTTP_%s_EXPECTED_%s:%s" % (response.status_code, code, response.text))
-    return response.json()
-
-
 def main() -> int:
     database_url = os.environ["RC8_DATABASE_URL"]
     redis_base = os.environ["RC8_REDIS_URL"]
-    # Use a separate Redis logical DB so this process-level recovery test cannot
-    # destroy transient state belonging to the preceding integration assertions.
     redis_url = redis_base.rsplit("/", 1)[0] + "/1"
 
     with tempfile.TemporaryDirectory(prefix="rc8-center-restart-") as temp_dir:
@@ -106,149 +111,156 @@ def main() -> int:
 
         process = start_center()
         try:
-            client = httpx.Client(base_url=base, timeout=5.0)
+            center = HttpCenterClient(base, timeout_seconds=5)
             run_id = "restart-it-%s" % uuid.uuid4().hex[:10]
             node_id = "node-restart-it"
             work_item_id = "work-%s" % uuid.uuid4().hex[:8]
             attempt_id = "attempt-%s" % uuid.uuid4().hex[:8]
             artifact_id = "restart-art-%s" % uuid.uuid4().hex[:8]
+            identity = NodeIdentity(
+                node_id=node_id,
+                operator_ref="restart-test",
+                os_family="linux",
+                architecture="x86_64",
+                shell="bash",
+                registered_at=1,
+            )
+            agent = FormalNodeAgent(identity, center)
 
-            must(client.post("/api/v1/test-runs", json={"test_run_id": run_id}), 201)
-            must(client.post("/api/v1/nodes/register", json={
-                "node_id": node_id,
-                "operator_ref": "restart-test",
-                "os_family": "linux",
-                "architecture": "x86_64",
-                "shell": "bash",
-                "registered_at": 1,
-            }), 200)
-            must(client.post("/api/v1/nodes/%s/capabilities" % node_id, json={
-                "capability_id": "maven-junit",
-                "state": "VERIFIED",
-                "probe_ref": "probe:restart",
-                "evidence_refs": ["artifact:restart-probe"],
-                "verified_at": 2,
-            }), 200)
-            must(client.post("/api/v1/work-items/register", json={
+            center.post("/api/v1/test-runs", {"test_run_id": run_id})
+            agent.register()
+            agent.report_capability(CapabilityQualification(
+                node_id=node_id,
+                capability_id="maven-junit",
+                state=CapabilityState.VERIFIED,
+                probe_ref="probe:restart",
+                evidence_refs=["artifact:restart-probe"],
+                verified_at=2,
+            ))
+            center.post("/api/v1/work-items/register", {
                 "work_item_id": work_item_id,
                 "test_run_id": run_id,
                 "stage": "L1_EXECUTION",
                 "scope_refs": ["scope:restart-it@v1"],
                 "required_capabilities": ["maven-junit"],
-            }), 200)
-            lease = must(client.post("/api/v1/work-items/%s/lease" % work_item_id, json={
-                "node_id": node_id,
-                "ttl_seconds": 300,
-            }), 200)["work_item"]["lease_id"]
-            must(client.post("/api/v1/work-items/%s/start" % work_item_id, json={
-                "node_id": node_id,
-                "lease_id": lease,
-            }), 200)
+            })
+            lease_response = agent.lease(work_item_id, ttl_seconds=300)
+            lease = FormalNodeAgent.lease_id(lease_response)
+            agent.start(work_item_id, lease_id=lease)
 
-            # Use a stage instance generated through the existing governance path is
-            # not yet exposed as a formal public API. The projector accepts the
-            # runtime event but cannot materialize Attempt without a Stage, so this
-            # restart test focuses on R1 persistence + Artifact resume. Governance
-            # completion is separately covered by the formal Artifact integration test.
+            # The formal public API does not yet expose Mission Stage creation.
+            # Therefore this scoped restart test intentionally leaves projection
+            # PENDING on an unknown stage while proving that the canonical R1 fact
+            # itself survives process loss. Full Stage/Attempt replay is covered by
+            # the formal governance integration and is not inferred from this test.
             stage_id = "stage-restart-%s" % uuid.uuid4().hex[:8]
-            start_payload = {
-                "lease_id": lease,
-                "event_id": "evt-start-%s" % uuid.uuid4().hex[:8],
-                "test_run_id": run_id,
-                "work_item_id": work_item_id,
-                "node_id": node_id,
-                "producer_kind": "WORKER",
-                "producer_ref": "L1UnitWorker",
-                "event_type": "ATTEMPT_STARTED",
-                "sequence": 1,
-                "attempt_id": attempt_id,
-                "refs": [],
-                "data": {
+            event = runtime_event(
+                event_id="evt-start-%s" % uuid.uuid4().hex[:8],
+                test_run_id=run_id,
+                work_item_id=work_item_id,
+                node_id=node_id,
+                producer_kind=RuntimeProducerKind.WORKER,
+                producer_ref="L1UnitWorker",
+                event_type="ATTEMPT_STARTED",
+                sequence=1,
+                attempt_id=attempt_id,
+                data={
                     "stage_instance_id": stage_id,
                     "input_snapshot_ref": "git:restart-it",
                     "started_at": 101,
                 },
-                "occurred_at": 101,
-            }
-            # Unknown Stage means projection may remain pending, but R1 persistence
-            # must still succeed before the process is killed.
-            started = must(client.post("/api/v1/runtime-events", json=start_payload), 200)
+                occurred_at=101,
+            )
+            started = agent.append_runtime_event(event, lease_id=lease)
             assert started["receipt"]["status"] == "PERSISTENCE_VERIFIED"
 
             content = b"restart-proof-artifact-content-0123456789"
+            source_file = root / "restart-proof.bin"
+            source_file.write_bytes(content)
             digest = hashlib.sha256(content).hexdigest()
-            manifest = {
-                "lease_id": lease,
-                "artifact_id": artifact_id,
-                "test_run_id": run_id,
-                "work_item_id": work_item_id,
-                "node_id": node_id,
-                "kind": "RESTART_PROOF",
-                "producer_kind": "WORKER",
-                "producer_ref": "L1UnitWorker",
-                "file_name": "restart-proof.bin",
-                "sha256": digest,
-                "size_bytes": len(content),
-                "attempt_id": attempt_id,
-                "refs": [],
-                "metadata": {"phase": "before-restart"},
-                "created_at": 102,
-            }
-            begin = must(client.post("/api/v1/artifacts/begin", json=manifest), 201)
-            assert begin["offset"] == 0
-            split = len(content) // 2
-            headers = {
-                "X-RC8-Node-Id": node_id,
-                "X-RC8-Lease-Id": lease,
-                "Content-Type": "application/octet-stream",
-            }
-            first = must(client.put(
-                "/api/v1/artifacts/%s/content?offset=0" % artifact_id,
-                headers=headers,
-                content=content[:split],
-            ), 200)
-            assert first["offset"] == split
-            client.close()
+            manifest = ArtifactManifest(
+                artifact_id=artifact_id,
+                test_run_id=run_id,
+                work_item_id=work_item_id,
+                node_id=node_id,
+                kind="RESTART_PROOF",
+                producer_kind=RuntimeProducerKind.WORKER,
+                producer_ref="L1UnitWorker",
+                file_name="restart-proof.bin",
+                sha256=digest,
+                size_bytes=len(content),
+                availability=ArtifactAvailability.PENDING_UPLOAD,
+                attempt_id=attempt_id,
+                refs=[],
+                metadata={"phase": "before-restart"},
+                created_at=102,
+            )
 
-            # Real process termination: no in-memory repository/service object can
-            # survive. PostgreSQL, Redis, R1 file and Artifact .part remain durable.
+            # Start the transfer through the exact formal protocol and upload only
+            # half. The second half is deliberately delegated to FormalNodeAgent
+            # after the Center process has been destroyed and recreated.
+            begin_payload = {
+                "lease_id": lease,
+                "artifact_id": manifest.artifact_id,
+                "test_run_id": manifest.test_run_id,
+                "work_item_id": manifest.work_item_id,
+                "node_id": manifest.node_id,
+                "kind": manifest.kind,
+                "producer_kind": manifest.producer_kind.value,
+                "producer_ref": manifest.producer_ref,
+                "file_name": manifest.file_name,
+                "sha256": manifest.sha256,
+                "size_bytes": manifest.size_bytes,
+                "case_id": manifest.case_id,
+                "attempt_id": manifest.attempt_id,
+                "step_id": manifest.step_id,
+                "refs": list(manifest.refs),
+                "metadata": dict(manifest.metadata),
+                "created_at": manifest.created_at,
+            }
+            begun = center.post("/api/v1/artifacts/begin", begin_payload)
+            assert begun["offset"] == 0
+            split = len(content) // 2
+            first = center.put_bytes(
+                "/api/v1/artifacts/%s/content?offset=0" % artifact_id,
+                content[:split],
+                headers={"X-RC8-Node-Id": node_id, "X-RC8-Lease-Id": lease},
+            )
+            assert first["offset"] == split
+
+            # Real process termination: no application/service object survives.
             stop_process(process)
             process = start_center()
-            client = httpx.Client(base_url=base, timeout=5.0)
 
-            resumed = must(client.get(
+            # Recreate both HTTP client and formal Node agent. No hidden in-memory
+            # lease/session state is carried over; the explicit durable lease token
+            # and Center stores are enough to resume the exact byte offset.
+            center = HttpCenterClient(base, timeout_seconds=5)
+            agent = FormalNodeAgent(identity, center)
+            resumed = center.get(
                 "/api/v1/artifacts/%s/upload-status" % artifact_id,
                 headers={"X-RC8-Node-Id": node_id, "X-RC8-Lease-Id": lease},
-            ), 200)
+            )
             assert resumed["offset"] == split
             assert resumed["manifest"]["availability"] == "UPLOADING"
 
-            second = must(client.put(
-                "/api/v1/artifacts/%s/content?offset=%d" % (artifact_id, split),
-                headers=headers,
-                content=content[split:],
-            ), 200)
-            assert second["offset"] == len(content)
-            completed = must(client.post(
-                "/api/v1/artifacts/%s/complete" % artifact_id,
-                json={"node_id": node_id, "lease_id": lease},
-            ), 200)
+            completed = agent.upload_artifact_file(
+                manifest,
+                str(source_file),
+                lease_id=lease,
+                chunk_size=7,
+            )
             assert completed["manifest"]["availability"] == "AVAILABLE"
-
-            must(client.post("/api/v1/work-items/%s/complete" % work_item_id, json={
-                "node_id": node_id,
-                "lease_id": lease,
-            }), 200)
+            agent.complete(work_item_id, lease_id=lease)
 
             final_file = artifact_root / "available" / artifact_id / "restart-proof.bin"
             assert final_file.read_bytes() == content
-            assert (r1_root / "event-stream.jsonl").exists()
-            assert (r1_root / "event-stream.jsonl").read_text(encoding="utf-8").strip()
+            ledger_path = r1_root / "event-stream.jsonl"
+            assert ledger_path.exists() and ledger_path.read_text(encoding="utf-8").strip()
 
-            client.close()
             print({
-                "status": "FORMAL_CENTER_PROCESS_RESTART_RECOVERY_VERIFIED",
-                "scope": "PG_REDIS_R1_PARTIAL_ARTIFACT_RESUME_AFTER_REAL_UVICORN_RESTART",
+                "status": "FORMAL_NODE_CENTER_PROCESS_RESTART_RECOVERY_VERIFIED",
+                "scope": "FORMAL_NODE_EXPLICIT_LEASE_R1_PARTIAL_ARTIFACT_RESUME_AFTER_REAL_UVICORN_RESTART",
                 "test_run_id": run_id,
                 "artifact_id": artifact_id,
                 "mission_sufficient": False,
