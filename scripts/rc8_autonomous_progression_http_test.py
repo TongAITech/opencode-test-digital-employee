@@ -184,7 +184,7 @@ def main() -> int:
             "/api/v1/artifacts/%s/complete" % artifact_id,
             {"node_id": node_id, "lease_id": first_lease_id},
         )
-        assert available["artifact"]["availability"] == "AVAILABLE"
+        assert available["manifest"]["availability"] == "AVAILABLE"
 
         completed_attempt = _post(client, "/api/v1/runtime-events", _runtime_payload(
             lease_id=first_lease_id,
