@@ -1,0 +1,89 @@
+name: RC8 Autonomous Mission Progression
+
+on:
+  push:
+    branches: ["work/rc8"]
+    paths:
+      - "rc8_center/autonomous_progression.py"
+      - "rc8_center/autonomous_formal_app.py"
+      - "rc8_center/formal_app.py"
+      - "rc8_center/formal_control.py"
+      - "rc8_center/mission_service.py"
+      - "rc8_center/mission_planner.py"
+      - "rc8_center/api/claim_routes.py"
+      - "rc8_center/api/test_round_routes.py"
+      - "rc8_center/infrastructure/**"
+      - "rc8_node/autonomous_claim_client.py"
+      - "scripts/rc8_autonomous_progression_http_test.py"
+      - "tests/test_rc8_autonomous_progression.py"
+      - ".github/workflows/rc8-autonomous-progression.yml"
+  workflow_dispatch:
+
+jobs:
+  real-http-autonomous-handoff:
+    runs-on: ubuntu-latest
+    services:
+      postgresql:
+        image: postgres:16
+        env:
+          POSTGRES_DB: rc8
+          POSTGRES_USER: rc8
+          POSTGRES_PASSWORD: rc8
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rc8 -d rc8"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      RC8_DATABASE_URL: postgresql+psycopg://rc8:rc8@127.0.0.1:5432/rc8
+      RC8_REDIS_URL: redis://127.0.0.1:6379/0
+      RC8_R1_ROOT: /tmp/rc8-autonomous/r1
+      RC8_ARTIFACT_ROOT: /tmp/rc8-autonomous/artifacts
+      RC8_CENTER_URL: http://127.0.0.1:18080
+      PYTHONPATH: ${{ github.workspace }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install formal Center dependencies
+        run: pip install -r center/requirements.txt pytest
+      - name: Compile autonomous handoff slice
+        run: |
+          python -m py_compile \
+            rc8_center/autonomous_progression.py \
+            rc8_center/autonomous_formal_app.py \
+            rc8_center/formal_app.py \
+            rc8_center/formal_control.py \
+            rc8_center/api/claim_routes.py \
+            rc8_node/autonomous_claim_client.py \
+            scripts/rc8_autonomous_progression_http_test.py \
+            tests/test_rc8_autonomous_progression.py
+      - name: Verify evidence gate unit contracts
+        run: python -m pytest -q tests/test_rc8_autonomous_progression.py
+      - name: Apply formal PostgreSQL schema
+        run: alembic -c center/alembic.ini upgrade head
+      - name: Start autonomous formal Center
+        run: |
+          mkdir -p "$RC8_R1_ROOT" "$RC8_ARTIFACT_ROOT"
+          python -m uvicorn rc8_center.autonomous_formal_app:app --host 127.0.0.1 --port 18080 > /tmp/rc8-autonomous-center.log 2>&1 &
+          echo $! > /tmp/rc8-autonomous-center.pid
+      - name: Prove TestRound to evidence-gated downstream autonomous claim
+        run: python scripts/rc8_autonomous_progression_http_test.py
+      - name: Preserve Center log on failure context
+        if: always()
+        run: |
+          cat /tmp/rc8-autonomous-center.log || true
+          if test -f /tmp/rc8-autonomous-center.pid; then kill "$(cat /tmp/rc8-autonomous-center.pid)" || true; fi
