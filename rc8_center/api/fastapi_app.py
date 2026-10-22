@@ -49,12 +49,14 @@ class TestRunCreate(BaseModel):
 
     test_run_id: str = Field(min_length=1, max_length=160)
     production_batch_id: Optional[str] = Field(default=None, max_length=160)
+    test_round_id: Optional[str] = Field(default=None, max_length=200)
     payload: Dict[str, Any] = Field(default_factory=dict)
 
 
 class TestRunView(BaseModel):
     test_run_id: str
     production_batch_id: Optional[str] = None
+    test_round_id: Optional[str] = None
     status_scope: str
     current_state: str
     created_at: int
@@ -86,6 +88,7 @@ def _test_run_view(row: Any) -> TestRunView:
     return TestRunView(
         test_run_id=str(row.test_run_id),
         production_batch_id=str(row.production_batch_id) if row.production_batch_id is not None else None,
+        test_round_id=str(row.test_round_id) if getattr(row, "test_round_id", None) is not None else None,
         status_scope=str(row.status_scope),
         current_state=str(row.current_state),
         created_at=int(row.created_at),
@@ -232,9 +235,14 @@ def create_app(
         store: Optional[PostgresStore] = app.state.postgres
         if store is None:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="POSTGRES_NOT_CONFIGURED")
+        if request.production_batch_id is not None or request.test_round_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="USE_TEST_ROUND_START_API_FOR_PRODUCTION_MISSION",
+            )
         if store.get_test_run(request.test_run_id) is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="TEST_RUN_ALREADY_EXISTS")
-        row = store.create_test_run(request.test_run_id, production_batch_id=request.production_batch_id, payload=request.payload)
+        row = store.create_test_run(request.test_run_id, payload=request.payload)
         response.headers["Location"] = "/api/v1/test-runs/%s" % request.test_run_id
         return _test_run_view(row)
 
