@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,6 +16,7 @@ class ClaimNextRequest(BaseModel):
 
     ttl_seconds: int = Field(default=60, ge=5, le=3600)
     test_run_id: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    stage_types: Optional[List[str]] = Field(default=None, max_length=64)
 
 
 def _jsonable(value: Any) -> Any:
@@ -57,6 +58,7 @@ def register_claim_routes(app: FastAPI) -> None:
                 node_id,
                 ttl_seconds=request.ttl_seconds,
                 test_run_id=request.test_run_id,
+                allowed_stage_types=request.stage_types,
             )
             if claimed is None:
                 return {
@@ -70,7 +72,7 @@ def register_claim_routes(app: FastAPI) -> None:
                 "claimed": True,
                 "work_item": _jsonable(claimed),
                 "stage_instance_id": stage_instance_id,
-                "truth_note": "POSTGRES_CANDIDATE_REDIS_LEASE_CAS_POSTGRES_MIRROR",
+                "truth_note": "POSTGRES_CANDIDATE_STAGE_FILTER_CAPABILITY_FILTER_REDIS_LEASE_CAS_POSTGRES_MIRROR",
             }
         except (CenterControlError, ValueError) as exc:
             raise _error(exc) from exc
