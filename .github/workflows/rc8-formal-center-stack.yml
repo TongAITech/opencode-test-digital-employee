@@ -99,18 +99,29 @@ jobs:
       - name: Typecheck and build frozen 13-route product shell
         working-directory: center-web
         run: npm run build
-      - name: Verify frozen navigation routes and no dashboard-first regression
+      - name: Verify frozen navigation and production-first task entry
         run: |
           python - <<'PY'
           from pathlib import Path
           router = Path('center-web/src/router.ts').read_text(encoding='utf-8')
           app = Path('center-web/src/App.vue').read_text(encoding='utf-8')
+          production = Path('center-web/src/components/ProductionPage.vue').read_text(encoding='utf-8')
+          test_run = Path('center-web/src/components/TestRunPage.vue').read_text(encoding='utf-8')
+          production_store = Path('center-web/src/stores/productionBatches.ts').read_text(encoding='utf-8')
           required = ['投产管理','版本管理','需求管理','代码分析','业务流程','测试接口','测试用例','测试任务','测试报告','缺陷管理','知识库','执行节点','系统信息']
           for name in required:
               assert name in router, name
               assert name in app, name
+          assert "redirect: '/productions'" in router
+          assert '先确定投产日' in production
+          assert '系统版本' in production
+          assert 'SST' in production
+          assert '/production-batches/' in production_store
+          assert '/test-runs' in production_store
+          assert '前往投产管理' in test_run
+          assert 'createRun' not in test_run
           assert 'Dashboard' not in router
-          print('RC8_VUE_13_ROUTE_PRODUCT_SHELL_PASS')
+          print('RC8_VUE_PRODUCTION_FIRST_TASK_ENTRY_PASS')
           PY
 
   container-contract:
