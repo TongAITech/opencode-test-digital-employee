@@ -14,10 +14,12 @@ from .coverage_repository import JsonFileCoverageRepository
 from .governance_projection import GovernanceProjectionService
 from .governance_repository import JsonFileGovernanceRepository
 from .json_repository import DurableRepositoryError, JsonFileArtifactRepository, JsonFileCenterRepository
+from .product_api import CenterProductApplication
 
 __all__ = [
     "CenterControlError",
     "CenterControlPlane",
+    "CenterProductApplication",
     "CenterRepository",
     "DurableRepositoryError",
     "GovernanceProjectionService",
