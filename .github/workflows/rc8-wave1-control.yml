@@ -9,6 +9,8 @@ on:
       - 'rc8_node/**'
       - 'rc8_runtime/**'
       - 'packaging/rc8/**'
+      - 'docs/rc8/RC8-CODEGRAPH-REALITY-RUNBOOK.md'
+      - 'docs/rc8/RC8-CODE-ANALYSIS-REALITY-RUNBOOK.md'
       - 'tests/test_rc8_center_control.py'
       - 'tests/test_rc8_center_node_http.py'
       - 'tests/test_rc8_artifact_sync.py'
@@ -23,6 +25,8 @@ on:
       - 'tests/test_rc8_maven_reality_runner.py'
       - 'tests/test_rc8_codegraph_adapter.py'
       - 'tests/test_rc8_codegraph_reality_runner.py'
+      - 'tests/test_rc8_code_analysis.py'
+      - 'tests/test_rc8_code_analysis_reality_runner.py'
       - '.github/workflows/rc8-wave1-control.yml'
   workflow_dispatch:
 
@@ -36,7 +40,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -62,6 +66,8 @@ jobs:
             rc8_node/reality_maven.py \
             rc8_node/codegraph.py \
             rc8_node/reality_codegraph.py \
+            rc8_node/code_analysis.py \
+            rc8_node/reality_code_analysis.py \
             rc8_node/__main__.py \
             packaging/rc8/build-w1-reality-package.py \
             tests/test_rc8_center_control.py \
@@ -77,7 +83,9 @@ jobs:
             tests/test_rc8_work_item_execution.py \
             tests/test_rc8_maven_reality_runner.py \
             tests/test_rc8_codegraph_adapter.py \
-            tests/test_rc8_codegraph_reality_runner.py
+            tests/test_rc8_codegraph_reality_runner.py \
+            tests/test_rc8_code_analysis.py \
+            tests/test_rc8_code_analysis_reality_runner.py
       - name: Verify canonical shell entrypoints and durable node-state guard
         shell: bash
         run: |
@@ -85,10 +93,11 @@ jobs:
           bash packaging/rc8/rc8-center.sh --help >/dev/null
           bash packaging/rc8/rc8-maven-reality.sh --help >/dev/null
           bash packaging/rc8/rc8-codegraph-reality.sh --help >/dev/null
+          bash packaging/rc8/rc8-code-analysis-reality.sh --help >/dev/null
           STATE_A="$PWD/.ci-node-state-a"
           STATE_B="$PWD/.ci-node-state-b"
           mkdir -p "$STATE_A" "$STATE_B"
-          for entry in rc8-node.sh rc8-maven-reality.sh rc8-codegraph-reality.sh; do
+          for entry in rc8-node.sh rc8-maven-reality.sh rc8-codegraph-reality.sh rc8-code-analysis-reality.sh; do
             LOG="$PWD/.ci-${entry}.log"
             if RC8_NODE_STATE="$STATE_A" bash "packaging/rc8/$entry" --state-dir "$STATE_B" --help >"$LOG" 2>&1; then
               echo "$entry accepted divergent durable node state" >&2
@@ -120,7 +129,9 @@ jobs:
             tests/test_rc8_work_item_execution.py \
             tests/test_rc8_maven_reality_runner.py \
             tests/test_rc8_codegraph_adapter.py \
-            tests/test_rc8_codegraph_reality_runner.py
+            tests/test_rc8_codegraph_reality_runner.py \
+            tests/test_rc8_code_analysis.py \
+            tests/test_rc8_code_analysis_reality_runner.py
 
   package:
     needs: control-contracts
@@ -131,7 +142,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.8'
-      - name: Build complete standalone W1 bank reality package
+      - name: Build complete standalone W1/W2 bank reality package
         shell: bash
         run: |
           rm -rf dist
@@ -145,7 +156,11 @@ jobs:
               names = zf.namelist()
               assert any(name.endswith('/rc8_node/reality_maven.py') for name in names)
               assert any(name.endswith('/rc8_node/reality_codegraph.py') for name in names)
+              assert any(name.endswith('/rc8_node/code_analysis.py') for name in names)
+              assert any(name.endswith('/rc8_node/reality_code_analysis.py') for name in names)
               assert any(name.endswith('/packaging/rc8/rc8-codegraph-reality.sh') for name in names)
+              assert any(name.endswith('/packaging/rc8/rc8-code-analysis-reality.sh') for name in names)
+              assert any(name.endswith('/docs/rc8/RC8-CODE-ANALYSIS-REALITY-RUNBOOK.md') for name in names)
               assert any(name.endswith('/SHA256SUMS.txt') for name in names)
               assert any(name.endswith('/PACKAGE-MANIFEST.json') for name in names)
           PY
