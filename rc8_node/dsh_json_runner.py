@@ -248,18 +248,52 @@ class DshJsonRunner:
 
     @staticmethod
     def _last_json_object(text: str) -> Optional[Dict[str, Any]]:
+        """Return the last *outermost* JSON object embedded in text.
+
+        The previous implementation returned the last successfully decoded
+        ``{...}`` fragment.  For valid nested output such as
+        ``{"trace_links":[{"statement_ref":"A1"}]}``, that selected the
+        inner trace-link object and silently discarded the actual worker
+        result.  Prefer an exact full-text object first.  For prose-wrapped
+        output, collect parse spans, remove objects contained by another parsed
+        object, then choose the last outermost object.
+        """
+        stripped = str(text or "").strip()
+        if not stripped:
+            return None
+        try:
+            exact = json.loads(stripped)
+        except json.JSONDecodeError:
+            exact = None
+        if isinstance(exact, dict):
+            return exact
+
         decoder = json.JSONDecoder()
-        candidates: List[Dict[str, Any]] = []
+        candidates: List[Tuple[int, int, Dict[str, Any]]] = []
         for index, char in enumerate(text):
             if char != "{":
                 continue
             try:
-                value, _ = decoder.raw_decode(text[index:])
+                value, consumed = decoder.raw_decode(text[index:])
             except json.JSONDecodeError:
                 continue
             if isinstance(value, dict):
-                candidates.append(value)
-        return candidates[-1] if candidates else None
+                candidates.append((index, index + consumed, value))
+        if not candidates:
+            return None
+
+        outermost: List[Tuple[int, int, Dict[str, Any]]] = []
+        for start, end, value in candidates:
+            contained = any(
+                other_start < start and other_end >= end
+                for other_start, other_end, _other_value in candidates
+            )
+            if not contained:
+                outermost.append((start, end, value))
+        if not outermost:
+            return None
+        outermost.sort(key=lambda item: (item[0], item[1]))
+        return outermost[-1][2]
 
     @staticmethod
     def _walk_values(value: Any, keys: set) -> List[Any]:
