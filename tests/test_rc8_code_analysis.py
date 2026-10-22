@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from rc8_node.code_analysis import CodeAnalysisError, EvidenceBackedCodeAnalysisEngine, validate_semantic_analysis
+from rc8_node.code_analysis_semantic import build_semantic_request
 from rc8_node.codegraph import CodeGraphExecutableAdapter
 
 
@@ -104,6 +105,37 @@ def test_semantic_analysis_must_bind_every_claim_to_known_evidence() -> None:
     }
     with pytest.raises(CodeAnalysisError, match="SEMANTIC_ANALYSIS_UNKNOWN_EVIDENCE_REF"):
         validate_semantic_analysis(payload, ["known-ref"])
+
+
+def test_semantic_request_is_bounded_without_dropping_evidence_refs(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("rc8_node.code_analysis.CodeGraphExecutableAdapter", ContractCodeGraphAdapter)
+    repo = _repo(tmp_path)
+    result = EvidenceBackedCodeAnalysisEngine(
+        str(tmp_path / "bounded"),
+        codegraph_command="contract-codegraph",
+        initial_points=2,
+        points_step=1,
+        max_points=4,
+    ).execute(repo_path=str(repo), base_ref="HEAD~1", head_ref="HEAD")
+
+    original_refs = list(result.structured_analysis["evidence_refs"])
+    for finding in result.structured_analysis["structural_findings"]:
+        for key in ("ai_context", "callers", "callees", "dependency_graph", "impact"):
+            finding[key]["payload"] = {"blob": "x" * 50000, "tool": key}
+
+    output = tmp_path / "semantic-request.json"
+    request = build_semantic_request(
+        result,
+        output_path=str(output),
+        max_payload_chars=5000,
+        max_request_chars=20000,
+    )
+    serialized = json.dumps(request, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    assert len(serialized) <= 20000
+    assert request["context_budget"]["second_compaction_applied"] is True
+    assert request["allowed_evidence_refs"] == original_refs
+    assert all("payload_digest" in finding["impact"] for finding in request["structural_findings"])
+    assert output.is_file()
 
 
 def test_semantic_analysis_can_promote_structural_evidence_to_full_pass(monkeypatch, tmp_path: Path) -> None:
