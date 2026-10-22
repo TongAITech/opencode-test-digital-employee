@@ -24,6 +24,8 @@ RUNTIME_FILES = (
     "rc8_runtime/contracts.py",
     "rc8_runtime/artifacts.py",
     "rc8_runtime/r1_runtime.py",
+    "rc8_runtime/governance.py",
+    "rc8_runtime/mission_graph.py",
     "rc8_center/__init__.py",
     "rc8_center/__main__.py",
     "rc8_center/control_plane.py",
@@ -45,6 +47,8 @@ RUNTIME_FILES = (
     "rc8_node/dsh_semantic_worker.py",
     "rc8_node/reality_code_analysis.py",
     "rc8_node/reality_code_analysis_auto.py",
+    "governance/rc8-capability-contracts.json",
+    "scripts/rc8_validate_governance.py",
     "packaging/rc8/rc8-center.sh",
     "packaging/rc8/rc8-node.sh",
     "packaging/rc8/rc8-maven-reality.sh",
@@ -54,6 +58,13 @@ RUNTIME_FILES = (
     "docs/rc8/RC8-W1-SINGLE-NODE-VERTICAL-SLICE.md",
     "docs/rc8/RC8-CODEGRAPH-REALITY-RUNBOOK.md",
     "docs/rc8/RC8-CODE-ANALYSIS-REALITY-RUNBOOK.md",
+    "docs/rc8/RC8-NO-DISCOUNT-DELIVERY-CONTRACT.md",
+    "docs/rc8/RC8-CAPABILITY-CLOSURE-MATRIX.md",
+    "docs/rc8/RC8-L1-L7-ACCEPTANCE-CONTRACT.md",
+    "docs/rc8/RC8-MISSION-GRAPH-CONTRACT.md",
+    "docs/rc8/RC8-PRODUCT-PROJECTION-MAP.md",
+    "docs/rc8/RC8-RC7-REGRESSION-CATALOG.md",
+    "docs/rc8/RC8-WAVE-DELIVERY-GATES.md",
 )
 
 
@@ -120,14 +131,17 @@ def _write_readme(root: Path, head: str) -> str:
         "# RC8 行内 Reality 验证完整包\n\n"
         "构建 HEAD: `%s`\n\n" % head
         + "这是完整替换包，不是补丁包。解压到新目录运行；Node identity/state 必须放在版本包之外。\n\n"
-        "## 当前能力\n"
+        "## 当前能力边界\n"
         "- Center / Node / WorkItem / R1 / Artifact Sync\n"
-        "- Maven/JUnit Reality\n"
-        "- CodeGraph structural Reality\n"
-        "- 自动 Code Analysis Reality：多轮 CodeGraph + DSH Headless semantic worker + evidence gate\n\n"
+        "- Maven/JUnit Tool Reality\n"
+        "- CodeGraph Tool Reality\n"
+        "- Code Analysis 构建中的结构/语义链\n"
+        "- No-Discount Governance + Mission Graph Runtime\n\n"
+        "重要：Tool Reality 不能提升为 L1/L1-L7/TestRun 充分度。先运行 `python scripts/rc8_validate_governance.py` 可核对当前机器声明。\n\n"
         "## 1. 校验与永久 Node state\n"
         "```bash\n"
         "sha256sum -c SHA256SUMS.txt\n"
+        "python scripts/rc8_validate_governance.py\n"
         "export RC8_NODE_ID=office-pc-01\n"
         "export RC8_NODE_STATE_DIR=\"$HOME/.rc8/node-state/$RC8_NODE_ID\"\n"
         "export RC8_NODE_STATE=\"$RC8_NODE_STATE_DIR\"\n"
@@ -155,8 +169,7 @@ def _write_readme(root: Path, head: str) -> str:
         "  --project-dir /d/PFC/bloan-prod-factory-cfg-center \\\n"
         "  --codegraph /path/to/codegraph-server-win32-x64.exe --base-ref HEAD~1 --head-ref HEAD --max-points 2\n"
         "```\n\n"
-        "## 5. 自动完整 Code Analysis Reality\n"
-        "该命令只跑一次结构分析；随后生成 bounded semantic-request，由真实 DSH Headless Worker 使用运行时可见的只读文件工具读取并返回 strict JSON。\n\n"
+        "## 5. 自动 Code Analysis Reality\n"
         "```bash\n"
         "bash packaging/rc8/rc8-code-analysis-reality.sh --center http://127.0.0.1:4098 \\\n"
         "  --node-id office-pc-01 --operator test-user --state-dir \"$RC8_NODE_STATE\" \\\n"
@@ -164,11 +177,7 @@ def _write_readme(root: Path, head: str) -> str:
         "  --codegraph /path/to/codegraph-server-win32-x64.exe \\\n"
         "  --dsh dsh --base-ref HEAD~1 --head-ref HEAD\n"
         "```\n\n"
-        "如果银行 headless profile 需要显式 patch，再增加 `--dsh-patch /path/to/patch`；不要猜 patch 路径。\n\n"
-        "完整 PASS 必须同时看到：`CODE_ANALYSIS_SUFFICIENT`、`capability_state=VERIFIED`、"
-        "`semantic_source=DSH_HEADLESS_WORKER`、非空独立 DSH session、真实 read_text tool call/result、"
-        "`R1=PERSISTENCE_VERIFIED`、`WorkItem=COMPLETED`。\n\n"
-        "CI 中 DSH/CodeGraph 替身只验证协议，绝不能当作银行 Reality。详见 `docs/rc8/RC8-CODE-ANALYSIS-REALITY-RUNBOOK.md`。\n",
+        "完整 Code Analysis 仍需真实 DSH 语义分析、充分度收敛和产品投影；不能以 CodeGraph 查询成功替代。\n",
         encoding="utf-8",
     )
     return relative
@@ -177,7 +186,7 @@ def _write_readme(root: Path, head: str) -> str:
 def _write_manifest(root: Path, head: str, files: List[str]) -> str:
     relative = "PACKAGE-MANIFEST.json"
     payload: Dict[str, object] = {
-        "schema_version": "rc8.bank-reality-package.v4",
+        "schema_version": "rc8.bank-reality-package.v5",
         "package_type": "FULL_STANDALONE_REALITY_VALIDATION_PACKAGE",
         "patch_package": False,
         "git_head": head,
@@ -187,6 +196,8 @@ def _write_manifest(root: Path, head: str, files: List[str]) -> str:
             "CENTER_NODE_CONTROL",
             "R1_RUNTIME_TRUTH",
             "ARTIFACT_SYNC",
+            "NO_DISCOUNT_GOVERNANCE",
+            "MISSION_GRAPH_RUNTIME",
             "MAVEN_JUNIT_REALITY",
             "CODEGRAPH_REALITY",
             "CODE_ANALYSIS_STRUCTURAL_LOOP",
@@ -195,7 +206,7 @@ def _write_manifest(root: Path, head: str, files: List[str]) -> str:
         ],
         "external_bank_capabilities_expected": ["PYTHON_3_8_PLUS", "GIT", "JAVA_MAVEN", "CODEGRAPH", "DSH_HEADLESS"],
         "files": sorted(files),
-        "truth_note": "Package completeness is not bank Reality Verification. Full Code Analysis requires actual bank CodeGraph + actual bank DSH tool-backed semantic evidence on one unchanged snapshot.",
+        "truth_note": "Package completeness is not stage/layer/mission sufficiency. Machine governance claims remain the authoritative scoped status boundary.",
     }
     path = root / relative
     path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
@@ -225,6 +236,36 @@ def _verify_python(root: Path) -> None:
         shutil.rmtree(str(pycache), ignore_errors=True)
 
 
+def _verify_runtime_imports(root: Path) -> None:
+    code = (
+        "from rc8_runtime import MissionGraphRuntime, MissionRuntimeState, ScopedStatusClaim; "
+        "from rc8_runtime.governance import StatusScope, ClaimState; "
+        "assert MissionGraphRuntime and MissionRuntimeState and ScopedStatusClaim; "
+        "print('RC8_PACKAGE_RUNTIME_IMPORT_PASS')"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=str(root),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if proc.returncode != 0:
+        detail = (proc.stderr or b"").decode("utf-8", errors="replace")[-2000:]
+        raise RuntimeError("PACKAGE_RUNTIME_IMPORT_FAILED:%s" % detail)
+
+    governance = subprocess.run(
+        [sys.executable, "scripts/rc8_validate_governance.py"],
+        cwd=str(root),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if governance.returncode != 0:
+        detail = ((governance.stdout or b"") + (governance.stderr or b"")).decode("utf-8", errors="replace")[-2000:]
+        raise RuntimeError("PACKAGE_GOVERNANCE_VALIDATION_FAILED:%s" % detail)
+
+
 def _zip_tree(root: Path, output_zip: Path) -> None:
     output_zip.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(str(output_zip), "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
@@ -252,6 +293,7 @@ def build(repo: Path, output_dir: Path) -> Dict[str, object]:
         hashes_name, hashed_count = _write_hashes(root)
         files.append(hashes_name)
         _verify_python(root)
+        _verify_runtime_imports(root)
         _zip_tree(root, output_zip)
     return {
         "status": "PACKAGE_BUILT",
