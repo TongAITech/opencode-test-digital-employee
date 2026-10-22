@@ -1,9 +1,9 @@
 """Formal FastAPI adapter for RC8 Center.
 
 FastAPI is a thin edge. Domain truth remains in Center services/R1 and formal
-PostgreSQL/Redis infrastructure adapters. Runtime writes are accepted only
-through the formal control plane, which verifies PostgreSQL identity/state and
-the active Redis owner+lease token before R1 persistence.
+PostgreSQL/Redis infrastructure adapters. Runtime writes and Artifact writes
+are accepted only after PostgreSQL WorkItem identity/state and the active Redis
+owner+lease token agree.
 """
 from __future__ import annotations
 
@@ -11,15 +11,17 @@ from dataclasses import asdict, is_dataclass
 from enum import Enum
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, HTTPException, Response, status
+from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from rc8_center.control_plane import CenterControlError, NodeStatus
+from rc8_center.formal_artifacts import FormalArtifactError
 from rc8_center.formal_settings import CenterSettings
 from rc8_center.infrastructure import PostgresStore, RedisCoordination
 from rc8_center.recovery import RecoveryResolution
 from rc8_center.recovery_service import RecoveryError
 from rc8_runtime import (
+    ArtifactAvailability,
     CapabilityQualification,
     CapabilityState,
     NodeIdentity,
@@ -27,8 +29,10 @@ from rc8_runtime import (
     RuntimeProducerKind,
     WorkItemIdentity,
 )
+from rc8_runtime.artifacts import ArtifactManifest
 
 from .schemas import (
+    ArtifactBeginRequest,
     CapabilityRequest,
     LeasedActionRequest,
     LeaseRequest,
@@ -118,6 +122,24 @@ def _recovery_http_error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=code, detail=detail)
 
 
+def _artifact_http_error(exc: Exception) -> HTTPException:
+    detail = str(exc)
+    if detail == "ARTIFACT_NOT_FOUND":
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+    if detail.startswith((
+        "ACTIVE_WORK_ITEM_LEASE_REQUIRED",
+        "WORK_ITEM_",
+        "ARTIFACT_ID_CONFLICT",
+        "ARTIFACT_NODE_MISMATCH",
+        "ARTIFACT_OFFSET_MISMATCH",
+        "AVAILABLE_ARTIFACT_",
+    )):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+    if detail.startswith(("ARTIFACT_HASH_MISMATCH", "ARTIFACT_SIZE_MISMATCH", "ARTIFACT_SIZE_OVERFLOW")):
+        return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail)
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+
+
 def create_app(
     *,
     settings: Optional[CenterSettings] = None,
@@ -126,6 +148,7 @@ def create_app(
     governance_projection: Optional[object] = None,
     formal_control: Optional[object] = None,
     recovery_coordinator: Optional[object] = None,
+    artifact_service: Optional[object] = None,
     product_application: Optional[object] = None,
 ) -> FastAPI:
     cfg = settings or CenterSettings()
@@ -142,6 +165,7 @@ def create_app(
     app.state.governance_projection = governance_projection
     app.state.formal_control = formal_control
     app.state.recovery_coordinator = recovery_coordinator
+    app.state.artifact_service = artifact_service
     app.state.product_application = product_application
 
     def control() -> object:
@@ -154,6 +178,12 @@ def create_app(
         value = app.state.recovery_coordinator
         if value is None:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="RECOVERY_COORDINATOR_NOT_CONFIGURED")
+        return value
+
+    def artifacts() -> object:
+        value = app.state.artifact_service
+        if value is None:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="FORMAL_ARTIFACT_SERVICE_NOT_CONFIGURED")
         return value
 
     @app.get("/health", response_model=HealthView)
@@ -183,6 +213,8 @@ def create_app(
                 "redis_authoritative": False,
                 "ui_may_infer_pass": False,
                 "runtime_write_requires_pg_and_redis_lease_token": True,
+                "artifact_write_requires_pg_and_redis_lease_token": True,
+                "artifact_available_requires_size_and_sha256_verification": True,
                 "lost_lease_never_blind_replays": True,
                 "stdlib_http_role": "MINIMAL_PROTOCOL_TEST_ADAPTER_ONLY",
             },
@@ -314,6 +346,72 @@ def create_app(
             return {"work_item": _jsonable(control().complete_work_item(work_item_id, request.node_id, request.lease_id))}
         except (CenterControlError, ValueError) as exc:
             raise _control_http_error(exc) from exc
+
+    @app.post("/api/v1/artifacts/begin", status_code=status.HTTP_201_CREATED)
+    def begin_artifact(request: ArtifactBeginRequest, response: Response) -> Dict[str, Any]:
+        try:
+            values = request.model_dump()
+            lease_id = values.pop("lease_id")
+            manifest = ArtifactManifest(
+                **values,
+                producer_kind=RuntimeProducerKind(values.pop("producer_kind")),
+                availability=ArtifactAvailability.PENDING_UPLOAD,
+            )
+            result = artifacts().begin(manifest, lease_id=lease_id)
+            response.headers["Location"] = "/api/v1/artifacts/%s/upload-status" % manifest.artifact_id
+            response.headers["Upload-Offset"] = str(result["offset"])
+            return _jsonable(result)
+        except (FormalArtifactError, ValueError) as exc:
+            raise _artifact_http_error(exc) from exc
+
+    @app.get("/api/v1/artifacts/{artifact_id}/upload-status")
+    def artifact_upload_status(
+        artifact_id: str,
+        x_rc8_node_id: str = Header(alias="X-RC8-Node-Id", min_length=1),
+        x_rc8_lease_id: str = Header(alias="X-RC8-Lease-Id", min_length=1),
+    ) -> Dict[str, Any]:
+        try:
+            return _jsonable(artifacts().status(artifact_id, node_id=x_rc8_node_id, lease_id=x_rc8_lease_id))
+        except (FormalArtifactError, ValueError) as exc:
+            raise _artifact_http_error(exc) from exc
+
+    @app.put("/api/v1/artifacts/{artifact_id}/content")
+    async def upload_artifact_chunk(
+        artifact_id: str,
+        request: Request,
+        offset: int = Query(ge=0),
+        x_rc8_node_id: str = Header(alias="X-RC8-Node-Id", min_length=1),
+        x_rc8_lease_id: str = Header(alias="X-RC8-Lease-Id", min_length=1),
+    ) -> Dict[str, Any]:
+        try:
+            if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/octet-stream":
+                raise FormalArtifactError("ARTIFACT_CHUNK_CONTENT_TYPE_REQUIRED")
+            content_length = request.headers.get("content-length")
+            if content_length is not None and int(content_length) > cfg.artifact_chunk_max_bytes:
+                raise FormalArtifactError("ARTIFACT_CHUNK_TOO_LARGE")
+            data = await request.body()
+            if len(data) > cfg.artifact_chunk_max_bytes:
+                raise FormalArtifactError("ARTIFACT_CHUNK_TOO_LARGE")
+            if not data:
+                raise FormalArtifactError("ARTIFACT_EMPTY_CHUNK")
+            return _jsonable(
+                artifacts().upload_chunk(
+                    artifact_id,
+                    node_id=x_rc8_node_id,
+                    lease_id=x_rc8_lease_id,
+                    offset=offset,
+                    data=data,
+                )
+            )
+        except (FormalArtifactError, ValueError) as exc:
+            raise _artifact_http_error(exc) from exc
+
+    @app.post("/api/v1/artifacts/{artifact_id}/complete")
+    def complete_artifact(artifact_id: str, request: LeasedActionRequest) -> Dict[str, Any]:
+        try:
+            return _jsonable(artifacts().complete(artifact_id, node_id=request.node_id, lease_id=request.lease_id))
+        except (FormalArtifactError, ValueError) as exc:
+            raise _artifact_http_error(exc) from exc
 
     @app.post("/api/v1/recovery/reconcile")
     def reconcile_recovery() -> Dict[str, Any]:
