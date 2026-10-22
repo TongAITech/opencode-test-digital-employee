@@ -6,7 +6,7 @@ import time
 from typing import List, Optional
 
 from sqlalchemy import BigInteger, JSON, String, UniqueConstraint, select
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from rc8_center.revisions import DeliveryRevisionBinding, RequirementRevision, ScopeRevision
 
@@ -68,58 +68,12 @@ class PostgresRequirementRevisionRepository:
 
     def create_requirement_revision(self, value: RequirementRevision) -> RequirementRevision:
         with self.store.session() as session:
-            if session.get(RequirementRow, value.requirement_id) is None:
-                raise ValueError("REQUIREMENT_NOT_FOUND")
-            if session.get(RequirementRevisionRow, value.requirement_revision_id) is not None:
-                raise ValueError("REQUIREMENT_REVISION_ALREADY_EXISTS")
-            duplicate = session.scalar(
-                select(RequirementRevisionRow).where(
-                    RequirementRevisionRow.requirement_id == value.requirement_id,
-                    RequirementRevisionRow.revision_label == value.revision_label,
-                )
-            )
-            if duplicate is not None:
-                raise ValueError("REQUIREMENT_REVISION_LABEL_ALREADY_EXISTS")
-            if value.parent_requirement_revision_id:
-                parent = session.get(RequirementRevisionRow, value.parent_requirement_revision_id)
-                if parent is None:
-                    raise ValueError("PARENT_REQUIREMENT_REVISION_NOT_FOUND")
-                if parent.requirement_id != value.requirement_id:
-                    raise ValueError("PARENT_REQUIREMENT_REVISION_MISMATCH")
-            session.add(self._requirement_revision_row(value))
+            self._create_requirement_revision_in_session(session, value)
         return value
 
     def create_scope_revision(self, value: ScopeRevision) -> ScopeRevision:
         with self.store.session() as session:
-            requirement_revision = session.get(RequirementRevisionRow, value.requirement_revision_id)
-            if requirement_revision is None:
-                raise ValueError("REQUIREMENT_REVISION_NOT_FOUND")
-            if session.get(ScopeRevisionRow, value.scope_revision_id) is not None:
-                raise ValueError("SCOPE_REVISION_ALREADY_EXISTS")
-            duplicate = session.scalar(
-                select(ScopeRevisionRow).where(
-                    ScopeRevisionRow.requirement_revision_id == value.requirement_revision_id,
-                    ScopeRevisionRow.revision_label == value.revision_label,
-                )
-            )
-            if duplicate is not None:
-                raise ValueError("SCOPE_REVISION_LABEL_ALREADY_EXISTS")
-            if value.parent_scope_revision_id:
-                parent = session.get(ScopeRevisionRow, value.parent_scope_revision_id)
-                if parent is None:
-                    raise ValueError("PARENT_SCOPE_REVISION_NOT_FOUND")
-                if parent.requirement_revision_id != value.requirement_revision_id:
-                    parent_requirement_revision = session.get(
-                        RequirementRevisionRow, parent.requirement_revision_id
-                    )
-                    if (
-                        requirement_revision.parent_requirement_revision_id is None
-                        or parent_requirement_revision is None
-                        or requirement_revision.parent_requirement_revision_id
-                        != parent_requirement_revision.requirement_revision_id
-                    ):
-                        raise ValueError("PARENT_SCOPE_REVISION_REQUIREMENT_LINEAGE_MISMATCH")
-            session.add(self._scope_revision_row(value))
+            self._create_scope_revision_in_session(session, value)
         return value
 
     def bind_delivery(
@@ -134,33 +88,13 @@ class PostgresRequirementRevisionRepository:
             delivery = session.get(RequirementDeliveryRow, delivery_id)
             if delivery is None:
                 raise ValueError("REQUIREMENT_DELIVERY_NOT_FOUND")
-            requirement_revision = session.get(RequirementRevisionRow, requirement_revision_id)
-            if requirement_revision is None:
-                raise ValueError("REQUIREMENT_REVISION_NOT_FOUND")
-            if requirement_revision.requirement_id != delivery.requirement_id:
-                raise ValueError("DELIVERY_REQUIREMENT_REVISION_MISMATCH")
-            scope_revision = session.get(ScopeRevisionRow, scope_revision_id)
-            if scope_revision is None:
-                raise ValueError("SCOPE_REVISION_NOT_FOUND")
-            if scope_revision.requirement_revision_id != requirement_revision_id:
-                raise ValueError("DELIVERY_SCOPE_REVISION_MISMATCH")
-            existing = session.get(DeliveryRevisionBindingRow, delivery_id)
-            incoming = DeliveryRevisionBinding(
-                delivery_id=delivery_id,
-                requirement_revision_id=requirement_revision_id,
-                scope_revision_id=scope_revision_id,
-                created_at=self._now(now),
+            return self._bind_delivery_in_session(
+                session,
+                delivery,
+                requirement_revision_id,
+                scope_revision_id,
+                now=now,
             )
-            if existing is not None:
-                current = self._binding(existing)
-                if (
-                    current.requirement_revision_id != incoming.requirement_revision_id
-                    or current.scope_revision_id != incoming.scope_revision_id
-                ):
-                    raise ValueError("DELIVERY_REVISION_BINDING_IMMUTABLE")
-                return current
-            session.add(self._binding_row(incoming))
-            return incoming
 
     def ensure_delivery_binding(
         self,
@@ -170,63 +104,117 @@ class PostgresRequirementRevisionRepository:
         scope_revision_id: Optional[str] = None,
         now: Optional[int] = None,
     ) -> DeliveryRevisionBinding:
-        existing = self.get_delivery_binding(delivery_id)
-        if existing is not None:
-            if requirement_revision_id and existing.requirement_revision_id != requirement_revision_id:
-                raise ValueError("DELIVERY_REVISION_BINDING_IMMUTABLE")
-            if scope_revision_id and existing.scope_revision_id != scope_revision_id:
-                raise ValueError("DELIVERY_REVISION_BINDING_IMMUTABLE")
-            return existing
-
         with self.store.session() as session:
             delivery = session.get(RequirementDeliveryRow, delivery_id)
             if delivery is None:
                 raise ValueError("REQUIREMENT_DELIVERY_NOT_FOUND")
-            requirement_id = delivery.requirement_id
-            continuation_of = delivery.continuation_of_delivery_id
+            return self.ensure_delivery_binding_in_session(
+                session,
+                delivery,
+                requirement_revision_id=requirement_revision_id,
+                scope_revision_id=scope_revision_id,
+                now=now,
+            )
 
-        parent_binding = self.ensure_delivery_binding(continuation_of) if continuation_of else None
+    def ensure_delivery_binding_in_session(
+        self,
+        session: Session,
+        delivery: RequirementDeliveryRow,
+        *,
+        requirement_revision_id: Optional[str] = None,
+        scope_revision_id: Optional[str] = None,
+        now: Optional[int] = None,
+    ) -> DeliveryRevisionBinding:
+        """Ensure revision lineage in the caller's transaction.
+
+        Delivery insertion and revision binding can therefore commit or roll
+        back together. No product write is allowed to leave a versionless
+        Delivery merely because a later validation failed.
+        """
+        existing = session.get(DeliveryRevisionBindingRow, delivery.delivery_id)
+        if existing is not None:
+            current = self._binding(existing)
+            if requirement_revision_id and current.requirement_revision_id != requirement_revision_id:
+                raise ValueError("DELIVERY_REVISION_BINDING_IMMUTABLE")
+            if scope_revision_id and current.scope_revision_id != scope_revision_id:
+                raise ValueError("DELIVERY_REVISION_BINDING_IMMUTABLE")
+            return current
+
         timestamp = self._now(now)
+        parent_binding: Optional[DeliveryRevisionBinding] = None
+        if delivery.continuation_of_delivery_id:
+            parent_delivery = session.get(RequirementDeliveryRow, delivery.continuation_of_delivery_id)
+            if parent_delivery is None:
+                raise ValueError("CONTINUATION_DELIVERY_NOT_FOUND")
+            parent_binding = self.ensure_delivery_binding_in_session(
+                session,
+                parent_delivery,
+                now=int(parent_delivery.created_at),
+            )
 
         req_revision_id = requirement_revision_id
         if req_revision_id is None:
-            req_revision_id = self._auto_id("req-rev", requirement_id, delivery_id)
-            if self.get_requirement_revision(req_revision_id) is None:
-                self.create_requirement_revision(
-                    RequirementRevision(
-                        requirement_revision_id=req_revision_id,
-                        requirement_id=requirement_id,
-                        revision_label="AUTO-%s" % req_revision_id[-12:],
-                        parent_requirement_revision_id=(
-                            parent_binding.requirement_revision_id if parent_binding else None
-                        ),
-                        created_at=timestamp,
-                        payload={"source": "LEGACY_COMPAT_AUTO_MATERIALIZED", "delivery_id": delivery_id},
-                    )
+            req_revision_id = self._auto_id("req-rev", delivery.requirement_id, delivery.delivery_id)
+            revision = session.get(RequirementRevisionRow, req_revision_id)
+            if revision is None:
+                value = RequirementRevision(
+                    requirement_revision_id=req_revision_id,
+                    requirement_id=delivery.requirement_id,
+                    revision_label="AUTO-%s" % req_revision_id[-12:],
+                    parent_requirement_revision_id=(
+                        parent_binding.requirement_revision_id if parent_binding else None
+                    ),
+                    created_at=timestamp,
+                    payload={
+                        "source": "LEGACY_COMPAT_AUTO_MATERIALIZED",
+                        "delivery_id": delivery.delivery_id,
+                    },
                 )
+                self._create_requirement_revision_in_session(session, value)
         else:
-            revision = self.get_requirement_revision(req_revision_id)
+            revision = session.get(RequirementRevisionRow, req_revision_id)
             if revision is None:
                 raise ValueError("REQUIREMENT_REVISION_NOT_FOUND")
-            if revision.requirement_id != requirement_id:
+            if revision.requirement_id != delivery.requirement_id:
                 raise ValueError("DELIVERY_REQUIREMENT_REVISION_MISMATCH")
+            if parent_binding and revision.parent_requirement_revision_id not in {
+                None,
+                parent_binding.requirement_revision_id,
+            }:
+                raise ValueError("DELIVERY_REQUIREMENT_REVISION_LINEAGE_MISMATCH")
 
         scoped_revision_id = scope_revision_id
         if scoped_revision_id is None:
-            scoped_revision_id = self._auto_id("scope-rev", req_revision_id, delivery_id)
-            if self.get_scope_revision(scoped_revision_id) is None:
-                self.create_scope_revision(
-                    ScopeRevision(
-                        scope_revision_id=scoped_revision_id,
-                        requirement_revision_id=req_revision_id,
-                        revision_label="AUTO-%s" % scoped_revision_id[-12:],
-                        parent_scope_revision_id=(parent_binding.scope_revision_id if parent_binding else None),
-                        created_at=timestamp,
-                        payload={"source": "LEGACY_COMPAT_AUTO_MATERIALIZED", "delivery_id": delivery_id},
-                    )
+            scoped_revision_id = self._auto_id("scope-rev", req_revision_id, delivery.delivery_id)
+            scoped_revision = session.get(ScopeRevisionRow, scoped_revision_id)
+            if scoped_revision is None:
+                value = ScopeRevision(
+                    scope_revision_id=scoped_revision_id,
+                    requirement_revision_id=req_revision_id,
+                    revision_label="AUTO-%s" % scoped_revision_id[-12:],
+                    parent_scope_revision_id=(parent_binding.scope_revision_id if parent_binding else None),
+                    created_at=timestamp,
+                    payload={
+                        "source": "LEGACY_COMPAT_AUTO_MATERIALIZED",
+                        "delivery_id": delivery.delivery_id,
+                    },
                 )
-        return self.bind_delivery(
-            delivery_id,
+                self._create_scope_revision_in_session(session, value)
+        else:
+            scoped_revision = session.get(ScopeRevisionRow, scoped_revision_id)
+            if scoped_revision is None:
+                raise ValueError("SCOPE_REVISION_NOT_FOUND")
+            if scoped_revision.requirement_revision_id != req_revision_id:
+                raise ValueError("DELIVERY_SCOPE_REVISION_MISMATCH")
+            if parent_binding and scoped_revision.parent_scope_revision_id not in {
+                None,
+                parent_binding.scope_revision_id,
+            }:
+                raise ValueError("DELIVERY_SCOPE_REVISION_LINEAGE_MISMATCH")
+
+        return self._bind_delivery_in_session(
+            session,
+            delivery,
             req_revision_id,
             scoped_revision_id,
             now=timestamp,
@@ -251,10 +239,112 @@ class PostgresRequirementRevisionRepository:
             row = session.get(ScopeRevisionRow, scope_revision_id)
             return self._scope_revision(row) if row is not None else None
 
+    def list_scope_revisions(self, requirement_revision_id: str) -> List[ScopeRevision]:
+        with self.store.session() as session:
+            rows = session.scalars(
+                select(ScopeRevisionRow)
+                .where(ScopeRevisionRow.requirement_revision_id == requirement_revision_id)
+                .order_by(ScopeRevisionRow.created_at, ScopeRevisionRow.scope_revision_id)
+            )
+            return [self._scope_revision(row) for row in rows]
+
     def get_delivery_binding(self, delivery_id: str) -> Optional[DeliveryRevisionBinding]:
         with self.store.session() as session:
             row = session.get(DeliveryRevisionBindingRow, delivery_id)
             return self._binding(row) if row is not None else None
+
+    def _create_requirement_revision_in_session(
+        self,
+        session: Session,
+        value: RequirementRevision,
+    ) -> None:
+        if session.get(RequirementRow, value.requirement_id) is None:
+            raise ValueError("REQUIREMENT_NOT_FOUND")
+        if session.get(RequirementRevisionRow, value.requirement_revision_id) is not None:
+            raise ValueError("REQUIREMENT_REVISION_ALREADY_EXISTS")
+        duplicate = session.scalar(
+            select(RequirementRevisionRow).where(
+                RequirementRevisionRow.requirement_id == value.requirement_id,
+                RequirementRevisionRow.revision_label == value.revision_label,
+            )
+        )
+        if duplicate is not None:
+            raise ValueError("REQUIREMENT_REVISION_LABEL_ALREADY_EXISTS")
+        if value.parent_requirement_revision_id:
+            parent = session.get(RequirementRevisionRow, value.parent_requirement_revision_id)
+            if parent is None:
+                raise ValueError("PARENT_REQUIREMENT_REVISION_NOT_FOUND")
+            if parent.requirement_id != value.requirement_id:
+                raise ValueError("PARENT_REQUIREMENT_REVISION_MISMATCH")
+        session.add(self._requirement_revision_row(value))
+
+    def _create_scope_revision_in_session(self, session: Session, value: ScopeRevision) -> None:
+        requirement_revision = session.get(RequirementRevisionRow, value.requirement_revision_id)
+        if requirement_revision is None:
+            raise ValueError("REQUIREMENT_REVISION_NOT_FOUND")
+        if session.get(ScopeRevisionRow, value.scope_revision_id) is not None:
+            raise ValueError("SCOPE_REVISION_ALREADY_EXISTS")
+        duplicate = session.scalar(
+            select(ScopeRevisionRow).where(
+                ScopeRevisionRow.requirement_revision_id == value.requirement_revision_id,
+                ScopeRevisionRow.revision_label == value.revision_label,
+            )
+        )
+        if duplicate is not None:
+            raise ValueError("SCOPE_REVISION_LABEL_ALREADY_EXISTS")
+        if value.parent_scope_revision_id:
+            parent = session.get(ScopeRevisionRow, value.parent_scope_revision_id)
+            if parent is None:
+                raise ValueError("PARENT_SCOPE_REVISION_NOT_FOUND")
+            if parent.requirement_revision_id != value.requirement_revision_id:
+                parent_requirement_revision = session.get(
+                    RequirementRevisionRow, parent.requirement_revision_id
+                )
+                if (
+                    requirement_revision.parent_requirement_revision_id is None
+                    or parent_requirement_revision is None
+                    or requirement_revision.parent_requirement_revision_id
+                    != parent_requirement_revision.requirement_revision_id
+                ):
+                    raise ValueError("PARENT_SCOPE_REVISION_REQUIREMENT_LINEAGE_MISMATCH")
+        session.add(self._scope_revision_row(value))
+
+    def _bind_delivery_in_session(
+        self,
+        session: Session,
+        delivery: RequirementDeliveryRow,
+        requirement_revision_id: str,
+        scope_revision_id: str,
+        *,
+        now: Optional[int] = None,
+    ) -> DeliveryRevisionBinding:
+        requirement_revision = session.get(RequirementRevisionRow, requirement_revision_id)
+        if requirement_revision is None:
+            raise ValueError("REQUIREMENT_REVISION_NOT_FOUND")
+        if requirement_revision.requirement_id != delivery.requirement_id:
+            raise ValueError("DELIVERY_REQUIREMENT_REVISION_MISMATCH")
+        scope_revision = session.get(ScopeRevisionRow, scope_revision_id)
+        if scope_revision is None:
+            raise ValueError("SCOPE_REVISION_NOT_FOUND")
+        if scope_revision.requirement_revision_id != requirement_revision_id:
+            raise ValueError("DELIVERY_SCOPE_REVISION_MISMATCH")
+        existing = session.get(DeliveryRevisionBindingRow, delivery.delivery_id)
+        incoming = DeliveryRevisionBinding(
+            delivery_id=delivery.delivery_id,
+            requirement_revision_id=requirement_revision_id,
+            scope_revision_id=scope_revision_id,
+            created_at=self._now(now),
+        )
+        if existing is not None:
+            current = self._binding(existing)
+            if (
+                current.requirement_revision_id != incoming.requirement_revision_id
+                or current.scope_revision_id != incoming.scope_revision_id
+            ):
+                raise ValueError("DELIVERY_REVISION_BINDING_IMMUTABLE")
+            return current
+        session.add(self._binding_row(incoming))
+        return incoming
 
     @staticmethod
     def _requirement_revision_row(value: RequirementRevision) -> RequirementRevisionRow:
