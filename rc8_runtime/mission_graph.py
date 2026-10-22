@@ -80,6 +80,19 @@ _ALLOWED_EDGES = {
     (MissionStageType.MISSION_SUFFICIENCY, MissionStageType.REPORT_RELEASE),
 }
 
+# These edges exist specifically to repair an insufficient upstream result. They
+# MUST NOT become ready from a green sufficiency gate, otherwise a successful
+# stage would spuriously schedule repair work. Conversely, forward edges MUST
+# NOT unlock from INSUFFICIENT.
+_INSUFFICIENT_REWORK_EDGES = {
+    (MissionStageType.REQUIREMENT_SUFFICIENCY, MissionStageType.REQUIREMENT_ANALYSIS),
+    (MissionStageType.CODE_SUFFICIENCY, MissionStageType.CODE_ANALYSIS),
+    (MissionStageType.CODE_SUFFICIENCY, MissionStageType.REQUIREMENT_ANALYSIS),
+    (MissionStageType.DESIGN_SUFFICIENCY, MissionStageType.TEST_DESIGN),
+    (MissionStageType.DESIGN_SUFFICIENCY, MissionStageType.CODE_ANALYSIS),
+    (MissionStageType.DESIGN_SUFFICIENCY, MissionStageType.REQUIREMENT_ANALYSIS),
+}
+
 
 def _stage_type(value: str) -> MissionStageType:
     try:
@@ -121,8 +134,6 @@ class MissionGraphRuntime:
                 raise RC8ContractError("MISSION_PREDECESSOR_NOT_FOUND:%s" % predecessor_id)
             validate_edge(predecessor.stage_type, stage.stage_type)
 
-        # Rework sequence is scope-local, not global. Two different SST/app
-        # snapshots may legitimately have CODE_ANALYSIS attempt_no=1 in parallel.
         same_scope_type = [
             item
             for item in self.runtime.stages.values()
@@ -139,7 +150,6 @@ class MissionGraphRuntime:
             self._successors.setdefault(predecessor_id, set()).add(stage.stage_instance_id)
 
     def restore_evaluation(self, evaluation: SufficiencyEvaluation) -> None:
-        """Hydrate persisted sufficiency proof during Center restart."""
         if evaluation.scope != StatusScope.STAGE:
             return
         stage = self.runtime.stages.get(evaluation.subject_id)
@@ -150,8 +160,9 @@ class MissionGraphRuntime:
         self.runtime.record_evaluation(evaluation)
         self._stage_evaluations[evaluation.subject_id] = evaluation.evaluation_id
 
-    def _predecessor_ready(self, predecessor: StageInstance) -> bool:
+    def _predecessor_ready(self, predecessor: StageInstance, target: StageInstance) -> bool:
         predecessor_type = _stage_type(predecessor.stage_type)
+        target_type = _stage_type(target.stage_type)
         if predecessor.state in {StageState.INVALIDATED, StageState.SUPERSEDED}:
             return False
         if predecessor_type in SUFFICIENCY_STAGES:
@@ -159,6 +170,12 @@ class MissionGraphRuntime:
             if not evaluation_id:
                 return False
             evaluation = self.runtime.evaluations[evaluation_id]
+            edge = (predecessor_type, target_type)
+            if edge in _INSUFFICIENT_REWORK_EDGES:
+                return evaluation.result == SufficiencyResult.INSUFFICIENT and predecessor.state in {
+                    StageState.INSUFFICIENT,
+                    StageState.COMPLETED,
+                }
             return evaluation.result == SufficiencyResult.SUFFICIENT and predecessor.state in {
                 StageState.SUFFICIENT,
                 StageState.COMPLETED,
@@ -173,7 +190,7 @@ class MissionGraphRuntime:
             return False
         if not stage.predecessor_ids:
             return _stage_type(stage.stage_type) == MissionStageType.SCOPE_INTAKE
-        return all(self._predecessor_ready(self.runtime.stages[pred]) for pred in stage.predecessor_ids)
+        return all(self._predecessor_ready(self.runtime.stages[pred], stage) for pred in stage.predecessor_ids)
 
     def mark_ready(self, stage_instance_id: str) -> StageInstance:
         if not self.can_mark_ready(stage_instance_id):
@@ -181,11 +198,6 @@ class MissionGraphRuntime:
         return self.runtime.transition_stage(stage_instance_id, StageState.READY)
 
     def record_activity_completion(self, stage_instance_id: str, output_refs: Sequence[str]) -> StageInstance:
-        """Complete a non-sufficiency activity after evidence/output is ready.
-
-        This deliberately does not produce a SUFFICIENT state. Dedicated
-        sufficiency stages evaluate the completed activity separately.
-        """
         stage = self.runtime.stages.get(stage_instance_id)
         if stage is None:
             raise RC8ContractError("STAGE_INSTANCE_NOT_FOUND")
@@ -240,8 +252,6 @@ class MissionGraphRuntime:
             raise RC8ContractError("MISSION_STAGE_COMPLETION_REQUIRES_EVALUATION_RESULT")
         return self.runtime.transition_stage(stage_instance_id, StageState.COMPLETED)
 
-    # Backward-compatible name for existing tests/callers; only sufficiency
-    # stages may use it after this no-discount split.
     def complete_stage(self, stage_instance_id: str) -> StageInstance:
         return self.complete_sufficiency_stage(stage_instance_id)
 
