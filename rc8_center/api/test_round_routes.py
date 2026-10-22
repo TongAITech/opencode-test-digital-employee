@@ -5,7 +5,7 @@ import hashlib
 import time
 from dataclasses import asdict
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,7 +16,7 @@ from rc8_center.test_rounds import TestRound, TestRoundDelivery, TestRoundState
 class TestRoundCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    test_round_id: str = Field(min_length=1, max_length=200)
+    test_round_id: Optional[str] = Field(default=None, min_length=1, max_length=200)
     name: str = Field(default="", max_length=240)
     delivery_ids: List[str] = Field(default_factory=list)
     payload: Dict[str, Any] = Field(default_factory=dict)
@@ -37,7 +37,7 @@ class TestRoundStateUpdate(BaseModel):
 class TestRoundTestRunCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    test_run_id: str = Field(min_length=1, max_length=160)
+    test_run_id: Optional[str] = Field(default=None, min_length=1, max_length=160)
     payload: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -56,6 +56,14 @@ def _jsonable(value: Any) -> Any:
 def _round_delivery_id(test_round_id: str, delivery_id: str) -> str:
     digest = hashlib.sha256((test_round_id + "\x1f" + delivery_id).encode("utf-8")).hexdigest()
     return "round-delivery-" + digest
+
+
+def _default_test_run_id(test_round_id: str) -> str:
+    readable = "%s-run" % test_round_id
+    if len(readable) <= 160:
+        return readable
+    digest = hashlib.sha256(test_round_id.encode("utf-8")).hexdigest()[:32]
+    return "test-run-%s" % digest
 
 
 def _test_run_json(row: Any) -> Dict[str, Any]:
@@ -132,21 +140,21 @@ def register_test_round_routes(app: FastAPI) -> None:
     @app.get("/api/v1/production-batches/{production_batch_id}/test-rounds")
     def list_test_rounds(production_batch_id: str) -> List[Dict[str, Any]]:
         values = repository().list_rounds(production_batch_id)
-        return [
-            {
-                "round": _jsonable(value),
-                "deliveries": [
-                    _jsonable(item) for item in repository().list_round_deliveries(value.test_round_id)
-                ],
-                "test_run": (
-                    _test_run_json(postgres().get_test_run_for_round(value.test_round_id))
-                    if postgres().get_test_run_for_round(value.test_round_id) is not None
-                    else None
-                ),
-                "truth_note": "TestRound is a testing round inside this production date; it is not another production batch or requirement iteration.",
-            }
-            for value in values
-        ]
+        store = postgres()
+        result: List[Dict[str, Any]] = []
+        for value in values:
+            run = store.get_test_run_for_round(value.test_round_id)
+            result.append(
+                {
+                    "round": _jsonable(value),
+                    "deliveries": [
+                        _jsonable(item) for item in repository().list_round_deliveries(value.test_round_id)
+                    ],
+                    "test_run": _test_run_json(run) if run is not None else None,
+                    "truth_note": "TestRound is a testing round inside this production date; it is not another production batch or requirement iteration.",
+                }
+            )
+        return result
 
     @app.post(
         "/api/v1/production-batches/{production_batch_id}/test-rounds",
@@ -160,11 +168,13 @@ def register_test_round_routes(app: FastAPI) -> None:
         repo = repository()
         now = int(time.time())
         try:
+            round_no = repo.next_round_no(production_batch_id)
+            test_round_id = request.test_round_id or "%s-round-%s" % (production_batch_id, round_no)
             value = TestRound(
-                test_round_id=request.test_round_id,
+                test_round_id=test_round_id,
                 production_batch_id=production_batch_id,
-                round_no=repo.next_round_no(production_batch_id),
-                name=request.name,
+                round_no=round_no,
+                name=request.name or "第%s轮测试" % round_no,
                 state=TestRoundState.PLANNED,
                 created_at=now,
                 payload=request.payload,
@@ -264,7 +274,8 @@ def register_test_round_routes(app: FastAPI) -> None:
             store = postgres()
             if store.get_test_run_for_round(test_round_id) is not None:
                 raise ValueError("TEST_ROUND_ALREADY_HAS_TEST_RUN")
-            if store.get_test_run(request.test_run_id) is not None:
+            test_run_id = request.test_run_id or _default_test_run_id(test_round_id)
+            if store.get_test_run(test_run_id) is not None:
                 raise ValueError("TEST_RUN_ALREADY_EXISTS")
 
             payload = dict(request.payload)
@@ -278,7 +289,7 @@ def register_test_round_routes(app: FastAPI) -> None:
                 }
             )
             row = store.create_test_run(
-                request.test_run_id,
+                test_run_id,
                 production_batch_id=production_batch_id,
                 test_round_id=test_round_id,
                 payload=payload,
@@ -288,7 +299,7 @@ def register_test_round_routes(app: FastAPI) -> None:
         except ValueError as exc:
             raise _error(exc) from exc
 
-        response.headers["Location"] = "/api/v1/test-runs/%s" % request.test_run_id
+        response.headers["Location"] = "/api/v1/test-runs/%s" % row.test_run_id
         return {
             "test_run": _test_run_json(row),
             "round": _jsonable(round_value),
