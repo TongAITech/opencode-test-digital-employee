@@ -23,6 +23,19 @@ const actionError = ref('')
 const actionMessage = ref('')
 const submitting = ref(false)
 
+const stateLabels: Record<string, string> = {
+  PLANNED: '待开始',
+  ACTIVE: '进行中',
+  IN_PROGRESS: '进行中',
+  PARTIAL: '部分完成',
+  COMPLETED: '已完成',
+  CANCELLED: '已取消',
+}
+
+function stateLabel(value: string) {
+  return stateLabels[value] ?? value
+}
+
 onMounted(() => store.load())
 
 async function run(action: () => Promise<unknown>, success: string) {
@@ -112,7 +125,7 @@ async function startTesting() {
             <td>{{ item.production_date }}</td>
             <td><strong>{{ item.production_batch_id }}</strong></td>
             <td>{{ item.name }}</td>
-            <td>{{ item.state }}</td>
+            <td>{{ stateLabel(item.state) }}</td>
             <td><button class="text-button" @click="store.select(item.production_batch_id)">查看范围</button></td>
           </tr>
           <tr v-if="!store.loading && store.items.length === 0"><td colspan="5" class="empty-row">暂无投产批次</td></tr>
@@ -139,7 +152,7 @@ async function startTesting() {
                 <strong>{{ item.requirement.requirement_id }}</strong>
                 <span>{{ item.requirement.title }}</span>
               </div>
-              <small>{{ item.delivery.state }} · {{ item.delivery.delivery_id }}</small>
+              <small>{{ stateLabel(item.delivery.state) }} · {{ item.delivery.delivery_id }}</small>
             </div>
             <div class="table-shell compact-table">
               <table>
@@ -177,7 +190,7 @@ async function startTesting() {
       <section class="content-section start-section">
         <div>
           <h2>开始自主测试</h2>
-          <p class="section-hint">系统会从当前投产批次的需求及 Scope 创建测试任务；存在未配置 SST 的需求时会拒绝启动。</p>
+          <p class="section-hint">系统会从当前投产批次的需求及实现范围创建测试任务；存在未配置 SST 的需求时会拒绝启动。</p>
         </div>
         <form class="start-form" @submit.prevent="startTesting">
           <input v-model="testRunId" required placeholder="测试任务编号" />
