@@ -2,28 +2,39 @@ param(
   [ValidateSet('aicoder-plus','bankgpt')][string]$Model = 'aicoder-plus',
   [switch]$SkipFreshCas
 )
+
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+$OutputEncoding = [Console]::OutputEncoding
+
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Payload = [IO.Path]::GetFullPath((Join-Path $Root 'payload')).TrimEnd('\')
 
 function Mount-PortableRoot {
   $mapped = $null
   foreach ($line in (& subst 2>$null)) {
-    if ($line -match '^R:\\:\s*=>\s*(.+)$') { $mapped = $Matches[1].Trim().TrimEnd('\'); break }
+    if ($line -match '^R:\\:\s*=>\s*(.+)$') {
+      $mapped = $Matches[1].Trim().TrimEnd('\')
+      break
+    }
   }
   if ($mapped -and -not $mapped.Equals($Payload,[StringComparison]::OrdinalIgnoreCase)) {
-    throw "R: 已被占用：$mapped。当前 Hermes 便携运行时要求 R: 映射，请先释放 R:。"
+    throw "R: is already mapped to $mapped. Release R: before starting Hermes."
   }
   if (-not $mapped) {
     & subst R: $Payload | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw '无法创建 R: 便携映射' }
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to create the R: portable mapping.' }
   }
 }
 
 function Find-WizardPlugin {
   $candidates = @()
   if ($env:WIZARD_PLUGIN_DIR) { $candidates += $env:WIZARD_PLUGIN_DIR }
-  $candidates += @('D:\deepseek-harness\wizard-opencode-plugin','C:\deepseek-harness\wizard-opencode-plugin','E:\deepseek-harness\wizard-opencode-plugin')
+  $candidates += @(
+    'D:\deepseek-harness\wizard-opencode-plugin',
+    'C:\deepseek-harness\wizard-opencode-plugin',
+    'E:\deepseek-harness\wizard-opencode-plugin'
+  )
   foreach ($d in Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue) {
     $candidates += (Join-Path ($d.Name + ':\') 'deepseek-harness\wizard-opencode-plugin')
   }
@@ -32,7 +43,7 @@ function Find-WizardPlugin {
       return [IO.Path]::GetFullPath($p)
     }
   }
-  throw '未找到行内 wizard-opencode-plugin。可设置 WIZARD_PLUGIN_DIR 指向插件目录。'
+  throw 'wizard-opencode-plugin was not found. Set WIZARD_PLUGIN_DIR to the DSH plugin directory.'
 }
 
 function Find-CompatibleNode([string]$Plugin) {
@@ -41,7 +52,11 @@ function Find-CompatibleNode([string]$Plugin) {
   $probe = 'R:\hermes\bank\probe-wkey.cjs'
   $candidates = @()
   if ($env:WIZARD_NODE_EXE) { $candidates += $env:WIZARD_NODE_EXE }
-  $candidates += @('R:\hermes\node\node.exe','D:\deepseek-harness\node\node.exe','D:\deepseek-harness\runtime\node.exe')
+  $candidates += @(
+    'R:\hermes\node\node.exe',
+    'D:\deepseek-harness\node\node.exe',
+    'D:\deepseek-harness\runtime\node.exe'
+  )
   try { $candidates += (Get-Command node.exe -ErrorAction Stop).Source } catch {}
   foreach ($n in $candidates | Select-Object -Unique) {
     if (-not $n -or -not (Test-Path $n)) { continue }
@@ -50,7 +65,7 @@ function Find-CompatibleNode([string]$Plugin) {
       if ($LASTEXITCODE -eq 0 -and $out -match 'WKEY_NODE_COMPATIBLE') { return [IO.Path]::GetFullPath($n) }
     } catch {}
   }
-  throw '没有找到可同时加载 wkey + login.js + fetch 的 Node。设置 WIZARD_NODE_EXE 指向 DSH 实际使用的 Node。'
+  throw 'No Node runtime can load wkey, login.js, and fetch. Set WIZARD_NODE_EXE to a compatible Node executable.'
 }
 
 function Import-BankGptFromOpenCode {
@@ -80,20 +95,22 @@ function Find-DesktopExe {
     'R:\hermes\hermes-agent\apps\desktop\release\win-unpacked\Hermes.exe',
     'R:\hermes\hermes-agent\apps\desktop\release\win-ia32-unpacked\Hermes.exe'
   )
-  foreach ($p in $preferred) { if (Test-Path $p) { return $p } }
+  foreach ($p in $preferred) {
+    if (Test-Path $p) { return $p }
+  }
   $release = 'R:\hermes\hermes-agent\apps\desktop\release'
   if (Test-Path $release) {
     $hit = Get-ChildItem -Path $release -Filter Hermes.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($hit) { return $hit.FullName }
   }
-  throw '最终包中未找到 Hermes Desktop Hermes.exe。'
+  throw 'Hermes Desktop Hermes.exe was not found in the portable package.'
 }
 
 function Find-PortableChrome {
   $root = 'R:\hermes\browser\agent-browser'
-  if (-not (Test-Path $root)) { throw '便携 Browser 目录缺失，包不完整。' }
+  if (-not (Test-Path $root)) { throw 'Portable browser directory is missing.' }
   $hit = Get-ChildItem $root -Filter chrome.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-  if (-not $hit) { throw '便携 Chrome 缺失，包不完整。' }
+  if (-not $hit) { throw 'Portable Chrome is missing.' }
   return $hit.FullName
 }
 
@@ -114,11 +131,11 @@ $env:BANK_MODEL_QUOTA_18_21 = '40000000'
 $env:WIZARD_UPSTREAM_BASE_URL = 'https://wizard-ai.paic.com.cn/code_pilot/api/v1'
 $env:WIZARD_MODEL = 'aicoder-plus'
 
-if (-not (Test-Path 'R:\hermes\node\agent-browser.cmd')) { throw '便携 agent-browser 缺失，包不完整。' }
+if (-not (Test-Path 'R:\hermes\node\agent-browser.cmd')) { throw 'Portable agent-browser is missing.' }
 $env:AGENT_BROWSER_EXECUTABLE_PATH = Find-PortableChrome
 
 $cua = 'R:\hermes\cua-driver\bin\cua-driver.exe'
-if (-not (Test-Path $cua)) { throw '便携 cua-driver 缺失，包不完整。' }
+if (-not (Test-Path $cua)) { throw 'Portable cua-driver is missing.' }
 $env:HERMES_CUA_DRIVER_CMD = $cua
 
 $plugin = Find-WizardPlugin
@@ -127,7 +144,9 @@ $node = Find-CompatibleNode $plugin
 $bankgpt = Import-BankGptFromOpenCode
 
 $configTemplate = if ($Model -eq 'bankgpt') { 'R:\hermes\bank\config-bankgpt.yaml' } else { 'R:\hermes\bank\config-aicoder.yaml' }
-if ($Model -eq 'bankgpt' -and -not $bankgpt) { throw '选择了 bankgpt，但未从行内 OpenCode 配置中发现 wizard-bankgpt baseURL/apiKey。' }
+if ($Model -eq 'bankgpt' -and -not $bankgpt) {
+  throw 'BankGPT was selected, but wizard-bankgpt baseURL/apiKey was not found in the OpenCode configuration.'
+}
 Copy-Item -LiteralPath $configTemplate -Destination 'R:\hermes\config.yaml' -Force
 
 $logs = Join-Path $Root 'logs'
@@ -140,7 +159,7 @@ Set-Content -LiteralPath (Join-Path $logs 'bank-model-gateway.pid') -Value $gate
 
 try {
   for ($i=0; $i -lt 120; $i++) {
-    if ($gateway.HasExited) { throw "Bank model gateway 提前退出，请看 $errLog" }
+    if ($gateway.HasExited) { throw "Bank model gateway exited early. Check $errLog" }
     try {
       $h = Invoke-RestMethod 'http://127.0.0.1:17891/health' -TimeoutSec 2
       if ($h.status -eq 'UP') { break }
@@ -149,16 +168,16 @@ try {
   }
 
   if (-not $SkipFreshCas -and $Model -eq 'aicoder-plus') {
-    Write-Host '正在打开 fresh CAS 登录...' -ForegroundColor Yellow
+    Write-Host 'Opening a fresh Wizard CAS login...' -ForegroundColor Yellow
     $a = Invoke-RestMethod 'http://127.0.0.1:17891/auth/login' -Method Post -TimeoutSec 1800
-    if ($a.cas -ne 'READY' -or $a.apiKey -ne 'READY') { throw 'Wizard CAS 未达到 READY' }
+    if ($a.cas -ne 'READY' -or $a.apiKey -ne 'READY') { throw 'Wizard CAS did not reach READY.' }
   }
 
   $budget = Invoke-RestMethod 'http://127.0.0.1:17891/budget/status' -TimeoutSec 3
-  Write-Host ("模型预算：10分钟 {0}/{1} 请求；当前窗口 {2}；剩余额度 {3}" -f $budget.requests_last_10min,$budget.safety_limit_10min,$budget.quota_window,$budget.quota_remaining_tokens) -ForegroundColor Cyan
+  Write-Host ("Model budget: requests {0}/{1} in 10 min; window {2}; remaining tokens {3}" -f $budget.requests_last_10min,$budget.safety_limit_10min,$budget.quota_window,$budget.quota_remaining_tokens) -ForegroundColor Cyan
   Write-Host "Wizard plugin: $plugin" -ForegroundColor DarkGray
   Write-Host "Node: $node" -ForegroundColor DarkGray
-  Write-Host "agent-browser: R:\hermes\node\agent-browser.cmd" -ForegroundColor DarkGray
+  Write-Host 'agent-browser: R:\hermes\node\agent-browser.cmd' -ForegroundColor DarkGray
   Write-Host "Chrome: $env:AGENT_BROWSER_EXECUTABLE_PATH" -ForegroundColor DarkGray
   Write-Host "Computer Use driver: $env:HERMES_CUA_DRIVER_CMD" -ForegroundColor DarkGray
 
@@ -167,12 +186,18 @@ try {
   New-Item -ItemType Directory -Force -Path $workspace | Out-Null
   Push-Location $workspace
   try {
-    Write-Host "启动 Hermes Desktop：$desktop" -ForegroundColor Green
+    Write-Host "Starting Hermes Desktop: $desktop" -ForegroundColor Green
     $p = Start-Process -FilePath $desktop -PassThru -WorkingDirectory $workspace
     $p.WaitForExit()
-  } finally { Pop-Location }
+  } finally {
+    Pop-Location
+  }
 }
 finally {
-  try { if ($gateway -and -not $gateway.HasExited) { Stop-Process -Id $gateway.Id -Force -ErrorAction SilentlyContinue } } catch {}
+  try {
+    if ($gateway -and -not $gateway.HasExited) {
+      Stop-Process -Id $gateway.Id -Force -ErrorAction SilentlyContinue
+    }
+  } catch {}
   Remove-Item (Join-Path $logs 'bank-model-gateway.pid') -Force -ErrorAction SilentlyContinue
 }
