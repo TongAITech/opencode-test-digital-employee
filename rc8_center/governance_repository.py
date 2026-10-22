@@ -1,17 +1,17 @@
 """Durable Center repository/projection for RC8 governance facts.
 
-This is the dependency-free W-A fallback.  The same domain contract can later be
-backed by PostgreSQL without changing Mission/Gap/Sufficiency semantics.
+This dependency-free W-A repository is a storage-neutral fallback. PostgreSQL
+will replace the JSON implementation without changing Mission/Gap/Sufficiency
+semantics. Runtime history remains authoritative in R1; these records are
+rebuildable projections/control-domain state.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from rc8_runtime.governance import (
     AttemptRecord,
     AttemptStatus,
-    CoverageDimension,
-    CoverageMetric,
     FailureOwnership,
     GapRecord,
     GapSeverity,
@@ -30,28 +30,58 @@ from rc8_runtime.governance import (
 from .json_repository import DurableRepositoryError, _AtomicJsonFile, _jsonable
 
 
+_TERMINAL_ATTEMPT_STATES = {
+    AttemptStatus.COMPLETED,
+    AttemptStatus.FAILED_RUNTIME,
+    AttemptStatus.BLOCKED,
+}
+
+
 class JsonFileGovernanceRepository:
     """Durable Center-side governance fact store.
 
-    Attempts, coverage metrics, evaluations, invalidations and release decisions
-    are append-only.  Stage/Gap records may advance state while preserving their
-    stable identity and historical facts.
+    Different Attempt identities are append-only. A single Attempt projection is
+    allowed to advance monotonically STARTED -> terminal because the underlying
+    R1 events remain append-only and replayable. Evaluations, invalidations and
+    release decisions are append-only/idempotent projections.
     """
 
     def __init__(self, path: str) -> None:
         self._file = _AtomicJsonFile(
             path,
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "stages": {},
                 "attempts": {},
                 "gaps": {},
-                "coverage": {},
                 "invalidations": {},
                 "evaluations": {},
                 "release_decisions": {},
+                "projected_events": {},
             },
         )
+        self._migrate()
+
+    def _migrate(self) -> None:
+        def apply(data: Dict[str, Any]) -> None:
+            data["schema_version"] = 2
+            for name in (
+                "stages",
+                "attempts",
+                "gaps",
+                "invalidations",
+                "evaluations",
+                "release_decisions",
+                "projected_events",
+            ):
+                if name not in data:
+                    data[name] = {}
+                if not isinstance(data[name], dict):
+                    raise DurableRepositoryError("GOVERNANCE_BUCKET_INVALID:%s" % name)
+            # Old W-A builds briefly carried a bare coverage bucket. Coverage is
+            # now provenance-bound in JsonFileCoverageRepository and is ignored
+            # here rather than promoted into product truth.
+        self._file.mutate(apply)
 
     @staticmethod
     def _require_bucket(data: Dict[str, Any], name: str) -> Dict[str, Any]:
@@ -61,58 +91,191 @@ class JsonFileGovernanceRepository:
         return value
 
     @staticmethod
-    def _append(data: Dict[str, Any], bucket: str, key: str, value: Any) -> None:
+    def _append_idempotent(data: Dict[str, Any], bucket: str, key: str, value: Any) -> bool:
         rows = JsonFileGovernanceRepository._require_bucket(data, bucket)
-        if key in rows:
-            raise DurableRepositoryError("GOVERNANCE_APPEND_ONLY:%s:%s" % (bucket, key))
-        rows[key] = _jsonable(value)
+        encoded = _jsonable(value)
+        previous = rows.get(key)
+        if previous is not None:
+            if previous != encoded:
+                raise DurableRepositoryError("GOVERNANCE_ID_CONFLICT:%s:%s" % (bucket, key))
+            return False
+        rows[key] = encoded
+        return True
 
     def upsert_stage(self, stage: StageInstance) -> None:
+        encoded = _jsonable(stage)
+
         def apply(data: Dict[str, Any]) -> None:
             rows = self._require_bucket(data, "stages")
             previous = rows.get(stage.stage_instance_id)
             if isinstance(previous, dict):
-                if str(previous.get("test_run_id")) != stage.test_run_id or str(previous.get("stage_type")) != stage.stage_type:
-                    raise DurableRepositoryError("STAGE_IDENTITY_IMMUTABLE")
-                if int(previous.get("attempt_no") or 0) != stage.attempt_no:
-                    raise DurableRepositoryError("STAGE_ATTEMPT_IDENTITY_IMMUTABLE")
-            rows[stage.stage_instance_id] = _jsonable(stage)
+                for key in ("test_run_id", "stage_type", "scope_version", "attempt_no"):
+                    if previous.get(key) != encoded.get(key):
+                        raise DurableRepositoryError("STAGE_IDENTITY_IMMUTABLE:%s" % key)
+                previous_state = StageState(str(previous.get("state")))
+                if previous_state in {StageState.INVALIDATED, StageState.SUPERSEDED} and previous_state != stage.state:
+                    raise DurableRepositoryError("STAGE_TERMINAL_STATE_IMMUTABLE")
+                for refs_key in ("input_refs", "output_refs", "gap_refs", "invalidation_refs"):
+                    if not set(previous.get(refs_key) or []).issubset(set(encoded.get(refs_key) or [])):
+                        raise DurableRepositoryError("STAGE_REFS_CANNOT_SHRINK:%s" % refs_key)
+            rows[stage.stage_instance_id] = encoded
         self._file.mutate(apply)
 
+    def upsert_attempt(self, attempt: AttemptRecord) -> None:
+        encoded = _jsonable(attempt)
+
+        def apply(data: Dict[str, Any]) -> None:
+            rows = self._require_bucket(data, "attempts")
+            previous = rows.get(attempt.attempt_id)
+            if isinstance(previous, dict):
+                immutable = (
+                    "test_run_id",
+                    "stage_instance_id",
+                    "work_item_id",
+                    "producer_node_id",
+                    "producer_ref",
+                    "input_snapshot_ref",
+                    "case_id",
+                    "started_at",
+                )
+                for key in immutable:
+                    if previous.get(key) != encoded.get(key):
+                        raise DurableRepositoryError("ATTEMPT_IDENTITY_IMMUTABLE:%s" % key)
+
+                previous_status = AttemptStatus(str(previous.get("status")))
+                if previous_status in _TERMINAL_ATTEMPT_STATES and previous_status != attempt.status:
+                    raise DurableRepositoryError("ATTEMPT_TERMINAL_STATE_IMMUTABLE")
+                if previous_status == AttemptStatus.STARTED and attempt.status not in {
+                    AttemptStatus.STARTED,
+                    AttemptStatus.COMPLETED,
+                    AttemptStatus.FAILED_RUNTIME,
+                    AttemptStatus.BLOCKED,
+                }:
+                    raise DurableRepositoryError("ATTEMPT_STATUS_REGRESSION")
+
+                for refs_key in (
+                    "action_refs",
+                    "assertion_refs",
+                    "evidence_refs",
+                    "coverage_refs",
+                    "gap_refs",
+                    "defect_refs",
+                ):
+                    if not set(previous.get(refs_key) or []).issubset(set(encoded.get(refs_key) or [])):
+                        raise DurableRepositoryError("ATTEMPT_REFS_CANNOT_SHRINK:%s" % refs_key)
+
+                previous_owner = previous.get("failure_ownership")
+                if previous_owner is not None and previous_owner != encoded.get("failure_ownership"):
+                    raise DurableRepositoryError("ATTEMPT_FAILURE_OWNERSHIP_IMMUTABLE")
+                previous_finished = previous.get("finished_at")
+                if previous_finished is not None and previous_finished != encoded.get("finished_at"):
+                    raise DurableRepositoryError("ATTEMPT_FINISHED_AT_IMMUTABLE")
+
+            if attempt.status in _TERMINAL_ATTEMPT_STATES and attempt.finished_at is None:
+                raise DurableRepositoryError("TERMINAL_ATTEMPT_REQUIRES_FINISHED_AT")
+            if attempt.status in _TERMINAL_ATTEMPT_STATES and not attempt.evidence_refs:
+                raise DurableRepositoryError("TERMINAL_ATTEMPT_REQUIRES_EVIDENCE")
+            rows[attempt.attempt_id] = encoded
+        self._file.mutate(apply)
+
+    # Compatibility name retained for older W-A callers; semantics are now a
+    # monotonic projection rather than 'one write ever'.
     def append_attempt(self, attempt: AttemptRecord) -> None:
-        self._file.mutate(lambda data: self._append(data, "attempts", attempt.attempt_id, attempt))
+        self.upsert_attempt(attempt)
 
     def upsert_gap(self, gap: GapRecord) -> None:
+        encoded = _jsonable(gap)
+
         def apply(data: Dict[str, Any]) -> None:
             rows = self._require_bucket(data, "gaps")
             previous = rows.get(gap.gap_id)
             if isinstance(previous, dict):
-                immutable = ("test_run_id", "source_stage_instance_id", "gap_type", "opened_at")
+                immutable = (
+                    "test_run_id",
+                    "source_stage_instance_id",
+                    "gap_type",
+                    "source_attempt_id",
+                    "source_case_id",
+                    "source_assertion_id",
+                    "opened_at",
+                )
                 for key in immutable:
-                    if previous.get(key) != _jsonable(gap).get(key):
+                    if previous.get(key) != encoded.get(key):
                         raise DurableRepositoryError("GAP_IDENTITY_IMMUTABLE:%s" % key)
-            rows[gap.gap_id] = _jsonable(gap)
+                if not set(previous.get("evidence_refs") or []).issubset(set(encoded.get("evidence_refs") or [])):
+                    raise DurableRepositoryError("GAP_EVIDENCE_CANNOT_SHRINK")
+                previous_status = GapStatus(str(previous.get("status")))
+                if previous_status in {GapStatus.CLOSED, GapStatus.WAIVED} and previous_status != gap.status:
+                    raise DurableRepositoryError("GAP_TERMINAL_STATE_IMMUTABLE")
+            rows[gap.gap_id] = encoded
         self._file.mutate(apply)
 
-    def append_coverage(self, metric: CoverageMetric) -> None:
-        self._file.mutate(lambda data: self._append(data, "coverage", metric.metric_id, metric))
-
     def append_invalidation(self, value: InvalidationRecord) -> None:
-        self._file.mutate(lambda data: self._append(data, "invalidations", value.invalidation_id, value))
+        self._file.mutate(lambda data: self._append_idempotent(data, "invalidations", value.invalidation_id, value))
 
     def append_evaluation(self, value: SufficiencyEvaluation) -> None:
-        self._file.mutate(lambda data: self._append(data, "evaluations", value.evaluation_id, value))
+        self._file.mutate(lambda data: self._append_idempotent(data, "evaluations", value.evaluation_id, value))
 
     def append_release_decision(self, value: ReleaseDecisionRecord) -> None:
-        self._file.mutate(lambda data: self._append(data, "release_decisions", value.release_decision_id, value))
+        self._file.mutate(lambda data: self._append_idempotent(data, "release_decisions", value.release_decision_id, value))
 
     def get_stage(self, stage_instance_id: str) -> Optional[StageInstance]:
         raw = self._file.read().get("stages", {}).get(stage_instance_id)
         return self._stage_from_raw(raw) if isinstance(raw, dict) else None
 
+    def get_attempt(self, attempt_id: str) -> Optional[AttemptRecord]:
+        raw = self._file.read().get("attempts", {}).get(attempt_id)
+        return self._attempt_from_raw(raw) if isinstance(raw, dict) else None
+
     def get_gap(self, gap_id: str) -> Optional[GapRecord]:
         raw = self._file.read().get("gaps", {}).get(gap_id)
         return self._gap_from_raw(raw) if isinstance(raw, dict) else None
+
+    def get_evaluation(self, evaluation_id: str) -> Optional[SufficiencyEvaluation]:
+        raw = self._file.read().get("evaluations", {}).get(evaluation_id)
+        return self._evaluation_from_raw(raw) if isinstance(raw, dict) else None
+
+    def get_release_decision(self, release_decision_id: str) -> Optional[ReleaseDecisionRecord]:
+        raw = self._file.read().get("release_decisions", {}).get(release_decision_id)
+        return self._release_from_raw(raw) if isinstance(raw, dict) else None
+
+    def projection_receipt(self, event_id: str) -> Optional[Dict[str, Any]]:
+        raw = self._file.read().get("projected_events", {}).get(event_id)
+        return dict(raw) if isinstance(raw, dict) else None
+
+    def mark_projection(
+        self,
+        *,
+        event_id: str,
+        test_run_id: str,
+        event_type: str,
+        status: str,
+        domain_ref: Optional[str] = None,
+        detail: Optional[str] = None,
+    ) -> None:
+        if status not in {"PROJECTED", "PENDING", "IGNORED"}:
+            raise DurableRepositoryError("PROJECTION_STATUS_INVALID")
+        value = {
+            "event_id": event_id,
+            "test_run_id": test_run_id,
+            "event_type": event_type,
+            "status": status,
+            "domain_ref": domain_ref,
+            "detail": detail,
+        }
+
+        def apply(data: Dict[str, Any]) -> None:
+            rows = self._require_bucket(data, "projected_events")
+            previous = rows.get(event_id)
+            if isinstance(previous, dict) and previous.get("status") == "PROJECTED" and previous != value:
+                raise DurableRepositoryError("PROJECTED_EVENT_IMMUTABLE:%s" % event_id)
+            rows[event_id] = value
+        self._file.mutate(apply)
+
+    def list_projection_receipts(self, test_run_id: str) -> List[Dict[str, Any]]:
+        rows = self._bucket("projected_events")
+        found = [dict(raw) for raw in rows.values() if isinstance(raw, dict) and raw.get("test_run_id") == test_run_id]
+        return sorted(found, key=lambda item: str(item.get("event_id") or ""))
 
     def list_stages(self, test_run_id: str) -> List[StageInstance]:
         rows = self._bucket("stages")
@@ -134,10 +297,6 @@ class JsonFileGovernanceRepository:
             [self._gap_from_raw(raw) for raw in rows.values() if isinstance(raw, dict) and raw.get("test_run_id") == test_run_id],
             key=lambda item: (item.opened_at, item.gap_id),
         )
-
-    def list_coverage(self) -> List[CoverageMetric]:
-        rows = self._bucket("coverage")
-        return sorted([self._coverage_from_raw(raw) for raw in rows.values() if isinstance(raw, dict)], key=lambda item: item.metric_id)
 
     def list_invalidations(self, test_run_id: str) -> List[InvalidationRecord]:
         rows = self._bucket("invalidations")
@@ -168,21 +327,24 @@ class JsonFileGovernanceRepository:
         evaluations = self.list_evaluations(test_run_id)
         invalidations = self.list_invalidations(test_run_id)
         releases = self.list_release_decisions(test_run_id)
+        projection_receipts = self.list_projection_receipts(test_run_id)
         active_gaps = [gap for gap in gaps if gap.status not in {GapStatus.CLOSED, GapStatus.WAIVED}]
         mission_evals = [item for item in evaluations if item.scope == StatusScope.MISSION]
         latest_mission = mission_evals[-1] if mission_evals else None
         latest_release = releases[-1] if releases else None
         return {
-            "schema_version": "rc8.governance-projection.v1",
+            "schema_version": "rc8.governance-projection.v2",
             "test_run_id": test_run_id,
             "stage_count": len(stages),
             "attempt_count": len(attempts),
             "active_gap_count": len(active_gaps),
+            "projection_pending_count": len([item for item in projection_receipts if item.get("status") == "PENDING"]),
             "stages": [_jsonable(item) for item in stages],
             "attempts": [_jsonable(item) for item in attempts],
             "gaps": [_jsonable(item) for item in gaps],
             "invalidations": [_jsonable(item) for item in invalidations],
             "evaluations": [_jsonable(item) for item in evaluations],
+            "projection_receipts": projection_receipts,
             "latest_mission_sufficiency": _jsonable(latest_mission) if latest_mission else None,
             "latest_release_decision": _jsonable(latest_release) if latest_release else None,
             "truth_note": "Projection exposes recorded sufficiency/release facts; it never derives PASS from completed work or zero failures.",
@@ -260,18 +422,6 @@ class JsonFileGovernanceRepository:
             closure_evidence_refs=tuple(raw.get("closure_evidence_refs") or []),
             opened_at=int(raw.get("opened_at") or 0),
             closed_at=int(raw["closed_at"]) if raw.get("closed_at") is not None else None,
-        )
-
-    @staticmethod
-    def _coverage_from_raw(raw: Dict[str, Any]) -> CoverageMetric:
-        return CoverageMetric(
-            metric_id=str(raw.get("metric_id") or ""),
-            dimension=CoverageDimension(str(raw.get("dimension"))),
-            covered=int(raw.get("covered") or 0),
-            total=int(raw.get("total") or 0),
-            threshold=float(raw.get("threshold") or 0.0),
-            evidence_refs=tuple(raw.get("evidence_refs") or []),
-            critical=bool(raw.get("critical", False)),
         )
 
     @staticmethod
