@@ -1,9 +1,27 @@
 {
   "schema_version": 1,
+  "technology_stack": {
+    "center_backend": "FastAPI",
+    "api_validation": "Pydantic",
+    "durable_persistence": "PostgreSQL",
+    "orm": "SQLAlchemy",
+    "migration": "Alembic",
+    "coordination": "Redis",
+    "frontend": "Vue 3",
+    "frontend_language": "TypeScript",
+    "frontend_build": "Vite",
+    "frontend_router": "Vue Router",
+    "frontend_state": "Pinia",
+    "web_edge": "Nginx",
+    "center_deployment": "Docker Compose",
+    "stdlib_http_role": "MINIMAL_PROTOCOL_TEST_ADAPTER_ONLY",
+    "version_policy": "CAPABILITY_BASED_NO_EXACT_VERSION_PIN"
+  },
   "frozen_contract_refs": [
     "docs/rc8/RC8-MASTER-CONTRACT.md",
     "docs/rc8/RC8-ARCHITECTURE-BASELINE.md",
     "docs/rc8/RC8-PRODUCT-BASELINE.md",
+    "docs/rc8/RC8-CENTER-TECHNOLOGY-STACK-CONTRACT.md",
     "docs/rc8/RC8-NO-DISCOUNT-DELIVERY-CONTRACT.md",
     "docs/rc8/RC8-CAPABILITY-CLOSURE-MATRIX.md",
     "docs/rc8/RC8-L1-L7-ACCEPTANCE-CONTRACT.md",
@@ -13,6 +31,27 @@
     "docs/rc8/RC8-WAVE-DELIVERY-GATES.md"
   ],
   "claims": [
+    {
+      "claim_id": "STAGE:CENTER_PRODUCT_STACK",
+      "scope": "STAGE",
+      "subject_id": "center-product-stack",
+      "state": "PARTIAL",
+      "required_gates": ["architecture", "implementation", "automated_test", "product", "reality", "recovery", "deployment"],
+      "completed_gates": ["architecture"],
+      "evidence_refs": ["contract:RC8-CENTER-TECHNOLOGY-STACK-CONTRACT"],
+      "reality_refs": [],
+      "coverage_refs": [],
+      "unresolved_gap_ids": [
+        "GAP:CENTER_FASTAPI_PRODUCT_API",
+        "GAP:CENTER_POSTGRES_ADAPTER",
+        "GAP:CENTER_REDIS_COORDINATION",
+        "GAP:CENTER_VUE_PRODUCT_UI",
+        "GAP:CENTER_NGINX_EDGE",
+        "GAP:CENTER_DOCKER_COMPOSE_REALITY"
+      ],
+      "dependency_claim_refs": [],
+      "notes": "Technology family is frozen. Current stdlib HTTP/JSON fallback is not the formal product stack and cannot close this claim."
+    },
     {
       "claim_id": "TOOL:MAVEN_JUNIT",
       "scope": "TOOL",
@@ -90,7 +129,7 @@
       "reality_refs": [],
       "coverage_refs": [],
       "unresolved_gap_ids": ["GAP:FIRST_MISSION_REQUIRES_SECOND_ATTEMPT_CLOSURE"],
-      "dependency_claim_refs": ["STAGE:CODE_ANALYSIS", "LAYER:L1"],
+      "dependency_claim_refs": ["STAGE:CENTER_PRODUCT_STACK", "STAGE:CODE_ANALYSIS", "LAYER:L1"],
       "notes": "First Reality mission must intentionally detect a gap, create a second Attempt, close it, and visibly converge."
     },
     {
