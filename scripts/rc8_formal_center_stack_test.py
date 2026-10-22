@@ -34,8 +34,8 @@ from rc8_runtime.artifacts import ArtifactManifest
 from rc8_runtime.governance import StageInstance, StageState
 
 
-def _runtime_payload(*, lease_id: str, event_id: str, run_id: str, work_item_id: str, event_type: str,
-                     sequence: int, attempt_id: str, data: dict) -> dict:
+def _runtime_payload(*, lease_id: str, event_id: str, run_id: str, work_item_id: str,
+                     event_type: str, sequence: int, attempt_id: str, data: dict) -> dict:
     return {
         "lease_id": lease_id,
         "event_id": event_id,
@@ -51,6 +51,12 @@ def _runtime_payload(*, lease_id: str, event_id: str, run_id: str, work_item_id:
         "data": data,
         "occurred_at": 100 + sequence,
     }
+
+
+def _r1_event_ids(ledger: CentralR1RuntimeLedger) -> set:
+    # Public ledger reads are detached dictionaries by contract. Tests and
+    # recovery logic must never depend on mutable/private event instances.
+    return {str(item.get("event_id") or "") for item in ledger.runtime_events()}
 
 
 def main() -> int:
@@ -74,9 +80,19 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="rc8-r1-formal-it-") as temp_dir:
         ledger_path = str(Path(temp_dir) / "event-stream.jsonl")
         ledger = CentralR1RuntimeLedger(ledger_path)
-        projector = GovernanceEventProjector(ledger, governance_repository, coverage_repository, artifact_repository)
+        projector = GovernanceEventProjector(
+            ledger,
+            governance_repository,
+            coverage_repository,
+            artifact_repository,
+        )
         formal_control = FormalCenterControlPlane(control_repository, redis, ledger, projector)
-        recovery_coordinator = LeaseRecoveryCoordinator(control_repository, recovery_repository, redis, ledger)
+        recovery_coordinator = LeaseRecoveryCoordinator(
+            control_repository,
+            recovery_repository,
+            redis,
+            ledger,
+        )
         app = create_app(
             settings=settings,
             postgres=postgres,
@@ -89,11 +105,11 @@ def main() -> int:
 
         health = client.get("/health")
         assert health.status_code == 200, health.text
-        body = health.json()
-        assert body["status"] == "READY", body
-        assert body["database"] == "READY", body
-        assert body["redis"] == "READY", body
-        assert body["runtime_truth"] == "R1_EVENT_STREAM", body
+        health_body = health.json()
+        assert health_body["status"] == "READY"
+        assert health_body["database"] == "READY"
+        assert health_body["redis"] == "READY"
+        assert health_body["runtime_truth"] == "R1_EVENT_STREAM"
 
         architecture = client.get("/api/v1/system/architecture")
         assert architecture.status_code == 200, architecture.text
@@ -111,7 +127,11 @@ def main() -> int:
         run_id = "formal-it-%s" % uuid.uuid4().hex[:12]
         created = client.post(
             "/api/v1/test-runs",
-            json={"test_run_id": run_id, "production_batch_id": "PB-IT", "payload": {"scope": "formal-center-integration"}},
+            json={
+                "test_run_id": run_id,
+                "production_batch_id": "PB-IT",
+                "payload": {"scope": "formal-center-integration"},
+            },
         )
         assert created.status_code == 201, created.text
         assert created.headers["location"] == "/api/v1/test-runs/%s" % run_id
@@ -120,7 +140,7 @@ def main() -> int:
         assert client.post("/api/v1/test-runs", json={"test_run_id": "", "unexpected": True}).status_code == 422
 
         stage_id = "stage-%s" % uuid.uuid4().hex[:10]
-        stage = StageInstance(
+        governance_repository.upsert_stage(StageInstance(
             stage_instance_id=stage_id,
             test_run_id=run_id,
             stage_type="APPLICABLE_LAYER_EXECUTION",
@@ -129,10 +149,10 @@ def main() -> int:
             state=StageState.EXECUTING,
             assigned_worker="L1UnitWorker",
             started_at=100,
-        )
-        governance_repository.upsert_stage(stage)
+        ))
         hydrated = governance_repository.get_stage(stage_id)
-        assert hydrated is not None and hydrated.scope_version == "scope:SST-IT@app-cfg-center@v1"
+        assert hydrated is not None
+        assert hydrated.scope_version == "scope:SST-IT@app-cfg-center@v1"
 
         node = client.post(
             "/api/v1/nodes/register",
@@ -172,12 +192,18 @@ def main() -> int:
             },
         )
         assert registered.status_code == 200, registered.text
-        leased = client.post("/api/v1/work-items/%s/lease" % work_item_id, json={"node_id": "node-it-01", "ttl_seconds": 120})
+        leased = client.post(
+            "/api/v1/work-items/%s/lease" % work_item_id,
+            json={"node_id": "node-it-01", "ttl_seconds": 120},
+        )
         assert leased.status_code == 200, leased.text
         lease_id = leased.json()["work_item"]["lease_id"]
         assert lease_id
         assert redis.lease_info("work-item", work_item_id)["lease_id"] == lease_id
-        started_work = client.post("/api/v1/work-items/%s/start" % work_item_id, json={"node_id": "node-it-01", "lease_id": lease_id})
+        started_work = client.post(
+            "/api/v1/work-items/%s/start" % work_item_id,
+            json={"node_id": "node-it-01", "lease_id": lease_id},
+        )
         assert started_work.status_code == 200, started_work.text
         assert started_work.json()["work_item"]["state"] == "RUNNING"
 
@@ -192,11 +218,15 @@ def main() -> int:
                 event_type="ATTEMPT_STARTED",
                 sequence=1,
                 attempt_id=attempt_id,
-                data={"stage_instance_id": stage_id, "input_snapshot_ref": "git:abc123", "started_at": 101},
+                data={
+                    "stage_instance_id": stage_id,
+                    "input_snapshot_ref": "git:abc123",
+                    "started_at": 101,
+                },
             ),
         )
         assert rejected.status_code == 409, rejected.text
-        assert all(event.event_id != rejected_event_id for event in ledger.runtime_events())
+        assert rejected_event_id not in _r1_event_ids(ledger)
 
         accepted_start_id = "evt-start-%s" % uuid.uuid4().hex[:10]
         accepted = client.post(
@@ -209,13 +239,17 @@ def main() -> int:
                 event_type="ATTEMPT_STARTED",
                 sequence=1,
                 attempt_id=attempt_id,
-                data={"stage_instance_id": stage_id, "input_snapshot_ref": "git:abc123", "started_at": 101},
+                data={
+                    "stage_instance_id": stage_id,
+                    "input_snapshot_ref": "git:abc123",
+                    "started_at": 101,
+                },
             ),
         )
         assert accepted.status_code == 200, accepted.text
-        accepted_body = accepted.json()
-        assert accepted_body["receipt"]["status"] == "PERSISTENCE_VERIFIED"
-        assert accepted_body["truth_note"] == "R1_PERSISTED_BEFORE_PROJECTION"
+        assert accepted.json()["receipt"]["status"] == "PERSISTENCE_VERIFIED"
+        assert accepted.json()["truth_note"] == "R1_PERSISTED_BEFORE_PROJECTION"
+        assert accepted_start_id in _r1_event_ids(ledger)
         attempt = governance_repository.get_attempt(attempt_id)
         assert attempt is not None and attempt.status.value == "STARTED"
 
@@ -244,25 +278,26 @@ def main() -> int:
         assert pending_receipt is not None and pending_receipt["status"] == "PENDING"
         assert governance_repository.get_attempt(attempt_id).status.value == "STARTED"
 
-        artifact_repository.upsert(
-            ArtifactManifest(
-                artifact_id=artifact_id,
-                test_run_id=run_id,
-                work_item_id=work_item_id,
-                node_id="node-it-01",
-                kind="JUNIT_XML",
-                producer_kind=RuntimeProducerKind.WORKER,
-                producer_ref="L1UnitWorker",
-                file_name="TEST-it.xml",
-                sha256="a" * 64,
-                size_bytes=128,
-                availability=ArtifactAvailability.AVAILABLE,
-                attempt_id=attempt_id,
-                refs=["assertion:it-1"],
-                metadata={"integration": True},
-                created_at=102,
-            )
-        )
+        # This main control-plane test proves the evidence gate with a direct
+        # metadata fixture. Full byte upload/hash/size/resume behavior is covered
+        # independently by rc8_formal_artifact_upload_test.py.
+        artifact_repository.upsert(ArtifactManifest(
+            artifact_id=artifact_id,
+            test_run_id=run_id,
+            work_item_id=work_item_id,
+            node_id="node-it-01",
+            kind="JUNIT_XML",
+            producer_kind=RuntimeProducerKind.WORKER,
+            producer_ref="L1UnitWorker",
+            file_name="TEST-it.xml",
+            sha256="a" * 64,
+            size_bytes=128,
+            availability=ArtifactAvailability.AVAILABLE,
+            attempt_id=attempt_id,
+            refs=["assertion:it-1"],
+            metadata={"fixture": "evidence-gate-only"},
+            created_at=102,
+        ))
         replay = projector.replay()
         assert replay["status"] == "REPLAY_COMPLETE", replay
         assert replay["pending"] == 0
@@ -279,20 +314,26 @@ def main() -> int:
         assert completed_work.json()["work_item"]["lease_id"] is None
         assert redis.lease_info("work-item", work_item_id) is None
 
+        stale_event_id = "evt-stale-%s" % uuid.uuid4().hex[:10]
         stale_after_complete = client.post(
             "/api/v1/runtime-events",
             json=_runtime_payload(
                 lease_id=lease_id,
-                event_id="evt-stale-%s" % uuid.uuid4().hex[:10],
+                event_id=stale_event_id,
                 run_id=run_id,
                 work_item_id=work_item_id,
                 event_type="ATTEMPT_STARTED",
                 sequence=3,
                 attempt_id="attempt-stale",
-                data={"stage_instance_id": stage_id, "input_snapshot_ref": "git:stale", "started_at": 103},
+                data={
+                    "stage_instance_id": stage_id,
+                    "input_snapshot_ref": "git:stale",
+                    "started_at": 103,
+                },
             ),
         )
         assert stale_after_complete.status_code == 409
+        assert stale_event_id not in _r1_event_ids(ledger)
         assert len(ledger.runtime_events()) == 2
 
         restarted_projector = GovernanceEventProjector(
@@ -315,6 +356,8 @@ def main() -> int:
         assert governance_body["latest_mission_sufficiency"] is None
         assert governance_body["latest_release_decision"] is None
 
+        # Redis loss must fail closed. A running WorkItem cannot silently acquire
+        # a fresh lease and duplicate side effects.
         recovery_work_id = "work-recovery-%s" % uuid.uuid4().hex[:8]
         assert client.post(
             "/api/v1/work-items/register",
@@ -338,21 +381,28 @@ def main() -> int:
         ).status_code == 200
         redis.client.flushdb()
 
+        blocked_event_id = "evt-after-redis-loss-%s" % uuid.uuid4().hex[:8]
         blocked_after_redis_loss = client.post(
             "/api/v1/runtime-events",
             json=_runtime_payload(
                 lease_id=recovery_lease,
-                event_id="evt-after-redis-loss-%s" % uuid.uuid4().hex[:8],
+                event_id=blocked_event_id,
                 run_id=run_id,
                 work_item_id=recovery_work_id,
                 event_type="ATTEMPT_STARTED",
                 sequence=3,
                 attempt_id="attempt-after-redis-loss",
-                data={"stage_instance_id": stage_id, "input_snapshot_ref": "git:recovery", "started_at": 103},
+                data={
+                    "stage_instance_id": stage_id,
+                    "input_snapshot_ref": "git:recovery",
+                    "started_at": 103,
+                },
             ),
         )
         assert blocked_after_redis_loss.status_code == 409
         assert blocked_after_redis_loss.json()["detail"] == "ACTIVE_WORK_ITEM_LEASE_REQUIRED"
+        assert blocked_event_id not in _r1_event_ids(ledger)
+
         retry_lease = client.post(
             "/api/v1/work-items/%s/lease" % recovery_work_id,
             json={"node_id": "node-it-01", "ttl_seconds": 120},
@@ -392,7 +442,7 @@ def main() -> int:
                 "resolution": "AUTHORIZE_REQUEUE",
                 "decision_ref": "human-gate:recovery-it-1",
                 "evidence_ref": "evidence:redis-loss-confirmed",
-                "explanation": "Integration test explicitly authorizes requeue after Redis lease loss.",
+                "explanation": "Explicitly authorize requeue after confirmed Redis lease loss.",
             },
         )
         assert governed_requeue.status_code == 200, governed_requeue.text
@@ -407,6 +457,7 @@ def main() -> int:
         assert re_lease.status_code == 200, re_lease.text
         new_lease = re_lease.json()["work_item"]["lease_id"]
         assert new_lease and new_lease != recovery_lease
+
         old_token_event_id = "evt-old-token-%s" % uuid.uuid4().hex[:8]
         old_token_write = client.post(
             "/api/v1/runtime-events",
@@ -418,12 +469,17 @@ def main() -> int:
                 event_type="ATTEMPT_STARTED",
                 sequence=3,
                 attempt_id="attempt-old-token",
-                data={"stage_instance_id": stage_id, "input_snapshot_ref": "git:old-token", "started_at": 103},
+                data={
+                    "stage_instance_id": stage_id,
+                    "input_snapshot_ref": "git:old-token",
+                    "started_at": 103,
+                },
             ),
         )
         assert old_token_write.status_code == 409
-        assert all(event.event_id != old_token_event_id for event in ledger.runtime_events())
+        assert old_token_event_id not in _r1_event_ids(ledger)
 
+        # LEASED work with no runtime facts is the narrow automatically safe case.
         assert redis.release_lease("work-item", recovery_work_id, "node-it-01", lease_id=new_lease)
         safe_reconcile = client.post("/api/v1/recovery/reconcile")
         assert safe_reconcile.status_code == 200
@@ -449,7 +505,8 @@ def main() -> int:
 
         first = postgres.set_checkpoint("governance", last_event_id="evt-10", last_sequence=10, detail="first")
         assert first.last_sequence == 10
-        assert postgres.set_checkpoint("governance", last_event_id="evt-10", last_sequence=10, detail="replay").last_sequence == 10
+        exact = postgres.set_checkpoint("governance", last_event_id="evt-10", last_sequence=10, detail="replay")
+        assert exact.last_sequence == 10
         try:
             postgres.set_checkpoint("governance", last_event_id="evt-9", last_sequence=9)
             raise AssertionError("CHECKPOINT_REGRESSION_ACCEPTED")
@@ -461,17 +518,15 @@ def main() -> int:
         assert redis.dequeue(queue) == {"test_run_id": run_id, "work_item_id": work_item_id}
         assert redis.dequeue(queue) is None
 
-    print(
-        {
-            "status": "FORMAL_CENTER_GOVERNED_RECOVERY_VERIFIED",
-            "scope": "FORMAL_CONTROL_GOVERNANCE_AND_LEASE_RECOVERY_FOUNDATION_ONLY",
-            "test_run_id": run_id,
-            "mission_sufficient": False,
-            "product_closed": False,
-            "artifact_upload_api_formalized": False,
-            "bank_server_reality": False,
-        }
-    )
+    print({
+        "status": "FORMAL_CENTER_GOVERNED_RECOVERY_VERIFIED",
+        "scope": "FORMAL_CONTROL_GOVERNANCE_AND_LEASE_RECOVERY_FOUNDATION_ONLY",
+        "test_run_id": run_id,
+        "mission_sufficient": False,
+        "product_closed": False,
+        "formal_artifact_upload": "SEPARATE_CI_GATE",
+        "bank_server_reality": False,
+    })
     return 0
 
 
