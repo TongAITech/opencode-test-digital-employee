@@ -1,7 +1,7 @@
 """artifact metadata
 
 Revision ID: 0003_artifact_metadata
-Revises: 0002_governance_projection_semantics
+Revises: 0002_governance_projection
 Create Date: 2026-10-22
 """
 from __future__ import annotations
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0003_artifact_metadata"
-down_revision = "0002_governance_projection_semantics"
+down_revision = "0002_governance_projection"
 branch_labels = None
 depends_on = None
 
