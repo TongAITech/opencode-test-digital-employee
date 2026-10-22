@@ -11,6 +11,7 @@ def _stage(stage_id, stage_type, attempt_no=1, predecessors=(), state=StageState
         attempt_no=attempt_no,
         predecessor_ids=tuple(predecessors),
         state=state,
+        evaluator_id="requirement-evaluator" if state == StageState.SUFFICIENT else None,
     )
 
 
