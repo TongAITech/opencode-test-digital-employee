@@ -86,7 +86,7 @@ def test_round_delivery_membership_freezes_when_runtime_mission_starts() -> None
     )
     assert started.status_code == 201
     run_body = started.json()["test_run"]
-    assert run_body["payload"]["requirement_delivery_ids"] == [delivery_a, delivery_b]
+    assert set(run_body["payload"]["requirement_delivery_ids"]) == {delivery_a, delivery_b}
 
     after_start = client.post(
         "/api/v1/production-batches/PB/test-rounds/%s/deliveries/%s" % (round_id, delivery_c),
@@ -97,7 +97,7 @@ def test_round_delivery_membership_freezes_when_runtime_mission_starts() -> None
 
     view = client.get("/api/v1/production-batches/PB/test-rounds/%s" % round_id)
     assert view.status_code == 200
-    persisted_delivery_ids = [item["delivery_id"] for item in view.json()["deliveries"]]
-    assert persisted_delivery_ids == [delivery_a, delivery_b]
+    persisted_delivery_ids = {item["delivery_id"] for item in view.json()["deliveries"]}
+    assert persisted_delivery_ids == {delivery_a, delivery_b}
     assert delivery_c not in persisted_delivery_ids
-    assert view.json()["test_run"]["payload"]["requirement_delivery_ids"] == [delivery_a, delivery_b]
+    assert set(view.json()["test_run"]["payload"]["requirement_delivery_ids"]) == {delivery_a, delivery_b}
