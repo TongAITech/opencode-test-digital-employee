@@ -95,6 +95,7 @@ def _error(exc: Exception) -> HTTPException:
         "TEST_ROUND_NOT_STARTABLE",
         "TEST_ROUND_HAS_NO_REQUIREMENTS",
         "TEST_ROUND_SCOPE_INCOMPLETE",
+        "TEST_ROUND_SCOPE_FROZEN_AFTER_START",
         "TEST_ROUND_ALREADY_HAS_TEST_RUN",
         "TEST_RUN_ALREADY_EXISTS",
     }
