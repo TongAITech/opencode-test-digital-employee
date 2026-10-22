@@ -7,7 +7,64 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from .agent import HttpCenterClient, NodeAgent, NodeIdentityStore, detect_platform
+from .agent import HttpCenterClient, NodeIdentityStore, detect_platform
+from .autonomous_claim_client import AutonomousClaimClient
+from .autonomous_dispatcher import AutonomousWorkerDispatcher
+from .dsh_json_runner import DshJsonRunner
+from .formal_agent import FormalNodeAgent
+from .requirement_analysis_worker import RequirementAnalysisWorker
+from .requirement_sufficiency_worker import RequirementSufficiencyWorker
+from .scope_intake_worker import ScopeIntakeWorker
+
+
+_AUTONOMOUS_STAGES = (
+    "SCOPE_INTAKE",
+    "REQUIREMENT_ANALYSIS",
+    "REQUIREMENT_SUFFICIENCY",
+)
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _build_dispatcher(args, identity, center: HttpCenterClient) -> AutonomousWorkerDispatcher:
+    dsh_patch = str(args.dsh_patch or "").strip()
+    if not dsh_patch:
+        raise ValueError("--dsh-patch / RC8_DSH_PATCH is required in autonomous mode")
+    formal_agent = FormalNodeAgent(identity, center)
+    work_root = Path(args.work_dir or (Path(args.state_dir) / "work"))
+    work_root.mkdir(parents=True, exist_ok=True)
+    analysis_runner = DshJsonRunner(
+        dsh_bin=args.dsh_bin,
+        patch_path=dsh_patch,
+        cwd=args.dsh_cwd or None,
+        timeout_seconds=args.dsh_timeout,
+    )
+    workers = {
+        "SCOPE_INTAKE": ScopeIntakeWorker(
+            agent=formal_agent,
+            work_dir=str(work_root / "scope-intake"),
+        ),
+        "REQUIREMENT_ANALYSIS": RequirementAnalysisWorker(
+            agent=formal_agent,
+            dsh_runner=analysis_runner,
+            work_dir=str(work_root / "requirement-analysis"),
+        ),
+        "REQUIREMENT_SUFFICIENCY": RequirementSufficiencyWorker(
+            agent=formal_agent,
+            work_dir=str(work_root / "requirement-sufficiency"),
+        ),
+    }
+    return AutonomousWorkerDispatcher(
+        claimant=AutonomousClaimClient(args.center, identity.node_id, timeout_seconds=args.http_timeout),
+        workers=workers,
+        ttl_seconds=args.lease_ttl,
+        idle_sleep_seconds=args.claim_interval,
+    )
 
 
 def main(argv: Optional[list] = None) -> int:
@@ -18,6 +75,21 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("--state-dir", default=os.environ.get("RC8_NODE_STATE_DIR", "runtime/rc8-node"))
     parser.add_argument("--heartbeat-interval", type=int, default=int(os.environ.get("RC8_NODE_HEARTBEAT_SECONDS", "15")))
     parser.add_argument("--once", action="store_true", help="注册并发送一次心跳后退出")
+    parser.add_argument(
+        "--autonomous",
+        action="store_true",
+        default=_env_flag("RC8_NODE_AUTONOMOUS"),
+        help="启用已验证 Stage 白名单的自主领取与执行",
+    )
+    parser.add_argument("--test-run-id", default=os.environ.get("RC8_NODE_TEST_RUN_ID", ""), help="可选：仅处理指定 TestRun")
+    parser.add_argument("--claim-interval", type=float, default=float(os.environ.get("RC8_NODE_CLAIM_INTERVAL_SECONDS", "1")))
+    parser.add_argument("--lease-ttl", type=int, default=int(os.environ.get("RC8_NODE_LEASE_TTL_SECONDS", "60")))
+    parser.add_argument("--http-timeout", type=int, default=int(os.environ.get("RC8_NODE_HTTP_TIMEOUT_SECONDS", "30")))
+    parser.add_argument("--work-dir", default=os.environ.get("RC8_NODE_WORK_DIR", ""))
+    parser.add_argument("--dsh-bin", default=os.environ.get("RC8_DSH_BIN", "dsh"))
+    parser.add_argument("--dsh-patch", default=os.environ.get("RC8_DSH_PATCH", ""))
+    parser.add_argument("--dsh-cwd", default=os.environ.get("RC8_DSH_CWD", ""))
+    parser.add_argument("--dsh-timeout", type=int, default=int(os.environ.get("RC8_DSH_TIMEOUT_SECONDS", "300")))
     args = parser.parse_args(argv)
 
     if not args.node_id.strip():
@@ -26,6 +98,16 @@ def main(argv: Optional[list] = None) -> int:
         parser.error("--operator / RC8_NODE_OPERATOR is required")
     if args.heartbeat_interval <= 0:
         parser.error("heartbeat interval must be > 0")
+    if args.claim_interval < 0:
+        parser.error("claim interval must be >= 0")
+    if args.lease_ttl <= 0:
+        parser.error("lease ttl must be > 0")
+    if args.http_timeout <= 0:
+        parser.error("http timeout must be > 0")
+    if args.dsh_timeout <= 0:
+        parser.error("dsh timeout must be > 0")
+    if args.autonomous and not str(args.dsh_patch or "").strip():
+        parser.error("--dsh-patch / RC8_DSH_PATCH is required in autonomous mode")
 
     platform_info = detect_platform()
     identity_path = Path(args.state_dir) / "node-identity.json"
@@ -36,31 +118,45 @@ def main(argv: Optional[list] = None) -> int:
         architecture=platform_info["architecture"],
         shell=platform_info["shell"],
     )
-    agent = NodeAgent(identity, HttpCenterClient(args.center))
+    center = HttpCenterClient(args.center, timeout_seconds=args.http_timeout)
+    agent = FormalNodeAgent(identity, center)
     registered = agent.register()
     heartbeat = agent.heartbeat()
-    print(
-        json.dumps(
-            {
-                "status": "RC8_NODE_READY",
-                "node_id": identity.node_id,
-                "center": args.center,
-                "platform": platform_info,
-                "registered": registered.get("node", {}).get("status"),
-                "heartbeat": heartbeat.get("node", {}).get("status"),
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-        ),
-        flush=True,
-    )
+    ready = {
+        "status": "RC8_NODE_AUTONOMOUS_READY" if args.autonomous else "RC8_NODE_READY",
+        "node_id": identity.node_id,
+        "center": args.center,
+        "platform": platform_info,
+        "registered": registered.get("node", {}).get("status"),
+        "heartbeat": heartbeat.get("node", {}).get("status"),
+        "autonomous": bool(args.autonomous),
+        "supported_stages": list(_AUTONOMOUS_STAGES) if args.autonomous else [],
+        "test_run_id": str(args.test_run_id or "").strip() or None,
+    }
+    print(json.dumps(ready, ensure_ascii=False, sort_keys=True), flush=True)
     if args.once:
         return 0
 
+    if not args.autonomous:
+        try:
+            while True:
+                time.sleep(args.heartbeat_interval)
+                agent.heartbeat()
+        except KeyboardInterrupt:
+            return 0
+
+    dispatcher = _build_dispatcher(args, identity, center)
+    test_run_id = str(args.test_run_id or "").strip() or None
+    last_heartbeat = time.monotonic()
     try:
         while True:
-            time.sleep(args.heartbeat_interval)
-            agent.heartbeat()
+            outcome = dispatcher.run_once(test_run_id=test_run_id)
+            now = time.monotonic()
+            if now - last_heartbeat >= args.heartbeat_interval:
+                agent.heartbeat()
+                last_heartbeat = now
+            if outcome.status == "IDLE" and args.claim_interval > 0:
+                time.sleep(args.claim_interval)
     except KeyboardInterrupt:
         return 0
 
