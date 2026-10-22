@@ -1,6 +1,7 @@
 """Formal PostgreSQL repository for Node/Capability/WorkItem durable state."""
 from __future__ import annotations
 
+import time
 from typing import List, Optional
 
 from sqlalchemy import BigInteger, JSON, String, select
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from rc8_center.control_plane import NodeRecord, NodeStatus, WorkItemRecord, WorkItemState
 from rc8_runtime import CapabilityQualification, CapabilityState, NodeIdentity, WorkItemIdentity
 
-from .postgres import Base, PostgresStore
+from .postgres import Base, MissionStageRow, PostgresStore
 
 
 class NodeRow(Base):
@@ -46,6 +47,23 @@ class WorkItemRow(Base):
     lease_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     lease_owner_node_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     lease_expires_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+
+
+class StageWorkItemLinkRow(Base):
+    """Exact lineage from a schedulable WorkItem to one StageInstance.
+
+    ``WorkItemIdentity.stage`` remains the human/routing stage type. This table
+    carries the instance identity needed for retries and parallel scope chains.
+    One StageInstance may intentionally own more than one WorkItem later, while
+    each WorkItem belongs to exactly one StageInstance.
+    """
+
+    __tablename__ = "rc8_stage_work_item_link"
+
+    work_item_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    stage_instance_id: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    test_run_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
 class PostgresCenterRepository:
@@ -118,6 +136,52 @@ class PostgresCenterRepository:
     def list_work_items(self) -> List[WorkItemRecord]:
         with self.store.session() as session:
             return [self._work(row) for row in session.scalars(select(WorkItemRow).order_by(WorkItemRow.work_item_id))]
+
+    def link_work_item_to_stage(
+        self,
+        *,
+        work_item_id: str,
+        stage_instance_id: str,
+        test_run_id: str,
+        created_at: Optional[int] = None,
+    ) -> StageWorkItemLinkRow:
+        timestamp = int(created_at if created_at is not None else time.time())
+        with self.store.session() as session:
+            work = session.get(WorkItemRow, work_item_id)
+            if work is None:
+                raise ValueError("WORK_ITEM_NOT_FOUND")
+            stage = session.get(MissionStageRow, stage_instance_id)
+            if stage is None:
+                raise ValueError("MISSION_STAGE_NOT_FOUND")
+            if work.test_run_id != test_run_id or stage.test_run_id != test_run_id:
+                raise ValueError("STAGE_WORK_ITEM_TEST_RUN_MISMATCH")
+            existing = session.get(StageWorkItemLinkRow, work_item_id)
+            if existing is not None:
+                if existing.stage_instance_id != stage_instance_id or existing.test_run_id != test_run_id:
+                    raise ValueError("STAGE_WORK_ITEM_LINK_CONFLICT")
+                return existing
+            row = StageWorkItemLinkRow(
+                work_item_id=work_item_id,
+                stage_instance_id=stage_instance_id,
+                test_run_id=test_run_id,
+                created_at=timestamp,
+            )
+            session.add(row)
+            return row
+
+    def get_stage_link_for_work_item(self, work_item_id: str) -> Optional[StageWorkItemLinkRow]:
+        with self.store.session() as session:
+            return session.get(StageWorkItemLinkRow, work_item_id)
+
+    def list_work_item_links_for_stage(self, stage_instance_id: str) -> List[StageWorkItemLinkRow]:
+        with self.store.session() as session:
+            return list(
+                session.scalars(
+                    select(StageWorkItemLinkRow)
+                    .where(StageWorkItemLinkRow.stage_instance_id == stage_instance_id)
+                    .order_by(StageWorkItemLinkRow.work_item_id)
+                )
+            )
 
     @staticmethod
     def _node_row(v: NodeRecord) -> NodeRow:
