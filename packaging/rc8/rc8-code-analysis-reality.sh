@@ -77,4 +77,4 @@ if [[ -n "$STATE_ENV" ]]; then
   fi
 fi
 
-exec "$PYTHON_BIN" -m rc8_node.reality_code_analysis "$@"
+exec "$PYTHON_BIN" -m rc8_node.reality_code_analysis_auto "$@"
