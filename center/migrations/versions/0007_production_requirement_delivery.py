@@ -1,6 +1,6 @@
 """production batch requirement delivery
 
-Revision ID: 0007_production_requirement_delivery
+Revision ID: 0007_req_delivery
 Revises: 0006_lease_recovery
 Create Date: 2026-10-22
 """
@@ -9,7 +9,7 @@ from __future__ import annotations
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0007_production_requirement_delivery"
+revision = "0007_req_delivery"
 down_revision = "0006_lease_recovery"
 branch_labels = None
 depends_on = None
