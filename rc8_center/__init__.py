@@ -10,6 +10,9 @@ from .control_plane import (
     WorkItemRecord,
     WorkItemState,
 )
+from .coverage_repository import JsonFileCoverageRepository
+from .governance_projection import GovernanceProjectionService
+from .governance_repository import JsonFileGovernanceRepository
 from .json_repository import DurableRepositoryError, JsonFileArtifactRepository, JsonFileCenterRepository
 
 __all__ = [
@@ -17,8 +20,11 @@ __all__ = [
     "CenterControlPlane",
     "CenterRepository",
     "DurableRepositoryError",
+    "GovernanceProjectionService",
     "JsonFileArtifactRepository",
     "JsonFileCenterRepository",
+    "JsonFileCoverageRepository",
+    "JsonFileGovernanceRepository",
     "MemoryCenterRepository",
     "NodeRecord",
     "NodeStatus",
