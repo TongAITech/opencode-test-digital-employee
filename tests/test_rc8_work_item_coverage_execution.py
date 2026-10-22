@@ -16,6 +16,7 @@ class RecordingAgent:
             architecture="x86_64", shell="bash", registered_at=1,
         )
         self.calls = []
+        self.events = []
 
     def lease(self, work_item_id, ttl_seconds=60):
         self.calls.append(("lease", work_item_id))
@@ -31,6 +32,7 @@ class RecordingAgent:
 
     def append_runtime_event(self, event):
         self.calls.append(("r1", event.event_type))
+        self.events.append(event)
         return {"status": "APPENDED", "event_id": event.event_id}
 
     def complete(self, work_item_id):
@@ -91,7 +93,7 @@ def _context():
     )
 
 
-def test_coverage_scope_and_context_flow_through_one_work_item_transaction(tmp_path: Path) -> None:
+def test_coverage_scope_and_context_flow_through_one_governed_attempt_transaction(tmp_path: Path) -> None:
     agent = RecordingAgent()
     adapter = CoverageAdapter(tmp_path)
     scope = _scope()
@@ -109,16 +111,29 @@ def test_coverage_scope_and_context_flow_through_one_work_item_transaction(tmp_p
     )
 
     assert adapter.calls == [(str(tmp_path), ["test", "jacoco:report"], scope)]
-    event_types = [call[1] for call in agent.calls if call[0] == "r1"]
-    assert event_types == [
+    assert [event.event_type for event in agent.events] == [
+        "ATTEMPT_STARTED",
         "MAVEN_JUNIT_ACTUAL_RECORDED",
         "COVERAGE_COLLECTED",
         "COVERAGE_COLLECTED",
         "COVERAGE_COLLECTED",
+        "ATTEMPT_COMPLETED",
     ]
+    assert [event.sequence for event in agent.events] == [50, 51, 52, 53, 54, 55]
+    assert agent.events[0].attempt_id == "attempt-l1-1"
+    terminal = agent.events[-1]
+    assert terminal.attempt_id == "attempt-l1-1"
+    assert terminal.data["stage_instance_id"] == "stage-l1"
+    assert terminal.data["input_snapshot_ref"] == "snapshot:l1-head"
+    assert len(terminal.data["coverage_refs"]) == 3
+    assert terminal.data["gap_refs"] == []
+    assert terminal.data.get("failure_ownership") is None
+    assert terminal.data["evidence_refs"]
     assert agent.calls[0][0] == "lease"
     assert agent.calls[1][0] == "start"
     assert agent.calls[-1] == ("complete", "wi-1")
+    assert result["attempt_started"] is not None
+    assert result["attempt_terminal"] is not None
     assert result["actual_passed"] is True
     assert result["coverage_collected"] is True
 
