@@ -63,8 +63,6 @@ class LeaseRecoveryCoordinator:
             elif work.state in {WorkItemState.COMPLETED, WorkItemState.FAILED} and active is not None:
                 reason = RecoveryReason.STALE_REDIS_LEASE_AFTER_TERMINAL
             elif work.state in {WorkItemState.REGISTERED, WorkItemState.READY, WorkItemState.BLOCKED} and active is not None:
-                # These durable states do not own an execution lease. Any Redis
-                # key is divergent transient state and must be governed/reconciled.
                 reason = RecoveryReason.REDIS_LEASE_DIVERGED
 
             if reason is None:
@@ -187,7 +185,22 @@ class LeaseRecoveryCoordinator:
             self.control_repository.upsert_node(replace(node, status=NodeStatus.IDLE, last_heartbeat_at=self._now()))
 
     def _runtime_event_count(self, work_item_id: str) -> int:
-        return sum(1 for event in self.runtime_ledger.runtime_events() if event.work_item_id == work_item_id)
+        """Count only canonical R1 runtime facts for the WorkItem.
+
+        CentralR1RuntimeLedger intentionally returns detached dictionary snapshots
+        from ``runtime_events()`` so callers cannot mutate ledger state. Recovery
+        must consume that public contract rather than depend on private event
+        dataclass instances.
+        """
+        count = 0
+        for event in self.runtime_ledger.runtime_events():
+            if isinstance(event, dict):
+                candidate = event.get("work_item_id")
+            else:
+                candidate = getattr(event, "work_item_id", None)
+            if candidate == work_item_id:
+                count += 1
+        return count
 
     @staticmethod
     def _active_matches(work, active) -> bool:
