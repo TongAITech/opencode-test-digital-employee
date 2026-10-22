@@ -1,6 +1,6 @@
 # RC8 Architecture Baseline v1
 
-Status: FROZEN-CANDIDATE
+Status: FROZEN
 
 ## 1. System shape
 RC8 adopts a shared-center / distributed-node architecture.
@@ -43,6 +43,24 @@ Center owns durable state; nodes own AI reasoning and real execution. DSH Sessio
 - Product API/UI
 
 First implementation is a modular monolith with strong module boundaries.
+
+### 2.1 Frozen formal Center technology stack
+The formal RC8 Center product stack is frozen as:
+- FastAPI + Pydantic for formal backend APIs;
+- PostgreSQL as durable Center persistence;
+- SQLAlchemy + Alembic for persistence mapping and schema migration;
+- Redis for transient coordination, WorkItem/Resource Lease, queue, cache and distributed runtime coordination;
+- Vue 3 + TypeScript + Vite + Vue Router + Pinia for the formal product frontend;
+- Nginx as the final same-origin web edge/static server/API reverse proxy;
+- Docker Compose as a first-class Center deployment topology.
+
+Exact point versions are capability-qualified and are not pinned into the architecture baseline.
+
+The binding detailed contract is `docs/rc8/RC8-CENTER-TECHNOLOGY-STACK-CONTRACT.md`.
+
+The existing `rc8_center/http_server.py` stdlib HTTP implementation is a W1 minimal protocol/reference adapter and contract-test boundary only. It MUST NOT become the formal production/product server by incremental expansion. Formal product capabilities remain PARTIAL until exposed through the FastAPI application and, where user-facing, the Vue product UI.
+
+Center framework adapters MUST remain outside domain truth: FastAPI route handlers cannot own Mission/Gap/Sufficiency business semantics. PostgreSQL is durable authority; Redis is never authoritative Mission truth.
 
 ## 3. Node Agent modules
 - Registration & heartbeat
@@ -133,6 +151,10 @@ R1 Event Stream remains runtime truth. Center stores canonical events and builds
 Events include producer identity, node, TestRun/WorkItem/Case/Attempt/Step association, sequence/idempotency key, occurrence time, payload and artifact references.
 Plans/future intents use separate records and never masquerade as runtime events.
 
+Runtime-to-product chain for the formal Center is:
+`Node Runtime Event -> R1 persistence -> Center projector/application service -> PostgreSQL durable projection/domain state -> FastAPI Product API -> Vue UI`.
+Redis can assist delivery/coordination but cannot bypass this chain.
+
 ## 9. Evidence contract
 Evidence is typed and provenance-bound. A design document cannot prove execution. Typical evidence types:
 - browser action/network capture
@@ -195,6 +217,8 @@ Multi-node adds parallel execution, sharing and handoff. The same TestRun/WorkIt
 Canonical shell entrypoints run under Windows Git Bash and Xinchuang Linux bash. Platform-specific binaries live behind adapters (`windows`, `linux`, architecture variants). Dispatch uses verified capability.
 
 Node package is downloadable from Center and contains the frozen redistributable RC7 offline toolset plus RC8 Node Agent/adapters. Skills can update independently from the heavyweight tool package.
+
+Formal Center deployment is Docker Compose based and includes at minimum FastAPI Center, Vue/Nginx web, PostgreSQL, Redis and artifact storage, with background worker/projector process separated when required. Clean install, migration, health, restart, persistence recovery, upgrade and rollback are architectural acceptance gates, not optional operations work.
 
 ## 17. Migration strategy
 Migration rule for each RC7 capability:
