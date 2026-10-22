@@ -65,3 +65,10 @@ class RuntimeEventRequest(StrictModel):
     refs: List[str] = Field(default_factory=list)
     data: Dict[str, Any] = Field(default_factory=dict)
     occurred_at: int = Field(ge=0)
+
+
+class RecoveryResolveRequest(StrictModel):
+    resolution: str = Field(min_length=1, max_length=80)
+    decision_ref: Optional[str] = Field(default=None, max_length=300)
+    evidence_ref: Optional[str] = Field(default=None, max_length=300)
+    explanation: Optional[str] = Field(default=None, max_length=4000)
