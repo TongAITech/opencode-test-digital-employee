@@ -187,19 +187,30 @@ def runtime_event(
     sequence: int,
     **kwargs: object
 ) -> RuntimeEventEnvelope:
-    """Small constructor used by Node/Center adapters without session coupling."""
-    return RuntimeEventEnvelope(
-        event_id=event_id,
-        test_run_id=test_run_id,
-        work_item_id=work_item_id,
-        node_id=node_id,
-        producer_kind=producer_kind,
-        producer_ref=producer_ref,
-        event_type=event_type,
-        sequence=sequence,
-        case_id=kwargs.get("case_id") if isinstance(kwargs.get("case_id"), str) else None,
-        attempt_id=kwargs.get("attempt_id") if isinstance(kwargs.get("attempt_id"), str) else None,
-        step_id=kwargs.get("step_id") if isinstance(kwargs.get("step_id"), str) else None,
-        refs=list(kwargs.get("refs") or []),
-        data=dict(kwargs.get("data") or {}),
-    )
+    """Small constructor used by Node/Center adapters without session coupling.
+
+    ``occurred_at`` may be supplied explicitly for deterministic replay/retry
+    construction. It remains part of the canonical event payload: changing it
+    under an existing event_id is therefore still an R1 conflict.
+    """
+    occurred_at = kwargs.get("occurred_at")
+    if occurred_at is not None and (not isinstance(occurred_at, int) or occurred_at < 0):
+        raise R1TruthError("RUNTIME_EVENT_OCCURRED_AT_INVALID")
+    values: Dict[str, object] = {
+        "event_id": event_id,
+        "test_run_id": test_run_id,
+        "work_item_id": work_item_id,
+        "node_id": node_id,
+        "producer_kind": producer_kind,
+        "producer_ref": producer_ref,
+        "event_type": event_type,
+        "sequence": sequence,
+        "case_id": kwargs.get("case_id") if isinstance(kwargs.get("case_id"), str) else None,
+        "attempt_id": kwargs.get("attempt_id") if isinstance(kwargs.get("attempt_id"), str) else None,
+        "step_id": kwargs.get("step_id") if isinstance(kwargs.get("step_id"), str) else None,
+        "refs": list(kwargs.get("refs") or []),
+        "data": dict(kwargs.get("data") or {}),
+    }
+    if occurred_at is not None:
+        values["occurred_at"] = occurred_at
+    return RuntimeEventEnvelope(**values)
