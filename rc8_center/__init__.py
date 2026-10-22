@@ -11,6 +11,7 @@ from .control_plane import (
     WorkItemState,
 )
 from .coverage_repository import JsonFileCoverageRepository
+from .governance_event_projector import GovernanceEventProjector
 from .governance_projection import GovernanceProjectionService
 from .governance_repository import JsonFileGovernanceRepository
 from .json_repository import DurableRepositoryError, JsonFileArtifactRepository, JsonFileCenterRepository
@@ -22,6 +23,7 @@ __all__ = [
     "CenterProductApplication",
     "CenterRepository",
     "DurableRepositoryError",
+    "GovernanceEventProjector",
     "GovernanceProjectionService",
     "JsonFileArtifactRepository",
     "JsonFileCenterRepository",
