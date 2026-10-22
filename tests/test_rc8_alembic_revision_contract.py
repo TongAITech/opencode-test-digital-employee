@@ -77,15 +77,16 @@ def test_requirement_delivery_revision_remains_schema_compatible() -> None:
     assert revisions["0007_req_delivery"][0] == "0006_lease_recovery"
 
 
-def test_test_round_runtime_and_stage_work_item_revisions_are_linear() -> None:
+def test_test_round_runtime_and_revision_identity_revisions_are_linear() -> None:
     revisions = _load_revisions()
     assert revisions["0008_test_rounds"][0] == "0007_req_delivery"
     assert revisions["0009_run_round"][0] == "0008_test_rounds"
     assert revisions["0010_stage_workitem"][0] == "0009_run_round"
+    assert revisions["0011_req_scope_revision"][0] == "0010_stage_workitem"
 
 
 if __name__ == "__main__":
     test_alembic_revision_ids_fit_version_table_and_form_one_closed_chain()
     test_requirement_delivery_revision_remains_schema_compatible()
-    test_test_round_runtime_and_stage_work_item_revisions_are_linear()
+    test_test_round_runtime_and_revision_identity_revisions_are_linear()
     print("RC8_ALEMBIC_REVISION_CONTRACT_PASS")
