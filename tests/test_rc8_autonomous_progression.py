@@ -21,7 +21,7 @@ from rc8_center.infrastructure import (
 from rc8_center.mission_service import CenterMissionService
 from rc8_runtime import ArtifactAvailability, AttemptRecord, AttemptStatus, RuntimeProducerKind
 from rc8_runtime.artifacts import ArtifactManifest
-from rc8_runtime.governance import StageState
+from rc8_runtime.governance import FailureOwnership, StageState
 from rc8_runtime.mission_graph import MissionStageType
 
 
@@ -122,6 +122,57 @@ def _complete_attempt(governance, artifacts, control, work_id: str, stage_id: st
     control.upsert_work_item(replace(work, state=WorkItemState.COMPLETED))
 
 
+def _failure_attempt(
+    governance,
+    artifacts,
+    control,
+    work_id: str,
+    stage_id: str,
+    *,
+    status: AttemptStatus,
+    artifact_id: str,
+):
+    attempt_id = "ATT-%s" % status.value
+    artifacts.upsert(
+        ArtifactManifest(
+            artifact_id=artifact_id,
+            test_run_id="TR-1",
+            work_item_id=work_id,
+            node_id="NODE-1",
+            kind="FAILURE_EVIDENCE",
+            producer_kind=RuntimeProducerKind.WORKER,
+            producer_ref="worker:test",
+            file_name="failure.json",
+            sha256="c" * 64,
+            size_bytes=10,
+            availability=ArtifactAvailability.AVAILABLE,
+            attempt_id=attempt_id,
+            refs=["stage:%s" % stage_id],
+            created_at=104,
+        )
+    )
+    governance.upsert_attempt(
+        AttemptRecord(
+            attempt_id=attempt_id,
+            test_run_id="TR-1",
+            stage_instance_id=stage_id,
+            work_item_id=work_id,
+            producer_node_id="NODE-1",
+            producer_ref="worker:test",
+            input_snapshot_ref="snapshot:1",
+            status=status,
+            evidence_refs=("artifact:%s" % artifact_id,),
+            failure_ownership=(FailureOwnership.MODEL if status == AttemptStatus.FAILED_RUNTIME else FailureOwnership.DEPENDENCY),
+            started_at=102,
+            finished_at=105,
+        )
+    )
+    work = control.get_work_item(work_id)
+    assert work is not None
+    terminal = WorkItemState.BLOCKED if status == AttemptStatus.BLOCKED else WorkItemState.FAILED
+    control.upsert_work_item(replace(work, state=terminal))
+
+
 def test_completed_evidence_backed_work_unlocks_next_stage_and_materializes_work() -> None:
     _store, governance, control, artifacts, progressor, work_id, stage_id = _fixture()
 
@@ -204,6 +255,60 @@ def test_mission_work_item_cannot_complete_when_evidence_artifact_is_not_availab
     control.upsert_work_item(replace(work, state=WorkItemState.COMPLETED))
     with pytest.raises(AutonomousProgressionError, match="MISSION_COMPLETION_EVIDENCE_NOT_AVAILABLE"):
         progressor.reconcile_completed_work_item(work_id)
+
+
+def test_failure_requires_projected_terminal_attempt() -> None:
+    _store, _governance, _control, _artifacts, progressor, work_id, _stage_id = _fixture()
+    progressor.on_work_item_leased(work_id)
+    progressor.on_work_item_started(work_id)
+    with pytest.raises(
+        AutonomousProgressionError,
+        match="MISSION_WORK_ITEM_FAILURE_REQUIRES_PROJECTED_TERMINAL_ATTEMPT",
+    ):
+        progressor.assert_work_item_failable(work_id)
+
+
+@pytest.mark.parametrize(
+    ("attempt_status", "work_state", "stage_state", "artifact_id"),
+    [
+        (AttemptStatus.FAILED_RUNTIME, WorkItemState.FAILED, StageState.FAILED_RUNTIME, "EV-FAIL"),
+        (AttemptStatus.BLOCKED, WorkItemState.BLOCKED, StageState.BLOCKED, "EV-BLOCK"),
+    ],
+)
+def test_evidenced_failure_terminalizes_stage_without_downstream_unlock(
+    attempt_status: AttemptStatus,
+    work_state: WorkItemState,
+    stage_state: StageState,
+    artifact_id: str,
+) -> None:
+    _store, governance, control, artifacts, progressor, work_id, stage_id = _fixture()
+    progressor.on_work_item_leased(work_id)
+    progressor.on_work_item_started(work_id)
+    _failure_attempt(
+        governance,
+        artifacts,
+        control,
+        work_id,
+        stage_id,
+        status=attempt_status,
+        artifact_id=artifact_id,
+    )
+    gate = progressor.assert_work_item_failable(work_id)
+    assert gate.work_item_state == work_state
+    assert gate.stage_state == stage_state
+
+    outcome = progressor.reconcile_failed_work_item(work_id)
+    assert outcome.source_stage_state == stage_state.value
+    assert outcome.newly_ready_stage_ids == tuple()
+    assert outcome.materialized_work_item_ids == tuple()
+    source = governance.get_stage(stage_id)
+    assert source is not None and source.state == stage_state
+    requirement_analysis = [
+        item for item in governance.list_stages("TR-1")
+        if item.stage_type == MissionStageType.REQUIREMENT_ANALYSIS.value
+    ]
+    assert len(requirement_analysis) == 1
+    assert requirement_analysis[0].state == StageState.PENDING
 
 
 def test_reconciliation_is_idempotent_after_stage_completion() -> None:
