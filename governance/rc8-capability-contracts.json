@@ -37,20 +37,30 @@
       "subject_id": "center-product-stack",
       "state": "PARTIAL",
       "required_gates": ["architecture", "implementation", "automated_test", "product", "reality", "recovery", "deployment"],
-      "completed_gates": ["architecture"],
-      "evidence_refs": ["contract:RC8-CENTER-TECHNOLOGY-STACK-CONTRACT"],
+      "completed_gates": ["architecture", "implementation", "automated_test"],
+      "evidence_refs": [
+        "contract:RC8-CENTER-TECHNOLOGY-STACK-CONTRACT",
+        "code:rc8_center/api/fastapi_app.py",
+        "code:rc8_center/infrastructure/postgres.py",
+        "code:rc8_center/infrastructure/redis_coordination.py",
+        "code:center/migrations/versions/0001_formal_center_foundation.py",
+        "code:center-web/src/App.vue",
+        "code:center/docker-compose.yml",
+        "ci:39759029266:formal-center-integration:SUCCESS",
+        "ci:39759029266:vue-product-shell:SUCCESS",
+        "ci:39759029266:container-contract:SUCCESS"
+      ],
       "reality_refs": [],
       "coverage_refs": [],
       "unresolved_gap_ids": [
-        "GAP:CENTER_FASTAPI_PRODUCT_API",
-        "GAP:CENTER_POSTGRES_ADAPTER",
-        "GAP:CENTER_REDIS_COORDINATION",
-        "GAP:CENTER_VUE_PRODUCT_UI",
-        "GAP:CENTER_NGINX_EDGE",
-        "GAP:CENTER_DOCKER_COMPOSE_REALITY"
+        "GAP:CENTER_R1_POSTGRES_GOVERNANCE_PROJECTION",
+        "GAP:CENTER_FORMAL_GOVERNANCE_API",
+        "GAP:CENTER_FULL_13_PRODUCT_SURFACES",
+        "GAP:CENTER_RESTART_RECOVERY_REALITY",
+        "GAP:CENTER_BANK_SERVER_DEPLOYMENT_REALITY"
       ],
       "dependency_claim_refs": [],
-      "notes": "Technology family is frozen. Current stdlib HTTP/JSON fallback is not the formal product stack and cannot close this claim."
+      "notes": "Formal FastAPI/PostgreSQL/Redis/Vue/Nginx/Docker Compose foundation is implemented and CI-verified. Product completion, R1-backed PostgreSQL projection, restart recovery and target-bank server deployment remain open; stdlib HTTP/JSON fallback cannot close this claim."
     },
     {
       "claim_id": "TOOL:MAVEN_JUNIT",
