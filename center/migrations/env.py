@@ -7,6 +7,8 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from rc8_center.infrastructure.postgres import Base
+# Import model modules so Base.metadata contains all formal Center tables.
+from rc8_center.infrastructure import postgres_artifact as _postgres_artifact  # noqa: F401,E402
 
 config = context.config
 if config.config_file_name is not None:
