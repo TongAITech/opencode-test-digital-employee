@@ -33,6 +33,7 @@ RUNTIME_FILES = (
     "rc8_center/http_server.py",
     "rc8_center/artifacts.py",
     "rc8_center/json_repository.py",
+    "rc8_center/repository_ports.py",
     "rc8_center/governance_repository.py",
     "rc8_center/coverage_repository.py",
     "rc8_center/governance_projection.py",
