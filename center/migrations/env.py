@@ -10,6 +10,7 @@ from rc8_center.infrastructure.postgres import Base
 # Import model modules so Base.metadata contains all formal Center tables.
 from rc8_center.infrastructure import postgres_artifact as _postgres_artifact  # noqa: F401,E402
 from rc8_center.infrastructure import postgres_control as _postgres_control  # noqa: F401,E402
+from rc8_center.infrastructure import postgres_delivery as _postgres_delivery  # noqa: F401,E402
 from rc8_center.infrastructure import postgres_governance as _postgres_governance  # noqa: F401,E402
 from rc8_center.infrastructure import postgres_recovery as _postgres_recovery  # noqa: F401,E402
 
