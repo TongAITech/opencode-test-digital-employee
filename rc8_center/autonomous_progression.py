@@ -43,11 +43,6 @@ class ProgressionOutcome:
     truth_note: str = "EVIDENCE_GATED_STAGE_PROGRESSION"
 
 
-# Only capabilities already defined as product invariants are attached here.
-# Unknown stages remain capability-neutral until their specialized worker slice
-# is productized; inventing capability names would make scheduling look real
-# while being impossible to satisfy. Java code analysis is the explicit RC8
-# exception: it must not bypass CodeGraph.
 _STAGE_REQUIRED_CAPABILITIES = {
     MissionStageType.CODE_ANALYSIS.value: ("codegraph",),
 }
@@ -131,11 +126,8 @@ class AutonomousMissionProgressor:
         )
 
     def assert_work_item_completable(self, work_item_id: str) -> Tuple[str, ...]:
-        """Fail closed before the durable WorkItem is marked terminal."""
         stage = self._linked_stage(work_item_id)
         if stage is None:
-            # Legacy/non-production work remains compatible with the explicit
-            # control-plane API. Autonomous production work always has lineage.
             return tuple()
         if stage.state == StageState.COMPLETED:
             return tuple(stage.output_refs)
@@ -193,9 +185,7 @@ class AutonomousMissionProgressor:
         stage = self.governance_repository.get_stage(stage.stage_instance_id) or stage
         if stage.state != StageState.COMPLETED:
             if stage.state == StageState.EXECUTING:
-                stage = self.mission_service.mark_evidence_pending(
-                    stage.test_run_id, stage.stage_instance_id
-                )
+                stage = self.mission_service.mark_evidence_pending(stage.test_run_id, stage.stage_instance_id)
             if stage.stage_type in {value.value for value in SUFFICIENCY_STAGES}:
                 if stage.state == StageState.EVIDENCE_PENDING:
                     stage = self.mission_service.begin_sufficiency_evaluation(
@@ -204,20 +194,15 @@ class AutonomousMissionProgressor:
                         evidence_refs,
                     )
                 if stage.state == StageState.EVALUATING:
-                    stage = self.mission_service.reconcile_sufficiency(
-                        stage.test_run_id, stage.stage_instance_id
-                    )
+                    stage = self.mission_service.reconcile_sufficiency(stage.test_run_id, stage.stage_instance_id)
                 if stage.state in {StageState.SUFFICIENT, StageState.INSUFFICIENT}:
-                    stage = self.mission_service.complete_sufficiency(
-                        stage.test_run_id, stage.stage_instance_id
-                    )
-            else:
-                if stage.state == StageState.EVIDENCE_PENDING:
-                    stage = self.mission_service.complete_activity(
-                        stage.test_run_id,
-                        stage.stage_instance_id,
-                        evidence_refs,
-                    )
+                    stage = self.mission_service.complete_sufficiency(stage.test_run_id, stage.stage_instance_id)
+            elif stage.state == StageState.EVIDENCE_PENDING:
+                stage = self.mission_service.complete_activity(
+                    stage.test_run_id,
+                    stage.stage_instance_id,
+                    evidence_refs,
+                )
 
         newly_ready, materialized = self.materialize_ready_work(stage.test_run_id)
         latest = self.governance_repository.get_stage(stage.stage_instance_id) or stage
@@ -231,7 +216,6 @@ class AutonomousMissionProgressor:
         )
 
     def reconcile_test_run(self, test_run_id: str) -> Tuple[ProgressionOutcome, ...]:
-        """Crash-safe reconciliation for completed work whose Stage lagged."""
         outcomes: List[ProgressionOutcome] = []
         for work in self.control_repository.list_work_items():
             if work.identity.test_run_id != test_run_id or work.state != WorkItemState.COMPLETED:
@@ -273,6 +257,7 @@ class AutonomousMissionProgressor:
         test_round_id = str(run.test_round_id or "").strip()
         if not test_round_id:
             raise AutonomousProgressionError("MISSION_STAGE_REQUIRES_TEST_ROUND")
+        revision_refs = self._revision_refs_for_stage(run.payload or {}, stage)
         identity = WorkItemIdentity(
             work_item_id=_stable_work_item_id(stage),
             test_run_id=stage.test_run_id,
@@ -281,10 +266,31 @@ class AutonomousMissionProgressor:
                 stage.scope_version,
                 "stage-instance:%s" % stage.stage_instance_id,
                 "test-round:%s" % test_round_id,
+                *revision_refs,
             ],
             required_capabilities=list(_STAGE_REQUIRED_CAPABILITIES.get(stage.stage_type, tuple())),
         )
         return WorkItemRecord(identity=identity, state=WorkItemState.READY)
+
+    @staticmethod
+    def _revision_refs_for_stage(payload: dict, stage: StageInstance) -> List[str]:
+        """Resolve frozen revision identities for one technical delivery scope."""
+        scope_version = str(stage.scope_version or "")
+        if not scope_version.startswith("delivery-scope:"):
+            return []
+        delivery_scope_id = scope_version.split(":", 1)[1]
+        for item in payload.get("delivery_revision_bindings") or []:
+            if delivery_scope_id not in set(item.get("delivery_scope_ids") or []):
+                continue
+            requirement_revision_id = str(item.get("requirement_revision_id") or "").strip()
+            scope_revision_id = str(item.get("scope_revision_id") or "").strip()
+            refs: List[str] = []
+            if requirement_revision_id:
+                refs.append("requirement-revision:%s" % requirement_revision_id)
+            if scope_revision_id:
+                refs.append("scope-revision:%s" % scope_revision_id)
+            return refs
+        return []
 
     def _linked_stage(self, work_item_id: str) -> Optional[StageInstance]:
         link = self.control_repository.get_stage_link_for_work_item(work_item_id)
