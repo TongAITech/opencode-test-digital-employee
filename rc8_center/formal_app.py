@@ -3,7 +3,7 @@
 Formal runtime chain:
 Node -> PostgreSQL identity/state + Redis active lease authorization
 -> R1 Event Stream -> replayable projector -> PostgreSQL governance/coverage
-projection -> FastAPI -> Vue.
+projection -> evidence-gated Mission progression -> FastAPI -> Vue.
 
 Artifact chain:
 lease-authorized manifest -> resumable byte upload -> exact size/SHA-256 verify
@@ -20,11 +20,13 @@ from pathlib import Path
 from rc8_runtime import CentralR1RuntimeLedger
 from rc8_center.api import create_app
 from rc8_center.artifacts import FileArtifactStore
+from rc8_center.autonomous_progression import AutonomousMissionProgressor
 from rc8_center.formal_artifacts import FormalArtifactService
 from rc8_center.formal_control import FormalCenterControlPlane
 from rc8_center.formal_settings import CenterSettings
 from rc8_center.governance_event_projector import GovernanceEventProjector
 from rc8_center.governance_projection import GovernanceProjectionService
+from rc8_center.mission_service import CenterMissionService
 from rc8_center.infrastructure import (
     PostgresArtifactRepository,
     PostgresCenterRepository,
@@ -57,11 +59,20 @@ def build_app():
     projector = GovernanceEventProjector(ledger, governance_repository, coverage_repository, artifact_repository)
     replay_result = projector.replay()
     projection = GovernanceProjectionService(governance_repository, coverage_repository)
+    mission_service = CenterMissionService(governance_repository)
+    mission_progressor = AutonomousMissionProgressor(
+        store=postgres,
+        mission_service=mission_service,
+        governance_repository=governance_repository,
+        control_repository=control_repository,
+        artifact_repository=artifact_repository,
+    )
     formal_control = FormalCenterControlPlane(
         control_repository,
         redis_coordination,
         ledger,
         projector,
+        progression=mission_progressor,
     )
     recovery_coordinator = LeaseRecoveryCoordinator(
         control_repository,
@@ -98,6 +109,8 @@ def build_app():
     app.state.recovery_repository = recovery_repository
     app.state.delivery_repository = delivery_repository
     app.state.test_round_repository = test_round_repository
+    app.state.mission_service = mission_service
+    app.state.mission_progressor = mission_progressor
     app.state.formal_control = formal_control
     app.state.recovery_coordinator = recovery_coordinator
     app.state.artifact_store = artifact_store
