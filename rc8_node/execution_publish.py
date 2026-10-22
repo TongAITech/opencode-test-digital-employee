@@ -1,8 +1,9 @@
 """Publish real Maven/JUnit execution truth through the RC8 Node -> Center boundary.
 
-The execution adapter produces Actual from JUnit XML. This publisher uploads the
-machine evidence first and only then appends a canonical R1 runtime event that
-references the AVAILABLE artifacts. It never derives PASS from model text.
+The execution adapter produces Actual only from fresh JUnit XML. This publisher
+uploads machine evidence first and only then appends a canonical R1 runtime
+event that references AVAILABLE artifacts. Maven process truth is part of the
+PASS assertion: green XML alone cannot override a non-zero Maven exit code.
 """
 from __future__ import annotations
 
@@ -34,12 +35,6 @@ def _artifact_id(work_item_id: str, role: str, path: Path) -> str:
 
 
 def _completed_artifact(response: Dict[str, object], artifact_id: str) -> Dict[str, object]:
-    """Normalize the Center Artifact Sync response without weakening truth checks.
-
-    Real Center returns {"artifact": {...}}. Some local test doubles historically
-    returned the artifact object directly. Support both shapes, but require the
-    authoritative artifact id and AVAILABLE state in either case.
-    """
     artifact = response.get("artifact") if isinstance(response, dict) else None
     if artifact is None:
         artifact = response
@@ -110,11 +105,21 @@ def publish_maven_junit_execution(
             "failures": actual.failures,
             "errors": actual.errors,
             "skipped": actual.skipped,
-            "passed": actual.passed,
+            "junit_passed": actual.passed,
+            "passed": result.execution_passed,
             "maven_returncode": result.returncode,
-            "assertion": "tests>0 and failures==0 and errors==0",
-            "truth_source": "JUnit XML",
+            "classification": result.classification,
+            "stale_junit_reports_ignored": result.stale_xml_ignored,
+            "stdout_encoding": result.stdout_encoding,
+            "stderr_encoding": result.stderr_encoding,
+            "assertion": "maven_returncode==0 and tests>0 and failures==0 and errors==0",
+            "truth_source": "Fresh JUnit XML + Maven process result",
         },
     )
     response = agent.append_runtime_event(event)
-    return {"event_id": event_id, "artifact_ids": artifact_ids, "actual_passed": actual.passed, "center": response}
+    return {
+        "event_id": event_id,
+        "artifact_ids": artifact_ids,
+        "actual_passed": result.execution_passed,
+        "center": response,
+    }
