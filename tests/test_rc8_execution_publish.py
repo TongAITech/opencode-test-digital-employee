@@ -25,7 +25,7 @@ class RecordingAgent:
         return {"status": "APPENDED", "event_id": event.event_id}
 
 
-def _result(tmp_path, failures=0):
+def _result(tmp_path, failures=0, returncode=0):
     actual_path = tmp_path / "actual.json"
     stdout_path = tmp_path / "stdout.log"
     stderr_path = tmp_path / "stderr.log"
@@ -35,7 +35,7 @@ def _result(tmp_path, failures=0):
     stderr_path.write_text("", encoding="utf-8")
     xml_path.write_text('<testsuite tests="1" failures="%s" errors="0" skipped="0"/>' % failures, encoding="utf-8")
     actual = JUnitActual(tests=1, failures=failures, errors=0, skipped=0, xml_files=[str(xml_path)])
-    return MavenExecutionResult(["mvn", "test"], 0, 1, 2, actual, str(actual_path), "0" * 64, str(stdout_path), str(stderr_path))
+    return MavenExecutionResult(["mvn", "test"], returncode, 1, 2, actual, str(actual_path), "0" * 64, str(stdout_path), str(stderr_path))
 
 
 def test_execution_truth_uploads_evidence_before_r1_event(tmp_path):
@@ -47,7 +47,8 @@ def test_execution_truth_uploads_evidence_before_r1_event(tmp_path):
     assert event.event_type == "MAVEN_JUNIT_ACTUAL_RECORDED"
     assert event.sequence == 7
     assert event.data["passed"] is True
-    assert event.data["truth_source"] == "JUnit XML"
+    assert event.data["truth_source"] == "Fresh JUnit XML + Maven process result"
+    assert event.data["assertion"].startswith("maven_returncode==0")
     assert event.refs == [m.artifact_id for m in agent.manifests]
     assert result["actual_passed"] is True
 
@@ -59,8 +60,23 @@ def test_junit_failure_is_published_as_failed_actual_even_when_maven_zero(tmp_pa
     assert agent.events[0].data["passed"] is False
 
 
+def test_maven_nonzero_is_published_as_failed_even_when_junit_is_green(tmp_path):
+    agent = RecordingAgent()
+    published = publish_maven_junit_execution(
+        agent,
+        test_run_id="run-1",
+        work_item_id="wi-1",
+        result=_result(tmp_path, returncode=1),
+        event_id="evt-nonzero",
+        sequence=9,
+    )
+    assert agent.events[0].data["junit_passed"] is True
+    assert agent.events[0].data["passed"] is False
+    assert published["actual_passed"] is False
+
+
 def test_runtime_event_is_not_appended_until_all_evidence_is_available(tmp_path):
     agent = RecordingAgent(available=False)
     with pytest.raises(NodeAgentError, match="EXECUTION_EVIDENCE_NOT_AVAILABLE"):
-        publish_maven_junit_execution(agent, test_run_id="run-1", work_item_id="wi-1", result=_result(tmp_path), event_id="evt-3", sequence=9)
+        publish_maven_junit_execution(agent, test_run_id="run-1", work_item_id="wi-1", result=_result(tmp_path), event_id="evt-3", sequence=10)
     assert agent.events == []
