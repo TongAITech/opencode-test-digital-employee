@@ -52,5 +52,5 @@ def execute_maven_junit_work_item(
         "execution": execution,
         "published": published,
         "completed": completed,
-        "actual_passed": execution.actual.passed,
+        "actual_passed": execution.execution_passed,
     }
