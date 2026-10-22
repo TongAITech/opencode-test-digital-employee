@@ -236,7 +236,6 @@ def test_insufficient_requirement_appends_attempt2_and_keeps_code_blocked() -> N
     governance, control, artifacts, progressor, run = _fixture()
     suff1, work1 = _reach_requirement_sufficiency(governance, control, artifacts, progressor, run)
 
-    # The gap is a durable historical fact owned by requirement analysis.
     gap_ref = _artifact(
         artifacts,
         artifact_id="EV-GAP-1",
@@ -274,16 +273,37 @@ def test_insufficient_requirement_appends_attempt2_and_keeps_code_blocked() -> N
     req2 = _stage(governance, MissionStageType.REQUIREMENT_ANALYSIS, 2)
     suff2 = _stage(governance, MissionStageType.REQUIREMENT_SUFFICIENCY, 2)
     code = _stage(governance, MissionStageType.CODE_ANALYSIS, 1)
+    suff1_persisted = governance.get_stage(suff1.stage_instance_id)
+    assert suff1_persisted is not None
     assert req2.state == StageState.READY
     assert req2.predecessor_ids == (suff1.stage_instance_id,)
+    assert req2.successor_ids == (suff2.stage_instance_id,)
     assert suff2.state == StageState.PENDING
     assert suff2.predecessor_ids == (req2.stage_instance_id,)
+    assert suff2.successor_ids == (code.stage_instance_id,)
     assert code.state == StageState.PENDING
     assert code.predecessor_ids == (suff2.stage_instance_id,)
+    assert req2.stage_instance_id in suff1_persisted.successor_ids
+    assert code.stage_instance_id not in suff1_persisted.successor_ids
     req2_work = _single_work_for_stage(control, req2.stage_instance_id)
     assert "gap:GAP-1" in req2_work.identity.scope_refs
     assert governance.get_gap("GAP-1") is not None
     assert len(governance.list_evaluations("TR")) == 1
+
+    # Crash/reconcile retries must not create another attempt-2 graph or edges.
+    second = progressor.reconcile_completed_work_item(work1.identity.work_item_id)
+    assert second.truth_note == "REQUIREMENT_INSUFFICIENT_APPENDED_REPAIR_ATTEMPT"
+    assert len([
+        value for value in governance.list_stages("TR")
+        if value.stage_type == MissionStageType.REQUIREMENT_ANALYSIS.value and value.attempt_no == 2
+    ]) == 1
+    assert len([
+        value for value in governance.list_stages("TR")
+        if value.stage_type == MissionStageType.REQUIREMENT_SUFFICIENCY.value and value.attempt_no == 2
+    ]) == 1
+    assert governance.get_stage(suff1.stage_instance_id).successor_ids == (req2.stage_instance_id,)
+    assert governance.get_stage(req2.stage_instance_id).successor_ids == (suff2.stage_instance_id,)
+    assert governance.get_stage(suff2.stage_instance_id).successor_ids == (code.stage_instance_id,)
 
 
 def test_repaired_requirement_becomes_sufficient_then_unlocks_code_analysis() -> None:
@@ -365,6 +385,8 @@ def test_repaired_requirement_becomes_sufficient_then_unlocks_code_analysis() ->
     )
     code = _stage(governance, MissionStageType.CODE_ANALYSIS, 1)
     assert code.state == StageState.READY
+    assert code.predecessor_ids == (suff2.stage_instance_id,)
+    assert governance.get_stage(suff2.stage_instance_id).successor_ids == (code.stage_instance_id,)
     code_work = _single_work_for_stage(control, code.stage_instance_id)
     assert code_work.identity.stage == MissionStageType.CODE_ANALYSIS.value
     assert outcome.truth_note == "EVIDENCE_GATED_STAGE_PROGRESSION"
