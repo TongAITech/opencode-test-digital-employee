@@ -44,6 +44,8 @@ def _fixture():
     )
 
     app = FastAPI()
+    app.state.postgres = store
+    app.state.delivery_repository = delivery_repo
     app.state.test_round_repository = round_repo
     register_test_round_routes(app)
     return TestClient(app), delivery_repo, round_repo
@@ -77,6 +79,7 @@ def test_api_creates_multiple_rounds_inside_one_production_date_without_creating
     listed = client.get("/api/v1/production-batches/batch-2026-11-15/test-rounds")
     assert listed.status_code == 200
     assert [item["round"]["round_no"] for item in listed.json()] == [1, 2]
+    assert [item["test_run"] for item in listed.json()] == [None, None]
 
     history = delivery_repo.requirement_history("R001")
     assert len(history.deliveries) == 1
