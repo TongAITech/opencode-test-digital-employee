@@ -9,9 +9,9 @@ Artifact chain:
 lease-authorized manifest -> resumable byte upload -> exact size/SHA-256 verify
 -> atomic AVAILABLE publish -> R1 replay -> evidence-dependent projection.
 
-Lost Redis lease is not blind-replayed: the recovery coordinator records a
-durable incident and requires either a provably safe reset or an explicit
-evidence-backed recovery decision.
+Requirement truth chain:
+RequirementMaster -> RequirementRevision -> ScopeRevision -> DeliveryScope ->
+TestRound frozen revision snapshot -> Stage/WorkItem/Evidence lineage.
 """
 from __future__ import annotations
 
@@ -34,6 +34,7 @@ from rc8_center.infrastructure import (
     PostgresGovernanceRepository,
     PostgresRecoveryRepository,
     PostgresRequirementDeliveryRepository,
+    PostgresRequirementRevisionRepository,
     PostgresStore,
     PostgresTestRoundRepository,
     RedisCoordination,
@@ -52,6 +53,7 @@ def build_app():
     control_repository = PostgresCenterRepository(postgres)
     recovery_repository = PostgresRecoveryRepository(postgres)
     delivery_repository = PostgresRequirementDeliveryRepository(postgres)
+    revision_repository = PostgresRequirementRevisionRepository(postgres)
     test_round_repository = PostgresTestRoundRepository(postgres)
 
     r1_path = Path(settings.r1_root) / "event-stream.jsonl"
@@ -97,6 +99,7 @@ def build_app():
         artifact_service=artifact_service,
         product_application=None,
         delivery_repository=delivery_repository,
+        revision_repository=revision_repository,
         test_round_repository=test_round_repository,
     )
     app.state.r1_ledger = ledger
@@ -108,6 +111,7 @@ def build_app():
     app.state.control_repository = control_repository
     app.state.recovery_repository = recovery_repository
     app.state.delivery_repository = delivery_repository
+    app.state.revision_repository = revision_repository
     app.state.test_round_repository = test_round_repository
     app.state.mission_service = mission_service
     app.state.mission_progressor = mission_progressor
