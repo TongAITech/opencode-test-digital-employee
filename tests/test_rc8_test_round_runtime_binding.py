@@ -146,6 +146,10 @@ def test_round_scoped_test_run_becomes_runtime_parent_for_stage_and_attempt() ->
     assert round_view.status_code == 200
     assert round_view.json()["test_run"]["test_run_id"] == "TR-ROUND-1"
 
+    generic_view = client.get("/api/v1/test-runs/TR-ROUND-1")
+    assert generic_view.status_code == 200
+    assert generic_view.json()["test_round_id"] == "ROUND-1"
+
 
 def test_two_rounds_of_same_delivery_create_two_isolated_runtime_missions() -> None:
     client, store = _fixture()
@@ -166,6 +170,12 @@ def test_two_rounds_of_same_delivery_create_two_isolated_runtime_missions() -> N
     assert first_row.test_run_id != second_row.test_run_id
     assert first_row.production_batch_id == second_row.production_batch_id == "PB-20261115"
     assert first_row.payload["requirement_delivery_ids"] == second_row.payload["requirement_delivery_ids"] == ["DEL-001"]
+
+    listed = client.get("/api/v1/test-runs")
+    assert listed.status_code == 200
+    by_id = {item["test_run_id"]: item for item in listed.json()}
+    assert by_id["TR-ROUND-1"]["test_round_id"] == "ROUND-1"
+    assert by_id["TR-ROUND-2"]["test_round_id"] == "ROUND-2"
 
 
 def test_one_round_cannot_own_two_top_level_test_runs() -> None:
@@ -219,3 +229,31 @@ def test_terminal_round_cannot_start_runtime_mission() -> None:
     blocked = _start_round(client, "ROUND-1", "TR-BLOCKED")
     assert blocked.status_code == 409
     assert blocked.json()["detail"] == "TEST_ROUND_NOT_STARTABLE"
+
+
+def test_generic_test_run_api_cannot_create_production_or_round_bound_mission() -> None:
+    client, store = _fixture()
+
+    production_bound = client.post(
+        "/api/v1/test-runs",
+        json={"test_run_id": "BYPASS-PB", "production_batch_id": "PB-ANY"},
+    )
+    assert production_bound.status_code == 409
+    assert production_bound.json()["detail"] == "USE_TEST_ROUND_START_API_FOR_PRODUCTION_MISSION"
+    assert store.get_test_run("BYPASS-PB") is None
+
+    round_bound = client.post(
+        "/api/v1/test-runs",
+        json={"test_run_id": "BYPASS-ROUND", "test_round_id": "ROUND-ANY"},
+    )
+    assert round_bound.status_code == 409
+    assert round_bound.json()["detail"] == "USE_TEST_ROUND_START_API_FOR_PRODUCTION_MISSION"
+    assert store.get_test_run("BYPASS-ROUND") is None
+
+    standalone = client.post(
+        "/api/v1/test-runs",
+        json={"test_run_id": "STANDALONE", "payload": {"purpose": "non-production-research"}},
+    )
+    assert standalone.status_code == 201
+    assert standalone.json()["production_batch_id"] is None
+    assert standalone.json()["test_round_id"] is None
