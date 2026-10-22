@@ -59,7 +59,7 @@ jobs:
         run: |
           alembic -c center/alembic.ini current
           alembic -c center/alembic.ini upgrade head
-          alembic -c center/alembic.ini downgrade base --sql > /tmp/rc8-downgrade.sql
+          alembic -c center/alembic.ini downgrade head:base --sql > /tmp/rc8-downgrade.sql
           test -s /tmp/rc8-downgrade.sql
 
   vue-product-shell:
