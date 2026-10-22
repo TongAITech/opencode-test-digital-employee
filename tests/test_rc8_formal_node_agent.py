@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from rc8_node import FormalNodeAgent, NodeAgentError
 from rc8_runtime import (
     ArtifactAvailability,
+    CapabilityQualification,
+    CapabilityState,
     NodeIdentity,
     RuntimeProducerKind,
     runtime_event,
@@ -55,6 +57,40 @@ class FormalNodeAgentTests(unittest.TestCase):
             registered_at=1,
         )
         self.agent = FormalNodeAgent(self.identity, self.center)
+
+    def test_capability_request_uses_path_scoped_node_contract(self) -> None:
+        qualification = CapabilityQualification(
+            node_id="node-formal-01",
+            capability_id="maven-junit",
+            state=CapabilityState.VERIFIED,
+            probe_ref="probe:formal-agent",
+            evidence_refs=["artifact:formal-agent-probe"],
+            verified_at=2,
+        )
+        self.agent.report_capability(qualification)
+        method, path, payload, _ = self.center.calls[-1]
+        self.assertEqual((method, path), ("POST", "/api/v1/nodes/node-formal-01/capabilities"))
+        self.assertEqual(
+            payload,
+            {
+                "capability_id": "maven-junit",
+                "state": "VERIFIED",
+                "probe_ref": "probe:formal-agent",
+                "evidence_refs": ["artifact:formal-agent-probe"],
+                "verified_at": 2,
+            },
+        )
+        self.assertNotIn("node_id", payload)
+
+        with self.assertRaisesRegex(NodeAgentError, "CAPABILITY_NODE_MISMATCH"):
+            self.agent.report_capability(CapabilityQualification(
+                node_id="another-node",
+                capability_id="maven-junit",
+                state=CapabilityState.VERIFIED,
+                probe_ref="probe:other",
+                evidence_refs=["artifact:other"],
+                verified_at=3,
+            ))
 
     def test_start_runtime_and_complete_require_explicit_lease(self) -> None:
         with self.assertRaisesRegex(NodeAgentError, "WORK_ITEM_LEASE_ID_REQUIRED"):
