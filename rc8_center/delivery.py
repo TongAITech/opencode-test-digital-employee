@@ -2,10 +2,13 @@
 
 Business truth:
 - a production batch is selected first;
-- requirements participate in a batch through RequirementDelivery;
-- a requirement may be completed in one batch or may participate in later batches;
-- no mandatory RequirementRevision/Iteration object is invented;
-- system version/application/SST are delivery scopes, not the mission root.
+- Requirement is the long-lived business identity;
+- RequirementRevision/Iteration is a first-class immutable business version;
+- ScopeRevision is a first-class immutable delivery-scope version;
+- RequirementDelivery binds one effective RequirementRevision + ScopeRevision
+  into a production batch;
+- system version/application/SST are technical delivery scopes and must never be
+  used as the requirement revision identity.
 """
 from __future__ import annotations
 
@@ -86,6 +89,8 @@ class RequirementDelivery:
     created_at: int = 0
     updated_at: int = 0
     payload: Dict[str, Any] = field(default_factory=dict)
+    requirement_revision_id: Optional[str] = None
+    scope_revision_id: Optional[str] = None
 
     def transition_to(self, target: RequirementDeliveryState) -> "RequirementDelivery":
         target = RequirementDeliveryState(target)
@@ -106,6 +111,8 @@ class RequirementDelivery:
             created_at=self.created_at,
             updated_at=self.updated_at,
             payload=dict(self.payload),
+            requirement_revision_id=self.requirement_revision_id,
+            scope_revision_id=self.scope_revision_id,
         )
 
 
@@ -122,13 +129,7 @@ class RequirementDeliveryScope:
 
     @property
     def scope_identity(self) -> str:
-        """Stable compact identity for delivery/system-version/application/SST.
-
-        Raw identifiers can legally approach their individual API limits and are
-        unsafe as a wide PostgreSQL unique-index key. Hash the normalized tuple
-        so duplicate detection is independent of identifier length while the
-        original values remain stored in explicit columns for product display.
-        """
+        """Stable compact identity for delivery/system-version/application/SST."""
         canonical = "\x1f".join(
             [
                 self.delivery_id.strip(),
