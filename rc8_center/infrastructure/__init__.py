@@ -7,6 +7,13 @@ FastAPI/SQLAlchemy/redis-py details.
 from .postgres import Base, PostgresStore, build_engine
 from .postgres_artifact import ArtifactMetadataRow, PostgresArtifactRepository
 from .postgres_control import CapabilityRow, NodeRow, PostgresCenterRepository, WorkItemRow
+from .postgres_delivery import (
+    PostgresRequirementDeliveryRepository,
+    ProductionBatchRow,
+    RequirementDeliveryRow,
+    RequirementDeliveryScopeRow,
+    RequirementRow,
+)
 from .postgres_governance import PostgresCoverageRepository, PostgresGovernanceRepository
 from .postgres_recovery import PostgresRecoveryRepository, RecoveryIncidentRow
 from .redis_coordination import RedisCoordination
@@ -21,9 +28,14 @@ __all__ = [
     "PostgresCoverageRepository",
     "PostgresGovernanceRepository",
     "PostgresRecoveryRepository",
+    "PostgresRequirementDeliveryRepository",
     "PostgresStore",
+    "ProductionBatchRow",
     "RecoveryIncidentRow",
     "RedisCoordination",
+    "RequirementDeliveryRow",
+    "RequirementDeliveryScopeRow",
+    "RequirementRow",
     "WorkItemRow",
     "build_engine",
 ]
