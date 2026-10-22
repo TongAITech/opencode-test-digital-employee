@@ -4,6 +4,29 @@ import { RouterLink } from 'vue-router'
 import { useTestRunStore } from '../stores/testRuns'
 
 const store = useTestRunStore()
+const stateLabels: Record<string, string> = {
+  PLANNED: '待开始',
+  READY: '待执行',
+  RUNNING: '执行中',
+  ACTIVE: '进行中',
+  COMPLETED: '已完成',
+  FAILED: '失败',
+  BLOCKED: '已阻塞',
+  CANCELLED: '已取消',
+}
+const scopeLabels: Record<string, string> = {
+  MISSION: '测试任务',
+  TEST_RUN: '测试任务',
+}
+
+function stateLabel(value: string) {
+  return stateLabels[value] ?? value
+}
+
+function scopeLabel(value: string) {
+  return scopeLabels[value] ?? value
+}
+
 onMounted(() => store.load())
 </script>
 
@@ -12,7 +35,7 @@ onMounted(() => store.load())
     <header class="page-header page-header-actions">
       <div>
         <h1>测试任务</h1>
-        <p>测试任务从已确认的投产批次范围创建；这里查看 Mission、Attempt、Gap、覆盖率和闭环结果。</p>
+        <p>测试任务从已确认的投产批次范围创建；这里查看执行尝试、测试缺口、覆盖率和自主闭环结果。</p>
       </div>
       <button class="secondary-button" :disabled="store.loading" @click="store.load">刷新</button>
     </header>
@@ -33,8 +56,8 @@ onMounted(() => store.load())
           <tr v-for="item in store.items" :key="item.test_run_id">
             <td><strong>{{ item.test_run_id }}</strong></td>
             <td>{{ item.production_batch_id || '—' }}</td>
-            <td>{{ item.status_scope }}</td>
-            <td>{{ item.current_state }}</td>
+            <td>{{ scopeLabel(item.status_scope) }}</td>
+            <td>{{ stateLabel(item.current_state) }}</td>
             <td>{{ new Date(item.updated_at * 1000).toLocaleString() }}</td>
           </tr>
           <tr v-if="!store.loading && store.items.length === 0">
