@@ -24,6 +24,7 @@ class TestRunRow(Base):
 
     test_run_id: Mapped[str] = mapped_column(String(160), primary_key=True)
     production_batch_id: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
+    test_round_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True, unique=True, index=True)
     status_scope: Mapped[str] = mapped_column(String(32), nullable=False, default="MISSION")
     current_state: Mapped[str] = mapped_column(String(64), nullable=False, default="PLANNED")
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -223,6 +224,7 @@ class PostgresStore:
         test_run_id: str,
         *,
         production_batch_id: Optional[str] = None,
+        test_round_id: Optional[str] = None,
         payload: Optional[Dict[str, Any]] = None,
         now: Optional[int] = None,
     ) -> TestRunRow:
@@ -230,6 +232,7 @@ class PostgresStore:
         row = TestRunRow(
             test_run_id=test_run_id,
             production_batch_id=production_batch_id,
+            test_round_id=test_round_id,
             status_scope="MISSION",
             current_state="PLANNED",
             created_at=timestamp,
@@ -243,6 +246,10 @@ class PostgresStore:
     def get_test_run(self, test_run_id: str) -> Optional[TestRunRow]:
         with self._sessions() as session:
             return session.get(TestRunRow, test_run_id)
+
+    def get_test_run_for_round(self, test_round_id: str) -> Optional[TestRunRow]:
+        with self._sessions() as session:
+            return session.scalar(select(TestRunRow).where(TestRunRow.test_round_id == test_round_id))
 
     def list_test_runs(self) -> list[TestRunRow]:
         with self._sessions() as session:
