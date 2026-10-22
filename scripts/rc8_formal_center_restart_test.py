@@ -74,7 +74,19 @@ def stop_process(process: subprocess.Popen) -> None:
 
 
 def r1_events(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    events: list[dict] = []
+    last_seq = 0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        seq = record.get("seq")
+        event = record.get("event")
+        assert isinstance(seq, int) and seq > last_seq
+        assert isinstance(event, dict)
+        events.append(event)
+        last_seq = seq
+    return events
 
 
 def main() -> int:
