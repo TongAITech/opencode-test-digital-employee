@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import time
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from sqlalchemy import BigInteger, JSON, String, UniqueConstraint, func, select
 from sqlalchemy.orm import Mapped, mapped_column
@@ -64,21 +64,64 @@ class PostgresTestRoundRepository:
             )
             return int(current or 0) + 1
 
+    @staticmethod
+    def _validate_round_identity(session, value: TestRound) -> None:
+        if session.get(ProductionBatchRow, value.production_batch_id) is None:
+            raise ValueError("PRODUCTION_BATCH_NOT_FOUND")
+        if session.get(TestRoundRow, value.test_round_id) is not None:
+            raise ValueError("TEST_ROUND_ALREADY_EXISTS")
+        duplicate = session.scalar(
+            select(TestRoundRow).where(
+                TestRoundRow.production_batch_id == value.production_batch_id,
+                TestRoundRow.round_no == value.round_no,
+            )
+        )
+        if duplicate is not None:
+            raise ValueError("TEST_ROUND_NO_ALREADY_EXISTS_IN_PRODUCTION_DATE")
+
     def create_round(self, value: TestRound) -> TestRound:
         with self.store.session() as session:
-            if session.get(ProductionBatchRow, value.production_batch_id) is None:
-                raise ValueError("PRODUCTION_BATCH_NOT_FOUND")
-            if session.get(TestRoundRow, value.test_round_id) is not None:
-                raise ValueError("TEST_ROUND_ALREADY_EXISTS")
-            duplicate = session.scalar(
-                select(TestRoundRow).where(
-                    TestRoundRow.production_batch_id == value.production_batch_id,
-                    TestRoundRow.round_no == value.round_no,
-                )
-            )
-            if duplicate is not None:
-                raise ValueError("TEST_ROUND_NO_ALREADY_EXISTS_IN_PRODUCTION_DATE")
+            self._validate_round_identity(session, value)
             session.add(self._round_row(value))
+        return value
+
+    def create_round_with_deliveries(
+        self,
+        value: TestRound,
+        deliveries: Sequence[TestRoundDelivery],
+    ) -> TestRound:
+        """Atomically create a round and its initial RequirementDelivery scope.
+
+        A failed delivery validation must leave no half-created TestRound or
+        partial round-delivery links.  This is the product/API creation path;
+        ``include_delivery`` remains available for later intentional expansion.
+        """
+        values = list(deliveries)
+        with self.store.session() as session:
+            self._validate_round_identity(session, value)
+            seen_delivery_ids = set()
+            seen_link_ids = set()
+            for link in values:
+                if link.test_round_id != value.test_round_id:
+                    raise ValueError("TEST_ROUND_DELIVERY_ROUND_MISMATCH")
+                if link.delivery_id in seen_delivery_ids:
+                    raise ValueError("REQUIREMENT_DELIVERY_ALREADY_IN_TEST_ROUND")
+                if link.round_delivery_id in seen_link_ids:
+                    raise ValueError("TEST_ROUND_DELIVERY_ALREADY_EXISTS")
+                seen_delivery_ids.add(link.delivery_id)
+                seen_link_ids.add(link.round_delivery_id)
+
+                delivery_row = session.get(RequirementDeliveryRow, link.delivery_id)
+                if delivery_row is None:
+                    raise ValueError("REQUIREMENT_DELIVERY_NOT_FOUND")
+                if delivery_row.production_batch_id != value.production_batch_id:
+                    raise ValueError("TEST_ROUND_DELIVERY_PRODUCTION_DATE_MISMATCH")
+                if session.get(TestRoundDeliveryRow, link.round_delivery_id) is not None:
+                    raise ValueError("TEST_ROUND_DELIVERY_ALREADY_EXISTS")
+
+            session.add(self._round_row(value))
+            for link in values:
+                session.add(self._round_delivery_row(link))
         return value
 
     def get_round(self, test_round_id: str) -> Optional[TestRound]:
