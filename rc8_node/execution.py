@@ -3,6 +3,8 @@
 This adapter runs Maven as a real local subprocess and derives Actual test
 results only from JUnit XML created or changed by THIS execution attempt.
 Historical Surefire/Failsafe reports are never allowed to become current Actual.
+When an L1 changed-code coverage scope is supplied, JaCoCo is snapshotted before
+the same Maven process and only fresh reports may become coverage Actual.
 Windows Maven output is captured as bytes and decoded defensively so a local
 GBK/GB18030 console cannot crash the truth pipeline.
 """
@@ -18,6 +20,13 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
+
+from .jacoco import (
+    ChangedCoverageScope,
+    JaCoCoChangedScopeCollector,
+    JaCoCoCoverageError,
+    JaCoCoCoverageResult,
+)
 
 
 class ExecutionAdapterError(RuntimeError):
@@ -52,11 +61,16 @@ class MavenExecutionResult:
     stale_xml_ignored: int = 0
     stdout_encoding: str = "unknown"
     stderr_encoding: str = "unknown"
+    coverage: Optional[JaCoCoCoverageResult] = None
+    coverage_required: bool = False
+    coverage_classification: str = "NOT_REQUESTED"
 
     @property
     def execution_passed(self) -> bool:
-        """Maven itself and JUnit Actual must both pass."""
-        return self.returncode == 0 and self.actual.passed
+        """Maven, JUnit Actual and requested L1 coverage evidence must pass their truth gates."""
+        process_and_tests = self.returncode == 0 and self.actual.passed
+        coverage_ready = not self.coverage_required or self.coverage is not None
+        return process_and_tests and coverage_ready
 
 
 ReportFingerprint = Tuple[int, int, str]
@@ -153,12 +167,7 @@ class MavenJUnitExecutionAdapter:
 
     @staticmethod
     def _decode_output(value: Union[bytes, str, None]) -> Tuple[str, str]:
-        """Decode subprocess output without trusting the Python UTF-8 mode.
-
-        Bank Windows consoles commonly emit GBK/GB18030 even when Python runs in
-        UTF-8 mode. Capture bytes first, try strict known encodings, then replace
-        undecodable bytes as the final evidence-preserving fallback.
-        """
+        """Decode subprocess output without trusting the Python UTF-8 mode."""
         if value is None:
             return "", "empty"
         if isinstance(value, str):
@@ -174,7 +183,13 @@ class MavenJUnitExecutionAdapter:
                 continue
         return value.decode("utf-8", errors="replace"), "utf-8-replace"
 
-    def execute(self, project_dir: str, *, goals: Optional[List[str]] = None) -> MavenExecutionResult:
+    def execute(
+        self,
+        project_dir: str,
+        *,
+        goals: Optional[List[str]] = None,
+        coverage_scope: Optional[ChangedCoverageScope] = None,
+    ) -> MavenExecutionResult:
         root = Path(project_dir)
         if not root.is_dir():
             raise ExecutionAdapterError("MAVEN_PROJECT_DIR_NOT_FOUND")
@@ -184,6 +199,12 @@ class MavenJUnitExecutionAdapter:
         # Snapshot BEFORE the process starts. Unchanged historical reports are
         # stale evidence and must never be counted as this attempt's Actual.
         before_reports = self._snapshot_reports(root)
+        coverage_collector: Optional[JaCoCoChangedScopeCollector] = None
+        coverage_before: Dict[str, Tuple[int, int, str]] = {}
+        if coverage_scope is not None:
+            coverage_collector = JaCoCoChangedScopeCollector(str(self.evidence_dir))
+            coverage_before = coverage_collector.snapshot(str(root))
+
         started = int(time.time())
         returncode: Optional[int] = None
         stdout_raw: Union[bytes, str, None] = b""
@@ -218,8 +239,6 @@ class MavenJUnitExecutionAdapter:
         fresh_reports, stale_ignored = self._fresh_reports(root, before_reports)
         if not fresh_reports:
             if returncode == 0:
-                # A successful Maven test command with no current JUnit evidence
-                # cannot be promoted to PASS.
                 raise ExecutionAdapterError("JUNIT_XML_EVIDENCE_MISSING")
             actual = JUnitActual(tests=0, failures=0, errors=0, skipped=0, xml_files=[])
             classification = "MAVEN_FAILED_BEFORE_FRESH_JUNIT"
@@ -227,10 +246,59 @@ class MavenJUnitExecutionAdapter:
             actual = self._collect_actual(fresh_reports)
             classification = "JUNIT_FRESH_REPORTS_COLLECTED" if returncode == 0 else "MAVEN_NONZERO_WITH_FRESH_JUNIT"
 
+        process_and_tests_passed = returncode == 0 and actual.passed
+        coverage: Optional[JaCoCoCoverageResult] = None
+        coverage_classification = "NOT_REQUESTED"
+        if coverage_scope is not None and coverage_collector is not None:
+            try:
+                coverage = coverage_collector.collect_fresh(
+                    str(root), before=coverage_before, scope=coverage_scope,
+                )
+                coverage_classification = coverage.classification
+            except JaCoCoCoverageError as exc:
+                coverage_classification = str(exc)
+                # Preserve the more primitive Maven/JUnit failure ownership. A
+                # missing JaCoCo report only becomes the top classification when
+                # the test process itself was otherwise green.
+                if process_and_tests_passed:
+                    classification = coverage_classification
+
         finished = int(time.time())
-        execution_passed = returncode == 0 and actual.passed
+        execution_passed = process_and_tests_passed and (coverage_scope is None or coverage is not None)
+        coverage_payload: Dict[str, object] = {
+            "required": coverage_scope is not None,
+            "classification": coverage_classification,
+            "collected": coverage is not None,
+        }
+        if coverage is not None:
+            coverage_payload.update({
+                "source_snapshot_ref": coverage.source_snapshot_ref,
+                "reports": list(coverage.reports),
+                "report_sha256": list(coverage.report_sha256),
+                "result_path": coverage.result_path,
+                "result_sha256": coverage.sha256,
+                "stale_reports_ignored": coverage.stale_reports_ignored,
+                "actual": {
+                    "changed_method": {
+                        "covered": coverage.changed_method.covered,
+                        "total": coverage.changed_method.total,
+                        "missing_subjects": list(coverage.changed_method.missing_subjects),
+                    },
+                    "changed_line": {
+                        "covered": coverage.changed_line.covered,
+                        "total": coverage.changed_line.total,
+                        "missing_subjects": list(coverage.changed_line.missing_subjects),
+                    },
+                    "changed_branch": {
+                        "covered": coverage.changed_branch.covered,
+                        "total": coverage.changed_branch.total,
+                        "missing_subjects": list(coverage.changed_branch.missing_subjects),
+                    },
+                },
+            })
+
         payload: Dict[str, object] = {
-            "schema_version": 2,
+            "schema_version": 3,
             "capability_id": self.capability_id,
             "command": command,
             "returncode": returncode,
@@ -255,7 +323,8 @@ class MavenJUnitExecutionAdapter:
                 "passed": actual.passed,
                 "xml_files": actual.xml_files,
             },
-            "truth_note": "Only JUnit XML created/changed by this attempt is Actual; Maven return code must also be zero for execution PASS",
+            "jacoco": coverage_payload,
+            "truth_note": "Only JUnit/JaCoCo XML created or changed by this attempt is Actual; requested changed-scope coverage cannot be omitted from execution PASS",
         }
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
         result_path = self.evidence_dir / "maven-junit-actual.json"
@@ -277,4 +346,7 @@ class MavenJUnitExecutionAdapter:
             stale_ignored,
             stdout_encoding,
             stderr_encoding,
+            coverage,
+            coverage_scope is not None,
+            coverage_classification,
         )
