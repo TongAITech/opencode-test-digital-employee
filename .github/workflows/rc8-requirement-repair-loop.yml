@@ -1,0 +1,30 @@
+name: RC8 Requirement Repair Loop
+
+on:
+  push:
+    branches: ["work/rc8"]
+    paths:
+      - "rc8_center/requirement_loop_progression.py"
+      - "rc8_center/formal_app.py"
+      - "rc8_center/autonomous_progression.py"
+      - "rc8_center/mission_service.py"
+      - "rc8_runtime/mission_graph.py"
+      - "rc8_runtime/governance.py"
+      - "tests/test_rc8_requirement_repair_loop.py"
+      - ".github/workflows/rc8-requirement-repair-loop.yml"
+  workflow_dispatch:
+
+jobs:
+  requirement-repair-loop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Center test dependencies
+        run: pip install -r center/requirements.txt pytest
+      - name: Compile requirement repair progression
+        run: python -m py_compile rc8_center/requirement_loop_progression.py rc8_center/formal_app.py tests/test_rc8_requirement_repair_loop.py
+      - name: Prove append-only requirement repair loop
+        run: python -m pytest -q tests/test_rc8_requirement_repair_loop.py
