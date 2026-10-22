@@ -10,7 +10,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 
 class AutonomousClaimError(RuntimeError):
@@ -60,10 +60,22 @@ class AutonomousClaimClient:
         if self.timeout_seconds <= 0:
             raise AutonomousClaimError("HTTP_TIMEOUT_INVALID")
 
-    def claim_next(self, *, ttl_seconds: int = 60, test_run_id: Optional[str] = None) -> ClaimedWork:
+    def claim_next(
+        self,
+        *,
+        ttl_seconds: int = 60,
+        test_run_id: Optional[str] = None,
+        stage_types: Optional[Sequence[str]] = None,
+    ) -> ClaimedWork:
         payload: Dict[str, Any] = {"ttl_seconds": int(ttl_seconds)}
         if test_run_id:
             payload["test_run_id"] = str(test_run_id)
+        if stage_types is not None:
+            payload["stage_types"] = [
+                str(value).strip()
+                for value in stage_types
+                if str(value or "").strip()
+            ]
         node = urllib.parse.quote(self.node_id, safe="")
         body = self._json_request("POST", "/api/v1/nodes/%s/work/claim-next" % node, payload)
         return ClaimedWork(
