@@ -10,23 +10,31 @@ from rc8_runtime import CentralR1RuntimeLedger
 
 from .artifacts import FileArtifactStore
 from .control_plane import CenterControlPlane
+from .coverage_repository import JsonFileCoverageRepository
+from .governance_projection import GovernanceProjectionService
+from .governance_repository import JsonFileGovernanceRepository
 from .http_server import CenterHttpApplication, create_server
 from .json_repository import JsonFileArtifactRepository, JsonFileCenterRepository
+from .product_api import CenterProductApplication
 
 
-def build_application(state_dir: str) -> CenterHttpApplication:
+def build_application(state_dir: str) -> CenterProductApplication:
     root = Path(state_dir)
     root.mkdir(parents=True, exist_ok=True)
     center_repo = JsonFileCenterRepository(str(root / "center-state.json"))
     artifact_repo = JsonFileArtifactRepository(str(root / "artifact-metadata.json"))
+    governance_repo = JsonFileGovernanceRepository(str(root / "governance-state.json"))
+    coverage_repo = JsonFileCoverageRepository(str(root / "coverage-state.json"))
     ledger = CentralR1RuntimeLedger(str(root / "runtime-state" / "r1" / "event-stream.jsonl"))
     artifact_store = FileArtifactStore(str(root / "artifacts"), artifact_repo)
     control = CenterControlPlane(center_repo, ledger)
-    return CenterHttpApplication(control, artifact_store)
+    base = CenterHttpApplication(control, artifact_store)
+    projection = GovernanceProjectionService(governance_repo, coverage_repo)
+    return CenterProductApplication(base, projection)
 
 
 def main(argv: Optional[list] = None) -> int:
-    parser = argparse.ArgumentParser(description="RC8 中央测试平台 W1 启动入口")
+    parser = argparse.ArgumentParser(description="RC8 中央测试平台启动入口")
     parser.add_argument("--host", default=os.environ.get("RC8_CENTER_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("RC8_CENTER_PORT", "4098")))
     parser.add_argument("--state-dir", default=os.environ.get("RC8_CENTER_STATE_DIR", "runtime/rc8-center"))
@@ -38,14 +46,19 @@ def main(argv: Optional[list] = None) -> int:
 
     application = build_application(args.state_dir)
     if args.check:
+        root = Path(args.state_dir)
         print(
             json.dumps(
                 {
                     "status": "RC8_CENTER_READY",
                     "mode": "CHECK",
-                    "state_dir": str(Path(args.state_dir).resolve()),
+                    "state_dir": str(root.resolve()),
                     "r1_runtime_only": True,
                     "artifact_store": "READY" if application.artifact_store is not None else "UNAVAILABLE",
+                    "governance_projection": "READY",
+                    "product_api": "READY",
+                    "governance_state": "READY" if (root / "governance-state.json").is_file() else "UNAVAILABLE",
+                    "coverage_state": "READY" if (root / "coverage-state.json").is_file() else "UNAVAILABLE",
                 },
                 ensure_ascii=False,
                 sort_keys=True,
@@ -62,6 +75,8 @@ def main(argv: Optional[list] = None) -> int:
                 "host": actual_host,
                 "port": actual_port,
                 "state_dir": str(Path(args.state_dir).resolve()),
+                "governance_projection": "READY",
+                "product_api": "READY",
             },
             ensure_ascii=False,
             sort_keys=True,
