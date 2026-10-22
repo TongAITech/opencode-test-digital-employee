@@ -35,13 +35,13 @@ onMounted(() => store.load())
     <header class="page-header page-header-actions">
       <div>
         <h1>测试任务</h1>
-        <p>测试任务从已确认的投产批次范围创建；这里查看执行尝试、测试缺口、覆盖率和自主闭环结果。</p>
+        <p>每个投产测试任务属于一个明确测试轮次；Stage、Attempt、Evidence、Gap 和 Defect 都通过该任务追溯到所属轮次。</p>
       </div>
       <button class="secondary-button" :disabled="store.loading" @click="store.load">刷新</button>
     </header>
 
     <div class="task-entry-strip">
-      <span>新建测试任务请先确认投产日、需求、系统版本和 SST。</span>
+      <span>新建测试任务请先确认投产日、需求、系统版本和 SST，再新建测试轮次。</span>
       <RouterLink class="primary-button link-button" to="/productions">前往投产管理</RouterLink>
     </div>
 
@@ -50,18 +50,19 @@ onMounted(() => store.load())
     <div class="table-shell">
       <table>
         <thead>
-          <tr><th>任务编号</th><th>投产批次</th><th>状态范围</th><th>当前状态</th><th>更新时间</th></tr>
+          <tr><th>任务编号</th><th>投产批次</th><th>测试轮次</th><th>状态范围</th><th>当前状态</th><th>更新时间</th></tr>
         </thead>
         <tbody>
           <tr v-for="item in store.items" :key="item.test_run_id">
             <td><strong>{{ item.test_run_id }}</strong></td>
             <td>{{ item.production_batch_id || '—' }}</td>
+            <td>{{ item.test_round_id || (item.production_batch_id ? '历史未绑定' : '非投产任务') }}</td>
             <td>{{ scopeLabel(item.status_scope) }}</td>
             <td>{{ stateLabel(item.current_state) }}</td>
             <td>{{ new Date(item.updated_at * 1000).toLocaleString() }}</td>
           </tr>
           <tr v-if="!store.loading && store.items.length === 0">
-            <td colspan="5" class="empty-row">暂无测试任务，请先在投产管理确认范围并开始自主测试。</td>
+            <td colspan="6" class="empty-row">暂无测试任务，请先在投产管理确认范围、创建测试轮次并启动自主测试。</td>
           </tr>
         </tbody>
       </table>
