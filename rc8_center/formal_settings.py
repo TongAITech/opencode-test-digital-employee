@@ -20,6 +20,7 @@ class CenterSettings(BaseSettings):
     database_url: str = "postgresql+psycopg://rc8:rc8@postgresql:5432/rc8"
     redis_url: str = "redis://redis:6379/0"
     artifact_root: str = "/var/lib/rc8/artifacts"
+    artifact_chunk_max_bytes: int = 8 * 1024 * 1024
 
     # R1 remains runtime truth; PostgreSQL stores durable domain/projection state.
     r1_root: str = "/var/lib/rc8/r1"
