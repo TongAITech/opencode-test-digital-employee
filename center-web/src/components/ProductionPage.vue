@@ -125,6 +125,9 @@ async function startRound(testRoundId: string) {
 
     <p v-if="actionError || store.error" class="error-strip">{{ actionError || store.error }}</p>
     <p v-if="actionMessage" class="success-strip">{{ actionMessage }}</p>
+    <p v-if="store.legacyUnboundRuns.length" class="error-strip">
+      发现 {{ store.legacyUnboundRuns.length }} 个历史测试任务未绑定测试轮次。它们仅作为升级审计记录保留，不会被计入当前轮次事实或充分度判断。
+    </p>
 
     <div class="table-shell">
       <table>
