@@ -12,7 +12,9 @@ on:
       - 'rc8_center/governance_repository.py'
       - 'rc8_center/coverage_repository.py'
       - 'rc8_center/governance_projection.py'
+      - 'rc8_center/governance_event_projector.py'
       - 'rc8_center/product_api.py'
+      - 'rc8_center/__main__.py'
       - 'rc8_center/__init__.py'
       - 'governance/**'
       - 'scripts/rc8_validate_governance.py'
@@ -21,6 +23,8 @@ on:
       - 'tests/test_rc8_governance_manifest.py'
       - 'tests/test_rc8_governance_persistence.py'
       - 'tests/test_rc8_governance_product_api.py'
+      - 'tests/test_rc8_governance_r1_projection.py'
+      - 'tests/test_rc8_center_cli.py'
       - 'docs/rc8/RC8-NO-DISCOUNT-DELIVERY-CONTRACT.md'
       - 'docs/rc8/RC8-CAPABILITY-CLOSURE-MATRIX.md'
       - 'docs/rc8/RC8-L1-L7-ACCEPTANCE-CONTRACT.md'
@@ -48,7 +52,7 @@ jobs:
         with:
           python-version: '3.8'
 
-      - name: Compile governance runtime, Center persistence, product API and validator
+      - name: Compile governance runtime, R1 projector, Center launcher and validator
         shell: bash
         run: |
           python -m py_compile \
@@ -61,21 +65,25 @@ jobs:
             rc8_center/governance_repository.py \
             rc8_center/coverage_repository.py \
             rc8_center/governance_projection.py \
+            rc8_center/governance_event_projector.py \
             rc8_center/product_api.py \
+            rc8_center/__main__.py \
             rc8_center/__init__.py \
             scripts/rc8_validate_governance.py \
             tests/test_rc8_runtime_governance.py \
             tests/test_rc8_mission_graph.py \
             tests/test_rc8_governance_manifest.py \
             tests/test_rc8_governance_persistence.py \
-            tests/test_rc8_governance_product_api.py
+            tests/test_rc8_governance_product_api.py \
+            tests/test_rc8_governance_r1_projection.py \
+            tests/test_rc8_center_cli.py
 
       - name: Validate machine-readable closure claims
         shell: bash
         run: |
           python scripts/rc8_validate_governance.py
 
-      - name: Run no-discount, Mission Graph, persistence and product projection regressions
+      - name: Run no-discount, R1 replay, persistence and product projection regressions
         shell: bash
         run: |
           python -m pip install --disable-pip-version-check pytest
@@ -84,4 +92,6 @@ jobs:
             tests/test_rc8_mission_graph.py \
             tests/test_rc8_governance_manifest.py \
             tests/test_rc8_governance_persistence.py \
-            tests/test_rc8_governance_product_api.py
+            tests/test_rc8_governance_product_api.py \
+            tests/test_rc8_governance_r1_projection.py \
+            tests/test_rc8_center_cli.py
