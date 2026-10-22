@@ -63,6 +63,7 @@ jobs:
             rc8_node/codegraph.py \
             rc8_node/reality_codegraph.py \
             rc8_node/__main__.py \
+            packaging/rc8/build-w1-reality-package.py \
             tests/test_rc8_center_control.py \
             tests/test_rc8_center_node_http.py \
             tests/test_rc8_artifact_sync.py \
@@ -105,3 +106,39 @@ jobs:
             tests/test_rc8_maven_reality_runner.py \
             tests/test_rc8_codegraph_adapter.py \
             tests/test_rc8_codegraph_reality_runner.py
+
+  package:
+    needs: control-contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Build complete standalone W1 bank reality package
+        shell: bash
+        run: |
+          rm -rf dist
+          python packaging/rc8/build-w1-reality-package.py --repo . --output-dir dist | tee dist-build-result.json
+          python - <<'PY'
+          import glob, zipfile
+          files = glob.glob('dist/RC8-W1-REALITY-BANK-*.zip')
+          assert len(files) == 1, files
+          with zipfile.ZipFile(files[0], 'r') as zf:
+              assert zf.testzip() is None
+              names = zf.namelist()
+              assert any(name.endswith('/rc8_node/reality_maven.py') for name in names)
+              assert any(name.endswith('/rc8_node/reality_codegraph.py') for name in names)
+              assert any(name.endswith('/packaging/rc8/rc8-codegraph-reality.sh') for name in names)
+              assert any(name.endswith('/SHA256SUMS.txt') for name in names)
+              assert any(name.endswith('/PACKAGE-MANIFEST.json') for name in names)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RC8-W1-REALITY-BANK-${{ github.sha }}
+          path: |
+            dist/RC8-W1-REALITY-BANK-*.zip
+            dist-build-result.json
+          if-no-files-found: error
+          retention-days: 14
