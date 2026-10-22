@@ -5,6 +5,10 @@ Node -> PostgreSQL identity/state + Redis active lease authorization
 -> R1 Event Stream -> replayable projector -> PostgreSQL governance/coverage
 projection -> FastAPI -> Vue.
 
+Artifact chain:
+lease-authorized manifest -> resumable byte upload -> exact size/SHA-256 verify
+-> atomic AVAILABLE publish -> R1 replay -> evidence-dependent projection.
+
 Lost Redis lease is not blind-replayed: the recovery coordinator records a
 durable incident and requires either a provably safe reset or an explicit
 evidence-backed recovery decision.
@@ -15,6 +19,8 @@ from pathlib import Path
 
 from rc8_runtime import CentralR1RuntimeLedger
 from rc8_center.api import create_app
+from rc8_center.artifacts import FileArtifactStore
+from rc8_center.formal_artifacts import FormalArtifactService
 from rc8_center.formal_control import FormalCenterControlPlane
 from rc8_center.formal_settings import CenterSettings
 from rc8_center.governance_event_projector import GovernanceEventProjector
@@ -59,6 +65,12 @@ def build_app():
         redis_coordination,
         ledger,
     )
+    artifact_store = FileArtifactStore(settings.artifact_root, artifact_repository)
+    artifact_service = FormalArtifactService(
+        artifact_store,
+        formal_control,
+        projector,
+    )
 
     app = create_app(
         settings=settings,
@@ -67,6 +79,7 @@ def build_app():
         governance_projection=projection,
         formal_control=formal_control,
         recovery_coordinator=recovery_coordinator,
+        artifact_service=artifact_service,
         product_application=None,
     )
     app.state.r1_ledger = ledger
@@ -79,6 +92,8 @@ def build_app():
     app.state.recovery_repository = recovery_repository
     app.state.formal_control = formal_control
     app.state.recovery_coordinator = recovery_coordinator
+    app.state.artifact_store = artifact_store
+    app.state.artifact_service = artifact_service
     return app
 
 
