@@ -1,6 +1,8 @@
 """RC8 runtime contracts and adapters.
 
 RC8 extends the RC7 execution core; it does not replace proven RC7 tooling.
+The governance exports deliberately separate TOOL/STAGE/LAYER/MISSION/RELEASE
+truth so lower-level green states cannot masquerade as test sufficiency.
 """
 
 from .contracts import (
@@ -23,29 +25,77 @@ from .contracts import (
     require_pass_evidence,
     transition_capability,
 )
+from .governance import (
+    AttemptRecord,
+    AttemptStatus,
+    ClaimState,
+    CoverageDimension,
+    CoverageMetric,
+    FailureOwnership,
+    GapRecord,
+    GapSeverity,
+    GapStatus,
+    GapType,
+    InvalidationRecord,
+    MissionRuntimeState,
+    ReleaseDecision,
+    ReleaseDecisionRecord,
+    ScopedStatusClaim,
+    StageInstance,
+    StageState,
+    StatusScope,
+    SufficiencyEvaluation,
+    SufficiencyResult,
+    route_failure,
+    route_gap,
+    transition_stage,
+)
 from .r1_runtime import CentralR1RuntimeLedger, R1ConflictError, R1TruthError, runtime_event
 
 __all__ = [
     "ArtifactAvailability",
+    "AttemptRecord",
+    "AttemptStatus",
     "CapabilityQualification",
     "CapabilityState",
     "CentralR1RuntimeLedger",
+    "ClaimState",
     "CompletionClaim",
+    "CoverageDimension",
+    "CoverageMetric",
     "EventPlane",
     "EvidenceManifest",
+    "FailureOwnership",
+    "GapRecord",
+    "GapSeverity",
+    "GapStatus",
+    "GapType",
+    "InvalidationRecord",
+    "MissionRuntimeState",
     "NodeIdentity",
     "PlanEventEnvelope",
     "ProductionBatch",
     "R1ConflictError",
     "R1TruthError",
     "RC8ContractError",
+    "ReleaseDecision",
+    "ReleaseDecisionRecord",
     "RequirementDeliveryScope",
     "RequirementIdentity",
     "RuntimeEventEnvelope",
     "RuntimeProducerKind",
+    "ScopedStatusClaim",
+    "StageInstance",
+    "StageState",
+    "StatusScope",
+    "SufficiencyEvaluation",
+    "SufficiencyResult",
     "TestRunIdentity",
     "WorkItemIdentity",
     "require_pass_evidence",
+    "route_failure",
+    "route_gap",
     "runtime_event",
     "transition_capability",
+    "transition_stage",
 ]
