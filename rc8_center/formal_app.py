@@ -31,6 +31,7 @@ from rc8_center.infrastructure import (
     PostgresCoverageRepository,
     PostgresGovernanceRepository,
     PostgresRecoveryRepository,
+    PostgresRequirementDeliveryRepository,
     PostgresStore,
     RedisCoordination,
     build_engine,
@@ -47,6 +48,7 @@ def build_app():
     artifact_repository = PostgresArtifactRepository(postgres)
     control_repository = PostgresCenterRepository(postgres)
     recovery_repository = PostgresRecoveryRepository(postgres)
+    delivery_repository = PostgresRequirementDeliveryRepository(postgres)
 
     r1_path = Path(settings.r1_root) / "event-stream.jsonl"
     ledger = CentralR1RuntimeLedger(str(r1_path))
@@ -81,6 +83,7 @@ def build_app():
         recovery_coordinator=recovery_coordinator,
         artifact_service=artifact_service,
         product_application=None,
+        delivery_repository=delivery_repository,
     )
     app.state.r1_ledger = ledger
     app.state.governance_projector = projector
@@ -90,6 +93,7 @@ def build_app():
     app.state.artifact_repository = artifact_repository
     app.state.control_repository = control_repository
     app.state.recovery_repository = recovery_repository
+    app.state.delivery_repository = delivery_repository
     app.state.formal_control = formal_control
     app.state.recovery_coordinator = recovery_coordinator
     app.state.artifact_store = artifact_store
