@@ -23,8 +23,10 @@ on:
       - 'tests/test_rc8_jacoco_changed_scope.py'
       - 'tests/test_rc8_maven_jacoco_execution.py'
       - 'tests/test_rc8_execution_publish.py'
+      - 'tests/test_rc8_execution_coverage_publish.py'
       - 'tests/test_rc8_execution_publish_http.py'
       - 'tests/test_rc8_work_item_execution.py'
+      - 'tests/test_rc8_work_item_coverage_execution.py'
       - 'tests/test_rc8_maven_reality_runner.py'
       - 'tests/test_rc8_codegraph_adapter.py'
       - 'tests/test_rc8_codegraph_reality_runner.py'
@@ -92,8 +94,10 @@ jobs:
             tests/test_rc8_jacoco_changed_scope.py \
             tests/test_rc8_maven_jacoco_execution.py \
             tests/test_rc8_execution_publish.py \
+            tests/test_rc8_execution_coverage_publish.py \
             tests/test_rc8_execution_publish_http.py \
             tests/test_rc8_work_item_execution.py \
+            tests/test_rc8_work_item_coverage_execution.py \
             tests/test_rc8_maven_reality_runner.py \
             tests/test_rc8_codegraph_adapter.py \
             tests/test_rc8_codegraph_reality_runner.py \
@@ -143,8 +147,10 @@ jobs:
             tests/test_rc8_jacoco_changed_scope.py \
             tests/test_rc8_maven_jacoco_execution.py \
             tests/test_rc8_execution_publish.py \
+            tests/test_rc8_execution_coverage_publish.py \
             tests/test_rc8_execution_publish_http.py \
             tests/test_rc8_work_item_execution.py \
+            tests/test_rc8_work_item_coverage_execution.py \
             tests/test_rc8_maven_reality_runner.py \
             tests/test_rc8_codegraph_adapter.py \
             tests/test_rc8_codegraph_reality_runner.py \
