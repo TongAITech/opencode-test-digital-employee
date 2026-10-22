@@ -12,6 +12,7 @@ on:
       - "docs/rc8/production-requirement-task-model.md"
       - "docs/rc8-production-date-test-round-model.md"
       - "scripts/rc8_formal_center_stack_test.py"
+      - "scripts/rc8_formal_center_round_entry_test.py"
       - "scripts/rc8_formal_artifact_upload_test.py"
       - "scripts/rc8_formal_center_restart_test.py"
       - "tests/test_rc8_formal_node_agent.py"
@@ -64,7 +65,7 @@ jobs:
       - name: Install formal Center dependencies
         run: pip install -r center/requirements.txt pytest
       - name: Compile formal Center Python
-        run: python -m py_compile rc8_center/formal_settings.py rc8_center/formal_app.py rc8_center/formal_artifacts.py rc8_center/delivery.py rc8_center/test_rounds.py rc8_center/api/fastapi_app.py rc8_center/api/delivery_routes.py rc8_center/api/test_round_routes.py rc8_center/api/schemas.py rc8_center/infrastructure/postgres.py rc8_center/infrastructure/postgres_delivery.py rc8_center/infrastructure/postgres_test_round.py rc8_center/infrastructure/redis_coordination.py rc8_node/formal_agent.py tests/test_rc8_test_rounds.py tests/test_rc8_test_round_api.py tests/test_rc8_test_round_runtime_binding.py tests/test_rc8_alembic_revision_contract.py
+        run: python -m py_compile rc8_center/formal_settings.py rc8_center/formal_app.py rc8_center/formal_artifacts.py rc8_center/delivery.py rc8_center/test_rounds.py rc8_center/api/fastapi_app.py rc8_center/api/delivery_routes.py rc8_center/api/test_round_routes.py rc8_center/api/schemas.py rc8_center/infrastructure/postgres.py rc8_center/infrastructure/postgres_delivery.py rc8_center/infrastructure/postgres_test_round.py rc8_center/infrastructure/redis_coordination.py rc8_node/formal_agent.py scripts/rc8_formal_center_round_entry_test.py tests/test_rc8_test_rounds.py tests/test_rc8_test_round_api.py tests/test_rc8_test_round_runtime_binding.py tests/test_rc8_alembic_revision_contract.py
       - name: Run formal Node wire-contract and recovery state regressions
         run: |
           python tests/test_rc8_formal_node_agent.py
@@ -79,8 +80,8 @@ jobs:
         run: python tests/test_rc8_alembic_revision_contract.py
       - name: Apply Alembic schema
         run: alembic -c center/alembic.ini upgrade head
-      - name: Run real FastAPI PostgreSQL Redis integration assertions
-        run: python scripts/rc8_formal_center_stack_test.py
+      - name: Run real FastAPI PostgreSQL Redis integration assertions through TestRound entry
+        run: python scripts/rc8_formal_center_round_entry_test.py
       - name: Run lease-governed resumable Artifact upload assertions
         run: python scripts/rc8_formal_artifact_upload_test.py
       - name: Run real Uvicorn process restart and resumable recovery assertions
@@ -122,12 +123,20 @@ jobs:
           assert '先确定投产日' in production
           assert '系统版本' in production
           assert 'SST' in production
+          assert '测试轮次' in production
+          assert '新建下一轮' in production
+          assert '开始本轮自主测试' in production
+          assert '测试任务编号' not in production
           assert '/production-batches/' in production_store
+          assert '/test-rounds' in production_store
           assert '/test-runs' in production_store
+          assert 'createNextRound' in production_store
+          assert 'startRound' in production_store
+          assert 'startTestRun' not in production_store
           assert '前往投产管理' in test_run
           assert 'createRun' not in test_run
           assert 'Dashboard' not in router
-          print('RC8_VUE_PRODUCTION_FIRST_TASK_ENTRY_PASS')
+          print('RC8_VUE_PRODUCTION_ROUND_FIRST_TASK_ENTRY_PASS')
           PY
 
   container-contract:
