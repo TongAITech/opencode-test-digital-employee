@@ -11,6 +11,7 @@ from rc8_center.infrastructure.postgres import Base
 from rc8_center.infrastructure import postgres_artifact as _postgres_artifact  # noqa: F401,E402
 from rc8_center.infrastructure import postgres_control as _postgres_control  # noqa: F401,E402
 from rc8_center.infrastructure import postgres_governance as _postgres_governance  # noqa: F401,E402
+from rc8_center.infrastructure import postgres_recovery as _postgres_recovery  # noqa: F401,E402
 
 config = context.config
 if config.config_file_name is not None:
