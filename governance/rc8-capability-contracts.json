@@ -41,15 +41,19 @@
       "evidence_refs": [
         "contract:RC8-CENTER-TECHNOLOGY-STACK-CONTRACT",
         "code:rc8_center/api/fastapi_app.py",
+        "code:rc8_center/api/schemas.py",
+        "code:rc8_center/formal_control.py",
         "code:rc8_center/infrastructure/postgres.py",
         "code:rc8_center/infrastructure/postgres_governance.py",
         "code:rc8_center/infrastructure/postgres_artifact.py",
+        "code:rc8_center/infrastructure/postgres_control.py",
         "code:rc8_center/infrastructure/redis_coordination.py",
         "code:rc8_center/formal_app.py",
         "code:center/migrations/versions/0001_formal_center_foundation.py",
         "code:center/migrations/versions/0002_governance_projection_semantics.py",
         "code:center/migrations/versions/0003_artifact_metadata.py",
         "code:center/migrations/versions/0004_legacy_scope_ref.py",
+        "code:center/migrations/versions/0005_node_workitem_control.py",
         "code:center-web/src/App.vue",
         "code:center/docker-compose.yml",
         "ci:39759029266:formal-center-integration:SUCCESS",
@@ -57,19 +61,22 @@
         "ci:39759029266:container-contract:SUCCESS",
         "ci:39760992656:r1-postgres-fastapi-governance:SUCCESS",
         "ci:39760992656:vue-product-shell:SUCCESS",
-        "ci:39760992656:container-contract:SUCCESS"
+        "ci:39760992656:container-contract:SUCCESS",
+        "ci:39762335135:formal-center-integration:SUCCESS",
+        "ci:39762335135:vue-product-shell:SUCCESS",
+        "ci:39762335135:container-contract:SUCCESS"
       ],
       "reality_refs": [],
       "coverage_refs": [],
       "unresolved_gap_ids": [
-        "GAP:CENTER_FORMAL_RUNTIME_EVENT_AUTHORIZATION",
-        "GAP:CENTER_FORMAL_NODE_WORKITEM_PERSISTENCE",
+        "GAP:CENTER_FORMAL_ARTIFACT_UPLOAD",
+        "GAP:CENTER_REDIS_LEASE_RECOVERY_COORDINATOR",
         "GAP:CENTER_FULL_13_PRODUCT_SURFACES",
         "GAP:CENTER_RESTART_RECOVERY_REALITY",
         "GAP:CENTER_BANK_SERVER_DEPLOYMENT_REALITY"
       ],
       "dependency_claim_refs": [],
-      "notes": "Formal FastAPI/PostgreSQL/Redis/Vue/Nginx/Docker Compose foundation plus R1-first PostgreSQL governance projection are CI-verified. Runtime-event ingress remains intentionally closed until PostgreSQL Node/Capability/WorkItem persistence and Redis lease authorization are formalized. Product completion, restart recovery and target-bank server deployment remain open."
+      "notes": "Formal FastAPI/PostgreSQL/Redis/Vue/Nginx/Docker Compose foundation, R1-first PostgreSQL governance projection, PostgreSQL Node/Capability/WorkItem persistence, Redis owner+lease-token authorization and formal Runtime Event ingress are CI-verified. Redis-loss behavior currently fails closed and explicitly requires recovery; the recovery coordinator itself is not implemented. Formal Artifact upload, complete product surfaces, restart recovery and target-bank server deployment remain open."
     },
     {
       "claim_id": "TOOL:MAVEN_JUNIT",
