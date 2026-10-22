@@ -6,7 +6,13 @@ FastAPI/SQLAlchemy/redis-py details.
 
 from .postgres import Base, PostgresStore, build_engine
 from .postgres_artifact import ArtifactMetadataRow, PostgresArtifactRepository
-from .postgres_control import CapabilityRow, NodeRow, PostgresCenterRepository, WorkItemRow
+from .postgres_control import (
+    CapabilityRow,
+    NodeRow,
+    PostgresCenterRepository,
+    StageWorkItemLinkRow,
+    WorkItemRow,
+)
 from .postgres_delivery import (
     PostgresRequirementDeliveryRepository,
     ProductionBatchRow,
@@ -42,6 +48,7 @@ __all__ = [
     "RequirementDeliveryRow",
     "RequirementDeliveryScopeRow",
     "RequirementRow",
+    "StageWorkItemLinkRow",
     "TestRoundDeliveryRow",
     "TestRoundRow",
     "WorkItemRow",
