@@ -45,6 +45,7 @@ RUNTIME_FILES = (
     "rc8_node/formal_agent.py",
     "rc8_node/capabilities.py",
     "rc8_node/execution.py",
+    "rc8_node/jacoco.py",
     "rc8_node/execution_publish.py",
     "rc8_node/work_item_execution.py",
     "rc8_node/reality_maven.py",
@@ -147,13 +148,14 @@ def _write_readme(root: Path, head: str) -> str:
         "- Center / Node / WorkItem / R1 / Artifact Sync\n"
         "- Center Mission Graph / scope-aware Stage control\n"
         "- Maven/JUnit Tool Reality\n"
+        "- JaCoCo 变更方法/行/分支覆盖 Actual（仅接受同一执行新鲜报告）\n"
         "- CodeGraph Tool Reality\n"
         "- Code Analysis 构建中的结构/语义链\n"
         "- No-Discount Governance + Mission Graph Runtime + durable governance projection\n"
         "- R1-first Governance Projector：运行事实必须先持久化 R1，Center Projection 可重放恢复\n"
         "- Product API: `/api/v1/test-runs/{id}/governance`（记录事实，不自行推导PASS）\n"
         "- FormalNodeAgent 已包含显式 WorkItem lease token 协议；DSH Session 不持有任务真相。\n"
-        "- 正式 Center 技术栈已冻结为 FastAPI + PostgreSQL + Redis + Vue3/TypeScript/Vite + Nginx + Docker Compose；当前 stdlib HTTP 仍仅为 W1 最小协议适配器。\n\n"
+        "- 正式 Center 技术栈为 FastAPI + PostgreSQL + Redis + Vue3/TypeScript/Vite + Nginx + Docker Compose；本包内 stdlib HTTP 仅是 W1 行内 Reality 最小协议适配器。\n\n"
         "重要：Tool Reality 不能提升为 L1/L1-L7/TestRun 充分度。先运行 `python scripts/rc8_validate_governance.py` 可核对当前机器声明。\n\n"
         "## 1. 校验与永久 Node state\n"
         "```bash\n"
@@ -194,7 +196,7 @@ def _write_readme(root: Path, head: str) -> str:
         "  --codegraph /path/to/codegraph-server-win32-x64.exe \\\n"
         "  --dsh dsh --base-ref HEAD~1 --head-ref HEAD\n"
         "```\n\n"
-        "完整 Code Analysis 仍需真实 DSH 语义分析、充分度收敛和产品投影；不能以 CodeGraph 查询成功替代。\n",
+        "完整 L1 闭环还必须继续完成覆盖缺口、delta test、targeted rerun、收敛和产品投影；不能以 JaCoCo 或 CodeGraph 单项成功替代。\n",
         encoding="utf-8",
     )
     return relative
@@ -203,7 +205,7 @@ def _write_readme(root: Path, head: str) -> str:
 def _write_manifest(root: Path, head: str, files: List[str]) -> str:
     relative = "PACKAGE-MANIFEST.json"
     payload: Dict[str, object] = {
-        "schema_version": "rc8.bank-reality-package.v8",
+        "schema_version": "rc8.bank-reality-package.v9",
         "package_type": "FULL_STANDALONE_REALITY_VALIDATION_PACKAGE",
         "patch_package": False,
         "git_head": head,
@@ -231,6 +233,7 @@ def _write_manifest(root: Path, head: str, files: List[str]) -> str:
             "R1_GOVERNANCE_REPLAY",
             "GOVERNANCE_PRODUCT_API",
             "MAVEN_JUNIT_REALITY",
+            "JACOCO_CHANGED_SCOPE_REALITY",
             "CODEGRAPH_REALITY",
             "CODE_ANALYSIS_STRUCTURAL_LOOP",
             "DSH_SEMANTIC_WORKER",
@@ -238,7 +241,7 @@ def _write_manifest(root: Path, head: str, files: List[str]) -> str:
         ],
         "external_bank_capabilities_expected": ["PYTHON_3_8_PLUS", "GIT", "JAVA_MAVEN", "CODEGRAPH", "DSH_HEADLESS"],
         "files": sorted(files),
-        "truth_note": "Package completeness is not stage/layer/mission sufficiency. The formal FastAPI/PostgreSQL/Redis/Vue Center stack remains a separate incomplete capability until implemented and reality-verified.",
+        "truth_note": "Package completeness is not stage/layer/mission sufficiency. Formal Center W-A is CI-verified separately; Bank Reality and W-B L1 sufficiency remain unverified until their own evidence closes the gates.",
     }
     path = root / relative
     path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
@@ -273,9 +276,10 @@ def _verify_runtime_imports(root: Path) -> None:
         "from rc8_runtime import CoverageObservation, MissionGraphRuntime, MissionRuntimeState, ScopedStatusClaim; "
         "from rc8_center import CenterMissionService, CenterProductApplication, GovernanceEventProjector, GovernanceProjectionService, JsonFileCoverageRepository, JsonFileGovernanceRepository; "
         "from rc8_node import FormalNodeAgent; "
+        "from rc8_node.jacoco import JaCoCoChangedScopeCollector; "
         "assert CoverageObservation and MissionGraphRuntime and MissionRuntimeState and ScopedStatusClaim; "
         "assert CenterMissionService and CenterProductApplication and GovernanceEventProjector and GovernanceProjectionService; "
-        "assert JsonFileCoverageRepository and JsonFileGovernanceRepository and FormalNodeAgent; "
+        "assert JsonFileCoverageRepository and JsonFileGovernanceRepository and FormalNodeAgent and JaCoCoChangedScopeCollector; "
         "print('RC8_PACKAGE_RUNTIME_IMPORT_PASS')"
     )
     proc = subprocess.run(
