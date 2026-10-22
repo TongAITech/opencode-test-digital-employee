@@ -104,6 +104,18 @@ class CenterMissionService:
         self.repository.upsert_stage(updated)
         return updated
 
+    def mark_failed_runtime(self, test_run_id: str, stage_instance_id: str) -> StageInstance:
+        graph = self._hydrate(test_run_id)
+        updated = graph.runtime.transition_stage(stage_instance_id, StageState.FAILED_RUNTIME)
+        self.repository.upsert_stage(updated)
+        return updated
+
+    def mark_blocked(self, test_run_id: str, stage_instance_id: str) -> StageInstance:
+        graph = self._hydrate(test_run_id)
+        updated = graph.runtime.transition_stage(stage_instance_id, StageState.BLOCKED)
+        self.repository.upsert_stage(updated)
+        return updated
+
     def complete_activity(
         self,
         test_run_id: str,
