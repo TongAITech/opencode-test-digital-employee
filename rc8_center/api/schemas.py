@@ -72,3 +72,23 @@ class RecoveryResolveRequest(StrictModel):
     decision_ref: Optional[str] = Field(default=None, max_length=300)
     evidence_ref: Optional[str] = Field(default=None, max_length=300)
     explanation: Optional[str] = Field(default=None, max_length=4000)
+
+
+class ArtifactBeginRequest(StrictModel):
+    lease_id: str = Field(min_length=1, max_length=200)
+    artifact_id: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._-]+$")
+    test_run_id: str = Field(min_length=1, max_length=160)
+    work_item_id: str = Field(min_length=1, max_length=200)
+    node_id: str = Field(min_length=1, max_length=200)
+    kind: str = Field(min_length=1, max_length=100)
+    producer_kind: str = Field(min_length=1, max_length=64)
+    producer_ref: str = Field(min_length=1, max_length=240)
+    file_name: str = Field(min_length=1, max_length=500)
+    sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$")
+    size_bytes: int = Field(ge=0)
+    case_id: Optional[str] = Field(default=None, max_length=200)
+    attempt_id: Optional[str] = Field(default=None, max_length=200)
+    step_id: Optional[str] = Field(default=None, max_length=200)
+    refs: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: int = Field(ge=0)
