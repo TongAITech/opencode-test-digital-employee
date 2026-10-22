@@ -92,15 +92,6 @@ class FormalCenterControlPlane:
         ttl_seconds: int = 60,
         test_run_id: Optional[str] = None,
     ) -> Optional[WorkItemRecord]:
-        """Lease the next compatible READY WorkItem without external ID input.
-
-        Candidate discovery is PostgreSQL durable state. Capability eligibility
-        requires VERIFIED qualifications. Final ownership is still decided by
-        the existing Redis lease CAS inside ``lease_work_item``; concurrent
-        nodes racing on the same candidate cannot both win. Contention on one
-        candidate is not an error for claim-next: the scheduler continues to
-        the next eligible READY item.
-        """
         if not isinstance(ttl_seconds, int) or ttl_seconds <= 0:
             raise CenterControlError("LEASE_TTL_INVALID")
         node = self._require_node(node_id)
@@ -108,9 +99,6 @@ class FormalCenterControlPlane:
             raise CenterControlError("NODE_NOT_LEASE_ELIGIBLE")
         run_filter = str(test_run_id or "").strip() or None
 
-        # Reconcile a crash window before looking for new work. A WorkItem may
-        # already be durably COMPLETED while its Stage/downstream materialization
-        # lagged. Reconciliation is evidence-gated and idempotent.
         if self.progression is not None and run_filter is not None:
             try:
                 self.progression.reconcile_test_run(run_filter)
@@ -158,7 +146,7 @@ class FormalCenterControlPlane:
         if node.status in {NodeStatus.MAINTENANCE, NodeStatus.OFFLINE, NodeStatus.ERROR}:
             raise CenterControlError("NODE_NOT_LEASE_ELIGIBLE")
         work = self._require_work_item(work_item_id)
-        if work.state in {WorkItemState.COMPLETED, WorkItemState.FAILED}:
+        if work.state in {WorkItemState.COMPLETED, WorkItemState.FAILED, WorkItemState.BLOCKED}:
             raise CenterControlError("WORK_ITEM_TERMINAL")
         self._require_capabilities(node_id, work.identity.required_capabilities)
         now = self._now()
@@ -194,9 +182,6 @@ class FormalCenterControlPlane:
             try:
                 self.progression.on_work_item_leased(work_item_id)
             except Exception as exc:
-                # Compensate the fresh lease when Stage synchronization rejects
-                # the transition. Do not leave a schedulable mission item owned
-                # by Redis while Center reports the lease call as failed.
                 self.coordination.release_lease("work-item", work_item_id, node_id, lease_id=lease_id)
                 self.repository.upsert_work_item(replace(work, state=WorkItemState.READY))
                 self.repository.upsert_node(replace(node, status=NodeStatus.IDLE, last_heartbeat_at=now))
@@ -238,6 +223,38 @@ class FormalCenterControlPlane:
 
         terminal_with_mirror = replace(work, state=WorkItemState.COMPLETED)
         self.repository.upsert_work_item(terminal_with_mirror)
+        completed = self._release_terminal_lease(terminal_with_mirror, node_id, lease_id)
+        if self.progression is not None:
+            try:
+                self.progression.reconcile_completed_work_item(work_item_id)
+            except Exception as exc:
+                raise CenterControlError("MISSION_PROGRESSION_RECONCILE_REQUIRED:%s" % exc) from exc
+        return completed
+
+    def fail_work_item(self, work_item_id: str, node_id: str, lease_id: str) -> WorkItemRecord:
+        """Terminalize from R1-projected FAILED_RUNTIME/BLOCKED Attempt truth.
+
+        The request does not choose the terminal state. The latest projected
+        terminal Attempt and its AVAILABLE evidence decide FAILED vs BLOCKED.
+        """
+        work = self._require_active_lease(work_item_id, node_id, lease_id)
+        if self.progression is None:
+            raise CenterControlError("MISSION_FAILURE_PROGRESSION_NOT_CONFIGURED")
+        try:
+            gate = self.progression.assert_work_item_failable(work_item_id)
+        except Exception as exc:
+            raise CenterControlError(str(exc)) from exc
+        terminal_with_mirror = replace(work, state=gate.work_item_state)
+        self.repository.upsert_work_item(terminal_with_mirror)
+        terminal = self._release_terminal_lease(terminal_with_mirror, node_id, lease_id)
+        try:
+            self.progression.reconcile_failed_work_item(work_item_id)
+        except Exception as exc:
+            raise CenterControlError("MISSION_FAILURE_RECONCILE_REQUIRED:%s" % exc) from exc
+        return terminal
+
+    def _release_terminal_lease(self, work: WorkItemRecord, node_id: str, lease_id: str) -> WorkItemRecord:
+        work_item_id = work.identity.work_item_id
         try:
             released = self.coordination.release_lease("work-item", work_item_id, node_id, lease_id=lease_id)
             if not released:
@@ -246,20 +263,11 @@ class FormalCenterControlPlane:
             node = self._require_node(node_id)
             self.repository.upsert_node(replace(node, status=NodeStatus.IDLE, last_heartbeat_at=self._now()))
             raise
-        completed = replace(terminal_with_mirror, lease_id=None, lease_owner_node_id=None, lease_expires_at=None)
-        self.repository.upsert_work_item(completed)
+        terminal = replace(work, lease_id=None, lease_owner_node_id=None, lease_expires_at=None)
+        self.repository.upsert_work_item(terminal)
         node = self._require_node(node_id)
         self.repository.upsert_node(replace(node, status=NodeStatus.IDLE, last_heartbeat_at=self._now()))
-
-        if self.progression is not None:
-            try:
-                self.progression.reconcile_completed_work_item(work_item_id)
-            except Exception as exc:
-                # The WorkItem and R1 evidence are already durable. Keep that
-                # truth and fail visibly; claim-next reconciliation will retry
-                # idempotently instead of duplicating execution.
-                raise CenterControlError("MISSION_PROGRESSION_RECONCILE_REQUIRED:%s" % exc) from exc
-        return completed
+        return terminal
 
     def _require_node(self, node_id: str) -> NodeRecord:
         node = self.repository.get_node(str(node_id).strip())
