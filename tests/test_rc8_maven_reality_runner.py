@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 from pathlib import Path
 
@@ -14,26 +15,35 @@ from rc8_node.reality_maven import MavenRealityError, run_maven_reality
 from rc8_runtime import CentralR1RuntimeLedger
 
 
-def _fake_maven(tmp_path: Path) -> str:
+def _fake_maven(tmp_path: Path, *, failures: int = 0, exit_code: int = 0) -> str:
+    project = tmp_path / "project"
+    report = project / "target" / "surefire-reports" / "TEST-reality.xml"
+    xml = '<testsuite name="reality" tests="2" failures="%s" errors="0" skipped="0"></testsuite>' % failures
+    script = tmp_path / ("fake_reality_maven_%s.py" % failures)
+    script.write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        "report = Path(%r)\n" % str(report) +
+        "report.parent.mkdir(parents=True, exist_ok=True)\n"
+        "report.write_text(%r, encoding='utf-8')\n" % xml +
+        "print('Apache Maven RC8-reality-contract')\n"
+        "raise SystemExit(%s)\n" % exit_code,
+        encoding="utf-8",
+    )
     if os.name == "nt":
         path = tmp_path / "mvn.cmd"
-        path.write_text("@echo off\r\necho Apache Maven RC8-reality-contract\r\nexit /b 0\r\n", encoding="utf-8")
+        path.write_text('@echo off\r\n"%s" "%s" %%*\r\n' % (sys.executable, script), encoding="utf-8")
     else:
         path = tmp_path / "mvn"
-        path.write_text("#!/usr/bin/env bash\necho 'Apache Maven RC8-reality-contract'\nexit 0\n", encoding="utf-8")
+        path.write_text('#!/usr/bin/env bash\nexec "%s" "%s" "$@"\n' % (sys.executable, script), encoding="utf-8")
         path.chmod(0o755)
     return str(path)
 
 
-def _project(tmp_path: Path, failures: int = 0) -> Path:
+def _project(tmp_path: Path) -> Path:
     project = tmp_path / "project"
-    reports = project / "target" / "surefire-reports"
-    reports.mkdir(parents=True)
+    project.mkdir(exist_ok=True)
     (project / "pom.xml").write_text("<project></project>", encoding="utf-8")
-    (reports / "TEST-reality.xml").write_text(
-        '<testsuite name="reality" tests="2" failures="%s" errors="0" skipped="0"></testsuite>' % failures,
-        encoding="utf-8",
-    )
     return project
 
 
@@ -67,13 +77,19 @@ def test_reality_runner_proves_complete_center_node_maven_chain_in_contract_envi
         assert code == 0
         assert summary["reality_status"] == "EXECUTION_CHAIN_VERIFIED"
         assert summary["offline"] is True
+        assert summary["execution_passed"] is True
         assert summary["actual"]["passed"] is True
+        assert summary["actual"]["junit_passed"] is True
+        assert summary["stale_junit_reports_ignored"] == 0
         assert summary["goals"][0] == "-o"
         assert len(summary["artifact_ids"]) == 4
         assert summary["r1_receipt"]["status"] == "PERSISTENCE_VERIFIED"
         assert repo.get_capability("NODE-REALITY-1", "maven-junit").state.value == "VERIFIED"
         assert repo.get_work_item("REALITY-CONTRACT-1-execution").state.value == "COMPLETED"
-        assert len(ledger.runtime_events(test_run_id="REALITY-CONTRACT-1")) == 1
+        events = ledger.runtime_events(test_run_id="REALITY-CONTRACT-1")
+        assert len(events) == 1
+        assert events[0]["data"]["passed"] is True
+        assert events[0]["data"]["maven_returncode"] == 0
         assert all(artifacts.get(artifact_id).availability.value == "AVAILABLE" for artifact_id in summary["artifact_ids"])
         result_path = tmp_path / "node-state" / "reality" / "REALITY-CONTRACT-1" / "reality-result.json"
         preflight_path = tmp_path / "node-state" / "reality" / "REALITY-CONTRACT-1" / "preflight.json"
@@ -93,20 +109,22 @@ def test_reality_runner_proves_complete_center_node_maven_chain_in_contract_envi
 def test_reality_runner_distinguishes_verified_chain_from_failed_junit_actual(tmp_path: Path) -> None:
     server, thread, _, ledger, _, center_url = _center(tmp_path)
     try:
-        project = _project(tmp_path, failures=1)
+        project = _project(tmp_path)
         code, summary = run_maven_reality(
             center_url=center_url,
             node_id="NODE-REALITY-2",
             operator_ref="tester",
             state_dir=str(tmp_path / "node-state-2"),
             project_dir=str(project),
-            maven_command=_fake_maven(tmp_path),
+            maven_command=_fake_maven(tmp_path, failures=1),
             run_id="REALITY-CONTRACT-2",
             allow_online=False,
             require_pass=True,
         )
         assert code == 30
         assert summary["reality_status"] == "EXECUTION_CHAIN_VERIFIED_TEST_FAILED"
+        assert summary["execution_passed"] is False
+        assert summary["actual"]["junit_passed"] is False
         assert summary["actual"]["passed"] is False
         events = ledger.runtime_events(test_run_id="REALITY-CONTRACT-2")
         assert len(events) == 1
