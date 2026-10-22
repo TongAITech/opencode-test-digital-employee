@@ -20,7 +20,7 @@ from pathlib import Path
 from rc8_runtime import CentralR1RuntimeLedger
 from rc8_center.api import create_app
 from rc8_center.artifacts import FileArtifactStore
-from rc8_center.autonomous_progression import AutonomousMissionProgressor
+from rc8_center.requirement_loop_progression import RequirementLoopProgressor
 from rc8_center.formal_artifacts import FormalArtifactService
 from rc8_center.formal_control import FormalCenterControlPlane
 from rc8_center.formal_settings import CenterSettings
@@ -62,7 +62,7 @@ def build_app():
     replay_result = projector.replay()
     projection = GovernanceProjectionService(governance_repository, coverage_repository)
     mission_service = CenterMissionService(governance_repository)
-    mission_progressor = AutonomousMissionProgressor(
+    mission_progressor = RequirementLoopProgressor(
         store=postgres,
         mission_service=mission_service,
         governance_repository=governance_repository,
