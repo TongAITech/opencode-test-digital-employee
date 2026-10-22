@@ -49,6 +49,8 @@ class RequirementDeliveryCreate(BaseModel):
     delivery_id: str = Field(min_length=1, max_length=200)
     state: RequirementDeliveryState = RequirementDeliveryState.PLANNED
     continuation_of_delivery_id: Optional[str] = Field(default=None, max_length=200)
+    requirement_revision_id: Optional[str] = Field(default=None, max_length=240)
+    scope_revision_id: Optional[str] = Field(default=None, max_length=240)
     payload: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -97,6 +99,11 @@ def _error(exc: Exception) -> HTTPException:
         "DELIVERY_SCOPE_ALREADY_EXISTS",
         "DELIVERY_SCOPE_DUPLICATE",
         "REQUIREMENT_DELIVERY_TERMINAL_STATE_IMMUTABLE",
+        "DELIVERY_REVISION_BINDING_IMMUTABLE",
+        "DELIVERY_REQUIREMENT_REVISION_MISMATCH",
+        "DELIVERY_REQUIREMENT_REVISION_LINEAGE_MISMATCH",
+        "DELIVERY_SCOPE_REVISION_MISMATCH",
+        "DELIVERY_SCOPE_REVISION_LINEAGE_MISMATCH",
         "TEST_ROUND_REQUIRED_FOR_PRODUCTION_TEST_RUN",
     }
     code = status.HTTP_409_CONFLICT if detail in conflicts else status.HTTP_400_BAD_REQUEST
@@ -151,7 +158,7 @@ def register_delivery_routes(app: FastAPI) -> None:
             repository().create_requirement(value)
         except ValueError as exc:
             raise _error(exc) from exc
-        response.headers["Location"] = "/api/v1/requirements/%s/deliveries" % value.requirement_id
+        response.headers["Location"] = "/api/v1/requirements/%s/revisions" % value.requirement_id
         return _jsonable(value)
 
     @app.post(
@@ -174,13 +181,15 @@ def register_delivery_routes(app: FastAPI) -> None:
             created_at=now,
             updated_at=now,
             payload=request.payload,
+            requirement_revision_id=request.requirement_revision_id,
+            scope_revision_id=request.scope_revision_id,
         )
         try:
-            repository().create_delivery(value)
+            created = repository().create_delivery(value)
         except ValueError as exc:
             raise _error(exc) from exc
         response.headers["Location"] = "/api/v1/requirement-deliveries/%s" % value.delivery_id
-        return _jsonable(value)
+        return _jsonable(created)
 
     @app.patch("/api/v1/requirement-deliveries/{delivery_id}/state")
     def update_requirement_delivery_state(delivery_id: str, request: RequirementDeliveryStateUpdate) -> Dict[str, Any]:
@@ -230,7 +239,7 @@ def register_delivery_routes(app: FastAPI) -> None:
             "completed_in_single_batch": history.completed_in_single_batch,
             "spans_multiple_batches": history.spans_multiple_batches,
             "current_delivery_state": history.current_delivery_state.value if history.current_delivery_state else None,
-            "truth_note": "Requirement delivery history is preserved; no mandatory requirement revision object is inferred.",
+            "truth_note": "RequirementMaster, RequirementRevision and ScopeRevision histories are preserved independently from technical system versions.",
         }
 
     @app.post(
@@ -241,11 +250,6 @@ def register_delivery_routes(app: FastAPI) -> None:
         production_batch_id: str,
         request: ProductionBatchTestRunCreate,
     ) -> Dict[str, Any]:
-        """Production testing must enter a TestRound before a runtime TestRun.
-
-        Keeping this legacy path as an explicit rejection prevents old clients
-        from silently bypassing the TestRound -> TestRun lineage contract.
-        """
         if repository().get_batch(production_batch_id) is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PRODUCTION_BATCH_NOT_FOUND")
         raise HTTPException(
