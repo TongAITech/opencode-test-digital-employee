@@ -2,6 +2,11 @@
 
 The node initiates outbound connections to Center. It never receives Center DB
 credentials and never writes Center storage directly.
+
+`NodeAgent` remains the W1 compatibility adapter. The formal Center protocol is
+implemented by `rc8_node.formal_agent.FormalNodeAgent`; shared HTTP primitives
+accept explicit headers so lease tokens remain visible protocol inputs rather
+than hidden session state.
 """
 
 from __future__ import annotations
@@ -32,26 +37,55 @@ class HttpCenterClient:
             raise NodeAgentError("CENTER_URL_REQUIRED")
         self.timeout_seconds = timeout_seconds
 
-    def get(self, path: str) -> Dict[str, Any]:
-        request = Request(self.base_url + path, method="GET", headers={"Accept": "application/json"})
+    @staticmethod
+    def _headers(base: Dict[str, str], extra: Optional[Dict[str, str]]) -> Dict[str, str]:
+        result = dict(base)
+        if extra:
+            result.update({str(key): str(value) for key, value in extra.items()})
+        return result
+
+    def get(self, path: str, *, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        request = Request(
+            self.base_url + path,
+            method="GET",
+            headers=self._headers({"Accept": "application/json"}, headers),
+        )
         return self._send(request)
 
-    def post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def post(
+        self,
+        path: str,
+        payload: Dict[str, Any],
+        *,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         request = Request(
             self.base_url + path,
             data=data,
             method="POST",
-            headers={"Accept": "application/json", "Content-Type": "application/json; charset=utf-8"},
+            headers=self._headers(
+                {"Accept": "application/json", "Content-Type": "application/json; charset=utf-8"},
+                headers,
+            ),
         )
         return self._send(request)
 
-    def put_bytes(self, path: str, data: bytes) -> Dict[str, Any]:
+    def put_bytes(
+        self,
+        path: str,
+        data: bytes,
+        *,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
         request = Request(
             self.base_url + path,
             data=data,
             method="PUT",
-            headers={"Accept": "application/json", "Content-Type": "application/octet-stream"},
+            headers=self._headers(
+                {"Accept": "application/json", "Content-Type": "application/octet-stream"},
+                headers,
+            ),
         )
         return self._send(request)
 
@@ -67,7 +101,7 @@ class HttpCenterClient:
             detail = exc.read().decode("utf-8", errors="replace")
             try:
                 payload = json.loads(detail)
-                message = str(payload.get("error") or detail)
+                message = str(payload.get("detail") or payload.get("error") or detail)
             except ValueError:
                 message = detail or str(exc)
             raise NodeAgentError("CENTER_HTTP_%s:%s" % (exc.code, message)) from exc
@@ -116,6 +150,8 @@ class NodeIdentityStore:
 
 
 class NodeAgent:
+    """Legacy W1 compatibility adapter. New formal flows use FormalNodeAgent."""
+
     def __init__(self, identity: NodeIdentity, center: HttpCenterClient) -> None:
         self.identity = identity
         self.center = center
