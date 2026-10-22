@@ -3,8 +3,9 @@
 Machine evidence is uploaded first. Runtime facts are appended only after every
 referenced artifact is AVAILABLE. JaCoCo changed-scope Actual becomes canonical
 COVERAGE_COLLECTED events. Coverage deficits become explicit COVERAGE_GAP facts
-routed back to TEST_DESIGN; neither coverage nor a gap directly decides
-Layer/Mission PASS.
+routed back to TEST_DESIGN. A targeted rerun may close only a Center-supplied,
+stable gap for the same test-run/subject/source-snapshot/dimension. Neither
+coverage nor gap closure directly decides Layer/Mission PASS.
 """
 from __future__ import annotations
 
@@ -19,6 +20,13 @@ from rc8_runtime.governance import CoverageDimension, GapSeverity, GapType, rout
 
 from .agent import NodeAgent, NodeAgentError
 from .execution import MavenExecutionResult
+
+
+_CHANGED_DIMENSIONS = (
+    CoverageDimension.CHANGED_METHOD,
+    CoverageDimension.CHANGED_LINE,
+    CoverageDimension.CHANGED_BRANCH,
+)
 
 
 def _sha256(path: Path) -> str:
@@ -66,24 +74,32 @@ class CoveragePublishContext:
         CoverageDimension.CHANGED_LINE.value: 1.0,
         CoverageDimension.CHANGED_BRANCH.value: 1.0,
     })
+    open_gap_ids: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for name in ("stage_instance_id", "attempt_id", "subject_ref"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError("%s_REQUIRED" % name.upper())
-        normalized: Dict[str, float] = {}
-        for dimension in (
-            CoverageDimension.CHANGED_METHOD,
-            CoverageDimension.CHANGED_LINE,
-            CoverageDimension.CHANGED_BRANCH,
-        ):
+        normalized_thresholds: Dict[str, float] = {}
+        allowed = {dimension.value for dimension in _CHANGED_DIMENSIONS}
+        for dimension in _CHANGED_DIMENSIONS:
             raw = self.thresholds.get(dimension.value, 1.0)
             threshold = float(raw)
             if threshold < 0.0 or threshold > 1.0:
                 raise ValueError("COVERAGE_THRESHOLD_INVALID:%s" % dimension.value)
-            normalized[dimension.value] = threshold
-        object.__setattr__(self, "thresholds", normalized)
+            normalized_thresholds[dimension.value] = threshold
+        normalized_gap_ids: Dict[str, str] = {}
+        for raw_dimension, raw_gap_id in self.open_gap_ids.items():
+            dimension = str(raw_dimension)
+            if dimension not in allowed:
+                raise ValueError("COVERAGE_GAP_DIMENSION_INVALID:%s" % dimension)
+            gap_id = str(raw_gap_id).strip()
+            if not gap_id:
+                raise ValueError("COVERAGE_GAP_ID_REQUIRED:%s" % dimension)
+            normalized_gap_ids[dimension] = gap_id
+        object.__setattr__(self, "thresholds", normalized_thresholds)
+        object.__setattr__(self, "open_gap_ids", normalized_gap_ids)
 
 
 def _coverage_actual(result: MavenExecutionResult, dimension: CoverageDimension) -> Tuple[int, int]:
@@ -104,6 +120,46 @@ def _coverage_ratio(covered: int, total: int) -> float:
     return 1.0 if total == 0 else float(covered) / float(total)
 
 
+def _coverage_gap_id(
+    test_run_id: str,
+    subject_ref: str,
+    source_snapshot_ref: str,
+    dimension: CoverageDimension,
+) -> str:
+    return _stable_id(
+        "gap",
+        test_run_id,
+        subject_ref,
+        source_snapshot_ref,
+        GapType.COVERAGE_GAP.value,
+        dimension.value,
+    )
+
+
+def _validate_open_gap_identity(
+    test_run_id: str,
+    result: MavenExecutionResult,
+    coverage_context: CoveragePublishContext,
+) -> None:
+    if result.coverage is None:
+        return
+    for dimension in _CHANGED_DIMENSIONS:
+        supplied = coverage_context.open_gap_ids.get(dimension.value)
+        if supplied is None:
+            continue
+        expected = _coverage_gap_id(
+            test_run_id,
+            coverage_context.subject_ref,
+            result.coverage.source_snapshot_ref,
+            dimension,
+        )
+        if supplied != expected:
+            raise NodeAgentError(
+                "COVERAGE_GAP_ID_MISMATCH:%s:%s!=%s"
+                % (dimension.value, supplied, expected)
+            )
+
+
 def publish_maven_junit_execution(
     agent: NodeAgent,
     *,
@@ -114,13 +170,15 @@ def publish_maven_junit_execution(
     sequence: int,
     coverage_context: Optional[CoveragePublishContext] = None,
 ) -> Dict[str, object]:
-    """Upload evidence, append execution Actual, coverage facts and governed gaps."""
+    """Upload evidence, append execution Actual, coverage facts and governed feedback."""
     if result.coverage is not None and coverage_context is None:
         raise NodeAgentError("COVERAGE_PUBLISH_CONTEXT_REQUIRED")
+    if coverage_context is not None and result.coverage is not None:
+        _validate_open_gap_identity(test_run_id, result, coverage_context)
     if coverage_context is not None and result.coverage is None and result.coverage_required:
         # The failed execution Actual may still be published for diagnosis, but
-        # no COVERAGE_COLLECTED/GAP_OPENED event may be manufactured without
-        # fresh JaCoCo Actual.
+        # no COVERAGE_COLLECTED/GAP event may be manufactured without fresh
+        # JaCoCo Actual.
         pass
 
     files: List[tuple] = [
@@ -196,19 +254,17 @@ def publish_maven_junit_execution(
 
     coverage_events: List[Dict[str, object]] = []
     gap_events: List[Dict[str, object]] = []
+    gap_closure_events: List[Dict[str, object]] = []
+    retained_gap_ids: List[str] = []
     if result.coverage is not None and coverage_context is not None:
         coverage_artifact_ids = list(dict.fromkeys(
             artifact_ids_by_role.get("jacoco-actual", []) + artifact_ids_by_role.get("jacoco-xml", [])
         ))
         if not coverage_artifact_ids:
             raise NodeAgentError("COVERAGE_ARTIFACTS_REQUIRED")
-        dimensions = (
-            CoverageDimension.CHANGED_METHOD,
-            CoverageDimension.CHANGED_LINE,
-            CoverageDimension.CHANGED_BRANCH,
-        )
-        deficits: List[Tuple[CoverageDimension, int, int, float]] = []
-        for offset, dimension in enumerate(dimensions, start=1):
+
+        evaluations: List[Tuple[CoverageDimension, int, int, float, float]] = []
+        for offset, dimension in enumerate(_CHANGED_DIMENSIONS, start=1):
             covered, total = _coverage_actual(result, dimension)
             threshold = coverage_context.thresholds[dimension.value]
             ratio = _coverage_ratio(covered, total)
@@ -259,59 +315,101 @@ def publish_maven_junit_execution(
                 "satisfied": ratio >= threshold,
                 "center": response,
             })
-            if ratio < threshold:
-                deficits.append((dimension, covered, total, threshold))
+            evaluations.append((dimension, covered, total, threshold, ratio))
 
         gap_owner = route_gap(GapType.COVERAGE_GAP)
-        next_sequence = sequence + len(dimensions) + 1
-        for index, (dimension, covered, total, threshold) in enumerate(deficits):
-            ratio = _coverage_ratio(covered, total)
-            gap_id = _stable_id(
-                "gap", test_run_id, coverage_context.subject_ref,
-                result.coverage.source_snapshot_ref, GapType.COVERAGE_GAP.value, dimension.value,
+        feedback_sequence = sequence + len(_CHANGED_DIMENSIONS) + 1
+        feedback_offset = 0
+        for dimension, covered, total, threshold, ratio in evaluations:
+            expected_gap_id = _coverage_gap_id(
+                test_run_id,
+                coverage_context.subject_ref,
+                result.coverage.source_snapshot_ref,
+                dimension,
             )
-            gap_event_id = "%s-gap-%s" % (event_id, dimension.value.lower().replace("_", "-"))
-            gap_event = RuntimeEventEnvelope(
-                event_id=gap_event_id,
-                test_run_id=test_run_id,
-                work_item_id=work_item_id,
-                node_id=agent.identity.node_id,
-                producer_kind=RuntimeProducerKind.TOOL,
-                producer_ref="rc8:coverage-gap-evaluator",
-                event_type="GAP_OPENED",
-                sequence=next_sequence + index,
-                attempt_id=coverage_context.attempt_id,
-                refs=coverage_artifact_ids,
-                data={
-                    "gap_id": gap_id,
-                    "source_stage_instance_id": coverage_context.stage_instance_id,
-                    "gap_type": GapType.COVERAGE_GAP.value,
-                    "severity": GapSeverity.P1.value,
-                    "description": (
-                        "%s coverage %s/%s (%.4f) below threshold %.4f for %s"
-                        % (dimension.value, covered, total, ratio, threshold, coverage_context.subject_ref)
-                    ),
+            existing_gap_id = coverage_context.open_gap_ids.get(dimension.value)
+            if ratio < threshold:
+                if existing_gap_id is not None:
+                    retained_gap_ids.append(existing_gap_id)
+                    continue
+                gap_event_id = "%s-gap-%s" % (event_id, dimension.value.lower().replace("_", "-"))
+                gap_event = RuntimeEventEnvelope(
+                    event_id=gap_event_id,
+                    test_run_id=test_run_id,
+                    work_item_id=work_item_id,
+                    node_id=agent.identity.node_id,
+                    producer_kind=RuntimeProducerKind.TOOL,
+                    producer_ref="rc8:coverage-gap-evaluator",
+                    event_type="GAP_OPENED",
+                    sequence=feedback_sequence + feedback_offset,
+                    attempt_id=coverage_context.attempt_id,
+                    refs=coverage_artifact_ids,
+                    data={
+                        "gap_id": expected_gap_id,
+                        "source_stage_instance_id": coverage_context.stage_instance_id,
+                        "gap_type": GapType.COVERAGE_GAP.value,
+                        "severity": GapSeverity.P1.value,
+                        "description": (
+                            "%s coverage %s/%s (%.4f) below threshold %.4f for %s"
+                            % (dimension.value, covered, total, ratio, threshold, coverage_context.subject_ref)
+                        ),
+                        "owner_stage": gap_owner,
+                        "repair_strategy": "GENERATE_DELTA_TEST_THEN_TARGETED_RERUN",
+                        "evidence_refs": coverage_artifact_ids,
+                        "invalidates": [],
+                        "coverage_dimension": dimension.value,
+                        "covered": covered,
+                        "total": total,
+                        "ratio": ratio,
+                        "threshold": threshold,
+                        "source_snapshot_ref": result.coverage.source_snapshot_ref,
+                    },
+                )
+                response = agent.append_runtime_event(gap_event)
+                gap_events.append({
+                    "event_id": gap_event_id,
+                    "gap_id": expected_gap_id,
+                    "dimension": dimension.value,
                     "owner_stage": gap_owner,
                     "repair_strategy": "GENERATE_DELTA_TEST_THEN_TARGETED_RERUN",
-                    "evidence_refs": coverage_artifact_ids,
-                    "invalidates": [],
-                    "coverage_dimension": dimension.value,
-                    "covered": covered,
-                    "total": total,
-                    "ratio": ratio,
-                    "threshold": threshold,
-                    "source_snapshot_ref": result.coverage.source_snapshot_ref,
-                },
-            )
-            response = agent.append_runtime_event(gap_event)
-            gap_events.append({
-                "event_id": gap_event_id,
-                "gap_id": gap_id,
-                "dimension": dimension.value,
-                "owner_stage": gap_owner,
-                "repair_strategy": "GENERATE_DELTA_TEST_THEN_TARGETED_RERUN",
-                "center": response,
-            })
+                    "center": response,
+                })
+                feedback_offset += 1
+                continue
+
+            if existing_gap_id is not None:
+                close_event_id = "%s-gap-close-%s" % (event_id, dimension.value.lower().replace("_", "-"))
+                close_event = RuntimeEventEnvelope(
+                    event_id=close_event_id,
+                    test_run_id=test_run_id,
+                    work_item_id=work_item_id,
+                    node_id=agent.identity.node_id,
+                    producer_kind=RuntimeProducerKind.TOOL,
+                    producer_ref="rc8:coverage-gap-evaluator",
+                    event_type="GAP_CLOSED",
+                    sequence=feedback_sequence + feedback_offset,
+                    attempt_id=coverage_context.attempt_id,
+                    refs=coverage_artifact_ids,
+                    data={
+                        "gap_id": existing_gap_id,
+                        "closure_evidence_refs": coverage_artifact_ids,
+                        "coverage_dimension": dimension.value,
+                        "covered": covered,
+                        "total": total,
+                        "ratio": ratio,
+                        "threshold": threshold,
+                        "source_snapshot_ref": result.coverage.source_snapshot_ref,
+                        "closure_reason": "TARGETED_RERUN_COVERAGE_THRESHOLD_SATISFIED",
+                    },
+                )
+                response = agent.append_runtime_event(close_event)
+                gap_closure_events.append({
+                    "event_id": close_event_id,
+                    "gap_id": existing_gap_id,
+                    "dimension": dimension.value,
+                    "center": response,
+                })
+                feedback_offset += 1
 
     return {
         "event_id": event_id,
@@ -320,4 +418,6 @@ def publish_maven_junit_execution(
         "center": actual_response,
         "coverage_events": coverage_events,
         "gap_events": gap_events,
+        "gap_closure_events": gap_closure_events,
+        "retained_gap_ids": retained_gap_ids,
     }
