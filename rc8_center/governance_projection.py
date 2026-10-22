@@ -1,22 +1,22 @@
 """Product-facing governance projection for one TestRun.
 
-The projection never invents PASS from counts.  It exposes the recorded mission,
-coverage, gap, invalidation and release facts that the product UI must explain.
+The projection never invents PASS from counts. It consumes storage-neutral
+repository ports so JSON fallback and formal PostgreSQL share identical product
+semantics.
 """
 from __future__ import annotations
 
 from typing import Any, Dict
 
-from .coverage_repository import JsonFileCoverageRepository
-from .governance_repository import JsonFileGovernanceRepository
 from .json_repository import _jsonable
+from .repository_ports import CoverageRepository, GovernanceRepository
 
 
 class GovernanceProjectionService:
     def __init__(
         self,
-        governance_repository: JsonFileGovernanceRepository,
-        coverage_repository: JsonFileCoverageRepository,
+        governance_repository: GovernanceRepository,
+        coverage_repository: CoverageRepository,
     ) -> None:
         self.governance_repository = governance_repository
         self.coverage_repository = coverage_repository
@@ -32,5 +32,6 @@ class GovernanceProjectionService:
             "coverage_is_snapshot_bound": True,
             "invalidated_results_remain_visible": True,
             "release_is_separate_from_test_sufficiency": True,
+            "storage_backend_does_not_change_truth_semantics": True,
         }
         return base
