@@ -1,7 +1,7 @@
 """Durable Center repository for provenance-bound coverage observations."""
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from rc8_runtime.coverage import CoverageObservation
 from rc8_runtime.governance import CoverageDimension, CoverageMetric
@@ -14,14 +14,24 @@ class JsonFileCoverageRepository:
         self._file = _AtomicJsonFile(path, {"schema_version": 1, "observations": {}})
 
     def append(self, observation: CoverageObservation) -> None:
+        """Append one immutable observation; exact replay is idempotent."""
+        encoded = _jsonable(observation)
+
         def apply(data: Dict[str, Any]) -> None:
             rows = data.setdefault("observations", {})
             if not isinstance(rows, dict):
                 raise DurableRepositoryError("COVERAGE_OBSERVATIONS_INVALID")
-            if observation.observation_id in rows:
-                raise DurableRepositoryError("COVERAGE_OBSERVATION_APPEND_ONLY:%s" % observation.observation_id)
-            rows[observation.observation_id] = _jsonable(observation)
+            previous = rows.get(observation.observation_id)
+            if previous is not None:
+                if previous != encoded:
+                    raise DurableRepositoryError("COVERAGE_OBSERVATION_ID_CONFLICT:%s" % observation.observation_id)
+                return
+            rows[observation.observation_id] = encoded
         self._file.mutate(apply)
+
+    def get(self, observation_id: str) -> Optional[CoverageObservation]:
+        raw = self._file.read().get("observations", {}).get(observation_id)
+        return self._from_raw(raw) if isinstance(raw, dict) else None
 
     def list_for_test_run(self, test_run_id: str) -> List[CoverageObservation]:
         rows = self._file.read().get("observations", {})
