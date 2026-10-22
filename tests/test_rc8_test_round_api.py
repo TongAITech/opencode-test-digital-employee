@@ -161,3 +161,53 @@ def test_api_path_production_date_must_match_round_owner():
     )
     assert wrong_path.status_code == 409
     assert wrong_path.json()["detail"] == "TEST_ROUND_PRODUCTION_DATE_MISMATCH"
+
+
+def test_round_and_initial_deliveries_are_atomic_on_validation_failure():
+    client, delivery_repo, round_repo = _fixture()
+    delivery_repo.create_batch(
+        ProductionBatch(
+            production_batch_id="batch-2026-12-10",
+            production_date="2026-12-10",
+            name="2026-12-10",
+            created_at=200,
+        )
+    )
+    delivery_repo.create_requirement(Requirement(requirement_id="R002", title="需求2", created_at=200))
+    delivery_repo.create_delivery(
+        RequirementDelivery(
+            delivery_id="delivery-r2-b2",
+            production_batch_id="batch-2026-12-10",
+            requirement_id="R002",
+            created_at=200,
+            updated_at=200,
+        )
+    )
+
+    failed = client.post(
+        "/api/v1/production-batches/batch-2026-11-15/test-rounds",
+        json={
+            "test_round_id": "round-atomic-fail",
+            "delivery_ids": ["delivery-r1-b1", "delivery-r2-b2"],
+        },
+    )
+    assert failed.status_code == 409
+    assert failed.json()["detail"] == "TEST_ROUND_DELIVERY_PRODUCTION_DATE_MISMATCH"
+    assert round_repo.get_round("round-atomic-fail") is None
+    assert round_repo.list_round_deliveries("round-atomic-fail") == []
+    assert round_repo.next_round_no("batch-2026-11-15") == 1
+
+
+def test_duplicate_delivery_request_does_not_leave_partial_round():
+    client, _delivery_repo, round_repo = _fixture()
+    failed = client.post(
+        "/api/v1/production-batches/batch-2026-11-15/test-rounds",
+        json={
+            "test_round_id": "round-duplicate-fail",
+            "delivery_ids": ["delivery-r1-b1", "delivery-r1-b1"],
+        },
+    )
+    assert failed.status_code == 409
+    assert failed.json()["detail"] == "REQUIREMENT_DELIVERY_ALREADY_IN_TEST_ROUND"
+    assert round_repo.get_round("round-duplicate-fail") is None
+    assert round_repo.list_round_deliveries("round-duplicate-fail") == []
