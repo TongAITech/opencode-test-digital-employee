@@ -22,6 +22,8 @@ on:
       - 'tests/test_rc8_maven_execution_adapter.py'
       - 'tests/test_rc8_jacoco_changed_scope.py'
       - 'tests/test_rc8_maven_jacoco_execution.py'
+      - 'tests/test_rc8_failure_classification.py'
+      - 'tests/test_rc8_maven_failure_classification.py'
       - 'tests/test_rc8_execution_publish.py'
       - 'tests/test_rc8_execution_coverage_publish.py'
       - 'tests/test_rc8_execution_publish_http.py'
@@ -69,6 +71,7 @@ jobs:
             rc8_node/formal_agent.py \
             rc8_node/capabilities.py \
             rc8_node/execution.py \
+            rc8_node/failure_classification.py \
             rc8_node/jacoco.py \
             rc8_node/execution_publish.py \
             rc8_node/work_item_execution.py \
@@ -93,6 +96,8 @@ jobs:
             tests/test_rc8_maven_execution_adapter.py \
             tests/test_rc8_jacoco_changed_scope.py \
             tests/test_rc8_maven_jacoco_execution.py \
+            tests/test_rc8_failure_classification.py \
+            tests/test_rc8_maven_failure_classification.py \
             tests/test_rc8_execution_publish.py \
             tests/test_rc8_execution_coverage_publish.py \
             tests/test_rc8_execution_publish_http.py \
@@ -146,6 +151,8 @@ jobs:
             tests/test_rc8_maven_execution_adapter.py \
             tests/test_rc8_jacoco_changed_scope.py \
             tests/test_rc8_maven_jacoco_execution.py \
+            tests/test_rc8_failure_classification.py \
+            tests/test_rc8_maven_failure_classification.py \
             tests/test_rc8_execution_publish.py \
             tests/test_rc8_execution_coverage_publish.py \
             tests/test_rc8_execution_publish_http.py \
@@ -182,6 +189,7 @@ jobs:
               names = zf.namelist()
               assert any(name.endswith('/rc8_node/formal_agent.py') for name in names)
               assert any(name.endswith('/rc8_node/reality_maven.py') for name in names)
+              assert any(name.endswith('/rc8_node/failure_classification.py') for name in names)
               assert any(name.endswith('/rc8_node/jacoco.py') for name in names)
               assert any(name.endswith('/rc8_node/reality_codegraph.py') for name in names)
               assert any(name.endswith('/rc8_node/code_analysis.py') for name in names)
