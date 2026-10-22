@@ -34,6 +34,13 @@ class TestRoundStateUpdate(BaseModel):
     state: TestRoundState
 
 
+class TestRoundTestRunCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    test_run_id: str = Field(min_length=1, max_length=160)
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
 def _jsonable(value: Any) -> Any:
     if isinstance(value, Enum):
         return value.value
@@ -51,6 +58,19 @@ def _round_delivery_id(test_round_id: str, delivery_id: str) -> str:
     return "round-delivery-" + digest
 
 
+def _test_run_json(row: Any) -> Dict[str, Any]:
+    return {
+        "test_run_id": str(row.test_run_id),
+        "production_batch_id": str(row.production_batch_id) if row.production_batch_id is not None else None,
+        "test_round_id": str(row.test_round_id) if row.test_round_id is not None else None,
+        "status_scope": str(row.status_scope),
+        "current_state": str(row.current_state),
+        "created_at": int(row.created_at),
+        "updated_at": int(row.updated_at),
+        "payload": dict(row.payload or {}),
+    }
+
+
 def _error(exc: Exception) -> HTTPException:
     detail = str(exc)
     if detail.endswith("_NOT_FOUND"):
@@ -61,7 +81,13 @@ def _error(exc: Exception) -> HTTPException:
         "TEST_ROUND_DELIVERY_ALREADY_EXISTS",
         "REQUIREMENT_DELIVERY_ALREADY_IN_TEST_ROUND",
         "TEST_ROUND_DELIVERY_PRODUCTION_DATE_MISMATCH",
+        "TEST_ROUND_PRODUCTION_DATE_MISMATCH",
         "TEST_ROUND_TERMINAL_STATE_IMMUTABLE",
+        "TEST_ROUND_NOT_STARTABLE",
+        "TEST_ROUND_HAS_NO_REQUIREMENTS",
+        "TEST_ROUND_SCOPE_INCOMPLETE",
+        "TEST_ROUND_ALREADY_HAS_TEST_RUN",
+        "TEST_RUN_ALREADY_EXISTS",
     }
     code = status.HTTP_409_CONFLICT if detail in conflicts else status.HTTP_400_BAD_REQUEST
     return HTTPException(status_code=code, detail=detail)
@@ -75,6 +101,21 @@ def register_test_round_routes(app: FastAPI) -> None:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="TEST_ROUND_REPOSITORY_NOT_CONFIGURED",
             )
+        return value
+
+    def delivery_repository():
+        value = getattr(app.state, "delivery_repository", None)
+        if value is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="REQUIREMENT_DELIVERY_REPOSITORY_NOT_CONFIGURED",
+            )
+        return value
+
+    def postgres():
+        value = getattr(app.state, "postgres", None)
+        if value is None:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="POSTGRES_NOT_CONFIGURED")
         return value
 
     def require_round_in_batch(production_batch_id: str, test_round_id: str) -> TestRound:
@@ -97,6 +138,11 @@ def register_test_round_routes(app: FastAPI) -> None:
                 "deliveries": [
                     _jsonable(item) for item in repository().list_round_deliveries(value.test_round_id)
                 ],
+                "test_run": (
+                    _test_run_json(postgres().get_test_run_for_round(value.test_round_id))
+                    if postgres().get_test_run_for_round(value.test_round_id) is not None
+                    else None
+                ),
                 "truth_note": "TestRound is a testing round inside this production date; it is not another production batch or requirement iteration.",
             }
             for value in values
@@ -147,11 +193,13 @@ def register_test_round_routes(app: FastAPI) -> None:
     @app.get("/api/v1/production-batches/{production_batch_id}/test-rounds/{test_round_id}")
     def get_test_round(production_batch_id: str, test_round_id: str) -> Dict[str, Any]:
         value = require_round_in_batch(production_batch_id, test_round_id)
+        run = postgres().get_test_run_for_round(test_round_id)
         return {
             "round": _jsonable(value),
             "deliveries": [
                 _jsonable(item) for item in repository().list_round_deliveries(test_round_id)
             ],
+            "test_run": _test_run_json(run) if run is not None else None,
         }
 
     @app.post(
@@ -178,6 +226,84 @@ def register_test_round_routes(app: FastAPI) -> None:
         except ValueError as exc:
             raise _error(exc) from exc
         return _jsonable(value)
+
+    @app.post(
+        "/api/v1/production-batches/{production_batch_id}/test-rounds/{test_round_id}/test-run",
+        status_code=status.HTTP_201_CREATED,
+    )
+    def start_test_run_from_round(
+        production_batch_id: str,
+        test_round_id: str,
+        request: TestRoundTestRunCreate,
+        response: Response,
+    ) -> Dict[str, Any]:
+        round_value = require_round_in_batch(production_batch_id, test_round_id)
+        try:
+            if round_value.state in {TestRoundState.COMPLETED, TestRoundState.CANCELLED}:
+                raise ValueError("TEST_ROUND_NOT_STARTABLE")
+
+            links = repository().list_round_deliveries(test_round_id)
+            if not links:
+                raise ValueError("TEST_ROUND_HAS_NO_REQUIREMENTS")
+
+            delivery_repo = delivery_repository()
+            delivery_ids: List[str] = []
+            scope_ids: List[str] = []
+            for link in links:
+                delivery = delivery_repo.get_delivery(link.delivery_id)
+                if delivery is None:
+                    raise ValueError("REQUIREMENT_DELIVERY_NOT_FOUND")
+                if delivery.production_batch_id != production_batch_id:
+                    raise ValueError("TEST_ROUND_DELIVERY_PRODUCTION_DATE_MISMATCH")
+                scopes = delivery_repo.list_scopes(link.delivery_id)
+                if not scopes:
+                    raise ValueError("TEST_ROUND_SCOPE_INCOMPLETE")
+                delivery_ids.append(link.delivery_id)
+                scope_ids.extend(scope.scope_id for scope in scopes)
+
+            store = postgres()
+            if store.get_test_run_for_round(test_round_id) is not None:
+                raise ValueError("TEST_ROUND_ALREADY_HAS_TEST_RUN")
+            if store.get_test_run(request.test_run_id) is not None:
+                raise ValueError("TEST_RUN_ALREADY_EXISTS")
+
+            payload = dict(request.payload)
+            payload.update(
+                {
+                    "task_scope_source": "TEST_ROUND_REQUIREMENT_DELIVERY",
+                    "test_round_id": test_round_id,
+                    "test_round_no": int(round_value.round_no),
+                    "requirement_delivery_ids": delivery_ids,
+                    "delivery_scope_ids": scope_ids,
+                }
+            )
+            row = store.create_test_run(
+                request.test_run_id,
+                production_batch_id=production_batch_id,
+                test_round_id=test_round_id,
+                payload=payload,
+            )
+            if round_value.state == TestRoundState.PLANNED:
+                round_value = repository().transition_round(test_round_id, TestRoundState.ACTIVE)
+        except ValueError as exc:
+            raise _error(exc) from exc
+
+        response.headers["Location"] = "/api/v1/test-runs/%s" % request.test_run_id
+        return {
+            "test_run": _test_run_json(row),
+            "round": _jsonable(round_value),
+            "truth_note": "Stage, WorkItem, Attempt, Evidence, Gap and Defect facts inherit TestRound ownership through this immutable TestRun binding.",
+        }
+
+    @app.get(
+        "/api/v1/production-batches/{production_batch_id}/test-rounds/{test_round_id}/test-run"
+    )
+    def get_test_run_for_round(production_batch_id: str, test_round_id: str) -> Dict[str, Any]:
+        require_round_in_batch(production_batch_id, test_round_id)
+        row = postgres().get_test_run_for_round(test_round_id)
+        if row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="TEST_RUN_NOT_FOUND")
+        return _test_run_json(row)
 
     @app.patch(
         "/api/v1/production-batches/{production_batch_id}/test-rounds/{test_round_id}/state"
