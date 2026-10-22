@@ -17,6 +17,7 @@ def test_center_check_initializes_durable_state_r1_and_governance(tmp_path: Path
     assert payload["r1_runtime_only"] is True
     assert payload["artifact_store"] == "READY"
     assert payload["governance_projection"] == "READY"
+    assert payload["r1_projection_replay"] == "READY"
     assert payload["product_api"] == "READY"
     assert payload["governance_state"] == "READY"
     assert payload["coverage_state"] == "READY"
@@ -49,5 +50,7 @@ def test_center_application_reopens_same_durable_state(tmp_path: Path) -> None:
     restored = second.control.repository.get_node("NODE-1")
     assert restored is not None
     assert restored.identity.node_id == "NODE-1"
-    assert second.get("/api/v1/test-runs/RUN-NONE/governance")["test_run"]["test_run_id"] == "RUN-NONE"
-    assert second.get("/api/v1/test-runs/RUN-NONE/governance")["test_run"]["latest_mission_sufficiency"] is None
+    response = second.get("/api/v1/test-runs/RUN-NONE/governance")
+    assert response["test_run"]["test_run_id"] == "RUN-NONE"
+    assert response["test_run"]["latest_mission_sufficiency"] is None
+    assert response["projection_replay"]["status"] == "REPLAY_COMPLETE"
