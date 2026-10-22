@@ -62,6 +62,10 @@ RUNTIME_FILES = (
     "packaging/rc8/rc8-codegraph-reality.sh",
     "packaging/rc8/rc8-code-analysis-reality.sh",
     "packaging/rc8/RC7_OFFLINE_TOOLSET_MANIFEST.json",
+    "docs/rc8/RC8-MASTER-CONTRACT.md",
+    "docs/rc8/RC8-ARCHITECTURE-BASELINE.md",
+    "docs/rc8/RC8-PRODUCT-BASELINE.md",
+    "docs/rc8/RC8-CENTER-TECHNOLOGY-STACK-CONTRACT.md",
     "docs/rc8/RC8-W1-SINGLE-NODE-VERTICAL-SLICE.md",
     "docs/rc8/RC8-CODEGRAPH-REALITY-RUNBOOK.md",
     "docs/rc8/RC8-CODE-ANALYSIS-REALITY-RUNBOOK.md",
@@ -146,7 +150,8 @@ def _write_readme(root: Path, head: str) -> str:
         "- Code Analysis 构建中的结构/语义链\n"
         "- No-Discount Governance + Mission Graph Runtime + durable governance projection\n"
         "- R1-first Governance Projector：运行事实必须先持久化 R1，Center Projection 可重放恢复\n"
-        "- Product API: `/api/v1/test-runs/{id}/governance`（记录事实，不自行推导PASS）\n\n"
+        "- Product API: `/api/v1/test-runs/{id}/governance`（记录事实，不自行推导PASS）\n"
+        "- 正式 Center 技术栈已冻结为 FastAPI + PostgreSQL + Redis + Vue3/TypeScript/Vite + Nginx + Docker Compose；当前 stdlib HTTP 仍仅为 W1 最小协议适配器。\n\n"
         "重要：Tool Reality 不能提升为 L1/L1-L7/TestRun 充分度。先运行 `python scripts/rc8_validate_governance.py` 可核对当前机器声明。\n\n"
         "## 1. 校验与永久 Node state\n"
         "```bash\n"
@@ -196,12 +201,21 @@ def _write_readme(root: Path, head: str) -> str:
 def _write_manifest(root: Path, head: str, files: List[str]) -> str:
     relative = "PACKAGE-MANIFEST.json"
     payload: Dict[str, object] = {
-        "schema_version": "rc8.bank-reality-package.v7",
+        "schema_version": "rc8.bank-reality-package.v8",
         "package_type": "FULL_STANDALONE_REALITY_VALIDATION_PACKAGE",
         "patch_package": False,
         "git_head": head,
         "version_policy": "CAPABILITY_BASED_NO_EXACT_VERSION_PIN",
         "public_internet_install_required": False,
+        "formal_center_stack": {
+            "backend": "FastAPI",
+            "persistence": "PostgreSQL",
+            "coordination": "Redis",
+            "frontend": "Vue 3 + TypeScript + Vite",
+            "web_edge": "Nginx",
+            "deployment": "Docker Compose",
+            "current_package_server_role": "W1_MINIMAL_PROTOCOL_ADAPTER_ONLY"
+        },
         "included_runtime_capabilities": [
             "CENTER_NODE_CONTROL",
             "CENTER_MISSION_SERVICE",
@@ -221,7 +235,7 @@ def _write_manifest(root: Path, head: str, files: List[str]) -> str:
         ],
         "external_bank_capabilities_expected": ["PYTHON_3_8_PLUS", "GIT", "JAVA_MAVEN", "CODEGRAPH", "DSH_HEADLESS"],
         "files": sorted(files),
-        "truth_note": "Package completeness is not stage/layer/mission sufficiency. Machine governance claims remain the authoritative scoped status boundary.",
+        "truth_note": "Package completeness is not stage/layer/mission sufficiency. The formal FastAPI/PostgreSQL/Redis/Vue Center stack remains a separate incomplete capability until implemented and reality-verified.",
     }
     path = root / relative
     path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
