@@ -131,16 +131,24 @@ class RequirementLoopProgressor(AutonomousMissionProgressor):
                 policy_version=REQUIREMENT_REPAIR_POLICY_VERSION,
             )
 
-        self._rewire_pending_code_gate(source, sufficiency, evaluation)
+        self._rewire_repair_graph(source, analysis, sufficiency, evaluation)
         self._attach_gap_refs(source, evaluation)
         return True
 
-    def _rewire_pending_code_gate(
+    def _rewire_repair_graph(
         self,
         previous_sufficiency: StageInstance,
+        analysis: StageInstance,
         new_sufficiency: StageInstance,
         evaluation: SufficiencyEvaluation,
     ) -> None:
+        """Persist both predecessor and successor sides of the dynamic repair path.
+
+        Scheduler readiness is predecessor-based, but ``successor_ids`` is still
+        durable product/debug topology and invalidation visibility.  Updating
+        only predecessors would make the UI say ``sufficiency#1 -> code`` while
+        runtime truth actually routes through analysis#2/sufficiency#2.
+        """
         candidates = [
             stage
             for stage in self.governance_repository.list_stages(previous_sufficiency.test_run_id)
@@ -152,11 +160,33 @@ class RequirementLoopProgressor(AutonomousMissionProgressor):
         candidates.sort(key=lambda value: value.attempt_no)
         target = candidates[-1]
         if target.state != StageState.PENDING:
-            if target.predecessor_ids == (new_sufficiency.stage_instance_id,):
-                return
-            raise RuntimeError("REQUIREMENT_REPAIR_CANNOT_REWIRE_STARTED_CODE_ANALYSIS")
+            if target.predecessor_ids != (new_sufficiency.stage_instance_id,):
+                raise RuntimeError("REQUIREMENT_REPAIR_CANNOT_REWIRE_STARTED_CODE_ANALYSIS")
+            return
+
+        validate_edge(previous_sufficiency.stage_type, analysis.stage_type)
+        validate_edge(analysis.stage_type, new_sufficiency.stage_type)
         validate_edge(new_sufficiency.stage_type, target.stage_type)
-        updated = replace(
+
+        source_current = self.governance_repository.get_stage(previous_sufficiency.stage_instance_id) or previous_sufficiency
+        source_successors = tuple(
+            value for value in source_current.successor_ids if value != target.stage_instance_id
+        )
+        source_updated = replace(
+            source_current,
+            successor_ids=_dedupe(source_successors + (analysis.stage_instance_id,)),
+        )
+        analysis_current = self.governance_repository.get_stage(analysis.stage_instance_id) or analysis
+        analysis_updated = replace(
+            analysis_current,
+            successor_ids=_dedupe(analysis_current.successor_ids + (new_sufficiency.stage_instance_id,)),
+        )
+        sufficiency_current = self.governance_repository.get_stage(new_sufficiency.stage_instance_id) or new_sufficiency
+        sufficiency_updated = replace(
+            sufficiency_current,
+            successor_ids=_dedupe(sufficiency_current.successor_ids + (target.stage_instance_id,)),
+        )
+        target_updated = replace(
             target,
             predecessor_ids=(new_sufficiency.stage_instance_id,),
             input_refs=_dedupe(
@@ -165,7 +195,10 @@ class RequirementLoopProgressor(AutonomousMissionProgressor):
                 + ("evaluation:%s" % evaluation.evaluation_id,)
             ),
         )
-        self.governance_repository.upsert_stage(updated)
+        self.governance_repository.upsert_stage(source_updated)
+        self.governance_repository.upsert_stage(analysis_updated)
+        self.governance_repository.upsert_stage(sufficiency_updated)
+        self.governance_repository.upsert_stage(target_updated)
 
     def _attach_gap_refs(self, stage: StageInstance, evaluation: SufficiencyEvaluation) -> None:
         if not evaluation.unresolved_gap_ids:
