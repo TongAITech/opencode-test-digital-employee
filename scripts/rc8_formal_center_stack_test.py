@@ -23,10 +23,12 @@ from rc8_center.infrastructure import (
     PostgresCenterRepository,
     PostgresCoverageRepository,
     PostgresGovernanceRepository,
+    PostgresRecoveryRepository,
     PostgresStore,
     RedisCoordination,
     build_engine,
 )
+from rc8_center.recovery_service import LeaseRecoveryCoordinator
 from rc8_runtime import ArtifactAvailability, CentralR1RuntimeLedger, RuntimeProducerKind
 from rc8_runtime.artifacts import ArtifactManifest
 from rc8_runtime.governance import StageInstance, StageState
@@ -63,6 +65,7 @@ def main() -> int:
     coverage_repository = PostgresCoverageRepository(postgres)
     artifact_repository = PostgresArtifactRepository(postgres)
     control_repository = PostgresCenterRepository(postgres)
+    recovery_repository = PostgresRecoveryRepository(postgres)
     projection = GovernanceProjectionService(governance_repository, coverage_repository)
 
     assert postgres.ping(), "POSTGRES_PING_FAILED"
@@ -73,12 +76,14 @@ def main() -> int:
         ledger = CentralR1RuntimeLedger(ledger_path)
         projector = GovernanceEventProjector(ledger, governance_repository, coverage_repository, artifact_repository)
         formal_control = FormalCenterControlPlane(control_repository, redis, ledger, projector)
+        recovery_coordinator = LeaseRecoveryCoordinator(control_repository, recovery_repository, redis, ledger)
         app = create_app(
             settings=settings,
             postgres=postgres,
             redis_coordination=redis,
             governance_projection=projection,
             formal_control=formal_control,
+            recovery_coordinator=recovery_coordinator,
         )
         client = TestClient(app)
 
@@ -101,6 +106,7 @@ def main() -> int:
         assert architecture_body["truth_rules"]["redis_authoritative"] is False
         assert architecture_body["truth_rules"]["ui_may_infer_pass"] is False
         assert architecture_body["truth_rules"]["runtime_write_requires_pg_and_redis_lease_token"] is True
+        assert architecture_body["truth_rules"]["lost_lease_never_blind_replays"] is True
 
         run_id = "formal-it-%s" % uuid.uuid4().hex[:12]
         created = client.post(
@@ -270,6 +276,7 @@ def main() -> int:
         )
         assert completed_work.status_code == 200, completed_work.text
         assert completed_work.json()["work_item"]["state"] == "COMPLETED"
+        assert completed_work.json()["work_item"]["lease_id"] is None
         assert redis.lease_info("work-item", work_item_id) is None
 
         stale_after_complete = client.post(
@@ -330,6 +337,7 @@ def main() -> int:
             json={"node_id": "node-it-01", "lease_id": recovery_lease},
         ).status_code == 200
         redis.client.flushdb()
+
         blocked_after_redis_loss = client.post(
             "/api/v1/runtime-events",
             json=_runtime_payload(
@@ -352,6 +360,90 @@ def main() -> int:
         assert retry_lease.status_code == 409
         assert retry_lease.json()["detail"] == "WORK_ITEM_LEASE_RECOVERY_REQUIRED"
         assert control_repository.get_work_item(recovery_work_id).state.value == "RUNNING"
+
+        reconcile = client.post("/api/v1/recovery/reconcile")
+        assert reconcile.status_code == 200, reconcile.text
+        incidents = [item for item in reconcile.json()["items"] if item["work_item_id"] == recovery_work_id]
+        assert len(incidents) == 1, incidents
+        incident = incidents[0]
+        assert incident["reason"] == "REDIS_LEASE_MISSING"
+        assert incident["work_item_state"] == "RUNNING"
+        assert incident["runtime_event_count"] == 0
+        assert incident["state"] == "OPEN"
+        incident_id = incident["incident_id"]
+
+        unsafe_auto_reset = client.post(
+            "/api/v1/recovery/incidents/%s/resolve" % incident_id,
+            json={"resolution": "RESET_READY_NO_RUNTIME"},
+        )
+        assert unsafe_auto_reset.status_code == 409
+        assert unsafe_auto_reset.json()["detail"] == "RESET_READY_REQUIRES_LEASED_NOT_RUNNING"
+
+        ungoverned_requeue = client.post(
+            "/api/v1/recovery/incidents/%s/resolve" % incident_id,
+            json={"resolution": "AUTHORIZE_REQUEUE"},
+        )
+        assert ungoverned_requeue.status_code == 400
+        assert ungoverned_requeue.json()["detail"] == "RECOVERY_DECISION_REF_REQUIRED"
+
+        governed_requeue = client.post(
+            "/api/v1/recovery/incidents/%s/resolve" % incident_id,
+            json={
+                "resolution": "AUTHORIZE_REQUEUE",
+                "decision_ref": "human-gate:recovery-it-1",
+                "evidence_ref": "evidence:redis-loss-confirmed",
+                "explanation": "Integration test explicitly authorizes requeue after Redis lease loss.",
+            },
+        )
+        assert governed_requeue.status_code == 200, governed_requeue.text
+        assert governed_requeue.json()["incident"]["state"] == "RESOLVED"
+        assert governed_requeue.json()["incident"]["resolution"] == "AUTHORIZE_REQUEUE"
+        assert control_repository.get_work_item(recovery_work_id).state.value == "READY"
+
+        re_lease = client.post(
+            "/api/v1/work-items/%s/lease" % recovery_work_id,
+            json={"node_id": "node-it-01", "ttl_seconds": 120},
+        )
+        assert re_lease.status_code == 200, re_lease.text
+        new_lease = re_lease.json()["work_item"]["lease_id"]
+        assert new_lease and new_lease != recovery_lease
+        old_token_event_id = "evt-old-token-%s" % uuid.uuid4().hex[:8]
+        old_token_write = client.post(
+            "/api/v1/runtime-events",
+            json=_runtime_payload(
+                lease_id=recovery_lease,
+                event_id=old_token_event_id,
+                run_id=run_id,
+                work_item_id=recovery_work_id,
+                event_type="ATTEMPT_STARTED",
+                sequence=3,
+                attempt_id="attempt-old-token",
+                data={"stage_instance_id": stage_id, "input_snapshot_ref": "git:old-token", "started_at": 103},
+            ),
+        )
+        assert old_token_write.status_code == 409
+        assert all(event.event_id != old_token_event_id for event in ledger.runtime_events())
+
+        assert redis.release_lease("work-item", recovery_work_id, "node-it-01", lease_id=new_lease)
+        safe_reconcile = client.post("/api/v1/recovery/reconcile")
+        assert safe_reconcile.status_code == 200
+        safe_incidents = [
+            item for item in safe_reconcile.json()["items"]
+            if item["work_item_id"] == recovery_work_id and item["lease_id"] == new_lease
+        ]
+        assert len(safe_incidents) == 1, safe_incidents
+        safe_incident = safe_incidents[0]
+        assert safe_incident["work_item_state"] == "LEASED"
+        assert safe_incident["runtime_event_count"] == 0
+        safe_reset = client.post(
+            "/api/v1/recovery/incidents/%s/resolve" % safe_incident["incident_id"],
+            json={"resolution": "RESET_READY_NO_RUNTIME"},
+        )
+        assert safe_reset.status_code == 200, safe_reset.text
+        assert safe_reset.json()["incident"]["resolution"] == "RESET_READY_NO_RUNTIME"
+        assert control_repository.get_work_item(recovery_work_id).state.value == "READY"
+        assert client.get("/api/v1/recovery/incidents").json()["count"] == 0
+
         assert postgres.get_test_run(run_id) is not None
         assert client.get("/api/v1/test-runs/%s/governance" % run_id).json()["attempts"][0]["status"] == "COMPLETED"
 
@@ -371,13 +463,13 @@ def main() -> int:
 
     print(
         {
-            "status": "FORMAL_CENTER_LEASE_R1_POSTGRES_FASTAPI_CHAIN_VERIFIED",
-            "scope": "FORMAL_CONTROL_AND_GOVERNANCE_FOUNDATION_ONLY",
+            "status": "FORMAL_CENTER_GOVERNED_RECOVERY_VERIFIED",
+            "scope": "FORMAL_CONTROL_GOVERNANCE_AND_LEASE_RECOVERY_FOUNDATION_ONLY",
             "test_run_id": run_id,
             "mission_sufficient": False,
             "product_closed": False,
             "artifact_upload_api_formalized": False,
-            "redis_loss_recovery_coordinator_complete": False,
+            "bank_server_reality": False,
         }
     )
     return 0
