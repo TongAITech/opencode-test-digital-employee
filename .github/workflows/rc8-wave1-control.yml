@@ -27,6 +27,8 @@ on:
       - 'tests/test_rc8_codegraph_reality_runner.py'
       - 'tests/test_rc8_code_analysis.py'
       - 'tests/test_rc8_code_analysis_reality_runner.py'
+      - 'tests/test_rc8_dsh_semantic_worker.py'
+      - 'tests/test_rc8_code_analysis_auto_reality.py'
       - '.github/workflows/rc8-wave1-control.yml'
   workflow_dispatch:
 
@@ -67,7 +69,10 @@ jobs:
             rc8_node/codegraph.py \
             rc8_node/reality_codegraph.py \
             rc8_node/code_analysis.py \
+            rc8_node/code_analysis_semantic.py \
+            rc8_node/dsh_semantic_worker.py \
             rc8_node/reality_code_analysis.py \
+            rc8_node/reality_code_analysis_auto.py \
             rc8_node/__main__.py \
             packaging/rc8/build-w1-reality-package.py \
             tests/test_rc8_center_control.py \
@@ -85,7 +90,9 @@ jobs:
             tests/test_rc8_codegraph_adapter.py \
             tests/test_rc8_codegraph_reality_runner.py \
             tests/test_rc8_code_analysis.py \
-            tests/test_rc8_code_analysis_reality_runner.py
+            tests/test_rc8_code_analysis_reality_runner.py \
+            tests/test_rc8_dsh_semantic_worker.py \
+            tests/test_rc8_code_analysis_auto_reality.py
       - name: Verify canonical shell entrypoints and durable node-state guard
         shell: bash
         run: |
@@ -109,7 +116,7 @@ jobs:
             test "$STATUS" -eq 4
             grep -q 'RC8_NODE_STATE_CONFLICT' "$LOG"
           done
-      - name: Run W1 control-plane, transport, artifact, capability and execution tests
+      - name: Run W1/W2 control, execution and autonomous code-analysis contract tests
         shell: bash
         run: |
           python -m pip install --disable-pip-version-check pytest
@@ -131,7 +138,9 @@ jobs:
             tests/test_rc8_codegraph_adapter.py \
             tests/test_rc8_codegraph_reality_runner.py \
             tests/test_rc8_code_analysis.py \
-            tests/test_rc8_code_analysis_reality_runner.py
+            tests/test_rc8_code_analysis_reality_runner.py \
+            tests/test_rc8_dsh_semantic_worker.py \
+            tests/test_rc8_code_analysis_auto_reality.py
 
   package:
     needs: control-contracts
@@ -157,7 +166,9 @@ jobs:
               assert any(name.endswith('/rc8_node/reality_maven.py') for name in names)
               assert any(name.endswith('/rc8_node/reality_codegraph.py') for name in names)
               assert any(name.endswith('/rc8_node/code_analysis.py') for name in names)
-              assert any(name.endswith('/rc8_node/reality_code_analysis.py') for name in names)
+              assert any(name.endswith('/rc8_node/code_analysis_semantic.py') for name in names)
+              assert any(name.endswith('/rc8_node/dsh_semantic_worker.py') for name in names)
+              assert any(name.endswith('/rc8_node/reality_code_analysis_auto.py') for name in names)
               assert any(name.endswith('/packaging/rc8/rc8-codegraph-reality.sh') for name in names)
               assert any(name.endswith('/packaging/rc8/rc8-code-analysis-reality.sh') for name in names)
               assert any(name.endswith('/docs/rc8/RC8-CODE-ANALYSIS-REALITY-RUNBOOK.md') for name in names)
