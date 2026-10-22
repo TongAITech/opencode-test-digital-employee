@@ -15,6 +15,7 @@ import hashlib
 from dataclasses import dataclass, replace
 from typing import Dict, List, Sequence, Tuple
 
+from rc8_runtime import WorkItemIdentity
 from rc8_runtime.governance import StageInstance, StageState
 from rc8_runtime.mission_graph import MissionGraphRuntime, MissionStageType
 
@@ -41,12 +42,19 @@ _SCOPE_STAGE_CHAIN: Tuple[MissionStageType, ...] = (
 
 
 @dataclass(frozen=True)
+class PlannedWorkItem:
+    stage_instance_id: str
+    identity: WorkItemIdentity
+
+
+@dataclass(frozen=True)
 class PlannedMissionGraph:
     test_run_id: str
     test_round_id: str
     scope_refs: Tuple[str, ...]
     stages: Tuple[StageInstance, ...]
     initial_ready_stage_ids: Tuple[str, ...]
+    initial_work_items: Tuple[PlannedWorkItem, ...]
     mission_sufficiency_stage_id: str
     report_release_stage_id: str
     policy_version: str = PLAN_POLICY_VERSION
@@ -54,6 +62,10 @@ class PlannedMissionGraph:
     @property
     def stage_count(self) -> int:
         return len(self.stages)
+
+    @property
+    def initial_work_item_ids(self) -> Tuple[str, ...]:
+        return tuple(item.identity.work_item_id for item in self.initial_work_items)
 
 
 def _required(value: str, name: str) -> str:
@@ -88,6 +100,33 @@ def _scope_version(scope_ref: str) -> str:
     # RequirementDeliveryScope IDs are immutable. Prefixing makes the semantic
     # boundary explicit without inventing a second version counter.
     return "delivery-scope:%s" % scope_ref
+
+
+def _initial_work_item(stage: StageInstance, test_round_id: str) -> PlannedWorkItem:
+    if stage.stage_type != MissionStageType.SCOPE_INTAKE.value or stage.state != StageState.READY:
+        raise ValueError("INITIAL_WORK_ITEM_REQUIRES_READY_SCOPE_INTAKE")
+    work_item_id = _stable_id(
+        "work",
+        stage.test_run_id,
+        stage.stage_instance_id,
+        stage.stage_type,
+    )
+    identity = WorkItemIdentity(
+        work_item_id=work_item_id,
+        test_run_id=stage.test_run_id,
+        stage=stage.stage_type,
+        scope_refs=[
+            stage.scope_version,
+            "stage-instance:%s" % stage.stage_instance_id,
+            "test-round:%s" % test_round_id,
+        ],
+        # SCOPE_INTAKE only normalizes the already-confirmed scope snapshot and
+        # creates the durable starting point. Tool-specific capabilities are
+        # attached when downstream stages are unlocked; no fake capability is
+        # invented here.
+        required_capabilities=[],
+    )
+    return PlannedWorkItem(stage_instance_id=stage.stage_instance_id, identity=identity)
 
 
 def plan_test_round_mission(
@@ -207,12 +246,23 @@ def plan_test_round_mission(
     ):
         raise ValueError("MISSION_PLAN_DOWNSTREAM_STAGE_PREMATURELY_READY")
 
+    ready_by_id = {
+        stage.stage_instance_id: stage
+        for stage in final_stages
+        if stage.stage_instance_id in ready_ids
+    }
+    work_items = tuple(
+        _initial_work_item(ready_by_id[stage_id], round_id)
+        for stage_id in sorted(ready_ids)
+    )
+
     return PlannedMissionGraph(
         test_run_id=run_id,
         test_round_id=round_id,
         scope_refs=scopes,
         stages=tuple(final_stages),
         initial_ready_stage_ids=tuple(sorted(ready_ids)),
+        initial_work_items=work_items,
         mission_sufficiency_stage_id=mission_sufficiency_id,
         report_release_stage_id=report_release_id,
         policy_version=policy,
