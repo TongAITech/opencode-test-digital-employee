@@ -49,6 +49,42 @@ export interface ProductionBatchPlan {
   requirements: BatchRequirementPlanItem[]
 }
 
+export interface TestRunItem {
+  test_run_id: string
+  production_batch_id: string | null
+  test_round_id: string | null
+  status_scope: string
+  current_state: string
+  created_at: number
+  updated_at: number
+  payload: Record<string, unknown>
+}
+
+export interface TestRoundValue {
+  test_round_id: string
+  production_batch_id: string
+  round_no: number
+  name: string
+  state: string
+  created_at: number
+  started_at: number | null
+  completed_at: number | null
+  payload: Record<string, unknown>
+}
+
+export interface TestRoundItem {
+  round: TestRoundValue
+  deliveries: Array<{
+    round_delivery_id: string
+    test_round_id: string
+    delivery_id: string
+    included_at: number
+    payload: Record<string, unknown>
+  }>
+  test_run: TestRunItem | null
+  truth_note?: string
+}
+
 async function detail(response: Response, fallback: string): Promise<string> {
   const body = await response.json().catch(() => ({}))
   return typeof body.detail === 'string' ? body.detail : `${fallback}：${response.status}`
@@ -61,6 +97,7 @@ export const useProductionBatchStore = defineStore('productionBatches', {
     items: [] as ProductionBatchItem[],
     selectedId: '' as string,
     plan: null as ProductionBatchPlan | null,
+    rounds: [] as TestRoundItem[],
   }),
   actions: {
     async load() {
@@ -91,9 +128,14 @@ export const useProductionBatchStore = defineStore('productionBatches', {
     },
     async select(productionBatchId: string) {
       this.selectedId = productionBatchId
-      const response = await fetch(`/api/v1/production-batches/${encodeURIComponent(productionBatchId)}/plan`, { cache: 'no-store' })
-      if (!response.ok) throw new Error(await detail(response, '投产范围查询失败'))
-      this.plan = await response.json()
+      const [planResponse, roundsResponse] = await Promise.all([
+        fetch(`/api/v1/production-batches/${encodeURIComponent(productionBatchId)}/plan`, { cache: 'no-store' }),
+        fetch(`/api/v1/production-batches/${encodeURIComponent(productionBatchId)}/test-rounds`, { cache: 'no-store' }),
+      ])
+      if (!planResponse.ok) throw new Error(await detail(planResponse, '投产范围查询失败'))
+      if (!roundsResponse.ok) throw new Error(await detail(roundsResponse, '测试轮次查询失败'))
+      this.plan = await planResponse.json()
+      this.rounds = await roundsResponse.json()
     },
     async addRequirement(requirementId: string, title: string, deliveryId: string) {
       if (!this.selectedId) throw new Error('请先选择投产批次')
@@ -139,15 +181,34 @@ export const useProductionBatchStore = defineStore('productionBatches', {
       if (!response.ok) throw new Error(await detail(response, '需求实现范围保存失败'))
       await this.select(this.selectedId)
     },
-    async startTestRun(testRunId: string) {
-      if (!this.selectedId) throw new Error('请先选择投产批次')
-      const response = await fetch(`/api/v1/production-batches/${encodeURIComponent(this.selectedId)}/test-runs`, {
+    async createNextRound(name = '') {
+      if (!this.selectedId || !this.plan) throw new Error('请先选择投产批次')
+      const deliveryIds = this.plan.requirements.map((item) => item.delivery.delivery_id)
+      if (deliveryIds.length === 0) throw new Error('当前投产批次没有需求，不能创建测试轮次')
+      const response = await fetch(`/api/v1/production-batches/${encodeURIComponent(this.selectedId)}/test-rounds`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ test_run_id: testRunId, payload: { source: 'RC8_PRODUCT_UI' } }),
+        body: JSON.stringify({ name, delivery_ids: deliveryIds, payload: { source: 'RC8_PRODUCT_UI' } }),
       })
-      if (!response.ok) throw new Error(await detail(response, '自主测试任务创建失败'))
-      return response.json()
+      if (!response.ok) throw new Error(await detail(response, '测试轮次创建失败'))
+      const created = await response.json()
+      await this.select(this.selectedId)
+      return created as { round: TestRoundValue }
+    },
+    async startRound(testRoundId: string) {
+      if (!this.selectedId) throw new Error('请先选择投产批次')
+      const response = await fetch(
+        `/api/v1/production-batches/${encodeURIComponent(this.selectedId)}/test-rounds/${encodeURIComponent(testRoundId)}/test-run`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ payload: { source: 'RC8_PRODUCT_UI' } }),
+        },
+      )
+      if (!response.ok) throw new Error(await detail(response, '本轮自主测试启动失败'))
+      const started = await response.json()
+      await this.select(this.selectedId)
+      return started as { test_run: TestRunItem }
     },
   },
 })
