@@ -58,6 +58,43 @@ def test_runner_uses_exact_headless_json_protocol_and_returns_validated_result(t
     assert result.exit_code == 0
 
 
+def test_runner_preserves_outer_object_when_final_json_contains_nested_objects(tmp_path: Path) -> None:
+    candidate = {
+        "source_assertions": ["SRC-1"],
+        "atomic_statements": ["A1"],
+        "trace_links": [{"statement_ref": "A1", "evidence_ref": "source:req#1"}],
+        "evidence_refs": ["source:req#1"],
+        "normal_paths": [],
+    }
+    events = [
+        {"type": "session", "session_id": "session-nested"},
+        {"type": "tool_call", "tool_name": "read_requirement_source"},
+        {"type": "final", "text": json.dumps(candidate)},
+    ]
+
+    def command_runner(_command, **_kwargs):
+        return SimpleNamespace(
+            returncode=0,
+            stdout="\n".join(json.dumps(item) for item in events) + "\n",
+            stderr="",
+        )
+
+    result = _runner(tmp_path, command_runner).run("analyze nested requirement")
+    assert result.output == candidate
+    assert result.output["source_assertions"] == ["SRC-1"]
+    assert result.output["trace_links"] == [{"statement_ref": "A1", "evidence_ref": "source:req#1"}]
+
+
+def test_last_json_object_chooses_last_outermost_object_not_nested_fragment() -> None:
+    first = {"debug": {"nested": 1}}
+    final = {
+        "source_assertions": ["SRC"],
+        "trace_links": [{"statement_ref": "A", "evidence_ref": "source:1"}],
+    }
+    text = "debug %s\nfinal %s" % (json.dumps(first), json.dumps(final))
+    assert DshJsonRunner._last_json_object(text) == final
+
+
 def test_runner_rejects_reused_session(tmp_path: Path) -> None:
     def command_runner(_command, **_kwargs):
         return SimpleNamespace(returncode=0, stdout=_event_stream("session-same"), stderr="")
