@@ -71,22 +71,20 @@ def test_alembic_revision_ids_fit_version_table_and_form_one_closed_chain() -> N
     assert visited == set(revisions), "disconnected Alembic revisions: %s" % sorted(set(revisions) - visited)
 
 
-def test_requirement_delivery_and_test_round_revisions_remain_schema_compatible() -> None:
+def test_requirement_delivery_revision_remains_schema_compatible() -> None:
     revisions = _load_revisions()
     assert "0007_req_delivery" in revisions
     assert revisions["0007_req_delivery"][0] == "0006_lease_recovery"
-    assert "0008_test_rounds" in revisions
-    assert revisions["0008_test_rounds"][0] == "0007_req_delivery"
 
-    children: Dict[str, list] = {revision: [] for revision in revisions}
-    for revision, (parent, _path) in revisions.items():
-        if parent is not None:
-            children[parent].append(revision)
-    heads = [revision for revision, values in children.items() if not values]
-    assert heads == ["0008_test_rounds"], heads
+
+def test_test_round_and_runtime_binding_revisions_are_linear() -> None:
+    revisions = _load_revisions()
+    assert revisions["0008_test_rounds"][0] == "0007_req_delivery"
+    assert revisions["0009_run_round"][0] == "0008_test_rounds"
 
 
 if __name__ == "__main__":
     test_alembic_revision_ids_fit_version_table_and_form_one_closed_chain()
-    test_requirement_delivery_and_test_round_revisions_remain_schema_compatible()
+    test_requirement_delivery_revision_remains_schema_compatible()
+    test_test_round_and_runtime_binding_revisions_are_linear()
     print("RC8_ALEMBIC_REVISION_CONTRACT_PASS")
