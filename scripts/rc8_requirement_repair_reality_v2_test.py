@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Corrected Requirement Repair Reality fixture.
+"""Corrected Requirement Repair Reality fixture and semantic history view.
 
 The first fake DSH answer must pass REQUIREMENT_ANALYSIS structural truth gates
 before REQUIREMENT_SUFFICIENCY can judge it insufficient.  It therefore keeps
 source assertions / atomic statements / traceability / evidence valid and
 omits only the normal path.  The second answer adds the normal path.
 
-This wrapper intentionally changes only CI's deterministic model fixture.  It
-does not weaken RequirementAnalysisWorker or DshJsonRunner.
+SufficiencyEvaluation rows do not carry R1 sequence and two evaluations can be
+projected in the same second, so repository list position is not a chronology
+contract.  For this Reality assertion we order Stage-level evaluations by the
+attempt number of their subject Stage.  That proves attempt 1 is INSUFFICIENT
+and attempt 2 is SUFFICIENT without inventing temporal truth from UUID order.
 """
 from __future__ import annotations
 
@@ -33,8 +36,8 @@ def _analysis_valid_but_insufficient_dsh(path: Path, state_path: Path) -> None:
         "data_constraints": [],
         "dependencies": [],
         "side_effects": [],
-        # Deliberately malicious/advisory field: the deterministic sufficiency
-        # worker must ignore it and still return INSUFFICIENT on round 1.
+        # Deliberately advisory/malicious field: deterministic sufficiency must
+        # ignore it and still return INSUFFICIENT on round 1.
         "is_sufficient": True,
     }
     complete = dict(incomplete)
@@ -58,8 +61,34 @@ print(json.dumps({"type":"final","text":json.dumps(candidate, ensure_ascii=False
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
+def _governance_by_stage_attempt(client, test_run_id):
+    body = _ORIGINAL_GOVERNANCE(client, test_run_id)
+    stage_order = {
+        stage["stage_instance_id"]: (
+            int(stage.get("attempt_no") or 0),
+            str(stage.get("stage_type") or ""),
+            str(stage.get("stage_instance_id") or ""),
+        )
+        for stage in body.get("stages") or []
+        if stage.get("stage_instance_id")
+    }
+    evaluations = list(body.get("evaluations") or [])
+    evaluations.sort(
+        key=lambda value: stage_order.get(
+            value.get("subject_id"),
+            (10**9, "", str(value.get("subject_id") or "")),
+        )
+    )
+    body["evaluations"] = evaluations
+    return body
+
+
+_ORIGINAL_GOVERNANCE = reality._governance
+
+
 def main() -> int:
     reality._fake_dsh = _analysis_valid_but_insufficient_dsh
+    reality._governance = _governance_by_stage_attempt
     return reality.main()
 
 
