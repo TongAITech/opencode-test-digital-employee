@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import time
 from dataclasses import asdict
+from datetime import date
 from enum import Enum
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Response, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from rc8_center.delivery import (
     ProductionBatch,
@@ -25,6 +26,15 @@ class ProductionBatchCreate(BaseModel):
     production_date: str = Field(min_length=10, max_length=10)
     name: str = Field(min_length=1, max_length=240)
     payload: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("production_date")
+    @classmethod
+    def validate_production_date(cls, value: str) -> str:
+        try:
+            date.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError("PRODUCTION_DATE_MUST_BE_ISO_DATE") from exc
+        return value
 
 
 class RequirementCreate(BaseModel):
@@ -57,6 +67,12 @@ class RequirementDeliveryScopeCreate(BaseModel):
     payload: Dict[str, Any] = Field(default_factory=dict)
 
 
+class ProductionBatchTestRunCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    test_run_id: str = Field(min_length=1, max_length=160)
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
 def _jsonable(value: Any) -> Any:
     if isinstance(value, Enum):
         return value.value
@@ -67,6 +83,18 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_jsonable(item) for item in value]
     return value
+
+
+def _test_run_json(row: Any) -> Dict[str, Any]:
+    return {
+        "test_run_id": str(row.test_run_id),
+        "production_batch_id": str(row.production_batch_id) if row.production_batch_id is not None else None,
+        "status_scope": str(row.status_scope),
+        "current_state": str(row.current_state),
+        "created_at": int(row.created_at),
+        "updated_at": int(row.updated_at),
+        "payload": dict(row.payload or {}),
+    }
 
 
 def _error(exc: Exception) -> HTTPException:
@@ -81,6 +109,9 @@ def _error(exc: Exception) -> HTTPException:
         "DELIVERY_SCOPE_ALREADY_EXISTS",
         "DELIVERY_SCOPE_DUPLICATE",
         "REQUIREMENT_DELIVERY_TERMINAL_STATE_IMMUTABLE",
+        "PRODUCTION_BATCH_HAS_NO_REQUIREMENTS",
+        "PRODUCTION_BATCH_SCOPE_INCOMPLETE",
+        "TEST_RUN_ALREADY_EXISTS",
     }
     code = status.HTTP_409_CONFLICT if detail in conflicts else status.HTTP_400_BAD_REQUEST
     return HTTPException(status_code=code, detail=detail)
@@ -91,6 +122,12 @@ def register_delivery_routes(app: FastAPI) -> None:
         value = getattr(app.state, "delivery_repository", None)
         if value is None:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="REQUIREMENT_DELIVERY_REPOSITORY_NOT_CONFIGURED")
+        return value
+
+    def postgres():
+        value = getattr(app.state, "postgres", None)
+        if value is None:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="POSTGRES_NOT_CONFIGURED")
         return value
 
     @app.post("/api/v1/production-batches", status_code=status.HTTP_201_CREATED)
@@ -215,3 +252,43 @@ def register_delivery_routes(app: FastAPI) -> None:
             "current_delivery_state": history.current_delivery_state.value if history.current_delivery_state else None,
             "truth_note": "Requirement delivery history is preserved; no mandatory requirement revision object is inferred.",
         }
+
+    @app.post(
+        "/api/v1/production-batches/{production_batch_id}/test-runs",
+        status_code=status.HTTP_201_CREATED,
+    )
+    def start_test_run_from_production_batch(
+        production_batch_id: str,
+        request: ProductionBatchTestRunCreate,
+        response: Response,
+    ) -> Dict[str, Any]:
+        """Start autonomous test work only from a confirmed batch requirement plan."""
+        try:
+            plan = repository().batch_plan(production_batch_id)
+            requirements = list(plan["requirements"])
+            if not requirements:
+                raise ValueError("PRODUCTION_BATCH_HAS_NO_REQUIREMENTS")
+            if any(not item["scopes"] for item in requirements):
+                raise ValueError("PRODUCTION_BATCH_SCOPE_INCOMPLETE")
+            store = postgres()
+            if store.get_test_run(request.test_run_id) is not None:
+                raise ValueError("TEST_RUN_ALREADY_EXISTS")
+            delivery_ids = [item["delivery"].delivery_id for item in requirements]
+            scope_ids = [scope.scope_id for item in requirements for scope in item["scopes"]]
+            payload = dict(request.payload)
+            payload.update(
+                {
+                    "task_scope_source": "PRODUCTION_BATCH_REQUIREMENT_DELIVERY",
+                    "requirement_delivery_ids": delivery_ids,
+                    "delivery_scope_ids": scope_ids,
+                }
+            )
+            row = store.create_test_run(
+                request.test_run_id,
+                production_batch_id=production_batch_id,
+                payload=payload,
+            )
+        except ValueError as exc:
+            raise _error(exc) from exc
+        response.headers["Location"] = "/api/v1/test-runs/%s" % request.test_run_id
+        return _test_run_json(row)
