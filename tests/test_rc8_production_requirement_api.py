@@ -5,7 +5,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
 from rc8_center.api import create_app
-from rc8_center.infrastructure import Base, PostgresRequirementDeliveryRepository, PostgresStore
+from rc8_center.infrastructure import (
+    Base,
+    PostgresRequirementDeliveryRepository,
+    PostgresStore,
+    PostgresTestRoundRepository,
+)
 
 
 def _client() -> TestClient:
@@ -18,10 +23,17 @@ def _client() -> TestClient:
     Base.metadata.create_all(engine)
     store = PostgresStore(engine)
     repository = PostgresRequirementDeliveryRepository(store)
-    return TestClient(create_app(postgres=store, delivery_repository=repository))
+    round_repository = PostgresTestRoundRepository(store)
+    return TestClient(
+        create_app(
+            postgres=store,
+            delivery_repository=repository,
+            test_round_repository=round_repository,
+        )
+    )
 
 
-def test_user_flow_starts_from_batch_then_requirement_then_scopes() -> None:
+def test_user_flow_starts_from_batch_then_requirement_scope_then_test_round() -> None:
     client = _client()
     assert client.post(
         "/api/v1/production-batches",
@@ -57,14 +69,31 @@ def test_user_flow_starts_from_batch_then_requirement_then_scopes() -> None:
     assert plan.status_code == 200
     assert plan.json()["requirements"][0]["requirement"]["requirement_id"] == "REQ-001"
 
-    started = client.post(
+    bypass = client.post(
         "/api/v1/production-batches/PB-20261115/test-runs",
-        json={"test_run_id": "TR-PB-20261115"},
+        json={},
+    )
+    assert bypass.status_code == 409
+    assert bypass.json()["detail"] == "TEST_ROUND_REQUIRED_FOR_PRODUCTION_TEST_RUN"
+
+    created_round = client.post(
+        "/api/v1/production-batches/PB-20261115/test-rounds",
+        json={"delivery_ids": ["DEL-001"]},
+    )
+    assert created_round.status_code == 201
+    round_body = created_round.json()["round"]
+    assert round_body["test_round_id"] == "PB-20261115-round-1"
+    assert round_body["round_no"] == 1
+
+    started = client.post(
+        "/api/v1/production-batches/PB-20261115/test-rounds/PB-20261115-round-1/test-run",
+        json={},
     )
     assert started.status_code == 201
-    run = started.json()
+    run = started.json()["test_run"]
     assert run["production_batch_id"] == "PB-20261115"
-    assert run["payload"]["task_scope_source"] == "PRODUCTION_BATCH_REQUIREMENT_DELIVERY"
+    assert run["test_round_id"] == "PB-20261115-round-1"
+    assert run["payload"]["task_scope_source"] == "TEST_ROUND_REQUIREMENT_DELIVERY"
     assert run["payload"]["requirement_delivery_ids"] == ["DEL-001"]
     assert run["payload"]["delivery_scope_ids"] == ["SCOPE-1"]
 
@@ -122,26 +151,41 @@ def test_same_requirement_is_not_duplicated_inside_one_batch() -> None:
     assert second.json()["detail"] == "REQUIREMENT_ALREADY_PARTICIPATES_IN_BATCH"
 
 
-def test_batch_cannot_start_without_requirement_scope() -> None:
+def test_round_cannot_start_without_requirement_or_scope() -> None:
     client = _client()
     assert client.post(
         "/api/v1/production-batches",
         json={"production_batch_id": "PB", "production_date": "2026-11-15", "name": "PB"},
     ).status_code == 201
 
-    empty = client.post("/api/v1/production-batches/PB/test-runs", json={"test_run_id": "TR-EMPTY"})
+    empty_round = client.post(
+        "/api/v1/production-batches/PB/test-rounds",
+        json={},
+    )
+    assert empty_round.status_code == 201
+    empty = client.post(
+        "/api/v1/production-batches/PB/test-rounds/PB-round-1/test-run",
+        json={},
+    )
     assert empty.status_code == 409
-    assert empty.json()["detail"] == "PRODUCTION_BATCH_HAS_NO_REQUIREMENTS"
+    assert empty.json()["detail"] == "TEST_ROUND_HAS_NO_REQUIREMENTS"
 
     assert client.post("/api/v1/requirements", json={"requirement_id": "REQ", "title": "需求"}).status_code == 201
     assert client.post(
         "/api/v1/production-batches/PB/requirements/REQ/deliveries",
         json={"delivery_id": "DEL"},
     ).status_code == 201
-
-    incomplete = client.post("/api/v1/production-batches/PB/test-runs", json={"test_run_id": "TR-INCOMPLETE"})
+    incomplete_round = client.post(
+        "/api/v1/production-batches/PB/test-rounds",
+        json={"delivery_ids": ["DEL"]},
+    )
+    assert incomplete_round.status_code == 201
+    incomplete = client.post(
+        "/api/v1/production-batches/PB/test-rounds/PB-round-2/test-run",
+        json={},
+    )
     assert incomplete.status_code == 409
-    assert incomplete.json()["detail"] == "PRODUCTION_BATCH_SCOPE_INCOMPLETE"
+    assert incomplete.json()["detail"] == "TEST_ROUND_SCOPE_INCOMPLETE"
 
 
 def test_invalid_production_date_is_rejected() -> None:
@@ -154,10 +198,10 @@ def test_invalid_production_date_is_rejected() -> None:
 
 
 def _run_direct() -> None:
-    test_user_flow_starts_from_batch_then_requirement_then_scopes()
+    test_user_flow_starts_from_batch_then_requirement_scope_then_test_round()
     test_same_requirement_can_continue_in_later_batch_and_history_is_preserved()
     test_same_requirement_is_not_duplicated_inside_one_batch()
-    test_batch_cannot_start_without_requirement_scope()
+    test_round_cannot_start_without_requirement_or_scope()
     test_invalid_production_date_is_rejected()
     print("RC8_PRODUCTION_REQUIREMENT_API_PASS")
 
