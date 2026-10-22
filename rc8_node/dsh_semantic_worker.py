@@ -11,13 +11,12 @@ from __future__ import annotations
 import json
 import locale
 import os
-import re
 import shutil
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 
 class DshSemanticWorkerError(RuntimeError):
@@ -27,6 +26,7 @@ class DshSemanticWorkerError(RuntimeError):
 _STAGE_MARKER = "[PFC_STAGE:code-analysis-semantic]"
 _ASSERTION_MARKER = "[PFC_ASSERTION:code-analysis-semantic]"
 _REQUIRED_READ_TOOL = "mcp__pfc_aitest_rc7__read_text"
+_ALLOWED_TOOLS = {_REQUIRED_READ_TOOL}
 
 
 def _decode_bytes(value: bytes) -> Tuple[str, str]:
@@ -112,7 +112,6 @@ def _tool_results(events: Sequence[Mapping[str, Any]]) -> Tuple[Dict[str, Any], 
         kind = _event_kind(event)
         lowered = json.dumps(event, ensure_ascii=False).lower()
         if not ("tool_result" in kind or "toolresult" in kind or ("tool" in kind and "result" in kind)):
-            # Some DSH builds use generic result/message events with a tool_call_id.
             if not any(token in lowered for token in ("tool_call_id", "toolcallid", "call_id")):
                 continue
             if "result" not in lowered and "output" not in lowered:
@@ -123,19 +122,24 @@ def _tool_results(events: Sequence[Mapping[str, Any]]) -> Tuple[Dict[str, Any], 
     return tuple(results)
 
 
-def _last_json_object(text: str) -> Optional[Dict[str, Any]]:
+def _outer_json_object(text: str) -> Optional[Dict[str, Any]]:
+    """Return the latest largest decoded object, not the last nested object."""
     decoder = json.JSONDecoder()
-    candidates: List[Dict[str, Any]] = []
+    candidates: List[Tuple[int, int, Dict[str, Any]]] = []
     for index, char in enumerate(text):
         if char != "{":
             continue
         try:
-            value, _ = decoder.raw_decode(text[index:])
+            value, consumed = decoder.raw_decode(text[index:])
         except ValueError:
             continue
         if isinstance(value, dict):
-            candidates.append(value)
-    return candidates[-1] if candidates else None
+            candidates.append((index, index + consumed, value))
+    if not candidates:
+        return None
+    # Outer semantic JSON spans more text than any nested dict. For equal spans,
+    # prefer the later object so multiple assistant JSON objects remain sane.
+    return max(candidates, key=lambda item: (item[1] - item[0], item[0]))[2]
 
 
 def _assistant_texts(events: Sequence[Mapping[str, Any]]) -> Tuple[str, ...]:
@@ -149,7 +153,7 @@ def _assistant_texts(events: Sequence[Mapping[str, Any]]) -> Tuple[str, ...]:
 
 def _final_json(events: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     for text in reversed(_assistant_texts(events)):
-        value = _last_json_object(text)
+        value = _outer_json_object(text)
         if isinstance(value, dict):
             if isinstance(value.get("qualification_payload"), dict):
                 return dict(value["qualification_payload"])
@@ -217,7 +221,8 @@ class DshSemanticWorker:
             "Do not guess APIs, call chains, database objects, business rules, or test impacts.\n"
             "MANDATORY_FIRST_ACTION: use the runtime-visible native tool " + _REQUIRED_READ_TOOL +
             " to read the file '" + request_file_name + "' from the current worker workspace. "
-            "Follow the tool's runtime-visible schema exactly; do not invent arguments.\n"
+            "Follow the tool's runtime-visible schema exactly; do not invent arguments. "
+            "Do not invoke any other tool in this worker.\n"
             "The request contains one immutable Git snapshot, compact CodeGraph evidence, an allowlist of evidence_refs, "
             "and the exact output contract. Every formal claim must cite one or more evidence_refs from that allowlist. "
             "If evidence is insufficient, put the uncertainty in unknowns and set sufficiency.state=INSUFFICIENT.\n"
@@ -241,6 +246,7 @@ class DshSemanticWorker:
             command.extend(["--patch", self.patch])
         command.extend(["--json", prompt])
         run_env = os.environ.copy()
+        run_env.setdefault("PFC_WORKSPACE", str(self.evidence_dir))
         run_env.update({str(key): str(value) for key, value in dict(env or {}).items()})
         started = int(time.time())
         try:
@@ -256,8 +262,8 @@ class DshSemanticWorker:
         except subprocess.TimeoutExpired as exc:
             stdout_raw = exc.stdout if isinstance(exc.stdout, bytes) else b""
             stderr_raw = exc.stderr if isinstance(exc.stderr, bytes) else b""
-            stdout, stdout_encoding = _decode_bytes(stdout_raw)
-            stderr, stderr_encoding = _decode_bytes(stderr_raw)
+            stdout, _ = _decode_bytes(stdout_raw)
+            stderr, _ = _decode_bytes(stderr_raw)
             self._persist_raw(stdout, stderr)
             raise DshSemanticWorkerError("DSH_SEMANTIC_TIMEOUT") from exc
         except OSError as exc:
@@ -280,15 +286,22 @@ class DshSemanticWorker:
             failure = "DSH_SEMANTIC_SESSION_ID_MISSING"
         elif not calls:
             failure = "DSH_SEMANTIC_REAL_TOOL_CALL_MISSING"
+        elif any(str(call.get("tool_name") or "") not in _ALLOWED_TOOLS for call in calls):
+            failure = "DSH_SEMANTIC_UNAUTHORIZED_TOOL_CALL"
         elif not any(call.get("tool_name") == _REQUIRED_READ_TOOL for call in calls):
             failure = "DSH_SEMANTIC_REQUEST_READ_TOOL_MISSING"
         elif not results:
             failure = "DSH_SEMANTIC_TOOL_RESULT_MISSING"
-        elif _STAGE_MARKER not in "\n".join(texts):
+        else:
+            read_ids = {str(call.get("call_id") or "") for call in calls if call.get("tool_name") == _REQUIRED_READ_TOOL and str(call.get("call_id") or "")}
+            result_ids = {str(item.get("call_id") or "") for item in results if str(item.get("call_id") or "")}
+            if read_ids and not read_ids.issubset(result_ids):
+                failure = "DSH_SEMANTIC_READ_RESULT_MISSING"
+        if not failure and _STAGE_MARKER not in "\n".join(texts):
             failure = "DSH_SEMANTIC_STAGE_MARKER_MISSING"
-        elif _ASSERTION_MARKER not in "\n".join(texts):
+        elif not failure and _ASSERTION_MARKER not in "\n".join(texts):
             failure = "DSH_SEMANTIC_ASSERTION_MARKER_MISSING"
-        elif not semantic:
+        elif not failure and not semantic:
             failure = "DSH_SEMANTIC_STRICT_JSON_MISSING"
 
         provenance = {
@@ -300,6 +313,7 @@ class DshSemanticWorker:
             "started_at": started,
             "finished_at": int(time.time()),
             "request_path": str(request),
+            "allowed_tools": sorted(_ALLOWED_TOOLS),
             "tool_calls": list(calls),
             "tool_results": list(results),
             "stdout_encoding": stdout_encoding,
