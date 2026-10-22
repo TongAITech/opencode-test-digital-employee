@@ -1,6 +1,6 @@
 """complete governance projection semantics
 
-Revision ID: 0002_governance_projection_semantics
+Revision ID: 0002_governance_projection
 Revises: 0001_formal_center_foundation
 Create Date: 2026-10-22
 """
@@ -9,19 +9,15 @@ from __future__ import annotations
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0002_governance_projection_semantics"
+revision = "0002_governance_projection"
 down_revision = "0001_formal_center_foundation"
 branch_labels = None
 depends_on = None
 
 _EMPTY_JSON = sa.text("'[]'::json")
-_EMPTY_OBJECT = sa.text("'{}'::json")
 
 
 def upgrade() -> None:
-    # Mission Stage: scope_version is a durable scope/snapshot reference string,
-    # never a numeric counter.  Keep the legacy scope_ref column for reversible
-    # compatibility but stop using it as domain truth.
     op.alter_column(
         "rc8_mission_stage",
         "scope_version",
@@ -40,7 +36,6 @@ def upgrade() -> None:
     op.add_column("rc8_mission_stage", sa.Column("started_at", sa.BigInteger(), nullable=True))
     op.add_column("rc8_mission_stage", sa.Column("finished_at", sa.BigInteger(), nullable=True))
 
-    # Attempt: migrate the W-A scaffold names into the canonical AttemptRecord.
     op.alter_column("rc8_attempt", "state", new_column_name="status")
     op.alter_column("rc8_attempt", "ended_at", new_column_name="finished_at")
     op.alter_column("rc8_attempt", "source_snapshot_ref", new_column_name="input_snapshot_ref")
@@ -55,7 +50,6 @@ def upgrade() -> None:
         op.add_column("rc8_attempt", sa.Column(name, sa.JSON(), nullable=False, server_default=_EMPTY_JSON))
     op.add_column("rc8_attempt", sa.Column("failure_ownership", sa.String(length=64), nullable=True))
 
-    # Gap: canonical names and evidence/repair semantics.
     op.alter_column("rc8_gap", "state", new_column_name="status")
     op.alter_column("rc8_gap", "created_at", new_column_name="opened_at")
     op.alter_column("rc8_gap", "resolved_at", new_column_name="closed_at")
@@ -66,7 +60,6 @@ def upgrade() -> None:
     for name in ("evidence_refs", "invalidates", "closure_evidence_refs"):
         op.add_column("rc8_gap", sa.Column(name, sa.JSON(), nullable=False, server_default=_EMPTY_JSON))
 
-    # Coverage: preserve exact metric + provenance rather than a naked percent.
     op.alter_column("rc8_coverage_observation", "attempt_id", existing_type=sa.String(length=200), nullable=True)
     op.alter_column("rc8_coverage_observation", "source_snapshot_ref", existing_type=sa.String(length=240), type_=sa.String(length=300), existing_nullable=False)
     op.alter_column("rc8_coverage_observation", "source_tool", existing_type=sa.String(length=100), nullable=True)
