@@ -1,0 +1,129 @@
+name: RC8 Mission Bootstrap
+
+on:
+  push:
+    branches: ["work/rc8"]
+    paths:
+      - "rc8_center/mission_planner.py"
+      - "rc8_center/infrastructure/postgres.py"
+      - "rc8_center/infrastructure/postgres_control.py"
+      - "rc8_center/infrastructure/postgres_test_round.py"
+      - "rc8_center/infrastructure/__init__.py"
+      - "rc8_center/api/test_round_routes.py"
+      - "rc8_runtime/mission_graph.py"
+      - "rc8_runtime/governance.py"
+      - "center/migrations/versions/0010_stage_work_item_link.py"
+      - "tests/test_rc8_mission_planner.py"
+      - "tests/test_rc8_mission_bootstrap.py"
+      - "tests/test_rc8_alembic_revision_contract.py"
+      - "docs/rc8/RC8-TEST-ROUND-MISSION-BOOTSTRAP.md"
+      - ".github/workflows/rc8-mission-bootstrap.yml"
+  workflow_dispatch:
+
+jobs:
+  mission-bootstrap-contract:
+    runs-on: ubuntu-latest
+    services:
+      postgresql:
+        image: postgres:16
+        env:
+          POSTGRES_DB: rc8
+          POSTGRES_USER: rc8
+          POSTGRES_PASSWORD: rc8
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rc8 -d rc8"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      RC8_DATABASE_URL: postgresql+psycopg://rc8:rc8@127.0.0.1:5432/rc8
+      PYTHONPATH: ${{ github.workspace }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Center dependencies
+        run: pip install -r center/requirements.txt pytest
+      - name: Compile mission bootstrap slice
+        run: |
+          python -m py_compile \
+            rc8_center/mission_planner.py \
+            rc8_center/infrastructure/postgres.py \
+            rc8_center/infrastructure/postgres_control.py \
+            rc8_center/infrastructure/postgres_test_round.py \
+            rc8_center/api/test_round_routes.py \
+            tests/test_rc8_mission_planner.py \
+            tests/test_rc8_mission_bootstrap.py \
+            tests/test_rc8_alembic_revision_contract.py
+      - name: Verify pure mission decomposition and atomic bootstrap contracts
+        run: |
+          python -m pytest -q \
+            tests/test_rc8_mission_planner.py \
+            tests/test_rc8_mission_bootstrap.py
+          python tests/test_rc8_alembic_revision_contract.py
+      - name: Apply full PostgreSQL schema including stage-work lineage
+        run: alembic -c center/alembic.ini upgrade head
+      - name: Verify 0010 schema on real PostgreSQL
+        run: |
+          python - <<'PY'
+          import os
+          from sqlalchemy import create_engine, inspect
+
+          engine = create_engine(os.environ['RC8_DATABASE_URL'])
+          inspector = inspect(engine)
+          tables = set(inspector.get_table_names())
+          assert 'rc8_stage_work_item_link' in tables
+          indexes = {item['name'] for item in inspector.get_indexes('rc8_stage_work_item_link')}
+          assert 'ix_rc8_stage_work_item_link_stage_instance_id' in indexes
+          assert 'ix_rc8_stage_work_item_link_test_run_id' in indexes
+          print('RC8_STAGE_WORK_ITEM_LINEAGE_SCHEMA_PASS')
+          PY
+      - name: Prove TestRound start bootstraps graph and ready work on real PostgreSQL
+        run: |
+          python - <<'PY'
+          import os, uuid
+          from sqlalchemy import create_engine, select
+          from rc8_center.delivery import ProductionBatch, Requirement, RequirementDelivery, RequirementDeliveryScope
+          from rc8_center.infrastructure import PostgresRequirementDeliveryRepository, PostgresStore, PostgresTestRoundRepository, StageWorkItemLinkRow
+          from rc8_center.infrastructure.postgres import MissionStageRow
+          from rc8_center.infrastructure.postgres_control import WorkItemRow
+
+          store = PostgresStore(create_engine(os.environ['RC8_DATABASE_URL'], future=True))
+          delivery = PostgresRequirementDeliveryRepository(store)
+          rounds = PostgresTestRoundRepository(store)
+          suffix = uuid.uuid4().hex[:8]
+          batch_id = 'PB-MISSION-' + suffix
+          requirement_id = 'REQ-MISSION-' + suffix
+          delivery_id = 'DEL-MISSION-' + suffix
+          scope_ids = ['SCOPE-A-' + suffix, 'SCOPE-B-' + suffix]
+          round_id = 'ROUND-MISSION-' + suffix
+          run_id = 'TR-MISSION-' + suffix
+
+          delivery.create_batch(ProductionBatch(production_batch_id=batch_id, production_date='2026-11-15', name='mission bootstrap', created_at=100))
+          delivery.create_requirement(Requirement(requirement_id=requirement_id, title='mission bootstrap', created_at=100))
+          delivery.create_delivery(RequirementDelivery(delivery_id=delivery_id, production_batch_id=batch_id, requirement_id=requirement_id, created_at=100, updated_at=100))
+          for index, scope_id in enumerate(scope_ids, 1):
+              delivery.create_scope(RequirementDeliveryScope(scope_id=scope_id, delivery_id=delivery_id, system_id='PFC', system_version='V1', application_id='cfg-%s' % index, sst_id='SST-%s' % index, created_at=100))
+          round_value, links = rounds.create_next_round(batch_id, [delivery_id], requested_test_round_id=round_id)
+          assert round_value.round_no == 1 and len(links) == 1
+          active_round, run = rounds.start_runtime_mission(round_id, run_id)
+          assert active_round.state.value == 'ACTIVE'
+          assert run.payload['mission_stage_count'] == 26
+          assert len(run.payload['mission_initial_ready_stage_ids']) == 2
+          assert len(run.payload['mission_initial_work_item_ids']) == 2
+
+          with store._sessions() as session:
+              stages = list(session.scalars(select(MissionStageRow).where(MissionStageRow.test_run_id == run_id)))
+              work = list(session.scalars(select(WorkItemRow).where(WorkItemRow.test_run_id == run_id)))
+              lineage = list(session.scalars(select(StageWorkItemLinkRow).where(StageWorkItemLinkRow.test_run_id == run_id)))
+          assert len(stages) == 26
+          assert len(work) == 2
+          assert len(lineage) == 2
+          assert {item.work_item_id for item in work} == {item.work_item_id for item in lineage}
+          assert {item.stage_instance_id for item in lineage} == set(run.payload['mission_initial_ready_stage_ids'])
+          print('RC8_REAL_POSTGRES_MISSION_BOOTSTRAP_PASS')
+          PY
