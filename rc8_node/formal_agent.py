@@ -36,8 +36,16 @@ class FormalNodeAgent:
     def report_capability(self, value: CapabilityQualification) -> Dict[str, Any]:
         if value.node_id != self.identity.node_id:
             raise NodeAgentError("CAPABILITY_NODE_MISMATCH")
-        payload = asdict(value)
-        payload["state"] = value.state.value
+        # The node identity is authoritative in the URL path. Keep the request
+        # body aligned to CapabilityRequest exactly so dataclass fields cannot
+        # leak into the strict FastAPI/Pydantic wire contract.
+        payload = {
+            "capability_id": value.capability_id,
+            "state": value.state.value,
+            "probe_ref": value.probe_ref,
+            "evidence_refs": list(value.evidence_refs),
+            "verified_at": value.verified_at,
+        }
         return self.center.post("/api/v1/nodes/%s/capabilities" % self.identity.node_id, payload)
 
     def lease(self, work_item_id: str, *, ttl_seconds: int = 60) -> Dict[str, Any]:
