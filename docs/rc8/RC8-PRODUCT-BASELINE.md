@@ -1,6 +1,20 @@
 # RC8 Product Baseline v1
 
-Status: FROZEN-CANDIDATE
+Status: FROZEN
+
+## 0. Formal product technology stack
+The formal RC8 Center product frontend is frozen as:
+- Vue 3
+- TypeScript
+- Vite
+- Vue Router
+- Pinia
+
+The formal product web edge is Nginx and the formal product backend API is FastAPI. The detailed binding contract is `docs/rc8/RC8-CENTER-TECHNOLOGY-STACK-CONTRACT.md`.
+
+The current stdlib W1 HTTP server is not the formal product backend. A product capability is not PRODUCT_VERIFIED until it is exposed through the formal FastAPI projection/API and, for user-facing scope, the Vue product UI.
+
+The UI MUST consume Center projections and MUST NOT derive PASS/SUFFICIENT/RELEASE from raw tool/execution counters.
 
 ## 1. Visual/interaction rules
 - Chinese-first UI; avoid unnecessary Chinese/English mixing.
@@ -13,6 +27,8 @@ Status: FROZEN-CANDIDATE
 - Status color is local to the status indicator; never paint whole pages/rows red/green.
 - Shared design system: one table style, one filter bar, one large detail shell, one tabs pattern, one evidence viewer, one log viewer, one confirmation pattern.
 - Product acceptance targets: 10 seconds understand / 30 seconds locate / 1 minute trace.
+
+A third-party component library may provide low-level primitives, but RC8-owned wrappers/design tokens control the information architecture and visual language. A generic admin-template/dashboard look is not accepted.
 
 ## 2. Navigation
 1. 投产管理
@@ -150,3 +166,9 @@ The product should feel like one connected model, not isolated CRUD screens.
 ## 17. Product acceptance
 A critical page fails product acceptance if the user must read DSH logs to understand what happened.
 For a real case, UI must answer: 为什么测、测什么、怎么测、实际是什么、为什么PASS/FAIL、证据在哪里、后续Gap回到哪里.
+
+Product acceptance additionally requires:
+- Vue 3 + TypeScript implementation of the applicable surface;
+- API data coming from formal FastAPI Center projections;
+- no frontend-derived sufficiency/release truth;
+- same-origin Nginx deployment smoke before final product deployment closure.
