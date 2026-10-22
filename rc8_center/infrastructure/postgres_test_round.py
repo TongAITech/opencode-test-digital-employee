@@ -122,13 +122,7 @@ class PostgresTestRoundRepository:
         payload: Optional[Dict[str, Any]] = None,
         now: Optional[int] = None,
     ) -> Tuple[TestRound, List[TestRoundDelivery]]:
-        """Serialize round-number allocation and create the round atomically.
-
-        The ProductionBatch row is locked until commit. Concurrent requests for
-        the same production date therefore cannot both observe the same max
-        round number. The unique DB constraint remains the final fail-closed
-        guard if another writer bypasses this repository.
-        """
+        """Serialize round-number allocation and create the round atomically."""
         timestamp = self._now(now)
         raw_delivery_ids = list(delivery_ids)
         try:
@@ -212,12 +206,7 @@ class PostgresTestRoundRepository:
         payload: Optional[Dict[str, Any]] = None,
         now: Optional[int] = None,
     ) -> Tuple[TestRound, TestRunRow]:
-        """Atomically activate a round and create its single top-level TestRun.
-
-        Scope validation, TestRun creation and PLANNED->ACTIVE transition share
-        one PostgreSQL transaction so no half-started production mission can be
-        persisted if any invariant fails.
-        """
+        """Atomically activate a round and create its single top-level TestRun."""
         timestamp = self._now(now)
         with self.store.session() as session:
             round_row = session.get(TestRoundRow, test_round_id)
@@ -312,6 +301,10 @@ class PostgresTestRoundRepository:
             round_row = session.get(TestRoundRow, value.test_round_id)
             if round_row is None:
                 raise ValueError("TEST_ROUND_NOT_FOUND")
+            if TestRoundState(round_row.state) != TestRoundState.PLANNED:
+                raise ValueError("TEST_ROUND_SCOPE_FROZEN_AFTER_START")
+            if session.scalar(select(TestRunRow).where(TestRunRow.test_round_id == value.test_round_id)) is not None:
+                raise ValueError("TEST_ROUND_SCOPE_FROZEN_AFTER_START")
             delivery_row = session.get(RequirementDeliveryRow, value.delivery_id)
             if delivery_row is None:
                 raise ValueError("REQUIREMENT_DELIVERY_NOT_FOUND")
