@@ -173,7 +173,7 @@ def run_maven_reality(
     agent.complete(qualification_work_item)
 
     base_summary: Dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": run_id,
         "node_id": identity.node_id,
         "center": center_url,
@@ -251,12 +251,21 @@ def run_maven_reality(
             "reality_status": "EXECUTION_CHAIN_VERIFIED",
             "work_item_id": execution_work_item,
             "work_item_state": "COMPLETED",
+            "maven_returncode": execution.returncode,
+            "classification": execution.classification,
+            "stale_junit_reports_ignored": execution.stale_xml_ignored,
+            "output_decoding": {
+                "stdout": execution.stdout_encoding,
+                "stderr": execution.stderr_encoding,
+            },
+            "execution_passed": execution.execution_passed,
             "actual": {
                 "tests": actual.tests,
                 "failures": actual.failures,
                 "errors": actual.errors,
                 "skipped": actual.skipped,
-                "passed": actual.passed,
+                "junit_passed": actual.passed,
+                "passed": execution.execution_passed,
                 "xml_files": list(actual.xml_files),
             },
             "artifact_ids": list(published.get("artifact_ids") or []),
@@ -264,7 +273,7 @@ def run_maven_reality(
             "goals": effective_goals,
         }
     )
-    if require_pass and not actual.passed:
+    if require_pass and not execution.execution_passed:
         base_summary["reality_status"] = "EXECUTION_CHAIN_VERIFIED_TEST_FAILED"
         _write_summary(summary_path, base_summary)
         return 30, base_summary
@@ -285,7 +294,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--run-id", default="")
     parser.add_argument("--goal", action="append", dest="goals")
     parser.add_argument("--allow-online", action="store_true", help="允许 Maven 联网；默认使用 -o 离线模式")
-    parser.add_argument("--require-pass", action="store_true", help="除链路验证外，还要求 JUnit Actual PASS")
+    parser.add_argument("--require-pass", action="store_true", help="除链路验证外，还要求 Maven returncode=0 且本次 JUnit Actual PASS")
     parser.add_argument(
         "--strict-portability",
         action="store_true",
