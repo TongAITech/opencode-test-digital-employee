@@ -21,6 +21,7 @@ on:
       - "rc8_node/requirement_analysis_worker.py"
       - "rc8_node/requirement_sufficiency_worker.py"
       - "scripts/rc8_requirement_repair_reality_test.py"
+      - "scripts/rc8_requirement_repair_reality_v2_test.py"
       - ".github/workflows/rc8-requirement-repair-reality.yml"
   workflow_dispatch:
 
@@ -76,7 +77,8 @@ jobs:
             rc8_node/formal_agent.py \
             rc8_node/requirement_analysis_worker.py \
             rc8_node/requirement_sufficiency_worker.py \
-            scripts/rc8_requirement_repair_reality_test.py
+            scripts/rc8_requirement_repair_reality_test.py \
+            scripts/rc8_requirement_repair_reality_v2_test.py
       - name: Apply formal PostgreSQL schema
         run: alembic -c center/alembic.ini upgrade head
       - name: Start Docker-equivalent formal Center application
@@ -85,7 +87,7 @@ jobs:
           python -m uvicorn rc8_center.formal_app:app --host 127.0.0.1 --port 18080 > /tmp/rc8-requirement-repair-center.log 2>&1 &
           echo $! > /tmp/rc8-requirement-repair-center.pid
       - name: Prove requirement analysis insufficiency repair and CodeGraph gate over real HTTP
-        run: python scripts/rc8_requirement_repair_reality_test.py
+        run: python scripts/rc8_requirement_repair_reality_v2_test.py
       - name: Expose requirement worker failure truth
         if: failure()
         run: |
@@ -93,7 +95,7 @@ jobs:
           find "$RC8_ARTIFACT_ROOT" -type f \( -name 'requirement-analysis-failure.json' -o -name 'artifact-req-failure-*.json' \) -print -exec cat {} \; || true
           echo '--- R1 terminal attempt truth ---'
           if test -f "$RC8_R1_ROOT/event-stream.jsonl"; then
-            grep -E 'ATTEMPT_(FAILED_RUNTIME|BLOCKED)|REQUIREMENT_ANALYSIS' "$RC8_R1_ROOT/event-stream.jsonl" || true
+            grep -E 'ATTEMPT_(FAILED_RUNTIME|BLOCKED)|REQUIREMENT_ANALYSIS|SUFFICIENCY_EVALUATED|GAP_(OPENED|CLOSED)' "$RC8_R1_ROOT/event-stream.jsonl" || true
           fi
       - name: Preserve Center log
         if: always()
