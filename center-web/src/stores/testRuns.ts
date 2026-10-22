@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 export interface TestRunItem {
   test_run_id: string
   production_batch_id: string | null
+  test_round_id: string | null
   status_scope: string
   current_state: string
   created_at: number
