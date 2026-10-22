@@ -50,6 +50,7 @@ jobs:
     env:
       RC8_DATABASE_URL: postgresql+psycopg://rc8:rc8@127.0.0.1:5432/rc8
       RC8_REDIS_URL: redis://127.0.0.1:6379/0
+      PYTHONPATH: ${{ github.workspace }}
 
     steps:
       - uses: actions/checkout@v4
