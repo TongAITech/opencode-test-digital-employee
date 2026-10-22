@@ -1,0 +1,119 @@
+name: RC8 PostgreSQL Redis Integration
+
+on:
+  push:
+    branches:
+      - work/rc8
+    paths:
+      - 'tests/integration/test_rc8_postgres_redis_env.py'
+      - '.github/workflows/rc8-postgres-redis-integration.yml'
+      - 'rc8_center/**'
+      - 'rc8_runtime/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-redis-reality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: rc8
+          POSTGRES_PASSWORD: rc8
+          POSTGRES_DB: rc8test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rc8 -d rc8test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      RC8_TEST_PG_HOST: 127.0.0.1
+      RC8_TEST_PG_PORT: '5432'
+      RC8_TEST_PG_DB: rc8test
+      RC8_TEST_PG_USER: rc8
+      RC8_TEST_PG_PASSWORD: rc8
+      RC8_TEST_REDIS_HOST: 127.0.0.1
+      RC8_TEST_REDIS_PORT: '6379'
+      RC8_INFRA_RUN_ID: rc8-infra-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+
+      - name: Install integration clients
+        run: python -m pip install --disable-pip-version-check psycopg2-binary redis
+
+      - name: Verify real PostgreSQL and Redis service containers
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker ps --format '{{.ID}} {{.Image}} {{.Status}}'
+          test -n "$(docker ps -q --filter ancestor=postgres:16)"
+          test -n "$(docker ps -q --filter ancestor=redis:7)"
+
+      - name: Run real database cache transaction TTL lease queue checks
+        run: python tests/integration/test_rc8_postgres_redis_env.py --phase before-restart
+
+      - name: Restart PostgreSQL and Redis containers
+        shell: bash
+        run: |
+          set -euo pipefail
+          PG_ID="$(docker ps -q --filter ancestor=postgres:16 | head -n1)"
+          REDIS_ID="$(docker ps -q --filter ancestor=redis:7 | head -n1)"
+          test -n "$PG_ID"
+          test -n "$REDIS_ID"
+          docker restart "$PG_ID"
+          docker restart "$REDIS_ID"
+          for i in $(seq 1 40); do
+            PG_OK="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$PG_ID")"
+            RD_OK="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$REDIS_ID")"
+            if [ "$PG_OK" = healthy ] && [ "$RD_OK" = healthy ]; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker inspect "$PG_ID"
+          docker inspect "$REDIS_ID"
+          exit 1
+
+      - name: Verify restart persistence
+        run: python tests/integration/test_rc8_postgres_redis_env.py --phase after-restart
+
+      - name: Emit environment reality summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          print(json.dumps({
+              'status': 'RC8_POSTGRES_REDIS_REALITY_VERIFIED',
+              'postgres': 'REAL_SERVICE_CONTAINER',
+              'redis': 'REAL_SERVICE_CONTAINER',
+              'transaction_rollback': True,
+              'redis_ttl': True,
+              'redis_lease_nx': True,
+              'redis_queue': True,
+              'postgres_restart_persistence': True,
+              'redis_restart_persistence': True,
+              'scope': 'INFRASTRUCTURE_TEST_ENV_ONLY_NOT_CENTER_ADAPTER_YET'
+          }, sort_keys=True))
+          PY
