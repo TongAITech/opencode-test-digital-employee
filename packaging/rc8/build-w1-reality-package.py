@@ -42,6 +42,7 @@ RUNTIME_FILES = (
     "rc8_node/__init__.py",
     "rc8_node/__main__.py",
     "rc8_node/agent.py",
+    "rc8_node/formal_agent.py",
     "rc8_node/capabilities.py",
     "rc8_node/execution.py",
     "rc8_node/execution_publish.py",
@@ -151,6 +152,7 @@ def _write_readme(root: Path, head: str) -> str:
         "- No-Discount Governance + Mission Graph Runtime + durable governance projection\n"
         "- R1-first Governance Projector：运行事实必须先持久化 R1，Center Projection 可重放恢复\n"
         "- Product API: `/api/v1/test-runs/{id}/governance`（记录事实，不自行推导PASS）\n"
+        "- FormalNodeAgent 已包含显式 WorkItem lease token 协议；DSH Session 不持有任务真相。\n"
         "- 正式 Center 技术栈已冻结为 FastAPI + PostgreSQL + Redis + Vue3/TypeScript/Vite + Nginx + Docker Compose；当前 stdlib HTTP 仍仅为 W1 最小协议适配器。\n\n"
         "重要：Tool Reality 不能提升为 L1/L1-L7/TestRun 充分度。先运行 `python scripts/rc8_validate_governance.py` 可核对当前机器声明。\n\n"
         "## 1. 校验与永久 Node state\n"
@@ -221,6 +223,7 @@ def _write_manifest(root: Path, head: str, files: List[str]) -> str:
             "CENTER_MISSION_SERVICE",
             "R1_RUNTIME_TRUTH",
             "ARTIFACT_SYNC",
+            "FORMAL_NODE_EXPLICIT_LEASE_PROTOCOL",
             "NO_DISCOUNT_GOVERNANCE",
             "MISSION_GRAPH_RUNTIME",
             "GOVERNANCE_DURABLE_PROJECTION",
@@ -269,9 +272,10 @@ def _verify_runtime_imports(root: Path) -> None:
     code = (
         "from rc8_runtime import CoverageObservation, MissionGraphRuntime, MissionRuntimeState, ScopedStatusClaim; "
         "from rc8_center import CenterMissionService, CenterProductApplication, GovernanceEventProjector, GovernanceProjectionService, JsonFileCoverageRepository, JsonFileGovernanceRepository; "
+        "from rc8_node import FormalNodeAgent; "
         "assert CoverageObservation and MissionGraphRuntime and MissionRuntimeState and ScopedStatusClaim; "
         "assert CenterMissionService and CenterProductApplication and GovernanceEventProjector and GovernanceProjectionService; "
-        "assert JsonFileCoverageRepository and JsonFileGovernanceRepository; "
+        "assert JsonFileCoverageRepository and JsonFileGovernanceRepository and FormalNodeAgent; "
         "print('RC8_PACKAGE_RUNTIME_IMPORT_PASS')"
     )
     proc = subprocess.run(
