@@ -57,6 +57,17 @@ def test_user_flow_starts_from_batch_then_requirement_then_scopes() -> None:
     assert plan.status_code == 200
     assert plan.json()["requirements"][0]["requirement"]["requirement_id"] == "REQ-001"
 
+    started = client.post(
+        "/api/v1/production-batches/PB-20261115/test-runs",
+        json={"test_run_id": "TR-PB-20261115"},
+    )
+    assert started.status_code == 201
+    run = started.json()
+    assert run["production_batch_id"] == "PB-20261115"
+    assert run["payload"]["task_scope_source"] == "PRODUCTION_BATCH_REQUIREMENT_DELIVERY"
+    assert run["payload"]["requirement_delivery_ids"] == ["DEL-001"]
+    assert run["payload"]["delivery_scope_ids"] == ["SCOPE-1"]
+
 
 def test_same_requirement_can_continue_in_later_batch_and_history_is_preserved() -> None:
     client = _client()
@@ -111,10 +122,43 @@ def test_same_requirement_is_not_duplicated_inside_one_batch() -> None:
     assert second.json()["detail"] == "REQUIREMENT_ALREADY_PARTICIPATES_IN_BATCH"
 
 
+def test_batch_cannot_start_without_requirement_scope() -> None:
+    client = _client()
+    assert client.post(
+        "/api/v1/production-batches",
+        json={"production_batch_id": "PB", "production_date": "2026-11-15", "name": "PB"},
+    ).status_code == 201
+
+    empty = client.post("/api/v1/production-batches/PB/test-runs", json={"test_run_id": "TR-EMPTY"})
+    assert empty.status_code == 409
+    assert empty.json()["detail"] == "PRODUCTION_BATCH_HAS_NO_REQUIREMENTS"
+
+    assert client.post("/api/v1/requirements", json={"requirement_id": "REQ", "title": "需求"}).status_code == 201
+    assert client.post(
+        "/api/v1/production-batches/PB/requirements/REQ/deliveries",
+        json={"delivery_id": "DEL"},
+    ).status_code == 201
+
+    incomplete = client.post("/api/v1/production-batches/PB/test-runs", json={"test_run_id": "TR-INCOMPLETE"})
+    assert incomplete.status_code == 409
+    assert incomplete.json()["detail"] == "PRODUCTION_BATCH_SCOPE_INCOMPLETE"
+
+
+def test_invalid_production_date_is_rejected() -> None:
+    client = _client()
+    response = client.post(
+        "/api/v1/production-batches",
+        json={"production_batch_id": "PB-BAD", "production_date": "2026-02-30", "name": "错误日期"},
+    )
+    assert response.status_code == 422
+
+
 def _run_direct() -> None:
     test_user_flow_starts_from_batch_then_requirement_then_scopes()
     test_same_requirement_can_continue_in_later_batch_and_history_is_preserved()
     test_same_requirement_is_not_duplicated_inside_one_batch()
+    test_batch_cannot_start_without_requirement_scope()
+    test_invalid_production_date_is_rejected()
     print("RC8_PRODUCTION_REQUIREMENT_API_PASS")
 
 
