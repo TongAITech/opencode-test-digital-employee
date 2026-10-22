@@ -324,7 +324,7 @@ class MavenJUnitExecutionAdapter:
                 "xml_files": actual.xml_files,
             },
             "jacoco": coverage_payload,
-            "truth_note": "Only JUnit/JaCoCo XML created or changed by this attempt is Actual; requested changed-scope coverage cannot be omitted from execution PASS",
+            "truth_note": "Only JUnit/JaCoCo XML created/changed by this attempt is Actual; requested changed-scope coverage cannot be omitted from execution PASS",
         }
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
         result_path = self.evidence_dir / "maven-junit-actual.json"
