@@ -352,9 +352,10 @@ def create_app(
         try:
             values = request.model_dump()
             lease_id = values.pop("lease_id")
+            producer_kind = RuntimeProducerKind(values.pop("producer_kind"))
             manifest = ArtifactManifest(
                 **values,
-                producer_kind=RuntimeProducerKind(values.pop("producer_kind")),
+                producer_kind=producer_kind,
                 availability=ArtifactAvailability.PENDING_UPLOAD,
             )
             result = artifacts().begin(manifest, lease_id=lease_id)
