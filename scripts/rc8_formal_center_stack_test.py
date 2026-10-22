@@ -113,7 +113,6 @@ def main() -> int:
         assert client.post("/api/v1/test-runs", json={"test_run_id": run_id}).status_code == 409
         assert client.post("/api/v1/test-runs", json={"test_run_id": "", "unexpected": True}).status_code == 422
 
-        # Formal governance control state is PostgreSQL-backed and scope-bound.
         stage_id = "stage-%s" % uuid.uuid4().hex[:10]
         stage = StageInstance(
             stage_instance_id=stage_id,
@@ -129,7 +128,6 @@ def main() -> int:
         hydrated = governance_repository.get_stage(stage_id)
         assert hydrated is not None and hydrated.scope_version == "scope:SST-IT@app-cfg-center@v1"
 
-        # Formal Node / Capability / WorkItem APIs persist identities in PostgreSQL.
         node = client.post(
             "/api/v1/nodes/register",
             json={
@@ -177,7 +175,6 @@ def main() -> int:
         assert started_work.status_code == 200, started_work.text
         assert started_work.json()["work_item"]["state"] == "RUNNING"
 
-        # Wrong/stale token cannot write a runtime event and cannot consume R1 sequence.
         rejected_event_id = "evt-rejected-%s" % uuid.uuid4().hex[:10]
         rejected = client.post(
             "/api/v1/runtime-events",
@@ -193,7 +190,7 @@ def main() -> int:
             ),
         )
         assert rejected.status_code == 409, rejected.text
-        assert ledger.event_by_id(rejected_event_id) is None
+        assert all(event.event_id != rejected_event_id for event in ledger.runtime_events())
 
         accepted_start_id = "evt-start-%s" % uuid.uuid4().hex[:10]
         accepted = client.post(
@@ -216,7 +213,6 @@ def main() -> int:
         attempt = governance_repository.get_attempt(attempt_id)
         assert attempt is not None and attempt.status.value == "STARTED"
 
-        # Terminal Attempt enters R1 but remains projection-PENDING until its Artifact is AVAILABLE.
         completed_event_id = "evt-complete-%s" % uuid.uuid4().hex[:10]
         completed = client.post(
             "/api/v1/runtime-events",
@@ -292,7 +288,6 @@ def main() -> int:
         assert stale_after_complete.status_code == 409
         assert len(ledger.runtime_events()) == 2
 
-        # Center-process restart: reconstruct ledger/projector and replay exact R1 idempotently.
         restarted_projector = GovernanceEventProjector(
             CentralR1RuntimeLedger(ledger_path),
             PostgresGovernanceRepository(postgres),
@@ -313,8 +308,6 @@ def main() -> int:
         assert governance_body["latest_mission_sufficiency"] is None
         assert governance_body["latest_release_decision"] is None
 
-        # Redis loss does not erase durable truth, but an in-flight WorkItem must
-        # fail closed rather than silently reacquire and duplicate actions.
         recovery_work_id = "work-recovery-%s" % uuid.uuid4().hex[:8]
         assert client.post(
             "/api/v1/work-items/register",
@@ -362,7 +355,6 @@ def main() -> int:
         assert postgres.get_test_run(run_id) is not None
         assert client.get("/api/v1/test-runs/%s/governance" % run_id).json()["attempts"][0]["status"] == "COMPLETED"
 
-        # Projection checkpoint is monotonic.
         first = postgres.set_checkpoint("governance", last_event_id="evt-10", last_sequence=10, detail="first")
         assert first.last_sequence == 10
         assert postgres.set_checkpoint("governance", last_event_id="evt-10", last_sequence=10, detail="replay").last_sequence == 10
@@ -372,7 +364,6 @@ def main() -> int:
         except ValueError as exc:
             assert str(exc) == "PROJECTION_CHECKPOINT_CANNOT_REGRESS"
 
-        # Queue remains transient coordination only.
         queue = "dispatch-%s" % uuid.uuid4().hex[:8]
         redis.enqueue(queue, {"work_item_id": work_item_id, "test_run_id": run_id})
         assert redis.dequeue(queue) == {"test_run_id": run_id, "work_item_id": work_item_id}
