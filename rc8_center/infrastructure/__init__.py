@@ -22,6 +22,12 @@ from .postgres_delivery import (
 )
 from .postgres_governance import PostgresCoverageRepository, PostgresGovernanceRepository
 from .postgres_recovery import PostgresRecoveryRepository, RecoveryIncidentRow
+from .postgres_revision import (
+    DeliveryRevisionBindingRow,
+    PostgresRequirementRevisionRepository,
+    RequirementRevisionRow,
+    ScopeRevisionRow,
+)
 from .postgres_test_round import (
     PostgresTestRoundRepository,
     TestRoundDeliveryRow,
@@ -33,6 +39,7 @@ __all__ = [
     "ArtifactMetadataRow",
     "Base",
     "CapabilityRow",
+    "DeliveryRevisionBindingRow",
     "NodeRow",
     "PostgresArtifactRepository",
     "PostgresCenterRepository",
@@ -40,6 +47,7 @@ __all__ = [
     "PostgresGovernanceRepository",
     "PostgresRecoveryRepository",
     "PostgresRequirementDeliveryRepository",
+    "PostgresRequirementRevisionRepository",
     "PostgresStore",
     "PostgresTestRoundRepository",
     "ProductionBatchRow",
@@ -47,7 +55,9 @@ __all__ = [
     "RedisCoordination",
     "RequirementDeliveryRow",
     "RequirementDeliveryScopeRow",
+    "RequirementRevisionRow",
     "RequirementRow",
+    "ScopeRevisionRow",
     "StageWorkItemLinkRow",
     "TestRoundDeliveryRow",
     "TestRoundRow",
