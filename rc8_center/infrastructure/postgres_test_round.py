@@ -2,15 +2,19 @@
 from __future__ import annotations
 
 import time
-from typing import List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import BigInteger, JSON, String, UniqueConstraint, func, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from rc8_center.test_rounds import TestRound, TestRoundDelivery, TestRoundState
 
-from .postgres import Base, PostgresStore
-from .postgres_delivery import ProductionBatchRow, RequirementDeliveryRow
+from .postgres import Base, PostgresStore, TestRunRow
+from .postgres_delivery import (
+    ProductionBatchRow,
+    RequirementDeliveryRow,
+    RequirementDeliveryScopeRow,
+)
 
 
 class TestRoundRow(Base):
@@ -90,12 +94,7 @@ class PostgresTestRoundRepository:
         value: TestRound,
         deliveries: Sequence[TestRoundDelivery],
     ) -> TestRound:
-        """Atomically create a round and its initial RequirementDelivery scope.
-
-        A failed delivery validation must leave no half-created TestRound or
-        partial round-delivery links.  This is the product/API creation path;
-        ``include_delivery`` remains available for later intentional expansion.
-        """
+        """Atomically create a round and its initial RequirementDelivery scope."""
         values = list(deliveries)
         with self.store.session() as session:
             self._validate_round_identity(session, value)
@@ -123,6 +122,95 @@ class PostgresTestRoundRepository:
             for link in values:
                 session.add(self._round_delivery_row(link))
         return value
+
+    def start_runtime_mission(
+        self,
+        test_round_id: str,
+        test_run_id: str,
+        *,
+        payload: Optional[Dict[str, Any]] = None,
+        now: Optional[int] = None,
+    ) -> Tuple[TestRound, TestRunRow]:
+        """Atomically activate a round and create its single top-level TestRun.
+
+        Scope validation, TestRun creation and PLANNED->ACTIVE transition share
+        one PostgreSQL transaction so no half-started production mission can be
+        persisted if any invariant fails.
+        """
+        timestamp = self._now(now)
+        with self.store.session() as session:
+            round_row = session.get(TestRoundRow, test_round_id)
+            if round_row is None:
+                raise ValueError("TEST_ROUND_NOT_FOUND")
+            if TestRoundState(round_row.state) in {TestRoundState.COMPLETED, TestRoundState.CANCELLED}:
+                raise ValueError("TEST_ROUND_NOT_STARTABLE")
+
+            existing_for_round = session.scalar(
+                select(TestRunRow).where(TestRunRow.test_round_id == test_round_id)
+            )
+            if existing_for_round is not None:
+                raise ValueError("TEST_ROUND_ALREADY_HAS_TEST_RUN")
+            if session.get(TestRunRow, test_run_id) is not None:
+                raise ValueError("TEST_RUN_ALREADY_EXISTS")
+
+            links = list(
+                session.scalars(
+                    select(TestRoundDeliveryRow)
+                    .where(TestRoundDeliveryRow.test_round_id == test_round_id)
+                    .order_by(TestRoundDeliveryRow.included_at, TestRoundDeliveryRow.round_delivery_id)
+                )
+            )
+            if not links:
+                raise ValueError("TEST_ROUND_HAS_NO_REQUIREMENTS")
+
+            delivery_ids: List[str] = []
+            scope_ids: List[str] = []
+            for link in links:
+                delivery = session.get(RequirementDeliveryRow, link.delivery_id)
+                if delivery is None:
+                    raise ValueError("REQUIREMENT_DELIVERY_NOT_FOUND")
+                if delivery.production_batch_id != round_row.production_batch_id:
+                    raise ValueError("TEST_ROUND_DELIVERY_PRODUCTION_DATE_MISMATCH")
+                scopes = list(
+                    session.scalars(
+                        select(RequirementDeliveryScopeRow)
+                        .where(RequirementDeliveryScopeRow.delivery_id == link.delivery_id)
+                        .order_by(RequirementDeliveryScopeRow.scope_id)
+                    )
+                )
+                if not scopes:
+                    raise ValueError("TEST_ROUND_SCOPE_INCOMPLETE")
+                delivery_ids.append(link.delivery_id)
+                scope_ids.extend(scope.scope_id for scope in scopes)
+
+            run_payload = dict(payload or {})
+            run_payload.update(
+                {
+                    "task_scope_source": "TEST_ROUND_REQUIREMENT_DELIVERY",
+                    "test_round_id": test_round_id,
+                    "test_round_no": int(round_row.round_no),
+                    "requirement_delivery_ids": delivery_ids,
+                    "delivery_scope_ids": scope_ids,
+                }
+            )
+            run_row = TestRunRow(
+                test_run_id=test_run_id,
+                production_batch_id=round_row.production_batch_id,
+                test_round_id=test_round_id,
+                status_scope="MISSION",
+                current_state="PLANNED",
+                created_at=timestamp,
+                updated_at=timestamp,
+                payload=run_payload,
+            )
+            session.add(run_row)
+
+            if TestRoundState(round_row.state) == TestRoundState.PLANNED:
+                round_row.state = TestRoundState.ACTIVE.value
+                round_row.started_at = timestamp
+
+            round_value = self._round(round_row)
+        return round_value, run_row
 
     def get_round(self, test_round_id: str) -> Optional[TestRound]:
         with self.store.session() as session:
