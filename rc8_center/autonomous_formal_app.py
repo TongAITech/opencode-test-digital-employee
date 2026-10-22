@@ -1,12 +1,10 @@
-"""RC8 formal Center app with autonomous claim-next routes enabled.
+"""Compatibility alias for the formal RC8 Center application.
 
-This is an additive construction entrypoint while the existing formal stack
-continues regression verification. It reuses the same formal_app instance and
-only attaches the claim-next API; no second persistence/lease truth is created.
+Autonomous claim-next is now part of ``rc8_center.formal_app`` itself so Docker,
+CI and office Nodes use one product entrypoint and one persistence/lease truth.
+This module remains only for callers that already reference the historical
+specialized module path.
 """
-from rc8_center.api.claim_routes import register_claim_routes
 from rc8_center.formal_app import app
-
-register_claim_routes(app)
 
 __all__ = ["app"]
