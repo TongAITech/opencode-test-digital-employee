@@ -3,10 +3,10 @@
 Branch: `work/rc8`
 RC7 source/capability base: `delivery/rc7-default-enhancements@2c2eecbf18dde97ecdb10b65264e8c5c2a88ef72`
 RC7 verified transport/toolset reference: `delivery/rc7-internal-transport-0bbb8239@af59027e7227fa1861fea95c6d05ff73aefb8572`
-Latest CI-verified code HEAD: `b0f35a8a45e29e68d4ac0a3dc725e3b5104d7d80`
-CI proof: workflow run `39696048518` = SUCCESS on Ubuntu + Windows, Python 3.8, bash/Git Bash compatible entrypoints.
-Current wave: `W1 - Center + Single Node Vertical Slice`
-Overall status: `IN_PROGRESS / CI_VERIFIED_NOT_BANK_REALITY_VERIFIED`
+Latest CI-verified code HEAD: `3577614c99129a70dd507f62bc213f0c06a6deae`
+CI proof: workflow run `39736447374` = SUCCESS on Ubuntu + Windows.
+Current wave: `W1 - Center + Single Node Reality Gate`
+Overall status: `IN_PROGRESS / MAVEN_JUNIT_BANK_REALITY_VERIFIED / CODEGRAPH_CI_VERIFIED`
 
 ## Frozen inputs
 - `docs/rc8/RC8-MASTER-CONTRACT.md`
@@ -18,11 +18,11 @@ Overall status: `IN_PROGRESS / CI_VERIFIED_NOT_BANK_REALITY_VERIFIED`
 - `packaging/rc8/RC7_OFFLINE_TOOLSET_MANIFEST.json`
 
 ## RC7 inheritance baseline
-RC8 intentionally uses two RC7 authorities for different purposes:
+RC8 intentionally keeps two RC7 authorities:
 1. source/capability lineage: `2c2eecb`;
 2. offline transport/toolset completeness reference: `af59027`.
 
-Do not collapse these into one source. RC8 migrates capability code from the newer source line while node offline payload completeness is checked against the verified transport line/manifest.
+Do not collapse these into one source. Capability code migrates from the newer source line while node offline payload completeness is checked against the verified transport line/manifest.
 
 RC7 certification facts carried into RC8:
 - Reality Certification CLOSED
@@ -36,10 +36,10 @@ RC7 certification facts carried into RC8:
 - 49 raw gaps -> 16 canonical gaps
 
 ## W0 status
-W0 foundation contracts are implemented and CI-gated:
+Implemented and CI-gated:
 - canonical Node/TestRun/WorkItem/ProductionBatch/RequirementDeliveryScope identities;
 - PLAN and RUNTIME planes separated;
-- Director/model claim cannot create runtime truth;
+- Director/model claims cannot create runtime truth;
 - Evidence contract with hash/provenance/availability/assertion binding;
 - capability qualification state machine; VERIFIED requires probe/evidence/time;
 - `PLAN_COMPLETE != TEST_SUFFICIENT`;
@@ -47,112 +47,128 @@ W0 foundation contracts are implemented and CI-gated:
 
 One authoritative-input hold remains: exact final certification wording/severity for `GAP-ADD-03`, `GAP-ADD-06`, `GAP-ADD-10` was not found in current Git sources. Keep `OPEN_INPUT`; never invent it.
 
-## W1 implemented
-### Center control plane
-- Node registration and heartbeat
+## W1 control/runtime foundation
+### Center
+- Node registration/heartbeat
 - capability projection/qualification
 - WorkItem register/lease/start/complete
 - lease ownership bound to Node, not DSH Session
-- lease release on completion; late runtime writes rejected
+- late runtime writes rejected after lease release
 - central R1 append authorization
 - stdlib HTTP transport boundary
 - durable Center launcher and smoke check
-- restart-persistent local W1 fallback repository for Node/Capability/WorkItem/Artifact metadata
+- restart-persistent W1 fallback for Node/Capability/WorkItem/Artifact metadata
 
 ### Node Agent
 - stable local Node identity across restart
 - outbound-only Center connection
 - register/heartbeat/capability/lease/start/runtime/complete clients
-- canonical `packaging/rc8/rc8-node.sh`
-- Windows Git Bash + Linux bash platform detection
-- UTF-8 forced to avoid Windows Python/Chinese CLI codepage failure
+- Windows Git Bash + Linux bash launchers
+- Windows Chinese/GB18030 output hardening where tool subprocesses require it
 
 ### Artifact Sync
-- generic asset protocol for screenshot/log/script/data/skill/knowledge attachments
+- generic asset protocol for screenshots/logs/scripts/data/skill/knowledge attachments
 - manifest -> resumable offset upload -> size/SHA-256 verify -> AVAILABLE
 - active WorkItem lease required
 - wrong Node rejected
 - late completion after WorkItem completion rejected
-- zero-byte artifacts supported and SHA-256 verified (important for empty Maven stderr logs)
-- Artifact metadata and bytes survive Center restart in the W1 durable fallback
+- zero-byte artifacts supported
+- metadata/bytes survive Center restart in the W1 durable fallback
 
-### First real capability adapter: Maven/JUnit
-Capability qualification:
-- runs actual local subprocess `mvn -version`
-- success is PROBING, never immediate VERIFIED
-- probe evidence persisted and SHA-256 hashed
-- probe evidence must reach Center/Artifact AVAILABLE before VERIFIED
-- failed probe -> DEGRADED; missing Maven -> UNAVAILABLE
+## Maven/JUnit capability
+### Implemented truth chain
+- real `mvn -version` probe; presence alone never VERIFIED
+- probe Artifact must reach AVAILABLE before capability VERIFIED
+- real Maven subprocess execution
+- Actual derives only from fresh Surefire/Failsafe XML plus Maven process result
+- stale historical JUnit XML is ignored
+- Windows Maven output tolerates UTF-8/GB18030/local encoding without crashing execution
+- `maven_returncode != 0` cannot be hidden by green XML
+- Actual/stdout/stderr/fresh JUnit XML are uploaded before R1
+- WorkItem completes only after evidence and R1 persistence
 
-Execution:
-- runs Maven as local subprocess
-- reads Surefire/Failsafe XML
-- Actual derives from tests/failures/errors/skipped
-- subprocess exit code alone never proves PASS
-- JUnit XML failure with Maven exit 0 remains failed Actual
-- missing JUnit XML fails closed
+### Bank Reality result
+Target-bank validation supplied during the RC8 acceptance session proved:
+- Windows Git Bash execution node
+- actual bank Maven and actual `cfg-center` project
+- main/test compile successful after the project test baseline was repaired by line-in DSH
+- real JUnit/Surefire execution
+- `tests=2243`, `failures=0`, `errors=0`, `skipped=8`
+- fresh Surefire evidence used instead of stale reports
+- `execution_passed=true`
+- capability state `VERIFIED`
+- R1 receipt `PERSISTENCE_VERIFIED`
+- execution WorkItem `COMPLETED`
+- final reality status `EXECUTION_CHAIN_VERIFIED`
 
-Publication:
-- Actual JSON, stdout, stderr, JUnit XML uploaded first
-- every execution artifact must be AVAILABLE
-- then canonical `MAVEN_JUNIT_ACTUAL_RECORDED` R1 event is appended with artifact refs
-- only after evidence/R1 success may WorkItem complete
+Therefore `maven-junit` is now `BANK_REALITY_VERIFIED` for the tested bank environment and project chain.
 
-### Bank Maven/JUnit Reality Runner
+Boundary: pure disconnected/offline portability is still a separate gate because this successful bank run allowed the internal Maven repository. Do not report `PURE_OFFLINE_PORTABILITY=PASS` yet.
+
+## CodeGraph capability - current construction
 Files:
-- `rc8_node/reality_maven.py`
-- `packaging/rc8/rc8-maven-reality.sh`
+- `rc8_node/codegraph.py`
+- `rc8_node/reality_codegraph.py`
+- `packaging/rc8/rc8-codegraph-reality.sh`
+- `docs/rc8/RC8-CODEGRAPH-REALITY-RUNBOOK.md`
 
-The runner executes:
-Center health -> Node register -> qualification WorkItem -> real Maven probe -> probe Artifact -> Capability VERIFIED -> execution WorkItem -> Maven/JUnit -> JUnit XML Actual -> execution Artifacts -> R1 -> WorkItem COMPLETED.
+### Implemented gates
+- Git remains the sole change/snapshot authority.
+- CodeGraph is structural enrichment, never change truth.
+- Java changes are discovered from committed diff plus working-tree Java changes; explicit target is allowed when required.
+- no Java change/target => fail closed (`CODEGRAPH_JAVA_CHANGE_OR_TARGET_REQUIRED`).
+- required real graph-only calls per query point:
+  - `codegraph_get_ai_context`
+  - `codegraph_get_callers`
+  - `codegraph_get_callees`
+  - `codegraph_get_dependency_graph`
+  - `codegraph_analyze_impact`
+- repository snapshot fingerprint includes Git HEAD, working-tree status digest, tracked diff digest and untracked Java content hashes.
+- snapshot is checked before queries, after queries and immediately before R1 publication.
+- stale source => `CODEGRAPH_SNAPSHOT_STALE` / `CODEGRAPH_SNAPSHOT_STALE_BEFORE_PUBLISH`.
+- any required structural query failure => `CODEGRAPH_STRUCTURAL_QUERY_FAILED`; failed query is never silently converted to empty graph.
+- capability evidence Artifact must be AVAILABLE before `codegraph` can become VERIFIED.
+- execution graph evidence Artifact binds `snapshot_id` and `graph_digest`.
+- R1 event `CODEGRAPH_GRAPH_EVIDENCE_RECORDED` binds Git head/base/head refs, changed Java files, query points, tool names/count, graph digest and Artifact ref.
+- WorkItem completion occurs only after evidence and R1 persistence.
 
-Portability hardening:
-- default Maven execution uses `-o` offline mode;
-- optional explicit `--maven-repo` / `RC8_MAVEN_REPO`;
-- `--strict-portability` requires an explicit offline Maven repository and forbids silently proving portability with developer-machine default `~/.m2`;
-- unsafe run IDs are rejected before Center/Artifact mutation;
-- `preflight.json` is written before execution with Center/platform/pom/Maven/repository facts;
-- `reality-result.json` records execution-chain truth.
-
-## Current CI truth
-Latest verified code HEAD: `b0f35a8a45e29e68d4ac0a3dc725e3b5104d7d80`
-Workflow: `RC8 W1 Center Node Control`
-Run: `39696048518`
+### CI truth
+Latest CodeGraph code HEAD: `3577614c99129a70dd507f62bc213f0c06a6deae`
+Workflow run: `39736447374`
 - Ubuntu: SUCCESS
 - Windows: SUCCESS
-- includes compile gates, node/center/reality shell entrypoints, control plane, R1, Artifact Sync, durable restart, real-subprocess capability semantics, Maven/JUnit Actual semantics, Center-HTTP publication, full WorkItem ordering, Reality Runner, strict portability preflight.
+- Python 3.8
+- CodeGraph launcher: PASS
+- snapshot-stale regression: PASS
+- structural-query failure regression: PASS
+- full Center -> Node -> capability -> Artifact -> R1 -> WorkItem contract: PASS
 
-Important boundary: CI uses deterministic synthetic Maven command/JUnit fixtures for repeatability. Therefore:
-- Maven/JUnit adapter = IMPLEMENTED / CI_VERIFIED
-- W1 single-node protocol = IMPLEMENTED / CI_VERIFIED
-- bank environment Maven/JUnit = NOT YET REALITY_VERIFIED
-- RC8 W1 = NOT CLOSED
+CI uses an explicit CodeGraph contract double and therefore proves protocol/truth semantics only. It does NOT make the bank CodeGraph capability Reality Verified.
+
+Current CodeGraph state: `IMPLEMENTED / CI_VERIFIED / BANK_REALITY_PENDING`.
 
 ## Current next gate
-Do not add broad multi-node scheduling or all product pages yet.
+Do not start BrowserSkill or broad UI before CodeGraph bank validation.
 
-The next hard gate is one target-bank run using:
-- Windows Git Bash or Xinchuang Linux bash
-- actual RC8 Center
-- actual Node
-- actual Maven path
-- actual project `pom.xml`
-- explicit offline Maven repository in strict-portability mode
-- actual Surefire/Failsafe XML
-- actual Center Artifact persistence
-- actual R1 persistence
+Run `docs/rc8/RC8-CODEGRAPH-REALITY-RUNBOOK.md` with the actual bank CodeGraph executable against an actual Java change/snapshot. Required acceptance:
+- real CodeGraph executable
+- at least one Java query point
+- all five structural query families succeed
+- source snapshot remains unchanged through publication
+- capability Artifact AVAILABLE -> capability VERIFIED
+- execution graph Artifact AVAILABLE
+- R1 `CODEGRAPH_GRAPH_EVIDENCE_RECORDED` persistence verified
+- execution WorkItem COMPLETED
 
-Only after that evidence may Maven/JUnit be marked `BANK_ENV_VERIFIED` / `REALITY_VERIFIED`.
+Only then may `codegraph` move to `BANK_REALITY_VERIFIED`.
 
-After the single-node real slice is accepted, build only the first two truthful product sample surfaces:
-1. 测试任务
-2. 执行节点
+After CodeGraph, continue the frozen capability order: BrowserSkill -> 4A -> DB/Test Data -> full single-node business TestRun. Build truthful product surfaces from real runtime data, not before it exists.
 
 ## Status semantics
 - OPEN / OPEN_INPUT: no implementation proof or authoritative input unavailable
 - IMPLEMENTED: code exists
 - CI_VERIFIED: automated cross-platform gates pass
-- REALITY_VERIFIED: target environment real execution/evidence proves behavior
+- REALITY_VERIFIED / BANK_REALITY_VERIFIED: target bank environment real execution/evidence proves behavior
 - CLOSED: requirement/gap trace complete and no acceptance blocker
 
-A code commit, installed plugin, successful process exit, or CI fixture is never by itself bank Reality Verification.
+A code commit, installed plugin, process exit, model statement or CI contract double is never by itself bank Reality Verification.
