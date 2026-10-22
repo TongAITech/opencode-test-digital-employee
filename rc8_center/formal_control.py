@@ -109,8 +109,6 @@ class FormalCenterControlPlane:
             return renewed
 
         if work.lease_id is not None or work.state in {WorkItemState.LEASED, WorkItemState.RUNNING}:
-            # Redis loss/expiry while durable state still says leased is a recovery
-            # condition. Blind reacquire could duplicate a non-idempotent action.
             raise CenterControlError("WORK_ITEM_LEASE_RECOVERY_REQUIRED")
 
         lease_id = str(uuid.uuid4())
@@ -138,22 +136,29 @@ class FormalCenterControlPlane:
         self.authorize_work_item_write(test_run_id=event.test_run_id, work_item_id=event.work_item_id, node_id=event.node_id, lease_id=lease_id)
         self.runtime_ledger.assert_next_node_sequence(event)
         receipt = self.runtime_ledger.append_runtime(event)
-        # Projection failure/pending never rolls back R1 truth.
         projection = self.projector.ingest({"event_id": event.event_id})
         return {"receipt": receipt, "projection": projection, "truth_note": "R1_PERSISTED_BEFORE_PROJECTION"}
 
     def complete_work_item(self, work_item_id: str, node_id: str, lease_id: str) -> WorkItemRecord:
         work = self._require_active_lease(work_item_id, node_id, lease_id)
-        updated = replace(work, state=WorkItemState.COMPLETED, lease_id=None, lease_owner_node_id=None, lease_expires_at=None)
-        # Durable terminal state first: if Redis cleanup fails, terminal PG state
-        # still prevents further writes or leasing; stale Redis key will expire.
-        self.repository.upsert_work_item(updated)
+        # Persist terminal truth first, but retain the lease mirror until Redis
+        # compare-delete succeeds. If Redis cleanup fails, Recovery Coordinator
+        # still has the exact owner/token required to clean the stale key safely.
+        terminal_with_mirror = replace(work, state=WorkItemState.COMPLETED)
+        self.repository.upsert_work_item(terminal_with_mirror)
         try:
-            self.coordination.release_lease("work-item", work_item_id, node_id, lease_id=lease_id)
-        finally:
+            released = self.coordination.release_lease("work-item", work_item_id, node_id, lease_id=lease_id)
+            if not released:
+                raise CenterControlError("WORK_ITEM_REDIS_LEASE_CLEANUP_MISSING")
+        except Exception:
             node = self._require_node(node_id)
             self.repository.upsert_node(replace(node, status=NodeStatus.IDLE, last_heartbeat_at=self._now()))
-        return updated
+            raise
+        completed = replace(terminal_with_mirror, lease_id=None, lease_owner_node_id=None, lease_expires_at=None)
+        self.repository.upsert_work_item(completed)
+        node = self._require_node(node_id)
+        self.repository.upsert_node(replace(node, status=NodeStatus.IDLE, last_heartbeat_at=self._now()))
+        return completed
 
     def _require_node(self, node_id: str) -> NodeRecord:
         node = self.repository.get_node(str(node_id).strip())
