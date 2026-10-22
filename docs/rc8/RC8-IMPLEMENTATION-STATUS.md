@@ -3,8 +3,8 @@
 Branch: `work/rc8`
 RC7 source/capability base: `delivery/rc7-default-enhancements@2c2eecbf18dde97ecdb10b65264e8c5c2a88ef72`
 RC7 verified transport/toolset reference: `delivery/rc7-internal-transport-0bbb8239@af59027e7227fa1861fea95c6d05ff73aefb8572`
-Current construction line: `W1 foundation + first vertical autonomous slice`
 Overall status: `IN_PROGRESS`
+Current phase: `NO-DISCOUNT DESIGN FREEZE COMPLETE / NEXT = W-A + W-B IMPLEMENTATION`
 
 ## Mandatory interpretation correction
 
@@ -12,249 +12,239 @@ Tool Reality Verification MUST NOT be promoted into stage/layer/mission completi
 
 Current scoped truth:
 - `TOOL:MAVEN_JUNIT = BANK_REALITY_VERIFIED`
-- `TOOL:CODEGRAPH = BANK_REALITY_VERIFIED` based on target-bank real structural-query execution/evidence supplied in the acceptance session
+- `TOOL:CODEGRAPH = BANK_REALITY_VERIFIED`
 - `STAGE:CODE_ANALYSIS = IMPLEMENTED/CI_VERIFIED_PARTIAL; BANK_FULL_ANALYSIS_PENDING`
 - `LAYER:L1 = AUTONOMOUS_CLOSED_LOOP_NOT_IMPLEMENTED`
+- `LAYER:L2..L7 = RC8_AUTONOMOUS_CLOSED_LOOP_NOT_IMPLEMENTED`
 - `MISSION:TEST_SUFFICIENT = NO`
 - `RELEASE = HOLD`
 
 A green Maven/JUnit attempt, CodeGraph query success, installed plugin, CI contract double, WorkItem completion, or generated report does not imply test sufficiency.
 
-The binding anti-simplification contract is:
-- `docs/rc8/RC8-NO-DISCOUNT-DELIVERY-CONTRACT.md`
+## Frozen no-discount design set
 
-## Frozen inputs
+Upper baselines:
 - `docs/rc8/RC8-MASTER-CONTRACT.md`
 - `docs/rc8/RC8-ARCHITECTURE-BASELINE.md`
 - `docs/rc8/RC8-PRODUCT-BASELINE.md`
 - `docs/rc8/RC7-TO-RC8-GAP-MATRIX.md`
 - `docs/rc8/RC8-NO-DISCOUNT-DELIVERY-CONTRACT.md`
+
+Construction-grade contracts frozen before next implementation:
+- `docs/rc8/RC8-IMPLEMENTATION-BLUEPRINT-v2.md`
+- `docs/rc8/RC8-CAPABILITY-CLOSURE-MATRIX.md`
+- `docs/rc8/RC8-L1-L7-ACCEPTANCE-CONTRACT.md`
+- `docs/rc8/RC8-MISSION-GRAPH-CONTRACT.md`
+- `docs/rc8/RC8-PRODUCT-PROJECTION-MAP.md`
+- `docs/rc8/RC8-RC7-REGRESSION-CATALOG.md`
+- `docs/rc8/RC8-WAVE-DELIVERY-GATES.md`
 - `docs/rc8/RC8-REQUIREMENT-TRACEABILITY-MATRIX.md`
-- `docs/rc8/RC8-W1-SINGLE-NODE-VERTICAL-SLICE.md`
-- `packaging/rc8/RC7_OFFLINE_TOOLSET_MANIFEST.json`
+
+These documents are binding. Requirements cannot be deleted or weakened to make implementation easier.
+
+## No-discount closure model
+
+Every implementation slice closes four independent lines:
+1. Architecture
+2. Testing Intelligence / Autonomous Loop
+3. Product Projection / UX
+4. Reality / Deployment
+
+Missing any applicable line -> PARTIAL/IMPLEMENTED only.
+
+Statuses are separately scoped:
+- TOOL
+- STAGE
+- LAYER
+- MISSION
+- RELEASE
 
 ## RC7 inheritance baseline
+
 RC8 intentionally keeps two RC7 authorities:
 1. source/capability lineage: `2c2eecb`;
 2. offline transport/toolset completeness reference: `af59027`.
-
-Do not collapse these into one source. Capability code migrates from the newer source line while node offline payload completeness is checked against the verified transport line/manifest.
 
 RC7 certification facts carried into RC8:
 - Reality Certification CLOSED
 - RC8_ENTRY_READY=YES
 - not FULLY_AUTONOMOUS_TEST_COMPLETE
-- L1/L2/L3 READY in RC7 certification semantics, but this MUST NOT be copied as RC8 autonomous-loop completion
+- L1/L2/L3 READY in RC7 certification semantics only
 - L4/L5/L7 PARTIAL
 - L6 BASELINE_ONLY
 - TEST_PARTIALLY_EXECUTED
 - Release HOLD
 - 49 raw gaps -> 16 canonical gaps
 
-## W0 status
-Implemented and CI-gated:
-- canonical Node/TestRun/WorkItem/ProductionBatch/RequirementDeliveryScope identities;
-- PLAN and RUNTIME planes separated;
-- Director/model claims cannot create runtime truth;
-- Evidence contract with hash/provenance/availability/assertion binding;
-- capability qualification state machine; VERIFIED requires probe/evidence/time;
-- `PLAN_COMPLETE != TEST_SUFFICIENT`;
-- canonical R1 runtime ledger with idempotency/conflict/replay/node-sequence gates.
+Inherited labels do not automatically promote RC8 layer closure.
 
-One authoritative-input hold remains: exact final certification wording/severity for `GAP-ADD-03`, `GAP-ADD-06`, `GAP-ADD-10` was not found in current Git sources. Keep `OPEN_INPUT`; never invent it.
+## W0 / W1 reusable foundation
 
-## W1 control/runtime foundation
-### Center
-- Node registration/heartbeat
-- capability projection/qualification
-- WorkItem register/lease/start/complete
-- lease ownership bound to Node, not DSH Session
-- late runtime writes rejected after lease release
-- central R1 append authorization
-- stdlib HTTP transport boundary
-- durable Center launcher and smoke check
-- restart-persistent W1 fallback for Node/Capability/WorkItem/Artifact metadata
-
-### Node Agent
-- stable local Node identity across restart
-- outbound-only Center connection
-- register/heartbeat/capability/lease/start/runtime/complete clients
+Implemented/reusable:
+- canonical Node/TestRun/WorkItem/ProductionBatch/RequirementDeliveryScope identities
+- PLAN/RUNTIME separation
+- R1 runtime-only ledger with idempotency/conflict/replay/sequence gates
+- Evidence/Artifact foundations
+- capability qualification state machine
+- Center Node registration/heartbeat/lease/control foundation
+- Node outbound Center client
+- Artifact Sync resumable/hash/AVAILABLE path
 - Windows Git Bash + Linux bash launchers
-- Windows Chinese/GB18030 output hardening where tool subprocesses require it
-- package-external durable node-state direction; versioned package directory must not own permanent node identity
+- Windows output decoding hardening
+- package-external durable Node state direction
 
-### Artifact Sync
-- generic asset protocol for screenshots/logs/scripts/data/skill/knowledge attachments
-- manifest -> resumable offset upload -> size/SHA-256 verify -> AVAILABLE
-- active WorkItem lease required
-- wrong Node rejected
-- late completion after WorkItem completion rejected
-- zero-byte artifacts supported
-- metadata/bytes survive Center restart in the W1 durable fallback
+These are foundations, not autonomous test completion.
 
 ## Maven/JUnit tool capability
-### Implemented truth chain
-- real `mvn -version` probe; presence alone never VERIFIED
-- probe Artifact must reach AVAILABLE before capability VERIFIED
-- real Maven subprocess execution
-- Actual derives only from fresh Surefire/Failsafe XML plus Maven process result
-- stale historical JUnit XML is ignored
-- Windows Maven output tolerates UTF-8/GB18030/local encoding without crashing execution
-- `maven_returncode != 0` cannot be hidden by green XML
-- Actual/stdout/stderr/fresh JUnit XML are uploaded before R1
-- WorkItem completes only after evidence and R1 persistence
 
-### Bank Reality result
-Target-bank validation proved the execution substrate against the actual bank `cfg-center` project:
-- Windows Git Bash execution node
-- actual bank Maven
-- main/test compile successful after test-source drift was repaired in DSH
-- real JUnit/Surefire execution
-- `tests=2243`, `failures=0`, `errors=0`, `skipped=8`
-- fresh Surefire evidence
-- `execution_passed=true`
-- capability `VERIFIED`
-- R1 `PERSISTENCE_VERIFIED`
-- WorkItem `COMPLETED`
+Target-bank Reality proved actual Windows Git Bash + bank Maven + real `cfg-center` + fresh Surefire/JUnit execution:
+- tests=2243
+- failures=0
+- errors=0
+- skipped=8
+- capability VERIFIED
+- R1 persistence verified
+- WorkItem completed
 
-Therefore only the scoped tool claim is valid:
+Valid scoped claim only:
 `TOOL:MAVEN_JUNIT = BANK_REALITY_VERIFIED`.
 
-This does NOT prove:
-- L1 design sufficiency
+Does NOT prove:
 - ExecutableSpec/script generation
 - JaCoCo/coverage.py
-- changed-line/branch/method coverage
-- coverage gap generation
+- changed method/line/branch coverage
+- requirement/risk/VP coverage
 - failure ownership/RCA
-- delta test design
-- targeted re-execution
+- delta design/re-execution
 - mutation/assertion strength
 - L1 convergence
 - TEST_SUFFICIENT
 
-Pure disconnected/offline portability is also still a separate gate because the successful bank run allowed the internal Maven repository.
+Pure disconnected Maven portability remains separately unproven because the successful bank run could use the internal Maven repository.
 
-## CodeGraph tool capability and Code Analysis stage
+## CodeGraph tool capability / Code Analysis
 
-### Tool-level Bank Reality
-Target-bank execution proved real CodeGraph structural work rather than presence/probe only:
-- real bank executable
-- real Java snapshot/query points
-- callers/callees/dependency/impact/context query families
-- graph evidence Artifact
+Target-bank Reality proved actual CodeGraph structural work against real Java snapshot:
+- context/callers/callees/dependency/impact
 - source snapshot/digest binding
+- graph Artifact
 - R1 persistence
 - WorkItem completion
 
 Valid scoped claim:
 `TOOL:CODEGRAPH = BANK_REALITY_VERIFIED`.
 
-### Full Code Analysis is still incomplete
-Implemented/under construction:
-- Git diff/snapshot authority
-- Java change discovery
-- iterative structural-query coverage
-- structural sufficiency gate
-- semantic-request contract
-- evidence-reference semantic gate
-- DSH headless semantic worker adapter
+Full Code Analysis remains incomplete. Existing/partial implementation includes Git snapshot authority, iterative structural queries, semantic-request contract and DSH headless semantic worker groundwork.
 
-Still required before `STAGE:CODE_ANALYSIS = BANK_REALITY_VERIFIED`:
-- real bank DSH semantic execution over real Git diff + CodeGraph evidence
+Still required for `STAGE:CODE_ANALYSIS = BANK_REALITY_VERIFIED/SUFFICIENT`:
+- real bank DSH semantic execution
 - semantic change interpretation
-- API/service/DB/config/business-state impact where supported by evidence
+- API/service/DB/config/business-state impact where evidenced
 - risk mapping
 - L1-L7 test-impact mapping
 - unknown/follow-up query loop
 - independent sufficiency evaluation
-- additional-query/re-analysis convergence
-- final structured code-analysis projection in Center/product
+- re-query/re-analysis convergence
+- structured Center/product projection
 
-## L1 autonomous closed loop - current truth
+## L1 autonomous closed loop current truth
 
-Current status:
 `LAYER:L1 = AUTONOMOUS_CLOSED_LOOP_NOT_IMPLEMENTED`.
 
-Required implementation before any L1 completion claim:
-1. TestCase -> ExecutableSpec contract
-2. JUnit/TestNG/pytest script builder
-3. script validation
-4. Maven/JUnit/pytest real execution
-5. JaCoCo / coverage.py adapters
-6. Git Diff + CodeGraph + coverage changed-code mapper
-7. requirement/risk/verification-point coverage evaluation
-8. failure classifier/ownership router
-9. RCA and repair routing
-10. delta test design
-11. delta script generation
-12. targeted re-execution
-13. coverage recalculation
-14. mutation/assertion-strength gate for configured high-risk scope
-15. L1 sufficiency evaluator
-16. convergence controller
-17. Attempt/Evidence/Gap/Defect durable projection
-18. product UI visibility
-19. real bank mission proof
+Required by W-B:
+1. Risk/VP driven L1 design
+2. ExecutableSpec
+3. JUnit/TestNG/pytest script builder
+4. script validation
+5. real runner
+6. JaCoCo / coverage.py
+7. Git + CodeGraph + coverage changed-code mapper
+8. requirement/risk/VP/oracle coverage
+9. failure classifier/ownership router
+10. RCA/repair routing
+11. durable Coverage Gap
+12. delta test design
+13. delta script generation
+14. targeted re-execution
+15. coverage recalculation
+16. mutation/assertion-strength where configured
+17. L1 sufficiency evaluator
+18. convergence controller
+19. Attempt/Evidence/Gap/Defect projections
+20. product UI
+21. real bank multi-attempt mission proof
 
-`mvn returncode == 0 && JUnit failures/errors == 0` is only `EXECUTION_RESULT_GREEN` and must never be used as `L1_PASS`.
+`mvn returncode == 0 && JUnit failures/errors == 0` means only `EXECUTION_RESULT_GREEN`.
 
-## L2-L7 current acceptance posture
+## L2-L7 current truth
 
-Definitions are frozen in `RC8-NO-DISCOUNT-DELIVERY-CONTRACT.md`.
+Professional layer contracts are frozen in `RC8-L1-L7-ACCEPTANCE-CONTRACT.md`.
 
-- L2: dedicated Component/Repository/DB loop required; RC7 history exposed weak binding/readback/transaction evidence.
-- L3: dedicated API/service loop required; route must be verified, auth/runtime and request/response/assertion/back-end evidence bound.
-- L4: dedicated UI/Browser loop required; zero-step/fake execution and awaiting-worker behavior are regression blockers.
-- L5: coherent E2E journey required; fragmented L2/L3/L4 green cannot substitute for one traceable business flow.
-- L6: performance/capacity/stability; `BASELINE_ONLY` when no authoritative NFR, never fabricate PASS threshold.
-- L7: security/authz; scanner availability is only one capability and cannot replace permission/role/security-negative testing.
+- L2: Repository/DB/transaction/readback closed loop required
+- L3: verified route/auth/API/backend-oracle closed loop required
+- L4: real Browser steps/network/evidence; zero-step/awaiting-worker blocked
+- L5: one coherent correlated business journey required
+- L6: workload/NFR/performance semantics; absent NFR => BASELINE_ONLY
+- L7: authz/privilege/negative/security scope; scanner is only one capability
 
-None of these layers may be globally promoted from inherited RC7 labels without RC8 vertical-loop Reality proof.
+All remain RC8 autonomous-loop OPEN until dedicated Reality proof.
 
-## RC7 gaps/regressions that remain mandatory
+## Permanent RC7 regression gate
 
-The 16 canonical gaps remain OPEN until their specific RC8 closure criteria are met. In addition, field regressions must remain explicit tests:
-- local self-loop not provably closed
-- later-stage gap route-back failure
-- unclear 'what was actually tested'
-- weak product pages
-- knowledge lost with DSH session
-- context inflation/session stall/loss
-- Director self-execution
-- plugin/tool presence mistaken for capability
-- CodeGraph not invoked when required
-- stale-cookie/manual-history 4A regression
-- guessed routes/repeated 404
-- weak test data/preconditions
-- L4/L5/L7 partial, L6 baseline-only
-- incomplete/weak evidence
-- backend/product projection drift
-- bank package/upgrade/restart failures
+Every `RC7-REG-*` item in `RC8-RC7-REGRESSION-CATALOG.md` is a permanent acceptance input.
 
-## Current implementation priority
+Critical clusters:
+- Director self-execution/runtime contamination
+- session/context loss
+- Node identity/package upgrade
+- Maven false block/stale Surefire/all-green != L1
+- CodeGraph not invoked/stale/one-query != analysis
+- one-pass requirement/design insufficiency
+- test data/precondition weakness
+- stale-cookie/manual-history 4A
+- guessed route/404
+- weak L2/L3 evidence
+- L4 zero-step/awaiting-worker fake PASS
+- fragmented L5 fake E2E
+- L6 NFR ambiguity
+- L7 scanner-all-blocked mistake
+- product/evidence/projection drift
+- knowledge loss across sessions
+- autonomous route-back/invalidation failure
 
-Do not continue breadth-first tool verification as the main line.
+## Product requirement
 
-Priority A: complete one truthful autonomous L1 vertical slice:
-`Requirement/Code Risk -> Design -> ExecutableSpec -> Script -> Real Execution -> Coverage -> Evaluate -> Gap/Failure -> Repair/Delta -> Targeted Re-run -> Recalculate -> Converge -> TEST_SUFFICIENT/Defect/HOLD`.
+The 13 primary pages remain mandatory and are mapped in `RC8-PRODUCT-PROJECTION-MAP.md`.
 
-Priority B: complete iterative Requirement Analysis and Code Analysis loops feeding that L1 slice.
+Product is part of Definition of Done. If users must read DSH logs to understand what was tested, why PASS/FAIL occurred, coverage, gaps, route-back or evidence, the slice is incomplete.
 
-Priority C: implement professional L2/L3/L4 loops with DB/API/Browser/4A/route/data realities.
+## Current next implementation target
 
-Priority D: L5 coherent E2E.
+Do NOT resume breadth-first `Browser -> 4A -> DB -> ...` tool migration as the main line.
 
-Priority E: L6/L7 dedicated sufficiency semantics.
+Next implementation is:
+`W-A Mission Kernel prerequisites + W-B First Autonomous L1 Vertical Slice`.
 
-Priority F: full L1-L7 mission convergence, product/report/defect/knowledge, multi-node/session recovery and deployment gates.
+The slice must prove:
+Requirement/Code Risk -> Test Design -> ExecutableSpec -> Script -> Preconditions/Data -> Real Execution -> JaCoCo/Coverage -> Gap/Failure -> Delta Design -> Targeted Re-run -> Recalculate -> L1 Sufficiency -> Convergence -> Product Projection -> Bank Reality.
 
-## Status semantics
-- OPEN / OPEN_INPUT: no implementation proof or authoritative input unavailable
-- IMPLEMENTED: code exists
-- CI_VERIFIED: automated gates pass
-- REALITY_VERIFIED / BANK_REALITY_VERIFIED: target-bank real execution/evidence proves the explicitly scoped behavior only
-- SUFFICIENT: dedicated evaluator says required coverage/gaps meet policy
-- CLOSED: requirement/gap trace complete and no acceptance blocker
+Mandatory Reality behavior: Attempt 1 exposes at least one real insufficiency/gap; the platform routes, repairs/delta-designs, creates a later Attempt and recalculates sufficiency. A one-shot green run cannot close W-B.
 
-Every future status statement MUST include its scope (`TOOL`, `STAGE`, `LAYER`, `MISSION`, `RELEASE`).
+## Construction evidence discipline
+
+Every functional commit must update applicable rows in:
+- `RC8-CAPABILITY-CLOSURE-MATRIX.md`
+- `RC8-REQUIREMENT-TRACEABILITY-MATRIX.md`
+
+with:
+- code paths/commit
+- automated tests/CI
+- bank Reality evidence when available
+- product projection/page
+- RC7 regression IDs
+
+No broad PASS without scoped evidence.
+
+## Authoritative-input hold
+
+Exact final wording/severity for `GAP-ADD-03`, `GAP-ADD-06`, `GAP-ADD-10` remains unavailable in Git. Keep `OPEN_INPUT`; never fabricate it.
