@@ -190,7 +190,7 @@ def test_one_round_cannot_own_two_top_level_test_runs() -> None:
 
 
 def test_round_start_is_fail_closed_when_round_has_no_delivery_or_scope() -> None:
-    client, _store = _fixture()
+    client, store = _fixture()
     assert client.post(
         "/api/v1/production-batches",
         json={"production_batch_id": "PB-20261115", "production_date": "2026-11-15", "name": "投产"},
@@ -202,6 +202,10 @@ def test_round_start_is_fail_closed_when_round_has_no_delivery_or_scope() -> Non
     empty = _start_round(client, "ROUND-EMPTY", "TR-EMPTY")
     assert empty.status_code == 409
     assert empty.json()["detail"] == "TEST_ROUND_HAS_NO_REQUIREMENTS"
+    assert store.get_test_run("TR-EMPTY") is None
+    empty_round = client.get("/api/v1/production-batches/PB-20261115/test-rounds/ROUND-EMPTY").json()["round"]
+    assert empty_round["state"] == "PLANNED"
+    assert empty_round["started_at"] is None
 
     assert client.post("/api/v1/requirements", json={"requirement_id": "REQ", "title": "需求"}).status_code == 201
     assert client.post(
@@ -215,10 +219,14 @@ def test_round_start_is_fail_closed_when_round_has_no_delivery_or_scope() -> Non
     incomplete = _start_round(client, "ROUND-NO-SCOPE", "TR-NO-SCOPE")
     assert incomplete.status_code == 409
     assert incomplete.json()["detail"] == "TEST_ROUND_SCOPE_INCOMPLETE"
+    assert store.get_test_run("TR-NO-SCOPE") is None
+    incomplete_round = client.get("/api/v1/production-batches/PB-20261115/test-rounds/ROUND-NO-SCOPE").json()["round"]
+    assert incomplete_round["state"] == "PLANNED"
+    assert incomplete_round["started_at"] is None
 
 
 def test_terminal_round_cannot_start_runtime_mission() -> None:
-    client, _store = _fixture()
+    client, store = _fixture()
     _seed_scope(client)
     _create_round(client, "ROUND-1", "第1轮")
     assert client.patch(
@@ -229,6 +237,7 @@ def test_terminal_round_cannot_start_runtime_mission() -> None:
     blocked = _start_round(client, "ROUND-1", "TR-BLOCKED")
     assert blocked.status_code == 409
     assert blocked.json()["detail"] == "TEST_ROUND_NOT_STARTABLE"
+    assert store.get_test_run("TR-BLOCKED") is None
 
 
 def test_generic_test_run_api_cannot_create_production_or_round_bound_mission() -> None:
