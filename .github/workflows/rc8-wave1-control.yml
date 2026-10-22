@@ -20,6 +20,8 @@ on:
       - 'tests/test_rc8_center_cli.py'
       - 'tests/test_rc8_real_capability_adapter.py'
       - 'tests/test_rc8_maven_execution_adapter.py'
+      - 'tests/test_rc8_jacoco_changed_scope.py'
+      - 'tests/test_rc8_maven_jacoco_execution.py'
       - 'tests/test_rc8_execution_publish.py'
       - 'tests/test_rc8_execution_publish_http.py'
       - 'tests/test_rc8_work_item_execution.py'
@@ -65,6 +67,7 @@ jobs:
             rc8_node/formal_agent.py \
             rc8_node/capabilities.py \
             rc8_node/execution.py \
+            rc8_node/jacoco.py \
             rc8_node/execution_publish.py \
             rc8_node/work_item_execution.py \
             rc8_node/reality_maven.py \
@@ -86,6 +89,8 @@ jobs:
             tests/test_rc8_center_cli.py \
             tests/test_rc8_real_capability_adapter.py \
             tests/test_rc8_maven_execution_adapter.py \
+            tests/test_rc8_jacoco_changed_scope.py \
+            tests/test_rc8_maven_jacoco_execution.py \
             tests/test_rc8_execution_publish.py \
             tests/test_rc8_execution_publish_http.py \
             tests/test_rc8_work_item_execution.py \
@@ -135,6 +140,8 @@ jobs:
             tests/test_rc8_center_cli.py \
             tests/test_rc8_real_capability_adapter.py \
             tests/test_rc8_maven_execution_adapter.py \
+            tests/test_rc8_jacoco_changed_scope.py \
+            tests/test_rc8_maven_jacoco_execution.py \
             tests/test_rc8_execution_publish.py \
             tests/test_rc8_execution_publish_http.py \
             tests/test_rc8_work_item_execution.py \
@@ -169,6 +176,7 @@ jobs:
               names = zf.namelist()
               assert any(name.endswith('/rc8_node/formal_agent.py') for name in names)
               assert any(name.endswith('/rc8_node/reality_maven.py') for name in names)
+              assert any(name.endswith('/rc8_node/jacoco.py') for name in names)
               assert any(name.endswith('/rc8_node/reality_codegraph.py') for name in names)
               assert any(name.endswith('/rc8_node/code_analysis.py') for name in names)
               assert any(name.endswith('/rc8_node/code_analysis_semantic.py') for name in names)
