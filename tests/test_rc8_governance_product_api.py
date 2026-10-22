@@ -160,8 +160,14 @@ def test_product_api_exposes_coverage_gap_and_hold_with_provenance(tmp_path):
         result = client.get("/api/v1/test-runs/run-1/governance")["test_run"]
         assert result["active_gap_count"] == 1
         assert result["coverage_observation_count"] == 1
-        assert result["coverage_observations"][0]["source_snapshot_ref"] == "git:abc"
-        assert result["coverage_observations"][0]["metric"]["ratio"] if False else True
+        observation = result["coverage_observations"][0]
+        assert observation["source_snapshot_ref"] == "git:abc"
+        assert observation["attempt_id"] == "attempt-1"
+        assert observation["metric"]["dimension"] == "CHANGED_BRANCH"
+        assert observation["metric"]["covered"] == 8
+        assert observation["metric"]["total"] == 10
+        assert observation["metric"]["threshold"] == 0.9
+        assert observation["metric"]["critical"] is True
         assert result["latest_mission_sufficiency"]["result"] == "INSUFFICIENT"
         assert result["latest_release_decision"]["decision"] == "HOLD"
     finally:
