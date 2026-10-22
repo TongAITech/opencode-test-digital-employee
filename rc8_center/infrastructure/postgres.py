@@ -1,8 +1,8 @@
-"""PostgreSQL durable Center foundation.
+"""Formal PostgreSQL persistence models for RC8 Center.
 
-This is the first formal persistence adapter. It intentionally starts with
-identity/projection primitives that can be exercised independently from the W1
-JSON repositories. Domain semantics stay in rc8_runtime/rc8_center services.
+The schema mirrors RC8 governance semantics rather than flattening them into a
+single opaque status/payload.  R1 remains runtime truth; these tables are
+durable control-domain state and replayable product projections.
 """
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import time
 from contextlib import contextmanager
 from typing import Any, Dict, Iterator, Optional
 
-from sqlalchemy import BigInteger, JSON, String, Text, create_engine, select, text
+from sqlalchemy import BigInteger, Boolean, Float, JSON, String, Text, create_engine, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -36,11 +36,21 @@ class MissionStageRow(Base):
 
     stage_instance_id: Mapped[str] = mapped_column(String(200), primary_key=True)
     test_run_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
-    stage_type: Mapped[str] = mapped_column(String(80), nullable=False)
-    scope_ref: Mapped[str] = mapped_column(String(240), nullable=False, default="GLOBAL")
-    scope_version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
+    stage_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    scope_version: Mapped[str] = mapped_column(String(300), nullable=False)
+    attempt_no: Mapped[int] = mapped_column(BigInteger, nullable=False)
     state: Mapped[str] = mapped_column(String(64), nullable=False)
-    evaluator_ref: Mapped[Optional[str]] = mapped_column(String(240), nullable=True)
+    input_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    output_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    gap_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    invalidation_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    predecessor_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    successor_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    assigned_worker: Mapped[Optional[str]] = mapped_column(String(240), nullable=True)
+    evaluator_id: Mapped[Optional[str]] = mapped_column(String(240), nullable=True)
+    policy_version: Mapped[Optional[str]] = mapped_column(String(240), nullable=True)
+    started_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    finished_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
     updated_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
     payload: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
@@ -52,10 +62,21 @@ class AttemptRow(Base):
     attempt_id: Mapped[str] = mapped_column(String(200), primary_key=True)
     test_run_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
     stage_instance_id: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
-    state: Mapped[str] = mapped_column(String(64), nullable=False)
+    work_item_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    producer_node_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    producer_ref: Mapped[str] = mapped_column(String(240), nullable=False)
+    input_snapshot_ref: Mapped[str] = mapped_column(String(300), nullable=False)
+    status: Mapped[str] = mapped_column(String(64), nullable=False)
+    case_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    action_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    assertion_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    evidence_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    coverage_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    gap_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    defect_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    failure_ownership: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     started_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    ended_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
-    source_snapshot_ref: Mapped[Optional[str]] = mapped_column(String(240), nullable=True)
+    finished_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     payload: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
 
@@ -65,13 +86,20 @@ class GapRow(Base):
     gap_id: Mapped[str] = mapped_column(String(200), primary_key=True)
     test_run_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
     source_stage_instance_id: Mapped[str] = mapped_column(String(200), nullable=False)
-    source_attempt_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     gap_type: Mapped[str] = mapped_column(String(100), nullable=False)
-    owner_stage: Mapped[str] = mapped_column(String(100), nullable=False)
     severity: Mapped[str] = mapped_column(String(32), nullable=False)
-    state: Mapped[str] = mapped_column(String(64), nullable=False)
-    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    resolved_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    owner_stage: Mapped[str] = mapped_column(String(100), nullable=False)
+    repair_strategy: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_attempt_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    source_case_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    source_assertion_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    evidence_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    invalidates: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    closure_evidence_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    opened_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    closed_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     payload: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
 
@@ -81,15 +109,77 @@ class CoverageObservationRow(Base):
     observation_id: Mapped[str] = mapped_column(String(200), primary_key=True)
     test_run_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
     stage_instance_id: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
-    attempt_id: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
-    dimension: Mapped[str] = mapped_column(String(100), nullable=False)
+    attempt_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True, index=True)
+    case_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     subject_ref: Mapped[str] = mapped_column(String(300), nullable=False)
+    source_snapshot_ref: Mapped[str] = mapped_column(String(300), nullable=False)
+    source_tool: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    metric_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    dimension: Mapped[str] = mapped_column(String(100), nullable=False)
     covered: Mapped[int] = mapped_column(BigInteger, nullable=False)
     total: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    source_snapshot_ref: Mapped[str] = mapped_column(String(240), nullable=False)
-    source_tool: Mapped[str] = mapped_column(String(100), nullable=False)
+    threshold: Mapped[float] = mapped_column(Float, nullable=False)
+    critical: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    evidence_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    artifact_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     observed_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
     payload: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class InvalidationRow(Base):
+    __tablename__ = "rc8_invalidation"
+
+    invalidation_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    test_run_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    source_ref: Mapped[str] = mapped_column(String(300), nullable=False)
+    target_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class SufficiencyEvaluationRow(Base):
+    __tablename__ = "rc8_sufficiency_evaluation"
+
+    evaluation_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    test_run_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    scope: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject_id: Mapped[str] = mapped_column(String(240), nullable=False, index=True)
+    evaluator_id: Mapped[str] = mapped_column(String(240), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(240), nullable=False)
+    result: Mapped[str] = mapped_column(String(64), nullable=False)
+    dimension_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    evidence_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    satisfied_requirement_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    unsatisfied_requirement_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    unresolved_gap_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    accepted_waiver_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    evaluated_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class ReleaseDecisionRow(Base):
+    __tablename__ = "rc8_release_decision"
+
+    release_decision_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    test_run_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    decision: Mapped[str] = mapped_column(String(64), nullable=False)
+    mission_evaluation_ref: Mapped[str] = mapped_column(String(240), nullable=False)
+    evidence_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    blocking_defect_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    recorded_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class ProjectionReceiptRow(Base):
+    __tablename__ = "rc8_projection_receipt"
+
+    event_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    test_run_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    domain_ref: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class ProjectionCheckpointRow(Base):
@@ -107,7 +197,7 @@ def build_engine(database_url: str) -> Engine:
 
 
 class PostgresStore:
-    """Small formal persistence boundary used by the first full-stack slice."""
+    """Formal persistence boundary used by Center application services."""
 
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
