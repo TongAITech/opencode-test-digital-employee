@@ -1,7 +1,9 @@
 """Formal FastAPI adapter for RC8 Center.
 
-FastAPI is intentionally a thin edge. Domain truth remains in existing Center
-services/R1 projector and the formal PostgreSQL/Redis infrastructure adapters.
+FastAPI is a thin edge. Domain truth remains in Center services/R1 and formal
+PostgreSQL/Redis infrastructure adapters. Runtime writes are accepted only
+through the formal control plane, which verifies PostgreSQL identity/state and
+the active Redis owner+lease token before R1 persistence.
 """
 from __future__ import annotations
 
@@ -12,8 +14,27 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from rc8_center.control_plane import CenterControlError, NodeStatus
 from rc8_center.formal_settings import CenterSettings
 from rc8_center.infrastructure import PostgresStore, RedisCoordination
+from rc8_runtime import (
+    CapabilityQualification,
+    CapabilityState,
+    NodeIdentity,
+    RuntimeEventEnvelope,
+    RuntimeProducerKind,
+    WorkItemIdentity,
+)
+
+from .schemas import (
+    CapabilityRequest,
+    LeasedActionRequest,
+    LeaseRequest,
+    NodeHeartbeatRequest,
+    NodeRegistrationRequest,
+    RuntimeEventRequest,
+    WorkItemRegistrationRequest,
+)
 
 
 class TestRunCreate(BaseModel):
@@ -66,23 +87,30 @@ def _test_run_view(row: Any) -> TestRunView:
     )
 
 
+def _control_http_error(exc: Exception) -> HTTPException:
+    detail = str(exc)
+    conflict = {
+        "NODE_IDENTITY_CONFLICT",
+        "WORK_ITEM_IDENTITY_CONFLICT",
+        "WORK_ITEM_LEASE_HELD",
+        "WORK_ITEM_LEASE_TOKEN_DIVERGED",
+        "WORK_ITEM_LEASE_RECOVERY_REQUIRED",
+        "ACTIVE_WORK_ITEM_LEASE_REQUIRED",
+        "WORK_ITEM_TERMINAL",
+    }
+    code = status.HTTP_409_CONFLICT if detail in conflict else status.HTTP_400_BAD_REQUEST
+    return HTTPException(status_code=code, detail=detail)
+
+
 def create_app(
     *,
     settings: Optional[CenterSettings] = None,
     postgres: Optional[PostgresStore] = None,
     redis_coordination: Optional[RedisCoordination] = None,
     governance_projection: Optional[object] = None,
+    formal_control: Optional[object] = None,
     product_application: Optional[object] = None,
 ) -> FastAPI:
-    """Create the formal Center FastAPI application.
-
-    Dependencies are injectable so domain/projection behavior can be exercised in
-    contract tests without hiding network/database side effects in route code.
-    `product_application` is transitional compatibility for the W-A stdlib
-    product adapter; the formal path is `governance_projection` backed by
-    PostgreSQL.
-    """
-
     cfg = settings or CenterSettings()
     app = FastAPI(
         title="RC8 Center API",
@@ -95,7 +123,14 @@ def create_app(
     app.state.postgres = postgres
     app.state.redis_coordination = redis_coordination
     app.state.governance_projection = governance_projection
+    app.state.formal_control = formal_control
     app.state.product_application = product_application
+
+    def control() -> object:
+        value = app.state.formal_control
+        if value is None:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="FORMAL_CONTROL_NOT_CONFIGURED")
+        return value
 
     @app.get("/health", response_model=HealthView)
     def health() -> HealthView:
@@ -112,13 +147,7 @@ def create_app(
             except Exception:
                 redis_status = "NOT_READY"
         overall = "READY" if db_status == "READY" and redis_status == "READY" else "DEGRADED"
-        return HealthView(
-            status=overall,
-            service="RC8_CENTER_FASTAPI",
-            database=db_status,
-            redis=redis_status,
-            runtime_truth="R1_EVENT_STREAM",
-        )
+        return HealthView(status=overall, service="RC8_CENTER_FASTAPI", database=db_status, redis=redis_status, runtime_truth="R1_EVENT_STREAM")
 
     @app.get("/api/v1/system/architecture")
     def architecture() -> Dict[str, Any]:
@@ -129,6 +158,7 @@ def create_app(
                 "runtime_truth": "R1_EVENT_STREAM",
                 "redis_authoritative": False,
                 "ui_may_infer_pass": False,
+                "runtime_write_requires_pg_and_redis_lease_token": True,
                 "stdlib_http_role": "MINIMAL_PROTOCOL_TEST_ADAPTER_ONLY",
             },
         }
@@ -147,11 +177,7 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="POSTGRES_NOT_CONFIGURED")
         if store.get_test_run(request.test_run_id) is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="TEST_RUN_ALREADY_EXISTS")
-        row = store.create_test_run(
-            request.test_run_id,
-            production_batch_id=request.production_batch_id,
-            payload=request.payload,
-        )
+        row = store.create_test_run(request.test_run_id, production_batch_id=request.production_batch_id, payload=request.payload)
         response.headers["Location"] = "/api/v1/test-runs/%s" % request.test_run_id
         return _test_run_view(row)
 
@@ -179,9 +205,89 @@ def create_app(
                 return _jsonable(product.get("/api/v1/test-runs/%s/governance" % test_run_id))
             except Exception as exc:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="GOVERNANCE_PROJECTION_NOT_CONFIGURED",
-        )
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="GOVERNANCE_PROJECTION_NOT_CONFIGURED")
+
+    @app.post("/api/v1/nodes/register")
+    def register_node(request: NodeRegistrationRequest) -> Dict[str, Any]:
+        try:
+            value = NodeIdentity(**request.model_dump())
+            return {"node": _jsonable(control().register_node(value))}
+        except (CenterControlError, ValueError) as exc:
+            raise _control_http_error(exc) from exc
+
+    @app.post("/api/v1/nodes/{node_id}/heartbeat")
+    def heartbeat(node_id: str, request: NodeHeartbeatRequest) -> Dict[str, Any]:
+        try:
+            parsed = NodeStatus(request.status) if request.status else None
+            return {"node": _jsonable(control().heartbeat(node_id, status=parsed))}
+        except (CenterControlError, ValueError) as exc:
+            raise _control_http_error(exc) from exc
+
+    @app.post("/api/v1/nodes/{node_id}/capabilities")
+    def qualify_capability(node_id: str, request: CapabilityRequest) -> Dict[str, Any]:
+        try:
+            value = CapabilityQualification(
+                node_id=node_id,
+                capability_id=request.capability_id,
+                state=CapabilityState(request.state),
+                probe_ref=request.probe_ref,
+                evidence_refs=request.evidence_refs,
+                verified_at=request.verified_at,
+            )
+            return {"capability": _jsonable(control().qualify_capability(value))}
+        except (CenterControlError, ValueError) as exc:
+            raise _control_http_error(exc) from exc
+
+    @app.post("/api/v1/work-items/register")
+    def register_work_item(request: WorkItemRegistrationRequest) -> Dict[str, Any]:
+        try:
+            identity = WorkItemIdentity(**request.model_dump())
+            return {"work_item": _jsonable(control().register_work_item(identity))}
+        except (CenterControlError, ValueError) as exc:
+            raise _control_http_error(exc) from exc
+
+    @app.post("/api/v1/work-items/{work_item_id}/lease")
+    def lease_work_item(work_item_id: str, request: LeaseRequest) -> Dict[str, Any]:
+        try:
+            return {"work_item": _jsonable(control().lease_work_item(work_item_id, request.node_id, ttl_seconds=request.ttl_seconds))}
+        except (CenterControlError, ValueError) as exc:
+            raise _control_http_error(exc) from exc
+
+    @app.post("/api/v1/work-items/{work_item_id}/start")
+    def start_work_item(work_item_id: str, request: LeasedActionRequest) -> Dict[str, Any]:
+        try:
+            return {"work_item": _jsonable(control().start_work_item(work_item_id, request.node_id, request.lease_id))}
+        except (CenterControlError, ValueError) as exc:
+            raise _control_http_error(exc) from exc
+
+    @app.post("/api/v1/runtime-events")
+    def append_runtime_event(request: RuntimeEventRequest) -> Dict[str, Any]:
+        try:
+            event = RuntimeEventEnvelope(
+                event_id=request.event_id,
+                test_run_id=request.test_run_id,
+                work_item_id=request.work_item_id,
+                node_id=request.node_id,
+                producer_kind=RuntimeProducerKind(request.producer_kind),
+                producer_ref=request.producer_ref,
+                event_type=request.event_type,
+                sequence=request.sequence,
+                case_id=request.case_id,
+                attempt_id=request.attempt_id,
+                step_id=request.step_id,
+                refs=request.refs,
+                data=request.data,
+                occurred_at=request.occurred_at,
+            )
+            return _jsonable(control().append_runtime_event(event, lease_id=request.lease_id))
+        except (CenterControlError, ValueError) as exc:
+            raise _control_http_error(exc) from exc
+
+    @app.post("/api/v1/work-items/{work_item_id}/complete")
+    def complete_work_item(work_item_id: str, request: LeasedActionRequest) -> Dict[str, Any]:
+        try:
+            return {"work_item": _jsonable(control().complete_work_item(work_item_id, request.node_id, request.lease_id))}
+        except (CenterControlError, ValueError) as exc:
+            raise _control_http_error(exc) from exc
 
     return app
