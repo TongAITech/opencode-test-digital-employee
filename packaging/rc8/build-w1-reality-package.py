@@ -45,6 +45,7 @@ RUNTIME_FILES = (
     "rc8_node/formal_agent.py",
     "rc8_node/capabilities.py",
     "rc8_node/execution.py",
+    "rc8_node/failure_classification.py",
     "rc8_node/jacoco.py",
     "rc8_node/execution_publish.py",
     "rc8_node/work_item_execution.py",
@@ -148,6 +149,7 @@ def _write_readme(root: Path, head: str) -> str:
         "- Center / Node / WorkItem / R1 / Artifact Sync\n"
         "- Center Mission Graph / scope-aware Stage control\n"
         "- Maven/JUnit Tool Reality\n"
+        "- JUnit 失败归属 Actual（仅对强证据自动归属；断言/业务异常保持 UNKNOWN 待语义裁决）\n"
         "- JaCoCo 变更方法/行/分支覆盖 Actual（仅接受同一执行新鲜报告）\n"
         "- CodeGraph Tool Reality\n"
         "- Code Analysis 构建中的结构/语义链\n"
@@ -196,7 +198,7 @@ def _write_readme(root: Path, head: str) -> str:
         "  --codegraph /path/to/codegraph-server-win32-x64.exe \\\n"
         "  --dsh dsh --base-ref HEAD~1 --head-ref HEAD\n"
         "```\n\n"
-        "完整 L1 闭环还必须继续完成覆盖缺口、delta test、targeted rerun、收敛和产品投影；不能以 JaCoCo 或 CodeGraph 单项成功替代。\n",
+        "完整 L1 闭环还必须继续完成 failure semantic adjudication、delta test、targeted rerun、收敛和产品投影；不能以 JaCoCo、JUnit 分类或 CodeGraph 单项成功替代。\n",
         encoding="utf-8",
     )
     return relative
@@ -205,7 +207,7 @@ def _write_readme(root: Path, head: str) -> str:
 def _write_manifest(root: Path, head: str, files: List[str]) -> str:
     relative = "PACKAGE-MANIFEST.json"
     payload: Dict[str, object] = {
-        "schema_version": "rc8.bank-reality-package.v9",
+        "schema_version": "rc8.bank-reality-package.v10",
         "package_type": "FULL_STANDALONE_REALITY_VALIDATION_PACKAGE",
         "patch_package": False,
         "git_head": head,
@@ -233,6 +235,7 @@ def _write_manifest(root: Path, head: str, files: List[str]) -> str:
             "R1_GOVERNANCE_REPLAY",
             "GOVERNANCE_PRODUCT_API",
             "MAVEN_JUNIT_REALITY",
+            "JUNIT_FAILURE_OWNERSHIP",
             "JACOCO_CHANGED_SCOPE_REALITY",
             "CODEGRAPH_REALITY",
             "CODE_ANALYSIS_STRUCTURAL_LOOP",
@@ -276,10 +279,11 @@ def _verify_runtime_imports(root: Path) -> None:
         "from rc8_runtime import CoverageObservation, MissionGraphRuntime, MissionRuntimeState, ScopedStatusClaim; "
         "from rc8_center import CenterMissionService, CenterProductApplication, GovernanceEventProjector, GovernanceProjectionService, JsonFileCoverageRepository, JsonFileGovernanceRepository; "
         "from rc8_node import FormalNodeAgent; "
+        "from rc8_node.failure_classification import JUnitFailureClassifier; "
         "from rc8_node.jacoco import JaCoCoChangedScopeCollector; "
         "assert CoverageObservation and MissionGraphRuntime and MissionRuntimeState and ScopedStatusClaim; "
         "assert CenterMissionService and CenterProductApplication and GovernanceEventProjector and GovernanceProjectionService; "
-        "assert JsonFileCoverageRepository and JsonFileGovernanceRepository and FormalNodeAgent and JaCoCoChangedScopeCollector; "
+        "assert JsonFileCoverageRepository and JsonFileGovernanceRepository and FormalNodeAgent and JUnitFailureClassifier and JaCoCoChangedScopeCollector; "
         "print('RC8_PACKAGE_RUNTIME_IMPORT_PASS')"
     )
     proc = subprocess.run(
