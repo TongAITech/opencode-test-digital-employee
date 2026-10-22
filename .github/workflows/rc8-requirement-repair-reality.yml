@@ -86,6 +86,15 @@ jobs:
           echo $! > /tmp/rc8-requirement-repair-center.pid
       - name: Prove requirement analysis insufficiency repair and CodeGraph gate over real HTTP
         run: python scripts/rc8_requirement_repair_reality_test.py
+      - name: Expose requirement worker failure truth
+        if: failure()
+        run: |
+          echo '--- requirement-analysis failure artifacts ---'
+          find "$RC8_ARTIFACT_ROOT" -type f \( -name 'requirement-analysis-failure.json' -o -name 'artifact-req-failure-*.json' \) -print -exec cat {} \; || true
+          echo '--- R1 terminal attempt truth ---'
+          if test -f "$RC8_R1_ROOT/event-stream.jsonl"; then
+            grep -E 'ATTEMPT_(FAILED_RUNTIME|BLOCKED)|REQUIREMENT_ANALYSIS' "$RC8_R1_ROOT/event-stream.jsonl" || true
+          fi
       - name: Preserve Center log
         if: always()
         run: |
