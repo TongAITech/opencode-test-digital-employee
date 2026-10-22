@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "frozen_contract_refs": [
+    "docs/rc8/RC8-MASTER-CONTRACT.md",
+    "docs/rc8/RC8-ARCHITECTURE-BASELINE.md",
+    "docs/rc8/RC8-PRODUCT-BASELINE.md",
+    "docs/rc8/RC8-NO-DISCOUNT-DELIVERY-CONTRACT.md",
+    "docs/rc8/RC8-CAPABILITY-CLOSURE-MATRIX.md",
+    "docs/rc8/RC8-L1-L7-ACCEPTANCE-CONTRACT.md",
+    "docs/rc8/RC8-MISSION-GRAPH-CONTRACT.md",
+    "docs/rc8/RC8-PRODUCT-PROJECTION-MAP.md",
+    "docs/rc8/RC8-RC7-REGRESSION-CATALOG.md",
+    "docs/rc8/RC8-WAVE-DELIVERY-GATES.md"
+  ],
+  "claims": [
+    {
+      "claim_id": "TOOL:MAVEN_JUNIT",
+      "scope": "TOOL",
+      "subject_id": "maven-junit",
+      "state": "REALITY_VERIFIED",
+      "required_gates": ["architecture", "implementation", "automated_test", "reality"],
+      "completed_gates": ["architecture", "implementation", "automated_test", "reality"],
+      "evidence_refs": ["bank-reality:maven-junit:cfg-center", "artifact:fresh-surefire"],
+      "reality_refs": ["bank:windows-git-bash:cfg-center"],
+      "coverage_refs": [],
+      "unresolved_gap_ids": [],
+      "dependency_claim_refs": [],
+      "notes": "Tool execution substrate only. Does not imply L1 sufficiency."
+    },
+    {
+      "claim_id": "TOOL:CODEGRAPH",
+      "scope": "TOOL",
+      "subject_id": "codegraph",
+      "state": "REALITY_VERIFIED",
+      "required_gates": ["architecture", "implementation", "automated_test", "reality"],
+      "completed_gates": ["architecture", "implementation", "automated_test", "reality"],
+      "evidence_refs": ["bank-reality:codegraph:graph-evidence", "artifact:codegraph-structural-query"],
+      "reality_refs": ["bank:windows-git-bash:real-codegraph"],
+      "coverage_refs": [],
+      "unresolved_gap_ids": [],
+      "dependency_claim_refs": [],
+      "notes": "Structural CodeGraph capability only. Does not imply full code-analysis sufficiency."
+    },
+    {
+      "claim_id": "STAGE:CODE_ANALYSIS",
+      "scope": "STAGE",
+      "subject_id": "code-analysis",
+      "state": "PARTIAL",
+      "required_gates": ["architecture", "implementation", "automated_test", "sufficiency", "product", "reality"],
+      "completed_gates": ["architecture", "implementation", "automated_test"],
+      "evidence_refs": ["code:rc8_node/code_analysis.py", "code:rc8_node/dsh_semantic_worker.py"],
+      "reality_refs": [],
+      "coverage_refs": [],
+      "unresolved_gap_ids": ["GAP:CODE_ANALYSIS_BANK_SEMANTIC_REALITY", "GAP:CODE_ANALYSIS_PRODUCT_PROJECTION"],
+      "dependency_claim_refs": ["TOOL:CODEGRAPH"],
+      "notes": "Semantic DSH worker exists but full bank semantic+sufficiency+product Reality is pending."
+    },
+    {
+      "claim_id": "LAYER:L1",
+      "scope": "LAYER",
+      "subject_id": "L1",
+      "state": "PARTIAL",
+      "required_gates": ["architecture", "implementation", "automated_test", "coverage", "sufficiency", "product", "reality", "rc7_regression"],
+      "completed_gates": ["architecture"],
+      "evidence_refs": ["contract:RC8-L1-L7-ACCEPTANCE-CONTRACT"],
+      "reality_refs": [],
+      "coverage_refs": [],
+      "unresolved_gap_ids": [
+        "GAP:L1_EXECUTABLE_SPEC",
+        "GAP:L1_JACOCO",
+        "GAP:L1_CHANGED_COVERAGE",
+        "GAP:L1_FAILURE_ROUTER",
+        "GAP:L1_DELTA_TESTING",
+        "GAP:L1_MUTATION",
+        "GAP:L1_SUFFICIENCY",
+        "GAP:L1_PRODUCT_PROJECTION",
+        "GAP:L1_BANK_CLOSED_LOOP_REALITY"
+      ],
+      "dependency_claim_refs": ["TOOL:MAVEN_JUNIT", "TOOL:CODEGRAPH", "STAGE:CODE_ANALYSIS"],
+      "notes": "Maven/JUnit green execution is not L1 sufficient."
+    },
+    {
+      "claim_id": "MISSION:RC8_FIRST_AUTONOMOUS_SLICE",
+      "scope": "MISSION",
+      "subject_id": "rc8-first-autonomous-slice",
+      "state": "INSUFFICIENT",
+      "required_gates": ["architecture", "implementation", "automated_test", "coverage", "sufficiency", "product", "reality", "recovery", "deployment"],
+      "completed_gates": ["architecture"],
+      "evidence_refs": ["contract:RC8-MISSION-GRAPH-CONTRACT"],
+      "reality_refs": [],
+      "coverage_refs": [],
+      "unresolved_gap_ids": ["GAP:FIRST_MISSION_REQUIRES_SECOND_ATTEMPT_CLOSURE"],
+      "dependency_claim_refs": ["STAGE:CODE_ANALYSIS", "LAYER:L1"],
+      "notes": "First Reality mission must intentionally detect a gap, create a second Attempt, close it, and visibly converge."
+    },
+    {
+      "claim_id": "RELEASE:RC8",
+      "scope": "RELEASE",
+      "subject_id": "rc8",
+      "state": "HOLD",
+      "required_gates": ["mission_sufficient", "reality", "product", "deployment"],
+      "completed_gates": [],
+      "evidence_refs": ["status:MISSION_TEST_SUFFICIENT_NO"],
+      "reality_refs": [],
+      "coverage_refs": [],
+      "unresolved_gap_ids": ["GAP:MISSION_NOT_SUFFICIENT"],
+      "dependency_claim_refs": ["MISSION:RC8_FIRST_AUTONOMOUS_SLICE"],
+      "notes": "Release remains HOLD until mission sufficiency and release policy gates pass."
+    }
+  ]
+}
