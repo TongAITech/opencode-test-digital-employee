@@ -69,6 +69,19 @@ def _context() -> CoveragePublishContext:
         stage_instance_id="stage-l1-execution",
         attempt_id="attempt-1",
         subject_ref="sst:SST-001",
+        thresholds={
+            "CHANGED_METHOD": 1.0,
+            "CHANGED_LINE": 0.75,
+            "CHANGED_BRANCH": 0.5,
+        },
+    )
+
+
+def _strict_context() -> CoveragePublishContext:
+    return CoveragePublishContext(
+        stage_instance_id="stage-l1-execution",
+        attempt_id="attempt-1",
+        subject_ref="sst:SST-001",
     )
 
 
@@ -100,7 +113,75 @@ def test_coverage_evidence_is_available_before_three_r1_coverage_events(tmp_path
     first_r1 = next(index for index, call in enumerate(agent.calls) if call[0] == "r1")
     assert all(call[0] == "artifact" for call in agent.calls[:first_r1])
     assert len(published["coverage_events"]) == 3
+    assert published["gap_events"] == []
     assert published["actual_passed"] is True
+
+
+def test_unsatisfied_changed_coverage_opens_governed_test_design_gaps_only(tmp_path: Path) -> None:
+    agent = RecordingAgent()
+    published = publish_maven_junit_execution(
+        agent,
+        test_run_id="run-1",
+        work_item_id="wi-1",
+        result=_result(tmp_path),
+        event_id="evt-exec-gap",
+        sequence=100,
+        coverage_context=_strict_context(),
+    )
+
+    assert [event.event_type for event in agent.events] == [
+        "MAVEN_JUNIT_ACTUAL_RECORDED",
+        "COVERAGE_COLLECTED",
+        "COVERAGE_COLLECTED",
+        "COVERAGE_COLLECTED",
+        "GAP_OPENED",
+        "GAP_OPENED",
+    ]
+    gap_events = agent.events[4:]
+    assert [event.sequence for event in gap_events] == [104, 105]
+    assert [event.data["coverage_dimension"] for event in gap_events] == [
+        "CHANGED_LINE", "CHANGED_BRANCH",
+    ]
+    assert all(event.data["gap_type"] == "COVERAGE_GAP" for event in gap_events)
+    assert all(event.data["owner_stage"] == "TEST_DESIGN" for event in gap_events)
+    assert all(event.data["severity"] == "P1" for event in gap_events)
+    assert all(event.data["repair_strategy"] == "GENERATE_DELTA_TEST_THEN_TARGETED_RERUN" for event in gap_events)
+    assert all(event.attempt_id == "attempt-1" for event in gap_events)
+    assert len({event.data["gap_id"] for event in gap_events}) == 2
+    assert len(published["gap_events"]) == 2
+    # Coverage/Gap production is evidence and feedback only. It cannot emit a
+    # Stage/Layer/Mission/Release promotion event.
+    assert not any("SUFFIC" in event.event_type or "PASS" in event.event_type for event in agent.events)
+
+
+def test_gap_identity_is_stable_across_attempt_event_ids_for_same_snapshot_and_subject(tmp_path: Path) -> None:
+    first_agent = RecordingAgent()
+    second_agent = RecordingAgent()
+    first = publish_maven_junit_execution(
+        first_agent,
+        test_run_id="run-1",
+        work_item_id="wi-1",
+        result=_result(tmp_path),
+        event_id="evt-exec-gap-a",
+        sequence=200,
+        coverage_context=_strict_context(),
+    )
+    second = publish_maven_junit_execution(
+        second_agent,
+        test_run_id="run-1",
+        work_item_id="wi-2",
+        result=_result(tmp_path),
+        event_id="evt-exec-gap-b",
+        sequence=300,
+        coverage_context=CoveragePublishContext(
+            stage_instance_id="stage-l1-execution-rerun",
+            attempt_id="attempt-2",
+            subject_ref="sst:SST-001",
+        ),
+    )
+
+    assert [item["gap_id"] for item in first["gap_events"]] == [item["gap_id"] for item in second["gap_events"]]
+    assert [item["event_id"] for item in first["gap_events"]] != [item["event_id"] for item in second["gap_events"]]
 
 
 def test_coverage_result_without_governance_context_is_rejected_before_upload(tmp_path: Path) -> None:
