@@ -9,6 +9,7 @@ on:
       - "center/**"
       - "center-web/**"
       - "scripts/rc8_formal_center_stack_test.py"
+      - "scripts/rc8_formal_artifact_upload_test.py"
       - ".github/workflows/rc8-formal-center-stack.yml"
   workflow_dispatch:
 
@@ -50,11 +51,13 @@ jobs:
       - name: Install formal Center dependencies
         run: pip install -r center/requirements.txt
       - name: Compile formal Center Python
-        run: python -m py_compile rc8_center/formal_settings.py rc8_center/formal_app.py rc8_center/api/fastapi_app.py rc8_center/infrastructure/postgres.py rc8_center/infrastructure/redis_coordination.py
+        run: python -m py_compile rc8_center/formal_settings.py rc8_center/formal_app.py rc8_center/formal_artifacts.py rc8_center/api/fastapi_app.py rc8_center/api/schemas.py rc8_center/infrastructure/postgres.py rc8_center/infrastructure/redis_coordination.py
       - name: Apply Alembic schema
         run: alembic -c center/alembic.ini upgrade head
       - name: Run real FastAPI PostgreSQL Redis integration assertions
         run: python scripts/rc8_formal_center_stack_test.py
+      - name: Run lease-governed resumable Artifact upload assertions
+        run: python scripts/rc8_formal_artifact_upload_test.py
       - name: Verify schema is at head and reversible SQL is renderable
         run: |
           alembic -c center/alembic.ini current
