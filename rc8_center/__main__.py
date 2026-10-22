@@ -11,6 +11,7 @@ from rc8_runtime import CentralR1RuntimeLedger
 from .artifacts import FileArtifactStore
 from .control_plane import CenterControlPlane
 from .coverage_repository import JsonFileCoverageRepository
+from .governance_event_projector import GovernanceEventProjector
 from .governance_projection import GovernanceProjectionService
 from .governance_repository import JsonFileGovernanceRepository
 from .http_server import CenterHttpApplication, create_server
@@ -30,7 +31,11 @@ def build_application(state_dir: str) -> CenterProductApplication:
     control = CenterControlPlane(center_repo, ledger)
     base = CenterHttpApplication(control, artifact_store)
     projection = GovernanceProjectionService(governance_repo, coverage_repo)
-    return CenterProductApplication(base, projection)
+    projector = GovernanceEventProjector(ledger, governance_repo, coverage_repo, artifact_repo)
+    # Projections are rebuildable from R1. Startup replay repairs any crash window
+    # where R1 persistence succeeded but a downstream projection was incomplete.
+    projector.replay()
+    return CenterProductApplication(base, projection, projector)
 
 
 def main(argv: Optional[list] = None) -> int:
@@ -56,6 +61,7 @@ def main(argv: Optional[list] = None) -> int:
                     "r1_runtime_only": True,
                     "artifact_store": "READY" if application.artifact_store is not None else "UNAVAILABLE",
                     "governance_projection": "READY",
+                    "r1_projection_replay": "READY",
                     "product_api": "READY",
                     "governance_state": "READY" if (root / "governance-state.json").is_file() else "UNAVAILABLE",
                     "coverage_state": "READY" if (root / "coverage-state.json").is_file() else "UNAVAILABLE",
@@ -76,6 +82,7 @@ def main(argv: Optional[list] = None) -> int:
                 "port": actual_port,
                 "state_dir": str(Path(args.state_dir).resolve()),
                 "governance_projection": "READY",
+                "r1_projection_replay": "READY",
                 "product_api": "READY",
             },
             ensure_ascii=False,
