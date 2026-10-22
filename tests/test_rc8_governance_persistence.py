@@ -38,7 +38,8 @@ def _stage():
     )
 
 
-def _attempt():
+def _attempt(status=AttemptStatus.COMPLETED):
+    terminal = status != AttemptStatus.STARTED
     return AttemptRecord(
         attempt_id="attempt-1",
         test_run_id="run-1",
@@ -47,12 +48,13 @@ def _attempt():
         producer_node_id="node-1",
         producer_ref="worker:l1",
         input_snapshot_ref="git:abc",
-        status=AttemptStatus.COMPLETED,
-        action_refs=("action:test",),
-        assertion_refs=("assertion:1",),
-        evidence_refs=("artifact:junit",),
-        coverage_refs=("coverage-observation:1",),
-        finished_at=20,
+        status=status,
+        action_refs=("action:test",) if terminal else (),
+        assertion_refs=("assertion:1",) if terminal else (),
+        evidence_refs=("artifact:junit",) if terminal else (),
+        coverage_refs=("coverage-observation:1",) if terminal else (),
+        started_at=10,
+        finished_at=20 if terminal else None,
     )
 
 
@@ -86,7 +88,7 @@ def test_governance_facts_survive_repository_restart(tmp_path):
     cov = JsonFileCoverageRepository(str(cov_path))
 
     gov.upsert_stage(_stage())
-    gov.append_attempt(_attempt())
+    gov.upsert_attempt(_attempt())
     gap = GapRecord(
         gap_id="gap-coverage-1",
         test_run_id="run-1",
@@ -136,7 +138,6 @@ def test_governance_facts_survive_repository_restart(tmp_path):
     )
     gov.append_release_decision(release)
 
-    # Simulate Center restart by reconstructing repositories from disk.
     gov2 = JsonFileGovernanceRepository(str(gov_path))
     cov2 = JsonFileCoverageRepository(str(cov_path))
     projection = GovernanceProjectionService(gov2, cov2).test_run("run-1")
@@ -156,7 +157,7 @@ def test_projection_does_not_invent_pass_from_completed_attempt(tmp_path):
     gov = JsonFileGovernanceRepository(str(tmp_path / "governance.json"))
     cov = JsonFileCoverageRepository(str(tmp_path / "coverage.json"))
     gov.upsert_stage(_stage())
-    gov.append_attempt(_attempt())
+    gov.upsert_attempt(_attempt())
 
     projection = GovernanceProjectionService(gov, cov).test_run("run-1")
     assert projection["latest_mission_sufficiency"] is None
@@ -165,16 +166,74 @@ def test_projection_does_not_invent_pass_from_completed_attempt(tmp_path):
     assert projection["attempt_count"] == 1
 
 
-def test_attempt_and_coverage_observation_are_append_only(tmp_path):
+def test_attempt_projection_advances_monotonically_but_attempt_identity_is_preserved(tmp_path):
     gov = JsonFileGovernanceRepository(str(tmp_path / "governance.json"))
-    cov = JsonFileCoverageRepository(str(tmp_path / "coverage.json"))
-    gov.append_attempt(_attempt())
-    with pytest.raises(DurableRepositoryError, match="GOVERNANCE_APPEND_ONLY"):
-        gov.append_attempt(_attempt())
+    started = _attempt(AttemptStatus.STARTED)
+    gov.upsert_attempt(started)
+    assert gov.get_attempt("attempt-1").status == AttemptStatus.STARTED
 
-    cov.append(_coverage())
-    with pytest.raises(DurableRepositoryError, match="COVERAGE_OBSERVATION_APPEND_ONLY"):
-        cov.append(_coverage())
+    completed = _attempt(AttemptStatus.COMPLETED)
+    gov.upsert_attempt(completed)
+    restored = gov.get_attempt("attempt-1")
+    assert restored.status == AttemptStatus.COMPLETED
+    assert restored.started_at == 10
+    assert restored.finished_at == 20
+    assert restored.evidence_refs == ("artifact:junit",)
+
+    # Exact R1 replay is idempotent.
+    gov.upsert_attempt(completed)
+    assert gov.get_attempt("attempt-1") == completed
+
+    rewritten_identity = AttemptRecord(
+        attempt_id="attempt-1",
+        test_run_id="run-OTHER",
+        stage_instance_id="stage-l1-1",
+        work_item_id="wi-l1-1",
+        producer_node_id="node-1",
+        producer_ref="worker:l1",
+        input_snapshot_ref="git:abc",
+        status=AttemptStatus.COMPLETED,
+        evidence_refs=("artifact:junit",),
+        started_at=10,
+        finished_at=20,
+    )
+    with pytest.raises(DurableRepositoryError, match="ATTEMPT_IDENTITY_IMMUTABLE"):
+        gov.upsert_attempt(rewritten_identity)
+
+    regressed = _attempt(AttemptStatus.STARTED)
+    with pytest.raises(DurableRepositoryError, match="ATTEMPT_TERMINAL_STATE_IMMUTABLE"):
+        gov.upsert_attempt(regressed)
+
+
+def test_coverage_observation_is_immutable_but_exact_r1_replay_is_idempotent(tmp_path):
+    cov = JsonFileCoverageRepository(str(tmp_path / "coverage.json"))
+    observation = _coverage()
+    cov.append(observation)
+    cov.append(observation)
+    assert cov.get("coverage-observation-1") == observation
+
+    changed_metric = CoverageMetric(
+        metric_id="metric-changed-branch-1",
+        dimension=CoverageDimension.CHANGED_BRANCH,
+        covered=9,
+        total=10,
+        threshold=0.9,
+        evidence_refs=("artifact:jacoco-xml",),
+        critical=True,
+    )
+    changed = CoverageObservation(
+        observation_id="coverage-observation-1",
+        test_run_id="run-1",
+        stage_instance_id="stage-l1-1",
+        attempt_id="attempt-1",
+        subject_ref="layer:L1",
+        source_snapshot_ref="git:abc",
+        metric=changed_metric,
+        source_tool="jacoco",
+        artifact_refs=("artifact:jacoco-xml",),
+    )
+    with pytest.raises(DurableRepositoryError, match="COVERAGE_OBSERVATION_ID_CONFLICT"):
+        cov.append(changed)
 
 
 def test_gap_can_close_but_identity_and_original_evidence_cannot_be_rewritten(tmp_path):
