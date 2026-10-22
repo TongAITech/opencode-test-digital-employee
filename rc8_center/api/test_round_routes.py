@@ -87,6 +87,7 @@ def _error(exc: Exception) -> HTTPException:
         "TEST_ROUND_ALREADY_EXISTS",
         "TEST_ROUND_NO_ALREADY_EXISTS_IN_PRODUCTION_DATE",
         "TEST_ROUND_DELIVERY_ALREADY_EXISTS",
+        "TEST_ROUND_DELIVERY_ROUND_MISMATCH",
         "REQUIREMENT_DELIVERY_ALREADY_IN_TEST_ROUND",
         "TEST_ROUND_DELIVERY_PRODUCTION_DATE_MISMATCH",
         "TEST_ROUND_PRODUCTION_DATE_MISMATCH",
@@ -179,16 +180,16 @@ def register_test_round_routes(app: FastAPI) -> None:
                 created_at=now,
                 payload=request.payload,
             )
-            repo.create_round(value)
-            included = []
-            for delivery_id in request.delivery_ids:
-                link = TestRoundDelivery(
+            included = [
+                TestRoundDelivery(
                     round_delivery_id=_round_delivery_id(value.test_round_id, delivery_id),
                     test_round_id=value.test_round_id,
                     delivery_id=delivery_id,
                     included_at=now,
                 )
-                included.append(repo.include_delivery(link))
+                for delivery_id in request.delivery_ids
+            ]
+            repo.create_round_with_deliveries(value, included)
         except ValueError as exc:
             raise _error(exc) from exc
         response.headers["Location"] = (
