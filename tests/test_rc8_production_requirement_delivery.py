@@ -126,6 +126,26 @@ def test_duplicate_scope_is_rejected_even_with_different_scope_id() -> None:
         raise AssertionError("duplicate delivery scope must fail closed")
 
 
+def test_scope_identity_is_compact_even_at_identifier_limits() -> None:
+    scope = RequirementDeliveryScope(
+        "S" * 220,
+        "D" * 200,
+        "系统" * 120,
+        "版本" * 120,
+        "SST" * 80,
+        application_id="应用" * 120,
+    )
+    assert len(scope.scope_identity) == 64
+    assert scope.scope_identity == RequirementDeliveryScope(
+        "DIFFERENT-SCOPE-ID",
+        "D" * 200,
+        "系统" * 120,
+        "版本" * 120,
+        "SST" * 80,
+        application_id="应用" * 120,
+    ).scope_identity
+
+
 def test_same_requirement_cannot_be_duplicated_inside_one_batch() -> None:
     repo = _repo()
     repo.create_batch(ProductionBatch("PB", "2026-11-15", "投产批次", created_at=1))
@@ -167,6 +187,7 @@ def _run_direct() -> None:
         test_requirement_can_span_multiple_production_batches_without_forced_revision,
         test_one_delivery_can_cover_multiple_system_versions_and_ssts,
         test_duplicate_scope_is_rejected_even_with_different_scope_id,
+        test_scope_identity_is_compact_even_at_identifier_limits,
         test_same_requirement_cannot_be_duplicated_inside_one_batch,
         test_completed_delivery_history_cannot_be_reopened,
     ]
