@@ -83,6 +83,62 @@ class FormalCenterControlPlane:
         self.repository.upsert_work_item(record)
         return record
 
+    def claim_next_work_item(
+        self,
+        node_id: str,
+        *,
+        ttl_seconds: int = 60,
+        test_run_id: Optional[str] = None,
+    ) -> Optional[WorkItemRecord]:
+        """Lease the next compatible READY WorkItem without external ID input.
+
+        Candidate discovery is PostgreSQL durable state. Capability eligibility
+        requires VERIFIED qualifications. Final ownership is still decided by
+        the existing Redis lease CAS inside ``lease_work_item``; concurrent
+        nodes racing on the same candidate cannot both win. Contention on one
+        candidate is not an error for claim-next: the scheduler continues to
+        the next eligible READY item.
+        """
+        if not isinstance(ttl_seconds, int) or ttl_seconds <= 0:
+            raise CenterControlError("LEASE_TTL_INVALID")
+        node = self._require_node(node_id)
+        if node.status in {NodeStatus.MAINTENANCE, NodeStatus.OFFLINE, NodeStatus.ERROR}:
+            raise CenterControlError("NODE_NOT_LEASE_ELIGIBLE")
+        run_filter = str(test_run_id or "").strip() or None
+        verified = {
+            item.capability_id
+            for item in self.repository.list_capabilities(node_id)
+            if item.state == CapabilityState.VERIFIED
+        }
+        candidates = [
+            item
+            for item in self.repository.list_work_items()
+            if item.state == WorkItemState.READY
+            and (run_filter is None or item.identity.test_run_id == run_filter)
+            and set(item.identity.required_capabilities).issubset(verified)
+        ]
+        candidates.sort(key=lambda item: (item.identity.test_run_id, item.identity.stage, item.identity.work_item_id))
+        retryable = {
+            "WORK_ITEM_LEASE_HELD",
+            "WORK_ITEM_LEASE_RECOVERY_REQUIRED",
+            "WORK_ITEM_TERMINAL",
+        }
+        for candidate in candidates:
+            try:
+                return self.lease_work_item(candidate.identity.work_item_id, node_id, ttl_seconds=ttl_seconds)
+            except CenterControlError as exc:
+                if str(exc).split(":", 1)[0] in retryable:
+                    continue
+                raise
+        return None
+
+    def stage_instance_id_for_work_item(self, work_item_id: str) -> Optional[str]:
+        resolver = getattr(self.repository, "get_stage_link_for_work_item", None)
+        if resolver is None:
+            return None
+        row = resolver(work_item_id)
+        return str(row.stage_instance_id) if row is not None else None
+
     def lease_work_item(self, work_item_id: str, node_id: str, *, ttl_seconds: int = 60) -> WorkItemRecord:
         if not isinstance(ttl_seconds, int) or ttl_seconds <= 0:
             raise CenterControlError("LEASE_TTL_INVALID")
@@ -141,9 +197,6 @@ class FormalCenterControlPlane:
 
     def complete_work_item(self, work_item_id: str, node_id: str, lease_id: str) -> WorkItemRecord:
         work = self._require_active_lease(work_item_id, node_id, lease_id)
-        # Persist terminal truth first, but retain the lease mirror until Redis
-        # compare-delete succeeds. If Redis cleanup fails, Recovery Coordinator
-        # still has the exact owner/token required to clean the stale key safely.
         terminal_with_mirror = replace(work, state=WorkItemState.COMPLETED)
         self.repository.upsert_work_item(terminal_with_mirror)
         try:
