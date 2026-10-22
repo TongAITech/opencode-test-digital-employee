@@ -108,7 +108,7 @@ class PostgresCenterRepository:
             current = self._work(row)
             if current.identity != value.identity:
                 raise ValueError("WORK_ITEM_IDENTITY_CONFLICT")
-            if current.state == WorkItemState.COMPLETED and value.state != WorkItemState.COMPLETED:
+            if current.state in {WorkItemState.COMPLETED, WorkItemState.FAILED} and value.state != current.state:
                 raise ValueError("WORK_ITEM_TERMINAL_STATE_IMMUTABLE")
             row.state = value.state.value
             row.lease_id = value.lease_id
