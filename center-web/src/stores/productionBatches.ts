@@ -98,6 +98,7 @@ export const useProductionBatchStore = defineStore('productionBatches', {
     selectedId: '' as string,
     plan: null as ProductionBatchPlan | null,
     rounds: [] as TestRoundItem[],
+    legacyUnboundRuns: [] as TestRunItem[],
   }),
   actions: {
     async load() {
@@ -128,14 +129,20 @@ export const useProductionBatchStore = defineStore('productionBatches', {
     },
     async select(productionBatchId: string) {
       this.selectedId = productionBatchId
-      const [planResponse, roundsResponse] = await Promise.all([
+      const [planResponse, roundsResponse, runsResponse] = await Promise.all([
         fetch(`/api/v1/production-batches/${encodeURIComponent(productionBatchId)}/plan`, { cache: 'no-store' }),
         fetch(`/api/v1/production-batches/${encodeURIComponent(productionBatchId)}/test-rounds`, { cache: 'no-store' }),
+        fetch('/api/v1/test-runs', { cache: 'no-store' }),
       ])
       if (!planResponse.ok) throw new Error(await detail(planResponse, '投产范围查询失败'))
       if (!roundsResponse.ok) throw new Error(await detail(roundsResponse, '测试轮次查询失败'))
+      if (!runsResponse.ok) throw new Error(await detail(runsResponse, '历史测试任务审计失败'))
       this.plan = await planResponse.json()
       this.rounds = await roundsResponse.json()
+      const allRuns = (await runsResponse.json()) as TestRunItem[]
+      this.legacyUnboundRuns = allRuns.filter(
+        (item) => item.production_batch_id === productionBatchId && !item.test_round_id,
+      )
     },
     async addRequirement(requirementId: string, title: string, deliveryId: string) {
       if (!this.selectedId) throw new Error('请先选择投产批次')
