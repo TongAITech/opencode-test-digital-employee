@@ -5,6 +5,8 @@ results only from JUnit XML created or changed by THIS execution attempt.
 Historical Surefire/Failsafe reports are never allowed to become current Actual.
 When an L1 changed-code coverage scope is supplied, JaCoCo is snapshotted before
 the same Maven process and only fresh reports may become coverage Actual.
+Failing fresh JUnit reports are classified conservatively for failure ownership;
+ambiguous application/assertion failures remain UNKNOWN for semantic review.
 Windows Maven output is captured as bytes and decoded defensively so a local
 GBK/GB18030 console cannot crash the truth pipeline.
 """
@@ -21,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
+from .failure_classification import FailureClassificationResult, JUnitFailureClassifier
 from .jacoco import (
     ChangedCoverageScope,
     JaCoCoChangedScopeCollector,
@@ -64,6 +67,7 @@ class MavenExecutionResult:
     coverage: Optional[JaCoCoCoverageResult] = None
     coverage_required: bool = False
     coverage_classification: str = "NOT_REQUESTED"
+    failure_classification: Optional[FailureClassificationResult] = None
 
     @property
     def execution_passed(self) -> bool:
@@ -246,6 +250,10 @@ class MavenJUnitExecutionAdapter:
             actual = self._collect_actual(fresh_reports)
             classification = "JUNIT_FRESH_REPORTS_COLLECTED" if returncode == 0 else "MAVEN_NONZERO_WITH_FRESH_JUNIT"
 
+        failure_classification: Optional[FailureClassificationResult] = None
+        if actual.failures > 0 or actual.errors > 0:
+            failure_classification = JUnitFailureClassifier(str(self.evidence_dir)).classify(actual.xml_files)
+
         process_and_tests_passed = returncode == 0 and actual.passed
         coverage: Optional[JaCoCoCoverageResult] = None
         coverage_classification = "NOT_REQUESTED"
@@ -297,8 +305,24 @@ class MavenJUnitExecutionAdapter:
                 },
             })
 
+        failure_payload: Dict[str, object] = {
+            "collected": failure_classification is not None,
+            "primary_ownership": None,
+            "semantic_review_required": False,
+        }
+        if failure_classification is not None:
+            failure_payload.update({
+                "classification": failure_classification.classification,
+                "primary_ownership": failure_classification.primary_ownership.value,
+                "ownership_counts": dict(failure_classification.ownership_counts),
+                "semantic_review_required": failure_classification.semantic_review_required,
+                "result_path": failure_classification.result_path,
+                "result_sha256": failure_classification.sha256,
+                "facts": len(failure_classification.facts),
+            })
+
         payload: Dict[str, object] = {
-            "schema_version": 3,
+            "schema_version": 4,
             "capability_id": self.capability_id,
             "command": command,
             "returncode": returncode,
@@ -323,6 +347,7 @@ class MavenJUnitExecutionAdapter:
                 "passed": actual.passed,
                 "xml_files": actual.xml_files,
             },
+            "failure_classification": failure_payload,
             "jacoco": coverage_payload,
             "truth_note": "Only JUnit/JaCoCo XML created/changed by this attempt is Actual; requested changed-scope coverage cannot be omitted from execution PASS",
         }
@@ -349,4 +374,5 @@ class MavenJUnitExecutionAdapter:
             coverage,
             coverage_scope is not None,
             coverage_classification,
+            failure_classification,
         )
