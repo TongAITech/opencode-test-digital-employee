@@ -86,7 +86,7 @@ def test_dsh_contract_rejects_tool_call_without_result(tmp_path: Path) -> None:
         worker.execute(request_path=str(request))
 
 
-def test_dsh_contract_rejects_missing_required_read_tool(tmp_path: Path) -> None:
+def test_dsh_contract_rejects_unauthorized_tool(tmp_path: Path) -> None:
     request = _request(tmp_path)
     rows = [
         {"type": "session", "sessionID": "session-ci-semantic-2"},
@@ -100,5 +100,5 @@ def test_dsh_contract_rejects_missing_required_read_tool(tmp_path: Path) -> None
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr=b"")
 
     worker = DshSemanticWorker(str(tmp_path), dsh_command="dsh-ci-double", timeout_seconds=60, command_runner=runner)
-    with pytest.raises(DshSemanticWorkerError, match="DSH_SEMANTIC_REQUEST_READ_TOOL_MISSING"):
+    with pytest.raises(DshSemanticWorkerError, match="DSH_SEMANTIC_UNAUTHORIZED_TOOL_CALL"):
         worker.execute(request_path=str(request))
