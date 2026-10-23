@@ -30,6 +30,8 @@ from typing import Any, Iterable, Mapping, Sequence, Tuple
 
 from rc6_runtime.execution import ExecutionRecord
 
+from .authority import execution_session_id
+
 
 @dataclass(frozen=True)
 class LayerEvidenceResult:
@@ -115,10 +117,11 @@ class LayerExecutionEvidenceGate:
         self._require_equal(missing, evidence, "mission_id", mission_id)
         self._require_equal(missing, evidence, "attempt_id", record.attempt_id)
         self._require_equal(missing, evidence, "worker_id", record.worker_id)
+        self._require_equal(missing, evidence, "session_id", execution_session_id(record.worker_id))
 
         if str(evidence.get("status", "")).upper() not in {"PASS", "EXECUTED_PASS"}:
             missing.append("status=PASS")
-        for field in ("session_id", "started_at", "finished_at"):
+        for field in ("started_at", "finished_at"):
             if not str(evidence.get(field, "")).strip():
                 missing.append(field)
         if not isinstance(evidence.get("preconditions"), (list, tuple)):
