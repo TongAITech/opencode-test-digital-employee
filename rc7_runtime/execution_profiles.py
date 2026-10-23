@@ -6,11 +6,16 @@ for its autonomous execution product path. Importing RC7 must therefore never
 rewrite ``rc6_runtime.execution.DEFAULT_EXECUTION_PROFILES`` for the whole
 process.
 
-The installer below is deliberately narrow. It wraps ``ExecutionRuntime`` once
-and injects RC7.1 profiles only when the runtime is owned by
+The primary installer is deliberately narrow. It wraps ``ExecutionRuntime``
+once and injects RC7.1 profiles only when the runtime is owned by
 ``RC7AuthorityRuntime`` and the caller did not explicitly provide profiles.
-Ordinary RC6 runtimes and explicit custom registries remain byte-for-byte in
-control of their own semantics.
+Ordinary RC6 runtimes and explicit custom registries remain in control of their
+own semantics.
+
+RC7 also retains ``RuntimeOwnedExecutionCoordinator`` as a compatibility/formal
+execution entry point. Its local registry is isolated separately after that
+module has loaded, so it cannot fall back to RC6's L5/L6/L7 taxonomy once the
+global mutation is removed.
 """
 from __future__ import annotations
 
@@ -66,3 +71,21 @@ def install_rc7_1_execution_profiles() -> None:
     isolated_init._rc7_1_profile_isolation = True  # type: ignore[attr-defined]
     isolated_init._rc7_1_original_init = original  # type: ignore[attr-defined]
     rc6_execution.ExecutionRuntime.__init__ = isolated_init
+
+
+def install_rc7_1_runtime_owned_coordinator_profiles() -> None:
+    """Bind the RC7 compatibility coordinator to an RC7-only profile registry."""
+    from .runtime_execution import RuntimeOwnedExecutionCoordinator
+
+    current = RuntimeOwnedExecutionCoordinator.__init__
+    if getattr(current, "_rc7_1_profile_isolation", False):
+        return
+    original = current
+
+    def isolated_coordinator_init(self, *, evidence_root: str, timeout_seconds: int = 300) -> None:
+        original(self, evidence_root=evidence_root, timeout_seconds=timeout_seconds)
+        self.profiles = rc6_execution.ExecutionProfileRegistry(RC7_1_EXECUTION_PROFILES)
+
+    isolated_coordinator_init._rc7_1_profile_isolation = True  # type: ignore[attr-defined]
+    isolated_coordinator_init._rc7_1_original_init = original  # type: ignore[attr-defined]
+    RuntimeOwnedExecutionCoordinator.__init__ = isolated_coordinator_init
