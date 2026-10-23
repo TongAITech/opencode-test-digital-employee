@@ -40,8 +40,6 @@ class LayerEvidenceResult:
     missing: Tuple[str, ...] = ()
 
 
-# Compatibility DTOs for field adapters that imported the first RC7.1 draft.
-# Production verification is performed by verify_record().
 @dataclass(frozen=True)
 class L4UiEvidence:
     video_ref: str = ""
@@ -90,6 +88,7 @@ class LayerExecutionEvidenceGate:
     """Fail closed for any would-be PASS at L4-L7."""
 
     LAYERS = {"L4", "L5", "L6", "L7"}
+    L4_REQUIRED_ARTIFACTS = ("screenshot", "dom", "trace", "network")
     E2E_REQUIRED_SEGMENTS = (
         "entry",
         "frontend",
@@ -181,9 +180,24 @@ class LayerExecutionEvidenceGate:
                 missing.append("browser.%s" % field)
 
         types = {str(item).lower() for item in self._sequence(browser.get("evidence_types"))}
-        for required in ("screenshot", "dom", "trace", "network"):
+        artifacts = browser.get("artifacts")
+        if not isinstance(artifacts, Mapping):
+            missing.append("browser.artifacts")
+            artifacts = {}
+        for required in self.L4_REQUIRED_ARTIFACTS:
             if required not in types:
                 missing.append("browser.evidence_type:%s" % required)
+            refs = self._refs(artifacts.get(required))
+            if not refs:
+                missing.append("browser.artifacts.%s" % required)
+            elif not self._refs_are_current(
+                refs,
+                record_refs=record_refs,
+                mission_id=mission_id,
+                attempt_id=attempt_id,
+            ):
+                missing.append("browser.artifacts.%s_current_execution" % required)
+
         browser_refs = self._refs(browser.get("evidence_refs"))
         if not browser_refs:
             missing.append("browser.evidence_refs")
@@ -206,6 +220,16 @@ class LayerExecutionEvidenceGate:
                 missing.append("auth.historical_cookie_fallback=false")
             if auth.get("expiry_relogin_supported") is not True:
                 missing.append("auth.expiry_relogin_supported=true")
+            auth_refs = self._refs(auth.get("evidence_refs"))
+            if not auth_refs:
+                missing.append("auth.evidence_refs")
+            elif not self._refs_are_current(
+                auth_refs,
+                record_refs=record_refs,
+                mission_id=mission_id,
+                attempt_id=attempt_id,
+            ):
+                missing.append("auth.evidence_refs_current_execution")
 
     def _verify_l5_payload(
         self,
@@ -390,10 +414,6 @@ class LayerExecutionEvidenceGate:
         attempt_id: str,
     ) -> bool:
         for ref in refs:
-            # Direct non-runtime evidence IDs are retained for compatibility
-            # with deterministic unit/conformance adapters. Production formal
-            # execution records contain EVD-EXEC-RUNTIME-* IDs, so a layer
-            # payload cannot self-claim one of those IDs as proof.
             if ref in record_refs:
                 if ref.startswith("EVD-EXEC-RUNTIME-"):
                     return False
@@ -426,8 +446,6 @@ class LayerExecutionEvidenceGate:
             return LayerEvidenceResult(False, "EVIDENCE_INCOMPLETE", normalized)
         return LayerEvidenceResult(True, success_reason, ())
 
-    # Legacy validation entry points retained for compatibility. They no longer
-    # define RC7.1 production semantics and are not used by the runtime.
     def verify_l4(self, evidence: L4UiEvidence) -> LayerEvidenceResult:
         missing = []
         if not evidence.trace_ref:
