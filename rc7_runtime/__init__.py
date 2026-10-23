@@ -50,6 +50,10 @@ from .dsh_worker_bridge import (
     DshTaskWorkerBridge,
     DshWorkerBridgeError,
 )
+from .dsh_worker_contract_v2 import install_rc7_1_worker_output_contracts
+
+install_rc7_1_worker_output_contracts()
+
 from .candidate_payload import CandidatePayload, CandidatePayloadError, CandidatePayloadReader
 from .dsh_requirement_evaluator import (
     DshRequirementEvaluation,
@@ -103,6 +107,7 @@ __all__ = [
     "RealityCheckedJUnitRunnerAdapter",
     "install_rc7_1_junit_reality_gate",
     "install_rc7_1_worker_timeout_diagnostics",
+    "install_rc7_1_worker_output_contracts",
     "Artifact",
     "ArtifactStatus",
     "Evaluation",
