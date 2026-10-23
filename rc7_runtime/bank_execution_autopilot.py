@@ -27,6 +27,7 @@ from .closed_loop_control import ClosedLoopControlPlane
 from .control_plane import WorkerOutput
 from .execution_capability import ExecutionCapabilityBrokerFactory, ExecutionCapabilityEvidenceError
 from .execution_fanout_conformance import check_execution_barrier
+from .execution_profiles import RC7_1_EXECUTION_PROFILES
 from .models import Artifact, Evaluation, EvaluationResult, Evidence, Gap, GapSeverity, Task
 from .oracle_runtime import DeterministicOracleRuntime
 from .runtime_execution_control import ClosedLoopRuntimeExecutionService
@@ -74,7 +75,7 @@ class BankExecutionAutopilot:
             timeout_seconds=timeout_seconds,
         )
         self.oracle = DeterministicOracleRuntime()
-        self.profiles = ExecutionProfileRegistry()
+        self.profiles = ExecutionProfileRegistry(RC7_1_EXECUTION_PROFILES)
 
     def _case_for_task(self, control: ClosedLoopControlPlane, task: Task) -> str:
         inventory = self.inventory.load(control.truth, control.mission_id)
