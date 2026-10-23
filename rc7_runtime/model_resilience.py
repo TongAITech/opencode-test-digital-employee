@@ -1,7 +1,7 @@
 """RC7.1 model request governor and transient failure recovery.
 
 This module is a bounded field-hardening overlay around the existing DSH Worker
-launcher.  It does not change testing authority or manufacture PASS.  It adds:
+launcher. It does not change testing authority or manufacture PASS. It adds:
 
 * a file-backed sliding-window governor shared by all RC7 Python processes;
 * deterministic classification of provider/network failures;
@@ -10,7 +10,7 @@ launcher.  It does not change testing authority or manufacture PASS.  It adds:
 * fail-closed handoff when tool side effects may already have happened.
 
 The bank limit defaults to 100 requests / 600 seconds and is configurable via
-PFC_RC71_MODEL_RATE_MAX / PFC_RC71_MODEL_RATE_WINDOW_SECONDS.  All retry calls
+PFC_RC71_MODEL_RATE_MAX / PFC_RC71_MODEL_RATE_WINDOW_SECONDS. All retry calls
 consume the same shared budget.
 """
 
@@ -19,10 +19,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from rc6_runtime import agent_runtime as _agent_runtime
 from rc6_runtime import truth as _truth
@@ -40,20 +41,7 @@ MODEL_RESILIENCE_EVENT_TYPES = (
     "MODEL_RETRY_EXHAUSTED",
 )
 
-_RETRYABLE = {
-    "RATE_LIMIT",
-    "HTTP_502",
-    "HTTP_503",
-    "HTTP_504",
-    "SSE_STREAM_CLOSED_BEFORE_DONE",
-    "CONNECT_TIMEOUT",
-    "READ_TIMEOUT",
-    "PROVIDER_TIMEOUT",
-    "PROVIDER_UNAVAILABLE",
-    "NETWORK_TRANSIENT",
-}
-
-_SAFE_TOOL_MARKERS = (
+_SAFE_TOOL_TOKENS = {
     "read",
     "list",
     "get",
@@ -65,7 +53,40 @@ _SAFE_TOOL_MARKERS = (
     "find",
     "diff",
     "codegraph",
-)
+    "select",
+    "explain",
+    "describe",
+    "head",
+}
+
+_MUTATING_TOOL_TOKENS = {
+    "write",
+    "delete",
+    "update",
+    "create",
+    "execute",
+    "run",
+    "publish",
+    "submit",
+    "insert",
+    "upsert",
+    "patch",
+    "put",
+    "post",
+    "remove",
+    "move",
+    "copy",
+    "click",
+    "type",
+    "upload",
+    "send",
+    "commit",
+    "merge",
+    "deploy",
+    "start",
+    "stop",
+    "restart",
+}
 
 
 @dataclass(frozen=True)
@@ -271,12 +292,19 @@ def _observed_tool_names(launcher: Any, assignment: WorkerAssignment) -> Tuple[s
     return tuple(names)
 
 
-def _tool_is_read_only(name: str) -> bool:
+def _tool_tokens(name: str) -> Tuple[str, ...]:
+    """Tokenize MCP/tool names so `runtime` is not mistaken for action `run`."""
     lowered = str(name or "").lower()
-    if any(marker in lowered for marker in _SAFE_TOOL_MARKERS):
-        dangerous = ("write", "delete", "update", "create", "execute", "run", "publish", "submit", "insert")
-        return not any(marker in lowered for marker in dangerous)
-    return False
+    return tuple(token for token in re.split(r"[^a-z0-9]+", lowered) if token)
+
+
+def _tool_is_read_only(name: str) -> bool:
+    tokens = set(_tool_tokens(name))
+    if not tokens:
+        return False
+    if tokens.intersection(_MUTATING_TOOL_TOKENS):
+        return False
+    return bool(tokens.intersection(_SAFE_TOOL_TOKENS))
 
 
 def _task_id(assignment: WorkerAssignment) -> Optional[str]:
@@ -394,8 +422,12 @@ def install_rc7_1_model_resilience() -> None:
                         attempt_id=assignment.attempt_id,
                         retry_index=retry_index,
                         failure_category=failure.category,
+                        final_error=str(exc),
                     )
-                    raise AgentRuntimeError("MODEL_TRANSIENT_RETRY_EXHAUSTED:%s" % failure.category) from exc
+                    # Preserve the established fail-closed error contract for
+                    # existing RC7 callers. R1 records that retries were
+                    # exhausted; callers still receive the original failure.
+                    raise
                 delay = min(backoff_cap, backoff_base * (2 ** retry_index)) if backoff_cap else 0.0
                 delay += _deterministic_jitter(assignment, retry_index, backoff_base)
                 retry_index += 1
