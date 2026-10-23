@@ -33,7 +33,7 @@ jobs:
           tests/test_rc7_mission_sufficiency.py
           tests/test_rc7_1_test_design_sufficiency_v2.py
           tests/test_rc7_runtime_execution_control.py
-          tests/test_rc7_execution_fanout_evaluator.py
+          tests/test_rc7_execution_fanout_conformance.py
           tests/test_rc7_case_fanout_conformance.py
 
   full-rc7:
