@@ -1,7 +1,7 @@
 """Storage-neutral Center repository ports used by Mission/R1/Product services."""
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from rc8_runtime.artifacts import ArtifactManifest
 from rc8_runtime.coverage import CoverageObservation
@@ -12,6 +12,14 @@ from rc8_runtime.governance import (
     ReleaseDecisionRecord,
     StageInstance,
     SufficiencyEvaluation,
+)
+from rc8_center.traceability import (
+    TraceEdge,
+    TraceEvidence,
+    TraceNode,
+    TraceNodeType,
+    TraceVerificationState,
+    TraceabilityGraph,
 )
 
 
@@ -47,3 +55,18 @@ class CoverageRepository(Protocol):
 
 class ArtifactMetadataRepository(Protocol):
     def get(self, artifact_id: str) -> Optional[ArtifactManifest]: ...
+
+
+class TraceabilityRepository(Protocol):
+    """Storage-neutral contract for product impact/traceability queries."""
+
+    def create_graph(self, value: TraceabilityGraph) -> TraceabilityGraph: ...
+    def add_node(self, value: TraceNode) -> TraceNode: ...
+    def add_edge(self, value: TraceEdge) -> TraceEdge: ...
+    def append_evidence(self, value: TraceEvidence) -> TraceEvidence: ...
+    def verify_edge(self, edge_id: str, target_state: TraceVerificationState, *, confidence: float) -> TraceEdge: ...
+    def get_graph(self, graph_id: str) -> Optional[TraceabilityGraph]: ...
+    def find_nodes(self, graph_id: str, *, node_type: Optional[TraceNodeType] = None, business_key: Optional[str] = None) -> List[TraceNode]: ...
+    def list_edges(self, graph_id: str) -> List[TraceEdge]: ...
+    def list_evidence(self, edge_id: str) -> List[TraceEvidence]: ...
+    def query_impact(self, graph_id: str, root_node_id: str, *, direction: str = "both", max_depth: int = 8) -> Tuple[List[TraceNode], List[TraceEdge]]: ...

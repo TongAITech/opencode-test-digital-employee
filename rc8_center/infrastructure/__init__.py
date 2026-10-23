@@ -33,12 +33,21 @@ from .postgres_test_round import (
     TestRoundDeliveryRow,
     TestRoundRow,
 )
+from .postgres_traceability import (
+    CodeSourceSnapshotRow,
+    PostgresTraceabilityRepository,
+    TraceEdgeRow,
+    TraceEvidenceRow,
+    TraceNodeRow,
+    TraceabilityGraphRow,
+)
 from .redis_coordination import RedisCoordination
 
 __all__ = [
     "ArtifactMetadataRow",
     "Base",
     "CapabilityRow",
+    "CodeSourceSnapshotRow",
     "DeliveryRevisionBindingRow",
     "NodeRow",
     "PostgresArtifactRepository",
@@ -50,6 +59,7 @@ __all__ = [
     "PostgresRequirementRevisionRepository",
     "PostgresStore",
     "PostgresTestRoundRepository",
+    "PostgresTraceabilityRepository",
     "ProductionBatchRow",
     "RecoveryIncidentRow",
     "RedisCoordination",
@@ -61,6 +71,10 @@ __all__ = [
     "StageWorkItemLinkRow",
     "TestRoundDeliveryRow",
     "TestRoundRow",
+    "TraceEdgeRow",
+    "TraceEvidenceRow",
+    "TraceNodeRow",
+    "TraceabilityGraphRow",
     "WorkItemRow",
     "build_engine",
 ]
