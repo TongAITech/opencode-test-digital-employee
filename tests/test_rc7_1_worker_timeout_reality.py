@@ -84,7 +84,7 @@ class WorkerTimeoutRealityTests(unittest.TestCase):
             with patch.dict(os.environ, env, clear=False):
                 with self.assertRaises(AgentRuntimeError) as ctx:
                     launcher.execute(assignment, secretish_prompt)
-            self.assertEqual(str(ctx.exception), "MODEL_TRANSIENT_RETRY_EXHAUSTED:PROVIDER_TIMEOUT")
+            self.assertEqual(str(ctx.exception), "ROUTING_INTEGRITY_FAIL:DSH_LAUNCH_FAILED")
 
             events = list(truth.store.iter_raw())
             names = [event["event_type"] for event in events]
