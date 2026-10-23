@@ -120,6 +120,45 @@ def _semantic_payload():
                 "evidence_ref": "evidence://git/diff",
             }
         ],
+        "impact_surfaces": [
+            {
+                "id": "SURF-CALLER-1",
+                "kind": "CALLER",
+                "source_symbol_id": "SYM-1",
+                "source_file": "RateService.java",
+                "target_ref": "RateController.adjustRate",
+            },
+            {
+                "id": "SURF-API-1",
+                "kind": "API",
+                "source_symbol_id": "SYM-1",
+                "source_file": "RateService.java",
+                "target_ref": "POST /loan/rate/adjust",
+            },
+            {
+                "id": "SURF-DB-1",
+                "kind": "DATABASE",
+                "source_symbol_id": "SYM-1",
+                "source_file": "RateService.java",
+                "target_ref": "loan_rate.rate",
+            },
+        ],
+        "impact_dimension_exclusions": [
+            {
+                "dimension": dimension,
+                "reason": "real Git/CodeGraph analysis found no %s impact for SYM-1" % dimension,
+                "basis_symbol_ids": ["SYM-1"],
+            }
+            for dimension in (
+                "CONFIG",
+                "EVENT",
+                "ERROR",
+                "TRANSACTION",
+                "SIDE_EFFECT",
+                "SECURITY",
+                "PERFORMANCE",
+            )
+        ],
         # These are intentionally worker-authored and must be discarded by the
         # evaluator. Their presence cannot satisfy the deterministic gate.
         "tool_calls": [
@@ -247,6 +286,8 @@ def test_code_gate_passes_only_after_real_r1_git_and_codegraph_calls(tmp_path) -
     assert all(not item["call_ref"].startswith("worker-fake://") for item in evaluated.analysis["tool_calls"])
     assert evaluated.analysis["symbol_explanations"][0]["evidence_refs"] == ["EVD-GIT-SOURCE"]
     assert evaluated.analysis["reverse_requirement_mappings"][0]["evidence_ref"] == "EVD-GIT-SOURCE"
+    assert evaluated.loop_result.evaluation.dimensions["code_impact_sufficiency_v2_ready"] is True
+    assert evaluated.loop_result.evaluation.dimensions["metrics"]["impact_sufficiency_v2"]["impact_surface_count"] == 3
     assert len(evaluated.analyzer_tool_evidence_ids) == 2
     for evidence_id in evaluated.analyzer_tool_evidence_ids:
         assert len(truth.query("rc7_evidence", evidence_id=evidence_id)) == 1
