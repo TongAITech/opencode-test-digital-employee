@@ -69,7 +69,7 @@ def _source(symbol: str, *, include_layer_evidence: bool = True) -> str:
             "result": "PASS",
             "evidence_refs": [raw_ref],
         }],
-        "evidence_refs": [raw_ref],
+        "evidence_refs": all_refs,
         "execution_receipt": {
             "receipt_id": "LOCAL-RECEIPT-" + layer,
             "case_id": tc_id,
@@ -84,7 +84,8 @@ def _source(symbol: str, *, include_layer_evidence: bool = True) -> str:
             "actions": ["fresh 4A login", "query version"],
             "state_reads": ["version row visible"],
             "evidence_types": ["screenshot", "dom", "trace", "network"],
-            "evidence_refs": [raw_ref],
+            "artifacts": browser_artifacts,
+            "evidence_refs": browser_refs,
         }
         layer_evidence["auth"] = {
             "required_4a": True,
@@ -92,6 +93,7 @@ def _source(symbol: str, *, include_layer_evidence: bool = True) -> str:
             "fresh_login": True,
             "historical_cookie_fallback": False,
             "expiry_relogin_supported": True,
+            "evidence_refs": [auth_ref],
         }
     elif layer == "L5":
         layer_evidence["api_calls"] = [{
@@ -144,10 +146,38 @@ def %s():
     session_id = os.environ["RC7_SESSION_ID"]
     target_id = os.environ["RC7_TARGET_ID"]
     tool_id = os.environ["RC7_TOOL_ID"]
-    evidence_path = os.path.abspath(os.environ["RC7_EVIDENCE_FILE"])
-    with open(evidence_path, "w", encoding="utf-8") as handle:
-        json.dump({"layer": layer, "tc_id": tc_id, "attempt_id": attempt_id, "captured": True}, handle, sort_keys=True)
-    raw_ref = "file://" + evidence_path
+    evidence_dir = os.path.abspath(os.environ["RC7_EVIDENCE_DIR"])
+    os.makedirs(evidence_dir, exist_ok=True)
+
+    def proof(name):
+        path = os.path.join(evidence_dir, layer.lower() + "-" + name + ".json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump({"layer": layer, "tc_id": tc_id, "attempt_id": attempt_id, "kind": name, "captured": True}, handle, sort_keys=True)
+        ref = "file://" + path
+        _emit({"type":"note","ref":ref})
+        return ref
+
+    if layer == "L4":
+        screenshot_ref = proof("screenshot")
+        dom_ref = proof("dom")
+        trace_ref = proof("trace")
+        network_ref = proof("network")
+        auth_ref = proof("4a-auth")
+        browser_artifacts = {
+            "screenshot": [screenshot_ref],
+            "dom": [dom_ref],
+            "trace": [trace_ref],
+            "network": [network_ref],
+        }
+        browser_refs = [screenshot_ref, dom_ref, trace_ref, network_ref]
+        all_refs = browser_refs + [auth_ref]
+        raw_ref = network_ref
+    else:
+        raw_ref = proof("primary")
+        all_refs = [raw_ref]
+        browser_artifacts = {}
+        browser_refs = []
+        auth_ref = ""
 %s
     _emit({"type":"tool_call","tool_id":tool_id,"call_ref":"tool-call://"+layer,"evidence_ref":raw_ref})
     _emit({"type":"actual_result","value":%s})
@@ -290,7 +320,7 @@ def _run(tmp_path: Path, layer: str, *, include_layer_evidence: bool = True):
         authority=authority,
         tool_broker=broker,
     )
-    proof_file = tmp_path / ("%s-current-run-proof.json" % layer.lower())
+    proof_dir = tmp_path / ("%s-current-run-proof" % layer.lower())
     result = service.execute_active_task(
         control,
         task_id,
@@ -310,7 +340,7 @@ def _run(tmp_path: Path, layer: str, *, include_layer_evidence: bool = True):
             "RC7_SESSION_ID": execution_session_id(active.runtime_worker_id),
             "RC7_TARGET_ID": TARGET,
             "RC7_TOOL_ID": tool_id,
-            "RC7_EVIDENCE_FILE": str(proof_file.resolve()),
+            "RC7_EVIDENCE_DIR": str(proof_dir.resolve()),
         },
     )
     return truth, control, result
@@ -329,7 +359,6 @@ def test_real_production_service_requires_and_accepts_complete_layer_evidence(tm
     assert result.task_state == "PASS"
     assert control.scheduler.task("TASK-RC7-1-LAYER-" + layer).state == TaskStatus.PASS
 
-    # Subprocess proof must physically exist and be hashed into canonical R1 Evidence.
     runtime_evidence = [
         row for row in truth.query("rc7_evidence", mission_id="MISSION-RC7-1-LAYER-" + layer)
         if row.get("kind") == "RUNTIME_EXECUTION_EVIDENCE"
@@ -340,6 +369,13 @@ def test_real_production_service_requires_and_accepts_complete_layer_evidence(tm
         proof = Path(str(row["content_ref"])[len("file://"):])
         assert proof.is_file()
         assert row.get("content_hash") == "sha256:" + hashlib.sha256(proof.read_bytes()).hexdigest()
+    if layer == "L4":
+        refs = {str(row["content_ref"]) for row in runtime_evidence}
+        assert any(ref.endswith("l4-screenshot.json") for ref in refs)
+        assert any(ref.endswith("l4-dom.json") for ref in refs)
+        assert any(ref.endswith("l4-trace.json") for ref in refs)
+        assert any(ref.endswith("l4-network.json") for ref in refs)
+        assert any(ref.endswith("l4-4a-auth.json") for ref in refs)
 
 
 def test_real_service_generic_l5_pass_without_layer_contract_cannot_be_executed_pass(tmp_path: Path) -> None:
