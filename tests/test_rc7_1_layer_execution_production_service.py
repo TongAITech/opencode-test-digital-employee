@@ -143,7 +143,10 @@ def %s():
     worker_id = os.environ["RC7_WORKER_ID"]
     target_id = os.environ["RC7_TARGET_ID"]
     tool_id = os.environ["RC7_TOOL_ID"]
-    raw_ref = "runtime-evidence://" + layer.lower() + "/current-attempt"
+    evidence_path = os.path.abspath(os.environ["RC7_EVIDENCE_FILE"])
+    with open(evidence_path, "w", encoding="utf-8") as handle:
+        json.dump({"layer": layer, "tc_id": tc_id, "attempt_id": attempt_id, "captured": True}, handle, sort_keys=True)
+    raw_ref = "file://" + evidence_path
 %s
     _emit({"type":"tool_call","tool_id":tool_id,"call_ref":"tool-call://"+layer,"evidence_ref":raw_ref})
     _emit({"type":"actual_result","value":%s})
@@ -231,12 +234,14 @@ def _broker(tool_id: str) -> ToolCapabilityBroker:
 
 
 def _oracle(_oracle_snapshot, actual, _context):
-    layer = str(actual.get("layer_evidence", {}).get("layer") or "UNKNOWN")
-    raw_ref = "runtime-evidence://%s/current-attempt" % layer.lower()
+    layer_evidence = actual.get("layer_evidence") if isinstance(actual.get("layer_evidence"), dict) else {}
+    layer = str(layer_evidence.get("layer") or "UNKNOWN")
+    refs = layer_evidence.get("evidence_refs") if isinstance(layer_evidence.get("evidence_refs"), list) else []
+    evidence_ref = refs[0] if refs else "runtime-evidence://oracle/no-layer-contract"
     return {
         "passed": actual.get("business_code") == "OK",
         "assertion_ref": "assertion://%s/business-code-ok" % layer.lower(),
-        "evidence_refs": [raw_ref],
+        "evidence_refs": [evidence_ref],
         "details": {"expected": "OK", "actual": actual.get("business_code")},
     }
 
@@ -284,6 +289,7 @@ def _run(tmp_path: Path, layer: str, *, include_layer_evidence: bool = True):
         authority=authority,
         tool_broker=broker,
     )
+    proof_file = tmp_path / ("%s-current-run-proof.json" % layer.lower())
     result = service.execute_active_task(
         control,
         task_id,
@@ -302,6 +308,7 @@ def _run(tmp_path: Path, layer: str, *, include_layer_evidence: bool = True):
             "RC7_WORKER_ID": active.runtime_worker_id,
             "RC7_TARGET_ID": TARGET,
             "RC7_TOOL_ID": tool_id,
+            "RC7_EVIDENCE_FILE": str(proof_file.resolve()),
         },
     )
     return truth, control, result
@@ -320,16 +327,17 @@ def test_real_production_service_requires_and_accepts_complete_layer_evidence(tm
     assert result.task_state == "PASS"
     assert control.scheduler.task("TASK-RC7-1-LAYER-" + layer).state == TaskStatus.PASS
 
-    # Raw subprocess evidence must have been persisted into canonical current-R1 Evidence.
+    # Subprocess proof must physically exist and be hashed into canonical R1 Evidence.
     runtime_evidence = [
         row for row in truth.query("rc7_evidence", mission_id="MISSION-RC7-1-LAYER-" + layer)
         if row.get("kind") == "RUNTIME_EXECUTION_EVIDENCE"
+        and str(row.get("content_ref", "")).startswith("file://")
     ]
     assert runtime_evidence
-    assert any(
-        str(row.get("content_ref", "")).startswith("runtime-evidence://%s/" % layer.lower())
-        for row in runtime_evidence
-    )
+    for row in runtime_evidence:
+        proof = Path(str(row["content_ref"])[len("file://"):])
+        assert proof.is_file()
+        assert row.get("content_hash") == "sha256:" + hashlib.sha256(proof.read_bytes()).hexdigest()
 
 
 def test_real_service_generic_l5_pass_without_layer_contract_cannot_be_executed_pass(tmp_path: Path) -> None:
