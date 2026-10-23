@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from rc6_runtime.execution import ExecutionRecord
+from rc7_runtime.authority import execution_session_id
 from rc7_runtime.execution_loop import ExecutionClosedLoop
 from rc7_runtime.models import EvaluationResult
 
@@ -22,7 +23,7 @@ def _layer_evidence(layer: str):
         "mission_id": MISSION_ID,
         "attempt_id": "ATTEMPT-001",
         "worker_id": "WORKER-001",
-        "session_id": "SESSION-001",
+        "session_id": execution_session_id("WORKER-001"),
         "started_at": "2026-10-23T08:00:00Z",
         "finished_at": "2026-10-23T08:00:05Z",
         "status": "PASS",
@@ -187,6 +188,14 @@ def test_case_contract_rejects_missing_status_empty_identity_times_and_invalid_c
     assert "finished_at" in missing
     assert "preconditions" in missing
     assert "test_data" in missing
+
+
+def test_forged_session_id_cannot_pass_with_correct_worker_id() -> None:
+    evidence = _layer_evidence("L5")
+    evidence["session_id"] = "SESSION-FORGED"
+    result = _evaluate(_record("L5", evidence))
+    assert result.evaluation.result == EvaluationResult.REPAIR_REQUIRED
+    assert "session_id" in result.evaluation.dimensions["layer_evidence_contract_missing"]
 
 
 def test_file_backed_runner_evidence_must_resolve_to_current_canonical_r1_evidence(tmp_path: Path) -> None:
