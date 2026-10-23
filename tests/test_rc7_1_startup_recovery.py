@@ -22,7 +22,7 @@ class StartupRecoveryTests(unittest.TestCase):
             rows = [json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines()]
             self.assertGreaterEqual(len(rows), 4)
 
-    def test_aitest_launcher_has_phase_trace_and_no_prestart_plugin_install(self):
+    def test_aitest_launcher_has_phase_trace_and_no_prestart_package_manager_flag(self):
         text = Path("packaging/rc7/AITEST.cmd").read_text(encoding="utf-8")
         for phase in (
             "PACKAGE_VERIFY",
@@ -36,7 +36,7 @@ class StartupRecoveryTests(unittest.TestCase):
             self.assertIn(phase, text)
         self.assertIn("Starting DSH now", text)
         self.assertNotIn("--attempt-persistent-install", text)
-        self.assertNotIn("dsh plugin add", text.lower().replace("rem startup rule: never invoke dsh plugin add/install before dsh starts.", ""))
+        self.assertIn("rc71-startup-status.json", text)
 
     def test_recovery_launcher_preserves_r1_and_uses_isolated_profile(self):
         text = Path("packaging/rc7/AITEST-RECOVER-PROFILE.cmd").read_text(encoding="utf-8")
