@@ -1,8 +1,8 @@
 """RC7 code-analysis closed-loop adapter.
 
-The evidence-backed semantic gate is inherited from RC6. RC7 wraps it with
-canonical Evaluation/Gap lifecycle, evaluator-owned task acceptance, versioned
-R1 persistence and reevaluation-only gap resolution.
+RC7.1 composes the existing evidence-backed Code gate with deterministic impact-
+surface accountability so a real CodeGraph call cannot PASS while downstream
+impact inventory is still shallow or silently missing.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Sequence, Tuple
 from rc6_runtime.intelligence import CodeSufficiencyEvaluator
 from rc6_runtime.truth import TruthRuntime
 
+from .code_sufficiency_v2 import CodeSufficiencyV2
 from .models import Evaluation, EvaluationResult, Gap, GapSeverity, GapStatus, Task, TaskStatus
 from .state_machine import transition_gap, transition_task
 from .truth_overlay import append_entity
@@ -33,6 +34,27 @@ _REASON_POLICY = {
     "REVIEW_EVIDENCE_MISSING": ("EVALUATION_EVIDENCE_MISSING", GapSeverity.CRITICAL, "CODE_ANALYSIS"),
     "REVIEW_OPEN_GAPS": ("CODE_REVIEW_GAP", GapSeverity.HIGH, "CODE_ANALYSIS"),
 }
+
+
+def _reason_policy(reason: str):
+    if reason.startswith("CODE_IMPACT_SURFACE_INVALID:") or reason == "CODE_IMPACT_SURFACES_INVALID":
+        return "CODE_IMPACT_SURFACE_INVALID", GapSeverity.HIGH, "CODE_ANALYSIS"
+    if reason.startswith("CODE_IMPACT_EXCLUSION_INVALID:") or reason == "CODE_IMPACT_EXCLUSIONS_INVALID":
+        return "CODE_IMPACT_EXCLUSION_INVALID", GapSeverity.HIGH, "CODE_ANALYSIS"
+    if reason.startswith("CODE_IMPACT_DIMENSION_EXCLUSION_INVALID:") or reason == "CODE_IMPACT_DIMENSION_EXCLUSIONS_INVALID":
+        return "CODE_IMPACT_EXCLUSION_INVALID", GapSeverity.HIGH, "CODE_ANALYSIS"
+    if reason.startswith("CODE_IMPACT_SYMBOL_UNACCOUNTED:"):
+        return "CODE_IMPACT_SURFACE_MISSING", GapSeverity.HIGH, "CODE_ANALYSIS"
+    if reason.startswith("CODE_IMPACT_FILE_UNACCOUNTED:"):
+        return "CODE_IMPACT_SURFACE_MISSING", GapSeverity.HIGH, "CODE_ANALYSIS"
+    if reason.startswith("CODE_IMPACT_DIMENSION_UNACCOUNTED:"):
+        return "CODE_IMPACT_DIMENSION_UNACCOUNTED", GapSeverity.HIGH, "CODE_ANALYSIS"
+    if reason.startswith("CODE_IMPACT_DIMENSION_CONFLICT:"):
+        return "CODE_IMPACT_DIMENSION_CONFLICT", GapSeverity.HIGH, "CODE_ANALYSIS"
+    return _REASON_POLICY.get(
+        reason,
+        ("CODE_SUFFICIENCY_GAP", GapSeverity.HIGH, "CODE_ANALYSIS"),
+    )
 
 
 def _stable_id(prefix: str, *parts: str) -> str:
@@ -67,6 +89,7 @@ class CodeLoopResult:
 class CodeAnalysisClosedLoop:
     def __init__(self) -> None:
         self._gate = CodeSufficiencyEvaluator()
+        self._v2 = CodeSufficiencyV2()
 
     def evaluate(
         self,
@@ -76,19 +99,25 @@ class CodeAnalysisClosedLoop:
         target_id: str,
         analysis: Dict[str, Any],
         review: Dict[str, Any],
-        evaluator_ref: str = "rc6-evidence-backed-code-sufficiency-gate",
+        evaluator_ref: str = "rc6-evidence-backed-code-sufficiency-gate+rc7.1-impact-surface-gate",
     ) -> CodeLoopResult:
         gate = self._gate.evaluate(analysis, review, target_id=target_id)
+        v2 = self._v2.evaluate(
+            analysis,
+            force=analysis.get("sufficiency_v2_required") is True,
+        )
+        combined_reasons = list(dict.fromkeys(list(gate.reasons) + list(v2.reasons)))
+        combined_metrics = dict(gate.metrics)
+        combined_metrics["impact_sufficiency_v2"] = dict(v2.metrics)
+        gate_status = "SUFFICIENT" if not combined_reasons else "NOT_SUFFICIENT_CONTENT"
+
         analysis_id = str(analysis.get("analysis_id") or "unknown-analysis")
         review_id = str(review.get("review_id") or review.get("id") or "missing-review")
         evidence_refs = _evidence_refs(analysis, review)
 
         gaps: List[Gap] = []
-        for reason in gate.reasons:
-            category, severity, target = _REASON_POLICY.get(
-                reason,
-                ("CODE_SUFFICIENCY_GAP", GapSeverity.HIGH, "CODE_ANALYSIS"),
-            )
+        for reason in combined_reasons:
+            category, severity, target = _reason_policy(reason)
             gaps.append(
                 Gap(
                     gap_id=_stable_id("GAP-CODE", mission_id, analysis_id, reason),
@@ -104,7 +133,7 @@ class CodeAnalysisClosedLoop:
                 )
             )
 
-        result = EvaluationResult.PASS if gate.passed else EvaluationResult.REPAIR_REQUIRED
+        result = EvaluationResult.PASS if not combined_reasons else EvaluationResult.REPAIR_REQUIRED
         evaluation = Evaluation(
             evaluation_id=_stable_id(
                 "EVAL-CODE",
@@ -113,7 +142,7 @@ class CodeAnalysisClosedLoop:
                 review_id,
                 target_id,
                 result.value,
-                ",".join(sorted(gate.reasons)),
+                ",".join(sorted(combined_reasons)),
             ),
             mission_id=mission_id,
             node="CODE_ANALYSIS",
@@ -121,10 +150,11 @@ class CodeAnalysisClosedLoop:
             result=result,
             evaluator_ref=evaluator_ref,
             dimensions={
-                "gate_status": gate.status,
-                "metrics": gate.metrics,
-                "reasons": list(gate.reasons),
+                "gate_status": gate_status,
+                "metrics": combined_metrics,
+                "reasons": list(combined_reasons),
                 "target_id": target_id,
+                "code_impact_sufficiency_v2_ready": v2.passed,
             },
             gap_refs=[gap.gap_id for gap in gaps],
             evidence_refs=evidence_refs,
@@ -132,8 +162,8 @@ class CodeAnalysisClosedLoop:
         return CodeLoopResult(
             evaluation=evaluation,
             gaps=tuple(gaps),
-            gate_status=gate.status,
-            gate_metrics=dict(gate.metrics),
+            gate_status=gate_status,
+            gate_metrics=combined_metrics,
         )
 
     @staticmethod
