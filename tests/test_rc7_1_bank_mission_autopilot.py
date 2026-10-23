@@ -57,7 +57,7 @@ def test_execution_capability_snapshot_requires_real_probe_and_target_evidence(t
     broker.bind_worker("maven", "worker-1", visible=True, permitted=True)
     readiness = broker.admit("worker-1", ("maven",), target)
     assert readiness.ready is True
-    assert readiness.blocked == ()
+    assert readiness.blocked == {}
 
 
 def test_execution_capability_snapshot_does_not_invent_missing_tool(tmp_path: Path):
