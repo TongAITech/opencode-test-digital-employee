@@ -50,8 +50,33 @@ result = INSUFFICIENT
 
 绝不允许转换成 `3/3 = 100% -> PASS`。
 
-## 下一层接线要求
+## Center 最终裁决权
 
-本合同的 `CenterSufficiencyDecision` 是权威计算路径。MissionGraph/Center Service 必须进一步收口为：SUFFICIENT 只接受由冻结 Ledger 生成的确定性 Evaluation。直接由 Worker 构造 `SufficiencyEvaluation(result=SUFFICIENT)` 的旧入口必须淘汰或 fail-closed。
+Worker/LLM 的 `SUFFICIENCY_EVALUATED` 只允许作为候选事实。任何可能解锁下游的 `SUFFICIENT` 都必须经过 Center 的冻结账本重算；原始 Worker 绿结论不得成为 MissionGraph 的恢复或解锁依据。
 
-完成这一接线并通过 CI 前，不得宣称 RC8 充分度防缩水整体完成。
+当前 REQUIREMENT_SUFFICIENCY 已固定 6 个 Center 必需维度：
+- requirement-source-assertions
+- requirement-atomic-statements
+- requirement-traceability
+- requirement-evidence
+- requirement-normal-path
+- requirement-open-question
+
+Worker 少报任一维度时，Center 自动补 `UNKNOWN` 并判 `INSUFFICIENT`。只有 6/6 均满足且没有 active Gap 时，Center 才生成 `evaluator_id=RC8_CENTER_SUFFICIENCY_LEDGER`、`policy_version=center-ledger:*`、带 `ledger:*` Evidence 的权威 Evaluation。
+
+进程重启/状态恢复同样只恢复这种 Center 权威绿结论；持久化的原始 Worker `SUFFICIENT` 不得在重启后解锁下游。
+
+对于 CODE_SUFFICIENCY、DESIGN_SUFFICIENCY、MISSION_SUFFICIENCY，在各自冻结分母构建器尚未落地前，Worker 绿结论必须 fail-closed，禁止为了兼容旧链路继续直接 PASS。
+
+## 当前验证边界
+
+本合同与云端 CI 只能证明代码级确定性防缩水门禁。Requirement Center authority 通过后，仍需继续完成 CODE/DESIGN/MISSION 的冻结账本构建器，并在行内真实 TestRun 中验证实际分母、Evidence、新旧 Snapshot、Gap 与下游解锁关系。
+
+在这些现场证据完成前：
+
+```text
+BANK_REALITY_VERIFIED = NO
+TEST_SUFFICIENT       = NO
+RELEASE_READY         = NO
+Release               = HOLD
+```

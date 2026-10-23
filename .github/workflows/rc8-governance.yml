@@ -22,6 +22,7 @@ on:
       - 'scripts/rc8_validate_governance.py'
       - 'tests/test_rc8_runtime_governance.py'
       - 'tests/test_rc8_sufficiency_anti_shrink.py'
+      - 'tests/test_rc8_center_sufficiency_authority.py'
       - 'tests/test_rc8_mission_graph.py'
       - 'tests/test_rc8_mission_graph_scopes.py'
       - 'tests/test_rc8_mission_rework_routing.py'
@@ -50,7 +51,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-2022]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 8
     steps:
@@ -81,6 +82,7 @@ jobs:
             scripts/rc8_validate_governance.py \
             tests/test_rc8_runtime_governance.py \
             tests/test_rc8_sufficiency_anti_shrink.py \
+            tests/test_rc8_center_sufficiency_authority.py \
             tests/test_rc8_mission_graph.py \
             tests/test_rc8_mission_graph_scopes.py \
             tests/test_rc8_mission_rework_routing.py \
@@ -96,13 +98,14 @@ jobs:
         run: |
           python scripts/rc8_validate_governance.py
 
-      - name: Run no-discount, anti-shrink, scope/rework, R1 replay, persistence and product projection regressions
+      - name: Run no-discount, anti-shrink, Center-authority, scope/rework, R1 replay, persistence and product projection regressions
         shell: bash
         run: |
           python -m pip install --disable-pip-version-check pytest
           python -m pytest -q \
             tests/test_rc8_runtime_governance.py \
             tests/test_rc8_sufficiency_anti_shrink.py \
+            tests/test_rc8_center_sufficiency_authority.py \
             tests/test_rc8_mission_graph.py \
             tests/test_rc8_mission_graph_scopes.py \
             tests/test_rc8_mission_rework_routing.py \
