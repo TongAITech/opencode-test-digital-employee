@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from copy import deepcopy
+import hashlib
 
 import pytest
 
@@ -106,7 +106,7 @@ def _layer_evidence(layer: str):
     return evidence
 
 
-def _record(layer: str, evidence=None) -> ExecutionRecord:
+def _record(layer: str, evidence=None, evidence_refs=CURRENT_REFS) -> ExecutionRecord:
     actual = {"business_result": "OK"}
     if evidence is not None:
         actual["layer_evidence"] = evidence
@@ -122,7 +122,7 @@ def _record(layer: str, evidence=None) -> ExecutionRecord:
         integrity_passed=True,
         actual_result=actual,
         tool_call_refs=("CALL-001",),
-        evidence_refs=CURRENT_REFS,
+        evidence_refs=tuple(evidence_refs),
         assertion_ref="ASSERT-001",
         assertion_passed=True,
         reason=None,
@@ -135,6 +135,11 @@ def _evaluate(record: ExecutionRecord):
         artifact_ref="ART-EXEC-001",
         record=record,
     )
+
+
+def _canonical_runtime_evidence_id(raw_ref: str) -> str:
+    payload = "\x1f".join((MISSION_ID, "ATTEMPT-001", raw_ref, "")).encode("utf-8")
+    return "EVD-EXEC-RUNTIME-%s" % hashlib.sha256(payload).hexdigest()[:20]
 
 
 def test_l4_to_l7_generic_pass_without_layer_evidence_is_not_conclusive() -> None:
@@ -155,6 +160,25 @@ def test_complete_current_run_layer_evidence_can_pass(layer: str) -> None:
     assert result.test_result == "PASS"
     assert result.gaps == ()
     assert result.evaluation.dimensions["layer_evidence_contract_passed"] is True
+
+
+def test_raw_runner_evidence_ref_must_resolve_to_current_canonical_r1_evidence() -> None:
+    raw_ref = "runtime-evidence://api-call/current-attempt"
+    canonical_ref = _canonical_runtime_evidence_id(raw_ref)
+    evidence = _layer_evidence("L5")
+    evidence["evidence_refs"] = [raw_ref]
+    evidence["assertions"][0]["evidence_refs"] = [raw_ref]
+    evidence["api_calls"][0]["evidence_refs"] = [raw_ref]
+
+    result = _evaluate(_record("L5", evidence, evidence_refs=(canonical_ref,)))
+    assert result.evaluation.result == EvaluationResult.PASS
+    assert result.conclusive is True
+    assert result.evaluation.dimensions["layer_evidence_contract_passed"] is True
+
+    stale = _record("L5", evidence, evidence_refs=("EVD-EXEC-RUNTIME-HISTORICAL",))
+    rejected = _evaluate(stale)
+    assert rejected.evaluation.result == EvaluationResult.REPAIR_REQUIRED
+    assert "evidence_refs_current_execution" in rejected.evaluation.dimensions["layer_evidence_contract_missing"]
 
 
 def test_assertion_evidence_must_belong_to_current_execution() -> None:
