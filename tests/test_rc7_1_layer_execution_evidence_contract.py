@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 import pytest
 
@@ -139,7 +140,12 @@ def _evaluate(record: ExecutionRecord):
 
 
 def _canonical_runtime_evidence_id(raw_ref: str) -> str:
-    payload = "\x1f".join((MISSION_ID, "ATTEMPT-001", raw_ref, "")).encode("utf-8")
+    digest = ""
+    if raw_ref.startswith("file://"):
+        path = Path(raw_ref[len("file://"):])
+        if path.is_file():
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    payload = "\x1f".join((MISSION_ID, "ATTEMPT-001", raw_ref, digest)).encode("utf-8")
     return "EVD-EXEC-RUNTIME-%s" % hashlib.sha256(payload).hexdigest()[:20]
 
 
@@ -183,8 +189,10 @@ def test_case_contract_rejects_missing_status_empty_identity_times_and_invalid_c
     assert "test_data" in missing
 
 
-def test_raw_runner_evidence_ref_must_resolve_to_current_canonical_r1_evidence() -> None:
-    raw_ref = "runtime-evidence://api-call/current-attempt"
+def test_file_backed_runner_evidence_must_resolve_to_current_canonical_r1_evidence(tmp_path: Path) -> None:
+    proof = tmp_path / "api-current-attempt.json"
+    proof.write_text('{"status":"captured"}\n', encoding="utf-8")
+    raw_ref = "file://" + str(proof.resolve())
     canonical_ref = _canonical_runtime_evidence_id(raw_ref)
     evidence = _layer_evidence("L5")
     evidence["evidence_refs"] = [raw_ref]
@@ -200,6 +208,21 @@ def test_raw_runner_evidence_ref_must_resolve_to_current_canonical_r1_evidence()
     rejected = _evaluate(stale)
     assert rejected.evaluation.result == EvaluationResult.REPAIR_REQUIRED
     assert "evidence_refs_current_execution" in rejected.evaluation.dimensions["layer_evidence_contract_missing"]
+
+
+def test_claimed_non_file_runtime_uri_cannot_satisfy_current_execution_evidence() -> None:
+    raw_ref = "runtime-evidence://api-call/current-attempt"
+    canonical_ref = _canonical_runtime_evidence_id(raw_ref)
+    evidence = _layer_evidence("L5")
+    evidence["evidence_refs"] = [raw_ref]
+    evidence["assertions"][0]["evidence_refs"] = [raw_ref]
+    evidence["api_calls"][0]["evidence_refs"] = [raw_ref]
+    rejected = _evaluate(_record("L5", evidence, evidence_refs=(canonical_ref,)))
+    assert rejected.evaluation.result == EvaluationResult.REPAIR_REQUIRED
+    missing = rejected.evaluation.dimensions["layer_evidence_contract_missing"]
+    assert "evidence_refs_current_execution" in missing
+    assert "assertions[0].evidence_refs_current_execution" in missing
+    assert "api_calls[0].evidence_refs_current_execution" in missing
 
 
 def test_assertion_evidence_must_belong_to_current_execution() -> None:
