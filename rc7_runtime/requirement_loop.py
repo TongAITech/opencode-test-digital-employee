@@ -1,8 +1,8 @@
 """RC7 requirement-analysis closed-loop adapter.
 
-The semantic sufficiency predicate is inherited from the proven RC6 independent
-requirement gate. RC7 adds canonical Evaluation/Gap objects and deterministic
-Task acceptance semantics around that predicate.
+RC7.1 composes the existing independent semantic gate with a deterministic
+dimension-accountability gate so empty analysis dimensions cannot silently
+shrink the downstream Test Obligation denominator.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from .models import (
     Task,
     TaskStatus,
 )
+from .requirement_sufficiency_v2 import RequirementSufficiencyV2
 from .state_machine import transition_gap, transition_task
 from .truth_overlay import append_entity
 
@@ -39,6 +40,21 @@ _REASON_POLICY = {
     "REVIEW_EVIDENCE_MISSING": ("EVALUATION_EVIDENCE_MISSING", GapSeverity.CRITICAL, "REQUIREMENT_ANALYSIS"),
     "REVIEW_OPEN_GAPS": ("REQUIREMENT_REVIEW_GAP", GapSeverity.HIGH, "REQUIREMENT_ANALYSIS"),
 }
+
+
+def _reason_policy(reason: str):
+    if reason.startswith("REQ_DIMENSION_UNACCOUNTED:"):
+        return "REQUIREMENT_DIMENSION_UNACCOUNTED", GapSeverity.HIGH, "REQUIREMENT_ANALYSIS"
+    if reason.startswith("REQ_DIMENSION_ITEM_INVALID:"):
+        return "REQUIREMENT_DIMENSION_INVALID", GapSeverity.HIGH, "REQUIREMENT_ANALYSIS"
+    if reason.startswith("REQ_DIMENSION_EXCLUSION_INVALID:") or reason == "REQ_DIMENSION_EXCLUSIONS_INVALID":
+        return "REQUIREMENT_DIMENSION_EXCLUSION_INVALID", GapSeverity.HIGH, "REQUIREMENT_ANALYSIS"
+    if reason.startswith("REQ_DIMENSION_EXCLUSION_CONFLICT:"):
+        return "REQUIREMENT_DIMENSION_CONFLICT", GapSeverity.HIGH, "REQUIREMENT_ANALYSIS"
+    return _REASON_POLICY.get(
+        reason,
+        ("REQUIREMENT_SUFFICIENCY_GAP", GapSeverity.HIGH, "REQUIREMENT_ANALYSIS"),
+    )
 
 
 def _stable_id(prefix: str, *parts: str) -> str:
@@ -67,6 +83,7 @@ class RequirementLoopResult:
 class RequirementClosedLoop:
     def __init__(self) -> None:
         self._gate = IndependentRequirementSufficiencyGate()
+        self._v2 = RequirementSufficiencyV2()
 
     def evaluate(
         self,
@@ -75,19 +92,25 @@ class RequirementClosedLoop:
         artifact_ref: str,
         analysis: Dict[str, Any],
         review: Dict[str, Any],
-        evaluator_ref: str = "rc6-independent-requirement-sufficiency-gate",
+        evaluator_ref: str = "rc6-independent-requirement-sufficiency-gate+rc7.1-dimension-accountability",
     ) -> RequirementLoopResult:
         gate = self._gate.evaluate(analysis, review)
+        v2 = self._v2.evaluate(
+            analysis,
+            force=analysis.get("sufficiency_v2_required") is True,
+        )
+        combined_reasons = list(dict.fromkeys(list(gate.reasons) + list(v2.reasons)))
+        combined_metrics = dict(gate.metrics)
+        combined_metrics["sufficiency_v2"] = dict(v2.metrics)
+        gate_status = "SUFFICIENT" if not combined_reasons else "NOT_SUFFICIENT_CONTENT"
+
         analysis_id = str(analysis.get("analysis_id") or "unknown-analysis")
         review_id = str(review.get("review_id") or review.get("id") or "missing-review")
         evidence_refs = _evidence_refs(analysis, review)
 
         gaps: List[Gap] = []
-        for reason in gate.reasons:
-            category, severity, target = _REASON_POLICY.get(
-                reason,
-                ("REQUIREMENT_SUFFICIENCY_GAP", GapSeverity.HIGH, "REQUIREMENT_ANALYSIS"),
-            )
+        for reason in combined_reasons:
+            category, severity, target = _reason_policy(reason)
             gaps.append(
                 Gap(
                     gap_id=_stable_id("GAP-REQ", mission_id, analysis_id, reason),
@@ -103,7 +126,7 @@ class RequirementClosedLoop:
                 )
             )
 
-        result = EvaluationResult.PASS if gate.passed else EvaluationResult.REPAIR_REQUIRED
+        result = EvaluationResult.PASS if not combined_reasons else EvaluationResult.REPAIR_REQUIRED
         evaluation = Evaluation(
             evaluation_id=_stable_id(
                 "EVAL-REQ",
@@ -111,7 +134,7 @@ class RequirementClosedLoop:
                 analysis_id,
                 review_id,
                 result.value,
-                ",".join(sorted(gate.reasons)),
+                ",".join(sorted(combined_reasons)),
             ),
             mission_id=mission_id,
             node="REQUIREMENT_ANALYSIS",
@@ -119,9 +142,10 @@ class RequirementClosedLoop:
             result=result,
             evaluator_ref=evaluator_ref,
             dimensions={
-                "gate_status": gate.status,
-                "metrics": gate.metrics,
-                "reasons": list(gate.reasons),
+                "gate_status": gate_status,
+                "metrics": combined_metrics,
+                "reasons": list(combined_reasons),
+                "requirement_sufficiency_v2_ready": v2.passed,
             },
             gap_refs=[gap.gap_id for gap in gaps],
             evidence_refs=evidence_refs,
@@ -129,8 +153,8 @@ class RequirementClosedLoop:
         return RequirementLoopResult(
             evaluation=evaluation,
             gaps=tuple(gaps),
-            gate_status=gate.status,
-            gate_metrics=dict(gate.metrics),
+            gate_status=gate_status,
+            gate_metrics=combined_metrics,
         )
 
     @staticmethod
@@ -156,12 +180,6 @@ class RequirementClosedLoop:
         prior_gaps: Sequence[Gap],
         result: RequirementLoopResult,
     ) -> Tuple[Gap, ...]:
-        """Resolve only gaps whose reason disappeared in a new evaluation.
-
-        Repair output alone can never close a gap.  The repair controller must
-        first move a gap to EVIDENCE_PENDING; this method then requires the new
-        independent evaluation as the resolution authority.
-        """
         current_reasons = set(result.evaluation.dimensions.get("reasons", []))
         resolved = []
         for gap in prior_gaps:
