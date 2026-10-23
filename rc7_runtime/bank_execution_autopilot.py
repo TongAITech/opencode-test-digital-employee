@@ -22,7 +22,7 @@ from rc6_runtime.preparation import PreparedAttempt
 from .authority import RC7AuthorityRuntime
 from .case_fanout_conformance import AcceptedCaseInventoryReader
 from .case_runtime import CasePreparationService
-from .case_script_bundle_resolver import CaseScriptBundleResolver
+from .case_script_bundle_resolver import CaseScriptExecutionBundleResolver
 from .closed_loop_control import ClosedLoopControlPlane
 from .control_plane import WorkerOutput
 from .execution_capability import ExecutionCapabilityBrokerFactory, ExecutionCapabilityEvidenceError
@@ -64,7 +64,7 @@ class BankExecutionAutopilot:
             Path(capability_snapshot).expanduser().resolve() if capability_snapshot else None
         )
         self.inventory = AcceptedCaseInventoryReader()
-        self.bundle_resolver = CaseScriptBundleResolver(
+        self.bundle_resolver = CaseScriptExecutionBundleResolver(
             evidence_root=str(self.evidence_root / "script-runtime"),
             validation_timeout_seconds=min(max(30, timeout_seconds), 300),
         )
