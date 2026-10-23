@@ -58,6 +58,12 @@ def _layer_evidence(layer: str):
                     "actions": ["login", "query version"],
                     "state_reads": ["version row visible"],
                     "evidence_types": ["screenshot", "dom", "trace", "network"],
+                    "artifacts": {
+                        "screenshot": ["EVD-ACTION"],
+                        "dom": ["EVD-LAYER"],
+                        "trace": ["EVD-ACTION"],
+                        "network": ["EVD-LAYER"],
+                    },
                     "evidence_refs": ["EVD-ACTION", "EVD-LAYER"],
                 },
                 "auth": {
@@ -66,6 +72,7 @@ def _layer_evidence(layer: str):
                     "fresh_login": True,
                     "historical_cookie_fallback": False,
                     "expiry_relogin_supported": True,
+                    "evidence_refs": ["EVD-ACTION"],
                 },
             }
         )
@@ -196,6 +203,17 @@ def test_forged_session_id_cannot_pass_with_correct_worker_id() -> None:
     result = _evaluate(_record("L5", evidence))
     assert result.evaluation.result == EvaluationResult.REPAIR_REQUIRED
     assert "session_id" in result.evaluation.dimensions["layer_evidence_contract_missing"]
+
+
+def test_l4_requires_typed_browser_artifacts_and_4a_evidence() -> None:
+    evidence = _layer_evidence("L4")
+    evidence["browser"]["artifacts"]["screenshot"] = []
+    evidence["auth"]["evidence_refs"] = []
+    result = _evaluate(_record("L4", evidence))
+    assert result.evaluation.result == EvaluationResult.REPAIR_REQUIRED
+    missing = result.evaluation.dimensions["layer_evidence_contract_missing"]
+    assert "browser.artifacts.screenshot" in missing
+    assert "auth.evidence_refs" in missing
 
 
 def test_file_backed_runner_evidence_must_resolve_to_current_canonical_r1_evidence(tmp_path: Path) -> None:
