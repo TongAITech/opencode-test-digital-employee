@@ -17,6 +17,14 @@ from typing import Dict, Optional, Set
 
 from rc6_runtime.authority import AuthorityRuntime, WorkerIdentity
 
+from .runtime_timing_reality import install_rc7_1_runtime_timing
+
+
+# Install before any RC7 formal execution starts. The overlay itself is guarded
+# so only RunnerAdapter instances backed by RC7's evidence harness are changed;
+# ordinary RC6 runner behavior remains untouched.
+install_rc7_1_runtime_timing()
+
 
 _EXECUTION_ROLES = frozenset("L%d_EXECUTE" % index for index in range(1, 8))
 
