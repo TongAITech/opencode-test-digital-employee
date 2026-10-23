@@ -30,17 +30,18 @@ def _advance_to_evaluating(graph, stage_id):
     graph.runtime.transition_stage(stage_id, StageState.EVALUATING)
 
 
-def _eval(eval_id, stage_id, result, gaps=(), unsatisfied=()):
+def _eval(eval_id, stage_id, result, gaps=(), unsatisfied=(), authoritative=True):
+    center_green = result == SufficiencyResult.SUFFICIENT and authoritative
     return SufficiencyEvaluation(
         evaluation_id=eval_id,
         test_run_id="run-1",
         scope=StatusScope.STAGE,
         subject_id=stage_id,
-        evaluator_id="independent-evaluator",
-        policy_version="policy-v1",
+        evaluator_id="RC8_CENTER_SUFFICIENCY_LEDGER" if center_green else "independent-evaluator",
+        policy_version="center-ledger:ledger-test" if center_green else "policy-v1",
         result=result,
         dimension_refs=("coverage:req",),
-        evidence_refs=("artifact:evaluation",),
+        evidence_refs=("artifact:evaluation", "ledger:ledger-test") if center_green else ("artifact:evaluation",),
         unresolved_gap_ids=tuple(gaps),
         unsatisfied_requirement_refs=tuple(unsatisfied),
         explanation="evidence-backed sufficiency decision",
@@ -111,7 +112,19 @@ def test_completed_activity_can_feed_sufficiency_but_insufficient_gate_blocks_do
         graph.mark_ready("code-analysis-1")
 
 
-def test_only_sufficient_evaluation_unlocks_next_stage():
+def test_worker_green_cannot_bypass_center_authority_in_record_path():
+    graph = MissionGraphRuntime("run-1")
+    graph.add_stage(_stage("scope-1", MissionStageType.SCOPE_INTAKE, state=StageState.COMPLETED))
+    graph.add_stage(_stage("req-analysis-1", MissionStageType.REQUIREMENT_ANALYSIS, predecessors=("scope-1",), state=StageState.COMPLETED))
+    graph.add_stage(_stage("req-suff-1", MissionStageType.REQUIREMENT_SUFFICIENCY, predecessors=("req-analysis-1",)))
+    graph.mark_ready("req-suff-1")
+    _advance_to_evaluating(graph, "req-suff-1")
+    with pytest.raises(RC8ContractError, match="MISSION_SUFFICIENT_REQUIRES_CENTER_LEDGER_AUTHORITY"):
+        graph.record_stage_sufficiency("req-suff-1", _eval("worker-green", "req-suff-1", SufficiencyResult.SUFFICIENT, authoritative=False))
+    assert graph.runtime.stages["req-suff-1"].state == StageState.EVALUATING
+
+
+def test_only_center_authoritative_sufficient_evaluation_unlocks_next_stage():
     graph = MissionGraphRuntime("run-1")
     graph.add_stage(_stage("scope-1", MissionStageType.SCOPE_INTAKE, state=StageState.COMPLETED))
     graph.add_stage(
@@ -200,7 +213,7 @@ def test_upstream_change_invalidates_old_green_and_all_downstream_proof():
             state=StageState.COMPLETED,
         )
     )
-    # Hydrate the historical sufficiency proof as if restored from Center.
+    # Hydrate the historical Center-authoritative sufficiency proof.
     graph.runtime.evaluations["eval-old"] = _eval("eval-old", "req-suff-1", SufficiencyResult.SUFFICIENT)
     graph._stage_evaluations["req-suff-1"] = "eval-old"
     graph.add_stage(
