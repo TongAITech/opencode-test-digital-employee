@@ -10,6 +10,10 @@ BLOCKED is routed by its proven owner (AUTH/ENV/DATA/etc.) instead of being
 collapsed into a generic failure bucket. Exhausted retry budgets leave the
 Execution loop and become Runtime blockers; max retries can stop automation but
 can never force PASS.
+
+RC7.1 adds a fail-closed L4-L7 Evidence Contract after the generic RC6
+integrity gate. A generic PASS candidate at these layers is not conclusive until
+its current-run layer evidence is complete.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from rc6_runtime.diagnosis import DiagnosisResult, RecoveryDecision
 from rc6_runtime.execution import ExecutionRecord
 from rc6_runtime.truth import TruthRuntime
 
+from .layer_execution_evidence_gate import LayerEvidenceResult, LayerExecutionEvidenceGate
 from .models import Evaluation, EvaluationResult, Gap, GapSeverity, Task, TaskStatus
 from .state_machine import transition_task
 from .truth_overlay import append_entity
@@ -65,6 +70,9 @@ class ExecutionLoopResult:
 
 
 class ExecutionClosedLoop:
+    def __init__(self, layer_evidence_gate: Optional[LayerExecutionEvidenceGate] = None):
+        self.layer_evidence_gate = layer_evidence_gate or LayerExecutionEvidenceGate()
+
     @staticmethod
     def _base_test_result(record: ExecutionRecord) -> str:
         status = str(record.status).upper()
@@ -105,13 +113,45 @@ class ExecutionClosedLoop:
         test_result = self._base_test_result(record)
         gaps = []
         recovery_action = recovery.action if recovery is not None else None
+        layer_evidence_result: Optional[LayerEvidenceResult] = None
+        layer_contract_failed = False
 
         if diagnosis is not None and diagnosis.attempt_id != record.attempt_id:
             raise ValueError("DIAGNOSIS_ATTEMPT_MISMATCH")
         if recovery is not None and recovery.attempt_id != record.attempt_id:
             raise ValueError("RECOVERY_ATTEMPT_MISMATCH")
 
-        if test_result == "PASS":
+        # RC6 integrity PASS is necessary but not sufficient for L4-L7.  The
+        # layer contract is evaluated before a PASS can become conclusive or be
+        # consumed by Execution Fanout as a terminal receipt.
+        if test_result == "PASS" and str(record.layer).upper() in LayerExecutionEvidenceGate.LAYERS:
+            layer_evidence_result = self.layer_evidence_gate.verify_record(
+                mission_id=mission_id,
+                record=record,
+            )
+            if not layer_evidence_result.passed:
+                layer_contract_failed = True
+                test_result = "INCONCLUSIVE"
+                gaps.append(
+                    self._gap(
+                        mission_id,
+                        record,
+                        category="LAYER_EVIDENCE_CONTRACT_INCOMPLETE",
+                        target="EXECUTION",
+                        severity=GapSeverity.HIGH,
+                        description="%s:%s:%s"
+                        % (
+                            str(record.layer).upper(),
+                            layer_evidence_result.reason,
+                            ",".join(layer_evidence_result.missing),
+                        ),
+                    )
+                )
+
+        if layer_contract_failed:
+            evaluation_result = EvaluationResult.REPAIR_REQUIRED
+            conclusive = False
+        elif test_result == "PASS":
             evaluation_result = EvaluationResult.PASS
             conclusive = True
         elif test_result == "BLOCKED":
@@ -215,7 +255,11 @@ class ExecutionClosedLoop:
             node="EXECUTION",
             artifact_refs=[artifact_ref],
             result=evaluation_result,
-            evaluator_ref=evaluator_ref,
+            evaluator_ref=(
+                "rc7.1-execution-integrity-plus-layer-evidence-gate"
+                if str(record.layer).upper() in LayerExecutionEvidenceGate.LAYERS
+                else evaluator_ref
+            ),
             dimensions={
                 "test_result": test_result,
                 "execution_status": record.status,
@@ -225,6 +269,13 @@ class ExecutionClosedLoop:
                 "recovery_action": recovery_action,
                 "conclusive": conclusive,
                 "attempt_id": record.attempt_id,
+                "layer_evidence_contract_required": str(record.layer).upper() in LayerExecutionEvidenceGate.LAYERS,
+                "layer_evidence_contract_passed": (
+                    layer_evidence_result.passed if layer_evidence_result is not None else None
+                ),
+                "layer_evidence_contract_missing": (
+                    list(layer_evidence_result.missing) if layer_evidence_result is not None else []
+                ),
             },
             gap_refs=[gap.gap_id for gap in gaps],
             evidence_refs=list(dict.fromkeys(evidence_refs)),
