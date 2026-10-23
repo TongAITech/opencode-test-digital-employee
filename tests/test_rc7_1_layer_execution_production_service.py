@@ -56,6 +56,7 @@ def _source(symbol: str, *, include_layer_evidence: bool = True) -> str:
         "session_id": "SESSION-" + layer,
         "started_at": "2026-10-23T08:00:00Z",
         "finished_at": "2026-10-23T08:00:01Z",
+        "status": "PASS",
         "preconditions": [],
         "test_data": {},
         "steps": ["execute governed runtime"],
