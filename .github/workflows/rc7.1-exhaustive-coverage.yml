@@ -30,6 +30,7 @@ jobs:
         run: >-
           python -m pytest -q
           tests/test_rc7_1_exhaustive_coverage_gate.py
+          tests/test_rc7_1_layer_execution_evidence_contract.py
           tests/test_rc7_mission_sufficiency.py
           tests/test_rc7_1_test_design_sufficiency_v2.py
           tests/test_rc7_runtime_execution_control.py
