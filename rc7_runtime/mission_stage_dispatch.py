@@ -37,9 +37,14 @@ class MissionStageRoute:
 class MissionStageDispatcher:
     """Route one READY task to its actual execution authority."""
 
-    # Dynamic producer tasks are deliberately separate from canonical graph
-    # tasks. They need governed Gap refs before a DSH worker may own them.
+    # Governed producer-node repairs are first-class autonomous work. Every
+    # dynamic task still needs a real same-Mission Gap whose target_node exactly
+    # matches the Task node, so this does not permit arbitrary worker creation.
     _DYNAMIC_PRODUCER_TASKS = {
+        ("REQUIREMENT_ANALYSIS", "REPAIR"),
+        ("CODE_ANALYSIS", "REPAIR"),
+        ("TEST_DESIGN", "REPAIR"),
+        ("SCRIPT_READINESS", "REPAIR"),
         ("RUNTIME", "REPAIR"),
         ("DEFECT", "REPAIR"),
         ("DEFECT", "QUALIFY_DEFECT"),
