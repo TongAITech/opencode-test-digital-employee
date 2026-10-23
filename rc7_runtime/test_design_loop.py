@@ -1,10 +1,9 @@
 """RC7 Test Design closed loop driven by explicit Test Obligations.
 
-RC6 already provides the correct semantic closure primitive: coverage is
-computed over explicit subjects, never by case count, and Oracle completeness
-is derived from layer/risk/action semantics. RC7 promotes those subjects to the
-Test Obligation vocabulary and wraps closure results in canonical Evaluation /
-Gap / repair lifecycle contracts.
+RC7.1 extends the obligation vocabulary with PRECONDITION and DEPENDENCY while
+reusing the proven RC6 semantic closure primitive through deterministic
+coverage-kind aliases. This keeps the RC6 contract stable but prevents those
+Requirement facts from disappearing from the Test Design denominator.
 """
 
 from __future__ import annotations
@@ -29,16 +28,26 @@ from .truth_overlay import append_entity
 _KIND_GAP_CATEGORY = {
     "REQUIREMENT_ASSERTION": "UNCOVERED_REQUIREMENT",
     "BUSINESS_RULE": "UNCOVERED_BUSINESS_RULE",
+    "PRECONDITION": "MISSING_PRECONDITION_CASE",
     "POSITIVE_PATH": "MISSING_POSITIVE_CASE",
     "NEGATIVE_PATH": "MISSING_NEGATIVE_CASE",
     "BOUNDARY": "UNCOVERED_BOUNDARY",
     "STATE_TRANSITION": "MISSING_STATE_TRANSITION",
     "ROLE_PERMISSION": "MISSING_PERMISSION_CASE",
     "DATA_CONDITION": "MISSING_DATA_VARIANT",
+    "DEPENDENCY": "MISSING_DEPENDENCY_CASE",
     "CODE_IMPACT": "UNCOVERED_CODE_BRANCH",
     "SIDE_EFFECT": "MISSING_SIDE_EFFECT_CASE",
     "REGRESSION": "MISSING_REGRESSION_CASE",
     "HIGH_RISK_HYPOTHESIS": "UNCOVERED_RISK",
+}
+
+# RC6 CoverageSubjectRegistry owns the frozen semantic vocabulary. RC7.1 keeps
+# that primitive unchanged and maps the two new source-level obligation kinds to
+# semantically compatible RC6 categories for coverage calculation.
+_COVERAGE_KIND_ALIASES = {
+    "PRECONDITION": "DATA_CONDITION",
+    "DEPENDENCY": "HIGH_RISK_HYPOTHESIS",
 }
 
 _RISK_SEVERITY = {
@@ -70,9 +79,10 @@ class TestObligation:
             raise ValueError("TEST_OBLIGATION_EVIDENCE_REQUIRED")
 
     def as_coverage_subject(self) -> Dict[str, Any]:
+        kind = str(self.kind).upper()
         return {
             "subject_id": self.obligation_id,
-            "kind": self.kind,
+            "kind": _COVERAGE_KIND_ALIASES.get(kind, kind),
             "layer": self.layer,
             "risk": self.risk,
             "required": self.required,
