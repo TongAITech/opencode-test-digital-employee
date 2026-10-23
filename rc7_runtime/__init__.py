@@ -7,6 +7,10 @@ remain reusable through the RC7 closed-loop adapters.
 
 # RC7.1 field fixes must be installed before the compatibility execution/worker
 # modules below import their RC6 surfaces.
+from .execution_profiles import (
+    RC7_1_EXECUTION_PROFILES,
+    install_rc7_1_execution_profiles,
+)
 from .junit_reality import (
     RealityCheckedJUnitRunnerAdapter,
     install_rc7_1_junit_reality_gate,
@@ -18,6 +22,7 @@ from .model_resilience import (
     install_rc7_1_model_resilience,
 )
 
+install_rc7_1_execution_profiles()
 install_rc7_1_junit_reality_gate()
 install_rc7_1_worker_timeout_diagnostics()
 install_rc7_1_model_resilience()
@@ -110,6 +115,8 @@ from .autonomous_execution_service import (
 )
 
 __all__ = [
+    "RC7_1_EXECUTION_PROFILES",
+    "install_rc7_1_execution_profiles",
     "RealityCheckedJUnitRunnerAdapter",
     "install_rc7_1_junit_reality_gate",
     "install_rc7_1_worker_timeout_diagnostics",
