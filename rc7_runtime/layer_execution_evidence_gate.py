@@ -1,6 +1,6 @@
 """RC7.1 deterministic L4-L7 production evidence contract.
 
-This gate is deliberately independent from model judgement.  A generic
+This gate is deliberately independent from model judgement. A generic
 ExecutionRecord may be integrity-valid, but L4-L7 are not allowed to become a
 terminal PASS until the layer-specific runtime proof is carried by the current
 execution record.
@@ -14,12 +14,20 @@ RC7.1 layer semantics:
   blocker/human-required outcome, never a degraded PASS.
 * L7 - real cross-layer E2E execution. E2E verification requires real runtime
   execution and a complete entry -> business-result -> oracle chain.
+
+The formal runner emits raw evidence refs. ClosedLoopRuntimeExecutionService
+persists those refs as deterministic canonical R1 Evidence IDs. This gate
+accepts either the canonical ID or the exact raw ref only when that raw ref
+recomputes to an Evidence ID present on the current ExecutionRecord. Historical
+or unrelated refs therefore cannot satisfy the contract.
 """
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Mapping, Sequence, Tuple
+from pathlib import Path
+from typing import Any, Iterable, Mapping, Sequence, Tuple
 
 from rc6_runtime.execution import ExecutionRecord
 
@@ -31,8 +39,8 @@ class LayerEvidenceResult:
     missing: Tuple[str, ...] = ()
 
 
-# Kept as compatibility DTOs for any field adapter that imported the original
-# RC7.1 module.  Production verification is performed by verify_record() below.
+# Compatibility DTOs for field adapters that imported the first RC7.1 draft.
+# Production verification is performed by verify_record().
 @dataclass(frozen=True)
 class L4UiEvidence:
     video_ref: str = ""
@@ -129,24 +137,42 @@ class LayerExecutionEvidenceGate:
         layer_refs = self._refs(evidence.get("evidence_refs"))
         if not layer_refs:
             missing.append("evidence_refs")
-        elif not layer_refs.issubset(record_refs):
+        elif not self._refs_are_current(
+            layer_refs,
+            record_refs=record_refs,
+            mission_id=mission_id,
+            attempt_id=record.attempt_id,
+        ):
             missing.append("evidence_refs_current_execution")
 
-        self._verify_assertions(missing, evidence.get("assertions"), record_refs)
+        self._verify_assertions(
+            missing,
+            evidence.get("assertions"),
+            record_refs=record_refs,
+            mission_id=mission_id,
+            attempt_id=record.attempt_id,
+        )
         self._verify_receipt(missing, evidence.get("execution_receipt"), record)
 
         if layer == "L4":
-            self._verify_l4_payload(missing, evidence, record_refs)
+            self._verify_l4_payload(missing, evidence, record_refs, mission_id, record.attempt_id)
         elif layer == "L5":
-            self._verify_l5_payload(missing, evidence, record_refs)
+            self._verify_l5_payload(missing, evidence, record_refs, mission_id, record.attempt_id)
         elif layer == "L6":
-            self._verify_l6_payload(missing, evidence, record_refs)
+            self._verify_l6_payload(missing, evidence, record_refs, mission_id, record.attempt_id)
         else:
-            self._verify_l7_payload(missing, evidence, record_refs)
+            self._verify_l7_payload(missing, evidence, record_refs, mission_id, record.attempt_id)
 
         return self._result("%s_EVIDENCE_CONTRACT_COMPLETE" % layer, missing)
 
-    def _verify_l4_payload(self, missing, evidence: Mapping[str, Any], record_refs: set[str]) -> None:
+    def _verify_l4_payload(
+        self,
+        missing,
+        evidence: Mapping[str, Any],
+        record_refs: set,
+        mission_id: str,
+        attempt_id: str,
+    ) -> None:
         browser = evidence.get("browser")
         if not isinstance(browser, dict):
             missing.append("browser")
@@ -162,7 +188,12 @@ class LayerExecutionEvidenceGate:
         browser_refs = self._refs(browser.get("evidence_refs"))
         if not browser_refs:
             missing.append("browser.evidence_refs")
-        elif not browser_refs.issubset(record_refs):
+        elif not self._refs_are_current(
+            browser_refs,
+            record_refs=record_refs,
+            mission_id=mission_id,
+            attempt_id=attempt_id,
+        ):
             missing.append("browser.evidence_refs_current_execution")
 
         auth = evidence.get("auth")
@@ -177,7 +208,14 @@ class LayerExecutionEvidenceGate:
             if auth.get("expiry_relogin_supported") is not True:
                 missing.append("auth.expiry_relogin_supported=true")
 
-    def _verify_l5_payload(self, missing, evidence: Mapping[str, Any], record_refs: set[str]) -> None:
+    def _verify_l5_payload(
+        self,
+        missing,
+        evidence: Mapping[str, Any],
+        record_refs: set,
+        mission_id: str,
+        attempt_id: str,
+    ) -> None:
         calls = evidence.get("api_calls")
         if not self._nonempty_sequence(calls):
             missing.append("api_calls")
@@ -197,10 +235,22 @@ class LayerExecutionEvidenceGate:
             refs = self._refs(call.get("evidence_refs"))
             if not refs:
                 missing.append("%s.evidence_refs" % prefix)
-            elif not refs.issubset(record_refs):
+            elif not self._refs_are_current(
+                refs,
+                record_refs=record_refs,
+                mission_id=mission_id,
+                attempt_id=attempt_id,
+            ):
                 missing.append("%s.evidence_refs_current_execution" % prefix)
 
-    def _verify_l6_payload(self, missing, evidence: Mapping[str, Any], record_refs: set[str]) -> None:
+    def _verify_l6_payload(
+        self,
+        missing,
+        evidence: Mapping[str, Any],
+        record_refs: set,
+        mission_id: str,
+        attempt_id: str,
+    ) -> None:
         capability = evidence.get("capability")
         if not isinstance(capability, dict):
             missing.append("capability")
@@ -216,10 +266,22 @@ class LayerExecutionEvidenceGate:
         refs = self._refs(capability.get("evidence_refs"))
         if not refs:
             missing.append("capability.evidence_refs")
-        elif not refs.issubset(record_refs):
+        elif not self._refs_are_current(
+            refs,
+            record_refs=record_refs,
+            mission_id=mission_id,
+            attempt_id=attempt_id,
+        ):
             missing.append("capability.evidence_refs_current_execution")
 
-    def _verify_l7_payload(self, missing, evidence: Mapping[str, Any], record_refs: set[str]) -> None:
+    def _verify_l7_payload(
+        self,
+        missing,
+        evidence: Mapping[str, Any],
+        record_refs: set,
+        mission_id: str,
+        attempt_id: str,
+    ) -> None:
         if evidence.get("real_runtime_execution") is not True:
             missing.append("real_runtime_execution=true")
         if evidence.get("E2E_VERIFIED_REQUIRES_REAL_RUNTIME_EXECUTION") is not True:
@@ -235,11 +297,24 @@ class LayerExecutionEvidenceGate:
         refs = self._refs(chain.get("evidence_refs"))
         if not refs:
             missing.append("e2e_chain.evidence_refs")
-        elif not refs.issubset(record_refs):
+        elif not self._refs_are_current(
+            refs,
+            record_refs=record_refs,
+            mission_id=mission_id,
+            attempt_id=attempt_id,
+        ):
             missing.append("e2e_chain.evidence_refs_current_execution")
 
     @classmethod
-    def _verify_assertions(cls, missing, assertions: Any, record_refs: set[str]) -> None:
+    def _verify_assertions(
+        cls,
+        missing,
+        assertions: Any,
+        *,
+        record_refs: set,
+        mission_id: str,
+        attempt_id: str,
+    ) -> None:
         if not cls._nonempty_sequence(assertions):
             missing.append("assertions")
             return
@@ -259,7 +334,12 @@ class LayerExecutionEvidenceGate:
             refs = cls._refs(assertion.get("evidence_refs"))
             if not refs:
                 missing.append("%s.evidence_refs" % prefix)
-            elif not refs.issubset(record_refs):
+            elif not cls._refs_are_current(
+                refs,
+                record_refs=record_refs,
+                mission_id=mission_id,
+                attempt_id=attempt_id,
+            ):
                 missing.append("%s.evidence_refs_current_execution" % prefix)
 
     @staticmethod
@@ -296,10 +376,43 @@ class LayerExecutionEvidenceGate:
         return bool(cls._sequence(value))
 
     @staticmethod
-    def _refs(value: Any) -> set[str]:
+    def _refs(value: Any) -> set:
         if not isinstance(value, (list, tuple, set)):
             return set()
         return {str(item) for item in value if str(item)}
+
+    @classmethod
+    def _refs_are_current(
+        cls,
+        refs: set,
+        *,
+        record_refs: set,
+        mission_id: str,
+        attempt_id: str,
+    ) -> bool:
+        for ref in refs:
+            if ref in record_refs:
+                continue
+            if cls._canonical_runtime_evidence_id(mission_id, attempt_id, ref) not in record_refs:
+                return False
+        return True
+
+    @staticmethod
+    def _canonical_runtime_evidence_id(mission_id: str, attempt_id: str, raw_ref: str) -> str:
+        digest = ""
+        if raw_ref.startswith("file://"):
+            path = Path(raw_ref[len("file://"):])
+            if path.is_file():
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        raw = "\x1f".join(
+            str(part)
+            for part in ("EVD-EXEC-RUNTIME", mission_id, attempt_id, raw_ref, digest)
+        ).encode("utf-8")
+        # _stable_id(prefix, *parts) hashes only parts, not prefix.
+        payload = "\x1f".join(
+            str(part) for part in (mission_id, attempt_id, raw_ref, digest)
+        ).encode("utf-8")
+        return "EVD-EXEC-RUNTIME-%s" % hashlib.sha256(payload).hexdigest()[:20]
 
     @staticmethod
     def _result(success_reason: str, missing: Iterable[str]) -> LayerEvidenceResult:
@@ -308,8 +421,8 @@ class LayerExecutionEvidenceGate:
             return LayerEvidenceResult(False, "EVIDENCE_INCOMPLETE", normalized)
         return LayerEvidenceResult(True, success_reason, ())
 
-    # Legacy validation entry points retained for compatibility.  They no
-    # longer define RC7.1 production semantics and are not used by the runtime.
+    # Legacy validation entry points retained for compatibility. They no longer
+    # define RC7.1 production semantics and are not used by the runtime.
     def verify_l4(self, evidence: L4UiEvidence) -> LayerEvidenceResult:
         missing = []
         if not evidence.trace_ref:
@@ -325,8 +438,6 @@ class LayerExecutionEvidenceGate:
         return self._result("L4_COMPAT_EVIDENCE_COMPLETE", missing)
 
     def verify_l5(self, evidence: L5E2EEvidence) -> LayerEvidenceResult:
-        # Compatibility only: the production L5 contract is API execution,
-        # verified through verify_record().
         missing = []
         if not evidence.runtime_refs:
             missing.append("runtime_refs")
