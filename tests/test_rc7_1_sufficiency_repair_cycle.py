@@ -15,7 +15,6 @@ from rc7_runtime import (
 )
 from rc7_runtime.control_plane import WorkerOutput
 from rc7_runtime.gap_router import GapRouter
-from rc7_runtime.mission_stage_dispatch import MissionStageDispatcher
 
 
 MISSION = "MISSION-RC71-SUFFICIENCY-CYCLE"
@@ -50,14 +49,14 @@ def _output(task_id, worker, artifact_id, evidence_id):
     )
 
 
-def test_density_gap_routes_repairs_reevaluates_and_resolves(tmp_path):
+def test_density_gap_repairs_reevaluates_and_resolves(tmp_path):
     truth = TruthRuntime(tmp_path / "r1.jsonl")
     control = ClosedLoopControlPlane.bootstrap(
         truth,
         Mission(
             mission_id=MISSION,
             release_id="RC7.1",
-            goal="prove sufficiency-v2 autonomous repair semantics",
+            goal="prove sufficiency-v2 governed repair semantics",
         ),
     )
     source = Task(
@@ -113,18 +112,14 @@ def test_density_gap_routes_repairs_reevaluates_and_resolves(tmp_path):
     persisted_gap = truth.query("rc7_gap", gap_id=GAP_ID)[0]
     assert persisted_gap["state"] == "PLANNED"
 
-    # Critical RC7.1 fix: a non-canonical TEST_DESIGN/REPAIR task is now a
-    # governed Producer route instead of READY_NONCANONICAL_TASK_FORBIDDEN.
+    # The exact dynamic-dispatch path is covered separately against a canonical
+    # Mission graph. This test isolates the governed Gap lifecycle so mission
+    # conformance is never weakened merely to exercise a synthetic source task.
     control.refresh_ready()
-    dispatcher = MissionStageDispatcher(control, producer_runner=lambda: "DISPATCHED")
-    repair_route = dispatcher.next_route()
-    assert repair_route is not None
-    assert repair_route.node == "TEST_DESIGN"
-    assert repair_route.action == "PRODUCER_WORKER"
-
     repair = control.lease_next(worker_ref="delta-designer", capabilities=["test_design"])
     assert repair is not None
     assert repair.task_type == "REPAIR"
+    assert repair.node == "TEST_DESIGN"
     assert repair.gap_refs == [GAP_ID]
     control.start(repair.task_id, worker_ref="delta-designer")
     repair_candidate = control.submit_worker_output(
