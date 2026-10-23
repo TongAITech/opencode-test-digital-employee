@@ -24,6 +24,7 @@ def _layer_evidence(layer: str):
         "session_id": "SESSION-001",
         "started_at": "2026-10-23T08:00:00Z",
         "finished_at": "2026-10-23T08:00:05Z",
+        "status": "PASS",
         "preconditions": ["target is reachable"],
         "test_data": {"customer_id": "C001"},
         "steps": ["execute the case"],
@@ -160,6 +161,26 @@ def test_complete_current_run_layer_evidence_can_pass(layer: str) -> None:
     assert result.test_result == "PASS"
     assert result.gaps == ()
     assert result.evaluation.dimensions["layer_evidence_contract_passed"] is True
+
+
+def test_case_contract_rejects_missing_status_empty_identity_times_and_invalid_context_types() -> None:
+    evidence = _layer_evidence("L5")
+    evidence.pop("status")
+    evidence["session_id"] = ""
+    evidence["started_at"] = ""
+    evidence["finished_at"] = ""
+    evidence["preconditions"] = "not-a-sequence"
+    evidence["test_data"] = ["not-a-mapping"]
+    result = _evaluate(_record("L5", evidence))
+    assert result.evaluation.result == EvaluationResult.REPAIR_REQUIRED
+    assert result.conclusive is False
+    missing = result.evaluation.dimensions["layer_evidence_contract_missing"]
+    assert "status=PASS" in missing
+    assert "session_id" in missing
+    assert "started_at" in missing
+    assert "finished_at" in missing
+    assert "preconditions" in missing
+    assert "test_data" in missing
 
 
 def test_raw_runner_evidence_ref_must_resolve_to_current_canonical_r1_evidence() -> None:
