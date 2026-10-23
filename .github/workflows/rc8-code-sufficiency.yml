@@ -30,7 +30,7 @@ jobs:
           python-version: '3.8'
       - name: Install test dependencies
         shell: bash
-        run: python -m pip install --disable-pip-version-check pytest sqlalchemy
+        run: python -m pip install --disable-pip-version-check pytest sqlalchemy redis
       - name: Compile code sufficiency evaluator
         shell: bash
         run: |
