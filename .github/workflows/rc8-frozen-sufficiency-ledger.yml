@@ -5,9 +5,7 @@ on:
     branches: [work/rc8]
     paths:
       - 'rc8_runtime/governance.py'
-      - 'rc8_runtime/center_mission.py'
-      - 'rc8_runtime/center_code_sufficiency.py'
-      - 'tests/test_rc8_frozen_sufficiency_zero_denominator.py'
+      - 'tests/test_rc8_coverage_zero_denominator_contract.py'
       - '.github/workflows/rc8-frozen-sufficiency-ledger.yml'
   workflow_dispatch:
 
@@ -19,7 +17,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.8'
-      - name: Compile governance and sufficiency runtime
-        run: python -m py_compile rc8_runtime/governance.py rc8_runtime/center_mission.py rc8_runtime/center_code_sufficiency.py
+      - name: Compile governance runtime
+        run: python -m py_compile rc8_runtime/governance.py
       - name: Prove zero denominator cannot become SUFFICIENT
-        run: python -m unittest tests.test_rc8_frozen_sufficiency_zero_denominator -v
+        run: python -m pytest -q tests/test_rc8_coverage_zero_denominator_contract.py
