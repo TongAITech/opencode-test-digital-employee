@@ -1,7 +1,7 @@
 """RC7.1 current-run JUnit reality gate.
 
 Maven process exit status is not sufficient proof that the selected JUnit test
-actually ran in the current attempt.  This adapter snapshots Surefire/Failsafe
+actually ran in the current attempt. This adapter snapshots Surefire/Failsafe
 XML before and after the Maven invocation, accepts only newly-created or changed
 reports, persists those reports as durable evidence, and parses the current-run
 test totals into the actual result.
@@ -21,9 +21,10 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
+from rc6_runtime import automation as _automation
 from rc6_runtime.automation import (
     AutomationContractError,
-    JUnitRunnerAdapter,
+    JUnitRunnerAdapter as _BaseJUnitRunnerAdapter,
     RunnerExecutionResult,
     ScriptArtifact,
     ScriptValidation,
@@ -69,15 +70,25 @@ def _float_attr(element: ET.Element, name: str) -> float:
         return 0.0
 
 
-class RealityCheckedJUnitRunnerAdapter(JUnitRunnerAdapter):
+class RealityCheckedJUnitRunnerAdapter(_BaseJUnitRunnerAdapter):
     """JUnit runner that refuses stale or report-less success."""
 
     runner_type = "JUNIT"
 
-    def __init__(self, *, evidence_root: str, timeout_seconds: int = 180) -> None:
+    def __init__(self, *, evidence_root: Optional[str] = None, timeout_seconds: int = 180) -> None:
         super().__init__(timeout_seconds=timeout_seconds)
-        self.evidence_root = Path(evidence_root).expanduser().resolve()
-        self.evidence_root.mkdir(parents=True, exist_ok=True)
+        self._configured_evidence_root = (
+            Path(evidence_root).expanduser().resolve() if evidence_root else None
+        )
+        if self._configured_evidence_root is not None:
+            self._configured_evidence_root.mkdir(parents=True, exist_ok=True)
+
+    def _evidence_root(self, cwd: str) -> Path:
+        if self._configured_evidence_root is not None:
+            return self._configured_evidence_root
+        root = Path(cwd).expanduser().resolve() / "runtime-state" / "rc7.1-evidence"
+        root.mkdir(parents=True, exist_ok=True)
+        return root
 
     @staticmethod
     def _report_paths(cwd: str) -> Tuple[Path, ...]:
@@ -184,13 +195,14 @@ class RealityCheckedJUnitRunnerAdapter(JUnitRunnerAdapter):
     def _persist_reports(
         self,
         *,
+        cwd: str,
         reports: Sequence[Path],
         before: Mapping[str, Mapping[str, Any]],
         after: Mapping[str, Mapping[str, Any]],
         result: RunnerExecutionResult,
     ) -> Tuple[Tuple[str, ...], str]:
         run_id = "JUNITRUN-" + uuid.uuid4().hex
-        folder = self.evidence_root / "junit-reality" / run_id
+        folder = self._evidence_root(cwd) / "junit-reality" / run_id
         folder.mkdir(parents=True, exist_ok=True)
         refs = []
         copied = []
@@ -296,6 +308,7 @@ class RealityCheckedJUnitRunnerAdapter(JUnitRunnerAdapter):
             raise AutomationContractError("JUNIT_CURRENT_RUN_HAS_NO_TESTS")
 
         report_refs, trace_ref = self._persist_reports(
+            cwd=cwd,
             reports=changed,
             before=before,
             after=after,
@@ -328,3 +341,15 @@ class RealityCheckedJUnitRunnerAdapter(JUnitRunnerAdapter):
             evidence_refs=evidence,
             duration_ms=result.duration_ms,
         )
+
+
+def install_rc7_1_junit_reality_gate() -> None:
+    """Install the RC7.1 adapter before RC7 execution modules import JUnitRunnerAdapter.
+
+    RC7.1 is an additive field-fix line and intentionally leaves the RC6 source
+    baseline untouched.  Installing the adapter at RC7 package bootstrap makes
+    both runtime_execution and runtime_execution_control receive the strict
+    adapter through their existing compatibility import.
+    """
+    if _automation.JUnitRunnerAdapter is not RealityCheckedJUnitRunnerAdapter:
+        _automation.JUnitRunnerAdapter = RealityCheckedJUnitRunnerAdapter
