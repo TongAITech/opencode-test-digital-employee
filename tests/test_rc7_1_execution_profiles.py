@@ -11,6 +11,7 @@ from rc6_runtime.execution import (
     LayerExecutionProfile,
 )
 from rc7_runtime.authority import RC7AuthorityRuntime, execution_session_id
+from rc7_runtime.bank_execution_autopilot import BankExecutionAutopilot
 from rc7_runtime.execution_profiles import RC7_1_EXECUTION_PROFILES
 from rc7_runtime.runtime_execution import RuntimeOwnedExecutionCoordinator
 
@@ -91,6 +92,30 @@ def test_runtime_owned_coordinator_uses_rc7_profiles_without_touching_rc6(tmp_pa
     assert coordinator.profiles.get("L6") == RC7_1_EXECUTION_PROFILES["L6"]
     assert coordinator.profiles.get("L7") == RC7_1_EXECUTION_PROFILES["L7"]
     assert DEFAULT_EXECUTION_PROFILES["L6"].required_tools == ("k6",)
+
+
+def test_bank_execution_autopilot_uses_rc7_profiles_without_touching_rc6(tmp_path: Path) -> None:
+    autopilot = BankExecutionAutopilot(
+        authority=RC7AuthorityRuntime(b"rc7-bank-autopilot-profile-key"),
+        state_root=str(tmp_path / "state"),
+        evidence_root=str(tmp_path / "evidence"),
+        package_root=str(tmp_path / "package"),
+        target_id="PFC-FIELD-TARGET",
+        capability_snapshot=None,
+    )
+
+    assert autopilot.profiles.get("L4") == RC7_1_EXECUTION_PROFILES["L4"]
+    assert autopilot.profiles.get("L5") == RC7_1_EXECUTION_PROFILES["L5"]
+    assert autopilot.profiles.get("L6") == RC7_1_EXECUTION_PROFILES["L6"]
+    assert autopilot.profiles.get("L7") == RC7_1_EXECUTION_PROFILES["L7"]
+    assert autopilot.profiles.get("L5").required_tools == ("api-runtime",)
+    assert autopilot.profiles.get("L6").required_tools == ("capability-runtime",)
+    assert autopilot.profiles.get("L7").required_tools == ("e2e-orchestrator",)
+
+    # The bank production entry point must not regain RC6 semantics by mutation.
+    assert DEFAULT_EXECUTION_PROFILES["L5"].required_tools == ("e2e-orchestrator",)
+    assert DEFAULT_EXECUTION_PROFILES["L6"].required_tools == ("k6",)
+    assert DEFAULT_EXECUTION_PROFILES["L7"].required_tools == ("zap",)
 
 
 def test_execution_identity_session_is_runtime_bound_not_caller_authored() -> None:
