@@ -50,7 +50,7 @@ onMounted(() => store.load())
     <div class="table-shell">
       <table>
         <thead>
-          <tr><th>任务编号</th><th>投产批次</th><th>测试轮次</th><th>状态范围</th><th>当前状态</th><th>更新时间</th></tr>
+          <tr><th>任务编号</th><th>投产批次</th><th>测试轮次</th><th>状态范围</th><th>当前状态</th><th>更新时间</th><th>影响关系</th></tr>
         </thead>
         <tbody>
           <tr v-for="item in store.items" :key="item.test_run_id">
@@ -60,9 +60,19 @@ onMounted(() => store.load())
             <td>{{ scopeLabel(item.status_scope) }}</td>
             <td>{{ stateLabel(item.current_state) }}</td>
             <td>{{ new Date(item.updated_at * 1000).toLocaleString() }}</td>
+            <td>
+              <RouterLink
+                v-if="item.test_round_id"
+                class="inline-link"
+                :to="{ path: '/traceability', query: { test_run_id: item.test_run_id } }"
+              >
+                查看影响关系
+              </RouterLink>
+              <span v-else>—</span>
+            </td>
           </tr>
           <tr v-if="!store.loading && store.items.length === 0">
-            <td colspan="6" class="empty-row">暂无测试任务，请先在投产管理确认范围、创建测试轮次并启动自主测试。</td>
+            <td colspan="7" class="empty-row">暂无测试任务，请先在投产管理确认范围、创建测试轮次并启动自主测试。</td>
           </tr>
         </tbody>
       </table>
