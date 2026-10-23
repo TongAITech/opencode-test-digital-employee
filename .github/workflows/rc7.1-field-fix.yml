@@ -1,0 +1,67 @@
+name: RC7.1 Field Fix Regression
+
+on:
+  push:
+    branches:
+      - release/rc7.1-field-fix
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-python38:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Install test dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pytest requests python-docx openpyxl python-pptx pypdf
+          if ($LASTEXITCODE -ne 0) { throw 'dependency install failed' }
+      - name: Compile Python 3.8 surfaces
+        shell: pwsh
+        run: |
+          python -m compileall -q rc6_runtime rc6_release rc7_runtime rc7_release rc7_admin
+          if ($LASTEXITCODE -ne 0) { throw 'compileall failed' }
+      - name: RC7.1 discriminating regressions
+        shell: pwsh
+        run: |
+          python -m pytest -q tests/test_rc7_1_junit_reality.py tests/test_rc7_1_worker_timeout_reality.py
+          if ($LASTEXITCODE -ne 0) { throw 'RC7.1 discriminating regression failed' }
+      - name: Full RC7 regression
+        shell: pwsh
+        run: |
+          $tests = Get-ChildItem tests -Filter 'test_rc7_*.py' | ForEach-Object { $_.FullName }
+          if (-not $tests) { throw 'No RC7 tests found' }
+          python -m pytest -q $tests
+          if ($LASTEXITCODE -ne 0) { throw 'RC7 full regression failed' }
+
+  ubuntu-python38:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check pytest requests python-docx openpyxl python-pptx pypdf
+      - name: Compile Python 3.8 surfaces
+        run: python -m compileall -q rc6_runtime rc6_release rc7_runtime rc7_release rc7_admin
+      - name: RC7.1 discriminating regressions
+        run: python -m pytest -q tests/test_rc7_1_junit_reality.py tests/test_rc7_1_worker_timeout_reality.py
+      - name: Full RC7 regression
+        shell: bash
+        run: |
+          mapfile -t tests < <(find tests -maxdepth 1 -type f -name 'test_rc7_*.py' -print | sort)
+          if [ "${#tests[@]}" -eq 0 ]; then echo 'No RC7 tests found' >&2; exit 2; fi
+          python -m pytest -q "${tests[@]}"
