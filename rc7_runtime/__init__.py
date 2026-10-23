@@ -10,6 +10,7 @@ remain reusable through the RC7 closed-loop adapters.
 from .execution_profiles import (
     RC7_1_EXECUTION_PROFILES,
     install_rc7_1_execution_profiles,
+    install_rc7_1_runtime_owned_coordinator_profiles,
 )
 from .junit_reality import (
     RealityCheckedJUnitRunnerAdapter,
@@ -114,9 +115,15 @@ from .autonomous_execution_service import (
     PreparedAutonomousExecutionResult,
 )
 
+# runtime_execution is loaded by the autonomous execution stack above. Bind its
+# compatibility coordinator only now, after the module exists, so importing RC7
+# never needs to rewrite RC6 global execution defaults.
+install_rc7_1_runtime_owned_coordinator_profiles()
+
 __all__ = [
     "RC7_1_EXECUTION_PROFILES",
     "install_rc7_1_execution_profiles",
+    "install_rc7_1_runtime_owned_coordinator_profiles",
     "RealityCheckedJUnitRunnerAdapter",
     "install_rc7_1_junit_reality_gate",
     "install_rc7_1_worker_timeout_diagnostics",
