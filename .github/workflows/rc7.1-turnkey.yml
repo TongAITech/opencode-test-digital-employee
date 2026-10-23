@@ -66,8 +66,9 @@ jobs:
       - name: Professional toolchain and package qualification
         shell: pwsh
         run: |
-          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          $pkg = (Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10').Path
           $py = Join-Path $pkg 'workspace-template/runtime/python/python.exe'
+          $qual = (Resolve-Path 'dist/qualification').Path
           $cg = Join-Path $pkg 'workspace-template/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe'
           & $py -m rc7_release.toolchain_qualification --codegraph-bin $cg --output dist/qualification/professional-toolchains.json
           if ($LASTEXITCODE -ne 0) { throw 'toolchain qualification failed' }
@@ -77,6 +78,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'final unified qualification failed' }
           & $py -m rc7_release.bank_binding probe --output dist/qualification/bank-bindings.json
           if ($LASTEXITCODE -ne 0) { throw 'bank binding probe failed' }
+
+          # Execute the RC7.1 autonomous-runtime gate from inside the assembled
+          # package with its bundled Python. This proves the delivery contains
+          # the Autostart/Autopilot/Supervisor modules instead of importing them
+          # from the checkout by accident.
+          Push-Location $pkg
+          & $py -m rc7_release.rc71_autopilot_delivery_gate --package-root $pkg --output (Join-Path $qual 'rc71-autopilot-delivery.json') --require-pass
+          $gateRc = $LASTEXITCODE
+          Pop-Location
+          if ($gateRc -ne 0) { throw 'RC7.1 Autopilot clean-package gate failed' }
 
       - name: RC7.1 nonblocking startup and trace gate
         shell: pwsh
