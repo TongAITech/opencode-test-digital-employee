@@ -193,7 +193,11 @@ class CenterMissionService:
                 assessments.append(DimensionAssessment(dimension_id=dimension_id, state=DimensionState.UNKNOWN, evidence_refs=candidate.evidence_refs, reason="candidate has no unambiguous state for frozen dimension"))
 
         decision = evaluate_frozen_ledger(ledger, assessments, evaluator_id=_CENTER_EVALUATOR_ID, active_gap_ids=candidate.unresolved_gap_ids, worker_claimed_sufficient=True)
-        return decision.to_evaluation("center-%s" % candidate.evaluation_id)
+        evaluation = decision.to_evaluation("center-%s" % candidate.evaluation_id)
+        # Authoritative Center truth must sort strictly after its Worker candidate.
+        # This prevents same-second timestamps from making a candidate appear as
+        # the latest product projection or restart fact.
+        return replace(evaluation, evaluated_at=max(evaluation.evaluated_at, candidate.evaluated_at + 1))
 
     def complete_sufficiency(self, test_run_id: str, stage_instance_id: str) -> StageInstance:
         graph = self._hydrate(test_run_id)
