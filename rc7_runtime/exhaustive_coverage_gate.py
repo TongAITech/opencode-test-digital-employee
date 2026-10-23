@@ -1,12 +1,20 @@
 """RC7.1 exhaustive coverage hard gate.
 
-This gate encodes the field acceptance contract that execution activity is not
-sufficient by itself.  Mission completion requires every designed case to be
-accounted for, exhaustive changed-code coverage, real E2E execution for
-critical/high paths, and professional-tool/UI evidence where the layer
-requires it.
+Execution activity is never sufficient by itself. Mission completion requires
+all accepted Cases to be credibly accounted for, changed-code/branch/critical
+condition coverage to be complete, and the layer-specific production evidence
+contract to be satisfied.
 
-The gate is intentionally deterministic and contains no model judgement.
+RC7.1 layer semantics are intentionally the same here as in
+LayerExecutionEvidenceGate:
+* L4: real browser/UI evidence.
+* L5: real API execution evidence using routes captured from browser network
+  traffic, never guessed endpoints.
+* L6: required execution capability/tool evidence; unavailable capability is a
+  blocker, not a degraded PASS.
+* L7: real cross-layer E2E runtime evidence.
+
+The gate is deterministic and contains no model judgement.
 """
 
 from __future__ import annotations
@@ -48,17 +56,17 @@ class ExhaustiveCoverageSnapshot:
     l4_ui_cases_with_complete_evidence: int = 0
     l4_missing_evidence_case_refs: Tuple[str, ...] = ()
 
-    l5_critical_high_e2e_total: int = 0
-    l5_critical_high_e2e_executed: int = 0
-    l5_unexecuted_e2e_refs: Tuple[str, ...] = ()
+    l5_api_cases_requiring_evidence: int = 0
+    l5_api_cases_with_complete_evidence: int = 0
+    l5_missing_api_evidence_refs: Tuple[str, ...] = ()
 
-    l6_professional_cases_total: int = 0
-    l6_k6_verified: int = 0
-    l6_missing_k6_refs: Tuple[str, ...] = ()
+    l6_capability_cases_total: int = 0
+    l6_capability_verified: int = 0
+    l6_missing_capability_refs: Tuple[str, ...] = ()
 
-    l7_professional_cases_total: int = 0
-    l7_zap_verified: int = 0
-    l7_missing_zap_refs: Tuple[str, ...] = ()
+    l7_e2e_cases_total: int = 0
+    l7_e2e_executed: int = 0
+    l7_missing_e2e_refs: Tuple[str, ...] = ()
 
     open_critical_gap_refs: Tuple[str, ...] = ()
     open_high_gap_refs: Tuple[str, ...] = ()
@@ -71,9 +79,9 @@ class ExhaustiveCoverageSnapshot:
         self._validate_counter("CHANGED_BRANCHES", self.changed_branches_total, self.changed_branches_covered, self.uncovered_changed_branch_refs)
         self._validate_counter("CRITICAL_CONDITIONS", self.critical_conditions_total, self.critical_conditions_covered, self.uncovered_critical_condition_refs)
         self._validate_counter("L4_UI_EVIDENCE", self.l4_ui_cases_requiring_evidence, self.l4_ui_cases_with_complete_evidence, self.l4_missing_evidence_case_refs)
-        self._validate_counter("L5_E2E", self.l5_critical_high_e2e_total, self.l5_critical_high_e2e_executed, self.l5_unexecuted_e2e_refs)
-        self._validate_counter("L6_K6", self.l6_professional_cases_total, self.l6_k6_verified, self.l6_missing_k6_refs)
-        self._validate_counter("L7_ZAP", self.l7_professional_cases_total, self.l7_zap_verified, self.l7_missing_zap_refs)
+        self._validate_counter("L5_API_EVIDENCE", self.l5_api_cases_requiring_evidence, self.l5_api_cases_with_complete_evidence, self.l5_missing_api_evidence_refs)
+        self._validate_counter("L6_CAPABILITY", self.l6_capability_cases_total, self.l6_capability_verified, self.l6_missing_capability_refs)
+        self._validate_counter("L7_E2E", self.l7_e2e_cases_total, self.l7_e2e_executed, self.l7_missing_e2e_refs)
 
     @staticmethod
     def _validate_counter(name: str, total: int, complete: int, missing_refs: Tuple[str, ...]) -> None:
@@ -97,7 +105,7 @@ def _stable_id(prefix: str, *parts: str) -> str:
 
 
 class ExhaustiveCoverageGate:
-    """Fail closed unless the exhaustive acceptance contract is satisfied."""
+    """Fail closed unless the exhaustive RC7.1 acceptance contract is satisfied."""
 
     def evaluate(self, snapshot: ExhaustiveCoverageSnapshot) -> ExhaustiveCoverageResult:
         gaps: List[Gap] = []
@@ -107,9 +115,9 @@ class ExhaustiveCoverageGate:
         self._append_many(gaps, snapshot, "CHANGED_BRANCH_COVERAGE_INCOMPLETE", "EXECUTION", GapSeverity.CRITICAL, snapshot.uncovered_changed_branch_refs)
         self._append_many(gaps, snapshot, "CRITICAL_CONDITION_COVERAGE_INCOMPLETE", "EXECUTION", GapSeverity.CRITICAL, snapshot.uncovered_critical_condition_refs)
         self._append_many(gaps, snapshot, "L4_UI_EVIDENCE_INCOMPLETE", "EXECUTION", GapSeverity.HIGH, snapshot.l4_missing_evidence_case_refs)
-        self._append_many(gaps, snapshot, "L5_E2E_NOT_EXECUTED", "EXECUTION", GapSeverity.CRITICAL, snapshot.l5_unexecuted_e2e_refs)
-        self._append_many(gaps, snapshot, "L6_K6_EVIDENCE_MISSING", "EXECUTION", GapSeverity.HIGH, snapshot.l6_missing_k6_refs)
-        self._append_many(gaps, snapshot, "L7_ZAP_EVIDENCE_MISSING", "EXECUTION", GapSeverity.HIGH, snapshot.l7_missing_zap_refs)
+        self._append_many(gaps, snapshot, "L5_API_EVIDENCE_INCOMPLETE", "EXECUTION", GapSeverity.CRITICAL, snapshot.l5_missing_api_evidence_refs)
+        self._append_many(gaps, snapshot, "L6_CAPABILITY_EVIDENCE_MISSING", "EXECUTION", GapSeverity.HIGH, snapshot.l6_missing_capability_refs)
+        self._append_many(gaps, snapshot, "L7_E2E_NOT_EXECUTED", "EXECUTION", GapSeverity.CRITICAL, snapshot.l7_missing_e2e_refs)
         self._append_many(gaps, snapshot, "OPEN_CRITICAL_COVERAGE_GAP", "TEST_DESIGN", GapSeverity.CRITICAL, snapshot.open_critical_gap_refs)
         self._append_many(gaps, snapshot, "OPEN_HIGH_COVERAGE_GAP", "TEST_DESIGN", GapSeverity.HIGH, snapshot.open_high_gap_refs)
 
@@ -119,9 +127,9 @@ class ExhaustiveCoverageGate:
             "changed_branch_coverage": self._ratio(snapshot.changed_branches_covered, snapshot.changed_branches_total),
             "critical_condition_coverage": self._ratio(snapshot.critical_conditions_covered, snapshot.critical_conditions_total),
             "l4_complete_evidence": self._ratio(snapshot.l4_ui_cases_with_complete_evidence, snapshot.l4_ui_cases_requiring_evidence),
-            "l5_critical_high_e2e": self._ratio(snapshot.l5_critical_high_e2e_executed, snapshot.l5_critical_high_e2e_total),
-            "l6_k6_verified": self._ratio(snapshot.l6_k6_verified, snapshot.l6_professional_cases_total),
-            "l7_zap_verified": self._ratio(snapshot.l7_zap_verified, snapshot.l7_professional_cases_total),
+            "l5_api_complete_evidence": self._ratio(snapshot.l5_api_cases_with_complete_evidence, snapshot.l5_api_cases_requiring_evidence),
+            "l6_capability_verified": self._ratio(snapshot.l6_capability_verified, snapshot.l6_capability_cases_total),
+            "l7_e2e_executed": self._ratio(snapshot.l7_e2e_executed, snapshot.l7_e2e_cases_total),
             "open_critical_gaps": float(len(snapshot.open_critical_gap_refs)),
             "open_high_gaps": float(len(snapshot.open_high_gap_refs)),
         }
