@@ -19,8 +19,10 @@ from typing import Optional, Sequence, Tuple
 
 from rc6_runtime.truth import TruthRuntime
 
+from .active_task_supervisor import MissionActiveTaskSupervisor, RecoverableDshTaskWorkerBridge
 from .authority import RC7AuthorityRuntime
 from .authorized_dsh_launcher import Rc7AuthorizedDshHeadlessWorkerLauncher
+from .bank_dsh_tool_policy import FIELD_NODE_POLICIES
 from .bank_execution_autopilot import BankExecutionAutopilot
 from .bank_mission import start_or_resume
 from .candidate_payload import CandidatePayloadReader
@@ -28,7 +30,6 @@ from .closed_loop_control import ClosedLoopControlPlane
 from .dsh_code_evaluator import DshCodeEvaluator
 from .dsh_requirement_evaluator import DshRequirementEvaluator
 from .dsh_test_design_oracle_evaluator import DshExecutionReadyTestDesignEvaluator
-from .dsh_worker_bridge import DshTaskWorkerBridge
 from .mission_autonomous_driver import MissionAutonomousDriver, MissionAutonomousDriverError
 from .mission_evaluation_runtime import MissionEvaluationRuntime
 from .mission_stage_dispatch import MissionStageDispatcher
@@ -230,7 +231,16 @@ class BankMissionAutopilot:
             state_root=str(config.state_root),
             timeout_seconds=config.timeout_seconds,
         )
-        self.bridge = DshTaskWorkerBridge(self.control, self.launcher)
+        self.bridge = RecoverableDshTaskWorkerBridge(
+            self.control,
+            self.launcher,
+            node_policies=FIELD_NODE_POLICIES,
+        )
+        self.supervisor = MissionActiveTaskSupervisor(
+            self.control,
+            self.bridge,
+            evidence_root=str(config.evidence_root / "supervisor"),
+        )
         self.requirement_evaluator = DshRequirementEvaluator(self.launcher)
         self.code_evaluator = DshCodeEvaluator(self.launcher)
         self.test_design_evaluator = DshExecutionReadyTestDesignEvaluator(self.launcher)
@@ -256,32 +266,55 @@ class BankMissionAutopilot:
             raise BankMissionAutopilotError("AUTOPILOT_SINGLE_OUTPUT_ARTIFACT_REQUIRED:%s:%d" % (task.task_id, len(refs)))
         return refs[0]
 
-    def _requirement_eval(self, control: ClosedLoopControlPlane, task: Task) -> None:
-        self.requirement_evaluator.evaluate_and_apply(control, task.task_id, self._single_output_artifact(task))
+    def _requirement_eval(self, task: Task) -> None:
+        self.requirement_evaluator.evaluate_and_apply(
+            self.control,
+            task.task_id,
+            self._single_output_artifact(task),
+        )
 
-    def _code_eval(self, control: ClosedLoopControlPlane, task: Task) -> None:
-        self.code_evaluator.evaluate_and_apply(control, task.task_id, self._single_output_artifact(task), target_id=self.config.target_id)
+    def _code_eval(self, task: Task) -> None:
+        self.code_evaluator.evaluate_and_apply(
+            self.control,
+            task.task_id,
+            self._single_output_artifact(task),
+            target_id=self.config.target_id,
+        )
 
-    def _test_design_eval(self, control: ClosedLoopControlPlane, task: Task) -> None:
-        self.test_design_evaluator.evaluate_and_apply(control, task.task_id, self._single_output_artifact(task))
+    def _test_design_eval(self, task: Task) -> None:
+        self.test_design_evaluator.evaluate_and_apply(
+            self.control,
+            task.task_id,
+            self._single_output_artifact(task),
+        )
 
-    def _script_eval(self, control: ClosedLoopControlPlane, task: Task) -> None:
+    def _script_eval(self, task: Task) -> None:
         artifact_id = self._single_output_artifact(task)
-        candidate = self.reader.load(control.truth, artifact_id, expected_mission_id=control.mission_id, expected_task_id=task.task_id)
+        candidate = self.reader.load(
+            self.control.truth,
+            artifact_id,
+            expected_mission_id=self.control.mission_id,
+            expected_task_id=task.task_id,
+        )
         binding = candidate.semantic_payload.get("binding")
         if not isinstance(binding, dict):
             raise BankMissionAutopilotError("AUTOPILOT_SCRIPT_BINDING_REQUIRED")
         tc_id = _required_text(binding.get("tc_id"), "AUTOPILOT_SCRIPT_TC_ID_REQUIRED")
         design_refs = [
             ref for ref in task.input_artifact_refs
-            if control.truth.query("rc7_artifact", artifact_id=ref)
-            and control.truth.query("rc7_artifact", artifact_id=ref)[0].get("artifact_type_name") == "TEST_DESIGN_MODEL"
+            if self.control.truth.query("rc7_artifact", artifact_id=ref)
+            and self.control.truth.query("rc7_artifact", artifact_id=ref)[0].get("artifact_type_name") == "TEST_DESIGN_MODEL"
         ]
         if len(design_refs) != 1:
             raise BankMissionAutopilotError("AUTOPILOT_SCRIPT_DESIGN_ARTIFACT_NOT_UNIQUE")
-        contract = self.script_compiler.compile(control.truth, mission_id=control.mission_id, design_artifact_id=design_refs[0], tc_id=tc_id)
+        contract = self.script_compiler.compile(
+            self.control.truth,
+            mission_id=self.control.mission_id,
+            design_artifact_id=design_refs[0],
+            tc_id=tc_id,
+        )
         self.script_evaluator.evaluate_and_apply(
-            control,
+            self.control,
             task.task_id,
             artifact_id,
             contract=contract,
@@ -289,10 +322,10 @@ class BankMissionAutopilot:
             env=None,
         )
 
-    def _runtime_handler(self, control: ClosedLoopControlPlane, task: Task) -> None:
+    def _runtime_handler(self, task: Task) -> None:
         if task.node == "REALITY_RECON":
             self.reality.reconcile(
-                control,
+                self.control,
                 task.task_id,
                 facts={
                     "release_id": self.config.release_id,
@@ -304,24 +337,32 @@ class BankMissionAutopilot:
             )
             return
         if task.node == "EXECUTION":
-            self.execution.run(control, task)
+            self.execution.run(self.control, task)
             return
         raise BankMissionAutopilotError("AUTOPILOT_RUNTIME_NODE_UNSUPPORTED:%s" % task.node)
 
-    def _convergence(self, control: ClosedLoopControlPlane) -> None:
-        self.mission_evaluation.run(control)
+    def _convergence(self) -> None:
+        self.mission_evaluation.run(self.control)
 
     def drive(self):
-        dispatcher = MissionStageDispatcher(self.control, producer_runner=self.bridge.run_next, runtime_handler=self._runtime_handler)
+        dispatcher = MissionStageDispatcher(
+            self.control,
+            producer_runner=self.bridge.run_next,
+            runtime_handlers={
+                "REALITY_RECON": self._runtime_handler,
+                "EXECUTION": self._runtime_handler,
+            },
+        )
         driver = MissionAutonomousDriver(
             self.control,
-            dispatcher=dispatcher,
-            evaluators={
+            dispatcher,
+            output_evaluators={
                 "REQUIREMENT_ANALYSIS": self._requirement_eval,
                 "CODE_ANALYSIS": self._code_eval,
                 "TEST_DESIGN": self._test_design_eval,
                 "SCRIPT_READINESS": self._script_eval,
             },
+            active_task_handler=self.supervisor.handle,
             convergence_handler=self._convergence,
         )
         return driver.drive(max_steps=self.config.max_steps)
@@ -370,20 +411,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         timeout_seconds=args.timeout_seconds,
     )
     try:
-        result = BankMissionAutopilot(config).drive()
+        autopilot = BankMissionAutopilot(config)
+        result = autopilot.drive()
     except (BankMissionAutopilotError, MissionAutonomousDriverError) as exc:
         print(json.dumps({"status": "FAILED", "reason": str(exc)}, ensure_ascii=False, sort_keys=True))
         return 2
+    mission = autopilot.control._mission()
     payload = {
         "status": result.status,
         "mission_id": result.mission_id,
-        "steps": result.steps,
-        "last_action": result.last_action,
-        "mission_state": result.mission_state,
-        "sufficiency_state": result.sufficiency_state,
+        "steps": result.step_count,
+        "last_action": result.action,
+        "task_id": result.task_id,
+        "node": result.node,
+        "reason": result.reason,
+        "mission_state": mission.state.value,
+        "sufficiency_state": mission.sufficiency_state,
     }
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
-    return 0 if result.status in {"CONVERGED", "WAITING", "HUMAN_REQUIRED", "BLOCKED"} else 1
+    return 0 if result.status in {"CONVERGED", "CLOSED", "WAITING", "HUMAN_REQUIRED", "BLOCKED"} else 1
 
 
 if __name__ == "__main__":
