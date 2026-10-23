@@ -93,6 +93,32 @@ _INSUFFICIENT_REWORK_EDGES = {
     (MissionStageType.DESIGN_SUFFICIENCY, MissionStageType.REQUIREMENT_ANALYSIS),
 }
 
+_CENTER_SUFFICIENCY_EVALUATOR_ID = "RC8_CENTER_SUFFICIENCY_LEDGER"
+_CENTER_SUFFICIENCY_POLICY_PREFIX = "center-ledger:"
+_CENTER_SUFFICIENCY_EVIDENCE_PREFIX = "ledger:"
+
+
+def is_center_authoritative_sufficient_evaluation(evaluation: SufficiencyEvaluation) -> bool:
+    """Return whether a green result is a Center-owned frozen-ledger decision.
+
+    Negative outcomes can be reported by Workers because they never unlock
+    forward progression. A positive outcome is privileged control-plane truth
+    and must carry all three Center authority markers.
+    """
+    if not isinstance(evaluation, SufficiencyEvaluation):
+        return False
+    return (
+        evaluation.result == SufficiencyResult.SUFFICIENT
+        and evaluation.evaluator_id == _CENTER_SUFFICIENCY_EVALUATOR_ID
+        and evaluation.policy_version.startswith(_CENTER_SUFFICIENCY_POLICY_PREFIX)
+        and any(ref.startswith(_CENTER_SUFFICIENCY_EVIDENCE_PREFIX) for ref in evaluation.evidence_refs)
+    )
+
+
+def _require_center_authority_for_green(evaluation: SufficiencyEvaluation) -> None:
+    if evaluation.result == SufficiencyResult.SUFFICIENT and not is_center_authoritative_sufficient_evaluation(evaluation):
+        raise RC8ContractError("MISSION_SUFFICIENT_REQUIRES_CENTER_LEDGER_AUTHORITY")
+
 
 def _stage_type(value: str) -> MissionStageType:
     try:
@@ -157,6 +183,7 @@ class MissionGraphRuntime:
             raise RC8ContractError("RESTORE_EVALUATION_STAGE_NOT_FOUND")
         if _stage_type(stage.stage_type) not in SUFFICIENCY_STAGES:
             raise RC8ContractError("RESTORE_EVALUATION_TARGET_NOT_SUFFICIENCY_STAGE")
+        _require_center_authority_for_green(evaluation)
         self.runtime.record_evaluation(evaluation)
         self._stage_evaluations[evaluation.subject_id] = evaluation.evaluation_id
 
@@ -230,6 +257,7 @@ class MissionGraphRuntime:
         if stage.state != StageState.EVALUATING:
             raise RC8ContractError("MISSION_STAGE_MUST_BE_EVALUATING")
 
+        _require_center_authority_for_green(evaluation)
         self.runtime.record_evaluation(evaluation)
         self._stage_evaluations[stage_instance_id] = evaluation.evaluation_id
         target = {
