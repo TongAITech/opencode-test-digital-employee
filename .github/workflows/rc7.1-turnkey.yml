@@ -1,0 +1,173 @@
+name: RC7.1 Turnkey Field Fix Package
+
+on:
+  push:
+    branches:
+      - release/rc7.1-field-fix
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_COMMIT: ${{ github.sha }}
+
+jobs:
+  windows-turnkey:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact RC7.1 source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Full RC7.1 and RC7 regression
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pytest requests python-docx openpyxl python-pptx pypdf
+          if ($LASTEXITCODE -ne 0) { throw 'dependency install failed' }
+          python -m compileall -q rc6_runtime rc6_release rc7_runtime rc7_release rc7_admin
+          if ($LASTEXITCODE -ne 0) { throw 'compileall failed' }
+          $tests = Get-ChildItem tests -Filter 'test_rc7_*.py' | ForEach-Object { $_.FullName }
+          if (-not $tests) { throw 'No RC7 tests found' }
+          python -m pytest -q $tests
+          if ($LASTEXITCODE -ne 0) { throw 'RC7.1/RC7 regression failed' }
+
+      - name: Assemble offline payloads
+        shell: pwsh
+        run: |
+          ./packaging/rc7/build-final-payloads.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'offline payload assembly failed' }
+
+      - name: Build unified package and RC7.1 identity
+        shell: pwsh
+        run: |
+          python -m rc7_release.package build --repo-root . --output dist --source-commit $env:SOURCE_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'base package build failed' }
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          python -m rc7_release.final_unified_overlay --package-root $pkg --output dist --source-commit $env:SOURCE_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'unified overlay failed' }
+          python -m rc7_release.rc71_identity --package-root $pkg --source-commit $env:SOURCE_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'RC7.1 identity failed' }
+          New-Item -ItemType Directory -Force dist/qualification | Out-Null
+
+      - name: Professional toolchain and package qualification
+        shell: pwsh
+        run: |
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          $py = Join-Path $pkg 'workspace-template/runtime/python/python.exe'
+          $cg = Join-Path $pkg 'workspace-template/runtime/code-intelligence/codegraph/codegraph-server-win32-x64.exe'
+          & $py -m rc7_release.toolchain_qualification --codegraph-bin $cg --output dist/qualification/professional-toolchains.json
+          if ($LASTEXITCODE -ne 0) { throw 'toolchain qualification failed' }
+          & $py -m rc7_release.dsh_plugins --home $pkg --profile web --dry-run --output dist/qualification/dsh-plugin-payload.json
+          if ($LASTEXITCODE -ne 0) { throw 'DSH plugin payload qualification failed' }
+          & $py -m rc7_release.final_unified_qualification --home $pkg --output dist/qualification/final-unified.json --require-pass
+          if ($LASTEXITCODE -ne 0) { throw 'final unified qualification failed' }
+          & $py -m rc7_release.bank_binding probe --output dist/qualification/bank-bindings.json
+          if ($LASTEXITCODE -ne 0) { throw 'bank binding probe failed' }
+
+      - name: RC7.1 nonblocking startup and trace gate
+        shell: pwsh
+        run: |
+          $pkg = (Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10').Path
+          $py = Join-Path $pkg 'workspace-template/runtime/python/python.exe'
+          $field = Join-Path $env:RUNNER_TEMP 'rc71-field-sim'
+          $dshHome = Join-Path $field '.dsh'
+          $web = Join-Path $dshHome 'profiles/web'
+          $runtime = Join-Path $dshHome 'profiles/rc7-bank'
+          $fakeBin = Join-Path $field 'bin'
+          New-Item -ItemType Directory -Force $web,$fakeBin,$runtime | Out-Null
+
+          & $py -c "import json,pathlib; from rc7_release import dsh_plugins; root=pathlib.Path(r'$web'); (root/'package.json').write_text(json.dumps({'name':'bank-web'}),encoding='utf-8'); [((root/'node_modules'/pathlib.Path(*p.split('/'))).mkdir(parents=True,exist_ok=True),(root/'node_modules'/pathlib.Path(*p.split('/'))/'package.json').write_text(json.dumps({'name':p,'version':'field'}),encoding='utf-8')) for p in dsh_plugins.REQUIRED]"
+          if ($LASTEXITCODE -ne 0) { throw 'field profile seed failed' }
+          '{"name":"dirty-half-installed"}' | Set-Content -Encoding utf8 (Join-Path $runtime 'package.json')
+          '{"schema_version":"pfc.aitest.rc7.dsh-runtime-profile.v1","base_profile":"web","base_digest":"legacy","runtime_profile":"rc7-bank"}' | Set-Content -Encoding utf8 (Join-Path $runtime '.rc7-profile-origin.json')
+
+          $calls = Join-Path $field 'dsh-calls.txt'
+          $bad = Join-Path $field 'PRESTART_PLUGIN_ADD_FORBIDDEN.txt'
+          $started = Join-Path $field 'DSH_STARTED.txt'
+          @"
+          @echo off
+          echo %*>>"$calls"
+          echo %*| findstr /I /C:" plugin " /C:"plugin add" /C:"plugin install" >nul
+          if not errorlevel 1 (
+            echo forbidden>"$bad"
+            exit /b 91
+          )
+          echo started>"$started"
+          exit /b 0
+          "@ | Set-Content -Encoding ascii (Join-Path $fakeBin 'dsh.cmd')
+
+          $env:DSH_HOME = $dshHome
+          $env:PATH = "$fakeBin;$env:PATH"
+          $env:PFC_RC7_SKIP_QUALIFY = '1'
+          & (Join-Path $pkg 'packaging/rc7/AITEST.cmd')
+          $rc = $LASTEXITCODE
+          if ($rc -ne 0) { throw "AITEST.cmd failed rc=$rc" }
+          if (Test-Path $bad) { throw 'prestart dsh plugin add/install was invoked' }
+          if (-not (Test-Path $started)) { throw 'DSH host was never started' }
+
+          $status = Get-Content (Join-Path $pkg 'state/rc71-startup-status.json') | ConvertFrom-Json
+          if (-not $status.dsh_host_launched) { throw 'startup trace did not reach DSH boundary' }
+          if ($status.model_ready -ne 'NOT_PROBED_BY_RC7') { throw 'model readiness was falsely claimed by RC7' }
+          if ($status.session_ready -ne 'NOT_PROBED_BY_RC7') { throw 'session readiness was falsely claimed by RC7' }
+          $trace = Get-Content (Join-Path $pkg 'state/rc71-startup-trace.jsonl') -Raw
+          foreach ($phase in @('PLUGIN_PAYLOAD','DSH_HOST_LOOKUP','RUNTIME_PROFILE','PATCH_GENERATION','POST_BOOTSTRAP_PROBE','DSH_HOST_LAUNCH')) {
+            if (-not $trace.Contains($phase)) { throw "startup phase missing: $phase" }
+          }
+          if (-not (Test-Path (Join-Path $pkg 'packaging/rc7/AITEST-RECOVER-PROFILE.cmd'))) { throw 'recovery launcher missing' }
+
+          [ordered]@{
+            status='PASS'; source_commit=$env:SOURCE_COMMIT;
+            prestart_package_manager='FORBIDDEN'; dsh_host_started='PASS';
+            startup_trace='PASS'; model_session_truth='NOT_PROBED_BY_RC7';
+            recovery_profile_entry='PASS'; canonical_truth='R1_EVENT_STREAM'
+          } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 dist/qualification/rc71-startup-recovery.json
+
+      - name: Seal archive and clean-unpack qualification
+        shell: pwsh
+        run: |
+          $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+          python -m rc7_release.final_archive --home $pkg --output dist --source-commit $env:SOURCE_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'archive sealing failed' }
+          $zip = Get-ChildItem 'dist/PFC-AITest-RC7-FINAL-UNIFIED-BANK-WIN10-*.zip' | Select-Object -First 1
+          if (-not $zip) { throw 'Final ZIP missing' }
+          python -m rc7_release.delivery_qualification --zip $zip.FullName --source-commit $env:SOURCE_COMMIT --output dist/qualification/delivery.json --require-pass
+          if ($LASTEXITCODE -ne 0) { throw 'clean unpack delivery qualification failed' }
+          $short = $env:SOURCE_COMMIT.Substring(0,12)
+          $releaseName = "PFC-AITest-RC7.1-FIELD-FIX-BANK-WIN10-$short.zip"
+          Copy-Item $zip.FullName (Join-Path dist $releaseName)
+          $sha = (Get-FileHash -Algorithm SHA256 (Join-Path dist $releaseName)).Hash.ToLowerInvariant()
+          "$sha  $releaseName" | Set-Content -Encoding ascii dist/RC7.1-SHA256SUMS.txt
+          [ordered]@{
+            schema='pfc.aitest.rc7.1.turnkey-metadata.v1'; status='PASS';
+            source_commit=$env:SOURCE_COMMIT; baseline_commit='ac890eebeae96c9704d777e5ba8cac428f7a25b8';
+            archive_name=$releaseName; archive_sha256=$sha;
+            build_status='ENGINEERING_CANDIDATE_NOT_BANK_FINAL';
+            canonical_truth='runtime-state/r1/event-stream.jsonl';
+            bank_field_required=$true
+          } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 dist/RC7.1-TURNKEY-METADATA.json
+
+      - name: Upload RC7.1 turnkey package
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc7.1-turnkey-${{ github.sha }}
+          path: |
+            dist/PFC-AITest-RC7.1-FIELD-FIX-BANK-WIN10-*.zip
+            dist/RC7.1-SHA256SUMS.txt
+            dist/RC7.1-TURNKEY-METADATA.json
+            dist/qualification/*.json
+          compression-level: 0
+          retention-days: 30
