@@ -1,0 +1,38 @@
+name: RC8 Provider Recovery Fault Injection
+
+on:
+  push:
+    branches:
+      - work/rc8
+    paths:
+      - 'rc8_runtime/provider_recovery.py'
+      - 'tests/test_rc8_provider_recovery.py'
+      - 'docs/rc8/RC8-PROVIDER-RECOVERY-CONTRACT.md'
+      - '.github/workflows/rc8-provider-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-provider-recovery:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Compile provider recovery runtime
+        shell: bash
+        run: |
+          python -m py_compile rc8_runtime/provider_recovery.py tests/test_rc8_provider_recovery.py
+      - name: Run deterministic provider fault injection regressions
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check pytest
+          python -m pytest -q tests/test_rc8_provider_recovery.py
