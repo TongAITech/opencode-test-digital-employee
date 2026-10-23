@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Dict
 
+from rc7_release.final_manifest_refresh import refresh
+
 
 SCHEMA = "pfc.aitest.rc7.1.release-identity.v1"
 PRODUCT_VERSION = "RC7.1"
@@ -53,6 +55,9 @@ def write_identity(package_root: str, source_commit: str) -> Path:
         json.dumps(identity(source_commit), ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
+    refreshed = refresh(root)
+    if refreshed.get("status") != "PASS":
+        raise RuntimeError("RC71_IDENTITY_MANIFEST_REFRESH_FAILED")
     return path
 
 
