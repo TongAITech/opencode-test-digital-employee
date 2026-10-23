@@ -7,6 +7,16 @@ from rc8_runtime.governance import StageState, StatusScope, SufficiencyEvaluatio
 from rc8_runtime.mission_graph import MissionStageType
 
 
+_REQUIREMENT_DIMENSIONS = (
+    "dimension:requirement-source-assertions",
+    "dimension:requirement-atomic-statements",
+    "dimension:requirement-traceability",
+    "dimension:requirement-evidence",
+    "dimension:requirement-normal-path",
+    "dimension:requirement-open-question",
+)
+
+
 def _service(tmp_path):
     repo = JsonFileGovernanceRepository(str(tmp_path / "governance.json"))
     return repo, CenterMissionService(repo)
@@ -113,8 +123,6 @@ def test_insufficient_gate_blocks_code_analysis_until_new_rework_stage(tmp_path)
     with pytest.raises(RC8ContractError, match="MISSION_STAGE_DEPENDENCIES_NOT_SATISFIED"):
         service.mark_ready("run-1", "code-a-1")
 
-    # The correct response is a new analysis/sufficiency attempt, not forcing the
-    # old insufficient gate green.
     service.register_stage(
         test_run_id="run-1",
         stage_instance_id="req-a-2",
@@ -127,7 +135,7 @@ def test_insufficient_gate_blocks_code_analysis_until_new_rework_stage(tmp_path)
     assert repo.get_stage("req-a-2").attempt_no == 2
 
 
-def test_persisted_sufficient_gate_survives_service_restart_and_unlocks_downstream(tmp_path):
+def test_center_authoritative_sufficient_gate_survives_service_restart_and_unlocks_downstream(tmp_path):
     repo, service = _service(tmp_path)
     service.register_stage(
         test_run_id="run-1",
@@ -162,17 +170,22 @@ def test_persisted_sufficient_gate_survives_service_restart_and_unlocks_downstre
             scope=StatusScope.STAGE,
             subject_id="req-suff-a",
             evaluator_id="requirement-sufficiency-worker",
-            policy_version="policy-v1",
+            policy_version="rc8.requirement-sufficiency.v1",
             result=SufficiencyResult.SUFFICIENT,
-            dimension_refs=("coverage:business-rules",),
+            dimension_refs=_REQUIREMENT_DIMENSIONS,
             evidence_refs=("artifact:req-eval",),
-            explanation="all required rules resolved",
+            satisfied_requirement_refs=_REQUIREMENT_DIMENSIONS,
+            explanation="worker candidate covers all frozen requirement dimensions",
         )
     )
-    service.reconcile_sufficiency("run-1", "req-suff-a")
+    reconciled = service.reconcile_sufficiency("run-1", "req-suff-a")
+    assert reconciled.state == StageState.SUFFICIENT
+    authoritative = repo.list_evaluations("run-1")[-1]
+    assert authoritative.evaluator_id == "RC8_CENTER_SUFFICIENCY_LEDGER"
+    assert authoritative.policy_version.startswith("center-ledger:")
+    assert any(ref.startswith("ledger:") for ref in authoritative.evidence_refs)
     service.complete_sufficiency("run-1", "req-suff-a")
 
-    # Reconstruct service as if Center restarted.
     service2 = CenterMissionService(JsonFileGovernanceRepository(str(tmp_path / "governance.json")))
     service2.register_stage(
         test_run_id="run-1",

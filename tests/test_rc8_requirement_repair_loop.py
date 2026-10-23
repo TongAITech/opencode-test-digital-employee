@@ -33,6 +33,16 @@ from rc8_runtime.governance import (
 from rc8_runtime.mission_graph import MissionStageType
 
 
+_REQUIREMENT_DIMENSIONS = (
+    "dimension:requirement-source-assertions",
+    "dimension:requirement-atomic-statements",
+    "dimension:requirement-traceability",
+    "dimension:requirement-evidence",
+    "dimension:requirement-normal-path",
+    "dimension:requirement-open-question",
+)
+
+
 def _fixture(max_attempts: int = 3):
     engine = create_engine(
         "sqlite+pysqlite://",
@@ -209,6 +219,14 @@ def _complete_sufficiency(
             finished_at=21,
         )
     )
+    if result == SufficiencyResult.SUFFICIENT:
+        dimension_refs = _REQUIREMENT_DIMENSIONS
+        satisfied_refs = _REQUIREMENT_DIMENSIONS
+        unsatisfied_refs = tuple()
+    else:
+        dimension_refs = ("traceability", "normal-path")
+        satisfied_refs = tuple()
+        unsatisfied_refs = ("requirement:REQ",)
     evaluation = SufficiencyEvaluation(
         evaluation_id="EVAL-%s" % suffix,
         test_run_id="TR",
@@ -217,10 +235,10 @@ def _complete_sufficiency(
         evaluator_id="requirement-sufficiency-policy",
         policy_version="rc8.requirement-sufficiency.v1",
         result=result,
-        dimension_refs=("traceability", "normal-path"),
+        dimension_refs=dimension_refs,
         evidence_refs=(evidence_ref,),
-        satisfied_requirement_refs=("requirement:REQ",) if result == SufficiencyResult.SUFFICIENT else tuple(),
-        unsatisfied_requirement_refs=("requirement:REQ",) if result == SufficiencyResult.INSUFFICIENT else tuple(),
+        satisfied_requirement_refs=satisfied_refs,
+        unsatisfied_requirement_refs=unsatisfied_refs,
         unresolved_gap_ids=tuple(unresolved_gap_ids),
         explanation="充分" if result == SufficiencyResult.SUFFICIENT else "需求分析仍有未解决缺口",
         evaluated_at=22,
@@ -290,7 +308,6 @@ def test_insufficient_requirement_appends_attempt2_and_keeps_code_blocked() -> N
     assert governance.get_gap("GAP-1") is not None
     assert len(governance.list_evaluations("TR")) == 1
 
-    # Crash/reconcile retries must not create another attempt-2 graph or edges.
     second = progressor.reconcile_completed_work_item(work1.identity.work_item_id)
     assert second.truth_note == "REQUIREMENT_INSUFFICIENT_APPENDED_REPAIR_ATTEMPT"
     assert len([
@@ -390,10 +407,14 @@ def test_repaired_requirement_becomes_sufficient_then_unlocks_code_analysis() ->
     code_work = _single_work_for_stage(control, code.stage_instance_id)
     assert code_work.identity.stage == MissionStageType.CODE_ANALYSIS.value
     assert outcome.truth_note == "EVIDENCE_GATED_STAGE_PROGRESSION"
-    assert [value.result for value in governance.list_evaluations("TR")] == [
+    evaluations = governance.list_evaluations("TR")
+    assert [value.result for value in evaluations] == [
         SufficiencyResult.INSUFFICIENT,
         SufficiencyResult.SUFFICIENT,
+        SufficiencyResult.SUFFICIENT,
     ]
+    assert evaluations[-1].evaluator_id == "RC8_CENTER_SUFFICIENCY_LEDGER"
+    assert evaluations[-1].policy_version.startswith("center-ledger:")
     assert governance.get_gap("GAP").status == GapStatus.CLOSED
 
 
