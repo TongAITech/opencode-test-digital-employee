@@ -1,14 +1,17 @@
-"""RC7.1 production execution profiles.
+"""RC7.1 production execution-profile isolation.
 
-RC6's historical defaults encoded an older layer taxonomy (L5 E2E, L6 k6,
-L7 ZAP). RC7.1 keeps the RC6 source/baseline intact and installs an additive
-runtime overlay when the RC7 package is imported, matching the existing RC7.1
-reality-gate installation pattern.
+RC6's historical defaults intentionally remain frozen: L5 cross-system E2E,
+L6 k6 performance and L7 ZAP security. RC7.1 uses a different layer taxonomy
+for its autonomous execution product path. Importing RC7 must therefore never
+rewrite ``rc6_runtime.execution.DEFAULT_EXECUTION_PROFILES`` for the whole
+process.
 
-The profile selects the minimum runtime capability needed to execute the layer;
-LayerExecutionEvidenceGate independently verifies the stronger semantic proof.
+The installer below is deliberately narrow. It wraps ``ExecutionRuntime`` once
+and injects RC7.1 profiles only when the runtime is owned by
+``RC7AuthorityRuntime`` and the caller did not explicitly provide profiles.
+Ordinary RC6 runtimes and explicit custom registries remain byte-for-byte in
+control of their own semantics.
 """
-
 from __future__ import annotations
 
 from typing import Dict
@@ -28,12 +31,38 @@ RC7_1_EXECUTION_PROFILES: Dict[str, LayerExecutionProfile] = {
 }
 
 
-def install_rc7_1_execution_profiles() -> None:
-    """Install RC7.1 defaults before RC7 execution services are imported.
+def _is_rc7_authority(authority: object) -> bool:
+    cls = authority.__class__
+    return cls.__name__ == "RC7AuthorityRuntime" and cls.__module__ == "rc7_runtime.authority"
 
-    The mutation is process-local and happens only when ``rc7_runtime`` is
-    imported. The RC6 source remains unchanged, while all RC7-created
-    ``ExecutionRuntime`` instances use the RC7.1 taxonomy consistently.
-    """
-    rc6_execution.DEFAULT_EXECUTION_PROFILES.clear()
-    rc6_execution.DEFAULT_EXECUTION_PROFILES.update(RC7_1_EXECUTION_PROFILES)
+
+def install_rc7_1_execution_profiles() -> None:
+    """Inject RC7.1 profiles into RC7-owned ExecutionRuntime instances only."""
+    current = rc6_execution.ExecutionRuntime.__init__
+    if getattr(current, "_rc7_1_profile_isolation", False):
+        return
+
+    original = current
+
+    def isolated_init(
+        self,
+        *,
+        authority,
+        tool_broker,
+        oracle_evaluator,
+        profiles=None,
+    ):
+        selected = profiles
+        if selected is None and _is_rc7_authority(authority):
+            selected = RC7_1_EXECUTION_PROFILES
+        original(
+            self,
+            authority=authority,
+            tool_broker=tool_broker,
+            oracle_evaluator=oracle_evaluator,
+            profiles=selected,
+        )
+
+    isolated_init._rc7_1_profile_isolation = True  # type: ignore[attr-defined]
+    isolated_init._rc7_1_original_init = original  # type: ignore[attr-defined]
+    rc6_execution.ExecutionRuntime.__init__ = isolated_init
