@@ -1,0 +1,68 @@
+name: RC8 Provider Recovery PostgreSQL
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_runtime/provider_recovery.py'
+      - 'rc8_center/provider_recovery_service.py'
+      - 'rc8_center/infrastructure/postgres_provider_recovery.py'
+      - 'rc8_center/infrastructure/__init__.py'
+      - 'center/migrations/versions/0013_provider_recovery_checkpoint.py'
+      - 'tests/test_rc8_provider_recovery_persistence.py'
+      - 'scripts/rc8_provider_recovery_postgres_test.py'
+      - 'docs/rc8/RC8-PROVIDER-RECOVERY-CONTRACT.md'
+      - '.github/workflows/rc8-provider-recovery-postgres.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  durable-checkpoint-restart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: rc8
+          POSTGRES_USER: rc8
+          POSTGRES_PASSWORD: rc8
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rc8 -d rc8"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      RC8_DATABASE_URL: postgresql+psycopg://rc8:rc8@127.0.0.1:5432/rc8
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Center dependencies
+        run: pip install -r center/requirements.txt pytest
+      - name: Compile provider recovery persistence
+        run: |
+          python -m py_compile \
+            rc8_runtime/provider_recovery.py \
+            rc8_center/provider_recovery_service.py \
+            rc8_center/infrastructure/postgres_provider_recovery.py \
+            tests/test_rc8_provider_recovery_persistence.py \
+            scripts/rc8_provider_recovery_postgres_test.py
+      - name: Run deterministic persistence and failover regressions
+        run: python -m pytest -q tests/test_rc8_provider_recovery_persistence.py
+      - name: Apply Alembic schema
+        run: |
+          alembic -c center/alembic.ini upgrade head
+          alembic -c center/alembic.ini current
+      - name: Prove PostgreSQL process-boundary restart and model failover
+        run: python scripts/rc8_provider_recovery_postgres_test.py
+      - name: Render provider checkpoint downgrade SQL
+        run: |
+          alembic -c center/alembic.ini downgrade 0013_provider_recovery_ckpt:0012_traceability_graph --sql > /tmp/provider-recovery-downgrade.sql
+          test -s /tmp/provider-recovery-downgrade.sql

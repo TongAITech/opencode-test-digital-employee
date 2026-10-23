@@ -28,19 +28,11 @@ def _load_revisions() -> Dict[str, Tuple[Optional[str], Path]]:
         revision = _literal_assignment(tree, "revision")
         down_revision = _literal_assignment(tree, "down_revision")
         assert isinstance(revision, str) and revision, "%s revision must be a non-empty string" % path.name
-        assert len(revision) <= VERSION_NUM_MAX_LENGTH, (
-            "%s revision %r has %s chars; Alembic version_num defaults to VARCHAR(%s)"
-            % (path.name, revision, len(revision), VERSION_NUM_MAX_LENGTH)
-        )
+        assert len(revision) <= VERSION_NUM_MAX_LENGTH, "%s revision %r has %s chars; Alembic version_num defaults to VARCHAR(%s)" % (path.name, revision, len(revision), VERSION_NUM_MAX_LENGTH)
         assert revision not in revisions, "duplicate Alembic revision: %s" % revision
-        assert down_revision is None or isinstance(down_revision, str), (
-            "%s uses an unsupported non-linear down_revision" % path.name
-        )
+        assert down_revision is None or isinstance(down_revision, str), "%s uses an unsupported non-linear down_revision" % path.name
         if isinstance(down_revision, str):
-            assert len(down_revision) <= VERSION_NUM_MAX_LENGTH, (
-                "%s down_revision %r exceeds version_num VARCHAR(%s)"
-                % (path.name, down_revision, VERSION_NUM_MAX_LENGTH)
-            )
+            assert len(down_revision) <= VERSION_NUM_MAX_LENGTH, "%s down_revision %r exceeds version_num VARCHAR(%s)" % (path.name, down_revision, VERSION_NUM_MAX_LENGTH)
         revisions[revision] = (down_revision, path)
     return revisions
 
@@ -49,18 +41,15 @@ def test_alembic_revision_ids_fit_version_table_and_form_one_closed_chain() -> N
     revisions = _load_revisions()
     roots = [revision for revision, (parent, _) in revisions.items() if parent is None]
     assert len(roots) == 1, "expected exactly one Alembic root, got %s" % roots
-
     children: Dict[str, list] = {revision: [] for revision in revisions}
     for revision, (parent, path) in revisions.items():
         if parent is None:
             continue
         assert parent in revisions, "%s references missing down_revision %s" % (path.name, parent)
         children[parent].append(revision)
-
     heads = [revision for revision, values in children.items() if not values]
     assert len(heads) == 1, "expected exactly one Alembic head, got %s" % heads
     assert all(len(values) <= 1 for values in children.values()), "unexpected Alembic branch detected"
-
     visited = set()
     current = roots[0]
     while current is not None:
@@ -77,16 +66,18 @@ def test_requirement_delivery_revision_remains_schema_compatible() -> None:
     assert revisions["0007_req_delivery"][0] == "0006_lease_recovery"
 
 
-def test_test_round_runtime_and_revision_identity_revisions_are_linear() -> None:
+def test_test_round_runtime_revision_traceability_and_provider_recovery_are_linear() -> None:
     revisions = _load_revisions()
     assert revisions["0008_test_rounds"][0] == "0007_req_delivery"
     assert revisions["0009_run_round"][0] == "0008_test_rounds"
     assert revisions["0010_stage_workitem"][0] == "0009_run_round"
     assert revisions["0011_req_scope_revision"][0] == "0010_stage_workitem"
+    assert revisions["0012_traceability_graph"][0] == "0011_req_scope_revision"
+    assert revisions["0013_provider_recovery_ckpt"][0] == "0012_traceability_graph"
 
 
 if __name__ == "__main__":
     test_alembic_revision_ids_fit_version_table_and_form_one_closed_chain()
     test_requirement_delivery_revision_remains_schema_compatible()
-    test_test_round_runtime_and_revision_identity_revisions_are_linear()
+    test_test_round_runtime_revision_traceability_and_provider_recovery_are_linear()
     print("RC8_ALEMBIC_REVISION_CONTRACT_PASS")
