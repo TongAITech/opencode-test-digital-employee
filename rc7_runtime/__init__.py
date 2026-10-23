@@ -12,9 +12,15 @@ from .junit_reality import (
     install_rc7_1_junit_reality_gate,
 )
 from .worker_launch_reality import install_rc7_1_worker_timeout_diagnostics
+from .model_resilience import (
+    PersistentSlidingWindowGovernor,
+    classify_failure,
+    install_rc7_1_model_resilience,
+)
 
 install_rc7_1_junit_reality_gate()
 install_rc7_1_worker_timeout_diagnostics()
+install_rc7_1_model_resilience()
 
 from .models import (
     Artifact,
@@ -107,6 +113,9 @@ __all__ = [
     "RealityCheckedJUnitRunnerAdapter",
     "install_rc7_1_junit_reality_gate",
     "install_rc7_1_worker_timeout_diagnostics",
+    "PersistentSlidingWindowGovernor",
+    "classify_failure",
+    "install_rc7_1_model_resilience",
     "install_rc7_1_worker_output_contracts",
     "Artifact",
     "ArtifactStatus",
