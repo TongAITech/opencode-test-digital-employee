@@ -25,30 +25,30 @@ jobs:
           from pathlib import Path
           p = Path('rc8_runtime/governance.py')
           s = p.read_text()
-          old = '''    @property
-              def ratio(self) -> float:
-                  if self.total == 0:
-                      return 1.0
-                  return float(self.covered) / float(self.total)
+          old = """    @property
+    def ratio(self) -> float:
+        if self.total == 0:
+            return 1.0
+        return float(self.covered) / float(self.total)
 
-              @property
-              def satisfied(self) -> bool:
-                  return self.ratio >= float(self.threshold)
-          '''.replace('          ', '')
-          new = '''    @property
-              def ratio(self) -> float:
-                  # Empty frozen denominators are UNKNOWN, never full coverage.
-                  if self.total == 0:
-                      return 0.0
-                  return float(self.covered) / float(self.total)
+    @property
+    def satisfied(self) -> bool:
+        return self.ratio >= float(self.threshold)
+"""
+          new = """    @property
+    def ratio(self) -> float:
+        # Empty frozen denominators are UNKNOWN, never full coverage.
+        if self.total == 0:
+            return 0.0
+        return float(self.covered) / float(self.total)
 
-              @property
-              def satisfied(self) -> bool:
-                  # Fail closed even when threshold is zero: UNKNOWN cannot be SUFFICIENT.
-                  if self.total == 0:
-                      return False
-                  return self.ratio >= float(self.threshold)
-          '''.replace('          ', '')
+    @property
+    def satisfied(self) -> bool:
+        # Fail closed even when threshold is zero: UNKNOWN cannot be SUFFICIENT.
+        if self.total == 0:
+            return False
+        return self.ratio >= float(self.threshold)
+"""
           if old not in s:
               raise SystemExit('expected CoverageMetric block not found; refusing unsafe rewrite')
           p.write_text(s.replace(old, new, 1))
