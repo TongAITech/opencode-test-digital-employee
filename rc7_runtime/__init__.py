@@ -5,14 +5,16 @@ owns durable control-plane semantics while existing RC6 testing capabilities
 remain reusable through the RC7 closed-loop adapters.
 """
 
-# RC7.1 field fix: install the current-run JUnit evidence gate before any RC7
-# execution module imports the RC6 compatibility JUnit adapter.
+# RC7.1 field fixes must be installed before the compatibility execution/worker
+# modules below import their RC6 surfaces.
 from .junit_reality import (
     RealityCheckedJUnitRunnerAdapter,
     install_rc7_1_junit_reality_gate,
 )
+from .worker_launch_reality import install_rc7_1_worker_timeout_diagnostics
 
 install_rc7_1_junit_reality_gate()
+install_rc7_1_worker_timeout_diagnostics()
 
 from .models import (
     Artifact,
@@ -100,6 +102,7 @@ from .autonomous_execution_service import (
 __all__ = [
     "RealityCheckedJUnitRunnerAdapter",
     "install_rc7_1_junit_reality_gate",
+    "install_rc7_1_worker_timeout_diagnostics",
     "Artifact",
     "ArtifactStatus",
     "Evaluation",
