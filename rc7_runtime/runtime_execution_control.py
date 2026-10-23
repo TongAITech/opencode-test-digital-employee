@@ -1,8 +1,8 @@
 """R1/control-plane integration for runtime-owned formal execution.
 
 Field Case Preparation must run under the same governed EXECUTION ownership that
-will later launch the business runner.  This service therefore exposes a
-strict two-phase lifecycle:
+will later launch the business runner. This service therefore exposes a strict
+two-phase lifecycle:
 
 1. ``activate_task`` issues Runtime identity/authority lease, admits tools and
    leases the durable Task but does not start business execution.
@@ -12,6 +12,10 @@ strict two-phase lifecycle:
 
 ``execute_task`` remains the compatibility wrapper for already-prepared callers.
 No model/worker can provide the authoritative execution status.
+
+RC7.1 Case Fanout adds a receipt-only aggregate finalizer. Once every accepted
+Case has a trustworthy terminal receipt, canonical EXECUTION is finalized from
+R1 receipts and is never re-run merely to aggregate sibling results.
 """
 
 from __future__ import annotations
@@ -35,6 +39,10 @@ from .closed_loop_control import ClosedLoopControlPlane
 from .control_plane import WorkerOutput
 from .execution_diagnosis import ExecutionDiagnosisCoordinator, ExecutionTrustFacts
 from .execution_fanout_evaluator import RuntimeCaseFanoutExecutionEvaluator
+from .execution_fanout_finalizer import (
+    FanoutFinalizeResult,
+    ReceiptOnlyExecutionFanoutFinalizer,
+)
 from .execution_loop import ExecutionClosedLoop, ExecutionLoopResult
 from .models import Artifact, Evidence, TaskStatus
 from .runtime_execution import (
@@ -70,6 +78,7 @@ class ClosedLoopExecutionResult:
     task_state: str
     runtime_worker_id: str
     runtime_lease_id: str
+    fanout_finalize_status: Optional[str] = None
 
 
 class ClosedLoopRuntimeExecutionService:
@@ -86,6 +95,16 @@ class ClosedLoopRuntimeExecutionService:
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
 
+    def finalize_case_fanout(self, control: ClosedLoopControlPlane) -> FanoutFinalizeResult:
+        """Idempotently finalize a complete Case Fanout from durable R1 receipts.
+
+        This is also the restart/recovery entry point: callers may invoke it
+        before scheduling new EXECUTION work. It never starts a business runner.
+        """
+        return ReceiptOnlyExecutionFanoutFinalizer(
+            evidence_root=str(self.evidence_root),
+        ).try_finalize(control)
+
     def activate_task(
         self,
         control: ClosedLoopControlPlane,
@@ -96,7 +115,20 @@ class ClosedLoopRuntimeExecutionService:
         authority: RC7AuthorityRuntime,
         tool_broker: ToolCapabilityBroker,
     ) -> ActiveRuntimeExecution:
+        # Recovery guard: after a crash between the final sibling receipt and
+        # aggregate acceptance, finalize from R1 before any scheduler lease can
+        # replay the canonical business Case.
+        finalized = None
+        if case_fanout_contract_enabled(control.truth, control.mission_id):
+            finalized = self.finalize_case_fanout(control)
+
         task = control.scheduler.task(task_id)
+        if (
+            finalized is not None
+            and finalized.source_task_id == task_id
+            and finalized.status in {"FINALIZED", "ALREADY_FINALIZED"}
+        ):
+            raise RuntimeExecutionError("CASE_FANOUT_CANONICAL_EXECUTION_ALREADY_COMPLETE")
         if task.node != "EXECUTION":
             raise RuntimeExecutionError("FORMAL_EXECUTION_TASK_NODE_MISMATCH")
         if task.state != TaskStatus.READY:
@@ -338,7 +370,8 @@ class ClosedLoopRuntimeExecutionService:
             recovery=effective_recovery,
             evaluator_ref="rc7-runtime-owned-execution-gate",
         )
-        if case_fanout_contract_enabled(control.truth, control.mission_id):
+        fanout_enabled = case_fanout_contract_enabled(control.truth, control.mission_id)
+        if fanout_enabled:
             loop_result = RuntimeCaseFanoutExecutionEvaluator(
                 state_root=str(self.state_root),
                 evidence_root=str(self.evidence_root),
@@ -354,6 +387,12 @@ class ClosedLoopRuntimeExecutionService:
             evaluation=loop_result.evaluation,
             gaps=loop_result.gaps,
         )
+
+        finalize_status = None
+        if fanout_enabled:
+            finalize_result = self.finalize_case_fanout(control)
+            finalize_status = finalize_result.status
+
         evidence_ids = tuple(item.evidence_id for item in evidence) + (record_evidence.evidence_id,)
         if diagnostic_evidence is not None:
             evidence_ids = evidence_ids + (diagnostic_evidence.evidence_id,)
@@ -366,6 +405,7 @@ class ClosedLoopRuntimeExecutionService:
             task_state=accepted.state.value,
             runtime_worker_id=active.runtime_worker_id,
             runtime_lease_id=active.runtime_lease_id,
+            fanout_finalize_status=finalize_status,
         )
 
     def _persistable_output(
@@ -441,7 +481,9 @@ class ClosedLoopRuntimeExecutionService:
                 "validation_id": bundle.validation.validation_id,
             },
         }
-        encoded = (json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2, default=str) + "\n").encode("utf-8")
+        encoded = (
+            json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2, default=str) + "\n"
+        ).encode("utf-8")
         path.write_bytes(encoded)
         digest = hashlib.sha256(encoded).hexdigest()
         record_evidence_id = _stable_id(
