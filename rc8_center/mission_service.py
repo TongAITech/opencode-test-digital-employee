@@ -16,6 +16,7 @@ from rc8_runtime.governance import CoverageDimension, StageInstance, StageState,
 from rc8_runtime.mission_graph import MissionGraphRuntime, MissionStageType, SUFFICIENCY_STAGES
 from rc8_runtime.sufficiency import DimensionAssessment, DimensionState, FrozenSufficiencyLedger, RequiredDimension, evaluate_frozen_ledger
 
+from .code_sufficiency import CenterCodeSufficiencyEvaluator
 from .repository_ports import GovernanceRepository
 
 
@@ -36,8 +37,9 @@ def _center_authoritative(evaluation: SufficiencyEvaluation) -> bool:
 
 
 class CenterMissionService:
-    def __init__(self, repository: GovernanceRepository) -> None:
+    def __init__(self, repository: GovernanceRepository, traceability_repository=None) -> None:
         self.repository = repository
+        self.traceability_repository = traceability_repository
 
     def _hydrate(self, test_run_id: str) -> MissionGraphRuntime:
         graph = MissionGraphRuntime(test_run_id)
@@ -166,6 +168,22 @@ class CenterMissionService:
 
     def _recompute_worker_green(self, stage: StageInstance, candidate: SufficiencyEvaluation) -> SufficiencyEvaluation:
         stage_type = MissionStageType(stage.stage_type)
+        if stage_type == MissionStageType.CODE_SUFFICIENCY:
+            if self.traceability_repository is None:
+                raise RC8ContractError("CENTER_CODE_SUFFICIENCY_TRACEABILITY_REPOSITORY_REQUIRED")
+            graph_refs = tuple(dict.fromkeys(ref.split(":", 1)[1] for ref in stage.input_refs + stage.output_refs if isinstance(ref, str) and ref.startswith("trace-graph:") and ref.split(":", 1)[1]))
+            if len(graph_refs) != 1:
+                raise RC8ContractError("CENTER_CODE_SUFFICIENCY_REQUIRES_SINGLE_TRACE_GRAPH")
+            result = CenterCodeSufficiencyEvaluator(self.traceability_repository).evaluate(
+                test_run_id=stage.test_run_id,
+                stage_instance_id=stage.stage_instance_id,
+                graph_id=graph_refs[0],
+                active_gap_ids=candidate.unresolved_gap_ids,
+                worker_claimed_sufficient=True,
+            )
+            # Center code evaluator is the only authority allowed to turn a
+            # Worker CODE_SUFFICIENCY green into forward-unlocking SUFFICIENT.
+            return replace(result.evaluation, evaluated_at=max(result.evaluation.evaluated_at, candidate.evaluated_at + 1))
         if stage_type != MissionStageType.REQUIREMENT_SUFFICIENCY:
             raise RC8ContractError("CENTER_SUFFICIENCY_LEDGER_BUILDER_REQUIRED:%s" % stage_type.value)
 
@@ -194,9 +212,6 @@ class CenterMissionService:
 
         decision = evaluate_frozen_ledger(ledger, assessments, evaluator_id=_CENTER_EVALUATOR_ID, active_gap_ids=candidate.unresolved_gap_ids, worker_claimed_sufficient=True)
         evaluation = decision.to_evaluation("center-%s" % candidate.evaluation_id)
-        # Authoritative Center truth must sort strictly after its Worker candidate.
-        # This prevents same-second timestamps from making a candidate appear as
-        # the latest product projection or restart fact.
         return replace(evaluation, evaluated_at=max(evaluation.evaluated_at, candidate.evaluated_at + 1))
 
     def complete_sufficiency(self, test_run_id: str, stage_instance_id: str) -> StageInstance:
