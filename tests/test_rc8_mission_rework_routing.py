@@ -1,3 +1,6 @@
+import pytest
+
+from rc8_runtime.contracts import RC8ContractError
 from rc8_runtime.governance import StageInstance, StageState, StatusScope, SufficiencyEvaluation, SufficiencyResult
 from rc8_runtime.mission_graph import MissionGraphRuntime, MissionStageType
 
@@ -11,21 +14,22 @@ def _stage(stage_id, stage_type, attempt_no=1, predecessors=(), state=StageState
         attempt_no=attempt_no,
         predecessor_ids=tuple(predecessors),
         state=state,
-        evaluator_id="requirement-evaluator" if state == StageState.SUFFICIENT else None,
+        evaluator_id="RC8_CENTER_SUFFICIENCY_LEDGER" if state == StageState.SUFFICIENT else None,
     )
 
 
-def _evaluation(result):
+def _evaluation(result, *, authoritative=True):
+    center_green = result == SufficiencyResult.SUFFICIENT and authoritative
     return SufficiencyEvaluation(
         evaluation_id="eval-1",
         test_run_id="run-1",
         scope=StatusScope.STAGE,
         subject_id="req-suff-1",
-        evaluator_id="requirement-evaluator",
-        policy_version="v1",
+        evaluator_id="RC8_CENTER_SUFFICIENCY_LEDGER" if center_green else "requirement-evaluator",
+        policy_version="center-ledger:ledger-test" if center_green else "v1",
         result=result,
         dimension_refs=("coverage:requirement",),
-        evidence_refs=("artifact:eval",),
+        evidence_refs=("artifact:eval", "ledger:ledger-test") if center_green else ("artifact:eval",),
         explanation="deterministic gate result",
     )
 
@@ -79,3 +83,14 @@ def test_sufficient_gate_unlocks_forward_progression_and_does_not_schedule_rewor
     graph = _graph(SufficiencyResult.SUFFICIENT)
     assert graph.can_mark_ready("req-2") is False
     assert graph.can_mark_ready("code-1") is True
+
+
+def test_restore_rejects_persisted_worker_green_without_center_ledger_authority():
+    graph = MissionGraphRuntime("run-1")
+    graph.add_stage(_stage("scope-1", MissionStageType.SCOPE_INTAKE, state=StageState.COMPLETED))
+    graph.add_stage(_stage("req-1", MissionStageType.REQUIREMENT_ANALYSIS, predecessors=("scope-1",), state=StageState.COMPLETED))
+    graph.add_stage(_stage("req-suff-1", MissionStageType.REQUIREMENT_SUFFICIENCY, predecessors=("req-1",), state=StageState.COMPLETED))
+    with pytest.raises(RC8ContractError, match="MISSION_SUFFICIENT_REQUIRES_CENTER_LEDGER_AUTHORITY"):
+        graph.restore_evaluation(_evaluation(SufficiencyResult.SUFFICIENT, authoritative=False))
+    graph.add_stage(_stage("code-1", MissionStageType.CODE_ANALYSIS, predecessors=("req-suff-1",)))
+    assert graph.can_mark_ready("code-1") is False
