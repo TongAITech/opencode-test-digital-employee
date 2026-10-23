@@ -40,9 +40,10 @@ def test_code_producer_prompt_requires_structured_impact_surfaces(tmp_path):
 
     assert "RC7_1_SUFFICIENCY_CONTRACT=" in prompt
     assert '"impact_surfaces"' in prompt
+    assert '"impact_surface_schema"' in prompt
     assert '"impact_dimension_exclusions"' in prompt
     assert '"CALL_GRAPH"' in prompt
-    assert '"DATABASE"' in prompt
+    assert "CALLER|CALLEE|API|DATABASE|CONFIG|MESSAGE|EXCEPTION|TRANSACTION" in prompt
     assert "calling CodeGraph without materializing impact_surfaces" in prompt
 
 
