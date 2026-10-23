@@ -10,7 +10,7 @@ from rc6_runtime.capability import ToolCapabilityBroker
 from rc6_runtime.executable_spec import ExecutableSpecBuilder
 from rc6_runtime.preparation import PreparedAttempt
 from rc6_runtime.truth import TruthRuntime
-from rc7_runtime.authority import RC7AuthorityRuntime
+from rc7_runtime.authority import RC7AuthorityRuntime, execution_session_id
 from rc7_runtime.closed_loop_control import ClosedLoopControlPlane
 from rc7_runtime.execution_profiles import RC7_1_EXECUTION_PROFILES
 from rc7_runtime.models import EvaluationResult, Mission, Task, TaskStatus
@@ -53,7 +53,7 @@ def _source(symbol: str, *, include_layer_evidence: bool = True) -> str:
         "mission_id": mission_id,
         "attempt_id": attempt_id,
         "worker_id": worker_id,
-        "session_id": "SESSION-" + layer,
+        "session_id": session_id,
         "started_at": "2026-10-23T08:00:00Z",
         "finished_at": "2026-10-23T08:00:01Z",
         "status": "PASS",
@@ -141,6 +141,7 @@ def %s():
     mission_id = os.environ["RC7_MISSION_ID"]
     attempt_id = os.environ["RC7_ATTEMPT_ID"]
     worker_id = os.environ["RC7_WORKER_ID"]
+    session_id = os.environ["RC7_SESSION_ID"]
     target_id = os.environ["RC7_TARGET_ID"]
     tool_id = os.environ["RC7_TOOL_ID"]
     evidence_path = os.path.abspath(os.environ["RC7_EVIDENCE_FILE"])
@@ -306,6 +307,7 @@ def _run(tmp_path: Path, layer: str, *, include_layer_evidence: bool = True):
             "RC7_MISSION_ID": mission_id,
             "RC7_ATTEMPT_ID": prepared.attempt_id,
             "RC7_WORKER_ID": active.runtime_worker_id,
+            "RC7_SESSION_ID": execution_session_id(active.runtime_worker_id),
             "RC7_TARGET_ID": TARGET,
             "RC7_TOOL_ID": tool_id,
             "RC7_EVIDENCE_FILE": str(proof_file.resolve()),
