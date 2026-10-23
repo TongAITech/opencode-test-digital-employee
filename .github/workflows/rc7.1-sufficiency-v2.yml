@@ -26,7 +26,7 @@ jobs:
         run: python -m pip install --disable-pip-version-check pytest
       - name: Compile RC7 runtime
         run: python -m compileall -q rc6_runtime rc7_runtime
-      - name: RC7.1 sufficiency autonomous-repair model-resilience and production-autopilot discriminating tests
+      - name: RC7.1 sufficiency autonomous-repair model-resilience production-autopilot and supervisor discriminating tests
         run: >-
           python -m pytest -q
           tests/test_rc7_1_test_design_sufficiency_v2.py
@@ -39,6 +39,7 @@ jobs:
           tests/test_rc7_1_model_resilience.py
           tests/test_rc7_1_worker_timeout_reality.py
           tests/test_rc7_1_bank_mission_autopilot.py
+          tests/test_rc7_1_active_task_supervisor.py
       - name: Existing Requirement Code Test Design and execution regressions
         run: >-
           python -m pytest -q
