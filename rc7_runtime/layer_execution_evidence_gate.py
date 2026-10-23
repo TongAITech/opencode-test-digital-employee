@@ -15,11 +15,10 @@ RC7.1 layer semantics:
 * L7 - real cross-layer E2E execution. E2E verification requires real runtime
   execution and a complete entry -> business-result -> oracle chain.
 
-The formal runner emits raw evidence refs. ClosedLoopRuntimeExecutionService
-persists those refs as deterministic canonical R1 Evidence IDs. This gate
-accepts either the canonical ID or the exact raw ref only when that raw ref
-recomputes to an Evidence ID present on the current ExecutionRecord. Historical
-or unrelated refs therefore cannot satisfy the contract.
+For production service records, layer evidence must point to current-run
+file-backed proof. The service hashes those files into canonical R1 Evidence
+IDs. A script-emitted URI or a self-claimed canonical ID is not enough to prove
+that screenshot/network/API/capability/E2E evidence actually exists.
 """
 
 from __future__ import annotations
@@ -388,8 +387,19 @@ class LayerExecutionEvidenceGate:
         attempt_id: str,
     ) -> bool:
         for ref in refs:
+            # Direct non-runtime evidence IDs are retained for compatibility
+            # with deterministic unit/conformance adapters. Production formal
+            # execution records contain EVD-EXEC-RUNTIME-* IDs, so a layer
+            # payload cannot self-claim one of those IDs as proof.
             if ref in record_refs:
+                if ref.startswith("EVD-EXEC-RUNTIME-"):
+                    return False
                 continue
+            if not ref.startswith("file://"):
+                return False
+            path = Path(ref[len("file://"):]).expanduser().resolve()
+            if not path.is_file():
+                return False
             if cls._canonical_runtime_evidence_id(mission_id, attempt_id, ref) not in record_refs:
                 return False
         return True
@@ -398,7 +408,7 @@ class LayerExecutionEvidenceGate:
     def _canonical_runtime_evidence_id(mission_id: str, attempt_id: str, raw_ref: str) -> str:
         digest = ""
         if raw_ref.startswith("file://"):
-            path = Path(raw_ref[len("file://"):])
+            path = Path(raw_ref[len("file://"):]).expanduser().resolve()
             if path.is_file():
                 digest = hashlib.sha256(path.read_bytes()).hexdigest()
         payload = "\x1f".join(
