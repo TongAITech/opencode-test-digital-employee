@@ -1,19 +1,18 @@
 """RC7.1 runtime-owned EXECUTION stage for BANK Mission Autopilot.
 
 One invocation handles exactly the Case owned by the current canonical EXECUTION
-or EXECUTION/REPAIR task.  Multi-case progress is governed by the existing
+or EXECUTION/REPAIR task. Multi-case progress is governed by the existing
 CASE_FANOUT_CONTRACT: completed receipts survive restart and missing Cases are
 materialized as Runtime-owned repair tasks.
 
-No capability is assumed READY.  Tool admission is reconstructed from a strict
-field/runtime capability evidence snapshot.  Case Preparation is executed under
+No capability is assumed READY. Tool admission is reconstructed from a strict
+field/runtime capability evidence snapshot. Case Preparation is executed under
 the same Runtime worker ownership that later launches the approved runner.
 """
 from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -68,13 +67,6 @@ class BankExecutionAutopilot:
         self.bundle_resolver = CaseScriptBundleResolver(
             evidence_root=str(self.evidence_root / "script-runtime"),
             validation_timeout_seconds=min(max(30, timeout_seconds), 300),
-        )
-        self.preparation = CasePreparationService(
-            # truth is mission-specific and supplied lazily in run(); service is
-            # reconstructed there so replay always uses the current canonical R1.
-            # type: ignore[arg-type]
-            truth=None,
-            state_root=self.state_root,
         )
         self.execution = ClosedLoopRuntimeExecutionService(
             evidence_root=str(self.evidence_root / "formal-execution"),
@@ -202,9 +194,9 @@ class BankExecutionAutopilot:
             gap_id=_stable_id("GAP-EXEC-BLOCK", control.mission_id, task.task_id, tc_id, status, reason),
             mission_id=control.mission_id,
             source_node="EXECUTION",
-            category=("HUMAN_GATE_REQUIRED" if human_required else "EXECUTION_FIELD_OR_PREPARATION_BLOCKED"),
+            category=("HUMAN_GATE_REQUIRED" if human_required else "EXECUTION_BLOCKED"),
             severity=GapSeverity.BLOCKER,
-            target_node="RUNTIME",
+            target_node=("HUMAN_GATE" if human_required else "RUNTIME"),
             description=reason,
             subject_refs=[task.task_id, tc_id],
             evidence_refs=[evidence_id],
@@ -257,8 +249,6 @@ class BankExecutionAutopilot:
             authority=self.authority,
             tool_broker=broker,
         )
-        # Recreate the service on current truth so provider replay and Human Gate
-        # lookup always bind to the same canonical R1 used by the Mission.
         preparation = CasePreparationService(control.truth, self.state_root)
         attempt_id = _stable_id(
             "ATT-CASE",
