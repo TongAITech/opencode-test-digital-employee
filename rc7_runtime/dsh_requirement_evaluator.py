@@ -1,13 +1,9 @@
 """Independent DSH Requirement reviewer connected to the RC7 deterministic gate.
 
-The producer DSH worker stops at OUTPUT_PRODUCED. This component reloads the
-runtime-hashed candidate, launches a fresh reviewer Worker/session under a
-separate signed lease, converts only reviewer evidence into canonical RC7
-Evidence, and finally invokes RequirementClosedLoop. The reviewer itself never
-owns PASS authority; the deterministic gate creates the canonical Evaluation.
-
-Before review, semantic trace links are bound to evidence that actually exists
-in R1 for the candidate Artifact. A nonempty worker string is not evidence.
+RC7.1 additionally requires real DSH-produced Requirement candidates to account
+for every semantic dimension: populated facts or explicit evidence-backed
+NOT_APPLICABLE exclusions. Empty arrays can no longer silently shrink the
+Test Design denominator.
 """
 
 from __future__ import annotations
@@ -99,6 +95,9 @@ class DshRequirementEvaluator:
         analysis["analyzer_worker_id"] = analyzer_worker_id
         artifact_row = control.truth.query("rc7_artifact", artifact_id=artifact_id)[0]
         self._bind_analysis_evidence(control, artifact_row, analysis)
+        # Real RC7.1 DSH candidates always use the stronger denominator gate.
+        # Direct small unit fixtures remain backward compatible unless they opt in.
+        analysis["sufficiency_v2_required"] = True
 
         assignment = self.launcher.assign(
             agent_id="rc7-requirement-sufficiency",
@@ -149,7 +148,7 @@ class DshRequirementEvaluator:
             artifact_ref=artifact_id,
             analysis=analysis,
             review=review,
-            evaluator_ref="dsh:%s+deterministic-requirement-gate" % reviewer.worker_instance_id,
+            evaluator_ref="dsh:%s+deterministic-requirement-gate+rc7.1-dimension-accountability" % reviewer.worker_instance_id,
         )
         return DshRequirementEvaluation(
             task_id=task_id,
@@ -194,9 +193,6 @@ class DshRequirementEvaluator:
             if not isinstance(declared_ref, str) or not declared_ref:
                 continue
             rows = control.truth.query("rc7_evidence", evidence_id=declared_ref)
-            # Worker-declared Artifact references are not acceptance authority.
-            # Ignore declarations that do not resolve to an R1 Evidence record;
-            # at least one real durable record is still mandatory below.
             if not rows:
                 continue
             if len(rows) != 1:
@@ -239,6 +235,27 @@ class DshRequirementEvaluator:
             normalized = dict(link)
             normalized["evidence_ref"] = canonical
             normalized_links.append(normalized)
+
+        exclusions = analysis.get("dimension_exclusions")
+        if exclusions is not None:
+            if not isinstance(exclusions, list):
+                raise DshRequirementEvaluatorError("REQUIREMENT_DIMENSION_EXCLUSIONS_INVALID")
+            normalized_exclusions = []
+            for item in exclusions:
+                if not isinstance(item, dict):
+                    raise DshRequirementEvaluatorError("REQUIREMENT_DIMENSION_EXCLUSION_INVALID")
+                ref = item.get("evidence_ref")
+                if not isinstance(ref, str) or not ref:
+                    raise DshRequirementEvaluatorError("REQUIREMENT_DIMENSION_EXCLUSION_EVIDENCE_REQUIRED")
+                canonical = aliases.get(ref)
+                if canonical is None:
+                    raise DshRequirementEvaluatorError(
+                        "REQUIREMENT_DIMENSION_EXCLUSION_EVIDENCE_NOT_DURABLE:%s" % ref
+                    )
+                normalized = dict(item)
+                normalized["evidence_ref"] = canonical
+                normalized_exclusions.append(normalized)
+            analysis["dimension_exclusions"] = normalized_exclusions
 
         analysis["trace_links"] = normalized_links
         analysis["evidence_refs"] = list(dict.fromkeys(canonical_ids))
@@ -326,11 +343,13 @@ class DshRequirementEvaluator:
             "summary": "review rationale",
         }
         return (
-            "You are an independent RC7 Requirement Sufficiency Reviewer. You are not the analyzer. "
-            "You MUST call at least one allowed real tool. Review the supplied analysis independently. "
-            "Check source/atomic traceability, testability, business rules, roles, preconditions, "
-            "normal and negative paths, boundaries, states, data constraints, dependencies and side effects. "
-            "Do not modify the analysis and do not emit a canonical Evaluation or Task state. "
+            "You are an independent RC7.1 Requirement Sufficiency Reviewer. You are not the analyzer. "
+            "You MUST call at least one allowed real tool and independently inspect the source evidence. "
+            "Check source/atomic traceability, testability, business rules, roles, preconditions, normal and "
+            "negative paths, boundaries, states, data constraints, dependencies and side effects. Empty semantic "
+            "dimensions are not silently acceptable: if a dimension is genuinely not applicable the candidate "
+            "must carry an evidence-backed dimension_exclusion with a concrete reason; challenge unjustified "
+            "exclusions. Do not modify the analysis and do not emit a canonical Evaluation or Task state. "
             "If any material gap exists return decision=GAPS and enumerate gap_ids; otherwise PASS. "
             "Return exactly one JSON object.\n"
             "REVIEW_CONTRACT=" + json.dumps(contract, ensure_ascii=False, sort_keys=True) + "\n"
