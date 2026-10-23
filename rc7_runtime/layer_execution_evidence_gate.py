@@ -117,20 +117,17 @@ class LayerExecutionEvidenceGate:
         self._require_equal(missing, evidence, "attempt_id", record.attempt_id)
         self._require_equal(missing, evidence, "worker_id", record.worker_id)
 
-        for field in (
-            "session_id",
-            "started_at",
-            "finished_at",
-            "preconditions",
-            "test_data",
-            "steps",
-            "expected_results",
-            "actual_results",
-        ):
-            if field not in evidence:
+        if str(evidence.get("status", "")).upper() not in {"PASS", "EXECUTED_PASS"}:
+            missing.append("status=PASS")
+        for field in ("session_id", "started_at", "finished_at"):
+            if not str(evidence.get(field, "")).strip():
                 missing.append(field)
+        if not isinstance(evidence.get("preconditions"), (list, tuple)):
+            missing.append("preconditions")
+        if not isinstance(evidence.get("test_data"), Mapping):
+            missing.append("test_data")
         for field in ("steps", "expected_results", "actual_results"):
-            if field in evidence and not self._nonempty_sequence(evidence.get(field)):
+            if not self._nonempty_sequence(evidence.get(field)):
                 missing.append("%s_nonempty" % field)
 
         record_refs = {str(ref) for ref in record.evidence_refs if str(ref)}
@@ -404,11 +401,6 @@ class LayerExecutionEvidenceGate:
             path = Path(raw_ref[len("file://"):])
             if path.is_file():
                 digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        raw = "\x1f".join(
-            str(part)
-            for part in ("EVD-EXEC-RUNTIME", mission_id, attempt_id, raw_ref, digest)
-        ).encode("utf-8")
-        # _stable_id(prefix, *parts) hashes only parts, not prefix.
         payload = "\x1f".join(
             str(part) for part in (mission_id, attempt_id, raw_ref, digest)
         ).encode("utf-8")
