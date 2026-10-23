@@ -12,7 +12,11 @@ from rc6_runtime.agent_runtime import AgentRuntimeError
 from rc6_runtime.agent_runtime_hardening import BankFinalDshHeadlessWorkerLauncher
 from rc6_runtime.authority import AuthorityRuntime
 from rc6_runtime.truth import TruthRuntime
-from rc7_runtime.model_resilience import PersistentSlidingWindowGovernor, classify_failure
+from rc7_runtime.model_resilience import (
+    PersistentSlidingWindowGovernor,
+    _tool_is_read_only,
+    classify_failure,
+)
 
 
 class _ScriptedRunner:
@@ -76,14 +80,14 @@ class ModelResilienceTests(unittest.TestCase):
     @staticmethod
     def _assignment(launcher, suffix):
         return launcher.assign(
-            agent_id="pfc-test-design",
-            role="TEST_DESIGNER",
-            phase="TEST_DESIGN",
+            agent_id="pfc-requirement-analysis",
+            role="REQUIREMENT_ANALYZER",
+            phase="REQUIREMENT_ANALYSIS",
             mission_id="M-1",
             attempt_id="attempt-%s" % suffix,
             scope="task:T-%s" % suffix,
             input_refs=("input://1",),
-            allowed_artifact_types=("test_design",),
+            allowed_artifact_types=("requirement_analysis",),
             allowed_tools=("mcp__pfc_aitest_rc6__runtime_status", "mcp__pfc_aitest_rc6__database_update"),
         )
 
@@ -111,6 +115,14 @@ class ModelResilienceTests(unittest.TestCase):
         self.assertTrue(classify_failure('SSE stream ended without [DONE]; {"code":502}').retryable)
         self.assertEqual(classify_failure("LLMRequestError 网络波动或模型处理超时").category, "PROVIDER_TIMEOUT")
         self.assertEqual(classify_failure("HTTP 429 Too Many Requests").category, "RATE_LIMIT")
+
+    def test_tool_side_effect_classifier_is_token_aware(self):
+        self.assertTrue(_tool_is_read_only("mcp__pfc_aitest_rc6__runtime_status"))
+        self.assertTrue(_tool_is_read_only("mcp__pfc_aitest_rc7__read_text"))
+        self.assertTrue(_tool_is_read_only("mcp__pfc_aitest_rc7__codegraph_query"))
+        self.assertFalse(_tool_is_read_only("mcp__pfc_aitest_rc6__database_update"))
+        self.assertFalse(_tool_is_read_only("mcp__pfc_aitest_rc6__browser_click"))
+        self.assertFalse(_tool_is_read_only("mcp__pfc_aitest_rc6__publish"))
 
     def test_502_before_tool_side_effect_auto_retries_and_recovers(self):
         with tempfile.TemporaryDirectory() as root:
