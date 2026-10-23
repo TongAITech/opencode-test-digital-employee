@@ -1,14 +1,27 @@
-"""Deterministic L4-L7 execution evidence contracts for RC7.1.
+"""RC7.1 deterministic L4-L7 production evidence contract.
 
-The presence of an evidence reference is not enough.  This module validates
-that each layer carries the concrete runtime artifacts required by the field
-acceptance contract.
+This gate is deliberately independent from model judgement.  A generic
+ExecutionRecord may be integrity-valid, but L4-L7 are not allowed to become a
+terminal PASS until the layer-specific runtime proof is carried by the current
+execution record.
+
+RC7.1 layer semantics:
+* L4 - real browser/UI execution, including governed fresh 4A authentication
+  when the case requires 4A.
+* L5 - real API execution using a route captured from controlled browser
+  network traffic. Endpoint guessing is never evidence.
+* L6 - declared execution capability/tool proof. Missing capability is a
+  blocker/human-required outcome, never a degraded PASS.
+* L7 - real cross-layer E2E execution. E2E verification requires real runtime
+  execution and a complete entry -> business-result -> oracle chain.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Tuple
+from typing import Any, Dict, Iterable, Mapping, Sequence, Tuple
+
+from rc6_runtime.execution import ExecutionRecord
 
 
 @dataclass(frozen=True)
@@ -18,6 +31,8 @@ class LayerEvidenceResult:
     missing: Tuple[str, ...] = ()
 
 
+# Kept as compatibility DTOs for any field adapter that imported the original
+# RC7.1 module.  Production verification is performed by verify_record() below.
 @dataclass(frozen=True)
 class L4UiEvidence:
     video_ref: str = ""
@@ -63,90 +78,276 @@ class L7ZapEvidence:
 
 
 class LayerExecutionEvidenceGate:
-    REQUIRED_L5_STAGES = (
-        "IDENTITY",
-        "PRECONDITION",
-        "TEST_DATA",
-        "BUSINESS_ENTRY",
-        "SERVICE_CHAIN",
-        "PERSISTENCE",
-        "STATE_TRANSITION",
-        "SIDE_EFFECT",
-        "FINAL_BUSINESS_RESULT",
-        "REVERSE_VERIFICATION",
+    """Fail closed for any would-be PASS at L4-L7."""
+
+    LAYERS = {"L4", "L5", "L6", "L7"}
+    E2E_REQUIRED_SEGMENTS = (
+        "entry",
+        "frontend",
+        "api",
+        "service",
+        "data_or_state",
+        "business_result",
+        "oracle",
     )
 
+    def verify_record(self, *, mission_id: str, record: ExecutionRecord) -> LayerEvidenceResult:
+        layer = str(record.layer).upper()
+        if layer not in self.LAYERS:
+            return LayerEvidenceResult(True, "LAYER_EVIDENCE_CONTRACT_NOT_REQUIRED", ())
+
+        actual = record.actual_result if isinstance(record.actual_result, dict) else {}
+        evidence = actual.get("layer_evidence")
+        if not isinstance(evidence, dict):
+            return LayerEvidenceResult(False, "LAYER_EVIDENCE_REQUIRED", ("layer_evidence",))
+
+        missing = []
+        self._require_equal(missing, evidence, "layer", layer)
+        self._require_equal(missing, evidence, "case_id", record.tc_id)
+        self._require_equal(missing, evidence, "target_id", record.target_id)
+        self._require_equal(missing, evidence, "mission_id", mission_id)
+        self._require_equal(missing, evidence, "attempt_id", record.attempt_id)
+        self._require_equal(missing, evidence, "worker_id", record.worker_id)
+
+        for field in (
+            "session_id",
+            "started_at",
+            "finished_at",
+            "preconditions",
+            "test_data",
+            "steps",
+            "expected_results",
+            "actual_results",
+        ):
+            if field not in evidence:
+                missing.append(field)
+        for field in ("steps", "expected_results", "actual_results"):
+            if field in evidence and not self._nonempty_sequence(evidence.get(field)):
+                missing.append("%s_nonempty" % field)
+
+        record_refs = {str(ref) for ref in record.evidence_refs if str(ref)}
+        layer_refs = self._refs(evidence.get("evidence_refs"))
+        if not layer_refs:
+            missing.append("evidence_refs")
+        elif not layer_refs.issubset(record_refs):
+            missing.append("evidence_refs_current_execution")
+
+        self._verify_assertions(missing, evidence.get("assertions"), record_refs)
+        self._verify_receipt(missing, evidence.get("execution_receipt"), record)
+
+        if layer == "L4":
+            self._verify_l4_payload(missing, evidence, record_refs)
+        elif layer == "L5":
+            self._verify_l5_payload(missing, evidence, record_refs)
+        elif layer == "L6":
+            self._verify_l6_payload(missing, evidence, record_refs)
+        else:
+            self._verify_l7_payload(missing, evidence, record_refs)
+
+        return self._result("%s_EVIDENCE_CONTRACT_COMPLETE" % layer, missing)
+
+    def _verify_l4_payload(self, missing, evidence: Mapping[str, Any], record_refs: set[str]) -> None:
+        browser = evidence.get("browser")
+        if not isinstance(browser, dict):
+            missing.append("browser")
+            return
+        for field in ("page_open", "actions", "state_reads"):
+            if not self._nonempty_sequence(browser.get(field)):
+                missing.append("browser.%s" % field)
+
+        types = {str(item).lower() for item in self._sequence(browser.get("evidence_types"))}
+        for required in ("screenshot", "dom", "trace", "network"):
+            if required not in types:
+                missing.append("browser.evidence_type:%s" % required)
+        browser_refs = self._refs(browser.get("evidence_refs"))
+        if not browser_refs:
+            missing.append("browser.evidence_refs")
+        elif not browser_refs.issubset(record_refs):
+            missing.append("browser.evidence_refs_current_execution")
+
+        auth = evidence.get("auth")
+        if isinstance(auth, dict) and bool(auth.get("required_4a")):
+            method = str(auth.get("method", "")).strip().lower()
+            if method not in {"foura_auth.py", "4a_skill", "4a skill"}:
+                missing.append("auth.method=foura_auth.py_or_4A_skill")
+            if auth.get("fresh_login") is not True:
+                missing.append("auth.fresh_login=true")
+            if auth.get("historical_cookie_fallback") is not False:
+                missing.append("auth.historical_cookie_fallback=false")
+            if auth.get("expiry_relogin_supported") is not True:
+                missing.append("auth.expiry_relogin_supported=true")
+
+    def _verify_l5_payload(self, missing, evidence: Mapping[str, Any], record_refs: set[str]) -> None:
+        calls = evidence.get("api_calls")
+        if not self._nonempty_sequence(calls):
+            missing.append("api_calls")
+            return
+        for index, call in enumerate(calls):
+            prefix = "api_calls[%d]" % index
+            if not isinstance(call, dict):
+                missing.append(prefix)
+                continue
+            for field in ("url", "method", "request", "response", "status_code", "business_code"):
+                if field not in call or call.get(field) is None or call.get(field) == "":
+                    missing.append("%s.%s" % (prefix, field))
+            if str(call.get("route_source", "")).lower() != "browser_network_capture":
+                missing.append("%s.route_source=browser_network_capture" % prefix)
+            if call.get("endpoint_guessed") is not False:
+                missing.append("%s.endpoint_guessed=false" % prefix)
+            refs = self._refs(call.get("evidence_refs"))
+            if not refs:
+                missing.append("%s.evidence_refs" % prefix)
+            elif not refs.issubset(record_refs):
+                missing.append("%s.evidence_refs_current_execution" % prefix)
+
+    def _verify_l6_payload(self, missing, evidence: Mapping[str, Any], record_refs: set[str]) -> None:
+        capability = evidence.get("capability")
+        if not isinstance(capability, dict):
+            missing.append("capability")
+            return
+        status = str(capability.get("status", "")).upper()
+        if status != "AVAILABLE":
+            if status in {"BLOCKED_ENVIRONMENT", "HUMAN_REQUIRED"}:
+                missing.append("capability.status_not_passable:%s" % status)
+            else:
+                missing.append("capability.status=AVAILABLE")
+        if not str(capability.get("tool_name", "")).strip():
+            missing.append("capability.tool_name")
+        refs = self._refs(capability.get("evidence_refs"))
+        if not refs:
+            missing.append("capability.evidence_refs")
+        elif not refs.issubset(record_refs):
+            missing.append("capability.evidence_refs_current_execution")
+
+    def _verify_l7_payload(self, missing, evidence: Mapping[str, Any], record_refs: set[str]) -> None:
+        if evidence.get("real_runtime_execution") is not True:
+            missing.append("real_runtime_execution=true")
+        if evidence.get("E2E_VERIFIED_REQUIRES_REAL_RUNTIME_EXECUTION") is not True:
+            missing.append("E2E_VERIFIED_REQUIRES_REAL_RUNTIME_EXECUTION=true")
+        chain = evidence.get("e2e_chain")
+        if not isinstance(chain, dict):
+            missing.append("e2e_chain")
+            return
+        for segment in self.E2E_REQUIRED_SEGMENTS:
+            value = chain.get(segment)
+            if value in (None, "", [], {}, ()):
+                missing.append("e2e_chain.%s" % segment)
+        refs = self._refs(chain.get("evidence_refs"))
+        if not refs:
+            missing.append("e2e_chain.evidence_refs")
+        elif not refs.issubset(record_refs):
+            missing.append("e2e_chain.evidence_refs_current_execution")
+
+    @classmethod
+    def _verify_assertions(cls, missing, assertions: Any, record_refs: set[str]) -> None:
+        if not cls._nonempty_sequence(assertions):
+            missing.append("assertions")
+            return
+        for index, assertion in enumerate(assertions):
+            prefix = "assertions[%d]" % index
+            if not isinstance(assertion, dict):
+                missing.append(prefix)
+                continue
+            if not str(assertion.get("assertion_id", "")).strip():
+                missing.append("%s.assertion_id" % prefix)
+            if "expected" not in assertion:
+                missing.append("%s.expected" % prefix)
+            if "actual" not in assertion:
+                missing.append("%s.actual" % prefix)
+            if str(assertion.get("result", "")).upper() != "PASS":
+                missing.append("%s.result=PASS" % prefix)
+            refs = cls._refs(assertion.get("evidence_refs"))
+            if not refs:
+                missing.append("%s.evidence_refs" % prefix)
+            elif not refs.issubset(record_refs):
+                missing.append("%s.evidence_refs_current_execution" % prefix)
+
+    @staticmethod
+    def _verify_receipt(missing, receipt: Any, record: ExecutionRecord) -> None:
+        if not isinstance(receipt, dict):
+            missing.append("execution_receipt")
+            return
+        expected = {
+            "case_id": record.tc_id,
+            "attempt_id": record.attempt_id,
+            "target_id": record.target_id,
+        }
+        for field, value in expected.items():
+            if str(receipt.get(field, "")) != str(value):
+                missing.append("execution_receipt.%s" % field)
+        if not str(receipt.get("receipt_id", "")).strip():
+            missing.append("execution_receipt.receipt_id")
+        if str(receipt.get("status", "")).upper() not in {"PASS", "EXECUTED_PASS"}:
+            missing.append("execution_receipt.status=PASS")
+
+    @staticmethod
+    def _require_equal(missing, evidence: Mapping[str, Any], field: str, expected: Any) -> None:
+        if str(evidence.get(field, "")) != str(expected):
+            missing.append(field)
+
+    @staticmethod
+    def _sequence(value: Any) -> Sequence[Any]:
+        if isinstance(value, (list, tuple)):
+            return value
+        return ()
+
+    @classmethod
+    def _nonempty_sequence(cls, value: Any) -> bool:
+        return bool(cls._sequence(value))
+
+    @staticmethod
+    def _refs(value: Any) -> set[str]:
+        if not isinstance(value, (list, tuple, set)):
+            return set()
+        return {str(item) for item in value if str(item)}
+
+    @staticmethod
+    def _result(success_reason: str, missing: Iterable[str]) -> LayerEvidenceResult:
+        normalized = tuple(sorted(set(str(item) for item in missing)))
+        if normalized:
+            return LayerEvidenceResult(False, "EVIDENCE_INCOMPLETE", normalized)
+        return LayerEvidenceResult(True, success_reason, ())
+
+    # Legacy validation entry points retained for compatibility.  They no
+    # longer define RC7.1 production semantics and are not used by the runtime.
     def verify_l4(self, evidence: L4UiEvidence) -> LayerEvidenceResult:
         missing = []
-        if not evidence.video_ref.lower().endswith((".webm", ".mp4")):
-            missing.append("video")
-        if not evidence.trace_ref.lower().endswith(".zip"):
+        if not evidence.trace_ref:
             missing.append("trace")
-        if not evidence.har_ref.lower().endswith(".har"):
-            missing.append("har")
+        if not evidence.har_ref:
+            missing.append("network")
         if not evidence.screenshot_refs:
             missing.append("screenshots")
         if not evidence.oracle_ref:
             missing.append("oracle")
         if not evidence.actual_result_ref:
             missing.append("actual_result")
-        return self._result("L4_UI_EVIDENCE_COMPLETE", missing)
+        return self._result("L4_COMPAT_EVIDENCE_COMPLETE", missing)
 
     def verify_l5(self, evidence: L5E2EEvidence) -> LayerEvidenceResult:
-        stages = {str(item).upper() for item in evidence.stages}
-        missing = [stage for stage in self.REQUIRED_L5_STAGES if stage not in stages]
+        # Compatibility only: the production L5 contract is API execution,
+        # verified through verify_record().
+        missing = []
         if not evidence.runtime_refs:
             missing.append("runtime_refs")
         if not evidence.oracle_ref:
             missing.append("oracle")
         if not evidence.actual_result_ref:
             missing.append("actual_result")
-        return self._result("L5_FULL_E2E_COMPLETE", missing)
+        return self._result("L5_COMPAT_EVIDENCE_COMPLETE", missing)
 
     def verify_l6(self, evidence: L6K6Evidence) -> LayerEvidenceResult:
         missing = []
-        if evidence.tool_name.strip().lower() != "k6":
-            missing.append("tool=k6")
-        if not evidence.tool_version:
-            missing.append("tool_version")
-        if len(evidence.script_sha256) != 64:
-            missing.append("script_sha256")
-        if not evidence.scenario_ref:
-            missing.append("scenario")
-        if not evidence.threshold_ref:
-            missing.append("threshold")
-        if not evidence.summary_ref:
-            missing.append("summary")
-        if not evidence.stdout_ref:
-            missing.append("stdout")
+        if not evidence.tool_name:
+            missing.append("tool_name")
         if evidence.exit_code != 0:
             missing.append("exit_code=0")
-        return self._result("L6_K6_EVIDENCE_COMPLETE", missing)
+        return self._result("L6_COMPAT_EVIDENCE_COMPLETE", missing)
 
     def verify_l7(self, evidence: L7ZapEvidence) -> LayerEvidenceResult:
         missing = []
-        if evidence.tool_name.strip().lower() not in {"zap", "owasp-zap", "owasp zap"}:
-            missing.append("tool=zap")
-        if not evidence.tool_version:
-            missing.append("tool_version")
-        for field_name, value in (
-            ("target", evidence.target_ref),
-            ("scan_config", evidence.scan_config_ref),
-            ("spider", evidence.spider_ref),
-            ("passive_scan", evidence.passive_scan_ref),
-            ("active_scan", evidence.active_scan_ref),
-            ("html_report", evidence.html_report_ref),
-            ("json_report", evidence.json_report_ref),
-        ):
-            if not value:
-                missing.append(field_name)
+        if not evidence.tool_name:
+            missing.append("tool_name")
         if evidence.exit_code != 0:
             missing.append("exit_code=0")
-        return self._result("L7_ZAP_EVIDENCE_COMPLETE", missing)
-
-    @staticmethod
-    def _result(success_reason: str, missing) -> LayerEvidenceResult:
-        normalized = tuple(sorted(set(str(item) for item in missing)))
-        if normalized:
-            return LayerEvidenceResult(False, "EVIDENCE_INCOMPLETE", normalized)
-        return LayerEvidenceResult(True, success_reason, ())
+        return self._result("L7_COMPAT_EVIDENCE_COMPLETE", missing)
