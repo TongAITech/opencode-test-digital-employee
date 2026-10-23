@@ -11,22 +11,31 @@ if [ -z "${PFC_RC7_SOURCE_COMMIT:-}" ] && [ -f "$ROOT/SOURCE_COMMIT" ]; then
   PFC_RC7_SOURCE_COMMIT=$(tr -d '\r\n' < "$ROOT/SOURCE_COMMIT")
   export PFC_RC7_SOURCE_COMMIT
 fi
+if [ -z "${PFC_RC7_SOURCE_REVISION:-}" ] && [ -n "${PFC_RC7_SOURCE_COMMIT:-}" ]; then
+  PFC_RC7_SOURCE_REVISION=$PFC_RC7_SOURCE_COMMIT
+  export PFC_RC7_SOURCE_REVISION
+fi
 mkdir -p "$(dirname "$R1_PATH")"
 PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH PFC_AITEST_STATE_DIR="$STATE_ROOT"
 cd "$ROOT"
-echo "[RC7] Mission R1: $R1_PATH"
+echo "[RC7.1] Mission Autopilot R1: $R1_PATH"
 
-# Backward compatible environment mode. Otherwise pass normal CLI arguments
-# straight to the durable Bank Mission entrypoint, so no prior export commands
-# are required.
+# Backward-compatible environment mode. The durable Mission is resumed and then
+# immediately driven from canonical R1; no manual follow-up "continue" is needed.
 if [ -n "${PFC_RC7_MISSION_ID:-}" ] && [ -n "${PFC_RC7_RELEASE_ID:-}" ] && [ -n "${PFC_RC7_MISSION_GOAL:-}" ]; then
-  exec "$PYTHON_BIN" -m rc7_runtime.bank_mission \
+  exec "$PYTHON_BIN" -m rc7_runtime.bank_mission_start \
     --r1 "$R1_PATH" \
+    --package-root "$ROOT" \
     --mission-id "$PFC_RC7_MISSION_ID" \
     --release-id "$PFC_RC7_RELEASE_ID" \
     --goal "$PFC_RC7_MISSION_GOAL" \
     "$@"
 fi
 
-exec "$PYTHON_BIN" -m rc7_runtime.bank_mission --r1 "$R1_PATH" "$@"
+# CLI mode preserves historical --graph-version and repeatable --input NODE=REF
+# arguments and accepts the new Autopilot runtime options on the same entry.
+exec "$PYTHON_BIN" -m rc7_runtime.bank_mission_start \
+  --r1 "$R1_PATH" \
+  --package-root "$ROOT" \
+  "$@"
