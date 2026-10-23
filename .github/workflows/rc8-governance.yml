@@ -7,6 +7,7 @@ on:
     paths:
       - 'rc8_runtime/governance.py'
       - 'rc8_runtime/coverage.py'
+      - 'rc8_runtime/sufficiency.py'
       - 'rc8_runtime/mission_graph.py'
       - 'rc8_runtime/__init__.py'
       - 'rc8_center/governance_repository.py'
@@ -20,6 +21,7 @@ on:
       - 'governance/**'
       - 'scripts/rc8_validate_governance.py'
       - 'tests/test_rc8_runtime_governance.py'
+      - 'tests/test_rc8_sufficiency_anti_shrink.py'
       - 'tests/test_rc8_mission_graph.py'
       - 'tests/test_rc8_mission_graph_scopes.py'
       - 'tests/test_rc8_mission_rework_routing.py'
@@ -30,6 +32,7 @@ on:
       - 'tests/test_rc8_governance_r1_projection.py'
       - 'tests/test_rc8_center_cli.py'
       - 'docs/rc8/RC8-NO-DISCOUNT-DELIVERY-CONTRACT.md'
+      - 'docs/rc8/RC8-SUFFICIENCY-ANTI-SHRINK-CONTRACT.md'
       - 'docs/rc8/RC8-CAPABILITY-CLOSURE-MATRIX.md'
       - 'docs/rc8/RC8-L1-L7-ACCEPTANCE-CONTRACT.md'
       - 'docs/rc8/RC8-MISSION-GRAPH-CONTRACT.md'
@@ -63,6 +66,7 @@ jobs:
             rc8_runtime/contracts.py \
             rc8_runtime/governance.py \
             rc8_runtime/coverage.py \
+            rc8_runtime/sufficiency.py \
             rc8_runtime/mission_graph.py \
             rc8_runtime/__init__.py \
             rc8_center/json_repository.py \
@@ -76,6 +80,7 @@ jobs:
             rc8_center/__init__.py \
             scripts/rc8_validate_governance.py \
             tests/test_rc8_runtime_governance.py \
+            tests/test_rc8_sufficiency_anti_shrink.py \
             tests/test_rc8_mission_graph.py \
             tests/test_rc8_mission_graph_scopes.py \
             tests/test_rc8_mission_rework_routing.py \
@@ -91,12 +96,13 @@ jobs:
         run: |
           python scripts/rc8_validate_governance.py
 
-      - name: Run no-discount, scope/rework, R1 replay, persistence and product projection regressions
+      - name: Run no-discount, anti-shrink, scope/rework, R1 replay, persistence and product projection regressions
         shell: bash
         run: |
           python -m pip install --disable-pip-version-check pytest
           python -m pytest -q \
             tests/test_rc8_runtime_governance.py \
+            tests/test_rc8_sufficiency_anti_shrink.py \
             tests/test_rc8_mission_graph.py \
             tests/test_rc8_mission_graph_scopes.py \
             tests/test_rc8_mission_rework_routing.py \

@@ -62,6 +62,10 @@ class CoverageObservation:
         object.__setattr__(self, "artifact_refs", _refs(self.artifact_refs, "artifact_refs"))
         if not self.artifact_refs:
             raise RC8ContractError("COVERAGE_OBSERVATION_REQUIRES_ARTIFACT")
+        # Zero denominator is UNKNOWN, never 100%. Runtime observations reject
+        # it so legacy CoverageMetric.ratio cannot fabricate sufficiency.
+        if self.metric.total <= 0:
+            raise RC8ContractError("COVERAGE_OBSERVATION_ZERO_DENOMINATOR_FORBIDDEN")
         # The metric itself must point to evidence and the observation must bind
         # the same fact to a concrete run/snapshot/attempt scope.
         if not self.metric.evidence_refs:
