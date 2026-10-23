@@ -1,22 +1,10 @@
 """RC7.1 production Mission Autopilot composition.
 
-This is the missing production wiring between durable BANK Mission bootstrap and
-MissionAutonomousDriver.  It deliberately reuses the existing R1-backed
-scheduler, authorized DSH Worker bridge and independent deterministic
-Evaluators.  It never treats a Worker answer as PASS and never invents target
-identity.
-
-The first runtime-owned stage (REALITY_RECON) is completed from real package /
-runtime facts before any model analysis is allowed.  Requirement, Code and Test
-Design are then produced by DSH Workers and independently evaluated.  Script
-readiness is compiled against the exact accepted Case and fan-out receipts.
-
-Execution remains runtime-owned; the runtime handler is injected separately by
-`BankMissionAutopilot` and fails closed until a real field execution handler is
-configured.  This keeps the production entry honest while the execution
-composition is wired on the same RC7.1 line.
+Durable BANK Mission bootstrap is driven from canonical R1 through Runtime-owned
+Reality Recon, authorized DSH producer Workers, independent evaluators, per-Case
+Script fan-out and Runtime-owned per-Case Execution. No stage treats model text
+as PASS and no target/capability identity is guessed.
 """
-
 from __future__ import annotations
 
 import argparse
@@ -27,12 +15,13 @@ import shutil
 import stat
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Mapping, Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 from rc6_runtime.truth import TruthRuntime
 
 from .authority import RC7AuthorityRuntime
 from .authorized_dsh_launcher import Rc7AuthorizedDshHeadlessWorkerLauncher
+from .bank_execution_autopilot import BankExecutionAutopilot
 from .bank_mission import start_or_resume
 from .candidate_payload import CandidatePayloadReader
 from .closed_loop_control import ClosedLoopControlPlane
@@ -69,6 +58,7 @@ class BankMissionAutopilotConfig:
     repository_ref: str
     runtime_profile: str
     reality_evidence_refs: Tuple[str, ...]
+    execution_capability_snapshot: Optional[Path]
     max_steps: int = 100
     timeout_seconds: int = 300
 
@@ -142,6 +132,7 @@ def discover_config(
     source_revision: Optional[str] = None,
     repository_ref: Optional[str] = None,
     runtime_profile: Optional[str] = None,
+    execution_capability_snapshot: Optional[str] = None,
     max_steps: int = 100,
     timeout_seconds: int = 300,
 ) -> BankMissionAutopilotConfig:
@@ -184,6 +175,13 @@ def discover_config(
     repo = repository_ref or os.environ.get("PFC_RC7_REPOSITORY_REF") or str(root)
     repo = _required_text(repo, "AUTOPILOT_REPOSITORY_REF_REQUIRED")
 
+    capability_raw = execution_capability_snapshot or os.environ.get("PFC_RC7_EXECUTION_CAPABILITY_SNAPSHOT")
+    if capability_raw:
+        capability_path: Optional[Path] = Path(capability_raw).expanduser().resolve()
+    else:
+        candidate = root / "state" / "execution-capabilities.json"
+        capability_path = candidate.resolve() if candidate.is_file() else None
+
     evidence_refs = []
     if source_path.is_file():
         evidence_refs.append("file://" + str(source_path))
@@ -209,6 +207,7 @@ def discover_config(
         repository_ref=repo,
         runtime_profile=profile,
         reality_evidence_refs=tuple(dict.fromkeys(evidence_refs)),
+        execution_capability_snapshot=capability_path,
         max_steps=max(1, int(max_steps)),
         timeout_seconds=max(1, int(timeout_seconds)),
     )
@@ -240,46 +239,35 @@ class BankMissionAutopilot:
         self.reality = RuntimeRealityReconService(evidence_root=str(config.evidence_root / "reality"))
         self.mission_evaluation = MissionEvaluationRuntime(evidence_root=str(config.evidence_root / "mission"))
         self.reader = CandidatePayloadReader()
+        self.execution = BankExecutionAutopilot(
+            authority=self.authority,
+            state_root=str(config.state_root),
+            evidence_root=str(config.evidence_root),
+            package_root=str(config.package_root),
+            target_id=config.target_id,
+            capability_snapshot=(str(config.execution_capability_snapshot) if config.execution_capability_snapshot else None),
+            timeout_seconds=config.timeout_seconds,
+        )
 
     @staticmethod
     def _single_output_artifact(task: Task) -> str:
         refs = [ref for ref in task.output_artifact_refs if isinstance(ref, str) and ref]
         if len(refs) != 1:
-            raise BankMissionAutopilotError(
-                "AUTOPILOT_SINGLE_OUTPUT_ARTIFACT_REQUIRED:%s:%d" % (task.task_id, len(refs))
-            )
+            raise BankMissionAutopilotError("AUTOPILOT_SINGLE_OUTPUT_ARTIFACT_REQUIRED:%s:%d" % (task.task_id, len(refs)))
         return refs[0]
 
     def _requirement_eval(self, control: ClosedLoopControlPlane, task: Task) -> None:
-        self.requirement_evaluator.evaluate_and_apply(
-            control,
-            task.task_id,
-            self._single_output_artifact(task),
-        )
+        self.requirement_evaluator.evaluate_and_apply(control, task.task_id, self._single_output_artifact(task))
 
     def _code_eval(self, control: ClosedLoopControlPlane, task: Task) -> None:
-        self.code_evaluator.evaluate_and_apply(
-            control,
-            task.task_id,
-            self._single_output_artifact(task),
-            target_id=self.config.target_id,
-        )
+        self.code_evaluator.evaluate_and_apply(control, task.task_id, self._single_output_artifact(task), target_id=self.config.target_id)
 
     def _test_design_eval(self, control: ClosedLoopControlPlane, task: Task) -> None:
-        self.test_design_evaluator.evaluate_and_apply(
-            control,
-            task.task_id,
-            self._single_output_artifact(task),
-        )
+        self.test_design_evaluator.evaluate_and_apply(control, task.task_id, self._single_output_artifact(task))
 
     def _script_eval(self, control: ClosedLoopControlPlane, task: Task) -> None:
         artifact_id = self._single_output_artifact(task)
-        candidate = self.reader.load(
-            control.truth,
-            artifact_id,
-            expected_mission_id=control.mission_id,
-            expected_task_id=task.task_id,
-        )
+        candidate = self.reader.load(control.truth, artifact_id, expected_mission_id=control.mission_id, expected_task_id=task.task_id)
         binding = candidate.semantic_payload.get("binding")
         if not isinstance(binding, dict):
             raise BankMissionAutopilotError("AUTOPILOT_SCRIPT_BINDING_REQUIRED")
@@ -291,12 +279,7 @@ class BankMissionAutopilot:
         ]
         if len(design_refs) != 1:
             raise BankMissionAutopilotError("AUTOPILOT_SCRIPT_DESIGN_ARTIFACT_NOT_UNIQUE")
-        contract = self.script_compiler.compile(
-            control.truth,
-            mission_id=control.mission_id,
-            design_artifact_id=design_refs[0],
-            tc_id=tc_id,
-        )
+        contract = self.script_compiler.compile(control.truth, mission_id=control.mission_id, design_artifact_id=design_refs[0], tc_id=tc_id)
         self.script_evaluator.evaluate_and_apply(
             control,
             task.task_id,
@@ -321,20 +304,15 @@ class BankMissionAutopilot:
             )
             return
         if task.node == "EXECUTION":
-            raise BankMissionAutopilotError(
-                "AUTOPILOT_EXECUTION_RUNTIME_HANDLER_NOT_YET_WIRED_NO_FAKE_PASS"
-            )
+            self.execution.run(control, task)
+            return
         raise BankMissionAutopilotError("AUTOPILOT_RUNTIME_NODE_UNSUPPORTED:%s" % task.node)
 
     def _convergence(self, control: ClosedLoopControlPlane) -> None:
         self.mission_evaluation.run(control)
 
     def drive(self):
-        dispatcher = MissionStageDispatcher(
-            self.control,
-            producer_runner=self.bridge.run_next,
-            runtime_handler=self._runtime_handler,
-        )
+        dispatcher = MissionStageDispatcher(self.control, producer_runner=self.bridge.run_next, runtime_handler=self._runtime_handler)
         driver = MissionAutonomousDriver(
             self.control,
             dispatcher=dispatcher,
@@ -364,6 +342,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-revision")
     parser.add_argument("--repository-ref")
     parser.add_argument("--runtime-profile")
+    parser.add_argument("--execution-capability-snapshot")
     parser.add_argument("--max-steps", type=int, default=100)
     parser.add_argument("--timeout-seconds", type=int, default=300)
     return parser
@@ -371,14 +350,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
-    # The production command is safe to invoke standalone after a process
-    # restart; ensure Mission identity exists/resumes before driving it.
-    start_or_resume(
-        r1_path=args.r1,
-        mission_id=args.mission_id,
-        release_id=args.release_id,
-        goal=args.goal,
-    )
+    start_or_resume(r1_path=args.r1, mission_id=args.mission_id, release_id=args.release_id, goal=args.goal)
     config = discover_config(
         r1_path=args.r1,
         mission_id=args.mission_id,
@@ -393,6 +365,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         source_revision=args.source_revision,
         repository_ref=args.repository_ref,
         runtime_profile=args.runtime_profile,
+        execution_capability_snapshot=args.execution_capability_snapshot,
         max_steps=args.max_steps,
         timeout_seconds=args.timeout_seconds,
     )
