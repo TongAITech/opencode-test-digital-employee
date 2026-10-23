@@ -29,15 +29,15 @@ def _snapshot(**overrides):
         l4_ui_cases_requiring_evidence=80,
         l4_ui_cases_with_complete_evidence=80,
         l4_missing_evidence_case_refs=(),
-        l5_critical_high_e2e_total=38,
-        l5_critical_high_e2e_executed=38,
-        l5_unexecuted_e2e_refs=(),
-        l6_professional_cases_total=6,
-        l6_k6_verified=6,
-        l6_missing_k6_refs=(),
-        l7_professional_cases_total=16,
-        l7_zap_verified=16,
-        l7_missing_zap_refs=(),
+        l5_api_cases_requiring_evidence=38,
+        l5_api_cases_with_complete_evidence=38,
+        l5_missing_api_evidence_refs=(),
+        l6_capability_cases_total=6,
+        l6_capability_verified=6,
+        l6_missing_capability_refs=(),
+        l7_e2e_cases_total=16,
+        l7_e2e_executed=16,
+        l7_missing_e2e_refs=(),
         open_critical_gap_refs=(),
         open_high_gap_refs=(),
     )
@@ -53,15 +53,12 @@ def test_full_contract_passes_only_when_every_gate_is_closed() -> None:
     assert result.metrics["execution_accounting"] == 1.0
     assert result.metrics["changed_line_coverage"] == 1.0
     assert result.metrics["changed_branch_coverage"] == 1.0
-    assert result.metrics["l5_critical_high_e2e"] == 1.0
-    assert result.metrics["l6_k6_verified"] == 1.0
-    assert result.metrics["l7_zap_verified"] == 1.0
+    assert result.metrics["l5_api_complete_evidence"] == 1.0
+    assert result.metrics["l6_capability_verified"] == 1.0
+    assert result.metrics["l7_e2e_executed"] == 1.0
 
 
 def test_bloan_r3_field_shape_is_not_allowed_to_pass() -> None:
-    # Mirrors the field defects seen in BLOAN-PF1.2.1 R3: only a subset of the
-    # designed cases is actually accounted, changed-code coverage is partial,
-    # L5 is sampled, and professional/UI evidence is incomplete.
     missing_cases = tuple("CASE-%03d" % i for i in range(300, 452))
     missing_lines = tuple("cfg-scd:line:%d" % i for i in range(75, 101))
     missing_branches = tuple("cfg-scd:branch:%d" % i for i in range(11, 41))
@@ -80,12 +77,12 @@ def test_bloan_r3_field_shape_is_not_allowed_to_pass() -> None:
             uncovered_changed_branch_refs=missing_branches,
             l4_ui_cases_with_complete_evidence=70,
             l4_missing_evidence_case_refs=missing_l4,
-            l5_critical_high_e2e_executed=6,
-            l5_unexecuted_e2e_refs=missing_l5,
-            l6_k6_verified=0,
-            l6_missing_k6_refs=missing_l6,
-            l7_zap_verified=0,
-            l7_missing_zap_refs=missing_l7,
+            l5_api_cases_with_complete_evidence=6,
+            l5_missing_api_evidence_refs=missing_l5,
+            l6_capability_verified=0,
+            l6_missing_capability_refs=missing_l6,
+            l7_e2e_executed=0,
+            l7_missing_e2e_refs=missing_l7,
             open_high_gap_refs=("G1-BR-TRACE", "G2-BRANCH-COVERAGE"),
         )
     )
@@ -96,9 +93,9 @@ def test_bloan_r3_field_shape_is_not_allowed_to_pass() -> None:
     assert "CHANGED_LINE_COVERAGE_INCOMPLETE" in categories
     assert "CHANGED_BRANCH_COVERAGE_INCOMPLETE" in categories
     assert "L4_UI_EVIDENCE_INCOMPLETE" in categories
-    assert "L5_E2E_NOT_EXECUTED" in categories
-    assert "L6_K6_EVIDENCE_MISSING" in categories
-    assert "L7_ZAP_EVIDENCE_MISSING" in categories
+    assert "L5_API_EVIDENCE_INCOMPLETE" in categories
+    assert "L6_CAPABILITY_EVIDENCE_MISSING" in categories
+    assert "L7_E2E_NOT_EXECUTED" in categories
     assert "OPEN_HIGH_COVERAGE_GAP" in categories
 
 
@@ -113,29 +110,29 @@ def test_defect_creation_does_not_allow_case_to_disappear_from_accounting() -> N
     assert any(g.category == "EXECUTION_ACCOUNTING_INCOMPLETE" for g in result.gaps)
 
 
-def test_l5_sampling_cannot_be_called_e2e_complete() -> None:
+def test_l5_api_sampling_or_missing_route_evidence_cannot_be_called_complete() -> None:
     missing = tuple("L5-%02d" % i for i in range(7, 39))
     result = ExhaustiveCoverageGate().evaluate(
-        _snapshot(l5_critical_high_e2e_executed=6, l5_unexecuted_e2e_refs=missing)
+        _snapshot(l5_api_cases_with_complete_evidence=6, l5_missing_api_evidence_refs=missing)
     )
     assert result.passed is False
-    assert result.metrics["l5_critical_high_e2e"] < 1.0
-    assert all(g.category == "L5_E2E_NOT_EXECUTED" for g in result.gaps)
+    assert result.metrics["l5_api_complete_evidence"] < 1.0
+    assert all(g.category == "L5_API_EVIDENCE_INCOMPLETE" for g in result.gaps)
 
 
-def test_missing_k6_or_zap_is_not_degraded_pass() -> None:
+def test_missing_l6_capability_or_l7_real_e2e_is_not_degraded_pass() -> None:
     result = ExhaustiveCoverageGate().evaluate(
         _snapshot(
-            l6_k6_verified=5,
-            l6_missing_k6_refs=("L6-PERF-6",),
-            l7_zap_verified=15,
-            l7_missing_zap_refs=("L7-SEC-16",),
+            l6_capability_verified=5,
+            l6_missing_capability_refs=("L6-CAP-6",),
+            l7_e2e_executed=15,
+            l7_missing_e2e_refs=("L7-E2E-16",),
         )
     )
     assert result.passed is False
     assert {g.category for g in result.gaps} == {
-        "L6_K6_EVIDENCE_MISSING",
-        "L7_ZAP_EVIDENCE_MISSING",
+        "L6_CAPABILITY_EVIDENCE_MISSING",
+        "L7_E2E_NOT_EXECUTED",
     }
 
 
