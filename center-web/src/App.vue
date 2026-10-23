@@ -6,6 +6,7 @@ const nav = [
   ['版本管理', '/versions'],
   ['需求管理', '/requirements'],
   ['代码分析', '/code-analysis'],
+  ['影响关系', '/traceability'],
   ['业务流程', '/business-flows'],
   ['测试接口', '/apis'],
   ['测试用例', '/test-cases'],
