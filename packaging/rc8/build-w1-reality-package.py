@@ -39,6 +39,7 @@ RUNTIME_FILES = (
     "rc8_center/json_repository.py",
     "rc8_center/repository_ports.py",
     "rc8_center/traceability.py",
+    "rc8_center/code_sufficiency.py",
     "rc8_center/governance_repository.py",
     "rc8_center/coverage_repository.py",
     "rc8_center/governance_projection.py",
@@ -249,6 +250,7 @@ def _write_manifest(root: Path, head: str, files: List[str]) -> str:
             "CODE_ANALYSIS_AUTONOMOUS_REALITY",
             "N1_N10_MISSION_NODE_ADOPTION",
             "CENTER_MISSION_NODE_GATE",
+            "CENTER_CODE_SUFFICIENCY",
         ],
         "external_bank_capabilities_expected": ["PYTHON_3_8_PLUS", "GIT", "JAVA_MAVEN", "CODEGRAPH", "DSH_HEADLESS"],
         "files": sorted(files),
@@ -289,11 +291,12 @@ def _verify_runtime_imports(root: Path) -> None:
         "from rc8_runtime.mission_nodes import MissionNodeType, MissionNodeAdoptionGraph; "
         "from rc8_center import CenterMissionService, CenterProductApplication, GovernanceEventProjector, GovernanceProjectionService, JsonFileCoverageRepository, JsonFileGovernanceRepository; "
         "from rc8_center.mission_node_gate import CenterMissionNodeReviewGate; "
+        "from rc8_center.code_sufficiency import CenterCodeSufficiencyEvaluator; "
         "from rc8_node import FormalNodeAgent; "
         "from rc8_node.failure_classification import JUnitFailureClassifier; "
         "from rc8_node.jacoco import JaCoCoChangedScopeCollector; "
         "assert CoverageObservation and MissionGraphRuntime and MissionRuntimeState and ScopedStatusClaim; "
-        "assert FrozenSufficiencyLedger and MissionNodeType and MissionNodeAdoptionGraph and CenterMissionNodeReviewGate; "
+        "assert FrozenSufficiencyLedger and MissionNodeType and MissionNodeAdoptionGraph and CenterMissionNodeReviewGate and CenterCodeSufficiencyEvaluator; "
         "assert CenterMissionService and CenterProductApplication and GovernanceEventProjector and GovernanceProjectionService; "
         "assert JsonFileCoverageRepository and JsonFileGovernanceRepository and FormalNodeAgent and JUnitFailureClassifier and JaCoCoChangedScopeCollector; "
         "print('RC8_PACKAGE_RUNTIME_IMPORT_PASS')"
