@@ -169,6 +169,21 @@ class ExecutionDiagnosisCoordinator:
         elif any(token in exception for token in ("importerror", "modulenotfound", "syntaxerror")):
             failure_class = "SCRIPT"
             reason_parts.append("SCRIPT_LOAD_EXCEPTION")
+        elif any(
+            token in exception
+            for token in (
+                "actualresultrequired",
+                "requiredrealtoolcallmissing",
+                "currentexecutionevidencerequired",
+                "oracleassertionrequired",
+            )
+        ):
+            # The runner finished, but the script did not realize its frozen
+            # execution contract with a parent-authoritative business action.
+            # This is repairable script/runtime binding work, not UNKNOWN and
+            # never a PRODUCT defect.
+            failure_class = "SCRIPT"
+            reason_parts.append("EXECUTION_CONTRACT_NOT_REALIZED")
         elif "precondition" in exception:
             failure_class = "PRECONDITION"
             reason_parts.append("PRECONDITION_FAILURE_SIGNAL")
@@ -195,7 +210,7 @@ class ExecutionDiagnosisCoordinator:
             reason_parts.append("OWNERSHIP_NOT_PROVEN")
         return {
             "failure_class": failure_class,
-            "classifier_ref": "rc7-runtime-deterministic-failure-classifier/v4",
+            "classifier_ref": "rc7-runtime-deterministic-failure-classifier/v5",
             "rationale": ",".join(reason_parts),
             "evidence_refs": [],
         }
