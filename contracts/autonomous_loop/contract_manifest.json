@@ -1,0 +1,7 @@
+{
+  "contract_id": "RC-AUTONOMOUS-TEST-LOOP",
+  "contract_version": "1.0.0",
+  "design_baseline": "RC7.1-N1-N10-FROZEN",
+  "baseline_sha": "98d7ee59cb3caf760177d7aaa933ee70082a6ff3",
+  "reality_status": {"controlled_engineering": "PASS", "bank_field_reality": "NOT_VERIFIED"}
+}

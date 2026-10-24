@@ -1,0 +1,9 @@
+{
+  "L1":{"line_coverage":1.0,"logic_coverage":1.0},
+  "L2":{"mandatory_db_obligation_coverage":1.0},
+  "L3":{"mandatory_api_obligation_coverage":1.0},
+  "L4":{"mandatory_ui_obligation_coverage":1.0},
+  "L5":{"mandatory_e2e_journey_coverage":1.0},
+  "L6":{"planned_scenario_execution":1.0,"threshold_evaluation":1.0},
+  "L7":{"security_obligation_execution":1.0,"finding_disposition":1.0}
+}

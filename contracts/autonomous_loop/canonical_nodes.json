@@ -1,0 +1,12 @@
+[
+  {"id":"N1","name":"REALITY_ENVIRONMENT_RECON"},
+  {"id":"N2","name":"REQUIREMENT_ANALYSIS"},
+  {"id":"N3","name":"CODE_ANALYSIS"},
+  {"id":"N4","name":"TEST_DESIGN"},
+  {"id":"N5","name":"TEST_DATA_PRECONDITIONS"},
+  {"id":"N6","name":"SCRIPT_BUILD_READINESS"},
+  {"id":"N7","name":"COVERAGE_DRIVEN_EXECUTION_CLOSURE"},
+  {"id":"N8","name":"FAILURE_DIAGNOSIS_RECOVERY"},
+  {"id":"N9","name":"DEFECT_EVIDENCE_CLOSURE"},
+  {"id":"N10","name":"MISSION_EVIDENCE_GLOBAL_CONVERGENCE"}
+]

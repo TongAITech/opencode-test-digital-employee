@@ -1,0 +1,9 @@
+[
+  {"id":"L1","name":"CODE_UNIT"},
+  {"id":"L2","name":"DB_COMPONENT"},
+  {"id":"L3","name":"API_SERVICE"},
+  {"id":"L4","name":"UI_BROWSER"},
+  {"id":"L5","name":"CROSS_SYSTEM_E2E"},
+  {"id":"L6","name":"PERFORMANCE"},
+  {"id":"L7","name":"SECURITY"}
+]
