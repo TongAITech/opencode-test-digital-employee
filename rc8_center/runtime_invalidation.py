@@ -23,7 +23,14 @@ class RuntimeInvalidationResult:
 
 
 class CenterRuntimeInvalidationCoordinator:
-    """Invalidate current N5 and N6 state for one concrete execution attempt."""
+    """Invalidate current N5 and N6 state for one concrete execution attempt.
+
+    The cascade is fail-closed: a caller may not claim that a runtime mutation
+    was handled when either current N5 or current N6 state is absent. Missing
+    state means the Center cannot prove which preparation/spec was invalidated,
+    so the mutation must be surfaced as an error instead of returning a
+    misleading successful result.
+    """
 
     def __init__(self, prepared_attempts: CenterPreparedAttemptService, executable_readiness: CenterExecutableReadinessService) -> None:
         self.prepared_attempts = prepared_attempts
@@ -39,10 +46,16 @@ class CenterRuntimeInvalidationCoordinator:
 
         prepared = self.prepared_attempts.repository.current_for_attempt(test_run_id, case_id, attempt_id)
         executable = self.executable_readiness.repository.current_for_attempt(test_run_id, case_id, attempt_id)
+        if prepared is None:
+            raise ValueError("RUNTIME_INVALIDATION_CURRENT_N5_REQUIRED")
+        if executable is None:
+            raise ValueError("RUNTIME_INVALIDATION_CURRENT_N6_REQUIRED")
+        if executable.prepared_attempt_id != prepared.prepared_attempt_id:
+            raise ValueError("RUNTIME_INVALIDATION_N5_N6_BINDING_MISMATCH")
 
-        if executable is not None and executable.state != ExecutableReadinessState.INVALIDATED:
+        if executable.state != ExecutableReadinessState.INVALIDATED:
             executable = self.executable_readiness.invalidate(executable.executable_spec_id, reason=reason, evidence_refs=refs)
-        if prepared is not None and not prepared.terminal:
+        if not prepared.terminal:
             prepared = self.prepared_attempts.quarantine(prepared.prepared_attempt_id, reason=reason, evidence_refs=refs)
 
         return RuntimeInvalidationResult(prepared_attempt=prepared, executable_spec=executable, reason=reason, evidence_refs=refs)
