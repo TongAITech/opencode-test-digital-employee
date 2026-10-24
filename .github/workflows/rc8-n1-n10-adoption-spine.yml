@@ -1,0 +1,27 @@
+name: RC8 N1-N10 Adoption Spine
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_runtime/mission_nodes.py'
+      - 'tests/test_rc8_mission_nodes.py'
+      - '.github/workflows/rc8-n1-n10-adoption-spine.yml'
+  workflow_dispatch:
+
+jobs:
+  adoption-spine:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile N1-N10 adoption spine
+        run: python -m py_compile rc8_runtime/mission_nodes.py tests/test_rc8_mission_nodes.py
+      - name: Run N1-N10 adoption spine regression
+        run: python -m unittest tests.test_rc8_mission_nodes -v
