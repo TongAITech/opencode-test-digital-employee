@@ -147,6 +147,55 @@ def test_l2_current_attempt_trusted_invocation_passes(tmp_path: Path) -> None:
     assert evidence.evidence_id in result.evidence_ids
 
 
+def test_forged_specialist_identity_cannot_satisfy_current_attempt(tmp_path: Path) -> None:
+    truth = _seed(tmp_path)
+    binding = [
+        row for row in truth.query("rc7_evidence", mission_id=MISSION)
+        if row.get("kind") == "DSH_AGENT_TEAMS_EXECUTION_BINDING"
+    ][0]
+    payload = {
+        "schema": "pfc.aitest.rc7.1.real-executor-invocation.v1",
+        "invocation_id": "EXEC-INV-FORGED",
+        "mission_id": MISSION,
+        "task_id": TASK,
+        "attempt_id": "ATTEMPT-001",
+        "layer": "L2",
+        "target_id": TARGET,
+        "tool_id": "database",
+        "runtime_worker_id": RUNTIME_WORKER,
+        "specialist_worker_id": "dsh-specialist-forged",
+        "team_id": "TEAM-001",
+        "team_task_id": "TEAM-TASK-001",
+        "member_id": "MEMBER-001",
+        "execution_binding_evidence_id": str(binding.get("evidence_id") or ""),
+        "invocation_ref": "database://tdsql/query/forged",
+        "result_sha256": hashlib.sha256(b"forged").hexdigest(),
+        "status": "SUCCESS",
+        "runner_manifest_is_not_authority": True,
+    }
+    path = tmp_path / "forged-invocation.json"
+    body = _canonical_bytes(payload)
+    path.write_bytes(body)
+    append_entity(
+        truth,
+        Evidence(
+            evidence_id="EVD-REAL-EXEC-FORGED",
+            mission_id=MISSION,
+            kind="REAL_EXECUTOR_INVOCATION",
+            source_ref="runtime-tool://pfc-aitest-rc7/database",
+            content_ref="file://" + str(path),
+            subject_refs=[TASK, "ATTEMPT-001", "L2", TARGET, "database", RUNTIME_WORKER],
+            content_hash="sha256:" + hashlib.sha256(body).hexdigest(),
+        ),
+        release_id=RELEASE,
+        artifact_version=1,
+    )
+    with pytest.raises(RealExecutorProvenanceError, match="REAL_EXECUTOR_PROVENANCE_FAILED:L2:database"):
+        RealExecutorProvenanceGate(truth).require_record(
+            MISSION, TASK, _record(attempt_id="ATTEMPT-001", layer="L2")
+        )
+
+
 def test_runner_manifest_tool_call_alone_cannot_prove_real_executor(tmp_path: Path) -> None:
     truth = _seed(tmp_path)
     record = _record(
