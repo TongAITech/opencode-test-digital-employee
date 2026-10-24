@@ -29,8 +29,11 @@ from rc8_node.requirement_sufficiency_worker import RequirementSufficiencyWorker
 from rc8_node.scope_intake_worker import ScopeIntakeWorker
 from rc8_runtime import NodeIdentity
 
-from rc8_requirement_repair_reality_test import _governance, _post, _wait_ready
-from rc8_requirement_repair_reality_v2_test import _analysis_valid_but_insufficient_dsh
+from rc8_requirement_repair_reality_test import _post, _wait_ready
+from rc8_requirement_repair_reality_v2_test import (
+    _analysis_valid_but_insufficient_dsh,
+    _governance_by_stage_attempt,
+)
 
 
 def main() -> int:
@@ -167,8 +170,12 @@ def main() -> int:
         assert idle.status == "IDLE"
         assert idle.stage is None
 
+        # Use the same semantic projection as the repair Reality proof: one
+        # final verdict per REQUIREMENT_SUFFICIENCY stage attempt. A green
+        # attempt may have both a Worker observation and Center authoritative
+        # receipt, but they are not two repair rounds.
         with httpx.Client(base_url=base_url, timeout=30.0) as client:
-            governance = _governance(client, test_run_id)
+            governance = _governance_by_stage_attempt(client, test_run_id)
         assert [value["result"] for value in governance["evaluations"]] == ["INSUFFICIENT", "SUFFICIENT"]
         gap = [value for value in governance["gaps"] if value["gap_id"] == gap_id][0]
         assert gap["status"] == "CLOSED"
