@@ -1,21 +1,26 @@
 """Fail-closed convergence authority for contracted RC7 Bank Missions.
 
-Bank Final already replays these facts after a run.  This authority moves the
+Bank Final already replays these facts after a run. This authority moves the
 same trust boundary into the product path: a graph-v2 Mission carrying the
 Execution Recovery Contract cannot transition to CONVERGED until canonical
-Mission/Node Tool, recovery, Actual Result/Oracle and Defect Review truth all
-pass from R1.
+Mission/Node Tool, recovery, Actual Result/Oracle, Defect Review and Residual
+Risk governance truth all pass from R1.
 
 Legacy Missions without the additive recovery contract remain resumable and are
 reported as NOT_ENFORCED; they are not silently upgraded to a new contract.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Dict, List, Mapping, Tuple
 
 from rc6_runtime.truth import TruthRuntime
 
+from .autonomous_residual_risk import ResidualRiskRegistry
 from .defect_review_conformance import DefectReviewConformanceChecker
 from .execution_recovery_conformance import (
     ExecutionRecoveryConformanceChecker,
@@ -27,6 +32,9 @@ from .oracle_conformance import ActualResultOracleConformanceChecker
 
 class MissionConvergenceConformanceError(RuntimeError):
     pass
+
+
+RISK_GOVERNANCE_RECEIPT_TYPE = "RESIDUAL_RISK_CONVERGENCE_RECEIPT"
 
 
 def canonical_execution_task_id(truth: TruthRuntime, mission_id: str) -> str:
@@ -61,6 +69,7 @@ class MissionConvergenceConformanceResult:
     execution_recovery_conformance: Dict[str, Any]
     actual_result_oracle_conformance: Dict[str, Any]
     defect_review_conformance: Dict[str, Any]
+    residual_risk_conformance: Dict[str, Any]
     violations: Tuple[str, ...]
 
     def as_dict(self) -> Dict[str, Any]:
@@ -73,6 +82,7 @@ class MissionConvergenceConformanceResult:
             "execution_recovery_conformance": self.execution_recovery_conformance,
             "actual_result_oracle_conformance": self.actual_result_oracle_conformance,
             "defect_review_conformance": self.defect_review_conformance,
+            "residual_risk_conformance": self.residual_risk_conformance,
             "violations": list(self.violations),
         }
 
@@ -96,6 +106,7 @@ class MissionConvergenceConformanceChecker:
                 execution_recovery_conformance={"status": "NOT_ENFORCED"},
                 actual_result_oracle_conformance={"status": "NOT_ENFORCED"},
                 defect_review_conformance={"status": "NOT_ENFORCED"},
+                residual_risk_conformance={"status": "NOT_ENFORCED"},
                 violations=(),
             )
 
@@ -153,6 +164,13 @@ class MissionConvergenceConformanceChecker:
             defect_payload = {"status": "FAIL", "reason": str(exc)}
             violations.append("DEFECT_REVIEW_CONFORMANCE_ERROR:%s" % str(exc))
 
+        try:
+            risk_payload, risk_violations = self._residual_risk_conformance(mission_id)
+            violations.extend(risk_violations)
+        except Exception as exc:
+            risk_payload = {"status": "FAIL", "reason": str(exc)}
+            violations.append("RESIDUAL_RISK_CONFORMANCE_ERROR:%s" % str(exc))
+
         deduped = tuple(dict.fromkeys(violations))
         return MissionConvergenceConformanceResult(
             mission_id=mission_id,
@@ -163,6 +181,7 @@ class MissionConvergenceConformanceChecker:
             execution_recovery_conformance=recovery_payload,
             actual_result_oracle_conformance=oracle_payload,
             defect_review_conformance=defect_payload,
+            residual_risk_conformance=risk_payload,
             violations=deduped,
         )
 
@@ -174,3 +193,74 @@ class MissionConvergenceConformanceChecker:
                 % ",".join(result.violations)
             )
         return result
+
+    def _residual_risk_conformance(self, mission_id: str):
+        proxy = SimpleNamespace(truth=self.truth, mission_id=mission_id)
+        summary = ResidualRiskRegistry(evidence_root=".").summary(proxy)
+        if int(summary.get("risk_count") or 0) == 0:
+            return {"status": "PASS", "triggered": False, "risk_count": 0}, []
+
+        violations: List[str] = []
+        pending = [str(x) for x in summary.get("pending_risk_ids") or []]
+        if pending:
+            violations.append("RESIDUAL_RISK_PENDING:%s" % ",".join(sorted(pending)))
+
+        receipts = [
+            row
+            for row in self.truth.query("rc7_artifact", mission_id=mission_id)
+            if row.get("artifact_type_name") == RISK_GOVERNANCE_RECEIPT_TYPE
+            and row.get("state") == "VALID"
+        ]
+        if len(receipts) != 1:
+            violations.append("RESIDUAL_RISK_GOVERNANCE_RECEIPT_NOT_UNIQUE:%d" % len(receipts))
+            return {
+                "status": "FAIL",
+                "triggered": True,
+                "risk_count": summary.get("risk_count"),
+                "pending_risk_ids": pending,
+            }, violations
+
+        receipt = receipts[0]
+        content_ref = str(receipt.get("content_ref") or "")
+        if not content_ref.startswith("file://"):
+            violations.append("RESIDUAL_RISK_GOVERNANCE_RECEIPT_FILE_REQUIRED")
+            return {"status": "FAIL", "triggered": True}, violations
+        path = Path(content_ref[len("file://"):])
+        if not path.is_file():
+            violations.append("RESIDUAL_RISK_GOVERNANCE_RECEIPT_FILE_MISSING")
+            return {"status": "FAIL", "triggered": True}, violations
+        raw = path.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
+        if receipt.get("content_hash") != "sha256:" + digest:
+            violations.append("RESIDUAL_RISK_GOVERNANCE_RECEIPT_HASH_MISMATCH")
+            return {"status": "FAIL", "triggered": True}, violations
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            violations.append("RESIDUAL_RISK_GOVERNANCE_RECEIPT_JSON_INVALID")
+            return {"status": "FAIL", "triggered": True}, violations
+        if not isinstance(payload, dict) or payload.get("schema_version") != "RC7_1_RESIDUAL_RISK_CONVERGENCE_V1":
+            violations.append("RESIDUAL_RISK_GOVERNANCE_RECEIPT_SCHEMA_INVALID")
+            return {"status": "FAIL", "triggered": True}, violations
+
+        current = {item["risk_id"]: item for item in summary.get("risks") or []}
+        recorded = {item["risk_id"]: item for item in payload.get("risks") or [] if isinstance(item, dict) and item.get("risk_id")}
+        if set(current) != set(recorded):
+            violations.append("RESIDUAL_RISK_GOVERNANCE_SET_MISMATCH")
+        else:
+            for risk_id in sorted(current):
+                expected = current[risk_id]
+                actual = recorded[risk_id]
+                for field in ("revision", "disposition", "acceptance_ref", "record_sha256", "artifact_id", "evidence_id"):
+                    if actual.get(field) != expected.get(field):
+                        violations.append("RESIDUAL_RISK_GOVERNANCE_MISMATCH:%s:%s" % (risk_id, field))
+        if payload.get("all_dispositioned") is not True:
+            violations.append("RESIDUAL_RISK_GOVERNANCE_NOT_DISPOSITIONED")
+        return {
+            "status": "PASS" if not violations else "FAIL",
+            "triggered": True,
+            "risk_count": summary.get("risk_count"),
+            "pending_risk_ids": pending,
+            "receipt_artifact_id": receipt.get("artifact_id"),
+            "receipt_sha256": digest,
+        }, violations
