@@ -1,0 +1,27 @@
+name: RC8 MissionNode Review Gate
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_center/mission_node_gate.py'
+      - 'tests/test_rc8_mission_node_gate.py'
+      - '.github/workflows/rc8-mission-node-gate.yml'
+  workflow_dispatch:
+
+jobs:
+  mission-node-gate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile MissionNode gate
+        run: python -m py_compile rc8_center/mission_node_gate.py tests/test_rc8_mission_node_gate.py
+      - name: Run MissionNode gate regression
+        run: python -m unittest tests.test_rc8_mission_node_gate -v
