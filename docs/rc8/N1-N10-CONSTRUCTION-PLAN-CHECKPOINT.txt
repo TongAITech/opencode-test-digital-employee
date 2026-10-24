@@ -1,0 +1,2 @@
+Canonical construction source: docs/rc8/N1-N10-CONSTRUCTION-PLAN.md
+Resume pointer: docs/rc8/CONSTRUCTION-RESUME.md
