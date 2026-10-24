@@ -1,0 +1,40 @@
+name: RC8 N1 Reality Snapshot Gate
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_center/reality_snapshot.py'
+      - 'rc8_center/infrastructure/postgres_reality_snapshot.py'
+      - 'tests/test_rc8_reality_snapshot.py'
+      - 'tests/test_rc8_reality_snapshot_postgres.py'
+      - '.github/workflows/rc8-n1-reality-snapshot.yml'
+  workflow_dispatch:
+
+jobs:
+  n1-reality-snapshot:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Install durable repository dependency
+        run: python -m pip install --disable-pip-version-check 'SQLAlchemy>=2,<3'
+      - name: Compile N1 reality snapshot gate
+        run: >-
+          python -m py_compile
+          rc8_center/reality_snapshot.py
+          rc8_center/infrastructure/postgres_reality_snapshot.py
+          tests/test_rc8_reality_snapshot.py
+          tests/test_rc8_reality_snapshot_postgres.py
+      - name: Run N1 reality snapshot regression
+        run: >-
+          python -m unittest
+          tests.test_rc8_reality_snapshot
+          tests.test_rc8_reality_snapshot_postgres
+          -v
