@@ -25,6 +25,11 @@ PLAN_POLICY_VERSION = "rc8.autonomous-mission-plan.v1"
 # DELTA_REPAIR and TARGETED_REEXECUTION are intentionally not created here.
 # They are dynamic repair work produced only when FAILURE_COVERAGE_EVALUATION
 # identifies a real gap. Pre-creating them would turn a green run into fake work.
+#
+# N5 PRECONDITION_DATA_PREP must precede N6 EXECUTABLE_SPEC. Executable
+# readiness is bound to the current PreparedAttempt (fresh auth/data/route
+# bindings), so planning N6 first would allow a script/readiness artifact to be
+# built against stale or nonexistent execution prerequisites.
 _SCOPE_STAGE_CHAIN: Tuple[MissionStageType, ...] = (
     MissionStageType.SCOPE_INTAKE,
     MissionStageType.REQUIREMENT_ANALYSIS,
@@ -34,8 +39,8 @@ _SCOPE_STAGE_CHAIN: Tuple[MissionStageType, ...] = (
     MissionStageType.RISK_TEST_MODEL,
     MissionStageType.TEST_DESIGN,
     MissionStageType.DESIGN_SUFFICIENCY,
-    MissionStageType.EXECUTABLE_SPEC,
     MissionStageType.PRECONDITION_DATA_PREP,
+    MissionStageType.EXECUTABLE_SPEC,
     MissionStageType.APPLICABLE_LAYER_EXECUTION,
     MissionStageType.FAILURE_COVERAGE_EVALUATION,
 )
