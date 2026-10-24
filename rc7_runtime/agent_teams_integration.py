@@ -9,6 +9,10 @@ from .agent_teams_bootstrap import (
     AgentTeamsBootstrapError,
     DshAgentTeamsMissionBootstrapper,
 )
+from .agent_teams_execution_binding import (
+    AgentTeamsExecutionBindingError,
+    AgentTeamsExecutionBindingGate,
+)
 from .agent_teams_orchestration import AgentTeamsOrchestrationError, DshAgentTeamsStateGate
 from .mission_graph import MissionTaskGraphCompiler
 from . import dsh_worker_bridge as _bridge
@@ -63,6 +67,7 @@ def install_rc7_1_agent_teams_orchestration() -> None:
         original_init(self, control, launcher, node_policies=node_policies)
         self._rc7_agent_teams_bindings = {}
         self._rc7_agent_teams_gate = None
+        self._rc7_agent_teams_execution_gate = None
         self._rc7_agent_teams_bootstrapper = None
         if _is_bank_launcher(launcher):
             state_root = Path(getattr(launcher, "state_root")).expanduser().resolve()
@@ -70,6 +75,10 @@ def install_rc7_1_agent_teams_orchestration() -> None:
             self._rc7_agent_teams_gate = DshAgentTeamsStateGate(
                 control,
                 workspace_root=str(workspace_root),
+                evidence_root=str(state_root / "evidence"),
+            )
+            self._rc7_agent_teams_execution_gate = AgentTeamsExecutionBindingGate(
+                control,
                 evidence_root=str(state_root / "evidence"),
             )
             self._rc7_agent_teams_bootstrapper = DshAgentTeamsMissionBootstrapper(
@@ -146,14 +155,23 @@ def install_rc7_1_agent_teams_orchestration() -> None:
         }:
             raise _bridge.DshWorkerBridgeError("AGENT_TEAMS_EXECUTION_IDENTITY_COLLISION")
         try:
-            gate.persist_assignment_receipt(
+            assignment_evidence = gate.persist_assignment_receipt(
                 task,
                 binding,
                 worker_instance_id=assignment.worker_instance_id,
                 worker_assignment_id=assignment.assignment_id,
                 parent_worker_id=assignment.parent_worker_id,
             )
-        except AgentTeamsOrchestrationError as exc:
+            execution_gate = getattr(self, "_rc7_agent_teams_execution_gate", None)
+            if execution_gate is None:
+                raise AgentTeamsExecutionBindingError("AGENT_TEAMS_EXECUTION_GATE_REQUIRED")
+            execution_gate.persist_binding(
+                task,
+                binding,
+                assignment,
+                assignment_evidence_id=assignment_evidence.evidence_id,
+            )
+        except (AgentTeamsOrchestrationError, AgentTeamsExecutionBindingError) as exc:
             raise _bridge.DshWorkerBridgeError(str(exc)) from exc
         self._rc7_agent_teams_bindings[assignment.assignment_id] = binding
         return assignment
@@ -174,6 +192,7 @@ def install_rc7_1_agent_teams_orchestration() -> None:
 
     def patched_normalize(self, task, invocation, raw_output):
         gate = getattr(self, "_rc7_agent_teams_gate", None)
+        binding = None
         if gate is not None:
             assignment_id = str(getattr(invocation, "assignment_id", "") or "").strip()
             binding = getattr(self, "_rc7_agent_teams_bindings", {}).get(assignment_id)
@@ -181,7 +200,17 @@ def install_rc7_1_agent_teams_orchestration() -> None:
                 raise _bridge.DshWorkerBridgeError("AGENT_TEAMS_INVOCATION_BINDING_REQUIRED")
             if getattr(invocation, "parent_worker_id", None) != binding.member_id:
                 raise _bridge.DshWorkerBridgeError("AGENT_TEAMS_INVOCATION_MEMBER_MISMATCH")
-        return original_normalize(self, task, invocation, raw_output)
+
+        normalized = original_normalize(self, task, invocation, raw_output)
+        if gate is not None:
+            execution_gate = getattr(self, "_rc7_agent_teams_execution_gate", None)
+            if execution_gate is None:
+                raise _bridge.DshWorkerBridgeError("AGENT_TEAMS_EXECUTION_GATE_REQUIRED")
+            try:
+                execution_gate.verify_terminal_and_persist(task, binding, invocation)
+            except AgentTeamsExecutionBindingError as exc:
+                raise _bridge.DshWorkerBridgeError(str(exc)) from exc
+        return normalized
 
     patched_init._rc7_1_agent_teams = True
     bridge_cls.__init__ = patched_init

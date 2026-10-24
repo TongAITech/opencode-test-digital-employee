@@ -5,6 +5,7 @@ on:
     branches:
       - work/rc7.1-exhaustive-coverage
       - work/rc7.1-autonomous-loop
+      - work/rc7.1-minimal-hardening
   workflow_dispatch:
 
 permissions:
