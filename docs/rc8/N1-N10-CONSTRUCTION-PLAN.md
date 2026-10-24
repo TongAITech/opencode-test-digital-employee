@@ -1,22 +1,14 @@
 # RC8 N1–N10 Construction Plan
 
-> Status: ACTIVE CONSTRUCTION SOURCE OF TRUTH
-> Branch: `work/rc8`
-> Plan commit baseline: `965ed36b3558a3fc3ba07ea73beeda3076696956`
-> Release status: HOLD until current-head CI, integration, and bank reality gates pass.
+> Status: ACTIVE CONSTRUCTION SOURCE OF TRUTH  
+> Branch: `work/rc8`  
+> Semantic contract: `RC-AUTONOMOUS-TEST-LOOP@1.0.0`  
+> Release status: **HOLD** until integration and bank-reality gates pass.  
+> Truth priority: **Git/HEAD/CI/R1/Evidence > this navigation ledger**.
 
-## 1. Purpose
+## 1. Frozen relationship
 
-This document is the durable construction plan for adopting the frozen RC7.1/RC8 autonomous test semantic contract (`RC-AUTONOMOUS-TEST-LOOP@1.0.0`, N1–N10) into RC8 without replacing the existing RC8 runtime architecture.
-
-The core rule is:
-
-- N1–N10 define **what the autonomous testing mission must accomplish and when it is complete**.
-- RC8 defines **how work is orchestrated, scheduled, executed, evidenced, persisted, recovered, and gated**.
-- Existing RC8 runtime components are retained: Center, AI Director runtime on dsh-node, ExecutionNode/dsh-node, node-local dsh-agent-teams, MissionGraph stages, WorkItem/Attempt, R1 Event Stream, PostgreSQL, Redis, Evidence, placement/lease/failover, and Center-owned deterministic sufficiency gates.
-- Do not create a parallel state machine or a second PASS authority.
-
-## 2. Frozen architecture relationship
+N1–N10 define **what the autonomous testing mission must accomplish and when it is complete**. RC8 defines **how the work is orchestrated, placed, executed, evidenced, persisted, recovered and gated**.
 
 ```text
 Mission
@@ -25,7 +17,7 @@ Mission
           -> WorkItem
               -> Attempt
                   -> ExecutionNode / dsh-node
-                      -> dsh-agent-team
+                      -> node-local dsh-agent-team
                           -> Agent
                               -> Tool / Skill
                                   -> Evidence
@@ -33,52 +25,55 @@ Mission
                                           -> Center deterministic gate
 ```
 
-Terminology is frozen to avoid ambiguity:
+Terminology is frozen:
 
 - `MissionNode`: logical N1–N10 autonomous-test node.
-- `ExecutionNode`: physical/virtual dsh-node (office PC / 信创 Linux execution node).
+- `ExecutionNode`: physical/virtual dsh-node (office PC / 信创 Linux node).
+- Center has no AI/model dependency.
+- Director is an AI-capable dsh-node runtime role and may not execute domain work.
+- Existing SINGLE_NODE and DISTRIBUTED modes remain one architecture with different placement policy.
 
-## 3. N1–N10 mapping to existing RC8 stages
+## 2. N1–N10 mapping
 
-| Mission Node | Meaning | Existing RC8 foundation | Change type |
-|---|---|---|---|
-| N1 | Reality / Environment Recon | SCOPE_INTAKE, capability registry, provider recovery | strengthen |
-| N2 | Requirement Analysis | REQUIREMENT_ANALYSIS, REQUIREMENT_SUFFICIENCY | adopt / reuse |
-| N3 | Code Analysis | CODE_ANALYSIS, CODE_SUFFICIENCY, TraceGraph/CodeGraph foundations | adopt + strengthen |
-| N4 | Test Design | RISK_TEST_MODEL, TEST_DESIGN, DESIGN_SUFFICIENCY | adopt + strengthen |
-| N5 | Test Data / Preconditions | PRECONDITION_DATA_PREP | major strengthening |
-| N6 | Script Build / Readiness | EXECUTABLE_SPEC | strengthen |
-| N7 | Coverage-Driven Execution Closure | APPLICABLE_LAYER_EXECUTION + coverage part of FAILURE_COVERAGE_EVALUATION | refactor semantics |
-| N8 | Failure Diagnosis / Recovery | failure part of FAILURE_COVERAGE_EVALUATION + DELTA_REPAIR + TARGETED_REEXECUTION | extract / formalize |
-| N9 | Defect Evidence Closure | evidence/defect product goals and persistence foundations | new first-class mission node |
-| N10 | Mission Evidence / Global Convergence | MISSION_SUFFICIENCY + REPORT_RELEASE | split convergence from reporting |
+| Mission Node | Meaning | Existing / adopted RC8 stage semantics |
+|---|---|---|
+| N1 | Reality / Environment Recon | SCOPE_INTAKE + RealitySnapshot/CapabilitySnapshot |
+| N2 | Requirement Analysis | REQUIREMENT_ANALYSIS + REQUIREMENT_SUFFICIENCY |
+| N3 | Code Analysis | CODE_ANALYSIS + CODE_SUFFICIENCY + TraceGraph/CodeGraph |
+| N4 | Test Design | RISK_TEST_MODEL + TEST_DESIGN + DESIGN_SUFFICIENCY |
+| N5 | Test Data / Preconditions | PRECONDITION_DATA_PREP + PreparedAttempt |
+| N6 | Script Build / Readiness | EXECUTABLE_SPEC + ExecutableReadiness |
+| N7 | Coverage-Driven Execution Closure | APPLICABLE_LAYER_EXECUTION + CoverageDenominator |
+| N8 | Failure Diagnosis / Recovery | Diagnosis + deterministic GapRouter + repair/re-execution |
+| N9 | Defect Evidence Closure | first-class defect lifecycle |
+| N10 | Mission Evidence / Global Convergence | independent test sufficiency / product quality / release decision |
 
-## 4. Non-negotiable invariants
+## 3. Non-negotiable invariants
 
 1. `CENTER_HAS_NO_AI_DEPENDENCY`.
 2. `DIRECTOR_IS_A_DSH_NODE_RUNTIME_ROLE`.
-3. `DIRECTOR_MUST_NOT_EXECUTE_DOMAIN_WORK`.
+3. `DIRECTOR_MUST_NOT_EXECUTE_DOMAIN_WORK` / `DIRECTOR_DOMAIN_EXECUTION_FORBIDDEN`.
 4. R1 Event Stream is runtime truth; PostgreSQL is durable truth; Redis is coordination only.
 5. WorkItem COMPLETED != Stage COMPLETED != MissionNode PASS.
 6. PLAN_COMPLETE != TEST_SUFFICIENT.
 7. Agent/Team/Worker/Director cannot self-declare final PASS or SUFFICIENT.
 8. MissionNode PASS requires Director review acceptance **and** Center deterministic gate.
-9. Missing evidence/dimensions are UNKNOWN, never silently dropped from denominator.
-10. 0/0 != 100%.
-11. N/A requires reason + Evidence.
-12. Active blocking Gap prevents MissionNode PASS.
-13. No fake execution; real execution requires execution evidence.
-14. Java change requires CodeGraph evidence for N3 completion.
-15. Page->API runtime verification requires controlled browser Network evidence; no guessed routes.
-16. N5 uses fresh auth/data/precondition bindings; historical 4A cookie fallback is forbidden.
-17. TEST_FAIL != DEFECT. PRODUCT-classified failures enter N9 only after N8 diagnosis.
-18. Test sufficiency, product quality, and release recommendation are separate outputs.
-19. Existing SINGLE_NODE and DISTRIBUTED execution modes remain one architecture with different placement policies.
-20. Capability-based runtime compatibility; do not hard-pin exact tool versions.
+9. Missing evidence/dimensions are UNKNOWN; denominator cannot shrink silently.
+10. `0/0 != 100%`; N/A requires reason + Evidence.
+11. Active blocking Gap prevents sufficiency/convergence where applicable.
+12. No fake execution; execution PASS requires real runtime Evidence.
+13. Java change requires CodeGraph evidence for N3 completion.
+14. Page→API runtime verification requires controlled Browser Network Evidence; no guessed routes.
+15. Repo/Mapper→SQL/Table requires explicit source/SQL evidence; no guessed tables.
+16. LLM inference is candidate-only and cannot upgrade verification state.
+17. N5 uses fresh auth/data/precondition bindings; historical 4A cookie fallback is forbidden.
+18. TEST_FAIL != DEFECT; only N8 PRODUCT classification enters N9.
+19. Test sufficiency, product quality, and release recommendation are independent outputs.
+20. Report generation never manufactures `MISSION_CONVERGED`.
+21. Capability-based runtime compatibility; no exact version pinning.
+22. Cloud CI never equals `BANK_REALITY_VERIFIED`.
 
-## 5. Definition of Done for every construction slice
-
-A slice may advance only through evidence-backed states:
+## 4. Definition of Done
 
 ```text
 CODE_EXISTS
@@ -91,67 +86,21 @@ CODE_EXISTS
   -> BANK_REALITY_VERIFIED (bank-only capabilities)
 ```
 
-Rules:
+Never use parent/old CI to claim current-head PASS. A plan, UI, adapter, mock or cloud test is not bank reality.
 
-- Never use parent/old CI to claim current HEAD PASS.
-- Never use GitHub CI to claim bank reality.
-- A plan, design note, UI button, adapter interface, or mocked test is not REALITY_VERIFIED.
-- Release remains HOLD until release gates explicitly pass.
+## 5. Implemented construction waves
 
-## 6. Construction waves
+### P0-0 — Cross-platform Director baseline — DONE
 
-### P0-0 — Restore a clean cross-platform baseline
+Commit `287db525...` fixed the Windows `:memory:` R1 test portability defect without weakening the append-only runtime-truth contract. Director lifecycle Windows/Linux targeted CI passed.
 
-Goal: make the pre-adoption runtime baseline trustworthy before N1–N10 structural changes.
+### P0-1 — N1–N10 Adoption Spine — DONE
 
-Known blocker at plan creation:
+Commit `39811f4...` added first-class MissionNode N1–N10 semantics above existing Stage/WorkItem runtime. Stage execution is retained; no second state machine/PASS authority was created. Windows/Linux targeted CI passed.
 
-- baseline HEAD `965ed36...`
-- Director lifecycle Ubuntu check: PASS.
-- Director lifecycle Windows check: FAIL because tests use `CentralR1RuntimeLedger(":memory:")`, which is an invalid Windows path.
+### P0-2 — Director Review + Center MissionNode Gate — DONE
 
-Scope:
-
-- Fix the cross-platform test/runtime path handling without weakening runtime truth behavior.
-- Run targeted Director lifecycle regression on Windows and Linux.
-- Freeze the resulting green commit as `RC8_N1N10_ADOPTION_BASELINE`.
-
-Acceptance:
-
-- Current-head Windows targeted CI PASS.
-- Current-head Linux targeted CI PASS.
-- No architecture behavior change hidden in the portability fix.
-
-### P0-1 — N1–N10 Adoption Spine
-
-Add a first-class semantic layer above existing MissionStages; do not replace stages.
-
-Required model:
-
-- `MissionNodeType` (N1..N10)
-- `MissionNodeState`
-- `MissionNodeInstance`
-- `MissionNodeStageBinding`
-- `NodeDeliveryPackage`
-- `DirectorReviewReceipt`
-- `MissionNodeGateDecision`
-
-Required R1 provenance additions:
-
-- `mission_node_id`
-- `mission_node_type`
-- `execution_node_id` (physical dsh-node identity; keep distinct from MissionNode)
-
-Acceptance:
-
-- Existing Stage/WorkItem execution still works.
-- Every Stage maps deterministically to one MissionNode or an explicitly documented cross-node transition.
-- Evidence can be traced: Evidence -> Attempt -> WorkItem -> Stage -> MissionNode -> Mission.
-- No duplicate state machine or duplicate final PASS field.
-
-### P0-2 — Unified review and PASS authority
-
-Frozen flow:
+Commit `00e019b...` implemented:
 
 ```text
 AgentTeams
@@ -161,145 +110,184 @@ AgentTeams
   -> MissionNode PASS
 ```
 
-MissionNode PASS formula:
+Worker/Team/Director cannot directly set final MissionNode PASS.
+
+### N1 Reality Snapshot — CODE + CI VERIFIED
+
+Commits `4ecfa51...`, `bd352b9...` implemented immutable `RealitySnapshot`, `CapabilitySnapshot`, `RealityBlocker`, PostgreSQL persistence and cross-platform tests. CONFIGURED/INSTALLED does not imply VERIFIED.
+
+### N2 Requirement adoption — CODE + CI VERIFIED
+
+Existing requirement analysis/sufficiency is adopted into MissionNode delivery semantics. Worker green is recomputed against Center authority. Real HTTP repair tests now collapse worker+Center green projections into one final verdict per Stage attempt.
+
+### N3 Code adoption — PARTIAL / P0 GAP REMAINS
+
+MissionNode adoption, CodeGraph/TraceGraph and Center Code Sufficiency foundations exist. **Still required before full-loop proof:**
 
 ```text
-DirectorReviewAccepted
-AND CenterGatePassed
-AND EvidenceComplete
-AND DenominatorSatisfied
-AND NoBlockingGap
-AND CurrentAttemptOnly
-AND PrerequisitesSatisfied
+Controlled Browser Network Evidence
+  -> CodeGraph/source Evidence
+  -> SQL/persistence Evidence
+  -> Center Controlled Ingestion
+  -> verified TraceGraph
+  -> CODE_SUFFICIENCY
 ```
 
-Acceptance:
+Source policy remains fail-closed:
+- Page→API VERIFIED only from controlled Network Evidence.
+- API→Controller→Service→Repository/Mapper only from source/Spring/CodeGraph evidence.
+- Repository/Mapper→SQL→Database→Table only from explicit mapper/JDBC/ORM/SQL evidence.
+- requested worker verification is ignored; Center decides verification.
 
-- Director-generated domain execution evidence is rejected/fail-closed.
-- Worker/Team/Director cannot directly set MissionNode PASS.
-- Stale attempt evidence cannot satisfy the gate.
+### N4 Test Design adoption — CODE + CI VERIFIED FOUNDATION
 
-### P1-1 — N1 Reality Snapshot Gate
+Risk/TestDesign/DesignSufficiency are adopted into MissionNode delivery contracts. Design-denominator strengthening remains part of later end-to-end sufficiency work.
 
-Add `RealitySnapshot`, `CapabilitySnapshot`, `RealityBlocker` and real probes. CONFIGURED/INSTALLED never automatically means VERIFIED. Downstream N2–N10 work must bind a versioned reality snapshot; material reality change invalidates affected state.
+### N5 PreparedAttempt — CODE + WINDOWS/LINUX CI VERIFIED
 
-### P1-2 — Adopt and strengthen N2/N3/N4
-
-Reuse current stages; do not rewrite them. Formalize requirement/test-design denominators and complete Browser Network -> CodeGraph/source -> SQL evidence -> Center Controlled Ingestion -> TraceGraph -> CODE_SUFFICIENCY. LLM inference remains candidate-only.
-
-### P1-3 — N5 PreparedAttempt
-
-Add first-class `PreparedAttempt` lifecycle:
+Commit `04cb4231...` implemented:
 
 ```text
-Select -> Verify -> Reserve -> FreshnessCheck -> Bind -> CASE_PREPARED_ATTEMPT
+SELECTED -> VERIFIED -> RESERVED -> FRESH -> PREPARED
 ```
 
-Bind case/attempt to current test data, environment, fresh 4A auth state, route, reservation, freshness evidence, and cleanup/release/quarantine state. No current PreparedAttempt => no TEST_EXECUTION_STARTED.
+with terminal RELEASED/QUARANTINED, one current PreparedAttempt per `(run, case, attempt)`, fresh 4A binding, data freshness, reservation, environment/route binding, execution fail-closed gate and PostgreSQL persistence.
 
-### P1-4 — N6 Executable Readiness
+### N6 Executable Readiness — CODE + WINDOWS/LINUX CI VERIFIED
 
-Strengthen `EXECUTABLE_SPEC` into:
+Commit `bf70d9d9...` implemented N5-bound executable readiness:
 
 ```text
-FrozenCase -> Script/Driver -> Fixture/Binding -> Assertion -> EvidenceCollector
+FrozenCase -> Driver/Script -> Fixture/Binding -> Assertion -> EvidenceCollector
 ```
 
-Technical build/compile readiness is not business assertion PASS.
+States: BUILT→VERIFIED→READY, with invalidation. READY has no business PASS meaning.
 
-### P2-1 — N7 Coverage Denominator Engine
+**Known semantic debt:** the legacy MissionGraph still orders `EXECUTABLE_SPEC (N6)` before `PRECONDITION_DATA_PREP (N5)`. New N6 service correctly requires current N5 PreparedAttempt, but the old Stage edge must be migrated before full-loop proof.
 
-Add `CoverageDenominatorSnapshot`, `CoverageObligation`, `CoverageReceipt`, `CoverageExpansion`, `LayerReopen`. Coverage states: UNEXECUTED, READY, EXECUTING, COVERED_PASS, COVERED_FAIL, BLOCKED, EXCLUDED_WITH_EVIDENCE. Denominator expansion invalidates stale 100% receipts and reopens affected layers.
+### N7 Coverage Denominator — CODE + WINDOWS/LINUX CI VERIFIED
 
-### P2-2 — N8 Failure Diagnosis and Deterministic Gap Routing
+Commit `59ca9ab4...` implemented versioned `CoverageDenominatorSnapshot`, `CoverageObligation`, `CoverageReceipt`, `LayerReopen`, zero-denominator prohibition and stale-100%-receipt invalidation. `COVERED_FAIL` counts as tested while product quality can fail; BLOCKED prevents coverage closure.
 
-Add `FailureObservation`, `FailureClassification`, `DiagnosticEvidence`, `GapRouter`, `RepairWorkOrder`, `RepairReceipt`, `SuccessorAttempt`.
+### N8 Failure Diagnosis / GapRouter — CODE + WINDOWS/LINUX CI VERIFIED
 
-Classification: SCRIPT, SPEC_DESIGN, ORACLE, DATA, PRECONDITION, AUTH, ROUTE, TOOL, ENVIRONMENT, DEPENDENCY, TRANSIENT, FLAKY, PRODUCT, UNKNOWN.
+Commit `25b5ee3b...` implemented Center-owned failure diagnosis and deterministic routing:
 
-Routing: SCRIPT->N6; SPEC_DESIGN/ORACLE->N4; DATA/PRECONDITION/AUTH->N5; ROUTE source truth->N3; ROUTE binding->N6; TOOL/ENVIRONMENT->N1/runtime; TRANSIENT/FLAKY->N7; PRODUCT->N9; UNKNOWN remains N8.
+- SCRIPT→N6
+- SPEC_DESIGN/ORACLE→N4
+- DATA/PRECONDITION/AUTH→N5
+- ROUTE source truth→N3
+- ROUTE binding→N6
+- TOOL/ENVIRONMENT/DEPENDENCY→N1/runtime
+- TRANSIENT/FLAKY→N7
+- PRODUCT→N9 (non-repairable by N8)
+- UNKNOWN→N8 (no forced attribution)
 
-### P2-3 — N9 Defect Evidence Closure
+Successor attempt requires evidence-backed `REPAIRED` receipt; blind retry is forbidden.
 
-First-class lifecycle:
+**Known semantic debt:** legacy Stage-level failure routing tables still exist and must be reconciled/deprecated so Center N8 is the single routing authority.
+
+### N9 Defect Evidence Closure — CODE + WINDOWS/LINUX CI VERIFIED
+
+Commit `a371e797...` implemented PRODUCT-route-only defect entry and lifecycle:
 
 ```text
-DefectCandidate -> IndependentReproduction -> Qualification -> RCA -> Dedup -> Impact -> Severity -> Review -> Confirm/File -> FixDetected -> FixVerification -> ImpactRegression -> Close/Reopen
+Candidate -> IndependentReproduction -> Qualification -> RCA -> Dedup
+-> Impact/Severity -> Review -> File -> FixDetected -> FixVerification
+-> ImpactRegression -> Close/Reopen
 ```
 
-TEST_FAIL != DEFECT. Only N8 PRODUCT classification enters N9.
+TEST_FAIL alone cannot create a defect. Duplicate and NotDefect are evidence-backed dispositions. N8→N9 integration regression passed on Windows/Linux.
 
-### P3 — N10 Global Convergence
+### N10 Global Convergence — CODE + WINDOWS/LINUX CI VERIFIED
 
-Add Center-side `MissionConvergenceService` driven only by R1/durable truth. Independently output `TestSufficiencyDecision`, `ProductQualityAssessment`, `ReleaseRecommendation`, `ResidualRisk`. `REPORT_RELEASE` occurs only after `MISSION_CONVERGED`; report generation never creates convergence.
+Commit `44577fbf...` implemented Center-owned convergence with separate:
 
-### P4 — Reality validation and release gating
+- `TestSufficiencyDecision`
+- `ProductQualityAssessment`
+- `ReleaseRecommendation`
+- `ResidualRisk`
 
-Prove SINGLE_NODE and DISTRIBUTED using the same architecture; then execute bank reality probes for DSH/model, actual dsh-agent-teams interface, Browser+Network, fresh 4A, CodeGraph, Maven/JUnit, CAT/log where required, DB/SQL. Release remains HOLD until required receipts exist.
+It explicitly supports:
 
-## 7. Ordered commit sequence
+```text
+TEST_SUFFICIENCY = SUFFICIENT
+PRODUCT_QUALITY = FAIL
+RELEASE_RECOMMENDATION = NO_GO
+MISSION_CONVERGED = true
+```
 
-1. `fix(rc8): restore cross-platform director lifecycle baseline`
-2. `feat(rc8): add n1-n10 mission node adoption spine`
-3. `feat(rc8): add director review and center mission-node gate`
-4. `feat(rc8): add n1 reality snapshot gate`
-5. `feat(rc8): adopt n2-n4 into mission node delivery contracts`
-6. `feat(rc8): add n5 prepared attempt contract`
-7. `feat(rc8): strengthen n6 executable readiness contract`
-8. `feat(rc8): add n7 coverage denominator engine`
-9. `feat(rc8): add n8 diagnostic gap router`
-10. `feat(rc8): add n9 defect evidence closure`
-11. `feat(rc8): add n10 mission convergence`
-12. `test(rc8): prove n1-n10 single-node autonomous loop`
-13. `test(rc8): prove n1-n10 distributed autonomous loop`
+for a fully tested mission with known high-severity product defects. Report release requires an existing Center `MISSION_CONVERGED` decision; report generation cannot create convergence. N7 + N9 + N10 regression passed on Windows/Linux.
 
-Do not combine unrelated waves into one commit.
+## 6. Current construction checkpoint ledger
 
-## 8. Construction checkpoint ledger
-
-Update after every meaningful commit. Git/HEAD and current-head CI are authoritative; this table is a navigation aid.
-
-| Item | Current checkpoint | Evidence / next action |
+| Item | Checkpoint | Evidence / next action |
 |---|---|---|
-| Plan persistence | DONE | plan committed on `work/rc8`; keep updated with construction |
-| P0-0 Cross-platform Director baseline | IN_PROGRESS | Windows baseline failure on `:memory:`; fix first |
-| P0-1 Adoption Spine | NOT_STARTED | next after green baseline |
-| P0-2 Review + Center Gate | NOT_STARTED | depends on Adoption Spine |
-| N1 RealitySnapshot | NOT_STARTED | capability/provider foundations reusable |
-| N2 Requirement adoption | PARTIAL_FOUNDATION | reuse existing stages/gates |
-| N3 Code adoption | PARTIAL_FOUNDATION | TraceGraph/CodeGraph foundations; controlled ingestion still required |
-| N4 Design adoption | PARTIAL_FOUNDATION | existing risk/design stages reusable |
-| N5 PreparedAttempt | NOT_STARTED | major new first-class object |
-| N6 Executable Readiness | PARTIAL_FOUNDATION | strengthen EXECUTABLE_SPEC |
-| N7 Coverage Engine | NOT_STARTED | formal denominator/receipt/reopen missing |
-| N8 Diagnosis/GapRouter | PARTIAL_FOUNDATION | recovery runtime exists; semantics missing |
-| N9 Defect Closure | NOT_STARTED | first-class mission node/lifecycle missing |
-| N10 Global Convergence | PARTIAL_FOUNDATION | mission sufficiency exists; convergence separation required |
-| SINGLE_NODE runtime foundation | CODE_EXISTS | preserve |
-| DISTRIBUTED runtime foundation | CODE_EXISTS | preserve |
-| dsh-node runtime adapter | CODE_EXISTS | preserve; bank reality pending |
-| dsh-agent-teams process adapter | CODE_EXISTS | preserve; bank reality pending |
-| Director election/failover | CODE_EXISTS | Windows CI baseline must be fixed |
-| BANK_REALITY_VERIFIED | NO | P4 |
-| RELEASE_READY | NO / HOLD | requires release gates |
+| Plan persistence | DONE | this file is the navigation source; Git/CI remain authoritative |
+| P0-0 Cross-platform Director baseline | CI_VERIFIED | `287db525...` |
+| P0-1 Adoption Spine | CI_VERIFIED | `39811f4...` |
+| P0-2 Review + Center Gate | CI_VERIFIED | `00e019b...` |
+| N1 RealitySnapshot | CI_VERIFIED | `4ecfa51...` + Windows fix `bd352b9...` |
+| N2 Requirement adoption | INTEGRATION_FOUNDATION | real HTTP repair flow verified; broader mission proof pending |
+| N3 Code adoption | PARTIAL / P0 | **next: Center Controlled Ingestion** |
+| N4 Design adoption | CI_VERIFIED_FOUNDATION | denominator/full-loop proof pending |
+| N5 PreparedAttempt | CI_VERIFIED | `04cb4231...` |
+| N6 Executable Readiness | CI_VERIFIED | `bf70d9d9...`; legacy N6→N5 Stage ordering debt remains |
+| N7 Coverage Engine | CI_VERIFIED | `59ca9ab4...` |
+| N8 Diagnosis/GapRouter | CI_VERIFIED | `25b5ee3b...`; legacy route table reconciliation remains |
+| N9 Defect Closure | CI_VERIFIED | `a371e797...` |
+| N10 Global Convergence | CI_VERIFIED | `44577fbf...` |
+| SINGLE_NODE runtime foundation | CODE_EXISTS | vertical N1–N10 proof pending |
+| DISTRIBUTED runtime foundation | CODE_EXISTS | multi-node N1–N10 proof pending |
+| dsh-node runtime adapter | CODE_EXISTS | bank reality pending |
+| dsh-agent-teams process adapter | CODE_EXISTS | bank reality pending |
+| Director election/failover | CI_VERIFIED_FOUNDATION | bank reality pending |
+| BANK_REALITY_VERIFIED | NO | requires actual in-bank probes |
+| RELEASE_READY | NO / HOLD | release gates not satisfied |
 
-## 9. Resume protocol for every future construction session
+## 7. Remaining ordered construction sequence
 
-Every new session or automation run must:
+Do **not** start P4 full-loop proof until the semantic/runtime debts below are resolved.
 
-1. Read `work/rc8` latest HEAD.
-2. Read `docs/rc8/N1-N10-CONSTRUCTION-PLAN.md` from that HEAD.
-3. Read recent commits after the latest checkpoint.
-4. Read current-head CI/check runs; never infer PASS from older commits.
-5. Pick the earliest unfinished item whose dependencies are satisfied.
-6. Continue only that coherent slice; do not re-plan completed work.
-7. Commit/push code and tests.
+1. `feat(rc8): add center controlled traceability ingestion`
+   - Network/CodeGraph/SQL raw observation contracts
+   - source-based verification policy
+   - reject worker-requested verification upgrades
+   - verified TraceGraph projection feeding CODE_SUFFICIENCY
+2. `refactor(rc8): align mission graph n5 before n6`
+   - repair legacy `EXECUTABLE_SPEC -> PRECONDITION_DATA_PREP` ordering
+   - preserve rework/invalidation semantics
+3. `refactor(rc8): make n8 center gap router authoritative`
+   - reconcile/deprecate legacy Stage route tables
+4. `test(rc8): prove n1-n10 single-node autonomous loop`
+5. `test(rc8): prove n1-n10 distributed autonomous loop`
+6. Bank field reality validation:
+   - actual DSH/model
+   - actual dsh-agent-teams bridge
+   - controlled Browser Network
+   - fresh 4A login/re-login
+   - CodeGraph
+   - Maven/JUnit
+   - CAT/log where applicable
+   - DB/SQL
+
+## 8. Resume protocol
+
+Every session/guard run must:
+
+1. Read latest `work/rc8` HEAD.
+2. Read this plan from the same HEAD.
+3. Read commits after the latest checkpoint.
+4. Read current-head CI/check-runs; never infer PASS from older commits.
+5. Fix red CI before adding features.
+6. Pick the earliest unfinished item whose dependencies are satisfied.
+7. Modify real code/tests; commit/push to `work/rc8` lease-safely.
 8. Check current-head CI and fix failures before claiming CI_VERIFIED.
-9. Update this checkpoint ledger when the slice materially advances.
+9. Update this ledger after meaningful progress.
 10. Keep `BANK_REALITY_VERIFIED=NO` until real bank evidence exists.
 
-If valid construction is already progressing on the same slice, do not start duplicate competing work.
+If the same construction slice is already actively progressing, do not start duplicate competing work.
 
-## 10. Immediate next action
+## 9. Immediate next action
 
-> P0-0: repair Windows Director lifecycle portability (`CentralR1RuntimeLedger(":memory:")`), obtain current-head Windows + Linux targeted PASS, freeze the green SHA as the N1–N10 adoption baseline, then begin P0-1 Adoption Spine.
+> **N3 P0:** implement Center Controlled Traceability Ingestion so raw Browser Network / CodeGraph / SQL observations can be accepted under deterministic source policy, projected into verified TraceGraph, and consumed by `CODE_SUFFICIENCY`. Do not claim N1–N10 full-loop completion before this and the N5→N6 Stage ordering debt are resolved.
