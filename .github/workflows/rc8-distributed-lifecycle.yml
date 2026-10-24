@@ -1,0 +1,43 @@
+name: RC8 Distributed Lifecycle
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_center/control_plane.py'
+      - 'rc8_center/distributed_orchestration.py'
+      - 'rc8_center/distributed_lifecycle.py'
+      - 'rc8_runtime/contracts.py'
+      - 'rc8_runtime/r1_runtime.py'
+      - 'tests/test_rc8_distributed_lifecycle.py'
+      - '.github/workflows/rc8-distributed-lifecycle.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  distributed-lifecycle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Install test dependency
+        shell: bash
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile distributed lifecycle
+        shell: bash
+        run: |
+          python -m py_compile \
+            rc8_center/distributed_lifecycle.py \
+            tests/test_rc8_distributed_lifecycle.py
+      - name: Run distributed lifecycle regression
+        shell: bash
+        run: python -m pytest -q tests/test_rc8_distributed_lifecycle.py
