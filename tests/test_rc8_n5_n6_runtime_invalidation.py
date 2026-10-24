@@ -43,3 +43,23 @@ def test_runtime_binding_change_cascades_and_requires_new_preparation():
     fresh = n5.select(prepared_attempt_id="p2", test_run_id="run", mission_node_id="N5", case_id="c1", attempt_id="a1", reality_snapshot_id="rs2", data_refs=["data:2"])
     assert fresh.prepared_attempt_id == "p2"
     assert fresh.state == PreparedAttemptState.SELECTED
+
+
+def test_invalidation_fails_closed_when_current_n5_or_n6_is_missing():
+    n5 = CenterPreparedAttemptService(MemoryPreparedAttemptRepository(), now_fn=lambda: 100)
+    n6 = CenterExecutableReadinessService(MemoryExecutableSpecRepository(), n5, now_fn=lambda: 100)
+    guard = CenterRuntimeInvalidationCoordinator(n5, n6)
+    try:
+        guard.invalidate_for_case_revision(test_run_id="run", case_id="c1", attempt_id="a1", evidence_refs=["case-diff:rev2"])
+    except ValueError as exc:
+        assert str(exc) == "RUNTIME_INVALIDATION_CURRENT_N5_REQUIRED"
+    else:
+        raise AssertionError("missing N5 must not be reported as successful invalidation")
+
+    n5.select(prepared_attempt_id="p1", test_run_id="run", mission_node_id="N5", case_id="c1", attempt_id="a1", reality_snapshot_id="rs1", data_refs=["data:1"])
+    try:
+        guard.invalidate_for_case_revision(test_run_id="run", case_id="c1", attempt_id="a1", evidence_refs=["case-diff:rev2"])
+    except ValueError as exc:
+        assert str(exc) == "RUNTIME_INVALIDATION_CURRENT_N6_REQUIRED"
+    else:
+        raise AssertionError("missing N6 must not be reported as successful invalidation")
