@@ -231,7 +231,10 @@ def test_dispositioned_risk_creates_governed_n10_iteration_and_conditional_relea
         expected_type="MISSION_EVIDENCE_MANIFEST",
         code="manifest",
     )
-    assert manifest["residual_risk_summary"] == registry.summary(control)
+    expected_summary = json.loads(
+        json.dumps(registry.summary(control), ensure_ascii=False, sort_keys=True, default=str)
+    )
+    assert manifest["residual_risk_summary"] == expected_summary
     assert manifest["mission_readiness"]["sufficiency_state"] == "SUFFICIENT_WITH_RESIDUAL_RISK"
     assert manifest["mission_readiness"]["release_recommendation"] == "CONDITIONAL"
     assert manifest["mission_readiness"]["business_release_decision"] == "NOT_DECIDED_BY_TEST_SYSTEM"
@@ -257,9 +260,6 @@ def test_residual_risk_conformance_rejects_unreceipted_risk_set(tmp_path: Path):
 
 
 def test_governed_finalization_mro_uses_risk_governed_prepare(tmp_path: Path):
-    # This test is intentionally structural: importing/instantiating the final
-    # facade proves the multiple-inheritance MRO is valid on Python 3.8 and the
-    # risk-governed prepare method wins over the legacy base implementation.
     service = GovernedAutonomousN10FinalizationService(evidence_root=str(tmp_path / "n10"))
     assert isinstance(service, AutonomousN10FinalizationService)
     assert service.prepare_ready.__func__ is GovernedAutonomousN10Service.prepare_ready
