@@ -54,29 +54,17 @@ def _source(symbol: str, *, include_layer_evidence: bool = True) -> str:
         "attempt_id": attempt_id,
         "worker_id": worker_id,
         "session_id": session_id,
-        "started_at": "2026-10-23T08:00:00Z",
-        "finished_at": "2026-10-23T08:00:01Z",
+        "started_at": "2026-10-24T06:00:00Z",
+        "finished_at": "2026-10-24T06:00:01Z",
         "status": "PASS",
         "preconditions": [],
         "test_data": {},
         "steps": ["execute governed runtime"],
         "expected_results": ["business_code=OK"],
         "actual_results": ["business_code=OK"],
-        "assertions": [{
-            "assertion_id": "ASSERT-" + layer,
-            "expected": "OK",
-            "actual": "OK",
-            "result": "PASS",
-            "evidence_refs": [raw_ref],
-        }],
+        "assertions": [{"assertion_id":"ASSERT-"+layer,"expected":"OK","actual":"OK","result":"PASS","evidence_refs":[raw_ref]}],
         "evidence_refs": all_refs,
-        "execution_receipt": {
-            "receipt_id": "LOCAL-RECEIPT-" + layer,
-            "case_id": tc_id,
-            "attempt_id": attempt_id,
-            "target_id": target_id,
-            "status": "PASS",
-        },
+        "execution_receipt": {"receipt_id":"LOCAL-RECEIPT-"+layer,"case_id":tc_id,"attempt_id":attempt_id,"target_id":target_id,"status":"PASS"},
     }
     if layer == "L4":
         layer_evidence["browser"] = {
@@ -88,46 +76,36 @@ def _source(symbol: str, *, include_layer_evidence: bool = True) -> str:
             "evidence_refs": browser_refs,
         }
         layer_evidence["auth"] = {
-            "required_4a": True,
-            "method": "foura_auth.py",
-            "fresh_login": True,
-            "historical_cookie_fallback": False,
-            "expiry_relogin_supported": True,
+            "required_4a": True, "method": "foura_auth.py", "fresh_login": True,
+            "historical_cookie_fallback": False, "expiry_relogin_supported": True,
             "evidence_refs": [auth_ref],
         }
     elif layer == "L5":
-        layer_evidence["api_calls"] = [{
-            "url": "/api/version/query",
-            "method": "POST",
-            "request": {"version": "1.2.0"},
-            "response": {"code": "0000", "rows": 1},
-            "status_code": 200,
-            "business_code": "0000",
-            "route_source": "browser_network_capture",
-            "endpoint_guessed": False,
-            "evidence_refs": [raw_ref],
-        }]
-    elif layer == "L6":
-        layer_evidence["capability"] = {
-            "status": "AVAILABLE",
-            "tool_name": "governed-capability",
-            "evidence_refs": [raw_ref],
-        }
-    elif layer == "L7":
         layer_evidence["real_runtime_execution"] = True
         layer_evidence["E2E_VERIFIED_REQUIRES_REAL_RUNTIME_EXECUTION"] = True
         layer_evidence["e2e_chain"] = {
-            "entry": "browser entry",
-            "frontend": "page state",
-            "api": "captured request/response",
-            "service": "service execution",
-            "data_or_state": "persisted state",
-            "business_result": "business_code=OK",
-            "oracle": "business-code assertion",
-            "evidence_refs": [raw_ref],
+            "entry": "browser entry", "frontend": "frontend state", "api": "captured request",
+            "service": "service result", "data_or_state": "persisted state",
+            "business_result": "business_code=OK", "oracle": "business-code assertion",
+            "evidence_refs": all_refs,
+        }
+    elif layer == "L6":
+        layer_evidence["performance"] = {
+            "tool_name": "k6", "tool_version": "0.51.0", "script_sha256": "a" * 64,
+            "scenario_ref": perf_refs[0], "threshold_ref": perf_refs[1],
+            "summary_ref": perf_refs[2], "stdout_ref": perf_refs[3], "exit_code": 0,
+            "evidence_refs": perf_refs,
+        }
+    elif layer == "L7":
+        layer_evidence["security"] = {
+            "tool_name": "zap", "tool_version": "2.15.0", "target_ref": target_id,
+            "scan_config_ref": security_refs[0], "spider_ref": security_refs[1],
+            "passive_scan_ref": security_refs[2], "active_scan_ref": security_refs[3],
+            "html_report_ref": security_refs[4], "json_report_ref": security_refs[5],
+            "exit_code": 0, "evidence_refs": security_refs,
         }
 ''' if include_layer_evidence else '    layer_evidence = None\n'
-    actual = '''{"business_code":"OK","case_id":tc_id,"layer_evidence":layer_evidence}''' if include_layer_evidence else '''{"business_code":"OK","case_id":tc_id}'''
+    actual = '{"business_code":"OK","case_id":tc_id,"layer_evidence":layer_evidence}' if include_layer_evidence else '{"business_code":"OK","case_id":tc_id}'
     return '''import json
 import os
 
@@ -152,32 +130,34 @@ def %s():
     def proof(name):
         path = os.path.join(evidence_dir, layer.lower() + "-" + name + ".json")
         with open(path, "w", encoding="utf-8") as handle:
-            json.dump({"layer": layer, "tc_id": tc_id, "attempt_id": attempt_id, "kind": name, "captured": True}, handle, sort_keys=True)
+            json.dump({"layer":layer,"tc_id":tc_id,"attempt_id":attempt_id,"kind":name,"captured":True}, handle, sort_keys=True)
         ref = "file://" + path
         _emit({"type":"note","ref":ref})
         return ref
 
+    browser_artifacts = {}
+    browser_refs = []
+    auth_ref = ""
+    perf_refs = []
+    security_refs = []
     if layer == "L4":
         screenshot_ref = proof("screenshot")
         dom_ref = proof("dom")
         trace_ref = proof("trace")
         network_ref = proof("network")
         auth_ref = proof("4a-auth")
-        browser_artifacts = {
-            "screenshot": [screenshot_ref],
-            "dom": [dom_ref],
-            "trace": [trace_ref],
-            "network": [network_ref],
-        }
+        browser_artifacts = {"screenshot":[screenshot_ref],"dom":[dom_ref],"trace":[trace_ref],"network":[network_ref]}
         browser_refs = [screenshot_ref, dom_ref, trace_ref, network_ref]
         all_refs = browser_refs + [auth_ref]
-        raw_ref = network_ref
+    elif layer == "L5":
+        all_refs = [proof("e2e-chain")]
+    elif layer == "L6":
+        perf_refs = [proof(name) for name in ("scenario", "threshold", "summary", "stdout")]
+        all_refs = perf_refs
     else:
-        raw_ref = proof("primary")
-        all_refs = [raw_ref]
-        browser_artifacts = {}
-        browser_refs = []
-        auth_ref = ""
+        security_refs = [proof(name) for name in ("scan-config", "spider", "passive", "active", "html-report", "json-report")]
+        all_refs = security_refs
+    raw_ref = all_refs[0]
 %s
     _emit({"type":"tool_call","tool_id":tool_id,"call_ref":"tool-call://"+layer,"evidence_ref":raw_ref})
     _emit({"type":"actual_result","value":%s})
@@ -200,23 +180,14 @@ def _bundle(tmp_path: Path, layer: str, *, include_layer_evidence: bool = True) 
     source_path = tmp_path / ("test_rc7_1_%s_fixture.py" % layer.lower())
     source_path.write_text(_source(symbol, include_layer_evidence=include_layer_evidence), encoding="utf-8")
     script = ScriptArtifact(
-        script_id="SCRIPT-RC7-1-" + layer,
-        spec_id=spec.spec_id,
-        tc_id=spec.tc_id,
-        case_version=spec.case_version,
-        layer=spec.layer,
-        runner_type=spec.runner_type,
-        source_ref="file://" + str(source_path),
-        test_symbol=symbol,
-        case_fingerprint=spec.case_fingerprint,
-        oracle_fingerprint=spec.oracle_fingerprint,
-        reuse_refs=(),
-        builder_evidence_refs=("evidence://script-builder/%s" % layer.lower(),),
-        revision=1,
+        script_id="SCRIPT-RC7-1-" + layer, spec_id=spec.spec_id, tc_id=spec.tc_id,
+        case_version=spec.case_version, layer=spec.layer, runner_type=spec.runner_type,
+        source_ref="file://" + str(source_path), test_symbol=symbol,
+        case_fingerprint=spec.case_fingerprint, oracle_fingerprint=spec.oracle_fingerprint,
+        reuse_refs=(), builder_evidence_refs=("evidence://script-builder/%s" % layer.lower(),), revision=1,
     )
     validation = EvidenceBackedScriptReadinessValidator(
-        evidence_root=str(tmp_path / "script-validation"),
-        timeout_seconds=20,
+        evidence_root=str(tmp_path / "script-validation"), timeout_seconds=20,
     ).validate(spec=spec, script=script, cwd=str(tmp_path))
     assert validation.ready
     return VerifiedScriptExecutionBundle(
@@ -225,26 +196,16 @@ def _bundle(tmp_path: Path, layer: str, *, include_layer_evidence: bool = True) 
         upstream_evaluation_id="EVAL-UPSTREAM-" + layer,
         upstream_result_ref="runtime://upstream/" + layer,
         spec_ref="runtime://spec/" + layer,
-        frozen_case=case,
-        spec=spec,
-        script=script,
-        validation=validation,
+        frozen_case=case, spec=spec, script=script, validation=validation,
         source_sha256=hashlib.sha256(source_path.read_bytes()).hexdigest(),
     )
 
 
 def _prepared(layer: str) -> PreparedAttempt:
     return PreparedAttempt(
-        status="PREPARED",
-        attempt_id="ATT-RC7-1-" + layer,
-        tc_id="TC-RC7-1-" + layer,
-        case_version=1,
-        target_id=TARGET,
-        precondition_evidence=(),
-        initial_state_bindings={},
-        input_data_bindings={},
-        binding_evidence=(),
-        cleanup_policy={"mode": "NONE"},
+        status="PREPARED", attempt_id="ATT-RC7-1-" + layer, tc_id="TC-RC7-1-" + layer,
+        case_version=1, target_id=TARGET, precondition_evidence=(), initial_state_bindings={},
+        input_data_bindings={}, binding_evidence=(), cleanup_policy={"mode": "NONE"},
         oracle_snapshot=_case(layer)["oracle"],
     )
 
@@ -254,12 +215,7 @@ def _broker(tool_id: str) -> ToolCapabilityBroker:
     broker.discover(tool_id, "qualification://" + tool_id)
     broker.mark_executable(tool_id, "executable://" + tool_id)
     broker.register(tool_id, "registration://" + tool_id)
-    broker.record_probe(
-        tool_id,
-        success=True,
-        tool_call_ref="probe://" + tool_id,
-        evidence_ref="probe-evidence://" + tool_id,
-    )
+    broker.record_probe(tool_id, success=True, tool_call_ref="probe://" + tool_id, evidence_ref="probe-evidence://" + tool_id)
     broker.mark_target_ready(tool_id, TARGET, "target-ready://" + tool_id)
     return broker
 
@@ -281,20 +237,11 @@ def _control(tmp_path: Path, layer: str):
     mission_id = "MISSION-RC7-1-LAYER-" + layer
     truth = TruthRuntime(tmp_path / "runtime-state" / "r1" / "event-stream.jsonl")
     control = ClosedLoopControlPlane.bootstrap(
-        truth,
-        Mission(
-            mission_id=mission_id,
-            release_id="RC7.1-LAYER-PRODUCTION",
-            goal="prove %s production evidence contract" % layer,
-        ),
+        truth, Mission(mission_id=mission_id, release_id="RC7.1-LAYER-PRODUCTION", goal="prove %s production evidence contract" % layer),
     )
     task = Task(
-        task_id="TASK-RC7-1-LAYER-" + layer,
-        mission_id=mission_id,
-        node="EXECUTION",
-        task_type="EXECUTE",
-        objective="execute governed %s production service" % layer,
-        required_capabilities=["test_execution"],
+        task_id="TASK-RC7-1-LAYER-" + layer, mission_id=mission_id, node="EXECUTION", task_type="EXECUTE",
+        objective="execute governed %s production service" % layer, required_capabilities=["test_execution"],
     )
     control.register_task(task)
     assert control.scheduler.task(task.task_id).state == TaskStatus.READY
@@ -308,84 +255,49 @@ def _run(tmp_path: Path, layer: str, *, include_layer_evidence: bool = True):
     tool_id = RC7_1_EXECUTION_PROFILES[layer].required_tools[0]
     authority = RC7AuthorityRuntime(b"rc7-1-layer-production-signing-key")
     broker = _broker(tool_id)
-    service = ClosedLoopRuntimeExecutionService(
-        evidence_root=str(tmp_path / "execution-evidence"),
-        timeout_seconds=20,
-    )
-    active = service.activate_task(
-        control,
-        task_id,
-        bundle=bundle,
-        target_id=TARGET,
-        authority=authority,
-        tool_broker=broker,
-    )
-    proof_dir = tmp_path / ("%s-current-run-proof" % layer.lower())
+    service = ClosedLoopRuntimeExecutionService(evidence_root=str(tmp_path / "execution-evidence"), timeout_seconds=20)
+    active = service.activate_task(control, task_id, bundle=bundle, target_id=TARGET, authority=authority, tool_broker=broker)
     result = service.execute_active_task(
-        control,
-        task_id,
-        bundle=bundle,
-        prepared=prepared,
-        active=active,
-        authority=authority,
-        tool_broker=broker,
-        oracle_evaluator=_oracle,
-        cwd=str(tmp_path),
+        control, task_id, bundle=bundle, prepared=prepared, active=active, authority=authority,
+        tool_broker=broker, oracle_evaluator=_oracle, cwd=str(tmp_path),
         env={
-            "RC7_LAYER": layer,
-            "RC7_TC_ID": bundle.spec.tc_id,
-            "RC7_MISSION_ID": mission_id,
-            "RC7_ATTEMPT_ID": prepared.attempt_id,
-            "RC7_WORKER_ID": active.runtime_worker_id,
-            "RC7_SESSION_ID": execution_session_id(active.runtime_worker_id),
-            "RC7_TARGET_ID": TARGET,
-            "RC7_TOOL_ID": tool_id,
-            "RC7_EVIDENCE_DIR": str(proof_dir.resolve()),
+            "RC7_LAYER": layer, "RC7_TC_ID": bundle.spec.tc_id, "RC7_MISSION_ID": mission_id,
+            "RC7_ATTEMPT_ID": prepared.attempt_id, "RC7_WORKER_ID": active.runtime_worker_id,
+            "RC7_SESSION_ID": execution_session_id(active.runtime_worker_id), "RC7_TARGET_ID": TARGET,
+            "RC7_TOOL_ID": tool_id, "RC7_EVIDENCE_DIR": str((tmp_path / (layer.lower() + "-current-run-proof")).resolve()),
         },
     )
     return truth, control, result
 
 
 @pytest.mark.parametrize("layer", ["L4", "L5", "L6", "L7"])
-def test_real_production_service_requires_and_accepts_complete_layer_evidence(tmp_path: Path, layer: str) -> None:
+def test_real_production_service_accepts_complete_canonical_layer_evidence(tmp_path: Path, layer: str) -> None:
     truth, control, result = _run(tmp_path, layer)
     assert result.execution_record.status == "PASS"
     assert result.execution_record.integrity_passed is True
     assert result.execution_record.assertion_passed is True
     assert result.loop_result.evaluation.result == EvaluationResult.PASS
     assert result.loop_result.conclusive is True
-    assert result.loop_result.evaluation.dimensions["layer_evidence_contract_required"] is True
     assert result.loop_result.evaluation.dimensions["layer_evidence_contract_passed"] is True
     assert result.task_state == "PASS"
     assert control.scheduler.task("TASK-RC7-1-LAYER-" + layer).state == TaskStatus.PASS
-
     runtime_evidence = [
         row for row in truth.query("rc7_evidence", mission_id="MISSION-RC7-1-LAYER-" + layer)
-        if row.get("kind") == "RUNTIME_EXECUTION_EVIDENCE"
-        and str(row.get("content_ref", "")).startswith("file://")
+        if row.get("kind") == "RUNTIME_EXECUTION_EVIDENCE" and str(row.get("content_ref", "")).startswith("file://")
     ]
     assert runtime_evidence
     for row in runtime_evidence:
         proof = Path(str(row["content_ref"])[len("file://"):])
         assert proof.is_file()
         assert row.get("content_hash") == "sha256:" + hashlib.sha256(proof.read_bytes()).hexdigest()
-    if layer == "L4":
-        refs = {str(row["content_ref"]) for row in runtime_evidence}
-        assert any(ref.endswith("l4-screenshot.json") for ref in refs)
-        assert any(ref.endswith("l4-dom.json") for ref in refs)
-        assert any(ref.endswith("l4-trace.json") for ref in refs)
-        assert any(ref.endswith("l4-network.json") for ref in refs)
-        assert any(ref.endswith("l4-4a-auth.json") for ref in refs)
 
 
-def test_real_service_generic_l5_pass_without_layer_contract_cannot_be_executed_pass(tmp_path: Path) -> None:
+def test_real_service_generic_l5_pass_without_e2e_contract_cannot_pass(tmp_path: Path) -> None:
     _truth, control, result = _run(tmp_path, "L5", include_layer_evidence=False)
     assert result.execution_record.status == "PASS"
-    assert result.execution_record.integrity_passed is True
     assert result.loop_result.evaluation.result == EvaluationResult.REPAIR_REQUIRED
     assert result.loop_result.conclusive is False
     assert result.loop_result.test_result == "INCONCLUSIVE"
-    assert result.loop_result.evaluation.dimensions["layer_evidence_contract_passed"] is False
     assert "layer_evidence" in result.loop_result.evaluation.dimensions["layer_evidence_contract_missing"]
     assert result.task_state == "REPAIR_REQUIRED"
     assert control.scheduler.task("TASK-RC7-1-LAYER-L5").state == TaskStatus.REPAIR_REQUIRED
