@@ -1,0 +1,40 @@
+name: RC8 N8 Failure Diagnosis
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_center/failure_diagnosis.py'
+      - 'rc8_center/infrastructure/postgres_failure_diagnosis.py'
+      - 'tests/test_rc8_failure_diagnosis.py'
+      - 'tests/test_rc8_failure_diagnosis_postgres.py'
+      - '.github/workflows/rc8-n8-failure-diagnosis.yml'
+  workflow_dispatch:
+
+jobs:
+  n8-failure-diagnosis:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Install formal Center infrastructure dependencies
+        run: python -m pip install --disable-pip-version-check 'SQLAlchemy>=2,<3' 'redis>=5,<6'
+      - name: Compile N8 Failure Diagnosis
+        run: >-
+          python -m py_compile
+          rc8_center/failure_diagnosis.py
+          rc8_center/infrastructure/postgres_failure_diagnosis.py
+          tests/test_rc8_failure_diagnosis.py
+          tests/test_rc8_failure_diagnosis_postgres.py
+      - name: Run N8 Failure Diagnosis regression
+        run: >-
+          python -m unittest
+          tests.test_rc8_failure_diagnosis
+          tests.test_rc8_failure_diagnosis_postgres
+          -v
