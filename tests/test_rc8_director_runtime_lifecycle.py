@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 
 from rc8_center.control_plane import CenterControlError, CenterControlPlane, MemoryCenterRepository, NodeStatus
 from rc8_center.director_runtime_lifecycle import DirectorRuntimeLifecycle
@@ -20,10 +21,15 @@ class DirectorRuntimeLifecycleTest(unittest.TestCase):
         for capability in ("ai_model", "dsh", "director_runtime"):
             self.center.qualify_capability(CapabilityQualification(node_id=node_id, capability_id=capability, state=CapabilityState.VERIFIED, probe_ref="probe://%s/%s" % (node_id, capability), evidence_refs=["evidence://%s/%s" % (node_id, capability)], verified_at=1))
 
+    def _set_node_status(self, node_id, status):
+        node = self.repo.get_node(node_id)
+        self.assertIsNotNone(node)
+        self.repo.upsert_node(replace(node, status=status))
+
     def test_distributed_re_elects_after_director_loss(self):
         first = self.runtime.elect("node-a")
         self.assertEqual("node-a", first.node_id)
-        self.repo.get_node("node-a").status = NodeStatus.OFFLINE
+        self._set_node_status("node-a", NodeStatus.OFFLINE)
         second = self.runtime.reconcile(ExecutionMode.DISTRIBUTED)
         self.assertEqual("node-b", second.node_id)
         self.assertEqual(first.generation + 1, second.generation)
@@ -31,7 +37,7 @@ class DirectorRuntimeLifecycleTest(unittest.TestCase):
 
     def test_single_node_fails_closed_instead_of_moving_director(self):
         first = self.runtime.elect("node-a")
-        self.repo.get_node("node-a").status = NodeStatus.OFFLINE
+        self._set_node_status("node-a", NodeStatus.OFFLINE)
         with self.assertRaises(CenterControlError):
             self.runtime.reconcile(ExecutionMode.SINGLE_NODE, single_node_id="node-a")
         self.assertEqual(first, self.runtime.state)
