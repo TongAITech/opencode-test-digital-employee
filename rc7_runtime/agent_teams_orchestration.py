@@ -1,14 +1,14 @@
 """RC7.1 bridge to the real dsh-agent-teams durable orchestration truth.
 
-This module deliberately does not emulate AgentTeams.  Production dispatch reads
+This module deliberately does not emulate AgentTeams. Production dispatch reads
 its canonical file-backed state under ``<workspace>/.agent-teams/<teamId>/team.json``
 and refuses to launch a professional RC7 worker unless the Mission Task is owned
 by a durable non-captain team member.
 
-AgentTeams remains the team/member/task orchestration authority.  RC7 remains the
-R1, lease, evidence and acceptance authority.  The binding receipt below is the
+AgentTeams remains the team/member/task orchestration authority. RC7 remains the
+R1, lease, evidence and acceptance authority. The binding receipt below is the
 immutable seam between those two truths and is persisted into canonical R1 as
-Evidence.  No caller supplied ``team_id`` or ``member_id`` can force admission.
+Evidence. No caller supplied ``team_id`` or ``member_id`` can force admission.
 """
 from __future__ import annotations
 
@@ -75,17 +75,11 @@ def _canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
 
 
 class DshAgentTeamsStateGate:
-    """Fail-closed admission gate backed by real dsh-agent-teams disk truth.
-
-    Mission association is explicit.  A team must carry
-    ``RC7_MISSION_ID=<mission_id>`` in its description or frozen profile
-    description/protocol.  A Team task must carry the exact RC7 Task identity in
-    ``id``, ``profileSeedId`` or a ``RC7_TASK_ID=<task_id>`` marker in its
-    subject/description/objective.  This prevents a nearby or stale team from
-    being treated as authority for the current Mission.
-    """
+    """Fail-closed admission gate backed by real dsh-agent-teams disk truth."""
 
     ACTIVE_TASK_STATES = frozenset({"pending", "claimed", "in_progress"})
+    COORDINATION_TERMINAL_STATE = "completed"
+    COORDINATION_MARKER = "RC7_COORDINATION_SLOT=true"
 
     def __init__(
         self,
@@ -98,6 +92,17 @@ class DshAgentTeamsStateGate:
         self.workspace_root = Path(workspace_root).expanduser().resolve()
         self.state_root = self.workspace_root / ".agent-teams"
         self.evidence_root = Path(evidence_root).expanduser().resolve()
+
+    @classmethod
+    def _dispatchable_status(cls, team_task: Mapping[str, Any], status: str) -> bool:
+        if status in cls.ACTIVE_TASK_STATES:
+            return True
+        if status != cls.COORDINATION_TERMINAL_STATE:
+            return False
+        # A completed AgentTeams coordination slot only proves durable ownership
+        # handoff. It never proves RC7 business execution PASS. The governed
+        # child worker must still execute and produce canonical R1 evidence.
+        return cls.COORDINATION_MARKER in str(team_task.get("description") or "")
 
     def require_binding(self, task: Task) -> AgentTeamsTaskBinding:
         if task.mission_id != self.control.mission_id:
@@ -124,7 +129,7 @@ class DshAgentTeamsStateGate:
             raise AgentTeamsOrchestrationError("AGENT_TEAMS_TASK_ASSIGNMENT_NOT_UNIQUE")
         team_task = team_tasks[0]
         status = _required_text(team_task.get("status"), "AGENT_TEAMS_TASK_STATUS_REQUIRED")
-        if status not in self.ACTIVE_TASK_STATES:
+        if not self._dispatchable_status(team_task, status):
             raise AgentTeamsOrchestrationError("AGENT_TEAMS_TASK_NOT_DISPATCHABLE:%s" % status)
 
         assignee = _required_text(team_task.get("assignee"), "AGENT_TEAMS_TASK_ASSIGNEE_REQUIRED")
