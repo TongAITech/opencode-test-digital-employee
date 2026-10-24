@@ -1,5 +1,7 @@
+import tempfile
 import unittest
 from dataclasses import replace
+from pathlib import Path
 
 from rc8_center.control_plane import CenterControlError, CenterControlPlane, MemoryCenterRepository, NodeStatus
 from rc8_center.director_runtime_lifecycle import DirectorRuntimeLifecycle
@@ -11,7 +13,10 @@ from rc8_runtime.r1_runtime import CentralR1RuntimeLedger
 class DirectorRuntimeLifecycleTest(unittest.TestCase):
     def setUp(self):
         self.repo = MemoryCenterRepository()
-        self.center = CenterControlPlane(self.repo, CentralR1RuntimeLedger(":memory:"), now_fn=lambda: 100)
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+        ledger_path = str(Path(self._tmpdir.name) / "r1-event-stream.jsonl")
+        self.center = CenterControlPlane(self.repo, CentralR1RuntimeLedger(ledger_path), now_fn=lambda: 100)
         self._add_node("node-a")
         self._add_node("node-b")
         self.runtime = DirectorRuntimeLifecycle(self.repo)
