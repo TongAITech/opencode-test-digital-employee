@@ -1,0 +1,14 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "title":"NodeDeliveryPackage","type":"object","additionalProperties":true,
+  "required":["mission_id","run_id","node_id","input_version","iteration_count","artifact_refs","evidence_refs","unresolved_gap_ids","terminal_status","r1_refs"],
+  "properties":{
+    "mission_id":{"type":"string","minLength":1},"run_id":{"type":"string","minLength":1},
+    "node_id":{"type":"string","enum":["N1","N2","N3","N4","N5","N6","N7","N8","N9","N10"]},
+    "input_version":{"type":"string","minLength":1},"iteration_count":{"type":"integer","minimum":1},
+    "artifact_refs":{"type":"array","minItems":1},"evidence_refs":{"type":"array","minItems":1},
+    "unresolved_gap_ids":{"type":"array"},"blocked_item_ids":{"type":"array"},
+    "terminal_status":{"type":"string"},"r1_refs":{"type":"array","minItems":1},
+    "team_id":{"type":"string"},"assignment_ids":{"type":"array"},"member_ids":{"type":"array"}
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "title":"LayerCoverageReceipt","type":"object","additionalProperties":true,
+  "required":["layer","source_revision","target_id","denominator_version","denominator_hash","covered","total","covered_pass","covered_fail","excluded_with_evidence","evidence_refs","status"],
+  "properties":{
+    "layer":{"type":"string","enum":["L1","L2","L3","L4","L5","L6","L7"]},
+    "source_revision":{"type":"string","minLength":1},"target_id":{"type":"string","minLength":1},
+    "denominator_version":{"type":"string","minLength":1},"denominator_hash":{"type":"string","minLength":1},
+    "covered":{"type":"integer","minimum":0},"total":{"type":"integer","minimum":1},
+    "covered_pass":{"type":"integer","minimum":0},"covered_fail":{"type":"integer","minimum":0},
+    "excluded_with_evidence":{"type":"integer","minimum":0},"evidence_refs":{"type":"array","minItems":1},
+    "status":{"type":"string","enum":["IN_PROGRESS","READY","BLOCKED"]}
+  }
+}

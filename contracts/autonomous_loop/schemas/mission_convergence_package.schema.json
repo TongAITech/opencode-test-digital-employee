@@ -1,0 +1,11 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "title":"MissionConvergencePackage","type":"object","additionalProperties":true,
+  "required":["mission_id","run_id","release_id","test_sufficiency_state","product_quality_state","release_recommendation","terminal_status","r1_refs"],
+  "properties":{
+    "mission_id":{"type":"string","minLength":1},"run_id":{"type":"string","minLength":1},"release_id":{"type":"string","minLength":1},
+    "layer_coverage_matrix":{"type":"object"},"global_coverage_ledger":{"type":"object"},"traceability_summary":{"type":"object"},
+    "test_sufficiency_state":{"type":"string"},"product_quality_state":{"type":"string"},"release_recommendation":{"type":"string"},
+    "truth_digest":{"type":"string"},"terminal_status":{"type":"string"},"r1_refs":{"type":"array","minItems":1}
+  }
+}
