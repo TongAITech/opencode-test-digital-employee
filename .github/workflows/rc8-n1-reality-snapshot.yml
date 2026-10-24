@@ -23,8 +23,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.8'
-      - name: Install durable repository dependency
-        run: python -m pip install --disable-pip-version-check 'SQLAlchemy>=2,<3'
+      - name: Install formal Center infrastructure dependencies
+        run: python -m pip install --disable-pip-version-check 'SQLAlchemy>=2,<3' 'redis>=5,<6'
       - name: Compile N1 reality snapshot gate
         run: >-
           python -m py_compile
