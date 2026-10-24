@@ -12,7 +12,7 @@ This additive authority wraps it without creating a second runtime truth:
    manifest, so ordinary converge_after_director_accept() consumes only current
    governed truth.
 
-Test Sufficiency remains independent from Product Quality.  Dispositioned
+Test Sufficiency remains independent from Product Quality. Dispositioned
 residual risk yields SUFFICIENT_WITH_RESIDUAL_RISK and a CONDITIONAL release
 recommendation; it is never silently converted into a testing failure or a
 business release approval.
@@ -23,9 +23,8 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence, Tuple
+from typing import Any, Mapping, Tuple
 
-from .autonomous_contract import CANONICAL_LAYER_IDS
 from .autonomous_events import AutonomousEvent
 from .autonomous_n10_finalization import AutonomousN10FinalizationService
 from .autonomous_n10_node import (
@@ -47,6 +46,19 @@ class GovernedN10Error(AutonomousN10Error):
     pass
 
 
+def _json_native(value: Any) -> Any:
+    """Return the canonical JSON representation used by R1 artifacts/reports.
+
+    Dataclass reconstruction intentionally uses tuples for immutable in-memory
+    contracts. JSON persistence turns those tuples into arrays. Governance must
+    compare the persisted representation, not Python container implementation
+    details, otherwise a valid manifest can be falsely classified as stale.
+    """
+    return json.loads(
+        json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    )
+
+
 @dataclass(frozen=True)
 class ResidualRiskGovernanceReceipt:
     artifact_id: str
@@ -65,7 +77,7 @@ class GovernedAutonomousN10Service(AutonomousN10Service):
         run_id: str,
     ) -> N10PreparedNode:
         registry = ResidualRiskRegistry(evidence_root=str(self.evidence_root))
-        summary = registry.summary(control)
+        summary = _json_native(registry.summary(control))
         risk_count = int(summary.get("risk_count") or 0)
         if risk_count == 0:
             return super().prepare_ready(control, run_id=run_id)
@@ -209,7 +221,9 @@ class GovernedAutonomousN10Service(AutonomousN10Service):
             source_evaluation_id=evaluation_id,
             artifact_refs=artifact_refs,
             evidence_refs=list(dict.fromkeys(evidence_refs)),
-            coverage_summary=dict(candidate.delivery and base_manifest.get("layer_coverage") or {}),
+            coverage_summary=dict(
+                candidate.delivery and base_manifest.get("layer_coverage") or {}
+            ),
             risk_summary={
                 "quality_state": candidate.quality_state,
                 "residual_risk_summary": dict(summary),
@@ -267,8 +281,9 @@ class GovernedAutonomousN10Service(AutonomousN10Service):
         *,
         run_id: str,
     ) -> FinalReportReceipt:
-        # No-risk Missions keep the proven base report path unchanged.
-        summary = ResidualRiskRegistry(evidence_root=str(self.evidence_root)).summary(control)
+        summary = _json_native(
+            ResidualRiskRegistry(evidence_root=str(self.evidence_root)).summary(control)
+        )
         if int(summary.get("risk_count") or 0) == 0:
             return super().generate_final_report(control, run_id=run_id)
 
@@ -338,17 +353,24 @@ class GovernedAutonomousN10Service(AutonomousN10Service):
             kind=self.FINAL_REPORT_TYPE,
             source_ref="runtime://n10-final-report",
             content_ref="file://" + str(path),
-            subject_refs=[artifact_id, str(convergence_artifact["artifact_id"]), manifest_artifact_id],
+            subject_refs=[
+                artifact_id,
+                str(convergence_artifact["artifact_id"]),
+                manifest_artifact_id,
+            ],
             content_hash="sha256:" + digest,
         )
         artifact = Artifact(
             artifact_id=artifact_id,
             mission_id=control.mission_id,
             artifact_type=self.FINAL_REPORT_TYPE,
-            producer_task_id=_stable_id("TASK-N10-CONVERGENCE", control.mission_id, run_id),
+            producer_task_id=_stable_id(
+                "TASK-N10-CONVERGENCE", control.mission_id, run_id
+            ),
             content_ref="file://" + str(path),
             parent_refs=[str(convergence_artifact["artifact_id"]), manifest_artifact_id],
-            evidence_refs=[evidence_id] + [
+            evidence_refs=[evidence_id]
+            + [
                 str(item["evidence_id"])
                 for item in summary.get("risks") or []
                 if isinstance(item, Mapping) and item.get("evidence_id")
@@ -363,7 +385,12 @@ class GovernedAutonomousN10Service(AutonomousN10Service):
             control,
             run_id=run_id,
             event_name=AutonomousEvent.FINAL_REPORT_GENERATED.value,
-            refs=[artifact_id, evidence_id, str(convergence_artifact["artifact_id"]), manifest_artifact_id],
+            refs=[
+                artifact_id,
+                evidence_id,
+                str(convergence_artifact["artifact_id"]),
+                manifest_artifact_id,
+            ],
             data={
                 "report_sha256": digest,
                 "mission_state": "CONVERGED",
@@ -405,7 +432,10 @@ class GovernedAutonomousN10Service(AutonomousN10Service):
             mismatches = list(result.get("mismatches") or [])
             if report.get("residual_risk_summary") != manifest.get("residual_risk_summary"):
                 mismatches.append("residual_risk_summary")
-            result = {"status": "PASS" if not mismatches else "FAIL", "mismatches": mismatches}
+            result = {
+                "status": "PASS" if not mismatches else "FAIL",
+                "mismatches": mismatches,
+            }
         return result
 
     def _persist_risk_governance(
@@ -439,22 +469,29 @@ class GovernedAutonomousN10Service(AutonomousN10Service):
             path.write_bytes(encoded)
         evidence_id = _stable_id("EVD-N10-RISK-GOV", control.mission_id, run_id, digest)
         artifact_id = _stable_id("ART-N10-RISK-GOV", control.mission_id, run_id, digest)
-        risk_artifacts = [str(item["artifact_id"]) for item in risks if item.get("artifact_id")]
-        risk_evidence = [str(item["evidence_id"]) for item in risks if item.get("evidence_id")]
+        risk_artifacts = [
+            str(item["artifact_id"]) for item in risks if item.get("artifact_id")
+        ]
+        risk_evidence = [
+            str(item["evidence_id"]) for item in risks if item.get("evidence_id")
+        ]
         evidence = Evidence(
             evidence_id=evidence_id,
             mission_id=control.mission_id,
             kind=self.RISK_GOVERNANCE_TYPE,
             source_ref="runtime://n10-residual-risk-governance",
             content_ref="file://" + str(path),
-            subject_refs=[artifact_id, run_id] + [str(item["risk_id"]) for item in risks],
+            subject_refs=[artifact_id, run_id]
+            + [str(item["risk_id"]) for item in risks],
             content_hash="sha256:" + digest,
         )
         artifact = Artifact(
             artifact_id=artifact_id,
             mission_id=control.mission_id,
             artifact_type=self.RISK_GOVERNANCE_TYPE,
-            producer_task_id=_stable_id("TASK-N10-CONVERGENCE", control.mission_id, run_id),
+            producer_task_id=_stable_id(
+                "TASK-N10-CONVERGENCE", control.mission_id, run_id
+            ),
             content_ref="file://" + str(path),
             parent_refs=risk_artifacts,
             evidence_refs=[evidence_id] + risk_evidence,
@@ -464,7 +501,12 @@ class GovernedAutonomousN10Service(AutonomousN10Service):
             append_entity(control.truth, evidence, release_id=control.release_id)
         if not control.truth.query("rc7_artifact", artifact_id=artifact_id):
             append_entity(control.truth, artifact, release_id=control.release_id)
-        return ResidualRiskGovernanceReceipt(artifact_id, evidence_id, digest, dict(summary))
+        return ResidualRiskGovernanceReceipt(
+            artifact_id,
+            evidence_id,
+            digest,
+            dict(summary),
+        )
 
     def _persist_governed_manifest(
         self,
@@ -491,14 +533,17 @@ class GovernedAutonomousN10Service(AutonomousN10Service):
             path.write_bytes(encoded)
         evidence_id = _stable_id("EVD-N10-MANIFEST-V3", control.mission_id, run_id, digest)
         artifact_id = _stable_id("ART-N10-MANIFEST-V3", control.mission_id, run_id, digest)
-        risks = [item for item in summary.get("risks") or [] if isinstance(item, Mapping)]
+        risks = [
+            item for item in summary.get("risks") or [] if isinstance(item, Mapping)
+        ]
         evidence = Evidence(
             evidence_id=evidence_id,
             mission_id=control.mission_id,
             kind=self.MANIFEST_TYPE,
             source_ref="runtime://n10-residual-risk-governed",
             content_ref="file://" + str(path),
-            subject_refs=[artifact_id, task_id, run_id] + [str(item["risk_id"]) for item in risks],
+            subject_refs=[artifact_id, task_id, run_id]
+            + [str(item["risk_id"]) for item in risks],
             content_hash="sha256:" + digest,
         )
         artifact = Artifact(
@@ -507,12 +552,14 @@ class GovernedAutonomousN10Service(AutonomousN10Service):
             artifact_type=self.MANIFEST_TYPE,
             producer_task_id=task_id,
             content_ref="file://" + str(path),
-            parent_refs=[base_manifest_artifact_id, governance.artifact_id] + [
-                str(item["artifact_id"]) for item in risks if item.get("artifact_id")
-            ],
-            evidence_refs=[evidence_id, base_manifest_evidence_id, governance.evidence_id] + [
-                str(item["evidence_id"]) for item in risks if item.get("evidence_id")
-            ],
+            parent_refs=[base_manifest_artifact_id, governance.artifact_id]
+            + [str(item["artifact_id"]) for item in risks if item.get("artifact_id")],
+            evidence_refs=[
+                evidence_id,
+                base_manifest_evidence_id,
+                governance.evidence_id,
+            ]
+            + [str(item["evidence_id"]) for item in risks if item.get("evidence_id")],
             content_hash="sha256:" + digest,
         )
         if not control.truth.query("rc7_evidence", evidence_id=evidence_id):
