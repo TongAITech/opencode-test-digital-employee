@@ -2,15 +2,15 @@
 """Corrected Requirement Repair Reality fixture and semantic history view.
 
 The first fake DSH answer must pass REQUIREMENT_ANALYSIS structural truth gates
-before REQUIREMENT_SUFFICIENCY can judge it insufficient.  It therefore keeps
+before REQUIREMENT_SUFFICIENCY can judge it insufficient. It therefore keeps
 source assertions / atomic statements / traceability / evidence valid and
-omits only the normal path.  The second answer adds the normal path.
+omits only the normal path. The second answer adds the normal path.
 
-SufficiencyEvaluation rows do not carry R1 sequence and two evaluations can be
-projected in the same second, so repository list position is not a chronology
-contract.  For this Reality assertion we order Stage-level evaluations by the
-attempt number of their subject Stage.  That proves attempt 1 is INSUFFICIENT
-and attempt 2 is SUFFICIENT without inventing temporal truth from UUID order.
+The governance endpoint can contain other stage/mission evaluations added by
+newer RC8 adoption slices. This test owns only REQUIREMENT_SUFFICIENCY history,
+so its semantic view filters to those stage subjects before ordering by attempt.
+That keeps the assertion strict without treating unrelated SUFFICIENT facts as
+requirement-repair history.
 """
 from __future__ import annotations
 
@@ -36,8 +36,6 @@ def _analysis_valid_but_insufficient_dsh(path: Path, state_path: Path) -> None:
         "data_constraints": [],
         "dependencies": [],
         "side_effects": [],
-        # Deliberately advisory/malicious field: deterministic sufficiency must
-        # ignore it and still return INSUFFICIENT on round 1.
         "is_sufficient": True,
     }
     complete = dict(incomplete)
@@ -72,7 +70,17 @@ def _governance_by_stage_attempt(client, test_run_id):
         for stage in body.get("stages") or []
         if stage.get("stage_instance_id")
     }
-    evaluations = list(body.get("evaluations") or [])
+    requirement_sufficiency_subjects = {
+        stage["stage_instance_id"]
+        for stage in body.get("stages") or []
+        if stage.get("stage_instance_id")
+        and stage.get("stage_type") == "REQUIREMENT_SUFFICIENCY"
+    }
+    evaluations = [
+        value
+        for value in body.get("evaluations") or []
+        if value.get("subject_id") in requirement_sufficiency_subjects
+    ]
     evaluations.sort(
         key=lambda value: stage_order.get(
             value.get("subject_id"),
