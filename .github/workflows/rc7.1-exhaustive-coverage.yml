@@ -45,6 +45,7 @@ jobs:
           tests/test_rc7_1_n9_defect_evidence_integration.py
           tests/test_rc7_1_wave_e_node_closure.py
           tests/test_rc7_1_n10_manifest_reconciliation.py
+          tests/test_rc7_1_n10_convergence_reporting.py
           tests/test_rc7_1_coverage_ledger_contract.py
           tests/test_rc7_1_failure_classification_contract.py
           tests/test_rc7_1_exhaustive_coverage_gate.py
