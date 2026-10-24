@@ -27,9 +27,13 @@ RUNTIME_FILES = (
     "rc8_runtime/governance.py",
     "rc8_runtime/coverage.py",
     "rc8_runtime/mission_graph.py",
+    "rc8_runtime/sufficiency.py",
+    "rc8_runtime/mission_nodes.py",
     "rc8_center/__init__.py",
     "rc8_center/__main__.py",
     "rc8_center/control_plane.py",
+    "rc8_center/distributed_orchestration.py",
+    "rc8_center/mission_node_gate.py",
     "rc8_center/http_server.py",
     "rc8_center/artifacts.py",
     "rc8_center/json_repository.py",
@@ -243,6 +247,8 @@ def _write_manifest(root: Path, head: str, files: List[str]) -> str:
             "CODE_ANALYSIS_STRUCTURAL_LOOP",
             "DSH_SEMANTIC_WORKER",
             "CODE_ANALYSIS_AUTONOMOUS_REALITY",
+            "N1_N10_MISSION_NODE_ADOPTION",
+            "CENTER_MISSION_NODE_GATE",
         ],
         "external_bank_capabilities_expected": ["PYTHON_3_8_PLUS", "GIT", "JAVA_MAVEN", "CODEGRAPH", "DSH_HEADLESS"],
         "files": sorted(files),
@@ -279,11 +285,15 @@ def _verify_python(root: Path) -> None:
 def _verify_runtime_imports(root: Path) -> None:
     code = (
         "from rc8_runtime import CoverageObservation, MissionGraphRuntime, MissionRuntimeState, ScopedStatusClaim; "
+        "from rc8_runtime.sufficiency import FrozenSufficiencyLedger; "
+        "from rc8_runtime.mission_nodes import MissionNodeType, MissionNodeAdoptionGraph; "
         "from rc8_center import CenterMissionService, CenterProductApplication, GovernanceEventProjector, GovernanceProjectionService, JsonFileCoverageRepository, JsonFileGovernanceRepository; "
+        "from rc8_center.mission_node_gate import CenterMissionNodeReviewGate; "
         "from rc8_node import FormalNodeAgent; "
         "from rc8_node.failure_classification import JUnitFailureClassifier; "
         "from rc8_node.jacoco import JaCoCoChangedScopeCollector; "
         "assert CoverageObservation and MissionGraphRuntime and MissionRuntimeState and ScopedStatusClaim; "
+        "assert FrozenSufficiencyLedger and MissionNodeType and MissionNodeAdoptionGraph and CenterMissionNodeReviewGate; "
         "assert CenterMissionService and CenterProductApplication and GovernanceEventProjector and GovernanceProjectionService; "
         "assert JsonFileCoverageRepository and JsonFileGovernanceRepository and FormalNodeAgent and JUnitFailureClassifier and JaCoCoChangedScopeCollector; "
         "print('RC8_PACKAGE_RUNTIME_IMPORT_PASS')"
