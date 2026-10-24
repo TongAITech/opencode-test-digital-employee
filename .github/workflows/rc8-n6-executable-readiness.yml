@@ -1,0 +1,42 @@
+name: RC8 N6 Executable Readiness
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_center/executable_readiness.py'
+      - 'rc8_center/infrastructure/postgres_executable_readiness.py'
+      - 'tests/test_rc8_executable_readiness.py'
+      - 'tests/test_rc8_executable_readiness_postgres.py'
+      - '.github/workflows/rc8-n6-executable-readiness.yml'
+  workflow_dispatch:
+
+jobs:
+  n6-executable-readiness:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Install formal Center infrastructure dependencies
+        run: python -m pip install --disable-pip-version-check 'SQLAlchemy>=2,<3' 'redis>=5,<6'
+      - name: Compile N6 Executable Readiness
+        run: >-
+          python -m py_compile
+          rc8_center/prepared_attempt.py
+          rc8_center/executable_readiness.py
+          rc8_center/infrastructure/postgres_executable_readiness.py
+          tests/test_rc8_executable_readiness.py
+          tests/test_rc8_executable_readiness_postgres.py
+      - name: Run N5-N6 integration regression
+        run: >-
+          python -m unittest
+          tests.test_rc8_prepared_attempt
+          tests.test_rc8_executable_readiness
+          tests.test_rc8_executable_readiness_postgres
+          -v
