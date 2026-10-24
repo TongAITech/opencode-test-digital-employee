@@ -9,6 +9,7 @@ on:
       - 'rc8_center/node_team_runtime.py'
       - 'rc8_center/dsh_agent_teams_adapter.py'
       - 'rc8_center/dsh_node_runtime_adapter.py'
+      - 'rc8_center/team_profiles.py'
       - 'rc8_center/control_plane.py'
       - 'rc8_runtime/contracts.py'
       - 'rc8_runtime/r1_runtime.py'
@@ -17,6 +18,7 @@ on:
       - 'tests/test_rc8_node_team_runtime.py'
       - 'tests/test_rc8_dsh_agent_teams_adapter.py'
       - 'tests/test_rc8_dsh_node_runtime_adapter.py'
+      - 'tests/test_rc8_team_profiles.py'
       - '.github/workflows/rc8-distributed-runtime-stack.yml'
   workflow_dispatch:
 
@@ -47,7 +49,8 @@ jobs:
             rc8_center/distributed_lifecycle.py \
             rc8_center/node_team_runtime.py \
             rc8_center/dsh_agent_teams_adapter.py \
-            rc8_center/dsh_node_runtime_adapter.py
+            rc8_center/dsh_node_runtime_adapter.py \
+            rc8_center/team_profiles.py
       - name: Run distributed runtime stack regression
         shell: bash
         run: >-
@@ -57,3 +60,4 @@ jobs:
           tests/test_rc8_node_team_runtime.py
           tests/test_rc8_dsh_agent_teams_adapter.py
           tests/test_rc8_dsh_node_runtime_adapter.py
+          tests/test_rc8_team_profiles.py
