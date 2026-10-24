@@ -43,9 +43,28 @@ def _launcher(tmp_path, truth):
     )
 
 
-def _write_team(tmp_path, task, *, assignee="requirements", member_status="idle"):
+def _write_team(
+    tmp_path,
+    task,
+    *,
+    assignee="requirements",
+    member_status="idle",
+    task_status="pending",
+    task_description=None,
+):
     folder = tmp_path / ".agent-teams" / "rc7-bank-team"
     folder.mkdir(parents=True, exist_ok=True)
+    team_task = {
+        "id": "team-task-requirements",
+        "subject": "RC7_TASK_ID=%s analyze requirements" % task.task_id,
+        "status": task_status,
+        "assignee": assignee,
+        "dependencies": [],
+        "createdAt": 1,
+        "updatedAt": 1,
+    }
+    if task_description is not None:
+        team_task["description"] = task_description
     payload = {
         "name": "rc7-bank-team",
         "id": "rc7-bank-team",
@@ -62,17 +81,7 @@ def _write_team(tmp_path, task, *, assignee="requirements", member_status="idle"
                 "status": member_status,
             }
         ],
-        "tasks": [
-            {
-                "id": "team-task-requirements",
-                "subject": "RC7_TASK_ID=%s analyze requirements" % task.task_id,
-                "status": "pending",
-                "assignee": assignee,
-                "dependencies": [],
-                "createdAt": 1,
-                "updatedAt": 1,
-            }
-        ],
+        "tasks": [team_task],
         "taskSeq": 1,
     }
     path = folder / "team.json"
@@ -148,3 +157,48 @@ def test_removed_agent_teams_member_cannot_receive_rc7_execution(tmp_path) -> No
 
     with pytest.raises(DshWorkerBridgeError, match="AGENT_TEAMS_MEMBER_REMOVED"):
         bridge._assign(task, bridge.node_policies[task.node])
+
+
+def test_completed_coordination_slot_still_dispatches_governed_child_worker(tmp_path) -> None:
+    truth, control, graph = _control(tmp_path)
+    task = graph.task("REQUIREMENT_ANALYSIS")
+    _write_team(
+        tmp_path,
+        task,
+        task_status="completed",
+        task_description=(
+            "RC7_COORDINATION_SLOT=true; durable ownership handoff only; "
+            "business execution remains governed by canonical RC7 child worker"
+        ),
+    )
+    launcher = _launcher(tmp_path, truth)
+    bridge = DshTaskWorkerBridge(control, launcher)
+
+    assignment = bridge._assign(task, bridge.node_policies[task.node])
+
+    assert assignment.parent_worker_id == "member-session-requirements"
+    rows = [
+        row for row in truth.query("rc7_evidence", mission_id=MISSION_ID)
+        if row.get("kind") == "DSH_AGENT_TEAMS_ASSIGNMENT"
+    ]
+    assert len(rows) == 1
+    receipt = json.loads(Path(rows[0]["content_ref"][len("file://") :]).read_text(encoding="utf-8"))
+    assert receipt["team"]["team_task_status"] == "completed"
+    assert receipt["director_self_execution_forbidden"] is True
+
+
+def test_completed_non_coordination_task_cannot_impersonate_execution_pass(tmp_path) -> None:
+    truth, control, graph = _control(tmp_path)
+    task = graph.task("REQUIREMENT_ANALYSIS")
+    _write_team(
+        tmp_path,
+        task,
+        task_status="completed",
+        task_description="ordinary team task with no RC7 coordination marker",
+    )
+    bridge = DshTaskWorkerBridge(control, _launcher(tmp_path, truth))
+
+    with pytest.raises(DshWorkerBridgeError, match="AGENT_TEAMS_TASK_NOT_DISPATCHABLE:completed"):
+        bridge._assign(task, bridge.node_policies[task.node])
+
+    assert truth.query("rc7_evidence", mission_id=MISSION_ID) == []
