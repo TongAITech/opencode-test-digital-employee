@@ -19,6 +19,7 @@ on:
       - 'tests/test_rc8_dsh_agent_teams_adapter.py'
       - 'tests/test_rc8_dsh_node_runtime_adapter.py'
       - 'tests/test_rc8_team_profiles.py'
+      - 'tests/test_rc8_p0_distributed_reality.py'
       - '.github/workflows/rc8-distributed-runtime-stack.yml'
   workflow_dispatch:
 
@@ -61,3 +62,4 @@ jobs:
           tests/test_rc8_dsh_agent_teams_adapter.py
           tests/test_rc8_dsh_node_runtime_adapter.py
           tests/test_rc8_team_profiles.py
+          tests/test_rc8_p0_distributed_reality.py
