@@ -16,11 +16,10 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Mapping, Tuple
+from typing import Any, Dict, List, Tuple
 
 from rc6_runtime.truth import TruthRuntime
 
-from .autonomous_residual_risk import ResidualRiskRegistry
 from .defect_review_conformance import DefectReviewConformanceChecker
 from .execution_recovery_conformance import (
     ExecutionRecoveryConformanceChecker,
@@ -195,6 +194,13 @@ class MissionConvergenceConformanceChecker:
         return result
 
     def _residual_risk_conformance(self, mission_id: str):
+        # Import lazily to preserve the existing control-plane import graph:
+        # closed_loop_control -> mission_convergence_conformance.  The registry
+        # itself accepts a control-plane shaped object and therefore imports the
+        # control plane for its runtime API.  Loading it here occurs only after
+        # rc7_runtime has fully initialized and avoids a circular module import.
+        from .autonomous_residual_risk import ResidualRiskRegistry
+
         proxy = SimpleNamespace(truth=self.truth, mission_id=mission_id)
         summary = ResidualRiskRegistry(evidence_root=".").summary(proxy)
         if int(summary.get("risk_count") or 0) == 0:
@@ -244,16 +250,30 @@ class MissionConvergenceConformanceChecker:
             return {"status": "FAIL", "triggered": True}, violations
 
         current = {item["risk_id"]: item for item in summary.get("risks") or []}
-        recorded = {item["risk_id"]: item for item in payload.get("risks") or [] if isinstance(item, dict) and item.get("risk_id")}
+        recorded = {
+            item["risk_id"]: item
+            for item in payload.get("risks") or []
+            if isinstance(item, dict) and item.get("risk_id")
+        }
         if set(current) != set(recorded):
             violations.append("RESIDUAL_RISK_GOVERNANCE_SET_MISMATCH")
         else:
             for risk_id in sorted(current):
                 expected = current[risk_id]
                 actual = recorded[risk_id]
-                for field in ("revision", "disposition", "acceptance_ref", "record_sha256", "artifact_id", "evidence_id"):
+                for field in (
+                    "revision",
+                    "disposition",
+                    "acceptance_ref",
+                    "record_sha256",
+                    "artifact_id",
+                    "evidence_id",
+                ):
                     if actual.get(field) != expected.get(field):
-                        violations.append("RESIDUAL_RISK_GOVERNANCE_MISMATCH:%s:%s" % (risk_id, field))
+                        violations.append(
+                            "RESIDUAL_RISK_GOVERNANCE_MISMATCH:%s:%s"
+                            % (risk_id, field)
+                        )
         if payload.get("all_dispositioned") is not True:
             violations.append("RESIDUAL_RISK_GOVERNANCE_NOT_DISPOSITIONED")
         return {
