@@ -260,7 +260,20 @@ class ExecutionRecoveryConformanceChecker:
     def __init__(self, truth: TruthRuntime) -> None:
         self.truth = truth
 
-    def check_task(self, mission_id: str, task_id: str) -> ExecutionRecoveryConformanceResult:
+    def check_task(
+        self,
+        mission_id: str,
+        task_id: str,
+        *,
+        enforce_real_executor: bool = False,
+    ) -> ExecutionRecoveryConformanceResult:
+        """Check durable execution/recovery truth.
+
+        ``check_task`` is also used while an EXECUTION task is still RUNNING to
+        inspect retry/fan-out completeness. Real-executor provenance is a final
+        PASS authority and is therefore enforced only when explicitly requested
+        by ``require_task_pass_ready``.
+        """
         contract = contract_row(self.truth, mission_id)
         if contract is None:
             return ExecutionRecoveryConformanceResult(
@@ -315,14 +328,15 @@ class ExecutionRecoveryConformanceChecker:
                 if convergence_status != "PASS":
                     violations.append("PASS_ATTEMPT_REQUIRES_PASS_CONVERGENCE:%s:%s" % (attempt_id, convergence_status or "MISSING"))
                 else:
-                    _check_real_executor_truth(
-                        self.truth,
-                        mission_id=mission_id,
-                        task_id=task_id,
-                        attempt_id=attempt_id,
-                        execution=execution,
-                        violations=violations,
-                    )
+                    if enforce_real_executor:
+                        _check_real_executor_truth(
+                            self.truth,
+                            mission_id=mission_id,
+                            task_id=task_id,
+                            attempt_id=attempt_id,
+                            execution=execution,
+                            violations=violations,
+                        )
                     terminal_statuses.append("PASS")
                 continue
 
@@ -370,14 +384,15 @@ class ExecutionRecoveryConformanceChecker:
                 if convergence_status not in PASS_READY_TERMINAL_STATUSES:
                     violations.append("EXECUTION_CHAIN_NOT_PASS_READY:%s:%s" % (attempt_id, convergence_status or "MISSING"))
                 elif convergence_status:
-                    _check_real_executor_truth(
-                        self.truth,
-                        mission_id=mission_id,
-                        task_id=task_id,
-                        attempt_id=attempt_id,
-                        execution=execution,
-                        violations=violations,
-                    )
+                    if enforce_real_executor:
+                        _check_real_executor_truth(
+                            self.truth,
+                            mission_id=mission_id,
+                            task_id=task_id,
+                            attempt_id=attempt_id,
+                            execution=execution,
+                            violations=violations,
+                        )
                     terminal_statuses.append(convergence_status)
             else:
                 if "recovery_execute" not in chain_tools:
@@ -425,7 +440,11 @@ class ExecutionRecoveryConformanceChecker:
         )
 
     def require_task_pass_ready(self, task: Task) -> ExecutionRecoveryConformanceResult:
-        result = self.check_task(task.mission_id, task.task_id)
+        result = self.check_task(
+            task.mission_id,
+            task.task_id,
+            enforce_real_executor=True,
+        )
         if result.status == "FAIL":
             raise ExecutionRecoveryConformanceError(
                 "EXECUTION_RECOVERY_CONFORMANCE_FAILED:%s" % ",".join(result.violations)
