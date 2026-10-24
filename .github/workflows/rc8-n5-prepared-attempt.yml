@@ -1,0 +1,40 @@
+name: RC8 N5 PreparedAttempt
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_center/prepared_attempt.py'
+      - 'rc8_center/infrastructure/postgres_prepared_attempt.py'
+      - 'tests/test_rc8_prepared_attempt.py'
+      - 'tests/test_rc8_prepared_attempt_postgres.py'
+      - '.github/workflows/rc8-n5-prepared-attempt.yml'
+  workflow_dispatch:
+
+jobs:
+  n5-prepared-attempt:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Install formal Center infrastructure dependencies
+        run: python -m pip install --disable-pip-version-check 'SQLAlchemy>=2,<3' 'redis>=5,<6'
+      - name: Compile N5 PreparedAttempt
+        run: >-
+          python -m py_compile
+          rc8_center/prepared_attempt.py
+          rc8_center/infrastructure/postgres_prepared_attempt.py
+          tests/test_rc8_prepared_attempt.py
+          tests/test_rc8_prepared_attempt_postgres.py
+      - name: Run N5 PreparedAttempt regression
+        run: >-
+          python -m unittest
+          tests.test_rc8_prepared_attempt
+          tests.test_rc8_prepared_attempt_postgres
+          -v
