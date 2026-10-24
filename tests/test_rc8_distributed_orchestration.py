@@ -23,7 +23,13 @@ class DistributedOrchestrationTest(unittest.TestCase):
         self.scheduler = NodePlacementScheduler(self.repo)
 
     def add_node(self, node_id, capabilities, status=NodeStatus.IDLE):
-        identity = NodeIdentity(node_id=node_id, hostname=node_id, platform="test", runtime_id="runtime-" + node_id)
+        identity = NodeIdentity(
+            node_id=node_id,
+            operator_ref="operator-test",
+            os_family="linux",
+            architecture="x86_64",
+            shell="bash",
+        )
         self.repo.upsert_node(NodeRecord(identity, status, 1, 1))
         for capability in capabilities:
             self.repo.upsert_capability(
@@ -31,7 +37,9 @@ class DistributedOrchestrationTest(unittest.TestCase):
                     node_id=node_id,
                     capability_id=capability,
                     state=CapabilityState.VERIFIED,
-                    evidence_ref="evidence://%s/%s" % (node_id, capability),
+                    probe_ref="probe://%s/%s" % (node_id, capability),
+                    evidence_refs=["evidence://%s/%s" % (node_id, capability)],
+                    verified_at=1,
                 )
             )
 
@@ -39,7 +47,8 @@ class DistributedOrchestrationTest(unittest.TestCase):
         identity = WorkItemIdentity(
             test_run_id="run-1",
             work_item_id="work-1",
-            stage_id="CODE_ANALYSIS",
+            stage="CODE_ANALYSIS",
+            scope_refs=["scope-1"],
             required_capabilities=list(required),
         )
         return WorkItemRecord(identity=identity)
