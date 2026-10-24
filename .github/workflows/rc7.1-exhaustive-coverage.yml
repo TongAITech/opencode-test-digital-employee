@@ -33,6 +33,7 @@ jobs:
           tests/test_rc7_1_autonomous_contract.py
           tests/test_rc7_1_contract_validator.py
           tests/test_rc7_1_autonomous_node_control.py
+          tests/test_rc7_1_coverage_ledger_contract.py
           tests/test_rc7_1_failure_classification_contract.py
           tests/test_rc7_1_exhaustive_coverage_gate.py
           tests/test_rc7_1_layer_execution_evidence_contract.py

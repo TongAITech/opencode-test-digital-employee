@@ -168,6 +168,125 @@ class CoverageDenominatorSnapshot:
 
 
 @dataclass(frozen=True)
+class CoverageObligation:
+    obligation_id: str
+    state: str
+    evidence_refs: Tuple[str, ...] = ()
+    gap_ids: Tuple[str, ...] = ()
+    exclusion_reason: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.obligation_id, str) or not self.obligation_id.strip():
+            raise AutonomousContractError("COVERAGE_OBLIGATION_ID_REQUIRED")
+        try:
+            state = CoverageObligationState(str(self.state))
+        except ValueError as exc:
+            raise AutonomousContractError("COVERAGE_OBLIGATION_STATE_INVALID:%s" % self.state) from exc
+        if state in {
+            CoverageObligationState.COVERED_PASS,
+            CoverageObligationState.COVERED_FAIL,
+            CoverageObligationState.EXCLUDED_WITH_EVIDENCE,
+        } and not self.evidence_refs:
+            raise AutonomousContractError("COVERAGE_TERMINAL_EVIDENCE_REQUIRED:%s" % self.obligation_id)
+        if state == CoverageObligationState.EXCLUDED_WITH_EVIDENCE and not str(self.exclusion_reason).strip():
+            raise AutonomousContractError("COVERAGE_EXCLUSION_REASON_REQUIRED:%s" % self.obligation_id)
+        if state == CoverageObligationState.BLOCKED and not self.gap_ids:
+            raise AutonomousContractError("BLOCKED_COVERAGE_OBLIGATION_REQUIRES_GAP:%s" % self.obligation_id)
+
+
+@dataclass(frozen=True)
+class CoverageLedger:
+    denominator: CoverageDenominatorSnapshot
+    obligations: Tuple[CoverageObligation, ...]
+
+    def __post_init__(self) -> None:
+        if not self.obligations:
+            raise AutonomousContractError("COVERAGE_LEDGER_OBLIGATIONS_REQUIRED")
+        ids = tuple(item.obligation_id for item in self.obligations)
+        if len(set(ids)) != len(ids):
+            raise AutonomousContractError("COVERAGE_LEDGER_DUPLICATE_OBLIGATION")
+        if set(ids) != set(self.denominator.obligation_ids):
+            raise AutonomousContractError("COVERAGE_LEDGER_DENOMINATOR_MISMATCH")
+        excluded = set(self.denominator.excluded_obligation_ids)
+        actual_excluded = {
+            item.obligation_id
+            for item in self.obligations
+            if item.state == CoverageObligationState.EXCLUDED_WITH_EVIDENCE.value
+        }
+        if actual_excluded != excluded:
+            raise AutonomousContractError("COVERAGE_LEDGER_EXCLUSION_MISMATCH")
+
+    @property
+    def total(self) -> int:
+        return len(self.obligations)
+
+    @property
+    def covered_pass(self) -> int:
+        return sum(item.state == CoverageObligationState.COVERED_PASS.value for item in self.obligations)
+
+    @property
+    def covered_fail(self) -> int:
+        return sum(item.state == CoverageObligationState.COVERED_FAIL.value for item in self.obligations)
+
+    @property
+    def excluded_with_evidence(self) -> int:
+        return sum(item.state == CoverageObligationState.EXCLUDED_WITH_EVIDENCE.value for item in self.obligations)
+
+    @property
+    def closure_count(self) -> int:
+        # Product FAIL still closes the coverage obligation. Evidence-backed
+        # exclusions close the denominator disposition without claiming execution.
+        return self.covered_pass + self.covered_fail + self.excluded_with_evidence
+
+    @property
+    def blocked_obligation_ids(self) -> Tuple[str, ...]:
+        return tuple(
+            item.obligation_id
+            for item in self.obligations
+            if item.state == CoverageObligationState.BLOCKED.value
+        )
+
+    @property
+    def open_gap_ids(self) -> Tuple[str, ...]:
+        values = []
+        for item in self.obligations:
+            if item.state in {
+                CoverageObligationState.UNEXECUTED.value,
+                CoverageObligationState.READY.value,
+                CoverageObligationState.EXECUTING.value,
+                CoverageObligationState.BLOCKED.value,
+            }:
+                values.extend(item.gap_ids)
+        return tuple(dict.fromkeys(values))
+
+    @property
+    def ready(self) -> bool:
+        return self.closure_count == self.total and not self.blocked_obligation_ids and not self.open_gap_ids
+
+    def receipt(self) -> "LayerCoverageReceipt":
+        evidence = list(self.denominator.evidence_refs)
+        for item in self.obligations:
+            evidence.extend(item.evidence_refs)
+        status = "READY" if self.ready else ("BLOCKED" if self.blocked_obligation_ids else "IN_PROGRESS")
+        return LayerCoverageReceipt(
+            layer=self.denominator.layer,
+            source_revision=self.denominator.source_revision,
+            target_id=self.denominator.target_id,
+            denominator_version=self.denominator.denominator_version,
+            denominator_hash=self.denominator.denominator_hash,
+            covered=self.closure_count,
+            total=self.total,
+            covered_pass=self.covered_pass,
+            covered_fail=self.covered_fail,
+            excluded_with_evidence=self.excluded_with_evidence,
+            open_gap_ids=self.open_gap_ids,
+            blocked_obligation_ids=self.blocked_obligation_ids,
+            evidence_refs=tuple(dict.fromkeys(evidence)),
+            status=status,
+        )
+
+
+@dataclass(frozen=True)
 class LayerCoverageContract:
     layer: str
     metric_targets: Mapping[str, float]
@@ -211,12 +330,14 @@ class LayerCoverageReceipt:
             raise AutonomousContractError("LAYER_COVERAGE_COUNTER_INVALID")
         if self.covered_pass < 0 or self.covered_fail < 0 or self.excluded_with_evidence < 0:
             raise AutonomousContractError("LAYER_COVERAGE_BREAKDOWN_INVALID")
-        if self.covered_pass + self.covered_fail > self.covered:
-            raise AutonomousContractError("LAYER_COVERAGE_RESULT_EXCEEDS_COVERED")
+        if self.covered_pass + self.covered_fail + self.excluded_with_evidence != self.covered:
+            raise AutonomousContractError("LAYER_COVERAGE_BREAKDOWN_MISMATCH")
         if not self.evidence_refs:
             raise AutonomousContractError("LAYER_COVERAGE_EVIDENCE_REQUIRED")
         if self.status not in {"IN_PROGRESS", "READY", "BLOCKED"}:
             raise AutonomousContractError("LAYER_COVERAGE_STATUS_INVALID")
+        if self.status == "READY" and (self.covered != self.total or self.open_gap_ids or self.blocked_obligation_ids):
+            raise AutonomousContractError("LAYER_COVERAGE_READY_REQUIRES_CLOSED_DENOMINATOR")
 
     @property
     def percent(self) -> float:
