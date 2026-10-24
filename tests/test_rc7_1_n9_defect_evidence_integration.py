@@ -24,6 +24,7 @@ from rc7_runtime.models import (
     Evidence,
     Gap,
     GapSeverity,
+    GapStatus,
     Mission,
     Task,
 )
@@ -70,9 +71,10 @@ def _seed_evidence_ready_defect(
         subject_refs=["ATT-ORIGINAL-" + suffix, "TC-" + suffix],
         evidence_refs=[base_evidence_id],
         acceptance_criteria=["independent defect evidence closure"],
+        state=GapStatus.PLANNED,
     )
-    # The defect task owns this already-routed product handoff. Keep the setup
-    # intentionally minimal; N9 evidence service does not resolve the gap.
+    # A QUALIFY_DEFECT owner task is leaseable only after the PRODUCT handoff
+    # has entered PLANNED. This mirrors the real GapRepairPlanner lifecycle.
     append_entity(control.truth, gap, release_id=control.release_id)
     control.register_task(
         Task(
