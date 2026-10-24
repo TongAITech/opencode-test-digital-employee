@@ -34,6 +34,8 @@ RUNTIME_FILES = (
     "rc8_center/control_plane.py",
     "rc8_center/distributed_orchestration.py",
     "rc8_center/mission_node_gate.py",
+    "rc8_center/reality_snapshot.py",
+    "rc8_center/mission_node_adoption_service.py",
     "rc8_center/http_server.py",
     "rc8_center/artifacts.py",
     "rc8_center/json_repository.py",
@@ -164,6 +166,7 @@ def _write_readme(root: Path, head: str) -> str:
         "- R1-first Governance Projector：运行事实必须先持久化 R1，Center Projection 可重放恢复\n"
         "- Product API: `/api/v1/test-runs/{id}/governance`（记录事实，不自行推导PASS）\n"
         "- FormalNodeAgent 已包含显式 WorkItem lease token 协议；DSH Session 不持有任务真相。\n"
+        "- N1 RealitySnapshot 与 N2-N4 MissionNode adoption adapter 已纳入完整包；正式 PostgreSQL adapter 仍由 Formal Center 部署栈提供。\n"
         "- 正式 Center 技术栈为 FastAPI + PostgreSQL + Redis + Vue3/TypeScript/Vite + Nginx + Docker Compose；本包内 stdlib HTTP 仅是 W1 行内 Reality 最小协议适配器。\n\n"
         "重要：Tool Reality 不能提升为 L1/L1-L7/TestRun 充分度。先运行 `python scripts/rc8_validate_governance.py` 可核对当前机器声明。\n\n"
         "## 1. 校验与永久 Node state\n"
@@ -214,7 +217,7 @@ def _write_readme(root: Path, head: str) -> str:
 def _write_manifest(root: Path, head: str, files: List[str]) -> str:
     relative = "PACKAGE-MANIFEST.json"
     payload: Dict[str, object] = {
-        "schema_version": "rc8.bank-reality-package.v10",
+        "schema_version": "rc8.bank-reality-package.v11",
         "package_type": "FULL_STANDALONE_REALITY_VALIDATION_PACKAGE",
         "patch_package": False,
         "git_head": head,
@@ -250,11 +253,13 @@ def _write_manifest(root: Path, head: str, files: List[str]) -> str:
             "CODE_ANALYSIS_AUTONOMOUS_REALITY",
             "N1_N10_MISSION_NODE_ADOPTION",
             "CENTER_MISSION_NODE_GATE",
+            "N1_REALITY_SNAPSHOT_GATE",
+            "N2_N4_MISSION_NODE_ADOPTION",
             "CENTER_CODE_SUFFICIENCY",
         ],
         "external_bank_capabilities_expected": ["PYTHON_3_8_PLUS", "GIT", "JAVA_MAVEN", "CODEGRAPH", "DSH_HEADLESS"],
         "files": sorted(files),
-        "truth_note": "Package completeness is not stage/layer/mission sufficiency. Formal Center W-A is CI-verified separately; Bank Reality and W-B L1 sufficiency remain unverified until their own evidence closes the gates.",
+        "truth_note": "Package completeness is not stage/layer/mission sufficiency. Formal Center PostgreSQL/Redis persistence is CI-verified separately; Bank Reality and W-B L1 sufficiency remain unverified until their own evidence closes the gates.",
     }
     path = root / relative
     path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
@@ -291,12 +296,15 @@ def _verify_runtime_imports(root: Path) -> None:
         "from rc8_runtime.mission_nodes import MissionNodeType, MissionNodeAdoptionGraph; "
         "from rc8_center import CenterMissionService, CenterProductApplication, GovernanceEventProjector, GovernanceProjectionService, JsonFileCoverageRepository, JsonFileGovernanceRepository; "
         "from rc8_center.mission_node_gate import CenterMissionNodeReviewGate; "
+        "from rc8_center.reality_snapshot import CenterRealitySnapshotService, MemoryRealitySnapshotRepository; "
+        "from rc8_center.mission_node_adoption_service import CenterMissionNodeAdoptionService; "
         "from rc8_center.code_sufficiency import CenterCodeSufficiencyEvaluator; "
         "from rc8_node import FormalNodeAgent; "
         "from rc8_node.failure_classification import JUnitFailureClassifier; "
         "from rc8_node.jacoco import JaCoCoChangedScopeCollector; "
         "assert CoverageObservation and MissionGraphRuntime and MissionRuntimeState and ScopedStatusClaim; "
-        "assert FrozenSufficiencyLedger and MissionNodeType and MissionNodeAdoptionGraph and CenterMissionNodeReviewGate and CenterCodeSufficiencyEvaluator; "
+        "assert FrozenSufficiencyLedger and MissionNodeType and MissionNodeAdoptionGraph and CenterMissionNodeReviewGate; "
+        "assert CenterRealitySnapshotService and MemoryRealitySnapshotRepository and CenterMissionNodeAdoptionService and CenterCodeSufficiencyEvaluator; "
         "assert CenterMissionService and CenterProductApplication and GovernanceEventProjector and GovernanceProjectionService; "
         "assert JsonFileCoverageRepository and JsonFileGovernanceRepository and FormalNodeAgent and JUnitFailureClassifier and JaCoCoChangedScopeCollector; "
         "print('RC8_PACKAGE_RUNTIME_IMPORT_PASS')"
