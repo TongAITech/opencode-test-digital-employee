@@ -1,0 +1,28 @@
+name: RC8 Director Runtime Lifecycle
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_center/director_runtime_lifecycle.py'
+      - 'rc8_center/distributed_orchestration.py'
+      - 'tests/test_rc8_director_runtime_lifecycle.py'
+      - '.github/workflows/rc8-director-runtime-lifecycle.yml'
+  workflow_dispatch:
+
+jobs:
+  director-runtime-lifecycle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile Director lifecycle
+        run: python -m py_compile rc8_center/director_runtime_lifecycle.py tests/test_rc8_director_runtime_lifecycle.py
+      - name: Run Director lifecycle regression
+        run: python -m unittest tests.test_rc8_director_runtime_lifecycle -v
