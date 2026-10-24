@@ -289,12 +289,16 @@ class CoverageMetric:
 
     @property
     def ratio(self) -> float:
+        # Empty frozen denominators are UNKNOWN, never full coverage.
         if self.total == 0:
-            return 1.0
+            return 0.0
         return float(self.covered) / float(self.total)
 
     @property
     def satisfied(self) -> bool:
+        # Fail closed even when threshold is zero: UNKNOWN cannot be SUFFICIENT.
+        if self.total == 0:
+            return False
         return self.ratio >= float(self.threshold)
 
 
