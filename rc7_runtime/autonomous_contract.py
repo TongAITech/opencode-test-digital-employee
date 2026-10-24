@@ -1,9 +1,8 @@
 """Shared RC7.1 autonomous-loop foundation contracts.
 
-This module is intentionally dependency-light and is the runtime representation
-of RC-AUTONOMOUS-TEST-LOOP@1.0.0.  It centralizes node/layer identities and the
-base delivery/coverage contracts so downstream modules cannot silently invent a
-second taxonomy.
+Runtime representation of RC-AUTONOMOUS-TEST-LOOP@1.0.0.  This module is
+intentionally dependency-light so node/layer identities and coverage/delivery
+contracts cannot drift between execution, evidence, reporting and CI.
 """
 from __future__ import annotations
 
@@ -77,6 +76,16 @@ LAYER_ROLES: Dict[CanonicalLayer, str] = {
     layer: "%s_EXECUTE" % layer.value for layer in CanonicalLayer
 }
 
+CANONICAL_COVERAGE_TARGETS: Dict[CanonicalLayer, Dict[str, float]] = {
+    CanonicalLayer.L1: {"line_coverage": 1.0, "logic_coverage": 1.0},
+    CanonicalLayer.L2: {"mandatory_db_obligation_coverage": 1.0},
+    CanonicalLayer.L3: {"mandatory_api_obligation_coverage": 1.0},
+    CanonicalLayer.L4: {"mandatory_ui_obligation_coverage": 1.0},
+    CanonicalLayer.L5: {"mandatory_e2e_journey_coverage": 1.0},
+    CanonicalLayer.L6: {"planned_scenario_execution": 1.0, "threshold_evaluation": 1.0},
+    CanonicalLayer.L7: {"security_obligation_execution": 1.0, "finding_disposition": 1.0},
+}
+
 
 class NodeLoopState(str, Enum):
     PENDING = "PENDING"
@@ -126,6 +135,10 @@ def canonical_execution_profile_specs() -> Dict[str, Dict[str, object]]:
     }
 
 
+def canonical_coverage_targets() -> Dict[str, Dict[str, float]]:
+    return {layer.value: dict(CANONICAL_COVERAGE_TARGETS[layer]) for layer in CanonicalLayer}
+
+
 @dataclass(frozen=True)
 class CoverageDenominatorSnapshot:
     mission_id: str
@@ -167,9 +180,9 @@ class LayerCoverageContract:
         require_layer(self.layer)
         if not self.metric_targets:
             raise AutonomousContractError("LAYER_COVERAGE_TARGET_REQUIRED")
-        for key, target in self.metric_targets.items():
-            if not isinstance(key, str) or not key.strip() or not isinstance(target, (int, float)) or target < 0 or target > 1:
-                raise AutonomousContractError("LAYER_COVERAGE_TARGET_INVALID")
+        canonical = CANONICAL_COVERAGE_TARGETS[require_layer(self.layer)]
+        if dict(self.metric_targets) != canonical:
+            raise AutonomousContractError("LAYER_COVERAGE_TARGET_DRIFT:%s" % self.layer)
         for name in ("measurement_provider", "evidence_contract", "gap_routing_policy", "stop_policy"):
             if not isinstance(getattr(self, name), str) or not getattr(self, name).strip():
                 raise AutonomousContractError("%s_REQUIRED" % name.upper())

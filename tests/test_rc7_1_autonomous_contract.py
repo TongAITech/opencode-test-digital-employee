@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from rc7_runtime.autonomous_contract import (
@@ -7,12 +10,22 @@ from rc7_runtime.autonomous_contract import (
     CANONICAL_LAYER_IDS,
     CANONICAL_NODE_IDS,
     CoverageDenominatorSnapshot,
+    LayerCoverageContract,
     NodeDeliveryPackage,
+    canonical_coverage_targets,
     canonical_execution_profile_specs,
     require_layer,
 )
 from rc7_runtime.autonomous_events import AutonomousEvent, require_autonomous_event
 from rc7_runtime.autonomous_gap_router import route_failure_class, route_gap_category
+
+
+ROOT = Path(__file__).resolve().parents[1]
+CONTRACT_ROOT = ROOT / "contracts" / "autonomous_loop"
+
+
+def _json(name: str):
+    return json.loads((CONTRACT_ROOT / name).read_text(encoding="utf-8"))
 
 
 def test_canonical_node_and_layer_registry_is_frozen() -> None:
@@ -26,6 +39,26 @@ def test_canonical_node_and_layer_registry_is_frozen() -> None:
     assert specs["L6"]["required_tools"] == ("k6",)
     assert specs["L7"]["action_kind"] == "SECURITY"
     assert specs["L7"]["required_tools"] == ("zap",)
+
+
+def test_machine_contract_registry_matches_runtime_registry() -> None:
+    node_rows = _json("canonical_nodes.json")
+    layer_rows = _json("canonical_layers.json")
+    assert tuple(row["id"] for row in node_rows) == CANONICAL_NODE_IDS
+    assert tuple(row["id"] for row in layer_rows) == CANONICAL_LAYER_IDS
+    assert tuple(row["name"] for row in layer_rows) == tuple(
+        canonical_execution_profile_specs()[layer]["action_kind"] for layer in CANONICAL_LAYER_IDS
+    )
+    assert _json("coverage_contracts.json") == canonical_coverage_targets()
+    assert set(_json("r1_events.json")) == {event.value for event in AutonomousEvent}
+
+
+def test_contract_manifest_preserves_reality_boundary() -> None:
+    manifest = _json("contract_manifest.json")
+    assert manifest["contract_id"] == "RC-AUTONOMOUS-TEST-LOOP"
+    assert manifest["contract_version"] == "1.0.0"
+    assert manifest["reality_status"]["controlled_engineering"] == "PASS"
+    assert manifest["reality_status"]["bank_field_reality"] == "NOT_VERIFIED"
 
 
 def test_old_rc7_1_layer_aliases_are_not_canonical_layers() -> None:
@@ -57,6 +90,18 @@ def test_denominator_is_versioned_nonempty_and_evidence_backed() -> None:
             denominator_hash="sha256:abc",
             obligation_ids=(),
             evidence_refs=("evd",),
+        )
+
+
+def test_layer_contract_rejects_target_drift() -> None:
+    with pytest.raises(AutonomousContractError, match="LAYER_COVERAGE_TARGET_DRIFT"):
+        LayerCoverageContract(
+            layer="L1",
+            metric_targets={"line_coverage": 0.8, "logic_coverage": 1.0},
+            measurement_provider="jacoco",
+            evidence_contract="current runtime proof",
+            gap_routing_policy="canonical",
+            stop_policy="all targets met",
         )
 
 
