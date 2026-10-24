@@ -11,15 +11,17 @@
 - Engineering-verified Wave C implementation HEAD: `65f5340c9b88ecaacc472fca0d30f16f194249b7`
 - Engineering-verified Wave D implementation HEAD: `9b02163435af49ddde704578a7c5d66b0a5939e4`
 - Engineering-verified Wave E implementation HEAD: `d768ec9bbd3294be56f43f8f3bf720515168b07e`
+- Engineering-verified Wave F implementation HEAD: `28834394de93d5d681729c3ab47856d3afdf04d8`
 
 ## Reality boundary
 
-- Controlled Engineering: PASS for Waves A-E
+- Controlled Engineering: **PASS for Waves A-F / N1-N10**
 - Wave A validation run: `40071040146` (#72): Ubuntu targeted PASS / Windows targeted PASS / full-rc7 PASS
 - Wave B validation run: `40077002904` (#79): Ubuntu targeted PASS / Windows targeted PASS / full-rc7 PASS
 - Wave C validation run: `40077581353` (#82): Ubuntu targeted PASS / Windows targeted PASS / full-rc7 PASS
 - Wave D validation run: `40078256565` (#86): Ubuntu targeted PASS / Windows targeted PASS / full-rc7 PASS
 - Wave E validation run: `40080599312`: Ubuntu targeted PASS / Windows targeted PASS / full-rc7 PASS
+- Wave F final validation run: `40084032503`: Ubuntu targeted PASS / Windows targeted PASS / full-rc7 PASS
 - Bank Field Reality: `NOT_VERIFIED`
 
 Controlled Engineering PASS MUST NOT be reported as Bank Field Reality PASS.
@@ -33,33 +35,38 @@ Controlled Engineering PASS MUST NOT be reported as Bank Field Reality PASS.
 | C | N5-N6 preparation/script closure | ENGINEERING_VERIFIED |
 | D | N7 coverage-driven execution closure | ENGINEERING_VERIFIED |
 | E | N8-N9 recovery/defect closure | ENGINEERING_VERIFIED |
-| F | N10 mission convergence/reporting | IN_PROGRESS |
+| F | N10 mission convergence/reporting/residual-risk governance | ENGINEERING_VERIFIED |
 
-## Wave E delivered
+## Wave F delivered
 
-### N8 Failure Diagnosis / Recovery
+### N10 Mission Truth Convergence
 
-- Existing Runtime-owned diagnosis and narrow direct-retry controller remain authoritative; assertion failure is still never auto-PRODUCT.
-- Added durable non-direct `RepairWorkOrder -> original owner repair -> RepairReceipt -> successor attempt` orchestration.
-- N8 never mutates upstream specialist artifacts directly; SCRIPT routes to N6, DATA/PRECONDITION/AUTH to N5 Runtime Preparation, route-source truth to N3, and PRODUCT hands off to N9.
-- Owner repair must be independently evaluated PASS and must contain an evidence-backed before/after delta.
-- Same Failure Signature + same strategy + no new delta is rejected; repeated strategies are budgeted instead of looping forever.
-- Re-preparation recovery requires a durable successor `PREPARED_ATTEMPT`; N8 cannot fabricate a fresh-auth/data state.
-- N8 logical closure replays the canonical Execution Recovery Contract. A PASS Execution evaluation may carry only evidence-backed `PRODUCT_DEFECT -> DEFECT` handoffs; any other open execution gap prevents N8 readiness.
-- N8 publishes a durable failure/recovery package and NodeDelivery; final logical N8 PASS remains Director-gated.
+- Reconciles current Director-accepted N1-N9 NodeDelivery packages from R1; stale/missing node receipts fail closed.
+- Reconciles current L1-L7 denominator/receipt versions; `COVERED_FAIL` closes coverage without becoming Product Quality PASS.
+- Uses canonical `MissionConvergenceConformanceChecker` / formal R1 evidence instead of caller counters or LLM conclusions.
+- Builds immutable `MISSION_EVIDENCE_MANIFEST` with node delivery, layer coverage, quality, defect, evidence completeness and runtime traceability truth.
+- Keeps three independent outputs: Test Sufficiency, Product Quality and Release Recommendation.
+- N10 NodeDelivery is separately Director-gated; Director cannot override deterministic convergence evidence.
 
-### N9 Defect Evidence Closure
+### Residual Risk Governance
 
-- Existing PRODUCT qualification, governed reproduction, fix verification and impact-regression controls remain authoritative.
-- Added durable `DefectSignature` with multi-evidence duplicate matching. Partial similarity becomes `POSSIBLE_DUPLICATE` and cannot auto-merge.
-- Severity is derived from deterministic business impact / blast radius / data integrity / security-compliance / transaction criticality / workaround / reproducibility factors instead of a final default HIGH.
-- RCA is explicitly graded `RCA-L0..L4`; proven PRODUCT defects may become filing-ready at evidence-backed service/endpoint level (`RCA-L2`) without inventing a confirmed code root cause.
-- `EVIDENCE_READY -> READY_FOR_REVIEW` now requires current R1 evidence, policy-derived severity, RCA filing minimum and durable defect evidence package.
-- Duplicate disposition produced by enrichment is only a recommendation; it does not self-transition the defect to DUPLICATE.
-- N9 logical closure reuses `DefectReviewConformanceChecker` over all PRODUCT gaps. Unresolved or weakly proven defect lifecycles fail closed; a mission with no PRODUCT defect is explicitly `NOT_TRIGGERED`, not a fabricated clean defect result.
-- N9 publishes a durable convergence package and NodeDelivery; final logical N9 PASS remains Director-gated.
+- Added durable append-only `ResidualRiskRecord` registry with source, severity, description, reason, owner, evidence, disposition, acceptance reference and revision.
+- `PENDING` risk blocks N10 convergence.
+- `ACCEPTED / DEFERRED / MONITOR` require durable acceptance/disposition evidence and acceptance reference.
+- Dispositioned residual risk keeps Test Sufficiency valid but yields `SUFFICIENT_WITH_RESIDUAL_RISK` and `CONDITIONAL` Release Recommendation.
+- Business release decision remains `NOT_DECIDED_BY_TEST_SYSTEM`.
+- Governance receipts are append-only. Historical receipts remain auditable, but exactly one receipt must match the current risk set/revisions/hashes.
+- Corrupt historical governance evidence remains fail-closed.
 
-## GAP status after Waves A-E
+### Final Report / Projection
+
+- Final report is generated only after current Mission convergence and remains a projection of R1 truth.
+- Final report generation is immutable/idempotent and reconciles against the current manifest.
+- Historical failures remain historical failures even after later defect closure.
+- Back-office synchronization is projection-only; projection failure cannot rewrite Mission Runtime Truth.
+- Residual risk summary is included in the governed final report and stale risk snapshots are rejected.
+
+## GAP status after Waves A-F
 
 - `RC71-AL-001` ENGINEERING_VERIFIED
 - `RC71-AL-002` ENGINEERING_VERIFIED
@@ -74,24 +81,27 @@ Controlled Engineering PASS MUST NOT be reported as Bank Field Reality PASS.
 - `RC71-AL-011` ENGINEERING_VERIFIED
 - `RC71-AL-012` ENGINEERING_VERIFIED
 - `RC71-AL-013` ENGINEERING_VERIFIED
-- `RC71-AL-017` N1-N9 adoption ENGINEERING_VERIFIED; N10 continues in Wave F
-- `RC71-AL-018` registry + N1-N9 events ENGINEERING_VERIFIED; N10-specific convergence/report events continue in Wave F
-- `RC71-AL-019` existing AgentTeams path ENGINEERING_VERIFIED; Bank Field still NOT_VERIFIED
-- `RC71-AL-014/015/016` remain Wave F
-- `RC71-AL-020` remains OPEN until real bank-field evidence exists
+- `RC71-AL-014` ENGINEERING_VERIFIED
+- `RC71-AL-015` ENGINEERING_VERIFIED
+- `RC71-AL-016` ENGINEERING_VERIFIED
+- `RC71-AL-017` ENGINEERING_VERIFIED
+- `RC71-AL-018` ENGINEERING_VERIFIED
+- `RC71-AL-019` ENGINEERING_VERIFIED at controlled-engineering level; real Bank AgentTeams/DSH execution remains NOT_VERIFIED
+- `RC71-AL-020` OPEN — only real Bank Field qualification may close it
 
-## Next exact work item — Wave F N10
+## Next exact work item — Bank Field Qualification
 
-1. Reconcile current Director-accepted N1-N9 NodeDelivery receipts; stale or missing node receipts fail closed.
-2. Reconcile current L1-L7 coverage denominator/receipt versions and preserve `COVERED_FAIL` separately from Product Quality.
-3. Reuse formal R1 Mission Evidence builder and `MissionConvergenceConformanceChecker`; do not accept caller-supplied counters or LLM conclusions.
-4. Build one immutable `MISSION_EVIDENCE_MANIFEST` containing traceability, execution, coverage, quality, defect disposition, evidence completeness and residual-risk truth.
-5. Route any manifest/evidence gap back to its real owner node; final report must not paper over missing evidence.
-6. Publish N10 NodeDelivery only from an independent convergence authority; Director remains a separate final node gate.
-7. Generate final report only after a current convergence receipt. Every number/status must be derivable from R1/manifest and reconcile to denominators.
-8. Keep test conclusion separate from business release decision; release recommendation is advisory/policy output, not automatic business approval.
-9. UI/back-office synchronization remains a rebuildable projection. Projection failure must not rewrite Mission Runtime Truth.
-10. targeted Ubuntu + Windows + full-rc7 must remain green.
+The RC7.1 N1-N10 implementation is now Controlled-Engineering complete. The next work is **not another local redesign wave**. It is real bank-field qualification against DSH + `dsh-agent-teams` + PFC runtime:
+
+1. Bootstrap real AgentTeams and prove Team/Assignment/member receipts in R1.
+2. Run fresh 4A login/re-login using `foura_auth.py`; stale-cookie/manual-wait paths must fail closed.
+3. Capture real Browser Network routes; no guessed APIs/404 fallback.
+4. Exercise real N1-N10 mission flow on a bank test version.
+5. Prove L1-L7 real execution providers and current evidence contracts: Maven/JUnit, DB Runtime, API Runtime, BrowserSkill, E2E orchestrator, k6, ZAP.
+6. Prove N7 current denominators and coverage closure with real measurements.
+7. Prove N8 CAT/diagnosis/recovery and N9 defect qualification on real runtime failure paths.
+8. Prove N10 manifest/final report/back-office projection rebuild from the same R1 truth.
+9. Only after the above may Bank Field Reality move from `NOT_VERIFIED` to `VERIFIED`.
 
 ## Do not repeat
 
