@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/rc7.1-exhaustive-coverage
+      - work/rc7.1-autonomous-loop
   workflow_dispatch:
 
 permissions:
@@ -29,6 +30,7 @@ jobs:
       - name: Exhaustive coverage hard gates
         run: >-
           python -m pytest -q
+          tests/test_rc7_1_autonomous_contract.py
           tests/test_rc7_1_exhaustive_coverage_gate.py
           tests/test_rc7_1_layer_execution_evidence_contract.py
           tests/test_rc7_1_execution_profiles.py
