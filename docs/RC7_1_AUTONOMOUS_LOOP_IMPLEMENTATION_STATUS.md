@@ -7,11 +7,16 @@
 - Accepted Starting SHA: `98d7ee59cb3caf760177d7aaa933ee70082a6ff3`
 - Construction Branch: `work/rc7.1-autonomous-loop`
 - Engineering-verified Wave A implementation HEAD: `bf8badf3dc687eba3a2d092174ff1a31706f4ba1`
+- Engineering-verified Wave B implementation HEAD: `4ad0d32eb009e870760db185bb8f5975705fdd5d`
 
 ## Reality boundary
 
-- Controlled Engineering: PASS for Wave A
-- Validation run: `40071040146` (#72)
+- Controlled Engineering: PASS for Waves A-B
+- Wave A validation run: `40071040146` (#72)
+  - targeted Ubuntu: PASS
+  - targeted Windows: PASS
+  - full-rc7: PASS
+- Wave B validation run: `40077002904` (#79)
   - targeted Ubuntu: PASS
   - targeted Windows: PASS
   - full-rc7: PASS
@@ -24,8 +29,8 @@ Controlled Engineering PASS MUST NOT be reported as Bank Field Reality PASS.
 | Wave | Scope | Status |
 |---|---|---|
 | A | Foundation registries/contracts/router/events/durable node control/coverage ledger | ENGINEERING_VERIFIED |
-| B | N1-N4 autonomous node adoption | IN_PROGRESS |
-| C | N5-N6 preparation/script closure | NOT_STARTED |
+| B | N1-N4 autonomous node adoption | ENGINEERING_VERIFIED |
+| C | N5-N6 preparation/script closure | IN_PROGRESS |
 | D | N7 coverage-driven execution closure | NOT_STARTED |
 | E | N8-N9 recovery/defect closure | NOT_STARTED |
 | F | N10 mission convergence/reporting | NOT_STARTED |
@@ -48,14 +53,27 @@ Controlled Engineering PASS MUST NOT be reported as Bank Field Reality PASS.
 - unrealized execution contracts classified as SCRIPT repair instead of UNKNOWN/BLOCKED
 - existing real dsh-agent-teams assignment/member receipt path retained and hard-tested
 
-## GAP status after Wave A
+## Wave B delivered
+
+- N2 Requirement, N3 Code and N4 Test Design evaluated subtask PASS no longer constitutes node-level PASS by itself
+- immutable NodeDeliveryPackage + separate Director acceptance/rejection gate for N1-N4
+- Director cannot reuse specialist/evaluator identity or impersonate a node worker
+- Director rejection preserves prior lineage and requires a delta before the next iteration
+- N1 Runtime Reality Recon is bound into the autonomous node contract without replacing the existing runtime-owned recon engine
+- N1 autonomous readiness requires current environment, target version, source revision and durable VERIFIED capability/service proof
+- N1 mandatory capabilities include DSH headless, AgentTeams bootstrap, fresh auth, Browser Network route discovery and Runtime execution
+- legacy Reality Recon PASS without the autonomous proof matrix cannot impersonate N1 completion
+- `AUTONOMOUS_NODE_GATE` Evaluation evidence is now fail-closed at the R1 durable boundary: evidence must exist and belong to the same Mission
+- N1/N2/N3/N4 final node PASS remains Director-gated; N1 engineering fixtures explicitly have no Bank Field certification authority
+
+## GAP status after Waves A-B
 
 - `RC71-AL-001` ENGINEERING_VERIFIED
 - `RC71-AL-002` ENGINEERING_VERIFIED
 - `RC71-AL-006` ENGINEERING_VERIFIED
 - `RC71-AL-007` ENGINEERING_VERIFIED
-- `RC71-AL-017` FOUNDATION_ENGINEERING_VERIFIED; full N1-N10 adoption continues in Waves B-F
-- `RC71-AL-018` REGISTRY_ENGINEERING_VERIFIED; node-specific event emission continues in Waves B-F
+- `RC71-AL-017` FOUNDATION + N1-N4 ADOPTION ENGINEERING_VERIFIED; N5-N10 adoption continues in Waves C-F
+- `RC71-AL-018` REGISTRY + N1-N4 NODE EVENTS ENGINEERING_VERIFIED; later node-specific events continue in Waves C-F
 - `RC71-AL-019` EXISTING_ENGINEERING_VERIFIED; Bank Field still NOT_VERIFIED
 - `RC71-AL-008` PARTIAL: ownership/routing fixed; fresh 4A preparation lifecycle is Wave C
 - `RC71-AL-003/004/005` foundation exists; full N7 implementation is Wave D
@@ -63,18 +81,19 @@ Controlled Engineering PASS MUST NOT be reported as Bank Field Reality PASS.
 - `RC71-AL-014/015/016` remain Wave F
 - `RC71-AL-020` remains OPEN until real bank-field evidence exists
 
-## Next exact work item — Wave B N1-N4
+## Next exact work item — Wave C N5-N6
 
-Do not rewrite working sufficiency engines. Integrate existing N1-N4 producers/reviewers into the durable autonomous node contract:
+Do not rewrite working preparation/script engines. Integrate them into the shared autonomous contract:
 
-1. locate N1 Reality Recon, N2 Requirement, N3 Code, N4 Test Design producer/reviewer entry points
-2. pin each node input snapshot/version and start durable `NodeIteration`
-3. preserve existing deterministic/independent sufficiency gates
-4. change producer completion semantics from direct self-contained node PASS to `READY_FOR_DIRECTOR_REVIEW` delivery where applicable
-5. emit current `NodeDeliveryPackage` with artifacts/evidence/gaps/reviewer/sufficiency receipts
-6. add Director acceptance/rejection gate without allowing Director specialist execution
-7. ensure rejected node resumes same lineage with delta repair rather than reset
-8. targeted + full-rc7 CI must remain green
+1. preserve Runtime-owned side effects and existing Provider/Human Gate truth
+2. add N5 batch preparation planning/shared resource truth without treating a batch snapshot as execution proof
+3. require per-Case final preparation immediately before each execution attempt
+4. add explicit reservation/freshness lifecycle and current fresh-auth proof; historical cookie remains forbidden
+5. preserve immutable `PreparedAttempt` identity and cleanup/release/quarantine evidence
+6. bind N5 Runtime readiness into durable N5 NodeDelivery/Runtime deterministic gate
+7. keep Script Readiness business execution disabled; add N6 semantic implementation closure over Case steps/Oracle/runtime bindings/evidence collectors
+8. bind N6 evaluated script truth into durable NodeDelivery + Director Gate
+9. targeted Ubuntu + Windows + full-rc7 must remain green
 
 ## Do not repeat
 
