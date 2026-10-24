@@ -379,10 +379,16 @@ class RealExecutorProvenanceGate:
                 layer=layer, status="NOT_REQUIRED", required_tools=(), observed_tools=(),
                 evidence_ids=(), missing_tools=(),
             )
-        binding_row, _binding = _execution_binding(
+        binding_row, binding = _execution_binding(
             self.truth, mission_id=mission_id, task_id=task_id, attempt_id=record.attempt_id
         )
         binding_evidence_id = str(binding_row.get("evidence_id") or "")
+        immutable_identity = {
+            "specialist_worker_id": _required(binding.get("worker_instance_id"), "REAL_EXECUTOR_SPECIALIST_WORKER_REQUIRED"),
+            "team_id": _required(binding.get("team_id"), "REAL_EXECUTOR_TEAM_REQUIRED"),
+            "team_task_id": _required(binding.get("team_task_id"), "REAL_EXECUTOR_TEAM_TASK_REQUIRED"),
+            "member_id": _required(binding.get("member_id"), "REAL_EXECUTOR_MEMBER_REQUIRED"),
+        }
         observed = []
         evidence_ids = []
         for row in self.truth.query("rc7_evidence", mission_id=mission_id):
@@ -401,6 +407,7 @@ class RealExecutorProvenanceGate:
                 "runtime_worker_id": record.worker_id,
                 "execution_binding_evidence_id": binding_evidence_id,
                 "status": "SUCCESS",
+                **immutable_identity,
             }
             if any(str(payload.get(field) or "") != str(value) for field, value in expected.items()):
                 continue
