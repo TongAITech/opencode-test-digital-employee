@@ -44,18 +44,9 @@ def _seed_passed_subtask(truth: TruthRuntime, *, node_id: str, source_node: str,
     producer = "specialist-%s" % node_id.lower()
     reviewer = "independent-reviewer-%s" % node_id.lower()
 
-    task = Task(
-        task_id=task_id,
-        mission_id=MISSION,
-        node=source_node,
-        task_type="PRODUCE_AND_EVALUATE",
-        objective="produce evaluated candidate for %s" % node_id,
-        state=TaskStatus.PASS,
-        lease_owner=producer,
-        output_artifact_refs=[artifact_id],
-        evaluation_id=evaluation_id,
-    )
-    append_entity(truth, task, release_id=RELEASE)
+    # Durable truth already forbids a PASS Task whose independent PASS
+    # evaluation does not exist. Seed proof -> artifact -> evaluation -> PASS
+    # task in the same order the production control plane must respect.
     evidence = Evidence(
         evidence_id=evidence_id,
         mission_id=MISSION,
@@ -86,6 +77,18 @@ def _seed_passed_subtask(truth: TruthRuntime, *, node_id: str, source_node: str,
         evidence_refs=[evidence_id],
     )
     append_entity(truth, evaluation, release_id=RELEASE)
+    task = Task(
+        task_id=task_id,
+        mission_id=MISSION,
+        node=source_node,
+        task_type="PRODUCE_AND_EVALUATE",
+        objective="produce evaluated candidate for %s" % node_id,
+        state=TaskStatus.PASS,
+        lease_owner=producer,
+        output_artifact_refs=[artifact_id],
+        evaluation_id=evaluation_id,
+    )
+    append_entity(truth, task, release_id=RELEASE)
     return task, artifact, evidence, evaluation, producer, reviewer
 
 
@@ -103,7 +106,7 @@ def test_passed_specialist_subtask_is_not_node_pass_until_director_accepts(
     node_id: str,
     source_node: str,
 ) -> None:
-    task, artifact, evidence, evaluation, producer, reviewer = _seed_passed_subtask(
+    task, artifact, evidence, evaluation, producer, _reviewer = _seed_passed_subtask(
         truth, node_id=node_id, source_node=source_node, suffix=node_id.lower()
     )
     adoption = AutonomousNodeAdoptionControl(
@@ -257,14 +260,13 @@ def test_director_rejection_preserves_lineage_and_allows_only_delta_next_iterati
     assert second.previous_iteration_event_id == first.start_event_id
 
 
-def test_nonpass_source_evaluation_cannot_publish_ready(
+def test_nonpass_source_task_cannot_publish_ready(
     tmp_path: Path,
     truth: TruthRuntime,
 ) -> None:
-    task, artifact, evidence, evaluation, producer, _reviewer = _seed_passed_subtask(
-        truth, node_id="N4", source_node="TEST_DESIGN", suffix="not-pass"
+    _task, artifact, evidence, _evaluation, producer, _reviewer = _seed_passed_subtask(
+        truth, node_id="N4", source_node="TEST_DESIGN", suffix="not-pass-base"
     )
-    # Append a new task/evaluation pair that is explicitly not sufficient.
     repair_eval = Evaluation(
         evaluation_id="EVAL-N4-REPAIR",
         mission_id=MISSION,
@@ -283,7 +285,7 @@ def test_nonpass_source_evaluation_cannot_publish_ready(
         node="TEST_DESIGN",
         task_type="PRODUCE_AND_EVALUATE",
         objective="insufficient test design",
-        state=TaskStatus.PASS,
+        state=TaskStatus.REPAIR_REQUIRED,
         lease_owner=producer,
         output_artifact_refs=[artifact.artifact_id],
         evaluation_id=repair_eval.evaluation_id,
@@ -300,7 +302,7 @@ def test_nonpass_source_evaluation_cannot_publish_ready(
         input_version="design-v1",
         delta_hash="sha256:design-v1",
     )
-    with pytest.raises(AutonomousNodeAdoptionError, match="SOURCE_SUFFICIENCY_PASS_REQUIRED"):
+    with pytest.raises(AutonomousNodeAdoptionError, match="SOURCE_SUBTASK_PASS_REQUIRED"):
         adoption.publish_ready_from_evaluated_task(
             iteration=iteration,
             source_task_id=repair_task.task_id,
