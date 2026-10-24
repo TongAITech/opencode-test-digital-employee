@@ -17,7 +17,8 @@ from rc7_runtime.autonomous_n10_node import (
 from rc7_runtime.closed_loop_control import ClosedLoopControlPlane
 from rc7_runtime.mission_convergence_conformance import MissionConvergenceConformanceChecker
 from rc7_runtime.mission_formal_evidence_builder import R1FormalMissionEvidenceSnapshotBuilder
-from rc7_runtime.models import Artifact, Evidence, Mission, MissionStatus
+from rc7_runtime.mission_sufficiency import MissionEvidenceSnapshot
+from rc7_runtime.models import Artifact, Evidence, Mission
 from rc7_runtime.truth_overlay import append_entity
 
 
@@ -124,28 +125,28 @@ def _patch_prepare_dependencies(monkeypatch, control: ClosedLoopControlPlane):
         evidence_id="EVD-FORMAL-N10",
         artifact_type="MISSION_EVIDENCE_SNAPSHOT",
     )
+    formal_snapshot = MissionEvidenceSnapshot(
+        mission_id=MISSION,
+        release_id=RELEASE,
+        snapshot_ref="formal://n10-product-fail",
+        evidence_refs=(formal_evidence.evidence_id,),
+        critical_requirements_total=1,
+        critical_requirements_verified=0,
+        unverified_requirement_refs=("REQ-PRODUCT-FAIL",),
+        critical_obligations_total=1,
+        critical_obligations_verified=0,
+        unverified_obligation_refs=("OBL-PRODUCT-FAIL",),
+        critical_branches_total=1,
+        critical_branches_verified=0,
+        unverified_branch_refs=("BRANCH-PRODUCT-FAIL",),
+        critical_executions_total=1,
+        critical_executions_conclusive=0,
+        inconclusive_execution_refs=("TC-PRODUCT-FAIL",),
+    )
     formal = SimpleNamespace(
         artifact=formal_artifact,
         evidence=formal_evidence,
-        snapshot=SimpleNamespace(
-            mission_id=MISSION,
-            critical_requirements_total=1,
-            critical_requirements_verified=0,
-            critical_obligations_total=1,
-            critical_obligations_verified=0,
-            critical_branches_total=1,
-            critical_branches_verified=0,
-            critical_executions_total=1,
-            critical_executions_conclusive=0,
-            open_critical_defects=0,
-            open_high_defects=0,
-            pending_defect_verifications=0,
-            blocking_gap_ids=(),
-            critical_gap_ids=(),
-            inconclusive_execution_refs=("TC-PRODUCT-FAIL",),
-            residual_risks=(),
-            external_blocker=None,
-        ),
+        snapshot=formal_snapshot,
         basis={"formal_runtime_record_count": 1},
     )
 
@@ -226,7 +227,7 @@ def _patch_prepare_dependencies(monkeypatch, control: ClosedLoopControlPlane):
 
 def test_n10_uses_coverage_closure_even_when_formal_snapshot_contains_product_fail(tmp_path: Path, monkeypatch):
     truth, control = _control(tmp_path)
-    coverage = _patch_prepare_dependencies(monkeypatch, control)
+    _patch_prepare_dependencies(monkeypatch, control)
     service = AutonomousN10Service(evidence_root=str(tmp_path / "n10"))
 
     prepared = service.prepare_ready(control, run_id=RUN)
