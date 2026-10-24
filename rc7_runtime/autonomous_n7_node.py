@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Dict, Mapping, Sequence, Tuple
+from typing import Dict, Mapping, Sequence
 
-from .autonomous_contract import CanonicalLayer, NodeLoopState
+from .autonomous_contract import CanonicalLayer
 from .autonomous_coverage_closure import (
-    AutonomousCoverageClosureError,
     AutonomousCoverageClosureService,
     DurableCoverageDenominator,
     DurableLayerCoverageReceipt,
@@ -43,8 +42,7 @@ class AutonomousN7NodeService:
         prior = self.coverage.current_denominator(control, layer=layer, target_id=target_id) if layer and target_id else None
         current = self.coverage.freeze_denominator(control, **kwargs)
         if prior is not None and current.artifact_id != prior.artifact_id:
-            run_id = str(kwargs.get("run_id") or "")
-            self._reopen_n7(control, run_id=run_id, denominator=current)
+            self._reopen_n7(control, run_id=str(kwargs.get("run_id") or ""), denominator=current)
         return current
 
     def reconcile_layer(self, control: ClosedLoopControlPlane, **kwargs) -> DurableLayerCoverageReceipt:
@@ -68,7 +66,10 @@ class AutonomousN7NodeService:
         if set(by_layer) != required_layers:
             missing = sorted(required_layers - set(by_layer))
             extra = sorted(set(by_layer) - required_layers)
-            raise AutonomousN7NodeError("N7_ALL_CANONICAL_LAYER_RECEIPTS_REQUIRED:missing=%s:extra=%s" % (",".join(missing), ",".join(extra)))
+            raise AutonomousN7NodeError(
+                "N7_ALL_CANONICAL_LAYER_RECEIPTS_REQUIRED:missing=%s:extra=%s"
+                % (",".join(missing), ",".join(extra))
+            )
 
         artifact_refs = []
         evidence_refs = []
@@ -80,10 +81,16 @@ class AutonomousN7NodeService:
             receipt = durable.receipt
             if receipt.status != "READY":
                 raise AutonomousN7NodeError("N7_LAYER_NOT_READY:%s" % layer)
-            artifact = self._one(control, "rc7_artifact", "artifact_id", durable.artifact_id, "N7_LAYER_RECEIPT_ARTIFACT_NOT_UNIQUE")
+            artifact = self._one(
+                control, "rc7_artifact", "artifact_id", durable.artifact_id,
+                "N7_LAYER_RECEIPT_ARTIFACT_NOT_UNIQUE",
+            )
             if artifact.get("mission_id") != control.mission_id or artifact.get("artifact_type_name") != self.coverage.RECEIPT_TYPE:
                 raise AutonomousN7NodeError("N7_LAYER_RECEIPT_ARTIFACT_INVALID:%s" % layer)
-            evidence = self._one(control, "rc7_evidence", "evidence_id", durable.evidence_id, "N7_LAYER_RECEIPT_EVIDENCE_NOT_UNIQUE")
+            evidence = self._one(
+                control, "rc7_evidence", "evidence_id", durable.evidence_id,
+                "N7_LAYER_RECEIPT_EVIDENCE_NOT_UNIQUE",
+            )
             if evidence.get("mission_id") != control.mission_id:
                 raise AutonomousN7NodeError("N7_LAYER_RECEIPT_EVIDENCE_MISSION_MISMATCH:%s" % layer)
             current = self.coverage.current_denominator(control, layer=layer, target_id=receipt.target_id)
@@ -94,8 +101,6 @@ class AutonomousN7NodeService:
                 or current.snapshot.denominator_hash != receipt.denominator_hash
             ):
                 raise AutonomousN7NodeError("N7_STALE_LAYER_RECEIPT:%s" % layer)
-            # A READY receipt has already enforced the canonical metric target set;
-            # preserve the actual values in the node package for N10/reporting.
             coverage_summary[layer] = {
                 "target_id": receipt.target_id,
                 "denominator_version": receipt.denominator_version,
@@ -117,16 +122,16 @@ class AutonomousN7NodeService:
 
         evidence_refs = list(dict.fromkeys(str(x) for x in evidence_refs if str(x)))
         for evidence_id in evidence_refs:
-            row = self._one(control, "rc7_evidence", "evidence_id", evidence_id, "N7_NODE_EVIDENCE_NOT_UNIQUE")
+            row = self._one(
+                control, "rc7_evidence", "evidence_id", evidence_id,
+                "N7_NODE_EVIDENCE_NOT_UNIQUE",
+            )
             if row.get("mission_id") != control.mission_id:
                 raise AutonomousN7NodeError("N7_NODE_EVIDENCE_MISSION_MISMATCH:%s" % evidence_id)
 
         task_id = self.coverage._ensure_runtime_task(control, run_id)
         evaluation_id = _stable_id(
-            "EVAL-N7-COVERAGE",
-            control.mission_id,
-            run_id,
-            *input_parts,
+            "EVAL-N7-COVERAGE", control.mission_id, run_id, *input_parts
         )
         evaluation = Evaluation(
             evaluation_id=evaluation_id,
@@ -147,6 +152,10 @@ class AutonomousN7NodeService:
         )
         if not control.truth.query("rc7_evaluation", evaluation_id=evaluation_id):
             append_entity(control.truth, evaluation, release_id=control.release_id)
+
+        # R1 is append-only by entity version. The coordinator task starts at
+        # READY@v1; convergence must append PASS@v2 (or later), never overwrite
+        # the same entity/version pair.
         append_entity(
             control.truth,
             Task(
@@ -167,6 +176,7 @@ class AutonomousN7NodeService:
                 evaluation_id=evaluation_id,
             ),
             release_id=control.release_id,
+            artifact_version=self._next_task_version(control, task_id),
         )
 
         adoption = WaveDNodeAdoptionControl(
@@ -185,11 +195,7 @@ class AutonomousN7NodeService:
         )
         if prior is not None:
             events = adoption.node_control._events(control.mission_id, run_id, "N7")
-            repairable = {
-                "NODE_GAP_DETECTED",
-                "NODE_REPAIR_COMPLETED",
-                "DIRECTOR_NODE_REJECTED",
-            }
+            repairable = {"NODE_GAP_DETECTED", "NODE_REPAIR_COMPLETED", "DIRECTOR_NODE_REJECTED"}
             prior_events = [
                 row for row in events
                 if row.get("data", {}).get("iteration_count") == prior.iteration_count
@@ -237,24 +243,29 @@ class AutonomousN7NodeService:
     ) -> None:
         run_id = self._required(run_id, "N7_RUN_ID_REQUIRED")
         task_id = self.coverage._ensure_runtime_task(control, run_id)
-        # A denominator expansion immediately invalidates the current execution
-        # convergence projection, even before the new obligation is executed.
-        append_entity(
-            control.truth,
-            Task(
-                task_id=task_id,
-                mission_id=control.mission_id,
-                node="EXECUTION",
-                task_type="RUNTIME",
-                objective="close current L1-L7 coverage denominators",
-                state=TaskStatus.READY,
-                acceptance_criteria=[
-                    "close expanded current denominator",
-                    "do not reuse stale layer receipts",
-                ],
-            ),
-            release_id=control.release_id,
+        current_task = self._one(
+            control, "rc7_task", "task_id", task_id, "N7_RUNTIME_TASK_NOT_UNIQUE"
         )
+        # Do not append a duplicate READY row while the task is already open.
+        # Reopen only a previously converged PASS projection.
+        if current_task.get("state") == "PASS":
+            append_entity(
+                control.truth,
+                Task(
+                    task_id=task_id,
+                    mission_id=control.mission_id,
+                    node="EXECUTION",
+                    task_type="RUNTIME",
+                    objective="close current L1-L7 coverage denominators",
+                    state=TaskStatus.READY,
+                    acceptance_criteria=[
+                        "close expanded current denominator",
+                        "do not reuse stale layer receipts",
+                    ],
+                ),
+                release_id=control.release_id,
+                artifact_version=self._next_task_version(control, task_id),
+            )
         adoption = WaveDNodeAdoptionControl(
             control.truth,
             release_id=control.release_id,
@@ -307,6 +318,16 @@ class AutonomousN7NodeService:
                 gap_ids=[gap_id],
                 evidence_refs=[denominator.evidence_id],
             )
+
+    @staticmethod
+    def _next_task_version(control: ClosedLoopControlPlane, task_id: str) -> int:
+        rows = control.truth.query("rc7_task", task_id=task_id)
+        if len(rows) != 1:
+            raise AutonomousN7NodeError("N7_RUNTIME_TASK_NOT_UNIQUE")
+        current = rows[0].get("artifact_version")
+        if not isinstance(current, int) or current < 1:
+            raise AutonomousN7NodeError("N7_RUNTIME_TASK_VERSION_INVALID")
+        return current + 1
 
     @staticmethod
     def _one(
