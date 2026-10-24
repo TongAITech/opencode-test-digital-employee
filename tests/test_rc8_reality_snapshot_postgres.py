@@ -15,11 +15,15 @@ from rc8_runtime.r1_runtime import CentralR1RuntimeLedger
 class PostgresRealitySnapshotRepositoryTest(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
+        # unittest cleanup is LIFO. Register the temporary directory first, then
+        # the SQLAlchemy engine, so engine.dispose() releases SQLite handles on
+        # Windows before TemporaryDirectory tries to remove center.db.
         self.addCleanup(self.tmpdir.cleanup)
         database = Path(self.tmpdir.name) / "center.db"
-        engine = create_engine("sqlite+pysqlite:///%s" % database.as_posix(), future=True)
-        Base.metadata.create_all(engine)
-        self.repo = PostgresRealitySnapshotRepository(PostgresStore(engine))
+        self.engine = create_engine("sqlite+pysqlite:///%s" % database.as_posix(), future=True)
+        self.addCleanup(self.engine.dispose)
+        Base.metadata.create_all(self.engine)
+        self.repo = PostgresRealitySnapshotRepository(PostgresStore(self.engine))
         self.center_repo = MemoryCenterRepository()
         self.center = CenterControlPlane(
             self.center_repo,
