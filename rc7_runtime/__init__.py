@@ -62,8 +62,10 @@ from .dsh_worker_bridge import (
     DshTaskWorkerBridge,
     DshWorkerBridgeError,
 )
+from .agent_teams_integration import install_rc7_1_agent_teams_orchestration
 from .dsh_worker_contract_v2 import install_rc7_1_worker_output_contracts
 
+install_rc7_1_agent_teams_orchestration()
 install_rc7_1_worker_output_contracts()
 
 from .candidate_payload import CandidatePayload, CandidatePayloadError, CandidatePayloadReader
@@ -130,6 +132,7 @@ __all__ = [
     "PersistentSlidingWindowGovernor",
     "classify_failure",
     "install_rc7_1_model_resilience",
+    "install_rc7_1_agent_teams_orchestration",
     "install_rc7_1_worker_output_contracts",
     "Artifact",
     "ArtifactStatus",
