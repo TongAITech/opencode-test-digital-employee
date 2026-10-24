@@ -29,6 +29,11 @@ from .execution_fanout_conformance import (
 )
 from .models import Evidence, Task
 from .node_tool_conformance import NODE_TOOL_CALL_KIND
+from .real_executor_provenance import (
+    RealExecutorProvenanceError,
+    RealExecutorProvenanceGate,
+    contract_enabled as real_executor_contract_enabled,
+)
 from .truth_overlay import append_entity
 
 
@@ -207,6 +212,28 @@ def _check_cat_truth(
         violations.append("ATTEMPT_CAT_QUERY_EVIDENCE_IDENTITY_MISMATCH:%s" % attempt_id)
 
 
+def _check_real_executor_truth(
+    truth: TruthRuntime,
+    *,
+    mission_id: str,
+    task_id: str,
+    attempt_id: str,
+    execution: Mapping[str, object],
+    violations: List[str],
+) -> None:
+    if not real_executor_contract_enabled(truth, mission_id):
+        return
+    try:
+        RealExecutorProvenanceGate(truth).require_attempt(
+            mission_id,
+            task_id,
+            attempt_id,
+            execution,
+        )
+    except RealExecutorProvenanceError as exc:
+        violations.append("REAL_EXECUTOR_PROVENANCE_INVALID:%s:%s" % (attempt_id, exc))
+
+
 @dataclass(frozen=True)
 class ExecutionRecoveryConformanceResult:
     mission_id: str
@@ -288,6 +315,14 @@ class ExecutionRecoveryConformanceChecker:
                 if convergence_status != "PASS":
                     violations.append("PASS_ATTEMPT_REQUIRES_PASS_CONVERGENCE:%s:%s" % (attempt_id, convergence_status or "MISSING"))
                 else:
+                    _check_real_executor_truth(
+                        self.truth,
+                        mission_id=mission_id,
+                        task_id=task_id,
+                        attempt_id=attempt_id,
+                        execution=execution,
+                        violations=violations,
+                    )
                     terminal_statuses.append("PASS")
                 continue
 
@@ -335,6 +370,14 @@ class ExecutionRecoveryConformanceChecker:
                 if convergence_status not in PASS_READY_TERMINAL_STATUSES:
                     violations.append("EXECUTION_CHAIN_NOT_PASS_READY:%s:%s" % (attempt_id, convergence_status or "MISSING"))
                 elif convergence_status:
+                    _check_real_executor_truth(
+                        self.truth,
+                        mission_id=mission_id,
+                        task_id=task_id,
+                        attempt_id=attempt_id,
+                        execution=execution,
+                        violations=violations,
+                    )
                     terminal_statuses.append(convergence_status)
             else:
                 if "recovery_execute" not in chain_tools:
@@ -368,9 +411,7 @@ class ExecutionRecoveryConformanceChecker:
                 violations.append("CASE_EXECUTION_FANOUT_INVALID:%s" % exc)
             else:
                 if barrier.status != "PASS":
-                    violations.append(
-                        "CASE_EXECUTION_FANOUT_INCOMPLETE:%s" % ",".join(barrier.missing_tc_ids)
-                    )
+                    violations.append("CASE_EXECUTION_FANOUT_INCOMPLETE:%s" % ",".join(barrier.missing_tc_ids))
 
         _ = successor_targets
         return ExecutionRecoveryConformanceResult(

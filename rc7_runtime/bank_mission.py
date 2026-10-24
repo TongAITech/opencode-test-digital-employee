@@ -25,6 +25,10 @@ from .execution_recovery_conformance import (
 from .mission_graph import MissionTaskGraphCompiler
 from .models import Evidence, Mission
 from .node_tool_conformance import contract_enabled as node_tool_contract_enabled, persist_contract as persist_node_tool_contract
+from .real_executor_provenance import (
+    contract_enabled as real_executor_contract_enabled,
+    persist_contract as persist_real_executor_contract,
+)
 from .truth_overlay import append_entity
 
 
@@ -154,9 +158,9 @@ def start_or_resume(*, r1_path: str, mission_id: str, release_id: str, goal: str
             task_ids=task_ids,
         )
         # New Bank graph-v2 Missions opt into durable node/tool, execution
-        # recovery, and accepted-Case fan-out enforcement. Existing persisted
-        # Missions are never silently upgraded on resume, preserving frozen
-        # contract identity.
+        # recovery, accepted-Case fan-out and real-executor provenance
+        # enforcement. Existing persisted Missions are never silently upgraded
+        # on resume, preserving frozen durable contract identity.
         if compiler.graph_version == MissionTaskGraphCompiler.GRAPH_V2:
             persist_node_tool_contract(
                 truth,
@@ -171,6 +175,12 @@ def start_or_resume(*, r1_path: str, mission_id: str, release_id: str, goal: str
             if len(execution_tasks) != 1:
                 raise BankMissionError("V2_EXECUTION_TASK_NOT_UNIQUE")
             persist_execution_recovery_contract(
+                truth,
+                mission_id=mission_id,
+                release_id=release_id,
+                execution_task_id=execution_tasks[0].task_id,
+            )
+            persist_real_executor_contract(
                 truth,
                 mission_id=mission_id,
                 release_id=release_id,
@@ -221,6 +231,7 @@ def start_or_resume(*, r1_path: str, mission_id: str, release_id: str, goal: str
         "ready_tasks": ready,
         "node_tool_contract_enabled": node_tool_contract_enabled(truth, mission_id),
         "execution_recovery_contract_enabled": execution_recovery_contract_enabled(truth, mission_id),
+        "real_executor_provenance_contract_enabled": real_executor_contract_enabled(truth, mission_id),
         "case_fanout_contract_enabled": case_fanout_contract_enabled(truth, mission_id),
         "real_mission_pass": False,
         "completion_authority": "INDEPENDENT_EVALUATION_AND_MISSION_SUFFICIENCY",
