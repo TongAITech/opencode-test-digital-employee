@@ -11,7 +11,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Sequence, Set
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 
 class RC8ContractError(ValueError):
@@ -178,14 +178,18 @@ class WorkItemIdentity:
     test_run_id: str
     stage: str
     scope_refs: List[str]
-    required_capabilities: List[str] = field(default_factory=list)
+    required_capabilities: Tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "work_item_id", _required(self.work_item_id, "work_item_id"))
         object.__setattr__(self, "test_run_id", _required(self.test_run_id, "test_run_id"))
         object.__setattr__(self, "stage", _required(self.stage, "stage"))
         object.__setattr__(self, "scope_refs", _strings(self.scope_refs, "scope_refs"))
-        object.__setattr__(self, "required_capabilities", _strings(self.required_capabilities, "required_capabilities"))
+        object.__setattr__(
+            self,
+            "required_capabilities",
+            tuple(_strings(self.required_capabilities, "required_capabilities")),
+        )
 
 
 @dataclass(frozen=True)
