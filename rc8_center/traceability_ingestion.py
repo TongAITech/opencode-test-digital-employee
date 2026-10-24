@@ -9,8 +9,9 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
+from .runtime_attempt_authority import RuntimeAttemptAuthority, RuntimeAttemptAuthoritySnapshot, RuntimeEvidenceAuthorityContext
 from .traceability import TraceEdge, TraceEvidence, TraceNode, TraceNodeType, TraceRelationType, TraceVerificationState, TraceabilityError
 
 
@@ -57,6 +58,7 @@ class RawTraceObservation:
     stage_id: Optional[str] = None
     work_item_id: Optional[str] = None
     attempt_id: Optional[str] = None
+    producer_node_id: Optional[str] = None
     artifact_id: Optional[str] = None
     requested_verification: TraceVerificationState = TraceVerificationState.CANDIDATE
     payload: Dict[str, Any] = field(default_factory=dict)
@@ -95,19 +97,23 @@ class TraceIngestionReceipt:
 
 _CODE_NODE_TYPES = {TraceNodeType.CONTROLLER, TraceNodeType.METHOD, TraceNodeType.SERVICE, TraceNodeType.REPOSITORY, TraceNodeType.MAPPER}
 _PERSISTENCE_ORIGINS = {TraceNodeType.REPOSITORY, TraceNodeType.MAPPER}
+_RUNTIME_SOURCES = {TraceObservationSource.BROWSER_NETWORK}
 
 
 class CenterTraceabilityIngestion:
-    policy_version = "rc8.trace-ingestion-center.v1"
+    policy_version = "rc8.trace-ingestion-center.v2"
 
-    def __init__(self, repository) -> None:
+    def __init__(self, repository, *, control_plane=None, attempt_snapshot_resolver: Optional[Callable[[str], RuntimeAttemptAuthoritySnapshot]] = None) -> None:
         self.repository = repository
+        self.control_plane = control_plane
+        self.attempt_snapshot_resolver = attempt_snapshot_resolver
 
     def ingest(self, observation: RawTraceObservation) -> TraceIngestionReceipt:
         observation.validate()
         graph = self.repository.get_graph(observation.graph_id)
         if graph is None:
             raise TraceabilityError("TRACE_OBSERVATION_GRAPH_NOT_FOUND")
+        self._authorize_runtime_observation(observation, graph)
         target_state, policy_code, confidence, evidence_type = self._policy(observation)
         source = self._upsert_node(observation.graph_id, graph, observation.from_endpoint, observation.captured_at)
         target = self._upsert_node(observation.graph_id, graph, observation.to_endpoint, observation.captured_at)
@@ -128,6 +134,11 @@ class CenterTraceabilityIngestion:
             "from_payload": dict(observation.from_endpoint.payload),
             "to_payload": dict(observation.to_endpoint.payload),
         })
+        if observation.source_kind in _RUNTIME_SOURCES:
+            payload.update({
+                "runtime_authority": "CURRENT_ATTEMPT_AND_ACTIVE_LEASE",
+                "producer_node_id": observation.producer_node_id,
+            })
         evidence = TraceEvidence(
             evidence_id=evidence_id,
             graph_id=observation.graph_id,
@@ -152,6 +163,47 @@ class CenterTraceabilityIngestion:
             disposition = "CENTER_VERIFIED"
         return TraceIngestionReceipt(observation.observation_id, observation.graph_id, edge.edge_id, evidence_id, state, disposition, policy_code)
 
+    def _authorize_runtime_observation(self, observation, graph) -> None:
+        if observation.source_kind not in _RUNTIME_SOURCES:
+            return
+        if self.control_plane is None or self.attempt_snapshot_resolver is None:
+            raise TraceabilityError("RUNTIME_TRACE_AUTHORITY_NOT_CONFIGURED")
+        for error, value in (
+            ("RUNTIME_TRACE_WORK_ITEM_REQUIRED", observation.work_item_id),
+            ("RUNTIME_TRACE_ATTEMPT_REQUIRED", observation.attempt_id),
+            ("RUNTIME_TRACE_PRODUCER_NODE_REQUIRED", observation.producer_node_id),
+        ):
+            if not str(value or "").strip():
+                raise TraceabilityError(error)
+
+        # CenterControlPlane resolves the active lease from Center-owned state;
+        # no lease identity supplied by a worker is trusted here.
+        work = self.control_plane.authorize_work_item_write(
+            test_run_id=graph.test_run_id,
+            work_item_id=observation.work_item_id,
+            node_id=observation.producer_node_id,
+        )
+        current = self.attempt_snapshot_resolver(observation.work_item_id)
+        if current is None:
+            raise TraceabilityError("CURRENT_ATTEMPT_AUTHORITY_NOT_FOUND")
+        if work.lease_owner_node_id != current.lease_owner_node_id:
+            raise TraceabilityError("ATTEMPT_LEASE_OWNER_DRIFT")
+        if work.lease_expires_at is None or int(work.lease_expires_at) != int(current.lease_expires_at):
+            raise TraceabilityError("ATTEMPT_LEASE_WINDOW_DRIFT")
+        try:
+            RuntimeAttemptAuthority.authorize(
+                current=current,
+                evidence=RuntimeEvidenceAuthorityContext(
+                    work_item_id=observation.work_item_id,
+                    attempt_id=observation.attempt_id,
+                    producer_node_id=observation.producer_node_id,
+                    observed_at=observation.captured_at,
+                ),
+                now=int(self.control_plane._now()),
+            )
+        except RuntimeError as exc:
+            raise TraceabilityError(str(exc)) from exc
+
     def _policy(self, observation: RawTraceObservation) -> Tuple[TraceVerificationState, str, float, str]:
         source, src, dst, relation = observation.source_kind, observation.from_endpoint.node_type, observation.to_endpoint.node_type, observation.relation_type
         if source == TraceObservationSource.LLM_INFERENCE:
@@ -174,9 +226,6 @@ class CenterTraceabilityIngestion:
                     raise TraceabilityError("JDBC_EXPLICIT_SQL_REQUIRED")
                 if source == TraceObservationSource.ORM_MAPPING and not any(key in observation.payload for key in ("table", "mapping", "entity_table")):
                     raise TraceabilityError("ORM_EXPLICIT_MAPPING_REQUIRED")
-                # Normalize JDBC/ORM proof to an evidence class already consumed by
-                # the durable verifier and CodeSufficiency while preserving the
-                # original source kind in payload.
                 evidence_type = "SQL" if source == TraceObservationSource.JDBC else ("DATABASE_METADATA" if source == TraceObservationSource.ORM_MAPPING else source.value)
                 return TraceVerificationState.STATIC_VERIFIED, "EXPLICIT_PERSISTENCE_SQL", 1.0, evidence_type
             if relation in {TraceRelationType.READS_TABLE, TraceRelationType.WRITES_TABLE} and src == TraceNodeType.SQL and dst == TraceNodeType.TABLE:
