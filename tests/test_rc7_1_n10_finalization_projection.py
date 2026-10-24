@@ -7,7 +7,14 @@ from pathlib import Path
 from rc6_runtime.truth import TruthRuntime
 from rc7_runtime.autonomous_n10_finalization import AutonomousN10FinalizationService
 from rc7_runtime.closed_loop_control import ClosedLoopControlPlane
-from rc7_runtime.models import Artifact, Evidence, Mission, MissionStatus, Task, TaskStatus
+from rc7_runtime.models import (
+    Artifact,
+    Evaluation,
+    EvaluationResult,
+    Evidence,
+    Mission,
+    MissionStatus,
+)
 from rc7_runtime.truth_overlay import append_entity
 
 
@@ -25,21 +32,45 @@ def _control(tmp_path: Path):
             mission_id=MISSION,
             release_id=RELEASE,
             goal="prove final report replay and projection isolation",
-            state=MissionStatus.CONVERGED,
-            sufficiency_state="SUFFICIENT",
         ),
+    )
+
+    # Respect the same durable convergence order as production: a Mission may
+    # become CONVERGED only after the independent PASS evaluation already
+    # exists in R1.  The projection tests intentionally do not weaken that
+    # acceptance boundary just to create a fixture.
+    evaluation_id = "EVAL-N10-FINALIZATION-CONVERGED"
+    append_entity(
+        truth,
+        Evaluation(
+            evaluation_id=evaluation_id,
+            mission_id=MISSION,
+            node="MISSION_EVALUATION",
+            artifact_refs=[],
+            result=EvaluationResult.PASS,
+            evaluator_ref="independent-n10-finalization-fixture-gate",
+            dimensions={
+                "sufficiency_state": "SUFFICIENT",
+                "purpose": "FINAL_REPORT_PROJECTION_FIXTURE",
+            },
+            gap_refs=[],
+            evidence_refs=[],
+        ),
+        release_id=RELEASE,
     )
     append_entity(
         truth,
-        Task(
-            task_id=TASK,
+        Mission(
             mission_id=MISSION,
-            node="MISSION_EVALUATION",
-            task_type="N10_CONVERGENCE",
-            objective="seed finalization producer",
-            state=TaskStatus.PASS,
+            release_id=RELEASE,
+            goal="prove final report replay and projection isolation",
+            state=MissionStatus.CONVERGED,
+            sufficiency_state="SUFFICIENT",
+            latest_evaluation_id=evaluation_id,
+            revision=2,
         ),
         release_id=RELEASE,
+        artifact_version=2,
     )
     return truth, control
 
