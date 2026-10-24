@@ -8,18 +8,14 @@
 - Construction Branch: `work/rc7.1-autonomous-loop`
 - Engineering-verified Wave A implementation HEAD: `bf8badf3dc687eba3a2d092174ff1a31706f4ba1`
 - Engineering-verified Wave B implementation HEAD: `4ad0d32eb009e870760db185bb8f5975705fdd5d`
+- Engineering-verified Wave C implementation HEAD: `65f5340c9b88ecaacc472fca0d30f16f194249b7`
 
 ## Reality boundary
 
-- Controlled Engineering: PASS for Waves A-B
-- Wave A validation run: `40071040146` (#72)
-  - targeted Ubuntu: PASS
-  - targeted Windows: PASS
-  - full-rc7: PASS
-- Wave B validation run: `40077002904` (#79)
-  - targeted Ubuntu: PASS
-  - targeted Windows: PASS
-  - full-rc7: PASS
+- Controlled Engineering: PASS for Waves A-C
+- Wave A validation run: `40071040146` (#72): Ubuntu targeted PASS / Windows targeted PASS / full-rc7 PASS
+- Wave B validation run: `40077002904` (#79): Ubuntu targeted PASS / Windows targeted PASS / full-rc7 PASS
+- Wave C validation run: `40077581353` (#82): Ubuntu targeted PASS / Windows targeted PASS / full-rc7 PASS
 - Bank Field Reality: `NOT_VERIFIED`
 
 Controlled Engineering PASS MUST NOT be reported as Bank Field Reality PASS.
@@ -30,70 +26,58 @@ Controlled Engineering PASS MUST NOT be reported as Bank Field Reality PASS.
 |---|---|---|
 | A | Foundation registries/contracts/router/events/durable node control/coverage ledger | ENGINEERING_VERIFIED |
 | B | N1-N4 autonomous node adoption | ENGINEERING_VERIFIED |
-| C | N5-N6 preparation/script closure | IN_PROGRESS |
-| D | N7 coverage-driven execution closure | NOT_STARTED |
+| C | N5-N6 preparation/script closure | ENGINEERING_VERIFIED |
+| D | N7 coverage-driven execution closure | IN_PROGRESS |
 | E | N8-N9 recovery/defect closure | NOT_STARTED |
 | F | N10 mission convergence/reporting | NOT_STARTED |
 
-## Wave A delivered
+## Wave C delivered
 
-- CanonicalNodeRegistry N1-N10
-- CanonicalLayerRegistry L1-L7
-- NodeLoopState and durable NodeIteration lineage in R1
-- immutable NodeDeliveryPackage + R1 Artifact/Evidence/ready receipt
-- canonical Gap routing foundation
-- CoverageDenominatorSnapshot / CoverageObligation / CoverageLedger / LayerCoverageReceipt
-- canonical autonomous R1 event registry
-- machine-readable contract registries and five delivery schemas
-- fail-closed contract validator and CI hard gates
-- RC7.1 execution profiles restored to canonical L5 E2E / L6 Performance / L7 Security
-- L4-L7 production evidence gate aligned to canonical taxonomy
-- DATA/PRECONDITION/AUTH recovery routed to Runtime Preparation (logical N5)
-- dynamic backend-dispatch-aware CAT policy covering L3/L4/L5/L6/L7
-- unrealized execution contracts classified as SCRIPT repair instead of UNKNOWN/BLOCKED
-- existing real dsh-agent-teams assignment/member receipt path retained and hard-tested
+### N5 Test Data / Preconditions
 
-## Wave B delivered
+- Existing `PreparationRuntime` / `CaseRuntime` remain the real side-effect implementation; no duplicate preparation engine was introduced.
+- Added Batch Preparation Plan as durable planning truth with `execution_proof=false`.
+- Added durable resource reservation bound to the PreparedAttempt data-binding fingerprint.
+- Added explicit pre-execution freshness evidence.
+- Per-Case finalization requires the current immutable PreparedAttempt, exact frozen Case identity/hash, matching reservation and current freshness proof.
+- AUTH preconditions require current same-attempt `PRECONDITION_EVIDENCE` whose source identifies fresh `foura-auth`; stale evidence is rejected.
+- N5 Runtime readiness publishes a durable NodeDeliveryPackage; final logical node PASS remains Director-gated.
 
-- N2 Requirement, N3 Code and N4 Test Design evaluated subtask PASS no longer constitutes node-level PASS by itself
-- immutable NodeDeliveryPackage + separate Director acceptance/rejection gate for N1-N4
-- Director cannot reuse specialist/evaluator identity or impersonate a node worker
-- Director rejection preserves prior lineage and requires a delta before the next iteration
-- N1 Runtime Reality Recon is bound into the autonomous node contract without replacing the existing runtime-owned recon engine
-- N1 autonomous readiness requires current environment, target version, source revision and durable VERIFIED capability/service proof
-- N1 mandatory capabilities include DSH headless, AgentTeams bootstrap, fresh auth, Browser Network route discovery and Runtime execution
-- legacy Reality Recon PASS without the autonomous proof matrix cannot impersonate N1 completion
-- `AUTONOMOUS_NODE_GATE` Evaluation evidence is now fail-closed at the R1 durable boundary: evidence must exist and belong to the same Mission
-- N1/N2/N3/N4 final node PASS remains Director-gated; N1 engineering fixtures explicitly have no Bank Field certification authority
+### N6 Script Build / Readiness
 
-## GAP status after Waves A-B
+- Existing Runtime script readiness gate remains authoritative for compile/discovery/dependency and frozen Case/Oracle fingerprints.
+- Added `ScriptImplementationMatrix` semantic closure over Case steps, Oracle refs, runtime bindings and evidence collectors.
+- Missing/duplicate/unexpected semantic mappings create durable `SCRIPT_IMPLEMENTATION_COVERAGE_GAP` instead of script READY.
+- N6 explicitly forbids business assertion execution during readiness.
+- Complete technical + semantic readiness publishes N6 NodeDeliveryPackage; final node PASS remains Director-gated.
+
+## GAP status after Waves A-C
 
 - `RC71-AL-001` ENGINEERING_VERIFIED
 - `RC71-AL-002` ENGINEERING_VERIFIED
 - `RC71-AL-006` ENGINEERING_VERIFIED
 - `RC71-AL-007` ENGINEERING_VERIFIED
-- `RC71-AL-017` FOUNDATION + N1-N4 ADOPTION ENGINEERING_VERIFIED; N5-N10 adoption continues in Waves C-F
-- `RC71-AL-018` REGISTRY + N1-N4 NODE EVENTS ENGINEERING_VERIFIED; later node-specific events continue in Waves C-F
-- `RC71-AL-019` EXISTING_ENGINEERING_VERIFIED; Bank Field still NOT_VERIFIED
-- `RC71-AL-008` PARTIAL: ownership/routing fixed; fresh 4A preparation lifecycle is Wave C
+- `RC71-AL-008` ENGINEERING_VERIFIED at controlled-engineering level for fresh-auth preparation gating; Bank Field remains NOT_VERIFIED
+- `RC71-AL-017` N1-N6 adoption ENGINEERING_VERIFIED; N7-N10 continues in Waves D-F
+- `RC71-AL-018` registry + N1-N6 events ENGINEERING_VERIFIED; later node-specific events continue in Waves D-F
+- `RC71-AL-019` existing AgentTeams path ENGINEERING_VERIFIED; Bank Field still NOT_VERIFIED
 - `RC71-AL-003/004/005` foundation exists; full N7 implementation is Wave D
 - `RC71-AL-009/010/011/012/013` remain Wave E
 - `RC71-AL-014/015/016` remain Wave F
 - `RC71-AL-020` remains OPEN until real bank-field evidence exists
 
-## Next exact work item — Wave C N5-N6
+## Next exact work item — Wave D N7
 
-Do not rewrite working preparation/script engines. Integrate them into the shared autonomous contract:
-
-1. preserve Runtime-owned side effects and existing Provider/Human Gate truth
-2. add N5 batch preparation planning/shared resource truth without treating a batch snapshot as execution proof
-3. require per-Case final preparation immediately before each execution attempt
-4. add explicit reservation/freshness lifecycle and current fresh-auth proof; historical cookie remains forbidden
-5. preserve immutable `PreparedAttempt` identity and cleanup/release/quarantine evidence
-6. bind N5 Runtime readiness into durable N5 NodeDelivery/Runtime deterministic gate
-7. keep Script Readiness business execution disabled; add N6 semantic implementation closure over Case steps/Oracle/runtime bindings/evidence collectors
-8. bind N6 evaluated script truth into durable NodeDelivery + Director Gate
-9. targeted Ubuntu + Windows + full-rc7 must remain green
+1. persist versioned/frozen Layer Coverage denominators as current Runtime truth
+2. reconcile real execution coverage evidence into `CoverageLedger`
+3. preserve `COVERED_FAIL` as valid coverage while keeping Product Quality separate
+4. emit exact uncovered Coverage obligations and route gaps to N2/N3/N4/N5/N6/N7/N8/N9 by cause
+5. execute only delta obligations; do not full-restart closed coverage
+6. denominator expansion invalidates stale LayerCoverageReceipt and reopens the affected layer
+7. support cross-layer backward reopen when downstream evidence expands upstream scope
+8. enforce L1 target line=100% and logic=100%, plus canonical L2-L7 obligation targets
+9. publish N7 NodeDelivery only when all current layer contracts are closed
+10. targeted Ubuntu + Windows + full-rc7 must remain green
 
 ## Do not repeat
 
@@ -101,4 +85,5 @@ Do not rewrite working preparation/script engines. Integrate them into the share
 - Do not change canonical L1-L7 meanings.
 - Do not reintroduce L5 API Contract / L6 Capability / L7 E2E taxonomy.
 - Do not route DATA/PRECONDITION/AUTH back to Script Readiness.
+- Coverage closure is not Product Quality PASS.
 - Do not downgrade Bank Field `NOT_VERIFIED`.
