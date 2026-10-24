@@ -97,11 +97,14 @@ def install_rc7_1_agent_teams_orchestration() -> None:
 
     def patched_compile(self, task, assignment):
         prompt = original_compile(self, task, assignment)
-        binding = getattr(self, "_rc7_agent_teams_bindings", {}).get(
-            assignment.assignment_id
-        )
-        if binding is None:
+        if getattr(self, "_rc7_agent_teams_gate", None) is None:
             return prompt
+        assignment_id = str(getattr(assignment, "assignment_id", "") or "").strip()
+        if not assignment_id:
+            raise _bridge.DshWorkerBridgeError("AGENT_TEAMS_ASSIGNMENT_ID_REQUIRED")
+        binding = getattr(self, "_rc7_agent_teams_bindings", {}).get(assignment_id)
+        if binding is None:
+            raise _bridge.DshWorkerBridgeError("AGENT_TEAMS_PROMPT_BINDING_REQUIRED")
         return prompt + "\nTEAM_ASSIGNMENT_CONTRACT=" + json.dumps(
             binding.as_contract(), ensure_ascii=False, sort_keys=True
         )
