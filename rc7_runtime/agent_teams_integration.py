@@ -5,7 +5,12 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .agent_teams_bootstrap import (
+    AgentTeamsBootstrapError,
+    DshAgentTeamsMissionBootstrapper,
+)
 from .agent_teams_orchestration import AgentTeamsOrchestrationError, DshAgentTeamsStateGate
+from .mission_graph import MissionTaskGraphCompiler
 from . import dsh_worker_bridge as _bridge
 
 
@@ -15,6 +20,33 @@ def _is_bank_launcher(launcher: Any) -> bool:
         cls.__name__ == "Rc7AuthorizedDshHeadlessWorkerLauncher"
         and cls.__module__ == "rc7_runtime.authorized_dsh_launcher"
     )
+
+
+def _persisted_graph(control):
+    """Recover the canonical root graph version without treating repair Tasks as roots."""
+    rows = control.truth.query("rc7_task", mission_id=control.mission_id)
+    nodes = {
+        str(row.get("node") or "").strip()
+        for row in rows
+        if isinstance(row, dict) and str(row.get("node") or "").strip()
+    }
+    graph_version = (
+        MissionTaskGraphCompiler.GRAPH_V2
+        if "REALITY_RECON" in nodes
+        else MissionTaskGraphCompiler.GRAPH_V1
+    )
+    compiler = MissionTaskGraphCompiler(graph_version)
+    graph = compiler.compile(control.mission_id)
+    for task in graph.tasks:
+        matches = [
+            row for row in rows
+            if row.get("task_id") == task.task_id and row.get("node") == task.node
+        ]
+        if len(matches) != 1:
+            raise _bridge.DshWorkerBridgeError(
+                "AGENT_TEAMS_CANONICAL_TASK_NOT_UNIQUE:%s:%d" % (task.node, len(matches))
+            )
+    return graph
 
 
 def install_rc7_1_agent_teams_orchestration() -> None:
@@ -31,6 +63,7 @@ def install_rc7_1_agent_teams_orchestration() -> None:
         original_init(self, control, launcher, node_policies=node_policies)
         self._rc7_agent_teams_bindings = {}
         self._rc7_agent_teams_gate = None
+        self._rc7_agent_teams_bootstrapper = None
         if _is_bank_launcher(launcher):
             state_root = Path(getattr(launcher, "state_root")).expanduser().resolve()
             workspace_root = Path(getattr(launcher, "cwd")).expanduser().resolve()
@@ -39,15 +72,45 @@ def install_rc7_1_agent_teams_orchestration() -> None:
                 workspace_root=str(workspace_root),
                 evidence_root=str(state_root / "evidence"),
             )
+            self._rc7_agent_teams_bootstrapper = DshAgentTeamsMissionBootstrapper(
+                control,
+                graph=_persisted_graph(control),
+                dsh_bin=str(getattr(launcher, "dsh_bin")),
+                patch_path=str(getattr(launcher, "patch_path")),
+                workspace_root=str(workspace_root),
+                evidence_root=str(state_root / "evidence"),
+                timeout_seconds=int(getattr(launcher, "timeout_seconds", 300)),
+                command_runner=getattr(launcher, "command_runner", None),
+            )
+
+    def _binding_or_bootstrap(self, task):
+        gate = getattr(self, "_rc7_agent_teams_gate", None)
+        if gate is None:
+            return None
+        try:
+            return gate.require_binding(task)
+        except AgentTeamsOrchestrationError as exc:
+            if str(exc) != "AGENT_TEAMS_MISSION_TEAM_REQUIRED":
+                raise _bridge.DshWorkerBridgeError(str(exc)) from exc
+        bootstrapper = getattr(self, "_rc7_agent_teams_bootstrapper", None)
+        if bootstrapper is None:
+            raise _bridge.DshWorkerBridgeError("AGENT_TEAMS_BOOTSTRAPPER_REQUIRED")
+        try:
+            bootstrapper.bootstrap()
+        except AgentTeamsBootstrapError as exc:
+            raise _bridge.DshWorkerBridgeError("AGENT_TEAMS_BOOTSTRAP_FAILED:%s" % exc) from exc
+        try:
+            return gate.require_binding(task)
+        except AgentTeamsOrchestrationError as exc:
+            raise _bridge.DshWorkerBridgeError(
+                "AGENT_TEAMS_BINDING_MISSING_AFTER_BOOTSTRAP:%s" % exc
+            ) from exc
 
     def patched_assign(self, task, policy):
         gate = getattr(self, "_rc7_agent_teams_gate", None)
         if gate is None:
             return original_assign(self, task, policy)
-        try:
-            binding = gate.require_binding(task)
-        except AgentTeamsOrchestrationError as exc:
-            raise _bridge.DshWorkerBridgeError(str(exc)) from exc
+        binding = _binding_or_bootstrap(self, task)
 
         rows = self.control.truth.query("rc7_task", task_id=task.task_id)
         if len(rows) != 1:
