@@ -1,0 +1,30 @@
+name: RC8 N2-N4 MissionNode Adoption
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_center/mission_node_adoption_service.py'
+      - 'tests/test_rc8_mission_node_adoption_service.py'
+      - '.github/workflows/rc8-n2-n4-adoption.yml'
+  workflow_dispatch:
+
+jobs:
+  n2-n4-adoption:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Compile N2-N4 adoption adapter
+        run: >-
+          python -m py_compile
+          rc8_center/mission_node_adoption_service.py
+          tests/test_rc8_mission_node_adoption_service.py
+      - name: Run N2-N4 adoption regression
+        run: python -m unittest tests.test_rc8_mission_node_adoption_service -v
