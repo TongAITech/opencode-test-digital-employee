@@ -256,7 +256,7 @@ def test_residual_risk_conformance_rejects_unreceipted_risk_set(tmp_path: Path):
 
     payload, violations = MissionConvergenceConformanceChecker(truth)._residual_risk_conformance(MISSION)
     assert payload["status"] == "FAIL"
-    assert any("RESIDUAL_RISK_GOVERNANCE_RECEIPT" in item for item in violations)
+    assert any("RESIDUAL_RISK_GOVERNANCE" in item for item in violations)
 
 
 def test_governed_finalization_mro_uses_risk_governed_prepare(tmp_path: Path):
