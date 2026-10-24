@@ -32,6 +32,7 @@ jobs:
           python -m pytest -q
           tests/test_rc7_1_autonomous_contract.py
           tests/test_rc7_1_contract_validator.py
+          tests/test_rc7_1_autonomous_node_control.py
           tests/test_rc7_1_exhaustive_coverage_gate.py
           tests/test_rc7_1_layer_execution_evidence_contract.py
           tests/test_rc7_1_execution_profiles.py
