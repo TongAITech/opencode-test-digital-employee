@@ -47,6 +47,7 @@ jobs:
           tests/test_rc7_1_n10_manifest_reconciliation.py
           tests/test_rc7_1_n10_convergence_reporting.py
           tests/test_rc7_1_n10_finalization_projection.py
+          tests/test_rc7_1_residual_risk_registry.py
           tests/test_rc7_1_coverage_ledger_contract.py
           tests/test_rc7_1_failure_classification_contract.py
           tests/test_rc7_1_exhaustive_coverage_gate.py
