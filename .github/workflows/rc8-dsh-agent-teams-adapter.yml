@@ -1,0 +1,43 @@
+name: RC8 DSH Agent Teams Adapter
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_center/dsh_agent_teams_adapter.py'
+      - 'rc8_center/node_team_runtime.py'
+      - 'rc8_center/control_plane.py'
+      - 'rc8_runtime/contracts.py'
+      - 'rc8_runtime/r1_runtime.py'
+      - 'tests/test_rc8_dsh_agent_teams_adapter.py'
+      - '.github/workflows/rc8-dsh-agent-teams-adapter.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dsh-agent-teams-adapter:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Install test dependency
+        shell: bash
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile local DSH bridge adapter
+        shell: bash
+        run: |
+          python -m py_compile \
+            rc8_center/dsh_agent_teams_adapter.py \
+            tests/test_rc8_dsh_agent_teams_adapter.py
+      - name: Run local DSH bridge adapter regression
+        shell: bash
+        run: python -m pytest -q tests/test_rc8_dsh_agent_teams_adapter.py
