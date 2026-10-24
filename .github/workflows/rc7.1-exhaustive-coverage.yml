@@ -40,6 +40,7 @@ jobs:
           tests/test_rc7_1_n6_autonomous_script.py
           tests/test_rc7_1_n7_coverage_closure.py
           tests/test_rc7_1_n7_node_convergence.py
+          tests/test_rc7_1_n8_recovery_orchestrator.py
           tests/test_rc7_1_coverage_ledger_contract.py
           tests/test_rc7_1_failure_classification_contract.py
           tests/test_rc7_1_exhaustive_coverage_gate.py
