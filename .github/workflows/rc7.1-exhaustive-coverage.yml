@@ -32,6 +32,7 @@ jobs:
           tests/test_rc7_1_exhaustive_coverage_gate.py
           tests/test_rc7_1_layer_execution_evidence_contract.py
           tests/test_rc7_1_execution_profiles.py
+          tests/test_rc7_1_agent_teams_orchestration.py
           tests/test_rc7_1_layer_execution_production_service.py
           tests/test_rc7_1_runtime_timing_reality.py
           tests/test_rc7_execution_fanout_production_chain.py
