@@ -195,9 +195,9 @@ class MissionConvergenceConformanceChecker:
 
     def _residual_risk_conformance(self, mission_id: str):
         # Import lazily to preserve the existing control-plane import graph:
-        # closed_loop_control -> mission_convergence_conformance.  The registry
+        # closed_loop_control -> mission_convergence_conformance. The registry
         # itself accepts a control-plane shaped object and therefore imports the
-        # control plane for its runtime API.  Loading it here occurs only after
+        # control plane for its runtime API. Loading it here occurs only after
         # rc7_runtime has fully initialized and avoids a circular module import.
         from .autonomous_residual_risk import ResidualRiskRegistry
 
@@ -217,47 +217,66 @@ class MissionConvergenceConformanceChecker:
             if row.get("artifact_type_name") == RISK_GOVERNANCE_RECEIPT_TYPE
             and row.get("state") == "VALID"
         ]
-        if len(receipts) != 1:
-            violations.append("RESIDUAL_RISK_GOVERNANCE_RECEIPT_NOT_UNIQUE:%d" % len(receipts))
+        if not receipts:
+            violations.append("RESIDUAL_RISK_GOVERNANCE_CURRENT_RECEIPT_NOT_UNIQUE:0")
             return {
                 "status": "FAIL",
                 "triggered": True,
                 "risk_count": summary.get("risk_count"),
                 "pending_risk_ids": pending,
+                "receipt_history_count": 0,
             }, violations
 
-        receipt = receipts[0]
-        content_ref = str(receipt.get("content_ref") or "")
-        if not content_ref.startswith("file://"):
-            violations.append("RESIDUAL_RISK_GOVERNANCE_RECEIPT_FILE_REQUIRED")
-            return {"status": "FAIL", "triggered": True}, violations
-        path = Path(content_ref[len("file://"):])
-        if not path.is_file():
-            violations.append("RESIDUAL_RISK_GOVERNANCE_RECEIPT_FILE_MISSING")
-            return {"status": "FAIL", "triggered": True}, violations
-        raw = path.read_bytes()
-        digest = hashlib.sha256(raw).hexdigest()
-        if receipt.get("content_hash") != "sha256:" + digest:
-            violations.append("RESIDUAL_RISK_GOVERNANCE_RECEIPT_HASH_MISMATCH")
-            return {"status": "FAIL", "triggered": True}, violations
-        try:
-            payload = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            violations.append("RESIDUAL_RISK_GOVERNANCE_RECEIPT_JSON_INVALID")
-            return {"status": "FAIL", "triggered": True}, violations
-        if not isinstance(payload, dict) or payload.get("schema_version") != "RC7_1_RESIDUAL_RISK_CONVERGENCE_V1":
-            violations.append("RESIDUAL_RISK_GOVERNANCE_RECEIPT_SCHEMA_INVALID")
-            return {"status": "FAIL", "triggered": True}, violations
-
         current = {item["risk_id"]: item for item in summary.get("risks") or []}
-        recorded = {
-            item["risk_id"]: item
-            for item in payload.get("risks") or []
-            if isinstance(item, dict) and item.get("risk_id")
-        }
-        if set(current) != set(recorded):
-            violations.append("RESIDUAL_RISK_GOVERNANCE_SET_MISMATCH")
-        else:
+        current_matches = []
+        valid_history = []
+        for receipt in receipts:
+            artifact_id = str(receipt.get("artifact_id") or "")
+            content_ref = str(receipt.get("content_ref") or "")
+            if not content_ref.startswith("file://"):
+                violations.append(
+                    "RESIDUAL_RISK_GOVERNANCE_RECEIPT_FILE_REQUIRED:%s" % artifact_id
+                )
+                continue
+            path = Path(content_ref[len("file://"):])
+            if not path.is_file():
+                violations.append(
+                    "RESIDUAL_RISK_GOVERNANCE_RECEIPT_FILE_MISSING:%s" % artifact_id
+                )
+                continue
+            raw = path.read_bytes()
+            digest = hashlib.sha256(raw).hexdigest()
+            if receipt.get("content_hash") != "sha256:" + digest:
+                violations.append(
+                    "RESIDUAL_RISK_GOVERNANCE_RECEIPT_HASH_MISMATCH:%s" % artifact_id
+                )
+                continue
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                violations.append(
+                    "RESIDUAL_RISK_GOVERNANCE_RECEIPT_JSON_INVALID:%s" % artifact_id
+                )
+                continue
+            if (
+                not isinstance(payload, dict)
+                or payload.get("schema_version")
+                != "RC7_1_RESIDUAL_RISK_CONVERGENCE_V1"
+            ):
+                violations.append(
+                    "RESIDUAL_RISK_GOVERNANCE_RECEIPT_SCHEMA_INVALID:%s" % artifact_id
+                )
+                continue
+
+            valid_history.append((receipt, payload, digest))
+            recorded = {
+                item["risk_id"]: item
+                for item in payload.get("risks") or []
+                if isinstance(item, dict) and item.get("risk_id")
+            }
+            if set(current) != set(recorded):
+                continue
+            matched = True
             for risk_id in sorted(current):
                 expected = current[risk_id]
                 actual = recorded[risk_id]
@@ -270,17 +289,39 @@ class MissionConvergenceConformanceChecker:
                     "evidence_id",
                 ):
                     if actual.get(field) != expected.get(field):
-                        violations.append(
-                            "RESIDUAL_RISK_GOVERNANCE_MISMATCH:%s:%s"
-                            % (risk_id, field)
-                        )
-        if payload.get("all_dispositioned") is not True:
-            violations.append("RESIDUAL_RISK_GOVERNANCE_NOT_DISPOSITIONED")
+                        matched = False
+                        break
+                if not matched:
+                    break
+            if payload.get("all_dispositioned") is not True:
+                matched = False
+            if matched:
+                current_matches.append((receipt, payload, digest))
+
+        if len(current_matches) != 1:
+            violations.append(
+                "RESIDUAL_RISK_GOVERNANCE_CURRENT_RECEIPT_NOT_UNIQUE:%d"
+                % len(current_matches)
+            )
+            return {
+                "status": "FAIL",
+                "triggered": True,
+                "risk_count": summary.get("risk_count"),
+                "pending_risk_ids": pending,
+                "receipt_history_count": len(receipts),
+                "valid_receipt_history_count": len(valid_history),
+                "current_match_count": len(current_matches),
+            }, violations
+
+        receipt, _, digest = current_matches[0]
         return {
             "status": "PASS" if not violations else "FAIL",
             "triggered": True,
             "risk_count": summary.get("risk_count"),
             "pending_risk_ids": pending,
+            "receipt_history_count": len(receipts),
+            "valid_receipt_history_count": len(valid_history),
+            "current_match_count": 1,
             "receipt_artifact_id": receipt.get("artifact_id"),
             "receipt_sha256": digest,
         }, violations
