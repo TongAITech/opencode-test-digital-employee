@@ -281,6 +281,16 @@ def _require_durable_pass_evaluation(
 
 
 def _enforce_durable_acceptance(truth_runtime: _truth.TruthRuntime, entity: Any) -> None:
+    if isinstance(entity, Evaluation) and entity.node == "AUTONOMOUS_NODE_GATE":
+        if not entity.evidence_refs:
+            raise _truth.EventValidationError("NODE_GATE_REQUIRES_DURABLE_EVIDENCE")
+        for evidence_id in entity.evidence_refs:
+            rows = truth_runtime.query("rc7_evidence", evidence_id=evidence_id)
+            if len(rows) != 1:
+                raise _truth.EventValidationError("NODE_GATE_EVIDENCE_NOT_UNIQUE")
+            if rows[0].get("mission_id") != entity.mission_id:
+                raise _truth.EventValidationError("NODE_GATE_EVIDENCE_MISSION_MISMATCH")
+
     if isinstance(entity, Task) and entity.state.value == "PASS":
         evaluation_id = entity.evaluation_id or ""
         evaluation = _require_durable_pass_evaluation(

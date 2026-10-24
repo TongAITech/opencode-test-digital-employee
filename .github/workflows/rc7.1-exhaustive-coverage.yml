@@ -35,6 +35,7 @@ jobs:
           tests/test_rc7_1_autonomous_node_control.py
           tests/test_rc7_1_n1_n4_node_adoption.py
           tests/test_rc7_1_n1_reality_adoption.py
+          tests/test_rc7_1_node_gate_evidence_integrity.py
           tests/test_rc7_1_coverage_ledger_contract.py
           tests/test_rc7_1_failure_classification_contract.py
           tests/test_rc7_1_exhaustive_coverage_gate.py
