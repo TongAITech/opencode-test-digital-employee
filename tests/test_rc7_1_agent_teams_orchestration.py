@@ -89,12 +89,15 @@ def _write_team(
     return path
 
 
-def test_bank_worker_assignment_requires_real_agent_teams_state(tmp_path) -> None:
+def test_bank_worker_without_team_auto_bootstrap_fails_closed_if_dsh_unavailable(tmp_path) -> None:
     truth, control, graph = _control(tmp_path)
     bridge = DshTaskWorkerBridge(control, _launcher(tmp_path, truth))
     task = graph.task("REQUIREMENT_ANALYSIS")
 
-    with pytest.raises(DshWorkerBridgeError, match="AGENT_TEAMS_MISSION_TEAM_REQUIRED"):
+    with pytest.raises(
+        DshWorkerBridgeError,
+        match="AGENT_TEAMS_BOOTSTRAP_FAILED:AGENT_TEAMS_BOOTSTRAP_DSH_NOT_AVAILABLE",
+    ):
         bridge._assign(task, bridge.node_policies[task.node])
 
     assert truth.query("rc7_evidence", mission_id=MISSION_ID) == []
