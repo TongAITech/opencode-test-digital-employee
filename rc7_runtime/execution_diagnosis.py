@@ -1,15 +1,14 @@
-"""Runtime-owned failure diagnosis and recovery coordination for RC7 execution.
+"""Runtime-owned failure diagnosis and recovery coordination for RC7.1.
 
-The formal execution runner owns process/result truth.  This module consumes
-that immutable truth and reuses the proven RC6 evidence-first DiagnosisRuntime
-and RecoveryEngine.  It never upgrades an assertion failure to PRODUCT merely
-because an assertion failed; PRODUCT is legal only after all competing
-ownership classes are positively excluded by Runtime-owned trust facts.
+The formal execution runner owns process/result truth. Assertion failure is never
+automatically PRODUCT; PRODUCT is legal only after competing ownership classes
+are positively excluded by Runtime-owned facts.
 
-When mandatory evidence (for example bounded CAT correlation for L3/L5) is not
-available, diagnosis fails closed and the caller keeps DIAGNOSIS_REQUIRED open.
+RC7.1 uses a dynamic CAT policy. Once a real action has occurred, L3 requires
+CAT. L4-L7 require CAT unless Runtime positively proves the business action was
+NOT_DISPATCHED. UNKNOWN dispatch state fails closed instead of silently turning
+CAT into N/A. L1/L2 require CAT only for proven remote integration.
 """
-
 from __future__ import annotations
 
 import hashlib
@@ -35,13 +34,17 @@ from rc6_runtime.execution import ExecutionRecord
 from rc6_runtime.preparation import PreparedAttempt
 
 from .authority import RC7AuthorityRuntime
-from .execution_recovery import (
-    ExecutionRecoveryPlanner,
-    RecoveryPlanningError,
-    RecoveryWorkPlan,
-)
+from .execution_recovery import ExecutionRecoveryPlanner, RecoveryPlanningError, RecoveryWorkPlan
 from .oracle_runtime import DeterministicOracleRuntime
 from .runtime_execution import VerifiedScriptExecutionBundle
+
+
+BUSINESS_ACTION_STATES = frozenset({
+    "UNKNOWN",
+    "NOT_DISPATCHED",
+    "DISPATCH_CONFIRMED",
+    "BACKEND_PROCESSING_CONFIRMED",
+})
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,7 @@ class ExecutionTrustFacts:
     environment_verified: bool = False
     dependency_verified: bool = False
     remote_integration: bool = False
+    business_action_state: str = "UNKNOWN"
     correlation: Optional[CorrelationScope] = None
     exception_type: Optional[str] = None
     root_stack_frame: Optional[str] = None
@@ -62,6 +66,38 @@ class ExecutionTrustFacts:
     route: Optional[str] = None
     assertion_identity: Optional[str] = None
     runner_log_refs: Tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        state = str(self.business_action_state or "").upper()
+        if state not in BUSINESS_ACTION_STATES:
+            raise ValueError("BUSINESS_ACTION_STATE_INVALID:%s" % self.business_action_state)
+        object.__setattr__(self, "business_action_state", state)
+
+
+@dataclass(frozen=True)
+class RC71FailureContext(FailureContext):
+    business_action_state: str = "UNKNOWN"
+
+
+class RC71DynamicCATPolicy(CATPolicy):
+    """Fail-closed CAT trigger for the canonical RC7.1 L1-L7 taxonomy."""
+
+    def required(self, context: FailureContext) -> bool:
+        if not context.real_action_executed:
+            return False
+        layer = str(context.layer or "").upper()
+        state = str(getattr(context, "business_action_state", "UNKNOWN") or "UNKNOWN").upper()
+        if state not in BUSINESS_ACTION_STATES:
+            raise DiagnosisContractError("BUSINESS_ACTION_STATE_INVALID:%s" % state)
+        if layer in {"L1", "L2"}:
+            return bool(context.remote_integration)
+        if layer == "L3":
+            return True
+        if layer in {"L4", "L5", "L6", "L7"}:
+            # UNKNOWN is intentionally CAT-required. Runtime must positively
+            # prove NOT_DISPATCHED to waive backend log correlation.
+            return state != "NOT_DISPATCHED"
+        return bool(context.remote_integration)
 
 
 @dataclass(frozen=True)
@@ -78,16 +114,11 @@ class DiagnosisClosure:
 
     @property
     def complete(self) -> bool:
-        return (
-            self.diagnosis is not None
-            and self.recovery is not None
-            and self.work_plan is not None
-            and self.unavailable_reason is None
-        )
+        return self.diagnosis is not None and self.recovery is not None and self.work_plan is not None and self.unavailable_reason is None
 
 
 class ExecutionDiagnosisCoordinator:
-    """Build evidence context, diagnose, and decide recovery without model self-attestation."""
+    """Build evidence context, diagnose and plan recovery without model self-attestation."""
 
     def __init__(
         self,
@@ -111,6 +142,7 @@ class ExecutionDiagnosisCoordinator:
         self.rca_resolver = rca_resolver
         self.history = history or AttemptHistory()
         self.max_transient_retries = int(max_transient_retries)
+        self.cat_policy = RC71DynamicCATPolicy()
         if self.max_transient_retries < 0:
             raise ValueError("max_transient_retries must be >= 0")
 
@@ -163,7 +195,7 @@ class ExecutionDiagnosisCoordinator:
             reason_parts.append("OWNERSHIP_NOT_PROVEN")
         return {
             "failure_class": failure_class,
-            "classifier_ref": "rc7-runtime-deterministic-failure-classifier/v3",
+            "classifier_ref": "rc7-runtime-deterministic-failure-classifier/v4",
             "rationale": ",".join(reason_parts),
             "evidence_refs": [],
         }
@@ -185,13 +217,7 @@ class ExecutionDiagnosisCoordinator:
         refs = tuple(str(ref) for ref in (record.tool_call_refs or ()) if isinstance(ref, str) and ref)
         if str(record.layer).upper() == "L3":
             return any(ref.startswith("api-runtime://APIREC-") for ref in refs)
-        non_business_prefixes = (
-            "process://",
-            "runner-process://",
-            "stdout://",
-            "stderr://",
-            "validation-manifest://",
-        )
+        non_business_prefixes = ("process://", "runner-process://", "stdout://", "stderr://", "validation-manifest://")
         return any(not ref.startswith(non_business_prefixes) for ref in refs)
 
     def build_context(
@@ -210,7 +236,7 @@ class ExecutionDiagnosisCoordinator:
             oracle_verified = True
         except Exception:
             oracle_verified = False
-        return FailureContext(
+        return RC71FailureContext(
             attempt_id=record.attempt_id,
             tc_id=record.tc_id,
             case_version=record.case_version,
@@ -232,17 +258,14 @@ class ExecutionDiagnosisCoordinator:
             tool_verified=trust.tool_verified,
             environment_verified=trust.environment_verified,
             dependency_verified=trust.dependency_verified,
-            exception_type=(trust.exception_type if trust.exception_type is not None else record.reason),
+            exception_type=trust.exception_type if trust.exception_type is not None else record.reason,
             root_stack_frame=trust.root_stack_frame,
             http_status=trust.http_status if trust.http_status is not None else http_status,
             business_error_code=trust.business_error_code,
             route=trust.route if trust.route is not None else route,
-            assertion_identity=(
-                trust.assertion_identity
-                if trust.assertion_identity is not None
-                else (record.assertion_ref if isinstance(record.assertion_ref, str) else None)
-            ),
+            assertion_identity=(trust.assertion_identity if trust.assertion_identity is not None else (record.assertion_ref if isinstance(record.assertion_ref, str) else None)),
             runner_log_refs=tuple(trust.runner_log_refs),
+            business_action_state=trust.business_action_state,
         )
 
     def diagnose(
@@ -257,11 +280,9 @@ class ExecutionDiagnosisCoordinator:
         if str(record.status).upper() == "PASS":
             return self._finish(context, None, None, None, "PASS_DOES_NOT_REQUIRE_FAILURE_DIAGNOSIS", None, None)
 
-        cat_required = CATPolicy().required(context)
+        cat_required = self.cat_policy.required(context)
         tools = ["cat"] if cat_required else []
-        worker = self.authority.issue_identity(
-            "FAILURE_DIAGNOSTIC", "DIAGNOSIS", None, 0, "rc7-runtime-diagnosis"
-        )
+        worker = self.authority.issue_identity("FAILURE_DIAGNOSTIC", "DIAGNOSIS", None, 0, "rc7-runtime-diagnosis")
         lease = self.authority.issue_lease(
             worker.worker_id,
             "attempt:%s" % record.attempt_id,
@@ -281,40 +302,18 @@ class ExecutionDiagnosisCoordinator:
             classifier=self.classifier,
             evidence_collectors=self.evidence_collectors,
             cat_query=self.cat_query,
+            cat_policy=self.cat_policy,
             rca_resolver=self.rca_resolver,
         )
         try:
-            diagnosis = runtime.diagnose(
-                context=context,
-                worker_id=worker.worker_id,
-                lease_id=lease.lease_id,
-            )
+            diagnosis = runtime.diagnose(context=context, worker_id=worker.worker_id, lease_id=lease.lease_id)
             if self.history.get(record.attempt_id) is None:
                 self.history.append(history_entry_from_execution(record))
-            recovery = RecoveryEngine(
-                self.history,
-                max_transient_retries=self.max_transient_retries,
-            ).decide(context, diagnosis)
+            recovery = RecoveryEngine(self.history, max_transient_retries=self.max_transient_retries).decide(context, diagnosis)
             work_plan = ExecutionRecoveryPlanner().compile(recovery)
-            return self._finish(
-                context,
-                diagnosis,
-                recovery,
-                work_plan,
-                None,
-                worker.worker_id,
-                lease.lease_id,
-            )
+            return self._finish(context, diagnosis, recovery, work_plan, None, worker.worker_id, lease.lease_id)
         except (DiagnosisContractError, RecoveryPlanningError) as exc:
-            return self._finish(
-                context,
-                None,
-                None,
-                None,
-                str(exc),
-                worker.worker_id,
-                lease.lease_id,
-            )
+            return self._finish(context, None, None, None, str(exc), worker.worker_id, lease.lease_id)
 
     def _finish(
         self,
