@@ -1,21 +1,13 @@
 """RC7 Execution / Evidence / Diagnosis / Recovery closed-loop adapter.
 
-A control-plane Task PASS means the execution work reached a trustworthy,
-classified conclusion. It does NOT mean the product test passed. Therefore an
-evidence-backed product TEST_RESULT=FAIL may still produce Evaluation=PASS and
-a downstream PRODUCT_DEFECT Gap for the Defect node.
+A control-plane Task PASS means execution work reached a trustworthy classified
+conclusion; it does not mean the product test passed. Product TEST_RESULT=FAIL
+may therefore produce Evaluation=PASS plus a downstream PRODUCT_DEFECT Gap.
 
-BLOCKED remains distinct from product FAIL. When diagnosis evidence exists,
-BLOCKED is routed by its proven owner (AUTH/ENV/DATA/etc.) instead of being
-collapsed into a generic failure bucket. Exhausted retry budgets leave the
-Execution loop and become Runtime blockers; max retries can stop automation but
-can never force PASS.
-
-RC7.1 adds a fail-closed L4-L7 Evidence Contract after the generic RC6
-integrity gate. A generic PASS candidate at these layers is not conclusive until
-its current-run layer evidence is complete.
+Preparation-owned failures are routed back to Runtime Preparation (logical N5),
+not Script Readiness. BLOCKED remains distinct from product FAIL, and exhausted
+budgets never force PASS.
 """
-
 from __future__ import annotations
 
 import hashlib
@@ -41,8 +33,10 @@ _FAILURE_ROUTE = {
     "SCRIPT": ("SCRIPT_DEFECT", "SCRIPT_READINESS", GapSeverity.HIGH),
     "SPEC": ("EXECUTION_CONTRACT_DEFECT", "SCRIPT_READINESS", GapSeverity.HIGH),
     "ORACLE": ("ORACLE_AMBIGUOUS", "TEST_DESIGN", GapSeverity.HIGH),
-    "DATA": ("TEST_DATA_DEFECT", "SCRIPT_READINESS", GapSeverity.HIGH),
-    "PRECONDITION": ("PRECONDITION_DEFECT", "SCRIPT_READINESS", GapSeverity.HIGH),
+    # N5 is Runtime-owned in the current durable graph. Data/precondition/auth
+    # must be re-prepared, never repaired by the script worker.
+    "DATA": ("TEST_DATA_DEFECT", "RUNTIME", GapSeverity.HIGH),
+    "PRECONDITION": ("PRECONDITION_DEFECT", "RUNTIME", GapSeverity.HIGH),
     "AUTH": ("AUTH_DEFECT", "RUNTIME", GapSeverity.HIGH),
     "ROUTE": ("API_ROUTE_DEFECT", "CODE_ANALYSIS", GapSeverity.HIGH),
     "TOOL": ("TOOL_DEFECT", "RUNTIME", GapSeverity.HIGH),
@@ -121,9 +115,6 @@ class ExecutionClosedLoop:
         if recovery is not None and recovery.attempt_id != record.attempt_id:
             raise ValueError("RECOVERY_ATTEMPT_MISMATCH")
 
-        # RC6 integrity PASS is necessary but not sufficient for L4-L7.  The
-        # layer contract is evaluated before a PASS can become conclusive or be
-        # consumed by Execution Fanout as a terminal receipt.
         if test_result == "PASS" and str(record.layer).upper() in LayerExecutionEvidenceGate.LAYERS:
             layer_evidence_result = self.layer_evidence_gate.verify_record(
                 mission_id=mission_id,

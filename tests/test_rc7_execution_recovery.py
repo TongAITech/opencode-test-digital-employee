@@ -57,10 +57,18 @@ def test_transient_retry_compiles_direct_successor_attempt_without_mutating_bind
     assert successor.oracle_snapshot == _prepared().oracle_snapshot
 
 
-def test_auth_recovery_requires_reprepare_before_retry():
-    plan = ExecutionRecoveryPlanner().compile(
-        _decision("REAUTH", reprepare=True)
-    )
+def test_auth_recovery_requires_runtime_reprepare_before_retry():
+    plan = ExecutionRecoveryPlanner().compile(_decision("REAUTH", reprepare=True))
+    assert plan.mode == "REPREPARE_THEN_RETRY"
+    assert plan.target_node == "RUNTIME"
+    assert plan.reprepare_required is True
+    with pytest.raises(RecoveryPlanningError, match="PREPARED_ATTEMPT_REUSE_NOT_ALLOWED"):
+        ExecutionRecoveryPlanner.compile_successor_prepared_attempt(_prepared(), plan)
+
+
+@pytest.mark.parametrize("action", ["RESEARCH_OR_REBUILD_DATA", "RECONSTRUCT_PRECONDITION"])
+def test_data_and_precondition_recovery_return_to_runtime_preparation(action: str):
+    plan = ExecutionRecoveryPlanner().compile(_decision(action, reprepare=True))
     assert plan.mode == "REPREPARE_THEN_RETRY"
     assert plan.target_node == "RUNTIME"
     assert plan.reprepare_required is True
@@ -79,12 +87,7 @@ def test_script_repair_routes_upstream_then_allows_new_attempt_only_after_repair
 
 def test_product_defect_is_terminal_and_cannot_be_compiled_as_retry():
     plan = ExecutionRecoveryPlanner().compile(
-        _decision(
-            "PRODUCT_DEFECT",
-            retry=False,
-            terminal=True,
-            next_attempt=None,
-        )
+        _decision("PRODUCT_DEFECT", retry=False, terminal=True, next_attempt=None)
     )
     assert plan.mode == "TERMINAL"
     assert plan.target_node == "DEFECT"
@@ -96,9 +99,7 @@ def test_product_defect_is_terminal_and_cannot_be_compiled_as_retry():
 
 def test_retry_action_without_successor_attempt_fails_closed():
     with pytest.raises(RecoveryPlanningError, match="RECOVERY_SUCCESSOR_ATTEMPT_REQUIRED"):
-        ExecutionRecoveryPlanner().compile(
-            _decision("RETRY_SAME_STEP", next_attempt=None)
-        )
+        ExecutionRecoveryPlanner().compile(_decision("RETRY_SAME_STEP", next_attempt=None))
 
 
 def test_terminal_action_cannot_smuggle_retry_permission():

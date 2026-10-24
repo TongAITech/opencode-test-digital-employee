@@ -1,11 +1,10 @@
 """Deterministic RecoveryDecision -> RC7 recovery work planning.
 
-A retry flag is not permission to blindly re-run.  RC7 distinguishes direct
-successor attempts, re-preparation, upstream repair and terminal handoffs.  The
-planner is side-effect free; later schedulers/executors consume this canonical
-plan and remain bound to the original Diagnosis/Attempt evidence.
+A retry flag is not permission to blindly re-run. RC7 distinguishes direct
+successor attempts, Runtime-owned re-preparation, upstream repair and terminal
+handoffs. Preparation failures (AUTH/DATA/PRECONDITION) return to the N5
+Runtime Preparation authority; they are never repaired by Script Readiness.
 """
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -34,10 +33,12 @@ class RecoveryWorkPlan:
 
 
 _DIRECT_RETRY = {"RETRY_SAME_STEP", "CONTROLLED_REPEAT"}
+# N5 is a logical Runtime-owned stage in the current durable Mission graph, so
+# concrete recovery tasks target RUNTIME while the shared contract maps them to N5.
 _REPREPARE = {
     "REAUTH": "RUNTIME",
-    "RESEARCH_OR_REBUILD_DATA": "SCRIPT_READINESS",
-    "RECONSTRUCT_PRECONDITION": "SCRIPT_READINESS",
+    "RESEARCH_OR_REBUILD_DATA": "RUNTIME",
+    "RECONSTRUCT_PRECONDITION": "RUNTIME",
 }
 _UPSTREAM_REPAIR = {
     "REPAIR_SCRIPT": "SCRIPT_READINESS",

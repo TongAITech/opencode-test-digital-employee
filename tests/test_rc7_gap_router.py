@@ -25,6 +25,15 @@ def test_known_gap_uses_deterministic_route() -> None:
     assert decision.requires_policy_review is False
 
 
+@pytest.mark.parametrize("category", ["TEST_DATA_DEFECT", "PRECONDITION_DEFECT", "AUTH_DEFECT"])
+def test_preparation_owned_gaps_route_to_runtime_not_script_readiness(category: str) -> None:
+    decision = GapRouter().route(_gap(category, "RUNTIME"))
+    assert decision.target_node == "RUNTIME"
+    assert decision.policy == "DETERMINISTIC"
+    with pytest.raises(GapRoutingError, match="GAP_TARGET_POLICY_VIOLATION"):
+        GapRouter().route(_gap(category, "SCRIPT_READINESS"))
+
+
 def test_worker_cannot_reroute_known_gap_to_wrong_node() -> None:
     with pytest.raises(GapRoutingError, match="GAP_TARGET_POLICY_VIOLATION"):
         GapRouter().route(_gap("PRODUCT_DEFECT", "SCRIPT_READINESS"))

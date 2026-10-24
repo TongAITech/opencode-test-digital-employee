@@ -1,10 +1,10 @@
 """Deterministic cross-node Gap routing for RC7.
 
 Known failure/gap categories cannot be silently rerouted by a worker. Unknown
-categories remain extensible but are explicitly marked as requiring policy
-review instead of being treated as fully-governed routes.
+categories remain extensible but require policy review. Runtime Preparation is
+the concrete owner for logical N5 DATA/PRECONDITION/AUTH recovery in the current
+Mission graph.
 """
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -82,9 +82,10 @@ ROUTE_POLICY: Dict[str, Tuple[str, ...]] = {
     "SCRIPT_VALIDATION_FAILED": ("SCRIPT_READINESS",),
     "ASSERTION_IMPLEMENTATION_DEFECT": ("SCRIPT_READINESS",),
     "LOCATOR_DEFECT": ("SCRIPT_READINESS",),
-    "TEST_DATA_DEFECT": ("SCRIPT_READINESS",),
-    "PRECONDITION_DEFECT": ("SCRIPT_READINESS",),
     "EXECUTION_CONTRACT_DEFECT": ("SCRIPT_READINESS",),
+    # Logical N5 / Runtime Preparation ownership.
+    "TEST_DATA_DEFECT": ("RUNTIME",),
+    "PRECONDITION_DEFECT": ("RUNTIME",),
     "AUTH_DEFECT": ("RUNTIME",),
     "ENVIRONMENT_DEFECT": ("RUNTIME",),
     "DEPENDENCY_DEFECT": ("RUNTIME",),
@@ -101,29 +102,24 @@ ROUTE_POLICY: Dict[str, Tuple[str, ...]] = {
     "FLAKY_SUSPECTED": ("EXECUTION",),
     "TRANSIENT_FAILURE": ("EXECUTION",),
     "EXECUTION_CASE_PENDING": ("EXECUTION",),
-    # RC7.1 Evidence Contract gaps are owned by EXECUTION. They must create a
-    # governed repair task instead of falling into policy review or being
-    # waived into PASS.
     "LAYER_EVIDENCE_CONTRACT_INCOMPLETE": ("EXECUTION",),
     "CRITICAL_REQUIREMENT_NOT_VERIFIED": ("EXECUTION", "TEST_DESIGN", "REQUIREMENT_ANALYSIS"),
     "CRITICAL_OBLIGATION_NOT_VERIFIED": ("EXECUTION", "TEST_DESIGN"),
     "CRITICAL_BRANCH_UNVERIFIED": ("EXECUTION", "TEST_DESIGN", "CODE_ANALYSIS"),
     "INCONCLUSIVE_RESULT_GAP": ("EXECUTION",),
-    # RC7.1 exhaustive acceptance gates. These are repairable and may not be
-    # waived into a PASS by an executing worker.
     "EXECUTION_ACCOUNTING_INCOMPLETE": ("EXECUTION",),
     "CHANGED_LINE_COVERAGE_INCOMPLETE": ("EXECUTION", "TEST_DESIGN", "CODE_ANALYSIS"),
     "CHANGED_BRANCH_COVERAGE_INCOMPLETE": ("EXECUTION", "TEST_DESIGN", "CODE_ANALYSIS"),
     "CRITICAL_CONDITION_COVERAGE_INCOMPLETE": ("EXECUTION", "TEST_DESIGN", "CODE_ANALYSIS"),
     "L4_UI_EVIDENCE_INCOMPLETE": ("EXECUTION",),
-    # Current RC7.1 layer taxonomy.
-    "L5_API_EVIDENCE_INCOMPLETE": ("EXECUTION",),
-    "L6_CAPABILITY_EVIDENCE_MISSING": ("EXECUTION",),
-    "L7_E2E_NOT_EXECUTED": ("EXECUTION",),
-    # Compatibility aliases retained so historical R1 gaps remain resumable.
+    # Canonical layer evidence categories.
     "L5_E2E_NOT_EXECUTED": ("EXECUTION", "TEST_DESIGN"),
     "L6_K6_EVIDENCE_MISSING": ("EXECUTION", "SCRIPT_READINESS", "RUNTIME"),
     "L7_ZAP_EVIDENCE_MISSING": ("EXECUTION", "SCRIPT_READINESS", "RUNTIME"),
+    # Legacy RC7.1 gap identities stay resumable but are not canonical semantics.
+    "L5_API_EVIDENCE_INCOMPLETE": ("EXECUTION",),
+    "L6_CAPABILITY_EVIDENCE_MISSING": ("EXECUTION",),
+    "L7_E2E_NOT_EXECUTED": ("EXECUTION",),
     "OPEN_CRITICAL_COVERAGE_GAP": ("TEST_DESIGN",),
     "OPEN_HIGH_COVERAGE_GAP": ("TEST_DESIGN",),
     "MISSION_BLOCKING_GAP": ("RUNTIME",),
