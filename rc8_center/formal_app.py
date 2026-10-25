@@ -27,12 +27,12 @@ from rc8_center.formal_control import FormalCenterControlPlane
 from rc8_center.formal_settings import CenterSettings
 from rc8_center.formal_trace_authority import FormalTraceRuntimeAuthority
 from rc8_center.prepared_attempt import CenterPreparedAttemptService
+from rc8_center.r1_traceability_ingestion import R1BackedCenterTraceabilityIngestion
 from rc8_center.runtime_invalidation import CenterRuntimeInvalidationCoordinator
 from rc8_center.runtime_invalidation_projector import CenterRuntimeInvalidationProjector
 from rc8_center.scope_aware_governance_projector import ScopeAwareGovernanceEventProjector
 from rc8_center.governance_projection import GovernanceProjectionService
 from rc8_center.mission_service import CenterMissionService
-from rc8_center.traceability_ingestion import CenterTraceabilityIngestion
 from rc8_center.infrastructure import (
     PostgresArtifactRepository,
     PostgresCenterRepository,
@@ -116,14 +116,16 @@ def build_app():
     )
 
     # N3 runtime evidence is accepted only through the formal Center authority.
-    # The bridge resolves the current Attempt and lease from PostgreSQL/Redis;
-    # observations never carry an authoritative lease token themselves.
+    # Current Attempt/lease come from PostgreSQL/Redis.  Once authorized, the
+    # complete runtime observation is durably appended to canonical R1 before
+    # TraceGraph projection, so PostgreSQL cannot manufacture runtime truth.
     trace_runtime_authority = FormalTraceRuntimeAuthority(
         formal_control,
         governance_repository,
     )
-    traceability_ingestion = CenterTraceabilityIngestion(
+    traceability_ingestion = R1BackedCenterTraceabilityIngestion(
         traceability_repository,
+        ledger=ledger,
         control_plane=trace_runtime_authority,
         attempt_snapshot_resolver=trace_runtime_authority.resolve_current_attempt,
     )
