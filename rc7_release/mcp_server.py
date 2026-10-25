@@ -16,6 +16,7 @@ from rc7_runtime.node_tool_conformance import (
 )
 from rc7_runtime.real_executor_provenance import record_successful_execution_invocation
 from rc7_runtime.truth_overlay import install_rc7_truth_overlay
+from .browser_executor import execute_browser_action
 from .codegraph_mcp import call_codegraph_tool, list_codegraph_tools
 from .contracted_runner import execute_contracted_runner
 from .database_executor import execute_database_sql
@@ -142,6 +143,20 @@ def _extra_tools():
                 ["sql", "attempt_id", "target_id", "mission_context"],
             ),
         },
+        {
+            "name": "browser_execute",
+            "description": "Execute L4 UI/browser actions only through the runtime-configured real BrowserSkill/Playwright client. Request JSON is sent on stdin with shell disabled. PFC_BROWSER_TARGET_ID must exactly match the current Attempt target. Only after a successful external call does MCP emit current-attempt REAL_EXECUTOR_INVOCATION evidence; failures never emit success provenance.",
+            "inputSchema": _object(
+                _with_context({
+                    "request": obj,
+                    "attempt_id": {"type": "string", "minLength": 1},
+                    "target_id": {"type": "string", "minLength": 1},
+                    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 600},
+                    "max_chars": {"type": "integer", "minimum": 1000, "maximum": 1000000},
+                }),
+                ["request", "attempt_id", "target_id", "mission_context"],
+            ),
+        },
     ]
 
 
@@ -160,6 +175,7 @@ def _rc7_runtime_status() -> Dict[str, Any]:
         "case_preparation_runtime": "TRUSTED_PROVIDER_EXECUTION_AND_HUMAN_GATE",
         "execution_oracle_runtime": "RC7_DETERMINISTIC_ACTUAL_PATH_OPERATOR_EXPECTED",
         "l2_database_executor": "CAPABILITY_CONFIGURED_REAL_PROCESS_WITH_ATTEMPT_PROVENANCE",
+        "l4_browser_executor": "CAPABILITY_CONFIGURED_REAL_PROCESS_WITH_ATTEMPT_PROVENANCE",
     })
     return base
 
@@ -198,15 +214,15 @@ def _case_service() -> CasePreparationService:
     return CasePreparationService(rc6._truth_runtime(), rc6._state_root())
 
 
-def _require_execution_task(context: Mapping[str, str]) -> None:
+def _require_execution_task(context: Mapping[str, str], *, prefix: str = "EXECUTION") -> None:
     rows = rc6._truth_runtime().query("rc7_task", task_id=context["task_id"])
     if len(rows) != 1:
-        raise RuntimeError("DATABASE_EXECUTION_TASK_NOT_UNIQUE")
+        raise RuntimeError("%s_TASK_NOT_UNIQUE" % prefix)
     row = rows[0]
     if str(row.get("mission_id") or "") != context["mission_id"]:
-        raise RuntimeError("DATABASE_EXECUTION_TASK_MISSION_MISMATCH")
+        raise RuntimeError("%s_TASK_MISSION_MISMATCH" % prefix)
     if str(row.get("node") or "") != "EXECUTION":
-        raise RuntimeError("DATABASE_EXECUTION_REQUIRES_EXECUTION_TASK")
+        raise RuntimeError("%s_REQUIRES_EXECUTION_TASK" % prefix)
 
 
 def _require_database_target(target_id: object) -> str:
@@ -252,7 +268,7 @@ def _invoke_extra(name: str, arguments: Dict[str, Any], context: Optional[Dict[s
     if name == "database_execute":
         if context is None:
             raise RuntimeError("MISSION_CONTEXT_REQUIRED_FOR_DATABASE_EXECUTION")
-        _require_execution_task(context)
+        _require_execution_task(context, prefix="DATABASE_EXECUTION")
         target_id = _require_database_target(arguments.get("target_id"))
         result = execute_database_sql(
             sql=arguments["sql"],
@@ -270,6 +286,35 @@ def _invoke_extra(name: str, arguments: Dict[str, Any], context: Optional[Dict[s
             layer="L2",
             target_id=target_id,
             tool_name="database",
+            invocation_ref=str(result["invocation_ref"]),
+            result=result,
+        )
+        response = dict(result)
+        response["provenance_evidence_id"] = evidence.evidence_id
+        return response
+    if name == "browser_execute":
+        if context is None:
+            raise RuntimeError("MISSION_CONTEXT_REQUIRED_FOR_BROWSER_EXECUTION")
+        _require_execution_task(context, prefix="BROWSER_EXECUTION")
+        target_id = str(arguments.get("target_id") or "").strip()
+        if not target_id:
+            raise RuntimeError("BROWSER_TARGET_ID_REQUIRED")
+        result = execute_browser_action(
+            request=arguments["request"],
+            target_id=target_id,
+            timeout_seconds=int(arguments.get("timeout_seconds", 120)),
+            max_chars=int(arguments.get("max_chars", 200000)),
+        )
+        evidence = record_successful_execution_invocation(
+            rc6._truth_runtime(),
+            evidence_root=str(rc6._state_root() / "evidence"),
+            mission_id=context["mission_id"],
+            task_id=context["task_id"],
+            attempt_id=str(arguments["attempt_id"]),
+            runtime_worker_id=context["worker_id"],
+            layer="L4",
+            target_id=target_id,
+            tool_name="browser-skill",
             invocation_ref=str(result["invocation_ref"]),
             result=result,
         )
@@ -362,9 +407,11 @@ def handle(message: Dict[str, Any]):
                 "request case_prepare_execute, but RC7 itself invokes field providers and DB_CREATE requires a "
                 "trusted Human Gate approval outside the Agent MCP surface. L2 database_execute is runtime-owned: "
                 "it invokes the configured real DB client with SQL on stdin, requires exact target binding, and "
-                "only after success emits current-attempt REAL_EXECUTOR_INVOCATION evidence. runner_execute rejects "
-                "fabricated prepared_attempt payloads and contracted Missions use the RC7 deterministic Oracle. "
-                "Workers never own PASS authority."
+                "only after success emits current-attempt REAL_EXECUTOR_INVOCATION evidence. L4 browser_execute "
+                "likewise invokes only the configured BrowserSkill/Playwright process with canonical JSON on stdin, "
+                "requires exact target binding, and emits trusted current-attempt provenance only after success. "
+                "runner_execute rejects fabricated prepared_attempt payloads and contracted Missions use the RC7 "
+                "deterministic Oracle. Workers never own PASS authority."
             )
         return response
     if method == "tools/list":
@@ -394,7 +441,7 @@ def handle(message: Dict[str, Any]):
             try:
                 clean, context = _pop_context(params.get("arguments") or {})
                 raw_result = _invoke_extra(name, clean, context)
-                if name not in {"case_prepare_plan", "case_prepare_execute", "database_execute"}:
+                if name not in {"case_prepare_plan", "case_prepare_execute", "database_execute", "browser_execute"}:
                     _record_tool_call(name, context, raw_result)
                 return {"jsonrpc": "2.0", "id": msg_id, "result": _text(raw_result)}
             except Exception as exc:
