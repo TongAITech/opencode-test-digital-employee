@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
 from rc6_runtime.execution import ExecutionRecord
 from rc6_runtime.truth import TruthRuntime
+from rc7_release.database_executor import DatabaseExecutorError, execute_database_sql
 from rc7_runtime.models import Evidence, Mission, Task, TaskStatus
 from rc7_runtime.real_executor_provenance import (
     RealExecutorProvenanceError,
@@ -271,3 +273,65 @@ def test_l1_does_not_require_external_executor_provenance(tmp_path: Path) -> Non
         MISSION, TASK, _record(attempt_id="ATTEMPT-001", layer="L1")
     )
     assert result.status == "NOT_REQUIRED"
+
+
+def _write_db_helper(tmp_path: Path, *, exit_code: int = 0) -> Path:
+    helper = tmp_path / "db_client_helper.py"
+    helper.write_text(
+        "import hashlib, json, sys\n"
+        "sql = sys.stdin.read()\n"
+        "payload = {'argv': sys.argv[1:], 'sql_sha256': hashlib.sha256(sql.encode('utf-8')).hexdigest(), 'stdin_chars': len(sql)}\n"
+        "print(json.dumps(payload, sort_keys=True))\n"
+        "sys.exit(%d)\n" % exit_code,
+        encoding="utf-8",
+    )
+    return helper
+
+
+def test_l2_database_executor_runs_real_process_with_sql_on_stdin(tmp_path: Path, monkeypatch) -> None:
+    helper = _write_db_helper(tmp_path)
+    sql = "select 'sensitive-value' as v;"
+    monkeypatch.setenv("PFC_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("PFC_DB_CLIENT_BIN", sys.executable)
+    monkeypatch.setenv("PFC_DB_CLIENT_ARGS_JSON", json.dumps([str(helper)]))
+
+    result = execute_database_sql(sql=sql, target_id=TARGET, timeout_seconds=10, max_chars=10000)
+
+    assert result["tool"] == "database"
+    assert result["target_id"] == TARGET
+    assert result["exit_code"] == 0
+    assert result["sql_sha256"] == hashlib.sha256(sql.encode("utf-8")).hexdigest()
+    assert result["shell"] is False
+    assert result["sql_transport"] == "STDIN"
+    assert result["client_args_persisted"] is False
+    assert sql not in json.dumps(result, ensure_ascii=False)
+    helper_payload = json.loads(result["stdout"]["text"])
+    assert helper_payload["argv"] == []
+    assert helper_payload["stdin_chars"] == len(sql)
+    assert helper_payload["sql_sha256"] == result["sql_sha256"]
+    assert result["invocation_ref"].startswith("database://%s/" % TARGET)
+
+
+def test_l2_database_executor_missing_capability_is_fail_closed(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("PFC_WORKSPACE", str(tmp_path))
+    monkeypatch.delenv("PFC_DB_CLIENT_BIN", raising=False)
+    monkeypatch.delenv("PFC_DB_CLIENT_ARGS_JSON", raising=False)
+    with pytest.raises(DatabaseExecutorError, match="DATABASE_CLIENT_NOT_CONFIGURED"):
+        execute_database_sql(sql="select 1", target_id=TARGET)
+
+
+def test_l2_database_executor_rejects_malformed_client_args(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("PFC_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("PFC_DB_CLIENT_BIN", sys.executable)
+    monkeypatch.setenv("PFC_DB_CLIENT_ARGS_JSON", "{not-json")
+    with pytest.raises(DatabaseExecutorError, match="DATABASE_CLIENT_ARGS_JSON_INVALID"):
+        execute_database_sql(sql="select 1", target_id=TARGET)
+
+
+def test_l2_database_executor_nonzero_exit_cannot_be_success(tmp_path: Path, monkeypatch) -> None:
+    helper = _write_db_helper(tmp_path, exit_code=7)
+    monkeypatch.setenv("PFC_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("PFC_DB_CLIENT_BIN", sys.executable)
+    monkeypatch.setenv("PFC_DB_CLIENT_ARGS_JSON", json.dumps([str(helper)]))
+    with pytest.raises(DatabaseExecutorError, match="DATABASE_CLIENT_EXIT_NONZERO"):
+        execute_database_sql(sql="select 1", target_id=TARGET, timeout_seconds=10)
