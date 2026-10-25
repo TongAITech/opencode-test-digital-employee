@@ -2,13 +2,12 @@
 
 Runtime mutation is not allowed to jump directly into PostgreSQL N5/N6 state.
 The Center first records the mutation in canonical R1; the restart-safe
-``CenterRuntimeInvalidationProjector`` then applies the durable fact.  This
-keeps mutation truth replayable and prevents worker/LLM claims from revoking or
-preserving execution readiness on their own.
+``CenterRuntimeInvalidationProjector`` then applies the durable fact. This keeps
+mutation truth replayable and prevents worker/LLM claims from changing readiness.
 """
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence, Tuple
+from typing import Any, Optional, Sequence, Tuple
 
 from rc8_runtime import CentralR1RuntimeLedger, RuntimeProducerKind, runtime_event
 
@@ -35,14 +34,7 @@ def _refs(values: Sequence[str]) -> Tuple[str, ...]:
 
 
 class CenterRuntimeInvalidationRecorder:
-    """Persist real runtime mutations before any N5/N6 state transition.
-
-    Callers must provide the current PreparedAttempt and evidence for the
-    observed mutation.  The recorder compares the observed binding with the
-    binding frozen into N5 and emits nothing when it has not changed.  When it
-    has changed, one canonical ``INVALIDATION_RECORDED`` event is appended to
-    R1.  Applying the event remains the projector's responsibility.
-    """
+    """Persist observed mutations in R1 before N5/N6 state transitions."""
 
     _BINDING_REASONS = {
         "DATA": "DATA_BINDING_CHANGED",
@@ -63,7 +55,7 @@ class CenterRuntimeInvalidationRecorder:
         frozen_case_revision_ref: str,
         observed_case_revision_ref: str,
         evidence_refs: Sequence[str],
-    ) -> str | None:
+    ) -> Optional[str]:
         frozen = _required(frozen_case_revision_ref, "frozen_case_revision_ref")
         observed = _required(observed_case_revision_ref, "observed_case_revision_ref")
         if frozen == observed:
@@ -85,7 +77,7 @@ class CenterRuntimeInvalidationRecorder:
         binding: str,
         observed_ref: str,
         evidence_refs: Sequence[str],
-    ) -> str | None:
+    ) -> Optional[str]:
         normalized = _required(binding, "binding").upper()
         reason = self._BINDING_REASONS.get(normalized)
         if reason is None:
@@ -106,8 +98,6 @@ class CenterRuntimeInvalidationRecorder:
     @staticmethod
     def _frozen_binding_ref(prepared: PreparedAttempt, binding: str) -> str:
         if binding == "DATA":
-            # Data binding is the complete reserved input set, not one arbitrary
-            # member.  Stable ordering prevents false invalidation from ordering.
             return "data-set:" + "|".join(sorted(prepared.data_refs))
         if binding == "AUTH":
             return _required(prepared.auth_session_ref, "prepared_auth_session_ref")
