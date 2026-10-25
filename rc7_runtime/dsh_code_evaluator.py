@@ -1,11 +1,10 @@
 """Independent DSH Code reviewer connected to the RC7 deterministic Code gate.
 
 The Code worker may propose semantic `tool_calls`, but they are never accepted
-as proof. The evaluator reconstructs Git/CodeGraph calls from R1
-WORKER_TOOL_CALLED events for the exact analyzer identity, persists canonical
-RC7 Evidence for those real calls, binds semantic evidence references to R1,
-launches a fresh independent Code reviewer, and only then invokes the inherited
-evidence-backed CodeSufficiencyEvaluator through CodeAnalysisClosedLoop.
+as proof. The evaluator reconstructs Git/CodeGraph calls from R1 for the exact
+current analyzer invocation, binds them to the current task/artifact/revision
+and changed file/symbol inventory, persists canonical graph evidence, launches
+a fresh independent reviewer, and only then invokes CodeAnalysisClosedLoop.
 """
 
 from __future__ import annotations
@@ -20,6 +19,7 @@ from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher, WorkerInvocatio
 from .candidate_payload import CandidatePayloadReader
 from .closed_loop_control import ClosedLoopControlPlane
 from .code_loop import CodeAnalysisClosedLoop, CodeLoopResult
+from .codegraph_current_analysis import CurrentAnalysisCodeToolBinder
 from .dsh_proof import DshR1ProofReader, code_tool_category
 from .models import Evidence, TaskStatus
 from .truth_overlay import append_entity
@@ -65,6 +65,7 @@ class DshCodeEvaluator:
             raise ValueError("CODE_REVIEWER_REAL_TOOL_REQUIRED")
         self.reader = CandidatePayloadReader()
         self.proofs = DshR1ProofReader()
+        self.current_tools = CurrentAnalysisCodeToolBinder()
         self.loop = CodeAnalysisClosedLoop()
 
     def evaluate(
@@ -106,14 +107,19 @@ class DshCodeEvaluator:
         analysis["release_id"] = control.release_id
         analysis["analyzer_worker_id"] = analyzer_worker_id
 
-        artifact_row = control.truth.query("rc7_artifact", artifact_id=artifact_id)[0]
+        artifact_rows = control.truth.query("rc7_artifact", artifact_id=artifact_id)
+        if len(artifact_rows) != 1:
+            raise DshCodeEvaluatorError("CODE_ARTIFACT_NOT_UNIQUE")
+        artifact_row = artifact_rows[0]
         aliases, canonical_evidence = self._candidate_evidence_aliases(control, artifact_row)
         tool_evidence_ids, normalized_tool_calls = self._bind_real_analyzer_tool_calls(
             control,
             analyzer_worker_id=analyzer_worker_id,
             task_id=task_id,
             artifact_id=artifact_id,
+            artifact_row=artifact_row,
             target_id=target_id,
+            analysis=analysis,
         )
         for evidence_id in tool_evidence_ids:
             row = control.truth.query("rc7_evidence", evidence_id=evidence_id)[0]
@@ -124,7 +130,8 @@ class DshCodeEvaluator:
 
         self._normalize_semantic_evidence(analysis, aliases)
         analysis["evidence_refs"] = list(dict.fromkeys(canonical_evidence))
-        # Never trust model-authored tool_calls. Only R1 runtime proof survives.
+        # Never trust model-authored tool_calls or graph_evidence. Only the
+        # current R1 invocation binder may reconstruct these fields.
         analysis["tool_calls"] = normalized_tool_calls
 
         assignment = self.launcher.assign(
@@ -263,48 +270,20 @@ class DshCodeEvaluator:
         analyzer_worker_id: str,
         task_id: str,
         artifact_id: str,
+        artifact_row: Mapping[str, object],
         target_id: str,
+        analysis: Dict[str, object],
     ) -> Tuple[Tuple[str, ...], List[Dict[str, str]]]:
-        grouped = self.proofs.code_tool_calls(
-            control.truth,
-            mission_id=control.mission_id,
-            worker_instance_id=analyzer_worker_id,
+        bound = self.current_tools.bind(
+            control,
+            analyzer_worker_id=analyzer_worker_id,
+            task_id=task_id,
+            artifact_id=artifact_id,
+            artifact_row=artifact_row,
+            target_id=target_id,
+            analysis=analysis,
         )
-        evidence_ids: List[str] = []
-        normalized: List[Dict[str, str]] = []
-        for category in ("git", "codegraph"):
-            for proof in grouped[category]:
-                evidence_id = _stable_id(
-                    "EVD-CODE-TOOL",
-                    control.mission_id,
-                    analyzer_worker_id,
-                    proof.event_id,
-                    proof.call_ref,
-                )
-                if not control.truth.query("rc7_evidence", evidence_id=evidence_id):
-                    append_entity(
-                        control.truth,
-                        Evidence(
-                            evidence_id=evidence_id,
-                            mission_id=control.mission_id,
-                            kind="DSH_%s_TOOL_CALL_PROOF" % category.upper(),
-                            source_ref="r1-event://%s" % proof.event_id,
-                            content_ref=proof.call_ref,
-                            subject_refs=[task_id, artifact_id, target_id],
-                        ),
-                        release_id=control.release_id,
-                        artifact_version=1,
-                    )
-                evidence_ids.append(evidence_id)
-                normalized.append(
-                    {
-                        "tool_id": category,
-                        "call_ref": proof.call_ref,
-                        "evidence_ref": evidence_id,
-                        "target_id": target_id,
-                    }
-                )
-        return tuple(dict.fromkeys(evidence_ids)), normalized
+        return bound.evidence_ids, [dict(item) for item in bound.tool_calls]
 
     @staticmethod
     def _normalize_semantic_evidence(analysis: Dict[str, object], aliases: Mapping[str, str]) -> None:

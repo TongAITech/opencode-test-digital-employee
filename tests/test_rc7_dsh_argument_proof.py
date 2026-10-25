@@ -7,7 +7,7 @@ from rc7_runtime.dsh_proof import DshR1ProofReader
 from rc7_runtime.dsh_reality_launcher import RC7BankFinalDshHeadlessWorkerLauncher
 
 
-def test_rc7_launcher_preserves_direct_tool_input_arguments():
+def test_rc7_launcher_preserves_direct_tool_input_arguments_and_result_receipt():
     events = [
         {
             "type": "tool_call",
@@ -16,21 +16,27 @@ def test_rc7_launcher_preserves_direct_tool_input_arguments():
                 "repo_path": "cfg-data",
                 "args": ["callers", "RateService.adjustRate", "--json"],
             },
-        }
+        },
+        {
+            "type": "tool_result",
+            "tool_name": "mcp__pfc_aitest_rc7__codegraph_query",
+            "ok": True,
+            "output": {"callers": ["RateController.adjustRate"]},
+        },
     ]
 
     calls = RC7BankFinalDshHeadlessWorkerLauncher._tool_calls(events)
 
-    assert calls == [
-        {
-            "call_ref": "dsh-event://tool-call/0",
-            "tool_name": "mcp__pfc_aitest_rc7__codegraph_query",
-            "arguments": {
-                "repo_path": "cfg-data",
-                "args": ["callers", "RateService.adjustRate", "--json"],
-            },
-        }
-    ]
+    assert len(calls) == 1
+    assert calls[0]["call_ref"] == "dsh-event://tool-call/0"
+    assert calls[0]["tool_name"] == "mcp__pfc_aitest_rc7__codegraph_query"
+    assert calls[0]["arguments"] == {
+        "repo_path": "cfg-data",
+        "args": ["callers", "RateService.adjustRate", "--json"],
+    }
+    assert calls[0]["result_ref"] == "dsh-event://tool-result/1"
+    assert calls[0]["result_status"] == "SUCCESS"
+    assert calls[0]["result_sha256"].startswith("sha256:")
 
 
 def test_rc7_launcher_decodes_nested_json_arguments():

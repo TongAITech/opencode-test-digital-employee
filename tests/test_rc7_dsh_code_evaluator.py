@@ -18,6 +18,7 @@ TASK_ID = "TASK-DSH-CODE"
 ARTIFACT_ID = "ART-DSH-CODE"
 TARGET = "cfg-data"
 ANALYZER = "worker-code-analyzer"
+CURRENT_ATTEMPT = "attempt-code-1"
 
 
 class FakeCodeReviewerLauncher:
@@ -73,8 +74,17 @@ class FakeCodeReviewerLauncher:
         return reviewer, {"decision": "PASS", "gap_ids": [], "summary": "reviewed independently"}
 
 
-def _append_worker_tool_event(truth, *, tool_name: str, call_ref: str, suffix: str) -> None:
+def _append_worker_tool_event(
+    truth,
+    *,
+    tool_name: str,
+    call_ref: str,
+    suffix: str,
+    arguments,
+    attempt_id: str = CURRENT_ATTEMPT,
+) -> None:
     now = int(time.time())
+    result_sha = "sha256:" + hashlib.sha256(("result:" + suffix).encode("utf-8")).hexdigest()
     truth.append_atomic(
         "WORKER_TOOL_CALLED",
         {
@@ -87,7 +97,7 @@ def _append_worker_tool_event(truth, *, tool_name: str, call_ref: str, suffix: s
             "occurred_at": now,
             "worker_instance_id": ANALYZER,
             "agent_id": "code-analysis",
-            "attempt_id": "attempt-code-1",
+            "attempt_id": attempt_id,
             "assignment_id": "assign-code-1",
             "lease_id": "lease-code-1",
             "parent_worker_id": "coordinator-code",
@@ -99,12 +109,19 @@ def _append_worker_tool_event(truth, *, tool_name: str, call_ref: str, suffix: s
             "started_at": now,
             "finished_at": now,
             "result": "PASS",
-            "tool_call": {"call_ref": call_ref, "tool_name": tool_name},
+            "tool_call": {
+                "call_ref": call_ref,
+                "tool_name": tool_name,
+                "arguments": arguments,
+                "result_ref": "dsh-event://tool-result/%s" % suffix,
+                "result_sha256": result_sha,
+                "result_status": "SUCCESS",
+            },
         },
     )
 
 
-def _semantic_payload():
+def _semantic_payload(*, codegraph_required: bool = True):
     return {
         "requirement_ids": ["REQ-RATE-001"],
         "source_revisions": {TARGET: "abc123..def456"},
@@ -159,8 +176,8 @@ def _semantic_payload():
                 "PERFORMANCE",
             )
         ],
-        # These are intentionally worker-authored and must be discarded by the
-        # evaluator. Their presence cannot satisfy the deterministic gate.
+        # Worker-authored calls and graph_evidence are intentionally forged.
+        # The evaluator must replace both from current R1 runtime provenance.
         "tool_calls": [
             {
                 "tool_id": "git",
@@ -175,12 +192,13 @@ def _semantic_payload():
                 "target_id": TARGET,
             },
         ],
+        "graph_evidence": [{"evidence_id": "worker-fake://graph"}],
         "evidence_refs": ["evidence://git/diff", "evidence://codegraph/callers"],
-        "codegraph_required": True,
+        "codegraph_required": codegraph_required,
     }
 
 
-def _runtime(tmp_path, *, actual_tool_events: bool):
+def _runtime(tmp_path, *, actual_tool_events: bool, codegraph_required: bool = True):
     truth = TruthRuntime(Path(tmp_path) / "r1.jsonl")
     control = ClosedLoopControlPlane.bootstrap(
         truth,
@@ -218,6 +236,14 @@ def _runtime(tmp_path, *, actual_tool_events: bool):
         content_ref="evidence://codegraph/callers",
         subject_refs=[TASK_ID, TARGET],
     )
+    runtime_evidence = Evidence(
+        evidence_id="EVD-DSH-CODE-RUNTIME",
+        mission_id=MISSION,
+        kind="DSH_RUNTIME_PROOF",
+        source_ref="dsh://worker/%s" % ANALYZER,
+        content_ref="dsh://session/session-code-analyzer",
+        subject_refs=[TASK_ID, CURRENT_ATTEMPT],
+    )
     envelope = {
         "task_id": TASK_ID,
         "artifact": {
@@ -225,9 +251,9 @@ def _runtime(tmp_path, *, actual_tool_events: bool):
             "artifact_type": "CODE_IMPACT_MODEL",
             "content_ref": "source://code-analysis",
             "parent_refs": [],
-            "evidence_refs": [source_evidence.evidence_id, graph_evidence.evidence_id],
+            "evidence_refs": [source_evidence.evidence_id, graph_evidence.evidence_id, runtime_evidence.evidence_id],
         },
-        "semantic_payload": _semantic_payload(),
+        "semantic_payload": _semantic_payload(codegraph_required=codegraph_required),
         "evidence": [],
     }
     raw = (json.dumps(envelope, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
@@ -239,7 +265,7 @@ def _runtime(tmp_path, *, actual_tool_events: bool):
         artifact_type="CODE_IMPACT_MODEL",
         producer_task_id=TASK_ID,
         content_ref="file://" + str(path.resolve()),
-        evidence_refs=[source_evidence.evidence_id, graph_evidence.evidence_id],
+        evidence_refs=[source_evidence.evidence_id, graph_evidence.evidence_id, runtime_evidence.evidence_id],
         content_hash="sha256:" + hashlib.sha256(raw).hexdigest(),
     )
     control.submit_worker_output(
@@ -247,26 +273,28 @@ def _runtime(tmp_path, *, actual_tool_events: bool):
             task_id=TASK_ID,
             worker_ref=ANALYZER,
             artifacts=(artifact,),
-            evidence=(source_evidence, graph_evidence),
+            evidence=(source_evidence, graph_evidence, runtime_evidence),
         )
     )
     if actual_tool_events:
         _append_worker_tool_event(
             truth,
-            tool_name="git",
+            tool_name="mcp__pfc_aitest_rc7__git_diff",
             call_ref="dsh-event://git/diff/abc123..def456",
             suffix="git",
+            arguments={"repo_path": TARGET, "base_ref": "abc123", "head_ref": "def456"},
         )
         _append_worker_tool_event(
             truth,
-            tool_name="codegraph",
+            tool_name="mcp__pfc_aitest_rc7__codegraph_query",
             call_ref="dsh-event://codegraph/callers/RateService.adjustRate",
             suffix="codegraph",
+            arguments={"repo_path": TARGET, "args": ["callers", "RateService.adjustRate", "--json"]},
         )
     return truth, control
 
 
-def test_code_gate_passes_only_after_real_r1_git_and_codegraph_calls(tmp_path) -> None:
+def test_code_gate_passes_only_after_current_r1_git_and_codegraph_results(tmp_path) -> None:
     truth, control = _runtime(tmp_path, actual_tool_events=True)
     launcher = FakeCodeReviewerLauncher()
 
@@ -288,12 +316,21 @@ def test_code_gate_passes_only_after_real_r1_git_and_codegraph_calls(tmp_path) -
     assert evaluated.analysis["reverse_requirement_mappings"][0]["evidence_ref"] == "EVD-GIT-SOURCE"
     assert evaluated.loop_result.evaluation.dimensions["code_impact_sufficiency_v2_ready"] is True
     assert evaluated.loop_result.evaluation.dimensions["metrics"]["impact_sufficiency_v2"]["impact_surface_count"] == 3
-    assert len(evaluated.analyzer_tool_evidence_ids) == 2
-    for evidence_id in evaluated.analyzer_tool_evidence_ids:
-        assert len(truth.query("rc7_evidence", evidence_id=evidence_id)) == 1
+    assert len(evaluated.analysis["graph_evidence"]) == 1
+    runtime_graph = evaluated.analysis["graph_evidence"][0]
+    assert runtime_graph["analyzer_attempt_id"] == CURRENT_ATTEMPT
+    assert runtime_graph["source_revision"] == "abc123..def456"
+    assert runtime_graph["changed_files"] == ["RateService.java"]
+    assert runtime_graph["changed_symbol_ids"] == ["SYM-1"]
+    graph_rows = [
+        row for row in truth.query("rc7_evidence", mission_id=MISSION)
+        if row.get("kind") == "GRAPH_EVIDENCE_CURRENT_ANALYSIS"
+    ]
+    assert len(graph_rows) == 1
+    assert runtime_graph["evidence_id"] == graph_rows[0]["evidence_id"]
 
 
-def test_worker_claimed_git_and_codegraph_calls_cannot_pass_without_r1_events(tmp_path) -> None:
+def test_worker_claimed_calls_cannot_pass_without_current_r1_events(tmp_path) -> None:
     _truth, control = _runtime(tmp_path, actual_tool_events=False)
     launcher = FakeCodeReviewerLauncher()
 
@@ -305,15 +342,80 @@ def test_worker_claimed_git_and_codegraph_calls_cannot_pass_without_r1_events(tm
     )
 
     assert evaluated.analysis["tool_calls"] == []
+    assert evaluated.analysis["graph_evidence"] == []
     assert evaluated.loop_result.evaluation.result == EvaluationResult.REPAIR_REQUIRED
     reasons = evaluated.loop_result.evaluation.dimensions["reasons"]
     assert "GIT_REAL_TOOL_EVIDENCE_MISSING" in reasons
     assert "CODEGRAPH_REAL_TOOL_EVIDENCE_MISSING" in reasons
     assert control.scheduler.task(TASK_ID).state == TaskStatus.REPAIR_REQUIRED
-    repair_tasks = [
-        row
-        for row in control.truth.query("rc7_task", mission_id=MISSION)
-        if row["task_type"] == "REPAIR" and row["node"] == "CODE_ANALYSIS"
-    ]
-    assert repair_tasks
-    assert all(row["state"] == "READY" for row in repair_tasks)
+
+
+def test_stale_prior_attempt_tool_events_cannot_satisfy_current_analysis(tmp_path) -> None:
+    truth, control = _runtime(tmp_path, actual_tool_events=False)
+    _append_worker_tool_event(
+        truth,
+        tool_name="mcp__pfc_aitest_rc7__git_diff",
+        call_ref="dsh-event://stale/git",
+        suffix="stale-git",
+        arguments={"repo_path": TARGET, "base_ref": "abc123", "head_ref": "def456"},
+        attempt_id="attempt-old",
+    )
+    _append_worker_tool_event(
+        truth,
+        tool_name="mcp__pfc_aitest_rc7__codegraph_query",
+        call_ref="dsh-event://stale/codegraph",
+        suffix="stale-codegraph",
+        arguments={"repo_path": TARGET, "args": ["callers", "RateService.adjustRate", "--json"]},
+        attempt_id="attempt-old",
+    )
+
+    evaluated = DshCodeEvaluator(FakeCodeReviewerLauncher()).evaluate_and_apply(
+        control, TASK_ID, ARTIFACT_ID, target_id=TARGET
+    )
+    assert evaluated.loop_result.evaluation.result == EvaluationResult.REPAIR_REQUIRED
+    assert evaluated.analysis["graph_evidence"] == []
+
+
+def test_probe_or_list_is_not_a_codegraph_query_result(tmp_path) -> None:
+    truth, control = _runtime(tmp_path, actual_tool_events=False)
+    _append_worker_tool_event(
+        truth,
+        tool_name="mcp__pfc_aitest_rc7__git_diff",
+        call_ref="dsh-event://git/current",
+        suffix="current-git",
+        arguments={"repo_path": TARGET, "base_ref": "abc123", "head_ref": "def456"},
+    )
+    _append_worker_tool_event(
+        truth,
+        tool_name="mcp__pfc_aitest_rc7__codegraph_query",
+        call_ref="dsh-event://codegraph/probe",
+        suffix="probe",
+        arguments={"repo_path": TARGET, "args": ["probe", "RateService.adjustRate"]},
+    )
+
+    evaluated = DshCodeEvaluator(FakeCodeReviewerLauncher()).evaluate_and_apply(
+        control, TASK_ID, ARTIFACT_ID, target_id=TARGET
+    )
+    reasons = evaluated.loop_result.evaluation.dimensions["reasons"]
+    assert evaluated.loop_result.evaluation.result == EvaluationResult.REPAIR_REQUIRED
+    assert "CODEGRAPH_REAL_TOOL_EVIDENCE_MISSING" in reasons
+    assert evaluated.analysis["graph_evidence"] == []
+
+
+def test_java_change_cannot_opt_out_of_codegraph(tmp_path) -> None:
+    truth, control = _runtime(tmp_path, actual_tool_events=False, codegraph_required=False)
+    _append_worker_tool_event(
+        truth,
+        tool_name="mcp__pfc_aitest_rc7__git_diff",
+        call_ref="dsh-event://git/current",
+        suffix="git-only",
+        arguments={"repo_path": TARGET, "base_ref": "abc123", "head_ref": "def456"},
+    )
+
+    evaluated = DshCodeEvaluator(FakeCodeReviewerLauncher()).evaluate_and_apply(
+        control, TASK_ID, ARTIFACT_ID, target_id=TARGET
+    )
+    reasons = evaluated.loop_result.evaluation.dimensions["reasons"]
+    assert evaluated.analysis["codegraph_required"] is True
+    assert evaluated.loop_result.evaluation.result == EvaluationResult.REPAIR_REQUIRED
+    assert "CODEGRAPH_REAL_TOOL_EVIDENCE_MISSING" in reasons

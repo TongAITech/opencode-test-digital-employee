@@ -1,28 +1,31 @@
 """RC7 DSH launcher hardening for field reality proof.
 
 RC6/BANK_FINAL already fails closed on signed lease tool authorization. RC7
-adds two release-specific guarantees without modifying the frozen RC6 runtime:
+adds release-specific guarantees without modifying the frozen RC6 runtime:
 verify that the RC7 MCP patch is actually composed when DSH exposes
-``--dump-config``, and preserve tool arguments/input/params in R1 so field
-qualification can prove the exact target/query that was executed.
+``--dump-config``, preserve tool arguments/input/params in R1, and bind each
+observed call to the corresponding DSH tool result digest so downstream gates
+can prove a query actually returned rather than merely being listed/called.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from rc6_runtime.agent_runtime import AgentRuntimeError
 from rc6_runtime.agent_runtime_hardening import BankFinalDshHeadlessWorkerLauncher
 
 
 _ARGUMENT_KEYS = {"arguments", "args", "input", "parameters", "params"}
+_RESULT_KEYS = {"result", "output", "content", "data", "value", "response"}
 
 
 class RC7BankFinalDshHeadlessWorkerLauncher(BankFinalDshHeadlessWorkerLauncher):
-    """BANK_FINAL authority plus RC7 composition and argument-level proof."""
+    """BANK_FINAL authority plus RC7 composition and argument/result proof."""
 
     def _preflight_headless_composition(self, mission_id: str) -> None:
         if not self._dsh_available():
@@ -89,6 +92,12 @@ class RC7BankFinalDshHeadlessWorkerLauncher(BankFinalDshHeadlessWorkerLauncher):
             arguments = cls._extract_arguments(event) if event is not None else None
             if arguments is not None:
                 row["arguments"] = arguments
+            result = cls._result_for_call(events, str(call.get("call_ref") or ""), str(call.get("tool_name") or ""))
+            if result is not None:
+                result_index, result_event = result
+                row["result_ref"] = "dsh-event://tool-result/%d" % result_index
+                row["result_sha256"] = cls._event_hash(result_event)
+                row["result_status"] = cls._result_status(result_event)
             enriched.append(row)
         return enriched
 
@@ -108,6 +117,76 @@ class RC7BankFinalDshHeadlessWorkerLauncher(BankFinalDshHeadlessWorkerLauncher):
             return None
         event = events[index]
         return event if isinstance(event, dict) else None
+
+    @classmethod
+    def _result_for_call(
+        cls,
+        events: Sequence[Dict[str, Any]],
+        call_ref: str,
+        tool_name: str,
+    ) -> Optional[Tuple[int, Dict[str, Any]]]:
+        prefix = "dsh-event://tool-call/"
+        if not call_ref.startswith(prefix):
+            return None
+        try:
+            call_index = int(call_ref[len(prefix):])
+        except (TypeError, ValueError):
+            return None
+        wanted = str(tool_name or "").strip().lower()
+        for index in range(call_index + 1, len(events)):
+            event = events[index]
+            if not isinstance(event, dict):
+                continue
+            kind = str(event.get("type") or event.get("event") or event.get("kind") or "").lower()
+            if "tool_call" in kind or "toolcall" in kind:
+                break
+            if "tool_result" not in kind and "toolresult" not in kind and not ("tool" in kind and "result" in kind):
+                continue
+            observed = cls._extract_tool_name(event).lower()
+            if wanted and observed and observed != wanted:
+                continue
+            return index, event
+        return None
+
+    @classmethod
+    def _extract_tool_name(cls, value: Any) -> str:
+        if isinstance(value, dict):
+            for key in ("tool_name", "toolName", "tool", "name"):
+                child = value.get(key)
+                if isinstance(child, str) and child.strip():
+                    return child.strip()
+                if isinstance(child, dict):
+                    nested = cls._extract_tool_name(child)
+                    if nested:
+                        return nested
+            for child in value.values():
+                nested = cls._extract_tool_name(child)
+                if nested:
+                    return nested
+        elif isinstance(value, list):
+            for child in value:
+                nested = cls._extract_tool_name(child)
+                if nested:
+                    return nested
+        return ""
+
+    @staticmethod
+    def _event_hash(event: Dict[str, Any]) -> str:
+        raw = json.dumps(event, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+    @classmethod
+    def _result_status(cls, event: Dict[str, Any]) -> str:
+        if event.get("ok") is False or event.get("success") is False:
+            return "FAIL"
+        if event.get("error") not in (None, "", False, [], {}):
+            return "FAIL"
+        status = event.get("status")
+        if isinstance(status, str) and status.strip().upper() in {"FAIL", "FAILED", "ERROR", "BLOCKED"}:
+            return "FAIL"
+        # Presence of a real DSH tool-result event is the receipt. Its payload is
+        # hashed above; no semantic success claim from the Worker is consulted.
+        return "SUCCESS"
 
     @classmethod
     def _extract_arguments(cls, value: Any) -> Optional[Any]:
