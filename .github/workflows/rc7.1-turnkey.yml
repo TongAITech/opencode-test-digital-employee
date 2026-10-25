@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - release/rc7.1-field-fix
+      - work/rc7.1-minimal-hardening
   workflow_dispatch:
 
 permissions:
@@ -147,6 +148,38 @@ jobs:
             recovery_profile_entry='PASS'; canonical_truth='R1_EVENT_STREAM'
           } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 dist/qualification/rc71-startup-recovery.json
 
+          # RC7.1 second-start idempotence gate. Re-run the same assembled
+          # package against the same profile/state. A clean first start is not
+          # sufficient for turnkey delivery if restart mutates the profile,
+          # invokes a package manager, or cannot reach the DSH host again.
+          $callsBefore = @(Get-Content $calls).Count
+          Remove-Item $started -ErrorAction SilentlyContinue
+          & (Join-Path $pkg 'packaging/rc7/AITEST.cmd')
+          $rc2 = $LASTEXITCODE
+          if ($rc2 -ne 0) { throw "AITEST.cmd second start failed rc=$rc2" }
+          if (Test-Path $bad) { throw 'second start invoked forbidden dsh plugin add/install' }
+          if (-not (Test-Path $started)) { throw 'second start did not reach DSH host' }
+          $callsAfter = @(Get-Content $calls).Count
+          if ($callsAfter -le $callsBefore) { throw 'second start produced no new DSH invocation' }
+
+          $status2 = Get-Content (Join-Path $pkg 'state/rc71-startup-status.json') | ConvertFrom-Json
+          if (-not $status2.dsh_host_launched) { throw 'second-start trace did not reach DSH boundary' }
+          if ($status2.model_ready -ne 'NOT_PROBED_BY_RC7') { throw 'second start falsely claimed model readiness' }
+          if ($status2.session_ready -ne 'NOT_PROBED_BY_RC7') { throw 'second start falsely claimed session readiness' }
+          $trace2 = Get-Content (Join-Path $pkg 'state/rc71-startup-trace.jsonl') -Raw
+          foreach ($phase in @('PLUGIN_PAYLOAD','DSH_HOST_LOOKUP','RUNTIME_PROFILE','PATCH_GENERATION','POST_BOOTSTRAP_PROBE','DSH_HOST_LAUNCH')) {
+            if (-not $trace2.Contains($phase)) { throw "second-start phase missing: $phase" }
+          }
+          if (-not (Test-Path (Join-Path $pkg 'packaging/rc7/AITEST-RECOVER-PROFILE.cmd'))) { throw 'recovery launcher missing after second start' }
+
+          [ordered]@{
+            status='PASS'; source_commit=$env:SOURCE_COMMIT;
+            second_start='PASS'; same_profile='PASS';
+            prestart_package_manager='FORBIDDEN'; dsh_host_started='PASS';
+            startup_trace='PASS'; model_session_truth='NOT_PROBED_BY_RC7';
+            recovery_profile_entry='PASS'; canonical_truth='R1_EVENT_STREAM'
+          } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 dist/qualification/rc71-second-start-recovery.json
+
       - name: Seal archive and clean-unpack qualification
         shell: pwsh
         run: |
@@ -164,11 +197,12 @@ jobs:
           "$sha  $releaseName" | Set-Content -Encoding ascii dist/RC7.1-SHA256SUMS.txt
           [ordered]@{
             schema='pfc.aitest.rc7.1.turnkey-metadata.v1'; status='PASS';
-            source_commit=$env:SOURCE_COMMIT; baseline_commit='ac890eebeae96c9704d777e5ba8cac428f7a25b8';
+            source_commit=$env:SOURCE_COMMIT; baseline_commit='ef7052e42485d060c1dc7e0ec9517c59df4e2ae5';
             archive_name=$releaseName; archive_sha256=$sha;
             build_status='ENGINEERING_CANDIDATE_NOT_BANK_FINAL';
             canonical_truth='runtime-state/r1/event-stream.jsonl';
-            bank_field_required=$true
+            bank_field_required=$true; bank_field_reality='NOT_VERIFIED';
+            second_start_idempotence='PASS'
           } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 dist/RC7.1-TURNKEY-METADATA.json
 
       - name: Upload RC7.1 turnkey package
