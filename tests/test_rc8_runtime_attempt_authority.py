@@ -59,6 +59,14 @@ class RuntimeAttemptAuthorityTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeAttemptAuthorityError, "LEASE_EXPIRED"):
             RuntimeAttemptAuthority.authorize(current=self.current(), evidence=self.evidence(observed_at=300), now=401)
 
+    def test_worker_cannot_future_date_evidence_inside_lease_window(self):
+        with self.assertRaisesRegex(RuntimeAttemptAuthorityError, "EVIDENCE_FROM_FUTURE"):
+            RuntimeAttemptAuthority.authorize(current=self.current(), evidence=self.evidence(observed_at=350), now=300)
+
+    def test_center_clock_before_attempt_start_fails_closed(self):
+        with self.assertRaisesRegex(RuntimeAttemptAuthorityError, "ATTEMPT_NOT_STARTED"):
+            RuntimeAttemptAuthority.authorize(current=self.current(), evidence=self.evidence(observed_at=200), now=199)
+
 
 if __name__ == "__main__":
     unittest.main()
