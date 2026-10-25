@@ -1,13 +1,10 @@
 """RC7.1 runtime-owned EXECUTION stage for BANK Mission Autopilot.
 
 One invocation handles exactly the Case owned by the current canonical EXECUTION
-or EXECUTION/REPAIR task. Multi-case progress is governed by the existing
-CASE_FANOUT_CONTRACT: completed receipts survive restart and missing Cases are
-materialized as Runtime-owned repair tasks.
-
-No capability is assumed READY. Tool admission is reconstructed from a strict
-field/runtime capability evidence snapshot. Case Preparation is executed under
-the same Runtime worker ownership that later launches the approved runner.
+or EXECUTION/REPAIR task. Multi-case progress is governed by CASE_FANOUT_CONTRACT.
+No capability is assumed READY: tool admission comes only from field/runtime
+capability evidence. Current-Attempt CAT hardening is delegated to the bank
+execution service; missing CAT readiness blocks diagnosis rather than execution.
 """
 from __future__ import annotations
 
@@ -20,6 +17,7 @@ from rc6_runtime.execution import ExecutionProfileRegistry
 from rc6_runtime.preparation import PreparedAttempt
 
 from .authority import RC7AuthorityRuntime
+from .bank_attempt_cat_execution import BankAttemptCatRuntimeExecutionService
 from .case_fanout_conformance import AcceptedCaseInventoryReader
 from .case_runtime import CasePreparationService
 from .case_script_bundle_resolver import CaseScriptExecutionBundleResolver
@@ -30,7 +28,6 @@ from .execution_fanout_conformance import check_execution_barrier
 from .execution_profiles import RC7_1_EXECUTION_PROFILES
 from .models import Artifact, Evaluation, EvaluationResult, Evidence, Gap, GapSeverity, Task
 from .oracle_runtime import DeterministicOracleRuntime
-from .runtime_execution_control import ClosedLoopRuntimeExecutionService
 
 
 class BankExecutionAutopilotError(RuntimeError):
@@ -69,7 +66,7 @@ class BankExecutionAutopilot:
             evidence_root=str(self.evidence_root / "script-runtime"),
             validation_timeout_seconds=min(max(30, timeout_seconds), 300),
         )
-        self.execution = ClosedLoopRuntimeExecutionService(
+        self.execution = BankAttemptCatRuntimeExecutionService(
             evidence_root=str(self.evidence_root / "formal-execution"),
             state_root=str(self.state_root),
             timeout_seconds=timeout_seconds,
@@ -122,9 +119,17 @@ class BankExecutionAutopilot:
     def _capability_broker(self, required_tools: Tuple[str, ...]):
         if self.capability_snapshot is None:
             raise ExecutionCapabilityEvidenceError("EXECUTION_CAPABILITY_SNAPSHOT_REQUIRED")
-        return ExecutionCapabilityBrokerFactory(self.capability_snapshot).build(
+        factory = ExecutionCapabilityBrokerFactory(self.capability_snapshot)
+        requested = list(required_tools)
+        # CAT is loaded only when the field snapshot already carries real
+        # discovery/executable/registration/probe/target-readiness evidence.
+        # If absent, execution can still run; a CAT-required failure later
+        # remains BLOCKED/EVIDENCE_GAP instead of being self-qualified here.
+        if "cat" in factory.tools and "cat" not in requested:
+            requested.append("cat")
+        return factory.build(
             target_id=self.target_id,
-            required_tools=required_tools,
+            required_tools=tuple(requested),
         )
 
     def _block(

@@ -1,9 +1,8 @@
 """Attempt-scoped CAT query runtime for RC7 failure diagnosis.
 
-CAT results supplied by an Agent are never trusted for contracted graph-v2
-Missions. The Runtime validates CAT policy/scope, launches the deployment-bound
-BANK_CAT_QUERY provider, rejects secrets before persistence, and stores a
-sanitized immutable proof tied to the failed execution Attempt.
+CAT results supplied by an Agent are never trusted. Runtime validates the
+current failed Attempt from R1, the dynamic CAT policy, correlation scope and
+deployment-bound BANK_CAT_QUERY provider before persisting immutable evidence.
 """
 from __future__ import annotations
 
@@ -18,19 +17,25 @@ from typing import Any, Dict, Mapping, Optional, Tuple
 from rc6_runtime.diagnosis import CATPolicy, CorrelationScope
 from rc6_runtime.truth import TruthRuntime
 
-from .case_runtime import CaseRuntimeError, ProviderRegistry
+from .case_runtime import ProviderRegistry
 from .models import Evidence
 from .truth_overlay import append_entity
 
 
 ATTEMPT_CAT_QUERY_KIND = "ATTEMPT_CAT_QUERY"
 CAPABILITY = "BANK_CAT_QUERY"
-SCHEMA_VERSION = "pfc.aitest.rc7.attempt-cat-query.v1"
+SCHEMA_VERSION = "pfc.aitest.rc7.attempt-cat-query.v2"
 _PROVIDER_CONFIG_ENVS = ("PFC_RC7_BANK_SERVICE_PROVIDER_CONFIG", "PFC_RC7_CASE_PROVIDER_CONFIG")
 _SECRET_TOKENS = (
     "password", "passwd", "secret", "token", "authorization", "credential",
     "cookie", "session_cookie", "access_key", "private_key",
 )
+BUSINESS_ACTION_STATES = frozenset({
+    "UNKNOWN",
+    "NOT_DISPATCHED",
+    "DISPATCH_CONFIRMED",
+    "BACKEND_PROCESSING_CONFIRMED",
+})
 
 
 class AttemptCatError(RuntimeError):
@@ -91,7 +96,7 @@ def _correlation(raw: Mapping[str, Any]) -> CorrelationScope:
     if not isinstance(raw, Mapping):
         raise AttemptCatError("ATTEMPT_CAT_CORRELATION_REQUIRED")
     applications = raw.get("applications")
-    if not isinstance(applications, list):
+    if not isinstance(applications, (list, tuple)):
         raise AttemptCatError("ATTEMPT_CAT_APPLICATIONS_REQUIRED")
     try:
         scope = CorrelationScope(
@@ -108,9 +113,32 @@ def _correlation(raw: Mapping[str, Any]) -> CorrelationScope:
     return scope
 
 
+def _scope_payload(scope: CorrelationScope) -> Dict[str, Any]:
+    return {
+        "applications": list(scope.applications),
+        "window_start": scope.window_start,
+        "window_end": scope.window_end,
+        **scope.identifiers(),
+    }
+
+
 def cat_required_for_context(context: Mapping[str, Any]) -> bool:
+    """Mirror the RC7.1 dynamic CAT policy at the R1 trust boundary."""
+    if not isinstance(context, Mapping):
+        raise AttemptCatError("ATTEMPT_CAT_FAILURE_CONTEXT_REQUIRED")
+    if not bool(context.get("real_action_executed")):
+        return False
     layer = str(context.get("layer") or "").upper()
-    return layer in {"L3", "L5"} or (layer == "L1" and bool(context.get("remote_integration")))
+    state = str(context.get("business_action_state") or "UNKNOWN").upper()
+    if state not in BUSINESS_ACTION_STATES:
+        raise AttemptCatError("ATTEMPT_CAT_BUSINESS_ACTION_STATE_INVALID:%s" % state)
+    if layer in {"L1", "L2"}:
+        return bool(context.get("remote_integration"))
+    if layer == "L3":
+        return True
+    if layer in {"L4", "L5", "L6", "L7"}:
+        return state != "NOT_DISPATCHED"
+    return bool(context.get("remote_integration"))
 
 
 class AttemptCatQueryService:
@@ -123,7 +151,7 @@ class AttemptCatQueryService:
         if len(rows) != 1:
             raise AttemptCatError("ATTEMPT_CAT_EXECUTION_ATTEMPT_NOT_UNIQUE")
         attempt = rows[0]
-        if str(attempt.get("status") or "") != "FAIL":
+        if str(attempt.get("status") or "").upper() != "FAIL":
             raise AttemptCatError("ATTEMPT_CAT_REQUIRES_FAILED_ATTEMPT")
         if str(attempt.get("target_id") or "") != target_id:
             raise AttemptCatError("ATTEMPT_CAT_TARGET_MISMATCH")
@@ -151,15 +179,39 @@ class AttemptCatQueryService:
             "task_id": task_id,
             "attempt_id": attempt_id,
             "target_id": target_id,
-            "scope": {
-                "applications": list(scope.applications),
-                "window_start": scope.window_start,
-                "window_end": scope.window_end,
-                **scope.identifiers(),
-            },
+            "scope": _scope_payload(scope),
         })).hexdigest()[:24]
 
-    def _existing(self, mission_id: str, query_id: str) -> Optional[Tuple[Mapping[str, object], Dict[str, Any]]]:
+    @staticmethod
+    def _policy_payload(context: Mapping[str, Any]) -> Dict[str, Any]:
+        return {
+            "layer": str(context.get("layer") or "").upper(),
+            "real_action_executed": bool(context.get("real_action_executed")),
+            "remote_integration": bool(context.get("remote_integration")),
+            "business_action_state": str(context.get("business_action_state") or "UNKNOWN").upper(),
+        }
+
+    def _validated_context(self, attempt: Mapping[str, object], *, attempt_id: str, target_id: str, failure_context: Mapping[str, Any]) -> Dict[str, Any]:
+        if not isinstance(failure_context, Mapping):
+            raise AttemptCatError("ATTEMPT_CAT_FAILURE_CONTEXT_REQUIRED")
+        raw_attempt_id = failure_context.get("attempt_id")
+        if raw_attempt_id is not None and str(raw_attempt_id) != attempt_id:
+            raise AttemptCatError("ATTEMPT_CAT_FAILURE_CONTEXT_ATTEMPT_MISMATCH")
+        raw_target_id = failure_context.get("target_id")
+        if raw_target_id is not None and str(raw_target_id) != target_id:
+            raise AttemptCatError("ATTEMPT_CAT_FAILURE_CONTEXT_TARGET_MISMATCH")
+        layer = str(failure_context.get("layer") or "").upper()
+        attempt_layer = str(attempt.get("layer") or "").upper()
+        if not layer:
+            raise AttemptCatError("ATTEMPT_CAT_FAILURE_CONTEXT_LAYER_REQUIRED")
+        if layer != attempt_layer:
+            raise AttemptCatError("ATTEMPT_CAT_FAILURE_CONTEXT_LAYER_MISMATCH")
+        policy = self._policy_payload(failure_context)
+        if policy["business_action_state"] not in BUSINESS_ACTION_STATES:
+            raise AttemptCatError("ATTEMPT_CAT_BUSINESS_ACTION_STATE_INVALID:%s" % policy["business_action_state"])
+        return {**dict(failure_context), **policy, "attempt_id": attempt_id, "target_id": target_id}
+
+    def _existing(self, mission_id: str, query_id: str, *, task_id: str, attempt_id: str, target_id: str, scope: CorrelationScope, policy: Mapping[str, Any]) -> Optional[Tuple[Mapping[str, object], Dict[str, Any]]]:
         rows = [
             row for row in self.truth.query("rc7_evidence", mission_id=mission_id)
             if row.get("kind") == ATTEMPT_CAT_QUERY_KIND and query_id in list(row.get("subject_refs") or [])
@@ -174,26 +226,38 @@ class AttemptCatQueryService:
         path = self.state_root / ref[len("state://"):]
         if not path.is_file():
             raise AttemptCatError("ATTEMPT_CAT_PAYLOAD_MISSING")
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise AttemptCatError("ATTEMPT_CAT_PAYLOAD_INVALID") from exc
         if _sha(payload) != str(rows[0].get("content_hash") or ""):
             raise AttemptCatError("ATTEMPT_CAT_PAYLOAD_HASH_MISMATCH")
+        expected = {
+            "query_id": query_id,
+            "mission_id": mission_id,
+            "task_id": task_id,
+            "attempt_id": attempt_id,
+            "target_id": target_id,
+            "correlation": _scope_payload(scope),
+            "policy": dict(policy),
+        }
+        for key, value in expected.items():
+            if payload.get(key) != value:
+                raise AttemptCatError("ATTEMPT_CAT_REPLAY_CONTEXT_MISMATCH:%s" % key)
+        refs = payload.get("refs")
+        if not isinstance(refs, dict):
+            raise AttemptCatError("ATTEMPT_CAT_REPLAY_REFS_INVALID")
+        for field in ("tool_call_ref", "evidence_ref", "cat_evidence_ref", "correlation_ref"):
+            if not isinstance(refs.get(field), str) or not refs[field]:
+                raise AttemptCatError("ATTEMPT_CAT_REPLAY_REF_REQUIRED:%s" % field)
         return rows[0], payload
 
-    def _provider(self) -> Tuple[Dict[str, Any], ProviderRegistry]:
+    def _provider(self) -> Dict[str, Any]:
         config = _config_path(self.state_root)
         registry = ProviderRegistry(config)
-        return registry.get(CAPABILITY), registry
+        return registry.get(CAPABILITY)
 
-    def query(
-        self,
-        *,
-        mission_id: str,
-        task_id: str,
-        worker_id: str,
-        attempt_id: str,
-        target_id: str,
-        correlation: Mapping[str, Any],
-    ) -> Dict[str, Any]:
+    def query(self, *, mission_id: str, task_id: str, worker_id: str, attempt_id: str, target_id: str, correlation: Mapping[str, Any], failure_context: Mapping[str, Any]) -> Dict[str, Any]:
         mission_id = str(mission_id or "").strip()
         task_id = str(task_id or "").strip()
         worker_id = str(worker_id or "").strip()
@@ -203,16 +267,13 @@ class AttemptCatQueryService:
             raise AttemptCatError("ATTEMPT_CAT_CONTEXT_REQUIRED")
         release_id = self._validate_task(mission_id, task_id)
         attempt = self._attempt(attempt_id, target_id)
-        if not cat_required_for_context({"layer": attempt.get("layer"), "remote_integration": False}):
-            # L1 remote-integration requirement is supplied by FailureContext,
-            # not persisted in the generic execution-attempt contract; query()
-            # may still be invoked for L1 only when the caller explicitly uses
-            # require_for_failure_context below.
-            if str(attempt.get("layer") or "").upper() != "L1":
-                raise AttemptCatError("ATTEMPT_CAT_NOT_REQUIRED_FOR_LAYER:%s" % str(attempt.get("layer") or ""))
+        current = self._validated_context(attempt, attempt_id=attempt_id, target_id=target_id, failure_context=failure_context)
+        if not cat_required_for_context(current):
+            raise AttemptCatError("ATTEMPT_CAT_NOT_REQUIRED_FOR_CURRENT_FAILURE:%s" % attempt_id)
         scope = _correlation(correlation)
         query_id = self._identity(mission_id, task_id, attempt_id, target_id, scope)
-        existing = self._existing(mission_id, query_id)
+        policy = self._policy_payload(current)
+        existing = self._existing(mission_id, query_id, task_id=task_id, attempt_id=attempt_id, target_id=target_id, scope=scope, policy=policy)
         if existing is not None:
             row, payload = existing
             return {
@@ -225,7 +286,7 @@ class AttemptCatQueryService:
                 "replayed": True,
             }
 
-        provider, _ = self._provider()
+        provider = self._provider()
         env = dict(os.environ)
         for key, value in provider["environment"].items():
             env[str(key)] = str(value)
@@ -240,23 +301,15 @@ class AttemptCatQueryService:
             "request": {
                 "purpose": "RC7_ATTEMPT_FAILURE_DIAGNOSIS",
                 "target_id": target_id,
-                "correlation": {
-                    "applications": list(scope.applications),
-                    "window_start": scope.window_start,
-                    "window_end": scope.window_end,
-                    **scope.identifiers(),
-                },
+                "correlation": _scope_payload(scope),
+                "policy": policy,
             },
         }
         try:
             proc = subprocess.run(
-                provider["command"],
-                input=_canonical(envelope),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env,
-                timeout=max(1, int(provider["timeout_seconds"])),
-                check=False,
+                provider["command"], input=_canonical(envelope), stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, env=env,
+                timeout=max(1, int(provider["timeout_seconds"])), check=False,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise AttemptCatError("ATTEMPT_CAT_PROVIDER_EXECUTION_FAILED:%s" % exc) from exc
@@ -271,7 +324,7 @@ class AttemptCatQueryService:
         _reject_secrets(response)
         if response.get("success") is not True or response.get("target_verified") is not True:
             raise AttemptCatError("ATTEMPT_CAT_PROVIDER_NOT_VERIFIED")
-        refs = {}
+        refs: Dict[str, str] = {}
         for field in ("tool_call_ref", "evidence_ref", "cat_evidence_ref", "correlation_ref"):
             value = response.get(field)
             if not isinstance(value, str) or not value.strip():
@@ -291,7 +344,8 @@ class AttemptCatQueryService:
             "attempt_id": attempt_id,
             "target_id": target_id,
             "provider_id": provider["provider_id"],
-            "correlation": envelope["request"]["correlation"],
+            "correlation": _scope_payload(scope),
+            "policy": policy,
             "refs": refs,
             "signals": signals,
         }
@@ -309,43 +363,42 @@ class AttemptCatQueryService:
             kind=ATTEMPT_CAT_QUERY_KIND,
             source_ref="provider://%s/%s" % (_safe(str(provider["provider_id"])), CAPABILITY),
             content_ref="state://" + path.relative_to(self.state_root).as_posix(),
-            subject_refs=[task_id, worker_id, attempt_id, target_id, query_id, refs["tool_call_ref"], refs["evidence_ref"], refs["correlation_ref"]],
+            subject_refs=[task_id, worker_id, attempt_id, target_id, query_id, refs["tool_call_ref"], refs["evidence_ref"], refs["cat_evidence_ref"], refs["correlation_ref"]],
             content_hash=digest,
         )
         append_entity(self.truth, evidence, release_id=release_id, artifact_version=1)
         return {
-            "status": "PASS",
-            "query_id": query_id,
-            "evidence_id": evidence.evidence_id,
-            "tool_call_ref": refs["tool_call_ref"],
-            "evidence_ref": refs["evidence_ref"],
-            "signals": signals,
-            "replayed": False,
+            "status": "PASS", "query_id": query_id, "evidence_id": evidence.evidence_id,
+            "tool_call_ref": refs["tool_call_ref"], "evidence_ref": refs["evidence_ref"],
+            "signals": signals, "replayed": False,
         }
 
-    def require_for_failure_context(
-        self,
-        *,
-        mission_id: str,
-        task_id: str,
-        worker_id: str,
-        failure_context: Mapping[str, Any],
-    ) -> Optional[Dict[str, Any]]:
-        required = cat_required_for_context(failure_context)
-        if not required:
-            return None
+    def require_for_failure_context(self, *, mission_id: str, task_id: str, worker_id: str, failure_context: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+        mission_id = str(mission_id or "").strip()
+        task_id = str(task_id or "").strip()
+        worker_id = str(worker_id or "").strip()
+        if not all((mission_id, task_id, worker_id)):
+            raise AttemptCatError("ATTEMPT_CAT_CONTEXT_REQUIRED")
+        self._validate_task(mission_id, task_id)
         attempt_id = str(failure_context.get("attempt_id") or "").strip()
         target_id = str(failure_context.get("target_id") or "").strip()
+        if not attempt_id or not target_id:
+            raise AttemptCatError("ATTEMPT_CAT_FAILURE_CONTEXT_IDENTITY_REQUIRED")
+        attempt = self._attempt(attempt_id, target_id)
+        current = self._validated_context(attempt, attempt_id=attempt_id, target_id=target_id, failure_context=failure_context)
+        if not cat_required_for_context(current):
+            return None
         correlation = failure_context.get("correlation")
         if not isinstance(correlation, Mapping):
             raise AttemptCatError("ATTEMPT_CAT_CORRELATION_REQUIRED")
         scope = _correlation(correlation)
         query_id = self._identity(mission_id, task_id, attempt_id, target_id, scope)
-        existing = self._existing(mission_id, query_id)
+        policy = self._policy_payload(current)
+        existing = self._existing(mission_id, query_id, task_id=task_id, attempt_id=attempt_id, target_id=target_id, scope=scope, policy=policy)
         if existing is None:
             raise AttemptCatError("ATTEMPT_CAT_QUERY_REQUIRED_BEFORE_FAILURE_DIAGNOSE:%s" % attempt_id)
         row, payload = existing
-        refs = payload.get("refs") or {}
+        refs = payload["refs"]
         return {
             "cat_required": True,
             "cat_queried": True,
