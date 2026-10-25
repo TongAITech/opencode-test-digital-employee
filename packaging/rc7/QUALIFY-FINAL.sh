@@ -70,7 +70,10 @@ if [[ -z "$REAL_MISSION_EVIDENCE" && -n "${PFC_RC7_R1_PATH:-}" && -n "${PFC_RC7_
     --source-commit "$SOURCE_COMMIT"
     --output "$REAL_MISSION_EVIDENCE"
   )
-  [[ "${PFC_RC7_REQUIRE_BANK_FIELD_CONFORMANCE:-0}" == "1" ]] && STRICT_ARGS+=(--require-bank-field-conformance)
+  if [[ "${PFC_RC7_REQUIRE_BANK_FIELD_CONFORMANCE:-0}" == "1" ]]; then
+    STRICT_ARGS+=(--require-bank-field-conformance)
+    STRICT_ARGS+=(--bank-target-id "$PFC_RC7_BANK_TARGET_ID")
+  fi
   "$PYTHON_BIN" -m rc7_release.real_mission_qualification_strict "${STRICT_ARGS[@]}"
   printf 'RC7 strict real Mission qualification evidence: %s\n' "$REAL_MISSION_EVIDENCE" >&2
 fi

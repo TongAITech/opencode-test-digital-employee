@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Set
 
 import rc6_runtime.agent_runtime  # noqa: F401
 from rc6_runtime.truth import TruthRuntime
+from rc7_runtime.bank_field_reality import evaluate_bank_field_reality
 from rc7_runtime.case_coverage_field_summary import CaseCoverageFieldSummaryBuilder
 from rc7_runtime.case_fanout_conformance import contract_enabled as case_fanout_contract_enabled
 from rc7_runtime.defect_review_conformance import DefectReviewConformanceChecker
@@ -23,7 +24,7 @@ from rc7_runtime.truth_overlay import install_rc7_truth_overlay
 from .real_mission_qualification import DOMAIN_NODES, evaluate_real_mission
 
 
-SCHEMA_VERSION = "pfc.aitest.rc7.real-mission-qualification.strict.v5"
+SCHEMA_VERSION = "pfc.aitest.rc7.real-mission-qualification.strict.v6"
 STRICT_DOMAIN_NODES = set(DOMAIN_NODES) | {"EXECUTION"}
 
 
@@ -126,6 +127,8 @@ def _bank_field_contracts(
     truth: TruthRuntime,
     *,
     mission_id: str,
+    source_commit: str,
+    bank_target_id: str,
 ) -> Dict[str, Any]:
     """Read-only Bank Final conformance from canonical R1 truth.
 
@@ -135,6 +138,10 @@ def _bank_field_contracts(
     actual-result/assertion integrity; accepted-Case coverage proves Test Design
     did not silently shrink during Script/Execution; Defect Review proves any
     PRODUCT_DEFECT disposition traversed reproduction/review/fix/regression.
+
+    RC7.1 additionally requires a fail-closed Bank Field Reality provenance
+    decision. Engineering fixtures may coexist in R1 but can never occupy the
+    authoritative bank-service receipt slots used by Bank Final.
     """
     blockers: List[str] = []
     try:
@@ -183,6 +190,10 @@ def _bank_field_contracts(
         "status": "NOT_ENFORCED" if not recovery_contract else "NOT_READY",
     }
     oracle_payload: Dict[str, Any] = {"status": "NOT_READY"}
+    reality_payload: Dict[str, Any] = {
+        "status": "NOT_READY",
+        "blocking_reasons": ["BANK_FIELD_CANONICAL_EXECUTION_TASK_NOT_RESOLVED"],
+    }
     execution_task_id = _canonical_execution_task_id(
         truth,
         mission_id=mission_id,
@@ -218,6 +229,20 @@ def _bank_field_contracts(
         except Exception as exc:
             oracle_payload = {"status": "FAIL", "reason": str(exc)}
             blockers.append("BANK_FIELD_ACTUAL_RESULT_ORACLE_ERROR:%s" % str(exc))
+
+        try:
+            reality_payload = evaluate_bank_field_reality(
+                truth,
+                mission_id=mission_id,
+                execution_task_id=execution_task_id,
+                target_id=bank_target_id,
+                source_commit=source_commit,
+            )
+            if reality_payload.get("status") != "PASS":
+                blockers.extend(reality_payload.get("blocking_reasons", []))
+        except Exception as exc:
+            reality_payload = {"status": "FAIL", "reason": str(exc)}
+            blockers.append("BANK_FIELD_REALITY_PROVENANCE_ERROR:%s" % str(exc))
     elif recovery_contract:
         recovery_payload = {"status": "FAIL", "reason": "CANONICAL_EXECUTION_TASK_NOT_RESOLVED"}
         oracle_payload = dict(recovery_payload)
@@ -244,6 +269,7 @@ def _bank_field_contracts(
         "canonical_execution_task_id": execution_task_id,
         "execution_recovery_conformance": recovery_payload,
         "actual_result_oracle_conformance": oracle_payload,
+        "bank_field_reality_provenance": reality_payload,
         "defect_review_conformance": defect_payload,
         "blocking_reasons": blockers,
     }
@@ -255,6 +281,7 @@ def evaluate_real_mission_strict(
     mission_id: str,
     source_commit: str,
     require_bank_field_conformance: bool = False,
+    bank_target_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     result = evaluate_real_mission(
         r1_path=r1_path,
@@ -305,7 +332,19 @@ def evaluate_real_mission_strict(
         "blocking_reasons": [],
     }
     if require_bank_field_conformance:
-        bank_field = _bank_field_contracts(truth, mission_id=mission_id)
+        target = str(bank_target_id or "").strip()
+        if not target:
+            bank_field = {
+                "status": "HOLD",
+                "blocking_reasons": ["BANK_FIELD_TARGET_ID_REQUIRED"],
+            }
+        else:
+            bank_field = _bank_field_contracts(
+                truth,
+                mission_id=mission_id,
+                source_commit=source_commit,
+                bank_target_id=target,
+            )
         blockers.extend(bank_field.get("blocking_reasons", []))
 
     deduped: List[str] = []
@@ -317,6 +356,7 @@ def evaluate_real_mission_strict(
     result["qualification_kind"] = "BANK_REAL_MISSION_STRICT_TASK_RECEIPTS"
     result["task_scoped_worker_proof"] = task_proof
     result["bank_field_conformance_required"] = bool(require_bank_field_conformance)
+    result["bank_target_id"] = str(bank_target_id or "") if require_bank_field_conformance else ""
     result["bank_field_conformance"] = bank_field
     result["blocking_reasons"] = deduped
     result["status"] = "PASS" if not deduped else "HOLD"
@@ -328,6 +368,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--r1", required=True)
     parser.add_argument("--mission-id", required=True)
     parser.add_argument("--source-commit", required=True)
+    parser.add_argument("--bank-target-id")
     parser.add_argument("--output")
     parser.add_argument("--require-pass", action="store_true")
     parser.add_argument("--require-bank-field-conformance", action="store_true")
@@ -338,6 +379,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         mission_id=args.mission_id,
         source_commit=args.source_commit,
         require_bank_field_conformance=args.require_bank_field_conformance,
+        bank_target_id=args.bank_target_id,
     )
     if args.output:
         _write_json(args.output, result)
