@@ -24,7 +24,10 @@ from rc7_runtime.truth_overlay import install_rc7_truth_overlay
 from .real_mission_qualification import DOMAIN_NODES, evaluate_real_mission
 
 
-SCHEMA_VERSION = "pfc.aitest.rc7.real-mission-qualification.strict.v6"
+# Keep the frozen external strict qualification contract at v5.  The Bank Field
+# Reality decision is an additive nested gate and must not break existing v5
+# consumers/status projections.
+SCHEMA_VERSION = "pfc.aitest.rc7.real-mission-qualification.strict.v5"
 STRICT_DOMAIN_NODES = set(DOMAIN_NODES) | {"EXECUTION"}
 
 
@@ -332,19 +335,15 @@ def evaluate_real_mission_strict(
         "blocking_reasons": [],
     }
     if require_bank_field_conformance:
-        target = str(bank_target_id or "").strip()
-        if not target:
-            bank_field = {
-                "status": "HOLD",
-                "blocking_reasons": ["BANK_FIELD_TARGET_ID_REQUIRED"],
-            }
-        else:
-            bank_field = _bank_field_contracts(
-                truth,
-                mission_id=mission_id,
-                source_commit=source_commit,
-                bank_target_id=target,
-            )
+        # Always compute the frozen Bank Field structure for compatibility.
+        # A missing target is handled inside the additive reality gate and
+        # therefore HOLDs certification without erasing existing projections.
+        bank_field = _bank_field_contracts(
+            truth,
+            mission_id=mission_id,
+            source_commit=source_commit,
+            bank_target_id=str(bank_target_id or "").strip(),
+        )
         blockers.extend(bank_field.get("blocking_reasons", []))
 
     deduped: List[str] = []
