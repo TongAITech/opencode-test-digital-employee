@@ -73,7 +73,12 @@ def build_app():
     projector = ScopeAwareGovernanceEventProjector(ledger, governance_repository, coverage_repository, artifact_repository)
     replay_result = projector.replay()
     projection = GovernanceProjectionService(governance_repository, coverage_repository)
-    mission_service = CenterMissionService(governance_repository)
+    # Mission progression is the production completion authority. It must own
+    # the same durable TraceGraph repository used by controlled N3 ingestion;
+    # otherwise a Worker CODE_SUFFICIENCY green reaches reconciliation without
+    # the Center denominator and fails closed before the deterministic gate can
+    # make a decision.
+    mission_service = CenterMissionService(governance_repository, traceability_repository=traceability_repository)
     mission_progressor = RequirementLoopProgressor(
         store=postgres,
         mission_service=mission_service,
