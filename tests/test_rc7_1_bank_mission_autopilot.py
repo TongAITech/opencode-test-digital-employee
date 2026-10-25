@@ -115,6 +115,17 @@ def test_autopilot_config_never_guesses_target_or_run_and_imports_governed_n10(
     assert config.runtime_profile == "rc7-bank"
     assert config.execution_capability_snapshot is None
 
+    # BankMissionAutopilot is a resume/drive composition. Its constructor must
+    # bind an already durable Mission projection rather than silently creating
+    # or guessing one, so seed the same canonical R1 precondition as production.
+    ClosedLoopControlPlane.bootstrap(
+        TruthRuntime(r1),
+        Mission(
+            mission_id="M-AUTO-1",
+            release_id="R-AUTO-1",
+            goal="autonomous bank mission",
+        ),
+    )
     autopilot = BankMissionAutopilot(config)
     assert isinstance(autopilot.n10, GovernedAutonomousN10FinalizationService)
 
