@@ -93,18 +93,48 @@ def _durably_explained_symbols(analysis: Mapping[str, Any], symbol_ids: Set[str]
 
 
 def _has_real_r1_code_tool_proof(analysis: Mapping[str, Any]) -> bool:
+    """Recognize only durable R1-backed code-tool provenance.
+
+    RC7.1 current-analysis binding emits stronger Git/CodeGraph evidence IDs
+    than the earlier generic EVD-CODE-TOOL-* shape. Keep legacy recognition for
+    previously hardened paths, but require current-analysis calls to carry the
+    runtime-owned analysis/attempt/result/revision identity and to reference an
+    evidence ID that is also present in the candidate's durable evidence set.
+    """
     calls = analysis.get("tool_calls")
     if not isinstance(calls, list):
         return False
+    durable = {
+        value for value in analysis.get("evidence_refs", [])
+        if isinstance(value, str) and value.strip()
+    }
+    analysis_id = str(analysis.get("analysis_id") or "").strip()
     for call in calls:
         if not isinstance(call, dict):
             continue
         evidence_ref = call.get("evidence_ref")
         tool_id = str(call.get("tool_id") or "").lower()
         if (
-            tool_id in {"git", "codegraph"}
-            and isinstance(evidence_ref, str)
-            and evidence_ref.startswith("EVD-CODE-TOOL-")
+            tool_id not in {"git", "codegraph"}
+            or not isinstance(evidence_ref, str)
+            or evidence_ref not in durable
+        ):
+            continue
+        if evidence_ref.startswith("EVD-CODE-TOOL-"):
+            return True
+        if not evidence_ref.startswith(("EVD-CODE-GIT-CURRENT-", "EVD-GRAPH-CURRENT-")):
+            continue
+        if str(call.get("analysis_id") or "").strip() != analysis_id or not analysis_id:
+            continue
+        attempt_id = call.get("attempt_id")
+        result_ref = call.get("result_ref")
+        result_sha256 = call.get("result_sha256")
+        source_revision = call.get("source_revision")
+        if (
+            isinstance(attempt_id, str) and attempt_id.strip()
+            and isinstance(result_ref, str) and result_ref.strip()
+            and isinstance(result_sha256, str) and result_sha256.startswith("sha256:")
+            and isinstance(source_revision, str) and source_revision.strip()
         ):
             return True
     return False
