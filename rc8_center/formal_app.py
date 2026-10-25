@@ -45,6 +45,27 @@ from rc8_center.infrastructure.postgres_prepared_attempt import PostgresPrepared
 from rc8_center.recovery_service import LeaseRecoveryCoordinator
 
 
+def _require_complete_runtime_invalidation_replay(result) -> None:
+    """Fail Center startup while canonical N5/N6 invalidations remain unapplied.
+
+    HTTP exposure with pending invalidations can make a stale PREPARED/READY
+    attempt observable to N7 after a restart. R1 is runtime truth, so startup
+    must not continue merely because the projector reported the failure in a
+    result object. The event stays in R1 and is replayable after the underlying
+    PostgreSQL/runtime fault is repaired.
+    """
+
+    pending = int(getattr(result, "pending", 0) or 0)
+    errors = tuple(getattr(result, "errors", ()) or ())
+    if pending or errors:
+        detail = "; ".join(str(error) for error in errors[:5])
+        raise RuntimeError(
+            "RC8 Center startup blocked: canonical runtime invalidation replay "
+            f"is incomplete (pending={pending}, errors={len(errors)})"
+            + (f": {detail}" if detail else "")
+        )
+
+
 def build_app():
     settings = CenterSettings()
     postgres = PostgresStore(build_engine(settings.database_url))
@@ -69,6 +90,10 @@ def build_app():
     runtime_invalidation_coordinator = CenterRuntimeInvalidationCoordinator(prepared_attempts, executable_readiness)
     runtime_invalidation_projector = CenterRuntimeInvalidationProjector(ledger, runtime_invalidation_coordinator)
     runtime_invalidation_replay_result = runtime_invalidation_projector.replay()
+    # N5/N6 invalidation is a safety boundary, not best-effort startup repair.
+    # A pending canonical invalidation means persisted PREPARED/READY state may
+    # be stale, so the Center must remain unavailable until replay succeeds.
+    _require_complete_runtime_invalidation_replay(runtime_invalidation_replay_result)
 
     projector = ScopeAwareGovernanceEventProjector(ledger, governance_repository, coverage_repository, artifact_repository)
     replay_result = projector.replay()
