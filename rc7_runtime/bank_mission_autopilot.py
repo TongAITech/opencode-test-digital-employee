@@ -25,6 +25,10 @@ from .authority import RC7AuthorityRuntime
 from .authorized_dsh_launcher import Rc7AuthorizedDshHeadlessWorkerLauncher
 from .autonomous_n10_governed import GovernedAutonomousN10FinalizationService
 from .autonomous_n10_node import AutonomousN10Error
+from .bank_autonomous_node_closure import (
+    BankAutonomousNodeClosureCoordinator,
+    BankAutonomousNodeClosureError,
+)
 from .bank_dsh_tool_policy import FIELD_NODE_POLICIES
 from .bank_execution_autopilot import BankExecutionAutopilot
 from .bank_mission import start_or_resume
@@ -36,7 +40,7 @@ from .dsh_requirement_evaluator import DshRequirementEvaluator
 from .dsh_test_design_oracle_evaluator import DshExecutionReadyTestDesignEvaluator
 from .mission_autonomous_driver import MissionAutonomousDriver, MissionAutonomousDriverError
 from .mission_stage_dispatch import MissionStageDispatcher
-from .models import Task
+from .models import Task, TaskStatus
 from .reality_recon import RuntimeRealityReconService
 from .script_contract import AcceptedTestDesignScriptContractCompiler
 from .script_fanout_evaluator import DshCaseFanoutScriptEvaluator
@@ -283,6 +287,11 @@ class BankMissionAutopilot:
         self.script_evaluator = DshCaseFanoutScriptEvaluator(evidence_root=str(config.evidence_root))
         self.script_compiler = AcceptedTestDesignScriptContractCompiler()
         self.reality = RuntimeRealityReconService(evidence_root=str(config.evidence_root / "reality"))
+        self.node_closure = BankAutonomousNodeClosureCoordinator(
+            release_id=config.release_id,
+            run_id=config.run_id,
+            evidence_root=str(config.evidence_root / "autonomous-node-closure"),
+        )
         self.n10 = GovernedAutonomousN10FinalizationService(
             evidence_root=str(config.evidence_root / "n10")
         )
@@ -309,12 +318,29 @@ class BankMissionAutopilot:
             raise BankMissionAutopilotError("AUTOPILOT_SINGLE_OUTPUT_ARTIFACT_REQUIRED:%s:%d" % (task.task_id, len(refs)))
         return refs[0]
 
+    def _reconcile_evaluated_node(self, task_id: str, node_id: str) -> None:
+        current = self.control.scheduler.task(task_id)
+        if current.state != TaskStatus.PASS:
+            return
+        try:
+            self.node_closure.reconcile_passed_task(
+                self.control,
+                node_id=node_id,
+                source_task_id=task_id,
+            )
+        except BankAutonomousNodeClosureError as exc:
+            raise BankMissionAutopilotError(
+                "AUTOPILOT_AUTONOMOUS_NODE_CLOSURE_FAILED:%s:%s"
+                % (node_id, exc)
+            ) from exc
+
     def _requirement_eval(self, task: Task) -> None:
         self.requirement_evaluator.evaluate_and_apply(
             self.control,
             task.task_id,
             self._single_output_artifact(task),
         )
+        self._reconcile_evaluated_node(task.task_id, "N2")
 
     def _code_eval(self, task: Task) -> None:
         self.code_evaluator.evaluate_and_apply(
@@ -323,6 +349,7 @@ class BankMissionAutopilot:
             self._single_output_artifact(task),
             target_id=self.config.target_id,
         )
+        self._reconcile_evaluated_node(task.task_id, "N3")
 
     def _test_design_eval(self, task: Task) -> None:
         self.test_design_evaluator.evaluate_and_apply(
@@ -330,6 +357,7 @@ class BankMissionAutopilot:
             task.task_id,
             self._single_output_artifact(task),
         )
+        self._reconcile_evaluated_node(task.task_id, "N4")
 
     def _script_eval(self, task: Task) -> None:
         artifact_id = self._single_output_artifact(task)
@@ -386,6 +414,7 @@ class BankMissionAutopilot:
 
     def _convergence(self) -> None:
         try:
+            self.node_closure.reconcile_passed_nodes(self.control)
             prepared = self.n10.prepare_ready(
                 self.control,
                 run_id=self.config.run_id,
@@ -395,7 +424,11 @@ class BankMissionAutopilot:
                 self.control,
                 run_id=self.config.run_id,
             )
-        except (AutonomousN10Error, BankMissionDirectorGateError) as exc:
+        except (
+            BankAutonomousNodeClosureError,
+            AutonomousN10Error,
+            BankMissionDirectorGateError,
+        ) as exc:
             raise BankMissionAutopilotError(
                 "AUTOPILOT_GOVERNED_N10_CONVERGENCE_FAILED:%s" % exc
             ) from exc
