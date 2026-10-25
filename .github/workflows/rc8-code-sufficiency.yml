@@ -5,10 +5,12 @@ on:
     branches: [work/rc8]
     paths:
       - 'rc8_center/code_sufficiency.py'
+      - 'rc8_center/formal_app.py'
       - 'rc8_runtime/sufficiency.py'
       - 'rc8_center/traceability.py'
       - 'rc8_center/infrastructure/postgres_traceability.py'
       - 'tests/test_rc8_code_sufficiency.py'
+      - 'tests/test_rc8_formal_center_integration.py'
       - '.github/workflows/rc8-code-sufficiency.yml'
   workflow_dispatch:
 
