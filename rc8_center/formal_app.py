@@ -4,14 +4,6 @@ Formal runtime chain:
 Node -> PostgreSQL identity/state + Redis active lease authorization
 -> R1 Event Stream -> replayable projector -> PostgreSQL governance/coverage
 projection -> evidence-gated Mission progression -> FastAPI -> Vue.
-
-Artifact chain:
-lease-authorized manifest -> resumable byte upload -> exact size/SHA-256 verify
--> atomic AVAILABLE publish -> R1 replay -> evidence-dependent projection.
-
-Requirement truth chain:
-RequirementMaster -> RequirementRevision -> ScopeRevision -> DeliveryScope ->
-TestRound frozen revision snapshot -> Stage/WorkItem/Evidence lineage.
 """
 from __future__ import annotations
 
@@ -71,32 +63,13 @@ def build_app():
     r1_path = Path(settings.r1_root) / "event-stream.jsonl"
     ledger = CentralR1RuntimeLedger(str(r1_path))
 
-    # Runtime invalidation is part of Center recovery, not an optional helper.
-    # R1 remains the mutation source of truth; PostgreSQL holds the durable N5/N6
-    # state that is projected from those canonical invalidation facts. Replaying
-    # before the API is exposed prevents a restarted Center from serving a stale
-    # PREPARED/READY pair after a case/runtime binding changed while it was down.
     prepared_attempts = CenterPreparedAttemptService(prepared_attempt_repository)
-    executable_readiness = CenterExecutableReadinessService(
-        executable_spec_repository,
-        prepared_attempts,
-    )
-    runtime_invalidation_coordinator = CenterRuntimeInvalidationCoordinator(
-        prepared_attempts,
-        executable_readiness,
-    )
-    runtime_invalidation_projector = CenterRuntimeInvalidationProjector(
-        ledger,
-        runtime_invalidation_coordinator,
-    )
+    executable_readiness = CenterExecutableReadinessService(executable_spec_repository, prepared_attempts)
+    runtime_invalidation_coordinator = CenterRuntimeInvalidationCoordinator(prepared_attempts, executable_readiness)
+    runtime_invalidation_projector = CenterRuntimeInvalidationProjector(ledger, runtime_invalidation_coordinator)
     runtime_invalidation_replay_result = runtime_invalidation_projector.replay()
 
-    projector = ScopeAwareGovernanceEventProjector(
-        ledger,
-        governance_repository,
-        coverage_repository,
-        artifact_repository,
-    )
+    projector = ScopeAwareGovernanceEventProjector(ledger, governance_repository, coverage_repository, artifact_repository)
     replay_result = projector.replay()
     projection = GovernanceProjectionService(governance_repository, coverage_repository)
     mission_service = CenterMissionService(governance_repository)
@@ -115,33 +88,21 @@ def build_app():
         progression=mission_progressor,
     )
 
-    # N3 runtime evidence is accepted only through the formal Center authority.
-    # Current Attempt/lease come from PostgreSQL/Redis.  Once authorized, the
-    # complete runtime observation is durably appended to canonical R1 before
-    # TraceGraph projection, so PostgreSQL cannot manufacture runtime truth.
-    trace_runtime_authority = FormalTraceRuntimeAuthority(
-        formal_control,
-        governance_repository,
-    )
+    trace_runtime_authority = FormalTraceRuntimeAuthority(formal_control, governance_repository)
     traceability_ingestion = R1BackedCenterTraceabilityIngestion(
         traceability_repository,
         ledger=ledger,
         control_plane=trace_runtime_authority,
         attempt_snapshot_resolver=trace_runtime_authority.resolve_current_attempt,
     )
+    # R1 is runtime truth. Repair any PostgreSQL TraceGraph projection that was
+    # interrupted after canonical acceptance but before DB commit. This runs
+    # before HTTP exposure and fails startup on malformed canonical evidence.
+    trace_replay_result = traceability_ingestion.replay_canonical_runtime_observations()
 
-    recovery_coordinator = LeaseRecoveryCoordinator(
-        control_repository,
-        recovery_repository,
-        redis_coordination,
-        ledger,
-    )
+    recovery_coordinator = LeaseRecoveryCoordinator(control_repository, recovery_repository, redis_coordination, ledger)
     artifact_store = FileArtifactStore(settings.artifact_root, artifact_repository)
-    artifact_service = FormalArtifactService(
-        artifact_store,
-        formal_control,
-        projector,
-    )
+    artifact_service = FormalArtifactService(artifact_store, formal_control, projector)
 
     app = create_app(
         settings=settings,
@@ -167,6 +128,7 @@ def build_app():
     app.state.traceability_repository = traceability_repository
     app.state.trace_runtime_authority = trace_runtime_authority
     app.state.traceability_ingestion = traceability_ingestion
+    app.state.trace_replay_result = trace_replay_result
     app.state.governance_projector = projector
     app.state.governance_replay_result = replay_result
     app.state.governance_repository = governance_repository
