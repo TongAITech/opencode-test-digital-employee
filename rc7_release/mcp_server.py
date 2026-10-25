@@ -20,6 +20,7 @@ from .browser_executor import execute_browser_action
 from .codegraph_mcp import call_codegraph_tool, list_codegraph_tools
 from .contracted_runner import execute_contracted_runner
 from .database_executor import execute_database_sql
+from .e2e_executor import execute_e2e_journey
 from .professional_tools import codegraph_probe, codegraph_query, git_diff, git_show_revision
 from .source_tools import read_text
 
@@ -157,6 +158,20 @@ def _extra_tools():
                 ["request", "attempt_id", "target_id", "mission_context"],
             ),
         },
+        {
+            "name": "e2e_execute",
+            "description": "Execute L5 only through the runtime-configured cross-system E2E orchestrator. A zero process exit is insufficient: its stdout JSON receipt must prove at least two distinct successful system hops plus a PASS final Oracle, with non-fixture invocation/evidence refs and exact target binding. Only then does MCP emit current-attempt e2e-orchestrator provenance.",
+            "inputSchema": _object(
+                _with_context({
+                    "journey": obj,
+                    "attempt_id": {"type": "string", "minLength": 1},
+                    "target_id": {"type": "string", "minLength": 1},
+                    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 1800},
+                    "max_chars": {"type": "integer", "minimum": 1000, "maximum": 1000000},
+                }),
+                ["journey", "attempt_id", "target_id", "mission_context"],
+            ),
+        },
     ]
 
 
@@ -176,6 +191,7 @@ def _rc7_runtime_status() -> Dict[str, Any]:
         "execution_oracle_runtime": "RC7_DETERMINISTIC_ACTUAL_PATH_OPERATOR_EXPECTED",
         "l2_database_executor": "CAPABILITY_CONFIGURED_REAL_PROCESS_WITH_ATTEMPT_PROVENANCE",
         "l4_browser_executor": "CAPABILITY_CONFIGURED_REAL_PROCESS_WITH_ATTEMPT_PROVENANCE",
+        "l5_e2e_executor": "RECEIPT_VALIDATED_CROSS_SYSTEM_PROCESS_WITH_ATTEMPT_PROVENANCE",
     })
     return base
 
@@ -321,6 +337,35 @@ def _invoke_extra(name: str, arguments: Dict[str, Any], context: Optional[Dict[s
         response = dict(result)
         response["provenance_evidence_id"] = evidence.evidence_id
         return response
+    if name == "e2e_execute":
+        if context is None:
+            raise RuntimeError("MISSION_CONTEXT_REQUIRED_FOR_E2E_EXECUTION")
+        _require_execution_task(context, prefix="E2E_EXECUTION")
+        target_id = str(arguments.get("target_id") or "").strip()
+        if not target_id:
+            raise RuntimeError("E2E_TARGET_ID_REQUIRED")
+        result = execute_e2e_journey(
+            journey=arguments["journey"],
+            target_id=target_id,
+            timeout_seconds=int(arguments.get("timeout_seconds", 300)),
+            max_chars=int(arguments.get("max_chars", 200000)),
+        )
+        evidence = record_successful_execution_invocation(
+            rc6._truth_runtime(),
+            evidence_root=str(rc6._state_root() / "evidence"),
+            mission_id=context["mission_id"],
+            task_id=context["task_id"],
+            attempt_id=str(arguments["attempt_id"]),
+            runtime_worker_id=context["worker_id"],
+            layer="L5",
+            target_id=target_id,
+            tool_name="e2e-orchestrator",
+            invocation_ref=str(result["invocation_ref"]),
+            result=result,
+        )
+        response = dict(result)
+        response["provenance_evidence_id"] = evidence.evidence_id
+        return response
     raise RuntimeError("RC7_EXTRA_TOOL_UNKNOWN:%s" % name)
 
 
@@ -410,8 +455,10 @@ def handle(message: Dict[str, Any]):
                 "only after success emits current-attempt REAL_EXECUTOR_INVOCATION evidence. L4 browser_execute "
                 "likewise invokes only the configured BrowserSkill/Playwright process with canonical JSON on stdin, "
                 "requires exact target binding, and emits trusted current-attempt provenance only after success. "
-                "runner_execute rejects fabricated prepared_attempt payloads and contracted Missions use the RC7 "
-                "deterministic Oracle. Workers never own PASS authority."
+                "L5 e2e_execute additionally requires a receipt proving at least two distinct successful system hops "
+                "and a PASS final Oracle before e2e-orchestrator provenance can be emitted. runner_execute rejects "
+                "fabricated prepared_attempt payloads and contracted Missions use the RC7 deterministic Oracle. "
+                "Workers never own PASS authority."
             )
         return response
     if method == "tools/list":
@@ -441,7 +488,7 @@ def handle(message: Dict[str, Any]):
             try:
                 clean, context = _pop_context(params.get("arguments") or {})
                 raw_result = _invoke_extra(name, clean, context)
-                if name not in {"case_prepare_plan", "case_prepare_execute", "database_execute", "browser_execute"}:
+                if name not in {"case_prepare_plan", "case_prepare_execute", "database_execute", "browser_execute", "e2e_execute"}:
                     _record_tool_call(name, context, raw_result)
                 return {"jsonrpc": "2.0", "id": msg_id, "result": _text(raw_result)}
             except Exception as exc:
