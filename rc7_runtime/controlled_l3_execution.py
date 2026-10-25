@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Tuple
 
 from rc6_runtime.automation import JUnitRunnerAdapter, PytestRunnerAdapter
 from rc6_runtime.capability import ToolCapabilityBroker
@@ -20,12 +20,64 @@ from .execution_diagnosis import ExecutionDiagnosisCoordinator, ExecutionTrustFa
 from .execution_loop import ExecutionClosedLoop
 from .models import Evidence, TaskStatus
 from .oracle_runtime import DeterministicOracleRuntime
+from .real_executor_provenance import (
+    contract_enabled as real_executor_contract_enabled,
+    record_successful_execution_invocation,
+)
 from .runtime_execution import RuntimeExecutionError, VerifiedScriptExecutionBundle, _EvidenceBackedProcessHarness
 from .runtime_execution_control import ClosedLoopExecutionResult, ClosedLoopRuntimeExecutionService
 
 
 class ControlledL3ClosedLoopExecutionService(ClosedLoopRuntimeExecutionService):
     """Formal L3 execution; child manifest is never API truth."""
+
+    @staticmethod
+    def _parent_api_call_refs(record) -> Tuple[str, ...]:
+        return tuple(
+            ref for ref in tuple(record.tool_call_refs or ())
+            if str(ref).startswith("api-runtime://APIREC-")
+        )
+
+    def _persist_real_api_provenance(
+        self,
+        control: ClosedLoopControlPlane,
+        *,
+        task_id: str,
+        prepared: PreparedAttempt,
+        runtime_worker_id: str,
+        record,
+    ) -> Tuple[str, ...]:
+        """Promote only parent-owned API receipts into unified executor truth.
+
+        StrictControlledApiRunnerAdapter has already removed child-authored
+        ``api-runtime`` claims before this method runs.  We deliberately do not
+        create provenance when no parent receipt exists: the final real-executor
+        gate must fail closed instead of accepting a runner self-report.
+        """
+        if not real_executor_contract_enabled(control.truth, control.mission_id):
+            return ()
+        evidence_ids = []
+        for call_ref in self._parent_api_call_refs(record):
+            evidence = record_successful_execution_invocation(
+                control.truth,
+                evidence_root=str(self.evidence_root),
+                mission_id=control.mission_id,
+                task_id=task_id,
+                attempt_id=prepared.attempt_id,
+                runtime_worker_id=runtime_worker_id,
+                layer="L3",
+                target_id=prepared.target_id,
+                tool_name="api-runtime",
+                invocation_ref=call_ref,
+                result={
+                    "call_ref": call_ref,
+                    "status": str(record.status),
+                    "actual_result": record.actual_result,
+                    "evidence_refs": list(record.evidence_refs or ()),
+                },
+            )
+            evidence_ids.append(evidence.evidence_id)
+        return tuple(evidence_ids)
 
     def execute_task(
         self,
@@ -122,6 +174,13 @@ class ControlledL3ClosedLoopExecutionService(ClosedLoopRuntimeExecutionService):
             cwd=cwd,
             env=env,
         )
+        provenance_evidence_ids = self._persist_real_api_provenance(
+            control,
+            task_id=task_id,
+            prepared=prepared,
+            runtime_worker_id=identity.worker_id,
+            record=raw_record,
+        )
         record, artifact, record_evidence, evidence = self._persistable_output(
             control,
             task_id=task_id,
@@ -201,7 +260,7 @@ class ControlledL3ClosedLoopExecutionService(ClosedLoopRuntimeExecutionService):
             evaluation=loop_result.evaluation,
             gaps=loop_result.gaps,
         )
-        persisted_evidence_ids = tuple(item.evidence_id for item in evidence) + (record_evidence.evidence_id,)
+        persisted_evidence_ids = tuple(item.evidence_id for item in evidence) + (record_evidence.evidence_id,) + provenance_evidence_ids
         if diagnostic_evidence is not None:
             persisted_evidence_ids = persisted_evidence_ids + (diagnostic_evidence.evidence_id,)
         return ClosedLoopExecutionResult(
