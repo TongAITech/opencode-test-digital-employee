@@ -12,6 +12,7 @@ from pathlib import Path
 from rc8_runtime import CentralR1RuntimeLedger
 from rc8_center.api import create_app
 from rc8_center.artifacts import FileArtifactStore
+from rc8_center.code_sufficiency import CenterCodeSufficiencyEvaluator
 from rc8_center.executable_readiness import CenterExecutableReadinessService
 from rc8_center.requirement_loop_progression import RequirementLoopProgressor
 from rc8_center.formal_artifacts import FormalArtifactService
@@ -99,6 +100,12 @@ def build_app():
     # interrupted after canonical acceptance but before DB commit. This runs
     # before HTTP exposure and fails startup on malformed canonical evidence.
     trace_replay_result = traceability_ingestion.replay_canonical_runtime_observations()
+    # CODE_SUFFICIENCY is Center-owned and reads only the frozen CodeSourceSnapshot
+    # plus the durable TraceGraph. Worker/LLM claims cannot shrink its denominator
+    # or manufacture a PASS. Assemble the evaluator beside the authoritative
+    # ingestion/replay path so production N3 gate wiring does not fall back to an
+    # in-memory or worker-owned implementation.
+    code_sufficiency_evaluator = CenterCodeSufficiencyEvaluator(traceability_repository)
 
     recovery_coordinator = LeaseRecoveryCoordinator(control_repository, recovery_repository, redis_coordination, ledger)
     artifact_store = FileArtifactStore(settings.artifact_root, artifact_repository)
@@ -129,6 +136,7 @@ def build_app():
     app.state.trace_runtime_authority = trace_runtime_authority
     app.state.traceability_ingestion = traceability_ingestion
     app.state.trace_replay_result = trace_replay_result
+    app.state.code_sufficiency_evaluator = code_sufficiency_evaluator
     app.state.governance_projector = projector
     app.state.governance_replay_result = replay_result
     app.state.governance_repository = governance_repository
