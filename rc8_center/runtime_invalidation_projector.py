@@ -63,6 +63,22 @@ class CenterRuntimeInvalidationProjector:
         self._restore_durable_receipts()
 
     def _restore_durable_receipts(self) -> None:
+        """Restore only receipts that prove the exact source invalidation.
+
+        A receipt event is not authoritative merely because it names a
+        source_event_id.  It must reference an existing INVALIDATION_RECORDED
+        event and carry the same run/work-item/case/attempt identity.  This
+        prevents a stale, malformed or unrelated receipt from suppressing a
+        pending invalidation after Center restart.
+        """
+        sources: Dict[str, Mapping[str, Any]] = {}
+        for source in self.ledger.runtime_events():
+            if str(source.get("event_type") or "") != "INVALIDATION_RECORDED":
+                continue
+            source_event_id = str(source.get("event_id") or "").strip()
+            if source_event_id:
+                sources[source_event_id] = source
+
         for event in self.ledger.runtime_events(node_id=PROJECTION_NODE_ID):
             if str(event.get("event_type") or "") != PROJECTION_RECEIPT_EVENT_TYPE:
                 continue
@@ -70,7 +86,13 @@ class CenterRuntimeInvalidationProjector:
             if not isinstance(data, dict):
                 continue
             source_event_id = str(data.get("source_event_id") or "").strip()
-            if not source_event_id:
+            source = sources.get(source_event_id)
+            if source is None:
+                continue
+            if source_event_id not in tuple(event.get("refs") or ()):
+                continue
+            identity_fields = ("test_run_id", "work_item_id", "case_id", "attempt_id")
+            if any(str(event.get(field) or "").strip() != str(source.get(field) or "").strip() for field in identity_fields):
                 continue
             self.receipts[source_event_id] = {
                 "status": "PROJECTED",
