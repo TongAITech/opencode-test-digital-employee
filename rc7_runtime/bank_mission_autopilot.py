@@ -8,6 +8,7 @@ as PASS and no target/capability identity is guessed.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import secrets
@@ -71,6 +72,20 @@ def _required_text(value: object, code: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise BankMissionAutopilotError(code)
     return value.strip()
+
+
+def _runtime_owned_run_id(*, release_id: str, mission_id: str) -> str:
+    """Return the stable Runtime-owned autonomous-run identity for a Mission.
+
+    This is identity creation, not target/business guessing: release and Mission
+    identities are already explicit durable inputs. The deterministic value lets
+    process/session restarts rejoin the same N1-N10 run without requiring a
+    human to invent an extra identifier.
+    """
+    release = _required_text(release_id, "AUTOPILOT_RELEASE_ID_REQUIRED")
+    mission = _required_text(mission_id, "AUTOPILOT_MISSION_ID_REQUIRED")
+    digest = hashlib.sha256((release + "\x1f" + mission).encode("utf-8")).hexdigest()[:24]
+    return "RUN-RC71-" + digest
 
 
 def _read_text(path: Path, code: str) -> str:
@@ -148,6 +163,9 @@ def discover_config(
     state.mkdir(parents=True, exist_ok=True)
     evidence.mkdir(parents=True, exist_ok=True)
 
+    mission = _required_text(mission_id, "AUTOPILOT_MISSION_ID_REQUIRED")
+    release = _required_text(release_id, "AUTOPILOT_RELEASE_ID_REQUIRED")
+
     source_path = root / "SOURCE_COMMIT"
     source = source_revision or os.environ.get("PFC_RC7_SOURCE_REVISION")
     if not source:
@@ -167,10 +185,17 @@ def discover_config(
     target = target_id or os.environ.get("PFC_RC7_TARGET_ID")
     target = _required_text(target, "AUTOPILOT_TARGET_ID_REQUIRED_NO_GUESSING")
 
-    autonomous_run_id = run_id or os.environ.get("PFC_RC7_AUTONOMOUS_RUN_ID")
-    autonomous_run_id = _required_text(
-        autonomous_run_id,
-        "AUTOPILOT_RUN_ID_REQUIRED_NO_GUESSING",
+    explicit_run_id = str(run_id or "").strip()
+    environment_run_id = str(os.environ.get("PFC_RC7_AUTONOMOUS_RUN_ID") or "").strip()
+    if explicit_run_id and environment_run_id and explicit_run_id != environment_run_id:
+        raise BankMissionAutopilotError(
+            "AUTOPILOT_RUN_ID_CLI_ENV_CONFLICT:%s:%s"
+            % (explicit_run_id, environment_run_id)
+        )
+    autonomous_run_id = (
+        explicit_run_id
+        or environment_run_id
+        or _runtime_owned_run_id(release_id=release, mission_id=mission)
     )
 
     binary_raw = dsh_bin or os.environ.get("PFC_RC7_DSH_BIN") or shutil.which("dsh")
@@ -205,8 +230,8 @@ def discover_config(
 
     return BankMissionAutopilotConfig(
         r1_path=r1,
-        mission_id=_required_text(mission_id, "AUTOPILOT_MISSION_ID_REQUIRED"),
-        release_id=_required_text(release_id, "AUTOPILOT_RELEASE_ID_REQUIRED"),
+        mission_id=mission,
+        release_id=release,
         goal=_required_text(goal, "AUTOPILOT_GOAL_REQUIRED"),
         run_id=autonomous_run_id,
         package_root=root,

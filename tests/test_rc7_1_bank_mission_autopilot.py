@@ -95,7 +95,7 @@ def _autopilot_package(tmp_path: Path):
     return root, dsh
 
 
-def test_autopilot_config_never_guesses_target_or_run_and_imports_governed_n10(
+def test_autopilot_config_uses_explicit_or_runtime_owned_run_identity(
     tmp_path: Path, monkeypatch
 ):
     monkeypatch.delenv("PFC_RC7_AUTONOMOUS_RUN_ID", raising=False)
@@ -116,9 +116,6 @@ def test_autopilot_config_never_guesses_target_or_run_and_imports_governed_n10(
     assert config.runtime_profile == "rc7-bank"
     assert config.execution_capability_snapshot is None
 
-    # BankMissionAutopilot is a resume/drive composition. Its constructor binds
-    # the already durable production MissionGraph, so use the same production
-    # bootstrap authority rather than weakening the AgentTeams graph gate.
     start_or_resume(
         r1_path=str(r1),
         mission_id="M-AUTO-1",
@@ -140,13 +137,48 @@ def test_autopilot_config_never_guesses_target_or_run_and_imports_governed_n10(
             target_id=None,
         )
 
-    with pytest.raises(BankMissionAutopilotError, match="AUTOPILOT_RUN_ID_REQUIRED_NO_GUESSING"):
+    derived_a = discover_config(
+        r1_path=str(r1),
+        mission_id="M-DERIVED",
+        release_id="R-AUTO-1",
+        goal="autonomous bank mission",
+        run_id=None,
+        package_root=str(root),
+        dsh_bin=str(dsh),
+        target_id="BANK-TARGET-1",
+    )
+    derived_b = discover_config(
+        r1_path=str(r1),
+        mission_id="M-DERIVED",
+        release_id="R-AUTO-1",
+        goal="autonomous bank mission",
+        run_id=None,
+        package_root=str(root),
+        dsh_bin=str(dsh),
+        target_id="BANK-TARGET-1",
+    )
+    different = discover_config(
+        r1_path=str(r1),
+        mission_id="M-DERIVED-OTHER",
+        release_id="R-AUTO-1",
+        goal="autonomous bank mission",
+        run_id=None,
+        package_root=str(root),
+        dsh_bin=str(dsh),
+        target_id="BANK-TARGET-1",
+    )
+    assert derived_a.run_id.startswith("RUN-RC71-")
+    assert derived_a.run_id == derived_b.run_id
+    assert derived_a.run_id != different.run_id
+
+    monkeypatch.setenv("PFC_RC7_AUTONOMOUS_RUN_ID", "RUN-ENV")
+    with pytest.raises(BankMissionAutopilotError, match="AUTOPILOT_RUN_ID_CLI_ENV_CONFLICT"):
         discover_config(
             r1_path=str(r1),
-            mission_id="M-AUTO-3",
+            mission_id="M-CONFLICT",
             release_id="R-AUTO-1",
             goal="autonomous bank mission",
-            run_id=None,
+            run_id="RUN-CLI",
             package_root=str(root),
             dsh_bin=str(dsh),
             target_id="BANK-TARGET-1",

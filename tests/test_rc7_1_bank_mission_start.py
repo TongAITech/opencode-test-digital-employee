@@ -69,9 +69,6 @@ def test_bank_mission_start_preserves_bootstrap_input_then_immediately_drives_au
             "1",
         ]
     )
-    # One step is deliberately insufficient for the whole Mission; the point is
-    # proving the entry actually drove Reality Recon instead of stopping at
-    # bootstrap. BUDGET_EXHAUSTED therefore returns 1 by contract.
     assert rc == 1
     payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert payload["bootstrap_action"] == "STARTED"
@@ -96,7 +93,7 @@ def test_bank_mission_start_preserves_bootstrap_input_then_immediately_drives_au
     assert requirement_ref in list(requirement_task.get("input_artifact_refs") or [])
 
 
-def test_bank_mission_start_fails_closed_when_run_id_is_missing(
+def test_bank_mission_start_derives_stable_runtime_run_id_when_missing(
     tmp_path: Path, capsys, monkeypatch
 ):
     monkeypatch.delenv("PFC_RC7_TARGET_ID", raising=False)
@@ -105,30 +102,36 @@ def test_bank_mission_start_fails_closed_when_run_id_is_missing(
     root, dsh, _ = _package(tmp_path)
     r1 = root / "runtime-state" / "r1" / "event-stream.jsonl"
 
-    rc = main(
-        [
-            "--r1",
-            str(r1),
-            "--package-root",
-            str(root),
-            "--mission-id",
-            "M-NO-RUN",
-            "--release-id",
-            "R-NO-RUN",
-            "--goal",
-            "prove autonomous run identity is never guessed",
-            "--target-id",
-            "BANK-TARGET-1",
-            "--dsh-bin",
-            str(dsh),
-            "--max-steps",
-            "1",
-        ]
-    )
-    assert rc == 2
-    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
-    assert payload["status"] == "FIELD_REQUIRED"
-    assert payload["reason"] == "AUTOPILOT_RUN_ID_REQUIRED_NO_GUESSING"
+    argv = [
+        "--r1",
+        str(r1),
+        "--package-root",
+        str(root),
+        "--mission-id",
+        "M-NO-RUN",
+        "--release-id",
+        "R-NO-RUN",
+        "--goal",
+        "prove runtime-owned autonomous run identity",
+        "--target-id",
+        "BANK-TARGET-1",
+        "--dsh-bin",
+        str(dsh),
+        "--max-steps",
+        "1",
+    ]
+    rc = main(argv)
+    assert rc == 1
+    first = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert first["status"] == "BUDGET_EXHAUSTED"
+    assert first["run_id"].startswith("RUN-RC71-")
+
+    # Resume the exact same durable Mission: the Runtime-owned identity must be
+    # stable across process/session restarts rather than generating a new run.
+    rc2 = main(argv)
+    assert rc2 == 1
+    second = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert second["run_id"] == first["run_id"]
 
 
 def test_packaged_bank_mission_launchers_use_autostart_not_bootstrap_only():
