@@ -10,6 +10,7 @@ on:
       - 'rc8_center/traceability.py'
       - 'rc8_center/infrastructure/postgres_traceability.py'
       - 'tests/test_rc8_code_sufficiency.py'
+      - 'tests/test_rc8_code_sufficiency_snapshot_authority.py'
       - 'tests/test_rc8_formal_center_integration.py'
       - '.github/workflows/rc8-code-sufficiency.yml'
   workflow_dispatch:
@@ -39,7 +40,8 @@ jobs:
           python -m py_compile \
             rc8_center/code_sufficiency.py \
             rc8_runtime/sufficiency.py \
-            tests/test_rc8_code_sufficiency.py
-      - name: Run frozen denominator and anti-shrink regressions
+            tests/test_rc8_code_sufficiency.py \
+            tests/test_rc8_code_sufficiency_snapshot_authority.py
+      - name: Run frozen denominator and authority regressions
         shell: bash
-        run: python -m pytest -q tests/test_rc8_code_sufficiency.py
+        run: python -m pytest -q tests/test_rc8_code_sufficiency.py tests/test_rc8_code_sufficiency_snapshot_authority.py
