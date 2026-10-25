@@ -64,6 +64,7 @@ jobs:
           tests/test_rc7_1_l5_e2e_mcp.py
           tests/test_rc7_1_l6_k6_executor.py
           tests/test_rc7_1_l6_k6_mcp.py
+          tests/test_rc7_1_l7_zap_executor.py
           tests/test_rc7_1_real_executor_pass_gate.py
           tests/test_rc7_1_execution_profiles.py
           tests/test_rc7_1_agent_teams_orchestration.py
