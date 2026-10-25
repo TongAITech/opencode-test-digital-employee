@@ -58,6 +58,7 @@ jobs:
           tests/test_rc7_1_real_executor_provenance.py
           tests/test_rc7_1_l2_database_mcp.py
           tests/test_rc7_1_l3_api_provenance.py
+          tests/test_rc7_1_l4_browser_executor.py
           tests/test_rc7_1_real_executor_pass_gate.py
           tests/test_rc7_1_execution_profiles.py
           tests/test_rc7_1_agent_teams_orchestration.py
