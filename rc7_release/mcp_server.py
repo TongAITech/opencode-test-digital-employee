@@ -21,6 +21,7 @@ from .codegraph_mcp import call_codegraph_tool, list_codegraph_tools
 from .contracted_runner import execute_contracted_runner
 from .database_executor import execute_database_sql
 from .e2e_executor import execute_e2e_journey
+from .k6_executor import execute_k6_scenario
 from .professional_tools import codegraph_probe, codegraph_query, git_diff, git_show_revision
 from .source_tools import read_text
 
@@ -172,6 +173,21 @@ def _extra_tools():
                 ["journey", "attempt_id", "target_id", "mission_context"],
             ),
         },
+        {
+            "name": "k6_execute",
+            "description": "Execute L6 only through the configured k6 CLI. The script must be workspace-contained and PFC_K6_TARGET_ID must match the Attempt target. A zero process exit is insufficient: --summary-export must prove iterations > 0 and at least one evaluated threshold, with every threshold PASS. Only then does MCP emit current-attempt k6 provenance.",
+            "inputSchema": _object(
+                _with_context({
+                    "script_path": {"type": "string", "minLength": 1},
+                    "scenario_id": {"type": "string", "minLength": 1},
+                    "attempt_id": {"type": "string", "minLength": 1},
+                    "target_id": {"type": "string", "minLength": 1},
+                    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 7200},
+                    "max_chars": {"type": "integer", "minimum": 1000, "maximum": 1000000},
+                }),
+                ["script_path", "scenario_id", "attempt_id", "target_id", "mission_context"],
+            ),
+        },
     ]
 
 
@@ -192,6 +208,7 @@ def _rc7_runtime_status() -> Dict[str, Any]:
         "l2_database_executor": "CAPABILITY_CONFIGURED_REAL_PROCESS_WITH_ATTEMPT_PROVENANCE",
         "l4_browser_executor": "CAPABILITY_CONFIGURED_REAL_PROCESS_WITH_ATTEMPT_PROVENANCE",
         "l5_e2e_executor": "RECEIPT_VALIDATED_CROSS_SYSTEM_PROCESS_WITH_ATTEMPT_PROVENANCE",
+        "l6_k6_executor": "SUMMARY_AND_THRESHOLD_VALIDATED_K6_WITH_ATTEMPT_PROVENANCE",
     })
     return base
 
@@ -366,6 +383,36 @@ def _invoke_extra(name: str, arguments: Dict[str, Any], context: Optional[Dict[s
         response = dict(result)
         response["provenance_evidence_id"] = evidence.evidence_id
         return response
+    if name == "k6_execute":
+        if context is None:
+            raise RuntimeError("MISSION_CONTEXT_REQUIRED_FOR_K6_EXECUTION")
+        _require_execution_task(context, prefix="K6_EXECUTION")
+        target_id = str(arguments.get("target_id") or "").strip()
+        if not target_id:
+            raise RuntimeError("K6_TARGET_ID_REQUIRED")
+        result = execute_k6_scenario(
+            script_path=str(arguments["script_path"]),
+            scenario_id=str(arguments["scenario_id"]),
+            target_id=target_id,
+            timeout_seconds=int(arguments.get("timeout_seconds", 900)),
+            max_chars=int(arguments.get("max_chars", 200000)),
+        )
+        evidence = record_successful_execution_invocation(
+            rc6._truth_runtime(),
+            evidence_root=str(rc6._state_root() / "evidence"),
+            mission_id=context["mission_id"],
+            task_id=context["task_id"],
+            attempt_id=str(arguments["attempt_id"]),
+            runtime_worker_id=context["worker_id"],
+            layer="L6",
+            target_id=target_id,
+            tool_name="k6",
+            invocation_ref=str(result["invocation_ref"]),
+            result=result,
+        )
+        response = dict(result)
+        response["provenance_evidence_id"] = evidence.evidence_id
+        return response
     raise RuntimeError("RC7_EXTRA_TOOL_UNKNOWN:%s" % name)
 
 
@@ -456,9 +503,10 @@ def handle(message: Dict[str, Any]):
                 "likewise invokes only the configured BrowserSkill/Playwright process with canonical JSON on stdin, "
                 "requires exact target binding, and emits trusted current-attempt provenance only after success. "
                 "L5 e2e_execute additionally requires a receipt proving at least two distinct successful system hops "
-                "and a PASS final Oracle before e2e-orchestrator provenance can be emitted. runner_execute rejects "
-                "fabricated prepared_attempt payloads and contracted Missions use the RC7 deterministic Oracle. "
-                "Workers never own PASS authority."
+                "and a PASS final Oracle before e2e-orchestrator provenance can be emitted. L6 k6_execute requires "
+                "workspace-contained scripts plus a k6 summary proving iterations > 0 and all evaluated thresholds "
+                "PASS before k6 provenance can be emitted. runner_execute rejects fabricated prepared_attempt "
+                "payloads and contracted Missions use the RC7 deterministic Oracle. Workers never own PASS authority."
             )
         return response
     if method == "tools/list":
@@ -488,7 +536,7 @@ def handle(message: Dict[str, Any]):
             try:
                 clean, context = _pop_context(params.get("arguments") or {})
                 raw_result = _invoke_extra(name, clean, context)
-                if name not in {"case_prepare_plan", "case_prepare_execute", "database_execute", "browser_execute", "e2e_execute"}:
+                if name not in {"case_prepare_plan", "case_prepare_execute", "database_execute", "browser_execute", "e2e_execute", "k6_execute"}:
                     _record_tool_call(name, context, raw_result)
                 return {"jsonrpc": "2.0", "id": msg_id, "result": _text(raw_result)}
             except Exception as exc:
