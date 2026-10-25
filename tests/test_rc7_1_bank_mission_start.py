@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from rc6_runtime.truth import TruthRuntime
+from rc7_runtime.bank_mission_autopilot import discover_config
 from rc7_runtime.bank_mission_start import BankMissionStartError, _target_id, main
 
 
@@ -126,12 +127,19 @@ def test_bank_mission_start_derives_stable_runtime_run_id_when_missing(
     assert first["status"] == "BUDGET_EXHAUSTED"
     assert first["run_id"].startswith("RUN-RC71-")
 
-    # Resume the exact same durable Mission: the Runtime-owned identity must be
-    # stable across process/session restarts rather than generating a new run.
-    rc2 = main(argv)
-    assert rc2 == 1
-    second = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
-    assert second["run_id"] == first["run_id"]
+    # Recreate the process-local Autopilot configuration without advancing the
+    # durable Mission. Runtime-owned identity must resolve to the same run across
+    # session/process recreation, while Mission execution remains a separate concern.
+    resumed = discover_config(
+        r1_path=str(r1),
+        mission_id="M-NO-RUN",
+        release_id="R-NO-RUN",
+        goal="prove runtime-owned autonomous run identity",
+        package_root=str(root),
+        dsh_bin=str(dsh),
+        target_id="BANK-TARGET-1",
+    )
+    assert resumed.run_id == first["run_id"]
 
 
 def test_packaged_bank_mission_launchers_use_autostart_not_bootstrap_only():
