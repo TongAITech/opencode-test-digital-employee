@@ -96,6 +96,35 @@ def _scope() -> dict:
     }
 
 
+def _diagnosis_context(**overrides) -> dict:
+    payload = {
+        "attempt_id": ATTEMPT,
+        "tc_id": "TC-1",
+        "case_version": 1,
+        "target_id": TARGET,
+        "layer": "L3",
+        "execution_status": "FAIL",
+        "preparation_verified": True,
+        "real_action_executed": True,
+        "assertion_failed": True,
+        "execution_evidence_refs": ["evidence://runner"],
+        "correlation": _scope(),
+        "remote_integration": False,
+        "case_oracle_verified": True,
+        "executable_spec_verified": True,
+        "script_validated": True,
+        "data_verified": True,
+        "auth_verified": True,
+        "route_verified": True,
+        "tool_verified": True,
+        "environment_verified": True,
+        "dependency_verified": True,
+        "runner_log_refs": ["log://runner"],
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_bank_mcp_exposes_runtime_attempt_cat_and_dsh_patch_uses_wrapper(tmp_path: Path, monkeypatch) -> None:
     _seed(tmp_path, monkeypatch)
     listed = mcp_server_field.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
@@ -143,19 +172,7 @@ def test_attempt_cat_query_runs_provider_and_agent_cat_result_is_forbidden(tmp_p
                     "worker_id": "WORKER-DIAGNOSTIC",
                     "lease_id": "LEASE-DIAG",
                     "release_id": RELEASE,
-                    "context": {
-                        "attempt_id": ATTEMPT,
-                        "tc_id": "TC-1",
-                        "case_version": 1,
-                        "target_id": TARGET,
-                        "layer": "L3",
-                        "runner_status": "FAIL",
-                        "assertion_failed": True,
-                        "actual_result": {"status": 500},
-                        "execution_evidence_refs": ["evidence://runner"],
-                        "runner_log_refs": ["log://runner"],
-                        "correlation": _scope(),
-                    },
+                    "context": _diagnosis_context(),
                     "classification": {"failure_class": "PRODUCT", "rationale": "boom", "classifier_ref": "classifier://x"},
                     "cat_result": {"signals": {"FAKE": 1}},
                 },
@@ -171,3 +188,35 @@ def test_attempt_cat_query_runs_provider_and_agent_cat_result_is_forbidden(tmp_p
     truth.rebuild_projection()
     rows = [row for row in truth.query("rc7_evidence", mission_id=MISSION) if row.get("kind") == "ATTEMPT_CAT_QUERY"]
     assert len(rows) == 1
+
+
+def test_failure_diagnose_cannot_bypass_cat_with_agent_policy_fields(tmp_path: Path, monkeypatch) -> None:
+    _seed(tmp_path, monkeypatch)
+    response = mcp_server_field.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {
+                "name": "failure_diagnose",
+                "arguments": {
+                    "mission_context": _context(),
+                    "worker_id": "WORKER-DIAGNOSTIC",
+                    "lease_id": "LEASE-DIAG",
+                    "release_id": RELEASE,
+                    "context": _diagnosis_context(
+                        real_action_executed=False,
+                        remote_integration=False,
+                        business_action_state="NOT_DISPATCHED",
+                    ),
+                    "classification": {
+                        "failure_class": "UNKNOWN",
+                        "rationale": "caller tries to waive CAT",
+                        "classifier_ref": "classifier://forged-policy",
+                    },
+                },
+            },
+        }
+    )
+    assert response["result"]["isError"] is True
+    assert "ATTEMPT_CAT_QUERY_REQUIRED_BEFORE_FAILURE_DIAGNOSE" in response["result"]["content"][0]["text"]

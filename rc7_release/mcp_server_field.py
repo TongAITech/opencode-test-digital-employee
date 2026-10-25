@@ -16,6 +16,10 @@ from rc7_release import mcp_server as base
 from rc7_runtime.attempt_cat import AttemptCatQueryService, cat_required_for_context
 from rc7_runtime.execution_chain_evidence import CHAIN_TOOLS, record_chain_call, validate_chain_context
 from rc7_runtime.execution_recovery_conformance import contract_enabled as recovery_contract_enabled
+from rc7_runtime.real_executor_provenance import (
+    RealExecutorProvenanceGate,
+    contract_enabled as real_executor_contract_enabled,
+)
 
 
 PROTOCOL_VERSION = base.PROTOCOL_VERSION
@@ -101,6 +105,102 @@ def _chain_context(arguments: Mapping[str, Any], tool_name: str) -> Tuple[Dict[s
     return context, attempt_id
 
 
+def _current_failed_attempt(attempt_id: str, target_id: str) -> Dict[str, Any]:
+    attempt_id = str(attempt_id or "").strip()
+    target_id = str(target_id or "").strip()
+    if not attempt_id or not target_id:
+        raise RuntimeError("ATTEMPT_CAT_FAILURE_CONTEXT_IDENTITY_REQUIRED")
+    rows = _truth().query("execution_attempt", attempt_id=attempt_id)
+    if len(rows) != 1:
+        raise RuntimeError("ATTEMPT_CAT_EXECUTION_ATTEMPT_NOT_UNIQUE")
+    attempt = dict(rows[0])
+    if str(attempt.get("status") or "").upper() != "FAIL":
+        raise RuntimeError("ATTEMPT_CAT_REQUIRES_FAILED_ATTEMPT")
+    if str(attempt.get("target_id") or "") != target_id:
+        raise RuntimeError("ATTEMPT_CAT_TARGET_MISMATCH")
+    if not str(attempt.get("layer") or "").strip():
+        raise RuntimeError("ATTEMPT_CAT_FAILURE_CONTEXT_LAYER_REQUIRED")
+    return attempt
+
+
+def _legacy_real_action(attempt: Mapping[str, Any]) -> bool:
+    """Compatibility only for Missions created before provenance-contract opt-in.
+
+    The value is derived exclusively from canonical R1 Attempt truth, never MCP
+    caller fields. New Bank Missions are fail-closed by RealExecutorProvenanceGate.
+    """
+    refs = tuple(
+        str(ref) for ref in (attempt.get("tool_call_refs") or ())
+        if isinstance(ref, str) and ref
+    )
+    layer = str(attempt.get("layer") or "").upper()
+    if layer == "L3":
+        # Old RC7 runners used both api-runtime:// receipts and generic governed
+        # tool refs. This path exists only when the new provenance contract is
+        # absent; it must never override a contracted Mission.
+        return any(ref.startswith("api-runtime://APIREC-") or ref.startswith("tool://") for ref in refs)
+    non_business = (
+        "process://", "runner-process://", "stdout://", "stderr://",
+        "validation-manifest://",
+    )
+    return any(not ref.startswith(non_business) for ref in refs)
+
+
+def _trusted_failure_context(
+    context: Mapping[str, str],
+    *,
+    attempt_id: str,
+    target_id: str,
+    correlation: Optional[Mapping[str, Any]],
+    caller_failure: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Derive CAT policy facts from current R1/runtime provenance, not the Agent.
+
+    Caller identity fields are allowed only as equality assertions. Policy facts
+    (real action, remote integration and dispatch state) are runtime-owned.
+    NOT_DISPATCHED is intentionally never inferred from caller data; without a
+    trusted dispatch receipt L4-L7 stay UNKNOWN and therefore CAT-required.
+    """
+    attempt = _current_failed_attempt(attempt_id, target_id)
+    layer = str(attempt.get("layer") or "").upper()
+    if isinstance(caller_failure, Mapping):
+        caller_attempt = str(caller_failure.get("attempt_id") or "").strip()
+        caller_target = str(caller_failure.get("target_id") or "").strip()
+        caller_layer = str(caller_failure.get("layer") or "").strip().upper()
+        if caller_attempt and caller_attempt != attempt_id:
+            raise RuntimeError("ATTEMPT_CAT_FAILURE_CONTEXT_ATTEMPT_MISMATCH")
+        if caller_target and caller_target != target_id:
+            raise RuntimeError("ATTEMPT_CAT_FAILURE_CONTEXT_TARGET_MISMATCH")
+        if caller_layer and caller_layer != layer:
+            raise RuntimeError("ATTEMPT_CAT_FAILURE_CONTEXT_LAYER_MISMATCH")
+
+    truth = _truth()
+    if real_executor_contract_enabled(truth, context["mission_id"]):
+        provenance = RealExecutorProvenanceGate(truth).require_attempt(
+            context["mission_id"], context["task_id"], attempt_id, attempt
+        )
+        real_action_executed = provenance.status == "PASS"
+    else:
+        # Compatibility for durable pre-contract Missions. No caller-supplied
+        # action/dispatch fact is consumed here.
+        real_action_executed = _legacy_real_action(attempt)
+
+    # CAT's remote-integration bit only affects L1/L2 policy. L3-L7 are governed
+    # by their explicit rules. Until a dedicated trusted L1/L2 remote receipt is
+    # available, those layers fail closed to "not proven remote" rather than
+    # accepting an Agent assertion.
+    remote_integration = False
+    return {
+        "attempt_id": attempt_id,
+        "target_id": target_id,
+        "layer": layer,
+        "real_action_executed": bool(real_action_executed),
+        "remote_integration": remote_integration,
+        "business_action_state": "UNKNOWN",
+        "correlation": dict(correlation or {}),
+    }
+
+
 def _result_payload(response: Mapping[str, Any]) -> Dict[str, Any]:
     result = response.get("result")
     if not isinstance(result, Mapping) or result.get("isError"):
@@ -147,13 +247,23 @@ def _handle_attempt_cat(message: Mapping[str, Any]) -> Dict[str, Any]:
     context = _raw_context(arguments)
     if not recovery_contract_enabled(_truth(), context["mission_id"]):
         raise RuntimeError("EXECUTION_RECOVERY_CONTRACT_REQUIRED_FOR_ATTEMPT_CAT")
+    attempt_id = str(arguments.get("attempt_id") or "")
+    target_id = str(arguments.get("target_id") or "")
+    correlation = arguments.get("correlation") or {}
+    failure_context = _trusted_failure_context(
+        context,
+        attempt_id=attempt_id,
+        target_id=target_id,
+        correlation=correlation,
+    )
     result = _cat_service().query(
         mission_id=context["mission_id"],
         task_id=context["task_id"],
         worker_id=context["worker_id"],
-        attempt_id=str(arguments.get("attempt_id") or ""),
-        target_id=str(arguments.get("target_id") or ""),
-        correlation=arguments.get("correlation") or {},
+        attempt_id=attempt_id,
+        target_id=target_id,
+        correlation=correlation,
+        failure_context=failure_context,
     )
     return {"jsonrpc": "2.0", "id": msg_id, "result": base._text(result)}
 
@@ -174,12 +284,20 @@ def _handle_chain(message: Mapping[str, Any], name: str) -> Dict[str, Any]:
         failure_context = arguments.get("context")
         if not isinstance(failure_context, Mapping):
             raise RuntimeError("FAILURE_CONTEXT_REQUIRED")
-        cat_required = cat_required_for_context(failure_context)
+        target_id = str(failure_context.get("target_id") or "").strip()
+        trusted_failure = _trusted_failure_context(
+            context,
+            attempt_id=attempt_id,
+            target_id=target_id,
+            correlation=failure_context.get("correlation") if isinstance(failure_context.get("correlation"), Mapping) else None,
+            caller_failure=failure_context,
+        )
+        cat_required = cat_required_for_context(trusted_failure)
         durable = _cat_service().require_for_failure_context(
             mission_id=context["mission_id"],
             task_id=context["task_id"],
             worker_id=context["worker_id"],
-            failure_context=failure_context,
+            failure_context=trusted_failure,
         )
         if durable is not None:
             cat_result = durable
@@ -188,6 +306,17 @@ def _handle_chain(message: Mapping[str, Any], name: str) -> Dict[str, Any]:
                 "evidence_ref": durable["evidence_ref"],
                 "signals": durable["signals"],
             }
+        # Base RC6 only knows FailureContext, not RC7.1 business_action_state.
+        # Override the shared policy facts with runtime-owned values so caller
+        # self-report cannot weaken downstream diagnosis behavior.
+        forwarded_failure = dict(failure_context)
+        forwarded_failure["attempt_id"] = trusted_failure["attempt_id"]
+        forwarded_failure["target_id"] = trusted_failure["target_id"]
+        forwarded_failure["layer"] = trusted_failure["layer"]
+        forwarded_failure["real_action_executed"] = trusted_failure["real_action_executed"]
+        forwarded_failure["remote_integration"] = trusted_failure["remote_integration"]
+        forwarded_failure.pop("business_action_state", None)
+        arguments["context"] = forwarded_failure
     params["arguments"] = arguments
     response = base.rc6.handle(forwarded)
     if not base._response_is_error(response):
