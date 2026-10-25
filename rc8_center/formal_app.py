@@ -25,12 +25,14 @@ from rc8_center.requirement_loop_progression import RequirementLoopProgressor
 from rc8_center.formal_artifacts import FormalArtifactService
 from rc8_center.formal_control import FormalCenterControlPlane
 from rc8_center.formal_settings import CenterSettings
+from rc8_center.formal_trace_authority import FormalTraceRuntimeAuthority
 from rc8_center.prepared_attempt import CenterPreparedAttemptService
 from rc8_center.runtime_invalidation import CenterRuntimeInvalidationCoordinator
 from rc8_center.runtime_invalidation_projector import CenterRuntimeInvalidationProjector
 from rc8_center.scope_aware_governance_projector import ScopeAwareGovernanceEventProjector
 from rc8_center.governance_projection import GovernanceProjectionService
 from rc8_center.mission_service import CenterMissionService
+from rc8_center.traceability_ingestion import CenterTraceabilityIngestion
 from rc8_center.infrastructure import (
     PostgresArtifactRepository,
     PostgresCenterRepository,
@@ -41,6 +43,7 @@ from rc8_center.infrastructure import (
     PostgresRequirementRevisionRepository,
     PostgresStore,
     PostgresTestRoundRepository,
+    PostgresTraceabilityRepository,
     RedisCoordination,
     build_engine,
 )
@@ -63,6 +66,7 @@ def build_app():
     test_round_repository = PostgresTestRoundRepository(postgres)
     prepared_attempt_repository = PostgresPreparedAttemptRepository(postgres)
     executable_spec_repository = PostgresExecutableSpecRepository(postgres)
+    traceability_repository = PostgresTraceabilityRepository(postgres)
 
     r1_path = Path(settings.r1_root) / "event-stream.jsonl"
     ledger = CentralR1RuntimeLedger(str(r1_path))
@@ -110,6 +114,20 @@ def build_app():
         projector,
         progression=mission_progressor,
     )
+
+    # N3 runtime evidence is accepted only through the formal Center authority.
+    # The bridge resolves the current Attempt and lease from PostgreSQL/Redis;
+    # observations never carry an authoritative lease token themselves.
+    trace_runtime_authority = FormalTraceRuntimeAuthority(
+        formal_control,
+        governance_repository,
+    )
+    traceability_ingestion = CenterTraceabilityIngestion(
+        traceability_repository,
+        control_plane=trace_runtime_authority,
+        attempt_snapshot_resolver=trace_runtime_authority.resolve_current_attempt,
+    )
+
     recovery_coordinator = LeaseRecoveryCoordinator(
         control_repository,
         recovery_repository,
@@ -144,6 +162,9 @@ def build_app():
     app.state.executable_spec_repository = executable_spec_repository
     app.state.prepared_attempts = prepared_attempts
     app.state.executable_readiness = executable_readiness
+    app.state.traceability_repository = traceability_repository
+    app.state.trace_runtime_authority = trace_runtime_authority
+    app.state.traceability_ingestion = traceability_ingestion
     app.state.governance_projector = projector
     app.state.governance_replay_result = replay_result
     app.state.governance_repository = governance_repository
