@@ -1,11 +1,12 @@
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
 from rc8_center.code_source import CodeSourceSnapshot
 from rc8_center.code_sufficiency import CenterCodeSufficiencyEvaluator
 from rc8_center.infrastructure.postgres import Base, PostgresStore
-from rc8_center.infrastructure.postgres_traceability import PostgresTraceabilityRepository
-from rc8_center.traceability import TraceEdge, TraceEvidence, TraceNode, TraceNodeType, TraceRelationType, TraceVerificationState, TraceabilityGraph
+from rc8_center.infrastructure.postgres_traceability import PostgresTraceabilityRepository, TraceEvidenceRow
+from rc8_center.traceability import TraceEdge, TraceEvidence, TraceNode, TraceNodeType, TraceRelationType, TraceVerificationState, TraceabilityError, TraceabilityGraph
 from rc8_runtime.governance import SufficiencyResult
 from rc8_runtime.sufficiency import DimensionState
 
@@ -27,8 +28,35 @@ def _repo():
     return repo
 
 
-def _append_codegraph(repo, evidence_id, snapshot_id):
-    repo.append_evidence(TraceEvidence(evidence_id=evidence_id, graph_id="graph-1", edge_id="call", evidence_type="CODEGRAPH", source="codegraph://call/adjust", test_run_id="run-1", code_source_snapshot_id=snapshot_id, captured_at=7, integrity_hash="sha256:%s" % evidence_id, payload={"source_file": FILE}))
+def _evidence(evidence_id, snapshot_id):
+    return TraceEvidence(evidence_id=evidence_id, graph_id="graph-1", edge_id="call", evidence_type="CODEGRAPH", source="codegraph://call/adjust", test_run_id="run-1", code_source_snapshot_id=snapshot_id, captured_at=7, integrity_hash="sha256:%s" % evidence_id, payload={"source_file": FILE})
+
+
+def _append_current_codegraph(repo):
+    repo.append_evidence(_evidence("current-codegraph", "snap-current"))
+    repo.verify_edge("call", TraceVerificationState.STATIC_VERIFIED, confidence=1.0)
+
+
+def _inject_pre_hardening_legacy_evidence(repo):
+    """Simulate durable evidence written before snapshot binding was enforced.
+
+    Production writes are separately asserted to reject this mismatch.  Direct
+    durable insertion here is intentional: the evaluator must remain fail-closed
+    when an upgraded database already contains legacy/stale rows.
+    """
+    with repo.store.session() as session:
+        session.add(TraceEvidenceRow(
+            evidence_id="old-codegraph",
+            graph_id="graph-1",
+            edge_id="call",
+            evidence_type="CODEGRAPH",
+            source="codegraph://call/adjust",
+            test_run_id="run-1",
+            code_source_snapshot_id="snap-previous",
+            captured_at=7,
+            integrity_hash="sha256:old-codegraph",
+            payload={"source_file": FILE},
+        ))
     repo.verify_edge("call", TraceVerificationState.STATIC_VERIFIED, confidence=1.0)
 
 
@@ -36,9 +64,15 @@ def _evaluate(repo):
     return CenterCodeSufficiencyEvaluator(repo).evaluate(test_run_id="run-1", stage_instance_id="code-suff-1", graph_id="graph-1", worker_claimed_sufficient=True)
 
 
-def test_verified_codegraph_from_previous_snapshot_cannot_satisfy_current_frozen_snapshot():
+def test_production_repository_rejects_codegraph_from_previous_snapshot():
     repo = _repo()
-    _append_codegraph(repo, "old-codegraph", "snap-previous")
+    with pytest.raises(TraceabilityError, match="TRACE_EVIDENCE_CODE_SOURCE_MISMATCH"):
+        repo.append_evidence(_evidence("old-codegraph", "snap-previous"))
+
+
+def test_verified_legacy_codegraph_from_previous_snapshot_cannot_satisfy_current_frozen_snapshot():
+    repo = _repo()
+    _inject_pre_hardening_legacy_evidence(repo)
     result = _evaluate(repo)
     states = {item.dimension_id: item.state for item in result.assessments}
     assert result.evaluation.result == SufficiencyResult.INSUFFICIENT
@@ -48,7 +82,7 @@ def test_verified_codegraph_from_previous_snapshot_cannot_satisfy_current_frozen
 
 def test_verified_codegraph_from_current_snapshot_can_satisfy_source_bound_dimensions():
     repo = _repo()
-    _append_codegraph(repo, "current-codegraph", "snap-current")
+    _append_current_codegraph(repo)
     result = _evaluate(repo)
     states = {item.dimension_id: item.state for item in result.assessments}
     assert result.evaluation.result == SufficiencyResult.SUFFICIENT
