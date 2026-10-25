@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import sys
 from typing import Any, Dict, Mapping, Optional, Tuple
 
@@ -13,9 +14,11 @@ from rc7_runtime.node_tool_conformance import (
     record_successful_call,
     validate_call_context,
 )
+from rc7_runtime.real_executor_provenance import record_successful_execution_invocation
 from rc7_runtime.truth_overlay import install_rc7_truth_overlay
 from .codegraph_mcp import call_codegraph_tool, list_codegraph_tools
 from .contracted_runner import execute_contracted_runner
+from .database_executor import execute_database_sql
 from .professional_tools import codegraph_probe, codegraph_query, git_diff, git_show_revision
 from .source_tools import read_text
 
@@ -125,6 +128,20 @@ def _extra_tools():
             "description": "Runtime-owned Case preparation. RC7 itself invokes configured precondition/data providers, hashes responses, persists R1 evidence, and returns PREPARED only after verification. DB_CREATE cannot run without a trusted Human Gate approval outside the Agent MCP surface.",
             "inputSchema": _object(_with_context({"case": obj, "attempt_id": s, "target_id": s}), ["case", "attempt_id", "target_id", "mission_context"]),
         },
+        {
+            "name": "database_execute",
+            "description": "Execute L2 SQL only through the runtime-configured real database client. SQL is sent on stdin with shell disabled. PFC_DB_TARGET_ID must exactly match the current Attempt target. Only after a successful external call does MCP emit current-attempt REAL_EXECUTOR_INVOCATION evidence; failures never emit success provenance.",
+            "inputSchema": _object(
+                _with_context({
+                    "sql": {"type": "string", "minLength": 1},
+                    "attempt_id": {"type": "string", "minLength": 1},
+                    "target_id": {"type": "string", "minLength": 1},
+                    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300},
+                    "max_chars": {"type": "integer", "minimum": 1000, "maximum": 1000000},
+                }),
+                ["sql", "attempt_id", "target_id", "mission_context"],
+            ),
+        },
     ]
 
 
@@ -142,6 +159,7 @@ def _rc7_runtime_status() -> Dict[str, Any]:
         "node_tool_conformance": "DURABLE_R1_CALL_EVIDENCE",
         "case_preparation_runtime": "TRUSTED_PROVIDER_EXECUTION_AND_HUMAN_GATE",
         "execution_oracle_runtime": "RC7_DETERMINISTIC_ACTUAL_PATH_OPERATOR_EXPECTED",
+        "l2_database_executor": "CAPABILITY_CONFIGURED_REAL_PROCESS_WITH_ATTEMPT_PROVENANCE",
     })
     return base
 
@@ -180,6 +198,29 @@ def _case_service() -> CasePreparationService:
     return CasePreparationService(rc6._truth_runtime(), rc6._state_root())
 
 
+def _require_execution_task(context: Mapping[str, str]) -> None:
+    rows = rc6._truth_runtime().query("rc7_task", task_id=context["task_id"])
+    if len(rows) != 1:
+        raise RuntimeError("DATABASE_EXECUTION_TASK_NOT_UNIQUE")
+    row = rows[0]
+    if str(row.get("mission_id") or "") != context["mission_id"]:
+        raise RuntimeError("DATABASE_EXECUTION_TASK_MISSION_MISMATCH")
+    if str(row.get("node") or "") != "EXECUTION":
+        raise RuntimeError("DATABASE_EXECUTION_REQUIRES_EXECUTION_TASK")
+
+
+def _require_database_target(target_id: object) -> str:
+    target = str(target_id or "").strip()
+    if not target:
+        raise RuntimeError("DATABASE_TARGET_ID_REQUIRED")
+    configured = str(os.environ.get("PFC_DB_TARGET_ID") or "").strip()
+    if not configured:
+        raise RuntimeError("DATABASE_TARGET_NOT_CONFIGURED")
+    if configured != target:
+        raise RuntimeError("DATABASE_TARGET_MISMATCH")
+    return target
+
+
 def _invoke_extra(name: str, arguments: Dict[str, Any], context: Optional[Dict[str, str]] = None) -> object:
     if name == "read_text":
         return read_text(path=arguments["path"], scope=str(arguments.get("scope") or "workspace"), max_chars=int(arguments.get("max_chars", 200000)))
@@ -208,6 +249,33 @@ def _invoke_extra(name: str, arguments: Dict[str, Any], context: Optional[Dict[s
             "target_id": arguments["target_id"],
         }
         return service.plan(**payload) if name == "case_prepare_plan" else service.prepare(**payload)
+    if name == "database_execute":
+        if context is None:
+            raise RuntimeError("MISSION_CONTEXT_REQUIRED_FOR_DATABASE_EXECUTION")
+        _require_execution_task(context)
+        target_id = _require_database_target(arguments.get("target_id"))
+        result = execute_database_sql(
+            sql=arguments["sql"],
+            target_id=target_id,
+            timeout_seconds=int(arguments.get("timeout_seconds", 60)),
+            max_chars=int(arguments.get("max_chars", 200000)),
+        )
+        evidence = record_successful_execution_invocation(
+            rc6._truth_runtime(),
+            evidence_root=str(rc6._state_root() / "evidence"),
+            mission_id=context["mission_id"],
+            task_id=context["task_id"],
+            attempt_id=str(arguments["attempt_id"]),
+            runtime_worker_id=context["worker_id"],
+            layer="L2",
+            target_id=target_id,
+            tool_name="database",
+            invocation_ref=str(result["invocation_ref"]),
+            result=result,
+        )
+        response = dict(result)
+        response["provenance_evidence_id"] = evidence.evidence_id
+        return response
     raise RuntimeError("RC7_EXTRA_TOOL_UNKNOWN:%s" % name)
 
 
@@ -292,9 +360,11 @@ def handle(message: Dict[str, Any]):
                 "tools are real read-only execution. Graph-v2 producer calls should carry mission_context so "
                 "successful calls become NODE_TOOL_CALL evidence. Case preparation is runtime-owned: Agents "
                 "request case_prepare_execute, but RC7 itself invokes field providers and DB_CREATE requires a "
-                "trusted Human Gate approval outside the Agent MCP surface. runner_execute rejects fabricated "
-                "prepared_attempt payloads and contracted Missions use the RC7 deterministic Oracle. Workers "
-                "never own PASS authority."
+                "trusted Human Gate approval outside the Agent MCP surface. L2 database_execute is runtime-owned: "
+                "it invokes the configured real DB client with SQL on stdin, requires exact target binding, and "
+                "only after success emits current-attempt REAL_EXECUTOR_INVOCATION evidence. runner_execute rejects "
+                "fabricated prepared_attempt payloads and contracted Missions use the RC7 deterministic Oracle. "
+                "Workers never own PASS authority."
             )
         return response
     if method == "tools/list":
@@ -324,7 +394,7 @@ def handle(message: Dict[str, Any]):
             try:
                 clean, context = _pop_context(params.get("arguments") or {})
                 raw_result = _invoke_extra(name, clean, context)
-                if name not in {"case_prepare_plan", "case_prepare_execute"}:
+                if name not in {"case_prepare_plan", "case_prepare_execute", "database_execute"}:
                     _record_tool_call(name, context, raw_result)
                 return {"jsonrpc": "2.0", "id": msg_id, "result": _text(raw_result)}
             except Exception as exc:
