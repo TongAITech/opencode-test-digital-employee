@@ -23,6 +23,8 @@ from rc8_center.prepared_attempt import CenterPreparedAttemptService
 from rc8_center.r1_traceability_ingestion import R1BackedCenterTraceabilityIngestion
 from rc8_center.runtime_invalidation import CenterRuntimeInvalidationCoordinator
 from rc8_center.runtime_invalidation_projector import CenterRuntimeInvalidationProjector
+from rc8_center.runtime_invalidation_recorder import CenterRuntimeInvalidationRecorder
+from rc8_center.runtime_invalidation_service import CenterRuntimeInvalidationService
 from rc8_center.scope_aware_governance_projector import ScopeAwareGovernanceEventProjector
 from rc8_center.governance_projection import GovernanceProjectionService
 from rc8_center.mission_service import CenterMissionService
@@ -46,17 +48,9 @@ from rc8_center.recovery_service import LeaseRecoveryCoordinator
 
 
 def _require_complete_runtime_invalidation_replay(result) -> None:
-    """Fail Center startup while canonical N5/N6 invalidations remain unapplied.
-
-    HTTP exposure with pending invalidations can make a stale PREPARED/READY
-    attempt observable to N7 after a restart. R1 is runtime truth, so startup
-    must not continue merely because the projector reported the failure in a
-    result object. The event stays in R1 and is replayable after the underlying
-    PostgreSQL/runtime fault is repaired.
-    """
-
-    pending = int(getattr(result, "pending", 0) or 0)
-    errors = tuple(getattr(result, "errors", ()) or ())
+    """Fail Center startup while canonical N5/N6 invalidations remain unapplied."""
+    pending = int(getattr(result, "pending", 0) or (result.get("pending", 0) if isinstance(result, dict) else 0))
+    errors = tuple(getattr(result, "errors", ()) or (result.get("errors", ()) if isinstance(result, dict) else ()))
     if pending or errors:
         detail = "; ".join(str(error) for error in errors[:5])
         raise RuntimeError(
@@ -90,19 +84,17 @@ def build_app():
     runtime_invalidation_coordinator = CenterRuntimeInvalidationCoordinator(prepared_attempts, executable_readiness)
     runtime_invalidation_projector = CenterRuntimeInvalidationProjector(ledger, runtime_invalidation_coordinator)
     runtime_invalidation_replay_result = runtime_invalidation_projector.replay()
-    # N5/N6 invalidation is a safety boundary, not best-effort startup repair.
-    # A pending canonical invalidation means persisted PREPARED/READY state may
-    # be stale, so the Center must remain unavailable until replay succeeds.
     _require_complete_runtime_invalidation_replay(runtime_invalidation_replay_result)
+    runtime_invalidation_recorder = CenterRuntimeInvalidationRecorder(ledger)
+    runtime_invalidation_service = CenterRuntimeInvalidationService(
+        recorder=runtime_invalidation_recorder,
+        projector=runtime_invalidation_projector,
+        prepared_attempts=prepared_attempts,
+    )
 
     projector = ScopeAwareGovernanceEventProjector(ledger, governance_repository, coverage_repository, artifact_repository)
     replay_result = projector.replay()
     projection = GovernanceProjectionService(governance_repository, coverage_repository)
-    # Mission progression is the production completion authority. It must own
-    # the same durable TraceGraph repository used by controlled N3 ingestion;
-    # otherwise a Worker CODE_SUFFICIENCY green reaches reconciliation without
-    # the Center denominator and fails closed before the deterministic gate can
-    # make a decision.
     mission_service = CenterMissionService(governance_repository, traceability_repository=traceability_repository)
     mission_progressor = RequirementLoopProgressor(
         store=postgres,
@@ -126,15 +118,7 @@ def build_app():
         control_plane=trace_runtime_authority,
         attempt_snapshot_resolver=trace_runtime_authority.resolve_current_attempt,
     )
-    # R1 is runtime truth. Repair any PostgreSQL TraceGraph projection that was
-    # interrupted after canonical acceptance but before DB commit. This runs
-    # before HTTP exposure and fails startup on malformed canonical evidence.
     trace_replay_result = traceability_ingestion.replay_canonical_runtime_observations()
-    # CODE_SUFFICIENCY is Center-owned and reads only the frozen CodeSourceSnapshot
-    # plus the durable TraceGraph. Worker/LLM claims cannot shrink its denominator
-    # or manufacture a PASS. Assemble the evaluator beside the authoritative
-    # ingestion/replay path so production N3 gate wiring does not fall back to an
-    # in-memory or worker-owned implementation.
     code_sufficiency_evaluator = CenterCodeSufficiencyEvaluator(traceability_repository)
 
     recovery_coordinator = LeaseRecoveryCoordinator(control_repository, recovery_repository, redis_coordination, ledger)
@@ -158,6 +142,8 @@ def build_app():
     app.state.runtime_invalidation_projector = runtime_invalidation_projector
     app.state.runtime_invalidation_replay_result = runtime_invalidation_replay_result
     app.state.runtime_invalidation_coordinator = runtime_invalidation_coordinator
+    app.state.runtime_invalidation_recorder = runtime_invalidation_recorder
+    app.state.runtime_invalidation_service = runtime_invalidation_service
     app.state.prepared_attempt_repository = prepared_attempt_repository
     app.state.executable_spec_repository = executable_spec_repository
     app.state.prepared_attempts = prepared_attempts
