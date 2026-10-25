@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from dataclasses import replace
 from typing import Dict, List, Sequence
 
 from .closed_loop_control import ClosedLoopControlPlane
@@ -12,6 +14,9 @@ from .models import Evaluation, EvaluationResult, Gap, GapSeverity
 from .oracle_runtime import DeterministicOracleError, DeterministicOracleRuntime
 from .test_design_loop import TestDesignLoopResult
 from .test_design_sufficiency_v2 import SufficiencyV2Result, TestDesignSufficiencyV2
+
+
+_DELTA_CONTRACT_PREFIX = "TEST_DESIGN_DELTA_V1:"
 
 
 def _stable_id(prefix: str, *parts: str) -> str:
@@ -53,6 +58,7 @@ class DshExecutionReadyTestDesignEvaluator(DshParentAwareTestDesignEvaluator):
             base=guarded,
             result=sufficiency,
         )
+        guarded = self._persist_delta_contracts(guarded)
         return DshTestDesignEvaluation(
             task_id=evaluated.task_id,
             artifact_id=evaluated.artifact_id,
@@ -64,6 +70,57 @@ class DshExecutionReadyTestDesignEvaluator(DshParentAwareTestDesignEvaluator):
             cases=evaluated.cases,
             review=evaluated.review,
             loop_result=guarded,
+        )
+
+    @staticmethod
+    def _delta_contract(request: Dict[str, object]) -> str:
+        return _DELTA_CONTRACT_PREFIX + json.dumps(
+            request,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    @classmethod
+    def _persist_delta_contracts(cls, base: TestDesignLoopResult) -> TestDesignLoopResult:
+        """Keep exact repair deltas durable across Evaluation -> Gap -> RepairTask.
+
+        Gap schema stays frozen. The canonical JSON contracts are carried in
+        Gap.acceptance_criteria because GapRepairPlanner already copies that
+        field verbatim into the R1-backed RepairTask. Evaluation dimensions
+        retain the structured rows for audit/replay. All current Test Design
+        gaps receive the same exact repair plan so no independently routed gap
+        can collapse the repair request back to prose-only guidance.
+        """
+        delta_rows = []
+        for request in base.delta_requests:
+            row = dict(request)
+            if row not in delta_rows:
+                delta_rows.append(row)
+
+        dimensions = dict(base.evaluation.dimensions)
+        dimensions["delta_requests"] = list(delta_rows)
+        dimensions["test_design_repair_delta_contract_version"] = "v1"
+        contracts = [cls._delta_contract(row) for row in delta_rows]
+
+        gaps = []
+        for gap in base.gaps:
+            criteria = list(gap.acceptance_criteria)
+            for contract in contracts:
+                if contract not in criteria:
+                    criteria.append(contract)
+            gaps.append(replace(gap, acceptance_criteria=criteria))
+
+        evaluation = replace(
+            base.evaluation,
+            dimensions=dimensions,
+            gap_refs=[gap.gap_id for gap in gaps],
+        )
+        return replace(
+            base,
+            evaluation=evaluation,
+            gaps=tuple(gaps),
+            delta_requests=tuple(delta_rows),
         )
 
     @staticmethod
