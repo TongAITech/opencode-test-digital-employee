@@ -22,16 +22,18 @@ from rc6_runtime.truth import TruthRuntime
 from .active_task_supervisor import MissionActiveTaskSupervisor, RecoverableDshTaskWorkerBridge
 from .authority import RC7AuthorityRuntime
 from .authorized_dsh_launcher import Rc7AuthorizedDshHeadlessWorkerLauncher
+from .autonomous_n10_governed import GovernedAutonomousN10FinalizationService
+from .autonomous_n10_node import AutonomousN10Error
 from .bank_dsh_tool_policy import FIELD_NODE_POLICIES
 from .bank_execution_autopilot import BankExecutionAutopilot
 from .bank_mission import start_or_resume
+from .bank_mission_director import BankMissionDirectorGate, BankMissionDirectorGateError
 from .candidate_payload import CandidatePayloadReader
 from .closed_loop_control import ClosedLoopControlPlane
 from .dsh_code_evaluator import DshCodeEvaluator
 from .dsh_requirement_evaluator import DshRequirementEvaluator
 from .dsh_test_design_oracle_evaluator import DshExecutionReadyTestDesignEvaluator
 from .mission_autonomous_driver import MissionAutonomousDriver, MissionAutonomousDriverError
-from .mission_evaluation_runtime import MissionEvaluationRuntime
 from .mission_stage_dispatch import MissionStageDispatcher
 from .models import Task
 from .reality_recon import RuntimeRealityReconService
@@ -49,6 +51,7 @@ class BankMissionAutopilotConfig:
     mission_id: str
     release_id: str
     goal: str
+    run_id: str
     package_root: Path
     state_root: Path
     evidence_root: Path
@@ -124,6 +127,7 @@ def discover_config(
     mission_id: str,
     release_id: str,
     goal: str,
+    run_id: Optional[str] = None,
     package_root: Optional[str] = None,
     state_root: Optional[str] = None,
     evidence_root: Optional[str] = None,
@@ -163,6 +167,12 @@ def discover_config(
     target = target_id or os.environ.get("PFC_RC7_TARGET_ID")
     target = _required_text(target, "AUTOPILOT_TARGET_ID_REQUIRED_NO_GUESSING")
 
+    autonomous_run_id = run_id or os.environ.get("PFC_RC7_AUTONOMOUS_RUN_ID")
+    autonomous_run_id = _required_text(
+        autonomous_run_id,
+        "AUTOPILOT_RUN_ID_REQUIRED_NO_GUESSING",
+    )
+
     binary_raw = dsh_bin or os.environ.get("PFC_RC7_DSH_BIN") or shutil.which("dsh")
     binary = Path(_required_text(binary_raw, "AUTOPILOT_DSH_BIN_REQUIRED")).expanduser().resolve()
     if not binary.exists():
@@ -198,6 +208,7 @@ def discover_config(
         mission_id=_required_text(mission_id, "AUTOPILOT_MISSION_ID_REQUIRED"),
         release_id=_required_text(release_id, "AUTOPILOT_RELEASE_ID_REQUIRED"),
         goal=_required_text(goal, "AUTOPILOT_GOAL_REQUIRED"),
+        run_id=autonomous_run_id,
         package_root=root,
         state_root=state,
         evidence_root=evidence,
@@ -247,7 +258,14 @@ class BankMissionAutopilot:
         self.script_evaluator = DshCaseFanoutScriptEvaluator(evidence_root=str(config.evidence_root))
         self.script_compiler = AcceptedTestDesignScriptContractCompiler()
         self.reality = RuntimeRealityReconService(evidence_root=str(config.evidence_root / "reality"))
-        self.mission_evaluation = MissionEvaluationRuntime(evidence_root=str(config.evidence_root / "mission"))
+        self.n10 = GovernedAutonomousN10FinalizationService(
+            evidence_root=str(config.evidence_root / "n10")
+        )
+        self.director_gate = BankMissionDirectorGate(
+            self.truth,
+            release_id=config.release_id,
+            evidence_root=str(config.evidence_root / "n10"),
+        )
         self.reader = CandidatePayloadReader()
         self.execution = BankExecutionAutopilot(
             authority=self.authority,
@@ -342,7 +360,31 @@ class BankMissionAutopilot:
         raise BankMissionAutopilotError("AUTOPILOT_RUNTIME_NODE_UNSUPPORTED:%s" % task.node)
 
     def _convergence(self) -> None:
-        self.mission_evaluation.run(self.control)
+        try:
+            prepared = self.n10.prepare_ready(
+                self.control,
+                run_id=self.config.run_id,
+            )
+            self.director_gate.review_and_accept(self.control, prepared)
+            self.n10.converge_after_director_accept(
+                self.control,
+                run_id=self.config.run_id,
+            )
+        except (AutonomousN10Error, BankMissionDirectorGateError) as exc:
+            raise BankMissionAutopilotError(
+                "AUTOPILOT_GOVERNED_N10_CONVERGENCE_FAILED:%s" % exc
+            ) from exc
+
+    def _final_report(self):
+        try:
+            return self.n10.generate_final_report(
+                self.control,
+                run_id=self.config.run_id,
+            )
+        except AutonomousN10Error as exc:
+            raise BankMissionAutopilotError(
+                "AUTOPILOT_GOVERNED_N10_FINAL_REPORT_FAILED:%s" % exc
+            ) from exc
 
     def drive(self):
         dispatcher = MissionStageDispatcher(
@@ -364,6 +406,7 @@ class BankMissionAutopilot:
             },
             active_task_handler=self.supervisor.handle,
             convergence_handler=self._convergence,
+            final_report_handler=self._final_report,
         )
         return driver.drive(max_steps=self.config.max_steps)
 
@@ -374,6 +417,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mission-id", required=True)
     parser.add_argument("--release-id", required=True)
     parser.add_argument("--goal", required=True)
+    parser.add_argument("--run-id")
     parser.add_argument("--package-root")
     parser.add_argument("--state-root")
     parser.add_argument("--evidence-root")
@@ -397,6 +441,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         mission_id=args.mission_id,
         release_id=args.release_id,
         goal=args.goal,
+        run_id=args.run_id,
         package_root=args.package_root,
         state_root=args.state_root,
         evidence_root=args.evidence_root,
@@ -420,6 +465,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     payload = {
         "status": result.status,
         "mission_id": result.mission_id,
+        "run_id": config.run_id,
         "steps": result.step_count,
         "last_action": result.action,
         "task_id": result.task_id,

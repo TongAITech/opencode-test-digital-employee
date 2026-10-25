@@ -40,6 +40,7 @@ def test_bank_mission_start_preserves_bootstrap_input_then_immediately_drives_au
 ):
     monkeypatch.delenv("PFC_RC7_TARGET_ID", raising=False)
     monkeypatch.delenv("PFC_RC7_BANK_TARGET_ID", raising=False)
+    monkeypatch.delenv("PFC_RC7_AUTONOMOUS_RUN_ID", raising=False)
     root, dsh, requirement = _package(tmp_path)
     r1 = root / "runtime-state" / "r1" / "event-stream.jsonl"
     requirement_ref = "file://" + str(requirement)
@@ -56,6 +57,8 @@ def test_bank_mission_start_preserves_bootstrap_input_then_immediately_drives_au
             "R-START",
             "--goal",
             "prove turnkey autostart",
+            "--run-id",
+            "RUN-START",
             "--target-id",
             "BANK-TARGET-1",
             "--dsh-bin",
@@ -68,7 +71,7 @@ def test_bank_mission_start_preserves_bootstrap_input_then_immediately_drives_au
     )
     # One step is deliberately insufficient for the whole Mission; the point is
     # proving the entry actually drove Reality Recon instead of stopping at
-    # bootstrap.  BUDGET_EXHAUSTED therefore returns 1 by contract.
+    # bootstrap. BUDGET_EXHAUSTED therefore returns 1 by contract.
     assert rc == 1
     payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert payload["bootstrap_action"] == "STARTED"
@@ -76,6 +79,7 @@ def test_bank_mission_start_preserves_bootstrap_input_then_immediately_drives_au
     assert payload["steps"] == 1
     assert payload["manual_continue_required"] is False
     assert payload["target_id"] == "BANK-TARGET-1"
+    assert payload["run_id"] == "RUN-START"
 
     truth = TruthRuntime(r1)
     reality = [
@@ -90,6 +94,41 @@ def test_bank_mission_start_preserves_bootstrap_input_then_immediately_drives_au
     ][0]
     assert requirement_task["state"] == "READY"
     assert requirement_ref in list(requirement_task.get("input_artifact_refs") or [])
+
+
+def test_bank_mission_start_fails_closed_when_run_id_is_missing(
+    tmp_path: Path, capsys, monkeypatch
+):
+    monkeypatch.delenv("PFC_RC7_TARGET_ID", raising=False)
+    monkeypatch.delenv("PFC_RC7_BANK_TARGET_ID", raising=False)
+    monkeypatch.delenv("PFC_RC7_AUTONOMOUS_RUN_ID", raising=False)
+    root, dsh, _ = _package(tmp_path)
+    r1 = root / "runtime-state" / "r1" / "event-stream.jsonl"
+
+    rc = main(
+        [
+            "--r1",
+            str(r1),
+            "--package-root",
+            str(root),
+            "--mission-id",
+            "M-NO-RUN",
+            "--release-id",
+            "R-NO-RUN",
+            "--goal",
+            "prove autonomous run identity is never guessed",
+            "--target-id",
+            "BANK-TARGET-1",
+            "--dsh-bin",
+            str(dsh),
+            "--max-steps",
+            "1",
+        ]
+    )
+    assert rc == 2
+    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert payload["status"] == "FIELD_REQUIRED"
+    assert payload["reason"] == "AUTOPILOT_RUN_ID_REQUIRED_NO_GUESSING"
 
 
 def test_packaged_bank_mission_launchers_use_autostart_not_bootstrap_only():

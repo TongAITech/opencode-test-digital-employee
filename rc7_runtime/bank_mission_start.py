@@ -1,13 +1,13 @@
 """RC7.1 production BANK Mission start/resume + Autopilot entry.
 
-This is intentionally a thin compatibility layer.  The historical BANK Mission
+This is intentionally a thin compatibility layer. The historical BANK Mission
 launcher accepted graph/input bootstrap arguments and then stopped after R1
-bootstrap.  RC7.1 must preserve those exact bootstrap semantics and immediately
+bootstrap. RC7.1 must preserve those exact bootstrap semantics and immediately
 hand the same durable Mission to ``BankMissionAutopilot`` so users never need to
 send a follow-up "continue" instruction.
 
-No Mission/Target identity is guessed.  The legacy bank-target environment name
-is accepted only as an alias; conflicting aliases are a HOLD.
+No Mission/Target/Autonomous-Run identity is guessed. The legacy bank-target
+environment name is accepted only as an alias; conflicting aliases are a HOLD.
 """
 from __future__ import annotations
 
@@ -64,6 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mission-id", required=True)
     parser.add_argument("--release-id", required=True)
     parser.add_argument("--goal", required=True)
+    parser.add_argument("--run-id")
     parser.add_argument(
         "--graph-version",
         choices=MissionTaskGraphCompiler.SUPPORTED_GRAPH_VERSIONS,
@@ -103,6 +104,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             mission_id=args.mission_id,
             release_id=args.release_id,
             goal=args.goal,
+            run_id=args.run_id,
             package_root=args.package_root,
             state_root=state_root,
             evidence_root=args.evidence_root,
@@ -138,6 +140,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     payload = {
         "status": result.status,
         "mission_id": result.mission_id,
+        "run_id": config.run_id,
         "release_id": args.release_id,
         "bootstrap_action": bootstrap.get("status"),
         "graph_version": bootstrap.get("graph_version"),

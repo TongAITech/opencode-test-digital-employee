@@ -5,6 +5,7 @@ import pytest
 
 from rc6_runtime.truth import TruthRuntime
 from rc7_runtime.authority import RC7AuthorityRuntime
+from rc7_runtime.autonomous_n10_governed import GovernedAutonomousN10FinalizationService
 from rc7_runtime.bank_execution_autopilot import BankExecutionAutopilot
 from rc7_runtime.bank_mission_autopilot import (
     BankMissionAutopilot,
@@ -93,7 +94,10 @@ def _autopilot_package(tmp_path: Path):
     return root, dsh
 
 
-def test_autopilot_config_never_guesses_target_and_imports_production_factory(tmp_path: Path):
+def test_autopilot_config_never_guesses_target_or_run_and_imports_governed_n10(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.delenv("PFC_RC7_AUTONOMOUS_RUN_ID", raising=False)
     root, dsh = _autopilot_package(tmp_path)
     r1 = root / "runtime-state" / "r1" / "event-stream.jsonl"
     config = discover_config(
@@ -101,16 +105,18 @@ def test_autopilot_config_never_guesses_target_and_imports_production_factory(tm
         mission_id="M-AUTO-1",
         release_id="R-AUTO-1",
         goal="autonomous bank mission",
+        run_id="RUN-AUTO-1",
         package_root=str(root),
         dsh_bin=str(dsh),
         target_id="BANK-TARGET-1",
     )
     assert config.target_id == "BANK-TARGET-1"
+    assert config.run_id == "RUN-AUTO-1"
     assert config.runtime_profile == "rc7-bank"
     assert config.execution_capability_snapshot is None
-    # Constructor import/composition must be real even before the Mission is
-    # created; this catches drift such as wrong resolver class names.
-    assert BankMissionAutopilot.__name__ == "BankMissionAutopilot"
+
+    autopilot = BankMissionAutopilot(config)
+    assert isinstance(autopilot.n10, GovernedAutonomousN10FinalizationService)
 
     with pytest.raises(BankMissionAutopilotError, match="AUTOPILOT_TARGET_ID_REQUIRED_NO_GUESSING"):
         discover_config(
@@ -118,9 +124,22 @@ def test_autopilot_config_never_guesses_target_and_imports_production_factory(tm
             mission_id="M-AUTO-2",
             release_id="R-AUTO-1",
             goal="autonomous bank mission",
+            run_id="RUN-AUTO-2",
             package_root=str(root),
             dsh_bin=str(dsh),
             target_id=None,
+        )
+
+    with pytest.raises(BankMissionAutopilotError, match="AUTOPILOT_RUN_ID_REQUIRED_NO_GUESSING"):
+        discover_config(
+            r1_path=str(r1),
+            mission_id="M-AUTO-3",
+            release_id="R-AUTO-1",
+            goal="autonomous bank mission",
+            run_id=None,
+            package_root=str(root),
+            dsh_bin=str(dsh),
+            target_id="BANK-TARGET-1",
         )
 
 
