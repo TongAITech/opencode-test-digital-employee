@@ -1,0 +1,26 @@
+name: RC7.1 N8 Upstream Authorization Focused Gate
+
+on:
+  push:
+    branches:
+      - work/rc7.1-minimal-hardening
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-n8-upstream-authorization:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Install focused test dependency
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: N8 upstream authorization durable blocker focused test
+        run: >-
+          python -m pytest -q
+          tests/test_rc7_1_bank_n8_upstream_authorization_blocker.py
