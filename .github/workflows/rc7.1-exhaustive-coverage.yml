@@ -48,6 +48,7 @@ jobs:
           tests/test_rc7_1_bank_n8_main_link.py
           tests/test_rc7_1_bank_n8_owner_repair.py
           tests/test_rc7_1_bank_n8_non_direct_guard.py
+          tests/test_rc7_1_bank_n8_upstream_successor.py
           tests/test_rc7_1_n9_defect_evidence_policy.py
           tests/test_rc7_1_n9_defect_evidence_integration.py
           tests/test_rc7_1_wave_e_node_closure.py
