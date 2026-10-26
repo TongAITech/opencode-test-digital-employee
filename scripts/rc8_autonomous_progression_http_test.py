@@ -51,6 +51,35 @@ def _next_sequence(client: httpx.Client, *, run_id: str, node_id: str) -> int:
     return int(body["next_sequence"])
 
 
+def _started_attempt_authority(
+    client: httpx.Client,
+    *,
+    run_id: str,
+    work_item_id: str,
+    stage_instance_id: str,
+    node_id: str,
+    lease_id: str,
+) -> dict:
+    """Read the Center-projected STARTED Attempt; never infer snapshot authority."""
+    response = client.get("/api/v1/test-runs/%s/governance" % run_id)
+    assert response.status_code == 200, response.text
+    attempts = [
+        item
+        for item in response.json().get("attempts", [])
+        if item.get("attempt_id") == lease_id
+    ]
+    assert len(attempts) == 1, attempts
+    authority = attempts[0]
+    assert authority["status"] == "STARTED"
+    assert authority["test_run_id"] == run_id
+    assert authority["work_item_id"] == work_item_id
+    assert authority["stage_instance_id"] == stage_instance_id
+    assert authority["producer_node_id"] == node_id
+    assert authority["producer_ref"] == "rc8-center-attempt-authority"
+    assert authority["input_snapshot_ref"]
+    return authority
+
+
 def _runtime_payload(*, lease_id: str, event_id: str, run_id: str, work_id: str,
                      node_id: str, stage_id: str, event_type: str, sequence: int,
                      attempt_id: str, data: dict) -> dict:
@@ -203,7 +232,15 @@ def main() -> int:
         )
         assert started_work["work_item"]["state"] == "RUNNING"
 
-        attempt_id = first_lease_id
+        authority = _started_attempt_authority(
+            client,
+            run_id=run_id,
+            work_item_id=first_work_id,
+            stage_instance_id=initial_stage_id,
+            node_id=node_id,
+            lease_id=first_lease_id,
+        )
+        attempt_id = authority["attempt_id"]
         terminal_sequence = _next_sequence(client, run_id=run_id, node_id=node_id)
         assert terminal_sequence >= 1
 
@@ -235,7 +272,7 @@ def main() -> int:
             sequence=terminal_sequence,
             attempt_id=attempt_id,
             data={
-                "input_snapshot_ref": "scope-snapshot:%s" % scope_id,
+                "input_snapshot_ref": authority["input_snapshot_ref"],
                 "evidence_refs": ["artifact:%s" % artifact_id],
                 "finished_at": 1003,
             },
@@ -281,6 +318,15 @@ def main() -> int:
         )
         assert started_analysis["work_item"]["state"] == "RUNNING"
 
+        analysis_authority = _started_attempt_authority(
+            client,
+            run_id=run_id,
+            work_item_id=second_work_id,
+            stage_instance_id=next_stage_id,
+            node_id=node_id,
+            lease_id=second_lease_id,
+        )
+
         premature = client.post(
             "/api/v1/work-items/%s/fail" % second_work_id,
             json={"node_id": node_id, "lease_id": second_lease_id},
@@ -288,7 +334,7 @@ def main() -> int:
         assert premature.status_code == 409, premature.text
         assert "MISSION_WORK_ITEM_FAILURE_REQUIRES_PROJECTED_TERMINAL_ATTEMPT" in premature.text
 
-        failed_attempt_id = second_lease_id
+        failed_attempt_id = analysis_authority["attempt_id"]
         failed_sequence = _next_sequence(client, run_id=run_id, node_id=node_id)
         assert failed_sequence > terminal_sequence
 
@@ -320,7 +366,7 @@ def main() -> int:
             sequence=failed_sequence,
             attempt_id=failed_attempt_id,
             data={
-                "input_snapshot_ref": "requirement-revision:%s" % requirement_revision_id,
+                "input_snapshot_ref": analysis_authority["input_snapshot_ref"],
                 "evidence_refs": ["artifact:%s" % failure_artifact_id],
                 "failure_ownership": "MODEL",
                 "finished_at": 1006,
@@ -359,7 +405,7 @@ def main() -> int:
         "analysis_stage": next_stage_id,
         "analysis_work_item": second_work_id,
         "analysis_terminal_state": "FAILED_RUNTIME",
-        "truth_note": "Downstream work was auto-claimed with frozen revision refs; Center-owned Attempt identity was reused by worker evidence and terminal facts; failure released the lease without unlocking successors.",
+        "truth_note": "Downstream work was auto-claimed with frozen revision refs; terminal facts consumed the Center-projected STARTED Attempt authority instead of guessing snapshot identity; failure released the lease without unlocking successors.",
     })
     return 0
 
