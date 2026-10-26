@@ -62,6 +62,7 @@ jobs:
           tests/test_rc7_1_residual_risk_receipt_history.py
           tests/test_rc7_1_bank_mission_autopilot.py
           tests/test_rc7_1_bank_mission_start.py
+          tests/test_rc7_1_bank_case_provider_binding.py
           tests/test_rc7_1_bank_n10_main_link.py
           tests/test_rc7_1_bank_autonomous_node_closure.py
           tests/test_rc7_1_coverage_ledger_contract.py
