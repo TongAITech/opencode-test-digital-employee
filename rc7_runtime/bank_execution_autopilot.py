@@ -287,9 +287,13 @@ class BankExecutionAutopilot:
         *,
         phase: str,
         reason: str,
+        business_action_executed: bool = False,
+        preserve_source_repair_required: bool = False,
+        block_repair_work: bool = False,
     ) -> None:
+        current = control.scheduler.task(task.task_id)
         gap_rows = []
-        for gap_id in task.gap_refs:
+        for gap_id in current.gap_refs:
             rows = control.truth.query("rc7_gap", gap_id=gap_id)
             if len(rows) == 1 and rows[0].get("mission_id") == control.mission_id:
                 gap_rows.append(rows[0])
@@ -298,25 +302,46 @@ class BankExecutionAutopilot:
                 "EXECUTION_N8_RECOVERY_BLOCKER_GAP_NOT_UNIQUE:%d" % len(gap_rows)
             )
         gap = control._gap(str(gap_rows[0]["gap_id"]))
-        subject_refs = [task.task_id, gap.gap_id]
+
+        repair_task = None
+        if preserve_source_repair_required and current.state != TaskStatus.REPAIR_REQUIRED:
+            raise BankExecutionAutopilotError(
+                "EXECUTION_N8_RECOVERY_BLOCKER_SOURCE_STATE_INVALID:%s" % current.state.value
+            )
+        if block_repair_work:
+            repair_rows = [
+                row
+                for row in control.truth.query("rc7_task", mission_id=control.mission_id)
+                if row.get("task_type") == "REPAIR"
+                and row.get("gap_refs") == [gap.gap_id]
+            ]
+            if len(repair_rows) != 1:
+                raise BankExecutionAutopilotError(
+                    "EXECUTION_N8_RECOVERY_BLOCKER_REPAIR_TASK_NOT_UNIQUE:%d" % len(repair_rows)
+                )
+            repair_task = control.scheduler.task(str(repair_rows[0]["task_id"]))
+
+        subject_refs = [current.task_id, gap.gap_id]
+        if repair_task is not None:
+            subject_refs.append(repair_task.task_id)
         subject_refs.extend(str(ref) for ref in gap.subject_refs if str(ref))
         subject_refs = list(dict.fromkeys(subject_refs))
         payload = {
             "schema": "pfc.aitest.rc7.1.n8-recovery-blocker.v1",
             "mission_id": control.mission_id,
             "release_id": control.release_id,
-            "task_id": task.task_id,
+            "task_id": current.task_id,
             "gap_id": gap.gap_id,
             "phase": str(phase),
             "reason": str(reason),
-            "business_action_executed": False,
+            "business_action_executed": bool(business_action_executed),
         }
         body = (json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
         digest = hashlib.sha256(body).hexdigest()
         evidence_id = _stable_id(
             "EVD-N8-RECOVERY-BLOCK",
             control.mission_id,
-            task.task_id,
+            current.task_id,
             gap.gap_id,
             phase,
             reason,
@@ -352,8 +377,7 @@ class BankExecutionAutopilot:
             transition_gap(gap, GapStatus.BLOCKED)
         control._persist_gap(gap)
 
-        current = control.scheduler.task(task.task_id)
-        if current.state != TaskStatus.BLOCKED:
+        if not preserve_source_repair_required and current.state != TaskStatus.BLOCKED:
             if current.state not in {
                 TaskStatus.READY,
                 TaskStatus.LEASED,
@@ -365,6 +389,14 @@ class BankExecutionAutopilot:
                 )
             transition_task(current, TaskStatus.BLOCKED)
             control.scheduler.persist_evaluated_task(current)
+
+        if repair_task is not None and repair_task.state != TaskStatus.BLOCKED:
+            if repair_task.state != TaskStatus.READY:
+                raise BankExecutionAutopilotError(
+                    "EXECUTION_N8_RECOVERY_BLOCKER_REPAIR_TASK_STATE_INVALID:%s" % repair_task.state.value
+                )
+            transition_task(repair_task, TaskStatus.BLOCKED)
+            control.scheduler.persist_evaluated_task(repair_task)
 
         mission = control._mission()
         if mission.state != MissionStatus.BLOCKED:
@@ -545,4 +577,13 @@ class BankExecutionAutopilot:
                 result=result,
             )
         except BankN8RecoveryError as exc:
-            raise BankExecutionAutopilotError("EXECUTION_N8_CAPTURE_FAILED:%s" % exc) from exc
+            self._block_n8_recovery_failure(
+                control,
+                task,
+                phase="CAPTURE_AFTER_EXECUTION",
+                reason=str(exc),
+                business_action_executed=True,
+                preserve_source_repair_required=True,
+                block_repair_work=True,
+            )
+            return
