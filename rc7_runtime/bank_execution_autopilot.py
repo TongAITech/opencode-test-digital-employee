@@ -5,6 +5,11 @@ or EXECUTION/REPAIR task. Multi-case progress is governed by CASE_FANOUT_CONTRAC
 No capability is assumed READY: tool admission comes only from field/runtime
 capability evidence. Current-Attempt CAT hardening is delegated to the bank
 execution service; missing CAT readiness blocks diagnosis rather than execution.
+
+For a new Case-fanout Mission, business execution is forbidden until the whole
+accepted-case denominator has real field preparation, canonical N5 artifacts,
+and an independent Director ACCEPT. A later per-Case repair may refresh its own
+preparation, but it may never bypass that current-run N5 terminal truth.
 """
 from __future__ import annotations
 
@@ -18,6 +23,7 @@ from rc6_runtime.preparation import PreparedAttempt
 
 from .authority import RC7AuthorityRuntime
 from .bank_attempt_cat_execution import BankAttemptCatRuntimeExecutionService
+from .bank_preparation_batch_gate import BankPreparationBatchGate, BankPreparationBatchGateError
 from .case_fanout_conformance import AcceptedCaseInventoryReader
 from .case_runtime import CasePreparationService
 from .case_script_bundle_resolver import CaseScriptExecutionBundleResolver
@@ -73,6 +79,13 @@ class BankExecutionAutopilot:
         )
         self.oracle = DeterministicOracleRuntime()
         self.profiles = ExecutionProfileRegistry(RC7_1_EXECUTION_PROFILES)
+        self.preparation_factory = CasePreparationService
+        self.n5_preparation = BankPreparationBatchGate(
+            state_root=str(self.state_root),
+            evidence_root=str(self.evidence_root / "autonomous-node-closure"),
+            target_id=self.target_id,
+            max_freshness_seconds=min(max(30, timeout_seconds), 300),
+        )
 
     def _case_for_task(self, control: ClosedLoopControlPlane, task: Task) -> str:
         inventory = self.inventory.load(control.truth, control.mission_id)
@@ -221,6 +234,67 @@ class BankExecutionAutopilot:
         )
         control.accept_evaluation(task.task_id, evaluation=evaluation, gaps=(gap,))
 
+    def _prepare(
+        self,
+        preparation: CasePreparationService,
+        *,
+        control: ClosedLoopControlPlane,
+        task: Task,
+        worker_id: str,
+        tc_id: str,
+        bundle,
+        batch: bool,
+    ) -> dict:
+        attempt_id = _stable_id(
+            "ATT-N5-BATCH" if batch else "ATT-CASE",
+            control.mission_id,
+            task.task_id,
+            tc_id,
+            str(bundle.spec.case_version),
+            self.target_id,
+        )
+        result = preparation.prepare(
+            mission_id=control.mission_id,
+            task_id=task.task_id,
+            worker_id=worker_id,
+            case=bundle.frozen_case,
+            attempt_id=attempt_id,
+            target_id=self.target_id,
+        )
+        if result.get("status") == "PREPARED":
+            preparation.require_prepared(
+                mission_id=control.mission_id,
+                task_id=task.task_id,
+                prepared_attempt=dict(result["prepared_attempt"]),
+            )
+        return result
+
+    def _block_preparation_result(
+        self,
+        control: ClosedLoopControlPlane,
+        task: Task,
+        *,
+        worker_id: str,
+        tc_id: str,
+        prepared_result: dict,
+    ) -> None:
+        human = prepared_result.get("status") == "HUMAN_GATE_REQUIRED"
+        self._block(
+            control,
+            task,
+            worker_ref=worker_id,
+            tc_id=tc_id,
+            status=str(prepared_result.get("status") or "BLOCKED_PREPARATION"),
+            reason=str(
+                prepared_result.get("reason")
+                or prepared_result.get("field_required_capability")
+                or "preparation blocked"
+            ),
+            human_required=human,
+            details=dict(prepared_result),
+            already_leased=True,
+        )
+
     def run(self, control: ClosedLoopControlPlane, task: Task) -> None:
         if task.node != "EXECUTION":
             raise BankExecutionAutopilotError("EXECUTION_TASK_REQUIRED")
@@ -255,38 +329,129 @@ class BankExecutionAutopilot:
             authority=self.authority,
             tool_broker=broker,
         )
-        preparation = CasePreparationService(control.truth, self.state_root)
-        attempt_id = _stable_id(
-            "ATT-CASE",
-            control.mission_id,
-            task.task_id,
-            tc_id,
-            str(bundle.spec.case_version),
-            self.target_id,
-        )
-        prepared_result = preparation.prepare(
-            mission_id=control.mission_id,
-            task_id=task.task_id,
-            worker_id=active.runtime_worker_id,
-            case=bundle.frozen_case,
-            attempt_id=attempt_id,
-            target_id=self.target_id,
-        )
-        if prepared_result.get("status") != "PREPARED":
-            human = prepared_result.get("status") == "HUMAN_GATE_REQUIRED"
+        preparation = self.preparation_factory(control.truth, self.state_root)
+        current_result = None
+
+        try:
+            n5_accepted = self.n5_preparation.accepted(control)
+        except BankPreparationBatchGateError as exc:
             self._block(
                 control,
                 task,
                 worker_ref=active.runtime_worker_id,
                 tc_id=tc_id,
-                status=str(prepared_result.get("status") or "BLOCKED_PREPARATION"),
-                reason=str(prepared_result.get("reason") or prepared_result.get("field_required_capability") or "preparation blocked"),
-                human_required=human,
-                details=dict(prepared_result),
+                status="N5_BATCH_GATE_BLOCKED",
+                reason=str(exc),
                 already_leased=True,
             )
             return
-        prepared = self._prepared(dict(prepared_result["prepared_attempt"]))
+
+        if not n5_accepted:
+            inventory = self.inventory.load(control.truth, control.mission_id)
+            batch_cases = []
+            batch_results = []
+            for batch_tc_id in inventory.tc_ids:
+                batch_bundle = (
+                    bundle
+                    if batch_tc_id == tc_id
+                    else self.bundle_resolver.resolve(
+                        control.truth,
+                        mission_id=control.mission_id,
+                        tc_id=batch_tc_id,
+                        cwd=str(self.package_root),
+                        env=None,
+                    )
+                )
+                prepared_result = self._prepare(
+                    preparation,
+                    control=control,
+                    task=task,
+                    worker_id=active.runtime_worker_id,
+                    tc_id=batch_tc_id,
+                    bundle=batch_bundle,
+                    batch=True,
+                )
+                if prepared_result.get("status") != "PREPARED":
+                    self._block_preparation_result(
+                        control,
+                        task,
+                        worker_id=active.runtime_worker_id,
+                        tc_id=batch_tc_id,
+                        prepared_result=dict(prepared_result),
+                    )
+                    return
+                batch_cases.append(batch_bundle.frozen_case)
+                batch_results.append(dict(prepared_result))
+                if batch_tc_id == tc_id:
+                    current_result = dict(prepared_result)
+            if current_result is None:
+                self._block(
+                    control,
+                    task,
+                    worker_ref=active.runtime_worker_id,
+                    tc_id=tc_id,
+                    status="N5_BATCH_GATE_BLOCKED",
+                    reason="N5_CURRENT_CASE_NOT_IN_ACCEPTED_DENOMINATOR",
+                    already_leased=True,
+                )
+                return
+            try:
+                self.n5_preparation.close_batch(
+                    control,
+                    execution_task_id=task.task_id,
+                    worker_id=active.runtime_worker_id,
+                    cases=batch_cases,
+                    prepared_results=batch_results,
+                )
+            except BankPreparationBatchGateError as exc:
+                self._block(
+                    control,
+                    task,
+                    worker_ref=active.runtime_worker_id,
+                    tc_id=tc_id,
+                    status="N5_BATCH_GATE_BLOCKED",
+                    reason=str(exc),
+                    already_leased=True,
+                )
+                return
+        else:
+            current_result = self._prepare(
+                preparation,
+                control=control,
+                task=task,
+                worker_id=active.runtime_worker_id,
+                tc_id=tc_id,
+                bundle=bundle,
+                batch=False,
+            )
+            if current_result.get("status") != "PREPARED":
+                self._block_preparation_result(
+                    control,
+                    task,
+                    worker_id=active.runtime_worker_id,
+                    tc_id=tc_id,
+                    prepared_result=dict(current_result),
+                )
+                return
+
+        # Hard main-chain gate: business execution is reached only after the
+        # whole current-run N5 denominator has an independent Director terminal.
+        try:
+            if not self.n5_preparation.accepted(control):
+                raise BankPreparationBatchGateError("BANK_N5_DIRECTOR_TERMINAL_REQUIRED")
+        except BankPreparationBatchGateError as exc:
+            self._block(
+                control,
+                task,
+                worker_ref=active.runtime_worker_id,
+                tc_id=tc_id,
+                status="N5_BATCH_GATE_BLOCKED",
+                reason=str(exc),
+                already_leased=True,
+            )
+            return
+
+        prepared = self._prepared(dict(current_result["prepared_attempt"]))
         self.execution.execute_active_task(
             control,
             task.task_id,
