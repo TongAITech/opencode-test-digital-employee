@@ -1,8 +1,8 @@
 """Materialize durable BANK N8 successor preparation for authorized direct retry.
 
-The previous PreparedAttempt is immutable history.  A direct retry authorization
+The previous PreparedAttempt is immutable history. A direct retry authorization
 may reuse its verified bindings/oracle, but only by creating a fresh durable
-CASE_PREPARED_ATTEMPT for the RecoveryDecision successor attempt.  This module
+CASE_PREPARED_ATTEMPT for the RecoveryDecision successor attempt. This module
 never executes the business Case and never handles re-preparation recovery.
 """
 from __future__ import annotations
@@ -16,7 +16,6 @@ from rc6_runtime.preparation import PreparedAttempt
 from .bank_n8_recovery import BankN8RecoveryCoordinator, BankN8RecoveryError, _file_payload
 from .case_runtime import (
     PREPARED_ATTEMPT_KIND,
-    CaseRuntimeError,
     _mission_release,
     _state_ref,
     _write_immutable_json,
@@ -38,6 +37,21 @@ class BankN8SuccessorCoordinator:
         self.state_root = Path(state_root).expanduser().resolve()
 
     @staticmethod
+    def _prepared_identity_matches(
+        row: Mapping[str, Any],
+        *,
+        source_task_id: str,
+        attempt_id: str,
+        tc_id: Optional[str] = None,
+    ) -> bool:
+        refs = [str(x) for x in row.get("subject_refs") or []]
+        if len(refs) < 5:
+            return False
+        if refs[0] != source_task_id or refs[2] != attempt_id:
+            return False
+        return tc_id is None or refs[3] == tc_id
+
+    @staticmethod
     def _prepared_from_payload(raw: Mapping[str, Any]) -> PreparedAttempt:
         try:
             return PreparedAttempt(
@@ -56,8 +70,9 @@ class BankN8SuccessorCoordinator:
         except (KeyError, TypeError, ValueError) as exc:
             raise BankN8SuccessorError("BANK_N8_SOURCE_PREPARED_PAYLOAD_INVALID") from exc
 
-    @staticmethod
+    @classmethod
     def _pending_direct_receipt(
+        cls,
         control: ClosedLoopControlPlane,
         *,
         source_task_id: str,
@@ -95,12 +110,14 @@ class BankN8SuccessorCoordinator:
                 evidence
                 for evidence in control.truth.query("rc7_evidence", mission_id=control.mission_id)
                 if evidence.get("kind") == PREPARED_ATTEMPT_KIND
-                and source_task_id in set(str(x) for x in evidence.get("subject_refs") or [])
-                and successor in set(str(x) for x in evidence.get("subject_refs") or [])
+                and cls._prepared_identity_matches(
+                    evidence,
+                    source_task_id=source_task_id,
+                    attempt_id=successor,
+                    tc_id=tc_id,
+                )
             ]
             if already_prepared:
-                # This authorization has already been consumed.  It must never
-                # be selected again for a later retry or sibling Case.
                 continue
             candidates.append((row, payload))
         if not candidates:
@@ -121,8 +138,12 @@ class BankN8SuccessorCoordinator:
         rows = [
             row for row in control.truth.query("rc7_evidence", mission_id=control.mission_id)
             if row.get("kind") == PREPARED_ATTEMPT_KIND
-            and source_task_id in set(str(x) for x in row.get("subject_refs") or [])
-            and source_attempt_id in set(str(x) for x in row.get("subject_refs") or [])
+            and self._prepared_identity_matches(
+                row,
+                source_task_id=source_task_id,
+                attempt_id=source_attempt_id,
+                tc_id=tc_id,
+            )
         ]
         if len(rows) != 1:
             raise BankN8SuccessorError("BANK_N8_SOURCE_PREPARED_NOT_UNIQUE:%d" % len(rows))
@@ -221,7 +242,6 @@ class BankN8SuccessorCoordinator:
                         tc_id,
                         target_id,
                         str(receipt_row["evidence_id"]),
-                        source_attempt,
                     ],
                     content_hash=digest,
                 ),
