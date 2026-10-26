@@ -9,6 +9,10 @@ execution service; missing CAT readiness blocks diagnosis rather than execution.
 RC7.1 N5 hardening: field CasePreparationService output is never passed directly
 to a business runner. Every Case must first be adopted into the canonical
 PREPARED_ATTEMPT contract and pass the governed N5 per-Case gate.
+
+RC7.1 N8 hardening: a governed EXECUTION/REPAIR task is retry authorization
+work, not a second business execution. Real execution failures are captured into
+durable N8 recovery orders before the Mission may continue.
 """
 from __future__ import annotations
 
@@ -25,6 +29,7 @@ from .bank_autonomous_preparation_closure import (
     BankAutonomousPreparationClosureCoordinator,
     BankAutonomousPreparationClosureError,
 )
+from .bank_n8_recovery import BankN8RecoveryCoordinator, BankN8RecoveryError
 from .candidate_payload import CandidatePayloadReader
 from .case_fanout_conformance import AcceptedCaseInventoryReader
 from .case_runtime import CasePreparationService
@@ -86,6 +91,9 @@ class BankExecutionAutopilot:
             evidence_root=str(self.evidence_root / "autonomous-n5"),
             target_id=self.target_id,
             max_freshness_seconds=min(max(30, timeout_seconds), 300),
+        )
+        self.n8_recovery = BankN8RecoveryCoordinator(
+            evidence_root=str(self.evidence_root / "n8")
         )
         self.oracle = DeterministicOracleRuntime()
         self.profiles = ExecutionProfileRegistry(RC7_1_EXECUTION_PROFILES)
@@ -250,6 +258,12 @@ class BankExecutionAutopilot:
     def run(self, control: ClosedLoopControlPlane, task: Task) -> None:
         if task.node != "EXECUTION":
             raise BankExecutionAutopilotError("EXECUTION_TASK_REQUIRED")
+        if task.task_type == "REPAIR":
+            try:
+                self.n8_recovery.handle_execution_repair(control, task)
+            except BankN8RecoveryError as exc:
+                raise BankExecutionAutopilotError("EXECUTION_N8_DIRECT_REPAIR_FAILED:%s" % exc) from exc
+            return
         tc_id = self._case_for_task(control, task)
         bundle = self.bundle_resolver.resolve(
             control.truth,
@@ -332,7 +346,7 @@ class BankExecutionAutopilot:
                 already_leased=True,
             )
             return
-        self.execution.execute_active_task(
+        result = self.execution.execute_active_task(
             control,
             task.task_id,
             bundle=bundle,
@@ -344,3 +358,11 @@ class BankExecutionAutopilot:
             cwd=str(self.package_root),
             env=None,
         )
+        try:
+            self.n8_recovery.capture_after_execution(
+                control,
+                source_task_id=task.task_id,
+                result=result,
+            )
+        except BankN8RecoveryError as exc:
+            raise BankExecutionAutopilotError("EXECUTION_N8_CAPTURE_FAILED:%s" % exc) from exc
