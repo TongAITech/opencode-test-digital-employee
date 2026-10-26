@@ -44,6 +44,7 @@ jobs:
           tests/test_rc7_1_n7_node_convergence.py
           tests/test_rc7_1_bank_n7_main_link.py
           tests/test_rc7_1_n8_recovery_orchestrator.py
+          tests/test_rc7_1_bank_n8_main_link.py
           tests/test_rc7_1_n9_defect_evidence_policy.py
           tests/test_rc7_1_n9_defect_evidence_integration.py
           tests/test_rc7_1_wave_e_node_closure.py
