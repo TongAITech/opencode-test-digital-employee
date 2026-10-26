@@ -394,11 +394,16 @@ def main() -> int:
         assert str(recorded_data.get("reason") or "") == "REALITY_SNAPSHOT_BINDING_CHANGED"
         projected = [
             event for event in ledger.runtime_events(test_run_id=run_id)
-            if str(event.get("event_type") or "") == "INVALIDATION_PROJECTED"
+            if str(event.get("event_type") or "") == "N5_N6_INVALIDATION_PROJECTED"
             and isinstance(event.get("data"), dict)
-            and str(event["data"].get("invalidation_event_id") or "") == invalidation_event_id
+            and str(event["data"].get("source_event_id") or "") == invalidation_event_id
+            and invalidation_event_id in tuple(event.get("refs") or ())
         ]
-        assert projected, "CANONICAL_R1_INVALIDATION_PROJECTION_RECEIPT_REQUIRED"
+        assert len(projected) == 1, "CANONICAL_R1_INVALIDATION_PROJECTION_RECEIPT_REQUIRED"
+        projected_data = projected[0]["data"]
+        assert str(projected_data.get("prepared_attempt_id") or "") == prepared_id
+        assert str(projected_data.get("executable_spec_id") or "") == executable_spec_id
+        assert str(projected_data.get("reason") or "") == "REALITY_SNAPSHOT_BINDING_CHANGED"
 
         persisted_prepared = prepared_repository.get_prepared_attempt(prepared_id)
         assert persisted_prepared is not None and persisted_prepared.state == PreparedAttemptState.QUARANTINED
