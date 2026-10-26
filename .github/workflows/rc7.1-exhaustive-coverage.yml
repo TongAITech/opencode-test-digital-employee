@@ -42,6 +42,7 @@ jobs:
           tests/test_rc7_1_n6_autonomous_script.py
           tests/test_rc7_1_n7_coverage_closure.py
           tests/test_rc7_1_n7_node_convergence.py
+          tests/test_rc7_1_bank_n7_main_link.py
           tests/test_rc7_1_n8_recovery_orchestrator.py
           tests/test_rc7_1_n9_defect_evidence_policy.py
           tests/test_rc7_1_n9_defect_evidence_integration.py
