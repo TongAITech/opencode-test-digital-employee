@@ -5,10 +5,30 @@
     "This file is an example contract and must never be used directly as field evidence or a Bank Final claim.",
     "PRECONDITION_AUTH must call the approved bank 4A adapter/foura_auth.py and obtain fresh login state for every new login; historical cookie fallback is forbidden.",
     "DATA_DB_CREATE remains Human-Gated by CasePreparationService and the provider must return verification plus cleanup or rollback evidence.",
-    "Commands are capability bindings, not exact-version pins. Missing capabilities remain FIELD_REQUIRED; never alias an unrelated BANK_* capability into a preparation PASS.",
-    "CAT diagnosis is governed by the execution/diagnosis chain and is not a CasePreparation provider capability."
+    "BANK_DB_WRITE is independently Human-Gated by Bank Field Service qualification and must return verification plus cleanup_ref or rollback_ref.",
+    "Commands are capability bindings, not exact-version pins. Missing capabilities remain FIELD_REQUIRED; never alias an unrelated capability into a PASS."
   ],
   "providers": {
+    "BANK_AUTH_4A": {
+      "provider_id": "bank-4a-field-probe",
+      "command": ["python", "PATH_TO_BANK_FIELD_PROVIDER.py", "auth-4a"],
+      "timeout_seconds": 180
+    },
+    "BANK_CAT_QUERY": {
+      "provider_id": "bank-cat-field-probe",
+      "command": ["python", "PATH_TO_BANK_FIELD_PROVIDER.py", "cat-query"],
+      "timeout_seconds": 120
+    },
+    "BANK_DB_READ": {
+      "provider_id": "bank-db-read-field-probe",
+      "command": ["python", "PATH_TO_BANK_FIELD_PROVIDER.py", "db-read-probe"],
+      "timeout_seconds": 120
+    },
+    "BANK_DB_WRITE": {
+      "provider_id": "bank-db-write-field-probe",
+      "command": ["python", "PATH_TO_BANK_FIELD_PROVIDER.py", "db-write-reversible-probe"],
+      "timeout_seconds": 120
+    },
     "PRECONDITION_ENVIRONMENT": {
       "provider_id": "bank-precondition-environment",
       "command": ["python", "PATH_TO_BANK_CASE_PROVIDER.py", "precondition-environment"],
@@ -76,6 +96,27 @@
     }
   },
   "provider_response_contract": {
+    "common_bank_field_probe": {
+      "success": true,
+      "target_verified": true,
+      "tool_call_ref": "non-secret durable reference",
+      "evidence_ref": "non-secret durable reference"
+    },
+    "BANK_AUTH_4A": {
+      "auth_evidence_ref": "non-secret fresh login/session proof reference"
+    },
+    "BANK_CAT_QUERY": {
+      "cat_evidence_ref": "non-secret CAT query proof reference",
+      "correlation_ref": "non-secret correlation proof reference"
+    },
+    "BANK_DB_READ": {
+      "read_evidence_ref": "non-secret DB read proof reference"
+    },
+    "BANK_DB_WRITE": {
+      "write_evidence_ref": "non-secret DB write proof reference",
+      "verification_ref": "post-write verification proof reference",
+      "cleanup_ref_or_rollback_ref": "post-probe cleanup or rollback proof reference"
+    },
     "precondition": {
       "success": true,
       "evidence_ref": "non-secret durable reference",

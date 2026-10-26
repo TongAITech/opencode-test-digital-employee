@@ -25,6 +25,9 @@ def test_bank_service_probe_entrypoints_and_provider_template_are_bundled():
         assert "PFC_RC7_BANK_TARGET_ID" in text
         assert "--require-pass" in text
 
-    assert set(template["providers"]) == set(REQUIRED_CAPABILITIES)
+    # The shared provider registry may carry additional CasePreparation
+    # capabilities, but all Bank Field Service qualification providers remain
+    # mandatory and may never be displaced by those additions.
+    assert set(REQUIRED_CAPABILITIES).issubset(set(template["providers"]))
     assert "BANK_DB_WRITE" in template["provider_response_contract"]
     assert "cleanup_ref_or_rollback_ref" in template["provider_response_contract"]["BANK_DB_WRITE"]
