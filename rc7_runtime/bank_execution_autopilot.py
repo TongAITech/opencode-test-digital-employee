@@ -8,7 +8,9 @@ execution service; missing CAT readiness blocks diagnosis rather than execution.
 
 RC7.1 N5 hardening: field CasePreparationService output is never passed directly
 to a business runner. Every Case must first be adopted into the canonical
-PREPARED_ATTEMPT contract and pass the governed N5 per-Case gate.
+PREPARED_ATTEMPT contract and pass the governed N5 per-Case gate. BANK recovery
+uses an N8-aware N5 selector so immutable predecessor history can coexist with a
+single, explicitly authorized successor Attempt.
 
 RC7.1 N8 hardening: a governed EXECUTION/REPAIR task is retry authorization
 work, not a second business execution. Real execution failures are captured into
@@ -27,10 +29,8 @@ from rc6_runtime.execution import ExecutionProfileRegistry
 
 from .authority import RC7AuthorityRuntime
 from .bank_attempt_cat_execution import BankAttemptCatRuntimeExecutionService
-from .bank_autonomous_preparation_closure import (
-    BankAutonomousPreparationClosureCoordinator,
-    BankAutonomousPreparationClosureError,
-)
+from .bank_autonomous_preparation_closure import BankAutonomousPreparationClosureError
+from .bank_n5_recovery_closure import BankN5RecoveryAwarePreparationClosureCoordinator
 from .bank_n8_recovery import BankN8RecoveryCoordinator, BankN8RecoveryError
 from .bank_n8_successor import BankN8SuccessorCoordinator, BankN8SuccessorError
 from .candidate_payload import CandidatePayloadReader
@@ -89,7 +89,7 @@ class BankExecutionAutopilot:
             state_root=str(self.state_root),
             timeout_seconds=timeout_seconds,
         )
-        self.preparation_closure = BankAutonomousPreparationClosureCoordinator(
+        self.preparation_closure = BankN5RecoveryAwarePreparationClosureCoordinator(
             state_root=str(self.state_root),
             evidence_root=str(self.evidence_root / "autonomous-n5"),
             target_id=self.target_id,
