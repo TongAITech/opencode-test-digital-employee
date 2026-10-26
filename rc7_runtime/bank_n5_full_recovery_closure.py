@@ -8,7 +8,7 @@ are intentionally not admitted here yet.
 """
 from __future__ import annotations
 
-from typing import Any, Mapping, Tuple
+from typing import Tuple
 
 from .autonomous_recovery_orchestrator import N8RecoveryOrchestrator
 from . import bank_autonomous_preparation_closure as base
@@ -85,22 +85,25 @@ class BankN5FullRecoveryAwarePreparationClosureCoordinator(
             raise base.BankAutonomousPreparationClosureError(
                 "BANK_N5_UPSTREAM_WORK_ORDER_ID_REQUIRED:%s" % successor_attempt_id
             )
-        work_order_rows = [
-            row for row in control.truth.query("rc7_evidence", mission_id=control.mission_id)
-            if row.get("kind") == N8RecoveryOrchestrator.WORK_ORDER_TYPE
-            and work_order_id in set(str(x) for x in row.get("subject_refs") or [])
-        ]
-        if len(work_order_rows) != 1:
+
+        work_order_matches = []
+        for row in control.truth.query("rc7_evidence", mission_id=control.mission_id):
+            if row.get("kind") != N8RecoveryOrchestrator.WORK_ORDER_TYPE:
+                continue
+            try:
+                payload = _file_payload(row, "BANK_N5_N8_UPSTREAM_WORK_ORDER")
+            except BankN8RecoveryError as exc:
+                raise base.BankAutonomousPreparationClosureError(
+                    "BANK_N5_UPSTREAM_WORK_ORDER_INVALID:%s" % exc
+                ) from exc
+            if str(payload.get("work_order_id") or "") == work_order_id:
+                work_order_matches.append((row, payload))
+        if len(work_order_matches) != 1:
             raise base.BankAutonomousPreparationClosureError(
                 "BANK_N5_UPSTREAM_WORK_ORDER_NOT_UNIQUE:%s:%d"
-                % (successor_attempt_id, len(work_order_rows))
+                % (successor_attempt_id, len(work_order_matches))
             )
-        try:
-            work_order = _file_payload(work_order_rows[0], "BANK_N5_N8_UPSTREAM_WORK_ORDER")
-        except BankN8RecoveryError as exc:
-            raise base.BankAutonomousPreparationClosureError(
-                "BANK_N5_UPSTREAM_WORK_ORDER_INVALID:%s" % exc
-            ) from exc
+        work_order = work_order_matches[0][1]
         raw_plan = work_order.get("plan")
         if not isinstance(raw_plan, dict):
             raise base.BankAutonomousPreparationClosureError(
