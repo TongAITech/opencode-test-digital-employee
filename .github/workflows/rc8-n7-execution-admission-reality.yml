@@ -19,11 +19,32 @@ on:
       - 'rc8_center/infrastructure/postgres_executable_readiness.py'
       - 'rc8_center/infrastructure/postgres_control.py'
       - 'scripts/rc8_n7_execution_admission_http_test.py'
+      - 'tests/test_rc8_execution_admission_authority.py'
       - 'tests/test_rc8_execution_bundle_routes.py'
       - '.github/workflows/rc8-n7-execution-admission-reality.yml'
   workflow_dispatch:
 
 jobs:
+  n7-admission-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Compile N7 admission authority contract
+        run: >-
+          python -m py_compile
+          rc8_center/execution_admission.py
+          rc8_center/n7_formal_control.py
+          tests/test_rc8_execution_admission_authority.py
+      - name: Prove Worker cannot forge N7 runtime authority
+        run: python -m unittest tests.test_rc8_execution_admission_authority -v
+
   n7-real-http-admission:
     runs-on: ubuntu-latest
     services:
@@ -71,9 +92,10 @@ jobs:
             rc8_center/api/execution_bundle_routes.py \
             rc8_center/api/__init__.py \
             scripts/rc8_n7_execution_admission_http_test.py \
+            tests/test_rc8_execution_admission_authority.py \
             tests/test_rc8_execution_bundle_routes.py
-      - name: Run N7 execution bundle delivery contracts
-        run: python -m unittest tests.test_rc8_execution_bundle_routes -v
+      - name: Run N7 execution authority and bundle contracts
+        run: python -m unittest tests.test_rc8_execution_admission_authority tests.test_rc8_execution_bundle_routes -v
       - name: Apply formal PostgreSQL schema
         run: alembic -c center/alembic.ini upgrade head
       - name: Prove N7 start is gated by current N4 N5 N6 authority

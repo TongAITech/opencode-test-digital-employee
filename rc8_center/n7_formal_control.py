@@ -4,12 +4,21 @@ N7 is authorized before Center starts the WorkItem and again before every
 runtime write. A runtime mutation may enter while the current authority is
 still valid and can then invalidate N5/N6 through canonical R1. Any later write
 from the stale N7 execution is rejected before it can claim completion or PASS.
+
+Worker runtime payloads are observations, not authority. For N7, case identity
+and both Attempt identities are derived by Center admission and then enforced at
+every write boundary. A worker holding case A's lease cannot write or invalidate
+case B by forging case_id/attempt_id in a runtime event.
 """
 from __future__ import annotations
 
 from typing import Any
 
-from .execution_admission import CenterN7ExecutionAdmissionGate
+from .execution_admission import (
+    CenterN7ExecutionAdmissionGate,
+    N7ExecutionAdmission,
+    N7ExecutionAdmissionError,
+)
 
 
 class N7AdmissionAwareFormalCenterControlPlane:
@@ -27,11 +36,35 @@ class N7AdmissionAwareFormalCenterControlPlane:
         # authority check to the real FormalCenterControlPlane via __getattr__.
         work = self._control_plane._require_active_lease(work_item_id, node_id, lease_id)
         stage_instance_id = self._control_plane.stage_instance_id_for_work_item(work_item_id)
-        self.execution_admission.authorize_start(
+        admission = self.execution_admission.authorize_start(
             work=work,
             stage_instance_id=stage_instance_id,
         )
-        return work
+        return work, admission
+
+    @staticmethod
+    def _validate_runtime_event_identity(
+        event: object,
+        admission: N7ExecutionAdmission,
+        *,
+        lease_id: str,
+    ) -> None:
+        if str(getattr(event, "test_run_id", "") or "") != admission.test_run_id:
+            raise N7ExecutionAdmissionError("N7_RUNTIME_EVENT_TEST_RUN_AUTHORITY_MISMATCH")
+        if str(getattr(event, "work_item_id", "") or "") != admission.work_item_id:
+            raise N7ExecutionAdmissionError("N7_RUNTIME_EVENT_WORK_ITEM_AUTHORITY_MISMATCH")
+        if str(getattr(event, "case_id", "") or "") != admission.case_id:
+            raise N7ExecutionAdmissionError("N7_RUNTIME_EVENT_CASE_AUTHORITY_MISMATCH")
+
+        event_type = str(getattr(event, "event_type", "") or "").strip().upper()
+        supplied_attempt_id = str(getattr(event, "attempt_id", "") or "").strip()
+        # Governance ATTEMPT_* events belong to the Center-started N7 lease
+        # Attempt. Domain execution/tool events belong to the N5/N6 case
+        # execution Attempt. The worker may report facts for the appropriate
+        # identity but may not choose a different identity.
+        expected_attempt_id = str(lease_id) if event_type.startswith("ATTEMPT_") else admission.case_execution_attempt_id
+        if supplied_attempt_id != expected_attempt_id:
+            raise N7ExecutionAdmissionError("N7_RUNTIME_EVENT_ATTEMPT_AUTHORITY_MISMATCH")
 
     def start_work_item(self, work_item_id: str, node_id: str, lease_id: str):
         self._authorize_current_execution(work_item_id, node_id, lease_id)
@@ -44,9 +77,11 @@ class N7AdmissionAwareFormalCenterControlPlane:
         # reality/case revision may change while N7 is already RUNNING. Recheck
         # before every runtime write so an invalidated execution cannot emit
         # stale steps, evidence or a terminal ATTEMPT_COMPLETED claim.
-        self._authorize_current_execution(
+        _, admission = self._authorize_current_execution(
             str(getattr(event, "work_item_id", "")),
             str(getattr(event, "node_id", "")),
             lease_id,
         )
+        if admission is not None:
+            self._validate_runtime_event_identity(event, admission, lease_id=lease_id)
         return self._control_plane.append_runtime_event(event, lease_id=lease_id)
