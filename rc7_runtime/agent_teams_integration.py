@@ -9,10 +9,8 @@ from .agent_teams_bootstrap import (
     AgentTeamsBootstrapError,
     DshAgentTeamsMissionBootstrapper,
 )
-from .agent_teams_execution_binding import (
-    AgentTeamsExecutionBindingError,
-    AgentTeamsExecutionBindingGate,
-)
+from .agent_teams_execution_binding import AgentTeamsExecutionBindingError
+from .agent_teams_execution_binding_hardening import AgentTeamsExecutionBindingGate
 from .agent_teams_orchestration import AgentTeamsOrchestrationError, DshAgentTeamsStateGate
 from .mission_graph import MissionTaskGraphCompiler
 from . import dsh_worker_bridge as _bridge
