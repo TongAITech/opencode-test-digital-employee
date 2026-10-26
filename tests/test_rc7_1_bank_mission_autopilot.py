@@ -14,6 +14,7 @@ from rc7_runtime.bank_mission_autopilot import (
     BankMissionAutopilotError,
     discover_config,
 )
+from rc7_runtime.case_script_bundle_resolver import CaseScriptBundleResolverError
 from rc7_runtime.closed_loop_control import ClosedLoopControlPlane
 from rc7_runtime.execution_capability import (
     ExecutionCapabilityBrokerFactory,
@@ -231,6 +232,77 @@ def test_missing_execution_capability_becomes_durable_block_not_fake_pass(tmp_pa
     gaps = truth.query("rc7_gap", mission_id="M-EXEC-BLOCK")
     assert any(gap["category"] == "EXECUTION_BLOCKED" for gap in gaps)
     assert not any(row.get("result") == "PASS" for row in evaluations)
+
+
+def test_script_bundle_resolution_failure_becomes_durable_block_before_business_execution(tmp_path: Path):
+    mission_id = "M-EXEC-SCRIPT-BUNDLE-BLOCK"
+    task_id = "T-EXEC-SCRIPT-BUNDLE-BLOCK"
+    tc_id = "TC-SCRIPT-BUNDLE-BLOCK"
+    truth = TruthRuntime(tmp_path / "script-bundle-r1.jsonl")
+    control = ClosedLoopControlPlane.bootstrap(
+        truth,
+        Mission(
+            mission_id=mission_id,
+            release_id="R-EXEC-SCRIPT-BUNDLE-BLOCK",
+            goal="fail closed when the accepted Case script bundle cannot be rebuilt",
+        ),
+    )
+    control.register_task(
+        Task(
+            task_id=task_id,
+            mission_id=mission_id,
+            node="EXECUTION",
+            task_type="EXECUTE",
+            objective="execute accepted bank case only after runtime script-bundle verification",
+            required_capabilities=["test_execution"],
+        )
+    )
+
+    class _FailingBundleResolver:
+        @staticmethod
+        def resolve(*_args, **_kwargs):
+            raise CaseScriptBundleResolverError(
+                "CASE_SCRIPT_READY_RECEIPT_REQUIRED:%s" % tc_id
+            )
+
+    runtime = object.__new__(BankExecutionAutopilot)
+    runtime.package_root = tmp_path
+    runtime.evidence_root = tmp_path / "evidence"
+    runtime.bundle_resolver = _FailingBundleResolver()
+    runtime._case_for_task = lambda _control, _task: tc_id
+
+    # This is a runtime field drift/preflight failure, not a programmer error.
+    # The Driver must receive a durable BLOCKED boundary instead of a stack-only
+    # CaseScriptBundleResolverError. No business execution is allowed to start.
+    runtime.run(control, control.scheduler.task(task_id))
+
+    blocked = control.scheduler.task(task_id)
+    assert blocked.state == TaskStatus.BLOCKED
+    evaluations = truth.query("rc7_evaluation", evaluation_id=blocked.evaluation_id)
+    assert len(evaluations) == 1
+    assert evaluations[0]["result"] == "BLOCKED"
+    assert evaluations[0]["dimensions"]["status"] == "BLOCKED_SCRIPT_BUNDLE"
+    assert evaluations[0]["dimensions"]["reason"] == (
+        "EXECUTION_SCRIPT_BUNDLE_RESOLUTION_FAILED:"
+        "CASE_SCRIPT_READY_RECEIPT_REQUIRED:%s" % tc_id
+    )
+    mission_rows = truth.query("rc7_mission", mission_id=mission_id)
+    assert len(mission_rows) == 1
+    assert mission_rows[0]["state"] == "BLOCKED"
+
+    blocker_rows = [
+        row
+        for row in truth.query("rc7_evidence", mission_id=mission_id)
+        if row.get("kind") == "RUNTIME_EXECUTION_BLOCKER"
+    ]
+    assert len(blocker_rows) == 1
+    blocker_ref = str(blocker_rows[0]["content_ref"])
+    assert blocker_ref.startswith("file://")
+    blocker_payload = json.loads(Path(blocker_ref[len("file://"):]).read_text(encoding="utf-8"))
+    assert blocker_payload["status"] == "BLOCKED_SCRIPT_BUNDLE"
+    assert blocker_payload["details"]["phase"] == "SCRIPT_BUNDLE_RESOLUTION"
+    assert blocker_payload["details"]["business_action_executed"] is False
+    assert truth.query("execution_attempt") == []
 
 
 def test_script_eval_routes_pass_through_governed_n6_before_returning_to_driver():
