@@ -8,6 +8,7 @@ from rc8_center.traceability_query import TraceabilityQueryService
 from .artifact_read_routes import register_artifact_read_routes
 from .claim_routes import register_claim_routes
 from .delivery_routes import register_delivery_routes
+from .executable_readiness_routes import register_executable_readiness_routes
 from .failure_routes import register_failure_routes
 from .fastapi_app import create_app as _create_app
 from .prepared_attempt_routes import register_prepared_attempt_routes
@@ -55,6 +56,7 @@ def create_app(
     register_artifact_read_routes(app)
     register_traceability_routes(app)
     register_prepared_attempt_routes(app)
+    register_executable_readiness_routes(app)
     return app
 
 

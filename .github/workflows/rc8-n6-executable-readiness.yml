@@ -6,6 +6,9 @@ on:
     paths:
       - 'rc8_center/executable_readiness.py'
       - 'rc8_center/infrastructure/postgres_executable_readiness.py'
+      - 'rc8_center/api/executable_readiness_routes.py'
+      - 'rc8_center/api/__init__.py'
+      - 'scripts/rc8_executable_readiness_http_test.py'
       - 'tests/test_rc8_executable_readiness.py'
       - 'tests/test_rc8_executable_readiness_postgres.py'
       - '.github/workflows/rc8-n6-executable-readiness.yml'
@@ -31,6 +34,8 @@ jobs:
           rc8_center/prepared_attempt.py
           rc8_center/executable_readiness.py
           rc8_center/infrastructure/postgres_executable_readiness.py
+          rc8_center/api/executable_readiness_routes.py
+          scripts/rc8_executable_readiness_http_test.py
           tests/test_rc8_executable_readiness.py
           tests/test_rc8_executable_readiness_postgres.py
       - name: Run N5-N6 integration regression
