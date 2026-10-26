@@ -30,6 +30,17 @@ MISSION = "MISSION-RC7-1-N8-BUDGET"
 SOURCE = "TASK-EXEC-N8-BUDGET"
 ATTEMPT = "ATT-BUDGET-1"
 TC_ID = "TC-BUDGET-1"
+CASE_VERSION = 1
+TARGET_ID = "BANK-TARGET"
+
+
+def _budget_scope_id(
+    *,
+    tc_id: str = TC_ID,
+    case_version: int = CASE_VERSION,
+    target_id: str = TARGET_ID,
+) -> str:
+    return _stable_id("N8-CASE-BUDGET-SCOPE", tc_id, case_version, target_id)
 
 
 def _control(tmp_path: Path):
@@ -133,8 +144,18 @@ def _diagnosis(
     plan: RecoveryWorkPlan,
     failure_signature_id: str,
     gap_id: str,
+    tc_id: str = TC_ID,
+    case_version: int = CASE_VERSION,
+    target_id: str = TARGET_ID,
 ) -> Evidence:
     payload = {
+        "context": {
+            "attempt_id": ATTEMPT,
+            "tc_id": tc_id,
+            "case_version": case_version,
+            "target_id": target_id,
+            "layer": "L3",
+        },
         "diagnosis": {"failure_signature": {"signature_id": failure_signature_id}},
         "recovery": {"attempt_id": ATTEMPT, "diagnosis_id": plan.diagnosis_id},
         "work_plan": asdict(plan),
@@ -148,7 +169,7 @@ def _diagnosis(
         kind="RUNTIME_FAILURE_DIAGNOSIS",
         source_ref="runtime://execution-diagnosis",
         content_ref="file://" + str(path.resolve()),
-        subject_refs=[SOURCE, ATTEMPT, TC_ID],
+        subject_refs=[SOURCE, ATTEMPT, tc_id, target_id],
         content_hash="sha256:" + hashlib.sha256(body).hexdigest(),
     )
     append_entity(truth, evidence, release_id="RC7.1-N8-BUDGET", artifact_version=1)
@@ -173,6 +194,7 @@ def _seed_receipts(
     signature: str,
     strategy_key: str,
     count: int,
+    budget_scope_id: str,
 ) -> None:
     for index in range(count):
         append_entity(
@@ -183,7 +205,12 @@ def _seed_receipts(
                 kind=kind,
                 source_ref="runtime://prior-recovery",
                 content_ref="evidence://prior/%d" % index,
-                subject_refs=[signature, strategy_key, "DELTA-%d" % index],
+                subject_refs=[
+                    budget_scope_id,
+                    signature,
+                    strategy_key,
+                    "DELTA-%d" % index,
+                ],
             ),
             release_id="RC7.1-N8-BUDGET",
             artifact_version=1,
@@ -198,11 +225,13 @@ def _assert_durable_budget_block(
     gap_id: str,
     repair_task_id: str,
     expected_reason: str,
+    expected_budget_scope_id: str,
 ):
     evidence_rows = truth.query("rc7_evidence", evidence_id=evidence_id)
     assert len(evidence_rows) == 1
     evidence = evidence_rows[0]
     assert evidence["kind"] == BankN8RecoveryCoordinator.BUDGET_BLOCK_TYPE
+    assert expected_budget_scope_id in set(evidence.get("subject_refs") or [])
     ref = str(evidence["content_ref"])
     assert ref.startswith("file://")
     payload = json.loads(Path(ref[len("file://"):]).read_text(encoding="utf-8"))
@@ -211,6 +240,7 @@ def _assert_durable_budget_block(
     assert payload["source_task_id"] == SOURCE
     assert payload["repair_task_id"] == repair_task_id
     assert payload["gap_id"] == gap_id
+    assert payload["budget_scope_id"] == expected_budget_scope_id
 
     assert control.scheduler.task(SOURCE).state == TaskStatus.REPAIR_REQUIRED
     assert control.scheduler.task(repair_task_id).state == TaskStatus.BLOCKED
@@ -240,6 +270,7 @@ def test_direct_retry_budget_exhaustion_becomes_durable_blocked_boundary(tmp_pat
         reason="same transient failure repeated",
     )
     signature = "FSIG-DIRECT-BUDGET"
+    scope = _budget_scope_id()
     diagnosis = _diagnosis(tmp_path, truth, plan=plan, failure_signature_id=signature, gap_id=gap.gap_id)
     coordinator = BankN8RecoveryCoordinator(
         evidence_root=str(tmp_path / "evidence"),
@@ -252,6 +283,7 @@ def test_direct_retry_budget_exhaustion_becomes_durable_blocked_boundary(tmp_pat
         signature=signature,
         strategy_key=strategy,
         count=1,
+        budget_scope_id=scope,
     )
 
     evidence_id = coordinator.capture_after_execution(
@@ -267,6 +299,7 @@ def test_direct_retry_budget_exhaustion_becomes_durable_blocked_boundary(tmp_pat
         gap_id=gap.gap_id,
         repair_task_id=repair.task_id,
         expected_reason="BANK_N8_DIRECT_RETRY_BUDGET_EXHAUSTED",
+        expected_budget_scope_id=scope,
     )
     assert not [
         row for row in truth.query("rc7_artifact", mission_id=MISSION)
@@ -295,6 +328,7 @@ def test_non_direct_same_strategy_budget_exhaustion_becomes_durable_blocked_boun
         reason="same script repair strategy repeated",
     )
     signature = "FSIG-SCRIPT-BUDGET"
+    scope = _budget_scope_id()
     diagnosis = _diagnosis(tmp_path, truth, plan=plan, failure_signature_id=signature, gap_id=gap.gap_id)
     coordinator = BankN8RecoveryCoordinator(evidence_root=str(tmp_path / "evidence"))
     strategy = _stable_id("RECOVERY-STRATEGY", plan.action, plan.mode, plan.target_node)
@@ -304,6 +338,7 @@ def test_non_direct_same_strategy_budget_exhaustion_becomes_durable_blocked_boun
         signature=signature,
         strategy_key=strategy,
         count=coordinator.orchestrator.max_same_strategy_repairs,
+        budget_scope_id=scope,
     )
 
     evidence_id = coordinator.capture_after_execution(
@@ -319,8 +354,114 @@ def test_non_direct_same_strategy_budget_exhaustion_becomes_durable_blocked_boun
         gap_id=gap.gap_id,
         repair_task_id=repair.task_id,
         expected_reason="SAME_FAILURE_SIGNATURE_STRATEGY_BUDGET_EXHAUSTED",
+        expected_budget_scope_id=scope,
     )
     assert not [
         row for row in truth.query("rc7_artifact", mission_id=MISSION)
         if row.get("artifact_type_name") == N8RecoveryOrchestrator.WORK_ORDER_TYPE
     ]
+
+
+def test_direct_retry_budget_is_isolated_by_case_scope_even_with_shared_execution_task(tmp_path: Path):
+    truth, control = _control(tmp_path)
+    gap, _repair = _source_repair_required(
+        control,
+        gap_id="GAP-DIRECT-CASE-B",
+        category="TRANSIENT_FAILURE",
+        target_node="EXECUTION",
+    )
+    plan = RecoveryWorkPlan(
+        diagnosis_id="DIAG-DIRECT-CASE-B",
+        source_attempt_id=ATTEMPT,
+        action="RETRY_SAME_STEP",
+        mode="DIRECT_RETRY",
+        target_node="EXECUTION",
+        retry_allowed=True,
+        reprepare_required=False,
+        terminal=False,
+        successor_attempt_id="ATT-CASE-B-2",
+        reason="same technical failure on a different case",
+    )
+    signature = "FSIG-SHARED-DIRECT"
+    case_a_scope = _budget_scope_id(tc_id="TC-BUDGET-A")
+    case_b_scope = _budget_scope_id()
+    diagnosis = _diagnosis(tmp_path, truth, plan=plan, failure_signature_id=signature, gap_id=gap.gap_id)
+    coordinator = BankN8RecoveryCoordinator(
+        evidence_root=str(tmp_path / "evidence"),
+        max_same_signature_direct_retries=1,
+    )
+    strategy = _stable_id("N8-DIRECT-STRATEGY", plan.action, plan.mode, plan.target_node)
+    _seed_receipts(
+        truth,
+        kind=coordinator.DIRECT_RECEIPT_TYPE,
+        signature=signature,
+        strategy_key=strategy,
+        count=1,
+        budget_scope_id=case_a_scope,
+    )
+
+    order = coordinator.capture_after_execution(
+        control,
+        source_task_id=SOURCE,
+        result=_result(gap, diagnosis),
+    )
+
+    assert getattr(order, "budget_scope_id", None) == case_b_scope
+    assert control.scheduler.task(SOURCE).state == TaskStatus.REPAIR_REQUIRED
+    assert truth.query("rc7_gap", gap_id=gap.gap_id)[0]["state"] == "PLANNED"
+    assert truth.query("rc7_mission", mission_id=MISSION)[0]["state"] != "BLOCKED"
+    evidence = truth.query("rc7_evidence", evidence_id=order.evidence_id)[0]
+    assert case_b_scope in set(evidence.get("subject_refs") or [])
+    payload = json.loads(Path(str(evidence["content_ref"])[len("file://"):]).read_text(encoding="utf-8"))
+    assert payload["budget_scope_id"] == case_b_scope
+
+
+def test_non_direct_budget_is_isolated_by_case_scope_even_with_shared_execution_task(tmp_path: Path):
+    truth, control = _control(tmp_path)
+    gap, _repair = _source_repair_required(
+        control,
+        gap_id="GAP-SCRIPT-CASE-B",
+        category="SCRIPT_DEFECT",
+        target_node="SCRIPT_READINESS",
+    )
+    plan = RecoveryWorkPlan(
+        diagnosis_id="DIAG-SCRIPT-CASE-B",
+        source_attempt_id=ATTEMPT,
+        action="REPAIR_SCRIPT",
+        mode="UPSTREAM_REPAIR_THEN_RETRY",
+        target_node="SCRIPT_READINESS",
+        retry_allowed=True,
+        reprepare_required=False,
+        terminal=False,
+        successor_attempt_id="ATT-CASE-B-2",
+        reason="same technical failure on a different case",
+    )
+    signature = "FSIG-SHARED-SCRIPT"
+    case_a_scope = _budget_scope_id(tc_id="TC-BUDGET-A")
+    case_b_scope = _budget_scope_id()
+    diagnosis = _diagnosis(tmp_path, truth, plan=plan, failure_signature_id=signature, gap_id=gap.gap_id)
+    coordinator = BankN8RecoveryCoordinator(evidence_root=str(tmp_path / "evidence"))
+    strategy = _stable_id("RECOVERY-STRATEGY", plan.action, plan.mode, plan.target_node)
+    _seed_receipts(
+        truth,
+        kind=N8RecoveryOrchestrator.RECEIPT_TYPE,
+        signature=signature,
+        strategy_key=strategy,
+        count=coordinator.orchestrator.max_same_strategy_repairs,
+        budget_scope_id=case_a_scope,
+    )
+
+    order = coordinator.capture_after_execution(
+        control,
+        source_task_id=SOURCE,
+        result=_result(gap, diagnosis),
+    )
+
+    assert getattr(order, "budget_scope_id", None) == case_b_scope
+    assert control.scheduler.task(SOURCE).state == TaskStatus.REPAIR_REQUIRED
+    assert truth.query("rc7_gap", gap_id=gap.gap_id)[0]["state"] == "PLANNED"
+    assert truth.query("rc7_mission", mission_id=MISSION)[0]["state"] != "BLOCKED"
+    evidence = truth.query("rc7_evidence", evidence_id=order.evidence_id)[0]
+    assert case_b_scope in set(evidence.get("subject_refs") or [])
+    payload = json.loads(Path(str(evidence["content_ref"])[len("file://"):]).read_text(encoding="utf-8"))
+    assert payload["budget_scope_id"] == case_b_scope
