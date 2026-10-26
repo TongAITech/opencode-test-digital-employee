@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 
+from rc6_runtime.preparation import PreparedAttempt
 from rc6_runtime.truth import TruthRuntime
 from rc7_runtime.bank_execution_autopilot import BankExecutionAutopilot
 from rc7_runtime.bank_n8_recovery import BankN8RecoveryCoordinator
+from rc7_runtime.bank_n8_successor import BankN8SuccessorCoordinator
+from rc7_runtime.case_runtime import PREPARED_ATTEMPT_KIND, _state_ref, _write_immutable_json
 from rc7_runtime.closed_loop_control import ClosedLoopControlPlane
 from rc7_runtime.control_plane import WorkerOutput
 from rc7_runtime.execution_recovery import RecoveryWorkPlan
@@ -21,6 +25,7 @@ from rc7_runtime.models import (
     Task,
     TaskStatus,
 )
+from rc7_runtime.truth_overlay import append_entity
 
 
 MISSION = "MISSION-RC7-1-BANK-N8"
@@ -112,6 +117,64 @@ def _make_source_repair_required(control: ClosedLoopControlPlane):
     return gap, control.scheduler.task(repair_rows[0]["task_id"])
 
 
+def _persist_source_prepared(truth, state_root: Path):
+    prepared = PreparedAttempt(
+        status="PREPARED",
+        attempt_id="ATT-1",
+        tc_id="TC-1",
+        case_version=1,
+        target_id="BANK-TARGET",
+        precondition_evidence=("EVD-PRE-1",),
+        initial_state_bindings={"loan_id": "L-1"},
+        input_data_bindings={"amount": 100},
+        binding_evidence=("EVD-DATA-1",),
+        cleanup_policy={"mode": "RELEASE"},
+        oracle_snapshot={"checks": [{"id": "CHK-1", "type": "BUSINESS_RULE", "actual_path": "code", "operator": "EQ", "expected": "OK"}]},
+    )
+    target, digest = _write_immutable_json(
+        state_root,
+        Path(MISSION) / "ATT-1" / "prepared-attempt.json",
+        asdict(prepared),
+    )
+    evidence = Evidence(
+        evidence_id="EVD-PREPARED-ATT-1",
+        mission_id=MISSION,
+        kind=PREPARED_ATTEMPT_KIND,
+        source_ref="runtime://case-runtime/preparation",
+        content_ref=_state_ref(state_root, target),
+        subject_refs=[SOURCE, "execution-worker", "ATT-1", "TC-1", "BANK-TARGET"],
+        content_hash=digest,
+    )
+    append_entity(truth, evidence, release_id="RC7.1-N8-BANK", artifact_version=1)
+    return prepared, target
+
+
+def _direct_order_and_repair(control, gap, repair_task):
+    coordinator = BankN8RecoveryCoordinator(evidence_root=str(Path(control.truth.path).parent.parent / "evidence"))
+    plan = RecoveryWorkPlan(
+        diagnosis_id="DIAG-ATT-1",
+        source_attempt_id="ATT-1",
+        action="RETRY_SAME_STEP",
+        mode="DIRECT_RETRY",
+        target_node="EXECUTION",
+        retry_allowed=True,
+        reprepare_required=False,
+        terminal=False,
+        successor_attempt_id="ATT-2",
+        reason="runtime-classified transient failure",
+    )
+    order = coordinator._create_direct_retry_order(
+        control,
+        source_task_id=SOURCE,
+        gap_id=gap.gap_id,
+        plan=plan,
+        diagnosis_evidence_id="EVD-DIAG-ATT-1",
+        failure_signature_id="FSIG-ATT-1",
+    )
+    successor = coordinator.handle_execution_repair(control, repair_task)
+    return coordinator, order, successor
+
+
 def test_bank_execution_repair_is_n8_authorization_not_business_execution():
     calls = []
 
@@ -136,29 +199,7 @@ def test_bank_execution_repair_is_n8_authorization_not_business_execution():
 def test_direct_retry_repair_produces_authorization_receipt_without_business_action(tmp_path: Path):
     truth, control = _control(tmp_path)
     gap, repair_task = _make_source_repair_required(control)
-    coordinator = BankN8RecoveryCoordinator(evidence_root=str(tmp_path / "evidence"))
-    plan = RecoveryWorkPlan(
-        diagnosis_id="DIAG-ATT-1",
-        source_attempt_id="ATT-1",
-        action="RETRY_SAME_STEP",
-        mode="DIRECT_RETRY",
-        target_node="EXECUTION",
-        retry_allowed=True,
-        reprepare_required=False,
-        terminal=False,
-        successor_attempt_id="ATT-2",
-        reason="runtime-classified transient failure",
-    )
-    order = coordinator._create_direct_retry_order(
-        control,
-        source_task_id=SOURCE,
-        gap_id=gap.gap_id,
-        plan=plan,
-        diagnosis_evidence_id="EVD-DIAG-ATT-1",
-        failure_signature_id="FSIG-ATT-1",
-    )
-
-    successor = coordinator.handle_execution_repair(control, repair_task)
+    coordinator, order, successor = _direct_order_and_repair(control, gap, repair_task)
 
     assert successor == "ATT-2"
     assert control.scheduler.task(repair_task.task_id).state == TaskStatus.PASS
@@ -177,3 +218,54 @@ def test_direct_retry_repair_produces_authorization_receipt_without_business_act
     assert payload["source_attempt_id"] == "ATT-1"
     assert payload["successor_attempt_id"] == "ATT-2"
     assert payload["business_action_executed"] is False
+
+
+def test_direct_retry_materializes_fresh_successor_prepared_once_without_mutating_source(tmp_path: Path):
+    truth, control = _control(tmp_path)
+    state_root = tmp_path / "state"
+    original, original_path = _persist_source_prepared(truth, state_root)
+    original_bytes = original_path.read_bytes()
+    gap, repair_task = _make_source_repair_required(control)
+    _coordinator, _order, successor = _direct_order_and_repair(control, gap, repair_task)
+    assert successor == "ATT-2"
+
+    leased = control.lease_next(worker_ref="retry-worker", capabilities=("test_execution",))
+    assert leased is not None and leased.task_id == SOURCE
+    successor_service = BankN8SuccessorCoordinator(state_root=state_root)
+    prepared_result = successor_service.materialize_direct_successor(
+        control,
+        source_task_id=SOURCE,
+        worker_id="retry-worker",
+        tc_id="TC-1",
+        target_id="BANK-TARGET",
+    )
+
+    assert prepared_result is not None
+    assert prepared_result["n8_successor"] is True
+    assert prepared_result["source_attempt_id"] == "ATT-1"
+    assert prepared_result["prepared_attempt"]["attempt_id"] == "ATT-2"
+    assert prepared_result["prepared_attempt"]["input_data_bindings"] == original.input_data_bindings
+    assert prepared_result["prepared_attempt"]["oracle_snapshot"] == original.oracle_snapshot
+    assert original_path.read_bytes() == original_bytes
+
+    prepared_rows = [
+        row for row in truth.query("rc7_evidence", mission_id=MISSION)
+        if row.get("kind") == PREPARED_ATTEMPT_KIND
+    ]
+    assert len(prepared_rows) == 2
+    att1 = [row for row in prepared_rows if "ATT-1" in set(row.get("subject_refs") or [])]
+    att2 = [row for row in prepared_rows if "ATT-2" in set(row.get("subject_refs") or [])]
+    assert len(att1) == 1
+    assert len(att2) == 1
+    assert att2[0]["source_ref"] == "runtime://bank-n8/direct-retry-successor"
+    assert prepared_result["authorization_evidence_id"] in set(att2[0]["subject_refs"])
+
+    # The authorization is consumed by the new durable PreparedAttempt. It must
+    # not materialize another successor on a later call/restart.
+    assert successor_service.materialize_direct_successor(
+        control,
+        source_task_id=SOURCE,
+        worker_id="retry-worker",
+        tc_id="TC-1",
+        target_id="BANK-TARGET",
+    ) is None
