@@ -327,7 +327,7 @@ def test_capture_after_execution_failure_blocks_recovery_without_rewriting_real_
                     "layer": "L3",
                     "status": "FAIL",
                     "actual_result": execution_payload["actual_result"],
-                    "tool_call_refs": [],
+                    "tool_call_refs": ["tool-call://capture-business-action"],
                     "evidence_refs": [execution_evidence.evidence_id],
                 },
             )
