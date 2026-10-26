@@ -12,6 +12,7 @@ from pathlib import Path
 from rc8_runtime import CentralR1RuntimeLedger
 from rc8_center.api import create_app
 from rc8_center.artifacts import FileArtifactStore
+from rc8_center.case_inventory import CenterFrozenCaseInventoryResolver
 from rc8_center.code_sufficiency import CenterCodeSufficiencyEvaluator
 from rc8_center.executable_readiness import CenterExecutableReadinessService
 from rc8_center.fanout_progression import FanoutSafeRequirementLoopProgressor
@@ -25,26 +26,15 @@ from rc8_center.runtime_invalidation import CenterRuntimeInvalidationCoordinator
 from rc8_center.runtime_invalidation_projector import CenterRuntimeInvalidationProjector
 from rc8_center.runtime_invalidation_recorder import CenterRuntimeInvalidationRecorder
 from rc8_center.runtime_invalidation_service import CenterRuntimeInvalidationService
-from rc8_center.runtime_mutation_producer import (
-    CenterRuntimeMutationProducer,
-    RuntimeMutationAwareFormalCenterControlPlane,
-)
+from rc8_center.runtime_mutation_producer import CenterRuntimeMutationProducer, RuntimeMutationAwareFormalCenterControlPlane
 from rc8_center.scope_aware_governance_projector import ScopeAwareGovernanceEventProjector
 from rc8_center.governance_projection import GovernanceProjectionService
 from rc8_center.mission_service import CenterMissionService
 from rc8_center.infrastructure import (
-    PostgresArtifactRepository,
-    PostgresCenterRepository,
-    PostgresCoverageRepository,
-    PostgresGovernanceRepository,
-    PostgresRecoveryRepository,
-    PostgresRequirementDeliveryRepository,
-    PostgresRequirementRevisionRepository,
-    PostgresStore,
-    PostgresTestRoundRepository,
-    PostgresTraceabilityRepository,
-    RedisCoordination,
-    build_engine,
+    PostgresArtifactRepository, PostgresCenterRepository, PostgresCoverageRepository,
+    PostgresGovernanceRepository, PostgresRecoveryRepository, PostgresRequirementDeliveryRepository,
+    PostgresRequirementRevisionRepository, PostgresStore, PostgresTestRoundRepository,
+    PostgresTraceabilityRepository, RedisCoordination, build_engine,
 )
 from rc8_center.infrastructure.postgres_executable_readiness import PostgresExecutableSpecRepository
 from rc8_center.infrastructure.postgres_prepared_attempt import PostgresPreparedAttemptRepository
@@ -52,29 +42,19 @@ from rc8_center.recovery_service import LeaseRecoveryCoordinator
 
 
 def _require_complete_runtime_invalidation_replay(result) -> None:
-    """Fail Center startup while canonical N5/N6 invalidations remain unapplied."""
     pending = int(getattr(result, "pending", 0) or (result.get("pending", 0) if isinstance(result, dict) else 0))
     errors = tuple(getattr(result, "errors", ()) or (result.get("errors", ()) if isinstance(result, dict) else ()))
     if pending or errors:
         detail = "; ".join(str(error) for error in errors[:5])
-        raise RuntimeError(
-            "RC8 Center startup blocked: canonical runtime invalidation replay "
-            f"is incomplete (pending={pending}, errors={len(errors)})"
-            + (f": {detail}" if detail else "")
-        )
+        raise RuntimeError("RC8 Center startup blocked: canonical runtime invalidation replay is incomplete (pending=%s, errors=%s)%s" % (pending, len(errors), (": " + detail) if detail else ""))
 
 
 def _require_complete_runtime_mutation_replay(result) -> None:
-    """Fail Center startup while a persisted mutation lacks derived invalidation."""
     pending = int(getattr(result, "pending", 0) or (result.get("pending", 0) if isinstance(result, dict) else 0))
     errors = tuple(getattr(result, "errors", ()) or (result.get("errors", ()) if isinstance(result, dict) else ()))
     if pending or errors:
         detail = "; ".join(str(error) for error in errors[:5])
-        raise RuntimeError(
-            "RC8 Center startup blocked: canonical runtime mutation replay "
-            f"is incomplete (pending={pending}, errors={len(errors)})"
-            + (f": {detail}" if detail else "")
-        )
+        raise RuntimeError("RC8 Center startup blocked: canonical runtime mutation replay is incomplete (pending=%s, errors=%s)%s" % (pending, len(errors), (": " + detail) if detail else ""))
 
 
 def build_app():
@@ -93,9 +73,7 @@ def build_app():
     executable_spec_repository = PostgresExecutableSpecRepository(postgres)
     traceability_repository = PostgresTraceabilityRepository(postgres)
 
-    r1_path = Path(settings.r1_root) / "event-stream.jsonl"
-    ledger = CentralR1RuntimeLedger(str(r1_path))
-
+    ledger = CentralR1RuntimeLedger(str(Path(settings.r1_root) / "event-stream.jsonl"))
     prepared_attempts = CenterPreparedAttemptService(prepared_attempt_repository)
     executable_readiness = CenterExecutableReadinessService(executable_spec_repository, prepared_attempts)
     runtime_invalidation_coordinator = CenterRuntimeInvalidationCoordinator(prepared_attempts, executable_readiness)
@@ -103,69 +81,37 @@ def build_app():
     runtime_invalidation_replay_result = runtime_invalidation_projector.replay()
     _require_complete_runtime_invalidation_replay(runtime_invalidation_replay_result)
     runtime_invalidation_recorder = CenterRuntimeInvalidationRecorder(ledger)
-    runtime_invalidation_service = CenterRuntimeInvalidationService(
-        recorder=runtime_invalidation_recorder,
-        projector=runtime_invalidation_projector,
-        prepared_attempts=prepared_attempts,
-    )
-    runtime_mutation_producer = CenterRuntimeMutationProducer(
-        ledger=ledger,
-        invalidation_service=runtime_invalidation_service,
-        executable_readiness=executable_readiness,
-    )
+    runtime_invalidation_service = CenterRuntimeInvalidationService(recorder=runtime_invalidation_recorder, projector=runtime_invalidation_projector, prepared_attempts=prepared_attempts)
+    runtime_mutation_producer = CenterRuntimeMutationProducer(ledger=ledger, invalidation_service=runtime_invalidation_service, executable_readiness=executable_readiness)
     runtime_mutation_replay_result = runtime_mutation_producer.replay()
     _require_complete_runtime_mutation_replay(runtime_mutation_replay_result)
 
     projector = ScopeAwareGovernanceEventProjector(ledger, governance_repository, coverage_repository, artifact_repository)
     replay_result = projector.replay()
     projection = GovernanceProjectionService(governance_repository, coverage_repository)
-    mission_service = CenterMissionService(governance_repository, traceability_repository=traceability_repository)
-    mission_progressor = FanoutSafeRequirementLoopProgressor(
-        store=postgres,
-        mission_service=mission_service,
+    artifact_store = FileArtifactStore(settings.artifact_root, artifact_repository)
+    case_inventory_resolver = CenterFrozenCaseInventoryResolver(
         governance_repository=governance_repository,
         control_repository=control_repository,
         artifact_repository=artifact_repository,
+        artifact_store=artifact_store,
     )
-    formal_control_core = FormalCenterControlPlane(
-        control_repository,
-        redis_coordination,
-        ledger,
-        projector,
-        progression=mission_progressor,
+    mission_service = CenterMissionService(governance_repository, traceability_repository=traceability_repository)
+    mission_progressor = FanoutSafeRequirementLoopProgressor(
+        store=postgres, mission_service=mission_service, governance_repository=governance_repository,
+        control_repository=control_repository, artifact_repository=artifact_repository,
+        case_inventory_resolver=case_inventory_resolver,
     )
-    formal_control = RuntimeMutationAwareFormalCenterControlPlane(
-        formal_control_core,
-        runtime_mutation_producer,
-    )
-
+    formal_control_core = FormalCenterControlPlane(control_repository, redis_coordination, ledger, projector, progression=mission_progressor)
+    formal_control = RuntimeMutationAwareFormalCenterControlPlane(formal_control_core, runtime_mutation_producer)
     trace_runtime_authority = FormalTraceRuntimeAuthority(formal_control, governance_repository)
-    traceability_ingestion = R1BackedCenterTraceabilityIngestion(
-        traceability_repository,
-        ledger=ledger,
-        control_plane=trace_runtime_authority,
-        attempt_snapshot_resolver=trace_runtime_authority.resolve_current_attempt,
-    )
+    traceability_ingestion = R1BackedCenterTraceabilityIngestion(traceability_repository, ledger=ledger, control_plane=trace_runtime_authority, attempt_snapshot_resolver=trace_runtime_authority.resolve_current_attempt)
     trace_replay_result = traceability_ingestion.replay_canonical_runtime_observations()
     code_sufficiency_evaluator = CenterCodeSufficiencyEvaluator(traceability_repository)
-
     recovery_coordinator = LeaseRecoveryCoordinator(control_repository, recovery_repository, redis_coordination, ledger)
-    artifact_store = FileArtifactStore(settings.artifact_root, artifact_repository)
     artifact_service = FormalArtifactService(artifact_store, formal_control, projector)
 
-    app = create_app(
-        settings=settings,
-        postgres=postgres,
-        redis_coordination=redis_coordination,
-        governance_projection=projection,
-        formal_control=formal_control,
-        recovery_coordinator=recovery_coordinator,
-        artifact_service=artifact_service,
-        product_application=None,
-        delivery_repository=delivery_repository,
-        revision_repository=revision_repository,
-        test_round_repository=test_round_repository,
-    )
+    app = create_app(settings=settings, postgres=postgres, redis_coordination=redis_coordination, governance_projection=projection, formal_control=formal_control, recovery_coordinator=recovery_coordinator, artifact_service=artifact_service, product_application=None, delivery_repository=delivery_repository, revision_repository=revision_repository, test_round_repository=test_round_repository)
     app.state.r1_ledger = ledger
     app.state.runtime_invalidation_projector = runtime_invalidation_projector
     app.state.runtime_invalidation_replay_result = runtime_invalidation_replay_result
@@ -199,6 +145,7 @@ def build_app():
     app.state.formal_control = formal_control
     app.state.recovery_coordinator = recovery_coordinator
     app.state.artifact_store = artifact_store
+    app.state.case_inventory_resolver = case_inventory_resolver
     app.state.artifact_service = artifact_service
     return app
 
