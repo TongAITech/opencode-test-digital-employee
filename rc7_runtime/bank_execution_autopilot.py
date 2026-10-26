@@ -38,7 +38,10 @@ from .bank_n8_upstream_successor import (
     BankN8UpstreamSuccessorError,
 )
 from .candidate_payload import CandidatePayloadReader
-from .case_fanout_conformance import AcceptedCaseInventoryReader
+from .case_fanout_conformance import (
+    AcceptedCaseInventoryReader,
+    CaseFanoutConformanceError,
+)
 from .case_runtime import CasePreparationService
 from .case_script_bundle_resolver import (
     CaseScriptBundleResolverError,
@@ -430,8 +433,23 @@ class BankExecutionAutopilot:
                     reason=str(exc),
                 )
             return
-        tc_id = self._case_for_task(control, task)
         blocker_worker = "rc7.1-execution-blocker"
+        try:
+            tc_id = self._case_for_task(control, task)
+        except CaseFanoutConformanceError as exc:
+            self._block(
+                control,
+                task,
+                worker_ref=blocker_worker,
+                tc_id="CASE_TRUTH_UNRESOLVED",
+                status="BLOCKED_CASE_TRUTH",
+                reason="EXECUTION_CASE_TRUTH_RESOLUTION_FAILED:%s" % exc,
+                details={
+                    "phase": "CASE_TRUTH_RESOLUTION",
+                    "business_action_executed": False,
+                },
+            )
+            return
         try:
             bundle = self.bundle_resolver.resolve(
                 control.truth,
