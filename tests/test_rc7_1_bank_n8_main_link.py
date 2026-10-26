@@ -149,8 +149,8 @@ def _persist_source_prepared(truth, state_root: Path):
     return prepared, target
 
 
-def _direct_order_and_repair(control, gap, repair_task):
-    coordinator = BankN8RecoveryCoordinator(evidence_root=str(Path(control.truth.path).parent.parent / "evidence"))
+def _direct_order_and_repair(control, gap, repair_task, evidence_root: Path):
+    coordinator = BankN8RecoveryCoordinator(evidence_root=str(evidence_root))
     plan = RecoveryWorkPlan(
         diagnosis_id="DIAG-ATT-1",
         source_attempt_id="ATT-1",
@@ -188,9 +188,6 @@ def test_bank_execution_repair_is_n8_authorization_not_business_execution():
     control = object()
     task = SimpleNamespace(task_id="TASK-REPAIR", node="EXECUTION", task_type="REPAIR")
 
-    # No business execution collaborators are installed on this object. If run()
-    # falls through into bundle resolution / activation / runner execution, this
-    # test fails immediately with AttributeError.
     autopilot.run(control, task)
 
     assert calls == [(control, "TASK-REPAIR")]
@@ -199,7 +196,7 @@ def test_bank_execution_repair_is_n8_authorization_not_business_execution():
 def test_direct_retry_repair_produces_authorization_receipt_without_business_action(tmp_path: Path):
     truth, control = _control(tmp_path)
     gap, repair_task = _make_source_repair_required(control)
-    coordinator, order, successor = _direct_order_and_repair(control, gap, repair_task)
+    coordinator, order, successor = _direct_order_and_repair(control, gap, repair_task, tmp_path / "evidence")
 
     assert successor == "ATT-2"
     assert control.scheduler.task(repair_task.task_id).state == TaskStatus.PASS
@@ -226,7 +223,7 @@ def test_direct_retry_materializes_fresh_successor_prepared_once_without_mutatin
     original, original_path = _persist_source_prepared(truth, state_root)
     original_bytes = original_path.read_bytes()
     gap, repair_task = _make_source_repair_required(control)
-    _coordinator, _order, successor = _direct_order_and_repair(control, gap, repair_task)
+    _coordinator, _order, successor = _direct_order_and_repair(control, gap, repair_task, tmp_path / "evidence")
     assert successor == "ATT-2"
 
     leased = control.lease_next(worker_ref="retry-worker", capabilities=("test_execution",))
@@ -260,8 +257,6 @@ def test_direct_retry_materializes_fresh_successor_prepared_once_without_mutatin
     assert att2[0]["source_ref"] == "runtime://bank-n8/direct-retry-successor"
     assert prepared_result["authorization_evidence_id"] in set(att2[0]["subject_refs"])
 
-    # The authorization is consumed by the new durable PreparedAttempt. It must
-    # not materialize another successor on a later call/restart.
     assert successor_service.materialize_direct_successor(
         control,
         source_task_id=SOURCE,
