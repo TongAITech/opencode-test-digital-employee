@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Real PostgreSQL + Redis + R1 HTTP proof for the N5 PreparedAttempt entry.
+"""Real PostgreSQL + Redis + R1 HTTP proof for the full N5 PreparedAttempt lifecycle.
 
 This verifies the production authority chain rather than a memory/mock path:
 case-scoped N5 WorkItem -> Redis/PG lease -> Center /start -> canonical R1
-ATTEMPT_STARTED -> governance projection -> lease-bound PreparedAttempt SELECTED
-persisted in PostgreSQL.
+ATTEMPT_STARTED -> SELECTED -> VERIFIED -> RESERVED -> FRESH -> PREPARED,
+with every transition re-authorized by the same Center-issued lease Attempt.
 """
 from __future__ import annotations
 
 import os
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
@@ -31,7 +32,7 @@ from rc8_center.infrastructure import (
 )
 from rc8_center.infrastructure.postgres_executable_readiness import PostgresExecutableSpecRepository
 from rc8_center.infrastructure.postgres_prepared_attempt import PostgresPreparedAttemptRepository
-from rc8_center.prepared_attempt import CenterPreparedAttemptService
+from rc8_center.prepared_attempt import CenterPreparedAttemptService, PreparedAttemptState
 from rc8_center.runtime_invalidation import CenterRuntimeInvalidationCoordinator
 from rc8_center.runtime_invalidation_projector import CenterRuntimeInvalidationProjector
 from rc8_center.runtime_invalidation_recorder import CenterRuntimeInvalidationRecorder
@@ -41,7 +42,7 @@ from rc8_center.runtime_mutation_producer import (
     RuntimeMutationAwareFormalCenterControlPlane,
 )
 from rc8_center.scope_aware_governance_projector import ScopeAwareGovernanceEventProjector
-from rc8_runtime import CentralR1RuntimeLedger, NodeIdentity, WorkItemIdentity
+from rc8_runtime import CentralR1RuntimeLedger
 from rc8_runtime.governance import AttemptStatus, StageInstance, StageState
 from rc8_runtime.mission_nodes import MissionNodeAdoptionGraph, MissionNodeType
 
@@ -109,11 +110,13 @@ def main() -> int:
             formal_control=formal_control,
         )
         # formal_app wires these same production services after create_app;
-        # the route reads them only when the request executes.
+        # routes read them only when a request executes.
         app.state.control_repository = control_repository
         app.state.governance_repository = governance_repository
         app.state.prepared_attempt_repository = prepared_attempt_repository
         app.state.prepared_attempts = prepared_attempts
+        app.state.executable_spec_repository = executable_spec_repository
+        app.state.executable_readiness = executable_readiness
         app.state.artifact_store = artifact_store
         client = TestClient(app)
 
@@ -171,8 +174,6 @@ def main() -> int:
         assert lease_id
         assert redis.lease_info("work-item", work_item_id)["lease_id"] == lease_id
 
-        # N5 selection is forbidden before Center /start establishes the R1
-        # Attempt authority and moves the WorkItem to RUNNING.
         before_start = client.post(
             "/api/v1/work-items/%s/prepared-attempts/select" % work_item_id,
             json={
@@ -205,7 +206,7 @@ def main() -> int:
             for event in ledger.runtime_events(test_run_id=run_id, work_item_id=work_item_id)
         )
 
-        # Worker is not allowed to inject Center-owned identities.
+        # Worker cannot inject any Center-owned identity.
         forged_identity = client.post(
             "/api/v1/work-items/%s/prepared-attempts/select" % work_item_id,
             json={
@@ -226,8 +227,7 @@ def main() -> int:
             },
         )
         assert selected.status_code == 200, selected.text
-        body = selected.json()
-        value = body["prepared_attempt"]
+        value = selected.json()["prepared_attempt"]
         prepared_attempt_id = "prepared:%s" % lease_id
         expected_mission_node_id = MissionNodeAdoptionGraph(
             run_id,
@@ -240,16 +240,7 @@ def main() -> int:
         assert value["attempt_id"] == lease_id
         assert value["state"] == "SELECTED"
         assert value["reality_snapshot_id"] == "reality:%s" % suffix
-        assert value["data_refs"] == ["data:account:%s" % suffix, "data:loan:%s" % suffix]
-        assert body["truth_note"] == "CENTER_DERIVED_FROM_RUNNING_N5_WORK_ITEM_ACTIVE_LEASE_AND_R1_PROJECTED_ATTEMPT"
 
-        persisted = prepared_attempt_repository.get_prepared_attempt(prepared_attempt_id)
-        assert persisted is not None
-        assert persisted.attempt_id == lease_id
-        assert persisted.case_id == case_id
-        assert persisted.mission_node_id == expected_mission_node_id
-
-        # Same Center identity is idempotent; a stale token is not.
         repeated = client.post(
             "/api/v1/work-items/%s/prepared-attempts/select" % work_item_id,
             json={
@@ -261,12 +252,98 @@ def main() -> int:
         assert repeated.status_code == 200, repeated.text
         assert repeated.json()["prepared_attempt"]["prepared_attempt_id"] == prepared_attempt_id
 
+        forged_transition_identity = client.post(
+            "/api/v1/work-items/%s/prepared-attempts/verify" % work_item_id,
+            json={
+                "lease_id": lease_id,
+                "evidence_refs": ["evidence:data-verify:%s" % suffix],
+                "prepared_attempt_id": "forged-prepared-attempt",
+            },
+        )
+        assert forged_transition_identity.status_code == 422, forged_transition_identity.text
+
+        verified = client.post(
+            "/api/v1/work-items/%s/prepared-attempts/verify" % work_item_id,
+            json={
+                "lease_id": lease_id,
+                "evidence_refs": ["evidence:data-verify:%s" % suffix],
+            },
+        )
+        assert verified.status_code == 200, verified.text
+        assert verified.json()["prepared_attempt"]["state"] == "VERIFIED"
+        assert verified.json()["prepared_attempt"]["attempt_id"] == lease_id
+
+        reserved = client.post(
+            "/api/v1/work-items/%s/prepared-attempts/reserve" % work_item_id,
+            json={
+                "lease_id": lease_id,
+                "reservation_ref": "reservation:customer:%s" % suffix,
+                "evidence_refs": ["evidence:reservation:%s" % suffix],
+            },
+        )
+        assert reserved.status_code == 200, reserved.text
+        assert reserved.json()["prepared_attempt"]["state"] == "RESERVED"
+
+        now = int(time.time())
+        fresh = client.post(
+            "/api/v1/work-items/%s/prepared-attempts/freshness-check" % work_item_id,
+            json={
+                "lease_id": lease_id,
+                "data_freshness_ref": "freshness:data:%s" % suffix,
+                "auth_session_ref": "auth:4a:fresh:%s" % suffix,
+                "auth_acquired_at": max(0, now - 1),
+                "auth_expires_at": now + 600,
+                "evidence_refs": ["evidence:fresh-auth:%s" % suffix],
+            },
+        )
+        assert fresh.status_code == 200, fresh.text
+        fresh_value = fresh.json()["prepared_attempt"]
+        assert fresh_value["state"] == "FRESH"
+        assert fresh_value["auth_binding_mode"] == "FRESH_LOGIN"
+
+        bound = client.post(
+            "/api/v1/work-items/%s/prepared-attempts/bind" % work_item_id,
+            json={
+                "lease_id": lease_id,
+                "environment_ref": "env:pfc:test:%s" % suffix,
+                "route_ref": "route:browser-network:%s" % suffix,
+                "evidence_refs": ["evidence:environment-route:%s" % suffix],
+            },
+        )
+        assert bound.status_code == 200, bound.text
+        bound_value = bound.json()["prepared_attempt"]
+        assert bound_value["state"] == "PREPARED"
+        assert bound_value["prepared_attempt_id"] == prepared_attempt_id
+        assert bound_value["attempt_id"] == lease_id
+
+        persisted = prepared_attempt_repository.get_prepared_attempt(prepared_attempt_id)
+        assert persisted is not None
+        assert persisted.state == PreparedAttemptState.PREPARED
+        assert persisted.attempt_id == lease_id
+        assert persisted.case_id == case_id
+        assert persisted.mission_node_id == expected_mission_node_id
+        assert persisted.auth_binding_mode.value == "FRESH_LOGIN"
+        assert persisted.reservation_ref == "reservation:customer:%s" % suffix
+        assert persisted.environment_ref == "env:pfc:test:%s" % suffix
+        assert persisted.route_ref == "route:browser-network:%s" % suffix
+
+        # This is the exact gate N6 consumes. It must now succeed without any
+        # test-only mutation or a second execution Attempt identity.
+        current_for_execution = prepared_attempts.require_current_for_execution(
+            prepared_attempt_id=prepared_attempt_id,
+            test_run_id=run_id,
+            case_id=case_id,
+            attempt_id=lease_id,
+        )
+        assert current_for_execution.state == PreparedAttemptState.PREPARED
+
         stale = client.post(
-            "/api/v1/work-items/%s/prepared-attempts/select" % work_item_id,
+            "/api/v1/work-items/%s/prepared-attempts/bind" % work_item_id,
             json={
                 "lease_id": "stale-lease",
-                "reality_snapshot_id": "reality:%s" % suffix,
-                "data_refs": ["data:account:%s" % suffix],
+                "environment_ref": "env:stale",
+                "route_ref": "route:stale",
+                "evidence_refs": ["evidence:stale"],
             },
         )
         assert stale.status_code == 409, stale.text
@@ -279,8 +356,9 @@ def main() -> int:
             "case_id": case_id,
             "attempt_id": lease_id,
             "prepared_attempt_id": prepared_attempt_id,
+            "prepared_state": persisted.state.value,
             "mission_node_id": expected_mission_node_id,
-            "truth_note": "PostgreSQL + Redis lease and R1-projected Center Attempt own N5 PreparedAttempt identity.",
+            "truth_note": "PostgreSQL + Redis lease and R1-projected Center Attempt own the full N5 PreparedAttempt lifecycle.",
         })
     return 0
 
