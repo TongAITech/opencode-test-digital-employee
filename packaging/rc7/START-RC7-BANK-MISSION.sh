@@ -15,6 +15,21 @@ if [ -z "${PFC_RC7_SOURCE_REVISION:-}" ] && [ -n "${PFC_RC7_SOURCE_COMMIT:-}" ];
   PFC_RC7_SOURCE_REVISION=$PFC_RC7_SOURCE_COMMIT
   export PFC_RC7_SOURCE_REVISION
 fi
+CANONICAL_CASE_PROVIDER_CONFIG="$ROOT/state/bank-field-providers.json"
+if [ -n "${PFC_RC7_CASE_PROVIDER_CONFIG:-}" ]; then
+  if [ ! -f "$PFC_RC7_CASE_PROVIDER_CONFIG" ]; then
+    echo "[RC7.1] CASE_PROVIDER_CONFIG_NOT_FOUND: $PFC_RC7_CASE_PROVIDER_CONFIG" >&2
+    exit 5
+  fi
+elif [ -f "$CANONICAL_CASE_PROVIDER_CONFIG" ]; then
+  PFC_RC7_CASE_PROVIDER_CONFIG="$CANONICAL_CASE_PROVIDER_CONFIG"
+  export PFC_RC7_CASE_PROVIDER_CONFIG
+fi
+if [ -n "${PFC_RC7_CASE_PROVIDER_CONFIG:-}" ]; then
+  echo "[RC7.1] Case provider config: $PFC_RC7_CASE_PROVIDER_CONFIG"
+else
+  echo "[RC7.1] Case provider config: FIELD_REQUIRED. Create state/bank-field-providers.json from packaging/rc7/bank-field-providers.example.json or set PFC_RC7_CASE_PROVIDER_CONFIG explicitly."
+fi
 mkdir -p "$(dirname "$R1_PATH")"
 PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH PFC_AITEST_STATE_DIR="$STATE_ROOT"

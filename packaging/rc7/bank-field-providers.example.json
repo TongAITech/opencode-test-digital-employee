@@ -1,54 +1,95 @@
 {
-  "schema_version": "pfc.aitest.rc7.bank-field-providers.example.v1",
+  "schema_version": "pfc.aitest.rc7.case-provider.example.v2",
   "notes": [
     "Copy this file to state/bank-field-providers.json in the extracted RC7 package and replace only the command bindings.",
-    "Do not place passwords, cookies, tokens or private keys in provider stdout. Return durable evidence references instead.",
-    "BANK_DB_WRITE is executed only after RC7 Human Gate approval and must return verification plus cleanup_ref or rollback_ref.",
-    "Commands are capability bindings, not exact-version pins. The bank environment may point BANK_AUTH_4A at the existing foura_auth.py adapter."
+    "This file is an example contract and must never be used directly as field evidence or a Bank Final claim.",
+    "PRECONDITION_AUTH must call the approved bank 4A adapter/foura_auth.py and obtain fresh login state for every new login; historical cookie fallback is forbidden.",
+    "DATA_DB_CREATE remains Human-Gated by CasePreparationService and the provider must return verification plus cleanup or rollback evidence.",
+    "Commands are capability bindings, not exact-version pins. Missing capabilities remain FIELD_REQUIRED; never alias an unrelated BANK_* capability into a preparation PASS.",
+    "CAT diagnosis is governed by the execution/diagnosis chain and is not a CasePreparation provider capability."
   ],
   "providers": {
-    "BANK_AUTH_4A": {
-      "provider_id": "bank-4a-adapter",
-      "command": ["python", "PATH_TO_BANK_ADAPTER.py", "auth-4a"],
+    "PRECONDITION_ENVIRONMENT": {
+      "provider_id": "bank-precondition-environment",
+      "command": ["python", "PATH_TO_BANK_CASE_PROVIDER.py", "precondition-environment"],
+      "timeout_seconds": 120
+    },
+    "PRECONDITION_AUTH": {
+      "provider_id": "bank-precondition-auth-4a",
+      "command": ["python", "PATH_TO_BANK_CASE_PROVIDER.py", "precondition-auth"],
       "timeout_seconds": 180
     },
-    "BANK_CAT_QUERY": {
-      "provider_id": "bank-cat-adapter",
-      "command": ["python", "PATH_TO_BANK_ADAPTER.py", "cat-query"],
+    "PRECONDITION_BUSINESS_STATE": {
+      "provider_id": "bank-precondition-business-state",
+      "command": ["python", "PATH_TO_BANK_CASE_PROVIDER.py", "precondition-business-state"],
       "timeout_seconds": 120
     },
-    "BANK_DB_READ": {
-      "provider_id": "bank-db-adapter",
-      "command": ["python", "PATH_TO_BANK_ADAPTER.py", "db-read-probe"],
+    "PRECONDITION_DATA": {
+      "provider_id": "bank-precondition-data",
+      "command": ["python", "PATH_TO_BANK_CASE_PROVIDER.py", "precondition-data"],
       "timeout_seconds": 120
     },
-    "BANK_DB_WRITE": {
-      "provider_id": "bank-db-adapter",
-      "command": ["python", "PATH_TO_BANK_ADAPTER.py", "db-write-reversible-probe"],
+    "PRECONDITION_DEPENDENCY": {
+      "provider_id": "bank-precondition-dependency",
+      "command": ["python", "PATH_TO_BANK_CASE_PROVIDER.py", "precondition-dependency"],
+      "timeout_seconds": 120
+    },
+    "DATA_REUSE_EXISTING": {
+      "provider_id": "bank-data-reuse-existing",
+      "command": ["python", "PATH_TO_BANK_CASE_PROVIDER.py", "data-reuse-existing"],
+      "timeout_seconds": 120
+    },
+    "DATA_DERIVE": {
+      "provider_id": "bank-data-derive",
+      "command": ["python", "PATH_TO_BANK_CASE_PROVIDER.py", "data-derive"],
+      "timeout_seconds": 120
+    },
+    "DATA_API_CREATE": {
+      "provider_id": "bank-data-api-create",
+      "command": ["python", "PATH_TO_BANK_CASE_PROVIDER.py", "data-api-create"],
+      "timeout_seconds": 120
+    },
+    "DATA_UI_CREATE": {
+      "provider_id": "bank-data-ui-create",
+      "command": ["python", "PATH_TO_BANK_CASE_PROVIDER.py", "data-ui-create"],
+      "timeout_seconds": 180
+    },
+    "DATA_DB_CREATE": {
+      "provider_id": "bank-data-db-create",
+      "command": ["python", "PATH_TO_BANK_CASE_PROVIDER.py", "data-db-create"],
+      "timeout_seconds": 120
+    },
+    "DATA_FIXTURE": {
+      "provider_id": "bank-data-fixture",
+      "command": ["python", "PATH_TO_BANK_CASE_PROVIDER.py", "data-fixture"],
+      "timeout_seconds": 120
+    },
+    "DATA_MOCK": {
+      "provider_id": "bank-data-mock",
+      "command": ["python", "PATH_TO_BANK_CASE_PROVIDER.py", "data-mock"],
+      "timeout_seconds": 120
+    },
+    "DATA_VERIFY": {
+      "provider_id": "bank-data-verify",
+      "command": ["python", "PATH_TO_BANK_CASE_PROVIDER.py", "data-verify"],
       "timeout_seconds": 120
     }
   },
   "provider_response_contract": {
-    "common": {
+    "precondition": {
       "success": true,
-      "target_verified": true,
+      "evidence_ref": "non-secret durable reference",
+      "detail": "verified field state"
+    },
+    "data_strategy": {
+      "success": true,
+      "binding": {},
       "tool_call_ref": "non-secret durable reference",
       "evidence_ref": "non-secret durable reference"
     },
-    "BANK_AUTH_4A": {
-      "auth_evidence_ref": "non-secret login/session proof reference"
-    },
-    "BANK_CAT_QUERY": {
-      "cat_evidence_ref": "non-secret CAT query proof reference",
-      "correlation_ref": "non-secret correlation proof reference"
-    },
-    "BANK_DB_READ": {
-      "read_evidence_ref": "non-secret DB read proof reference"
-    },
-    "BANK_DB_WRITE": {
-      "write_evidence_ref": "non-secret DB write proof reference",
-      "verification_ref": "post-write verification proof reference",
-      "cleanup_ref_or_rollback_ref": "post-probe cleanup or rollback proof reference"
+    "data_verify": {
+      "success": true,
+      "evidence_ref": "non-secret durable reference"
     }
   }
 }

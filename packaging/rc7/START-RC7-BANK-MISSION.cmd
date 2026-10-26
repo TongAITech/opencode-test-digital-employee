@@ -8,6 +8,20 @@ if not defined PFC_AITEST_STATE_DIR set "PFC_AITEST_STATE_DIR=%ROOT%\runtime-sta
 if not defined PFC_RC7_R1_PATH set "PFC_RC7_R1_PATH=%PFC_AITEST_STATE_DIR%\r1\event-stream.jsonl"
 if not defined PFC_RC7_SOURCE_COMMIT if exist "%ROOT%\SOURCE_COMMIT" set /p PFC_RC7_SOURCE_COMMIT=<"%ROOT%\SOURCE_COMMIT"
 if not defined PFC_RC7_SOURCE_REVISION if defined PFC_RC7_SOURCE_COMMIT set "PFC_RC7_SOURCE_REVISION=%PFC_RC7_SOURCE_COMMIT%"
+set "PFC_RC7_CASE_PROVIDER_CANONICAL=%ROOT%\state\bank-field-providers.json"
+if defined PFC_RC7_CASE_PROVIDER_CONFIG (
+  if not exist "%PFC_RC7_CASE_PROVIDER_CONFIG%" (
+    echo [RC7.1] CASE_PROVIDER_CONFIG_NOT_FOUND: %PFC_RC7_CASE_PROVIDER_CONFIG%
+    exit /b 5
+  )
+) else if exist "%PFC_RC7_CASE_PROVIDER_CANONICAL%" (
+  set "PFC_RC7_CASE_PROVIDER_CONFIG=%PFC_RC7_CASE_PROVIDER_CANONICAL%"
+)
+if defined PFC_RC7_CASE_PROVIDER_CONFIG (
+  echo [RC7.1] Case provider config: %PFC_RC7_CASE_PROVIDER_CONFIG%
+) else (
+  echo [RC7.1] Case provider config: FIELD_REQUIRED. Create state\bank-field-providers.json from packaging\rc7\bank-field-providers.example.json or set PFC_RC7_CASE_PROVIDER_CONFIG explicitly.
+)
 if not exist "%PFC_AITEST_STATE_DIR%\r1" mkdir "%PFC_AITEST_STATE_DIR%\r1"
 set "PYTHONPATH=%ROOT%;%PYTHONPATH%"
 cd /d "%ROOT%"
