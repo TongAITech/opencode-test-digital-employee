@@ -1,0 +1,37 @@
+name: RC8 N7 Execution Dispatch Contract
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_center/api/execution_bundle_routes.py'
+      - 'rc8_node/__main__.py'
+      - 'rc8_node/n7_execution_worker.py'
+      - 'rc8_node/dsh_json_runner.py'
+      - 'rc8_node/autonomous_dispatcher.py'
+      - 'rc8_node/autonomous_claim_client.py'
+      - 'tests/test_rc8_n7_execution_dispatch.py'
+      - '.github/workflows/rc8-n7-execution-dispatch.yml'
+  workflow_dispatch:
+
+jobs:
+  n7-dispatch-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Compile N7 dispatch slice
+        run: >-
+          python -m py_compile
+          rc8_center/api/execution_bundle_routes.py
+          rc8_node/__main__.py
+          rc8_node/n7_execution_worker.py
+          tests/test_rc8_n7_execution_dispatch.py
+      - name: Prove Center-owned N7 Agent Teams dispatch contract
+        run: python -m unittest tests.test_rc8_n7_execution_dispatch -v

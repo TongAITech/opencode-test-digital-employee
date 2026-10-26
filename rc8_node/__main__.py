@@ -12,6 +12,7 @@ from .autonomous_claim_client import AutonomousClaimClient
 from .autonomous_dispatcher import AutonomousWorkerDispatcher
 from .dsh_json_runner import DshJsonRunner
 from .formal_agent import FormalNodeAgent
+from .n7_execution_worker import N7ExecutionDispatchWorker
 from .requirement_analysis_worker import RequirementAnalysisWorker
 from .requirement_sufficiency_worker import RequirementSufficiencyWorker
 from .scope_intake_worker import ScopeIntakeWorker
@@ -21,6 +22,7 @@ _AUTONOMOUS_STAGES = (
     "SCOPE_INTAKE",
     "REQUIREMENT_ANALYSIS",
     "REQUIREMENT_SUFFICIENCY",
+    "APPLICABLE_LAYER_EXECUTION",
 )
 
 
@@ -57,6 +59,13 @@ def _build_dispatcher(args, identity, center: HttpCenterClient) -> AutonomousWor
         "REQUIREMENT_SUFFICIENCY": RequirementSufficiencyWorker(
             agent=formal_agent,
             work_dir=str(work_root / "requirement-sufficiency"),
+        ),
+        "APPLICABLE_LAYER_EXECUTION": N7ExecutionDispatchWorker(
+            agent=formal_agent,
+            dsh_runner=analysis_runner,
+            work_dir=str(work_root / "n7-execution"),
+            center_url=args.center,
+            http_timeout_seconds=args.http_timeout,
         ),
     }
     return AutonomousWorkerDispatcher(

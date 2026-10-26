@@ -51,6 +51,9 @@ def register_execution_bundle_routes(app: FastAPI) -> None:
         except (CenterControlError, N7ExecutionAdmissionError, ExecutableBundleError, ValueError) as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
+        # All dispatch identities are Center-derived from the same admission
+        # snapshot. The node consumes these response headers; it never supplies
+        # case/prepared/spec/execution Attempt authority in the request.
         return FileResponse(
             path=str(path),
             media_type="application/zip",
@@ -60,6 +63,10 @@ def register_execution_bundle_routes(app: FastAPI) -> None:
                 "X-RC8-SHA256": admission.bundle_sha256,
                 "X-RC8-Project-Subdir": admission.bundle_project_subdir,
                 "X-RC8-Executable-Spec-Id": admission.executable_spec_id,
+                "X-RC8-Prepared-Attempt-Id": admission.prepared_attempt_id,
+                "X-RC8-Case-Execution-Attempt-Id": admission.case_execution_attempt_id,
+                "X-RC8-Stage-Instance-Id": admission.stage_instance_id,
+                "X-RC8-Mission-Node-Id": admission.mission_node_id,
                 "X-RC8-Case-Id": admission.case_id,
                 "X-RC8-Truth": "LEASE_AUTHORIZED_CURRENT_N7_EXECUTABLE_BUNDLE",
             },
