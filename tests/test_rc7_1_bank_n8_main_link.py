@@ -5,9 +5,12 @@ from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+import rc7_runtime.bank_execution_autopilot as bank_execution_autopilot_module
 from rc6_runtime.preparation import PreparedAttempt
 from rc6_runtime.truth import TruthRuntime
-from rc7_runtime.bank_execution_autopilot import BankExecutionAutopilot
+from rc7_runtime.bank_execution_autopilot import BankExecutionAutopilot, BankExecutionAutopilotError
 from rc7_runtime.bank_n8_recovery import BankN8RecoveryCoordinator
 from rc7_runtime.bank_n8_successor import BankN8SuccessorCoordinator
 from rc7_runtime.case_runtime import PREPARED_ATTEMPT_KIND, _state_ref, _write_immutable_json
@@ -264,3 +267,64 @@ def test_direct_retry_materializes_fresh_successor_prepared_once_without_mutatin
         tc_id="TC-1",
         target_id="BANK-TARGET",
     ) is None
+
+
+def test_execution_repair_targets_only_case_bound_to_gap_without_sibling_fallback(monkeypatch):
+    class _Truth:
+        @staticmethod
+        def query(artifact_type, **filters):
+            assert artifact_type == "rc7_gap"
+            assert filters == {"gap_id": "GAP-TC-B"}
+            return [{"gap_id": "GAP-TC-B", "subject_refs": ["ATT-TC-B", "TC-B"]}]
+
+    autopilot = object.__new__(BankExecutionAutopilot)
+    autopilot.inventory = SimpleNamespace(
+        load=lambda truth, mission_id: SimpleNamespace(tc_ids=("TC-A", "TC-B"))
+    )
+    control = SimpleNamespace(truth=_Truth(), mission_id=MISSION)
+    task = SimpleNamespace(task_type="REPAIR", gap_refs=["GAP-TC-B"])
+
+    def _barrier_must_not_run(*args, **kwargs):
+        raise AssertionError("repair with a unique Case binding must not fall back to sibling fanout")
+
+    monkeypatch.setattr(
+        bank_execution_autopilot_module,
+        "check_execution_barrier",
+        _barrier_must_not_run,
+    )
+
+    assert autopilot._case_for_task(control, task) == "TC-B"
+
+
+def test_normal_execution_only_selects_missing_case_and_rejects_after_all_siblings_terminal(monkeypatch):
+    autopilot = object.__new__(BankExecutionAutopilot)
+    autopilot.inventory = SimpleNamespace(
+        load=lambda truth, mission_id: SimpleNamespace(tc_ids=("TC-A", "TC-B"))
+    )
+    control = SimpleNamespace(truth=object(), mission_id=MISSION)
+    task = SimpleNamespace(task_type="EXECUTE", gap_refs=[])
+
+    # TC-A is already terminal and therefore absent from the missing denominator.
+    # Production scheduling must choose only TC-B and never replay TC-A.
+    monkeypatch.setattr(
+        bank_execution_autopilot_module,
+        "check_execution_barrier",
+        lambda truth, mission_id: SimpleNamespace(
+            missing_tc_ids=("TC-B",),
+            pass_ready_tc_ids=("TC-A",),
+        ),
+    )
+    assert autopilot._case_for_task(control, task) == "TC-B"
+
+    # Once both siblings are terminal, an extra execution dispatch is a hard error,
+    # not permission to recycle an already-terminal Case.
+    monkeypatch.setattr(
+        bank_execution_autopilot_module,
+        "check_execution_barrier",
+        lambda truth, mission_id: SimpleNamespace(
+            missing_tc_ids=(),
+            pass_ready_tc_ids=("TC-A", "TC-B"),
+        ),
+    )
+    with pytest.raises(BankExecutionAutopilotError, match="EXECUTION_FANOUT_ALREADY_COMPLETE"):
+        autopilot._case_for_task(control, task)
