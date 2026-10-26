@@ -30,9 +30,13 @@ from rc6_runtime.execution import ExecutionProfileRegistry
 from .authority import RC7AuthorityRuntime
 from .bank_attempt_cat_execution import BankAttemptCatRuntimeExecutionService
 from .bank_autonomous_preparation_closure import BankAutonomousPreparationClosureError
-from .bank_n5_recovery_closure import BankN5RecoveryAwarePreparationClosureCoordinator
+from .bank_n5_full_recovery_closure import BankN5FullRecoveryAwarePreparationClosureCoordinator
 from .bank_n8_recovery import BankN8RecoveryCoordinator, BankN8RecoveryError
 from .bank_n8_successor import BankN8SuccessorCoordinator, BankN8SuccessorError
+from .bank_n8_upstream_successor import (
+    BankN8UpstreamSuccessorCoordinator,
+    BankN8UpstreamSuccessorError,
+)
 from .candidate_payload import CandidatePayloadReader
 from .case_fanout_conformance import AcceptedCaseInventoryReader
 from .case_runtime import CasePreparationService
@@ -89,7 +93,7 @@ class BankExecutionAutopilot:
             state_root=str(self.state_root),
             timeout_seconds=timeout_seconds,
         )
-        self.preparation_closure = BankN5RecoveryAwarePreparationClosureCoordinator(
+        self.preparation_closure = BankN5FullRecoveryAwarePreparationClosureCoordinator(
             state_root=str(self.state_root),
             evidence_root=str(self.evidence_root / "autonomous-n5"),
             target_id=self.target_id,
@@ -99,6 +103,10 @@ class BankExecutionAutopilot:
             evidence_root=str(self.evidence_root / "n8")
         )
         self.n8_successor = BankN8SuccessorCoordinator(state_root=str(self.state_root))
+        self.n8_upstream_successor = BankN8UpstreamSuccessorCoordinator(
+            state_root=str(self.state_root),
+            evidence_root=str(self.evidence_root / "n8"),
+        )
         self.oracle = DeterministicOracleRuntime()
         self.profiles = ExecutionProfileRegistry(RC7_1_EXECUTION_PROFILES)
 
@@ -290,6 +298,22 @@ class BankExecutionAutopilot:
                 reason=str(exc),
             )
             return
+
+        # Non-direct upstream repair is authorized while the source task is
+        # still READY.  This preserves the canonical N8 contract and ensures
+        # no business execution starts before the owner delta is accepted.
+        try:
+            self.n8_upstream_successor.authorize_if_ready(
+                control,
+                source_task_id=task.task_id,
+                tc_id=tc_id,
+                target_id=self.target_id,
+            )
+        except BankN8UpstreamSuccessorError as exc:
+            raise BankExecutionAutopilotError(
+                "EXECUTION_N8_UPSTREAM_AUTHORIZATION_FAILED:%s" % exc
+            ) from exc
+
         active = self.execution.activate_task(
             control,
             task.task_id,
@@ -300,14 +324,22 @@ class BankExecutionAutopilot:
         )
         preparation = CasePreparationService(control.truth, self.state_root)
         try:
-            prepared_result = self.n8_successor.materialize_direct_successor(
+            prepared_result = self.n8_upstream_successor.materialize_if_authorized(
                 control,
                 source_task_id=task.task_id,
                 worker_id=active.runtime_worker_id,
                 tc_id=tc_id,
                 target_id=self.target_id,
             )
-        except BankN8SuccessorError as exc:
+            if prepared_result is None:
+                prepared_result = self.n8_successor.materialize_direct_successor(
+                    control,
+                    source_task_id=task.task_id,
+                    worker_id=active.runtime_worker_id,
+                    tc_id=tc_id,
+                    target_id=self.target_id,
+                )
+        except (BankN8SuccessorError, BankN8UpstreamSuccessorError) as exc:
             self._block(
                 control,
                 task,
