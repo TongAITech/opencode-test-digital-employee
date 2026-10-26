@@ -40,7 +40,10 @@ from .bank_n8_upstream_successor import (
 from .candidate_payload import CandidatePayloadReader
 from .case_fanout_conformance import AcceptedCaseInventoryReader
 from .case_runtime import CasePreparationService
-from .case_script_bundle_resolver import CaseScriptExecutionBundleResolver
+from .case_script_bundle_resolver import (
+    CaseScriptBundleResolverError,
+    CaseScriptExecutionBundleResolver,
+)
 from .closed_loop_control import ClosedLoopControlPlane
 from .control_plane import WorkerOutput
 from .execution_capability import (
@@ -428,15 +431,30 @@ class BankExecutionAutopilot:
                 )
             return
         tc_id = self._case_for_task(control, task)
-        bundle = self.bundle_resolver.resolve(
-            control.truth,
-            mission_id=control.mission_id,
-            tc_id=tc_id,
-            cwd=str(self.package_root),
-            env=None,
-        )
-        profile = self.profiles.get(bundle.spec.layer)
         blocker_worker = "rc7.1-execution-blocker"
+        try:
+            bundle = self.bundle_resolver.resolve(
+                control.truth,
+                mission_id=control.mission_id,
+                tc_id=tc_id,
+                cwd=str(self.package_root),
+                env=None,
+            )
+        except CaseScriptBundleResolverError as exc:
+            self._block(
+                control,
+                task,
+                worker_ref=blocker_worker,
+                tc_id=tc_id,
+                status="BLOCKED_SCRIPT_BUNDLE",
+                reason="EXECUTION_SCRIPT_BUNDLE_RESOLUTION_FAILED:%s" % exc,
+                details={
+                    "phase": "SCRIPT_BUNDLE_RESOLUTION",
+                    "business_action_executed": False,
+                },
+            )
+            return
+        profile = self.profiles.get(bundle.spec.layer)
         try:
             broker = self._capability_broker(tuple(profile.required_tools))
         except ExecutionCapabilityEvidenceError as exc:
