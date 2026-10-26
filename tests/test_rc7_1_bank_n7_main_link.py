@@ -46,6 +46,19 @@ def _inventory():
     )
 
 
+def _two_case_inventory():
+    return AcceptedCaseInventory(
+        mission_id="M-N7-BANK",
+        design_task_id="T-DESIGN",
+        design_artifact_id="ART-DESIGN",
+        design_content_hash="sha256:design",
+        cases=(
+            AcceptedCase(tc_id="TC-1", case_version=1, layer="L3", case_hash="sha256:case-1"),
+            AcceptedCase(tc_id="TC-2", case_version=1, layer="L4", case_hash="sha256:case-2"),
+        ),
+    )
+
+
 def _barrier(*, status="PASS", outcome_receipts=("EVD-EXEC-1",), missing=(), blocked=()):
     return ExecutionFanoutBarrierResult(
         status=status,
@@ -100,6 +113,47 @@ def test_missing_current_execution_receipt_blocks_n7(monkeypatch):
     monkeypatch.setattr(n7_link.AcceptedCaseInventoryReader, "load", lambda *_args, **_kwargs: _inventory())
     with pytest.raises(BankN7ExecutionClosureError, match="CURRENT_EXECUTION_RECEIPTS_INCOMPLETE"):
         coordinator._validate_execution_batch(control, run_id="RUN-CURRENT")
+
+
+def test_partial_multi_case_batch_cannot_close_n7(monkeypatch):
+    control = _Control()
+    coordinator = BankN7ExecutionClosureCoordinator(target_id="BANK-TARGET", evidence_root=".")
+    barrier = ExecutionFanoutBarrierResult(
+        status="INCOMPLETE",
+        mission_id=control.mission_id,
+        design_artifact_id="ART-DESIGN",
+        required_tc_ids=("TC-1", "TC-2"),
+        pass_ready_tc_ids=("TC-1",),
+        blocked_tc_ids=(),
+        missing_tc_ids=("TC-2",),
+        receipt_ids=("EVD-EXEC-1",),
+    )
+    monkeypatch.setattr(n7_link, "check_execution_barrier", lambda *_args, **_kwargs: barrier)
+    monkeypatch.setattr(
+        n7_link.AcceptedCaseInventoryReader,
+        "load",
+        lambda *_args, **_kwargs: _two_case_inventory(),
+    )
+    with pytest.raises(
+        BankN7ExecutionClosureError,
+        match="BANK_N7_CURRENT_EXECUTION_RECEIPTS_INCOMPLETE:missing=TC-2",
+    ):
+        coordinator._validate_execution_batch(control, run_id="RUN-CURRENT")
+
+
+def test_missing_current_layer_denominator_blocks_n7(monkeypatch):
+    control = _Control()
+    coordinator = BankN7ExecutionClosureCoordinator(target_id="BANK-TARGET", evidence_root=".")
+    monkeypatch.setattr(
+        coordinator.service.coverage,
+        "current_denominator",
+        lambda *_args, **_kwargs: None,
+    )
+    with pytest.raises(
+        BankN7ExecutionClosureError,
+        match="BANK_N7_CURRENT_DENOMINATOR_REQUIRED:L1",
+    ):
+        coordinator._current_layer_receipts(control, run_id="RUN-CURRENT")
 
 
 @pytest.mark.parametrize("outcome", ["UNKNOWN", "NOT_EXECUTED"])
