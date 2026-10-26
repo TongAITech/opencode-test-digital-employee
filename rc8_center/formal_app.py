@@ -14,7 +14,7 @@ from rc8_center.api import create_app
 from rc8_center.artifacts import FileArtifactStore
 from rc8_center.code_sufficiency import CenterCodeSufficiencyEvaluator
 from rc8_center.executable_readiness import CenterExecutableReadinessService
-from rc8_center.requirement_loop_progression import RequirementLoopProgressor
+from rc8_center.fanout_progression import FanoutSafeRequirementLoopProgressor
 from rc8_center.formal_artifacts import FormalArtifactService
 from rc8_center.formal_control import FormalCenterControlPlane
 from rc8_center.formal_settings import CenterSettings
@@ -120,7 +120,7 @@ def build_app():
     replay_result = projector.replay()
     projection = GovernanceProjectionService(governance_repository, coverage_repository)
     mission_service = CenterMissionService(governance_repository, traceability_repository=traceability_repository)
-    mission_progressor = RequirementLoopProgressor(
+    mission_progressor = FanoutSafeRequirementLoopProgressor(
         store=postgres,
         mission_service=mission_service,
         governance_repository=governance_repository,
