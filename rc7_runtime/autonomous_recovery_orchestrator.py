@@ -55,6 +55,7 @@ class DurableRepairWorkOrder:
     artifact_id: str
     evidence_id: str
     content_hash: str
+    budget_scope_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -89,6 +90,7 @@ class N8RecoveryOrchestrator:
         plan: RecoveryWorkPlan,
         diagnosis_evidence_id: str,
         failure_signature_id: str,
+        budget_scope_id: Optional[str] = None,
     ) -> DurableRepairWorkOrder:
         if plan.mode not in {"REPREPARE_THEN_RETRY", "UPSTREAM_REPAIR_THEN_RETRY"}:
             raise N8RecoveryOrchestrationError("N8_NON_DIRECT_RECOVERY_PLAN_REQUIRED")
@@ -98,6 +100,11 @@ class N8RecoveryOrchestrator:
         if successor_attempt_id == plan.source_attempt_id:
             raise N8RecoveryOrchestrationError("N8_SUCCESSOR_ATTEMPT_MUST_BE_NEW")
         failure_signature_id = _required(failure_signature_id, "N8_FAILURE_SIGNATURE_REQUIRED")
+        explicit_budget_scope = bool(str(budget_scope_id or "").strip())
+        resolved_budget_scope = _required(
+            budget_scope_id or _stable_id("N8-RECOVERY-SCOPE", source_task_id),
+            "N8_BUDGET_SCOPE_REQUIRED",
+        )
 
         diagnosis = self._one(
             control,
@@ -149,6 +156,10 @@ class N8RecoveryOrchestrator:
             if row.get("kind") == self.RECEIPT_TYPE
             and failure_signature_id in set(row.get("subject_refs", []))
             and strategy_key in set(row.get("subject_refs", []))
+            and (
+                not explicit_budget_scope
+                or resolved_budget_scope in set(row.get("subject_refs", []))
+            )
         ]
         if len(prior) >= self.max_same_strategy_repairs:
             raise N8RecoveryOrchestrationError("SAME_FAILURE_SIGNATURE_STRATEGY_BUDGET_EXHAUSTED")
@@ -162,6 +173,7 @@ class N8RecoveryOrchestrator:
             plan.source_attempt_id,
             successor_attempt_id,
             strategy_key,
+            resolved_budget_scope,
         )
         payload = {
             "mission_id": control.mission_id,
@@ -173,6 +185,7 @@ class N8RecoveryOrchestrator:
             "diagnosis_evidence_id": diagnosis_evidence_id,
             "failure_signature_id": failure_signature_id,
             "strategy_key": strategy_key,
+            "budget_scope_id": resolved_budget_scope,
             "plan": asdict(plan),
         }
         encoded = (json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
@@ -201,6 +214,7 @@ class N8RecoveryOrchestrator:
                 successor_attempt_id,
                 failure_signature_id,
                 strategy_key,
+                resolved_budget_scope,
             ],
             content_hash="sha256:" + digest,
         )
@@ -235,6 +249,7 @@ class N8RecoveryOrchestrator:
             artifact_id=artifact_id,
             evidence_id=evidence_id,
             content_hash="sha256:" + digest,
+            budget_scope_id=resolved_budget_scope,
         )
 
     def accept_repair_receipt(
@@ -304,6 +319,10 @@ class N8RecoveryOrchestrator:
             if row.get("kind") == self.RECEIPT_TYPE
             and work_order.failure_signature_id in set(row.get("subject_refs", []))
             and work_order.strategy_key in set(row.get("subject_refs", []))
+            and (
+                not work_order.budget_scope_id
+                or work_order.budget_scope_id in set(row.get("subject_refs", []))
+            )
             and after in set(row.get("subject_refs", []))
         ]
         if repeated:
@@ -331,6 +350,7 @@ class N8RecoveryOrchestrator:
             "gap_id": work_order.gap_id,
             "failure_signature_id": work_order.failure_signature_id,
             "strategy_key": work_order.strategy_key,
+            "budget_scope_id": work_order.budget_scope_id,
             "repair_evaluation_id": evaluation_id,
             "repair_before_fingerprint": before,
             "repair_after_fingerprint": after,
@@ -363,6 +383,7 @@ class N8RecoveryOrchestrator:
                 work_order.gap_id,
                 work_order.failure_signature_id,
                 work_order.strategy_key,
+                work_order.budget_scope_id,
                 after,
                 prepared.attempt_id,
             ],
@@ -432,15 +453,25 @@ class N8RecoveryOrchestrator:
             raise N8RecoveryOrchestrationError("N8_WORK_ORDER_MISSION_MISMATCH")
         if artifact.get("artifact_type_name") != self.WORK_ORDER_TYPE or evidence.get("kind") != self.WORK_ORDER_TYPE:
             raise N8RecoveryOrchestrationError("N8_WORK_ORDER_TYPE_MISMATCH")
+        if work_order.budget_scope_id and work_order.budget_scope_id not in set(evidence.get("subject_refs", [])):
+            raise N8RecoveryOrchestrationError("N8_WORK_ORDER_BUDGET_SCOPE_MISMATCH")
         content_ref = artifact.get("content_ref")
         if not isinstance(content_ref, str) or not content_ref.startswith("file://"):
             raise N8RecoveryOrchestrationError("N8_WORK_ORDER_CONTENT_REF_INVALID")
         path = Path(content_ref[len("file://"):])
         if not path.is_file():
             raise N8RecoveryOrchestrationError("N8_WORK_ORDER_CONTENT_MISSING")
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        raw = path.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
         if artifact.get("content_hash") != "sha256:" + digest or evidence.get("content_hash") != "sha256:" + digest:
             raise N8RecoveryOrchestrationError("N8_WORK_ORDER_CONTENT_HASH_MISMATCH")
+        if work_order.budget_scope_id:
+            try:
+                durable = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise N8RecoveryOrchestrationError("N8_WORK_ORDER_CONTENT_INVALID") from exc
+            if durable.get("budget_scope_id") != work_order.budget_scope_id:
+                raise N8RecoveryOrchestrationError("N8_WORK_ORDER_BUDGET_SCOPE_CONTENT_MISMATCH")
 
     def _require_durable_successor_prepared(
         self,

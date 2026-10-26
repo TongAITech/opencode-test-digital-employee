@@ -1,7 +1,7 @@
 """BANK production bridge from execution diagnosis to governed RC7.1 N8 recovery.
 
-This module does not classify failures.  Runtime execution/diagnosis remains the
-authority.  The bridge replays the current Attempt's immutable diagnosis evidence,
+This module does not classify failures. Runtime execution/diagnosis remains the
+authority. The bridge replays the current Attempt's immutable diagnosis evidence,
 freezes the already-produced RecoveryWorkPlan into durable N8 work, and prevents
 an EXECUTION/REPAIR task from directly replaying the business Case.
 """
@@ -80,6 +80,7 @@ class DurableDirectRetryOrder:
     diagnosis_evidence_id: str
     failure_signature_id: str
     strategy_key: str
+    budget_scope_id: str
     source_attempt_id: str
     successor_attempt_id: str
     artifact_id: str
@@ -155,6 +156,24 @@ class BankN8RecoveryCoordinator:
         return plan, failure_signature_id
 
     @staticmethod
+    def _budget_scope(payload: Mapping[str, Any], *, attempt_id: str) -> str:
+        context = payload.get("context")
+        if not isinstance(context, dict):
+            raise BankN8RecoveryError("BANK_N8_DIAGNOSIS_CONTEXT_REQUIRED")
+        context_attempt = _required(context.get("attempt_id"), "BANK_N8_CONTEXT_ATTEMPT_REQUIRED")
+        if context_attempt != attempt_id:
+            raise BankN8RecoveryError("BANK_N8_CONTEXT_ATTEMPT_MISMATCH")
+        tc_id = _required(context.get("tc_id"), "BANK_N8_CONTEXT_TC_REQUIRED")
+        target_id = _required(context.get("target_id"), "BANK_N8_CONTEXT_TARGET_REQUIRED")
+        try:
+            case_version = int(context.get("case_version"))
+        except (TypeError, ValueError) as exc:
+            raise BankN8RecoveryError("BANK_N8_CONTEXT_CASE_VERSION_REQUIRED") from exc
+        if case_version < 1:
+            raise BankN8RecoveryError("BANK_N8_CONTEXT_CASE_VERSION_INVALID")
+        return _stable_id("N8-CASE-BUDGET-SCOPE", tc_id, case_version, target_id)
+
+    @staticmethod
     def _single_gap(result, plan: RecoveryWorkPlan):
         gaps = tuple(result.loop_result.gaps)
         if len(gaps) != 1:
@@ -173,14 +192,12 @@ class BankN8RecoveryCoordinator:
         plan: RecoveryWorkPlan,
         diagnosis_evidence_id: str,
         failure_signature_id: str,
+        budget_scope_id: str,
         reason: str,
     ) -> str:
         """Persist budget exhaustion as an explicit durable Mission boundary."""
-        repair_row = self._repair_task(
-            control,
-            gap_id=gap_id,
-            target_node=plan.target_node,
-        )
+        budget_scope_id = _required(budget_scope_id, "BANK_N8_BUDGET_SCOPE_REQUIRED")
+        repair_row = self._repair_task(control, gap_id=gap_id, target_node=plan.target_node)
         if repair_row.get("state") != TaskStatus.READY.value:
             raise BankN8RecoveryError("BANK_N8_BUDGET_BLOCK_REPAIR_READY_REQUIRED")
         gap = control._gap(gap_id)
@@ -197,7 +214,7 @@ class BankN8RecoveryCoordinator:
             strategy_key = _stable_id("RECOVERY-STRATEGY", plan.action, plan.mode, plan.target_node)
             budget_limit = self.orchestrator.max_same_strategy_repairs
         payload = {
-            "schema": "pfc.aitest.rc7.1.n8-recovery-budget-block.v1",
+            "schema": "pfc.aitest.rc7.1.n8-recovery-budget-block.v2",
             "mission_id": control.mission_id,
             "release_id": control.release_id,
             "source_task_id": source_task_id,
@@ -206,6 +223,7 @@ class BankN8RecoveryCoordinator:
             "diagnosis_evidence_id": diagnosis_evidence_id,
             "failure_signature_id": failure_signature_id,
             "strategy_key": strategy_key,
+            "budget_scope_id": budget_scope_id,
             "action": plan.action,
             "mode": plan.mode,
             "target_node": plan.target_node,
@@ -224,6 +242,7 @@ class BankN8RecoveryCoordinator:
             gap_id,
             failure_signature_id,
             strategy_key,
+            budget_scope_id,
             reason,
         )
         folder = self.evidence_root / "n8-recovery" / control.mission_id / "budget-blocks"
@@ -254,6 +273,7 @@ class BankN8RecoveryCoordinator:
                         successor,
                         failure_signature_id,
                         strategy_key,
+                        budget_scope_id,
                     ],
                     content_hash="sha256:" + digest,
                 ),
@@ -269,9 +289,7 @@ class BankN8RecoveryCoordinator:
         mission = control._mission()
         if mission.state != MissionStatus.BLOCKED:
             if mission.state not in {MissionStatus.RUNNING, MissionStatus.REPAIRING, MissionStatus.EVALUATING}:
-                raise BankN8RecoveryError(
-                    "BANK_N8_BUDGET_BLOCK_MISSION_STATE_INVALID:%s" % mission.state.value
-                )
+                raise BankN8RecoveryError("BANK_N8_BUDGET_BLOCK_MISSION_STATE_INVALID:%s" % mission.state.value)
             transition_mission(mission, MissionStatus.BLOCKED)
         control._sync_mission(mission)
         return evidence_id
@@ -289,6 +307,7 @@ class BankN8RecoveryCoordinator:
         )
         payload = _file_payload(row, "BANK_N8_DIAGNOSIS")
         plan, failure_signature_id = self._plan(payload, attempt_id=attempt_id)
+        budget_scope_id = self._budget_scope(payload, attempt_id=attempt_id)
         if plan.terminal or not plan.retry_allowed or not plan.successor_attempt_id:
             raise BankN8RecoveryError("BANK_N8_REPAIR_REQUIRED_MUST_HAVE_RETRYABLE_PLAN")
         gap = self._single_gap(result, plan)
@@ -301,6 +320,7 @@ class BankN8RecoveryCoordinator:
                     plan=plan,
                     diagnosis_evidence_id=str(row["evidence_id"]),
                     failure_signature_id=failure_signature_id,
+                    budget_scope_id=budget_scope_id,
                 )
             except BankN8RecoveryError as exc:
                 if str(exc) != "BANK_N8_DIRECT_RETRY_BUDGET_EXHAUSTED":
@@ -312,6 +332,7 @@ class BankN8RecoveryCoordinator:
                     plan=plan,
                     diagnosis_evidence_id=str(row["evidence_id"]),
                     failure_signature_id=failure_signature_id,
+                    budget_scope_id=budget_scope_id,
                     reason=str(exc),
                 )
         if plan.mode in {"REPREPARE_THEN_RETRY", "UPSTREAM_REPAIR_THEN_RETRY"}:
@@ -323,6 +344,7 @@ class BankN8RecoveryCoordinator:
                     plan=plan,
                     diagnosis_evidence_id=str(row["evidence_id"]),
                     failure_signature_id=failure_signature_id,
+                    budget_scope_id=budget_scope_id,
                 )
             except N8RecoveryOrchestrationError as exc:
                 if str(exc) == "SAME_FAILURE_SIGNATURE_STRATEGY_BUDGET_EXHAUSTED":
@@ -333,6 +355,7 @@ class BankN8RecoveryCoordinator:
                         plan=plan,
                         diagnosis_evidence_id=str(row["evidence_id"]),
                         failure_signature_id=failure_signature_id,
+                        budget_scope_id=budget_scope_id,
                         reason=str(exc),
                     )
                 raise BankN8RecoveryError("BANK_N8_WORK_ORDER_FAILED:%s" % exc) from exc
@@ -359,25 +382,31 @@ class BankN8RecoveryCoordinator:
         plan: RecoveryWorkPlan,
         diagnosis_evidence_id: str,
         failure_signature_id: str,
+        budget_scope_id: Optional[str] = None,
     ) -> DurableDirectRetryOrder:
         if plan.mode != "DIRECT_RETRY" or plan.target_node != "EXECUTION":
             raise BankN8RecoveryError("BANK_N8_DIRECT_RETRY_PLAN_REQUIRED")
         repair = self._repair_task(control, gap_id=gap_id, target_node="EXECUTION")
         if repair.get("state") != TaskStatus.READY.value:
             raise BankN8RecoveryError("BANK_N8_DIRECT_REPAIR_TASK_READY_REQUIRED")
+        resolved_budget_scope = _required(
+            budget_scope_id or _stable_id("N8-INTERNAL-DIRECT-SCOPE", source_task_id),
+            "BANK_N8_DIRECT_BUDGET_SCOPE_REQUIRED",
+        )
         strategy_key = _stable_id("N8-DIRECT-STRATEGY", plan.action, plan.mode, plan.target_node)
         prior = [
             row for row in control.truth.query("rc7_evidence", mission_id=control.mission_id)
             if row.get("kind") == self.DIRECT_RECEIPT_TYPE
             and failure_signature_id in set(row.get("subject_refs") or [])
             and strategy_key in set(row.get("subject_refs") or [])
+            and resolved_budget_scope in set(row.get("subject_refs") or [])
         ]
         if len(prior) >= self.max_same_signature_direct_retries:
             raise BankN8RecoveryError("BANK_N8_DIRECT_RETRY_BUDGET_EXHAUSTED")
         successor = _required(plan.successor_attempt_id, "BANK_N8_DIRECT_SUCCESSOR_REQUIRED")
         order_id = _stable_id(
             "N8-DIRECT-ORDER", control.mission_id, source_task_id, gap_id,
-            plan.source_attempt_id, successor, strategy_key,
+            plan.source_attempt_id, successor, strategy_key, resolved_budget_scope,
         )
         payload = {
             "mission_id": control.mission_id,
@@ -389,6 +418,7 @@ class BankN8RecoveryCoordinator:
             "diagnosis_evidence_id": diagnosis_evidence_id,
             "failure_signature_id": failure_signature_id,
             "strategy_key": strategy_key,
+            "budget_scope_id": resolved_budget_scope,
             "plan": asdict(plan),
         }
         encoded = (json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
@@ -411,7 +441,16 @@ class BankN8RecoveryCoordinator:
                     kind=self.DIRECT_ORDER_TYPE,
                     source_ref="runtime://bank-n8/direct-retry-order",
                     content_ref="file://" + str(path),
-                    subject_refs=[source_task_id, str(repair["task_id"]), gap_id, plan.source_attempt_id, successor, failure_signature_id, strategy_key],
+                    subject_refs=[
+                        source_task_id,
+                        str(repair["task_id"]),
+                        gap_id,
+                        plan.source_attempt_id,
+                        successor,
+                        failure_signature_id,
+                        strategy_key,
+                        resolved_budget_scope,
+                    ],
                     content_hash="sha256:" + digest,
                 ),
                 release_id=control.release_id,
@@ -438,6 +477,7 @@ class BankN8RecoveryCoordinator:
             diagnosis_evidence_id=diagnosis_evidence_id,
             failure_signature_id=failure_signature_id,
             strategy_key=strategy_key,
+            budget_scope_id=resolved_budget_scope,
             source_attempt_id=plan.source_attempt_id,
             successor_attempt_id=successor,
             artifact_id=artifact_id,
@@ -472,6 +512,11 @@ class BankN8RecoveryCoordinator:
         )
         evidence_refs = [str(x) for x in row.get("evidence_refs") or [] if str(x)]
         order_evidence = next((x for x in evidence_refs if x.startswith("EVD-N8-DIRECT-ORDER")), "")
+        budget_scope_id = _required(payload.get("budget_scope_id"), "BANK_N8_DIRECT_BUDGET_SCOPE_REQUIRED")
+        if order_evidence:
+            evidence_rows = control.truth.query("rc7_evidence", evidence_id=order_evidence)
+            if len(evidence_rows) != 1 or budget_scope_id not in set(evidence_rows[0].get("subject_refs") or []):
+                raise BankN8RecoveryError("BANK_N8_DIRECT_BUDGET_SCOPE_EVIDENCE_MISMATCH")
         return DurableDirectRetryOrder(
             order_id=str(payload["order_id"]),
             source_task_id=str(payload["source_task_id"]),
@@ -480,6 +525,7 @@ class BankN8RecoveryCoordinator:
             diagnosis_evidence_id=str(payload["diagnosis_evidence_id"]),
             failure_signature_id=str(payload["failure_signature_id"]),
             strategy_key=str(payload["strategy_key"]),
+            budget_scope_id=budget_scope_id,
             source_attempt_id=plan.source_attempt_id,
             successor_attempt_id=_required(plan.successor_attempt_id, "BANK_N8_DIRECT_SUCCESSOR_REQUIRED"),
             artifact_id=str(row["artifact_id"]),
@@ -511,6 +557,7 @@ class BankN8RecoveryCoordinator:
             "successor_attempt_id": order.successor_attempt_id,
             "failure_signature_id": order.failure_signature_id,
             "strategy_key": order.strategy_key,
+            "budget_scope_id": order.budget_scope_id,
             "action": plan.action,
             "mode": plan.mode,
             "business_action_executed": False,
@@ -532,7 +579,17 @@ class BankN8RecoveryCoordinator:
             kind=self.DIRECT_RECEIPT_TYPE,
             source_ref="runtime://bank-n8/direct-retry-authorization",
             content_ref="file://" + str(path),
-            subject_refs=[order.order_id, order.source_task_id, task.task_id, order.gap_id, order.source_attempt_id, order.successor_attempt_id, order.failure_signature_id, order.strategy_key],
+            subject_refs=[
+                order.order_id,
+                order.source_task_id,
+                task.task_id,
+                order.gap_id,
+                order.source_attempt_id,
+                order.successor_attempt_id,
+                order.failure_signature_id,
+                order.strategy_key,
+                order.budget_scope_id,
+            ],
             content_hash="sha256:" + digest,
         )
         artifact = Artifact(
@@ -560,6 +617,7 @@ class BankN8RecoveryCoordinator:
                 "source_attempt_id": order.source_attempt_id,
                 "successor_attempt_id": order.successor_attempt_id,
                 "failure_signature_id": order.failure_signature_id,
+                "budget_scope_id": order.budget_scope_id,
                 "business_action_executed": False,
             },
             evidence_refs=[evidence_id, order.diagnosis_evidence_id],

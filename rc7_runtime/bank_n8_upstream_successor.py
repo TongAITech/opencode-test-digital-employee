@@ -64,9 +64,7 @@ class BankN8UpstreamSuccessorCoordinator:
     ) -> None:
         self.state_root = Path(state_root).expanduser().resolve()
         self.evidence_root = Path(evidence_root).expanduser().resolve()
-        self.provider_config = (
-            Path(provider_config).expanduser().resolve() if provider_config else None
-        )
+        self.provider_config = Path(provider_config).expanduser().resolve() if provider_config else None
         self.orchestrator = N8RecoveryOrchestrator(evidence_root=str(self.evidence_root))
         self.prepared_reader = BankN8SuccessorCoordinator(state_root=str(self.state_root))
         self.inventory = AcceptedCaseInventoryReader()
@@ -152,6 +150,11 @@ class BankN8UpstreamSuccessorCoordinator:
                 continue
             if gap.get("state") != GapStatus.EVIDENCE_PENDING.value:
                 continue
+            budget_scope_id = str(payload.get("budget_scope_id") or "").strip()
+            if not budget_scope_id:
+                raise BankN8UpstreamSuccessorError("BANK_N8_UPSTREAM_BUDGET_SCOPE_REQUIRED")
+            if budget_scope_id not in refs:
+                raise BankN8UpstreamSuccessorError("BANK_N8_UPSTREAM_BUDGET_SCOPE_EVIDENCE_MISMATCH")
             artifact = self._work_order_artifact(
                 control,
                 evidence_id=str(evidence["evidence_id"]),
@@ -174,14 +177,13 @@ class BankN8UpstreamSuccessorCoordinator:
                 artifact_id=str(artifact["artifact_id"]),
                 evidence_id=str(evidence["evidence_id"]),
                 content_hash=str(evidence.get("content_hash") or ""),
+                budget_scope_id=budget_scope_id,
             )
             matches.append((work_order, plan, evidence))
         if not matches:
             return None
         if len(matches) != 1:
-            raise BankN8UpstreamSuccessorError(
-                "BANK_N8_UPSTREAM_WORK_ORDER_NOT_UNIQUE:%d" % len(matches)
-            )
+            raise BankN8UpstreamSuccessorError("BANK_N8_UPSTREAM_WORK_ORDER_NOT_UNIQUE:%d" % len(matches))
         return matches[0]
 
     @staticmethod
@@ -197,9 +199,7 @@ class BankN8UpstreamSuccessorCoordinator:
         if not rows:
             return None
         if len(rows) != 1:
-            raise BankN8UpstreamSuccessorError(
-                "BANK_N8_UPSTREAM_RECEIPT_NOT_UNIQUE:%d" % len(rows)
-            )
+            raise BankN8UpstreamSuccessorError("BANK_N8_UPSTREAM_RECEIPT_NOT_UNIQUE:%d" % len(rows))
         return rows[0]
 
     def authorize_if_ready(
@@ -210,11 +210,7 @@ class BankN8UpstreamSuccessorCoordinator:
         tc_id: str,
         target_id: str,
     ) -> Optional[str]:
-        current = self._work_order(
-            control,
-            source_task_id=source_task_id,
-            tc_id=tc_id,
-        )
+        current = self._work_order(control, source_task_id=source_task_id, tc_id=tc_id)
         if current is None:
             return None
         work_order, plan, _work_order_evidence = current
@@ -243,17 +239,10 @@ class BankN8UpstreamSuccessorCoordinator:
                 prepared_before=prepared_before,
             )
         except N8RecoveryOrchestrationError as exc:
-            raise BankN8UpstreamSuccessorError(
-                "BANK_N8_UPSTREAM_RECEIPT_REJECTED:%s" % exc
-            ) from exc
+            raise BankN8UpstreamSuccessorError("BANK_N8_UPSTREAM_RECEIPT_REJECTED:%s" % exc) from exc
         return authorization.repair_receipt_evidence_id
 
-    def _accepted_case(
-        self,
-        control: ClosedLoopControlPlane,
-        *,
-        tc_id: str,
-    ) -> Dict[str, Any]:
+    def _accepted_case(self, control: ClosedLoopControlPlane, *, tc_id: str) -> Dict[str, Any]:
         inventory = self.inventory.load(control.truth, control.mission_id)
         candidate = self.candidate_reader.load(
             control.truth,
@@ -293,12 +282,7 @@ class BankN8UpstreamSuccessorCoordinator:
             raise BankN8UpstreamSuccessorError("BANK_N8_REPREPARE_CANONICAL_PREPARED_IMMUTABILITY_VIOLATION")
         if not path.exists():
             path.write_bytes(encoded)
-        artifact_id = _stable_id(
-            "ART-PREPARED",
-            control.mission_id,
-            work_order.source_task_id,
-            prepared.attempt_id,
-        )
+        artifact_id = _stable_id("ART-PREPARED", control.mission_id, work_order.source_task_id, prepared.attempt_id)
         existing = control.truth.query("rc7_artifact", artifact_id=artifact_id)
         if existing:
             if (
@@ -400,6 +384,7 @@ class BankN8UpstreamSuccessorCoordinator:
             if row.get("kind") == N8RecoveryOrchestrator.RECEIPT_TYPE
             and work_order.failure_signature_id in set(row.get("subject_refs") or [])
             and work_order.strategy_key in set(row.get("subject_refs") or [])
+            and work_order.budget_scope_id in set(row.get("subject_refs") or [])
             and after in set(row.get("subject_refs") or [])
         ]
         if repeated:
@@ -425,6 +410,7 @@ class BankN8UpstreamSuccessorCoordinator:
             "gap_id": work_order.gap_id,
             "failure_signature_id": work_order.failure_signature_id,
             "strategy_key": work_order.strategy_key,
+            "budget_scope_id": work_order.budget_scope_id,
             "repair_evaluation_id": evaluation_id,
             "repair_before_fingerprint": before,
             "repair_after_fingerprint": after,
@@ -456,6 +442,7 @@ class BankN8UpstreamSuccessorCoordinator:
                 work_order.gap_id,
                 work_order.failure_signature_id,
                 work_order.strategy_key,
+                work_order.budget_scope_id,
                 after,
                 successor_prepared.attempt_id,
             ],
@@ -597,11 +584,7 @@ class BankN8UpstreamSuccessorCoordinator:
         tc_id: str,
         target_id: str,
     ) -> Optional[Dict[str, Any]]:
-        current = self._work_order(
-            control,
-            source_task_id=source_task_id,
-            tc_id=tc_id,
-        )
+        current = self._work_order(control, source_task_id=source_task_id, tc_id=tc_id)
         if current is None:
             return None
         work_order, plan, _ = current
@@ -629,6 +612,8 @@ class BankN8UpstreamSuccessorCoordinator:
             raise BankN8UpstreamSuccessorError("BANK_N8_UPSTREAM_RECEIPT_WORK_ORDER_MISMATCH")
         if receipt_payload.get("source_task_id") != source_task_id:
             raise BankN8UpstreamSuccessorError("BANK_N8_UPSTREAM_RECEIPT_SOURCE_TASK_MISMATCH")
+        if receipt_payload.get("budget_scope_id") != work_order.budget_scope_id:
+            raise BankN8UpstreamSuccessorError("BANK_N8_UPSTREAM_RECEIPT_BUDGET_SCOPE_MISMATCH")
         if receipt_payload.get("reprepare_required") is not False:
             raise BankN8UpstreamSuccessorError("BANK_N8_UPSTREAM_RECEIPT_REPREPARE_FORBIDDEN")
         successor_attempt = str(receipt_payload.get("successor_attempt_id") or "")
