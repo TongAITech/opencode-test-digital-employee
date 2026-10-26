@@ -117,44 +117,49 @@ def _claim(*, gap_id=None):
     )
 
 
-def test_complete_analysis_produces_policy_sufficient_not_model_pass(tmp_path: Path) -> None:
+def test_complete_analysis_uses_center_lease_attempt_and_policy_sufficient(tmp_path: Path) -> None:
     center = FakeCenter(_analysis(_candidate(complete=True)))
     agent = FakeAgent(center)
     worker = RequirementSufficiencyWorker(agent=agent, work_dir=str(tmp_path), now_fn=lambda: 100)
 
     result = worker.execute(_claim())
     assert result["result"] == "SUFFICIENT"
+    assert result["attempt_id"] == "LEASE-SUFF"
+    assert agent.started == [("WORK-SUFF", "LEASE-SUFF")]
     assert [event.event_type for event, _ in agent.events] == [
-        "ATTEMPT_STARTED",
         "SUFFICIENCY_EVALUATED",
         "ATTEMPT_COMPLETED",
     ]
-    evaluation = agent.events[1][0]
+    assert all(event.attempt_id == "LEASE-SUFF" for event, _ in agent.events)
+    assert all(event.event_type != "ATTEMPT_STARTED" for event, _ in agent.events)
+    evaluation = agent.events[0][0]
     assert evaluation.data["evaluator_id"] == "RC8_REQUIREMENT_SUFFICIENCY_POLICY"
     assert evaluation.data["policy_version"] == "rc8.requirement-sufficiency.v1"
     assert evaluation.data["result"] == "SUFFICIENT"
     assert evaluation.data["unresolved_gap_ids"] == []
+    assert agent.uploads[0][0].attempt_id == "LEASE-SUFF"
     assert agent.uploads[0][1]["analysis_artifact_ref"] == "artifact:ANALYSIS"
     assert agent.completed == [("WORK-SUFF", "LEASE-SUFF")]
     assert center.reads[0][1]["X-RC8-Lease-Id"] == "LEASE-SUFF"
 
 
-def test_incomplete_analysis_opens_gap_and_is_insufficient(tmp_path: Path) -> None:
+def test_incomplete_analysis_opens_gap_under_center_owned_attempt(tmp_path: Path) -> None:
     center = FakeCenter(_analysis(_candidate(complete=False)))
     agent = FakeAgent(center)
     worker = RequirementSufficiencyWorker(agent=agent, work_dir=str(tmp_path), now_fn=lambda: 100)
 
     result = worker.execute(_claim())
     assert result["result"] == "INSUFFICIENT"
+    assert result["attempt_id"] == "LEASE-SUFF"
     assert result["gap_id"].startswith("gap-requirement-")
     assert [event.event_type for event, _ in agent.events] == [
-        "ATTEMPT_STARTED",
         "GAP_OPENED",
         "SUFFICIENCY_EVALUATED",
         "ATTEMPT_COMPLETED",
     ]
-    gap = agent.events[1][0]
-    evaluation = agent.events[2][0]
+    assert all(event.attempt_id == "LEASE-SUFF" for event, _ in agent.events)
+    gap = agent.events[0][0]
+    evaluation = agent.events[1][0]
     assert gap.data["owner_stage"] == "REQUIREMENT_ANALYSIS"
     assert gap.data["gap_type"] == "REQUIREMENT_UNCLEAR"
     assert evaluation.data["result"] == "INSUFFICIENT"
@@ -170,15 +175,15 @@ def test_repaired_analysis_closes_prior_gap_before_sufficient_evaluation(tmp_pat
 
     result = worker.execute(_claim(gap_id="GAP-OLD"))
     assert result["result"] == "SUFFICIENT"
+    assert result["attempt_id"] == "LEASE-SUFF"
     assert result["closed_gap_ids"] == ["GAP-OLD"]
     assert [event.event_type for event, _ in agent.events] == [
-        "ATTEMPT_STARTED",
         "GAP_CLOSED",
         "SUFFICIENCY_EVALUATED",
         "ATTEMPT_COMPLETED",
     ]
-    assert agent.events[1][0].data["gap_id"] == "GAP-OLD"
-    assert agent.events[2][0].data["result"] == "SUFFICIENT"
+    assert agent.events[0][0].data["gap_id"] == "GAP-OLD"
+    assert agent.events[1][0].data["result"] == "SUFFICIENT"
 
 
 def test_model_supplied_is_sufficient_field_is_ignored(tmp_path: Path) -> None:

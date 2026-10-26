@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Real HTTP proof of the RC8 requirement-analysis repair loop.
 
-This is cloud protocol reality, not bank reality.  It starts from an actual
+This is cloud protocol reality, not bank reality. It starts from an actual
 ProductionDate/TestRound mission and uses the same formal Center API that the
-Docker product uses.  A fake headless DSH executable is used only to make the
+Docker product uses. A fake headless DSH executable is used only to make the
 model protocol deterministic in CI:
 
 SCOPE_INTAKE -> REQUIREMENT_ANALYSIS#1 -> REQUIREMENT_SUFFICIENCY#1
@@ -11,7 +11,7 @@ SCOPE_INTAKE -> REQUIREMENT_ANALYSIS#1 -> REQUIREMENT_SUFFICIENCY#1
   -> REQUIREMENT_SUFFICIENCY#2 -> GAP_CLOSED + SUFFICIENT -> CODE_ANALYSIS READY.
 
 No WorkItem ID is handed from one Stage to the next; the Node always discovers
-work through claim-next.  Historical Attempt/Evaluation/Gap facts remain.
+work through claim-next. Historical Attempt/Evaluation/Gap facts remain.
 """
 from __future__ import annotations
 
@@ -19,7 +19,6 @@ import hashlib
 import json
 import os
 import stat
-import sys
 import tempfile
 import time
 import uuid
@@ -117,31 +116,12 @@ def _complete_scope_intake(agent: FormalNodeAgent, claim, work_dir: Path):
     lease_id = claim.lease_id
     stage_id = claim.stage_instance_id
     run_id = claim.work_item["identity"]["test_run_id"]
+
+    # Formal Center owns ATTEMPT_STARTED. The lease returned by claim-next is
+    # the only Attempt identity used by artifacts and terminal truth.
+    attempt_id = lease_id
     agent.start(work_id, lease_id=lease_id)
-    seq = agent.center.get(
-        "/api/v1/test-runs/%s/nodes/%s/runtime-sequence" % (run_id, agent.identity.node_id)
-    )["next_sequence"]
-    attempt_id = "att-intake-%s" % uuid.uuid4().hex
-    agent.append_runtime_event(
-        runtime_event(
-            event_id="evt-intake-start-%s" % uuid.uuid4().hex,
-            test_run_id=run_id,
-            work_item_id=work_id,
-            node_id=agent.identity.node_id,
-            producer_kind=RuntimeProducerKind.WORKER,
-            producer_ref="RC8_REALITY_SCOPE_INTAKE",
-            event_type="ATTEMPT_STARTED",
-            sequence=seq,
-            attempt_id=attempt_id,
-            refs=list(claim.work_item["identity"].get("scope_refs") or []),
-            data={
-                "stage_instance_id": stage_id,
-                "input_snapshot_ref": "scope-intake:reality",
-                "started_at": int(time.time()),
-            },
-        ),
-        lease_id=lease_id,
-    )
+
     content = json.dumps({"scope": "normalized", "stage_instance_id": stage_id}, sort_keys=True).encode("utf-8")
     target = work_dir / "scope-intake.json"
     target.write_bytes(content)
@@ -179,7 +159,6 @@ def _complete_scope_intake(agent: FormalNodeAgent, claim, work_dir: Path):
             refs=list(claim.work_item["identity"].get("scope_refs") or []),
             data={
                 "stage_instance_id": stage_id,
-                "input_snapshot_ref": "scope-intake:reality",
                 "evidence_refs": ["artifact:%s" % artifact_id],
                 "finished_at": int(time.time()),
             },
@@ -288,7 +267,6 @@ def main() -> int:
         )
         center = HttpCenterClient(base_url, timeout_seconds=30)
         agent = FormalNodeAgent(identity, center)
-        # The final CODE_ANALYSIS claim must prove capability routing remains enforced.
         agent.report_capability(
             CapabilityQualification(
                 node_id=node_id,
@@ -331,7 +309,6 @@ def main() -> int:
         )
         assert valid_read["truth_note"] == "LEASE_AUTHORIZED_EXPLICIT_PREDECESSOR_EVIDENCE_READ"
 
-        # Wrong lease and unrelated predecessor evidence must fail closed.
         with httpx.Client(base_url=base_url, timeout=30.0) as client:
             wrong_lease = client.get(
                 "/api/v1/artifacts/%s/json" % analysis1_artifact_id,

@@ -153,7 +153,7 @@ def _claim():
     )
 
 
-def test_success_uses_only_revision_declared_sources_and_completes(tmp_path: Path) -> None:
+def test_success_uses_center_lease_attempt_and_only_revision_declared_sources(tmp_path: Path) -> None:
     center = FakeCenter(source_refs=["file:///bank/REQ-V2.md"])
     agent = FakeAgent(center)
     runner = SuccessRunner()
@@ -161,15 +161,18 @@ def test_success_uses_only_revision_declared_sources_and_completes(tmp_path: Pat
 
     result = worker.execute(_claim())
     assert result["status"] == "COMPLETED"
+    assert result["attempt_id"] == "LEASE-1"
     assert len(runner.prompts) == 1
     assert "file:///bank/REQ-V2.md" in runner.prompts[0]
     assert "RequirementRevision REQ-V2" in runner.prompts[0]
     assert agent.started == [("WORK-REQ", "LEASE-1")]
-    assert [event.event_type for event, _lease in agent.events] == ["ATTEMPT_STARTED", "ATTEMPT_COMPLETED"]
-    assert [event.sequence for event, _lease in agent.events] == [0, 1]
+    assert [event.event_type for event, _lease in agent.events] == ["ATTEMPT_COMPLETED"]
+    assert all(event.attempt_id == "LEASE-1" for event, _lease in agent.events)
+    assert all(event.event_type != "ATTEMPT_STARTED" for event, _lease in agent.events)
     assert len(agent.uploads) == 1
     manifest, body, lease = agent.uploads[0]
     assert manifest.kind == "REQUIREMENT_ANALYSIS"
+    assert manifest.attempt_id == "LEASE-1"
     assert lease == "LEASE-1"
     assert body["requirement_revision_id"] == "REQ-V2"
     assert body["scope_revision_id"] == "SR2"
@@ -179,32 +182,38 @@ def test_success_uses_only_revision_declared_sources_and_completes(tmp_path: Pat
     assert agent.failed == []
 
 
-def test_missing_revision_sources_blocks_without_calling_model(tmp_path: Path) -> None:
+def test_missing_revision_sources_blocks_under_center_owned_attempt_without_calling_model(tmp_path: Path) -> None:
     center = FakeCenter(source_refs=[])
     agent = FakeAgent(center)
     worker = RequirementAnalysisWorker(agent=agent, dsh_runner=NeverRunner(), work_dir=str(tmp_path), now_fn=lambda: 100)
 
     result = worker.execute(_claim())
     assert result["status"] == "BLOCKED"
+    assert result["attempt_id"] == "LEASE-1"
     assert result["reason"] == "REQUIREMENT_REVISION_SOURCE_REFS_REQUIRED"
-    assert [event.event_type for event, _lease in agent.events] == ["ATTEMPT_STARTED", "ATTEMPT_BLOCKED"]
+    assert [event.event_type for event, _lease in agent.events] == ["ATTEMPT_BLOCKED"]
+    assert agent.events[-1][0].attempt_id == "LEASE-1"
     assert agent.events[-1][0].data["failure_ownership"] == "DEPENDENCY"
     assert agent.completed == []
     assert agent.failed == [("WORK-REQ", "LEASE-1")]
     assert agent.uploads[0][0].kind == "REQUIREMENT_ANALYSIS_FAILURE"
+    assert agent.uploads[0][0].attempt_id == "LEASE-1"
 
 
-def test_dsh_failure_is_evidenced_and_failed_runtime(tmp_path: Path) -> None:
+def test_dsh_failure_is_evidenced_under_center_owned_attempt(tmp_path: Path) -> None:
     center = FakeCenter(source_refs=["file:///bank/REQ-V2.md"])
     agent = FakeAgent(center)
     worker = RequirementAnalysisWorker(agent=agent, dsh_runner=FailingRunner(), work_dir=str(tmp_path), now_fn=lambda: 100)
 
     result = worker.execute(_claim())
     assert result["status"] == "FAILED_RUNTIME"
+    assert result["attempt_id"] == "LEASE-1"
     assert result["reason"] == "DSH_TIMEOUT"
-    assert [event.event_type for event, _lease in agent.events] == ["ATTEMPT_STARTED", "ATTEMPT_FAILED_RUNTIME"]
+    assert [event.event_type for event, _lease in agent.events] == ["ATTEMPT_FAILED_RUNTIME"]
+    assert agent.events[-1][0].attempt_id == "LEASE-1"
     assert agent.events[-1][0].data["failure_ownership"] == "SESSION_RUNTIME"
     assert agent.uploads[0][1]["detail"]["stderr_tail"] == "timeout"
+    assert agent.uploads[0][0].attempt_id == "LEASE-1"
     assert agent.completed == []
     assert agent.failed == [("WORK-REQ", "LEASE-1")]
 

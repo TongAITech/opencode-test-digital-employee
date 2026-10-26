@@ -15,7 +15,7 @@ import json
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import quote
 
 from rc8_runtime import RuntimeProducerKind, runtime_event
@@ -92,34 +92,11 @@ class RequirementAnalysisWorker:
         if str(scope_revision.get("requirement_revision_id") or "") != requirement_revision_id:
             raise RequirementAnalysisWorkerError("SCOPE_REVISION_REQUIREMENT_MISMATCH")
         source_refs = self._revision_source_refs(requirement_revision, scope_revision)
-        input_snapshot_ref = "requirement-revision:%s|scope-revision:%s" % (
-            requirement_revision_id,
-            scope_revision_id,
-        )
-        attempt_id = "att-req-%s" % uuid.uuid4().hex
 
+        # Center owns ATTEMPT_STARTED. The active lease is the immutable Attempt
+        # identity for this WorkItem; workers only publish evidence-bearing facts.
+        attempt_id = lease_id
         self.agent.start(work_item_id, lease_id=lease_id)
-        started_sequence = self._next_sequence(test_run_id)
-        self.agent.append_runtime_event(
-            runtime_event(
-                event_id="evt-req-start-%s" % uuid.uuid4().hex,
-                test_run_id=test_run_id,
-                work_item_id=work_item_id,
-                node_id=self.agent.identity.node_id,
-                producer_kind=RuntimeProducerKind.WORKER,
-                producer_ref=self.producer_ref,
-                event_type="ATTEMPT_STARTED",
-                sequence=started_sequence,
-                attempt_id=attempt_id,
-                refs=list(scope_refs),
-                data={
-                    "stage_instance_id": stage_instance_id,
-                    "input_snapshot_ref": input_snapshot_ref,
-                    "started_at": self._now(),
-                },
-            ),
-            lease_id=lease_id,
-        )
 
         if not source_refs:
             return self._terminal_failure(
@@ -128,7 +105,6 @@ class RequirementAnalysisWorker:
                 stage_instance_id=stage_instance_id,
                 lease_id=lease_id,
                 attempt_id=attempt_id,
-                input_snapshot_ref=input_snapshot_ref,
                 scope_refs=scope_refs,
                 event_type="ATTEMPT_BLOCKED",
                 failure_ownership="DEPENDENCY",
@@ -154,7 +130,6 @@ class RequirementAnalysisWorker:
                 stage_instance_id=stage_instance_id,
                 lease_id=lease_id,
                 attempt_id=attempt_id,
-                input_snapshot_ref=input_snapshot_ref,
                 scope_refs=scope_refs,
                 event_type="ATTEMPT_FAILED_RUNTIME",
                 failure_ownership=self._failure_ownership(exc.reason),
@@ -172,7 +147,6 @@ class RequirementAnalysisWorker:
                 stage_instance_id=stage_instance_id,
                 lease_id=lease_id,
                 attempt_id=attempt_id,
-                input_snapshot_ref=input_snapshot_ref,
                 scope_refs=scope_refs,
                 event_type="ATTEMPT_FAILED_RUNTIME",
                 failure_ownership="MODEL",
@@ -221,7 +195,6 @@ class RequirementAnalysisWorker:
                 refs=list(scope_refs),
                 data={
                     "stage_instance_id": stage_instance_id,
-                    "input_snapshot_ref": input_snapshot_ref,
                     "action_refs": [str(item.get("call_ref") or "") for item in result.tool_calls if item.get("call_ref")],
                     "evidence_refs": [artifact_ref],
                     "finished_at": self._now(),
@@ -246,7 +219,6 @@ class RequirementAnalysisWorker:
         stage_instance_id: str,
         lease_id: str,
         attempt_id: str,
-        input_snapshot_ref: str,
         scope_refs: Sequence[str],
         event_type: str,
         failure_ownership: str,
@@ -290,7 +262,6 @@ class RequirementAnalysisWorker:
                 refs=list(scope_refs),
                 data={
                     "stage_instance_id": stage_instance_id,
-                    "input_snapshot_ref": input_snapshot_ref,
                     "evidence_refs": [artifact_ref],
                     "failure_ownership": failure_ownership,
                     "finished_at": self._now(),

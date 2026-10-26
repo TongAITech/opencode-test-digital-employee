@@ -1,6 +1,6 @@
 """Deterministic REQUIREMENT_SUFFICIENCY worker.
 
-DSH/model output is an analysis candidate, never sufficiency truth.  This worker
+DSH/model output is an analysis candidate, never sufficiency truth. This worker
 reads the exact AVAILABLE REQUIREMENT_ANALYSIS artifact referenced by its
 leased WorkItem, applies a versioned deterministic policy, publishes a policy
 artifact, then writes GAP_OPENED/GAP_CLOSED and SUFFICIENCY_EVALUATED facts to
@@ -78,26 +78,10 @@ class RequirementSufficiencyWorker:
         if result == "INSUFFICIENT":
             gap_id = self._gap_id(test_run_id, stage_instance_id, analysis_ref)
 
-        attempt_id = "att-req-suff-%s" % uuid.uuid4().hex
-        input_snapshot_ref = "requirement-revision:%s|scope-revision:%s|%s" % (
-            requirement_revision_id,
-            scope_revision_id,
-            analysis_ref,
-        )
+        # Center owns ATTEMPT_STARTED. The lease is the Attempt identity for
+        # this WorkItem and all worker artifacts/facts must bind to it.
+        attempt_id = lease_id
         self.agent.start(work_item_id, lease_id=lease_id)
-        self._event(
-            test_run_id=test_run_id,
-            work_item_id=work_item_id,
-            lease_id=lease_id,
-            event_type="ATTEMPT_STARTED",
-            attempt_id=attempt_id,
-            refs=scope_refs,
-            data={
-                "stage_instance_id": stage_instance_id,
-                "input_snapshot_ref": input_snapshot_ref,
-                "started_at": self._now(),
-            },
-        )
 
         policy_artifact = {
             "schema_version": "rc8.requirement-sufficiency.v1",
@@ -196,7 +180,6 @@ class RequirementSufficiencyWorker:
             refs=scope_refs,
             data={
                 "stage_instance_id": stage_instance_id,
-                "input_snapshot_ref": input_snapshot_ref,
                 "evidence_refs": [artifact_ref],
                 "gap_refs": unresolved_gap_ids,
                 "finished_at": self._now(),
