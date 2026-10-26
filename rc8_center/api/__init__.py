@@ -10,6 +10,7 @@ from .claim_routes import register_claim_routes
 from .delivery_routes import register_delivery_routes
 from .failure_routes import register_failure_routes
 from .fastapi_app import create_app as _create_app
+from .prepared_attempt_routes import register_prepared_attempt_routes
 from .revision_routes import register_revision_routes
 from .runtime_sequence_routes import register_runtime_sequence_routes
 from .test_round_routes import register_test_round_routes
@@ -53,6 +54,7 @@ def create_app(
     register_runtime_sequence_routes(app)
     register_artifact_read_routes(app)
     register_traceability_routes(app)
+    register_prepared_attempt_routes(app)
     return app
 
 
