@@ -162,6 +162,9 @@ def test_bank_autopilot_convergence_orders_governed_n10_director_then_mission_co
     autopilot = object.__new__(BankMissionAutopilot)
     autopilot.config = SimpleNamespace(run_id="RUN-1")
     autopilot.control = object()
+    autopilot.node_closure = SimpleNamespace(
+        reconcile_passed_nodes=lambda control: ()
+    )
     autopilot.n10 = _N10()
     autopilot.director_gate = _Director()
 
@@ -192,6 +195,9 @@ def test_bank_autopilot_never_converges_when_director_gate_rejects():
     autopilot = object.__new__(BankMissionAutopilot)
     autopilot.config = SimpleNamespace(run_id="RUN-1")
     autopilot.control = object()
+    autopilot.node_closure = SimpleNamespace(
+        reconcile_passed_nodes=lambda control: ()
+    )
     autopilot.n10 = _N10()
     autopilot.director_gate = _Director()
 
