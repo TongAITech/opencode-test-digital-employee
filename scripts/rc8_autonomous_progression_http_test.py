@@ -3,7 +3,7 @@
 
 Real chain under Uvicorn/PostgreSQL/Redis:
 ProductionDate -> TestRound -> Mission bootstrap -> ID-free claim -> Stage lease/start
--> R1 Attempt -> AVAILABLE Artifact -> ATTEMPT_COMPLETED -> WorkItem complete
+-> Center-owned R1 ATTEMPT_STARTED -> AVAILABLE Artifact -> ATTEMPT_COMPLETED -> WorkItem complete
 -> source Stage COMPLETED -> downstream Stage READY -> downstream WorkItem materialized
 -> Node claims the downstream WorkItem without receiving its ID
 -> failure request is rejected before terminal Attempt evidence
@@ -41,6 +41,14 @@ def _post(client: httpx.Client, path: str, payload: dict, expected: int = 200):
     response = client.post(path, json=payload)
     assert response.status_code == expected, (path, response.status_code, response.text)
     return response.json()
+
+
+def _next_sequence(client: httpx.Client, *, run_id: str, node_id: str) -> int:
+    response = client.get("/api/v1/test-runs/%s/nodes/%s/runtime-sequence" % (run_id, node_id))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["next_sequence"] == body["latest_sequence"] + 1
+    return int(body["next_sequence"])
 
 
 def _runtime_payload(*, lease_id: str, event_id: str, run_id: str, work_id: str,
@@ -195,19 +203,9 @@ def main() -> int:
         )
         assert started_work["work_item"]["state"] == "RUNNING"
 
-        attempt_id = "ATT-PROGRESS-%s" % suffix
-        _post(client, "/api/v1/runtime-events", _runtime_payload(
-            lease_id=first_lease_id,
-            event_id="EVT-START-%s" % suffix,
-            run_id=run_id,
-            work_id=first_work_id,
-            node_id=node_id,
-            stage_id=initial_stage_id,
-            event_type="ATTEMPT_STARTED",
-            sequence=1,
-            attempt_id=attempt_id,
-            data={"input_snapshot_ref": "scope-snapshot:%s" % scope_id, "started_at": 1001},
-        ))
+        attempt_id = first_lease_id
+        terminal_sequence = _next_sequence(client, run_id=run_id, node_id=node_id)
+        assert terminal_sequence >= 1
 
         content = ("scope intake evidence %s" % suffix).encode("utf-8")
         artifact_id = "ART-PROGRESS-%s" % suffix
@@ -234,7 +232,7 @@ def main() -> int:
             node_id=node_id,
             stage_id=initial_stage_id,
             event_type="ATTEMPT_COMPLETED",
-            sequence=2,
+            sequence=terminal_sequence,
             attempt_id=attempt_id,
             data={
                 "input_snapshot_ref": "scope-snapshot:%s" % scope_id,
@@ -290,22 +288,9 @@ def main() -> int:
         assert premature.status_code == 409, premature.text
         assert "MISSION_WORK_ITEM_FAILURE_REQUIRES_PROJECTED_TERMINAL_ATTEMPT" in premature.text
 
-        failed_attempt_id = "ATT-REQ-FAIL-%s" % suffix
-        _post(client, "/api/v1/runtime-events", _runtime_payload(
-            lease_id=second_lease_id,
-            event_id="EVT-REQ-START-%s" % suffix,
-            run_id=run_id,
-            work_id=second_work_id,
-            node_id=node_id,
-            stage_id=next_stage_id,
-            event_type="ATTEMPT_STARTED",
-            sequence=3,
-            attempt_id=failed_attempt_id,
-            data={
-                "input_snapshot_ref": "requirement-revision:%s" % requirement_revision_id,
-                "started_at": 1004,
-            },
-        ))
+        failed_attempt_id = second_lease_id
+        failed_sequence = _next_sequence(client, run_id=run_id, node_id=node_id)
+        assert failed_sequence > terminal_sequence
 
         failure_content = ("simulated DSH requirement worker failure %s" % suffix).encode("utf-8")
         failure_artifact_id = "ART-REQ-FAIL-%s" % suffix
@@ -332,7 +317,7 @@ def main() -> int:
             node_id=node_id,
             stage_id=next_stage_id,
             event_type="ATTEMPT_FAILED_RUNTIME",
-            sequence=4,
+            sequence=failed_sequence,
             attempt_id=failed_attempt_id,
             data={
                 "input_snapshot_ref": "requirement-revision:%s" % requirement_revision_id,
@@ -374,7 +359,7 @@ def main() -> int:
         "analysis_stage": next_stage_id,
         "analysis_work_item": second_work_id,
         "analysis_terminal_state": "FAILED_RUNTIME",
-        "truth_note": "Downstream work was auto-claimed with frozen revision refs; failure required R1 terminal Attempt plus AVAILABLE evidence and released the lease without unlocking successors.",
+        "truth_note": "Downstream work was auto-claimed with frozen revision refs; Center-owned Attempt identity was reused by worker evidence and terminal facts; failure released the lease without unlocking successors.",
     })
     return 0
 
