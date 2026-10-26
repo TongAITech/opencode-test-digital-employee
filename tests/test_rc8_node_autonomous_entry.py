@@ -46,6 +46,7 @@ def test_autonomous_entry_registers_only_currently_implemented_stage_workers(tmp
         "SCOPE_INTAKE",
         "REQUIREMENT_ANALYSIS",
         "REQUIREMENT_SUFFICIENCY",
+        "APPLICABLE_LAYER_EXECUTION",
     }
     assert dispatcher.ttl_seconds == 60
     assert dispatcher.idle_sleep_seconds == 1.0
@@ -61,12 +62,12 @@ def test_autonomous_entry_does_not_register_unimplemented_code_or_design_stages(
         "DESIGN_SUFFICIENCY",
         "EXECUTABLE_SPEC",
         "PRECONDITION_DATA_PREP",
-        "APPLICABLE_LAYER_EXECUTION",
         "FAILURE_COVERAGE_EVALUATION",
         "MISSION_SUFFICIENCY",
         "REPORT_RELEASE",
     }
     assert forbidden.isdisjoint(dispatcher.supported_stages)
+    assert "APPLICABLE_LAYER_EXECUTION" in dispatcher.supported_stages
 
 
 def test_autonomous_cli_requires_dsh_patch_before_any_runtime_registration() -> None:
