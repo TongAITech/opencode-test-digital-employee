@@ -1,0 +1,72 @@
+name: RC8 N7 Execution Admission Reality
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_center/execution_admission.py'
+      - 'rc8_center/n7_formal_control.py'
+      - 'rc8_center/formal_app.py'
+      - 'rc8_center/case_inventory.py'
+      - 'rc8_center/prepared_attempt.py'
+      - 'rc8_center/executable_readiness.py'
+      - 'rc8_center/runtime_mutation_producer.py'
+      - 'rc8_center/formal_control.py'
+      - 'rc8_center/infrastructure/postgres_prepared_attempt.py'
+      - 'rc8_center/infrastructure/postgres_executable_readiness.py'
+      - 'rc8_center/infrastructure/postgres_control.py'
+      - 'scripts/rc8_n7_execution_admission_http_test.py'
+      - '.github/workflows/rc8-n7-execution-admission-reality.yml'
+  workflow_dispatch:
+
+jobs:
+  n7-real-http-admission:
+    runs-on: ubuntu-latest
+    services:
+      postgresql:
+        image: postgres:16
+        env:
+          POSTGRES_DB: rc8
+          POSTGRES_USER: rc8
+          POSTGRES_PASSWORD: rc8
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rc8 -d rc8"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      RC8_DATABASE_URL: postgresql+psycopg://rc8:rc8@127.0.0.1:5432/rc8
+      RC8_REDIS_URL: redis://127.0.0.1:6379/0
+      PYTHONPATH: ${{ github.workspace }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install formal Center dependencies
+        run: pip install -r center/requirements.txt pytest
+      - name: Compile N7 execution admission slice
+        run: |
+          python -m py_compile \
+            rc8_center/execution_admission.py \
+            rc8_center/n7_formal_control.py \
+            rc8_center/formal_app.py \
+            scripts/rc8_n7_execution_admission_http_test.py
+      - name: Apply formal PostgreSQL schema
+        run: alembic -c center/alembic.ini upgrade head
+      - name: Prove N7 start is gated by current N4 N5 N6 authority
+        run: python scripts/rc8_n7_execution_admission_http_test.py
+      - name: Verify schema remains at head
+        run: alembic -c center/alembic.ini current

@@ -15,11 +15,13 @@ from rc8_center.artifacts import FileArtifactStore
 from rc8_center.case_inventory import CenterFrozenCaseInventoryResolver
 from rc8_center.code_sufficiency import CenterCodeSufficiencyEvaluator
 from rc8_center.executable_readiness import CenterExecutableReadinessService
+from rc8_center.execution_admission import CenterN7ExecutionAdmissionGate
 from rc8_center.fanout_progression import FanoutSafeRequirementLoopProgressor
 from rc8_center.formal_artifacts import FormalArtifactService
 from rc8_center.formal_control import FormalCenterControlPlane
 from rc8_center.formal_settings import CenterSettings
 from rc8_center.formal_trace_authority import FormalTraceRuntimeAuthority
+from rc8_center.n7_formal_control import N7AdmissionAwareFormalCenterControlPlane
 from rc8_center.prepared_attempt import CenterPreparedAttemptService
 from rc8_center.r1_traceability_ingestion import R1BackedCenterTraceabilityIngestion
 from rc8_center.runtime_invalidation import CenterRuntimeInvalidationCoordinator
@@ -103,7 +105,14 @@ def build_app():
         case_inventory_resolver=case_inventory_resolver,
     )
     formal_control_core = FormalCenterControlPlane(control_repository, redis_coordination, ledger, projector, progression=mission_progressor)
-    formal_control = RuntimeMutationAwareFormalCenterControlPlane(formal_control_core, runtime_mutation_producer)
+    runtime_formal_control = RuntimeMutationAwareFormalCenterControlPlane(formal_control_core, runtime_mutation_producer)
+    n7_execution_admission = CenterN7ExecutionAdmissionGate(
+        governance_repository=governance_repository,
+        case_inventory_resolver=case_inventory_resolver,
+        prepared_attempts=prepared_attempts,
+        executable_readiness=executable_readiness,
+    )
+    formal_control = N7AdmissionAwareFormalCenterControlPlane(runtime_formal_control, n7_execution_admission)
     trace_runtime_authority = FormalTraceRuntimeAuthority(formal_control, governance_repository)
     traceability_ingestion = R1BackedCenterTraceabilityIngestion(traceability_repository, ledger=ledger, control_plane=trace_runtime_authority, attempt_snapshot_resolver=trace_runtime_authority.resolve_current_attempt)
     trace_replay_result = traceability_ingestion.replay_canonical_runtime_observations()
@@ -124,6 +133,7 @@ def build_app():
     app.state.executable_spec_repository = executable_spec_repository
     app.state.prepared_attempts = prepared_attempts
     app.state.executable_readiness = executable_readiness
+    app.state.n7_execution_admission = n7_execution_admission
     app.state.traceability_repository = traceability_repository
     app.state.trace_runtime_authority = trace_runtime_authority
     app.state.traceability_ingestion = traceability_ingestion
@@ -142,6 +152,7 @@ def build_app():
     app.state.mission_service = mission_service
     app.state.mission_progressor = mission_progressor
     app.state.formal_control_core = formal_control_core
+    app.state.runtime_formal_control = runtime_formal_control
     app.state.formal_control = formal_control
     app.state.recovery_coordinator = recovery_coordinator
     app.state.artifact_store = artifact_store
