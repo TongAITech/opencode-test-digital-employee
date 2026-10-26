@@ -55,6 +55,7 @@ class CenterRuntimeInvalidationRecorder:
         frozen_case_revision_ref: str,
         observed_case_revision_ref: str,
         evidence_refs: Sequence[str],
+        source_runtime_event_id: Optional[str] = None,
     ) -> Optional[str]:
         frozen = _required(frozen_case_revision_ref, "frozen_case_revision_ref")
         observed = _required(observed_case_revision_ref, "observed_case_revision_ref")
@@ -67,6 +68,7 @@ class CenterRuntimeInvalidationRecorder:
             source_ref=frozen,
             observed_ref=observed,
             evidence_refs=evidence_refs,
+            source_runtime_event_id=source_runtime_event_id,
         )
 
     def record_runtime_binding_change(
@@ -77,6 +79,7 @@ class CenterRuntimeInvalidationRecorder:
         binding: str,
         observed_ref: str,
         evidence_refs: Sequence[str],
+        source_runtime_event_id: Optional[str] = None,
     ) -> Optional[str]:
         normalized = _required(binding, "binding").upper()
         reason = self._BINDING_REASONS.get(normalized)
@@ -93,6 +96,7 @@ class CenterRuntimeInvalidationRecorder:
             source_ref=frozen_ref,
             observed_ref=observed,
             evidence_refs=evidence_refs,
+            source_runtime_event_id=source_runtime_event_id,
         )
 
     @staticmethod
@@ -118,21 +122,66 @@ class CenterRuntimeInvalidationRecorder:
         source_ref: str,
         observed_ref: str,
         evidence_refs: Sequence[str],
+        source_runtime_event_id: Optional[str] = None,
     ) -> str:
         refs = _refs(evidence_refs)
         work_item = _required(work_item_id, "work_item_id")
         source = _required(source_ref, "source_ref")
         observed = _required(observed_ref, "observed_ref")
+        source_event_id = (
+            _required(source_runtime_event_id, "source_runtime_event_id")
+            if source_runtime_event_id is not None
+            else None
+        )
         node_id = "center-runtime-invalidation-recorder"
+
+        if source_event_id is not None:
+            event_id = "runtime-invalidation:%s:%s" % (
+                prepared_attempt.test_run_id,
+                source_event_id,
+            )
+            existing = self._existing_source_invalidation(
+                event_id=event_id,
+                prepared_attempt=prepared_attempt,
+                work_item_id=work_item,
+                reason=reason,
+                source_ref=source,
+                observed_ref=observed,
+                source_runtime_event_id=source_event_id,
+            )
+            if existing is not None:
+                return existing
+        else:
+            sequence = self.ledger.latest_node_sequence(
+                test_run_id=prepared_attempt.test_run_id,
+                node_id=node_id,
+            ) + 1
+            event_id = "runtime-invalidation:%s:%s:%s" % (
+                prepared_attempt.attempt_id,
+                reason.lower(),
+                sequence,
+            )
+
         sequence = self.ledger.latest_node_sequence(
             test_run_id=prepared_attempt.test_run_id,
             node_id=node_id,
         ) + 1
-        event_id = "runtime-invalidation:%s:%s:%s" % (
-            prepared_attempt.attempt_id,
-            reason.lower(),
-            sequence,
-        )
+        event_refs = list(refs)
+        if source_event_id is not None and source_event_id not in event_refs:
+            event_refs.append(source_event_id)
+        data = {
+            "invalidation_id": event_id,
+            "source_ref": source,
+            "observed_ref": observed,
+            "target_refs": [
+                "prepared-attempt:%s" % prepared_attempt.prepared_attempt_id,
+                "attempt:%s" % prepared_attempt.attempt_id,
+            ],
+            "reason": reason,
+            "evidence_refs": list(refs),
+        }
+        if source_event_id is not None:
+            data["source_runtime_event_id"] = source_event_id
         envelope = runtime_event(
             event_id=event_id,
             test_run_id=prepared_attempt.test_run_id,
@@ -144,19 +193,44 @@ class CenterRuntimeInvalidationRecorder:
             sequence=sequence,
             case_id=prepared_attempt.case_id,
             attempt_id=prepared_attempt.attempt_id,
-            refs=list(refs),
-            data={
-                "invalidation_id": event_id,
-                "source_ref": source,
-                "observed_ref": observed,
-                "target_refs": [
-                    "prepared-attempt:%s" % prepared_attempt.prepared_attempt_id,
-                    "attempt:%s" % prepared_attempt.attempt_id,
-                ],
-                "reason": reason,
-                "evidence_refs": list(refs),
-            },
+            refs=event_refs,
+            data=data,
         )
         self.ledger.assert_next_node_sequence(envelope)
         self.ledger.append_runtime(envelope)
         return event_id
+
+    def _existing_source_invalidation(
+        self,
+        *,
+        event_id: str,
+        prepared_attempt: PreparedAttempt,
+        work_item_id: str,
+        reason: str,
+        source_ref: str,
+        observed_ref: str,
+        source_runtime_event_id: str,
+    ) -> Optional[str]:
+        for event in self.ledger.runtime_events(test_run_id=prepared_attempt.test_run_id):
+            if event.get("event_id") != event_id:
+                continue
+            data = event.get("data")
+            if not isinstance(data, dict):
+                raise RuntimeInvalidationRecordingError("SOURCE_INVALIDATION_EVENT_DATA_REQUIRED")
+            expected_identity = (
+                str(event.get("work_item_id") or "") == work_item_id
+                and str(event.get("case_id") or "") == prepared_attempt.case_id
+                and str(event.get("attempt_id") or "") == prepared_attempt.attempt_id
+            )
+            expected_data = (
+                str(data.get("reason") or "") == reason
+                and str(data.get("source_ref") or "") == source_ref
+                and str(data.get("observed_ref") or "") == observed_ref
+                and str(data.get("source_runtime_event_id") or "") == source_runtime_event_id
+            )
+            if not expected_identity or not expected_data:
+                raise RuntimeInvalidationRecordingError(
+                    "SOURCE_RUNTIME_EVENT_INVALIDATION_CONFLICT"
+                )
+            return event_id
+        return None

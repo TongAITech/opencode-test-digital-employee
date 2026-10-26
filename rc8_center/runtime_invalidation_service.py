@@ -44,7 +44,7 @@ class CenterRuntimeInvalidationService:
             raise PreparedAttemptError("RUNTIME_INVALIDATION_REQUIRES_CURRENT_PREPARED_ATTEMPT")
         return current
 
-    def _project(self, event_id: Optional[str]) -> Optional[str]:
+    def ensure_projected(self, event_id: Optional[str]) -> Optional[str]:
         if event_id is None:
             return None
         result = self._projector.replay()
@@ -70,6 +70,7 @@ class CenterRuntimeInvalidationService:
         frozen_case_revision_ref: str,
         observed_case_revision_ref: str,
         evidence_refs: Sequence[str],
+        source_runtime_event_id: Optional[str] = None,
     ) -> Optional[str]:
         prepared = self._current(
             test_run_id=test_run_id,
@@ -82,8 +83,9 @@ class CenterRuntimeInvalidationService:
             frozen_case_revision_ref=frozen_case_revision_ref,
             observed_case_revision_ref=observed_case_revision_ref,
             evidence_refs=evidence_refs,
+            source_runtime_event_id=source_runtime_event_id,
         )
-        return self._project(event_id)
+        return self.ensure_projected(event_id)
 
     def record_runtime_binding_change(
         self,
@@ -95,6 +97,7 @@ class CenterRuntimeInvalidationService:
         binding: str,
         observed_ref: str,
         evidence_refs: Sequence[str],
+        source_runtime_event_id: Optional[str] = None,
     ) -> Optional[str]:
         prepared = self._current(
             test_run_id=test_run_id,
@@ -107,5 +110,6 @@ class CenterRuntimeInvalidationService:
             binding=binding,
             observed_ref=observed_ref,
             evidence_refs=evidence_refs,
+            source_runtime_event_id=source_runtime_event_id,
         )
-        return self._project(event_id)
+        return self.ensure_projected(event_id)

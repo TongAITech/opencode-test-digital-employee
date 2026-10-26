@@ -25,6 +25,10 @@ from rc8_center.runtime_invalidation import CenterRuntimeInvalidationCoordinator
 from rc8_center.runtime_invalidation_projector import CenterRuntimeInvalidationProjector
 from rc8_center.runtime_invalidation_recorder import CenterRuntimeInvalidationRecorder
 from rc8_center.runtime_invalidation_service import CenterRuntimeInvalidationService
+from rc8_center.runtime_mutation_producer import (
+    CenterRuntimeMutationProducer,
+    RuntimeMutationAwareFormalCenterControlPlane,
+)
 from rc8_center.scope_aware_governance_projector import ScopeAwareGovernanceEventProjector
 from rc8_center.governance_projection import GovernanceProjectionService
 from rc8_center.mission_service import CenterMissionService
@@ -55,6 +59,19 @@ def _require_complete_runtime_invalidation_replay(result) -> None:
         detail = "; ".join(str(error) for error in errors[:5])
         raise RuntimeError(
             "RC8 Center startup blocked: canonical runtime invalidation replay "
+            f"is incomplete (pending={pending}, errors={len(errors)})"
+            + (f": {detail}" if detail else "")
+        )
+
+
+def _require_complete_runtime_mutation_replay(result) -> None:
+    """Fail Center startup while a persisted mutation lacks derived invalidation."""
+    pending = int(getattr(result, "pending", 0) or (result.get("pending", 0) if isinstance(result, dict) else 0))
+    errors = tuple(getattr(result, "errors", ()) or (result.get("errors", ()) if isinstance(result, dict) else ()))
+    if pending or errors:
+        detail = "; ".join(str(error) for error in errors[:5])
+        raise RuntimeError(
+            "RC8 Center startup blocked: canonical runtime mutation replay "
             f"is incomplete (pending={pending}, errors={len(errors)})"
             + (f": {detail}" if detail else "")
         )
@@ -91,6 +108,13 @@ def build_app():
         projector=runtime_invalidation_projector,
         prepared_attempts=prepared_attempts,
     )
+    runtime_mutation_producer = CenterRuntimeMutationProducer(
+        ledger=ledger,
+        invalidation_service=runtime_invalidation_service,
+        executable_readiness=executable_readiness,
+    )
+    runtime_mutation_replay_result = runtime_mutation_producer.replay()
+    _require_complete_runtime_mutation_replay(runtime_mutation_replay_result)
 
     projector = ScopeAwareGovernanceEventProjector(ledger, governance_repository, coverage_repository, artifact_repository)
     replay_result = projector.replay()
@@ -103,12 +127,16 @@ def build_app():
         control_repository=control_repository,
         artifact_repository=artifact_repository,
     )
-    formal_control = FormalCenterControlPlane(
+    formal_control_core = FormalCenterControlPlane(
         control_repository,
         redis_coordination,
         ledger,
         projector,
         progression=mission_progressor,
+    )
+    formal_control = RuntimeMutationAwareFormalCenterControlPlane(
+        formal_control_core,
+        runtime_mutation_producer,
     )
 
     trace_runtime_authority = FormalTraceRuntimeAuthority(formal_control, governance_repository)
@@ -144,6 +172,8 @@ def build_app():
     app.state.runtime_invalidation_coordinator = runtime_invalidation_coordinator
     app.state.runtime_invalidation_recorder = runtime_invalidation_recorder
     app.state.runtime_invalidation_service = runtime_invalidation_service
+    app.state.runtime_mutation_producer = runtime_mutation_producer
+    app.state.runtime_mutation_replay_result = runtime_mutation_replay_result
     app.state.prepared_attempt_repository = prepared_attempt_repository
     app.state.executable_spec_repository = executable_spec_repository
     app.state.prepared_attempts = prepared_attempts
@@ -165,6 +195,7 @@ def build_app():
     app.state.test_round_repository = test_round_repository
     app.state.mission_service = mission_service
     app.state.mission_progressor = mission_progressor
+    app.state.formal_control_core = formal_control_core
     app.state.formal_control = formal_control
     app.state.recovery_coordinator = recovery_coordinator
     app.state.artifact_store = artifact_store
