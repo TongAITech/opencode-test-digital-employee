@@ -111,6 +111,7 @@ def build_app():
         case_inventory_resolver=case_inventory_resolver,
         prepared_attempts=prepared_attempts,
         executable_readiness=executable_readiness,
+        artifact_store=artifact_store,
     )
     formal_control = N7AdmissionAwareFormalCenterControlPlane(runtime_formal_control, n7_execution_admission)
     trace_runtime_authority = FormalTraceRuntimeAuthority(formal_control, governance_repository)

@@ -2,7 +2,9 @@
 
 The gate runs before Center creates the N7 governance ATTEMPT_STARTED event.
 It re-authorizes the exact current N4 frozen case, N5 PreparedAttempt and N6
-ExecutableSpec.  Admission is not test execution and never creates PASS.
+ExecutableSpec.  Production wiring can additionally require the immutable
+executable bundle to be AVAILABLE and structurally valid before admission.
+Admission is not test execution and never creates PASS.
 """
 from __future__ import annotations
 
@@ -13,6 +15,7 @@ from rc8_runtime.mission_graph import MissionStageType
 from rc8_runtime.mission_nodes import MissionNodeAdoptionGraph, MissionNodeType, binding_for_stage
 
 from .case_inventory import CenterFrozenCaseInventoryResolver, FrozenCaseInventoryError
+from .executable_bundle import ExecutableBundleError, validate_executable_bundle
 from .executable_readiness import CenterExecutableReadinessService, ExecutableReadinessError
 from .prepared_attempt import CenterPreparedAttemptService, PreparedAttemptError, PreparedAttemptState
 
@@ -47,6 +50,11 @@ class N7ExecutionAdmission:
     frozen_case_ref: str
     case_inventory_ref: str
     case_inventory_fingerprint_ref: str
+    script_artifact_ref: str
+    driver_ref: str
+    bundle_sha256: Optional[str] = None
+    bundle_size_bytes: Optional[int] = None
+    bundle_project_subdir: Optional[str] = None
 
 
 class CenterN7ExecutionAdmissionGate:
@@ -59,11 +67,13 @@ class CenterN7ExecutionAdmissionGate:
         case_inventory_resolver: CenterFrozenCaseInventoryResolver,
         prepared_attempts: CenterPreparedAttemptService,
         executable_readiness: CenterExecutableReadinessService,
+        artifact_store: Optional[object] = None,
     ) -> None:
         self.governance_repository = governance_repository
         self.case_inventory_resolver = case_inventory_resolver
         self.prepared_attempts = prepared_attempts
         self.executable_readiness = executable_readiness
+        self.artifact_store = artifact_store
 
     def authorize_start(self, *, work: object, stage_instance_id: Optional[str]) -> Optional[N7ExecutionAdmission]:
         if str(work.identity.stage) != MissionStageType.APPLICABLE_LAYER_EXECUTION.value:
@@ -151,6 +161,18 @@ class CenterN7ExecutionAdmissionGate:
         except ExecutableReadinessError as exc:
             raise N7ExecutionAdmissionError("N7_REQUIRES_CURRENT_N6_READY:%s" % exc) from exc
 
+        bundle = None
+        if self.artifact_store is not None:
+            try:
+                bundle = validate_executable_bundle(
+                    self.artifact_store,
+                    current.script_artifact_ref,
+                    test_run_id=work.identity.test_run_id,
+                    case_id=case_id,
+                )
+            except ExecutableBundleError as exc:
+                raise N7ExecutionAdmissionError("N7_REQUIRES_CURRENT_EXECUTABLE_BUNDLE:%s" % exc) from exc
+
         return N7ExecutionAdmission(
             test_run_id=work.identity.test_run_id,
             work_item_id=work.identity.work_item_id,
@@ -163,4 +185,9 @@ class CenterN7ExecutionAdmissionGate:
             frozen_case_ref=frozen_case.case_revision_ref,
             case_inventory_ref=inventory.artifact_ref,
             case_inventory_fingerprint_ref=inventory.fingerprint_ref,
+            script_artifact_ref=current.script_artifact_ref,
+            driver_ref=current.driver_ref,
+            bundle_sha256=bundle.sha256 if bundle is not None else None,
+            bundle_size_bytes=bundle.size_bytes if bundle is not None else None,
+            bundle_project_subdir=bundle.project_subdir if bundle is not None else None,
         )
