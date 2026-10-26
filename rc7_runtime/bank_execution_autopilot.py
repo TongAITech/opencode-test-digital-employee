@@ -12,7 +12,9 @@ PREPARED_ATTEMPT contract and pass the governed N5 per-Case gate.
 
 RC7.1 N8 hardening: a governed EXECUTION/REPAIR task is retry authorization
 work, not a second business execution. Real execution failures are captured into
-durable N8 recovery orders before the Mission may continue.
+durable N8 recovery orders before the Mission may continue. A reactivated source
+execution consumes a durable N8 successor authorization into a fresh PreparedAttempt
+instead of replaying the predecessor Attempt identity.
 """
 from __future__ import annotations
 
@@ -30,6 +32,7 @@ from .bank_autonomous_preparation_closure import (
     BankAutonomousPreparationClosureError,
 )
 from .bank_n8_recovery import BankN8RecoveryCoordinator, BankN8RecoveryError
+from .bank_n8_successor import BankN8SuccessorCoordinator, BankN8SuccessorError
 from .candidate_payload import CandidatePayloadReader
 from .case_fanout_conformance import AcceptedCaseInventoryReader
 from .case_runtime import CasePreparationService
@@ -95,6 +98,7 @@ class BankExecutionAutopilot:
         self.n8_recovery = BankN8RecoveryCoordinator(
             evidence_root=str(self.evidence_root / "n8")
         )
+        self.n8_successor = BankN8SuccessorCoordinator(state_root=str(self.state_root))
         self.oracle = DeterministicOracleRuntime()
         self.profiles = ExecutionProfileRegistry(RC7_1_EXECUTION_PROFILES)
 
@@ -295,22 +299,43 @@ class BankExecutionAutopilot:
             tool_broker=broker,
         )
         preparation = CasePreparationService(control.truth, self.state_root)
-        attempt_id = _stable_id(
-            "ATT-CASE",
-            control.mission_id,
-            task.task_id,
-            tc_id,
-            str(bundle.spec.case_version),
-            self.target_id,
-        )
-        prepared_result = preparation.prepare(
-            mission_id=control.mission_id,
-            task_id=task.task_id,
-            worker_id=active.runtime_worker_id,
-            case=bundle.frozen_case,
-            attempt_id=attempt_id,
-            target_id=self.target_id,
-        )
+        try:
+            prepared_result = self.n8_successor.materialize_direct_successor(
+                control,
+                source_task_id=task.task_id,
+                worker_id=active.runtime_worker_id,
+                tc_id=tc_id,
+                target_id=self.target_id,
+            )
+        except BankN8SuccessorError as exc:
+            self._block(
+                control,
+                task,
+                worker_ref=active.runtime_worker_id,
+                tc_id=tc_id,
+                status="BLOCKED_RECOVERY",
+                reason="EXECUTION_N8_SUCCESSOR_FAIL_CLOSED:%s" % exc,
+                details={"n8_successor_gate": "FAIL_CLOSED"},
+                already_leased=True,
+            )
+            return
+        if prepared_result is None:
+            attempt_id = _stable_id(
+                "ATT-CASE",
+                control.mission_id,
+                task.task_id,
+                tc_id,
+                str(bundle.spec.case_version),
+                self.target_id,
+            )
+            prepared_result = preparation.prepare(
+                mission_id=control.mission_id,
+                task_id=task.task_id,
+                worker_id=active.runtime_worker_id,
+                case=bundle.frozen_case,
+                attempt_id=attempt_id,
+                target_id=self.target_id,
+            )
         if prepared_result.get("status") != "PREPARED":
             human = prepared_result.get("status") == "HUMAN_GATE_REQUIRED"
             self._block(
