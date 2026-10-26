@@ -429,9 +429,13 @@ class BankExecutionAutopilot:
                 target_id=self.target_id,
             )
         except BankN8UpstreamSuccessorError as exc:
-            raise BankExecutionAutopilotError(
-                "EXECUTION_N8_UPSTREAM_AUTHORIZATION_FAILED:%s" % exc
-            ) from exc
+            self._block_n8_recovery_failure(
+                control,
+                task,
+                phase="UPSTREAM_AUTHORIZATION",
+                reason=str(exc),
+            )
+            return
 
         active = self.execution.activate_task(
             control,
