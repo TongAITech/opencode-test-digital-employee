@@ -20,7 +20,7 @@ from typing import Optional, Sequence, Tuple
 
 from rc6_runtime.truth import TruthRuntime
 
-from .active_task_supervisor import MissionActiveTaskSupervisor, RecoverableDshTaskWorkerBridge
+from .active_task_supervisor import MissionActiveTaskSupervisor
 from .authority import RC7AuthorityRuntime
 from .authorized_dsh_launcher import Rc7AuthorizedDshHeadlessWorkerLauncher
 from .autonomous_n10_governed import GovernedAutonomousN10FinalizationService
@@ -36,6 +36,11 @@ from .bank_mission_director import BankMissionDirectorGate, BankMissionDirectorG
 from .bank_n7_execution_closure import (
     BankN7ExecutionClosureCoordinator,
     BankN7ExecutionClosureError,
+)
+from .bank_n8_dsh_bridge import BankN8AwareDshTaskWorkerBridge
+from .bank_n8_owner_repair_evaluator import (
+    BankN8OwnerRepairEvaluationError,
+    BankN8OwnerRepairEvaluator,
 )
 from .candidate_payload import CandidatePayloadReader
 from .closed_loop_control import ClosedLoopControlPlane
@@ -275,7 +280,7 @@ class BankMissionAutopilot:
             state_root=str(config.state_root),
             timeout_seconds=config.timeout_seconds,
         )
-        self.bridge = RecoverableDshTaskWorkerBridge(
+        self.bridge = BankN8AwareDshTaskWorkerBridge(
             self.control,
             self.launcher,
             node_policies=FIELD_NODE_POLICIES,
@@ -289,6 +294,7 @@ class BankMissionAutopilot:
         self.code_evaluator = DshCodeEvaluator(self.launcher)
         self.test_design_evaluator = DshExecutionReadyTestDesignEvaluator(self.launcher)
         self.script_evaluator = DshCaseFanoutScriptEvaluator(evidence_root=str(config.evidence_root))
+        self.n8_owner_repair_evaluator = BankN8OwnerRepairEvaluator()
         self.script_compiler = AcceptedTestDesignScriptContractCompiler()
         self.reality = RuntimeRealityReconService(evidence_root=str(config.evidence_root / "reality"))
         self.node_closure = BankAutonomousNodeClosureCoordinator(
@@ -416,6 +422,18 @@ class BankMissionAutopilot:
         )
         self._reconcile_script_node(task.task_id)
 
+    def _n8_owner_repair_eval(self, task: Task) -> None:
+        try:
+            self.n8_owner_repair_evaluator.evaluate_and_apply(
+                self.control,
+                task.task_id,
+                self._single_output_artifact(task),
+            )
+        except BankN8OwnerRepairEvaluationError as exc:
+            raise BankMissionAutopilotError(
+                "AUTOPILOT_N8_OWNER_REPAIR_EVALUATION_FAILED:%s" % exc
+            ) from exc
+
     def _runtime_handler(self, task: Task) -> None:
         if task.node == "REALITY_RECON":
             self.reality.reconcile(
@@ -485,6 +503,9 @@ class BankMissionAutopilot:
             self.control,
             dispatcher,
             output_evaluators={
+                "RUNTIME:REPAIR": self._n8_owner_repair_eval,
+                "CODE_ANALYSIS:REPAIR": self._n8_owner_repair_eval,
+                "SCRIPT_READINESS:REPAIR": self._n8_owner_repair_eval,
                 "REQUIREMENT_ANALYSIS": self._requirement_eval,
                 "CODE_ANALYSIS": self._code_eval,
                 "TEST_DESIGN": self._test_design_eval,
