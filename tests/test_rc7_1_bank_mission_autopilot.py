@@ -1,3 +1,4 @@
+import inspect
 import json
 from pathlib import Path
 
@@ -230,3 +231,15 @@ def test_missing_execution_capability_becomes_durable_block_not_fake_pass(tmp_pa
     gaps = truth.query("rc7_gap", mission_id="M-EXEC-BLOCK")
     assert any(gap["category"] == "EXECUTION_BLOCKED" for gap in gaps)
     assert not any(row.get("result") == "PASS" for row in evaluations)
+
+
+def test_script_eval_routes_pass_through_governed_n6_before_returning_to_driver():
+    source = inspect.getsource(BankMissionAutopilot._script_eval)
+    assert source.index("self.script_evaluator.evaluate_and_apply") < source.index(
+        "self._reconcile_script_node"
+    )
+
+    reconcile = inspect.getsource(BankMissionAutopilot._reconcile_script_node)
+    assert "current.state != TaskStatus.PASS" in reconcile
+    assert "self.node_closure.reconcile_script_task" in reconcile
+    assert "AUTOPILOT_AUTONOMOUS_NODE_CLOSURE_FAILED:N6" in reconcile

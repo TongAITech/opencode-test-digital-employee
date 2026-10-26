@@ -334,6 +334,20 @@ class BankMissionAutopilot:
                 % (node_id, exc)
             ) from exc
 
+    def _reconcile_script_node(self, task_id: str) -> None:
+        current = self.control.scheduler.task(task_id)
+        if current.state != TaskStatus.PASS:
+            return
+        try:
+            self.node_closure.reconcile_script_task(
+                self.control,
+                source_task_id=task_id,
+            )
+        except BankAutonomousNodeClosureError as exc:
+            raise BankMissionAutopilotError(
+                "AUTOPILOT_AUTONOMOUS_NODE_CLOSURE_FAILED:N6:%s" % exc
+            ) from exc
+
     def _requirement_eval(self, task: Task) -> None:
         self.requirement_evaluator.evaluate_and_apply(
             self.control,
@@ -392,6 +406,7 @@ class BankMissionAutopilot:
             cwd=str(self.config.package_root),
             env=None,
         )
+        self._reconcile_script_node(task.task_id)
 
     def _runtime_handler(self, task: Task) -> None:
         if task.node == "REALITY_RECON":
