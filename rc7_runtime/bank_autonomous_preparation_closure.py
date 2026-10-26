@@ -161,7 +161,7 @@ class BankAutonomousPreparationClosureCoordinator:
             durable_payload = json.loads(raw_bytes.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise BankAutonomousPreparationClosureError("BANK_N5_SOURCE_PREPARED_JSON_INVALID") from exc
-        if durable_payload != dict(prepared_raw):
+        if _canonical(durable_payload) != _canonical(dict(prepared_raw)):
             raise BankAutonomousPreparationClosureError("BANK_N5_SOURCE_PREPARED_PAYLOAD_DRIFT")
         return prepared, row, created_at
 
