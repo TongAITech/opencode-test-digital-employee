@@ -2,9 +2,10 @@
 """Real PostgreSQL + Redis + R1 proof for N7 execution admission.
 
 N7 may start only while the exact current N4 frozen case, N5 PreparedAttempt and
-N6 READY ExecutableSpec agree. A rejected start must not create a governance
-ATTEMPT_STARTED fact. This proves admission only; it does not claim Maven/JUnit
-execution or test PASS.
+N6 READY ExecutableSpec agree. Admission is also rechecked on every runtime
+write so a real runtime mutation cannot leave an already-running stale N7
+attempt able to claim completion. This proves admission/invalidation authority;
+it does not claim Maven/JUnit execution or test PASS.
 """
 from __future__ import annotations
 
@@ -357,17 +358,81 @@ def main() -> int:
         assert n7_attempt.attempt_id == n7_lease
         assert n7_attempt.attempt_id != case_attempt_id
 
-        # Stale execution identity must be blocked before any new N7 Attempt fact.
-        executable_readiness.invalidate(
-            executable_spec_id,
-            reason="REALITY_CHANGED",
-            evidence_refs=["evidence:invalidation:%s" % suffix],
-        )
-        prepared_attempts.quarantine(
-            prepared_id,
-            reason="REALITY_CHANGED",
-            evidence_refs=["evidence:invalidation:%s" % suffix],
-        )
+        # A real runtime mutation is accepted while the N7 authority is still current.
+        # The Center must persist the TOOL fact, record canonical invalidation in R1,
+        # project it into durable N5/N6 state, and then reject every later stale write.
+        mutation_event_id = "runtime-reality-changed-%s" % suffix
+        mutation = _post(client, "/api/v1/runtime-events", {
+            "lease_id": n7_lease,
+            "event_id": mutation_event_id,
+            "test_run_id": run_id,
+            "work_item_id": n7_work_id,
+            "node_id": n7_node_id,
+            "producer_kind": "TOOL",
+            "producer_ref": "runtime-reality-probe",
+            "event_type": "REALITY_CHANGED",
+            "sequence": ledger.latest_node_sequence(test_run_id=run_id, node_id=n7_node_id) + 1,
+            "case_id": case_id,
+            "attempt_id": case_attempt_id,
+            "refs": ["evidence:reality-change:%s" % suffix],
+            "data": {"observed_ref": "reality:%s:changed" % suffix},
+            "occurred_at": int(time.time()),
+        })
+        invalidation = mutation.get("runtime_invalidation") or {}
+        assert invalidation.get("status") == "PROJECTED", mutation
+        invalidation_event_id = str(invalidation.get("invalidation_event_id") or "")
+        assert invalidation_event_id
+
+        recorded = [
+            event for event in ledger.runtime_events(test_run_id=run_id)
+            if str(event.get("event_id") or "") == invalidation_event_id
+            and str(event.get("event_type") or "") == "INVALIDATION_RECORDED"
+        ]
+        assert len(recorded) == 1, "CANONICAL_R1_INVALIDATION_REQUIRED"
+        recorded_data = recorded[0].get("data") if isinstance(recorded[0].get("data"), dict) else {}
+        assert str(recorded_data.get("source_runtime_event_id") or "") == mutation_event_id
+        assert str(recorded_data.get("reason") or "") == "REALITY_SNAPSHOT_BINDING_CHANGED"
+        projected = [
+            event for event in ledger.runtime_events(test_run_id=run_id)
+            if str(event.get("event_type") or "") == "INVALIDATION_PROJECTED"
+            and isinstance(event.get("data"), dict)
+            and str(event["data"].get("invalidation_event_id") or "") == invalidation_event_id
+        ]
+        assert projected, "CANONICAL_R1_INVALIDATION_PROJECTION_RECEIPT_REQUIRED"
+
+        persisted_prepared = prepared_repository.get_prepared_attempt(prepared_id)
+        assert persisted_prepared is not None and persisted_prepared.state == PreparedAttemptState.QUARANTINED
+        persisted_executable = executable_repository.get_executable_spec(executable_spec_id)
+        assert persisted_executable is not None and persisted_executable.state == ExecutableReadinessState.INVALIDATED
+
+        stale_terminal_event_id = "stale-attempt-completed-%s" % suffix
+        stale_terminal = client.post("/api/v1/runtime-events", json={
+            "lease_id": n7_lease,
+            "event_id": stale_terminal_event_id,
+            "test_run_id": run_id,
+            "work_item_id": n7_work_id,
+            "node_id": n7_node_id,
+            "producer_kind": "WORKER",
+            "producer_ref": "worker:stale-n7",
+            "event_type": "ATTEMPT_COMPLETED",
+            "sequence": ledger.latest_node_sequence(test_run_id=run_id, node_id=n7_node_id) + 1,
+            "case_id": case_id,
+            "attempt_id": n7_lease,
+            "refs": [],
+            "data": {},
+            "occurred_at": int(time.time()),
+        })
+        assert stale_terminal.status_code == 400, stale_terminal.text
+        assert stale_terminal.json()["detail"] == "N7_REQUIRES_CURRENT_N5_PREPARED_ATTEMPT"
+        assert not [
+            event for event in ledger.runtime_events(test_run_id=run_id, work_item_id=n7_work_id)
+            if str(event.get("event_id") or "") == stale_terminal_event_id
+        ], "STALE_N7_TERMINAL_EVENT_MUST_NOT_REACH_R1"
+        still_started = governance_repository.get_attempt(n7_lease)
+        assert still_started is not None and still_started.status == AttemptStatus.STARTED
+
+        # A fresh N7 WorkItem with the same stale N5/N6 authority is also blocked
+        # before Center creates a new governance Attempt.
         _register_n7_work(
             client,
             work_item_id=stale_n7_work_id,
@@ -402,8 +467,10 @@ def main() -> int:
             "n6_executable_spec_id": executable_spec_id,
             "n7_governance_attempt_id": n7_lease,
             "blocked_before_ready_without_attempt": True,
+            "runtime_mutation_projected": True,
+            "stale_running_terminal_write_blocked": True,
             "stale_identity_blocked_without_attempt": True,
-            "truth_note": "N7 admission is Center-owned and precedes ATTEMPT_STARTED; Maven/JUnit execution is not claimed by this proof.",
+            "truth_note": "N7 admission is Center-owned at start and runtime writes; real R1 invalidation blocks stale completion. Maven/JUnit execution is not claimed by this proof.",
         })
     return 0
 
