@@ -33,6 +33,10 @@ from .bank_dsh_tool_policy import FIELD_NODE_POLICIES
 from .bank_execution_autopilot import BankExecutionAutopilot
 from .bank_mission import start_or_resume
 from .bank_mission_director import BankMissionDirectorGate, BankMissionDirectorGateError
+from .bank_n7_execution_closure import (
+    BankN7ExecutionClosureCoordinator,
+    BankN7ExecutionClosureError,
+)
 from .candidate_payload import CandidatePayloadReader
 from .closed_loop_control import ClosedLoopControlPlane
 from .dsh_code_evaluator import DshCodeEvaluator
@@ -292,6 +296,10 @@ class BankMissionAutopilot:
             run_id=config.run_id,
             evidence_root=str(config.evidence_root / "autonomous-node-closure"),
         )
+        self.n7 = BankN7ExecutionClosureCoordinator(
+            target_id=config.target_id,
+            evidence_root=str(config.evidence_root / "n7"),
+        )
         self.n10 = GovernedAutonomousN10FinalizationService(
             evidence_root=str(config.evidence_root / "n10")
         )
@@ -430,6 +438,10 @@ class BankMissionAutopilot:
     def _convergence(self) -> None:
         try:
             self.node_closure.reconcile_passed_nodes(self.control)
+            self.n7.close_current_batch(
+                self.control,
+                run_id=self.config.run_id,
+            )
             prepared = self.n10.prepare_ready(
                 self.control,
                 run_id=self.config.run_id,
@@ -441,11 +453,12 @@ class BankMissionAutopilot:
             )
         except (
             BankAutonomousNodeClosureError,
+            BankN7ExecutionClosureError,
             AutonomousN10Error,
             BankMissionDirectorGateError,
         ) as exc:
             raise BankMissionAutopilotError(
-                "AUTOPILOT_GOVERNED_N10_CONVERGENCE_FAILED:%s" % exc
+                "AUTOPILOT_GOVERNED_CONVERGENCE_FAILED:%s" % exc
             ) from exc
 
     def _final_report(self):
