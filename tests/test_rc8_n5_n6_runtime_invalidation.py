@@ -33,15 +33,16 @@ def test_case_revision_invalidates_n5_and_n6_and_blocks_n7_execution():
         raise AssertionError("N7 must not execute an invalidated N6 spec")
 
 
-def test_runtime_binding_change_cascades_and_requires_new_preparation():
+def test_runtime_binding_change_cascades_and_requires_new_attempt_preparation():
     n5, n6 = _ready_chain()
     guard = CenterRuntimeInvalidationCoordinator(n5, n6)
     result = guard.invalidate_for_runtime_binding_change(binding="AUTH", test_run_id="run", case_id="c1", attempt_id="a1", evidence_refs=["auth-expired:1"])
     assert result.reason == "AUTH_BINDING_CHANGED"
     assert n5.repository.current_for_attempt("run", "c1", "a1") is None
     assert n6.repository.current_for_attempt("run", "c1", "a1") is None
-    fresh = n5.select(prepared_attempt_id="p2", test_run_id="run", mission_node_id="N5", case_id="c1", attempt_id="a1", reality_snapshot_id="rs2", data_refs=["data:2"])
+    fresh = n5.select(prepared_attempt_id="p2", test_run_id="run", mission_node_id="N5", case_id="c1", attempt_id="a2", reality_snapshot_id="rs2", data_refs=["data:2"])
     assert fresh.prepared_attempt_id == "p2"
+    assert fresh.attempt_id == "a2"
     assert fresh.state == PreparedAttemptState.SELECTED
 
 

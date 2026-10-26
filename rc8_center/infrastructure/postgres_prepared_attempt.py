@@ -64,9 +64,16 @@ class PostgresPreparedAttemptRepository:
         if not isinstance(value, PreparedAttempt):
             raise PreparedAttemptError("PREPARED_ATTEMPT_REQUIRED")
         with self.store.session() as session:
-            current = list(session.scalars(select(PreparedAttemptRow).where(PreparedAttemptRow.test_run_id == value.test_run_id, PreparedAttemptRow.case_id == value.case_id, PreparedAttemptRow.attempt_id == value.attempt_id, PreparedAttemptRow.state.in_(_ACTIVE_STATES))))
-            if any(row.prepared_attempt_id != value.prepared_attempt_id for row in current) and not value.terminal:
-                raise PreparedAttemptError("CURRENT_PREPARED_ATTEMPT_ALREADY_EXISTS")
+            history = list(session.scalars(select(PreparedAttemptRow).where(
+                PreparedAttemptRow.test_run_id == value.test_run_id,
+                PreparedAttemptRow.case_id == value.case_id,
+                PreparedAttemptRow.attempt_id == value.attempt_id,
+            )))
+            competing = [row for row in history if row.prepared_attempt_id != value.prepared_attempt_id]
+            if competing:
+                if any(row.state in _ACTIVE_STATES for row in competing) and not value.terminal:
+                    raise PreparedAttemptError("CURRENT_PREPARED_ATTEMPT_ALREADY_EXISTS")
+                raise PreparedAttemptError("RETRY_REQUIRES_NEW_ATTEMPT_IDENTITY")
             row = session.get(PreparedAttemptRow, value.prepared_attempt_id)
             if row is None:
                 row = PreparedAttemptRow(prepared_attempt_id=value.prepared_attempt_id)

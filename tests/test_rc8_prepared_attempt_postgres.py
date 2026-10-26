@@ -36,11 +36,19 @@ class PostgresPreparedAttemptRepositoryTest(unittest.TestCase):
         current = reconstructed.current_for_attempt("run-1", "case-1", "attempt-1")
         self.assertEqual("prep-1", current.prepared_attempt_id)
 
-    def test_terminal_preparation_allows_new_preparation_for_same_attempt(self):
+    def test_terminal_preparation_requires_new_attempt_identity(self):
         self._prepare()
-        self.service.release("prep-1", evidence_refs=("evidence://release/1",))
-        second = self.service.select(prepared_attempt_id="prep-2", test_run_id="run-1", mission_node_id="run-1:scope:N5_TEST_DATA_PRECONDITIONS", case_id="case-1", attempt_id="attempt-1", reality_snapshot_id="reality:run-1:scope:v1", data_refs=("data://customer/002",))
+        self.service.quarantine(
+            "prep-1",
+            reason="AUTH_BINDING_CHANGED",
+            evidence_refs=("evidence://mutation/auth-2",),
+        )
+        with self.assertRaisesRegex(PreparedAttemptError, "RETRY_REQUIRES_NEW_ATTEMPT_IDENTITY"):
+            self.service.select(prepared_attempt_id="prep-2", test_run_id="run-1", mission_node_id="run-1:scope:N5_TEST_DATA_PRECONDITIONS", case_id="case-1", attempt_id="attempt-1", reality_snapshot_id="reality:run-1:scope:v2", data_refs=("data://customer/002",))
+
+        second = self.service.select(prepared_attempt_id="prep-2", test_run_id="run-1", mission_node_id="run-1:scope:N5_TEST_DATA_PRECONDITIONS", case_id="case-1", attempt_id="attempt-2", reality_snapshot_id="reality:run-1:scope:v2", data_refs=("data://customer/002",))
         self.assertEqual("prep-2", second.prepared_attempt_id)
+        self.assertEqual("attempt-2", second.attempt_id)
 
     def test_repository_rejects_competing_current_preparation(self):
         self.service.select(prepared_attempt_id="prep-1", test_run_id="run-1", mission_node_id="run-1:scope:N5_TEST_DATA_PRECONDITIONS", case_id="case-1", attempt_id="attempt-1", reality_snapshot_id="reality:run-1:scope:v1", data_refs=("data://customer/001",))
