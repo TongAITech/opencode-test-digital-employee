@@ -1,9 +1,11 @@
-"""Materialize durable BANK N8 successor preparation for authorized direct retry.
+"""Materialize durable BANK N8 successor preparation for authorized recovery.
 
 The previous PreparedAttempt is immutable history. A direct retry authorization
 may reuse its verified bindings/oracle, but only by creating a fresh durable
-CASE_PREPARED_ATTEMPT for the RecoveryDecision successor attempt. This module
-never executes the business Case and never handles re-preparation recovery.
+CASE_PREPARED_ATTEMPT for the RecoveryDecision successor attempt. Non-direct
+recovery is fail-closed here until its owner-repair work order has been converted
+into an authorized successor; it must never silently fall back to the predecessor
+Attempt identity.
 """
 from __future__ import annotations
 
@@ -13,6 +15,7 @@ from typing import Any, Dict, Mapping, Optional, Tuple
 
 from rc6_runtime.preparation import PreparedAttempt
 
+from .autonomous_recovery_orchestrator import N8RecoveryOrchestrator
 from .bank_n8_recovery import BankN8RecoveryCoordinator, BankN8RecoveryError, _file_payload
 from .case_runtime import (
     PREPARED_ATTEMPT_KIND,
@@ -30,7 +33,7 @@ class BankN8SuccessorError(RuntimeError):
 
 
 class BankN8SuccessorCoordinator:
-    """Consume one unconsumed direct-retry receipt into a fresh PreparedAttempt."""
+    """Consume authorized retry truth into a fresh PreparedAttempt."""
 
     def __init__(self, *, state_root) -> None:
         from pathlib import Path
@@ -126,6 +129,52 @@ class BankN8SuccessorCoordinator:
             raise BankN8SuccessorError("BANK_N8_PENDING_DIRECT_SUCCESSOR_NOT_UNIQUE:%d" % len(candidates))
         return candidates[0]
 
+    @staticmethod
+    def _pending_non_direct_work_orders(
+        control: ClosedLoopControlPlane,
+        *,
+        source_task_id: str,
+        tc_id: str,
+    ) -> Tuple[str, ...]:
+        pending = []
+        for row in control.truth.query("rc7_evidence", mission_id=control.mission_id):
+            if row.get("kind") != N8RecoveryOrchestrator.WORK_ORDER_TYPE:
+                continue
+            refs = set(str(x) for x in row.get("subject_refs") or [])
+            if source_task_id not in refs:
+                continue
+            try:
+                payload = _file_payload(row, "BANK_N8_NON_DIRECT_WORK_ORDER")
+            except BankN8RecoveryError as exc:
+                raise BankN8SuccessorError(str(exc)) from exc
+            if payload.get("source_task_id") != source_task_id:
+                raise BankN8SuccessorError("BANK_N8_NON_DIRECT_WORK_ORDER_SOURCE_TASK_MISMATCH")
+            plan = payload.get("plan")
+            if not isinstance(plan, dict):
+                raise BankN8SuccessorError("BANK_N8_NON_DIRECT_WORK_ORDER_PLAN_REQUIRED")
+            if plan.get("mode") not in {"REPREPARE_THEN_RETRY", "UPSTREAM_REPAIR_THEN_RETRY"}:
+                continue
+            gap_id = str(payload.get("gap_id") or "")
+            gap_rows = control.truth.query("rc7_gap", gap_id=gap_id)
+            if len(gap_rows) != 1:
+                raise BankN8SuccessorError("BANK_N8_NON_DIRECT_WORK_ORDER_GAP_NOT_UNIQUE")
+            gap = gap_rows[0]
+            if gap.get("mission_id") != control.mission_id:
+                raise BankN8SuccessorError("BANK_N8_NON_DIRECT_WORK_ORDER_GAP_MISSION_MISMATCH")
+            if tc_id not in set(str(x) for x in gap.get("subject_refs") or []):
+                continue
+            if gap.get("state") != GapStatus.EVIDENCE_PENDING.value:
+                continue
+            source_attempt = str(plan.get("source_attempt_id") or "")
+            successor_attempt = str(plan.get("successor_attempt_id") or "")
+            if not source_attempt or not successor_attempt or source_attempt == successor_attempt:
+                raise BankN8SuccessorError("BANK_N8_NON_DIRECT_WORK_ORDER_SUCCESSOR_INVALID")
+            work_order_id = str(payload.get("work_order_id") or "")
+            if not work_order_id:
+                raise BankN8SuccessorError("BANK_N8_NON_DIRECT_WORK_ORDER_ID_REQUIRED")
+            pending.append(work_order_id)
+        return tuple(sorted(set(pending)))
+
     def _source_prepared(
         self,
         control: ClosedLoopControlPlane,
@@ -194,6 +243,16 @@ class BankN8SuccessorCoordinator:
             tc_id=tc_id,
         )
         if pending is None:
+            non_direct = self._pending_non_direct_work_orders(
+                control,
+                source_task_id=source_task_id,
+                tc_id=tc_id,
+            )
+            if non_direct:
+                raise BankN8SuccessorError(
+                    "BANK_N8_NON_DIRECT_SUCCESSOR_AUTHORIZATION_REQUIRED:%s"
+                    % ",".join(non_direct)
+                )
             return None
         receipt_row, receipt = pending
         task = control.scheduler.task(source_task_id)
