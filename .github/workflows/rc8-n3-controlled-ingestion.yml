@@ -1,0 +1,35 @@
+name: RC8 N3 Controlled Traceability Ingestion
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_center/traceability.py'
+      - 'rc8_center/traceability_ingestion.py'
+      - 'rc8_center/code_sufficiency.py'
+      - 'rc8_center/infrastructure/postgres_traceability.py'
+      - 'tests/test_rc8_traceability_ingestion.py'
+      - 'tests/test_rc8_traceability_ingestion_replay_conflict.py'
+      - '.github/workflows/rc8-n3-controlled-ingestion.yml'
+      - 'docs/rc8/N1-N10-CONSTRUCTION-PLAN.md'
+  workflow_dispatch:
+
+jobs:
+  controlled-ingestion:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: python -m pip install sqlalchemy
+      - name: N3 Center authority and provenance regression
+        run: >-
+          python -m unittest
+          tests.test_rc8_traceability_ingestion
+          tests.test_rc8_traceability_ingestion_replay_conflict
