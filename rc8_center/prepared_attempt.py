@@ -118,6 +118,9 @@ class PreparedAttemptRepository(Protocol):
     def current_for_attempt(self, test_run_id: str, case_id: str, attempt_id: str) -> Optional[PreparedAttempt]:
         ...
 
+    def current_for_case(self, test_run_id: str, case_id: str) -> Optional[PreparedAttempt]:
+        ...
+
     def save_prepared_attempt(self, value: PreparedAttempt) -> None:
         ...
 
@@ -130,17 +133,49 @@ class MemoryPreparedAttemptRepository:
         return self._values.get(prepared_attempt_id)
 
     def current_for_attempt(self, test_run_id: str, case_id: str, attempt_id: str) -> Optional[PreparedAttempt]:
-        matches = [value for value in self._values.values() if value.test_run_id == test_run_id and value.case_id == case_id and value.attempt_id == attempt_id and not value.terminal]
+        matches = [
+            value for value in self._values.values()
+            if value.test_run_id == test_run_id
+            and value.case_id == case_id
+            and value.attempt_id == attempt_id
+            and not value.terminal
+        ]
         if len(matches) > 1:
             raise PreparedAttemptError("MULTIPLE_CURRENT_PREPARED_ATTEMPTS")
+        return matches[0] if matches else None
+
+    def current_for_case(self, test_run_id: str, case_id: str) -> Optional[PreparedAttempt]:
+        matches = [
+            value for value in self._values.values()
+            if value.test_run_id == test_run_id
+            and value.case_id == case_id
+            and not value.terminal
+        ]
+        if len(matches) > 1:
+            raise PreparedAttemptError("MULTIPLE_CURRENT_CASE_ATTEMPTS")
         return matches[0] if matches else None
 
     def save_prepared_attempt(self, value: PreparedAttempt) -> None:
         if not isinstance(value, PreparedAttempt):
             raise PreparedAttemptError("PREPARED_ATTEMPT_REQUIRED")
-        current = self.current_for_attempt(value.test_run_id, value.case_id, value.attempt_id)
-        if current is not None and current.prepared_attempt_id != value.prepared_attempt_id and not value.terminal:
-            raise PreparedAttemptError("CURRENT_PREPARED_ATTEMPT_ALREADY_EXISTS")
+        history = [
+            item for item in self._values.values()
+            if item.test_run_id == value.test_run_id
+            and item.case_id == value.case_id
+            and item.attempt_id == value.attempt_id
+            and item.prepared_attempt_id != value.prepared_attempt_id
+        ]
+        if history:
+            if any(not item.terminal for item in history) and not value.terminal:
+                raise PreparedAttemptError("CURRENT_PREPARED_ATTEMPT_ALREADY_EXISTS")
+            raise PreparedAttemptError("RETRY_REQUIRES_NEW_ATTEMPT_IDENTITY")
+        current_case = self.current_for_case(value.test_run_id, value.case_id)
+        if (
+            current_case is not None
+            and current_case.prepared_attempt_id != value.prepared_attempt_id
+            and not value.terminal
+        ):
+            raise PreparedAttemptError("CURRENT_CASE_ATTEMPT_ALREADY_EXISTS")
         self._values[value.prepared_attempt_id] = value
 
 
@@ -156,11 +191,17 @@ class CenterPreparedAttemptService:
         existing = self.repository.get_prepared_attempt(prepared_attempt_id)
         if existing is not None:
             return existing
-        if self.repository.current_for_attempt(test_run_id, case_id, attempt_id) is not None:
-            raise PreparedAttemptError("CURRENT_PREPARED_ATTEMPT_ALREADY_EXISTS")
+        current_case = self.repository.current_for_case(test_run_id, case_id)
+        if current_case is not None:
+            if current_case.attempt_id == attempt_id:
+                raise PreparedAttemptError("CURRENT_PREPARED_ATTEMPT_ALREADY_EXISTS")
+            raise PreparedAttemptError("CURRENT_CASE_ATTEMPT_ALREADY_EXISTS")
         value = PreparedAttempt(prepared_attempt_id=prepared_attempt_id, test_run_id=test_run_id, mission_node_id=mission_node_id, case_id=case_id, attempt_id=attempt_id, reality_snapshot_id=reality_snapshot_id, data_refs=tuple(data_refs), created_at=now, updated_at=now)
         self.repository.save_prepared_attempt(value)
         return value
+
+    def current_for_case(self, *, test_run_id: str, case_id: str) -> Optional[PreparedAttempt]:
+        return self.repository.current_for_case(_required(test_run_id, "test_run_id"), _required(case_id, "case_id"))
 
     def verify(self, prepared_attempt_id: str, *, evidence_refs: Sequence[str]) -> PreparedAttempt:
         current = self._require_state(prepared_attempt_id, PreparedAttemptState.SELECTED)

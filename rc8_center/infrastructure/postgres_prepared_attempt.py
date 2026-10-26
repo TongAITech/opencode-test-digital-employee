@@ -55,9 +55,25 @@ class PostgresPreparedAttemptRepository:
 
     def current_for_attempt(self, test_run_id: str, case_id: str, attempt_id: str) -> Optional[PreparedAttempt]:
         with self.store.session() as session:
-            rows = list(session.scalars(select(PreparedAttemptRow).where(PreparedAttemptRow.test_run_id == test_run_id, PreparedAttemptRow.case_id == case_id, PreparedAttemptRow.attempt_id == attempt_id, PreparedAttemptRow.state.in_(_ACTIVE_STATES))))
+            rows = list(session.scalars(select(PreparedAttemptRow).where(
+                PreparedAttemptRow.test_run_id == test_run_id,
+                PreparedAttemptRow.case_id == case_id,
+                PreparedAttemptRow.attempt_id == attempt_id,
+                PreparedAttemptRow.state.in_(_ACTIVE_STATES),
+            )))
             if len(rows) > 1:
                 raise PreparedAttemptError("MULTIPLE_CURRENT_PREPARED_ATTEMPTS")
+            return self._value(rows[0]) if rows else None
+
+    def current_for_case(self, test_run_id: str, case_id: str) -> Optional[PreparedAttempt]:
+        with self.store.session() as session:
+            rows = list(session.scalars(select(PreparedAttemptRow).where(
+                PreparedAttemptRow.test_run_id == test_run_id,
+                PreparedAttemptRow.case_id == case_id,
+                PreparedAttemptRow.state.in_(_ACTIVE_STATES),
+            )))
+            if len(rows) > 1:
+                raise PreparedAttemptError("MULTIPLE_CURRENT_CASE_ATTEMPTS")
             return self._value(rows[0]) if rows else None
 
     def save_prepared_attempt(self, value: PreparedAttempt) -> None:
@@ -69,11 +85,21 @@ class PostgresPreparedAttemptRepository:
                 PreparedAttemptRow.case_id == value.case_id,
                 PreparedAttemptRow.attempt_id == value.attempt_id,
             )))
-            competing = [row for row in history if row.prepared_attempt_id != value.prepared_attempt_id]
-            if competing:
-                if any(row.state in _ACTIVE_STATES for row in competing) and not value.terminal:
+            competing_attempt = [row for row in history if row.prepared_attempt_id != value.prepared_attempt_id]
+            if competing_attempt:
+                if any(row.state in _ACTIVE_STATES for row in competing_attempt) and not value.terminal:
                     raise PreparedAttemptError("CURRENT_PREPARED_ATTEMPT_ALREADY_EXISTS")
                 raise PreparedAttemptError("RETRY_REQUIRES_NEW_ATTEMPT_IDENTITY")
+
+            active_case = list(session.scalars(select(PreparedAttemptRow).where(
+                PreparedAttemptRow.test_run_id == value.test_run_id,
+                PreparedAttemptRow.case_id == value.case_id,
+                PreparedAttemptRow.state.in_(_ACTIVE_STATES),
+                PreparedAttemptRow.prepared_attempt_id != value.prepared_attempt_id,
+            )))
+            if active_case and not value.terminal:
+                raise PreparedAttemptError("CURRENT_CASE_ATTEMPT_ALREADY_EXISTS")
+
             row = session.get(PreparedAttemptRow, value.prepared_attempt_id)
             if row is None:
                 row = PreparedAttemptRow(prepared_attempt_id=value.prepared_attempt_id)
@@ -109,4 +135,30 @@ class PostgresPreparedAttemptRepository:
 
     @staticmethod
     def _value(row: PreparedAttemptRow) -> PreparedAttempt:
-        return PreparedAttempt(prepared_attempt_id=row.prepared_attempt_id, test_run_id=row.test_run_id, mission_node_id=row.mission_node_id, case_id=row.case_id, attempt_id=row.attempt_id, reality_snapshot_id=row.reality_snapshot_id, data_refs=tuple(row.data_refs or ()), state=PreparedAttemptState(row.state), verification_evidence_refs=tuple(row.verification_evidence_refs or ()), reservation_ref=row.reservation_ref, reservation_evidence_refs=tuple(row.reservation_evidence_refs or ()), data_freshness_ref=row.data_freshness_ref, auth_session_ref=row.auth_session_ref, auth_binding_mode=AuthBindingMode(row.auth_binding_mode) if row.auth_binding_mode else None, auth_acquired_at=int(row.auth_acquired_at) if row.auth_acquired_at is not None else None, auth_expires_at=int(row.auth_expires_at) if row.auth_expires_at is not None else None, freshness_evidence_refs=tuple(row.freshness_evidence_refs or ()), environment_ref=row.environment_ref, route_ref=row.route_ref, binding_evidence_refs=tuple(row.binding_evidence_refs or ()), created_at=int(row.created_at), updated_at=int(row.updated_at), released_at=int(row.released_at) if row.released_at is not None else None, release_evidence_refs=tuple(row.release_evidence_refs or ()), quarantine_reason=row.quarantine_reason)
+        return PreparedAttempt(
+            prepared_attempt_id=row.prepared_attempt_id,
+            test_run_id=row.test_run_id,
+            mission_node_id=row.mission_node_id,
+            case_id=row.case_id,
+            attempt_id=row.attempt_id,
+            reality_snapshot_id=row.reality_snapshot_id,
+            data_refs=tuple(row.data_refs or ()),
+            state=PreparedAttemptState(row.state),
+            verification_evidence_refs=tuple(row.verification_evidence_refs or ()),
+            reservation_ref=row.reservation_ref,
+            reservation_evidence_refs=tuple(row.reservation_evidence_refs or ()),
+            data_freshness_ref=row.data_freshness_ref,
+            auth_session_ref=row.auth_session_ref,
+            auth_binding_mode=AuthBindingMode(row.auth_binding_mode) if row.auth_binding_mode else None,
+            auth_acquired_at=int(row.auth_acquired_at) if row.auth_acquired_at is not None else None,
+            auth_expires_at=int(row.auth_expires_at) if row.auth_expires_at is not None else None,
+            freshness_evidence_refs=tuple(row.freshness_evidence_refs or ()),
+            environment_ref=row.environment_ref,
+            route_ref=row.route_ref,
+            binding_evidence_refs=tuple(row.binding_evidence_refs or ()),
+            created_at=int(row.created_at),
+            updated_at=int(row.updated_at),
+            released_at=int(row.released_at) if row.released_at is not None else None,
+            release_evidence_refs=tuple(row.release_evidence_refs or ()),
+            quarantine_reason=row.quarantine_reason,
+        )

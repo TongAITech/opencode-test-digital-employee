@@ -21,8 +21,19 @@ class PostgresPreparedAttemptRepositoryTest(unittest.TestCase):
         self.now = 100
         self.service = CenterPreparedAttemptService(self.repo, now_fn=lambda: self.now)
 
+    def _select(self, prepared_id="prep-1", attempt_id="attempt-1"):
+        return self.service.select(
+            prepared_attempt_id=prepared_id,
+            test_run_id="run-1",
+            mission_node_id="run-1:scope:N5_TEST_DATA_PRECONDITIONS",
+            case_id="case-1",
+            attempt_id=attempt_id,
+            reality_snapshot_id="reality:run-1:scope:v1",
+            data_refs=("data://customer/001",),
+        )
+
     def _prepare(self):
-        self.service.select(prepared_attempt_id="prep-1", test_run_id="run-1", mission_node_id="run-1:scope:N5_TEST_DATA_PRECONDITIONS", case_id="case-1", attempt_id="attempt-1", reality_snapshot_id="reality:run-1:scope:v1", data_refs=("data://customer/001",))
+        self._select()
         self.service.verify("prep-1", evidence_refs=("evidence://verify/1",))
         self.service.reserve("prep-1", reservation_ref="reservation://customer/001", evidence_refs=("evidence://reserve/1",))
         self.service.freshness_check("prep-1", data_freshness_ref="freshness://data/1", auth_session_ref="auth://4a/fresh/1", auth_acquired_at=90, auth_expires_at=200, evidence_refs=("evidence://fresh/1",))
@@ -35,6 +46,13 @@ class PostgresPreparedAttemptRepositoryTest(unittest.TestCase):
         self.assertEqual(expected, loaded)
         current = reconstructed.current_for_attempt("run-1", "case-1", "attempt-1")
         self.assertEqual("prep-1", current.prepared_attempt_id)
+        self.assertEqual("prep-1", reconstructed.current_for_case("run-1", "case-1").prepared_attempt_id)
+
+    def test_active_case_cannot_open_second_attempt(self):
+        self._select()
+        with self.assertRaisesRegex(PreparedAttemptError, "CURRENT_CASE_ATTEMPT_ALREADY_EXISTS"):
+            self._select(prepared_id="prep-2", attempt_id="attempt-2")
+        self.assertEqual("attempt-1", self.repo.current_for_case("run-1", "case-1").attempt_id)
 
     def test_terminal_preparation_requires_new_attempt_identity(self):
         self._prepare()
@@ -44,16 +62,33 @@ class PostgresPreparedAttemptRepositoryTest(unittest.TestCase):
             evidence_refs=("evidence://mutation/auth-2",),
         )
         with self.assertRaisesRegex(PreparedAttemptError, "RETRY_REQUIRES_NEW_ATTEMPT_IDENTITY"):
-            self.service.select(prepared_attempt_id="prep-2", test_run_id="run-1", mission_node_id="run-1:scope:N5_TEST_DATA_PRECONDITIONS", case_id="case-1", attempt_id="attempt-1", reality_snapshot_id="reality:run-1:scope:v2", data_refs=("data://customer/002",))
+            self._select(prepared_id="prep-2", attempt_id="attempt-1")
 
-        second = self.service.select(prepared_attempt_id="prep-2", test_run_id="run-1", mission_node_id="run-1:scope:N5_TEST_DATA_PRECONDITIONS", case_id="case-1", attempt_id="attempt-2", reality_snapshot_id="reality:run-1:scope:v2", data_refs=("data://customer/002",))
+        second = self.service.select(
+            prepared_attempt_id="prep-2",
+            test_run_id="run-1",
+            mission_node_id="run-1:scope:N5_TEST_DATA_PRECONDITIONS",
+            case_id="case-1",
+            attempt_id="attempt-2",
+            reality_snapshot_id="reality:run-1:scope:v2",
+            data_refs=("data://customer/002",),
+        )
         self.assertEqual("prep-2", second.prepared_attempt_id)
         self.assertEqual("attempt-2", second.attempt_id)
+        self.assertEqual("attempt-2", self.repo.current_for_case("run-1", "case-1").attempt_id)
 
-    def test_repository_rejects_competing_current_preparation(self):
-        self.service.select(prepared_attempt_id="prep-1", test_run_id="run-1", mission_node_id="run-1:scope:N5_TEST_DATA_PRECONDITIONS", case_id="case-1", attempt_id="attempt-1", reality_snapshot_id="reality:run-1:scope:v1", data_refs=("data://customer/001",))
+    def test_repository_rejects_competing_current_preparation_same_attempt(self):
+        self._select()
         with self.assertRaisesRegex(PreparedAttemptError, "CURRENT_PREPARED_ATTEMPT_ALREADY_EXISTS"):
-            self.service.select(prepared_attempt_id="prep-2", test_run_id="run-1", mission_node_id="run-1:scope:N5_TEST_DATA_PRECONDITIONS", case_id="case-1", attempt_id="attempt-1", reality_snapshot_id="reality:run-1:scope:v1", data_refs=("data://customer/002",))
+            self.service.select(
+                prepared_attempt_id="prep-2",
+                test_run_id="run-1",
+                mission_node_id="run-1:scope:N5_TEST_DATA_PRECONDITIONS",
+                case_id="case-1",
+                attempt_id="attempt-1",
+                reality_snapshot_id="reality:run-1:scope:v1",
+                data_refs=("data://customer/002",),
+            )
 
 
 if __name__ == "__main__":
