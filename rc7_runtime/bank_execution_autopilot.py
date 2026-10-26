@@ -42,7 +42,7 @@ from .case_fanout_conformance import (
     AcceptedCaseInventoryReader,
     CaseFanoutConformanceError,
 )
-from .case_runtime import CasePreparationService
+from .case_runtime import CasePreparationService, CaseRuntimeError
 from .case_script_bundle_resolver import (
     CaseScriptBundleResolverError,
     CaseScriptExecutionBundleResolver,
@@ -513,7 +513,6 @@ class BankExecutionAutopilot:
             authority=self.authority,
             tool_broker=broker,
         )
-        preparation = CasePreparationService(control.truth, self.state_root)
         try:
             prepared_result = self.n8_upstream_successor.materialize_if_authorized(
                 control,
@@ -551,14 +550,31 @@ class BankExecutionAutopilot:
                 str(bundle.spec.case_version),
                 self.target_id,
             )
-            prepared_result = preparation.prepare(
-                mission_id=control.mission_id,
-                task_id=task.task_id,
-                worker_id=active.runtime_worker_id,
-                case=bundle.frozen_case,
-                attempt_id=attempt_id,
-                target_id=self.target_id,
-            )
+            try:
+                preparation = CasePreparationService(control.truth, self.state_root)
+                prepared_result = preparation.prepare(
+                    mission_id=control.mission_id,
+                    task_id=task.task_id,
+                    worker_id=active.runtime_worker_id,
+                    case=bundle.frozen_case,
+                    attempt_id=attempt_id,
+                    target_id=self.target_id,
+                )
+            except CaseRuntimeError as exc:
+                self._block(
+                    control,
+                    task,
+                    worker_ref=active.runtime_worker_id,
+                    tc_id=tc_id,
+                    status="BLOCKED_PREPARATION_RUNTIME",
+                    reason="EXECUTION_PREPARATION_RUNTIME_FAILED:%s" % exc,
+                    details={
+                        "phase": "CASE_PREPARATION",
+                        "business_action_executed": False,
+                    },
+                    already_leased=True,
+                )
+                return
         if prepared_result.get("status") != "PREPARED":
             human = prepared_result.get("status") == "HUMAN_GATE_REQUIRED"
             self._block(
