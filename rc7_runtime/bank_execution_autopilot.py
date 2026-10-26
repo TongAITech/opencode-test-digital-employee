@@ -49,8 +49,21 @@ from .execution_capability import (
 )
 from .execution_fanout_conformance import check_execution_barrier
 from .execution_profiles import RC7_1_EXECUTION_PROFILES
-from .models import Artifact, Evaluation, EvaluationResult, Evidence, Gap, GapSeverity, Task
+from .models import (
+    Artifact,
+    Evaluation,
+    EvaluationResult,
+    Evidence,
+    Gap,
+    GapSeverity,
+    GapStatus,
+    MissionStatus,
+    Task,
+    TaskStatus,
+)
 from .oracle_runtime import DeterministicOracleRuntime
+from .state_machine import transition_gap, transition_mission, transition_task
+from .truth_overlay import append_entity
 
 
 class BankExecutionAutopilotError(RuntimeError):
@@ -267,6 +280,107 @@ class BankExecutionAutopilot:
         )
         control.accept_evaluation(task.task_id, evaluation=evaluation, gaps=(gap,))
 
+    def _block_n8_recovery_failure(
+        self,
+        control: ClosedLoopControlPlane,
+        task: Task,
+        *,
+        phase: str,
+        reason: str,
+    ) -> None:
+        gap_rows = []
+        for gap_id in task.gap_refs:
+            rows = control.truth.query("rc7_gap", gap_id=gap_id)
+            if len(rows) == 1 and rows[0].get("mission_id") == control.mission_id:
+                gap_rows.append(rows[0])
+        if len(gap_rows) != 1:
+            raise BankExecutionAutopilotError(
+                "EXECUTION_N8_RECOVERY_BLOCKER_GAP_NOT_UNIQUE:%d" % len(gap_rows)
+            )
+        gap = control._gap(str(gap_rows[0]["gap_id"]))
+        subject_refs = [task.task_id, gap.gap_id]
+        subject_refs.extend(str(ref) for ref in gap.subject_refs if str(ref))
+        subject_refs = list(dict.fromkeys(subject_refs))
+        payload = {
+            "schema": "pfc.aitest.rc7.1.n8-recovery-blocker.v1",
+            "mission_id": control.mission_id,
+            "release_id": control.release_id,
+            "task_id": task.task_id,
+            "gap_id": gap.gap_id,
+            "phase": str(phase),
+            "reason": str(reason),
+            "business_action_executed": False,
+        }
+        body = (json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+        digest = hashlib.sha256(body).hexdigest()
+        evidence_id = _stable_id(
+            "EVD-N8-RECOVERY-BLOCK",
+            control.mission_id,
+            task.task_id,
+            gap.gap_id,
+            phase,
+            reason,
+        )
+        folder = self.evidence_root / "n8-recovery-blockers" / control.mission_id
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / (evidence_id + ".json")
+        if path.exists() and path.read_bytes() != body:
+            raise BankExecutionAutopilotError("EXECUTION_N8_RECOVERY_BLOCKER_IMMUTABILITY_CONFLICT")
+        if not path.exists():
+            path.write_bytes(body)
+        existing = control.truth.query("rc7_evidence", evidence_id=evidence_id)
+        if existing:
+            if len(existing) != 1 or existing[0].get("content_hash") != "sha256:" + digest:
+                raise BankExecutionAutopilotError("EXECUTION_N8_RECOVERY_BLOCKER_EVIDENCE_CONFLICT")
+        else:
+            append_entity(
+                control.truth,
+                Evidence(
+                    evidence_id=evidence_id,
+                    mission_id=control.mission_id,
+                    kind="N8_RECOVERY_BLOCKER",
+                    source_ref="runtime://bank-execution-autopilot/n8-recovery-blocker",
+                    content_ref="file://" + str(path),
+                    subject_refs=subject_refs,
+                    content_hash="sha256:" + digest,
+                ),
+                release_id=control.release_id,
+            )
+        if evidence_id not in gap.evidence_refs:
+            gap.evidence_refs.append(evidence_id)
+        if gap.state != GapStatus.BLOCKED:
+            transition_gap(gap, GapStatus.BLOCKED)
+        control._persist_gap(gap)
+
+        current = control.scheduler.task(task.task_id)
+        if current.state != TaskStatus.BLOCKED:
+            if current.state not in {
+                TaskStatus.READY,
+                TaskStatus.LEASED,
+                TaskStatus.RUNNING,
+                TaskStatus.EVALUATING,
+            }:
+                raise BankExecutionAutopilotError(
+                    "EXECUTION_N8_RECOVERY_BLOCKER_TASK_STATE_INVALID:%s" % current.state.value
+                )
+            transition_task(current, TaskStatus.BLOCKED)
+            control.scheduler.persist_evaluated_task(current)
+
+        mission = control._mission()
+        if mission.state != MissionStatus.BLOCKED:
+            if mission.state not in {
+                MissionStatus.REGISTERED,
+                MissionStatus.RUNNING,
+                MissionStatus.EVALUATING,
+                MissionStatus.REPAIRING,
+                MissionStatus.WAITING_HUMAN,
+            }:
+                raise BankExecutionAutopilotError(
+                    "EXECUTION_N8_RECOVERY_BLOCKER_MISSION_STATE_INVALID:%s" % mission.state.value
+                )
+            transition_mission(mission, MissionStatus.BLOCKED)
+        control._sync_mission(mission)
+
     def run(self, control: ClosedLoopControlPlane, task: Task) -> None:
         if task.node != "EXECUTION":
             raise BankExecutionAutopilotError("EXECUTION_TASK_REQUIRED")
@@ -274,7 +388,12 @@ class BankExecutionAutopilot:
             try:
                 self.n8_recovery.handle_execution_repair(control, task)
             except BankN8RecoveryError as exc:
-                raise BankExecutionAutopilotError("EXECUTION_N8_DIRECT_REPAIR_FAILED:%s" % exc) from exc
+                self._block_n8_recovery_failure(
+                    control,
+                    task,
+                    phase="DIRECT_REPAIR",
+                    reason=str(exc),
+                )
             return
         tc_id = self._case_for_task(control, task)
         bundle = self.bundle_resolver.resolve(
