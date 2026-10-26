@@ -4,6 +4,8 @@ on:
   push:
     branches: [work/rc8]
     paths:
+      - 'rc8_center/artifacts.py'
+      - 'rc8_center/case_inventory.py'
       - 'rc8_center/prepared_attempt.py'
       - 'rc8_center/executable_readiness.py'
       - 'rc8_center/api/prepared_attempt_routes.py'
@@ -13,6 +15,7 @@ on:
       - 'rc8_center/infrastructure/postgres_prepared_attempt.py'
       - 'rc8_center/infrastructure/postgres_executable_readiness.py'
       - 'rc8_center/infrastructure/postgres_control.py'
+      - 'rc8_runtime/artifacts.py'
       - 'center/migrations/versions/0014_n5_n6_execution_state.py'
       - 'scripts/rc8_executable_readiness_http_test.py'
       - '.github/workflows/rc8-n6-executable-readiness-reality.yml'
@@ -56,9 +59,11 @@ jobs:
           python-version: '3.12'
       - name: Install formal Center dependencies
         run: pip install -r center/requirements.txt pytest
-      - name: Compile N5 to N6 reality slice
+      - name: Compile N4 to N6 reality slice
         run: |
           python -m py_compile \
+            rc8_center/artifacts.py \
+            rc8_center/case_inventory.py \
             rc8_center/prepared_attempt.py \
             rc8_center/executable_readiness.py \
             rc8_center/api/prepared_attempt_routes.py \
@@ -66,10 +71,11 @@ jobs:
             rc8_center/api/__init__.py \
             rc8_center/infrastructure/postgres_prepared_attempt.py \
             rc8_center/infrastructure/postgres_executable_readiness.py \
+            rc8_runtime/artifacts.py \
             scripts/rc8_executable_readiness_http_test.py
       - name: Apply formal PostgreSQL schema
         run: alembic -c center/alembic.ini upgrade head
-      - name: Prove N6 governance Attempt is distinct from N5 case execution Attempt
+      - name: Prove N4 frozen case N5 execution Attempt and N6 governance Attempt authorities
         run: python scripts/rc8_executable_readiness_http_test.py
       - name: Verify schema remains at head
         run: alembic -c center/alembic.ini current

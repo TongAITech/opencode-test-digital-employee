@@ -130,14 +130,47 @@ class CenterExecutableReadinessService:
         self.now_fn = now_fn or (lambda: int(time.time()))
 
     def build(self, *, executable_spec_id: str, test_run_id: str, mission_node_id: str, case_id: str, attempt_id: str, prepared_attempt_id: str, frozen_case_ref: str, driver_ref: str, script_artifact_ref: str, fixture_binding_refs: Sequence[str], assertion_refs: Sequence[str], evidence_collector_refs: Sequence[str], build_evidence_refs: Sequence[str]) -> ExecutableSpec:
-        self._require_prepared(prepared_attempt_id, test_run_id, case_id, attempt_id)
-        existing = self.repository.get_executable_spec(executable_spec_id)
+        normalized = {
+            "executable_spec_id": _required(executable_spec_id, "executable_spec_id"),
+            "test_run_id": _required(test_run_id, "test_run_id"),
+            "mission_node_id": _required(mission_node_id, "mission_node_id"),
+            "case_id": _required(case_id, "case_id"),
+            "attempt_id": _required(attempt_id, "attempt_id"),
+            "prepared_attempt_id": _required(prepared_attempt_id, "prepared_attempt_id"),
+            "frozen_case_ref": _required(frozen_case_ref, "frozen_case_ref"),
+            "driver_ref": _required(driver_ref, "driver_ref"),
+            "script_artifact_ref": _required(script_artifact_ref, "script_artifact_ref"),
+            "fixture_binding_refs": _refs(fixture_binding_refs, "fixture_binding_refs"),
+            "assertion_refs": _refs(assertion_refs, "assertion_refs"),
+            "evidence_collector_refs": _refs(evidence_collector_refs, "evidence_collector_refs"),
+            "build_evidence_refs": _refs(build_evidence_refs, "build_evidence_refs"),
+        }
+        self._require_prepared(normalized["prepared_attempt_id"], normalized["test_run_id"], normalized["case_id"], normalized["attempt_id"])
+        existing = self.repository.get_executable_spec(normalized["executable_spec_id"])
         if existing is not None:
+            if self._build_identity(existing) != self._requested_build_identity(normalized):
+                raise ExecutableReadinessError("EXECUTABLE_SPEC_ID_CONFLICT")
             return existing
-        if self.repository.current_for_attempt(test_run_id, case_id, attempt_id) is not None:
+        if self.repository.current_for_attempt(normalized["test_run_id"], normalized["case_id"], normalized["attempt_id"]) is not None:
             raise ExecutableReadinessError("CURRENT_EXECUTABLE_SPEC_ALREADY_EXISTS")
         now = int(self.now_fn())
-        value = ExecutableSpec(executable_spec_id=executable_spec_id, test_run_id=test_run_id, mission_node_id=mission_node_id, case_id=case_id, attempt_id=attempt_id, prepared_attempt_id=prepared_attempt_id, frozen_case_ref=frozen_case_ref, driver_ref=driver_ref, script_artifact_ref=script_artifact_ref, fixture_binding_refs=tuple(fixture_binding_refs), assertion_refs=tuple(assertion_refs), evidence_collector_refs=tuple(evidence_collector_refs), build_evidence_refs=tuple(build_evidence_refs), created_at=now, updated_at=now)
+        value = ExecutableSpec(
+            executable_spec_id=normalized["executable_spec_id"],
+            test_run_id=normalized["test_run_id"],
+            mission_node_id=normalized["mission_node_id"],
+            case_id=normalized["case_id"],
+            attempt_id=normalized["attempt_id"],
+            prepared_attempt_id=normalized["prepared_attempt_id"],
+            frozen_case_ref=normalized["frozen_case_ref"],
+            driver_ref=normalized["driver_ref"],
+            script_artifact_ref=normalized["script_artifact_ref"],
+            fixture_binding_refs=normalized["fixture_binding_refs"],
+            assertion_refs=normalized["assertion_refs"],
+            evidence_collector_refs=normalized["evidence_collector_refs"],
+            build_evidence_refs=normalized["build_evidence_refs"],
+            created_at=now,
+            updated_at=now,
+        )
         self.repository.save_executable_spec(value)
         return value
 
@@ -171,6 +204,42 @@ class CenterExecutableReadinessService:
         if not evidence:
             raise ExecutableReadinessError("EXECUTABLE_INVALIDATION_REQUIRES_EVIDENCE")
         return self._save(replace(current, state=ExecutableReadinessState.INVALIDATED, invalidation_reason=_required(reason, "invalidation_reason"), invalidation_evidence_refs=evidence, updated_at=int(self.now_fn())))
+
+    @staticmethod
+    def _build_identity(value: ExecutableSpec) -> Tuple[object, ...]:
+        return (
+            value.executable_spec_id,
+            value.test_run_id,
+            value.mission_node_id,
+            value.case_id,
+            value.attempt_id,
+            value.prepared_attempt_id,
+            value.frozen_case_ref,
+            value.driver_ref,
+            value.script_artifact_ref,
+            value.fixture_binding_refs,
+            value.assertion_refs,
+            value.evidence_collector_refs,
+            value.build_evidence_refs,
+        )
+
+    @staticmethod
+    def _requested_build_identity(value: Dict[str, object]) -> Tuple[object, ...]:
+        return (
+            value["executable_spec_id"],
+            value["test_run_id"],
+            value["mission_node_id"],
+            value["case_id"],
+            value["attempt_id"],
+            value["prepared_attempt_id"],
+            value["frozen_case_ref"],
+            value["driver_ref"],
+            value["script_artifact_ref"],
+            value["fixture_binding_refs"],
+            value["assertion_refs"],
+            value["evidence_collector_refs"],
+            value["build_evidence_refs"],
+        )
 
     def _require_prepared(self, prepared_attempt_id: str, test_run_id: str, case_id: str, attempt_id: str) -> None:
         try:
