@@ -1,12 +1,14 @@
-"""Lease-bound N6 executable-build route for the formal RC8 Center.
+"""Lease-bound N6 executable-readiness routes for the formal RC8 Center.
 
 N6 has two distinct Attempt identities by design:
-- the N6 WorkItem lease is the governance Attempt authorizing this N6 write;
+- the N6 WorkItem lease is the governance Attempt authorizing each N6 write;
 - the N5 PreparedAttempt attempt_id is the case execution Attempt inherited by
   the ExecutableSpec and later execution evidence.
 
-Workers may submit build artifacts/evidence, but may not choose either Attempt,
-PreparedAttempt, ExecutableSpec, TestRun, case or MissionNode identity.
+Workers may submit build/semantic evidence, but may not choose either Attempt,
+PreparedAttempt, ExecutableSpec, TestRun, case or MissionNode identity. READY is
+a deterministic Center transition from a verified current ExecutableSpec; it is
+not a Worker PASS declaration.
 """
 from __future__ import annotations
 
@@ -36,6 +38,19 @@ class ExecutableSpecBuildRequest(BaseModel):
     assertion_refs: List[str] = Field(min_length=1, max_length=256)
     evidence_collector_refs: List[str] = Field(min_length=1, max_length=256)
     build_evidence_refs: List[str] = Field(min_length=1, max_length=256)
+
+
+class ExecutableSpecVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    lease_id: str = Field(min_length=1, max_length=160)
+    semantic_evidence_refs: List[str] = Field(min_length=1, max_length=256)
+
+
+class ExecutableSpecReadyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    lease_id: str = Field(min_length=1, max_length=160)
 
 
 def _jsonable(value: Any) -> Any:
@@ -175,8 +190,6 @@ def register_executable_readiness_routes(app: FastAPI) -> None:
         if prepared.state != PreparedAttemptState.PREPARED:
             raise ExecutableReadinessError("N6_REQUIRES_N5_PREPARED_STATE")
 
-        # Re-check the full N5 execution gate here before accepting N6 build
-        # input. The domain service repeats this check when build() persists.
         try:
             prepared_attempts().require_current_for_execution(
                 prepared_attempt_id=prepared.prepared_attempt_id,
@@ -195,6 +208,15 @@ def register_executable_readiness_routes(app: FastAPI) -> None:
             "governance_attempt": governance_attempt,
             "prepared": prepared,
             "executable_spec_id": "executable:%s" % prepared.prepared_attempt_id,
+        }
+
+    def transition_response(authority: Dict[str, Any], value: Any, transition: str) -> Dict[str, Any]:
+        return {
+            "executable_spec": _jsonable(value),
+            "transition": transition,
+            "n6_governance_attempt_id": authority["governance_attempt"].attempt_id,
+            "case_execution_attempt_id": authority["prepared"].attempt_id,
+            "truth_note": "CENTER_REAUTHORIZED_N6_LEASE_AND_CURRENT_N5_PREPARED_ATTEMPT",
         }
 
     @app.post("/api/v1/work-items/{work_item_id}/executable-specs/build")
@@ -224,5 +246,26 @@ def register_executable_readiness_routes(app: FastAPI) -> None:
                 "case_execution_attempt_id": prepared.attempt_id,
                 "truth_note": "N6_GOVERNANCE_LEASE_AUTHORIZES_WRITE_WHILE_N5_PREPARED_ATTEMPT_OWNS_CASE_EXECUTION_IDENTITY",
             }
+        except (CenterControlError, PreparedAttemptError, ExecutableReadinessError, ValueError) as exc:
+            raise _error(exc) from exc
+
+    @app.post("/api/v1/work-items/{work_item_id}/executable-specs/verify")
+    def verify_executable_spec(work_item_id: str, request: ExecutableSpecVerifyRequest) -> Dict[str, Any]:
+        try:
+            authority = n6_authority(work_item_id, request.lease_id)
+            value = executable_readiness().verify(
+                authority["executable_spec_id"],
+                semantic_evidence_refs=request.semantic_evidence_refs,
+            )
+            return transition_response(authority, value, "VERIFIED")
+        except (CenterControlError, PreparedAttemptError, ExecutableReadinessError, ValueError) as exc:
+            raise _error(exc) from exc
+
+    @app.post("/api/v1/work-items/{work_item_id}/executable-specs/ready")
+    def ready_executable_spec(work_item_id: str, request: ExecutableSpecReadyRequest) -> Dict[str, Any]:
+        try:
+            authority = n6_authority(work_item_id, request.lease_id)
+            value = executable_readiness().mark_ready(authority["executable_spec_id"])
+            return transition_response(authority, value, "READY")
         except (CenterControlError, PreparedAttemptError, ExecutableReadinessError, ValueError) as exc:
             raise _error(exc) from exc

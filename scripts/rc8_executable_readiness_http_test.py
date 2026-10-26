@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real PostgreSQL + Redis + R1 proof for the N5 -> N6 build authority boundary."""
+"""Real PostgreSQL + Redis + R1 proof for N5 -> N6 READY authority."""
 from __future__ import annotations
 
 import os
@@ -141,7 +141,7 @@ def main() -> int:
         app.state.executable_spec_repository = executable_repository
         client = TestClient(app)
 
-        postgres.create_test_run(run_id, payload={"truth_scope": "N5_TO_N6_IDENTITY_SPLIT_REALITY"})
+        postgres.create_test_run(run_id, payload={"truth_scope": "N5_TO_N6_READY_REALITY"})
         governance_repository.upsert_stage(StageInstance(
             stage_instance_id=n5_stage_id,
             test_run_id=run_id,
@@ -199,8 +199,6 @@ def main() -> int:
             "build_evidence_refs": ["evidence:script-build:%s" % suffix],
         }
 
-        # N6 may have its own valid lease and STARTED governance Attempt, but it
-        # still cannot build while the case execution attempt is only SELECTED.
         blocked = client.post("/api/v1/work-items/%s/executable-specs/build" % n6_work_id, json=build_body)
         assert blocked.status_code == 400, blocked.text
         assert blocked.json()["detail"] == "N6_REQUIRES_N5_PREPARED_STATE"
@@ -249,35 +247,92 @@ def main() -> int:
         assert built["n6_governance_attempt_id"] != built["case_execution_attempt_id"]
         assert spec["executable_spec_id"] == executable_spec_id
         assert spec["state"] == "BUILT"
-        assert spec["test_run_id"] == run_id
         assert spec["mission_node_id"] == expected_n6_mission_node
-        assert spec["case_id"] == case_id
         assert spec["attempt_id"] == n5_lease
         assert spec["attempt_id"] != n6_lease
         assert spec["prepared_attempt_id"] == prepared_id
 
+        # READY is forbidden until semantic verification has completed.
+        premature_ready = client.post(
+            "/api/v1/work-items/%s/executable-specs/ready" % n6_work_id,
+            json={"lease_id": n6_lease},
+        )
+        assert premature_ready.status_code == 400, premature_ready.text
+        assert premature_ready.json()["detail"] == "EXECUTABLE_SPEC_STATE_REQUIRED:VERIFIED"
+
+        forged_verify = client.post(
+            "/api/v1/work-items/%s/executable-specs/verify" % n6_work_id,
+            json={
+                "lease_id": n6_lease,
+                "semantic_evidence_refs": ["evidence:semantic:%s" % suffix],
+                "executable_spec_id": "forged-executable",
+            },
+        )
+        assert forged_verify.status_code == 422, forged_verify.text
+
+        verified = _post(client, "/api/v1/work-items/%s/executable-specs/verify" % n6_work_id, {
+            "lease_id": n6_lease,
+            "semantic_evidence_refs": [
+                "evidence:semantic-contract:%s" % suffix,
+                "evidence:assertion-map:%s" % suffix,
+            ],
+        })
+        verified_spec = verified["executable_spec"]
+        assert verified["transition"] == "VERIFIED"
+        assert verified_spec["state"] == "VERIFIED"
+        assert verified["n6_governance_attempt_id"] == n6_lease
+        assert verified["case_execution_attempt_id"] == n5_lease
+        assert verified_spec["attempt_id"] == n5_lease
+
+        ready = _post(client, "/api/v1/work-items/%s/executable-specs/ready" % n6_work_id, {
+            "lease_id": n6_lease,
+        })
+        ready_spec = ready["executable_spec"]
+        assert ready["transition"] == "READY"
+        assert ready_spec["state"] == "READY"
+        assert ready["n6_governance_attempt_id"] == n6_lease
+        assert ready["case_execution_attempt_id"] == n5_lease
+        assert ready_spec["attempt_id"] == n5_lease
+        assert ready_spec["attempt_id"] != n6_lease
+
         persisted_spec = executable_repository.get_executable_spec(executable_spec_id)
         assert persisted_spec is not None
-        assert persisted_spec.state == ExecutableReadinessState.BUILT
+        assert persisted_spec.state == ExecutableReadinessState.READY
         assert persisted_spec.attempt_id == n5_lease
         assert persisted_spec.prepared_attempt_id == prepared_id
         assert persisted_spec.mission_node_id == expected_n6_mission_node
+        assert persisted_spec.semantic_evidence_refs == (
+            "evidence:semantic-contract:%s" % suffix,
+            "evidence:assertion-map:%s" % suffix,
+        )
 
-        stale = dict(build_body)
-        stale["lease_id"] = "stale-n6-lease"
-        stale_response = client.post("/api/v1/work-items/%s/executable-specs/build" % n6_work_id, json=stale)
-        assert stale_response.status_code == 409, stale_response.text
-        assert stale_response.json()["detail"] == "ACTIVE_WORK_ITEM_LEASE_REQUIRED"
+        execution_ready = executable_readiness.require_ready_for_execution(
+            executable_spec_id=executable_spec_id,
+            prepared_attempt_id=prepared_id,
+            test_run_id=run_id,
+            case_id=case_id,
+            attempt_id=n5_lease,
+        )
+        assert execution_ready.state == ExecutableReadinessState.READY
+        assert execution_ready.attempt_id == n5_lease
+
+        stale = client.post(
+            "/api/v1/work-items/%s/executable-specs/ready" % n6_work_id,
+            json={"lease_id": "stale-n6-lease"},
+        )
+        assert stale.status_code == 409, stale.text
+        assert stale.json()["detail"] == "ACTIVE_WORK_ITEM_LEASE_REQUIRED"
 
         print({
-            "status": "RC8_N6_LEASE_BOUND_BUILD_HTTP_PASS",
+            "status": "RC8_N6_LEASE_BOUND_READY_HTTP_PASS",
             "test_run_id": run_id,
             "case_id": case_id,
             "n5_case_execution_attempt_id": n5_lease,
             "n6_governance_attempt_id": n6_lease,
             "prepared_attempt_id": prepared_id,
             "executable_spec_id": executable_spec_id,
-            "truth_note": "N6 governance lease authorizes build while N5 PreparedAttempt retains case execution identity.",
+            "executable_state": persisted_spec.state.value,
+            "truth_note": "N6 semantic verification and READY are Center-authorized while N5 PreparedAttempt retains case execution identity.",
         })
     return 0
 
