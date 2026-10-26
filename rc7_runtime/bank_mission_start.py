@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 from typing import Optional, Sequence
 
 from .bank_mission import BankMissionError, MissionTaskGraphCompiler, _parse_inputs, start_or_resume
@@ -45,6 +46,59 @@ def _target_id(cli_value: Optional[str]) -> Optional[str]:
                 )
         return explicit
     return modern or legacy or None
+
+
+def _case_provider_config(
+    *,
+    r1_path: str,
+    package_root: Optional[str],
+    cli_value: Optional[str],
+) -> Optional[str]:
+    """Resolve one real CasePreparation provider config without guessing.
+
+    Precedence is explicit CLI, environment, then the canonical packaged field
+    binding at ``state/bank-field-providers.json``. The example template is
+    never executable authority. Invalid explicit bindings fail before Mission
+    bootstrap so a configuration mistake cannot leave a half-started Mission.
+    """
+    r1 = Path(str(r1_path or "").strip()).expanduser().resolve()
+    root = (
+        Path(package_root).expanduser().resolve()
+        if package_root
+        else r1.parent.parent.parent.resolve()
+    )
+    explicit = str(cli_value or "").strip()
+    environment = str(os.environ.get("PFC_RC7_CASE_PROVIDER_CONFIG") or "").strip()
+
+    def resolved(raw: str) -> Path:
+        return Path(raw).expanduser().resolve()
+
+    if explicit and environment and resolved(explicit) != resolved(environment):
+        raise BankMissionStartError(
+            "AUTOPILOT_CASE_PROVIDER_CONFIG_CLI_ENV_CONFLICT:%s:%s"
+            % (resolved(explicit), resolved(environment))
+        )
+
+    selected_raw = explicit or environment
+    if selected_raw:
+        selected = resolved(selected_raw)
+        example = (root / "packaging" / "rc7" / "bank-field-providers.example.json").resolve()
+        if selected == example:
+            raise BankMissionStartError(
+                "AUTOPILOT_CASE_PROVIDER_EXAMPLE_FORBIDDEN:%s" % selected
+            )
+        if not selected.is_file():
+            raise BankMissionStartError(
+                "AUTOPILOT_CASE_PROVIDER_CONFIG_NOT_FOUND:%s" % selected
+            )
+        os.environ["PFC_RC7_CASE_PROVIDER_CONFIG"] = str(selected)
+        return str(selected)
+
+    canonical = (root / "state" / "bank-field-providers.json").resolve()
+    if canonical.is_file():
+        os.environ["PFC_RC7_CASE_PROVIDER_CONFIG"] = str(canonical)
+        return str(canonical)
+    return None
 
 
 def _failure_status(exc: Exception) -> str:
@@ -81,6 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repository-ref")
     parser.add_argument("--runtime-profile")
     parser.add_argument("--execution-capability-snapshot")
+    parser.add_argument("--case-provider-config")
     parser.add_argument("--max-steps", type=int, default=100)
     parser.add_argument("--timeout-seconds", type=int, default=300)
     return parser
@@ -90,6 +145,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         target_id = _target_id(args.target_id)
+        _case_provider_config(
+            r1_path=args.r1,
+            package_root=args.package_root,
+            cli_value=args.case_provider_config,
+        )
         bootstrap = start_or_resume(
             r1_path=args.r1,
             mission_id=args.mission_id,
