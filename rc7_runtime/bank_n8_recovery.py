@@ -21,7 +21,17 @@ from .autonomous_recovery_orchestrator import (
 from .closed_loop_control import ClosedLoopControlPlane
 from .control_plane import WorkerOutput
 from .execution_recovery import RecoveryWorkPlan
-from .models import Artifact, Evaluation, EvaluationResult, Evidence, GapStatus, Task, TaskStatus
+from .models import (
+    Artifact,
+    Evaluation,
+    EvaluationResult,
+    Evidence,
+    GapStatus,
+    MissionStatus,
+    Task,
+    TaskStatus,
+)
+from .state_machine import transition_gap, transition_mission, transition_task
 from .truth_overlay import append_entity
 
 
@@ -81,6 +91,7 @@ class BankN8RecoveryCoordinator:
 
     DIRECT_ORDER_TYPE = "N8_DIRECT_RETRY_ORDER"
     DIRECT_RECEIPT_TYPE = "N8_DIRECT_RETRY_RECEIPT"
+    BUDGET_BLOCK_TYPE = "N8_RECOVERY_BUDGET_BLOCK"
     DIRECT_WORKER_REF = "rc7-n8-direct-retry-authority"
     DIRECT_EVALUATOR_REF = "rc7-n8-direct-retry-independent-gate"
 
@@ -153,6 +164,118 @@ class BankN8RecoveryCoordinator:
             raise BankN8RecoveryError("BANK_N8_GAP_RECOVERY_OWNER_MISMATCH")
         return gap
 
+    def _block_retry_budget(
+        self,
+        control: ClosedLoopControlPlane,
+        *,
+        source_task_id: str,
+        gap_id: str,
+        plan: RecoveryWorkPlan,
+        diagnosis_evidence_id: str,
+        failure_signature_id: str,
+        reason: str,
+    ) -> str:
+        """Persist budget exhaustion as an explicit durable Mission boundary."""
+        repair_row = self._repair_task(
+            control,
+            gap_id=gap_id,
+            target_node=plan.target_node,
+        )
+        if repair_row.get("state") != TaskStatus.READY.value:
+            raise BankN8RecoveryError("BANK_N8_BUDGET_BLOCK_REPAIR_READY_REQUIRED")
+        gap = control._gap(gap_id)
+        if gap.state != GapStatus.PLANNED:
+            raise BankN8RecoveryError("BANK_N8_BUDGET_BLOCK_GAP_PLANNED_REQUIRED")
+        source = control.scheduler.task(source_task_id)
+        if source.state != TaskStatus.REPAIR_REQUIRED:
+            raise BankN8RecoveryError("BANK_N8_BUDGET_BLOCK_SOURCE_REPAIR_REQUIRED")
+        successor = _required(plan.successor_attempt_id, "BANK_N8_BUDGET_BLOCK_SUCCESSOR_REQUIRED")
+        if plan.mode == "DIRECT_RETRY":
+            strategy_key = _stable_id("N8-DIRECT-STRATEGY", plan.action, plan.mode, plan.target_node)
+            budget_limit = self.max_same_signature_direct_retries
+        else:
+            strategy_key = _stable_id("RECOVERY-STRATEGY", plan.action, plan.mode, plan.target_node)
+            budget_limit = self.orchestrator.max_same_strategy_repairs
+        payload = {
+            "schema": "pfc.aitest.rc7.1.n8-recovery-budget-block.v1",
+            "mission_id": control.mission_id,
+            "release_id": control.release_id,
+            "source_task_id": source_task_id,
+            "repair_task_id": str(repair_row["task_id"]),
+            "gap_id": gap_id,
+            "diagnosis_evidence_id": diagnosis_evidence_id,
+            "failure_signature_id": failure_signature_id,
+            "strategy_key": strategy_key,
+            "action": plan.action,
+            "mode": plan.mode,
+            "target_node": plan.target_node,
+            "source_attempt_id": plan.source_attempt_id,
+            "successor_attempt_id": successor,
+            "budget_limit": budget_limit,
+            "reason": reason,
+            "business_action_executed": False,
+        }
+        encoded = (json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
+        digest = hashlib.sha256(encoded).hexdigest()
+        evidence_id = _stable_id(
+            "EVD-N8-BUDGET-BLOCK",
+            control.mission_id,
+            source_task_id,
+            gap_id,
+            failure_signature_id,
+            strategy_key,
+            reason,
+        )
+        folder = self.evidence_root / "n8-recovery" / control.mission_id / "budget-blocks"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / (evidence_id + ".json")
+        if path.exists() and path.read_bytes() != encoded:
+            raise BankN8RecoveryError("BANK_N8_BUDGET_BLOCK_IMMUTABILITY_VIOLATION")
+        if not path.exists():
+            path.write_bytes(encoded)
+        existing = control.truth.query("rc7_evidence", evidence_id=evidence_id)
+        if existing:
+            if len(existing) != 1 or existing[0].get("content_hash") != "sha256:" + digest:
+                raise BankN8RecoveryError("BANK_N8_BUDGET_BLOCK_EVIDENCE_CONFLICT")
+        else:
+            append_entity(
+                control.truth,
+                Evidence(
+                    evidence_id=evidence_id,
+                    mission_id=control.mission_id,
+                    kind=self.BUDGET_BLOCK_TYPE,
+                    source_ref="runtime://bank-n8/recovery-budget",
+                    content_ref="file://" + str(path),
+                    subject_refs=[
+                        source_task_id,
+                        str(repair_row["task_id"]),
+                        gap_id,
+                        plan.source_attempt_id,
+                        successor,
+                        failure_signature_id,
+                        strategy_key,
+                    ],
+                    content_hash="sha256:" + digest,
+                ),
+                release_id=control.release_id,
+            )
+        if evidence_id not in gap.evidence_refs:
+            gap.evidence_refs.append(evidence_id)
+        transition_gap(gap, GapStatus.BLOCKED)
+        control._persist_gap(gap)
+        repair_task = control.scheduler.task(str(repair_row["task_id"]))
+        transition_task(repair_task, TaskStatus.BLOCKED)
+        control.scheduler.persist_evaluated_task(repair_task)
+        mission = control._mission()
+        if mission.state != MissionStatus.BLOCKED:
+            if mission.state not in {MissionStatus.RUNNING, MissionStatus.REPAIRING, MissionStatus.EVALUATING}:
+                raise BankN8RecoveryError(
+                    "BANK_N8_BUDGET_BLOCK_MISSION_STATE_INVALID:%s" % mission.state.value
+                )
+            transition_mission(mission, MissionStatus.BLOCKED)
+        control._sync_mission(mission)
+        return evidence_id
+
     def capture_after_execution(self, control: ClosedLoopControlPlane, *, source_task_id: str, result):
         """Freeze current REPAIR_REQUIRED diagnosis into durable N8 work."""
         if result.loop_result.evaluation.result != EvaluationResult.REPAIR_REQUIRED:
@@ -170,14 +293,27 @@ class BankN8RecoveryCoordinator:
             raise BankN8RecoveryError("BANK_N8_REPAIR_REQUIRED_MUST_HAVE_RETRYABLE_PLAN")
         gap = self._single_gap(result, plan)
         if plan.mode == "DIRECT_RETRY":
-            return self._create_direct_retry_order(
-                control,
-                source_task_id=source_task_id,
-                gap_id=gap.gap_id,
-                plan=plan,
-                diagnosis_evidence_id=str(row["evidence_id"]),
-                failure_signature_id=failure_signature_id,
-            )
+            try:
+                return self._create_direct_retry_order(
+                    control,
+                    source_task_id=source_task_id,
+                    gap_id=gap.gap_id,
+                    plan=plan,
+                    diagnosis_evidence_id=str(row["evidence_id"]),
+                    failure_signature_id=failure_signature_id,
+                )
+            except BankN8RecoveryError as exc:
+                if str(exc) != "BANK_N8_DIRECT_RETRY_BUDGET_EXHAUSTED":
+                    raise
+                return self._block_retry_budget(
+                    control,
+                    source_task_id=source_task_id,
+                    gap_id=gap.gap_id,
+                    plan=plan,
+                    diagnosis_evidence_id=str(row["evidence_id"]),
+                    failure_signature_id=failure_signature_id,
+                    reason=str(exc),
+                )
         if plan.mode in {"REPREPARE_THEN_RETRY", "UPSTREAM_REPAIR_THEN_RETRY"}:
             try:
                 return self.orchestrator.create_work_order(
@@ -189,6 +325,16 @@ class BankN8RecoveryCoordinator:
                     failure_signature_id=failure_signature_id,
                 )
             except N8RecoveryOrchestrationError as exc:
+                if str(exc) == "SAME_FAILURE_SIGNATURE_STRATEGY_BUDGET_EXHAUSTED":
+                    return self._block_retry_budget(
+                        control,
+                        source_task_id=source_task_id,
+                        gap_id=gap.gap_id,
+                        plan=plan,
+                        diagnosis_evidence_id=str(row["evidence_id"]),
+                        failure_signature_id=failure_signature_id,
+                        reason=str(exc),
+                    )
                 raise BankN8RecoveryError("BANK_N8_WORK_ORDER_FAILED:%s" % exc) from exc
         raise BankN8RecoveryError("BANK_N8_RECOVERY_MODE_UNSUPPORTED:%s" % plan.mode)
 
