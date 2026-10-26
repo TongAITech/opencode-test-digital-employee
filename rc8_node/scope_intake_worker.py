@@ -1,8 +1,12 @@
 """Deterministic SCOPE_INTAKE worker for the autonomous RC8 node.
 
 Scope intake does not need a model. It snapshots the immutable WorkItem scope
-refs into an AVAILABLE artifact, publishes Attempt truth through R1, and lets
-the Center evidence gate decide whether REQUIREMENT_ANALYSIS may become READY.
+refs into an AVAILABLE artifact, publishes evidence-bearing Attempt truth
+through R1, and lets the Center evidence gate decide whether
+REQUIREMENT_ANALYSIS may become READY.
+
+Center owns ATTEMPT_STARTED and the immutable Attempt identity. The worker may
+only publish evidence against the active Center-issued lease Attempt.
 """
 from __future__ import annotations
 
@@ -52,24 +56,14 @@ class ScopeIntakeWorker:
         if not scope_refs:
             raise ScopeIntakeWorkerError("SCOPE_INTAKE_REFS_REQUIRED")
 
-        attempt_id = "att-scope-intake-%s" % uuid.uuid4().hex
+        # Center owns ATTEMPT_STARTED. FormalNodeAgent.start() causes the Center
+        # to append and project the STARTED fact, using the active lease as the
+        # immutable Attempt identity. The worker must not create another start.
+        attempt_id = lease_id
         input_snapshot_ref = "scope-intake:%s" % hashlib.sha256(
             "\x1f".join(scope_refs).encode("utf-8")
         ).hexdigest()
         self.agent.start(work_item_id, lease_id=lease_id)
-        self._event(
-            test_run_id=test_run_id,
-            work_item_id=work_item_id,
-            lease_id=lease_id,
-            event_type="ATTEMPT_STARTED",
-            attempt_id=attempt_id,
-            refs=scope_refs,
-            data={
-                "stage_instance_id": stage_instance_id,
-                "input_snapshot_ref": input_snapshot_ref,
-                "started_at": self._now(),
-            },
-        )
 
         content = {
             "schema_version": "rc8.scope-intake.v1",
@@ -77,6 +71,7 @@ class ScopeIntakeWorker:
             "work_item_id": work_item_id,
             "stage_instance_id": stage_instance_id,
             "scope_refs": list(scope_refs),
+            # This is artifact-local provenance, not Attempt snapshot authority.
             "input_snapshot_ref": input_snapshot_ref,
             "generated_at": self._now(),
         }
@@ -100,7 +95,6 @@ class ScopeIntakeWorker:
             refs=scope_refs,
             data={
                 "stage_instance_id": stage_instance_id,
-                "input_snapshot_ref": input_snapshot_ref,
                 "evidence_refs": [artifact_ref],
                 "finished_at": self._now(),
             },

@@ -36,6 +36,8 @@ class FakeAgent:
 
     def start(self, work_item_id, *, lease_id):
         self.started.append((work_item_id, lease_id))
+        # Simulate the real Center-owned ATTEMPT_STARTED consuming sequence 0.
+        self.center.sequence = max(self.center.sequence, 0)
         return {"work_item": {"state": "RUNNING"}}
 
     def append_runtime_event(self, event, *, lease_id):
@@ -69,17 +71,27 @@ def _claim():
     )
 
 
-def test_scope_intake_worker_publishes_available_evidence_before_completion(tmp_path: Path) -> None:
+def test_scope_intake_worker_uses_center_attempt_and_publishes_available_evidence_before_completion(tmp_path: Path) -> None:
     agent = FakeAgent()
     worker = ScopeIntakeWorker(agent=agent, work_dir=str(tmp_path), now_fn=lambda: 100)
     result = worker.execute(_claim())
+
     assert result["status"] == "COMPLETED"
+    assert result["attempt_id"] == "LEASE-SCOPE"
     assert agent.started == [("WORK-SCOPE", "LEASE-SCOPE")]
-    assert [event.event_type for event, _ in agent.events] == ["ATTEMPT_STARTED", "ATTEMPT_COMPLETED"]
-    assert [event.sequence for event, _ in agent.events] == [0, 1]
+
+    # Worker must never create ATTEMPT_STARTED; Center already did that in start().
+    assert [event.event_type for event, _ in agent.events] == ["ATTEMPT_COMPLETED"]
+    assert [event.sequence for event, _ in agent.events] == [1]
+    terminal_event = agent.events[0][0]
+    assert terminal_event.attempt_id == "LEASE-SCOPE"
+    assert terminal_event.data["evidence_refs"] == [result["artifact_ref"]]
+    assert "input_snapshot_ref" not in terminal_event.data
+
     manifest, content, lease = agent.uploads[0]
     assert lease == "LEASE-SCOPE"
     assert manifest.kind == "SCOPE_INTAKE"
+    assert manifest.attempt_id == "LEASE-SCOPE"
     assert content["scope_refs"] == ["delivery-scope:SCOPE-1", "test-round:ROUND-1"]
-    assert agent.events[-1][0].data["evidence_refs"] == [result["artifact_ref"]]
+    assert content["input_snapshot_ref"].startswith("scope-intake:")
     assert agent.completed == [("WORK-SCOPE", "LEASE-SCOPE")]

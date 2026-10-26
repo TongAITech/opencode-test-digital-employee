@@ -66,7 +66,7 @@ def test_requirement_delivery_revision_remains_schema_compatible() -> None:
     assert revisions["0007_req_delivery"][0] == "0006_lease_recovery"
 
 
-def test_test_round_runtime_revision_traceability_and_provider_recovery_are_linear() -> None:
+def test_test_round_runtime_revision_traceability_provider_recovery_and_execution_state_are_linear() -> None:
     revisions = _load_revisions()
     assert revisions["0008_test_rounds"][0] == "0007_req_delivery"
     assert revisions["0009_run_round"][0] == "0008_test_rounds"
@@ -74,10 +74,22 @@ def test_test_round_runtime_revision_traceability_and_provider_recovery_are_line
     assert revisions["0011_req_scope_revision"][0] == "0010_stage_workitem"
     assert revisions["0012_traceability_graph"][0] == "0011_req_scope_revision"
     assert revisions["0013_provider_recovery_ckpt"][0] == "0012_traceability_graph"
+    assert revisions["0014_n5_n6_execution_state"][0] == "0013_provider_recovery_ckpt"
+
+
+def test_n5_n6_execution_state_revision_declares_formal_durable_tables() -> None:
+    revisions = _load_revisions()
+    migration_path = revisions["0014_n5_n6_execution_state"][1]
+    source = migration_path.read_text(encoding="utf-8")
+    assert '"rc8_prepared_attempt"' in source
+    assert '"rc8_executable_spec"' in source
+    assert "op.create_table" in source
+    assert "op.drop_table" in source
 
 
 if __name__ == "__main__":
     test_alembic_revision_ids_fit_version_table_and_form_one_closed_chain()
     test_requirement_delivery_revision_remains_schema_compatible()
-    test_test_round_runtime_revision_traceability_and_provider_recovery_are_linear()
+    test_test_round_runtime_revision_traceability_provider_recovery_and_execution_state_are_linear()
+    test_n5_n6_execution_state_revision_declares_formal_durable_tables()
     print("RC8_ALEMBIC_REVISION_CONTRACT_PASS")
