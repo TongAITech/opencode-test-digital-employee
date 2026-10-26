@@ -13,8 +13,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
-from rc8_runtime import CentralR1RuntimeLedger, RuntimeEventEnvelope
+from rc8_runtime import CentralR1RuntimeLedger, RuntimeEventEnvelope, RuntimeProducerKind
+from rc8_runtime.governance import AttemptStatus
 
+from .control_plane import CenterControlError
 from .executable_readiness import CenterExecutableReadinessService
 from .runtime_invalidation_service import CenterRuntimeInvalidationService
 
@@ -32,6 +34,11 @@ _BINDING_EVENT_TYPES = {
 }
 _CASE_REVISION_EVENT_TYPE = "CASE_REVISION_CHANGED"
 _SUPPORTED_EVENT_TYPES = set(_BINDING_EVENT_TYPES) | {_CASE_REVISION_EVENT_TYPE}
+_TERMINAL_ATTEMPT_EVENT_TYPES = {
+    "ATTEMPT_COMPLETED",
+    "ATTEMPT_FAILED_RUNTIME",
+    "ATTEMPT_BLOCKED",
+}
 
 
 def _required(value: Any, name: str) -> str:
@@ -212,7 +219,14 @@ class CenterRuntimeMutationProducer:
 
 
 class RuntimeMutationAwareFormalCenterControlPlane:
-    """Composition wrapper that derives invalidation only after canonical source persistence."""
+    """Formal Center wrapper for mutation invalidation and Attempt start authority.
+
+    Runtime mutation facts are persisted before invalidation is derived. For
+    Mission-linked WorkItems, the same wrapper also owns ATTEMPT_STARTED:
+    the active Center-issued lease_id is the Attempt identity and the linked
+    Stage scope_version is the immutable input snapshot. Nodes may publish
+    terminal Attempt facts, but they cannot create or rename the current Attempt.
+    """
 
     def __init__(
         self,
@@ -225,12 +239,24 @@ class RuntimeMutationAwareFormalCenterControlPlane:
     def __getattr__(self, name: str) -> Any:
         return getattr(self._control_plane, name)
 
+    def start_work_item(self, work_item_id: str, node_id: str, lease_id: str):
+        work = self._control_plane._require_active_lease(work_item_id, node_id, lease_id)
+        self._ensure_center_attempt_started(work, node_id=node_id, lease_id=lease_id)
+        return self._control_plane.start_work_item(work_item_id, node_id, lease_id)
+
     def append_runtime_event(
         self,
         event: RuntimeEventEnvelope,
         *,
         lease_id: str,
     ) -> Dict[str, object]:
+        work = self._control_plane.authorize_work_item_write(
+            test_run_id=event.test_run_id,
+            work_item_id=event.work_item_id,
+            node_id=event.node_id,
+            lease_id=lease_id,
+        )
+        self._validate_attempt_event(work, event)
         result = self._control_plane.append_runtime_event(event, lease_id=lease_id)
         invalidation_event_id = self.runtime_mutation_producer.process_runtime_event(event)
         if invalidation_event_id is not None:
@@ -241,3 +267,139 @@ class RuntimeMutationAwareFormalCenterControlPlane:
                 "source_runtime_event_id": event.event_id,
             }
         return result
+
+    def _ensure_center_attempt_started(self, work: object, *, node_id: str, lease_id: str) -> None:
+        stage_instance_id = self._control_plane.stage_instance_id_for_work_item(
+            work.identity.work_item_id
+        )
+        if stage_instance_id is None:
+            return
+        governance_repository = getattr(
+            self._control_plane.projector,
+            "governance_repository",
+            None,
+        )
+        if governance_repository is None:
+            raise CenterControlError("GOVERNANCE_REPOSITORY_REQUIRED_FOR_ATTEMPT_START")
+        stage = governance_repository.get_stage(stage_instance_id)
+        if stage is None:
+            raise CenterControlError("MISSION_STAGE_REQUIRED_FOR_ATTEMPT_START")
+        if str(stage.test_run_id) != str(work.identity.test_run_id):
+            raise CenterControlError("WORK_ITEM_STAGE_TEST_RUN_MISMATCH")
+        input_snapshot_ref = str(stage.scope_version or "").strip()
+        if not input_snapshot_ref:
+            raise CenterControlError("ATTEMPT_INPUT_SNAPSHOT_REQUIRED")
+
+        event_id = "center-attempt-started:%s:%s" % (
+            work.identity.work_item_id,
+            lease_id,
+        )
+        existing = None
+        for item in self._control_plane.runtime_ledger.runtime_events(
+            test_run_id=work.identity.test_run_id,
+            work_item_id=work.identity.work_item_id,
+            node_id=node_id,
+        ):
+            if str(item.get("event_id") or "") == event_id:
+                existing = item
+                break
+
+        if existing is None:
+            started_at = int(self._control_plane._now())
+            sequence = self._control_plane.runtime_ledger.latest_node_sequence(
+                test_run_id=work.identity.test_run_id,
+                node_id=node_id,
+            ) + 1
+            event = RuntimeEventEnvelope(
+                event_id=event_id,
+                test_run_id=work.identity.test_run_id,
+                work_item_id=work.identity.work_item_id,
+                node_id=node_id,
+                producer_kind=RuntimeProducerKind.NODE_AGENT,
+                producer_ref="rc8-center-attempt-authority",
+                event_type="ATTEMPT_STARTED",
+                sequence=sequence,
+                attempt_id=lease_id,
+                refs=[],
+                data={
+                    "stage_instance_id": stage_instance_id,
+                    "input_snapshot_ref": input_snapshot_ref,
+                    "started_at": started_at,
+                    "action_refs": [],
+                    "assertion_refs": [],
+                    "evidence_refs": [],
+                    "coverage_refs": [],
+                    "gap_refs": [],
+                    "defect_refs": [],
+                    "authority_ref": "lease:%s" % lease_id,
+                },
+                occurred_at=started_at,
+            )
+            self._control_plane.runtime_ledger.assert_next_node_sequence(event)
+            self._control_plane.runtime_ledger.append_runtime(event)
+        else:
+            data = existing.get("data") if isinstance(existing.get("data"), dict) else {}
+            identity_matches = (
+                str(existing.get("event_type") or "") == "ATTEMPT_STARTED"
+                and str(existing.get("attempt_id") or "") == str(lease_id)
+                and str(existing.get("node_id") or "") == str(node_id)
+                and str(existing.get("producer_ref") or "") == "rc8-center-attempt-authority"
+                and str(data.get("stage_instance_id") or "") == str(stage_instance_id)
+                and str(data.get("input_snapshot_ref") or "") == input_snapshot_ref
+            )
+            if not identity_matches:
+                raise CenterControlError("CENTER_ATTEMPT_START_EVENT_CONFLICT")
+
+        projection = self._control_plane.projector.ingest({"event_id": event_id})
+        projected = projection.get("projection") if isinstance(projection, dict) else None
+        status = str(projected.get("status") or "") if isinstance(projected, dict) else ""
+        if status != "PROJECTED":
+            detail = str(projected.get("detail") or "UNKNOWN") if isinstance(projected, dict) else "UNKNOWN"
+            raise CenterControlError("ATTEMPT_START_PROJECTION_REQUIRED:%s" % detail)
+
+    def _validate_attempt_event(self, work: object, event: RuntimeEventEnvelope) -> None:
+        event_type = str(event.event_type or "").strip().upper()
+        if not event_type.startswith("ATTEMPT_"):
+            return
+        stage_instance_id = self._control_plane.stage_instance_id_for_work_item(
+            work.identity.work_item_id
+        )
+        if stage_instance_id is None:
+            return
+        if event_type == "ATTEMPT_STARTED":
+            raise CenterControlError("CENTER_OWNS_ATTEMPT_START")
+        if event_type not in _TERMINAL_ATTEMPT_EVENT_TYPES:
+            raise CenterControlError("ATTEMPT_EVENT_TYPE_INVALID:%s" % event_type)
+
+        active_attempt_id = str(work.lease_id or "").strip()
+        if not active_attempt_id or str(event.attempt_id or "").strip() != active_attempt_id:
+            raise CenterControlError("ATTEMPT_ID_MUST_MATCH_ACTIVE_LEASE")
+
+        governance_repository = getattr(
+            self._control_plane.projector,
+            "governance_repository",
+            None,
+        )
+        if governance_repository is None:
+            raise CenterControlError("GOVERNANCE_REPOSITORY_REQUIRED_FOR_ATTEMPT_EVENT")
+        current = governance_repository.get_attempt(active_attempt_id)
+        if current is None or current.status != AttemptStatus.STARTED:
+            raise CenterControlError("CENTER_STARTED_ATTEMPT_REQUIRED")
+        if current.test_run_id != work.identity.test_run_id:
+            raise CenterControlError("ATTEMPT_TEST_RUN_AUTHORITY_MISMATCH")
+        if current.work_item_id != work.identity.work_item_id:
+            raise CenterControlError("ATTEMPT_WORK_ITEM_AUTHORITY_MISMATCH")
+        if current.stage_instance_id != stage_instance_id:
+            raise CenterControlError("ATTEMPT_STAGE_AUTHORITY_MISMATCH")
+        if current.producer_node_id != event.node_id:
+            raise CenterControlError("ATTEMPT_NODE_AUTHORITY_MISMATCH")
+        if event.case_id is not None and event.case_id != current.case_id:
+            raise CenterControlError("ATTEMPT_CASE_AUTHORITY_MISMATCH")
+
+        data = event.data if isinstance(event.data, dict) else {}
+        supplied_stage = data.get("stage_instance_id")
+        if supplied_stage is not None and str(supplied_stage) != current.stage_instance_id:
+            raise CenterControlError("ATTEMPT_STAGE_AUTHORITY_MISMATCH")
+        supplied_snapshot = data.get("input_snapshot_ref")
+        if supplied_snapshot is not None and str(supplied_snapshot) != current.input_snapshot_ref:
+            raise CenterControlError("ATTEMPT_INPUT_SNAPSHOT_AUTHORITY_MISMATCH")
