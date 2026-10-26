@@ -38,6 +38,7 @@ jobs:
           tests/test_rc7_1_n1_reality_adoption.py
           tests/test_rc7_1_node_gate_evidence_integrity.py
           tests/test_rc7_1_n5_autonomous_preparation.py
+          tests/test_rc7_1_bank_n5_main_link.py
           tests/test_rc7_1_n6_autonomous_script.py
           tests/test_rc7_1_n7_coverage_closure.py
           tests/test_rc7_1_n7_node_convergence.py

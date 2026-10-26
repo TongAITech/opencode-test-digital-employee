@@ -6,30 +6,35 @@ No capability is assumed READY: tool admission comes only from field/runtime
 capability evidence. Current-Attempt CAT hardening is delegated to the bank
 execution service; missing CAT readiness blocks diagnosis rather than execution.
 
-For a new Case-fanout Mission, business execution is forbidden until the whole
-accepted-case denominator has real field preparation, canonical N5 artifacts,
-and an independent Director ACCEPT. A later per-Case repair may refresh its own
-preparation, but it may never bypass that current-run N5 terminal truth.
+RC7.1 N5 hardening: field CasePreparationService output is never passed directly
+to a business runner. Every Case must first be adopted into the canonical
+PREPARED_ATTEMPT contract and pass the governed N5 per-Case gate.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Mapping, Optional, Tuple
 
 from rc6_runtime.execution import ExecutionProfileRegistry
-from rc6_runtime.preparation import PreparedAttempt
 
 from .authority import RC7AuthorityRuntime
 from .bank_attempt_cat_execution import BankAttemptCatRuntimeExecutionService
-from .bank_preparation_batch_gate import BankPreparationBatchGate, BankPreparationBatchGateError
+from .bank_autonomous_preparation_closure import (
+    BankAutonomousPreparationClosureCoordinator,
+    BankAutonomousPreparationClosureError,
+)
+from .candidate_payload import CandidatePayloadReader
 from .case_fanout_conformance import AcceptedCaseInventoryReader
 from .case_runtime import CasePreparationService
 from .case_script_bundle_resolver import CaseScriptExecutionBundleResolver
 from .closed_loop_control import ClosedLoopControlPlane
 from .control_plane import WorkerOutput
-from .execution_capability import ExecutionCapabilityBrokerFactory, ExecutionCapabilityEvidenceError
+from .execution_capability import (
+    ExecutionCapabilityBrokerFactory,
+    ExecutionCapabilityEvidenceError,
+)
 from .execution_fanout_conformance import check_execution_barrier
 from .execution_profiles import RC7_1_EXECUTION_PROFILES
 from .models import Artifact, Evaluation, EvaluationResult, Evidence, Gap, GapSeverity, Task
@@ -64,10 +69,9 @@ class BankExecutionAutopilot:
         self.target_id = str(target_id or "").strip()
         if not self.target_id:
             raise BankExecutionAutopilotError("EXECUTION_TARGET_REQUIRED")
-        self.capability_snapshot = (
-            Path(capability_snapshot).expanduser().resolve() if capability_snapshot else None
-        )
+        self.capability_snapshot = Path(capability_snapshot).expanduser().resolve() if capability_snapshot else None
         self.inventory = AcceptedCaseInventoryReader()
+        self.candidate_reader = CandidatePayloadReader()
         self.bundle_resolver = CaseScriptExecutionBundleResolver(
             evidence_root=str(self.evidence_root / "script-runtime"),
             validation_timeout_seconds=min(max(30, timeout_seconds), 300),
@@ -77,15 +81,14 @@ class BankExecutionAutopilot:
             state_root=str(self.state_root),
             timeout_seconds=timeout_seconds,
         )
-        self.oracle = DeterministicOracleRuntime()
-        self.profiles = ExecutionProfileRegistry(RC7_1_EXECUTION_PROFILES)
-        self.preparation_factory = CasePreparationService
-        self.n5_preparation = BankPreparationBatchGate(
+        self.preparation_closure = BankAutonomousPreparationClosureCoordinator(
             state_root=str(self.state_root),
-            evidence_root=str(self.evidence_root / "autonomous-node-closure"),
+            evidence_root=str(self.evidence_root / "autonomous-n5"),
             target_id=self.target_id,
             max_freshness_seconds=min(max(30, timeout_seconds), 300),
         )
+        self.oracle = DeterministicOracleRuntime()
+        self.profiles = ExecutionProfileRegistry(RC7_1_EXECUTION_PROFILES)
 
     def _case_for_task(self, control: ClosedLoopControlPlane, task: Task) -> str:
         inventory = self.inventory.load(control.truth, control.mission_id)
@@ -110,40 +113,55 @@ class BankExecutionAutopilot:
             raise BankExecutionAutopilotError("EXECUTION_FANOUT_ALREADY_COMPLETE")
         return barrier.missing_tc_ids[0]
 
+    def _accepted_frozen_cases(self, control: ClosedLoopControlPlane) -> Tuple[Mapping[str, object], ...]:
+        inventory = self.inventory.load(control.truth, control.mission_id)
+        candidate = self.candidate_reader.load(
+            control.truth,
+            inventory.design_artifact_id,
+            expected_mission_id=control.mission_id,
+            expected_task_id=inventory.design_task_id,
+        )
+        raw_cases = candidate.semantic_payload.get("cases")
+        if not isinstance(raw_cases, list) or not raw_cases:
+            raise BankExecutionAutopilotError("EXECUTION_ACCEPTED_CASE_DENOMINATOR_REQUIRED")
+        cases = []
+        ids = []
+        for raw in raw_cases:
+            if not isinstance(raw, dict):
+                raise BankExecutionAutopilotError("EXECUTION_ACCEPTED_CASE_OBJECT_REQUIRED")
+            tc_id = str(raw.get("tc_id") or "").strip()
+            if not tc_id:
+                raise BankExecutionAutopilotError("EXECUTION_ACCEPTED_CASE_TC_ID_REQUIRED")
+            ids.append(tc_id)
+            cases.append(dict(raw))
+        if tuple(ids) != inventory.tc_ids:
+            raise BankExecutionAutopilotError("EXECUTION_ACCEPTED_CASE_DENOMINATOR_DRIFT")
+        return tuple(cases)
+
     @staticmethod
-    def _prepared(raw: dict) -> PreparedAttempt:
-        try:
-            return PreparedAttempt(
-                status=str(raw["status"]),
-                attempt_id=str(raw["attempt_id"]),
-                tc_id=str(raw["tc_id"]),
-                case_version=int(raw["case_version"]),
-                target_id=str(raw["target_id"]),
-                precondition_evidence=tuple(raw.get("precondition_evidence") or ()),
-                initial_state_bindings=dict(raw.get("initial_state_bindings") or {}),
-                input_data_bindings=dict(raw.get("input_data_bindings") or {}),
-                binding_evidence=tuple(raw.get("binding_evidence") or ()),
-                cleanup_policy=dict(raw.get("cleanup_policy") or {}),
-                oracle_snapshot=dict(raw.get("oracle_snapshot") or {}),
+    def _autonomous_run_id(control: ClosedLoopControlPlane) -> str:
+        run_ids = set()
+        for row in control.truth.query("rc7_control_event", mission_id=control.mission_id):
+            data = row.get("data")
+            if not isinstance(data, dict) or data.get("node_id") not in {"N2", "N3", "N4"}:
+                continue
+            run_id = str(data.get("run_id") or "").strip()
+            if run_id:
+                run_ids.add(run_id)
+        if len(run_ids) != 1:
+            raise BankExecutionAutopilotError(
+                "EXECUTION_N5_AUTONOMOUS_RUN_ID_NOT_UNIQUE:%d" % len(run_ids)
             )
-        except (KeyError, TypeError, ValueError) as exc:
-            raise BankExecutionAutopilotError("PREPARED_ATTEMPT_PAYLOAD_INVALID") from exc
+        return next(iter(run_ids))
 
     def _capability_broker(self, required_tools: Tuple[str, ...]):
         if self.capability_snapshot is None:
             raise ExecutionCapabilityEvidenceError("EXECUTION_CAPABILITY_SNAPSHOT_REQUIRED")
         factory = ExecutionCapabilityBrokerFactory(self.capability_snapshot)
         requested = list(required_tools)
-        # CAT is loaded only when the field snapshot already carries real
-        # discovery/executable/registration/probe/target-readiness evidence.
-        # If absent, execution can still run; a CAT-required failure later
-        # remains BLOCKED/EVIDENCE_GAP instead of being self-qualified here.
         if "cat" in factory.tools and "cat" not in requested:
             requested.append("cat")
-        return factory.build(
-            target_id=self.target_id,
-            required_tools=tuple(requested),
-        )
+        return factory.build(target_id=self.target_id, required_tools=tuple(requested))
 
     def _block(
         self,
@@ -202,12 +220,7 @@ class BankExecutionAutopilot:
             content_hash="sha256:" + digest,
         )
         control.submit_worker_output(
-            WorkerOutput(
-                task_id=task.task_id,
-                worker_ref=worker_ref,
-                artifacts=(artifact,),
-                evidence=(evidence,),
-            )
+            WorkerOutput(task_id=task.task_id, worker_ref=worker_ref, artifacts=(artifact,), evidence=(evidence,))
         )
         gap = Gap(
             gap_id=_stable_id("GAP-EXEC-BLOCK", control.mission_id, task.task_id, tc_id, status, reason),
@@ -234,67 +247,6 @@ class BankExecutionAutopilot:
         )
         control.accept_evaluation(task.task_id, evaluation=evaluation, gaps=(gap,))
 
-    def _prepare(
-        self,
-        preparation: CasePreparationService,
-        *,
-        control: ClosedLoopControlPlane,
-        task: Task,
-        worker_id: str,
-        tc_id: str,
-        bundle,
-        batch: bool,
-    ) -> dict:
-        attempt_id = _stable_id(
-            "ATT-N5-BATCH" if batch else "ATT-CASE",
-            control.mission_id,
-            task.task_id,
-            tc_id,
-            str(bundle.spec.case_version),
-            self.target_id,
-        )
-        result = preparation.prepare(
-            mission_id=control.mission_id,
-            task_id=task.task_id,
-            worker_id=worker_id,
-            case=bundle.frozen_case,
-            attempt_id=attempt_id,
-            target_id=self.target_id,
-        )
-        if result.get("status") == "PREPARED":
-            preparation.require_prepared(
-                mission_id=control.mission_id,
-                task_id=task.task_id,
-                prepared_attempt=dict(result["prepared_attempt"]),
-            )
-        return result
-
-    def _block_preparation_result(
-        self,
-        control: ClosedLoopControlPlane,
-        task: Task,
-        *,
-        worker_id: str,
-        tc_id: str,
-        prepared_result: dict,
-    ) -> None:
-        human = prepared_result.get("status") == "HUMAN_GATE_REQUIRED"
-        self._block(
-            control,
-            task,
-            worker_ref=worker_id,
-            tc_id=tc_id,
-            status=str(prepared_result.get("status") or "BLOCKED_PREPARATION"),
-            reason=str(
-                prepared_result.get("reason")
-                or prepared_result.get("field_required_capability")
-                or "preparation blocked"
-            ),
-            human_required=human,
-            details=dict(prepared_result),
-            already_leased=True,
-        )
-
     def run(self, control: ClosedLoopControlPlane, task: Task) -> None:
         if task.node != "EXECUTION":
             raise BankExecutionAutopilotError("EXECUTION_TASK_REQUIRED")
@@ -320,7 +272,6 @@ class BankExecutionAutopilot:
                 reason=str(exc),
             )
             return
-
         active = self.execution.activate_task(
             control,
             task.task_id,
@@ -329,134 +280,63 @@ class BankExecutionAutopilot:
             authority=self.authority,
             tool_broker=broker,
         )
-        preparation = self.preparation_factory(control.truth, self.state_root)
-        current_result = None
-
-        try:
-            n5_accepted = self.n5_preparation.accepted(control)
-        except BankPreparationBatchGateError as exc:
+        preparation = CasePreparationService(control.truth, self.state_root)
+        attempt_id = _stable_id(
+            "ATT-CASE",
+            control.mission_id,
+            task.task_id,
+            tc_id,
+            str(bundle.spec.case_version),
+            self.target_id,
+        )
+        prepared_result = preparation.prepare(
+            mission_id=control.mission_id,
+            task_id=task.task_id,
+            worker_id=active.runtime_worker_id,
+            case=bundle.frozen_case,
+            attempt_id=attempt_id,
+            target_id=self.target_id,
+        )
+        if prepared_result.get("status") != "PREPARED":
+            human = prepared_result.get("status") == "HUMAN_GATE_REQUIRED"
             self._block(
                 control,
                 task,
                 worker_ref=active.runtime_worker_id,
                 tc_id=tc_id,
-                status="N5_BATCH_GATE_BLOCKED",
-                reason=str(exc),
+                status=str(prepared_result.get("status") or "BLOCKED_PREPARATION"),
+                reason=str(prepared_result.get("reason") or prepared_result.get("field_required_capability") or "preparation blocked"),
+                human_required=human,
+                details=dict(prepared_result),
                 already_leased=True,
             )
             return
-
-        if not n5_accepted:
-            inventory = self.inventory.load(control.truth, control.mission_id)
-            batch_cases = []
-            batch_results = []
-            for batch_tc_id in inventory.tc_ids:
-                batch_bundle = (
-                    bundle
-                    if batch_tc_id == tc_id
-                    else self.bundle_resolver.resolve(
-                        control.truth,
-                        mission_id=control.mission_id,
-                        tc_id=batch_tc_id,
-                        cwd=str(self.package_root),
-                        env=None,
-                    )
-                )
-                prepared_result = self._prepare(
-                    preparation,
-                    control=control,
-                    task=task,
-                    worker_id=active.runtime_worker_id,
-                    tc_id=batch_tc_id,
-                    bundle=batch_bundle,
-                    batch=True,
-                )
-                if prepared_result.get("status") != "PREPARED":
-                    self._block_preparation_result(
-                        control,
-                        task,
-                        worker_id=active.runtime_worker_id,
-                        tc_id=batch_tc_id,
-                        prepared_result=dict(prepared_result),
-                    )
-                    return
-                batch_cases.append(batch_bundle.frozen_case)
-                batch_results.append(dict(prepared_result))
-                if batch_tc_id == tc_id:
-                    current_result = dict(prepared_result)
-            if current_result is None:
-                self._block(
-                    control,
-                    task,
-                    worker_ref=active.runtime_worker_id,
-                    tc_id=tc_id,
-                    status="N5_BATCH_GATE_BLOCKED",
-                    reason="N5_CURRENT_CASE_NOT_IN_ACCEPTED_DENOMINATOR",
-                    already_leased=True,
-                )
-                return
-            try:
-                self.n5_preparation.close_batch(
-                    control,
-                    execution_task_id=task.task_id,
-                    worker_id=active.runtime_worker_id,
-                    cases=batch_cases,
-                    prepared_results=batch_results,
-                )
-            except BankPreparationBatchGateError as exc:
-                self._block(
-                    control,
-                    task,
-                    worker_ref=active.runtime_worker_id,
-                    tc_id=tc_id,
-                    status="N5_BATCH_GATE_BLOCKED",
-                    reason=str(exc),
-                    already_leased=True,
-                )
-                return
-        else:
-            current_result = self._prepare(
-                preparation,
-                control=control,
-                task=task,
-                worker_id=active.runtime_worker_id,
-                tc_id=tc_id,
-                bundle=bundle,
-                batch=False,
-            )
-            if current_result.get("status") != "PREPARED":
-                self._block_preparation_result(
-                    control,
-                    task,
-                    worker_id=active.runtime_worker_id,
-                    tc_id=tc_id,
-                    prepared_result=dict(current_result),
-                )
-                return
-
-        # Hard main-chain gate: business execution is reached only after the
-        # whole current-run N5 denominator has an independent Director terminal.
         try:
-            if not self.n5_preparation.accepted(control):
-                raise BankPreparationBatchGateError("BANK_N5_DIRECTOR_TERMINAL_REQUIRED")
-        except BankPreparationBatchGateError as exc:
+            n5 = self.preparation_closure.adopt_case_and_gate(
+                control,
+                run_id=self._autonomous_run_id(control),
+                execution_task_id=task.task_id,
+                case=bundle.frozen_case,
+                prepared_result=prepared_result,
+                accepted_cases=self._accepted_frozen_cases(control),
+            )
+        except (BankAutonomousPreparationClosureError, BankExecutionAutopilotError) as exc:
             self._block(
                 control,
                 task,
                 worker_ref=active.runtime_worker_id,
                 tc_id=tc_id,
-                status="N5_BATCH_GATE_BLOCKED",
-                reason=str(exc),
+                status="BLOCKED_PREPARATION",
+                reason="EXECUTION_N5_FAIL_CLOSED:%s" % exc,
+                details={"n5_gate": "FAIL_CLOSED"},
                 already_leased=True,
             )
             return
-
-        prepared = self._prepared(dict(current_result["prepared_attempt"]))
         self.execution.execute_active_task(
             control,
             task.task_id,
             bundle=bundle,
-            prepared=prepared,
+            prepared=n5.prepared,
             active=active,
             authority=self.authority,
             tool_broker=broker,
