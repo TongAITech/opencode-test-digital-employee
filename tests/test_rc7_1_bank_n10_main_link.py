@@ -141,9 +141,14 @@ def test_bank_director_gate_rejects_release_authority_bypass():
     assert gate.adoption.calls == []
 
 
-def test_bank_autopilot_convergence_orders_governed_n10_director_then_mission_convergence():
+def test_bank_autopilot_convergence_requires_n7_before_governed_n10_director_and_mission_convergence():
     calls = []
     prepared = SimpleNamespace(run_id="RUN-1")
+
+    class _N7:
+        def close_current_batch(self, control, *, run_id):
+            calls.append(("n7", control, run_id))
+            return SimpleNamespace(accepted=True, terminal_event_id="EVT-N7")
 
     class _N10:
         def prepare_ready(self, control, *, run_id):
@@ -165,19 +170,67 @@ def test_bank_autopilot_convergence_orders_governed_n10_director_then_mission_co
     autopilot.node_closure = SimpleNamespace(
         reconcile_passed_nodes=lambda control: ()
     )
+    autopilot.n7 = _N7()
     autopilot.n10 = _N10()
     autopilot.director_gate = _Director()
 
     autopilot._convergence()
 
-    assert [item[0] for item in calls] == ["prepare", "director", "converge"]
+    assert [item[0] for item in calls] == ["n7", "prepare", "director", "converge"]
     assert calls[0][2] == "RUN-1"
-    assert calls[1][2] is prepared
-    assert calls[2][2] == "RUN-1"
+    assert calls[1][2] == "RUN-1"
+    assert calls[2][2] is prepared
+    assert calls[3][2] == "RUN-1"
 
 
-def test_bank_autopilot_never_converges_when_director_gate_rejects():
+def test_bank_autopilot_never_reaches_n10_when_n7_rejects():
     calls = []
+
+    class _N7:
+        def close_current_batch(self, control, *, run_id):
+            calls.append("n7")
+            from rc7_runtime.bank_n7_execution_closure import BankN7ExecutionClosureError
+            raise BankN7ExecutionClosureError("N7_REJECTED")
+
+    class _N10:
+        def prepare_ready(self, control, *, run_id):
+            calls.append("prepare")
+            return SimpleNamespace(run_id=run_id)
+
+        def converge_after_director_accept(self, control, *, run_id):
+            calls.append("converge")
+
+    class _Director:
+        def review_and_accept(self, control, value):
+            calls.append("director")
+            return SimpleNamespace(accepted=True)
+
+    autopilot = object.__new__(BankMissionAutopilot)
+    autopilot.config = SimpleNamespace(run_id="RUN-1")
+    autopilot.control = object()
+    autopilot.node_closure = SimpleNamespace(
+        reconcile_passed_nodes=lambda control: ()
+    )
+    autopilot.n7 = _N7()
+    autopilot.n10 = _N10()
+    autopilot.director_gate = _Director()
+
+    with pytest.raises(
+        BankMissionAutopilotError,
+        match="AUTOPILOT_GOVERNED_CONVERGENCE_FAILED:N7_REJECTED",
+    ):
+        autopilot._convergence()
+
+    assert calls == ["n7"]
+
+
+def test_bank_autopilot_never_converges_when_director_gate_rejects_after_n7():
+    calls = []
+
+    class _N7:
+        def close_current_batch(self, control, *, run_id):
+            calls.append("n7")
+            return SimpleNamespace(accepted=True, terminal_event_id="EVT-N7")
 
     class _N10:
         def prepare_ready(self, control, *, run_id):
@@ -198,16 +251,17 @@ def test_bank_autopilot_never_converges_when_director_gate_rejects():
     autopilot.node_closure = SimpleNamespace(
         reconcile_passed_nodes=lambda control: ()
     )
+    autopilot.n7 = _N7()
     autopilot.n10 = _N10()
     autopilot.director_gate = _Director()
 
     with pytest.raises(
         BankMissionAutopilotError,
-        match="AUTOPILOT_GOVERNED_N10_CONVERGENCE_FAILED:DIRECTOR_REJECTED",
+        match="AUTOPILOT_GOVERNED_CONVERGENCE_FAILED:DIRECTOR_REJECTED",
     ):
         autopilot._convergence()
 
-    assert calls == ["prepare", "director"]
+    assert calls == ["n7", "prepare", "director"]
 
 
 def test_bank_autopilot_drive_wires_convergence_and_post_convergence_report(monkeypatch):
