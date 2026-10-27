@@ -9,6 +9,8 @@ on:
       - 'rc8_runtime/sufficiency.py'
       - 'rc8_center/traceability.py'
       - 'rc8_center/infrastructure/postgres_traceability.py'
+      - 'rc8_node/code_sufficiency_worker.py'
+      - 'tests/test_rc8_node_code_sufficiency_policy.py'
       - 'tests/test_rc8_code_sufficiency.py'
       - 'tests/test_rc8_code_sufficiency_snapshot_authority.py'
       - 'tests/test_rc8_formal_center_integration.py'
@@ -34,14 +36,16 @@ jobs:
       - name: Install test dependencies
         shell: bash
         run: python -m pip install --disable-pip-version-check pytest sqlalchemy redis
-      - name: Compile code sufficiency evaluator
+      - name: Compile code sufficiency evaluators
         shell: bash
         run: |
           python -m py_compile \
             rc8_center/code_sufficiency.py \
             rc8_runtime/sufficiency.py \
+            rc8_node/code_sufficiency_worker.py \
+            tests/test_rc8_node_code_sufficiency_policy.py \
             tests/test_rc8_code_sufficiency.py \
             tests/test_rc8_code_sufficiency_snapshot_authority.py
       - name: Run frozen denominator and authority regressions
         shell: bash
-        run: python -m pytest -q tests/test_rc8_code_sufficiency.py tests/test_rc8_code_sufficiency_snapshot_authority.py
+        run: python -m pytest -q tests/test_rc8_code_sufficiency.py tests/test_rc8_code_sufficiency_snapshot_authority.py tests/test_rc8_node_code_sufficiency_policy.py
