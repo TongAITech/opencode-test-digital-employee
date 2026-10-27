@@ -56,6 +56,10 @@ class _AdmissionGate:
             bundle_project_subdir="project",
             script_artifact_ref="artifact:bundle-1",
             executable_spec_id="executable:prepared-1",
+            prepared_attempt_id="prepared-1",
+            case_execution_attempt_id="case-attempt-1",
+            stage_instance_id="stage-n7",
+            mission_node_id="n7-1",
             case_id="CASE-1",
         )
 
@@ -88,6 +92,11 @@ class ExecutionBundleRouteContractTest(unittest.TestCase):
             self.assertEqual(response.headers["x-rc8-sha256"], "a" * 64)
             self.assertEqual(response.headers["x-rc8-project-subdir"], "project")
             self.assertEqual(response.headers["x-rc8-executable-spec-id"], "executable:prepared-1")
+            self.assertEqual(response.headers["x-rc8-prepared-attempt-id"], "prepared-1")
+            self.assertEqual(response.headers["x-rc8-case-execution-attempt-id"], "case-attempt-1")
+            self.assertEqual(response.headers["x-rc8-stage-instance-id"], "stage-n7")
+            self.assertEqual(response.headers["x-rc8-mission-node-id"], "n7-1")
+            self.assertEqual(response.headers["x-rc8-case-id"], "CASE-1")
             self.assertEqual(response.headers["x-rc8-truth"], "LEASE_AUTHORIZED_CURRENT_N7_EXECUTABLE_BUNDLE")
         finally:
             temp.cleanup()
