@@ -9,24 +9,40 @@ Worker runtime payloads are observations, not authority. For N7, case identity
 and both Attempt identities are derived by Center admission and then enforced at
 every write boundary. A worker holding case A's lease cannot write or invalidate
 case B by forging case_id/attempt_id in a runtime event.
+
+WorkItem COMPLETED is lifecycle truth, not business PASS. N7 completion is
+therefore fail-closed until Center can deterministically derive a terminal case
+execution result (PASS or FAIL) from canonical R1 assertion observations and
+AVAILABLE evidence.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from .execution_admission import (
     CenterN7ExecutionAdmissionGate,
     N7ExecutionAdmission,
     N7ExecutionAdmissionError,
 )
+from .n7_execution_result import (
+    CenterN7CaseExecutionResultAuthority,
+    N7CaseExecutionOutcome,
+    N7CaseExecutionResultError,
+)
 
 
 class N7AdmissionAwareFormalCenterControlPlane:
-    """Re-authorize N7 at start and at every runtime write boundary."""
+    """Re-authorize N7 at start, runtime writes, and completion."""
 
-    def __init__(self, control_plane: object, execution_admission: CenterN7ExecutionAdmissionGate) -> None:
+    def __init__(
+        self,
+        control_plane: object,
+        execution_admission: CenterN7ExecutionAdmissionGate,
+        result_authority: Optional[CenterN7CaseExecutionResultAuthority] = None,
+    ) -> None:
         self._control_plane = control_plane
         self.execution_admission = execution_admission
+        self.result_authority = result_authority
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._control_plane, name)
@@ -85,3 +101,22 @@ class N7AdmissionAwareFormalCenterControlPlane:
         if admission is not None:
             self._validate_runtime_event_identity(event, admission, lease_id=lease_id)
         return self._control_plane.append_runtime_event(event, lease_id=lease_id)
+
+    def complete_work_item(self, work_item_id: str, node_id: str, lease_id: str):
+        # A generic WorkItem completion must never be able to turn N7 dispatch,
+        # ATTEMPT_COMPLETED, or a Worker/model PASS string into execution truth.
+        _, admission = self._authorize_current_execution(work_item_id, node_id, lease_id)
+        if admission is not None:
+            if self.result_authority is None:
+                raise N7ExecutionAdmissionError("N7_CASE_EXECUTION_RESULT_AUTHORITY_REQUIRED")
+            try:
+                result = self.result_authority.evaluate(admission)
+            except N7CaseExecutionResultError as exc:
+                raise N7ExecutionAdmissionError("N7_CASE_EXECUTION_RESULT_INVALID:%s" % exc) from exc
+            if result.outcome == N7CaseExecutionOutcome.PENDING:
+                raise N7ExecutionAdmissionError(
+                    "N7_CASE_EXECUTION_RESULT_PENDING:%s" % result.reason
+                )
+            # PASS and FAIL are both terminal execution outcomes. FAIL remains
+            # business/test truth for N8 diagnosis; it is not FAILED_RUNTIME.
+        return self._control_plane.complete_work_item(work_item_id, node_id, lease_id)
