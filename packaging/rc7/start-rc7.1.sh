@@ -73,7 +73,7 @@ export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 # Rebuild every launch. The patch contains absolute package-local paths, so a
 # package copied to another drive/directory remains relocatable without manual
-# editing. No npm/pnpm/pip/install/provisioning is performed here.
+# editing. This path performs no dependency installation or profile provisioning.
 "$PY" -m rc7_release.dsh \
   --output "$PATCH" \
   --home "$ROOT" \
