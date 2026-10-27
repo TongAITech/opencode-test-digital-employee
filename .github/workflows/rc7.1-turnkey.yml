@@ -171,9 +171,9 @@ jobs:
           "@ | Set-Content -Encoding ascii (Join-Path $fakeBin 'dsh.cmd')
 
           $bash = (Get-Command bash -ErrorAction Stop).Source
-          $dshHomeUnix = (& $bash -lc "cygpath -u '$($dshHome -replace "'", "'\"'\"'")'").Trim()
-          $pkgUnix = (& $bash -lc "cygpath -u '$($pkg -replace "'", "'\"'\"'")'").Trim()
-          $fakeBinUnix = (& $bash -lc "cygpath -u '$($fakeBin -replace "'", "'\"'\"'")'").Trim()
+          $dshHomeUnix = (& $bash -lc 'cygpath -u "$1"' _ $dshHome).Trim()
+          $pkgUnix = (& $bash -lc 'cygpath -u "$1"' _ $pkg).Trim()
+          $fakeBinUnix = (& $bash -lc 'cygpath -u "$1"' _ $fakeBin).Trim()
           $env:DSH_HOME = $dshHomeUnix
           $env:PATH = "$fakeBin;$env:PATH"
           $env:PFC_DSH_BIN = "$fakeBinUnix/dsh.cmd"
