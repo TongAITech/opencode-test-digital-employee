@@ -6,7 +6,12 @@ from typing import Optional
 from sqlalchemy import BigInteger, JSON, String, select
 from sqlalchemy.orm import Mapped, mapped_column
 
-from rc8_center.defect_closure import DefectCase, DefectClosureError, DefectSeverity, DefectState
+from rc8_center.defect_closure import (
+    DefectCase,
+    DefectClosureError,
+    DefectSeverity,
+    DefectState,
+)
 
 from .postgres import Base, PostgresStore
 
@@ -40,7 +45,12 @@ class DefectCaseRow(Base):
     filing_evidence_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     fix_revision_ref: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     fix_detected_evidence_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    fix_verification_work_item_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    fix_verification_attempt_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     fix_verification_evidence_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    impact_regression_work_item_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    impact_regression_case_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    impact_regression_attempt_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     impact_regression_evidence_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     closure_evidence_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
 
@@ -56,7 +66,13 @@ class PostgresDefectClosureRepository:
 
     def by_route_decision(self, route_decision_id: str) -> Optional[DefectCase]:
         with self.store.session() as session:
-            rows = list(session.scalars(select(DefectCaseRow).where(DefectCaseRow.route_decision_id == route_decision_id)))
+            rows = list(
+                session.scalars(
+                    select(DefectCaseRow).where(
+                        DefectCaseRow.route_decision_id == route_decision_id
+                    )
+                )
+            )
             if len(rows) > 1:
                 raise DefectClosureError("MULTIPLE_DEFECT_CASES_FOR_ROUTE")
             return self._value(rows[0]) if rows else None
@@ -65,7 +81,14 @@ class PostgresDefectClosureRepository:
         if not isinstance(value, DefectCase):
             raise DefectClosureError("DEFECT_CASE_REQUIRED")
         with self.store.session() as session:
-            duplicate = session.scalar(select(DefectCaseRow).where(DefectCaseRow.route_decision_id == value.route_decision_id, DefectCaseRow.defect_case_id != value.defect_case_id).limit(1))
+            duplicate = session.scalar(
+                select(DefectCaseRow)
+                .where(
+                    DefectCaseRow.route_decision_id == value.route_decision_id,
+                    DefectCaseRow.defect_case_id != value.defect_case_id,
+                )
+                .limit(1)
+            )
             if duplicate is not None:
                 raise DefectClosureError("DEFECT_ROUTE_ALREADY_LINKED")
             row = session.get(DefectCaseRow, value.defect_case_id)
@@ -101,7 +124,12 @@ class PostgresDefectClosureRepository:
         row.filing_evidence_refs = list(value.filing_evidence_refs)
         row.fix_revision_ref = value.fix_revision_ref
         row.fix_detected_evidence_refs = list(value.fix_detected_evidence_refs)
+        row.fix_verification_work_item_id = value.fix_verification_work_item_id
+        row.fix_verification_attempt_id = value.fix_verification_attempt_id
         row.fix_verification_evidence_refs = list(value.fix_verification_evidence_refs)
+        row.impact_regression_work_item_id = value.impact_regression_work_item_id
+        row.impact_regression_case_id = value.impact_regression_case_id
+        row.impact_regression_attempt_id = value.impact_regression_attempt_id
         row.impact_regression_evidence_refs = list(value.impact_regression_evidence_refs)
         row.closure_evidence_refs = list(value.closure_evidence_refs)
 
@@ -134,7 +162,12 @@ class PostgresDefectClosureRepository:
             filing_evidence_refs=tuple(row.filing_evidence_refs or ()),
             fix_revision_ref=row.fix_revision_ref,
             fix_detected_evidence_refs=tuple(row.fix_detected_evidence_refs or ()),
+            fix_verification_work_item_id=row.fix_verification_work_item_id,
+            fix_verification_attempt_id=row.fix_verification_attempt_id,
             fix_verification_evidence_refs=tuple(row.fix_verification_evidence_refs or ()),
+            impact_regression_work_item_id=row.impact_regression_work_item_id,
+            impact_regression_case_id=row.impact_regression_case_id,
+            impact_regression_attempt_id=row.impact_regression_attempt_id,
             impact_regression_evidence_refs=tuple(row.impact_regression_evidence_refs or ()),
             closure_evidence_refs=tuple(row.closure_evidence_refs or ()),
         )

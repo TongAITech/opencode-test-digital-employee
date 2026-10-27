@@ -1,9 +1,9 @@
-"""Production N9 defect candidate/query routes.
+"""Production N9 defect candidate/query and result-authority routes.
 
-The caller may identify an existing Center-authoritative N8 route, but it may
-not provide source test/case/attempt/classification fields. Those identities
-are derived by CenterDefectClosureService from the persisted N8 PRODUCT route
-and its source observation.
+Candidate source identity comes only from the Center-authoritative N8 PRODUCT
+route. Fix verification and impact regression accept only a WorkItem identity;
+PASS/FAIL is derived from the canonical N7 result receipt, never from a caller
+boolean or caller-supplied evidence.
 """
 from __future__ import annotations
 
@@ -22,6 +22,11 @@ class DefectCandidateRequest(BaseModel):
     defect_case_id: str = Field(min_length=1, max_length=240)
     route_decision_id: str = Field(min_length=1, max_length=240)
     evidence_refs: List[str] = Field(min_length=1)
+
+
+class DefectValidationWorkItemRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    work_item_id: str = Field(min_length=1, max_length=200)
 
 
 def _jsonable(value: Any) -> Any:
@@ -66,6 +71,40 @@ def register_defect_routes(app: FastAPI) -> None:
             return {
                 "defect": _jsonable(value),
                 "truth_note": "SOURCE_IDENTITY_DERIVED_FROM_CENTER_AUTHORITATIVE_N8_PRODUCT_ROUTE",
+            }
+        except DefectClosureError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    @app.post("/api/v1/defects/{defect_case_id}/verify-fix")
+    def verify_defect_fix(
+        defect_case_id: str,
+        request: DefectValidationWorkItemRequest,
+    ) -> Dict[str, Any]:
+        try:
+            value = service().verify_fix(
+                defect_case_id,
+                verification_work_item_id=request.work_item_id,
+            )
+            return {
+                "defect": _jsonable(value),
+                "truth_note": "FIX_RESULT_DERIVED_FROM_CENTER_N7_R1_RECEIPT_NOT_CALLER_BOOLEAN",
+            }
+        except DefectClosureError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    @app.post("/api/v1/defects/{defect_case_id}/impact-regression")
+    def record_impact_regression(
+        defect_case_id: str,
+        request: DefectValidationWorkItemRequest,
+    ) -> Dict[str, Any]:
+        try:
+            value = service().record_impact_regression(
+                defect_case_id,
+                regression_work_item_id=request.work_item_id,
+            )
+            return {
+                "defect": _jsonable(value),
+                "truth_note": "REGRESSION_RESULT_DERIVED_FROM_CENTER_N7_R1_RECEIPT_NOT_CALLER_BOOLEAN",
             }
         except DefectClosureError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc

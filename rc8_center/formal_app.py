@@ -84,7 +84,6 @@ def build_app():
     failure_diagnosis_repository = PostgresFailureDiagnosisRepository(postgres)
     defect_closure_repository = PostgresDefectClosureRepository(postgres)
     failure_diagnosis_service = CenterFailureDiagnosisService(failure_diagnosis_repository)
-    defect_closure_service = CenterDefectClosureService(defect_closure_repository, failure_diagnosis_repository)
 
     ledger = CentralR1RuntimeLedger(str(Path(settings.r1_root) / "event-stream.jsonl"))
     prepared_attempts = CenterPreparedAttemptService(prepared_attempt_repository)
@@ -94,12 +93,22 @@ def build_app():
     runtime_invalidation_replay_result = runtime_invalidation_projector.replay()
     _require_complete_runtime_invalidation_replay(runtime_invalidation_replay_result)
     runtime_invalidation_recorder = CenterRuntimeInvalidationRecorder(ledger)
-    runtime_invalidation_service = CenterRuntimeInvalidationService(recorder=runtime_invalidation_recorder, projector=runtime_invalidation_projector, prepared_attempts=prepared_attempts)
-    runtime_mutation_producer = CenterRuntimeMutationProducer(ledger=ledger, invalidation_service=runtime_invalidation_service, executable_readiness=executable_readiness)
+    runtime_invalidation_service = CenterRuntimeInvalidationService(
+        recorder=runtime_invalidation_recorder,
+        projector=runtime_invalidation_projector,
+        prepared_attempts=prepared_attempts,
+    )
+    runtime_mutation_producer = CenterRuntimeMutationProducer(
+        ledger=ledger,
+        invalidation_service=runtime_invalidation_service,
+        executable_readiness=executable_readiness,
+    )
     runtime_mutation_replay_result = runtime_mutation_producer.replay()
     _require_complete_runtime_mutation_replay(runtime_mutation_replay_result)
 
-    projector = ScopeAwareGovernanceEventProjector(ledger, governance_repository, coverage_repository, artifact_repository)
+    projector = ScopeAwareGovernanceEventProjector(
+        ledger, governance_repository, coverage_repository, artifact_repository
+    )
     replay_result = projector.replay()
     projection = GovernanceProjectionService(governance_repository, coverage_repository)
     artifact_store = FileArtifactStore(settings.artifact_root, artifact_repository)
@@ -109,14 +118,28 @@ def build_app():
         artifact_repository=artifact_repository,
         artifact_store=artifact_store,
     )
-    mission_service = CenterMissionService(governance_repository, traceability_repository=traceability_repository)
+    mission_service = CenterMissionService(
+        governance_repository,
+        traceability_repository=traceability_repository,
+    )
     mission_progressor = FanoutSafeRequirementLoopProgressor(
-        store=postgres, mission_service=mission_service, governance_repository=governance_repository,
-        control_repository=control_repository, artifact_repository=artifact_repository,
+        store=postgres,
+        mission_service=mission_service,
+        governance_repository=governance_repository,
+        control_repository=control_repository,
+        artifact_repository=artifact_repository,
         case_inventory_resolver=case_inventory_resolver,
     )
-    formal_control_core = FormalCenterControlPlane(control_repository, redis_coordination, ledger, projector, progression=mission_progressor)
-    runtime_formal_control = RuntimeMutationAwareFormalCenterControlPlane(formal_control_core, runtime_mutation_producer)
+    formal_control_core = FormalCenterControlPlane(
+        control_repository,
+        redis_coordination,
+        ledger,
+        projector,
+        progression=mission_progressor,
+    )
+    runtime_formal_control = RuntimeMutationAwareFormalCenterControlPlane(
+        formal_control_core, runtime_mutation_producer
+    )
     n7_execution_admission = CenterN7ExecutionAdmissionGate(
         governance_repository=governance_repository,
         case_inventory_resolver=case_inventory_resolver,
@@ -141,14 +164,49 @@ def build_app():
         n7_tool_invocation_authority,
         n7_case_execution_result_receipt_authority,
     )
-    trace_runtime_authority = FormalTraceRuntimeAuthority(formal_control, governance_repository)
-    traceability_ingestion = R1BackedCenterTraceabilityIngestion(traceability_repository, ledger=ledger, control_plane=trace_runtime_authority, attempt_snapshot_resolver=trace_runtime_authority.resolve_current_attempt)
+
+    # N9 consumes only durable N7 result receipts plus Center WorkItem lineage.
+    # It is intentionally wired after both authorities exist, so production
+    # cannot fall back to caller-declared passed=True/False semantics.
+    defect_closure_service = CenterDefectClosureService(
+        defect_closure_repository,
+        failure_diagnosis_repository,
+        n7_result_receipts=n7_case_execution_result_receipt_authority,
+        control_repository=control_repository,
+    )
+
+    trace_runtime_authority = FormalTraceRuntimeAuthority(
+        formal_control, governance_repository
+    )
+    traceability_ingestion = R1BackedCenterTraceabilityIngestion(
+        traceability_repository,
+        ledger=ledger,
+        control_plane=trace_runtime_authority,
+        attempt_snapshot_resolver=trace_runtime_authority.resolve_current_attempt,
+    )
     trace_replay_result = traceability_ingestion.replay_canonical_runtime_observations()
     code_sufficiency_evaluator = CenterCodeSufficiencyEvaluator(traceability_repository)
-    recovery_coordinator = LeaseRecoveryCoordinator(control_repository, recovery_repository, redis_coordination, ledger)
+    recovery_coordinator = LeaseRecoveryCoordinator(
+        control_repository,
+        recovery_repository,
+        redis_coordination,
+        ledger,
+    )
     artifact_service = FormalArtifactService(artifact_store, formal_control, projector)
 
-    app = create_app(settings=settings, postgres=postgres, redis_coordination=redis_coordination, governance_projection=projection, formal_control=formal_control, recovery_coordinator=recovery_coordinator, artifact_service=artifact_service, product_application=None, delivery_repository=delivery_repository, revision_repository=revision_repository, test_round_repository=test_round_repository)
+    app = create_app(
+        settings=settings,
+        postgres=postgres,
+        redis_coordination=redis_coordination,
+        governance_projection=projection,
+        formal_control=formal_control,
+        recovery_coordinator=recovery_coordinator,
+        artifact_service=artifact_service,
+        product_application=None,
+        delivery_repository=delivery_repository,
+        revision_repository=revision_repository,
+        test_round_repository=test_round_repository,
+    )
     app.state.r1_ledger = ledger
     app.state.runtime_invalidation_projector = runtime_invalidation_projector
     app.state.runtime_invalidation_replay_result = runtime_invalidation_replay_result

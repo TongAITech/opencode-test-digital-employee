@@ -6,15 +6,21 @@ on:
     paths:
       - 'rc8_center/defect_closure.py'
       - 'rc8_center/failure_diagnosis.py'
+      - 'rc8_center/n7_execution_result.py'
+      - 'rc8_center/n7_execution_result_receipt.py'
+      - 'rc8_center/control_plane.py'
       - 'rc8_center/formal_app.py'
       - 'rc8_center/api/__init__.py'
       - 'rc8_center/api/defect_routes.py'
+      - 'rc8_center/infrastructure/postgres_control.py'
       - 'rc8_center/infrastructure/postgres_defect_closure.py'
       - 'rc8_center/infrastructure/postgres_failure_diagnosis.py'
       - 'center/migrations/env.py'
       - 'center/migrations/versions/0015_n8_n9_failure_defect_persistence.py'
+      - 'center/migrations/versions/0016_n9_n7_result_auth.py'
       - 'scripts/rc8_n8_n9_postgres_reality_test.py'
       - 'scripts/rc8_n9_production_http_reality_test.py'
+      - 'scripts/rc8_n9_result_authority_http_test.py'
       - 'tests/test_rc8_defect_closure.py'
       - 'tests/test_rc8_defect_closure_postgres.py'
       - '.github/workflows/rc8-n9-defect-closure.yml'
@@ -39,6 +45,8 @@ jobs:
           python -m py_compile
           rc8_center/failure_diagnosis.py
           rc8_center/defect_closure.py
+          rc8_center/n7_execution_result.py
+          rc8_center/n7_execution_result_receipt.py
           rc8_center/api/defect_routes.py
           rc8_center/infrastructure/postgres_failure_diagnosis.py
           rc8_center/infrastructure/postgres_defect_closure.py
@@ -94,6 +102,9 @@ jobs:
         run: >-
           python -m py_compile
           center/migrations/versions/0015_n8_n9_failure_defect_persistence.py
+          center/migrations/versions/0016_n9_n7_result_auth.py
+          rc8_center/n7_execution_result.py
+          rc8_center/n7_execution_result_receipt.py
           rc8_center/api/defect_routes.py
           rc8_center/api/__init__.py
           rc8_center/formal_app.py
@@ -101,11 +112,14 @@ jobs:
           rc8_center/infrastructure/postgres_defect_closure.py
           scripts/rc8_n8_n9_postgres_reality_test.py
           scripts/rc8_n9_production_http_reality_test.py
+          scripts/rc8_n9_result_authority_http_test.py
       - name: Apply formal PostgreSQL schema
         run: alembic -c center/alembic.ini upgrade head
       - name: Prove N8 PRODUCT route to N9 candidate survives real PostgreSQL reconstruction
         run: python scripts/rc8_n8_n9_postgres_reality_test.py
       - name: Prove production formal app exposes Center-derived N9 candidate HTTP truth
         run: python scripts/rc8_n9_production_http_reality_test.py
+      - name: Prove N9 fix and regression consume only new authoritative N7 R1 receipts
+        run: python scripts/rc8_n9_result_authority_http_test.py
       - name: Verify schema remains at head
         run: alembic -c center/alembic.ini current
