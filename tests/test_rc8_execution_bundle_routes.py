@@ -51,6 +51,8 @@ class _AdmissionGate:
         if stage_instance_id != "stage-n7":
             raise ValueError("N7_STAGE_INSTANCE_REQUIRED")
         return SimpleNamespace(
+            test_run_id="run-1",
+            work_item_id="work-n7",
             bundle_sha256="a" * 64,
             bundle_size_bytes=9,
             bundle_project_subdir="project",
@@ -62,6 +64,15 @@ class _AdmissionGate:
             mission_node_id="n7-1",
             case_id="CASE-1",
         )
+
+
+class _ToolAuthority:
+    def issue(self, admission: object, *, node_id: str, governance_lease_id: str):
+        if node_id != "node-1" or governance_lease_id != "lease-1":
+            raise ValueError("N7_TOOL_INVOCATION_WORK_LEASE_REQUIRED")
+        if admission.case_id != "CASE-1" or admission.case_execution_attempt_id != "case-attempt-1":
+            raise ValueError("N7_TOOL_INVOCATION_ADMISSION_MISMATCH")
+        return SimpleNamespace(token="tool-token-1", ttl_seconds=60, resource_id="grant-1")
 
 
 class ExecutionBundleRouteContractTest(unittest.TestCase):
@@ -77,9 +88,10 @@ class ExecutionBundleRouteContractTest(unittest.TestCase):
         app.state.control_repository = _Repository(work)
         app.state.formal_control = _Control(work)
         app.state.n7_execution_admission = _AdmissionGate(store)
+        app.state.n7_tool_invocation_authority = _ToolAuthority()
         return temp, TestClient(app)
 
-    def test_current_n7_lease_downloads_exact_admitted_bundle(self):
+    def test_current_n7_lease_downloads_exact_admitted_bundle_and_tool_grant(self):
         temp, client = self._client()
         try:
             response = client.get(
@@ -97,6 +109,7 @@ class ExecutionBundleRouteContractTest(unittest.TestCase):
             self.assertEqual(response.headers["x-rc8-stage-instance-id"], "stage-n7")
             self.assertEqual(response.headers["x-rc8-mission-node-id"], "n7-1")
             self.assertEqual(response.headers["x-rc8-case-id"], "CASE-1")
+            self.assertEqual(response.headers["x-rc8-n7-tool-invocation-token"], "tool-token-1")
             self.assertEqual(response.headers["x-rc8-truth"], "LEASE_AUTHORIZED_CURRENT_N7_EXECUTABLE_BUNDLE")
         finally:
             temp.cleanup()
@@ -123,6 +136,19 @@ class ExecutionBundleRouteContractTest(unittest.TestCase):
             )
             self.assertEqual(response.status_code, 503, response.text)
             self.assertEqual(response.json()["detail"], "EXECUTABLE_BUNDLE_AUTHORITY_NOT_CONFIGURED")
+        finally:
+            temp.cleanup()
+
+    def test_download_route_fails_closed_without_tool_invocation_authority(self):
+        temp, client = self._client()
+        try:
+            client.app.state.n7_tool_invocation_authority = None
+            response = client.get(
+                "/api/v1/work-items/work-n7/execution-bundle",
+                headers={"X-RC8-Node-Id": "node-1", "X-RC8-Lease-Id": "lease-1"},
+            )
+            self.assertEqual(response.status_code, 503, response.text)
+            self.assertEqual(response.json()["detail"], "N7_TOOL_INVOCATION_AUTHORITY_NOT_CONFIGURED")
         finally:
             temp.cleanup()
 

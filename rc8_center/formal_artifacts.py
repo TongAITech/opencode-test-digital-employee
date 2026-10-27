@@ -9,11 +9,19 @@ verifies exact size and SHA-256 and atomically publishes the final file.
 Completing an Artifact immediately replays the R1 governance projector so any
 terminal Attempt that was correctly held PENDING on unavailable evidence can
 advance only after that evidence is AVAILABLE.
+
+For N7, evidence whose producer is the current N6 driver/evidence collector has
+an additional begin-time provenance gate.  The manifest cannot become a TOOL
+artifact capable of supporting PASS/FAIL unless the Center-issued invocation
+grant is valid for the current case execution Attempt.  Chunk transfer itself
+keeps using the ordinary lease because the immutable manifest already owns the
+producer identity and expected hash/size.
 """
 from __future__ import annotations
 
 from typing import Dict, Optional
 
+from rc8_runtime import RuntimeProducerKind
 from rc8_runtime.artifacts import ArtifactManifest
 
 from .artifacts import ArtifactSyncError, FileArtifactStore
@@ -37,8 +45,29 @@ class FormalArtifactService:
         self.control = control
         self.projector = projector
 
-    def begin(self, manifest: ArtifactManifest, *, lease_id: str) -> Dict[str, object]:
+    def begin(
+        self,
+        manifest: ArtifactManifest,
+        *,
+        lease_id: str,
+        n7_tool_invocation_token: Optional[str] = None,
+    ) -> Dict[str, object]:
         self._authorize_manifest(manifest, lease_id=lease_id)
+        if manifest.producer_kind == RuntimeProducerKind.TOOL:
+            result_gate = getattr(self.control, "authorize_n7_result_evidence_producer", None)
+            if result_gate is not None:
+                try:
+                    result_gate(
+                        work_item_id=manifest.work_item_id,
+                        node_id=manifest.node_id,
+                        lease_id=lease_id,
+                        producer_ref=manifest.producer_ref,
+                        case_id=str(manifest.case_id or ""),
+                        attempt_id=str(manifest.attempt_id or ""),
+                        tool_invocation_token=n7_tool_invocation_token,
+                    )
+                except (CenterControlError, ValueError) as exc:
+                    raise FormalArtifactError(str(exc)) from exc
         try:
             stored = self.store.begin(manifest)
             offset = self.store.current_offset(manifest.artifact_id)

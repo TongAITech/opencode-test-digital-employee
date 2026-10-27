@@ -7,9 +7,12 @@ on:
       - 'rc8_center/executable_bundle.py'
       - 'rc8_center/execution_admission.py'
       - 'rc8_center/n7_execution_result.py'
+      - 'rc8_center/n7_tool_invocation.py'
       - 'rc8_center/n7_formal_control.py'
+      - 'rc8_center/formal_artifacts.py'
       - 'rc8_center/formal_app.py'
       - 'rc8_center/api/execution_bundle_routes.py'
+      - 'rc8_center/api/n7_tool_routes.py'
       - 'rc8_center/api/__init__.py'
       - 'rc8_center/case_inventory.py'
       - 'rc8_center/prepared_attempt.py'
@@ -20,8 +23,10 @@ on:
       - 'rc8_center/infrastructure/postgres_executable_readiness.py'
       - 'rc8_center/infrastructure/postgres_control.py'
       - 'scripts/rc8_n7_execution_admission_http_test.py'
+      - 'scripts/rc8_n7_tool_authority_http_test.py'
       - 'tests/test_rc8_execution_admission_authority.py'
       - 'tests/test_rc8_n7_execution_result_authority.py'
+      - 'tests/test_rc8_n7_tool_invocation_authority.py'
       - 'tests/test_rc8_execution_bundle_routes.py'
       - '.github/workflows/rc8-n7-execution-admission-reality.yml'
   workflow_dispatch:
@@ -38,19 +43,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.8'
-      - name: Compile N7 admission and result authority contracts
+      - name: Compile N7 admission, result and tool authority contracts
         run: >-
           python -m py_compile
           rc8_center/execution_admission.py
           rc8_center/n7_execution_result.py
+          rc8_center/n7_tool_invocation.py
           rc8_center/n7_formal_control.py
           tests/test_rc8_execution_admission_authority.py
           tests/test_rc8_n7_execution_result_authority.py
-      - name: Prove Worker cannot forge N7 runtime or result authority
+          tests/test_rc8_n7_tool_invocation_authority.py
+      - name: Prove Worker cannot forge N7 runtime, result or tool authority
         run: >-
           python -m unittest
           tests.test_rc8_execution_admission_authority
           tests.test_rc8_n7_execution_result_authority
+          tests.test_rc8_n7_tool_invocation_authority
           -v
 
   n7-real-http-admission:
@@ -90,30 +98,38 @@ jobs:
           python-version: '3.12'
       - name: Install formal Center dependencies
         run: pip install -r center/requirements.txt pytest
-      - name: Compile N7 execution admission slice
+      - name: Compile N7 execution authority slice
         run: |
           python -m py_compile \
             rc8_center/executable_bundle.py \
             rc8_center/execution_admission.py \
             rc8_center/n7_execution_result.py \
+            rc8_center/n7_tool_invocation.py \
             rc8_center/n7_formal_control.py \
+            rc8_center/formal_artifacts.py \
             rc8_center/formal_app.py \
             rc8_center/api/execution_bundle_routes.py \
+            rc8_center/api/n7_tool_routes.py \
             rc8_center/api/__init__.py \
             scripts/rc8_n7_execution_admission_http_test.py \
+            scripts/rc8_n7_tool_authority_http_test.py \
             tests/test_rc8_execution_admission_authority.py \
             tests/test_rc8_n7_execution_result_authority.py \
+            tests/test_rc8_n7_tool_invocation_authority.py \
             tests/test_rc8_execution_bundle_routes.py
       - name: Run N7 execution authority and bundle contracts
         run: >-
           python -m unittest
           tests.test_rc8_execution_admission_authority
           tests.test_rc8_n7_execution_result_authority
+          tests.test_rc8_n7_tool_invocation_authority
           tests.test_rc8_execution_bundle_routes
           -v
       - name: Apply formal PostgreSQL schema
         run: alembic -c center/alembic.ini upgrade head
-      - name: Prove N7 start is gated by current N4 N5 N6 authority
+      - name: Prove N7 start and stale invalidation are gated by current N4 N5 N6 authority
         run: python scripts/rc8_n7_execution_admission_http_test.py
+      - name: Prove N7 result-producing TOOL writes require Center invocation authority
+        run: python scripts/rc8_n7_tool_authority_http_test.py
       - name: Verify schema remains at head
         run: alembic -c center/alembic.ini current

@@ -13,6 +13,7 @@ from .executable_readiness_routes import register_executable_readiness_routes
 from .execution_bundle_routes import register_execution_bundle_routes
 from .failure_routes import register_failure_routes
 from .fastapi_app import create_app as _create_app
+from .n7_tool_routes import register_n7_tool_routes
 from .prepared_attempt_routes import register_prepared_attempt_routes
 from .revision_routes import register_revision_routes
 from .runtime_sequence_routes import register_runtime_sequence_routes
@@ -61,6 +62,7 @@ def create_app(
     register_prepared_attempt_routes(app)
     register_executable_readiness_routes(app)
     register_execution_bundle_routes(app)
+    register_n7_tool_routes(app)
     return app
 
 
