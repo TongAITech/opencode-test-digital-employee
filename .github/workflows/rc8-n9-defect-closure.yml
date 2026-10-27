@@ -5,7 +5,12 @@ on:
     branches: [work/rc8]
     paths:
       - 'rc8_center/defect_closure.py'
+      - 'rc8_center/failure_diagnosis.py'
       - 'rc8_center/infrastructure/postgres_defect_closure.py'
+      - 'rc8_center/infrastructure/postgres_failure_diagnosis.py'
+      - 'center/migrations/env.py'
+      - 'center/migrations/versions/0015_n8_n9_failure_defect_persistence.py'
+      - 'scripts/rc8_n8_n9_postgres_reality_test.py'
       - 'tests/test_rc8_defect_closure.py'
       - 'tests/test_rc8_defect_closure_postgres.py'
       - '.github/workflows/rc8-n9-defect-closure.yml'
@@ -41,3 +46,43 @@ jobs:
           tests.test_rc8_defect_closure
           tests.test_rc8_defect_closure_postgres
           -v
+
+  n8-n9-postgres-reality:
+    runs-on: ubuntu-latest
+    services:
+      postgresql:
+        image: postgres:16
+        env:
+          POSTGRES_DB: rc8
+          POSTGRES_USER: rc8
+          POSTGRES_PASSWORD: rc8
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rc8 -d rc8"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      RC8_DATABASE_URL: postgresql+psycopg://rc8:rc8@127.0.0.1:5432/rc8
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install formal Center dependencies
+        run: pip install -r center/requirements.txt
+      - name: Compile N8-N9 production persistence slice
+        run: >-
+          python -m py_compile
+          center/migrations/versions/0015_n8_n9_failure_defect_persistence.py
+          rc8_center/infrastructure/postgres_failure_diagnosis.py
+          rc8_center/infrastructure/postgres_defect_closure.py
+          scripts/rc8_n8_n9_postgres_reality_test.py
+      - name: Apply formal PostgreSQL schema
+        run: alembic -c center/alembic.ini upgrade head
+      - name: Prove N8 PRODUCT route to N9 candidate survives real PostgreSQL reconstruction
+        run: python scripts/rc8_n8_n9_postgres_reality_test.py
+      - name: Verify schema remains at head
+        run: alembic -c center/alembic.ini current
