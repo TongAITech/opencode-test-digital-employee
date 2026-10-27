@@ -21,6 +21,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.8'
+      - run: python -m pip install pytest
       - name: Compile worker
         run: python -m py_compile rc8_node/design_sufficiency_worker.py
       - name: Run targeted tests
