@@ -1,7 +1,7 @@
 """PostgreSQL durable persistence for RC8 N9 defect closure."""
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Tuple
 
 from sqlalchemy import BigInteger, JSON, String, select
 from sqlalchemy.orm import Mapped, mapped_column
@@ -76,6 +76,20 @@ class PostgresDefectClosureRepository:
             if len(rows) > 1:
                 raise DefectClosureError("MULTIPLE_DEFECT_CASES_FOR_ROUTE")
             return self._value(rows[0]) if rows else None
+
+    def list_for_test_run(self, test_run_id: str) -> Tuple[DefectCase, ...]:
+        if not isinstance(test_run_id, str) or not test_run_id.strip():
+            raise DefectClosureError("TEST_RUN_ID_REQUIRED")
+        normalized = test_run_id.strip()
+        with self.store.session() as session:
+            rows = list(
+                session.scalars(
+                    select(DefectCaseRow)
+                    .where(DefectCaseRow.test_run_id == normalized)
+                    .order_by(DefectCaseRow.created_at, DefectCaseRow.defect_case_id)
+                )
+            )
+            return tuple(self._value(row) for row in rows)
 
     def save_defect_case(self, value: DefectCase) -> None:
         if not isinstance(value, DefectCase):

@@ -10,12 +10,15 @@ on:
       - 'rc8_center/mission_node_repository.py'
       - 'rc8_center/infrastructure/postgres_mission_node.py'
       - 'rc8_center/infrastructure/postgres_mission_convergence.py'
+      - 'rc8_center/infrastructure/postgres_defect_closure.py'
       - 'rc8_runtime/mission_nodes.py'
       - 'center/migrations/versions/0017_mission_node_state.py'
       - 'scripts/rc8_n10_mission_node_postgres_reality_test.py'
+      - 'scripts/rc8_n10_defect_reader_postgres_reality_test.py'
       - 'tests/test_rc8_mission_node_persistence.py'
       - 'tests/test_rc8_mission_node_postgres.py'
       - 'tests/test_rc8_mission_node_migration_contract.py'
+      - 'tests/test_rc8_defect_truth_reader_postgres.py'
       - 'tests/test_rc8_mission_convergence.py'
       - 'tests/test_rc8_mission_convergence_authority.py'
       - 'tests/test_rc8_mission_convergence_postgres.py'
@@ -36,7 +39,7 @@ jobs:
           python-version: '3.8'
       - name: Install formal Center infrastructure dependencies
         run: python -m pip install --disable-pip-version-check 'SQLAlchemy>=2,<3' 'redis>=5,<6'
-      - name: Compile N10 Mission Convergence and durable MissionNode truth
+      - name: Compile N10 Mission Convergence and durable truth readers
         run: >-
           python -m py_compile
           rc8_center/mission_convergence.py
@@ -45,9 +48,11 @@ jobs:
           rc8_center/mission_node_repository.py
           rc8_center/infrastructure/postgres_mission_node.py
           rc8_center/infrastructure/postgres_mission_convergence.py
+          rc8_center/infrastructure/postgres_defect_closure.py
           tests/test_rc8_mission_node_persistence.py
           tests/test_rc8_mission_node_postgres.py
           tests/test_rc8_mission_node_migration_contract.py
+          tests/test_rc8_defect_truth_reader_postgres.py
           tests/test_rc8_mission_convergence.py
           tests/test_rc8_mission_convergence_authority.py
           tests/test_rc8_mission_convergence_postgres.py
@@ -56,6 +61,7 @@ jobs:
           python -m unittest
           tests.test_rc8_coverage_denominator
           tests.test_rc8_defect_closure
+          tests.test_rc8_defect_truth_reader_postgres
           tests.test_rc8_mission_node_persistence
           tests.test_rc8_mission_node_postgres
           tests.test_rc8_mission_node_migration_contract
@@ -90,17 +96,21 @@ jobs:
           python-version: '3.12'
       - name: Install formal Center dependencies
         run: pip install -r center/requirements.txt
-      - name: Compile N10 MissionNode durable truth slice
+      - name: Compile N10 durable truth slice
         run: >-
           python -m py_compile
           center/migrations/versions/0017_mission_node_state.py
           rc8_center/mission_node_gate.py
           rc8_center/mission_node_repository.py
           rc8_center/infrastructure/postgres_mission_node.py
+          rc8_center/infrastructure/postgres_defect_closure.py
           scripts/rc8_n10_mission_node_postgres_reality_test.py
+          scripts/rc8_n10_defect_reader_postgres_reality_test.py
       - name: Apply formal PostgreSQL schema
         run: alembic -c center/alembic.ini upgrade head
       - name: Prove Center MissionNode PASS survives real PostgreSQL reconstruction
         run: python scripts/rc8_n10_mission_node_postgres_reality_test.py
+      - name: Prove N9 defect truth reader is test-run isolated in real PostgreSQL
+        run: python scripts/rc8_n10_defect_reader_postgres_reality_test.py
       - name: Verify schema remains at head
         run: alembic -c center/alembic.ini current
