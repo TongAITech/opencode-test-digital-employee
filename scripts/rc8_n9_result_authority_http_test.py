@@ -236,13 +236,14 @@ def main() -> int:
         json={"work_item_id": verify_work},
     )
     assert verified.status_code == 200, verified.text
-    verified_defect = verified.json()["defect"]
+    verified_body = verified.json()
+    verified_defect = verified_body["defect"]
     assert verified_defect["state"] == "FIX_VERIFIED", verified_defect
     assert verified_defect["fix_verification_work_item_id"] == verify_work
     assert verified_defect["fix_verification_attempt_id"].startswith(
         "attempt-fix-verify-"
     )
-    assert verified["truth_note"].startswith(
+    assert verified_body["truth_note"].startswith(
         "FIX_RESULT_DERIVED_FROM_CENTER_N7_R1_RECEIPT"
     )
 
