@@ -24,6 +24,7 @@ from rc8_center.formal_control import FormalCenterControlPlane
 from rc8_center.formal_settings import CenterSettings
 from rc8_center.formal_trace_authority import FormalTraceRuntimeAuthority
 from rc8_center.n7_execution_result import CenterN7CaseExecutionResultAuthority
+from rc8_center.n7_execution_result_receipt import CenterN7CaseExecutionResultReceiptAuthority
 from rc8_center.n7_formal_control import N7AdmissionAwareFormalCenterControlPlane
 from rc8_center.n7_tool_invocation import CenterN7ToolInvocationAuthority
 from rc8_center.prepared_attempt import CenterPreparedAttemptService
@@ -128,6 +129,7 @@ def build_app():
         executable_readiness=executable_readiness,
         artifact_repository=artifact_repository,
     )
+    n7_case_execution_result_receipt_authority = CenterN7CaseExecutionResultReceiptAuthority(ledger)
     n7_tool_invocation_authority = CenterN7ToolInvocationAuthority(
         redis_coordination,
         executable_readiness,
@@ -137,6 +139,7 @@ def build_app():
         n7_execution_admission,
         n7_case_execution_result_authority,
         n7_tool_invocation_authority,
+        n7_case_execution_result_receipt_authority,
     )
     trace_runtime_authority = FormalTraceRuntimeAuthority(formal_control, governance_repository)
     traceability_ingestion = R1BackedCenterTraceabilityIngestion(traceability_repository, ledger=ledger, control_plane=trace_runtime_authority, attempt_snapshot_resolver=trace_runtime_authority.resolve_current_attempt)
@@ -160,6 +163,7 @@ def build_app():
     app.state.executable_readiness = executable_readiness
     app.state.n7_execution_admission = n7_execution_admission
     app.state.n7_case_execution_result_authority = n7_case_execution_result_authority
+    app.state.n7_case_execution_result_receipt_authority = n7_case_execution_result_receipt_authority
     app.state.n7_tool_invocation_authority = n7_tool_invocation_authority
     app.state.traceability_repository = traceability_repository
     app.state.trace_runtime_authority = trace_runtime_authority
