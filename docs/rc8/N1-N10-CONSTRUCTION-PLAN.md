@@ -110,9 +110,9 @@ Commits `4ecfa51...`, `bd352b9...` implemented immutable `RealitySnapshot`, `Cap
 
 Existing requirement analysis/sufficiency is adopted into MissionNode delivery semantics. Worker green is recomputed against Center authority. Real HTTP repair tests collapse worker+Center green projections into one final verdict per Stage attempt.
 
-### N3 Code adoption — CODE + CI VERIFIED FOUNDATION
+### N3 Code adoption — NODE WORKERS + WINDOWS/LINUX CI VERIFIED
 
-Center-controlled traceability ingestion now exists with deterministic Browser Network runtime authority, CodeGraph/source and SQL source policy, LLM candidate-only semantics, and worker verification-upgrade rejection. Full-loop proof still requires the node runtime to execute CODE_ANALYSIS/CODE_SUFFICIENCY rather than merely having Center services/adapters.
+Center-controlled traceability ingestion exists with deterministic Browser Network runtime authority, CodeGraph/source and SQL source policy, LLM candidate-only semantics, and worker verification-upgrade rejection. Commits through `a34ab82...` add fail-closed real `CODE_ANALYSIS` and `CODE_SUFFICIENCY` node workers, wire both into the autonomous dispatcher, require explicit CodeGraph configuration, emit observation/Evidence/R1 only, and preserve Center verification/sufficiency authority. Current-head Windows and Ubuntu `frozen-code-denominator` checks passed. This closes N3 node-runtime adoption, not bank reality.
 
 ### N4 Test Design adoption — CODE + CI VERIFIED FOUNDATION
 
@@ -144,16 +144,18 @@ Center-owned convergence separates TestSufficiencyDecision, ProductQualityAssess
 
 ### SINGLE_NODE N1–N10 autonomous readiness — FAIL-CLOSED GAP EXPOSED
 
-Commits `a09dcfa1...` and `61614885...` added an explicit full N1–N10 Stage denominator to the node runtime. The node now reports `RC8_NODE_AUTONOMOUS_PARTIAL`, `n1_n10_autonomous_ready=false`, and the missing Stage list until every required Stage has a real node worker. It must not advertise full autonomy from the existence of Center services/adapters alone. Windows and Ubuntu `single-node-readiness` checks passed on `61614885...`.
+Commits `a09dcfa1...` and `61614885...` added an explicit full N1–N10 Stage denominator to the node runtime. The node reports `RC8_NODE_AUTONOMOUS_PARTIAL`, `n1_n10_autonomous_ready=false`, and the missing Stage list until every required Stage has a real node worker. It must not advertise full autonomy from Center services/adapters alone.
 
-Current real node-worker coverage is only:
+Current real node-worker coverage is now:
 
 - SCOPE_INTAKE
 - REQUIREMENT_ANALYSIS
 - REQUIREMENT_SUFFICIENCY
+- CODE_ANALYSIS
+- CODE_SUFFICIENCY
 - APPLICABLE_LAYER_EXECUTION
 
-Therefore the next construction work is node-runtime adoption, beginning with N3 CODE_ANALYSIS/CODE_SUFFICIENCY; no SINGLE_NODE PASS may be claimed before the denominator closes with real Evidence.
+Therefore the next construction work is N4 node-runtime adoption: RISK_TEST_MODEL, TEST_DESIGN and DESIGN_SUFFICIENCY. No SINGLE_NODE PASS may be claimed before the denominator closes with real Evidence.
 
 ## 6. Current construction checkpoint ledger
 
@@ -165,15 +167,15 @@ Therefore the next construction work is node-runtime adoption, beginning with N3
 | P0-2 Review + Center Gate | CI_VERIFIED | `00e019b...` |
 | N1 RealitySnapshot | CI_VERIFIED | `4ecfa51...` + Windows fix `bd352b9...` |
 | N2 Requirement adoption | INTEGRATION_FOUNDATION | broader mission proof pending |
-| N3 Code adoption | CI_VERIFIED_FOUNDATION | Center ingestion exists; **next: real CODE_ANALYSIS/CODE_SUFFICIENCY node workers** |
-| N4 Design adoption | CI_VERIFIED_FOUNDATION | node-worker/full-loop proof pending |
+| N3 Code adoption | NODE_WORKERS_CI_VERIFIED | through `a34ab82...`; CODE_ANALYSIS + CODE_SUFFICIENCY autonomous adoption, current-head Windows/Ubuntu targeted PASS |
+| N4 Design adoption | CI_VERIFIED_FOUNDATION | **next: RISK_TEST_MODEL/TEST_DESIGN/DESIGN_SUFFICIENCY real node workers** |
 | N5 PreparedAttempt | CI_VERIFIED | node-worker/full-loop proof pending |
 | N6 Executable Readiness | CI_VERIFIED | N5-before-N6 planner order repaired; node-worker proof pending |
 | N7 Coverage Engine | CI_VERIFIED | node worker exists; full-loop proof pending |
 | N8 Diagnosis/GapRouter | CI_VERIFIED | Center authority regression exists; node/full-loop proof pending |
 | N9 Defect Closure | CI_VERIFIED | full-loop proof pending |
 | N10 Global Convergence | CI_VERIFIED | full-loop proof pending |
-| SINGLE_NODE runtime foundation | PARTIAL / FAIL-CLOSED | `61614885...` Windows+Ubuntu readiness PASS; missing Stage workers explicitly reported |
+| SINGLE_NODE runtime foundation | PARTIAL / FAIL-CLOSED | N3 workers adopted; N4/N5/N6/N8/N9/N10 Stage workers still missing |
 | DISTRIBUTED runtime foundation | CODE_EXISTS | multi-node N1–N10 proof pending |
 | dsh-node runtime adapter | CODE_EXISTS | bank reality pending |
 | dsh-agent-teams process adapter | CODE_EXISTS | bank reality pending |
@@ -185,17 +187,13 @@ Therefore the next construction work is node-runtime adoption, beginning with N3
 
 Do **not** manufacture P4/full-loop PASS from Center-only services or adapters. Continue in this order:
 
-1. `feat(rc8): wire N3 CODE_ANALYSIS/CODE_SUFFICIENCY real node workers`
-   - use CodeGraph/source evidence and Center-controlled traceability ingestion
-   - worker emits observations/evidence only; Center owns verification and sufficiency
-   - cross-platform targeted tests
-2. Wire N4 RISK_TEST_MODEL/TEST_DESIGN/DESIGN_SUFFICIENCY node workers with denominator/evidence gates.
-3. Wire N5 PRECONDITION_DATA_PREP node worker using current PreparedAttempt/fresh-auth authority.
-4. Wire N6 EXECUTABLE_SPEC node worker bound to current N5 PreparedAttempt.
-5. Wire remaining N8/N9/N10 Stage execution/review paths without moving final authority out of Center.
-6. `test(rc8): prove n1-n10 single-node autonomous loop` with R1 Evidence and no missing Stage denominator.
-7. `test(rc8): prove n1-n10 distributed autonomous loop`.
-8. Bank field reality validation: actual DSH/model, actual dsh-agent-teams bridge, controlled Browser Network, fresh 4A login/re-login, CodeGraph, Maven/JUnit, CAT/log where applicable, DB/SQL.
+1. Wire N4 RISK_TEST_MODEL/TEST_DESIGN/DESIGN_SUFFICIENCY node workers with denominator/evidence gates.
+2. Wire N5 PRECONDITION_DATA_PREP node worker using current PreparedAttempt/fresh-auth authority.
+3. Wire N6 EXECUTABLE_SPEC node worker bound to current N5 PreparedAttempt.
+4. Wire remaining N8/N9/N10 Stage execution/review paths without moving final authority out of Center.
+5. `test(rc8): prove n1-n10 single-node autonomous loop` with R1 Evidence and no missing Stage denominator.
+6. `test(rc8): prove n1-n10 distributed autonomous loop`.
+7. Bank field reality validation: actual DSH/model, actual dsh-agent-teams bridge, controlled Browser Network, fresh 4A login/re-login, CodeGraph, Maven/JUnit, CAT/log where applicable, DB/SQL.
 
 ## 8. Resume protocol
 
@@ -216,4 +214,4 @@ If the same construction slice is already actively progressing, do not start dup
 
 ## 9. Immediate next action
 
-> **SINGLE_NODE adoption P0:** wire real N3 `CODE_ANALYSIS` and `CODE_SUFFICIENCY` workers into the autonomous node dispatcher, preserving Center verification/sufficiency authority and producing R1/Evidence. Do not add the Stage names to `_AUTONOMOUS_STAGES` until the workers and targeted cross-platform tests prove they execute real contracts. Keep `BANK_REALITY_VERIFIED=NO` and Release HOLD.
+> **SINGLE_NODE adoption N4:** wire real `RISK_TEST_MODEL`, `TEST_DESIGN` and `DESIGN_SUFFICIENCY` workers into the autonomous node dispatcher with denominator/evidence gates. Workers may emit candidate observations/Evidence only; Center retains final verification/sufficiency authority. Do not add Stage names to `_AUTONOMOUS_STAGES` until their workers and targeted Windows/Linux tests prove real contracts. Keep `BANK_REALITY_VERIFIED=NO` and Release HOLD.
