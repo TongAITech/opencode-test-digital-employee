@@ -100,17 +100,7 @@ Commit `39811f4...` added first-class MissionNode N1–N10 semantics above exist
 
 ### P0-2 — Director Review + Center MissionNode Gate — DONE
 
-Commit `00e019b...` implemented:
-
-```text
-AgentTeams
-  -> READY_FOR_DIRECTOR_REVIEW
-  -> DirectorReviewAccepted
-  -> CenterDeterministicGate
-  -> MissionNode PASS
-```
-
-Worker/Team/Director cannot directly set final MissionNode PASS.
+Commit `00e019b...` implemented AgentTeams -> READY_FOR_DIRECTOR_REVIEW -> DirectorReviewAccepted -> CenterDeterministicGate -> MissionNode PASS. Worker/Team/Director cannot directly set final MissionNode PASS.
 
 ### N1 Reality Snapshot — CODE + CI VERIFIED
 
@@ -118,26 +108,11 @@ Commits `4ecfa51...`, `bd352b9...` implemented immutable `RealitySnapshot`, `Cap
 
 ### N2 Requirement adoption — CODE + CI VERIFIED
 
-Existing requirement analysis/sufficiency is adopted into MissionNode delivery semantics. Worker green is recomputed against Center authority. Real HTTP repair tests now collapse worker+Center green projections into one final verdict per Stage attempt.
+Existing requirement analysis/sufficiency is adopted into MissionNode delivery semantics. Worker green is recomputed against Center authority. Real HTTP repair tests collapse worker+Center green projections into one final verdict per Stage attempt.
 
-### N3 Code adoption — PARTIAL / P0 GAP REMAINS
+### N3 Code adoption — CODE + CI VERIFIED FOUNDATION
 
-MissionNode adoption, CodeGraph/TraceGraph and Center Code Sufficiency foundations exist. **Still required before full-loop proof:**
-
-```text
-Controlled Browser Network Evidence
-  -> CodeGraph/source Evidence
-  -> SQL/persistence Evidence
-  -> Center Controlled Ingestion
-  -> verified TraceGraph
-  -> CODE_SUFFICIENCY
-```
-
-Source policy remains fail-closed:
-- Page→API VERIFIED only from controlled Network Evidence.
-- API→Controller→Service→Repository/Mapper only from source/Spring/CodeGraph evidence.
-- Repository/Mapper→SQL→Database→Table only from explicit mapper/JDBC/ORM/SQL evidence.
-- requested worker verification is ignored; Center decides verification.
+Center-controlled traceability ingestion now exists with deterministic Browser Network runtime authority, CodeGraph/source and SQL source policy, LLM candidate-only semantics, and worker verification-upgrade rejection. Full-loop proof still requires the node runtime to execute CODE_ANALYSIS/CODE_SUFFICIENCY rather than merely having Center services/adapters.
 
 ### N4 Test Design adoption — CODE + CI VERIFIED FOUNDATION
 
@@ -145,99 +120,60 @@ Risk/TestDesign/DesignSufficiency are adopted into MissionNode delivery contract
 
 ### N5 PreparedAttempt — CODE + WINDOWS/LINUX CI VERIFIED
 
-Commit `04cb4231...` implemented:
-
-```text
-SELECTED -> VERIFIED -> RESERVED -> FRESH -> PREPARED
-```
-
-with terminal RELEASED/QUARANTINED, one current PreparedAttempt per `(run, case, attempt)`, fresh 4A binding, data freshness, reservation, environment/route binding, execution fail-closed gate and PostgreSQL persistence.
+PreparedAttempt implements SELECTED -> VERIFIED -> RESERVED -> FRESH -> PREPARED with terminal RELEASED/QUARANTINED, one current PreparedAttempt per `(run, case, attempt)`, fresh 4A binding, data freshness, reservation, environment/route binding, execution fail-closed gate and PostgreSQL persistence.
 
 ### N6 Executable Readiness — CODE + WINDOWS/LINUX CI VERIFIED
 
-Commit `bf70d9d9...` implemented N5-bound executable readiness:
-
-```text
-FrozenCase -> Driver/Script -> Fixture/Binding -> Assertion -> EvidenceCollector
-```
-
-States: BUILT→VERIFIED→READY, with invalidation. READY has no business PASS meaning.
-
-**Known semantic debt:** the legacy MissionGraph still orders `EXECUTABLE_SPEC (N6)` before `PRECONDITION_DATA_PREP (N5)`. New N6 service correctly requires current N5 PreparedAttempt, but the old Stage edge must be migrated before full-loop proof.
+N6 implements N5-bound executable readiness: FrozenCase -> Driver/Script -> Fixture/Binding -> Assertion -> EvidenceCollector. States are BUILT->VERIFIED->READY with invalidation. READY has no business PASS meaning. The Mission Planner now orders N5 `PRECONDITION_DATA_PREP` before N6 `EXECUTABLE_SPEC`; the older ledger ordering warning is retired by Git truth.
 
 ### N7 Coverage Denominator — CODE + WINDOWS/LINUX CI VERIFIED
 
-Commit `59ca9ab4...` implemented versioned `CoverageDenominatorSnapshot`, `CoverageObligation`, `CoverageReceipt`, `LayerReopen`, zero-denominator prohibition and stale-100%-receipt invalidation. `COVERED_FAIL` counts as tested while product quality can fail; BLOCKED prevents coverage closure.
+Versioned CoverageDenominatorSnapshot/CoverageObligation/CoverageReceipt/LayerReopen, zero-denominator prohibition and stale-100%-receipt invalidation are implemented. COVERED_FAIL counts as tested while product quality can fail; BLOCKED prevents coverage closure.
 
 ### N8 Failure Diagnosis / GapRouter — CODE + WINDOWS/LINUX CI VERIFIED
 
-Commit `25b5ee3b...` implemented Center-owned failure diagnosis and deterministic routing:
-
-- SCRIPT→N6
-- SPEC_DESIGN/ORACLE→N4
-- DATA/PRECONDITION/AUTH→N5
-- ROUTE source truth→N3
-- ROUTE binding→N6
-- TOOL/ENVIRONMENT/DEPENDENCY→N1/runtime
-- TRANSIENT/FLAKY→N7
-- PRODUCT→N9 (non-repairable by N8)
-- UNKNOWN→N8 (no forced attribution)
-
-Successor attempt requires evidence-backed `REPAIRED` receipt; blind retry is forbidden.
-
-**Known semantic debt:** legacy Stage-level failure routing tables still exist and must be reconciled/deprecated so Center N8 is the single routing authority.
+Center-owned failure diagnosis and deterministic routing are implemented. Center route authority is covered by regression; legacy routing must not supersede Center truth.
 
 ### N9 Defect Evidence Closure — CODE + WINDOWS/LINUX CI VERIFIED
 
-Commit `a371e797...` implemented PRODUCT-route-only defect entry and lifecycle:
-
-```text
-Candidate -> IndependentReproduction -> Qualification -> RCA -> Dedup
--> Impact/Severity -> Review -> File -> FixDetected -> FixVerification
--> ImpactRegression -> Close/Reopen
-```
-
-TEST_FAIL alone cannot create a defect. Duplicate and NotDefect are evidence-backed dispositions. N8→N9 integration regression passed on Windows/Linux.
+PRODUCT-route-only defect entry and evidence-backed defect lifecycle are implemented. TEST_FAIL alone cannot create a defect.
 
 ### N10 Global Convergence — CODE + WINDOWS/LINUX CI VERIFIED
 
-Commit `44577fbf...` implemented Center-owned convergence with separate:
+Center-owned convergence separates TestSufficiencyDecision, ProductQualityAssessment, ReleaseRecommendation and ResidualRisk. Report generation cannot create convergence.
 
-- `TestSufficiencyDecision`
-- `ProductQualityAssessment`
-- `ReleaseRecommendation`
-- `ResidualRisk`
+### SINGLE_NODE N1–N10 autonomous readiness — FAIL-CLOSED GAP EXPOSED
 
-It explicitly supports:
+Commits `a09dcfa1...` and `61614885...` added an explicit full N1–N10 Stage denominator to the node runtime. The node now reports `RC8_NODE_AUTONOMOUS_PARTIAL`, `n1_n10_autonomous_ready=false`, and the missing Stage list until every required Stage has a real node worker. It must not advertise full autonomy from the existence of Center services/adapters alone. Windows and Ubuntu `single-node-readiness` checks passed on `61614885...`.
 
-```text
-TEST_SUFFICIENCY = SUFFICIENT
-PRODUCT_QUALITY = FAIL
-RELEASE_RECOMMENDATION = NO_GO
-MISSION_CONVERGED = true
-```
+Current real node-worker coverage is only:
 
-for a fully tested mission with known high-severity product defects. Report release requires an existing Center `MISSION_CONVERGED` decision; report generation cannot create convergence. N7 + N9 + N10 regression passed on Windows/Linux.
+- SCOPE_INTAKE
+- REQUIREMENT_ANALYSIS
+- REQUIREMENT_SUFFICIENCY
+- APPLICABLE_LAYER_EXECUTION
+
+Therefore the next construction work is node-runtime adoption, beginning with N3 CODE_ANALYSIS/CODE_SUFFICIENCY; no SINGLE_NODE PASS may be claimed before the denominator closes with real Evidence.
 
 ## 6. Current construction checkpoint ledger
 
 | Item | Checkpoint | Evidence / next action |
 |---|---|---|
-| Plan persistence | DONE | this file is the navigation source; Git/CI remain authoritative |
+| Plan persistence | DONE | this file is navigation; Git/CI remain authoritative |
 | P0-0 Cross-platform Director baseline | CI_VERIFIED | `287db525...` |
 | P0-1 Adoption Spine | CI_VERIFIED | `39811f4...` |
 | P0-2 Review + Center Gate | CI_VERIFIED | `00e019b...` |
 | N1 RealitySnapshot | CI_VERIFIED | `4ecfa51...` + Windows fix `bd352b9...` |
-| N2 Requirement adoption | INTEGRATION_FOUNDATION | real HTTP repair flow verified; broader mission proof pending |
-| N3 Code adoption | PARTIAL / P0 | **next: Center Controlled Ingestion** |
-| N4 Design adoption | CI_VERIFIED_FOUNDATION | denominator/full-loop proof pending |
-| N5 PreparedAttempt | CI_VERIFIED | `04cb4231...` |
-| N6 Executable Readiness | CI_VERIFIED | `bf70d9d9...`; legacy N6→N5 Stage ordering debt remains |
-| N7 Coverage Engine | CI_VERIFIED | `59ca9ab4...` |
-| N8 Diagnosis/GapRouter | CI_VERIFIED | `25b5ee3b...`; legacy route table reconciliation remains |
-| N9 Defect Closure | CI_VERIFIED | `a371e797...` |
-| N10 Global Convergence | CI_VERIFIED | `44577fbf...` |
-| SINGLE_NODE runtime foundation | CODE_EXISTS | vertical N1–N10 proof pending |
+| N2 Requirement adoption | INTEGRATION_FOUNDATION | broader mission proof pending |
+| N3 Code adoption | CI_VERIFIED_FOUNDATION | Center ingestion exists; **next: real CODE_ANALYSIS/CODE_SUFFICIENCY node workers** |
+| N4 Design adoption | CI_VERIFIED_FOUNDATION | node-worker/full-loop proof pending |
+| N5 PreparedAttempt | CI_VERIFIED | node-worker/full-loop proof pending |
+| N6 Executable Readiness | CI_VERIFIED | N5-before-N6 planner order repaired; node-worker proof pending |
+| N7 Coverage Engine | CI_VERIFIED | node worker exists; full-loop proof pending |
+| N8 Diagnosis/GapRouter | CI_VERIFIED | Center authority regression exists; node/full-loop proof pending |
+| N9 Defect Closure | CI_VERIFIED | full-loop proof pending |
+| N10 Global Convergence | CI_VERIFIED | full-loop proof pending |
+| SINGLE_NODE runtime foundation | PARTIAL / FAIL-CLOSED | `61614885...` Windows+Ubuntu readiness PASS; missing Stage workers explicitly reported |
 | DISTRIBUTED runtime foundation | CODE_EXISTS | multi-node N1–N10 proof pending |
 | dsh-node runtime adapter | CODE_EXISTS | bank reality pending |
 | dsh-agent-teams process adapter | CODE_EXISTS | bank reality pending |
@@ -247,29 +183,19 @@ for a fully tested mission with known high-severity product defects. Report rele
 
 ## 7. Remaining ordered construction sequence
 
-Do **not** start P4 full-loop proof until the semantic/runtime debts below are resolved.
+Do **not** manufacture P4/full-loop PASS from Center-only services or adapters. Continue in this order:
 
-1. `feat(rc8): add center controlled traceability ingestion`
-   - Network/CodeGraph/SQL raw observation contracts
-   - source-based verification policy
-   - reject worker-requested verification upgrades
-   - verified TraceGraph projection feeding CODE_SUFFICIENCY
-2. `refactor(rc8): align mission graph n5 before n6`
-   - repair legacy `EXECUTABLE_SPEC -> PRECONDITION_DATA_PREP` ordering
-   - preserve rework/invalidation semantics
-3. `refactor(rc8): make n8 center gap router authoritative`
-   - reconcile/deprecate legacy Stage route tables
-4. `test(rc8): prove n1-n10 single-node autonomous loop`
-5. `test(rc8): prove n1-n10 distributed autonomous loop`
-6. Bank field reality validation:
-   - actual DSH/model
-   - actual dsh-agent-teams bridge
-   - controlled Browser Network
-   - fresh 4A login/re-login
-   - CodeGraph
-   - Maven/JUnit
-   - CAT/log where applicable
-   - DB/SQL
+1. `feat(rc8): wire N3 CODE_ANALYSIS/CODE_SUFFICIENCY real node workers`
+   - use CodeGraph/source evidence and Center-controlled traceability ingestion
+   - worker emits observations/evidence only; Center owns verification and sufficiency
+   - cross-platform targeted tests
+2. Wire N4 RISK_TEST_MODEL/TEST_DESIGN/DESIGN_SUFFICIENCY node workers with denominator/evidence gates.
+3. Wire N5 PRECONDITION_DATA_PREP node worker using current PreparedAttempt/fresh-auth authority.
+4. Wire N6 EXECUTABLE_SPEC node worker bound to current N5 PreparedAttempt.
+5. Wire remaining N8/N9/N10 Stage execution/review paths without moving final authority out of Center.
+6. `test(rc8): prove n1-n10 single-node autonomous loop` with R1 Evidence and no missing Stage denominator.
+7. `test(rc8): prove n1-n10 distributed autonomous loop`.
+8. Bank field reality validation: actual DSH/model, actual dsh-agent-teams bridge, controlled Browser Network, fresh 4A login/re-login, CodeGraph, Maven/JUnit, CAT/log where applicable, DB/SQL.
 
 ## 8. Resume protocol
 
@@ -290,4 +216,4 @@ If the same construction slice is already actively progressing, do not start dup
 
 ## 9. Immediate next action
 
-> **N3 P0:** implement Center Controlled Traceability Ingestion so raw Browser Network / CodeGraph / SQL observations can be accepted under deterministic source policy, projected into verified TraceGraph, and consumed by `CODE_SUFFICIENCY`. Do not claim N1–N10 full-loop completion before this and the N5→N6 Stage ordering debt are resolved.
+> **SINGLE_NODE adoption P0:** wire real N3 `CODE_ANALYSIS` and `CODE_SUFFICIENCY` workers into the autonomous node dispatcher, preserving Center verification/sufficiency authority and producing R1/Evidence. Do not add the Stage names to `_AUTONOMOUS_STAGES` until the workers and targeted cross-platform tests prove they execute real contracts. Keep `BANK_REALITY_VERIFIED=NO` and Release HOLD.
