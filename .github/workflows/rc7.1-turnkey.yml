@@ -12,6 +12,7 @@ permissions:
 
 env:
   SOURCE_COMMIT: ${{ github.sha }}
+  GITHUB_TOKEN: ${{ github.token }}
 
 jobs:
   windows-turnkey:
