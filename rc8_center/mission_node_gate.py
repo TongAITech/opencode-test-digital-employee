@@ -9,7 +9,7 @@ configured, every accepted Center transition is durably persisted.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Optional, Sequence, Tuple
 
 from rc8_runtime.contracts import RC8ContractError
 from rc8_runtime.mission_nodes import (
@@ -24,7 +24,9 @@ from rc8_runtime.mission_nodes import (
 
 from .control_plane import CenterControlError
 from .distributed_orchestration import ActorRole
-from .mission_node_repository import MissionNodeRepository
+
+if TYPE_CHECKING:
+    from .mission_node_repository import MissionNodeRepository
 
 
 def _refs(values: Sequence[str], name: str) -> Tuple[str, ...]:
