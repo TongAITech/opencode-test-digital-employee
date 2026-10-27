@@ -5,8 +5,10 @@ on:
     branches: [work/rc8]
     paths:
       - 'rc8_center/mission_convergence.py'
+      - 'rc8_center/mission_convergence_authority.py'
       - 'rc8_center/infrastructure/postgres_mission_convergence.py'
       - 'tests/test_rc8_mission_convergence.py'
+      - 'tests/test_rc8_mission_convergence_authority.py'
       - 'tests/test_rc8_mission_convergence_postgres.py'
       - '.github/workflows/rc8-n10-mission-convergence.yml'
   workflow_dispatch:
@@ -29,8 +31,10 @@ jobs:
         run: >-
           python -m py_compile
           rc8_center/mission_convergence.py
+          rc8_center/mission_convergence_authority.py
           rc8_center/infrastructure/postgres_mission_convergence.py
           tests/test_rc8_mission_convergence.py
+          tests/test_rc8_mission_convergence_authority.py
           tests/test_rc8_mission_convergence_postgres.py
       - name: Run N10 Mission Convergence regression
         run: >-
@@ -38,5 +42,6 @@ jobs:
           tests.test_rc8_coverage_denominator
           tests.test_rc8_defect_closure
           tests.test_rc8_mission_convergence
+          tests.test_rc8_mission_convergence_authority
           tests.test_rc8_mission_convergence_postgres
           -v
