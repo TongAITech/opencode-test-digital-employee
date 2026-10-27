@@ -5,7 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from rc8_node.__main__ import _AUTONOMOUS_STAGES, _build_dispatcher, _env_flag, main
+from rc8_node.__main__ import (
+    _AUTONOMOUS_STAGES,
+    _N1_N10_REQUIRED_STAGES,
+    _autonomous_readiness,
+    _build_dispatcher,
+    _env_flag,
+    main,
+)
 from rc8_runtime import NodeIdentity
 
 
@@ -50,6 +57,24 @@ def test_autonomous_entry_registers_only_currently_implemented_stage_workers(tmp
     }
     assert dispatcher.ttl_seconds == 60
     assert dispatcher.idle_sleep_seconds == 1.0
+
+
+def test_single_node_n1_n10_readiness_fails_closed_until_all_stage_workers_exist() -> None:
+    ready, missing = _autonomous_readiness()
+    assert ready is False
+    assert missing == tuple(stage for stage in _N1_N10_REQUIRED_STAGES if stage not in _AUTONOMOUS_STAGES)
+    assert {
+        "CODE_ANALYSIS",
+        "CODE_SUFFICIENCY",
+        "RISK_TEST_MODEL",
+        "TEST_DESIGN",
+        "DESIGN_SUFFICIENCY",
+        "PRECONDITION_DATA_PREP",
+        "EXECUTABLE_SPEC",
+        "FAILURE_COVERAGE_EVALUATION",
+        "MISSION_SUFFICIENCY",
+        "REPORT_RELEASE",
+    }.issubset(set(missing))
 
 
 def test_autonomous_entry_does_not_register_unimplemented_code_or_design_stages(tmp_path: Path) -> None:

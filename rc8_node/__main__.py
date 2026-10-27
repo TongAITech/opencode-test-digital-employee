@@ -18,12 +18,41 @@ from .requirement_sufficiency_worker import RequirementSufficiencyWorker
 from .scope_intake_worker import ScopeIntakeWorker
 
 
+# Only stages with a real node worker may be advertised as executable.  This is
+# intentionally smaller than the N1-N10 mission chain today; the node must not
+# call itself fully autonomous while CODE/DESIGN/N5/N6/N8/N9/N10 workers are
+# still Center-only or not wired into the node runtime.
 _AUTONOMOUS_STAGES = (
     "SCOPE_INTAKE",
     "REQUIREMENT_ANALYSIS",
     "REQUIREMENT_SUFFICIENCY",
     "APPLICABLE_LAYER_EXECUTION",
 )
+
+# Full single-node proof is fail-closed against this denominator.  Keep this in
+# stage order so the readiness output is useful as a construction gap list.
+_N1_N10_REQUIRED_STAGES = (
+    "SCOPE_INTAKE",
+    "REQUIREMENT_ANALYSIS",
+    "REQUIREMENT_SUFFICIENCY",
+    "CODE_ANALYSIS",
+    "CODE_SUFFICIENCY",
+    "RISK_TEST_MODEL",
+    "TEST_DESIGN",
+    "DESIGN_SUFFICIENCY",
+    "PRECONDITION_DATA_PREP",
+    "EXECUTABLE_SPEC",
+    "APPLICABLE_LAYER_EXECUTION",
+    "FAILURE_COVERAGE_EVALUATION",
+    "MISSION_SUFFICIENCY",
+    "REPORT_RELEASE",
+)
+
+
+def _autonomous_readiness() -> tuple[bool, tuple[str, ...]]:
+    supported = set(_AUTONOMOUS_STAGES)
+    missing = tuple(stage for stage in _N1_N10_REQUIRED_STAGES if stage not in supported)
+    return (not missing, missing)
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -131,15 +160,22 @@ def main(argv: Optional[list] = None) -> int:
     agent = FormalNodeAgent(identity, center)
     registered = agent.register()
     heartbeat = agent.heartbeat()
+    full_autonomous_ready, missing_stages = _autonomous_readiness()
+    if args.autonomous:
+        readiness_status = "RC8_NODE_AUTONOMOUS_READY" if full_autonomous_ready else "RC8_NODE_AUTONOMOUS_PARTIAL"
+    else:
+        readiness_status = "RC8_NODE_READY"
     ready = {
-        "status": "RC8_NODE_AUTONOMOUS_READY" if args.autonomous else "RC8_NODE_READY",
+        "status": readiness_status,
         "node_id": identity.node_id,
         "center": args.center,
         "platform": platform_info,
         "registered": registered.get("node", {}).get("status"),
         "heartbeat": heartbeat.get("node", {}).get("status"),
         "autonomous": bool(args.autonomous),
+        "n1_n10_autonomous_ready": bool(args.autonomous and full_autonomous_ready),
         "supported_stages": list(_AUTONOMOUS_STAGES) if args.autonomous else [],
+        "missing_n1_n10_stages": list(missing_stages) if args.autonomous else [],
         "test_run_id": str(args.test_run_id or "").strip() or None,
     }
     print(json.dumps(ready, ensure_ascii=False, sort_keys=True), flush=True)
