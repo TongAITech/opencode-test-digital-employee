@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - release/rc7.1-field-fix
+      - work/rc7.1-field-turnkey
   workflow_dispatch:
 
 permissions:
@@ -57,6 +58,13 @@ jobs:
           python -m rc7_release.package build --repo-root . --output dist --source-commit $env:SOURCE_COMMIT
           if ($LASTEXITCODE -ne 0) { throw 'base package build failed' }
           $pkg = Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
+
+          # Expose the thin Field entrypoint at package root while retaining the
+          # canonical packaging/rc7 copy. final_unified_overlay runs afterwards
+          # and therefore seals these root launchers into CHECKSUMS.sha256.
+          Copy-Item (Join-Path $pkg 'packaging/rc7/start-rc7.1.sh') (Join-Path $pkg 'start-rc7.1.sh') -Force
+          Copy-Item (Join-Path $pkg 'packaging/rc7/start-rc7.1.cmd') (Join-Path $pkg 'start-rc7.1.cmd') -Force
+
           python -m rc7_release.final_unified_overlay --package-root $pkg --output dist --source-commit $env:SOURCE_COMMIT
           if ($LASTEXITCODE -ne 0) { throw 'unified overlay failed' }
           python -m rc7_release.rc71_identity --package-root $pkg --source-commit $env:SOURCE_COMMIT
@@ -79,17 +87,13 @@ jobs:
           & $py -m rc7_release.bank_binding probe --output dist/qualification/bank-bindings.json
           if ($LASTEXITCODE -ne 0) { throw 'bank binding probe failed' }
 
-          # Execute the RC7.1 autonomous-runtime gate from inside the assembled
-          # package with its bundled Python. This proves the delivery contains
-          # the Autostart/Autopilot/Supervisor modules instead of importing them
-          # from the checkout by accident.
           Push-Location $pkg
           & $py -m rc7_release.rc71_autopilot_delivery_gate --package-root $pkg --output (Join-Path $qual 'rc71-autopilot-delivery.json') --require-pass
           $gateRc = $LASTEXITCODE
           Pop-Location
           if ($gateRc -ne 0) { throw 'RC7.1 Autopilot clean-package gate failed' }
 
-      - name: RC7.1 nonblocking startup and trace gate
+      - name: RC7.1 legacy nonblocking startup and trace gate
         shell: pwsh
         run: |
           $pkg = (Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10').Path
@@ -147,6 +151,53 @@ jobs:
             recovery_profile_entry='PASS'; canonical_truth='R1_EVENT_STREAM'
           } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 dist/qualification/rc71-startup-recovery.json
 
+      - name: RC7.1 thin Field startup and authorization boundary gate
+        shell: pwsh
+        run: |
+          $pkg = (Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10').Path
+          $field = Join-Path $env:RUNNER_TEMP 'rc71-thin-field'
+          $dshHome = Join-Path $field '.dsh'
+          $profile = Join-Path $dshHome 'profiles/rc7-bank-rc71-field'
+          $fakeBin = Join-Path $field 'bin'
+          New-Item -ItemType Directory -Force $profile,$fakeBin | Out-Null
+          '{"name":"rc7-bank-rc71-field"}' | Set-Content -Encoding utf8 (Join-Path $profile 'package.json')
+
+          $calls = Join-Path $field 'thin-dsh-calls.txt'
+          @"
+          @echo off
+          echo %*>>"$calls"
+          exit /b 0
+          "@ | Set-Content -Encoding ascii (Join-Path $fakeBin 'dsh.cmd')
+
+          $bash = (Get-Command bash -ErrorAction Stop).Source
+          $dshHomeUnix = (& $bash -lc "cygpath -u '$($dshHome -replace "'", "'\"'\"'")'").Trim()
+          $pkgUnix = (& $bash -lc "cygpath -u '$($pkg -replace "'", "'\"'\"'")'").Trim()
+          $fakeBinUnix = (& $bash -lc "cygpath -u '$($fakeBin -replace "'", "'\"'\"'")'").Trim()
+          $env:DSH_HOME = $dshHomeUnix
+          $env:PATH = "$fakeBin;$env:PATH"
+          $env:PFC_DSH_BIN = "$fakeBinUnix/dsh.cmd"
+          & $bash "$pkgUnix/start-rc7.1.sh"
+          if ($LASTEXITCODE -ne 0) { throw "start-rc7.1.sh failed rc=$LASTEXITCODE" }
+          if (-not (Test-Path $calls)) { throw 'thin startup never reached DSH host' }
+
+          $startup = Get-Content (Join-Path $pkg 'state/rc7.1-field-startup.json') | ConvertFrom-Json
+          if ($startup.auth_mode -ne 'INTERACTIVE_CONTROL_REGISTRY_BOUND') { throw 'field auth mode not registry-bound' }
+          if ($startup.worker_mode -ne 'LEASE_BOUND_WORKER_FAIL_CLOSED') { throw 'worker strict mode missing' }
+          $patch = Get-Content (Join-Path $pkg 'state/rc7-dsh.patch.yml') -Raw
+          if (-not $patch.Contains('rc7_release.mcp_server_field_validation')) { throw 'Field MCP wrapper missing from generated patch' }
+          $policy = Get-Content (Join-Path $pkg 'state/rc7-tool-policy.ts') -Raw
+          if (-not $policy.Contains('scope.tools.schemas(agent)')) { throw 'live DSH tool registry not used' }
+          if (-not $policy.Contains('workerProjectionPresent()')) { throw 'Worker projection isolation not present' }
+          if ($policy.Contains("allowSet.has('*')")) { throw 'wildcard authorization detected' }
+
+          [ordered]@{
+            status='PASS'; source_commit=$env:SOURCE_COMMIT;
+            root_entrypoint='start-rc7.1.sh'; profile='rc7-bank-rc71-field';
+            field_authority='LIVE_REGISTERED_EXACT_TOOLS';
+            worker_authority='SIGNED_LEASE_FAIL_CLOSED'; wildcard='FORBIDDEN';
+            package_manager_at_start='FORBIDDEN'; dsh_boundary='PASS'
+          } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 dist/qualification/rc71-field-registry-authorization.json
+
       - name: Seal archive and clean-unpack qualification
         shell: pwsh
         run: |
@@ -158,14 +209,16 @@ jobs:
           python -m rc7_release.delivery_qualification --zip $zip.FullName --source-commit $env:SOURCE_COMMIT --output dist/qualification/delivery.json --require-pass
           if ($LASTEXITCODE -ne 0) { throw 'clean unpack delivery qualification failed' }
           $short = $env:SOURCE_COMMIT.Substring(0,12)
-          $releaseName = "PFC-AITest-RC7.1-FIELD-FIX-BANK-WIN10-$short.zip"
+          $releaseName = "PFC-AITest-RC7.1-FIELD-TURNKEY-BANK-WIN10-$short.zip"
           Copy-Item $zip.FullName (Join-Path dist $releaseName)
           $sha = (Get-FileHash -Algorithm SHA256 (Join-Path dist $releaseName)).Hash.ToLowerInvariant()
           "$sha  $releaseName" | Set-Content -Encoding ascii dist/RC7.1-SHA256SUMS.txt
           [ordered]@{
-            schema='pfc.aitest.rc7.1.turnkey-metadata.v1'; status='PASS';
-            source_commit=$env:SOURCE_COMMIT; baseline_commit='ac890eebeae96c9704d777e5ba8cac428f7a25b8';
+            schema='pfc.aitest.rc7.1.turnkey-metadata.v2'; status='PASS';
+            source_commit=$env:SOURCE_COMMIT; baseline_commit='596c5d297fde0bc00ed87826db7e5b8d9bf76da1';
             archive_name=$releaseName; archive_sha256=$sha;
+            startup_entry='start-rc7.1.sh'; field_authority='LIVE_REGISTERED_EXACT_TOOLS';
+            worker_authority='SIGNED_LEASE_FAIL_CLOSED'; wildcard='FORBIDDEN';
             build_status='ENGINEERING_CANDIDATE_NOT_BANK_FINAL';
             canonical_truth='runtime-state/r1/event-stream.jsonl';
             bank_field_required=$true
@@ -174,9 +227,9 @@ jobs:
       - name: Upload RC7.1 turnkey package
         uses: actions/upload-artifact@v4
         with:
-          name: rc7.1-turnkey-${{ github.sha }}
+          name: rc7.1-field-turnkey-${{ github.sha }}
           path: |
-            dist/PFC-AITest-RC7.1-FIELD-FIX-BANK-WIN10-*.zip
+            dist/PFC-AITest-RC7.1-FIELD-TURNKEY-BANK-WIN10-*.zip
             dist/RC7.1-SHA256SUMS.txt
             dist/RC7.1-TURNKEY-METADATA.json
             dist/qualification/*.json
