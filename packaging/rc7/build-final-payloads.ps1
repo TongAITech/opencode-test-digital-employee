@@ -64,6 +64,11 @@ if ($LASTEXITCODE -ne 0) { throw 'Playwright Node import failed' }
 "PFC_RC7_BUILD_EXECUTION_NODE_DIR=$execRoot" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
 $headers = @{ 'User-Agent'='rc7-final-turnkey-builder'; 'Accept'='application/vnd.github+json' }
+if ($env:GITHUB_TOKEN) {
+  $headers['Authorization'] = "Bearer $env:GITHUB_TOKEN"
+} elseif ($env:GH_TOKEN) {
+  $headers['Authorization'] = "Bearer $env:GH_TOKEN"
+}
 function Get-LatestRelease([string]$repo) {
   $rel = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/$repo/releases/latest"
   if ($rel.draft -or $rel.prerelease) { throw "$repo latest release is not stable" }
