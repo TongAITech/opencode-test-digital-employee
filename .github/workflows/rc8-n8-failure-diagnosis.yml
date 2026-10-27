@@ -5,9 +5,11 @@ on:
     branches: [work/rc8]
     paths:
       - 'rc8_center/failure_diagnosis.py'
+      - 'rc8_center/mission_service.py'
       - 'rc8_center/infrastructure/postgres_failure_diagnosis.py'
       - 'tests/test_rc8_failure_diagnosis.py'
       - 'tests/test_rc8_failure_diagnosis_postgres.py'
+      - 'tests/test_rc8_n8_route_authority.py'
       - '.github/workflows/rc8-n8-failure-diagnosis.yml'
   workflow_dispatch:
 
@@ -29,12 +31,15 @@ jobs:
         run: >-
           python -m py_compile
           rc8_center/failure_diagnosis.py
+          rc8_center/mission_service.py
           rc8_center/infrastructure/postgres_failure_diagnosis.py
           tests/test_rc8_failure_diagnosis.py
           tests/test_rc8_failure_diagnosis_postgres.py
+          tests/test_rc8_n8_route_authority.py
       - name: Run N8 Failure Diagnosis regression
         run: >-
           python -m unittest
           tests.test_rc8_failure_diagnosis
           tests.test_rc8_failure_diagnosis_postgres
+          tests.test_rc8_n8_route_authority
           -v

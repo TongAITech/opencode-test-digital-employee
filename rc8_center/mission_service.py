@@ -30,6 +30,12 @@ _REQUIREMENT_DIMENSION_IDS = (
 )
 _CENTER_REQUIREMENT_POLICY = "rc8.requirement-sufficiency-center.v1"
 _CENTER_EVALUATOR_ID = "RC8_CENTER_SUFFICIENCY_LEDGER"
+_N8_ROUTE_CONTROLLED_STAGE_TYPES = frozenset(
+    {
+        MissionStageType.DELTA_REPAIR,
+        MissionStageType.TARGETED_REEXECUTION,
+    }
+)
 
 
 def _center_authoritative(evaluation: SufficiencyEvaluation) -> bool:
@@ -68,6 +74,13 @@ class CenterMissionService:
         return graph
 
     def register_stage(self, *, test_run_id: str, stage_instance_id: str, stage_type: MissionStageType, scope_version: str, attempt_no: int, predecessor_ids: Sequence[str] = (), input_refs: Sequence[str] = (), assigned_worker: Optional[str] = None, policy_version: Optional[str] = None) -> StageInstance:
+        # Recovery routing is N8 control-plane authority.  Keeping these stage
+        # types in MissionGraph preserves durable graph compatibility, but the
+        # generic registration surface must never let a caller choose its own
+        # repair/re-execution route.  N8 authorizes targeted successor work via
+        # evidence-backed RepairWorkOrder/RepairReceipt instead.
+        if stage_type in _N8_ROUTE_CONTROLLED_STAGE_TYPES:
+            raise RC8ContractError("N8_ROUTE_AUTHORITY_REQUIRED:%s" % stage_type.value)
         if self.repository.get_stage(stage_instance_id) is not None:
             raise RC8ContractError("STAGE_INSTANCE_ALREADY_EXISTS")
         graph = self._hydrate(test_run_id)
