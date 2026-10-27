@@ -1,14 +1,15 @@
 """Center-owned MissionNode review and final gate authority.
 
 This service is the only supported RC8 N1-N10 transition from domain delivery to
-MissionNode PASS.  Director may review but cannot execute domain work or grant
-final PASS.  Center evaluates current-attempt evidence, denominator, blocking
-gaps and prerequisites deterministically.
+MissionNode PASS. Director may review but cannot execute domain work or grant
+final PASS. Center evaluates current-attempt evidence, denominator, blocking
+gaps and prerequisites deterministically. When a MissionNode repository is
+configured, every accepted Center transition is durably persisted.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 from rc8_runtime.contracts import RC8ContractError
 from rc8_runtime.mission_nodes import (
@@ -23,6 +24,7 @@ from rc8_runtime.mission_nodes import (
 
 from .control_plane import CenterControlError
 from .distributed_orchestration import ActorRole
+from .mission_node_repository import MissionNodeRepository
 
 
 def _refs(values: Sequence[str], name: str) -> Tuple[str, ...]:
@@ -60,11 +62,14 @@ class MissionNodeDeliverySubmission:
 class CenterMissionNodeReviewGate:
     """Deterministic Center authority for N1-N10 review and PASS."""
 
+    def __init__(self, repository: Optional[MissionNodeRepository] = None) -> None:
+        self.repository = repository
+
     def begin(self, node: MissionNodeInstance) -> MissionNodeInstance:
         self._require_node(node)
         if node.state not in {MissionNodeState.PENDING, MissionNodeState.READY}:
             raise CenterControlError("MISSION_NODE_BEGIN_STATE_INVALID:%s" % node.state.value)
-        return replace(node, state=MissionNodeState.IN_PROGRESS)
+        return self._persist(replace(node, state=MissionNodeState.IN_PROGRESS))
 
     def submit_delivery(
         self,
@@ -79,19 +84,22 @@ class CenterMissionNodeReviewGate:
         if node.state != MissionNodeState.IN_PROGRESS:
             raise CenterControlError("MISSION_NODE_DELIVERY_REQUIRES_IN_PROGRESS")
 
-        # dsh-node may transport a result, but domain evidence itself must come
-        # from the node-local team/worker. Director and Center are control roles.
         if submission.transport_role not in {ActorRole.DSH_NODE, ActorRole.TEAM_WORKER}:
-            raise CenterControlError("MISSION_NODE_DELIVERY_TRANSPORT_FORBIDDEN:%s" % submission.transport_role.value)
+            raise CenterControlError(
+                "MISSION_NODE_DELIVERY_TRANSPORT_FORBIDDEN:%s" % submission.transport_role.value
+            )
         if submission.evidence_producer_role != ActorRole.TEAM_WORKER:
             if submission.evidence_producer_role == ActorRole.DIRECTOR:
                 raise CenterControlError("DIRECTOR_DOMAIN_EXECUTION_FORBIDDEN")
             raise CenterControlError(
-                "MISSION_NODE_DOMAIN_EVIDENCE_PRODUCER_FORBIDDEN:%s" % submission.evidence_producer_role.value
+                "MISSION_NODE_DOMAIN_EVIDENCE_PRODUCER_FORBIDDEN:%s"
+                % submission.evidence_producer_role.value
             )
 
         refs = tuple(dict.fromkeys(node.output_refs + package.output_refs + package.evidence_refs))
-        return replace(node, state=MissionNodeState.READY_FOR_DIRECTOR_REVIEW, output_refs=refs)
+        return self._persist(
+            replace(node, state=MissionNodeState.READY_FOR_DIRECTOR_REVIEW, output_refs=refs)
+        )
 
     def record_director_review(
         self,
@@ -103,11 +111,23 @@ class CenterMissionNodeReviewGate:
             raise CenterControlError("DIRECTOR_REVIEW_RECEIPT_REQUIRED")
         if node.state != MissionNodeState.READY_FOR_DIRECTOR_REVIEW:
             raise CenterControlError("DIRECTOR_REVIEW_REQUIRES_READY_DELIVERY")
-        self._require_same_subject(node, review.test_run_id, review.mission_node_id, "DIRECTOR_REVIEW")
-        refs = tuple(dict.fromkeys(node.output_refs + review.evidence_refs + ("director-review:%s" % review.receipt_id,)))
+        self._require_same_subject(
+            node, review.test_run_id, review.mission_node_id, "DIRECTOR_REVIEW"
+        )
+        refs = tuple(
+            dict.fromkeys(
+                node.output_refs
+                + review.evidence_refs
+                + ("director-review:%s" % review.receipt_id,)
+            )
+        )
         if review.decision == DirectorReviewDecision.ACCEPTED:
-            return replace(node, state=MissionNodeState.REVIEW_ACCEPTED, output_refs=refs)
-        return replace(node, state=MissionNodeState.INSUFFICIENT, output_refs=refs)
+            return self._persist(
+                replace(node, state=MissionNodeState.REVIEW_ACCEPTED, output_refs=refs)
+            )
+        return self._persist(
+            replace(node, state=MissionNodeState.INSUFFICIENT, output_refs=refs)
+        )
 
     def evaluate_center_gate(
         self,
@@ -133,8 +153,12 @@ class CenterMissionNodeReviewGate:
         blocking_gap_ids = _refs(blocking_gap_ids, "blocking_gap_ids")
 
         self._require_package_link(node, delivery)
-        self._require_same_subject(node, review.test_run_id, review.mission_node_id, "DIRECTOR_REVIEW")
-        self._require_same_subject(node, decision.test_run_id, decision.mission_node_id, "CENTER_GATE")
+        self._require_same_subject(
+            node, review.test_run_id, review.mission_node_id, "DIRECTOR_REVIEW"
+        )
+        self._require_same_subject(
+            node, decision.test_run_id, decision.mission_node_id, "CENTER_GATE"
+        )
 
         if node.state != MissionNodeState.REVIEW_ACCEPTED:
             raise CenterControlError("MISSION_NODE_GATE_REQUIRES_DIRECTOR_ACCEPTANCE")
@@ -154,14 +178,20 @@ class CenterMissionNodeReviewGate:
         )
 
         if decision.result == MissionNodeGateResult.INSUFFICIENT:
-            return replace(node, state=MissionNodeState.INSUFFICIENT, output_refs=refs)
+            return self._persist(
+                replace(node, state=MissionNodeState.INSUFFICIENT, output_refs=refs)
+            )
         if decision.result == MissionNodeGateResult.BLOCKED:
-            return replace(node, state=MissionNodeState.BLOCKED, output_refs=refs)
+            return self._persist(
+                replace(node, state=MissionNodeState.BLOCKED, output_refs=refs)
+            )
 
         if delivery.attempt_ref != current_attempt_ref:
             raise CenterControlError("STALE_ATTEMPT_EVIDENCE_FORBIDDEN")
         if blocking_gap_ids:
-            raise CenterControlError("MISSION_NODE_BLOCKING_GAP_PRESENT:%s" % ",".join(blocking_gap_ids))
+            raise CenterControlError(
+                "MISSION_NODE_BLOCKING_GAP_PRESENT:%s" % ",".join(blocking_gap_ids)
+            )
         if not evidence_complete:
             raise CenterControlError("MISSION_NODE_EVIDENCE_INCOMPLETE")
         if not denominator_satisfied:
@@ -169,7 +199,14 @@ class CenterMissionNodeReviewGate:
         if not prerequisites_satisfied:
             raise CenterControlError("MISSION_NODE_PREREQUISITES_UNSATISFIED")
 
-        return replace(node, state=MissionNodeState.PASS, output_refs=refs)
+        return self._persist(
+            replace(node, state=MissionNodeState.PASS, output_refs=refs)
+        )
+
+    def _persist(self, node: MissionNodeInstance) -> MissionNodeInstance:
+        if self.repository is not None:
+            self.repository.save(node)
+        return node
 
     @staticmethod
     def _require_node(node: MissionNodeInstance) -> None:
@@ -177,14 +214,21 @@ class CenterMissionNodeReviewGate:
             raise CenterControlError("MISSION_NODE_INSTANCE_REQUIRED")
 
     @staticmethod
-    def _require_package_link(node: MissionNodeInstance, package: NodeDeliveryPackage) -> None:
+    def _require_package_link(
+        node: MissionNodeInstance, package: NodeDeliveryPackage
+    ) -> None:
         if package.test_run_id != node.test_run_id:
             raise CenterControlError("NODE_DELIVERY_TEST_RUN_MISMATCH")
         if package.mission_node_id != node.mission_node_id:
             raise CenterControlError("NODE_DELIVERY_MISSION_NODE_MISMATCH")
 
     @staticmethod
-    def _require_same_subject(node: MissionNodeInstance, test_run_id: str, mission_node_id: str, prefix: str) -> None:
+    def _require_same_subject(
+        node: MissionNodeInstance,
+        test_run_id: str,
+        mission_node_id: str,
+        prefix: str,
+    ) -> None:
         if test_run_id != node.test_run_id:
             raise CenterControlError("%s_TEST_RUN_MISMATCH" % prefix)
         if mission_node_id != node.mission_node_id:
