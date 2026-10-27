@@ -1,12 +1,12 @@
 """Persist formal N8 diagnosis and N9 defect closure state.
 
-Revision ID: 0015_n8_n9_failure_defect_persistence
+Revision ID: 0015_n8_n9_persistence
 Revises: 0014_n5_n6_execution_state
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0015_n8_n9_failure_defect_persistence"
+revision = "0015_n8_n9_persistence"
 down_revision = "0014_n5_n6_execution_state"
 branch_labels = None
 depends_on = None
