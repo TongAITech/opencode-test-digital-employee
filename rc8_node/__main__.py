@@ -19,11 +19,12 @@ from .requirement_analysis_worker import RequirementAnalysisWorker
 from .requirement_sufficiency_worker import RequirementSufficiencyWorker
 from .risk_test_model_worker import RiskTestModelWorker
 from .scope_intake_worker import ScopeIntakeWorker
+from .test_design_worker import TestDesignWorker
 
 # Only stages with a real node worker may be advertised as executable.
 _AUTONOMOUS_STAGES = (
     "SCOPE_INTAKE", "REQUIREMENT_ANALYSIS", "REQUIREMENT_SUFFICIENCY",
-    "CODE_ANALYSIS", "CODE_SUFFICIENCY", "RISK_TEST_MODEL",
+    "CODE_ANALYSIS", "CODE_SUFFICIENCY", "RISK_TEST_MODEL", "TEST_DESIGN",
     "APPLICABLE_LAYER_EXECUTION",
 )
 _N1_N10_REQUIRED_STAGES = (
@@ -59,6 +60,7 @@ def _build_dispatcher(args, identity, center: HttpCenterClient) -> AutonomousWor
         "CODE_ANALYSIS": CodeAnalysisWorker(agent=formal_agent, work_dir=str(work_root / "code-analysis"), codegraph_command=codegraph_command),
         "CODE_SUFFICIENCY": CodeSufficiencyWorker(agent=formal_agent, work_dir=str(work_root / "code-sufficiency")),
         "RISK_TEST_MODEL": RiskTestModelWorker(agent=formal_agent, dsh_runner=analysis_runner, work_dir=str(work_root / "risk-test-model")),
+        "TEST_DESIGN": TestDesignWorker(agent=formal_agent, dsh_runner=analysis_runner, work_dir=str(work_root / "test-design")),
         "APPLICABLE_LAYER_EXECUTION": N7ExecutionDispatchWorker(agent=formal_agent, dsh_runner=analysis_runner, work_dir=str(work_root / "n7-execution"), center_url=args.center, http_timeout_seconds=args.http_timeout),
     }
     return AutonomousWorkerDispatcher(claimant=AutonomousClaimClient(args.center, identity.node_id, timeout_seconds=args.http_timeout), workers=workers, ttl_seconds=args.lease_ttl, idle_sleep_seconds=args.claim_interval)
