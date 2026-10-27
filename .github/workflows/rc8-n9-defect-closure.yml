@@ -6,11 +6,15 @@ on:
     paths:
       - 'rc8_center/defect_closure.py'
       - 'rc8_center/failure_diagnosis.py'
+      - 'rc8_center/formal_app.py'
+      - 'rc8_center/api/__init__.py'
+      - 'rc8_center/api/defect_routes.py'
       - 'rc8_center/infrastructure/postgres_defect_closure.py'
       - 'rc8_center/infrastructure/postgres_failure_diagnosis.py'
       - 'center/migrations/env.py'
       - 'center/migrations/versions/0015_n8_n9_failure_defect_persistence.py'
       - 'scripts/rc8_n8_n9_postgres_reality_test.py'
+      - 'scripts/rc8_n9_production_http_reality_test.py'
       - 'tests/test_rc8_defect_closure.py'
       - 'tests/test_rc8_defect_closure_postgres.py'
       - '.github/workflows/rc8-n9-defect-closure.yml'
@@ -35,6 +39,7 @@ jobs:
           python -m py_compile
           rc8_center/failure_diagnosis.py
           rc8_center/defect_closure.py
+          rc8_center/api/defect_routes.py
           rc8_center/infrastructure/postgres_failure_diagnosis.py
           rc8_center/infrastructure/postgres_defect_closure.py
           tests/test_rc8_defect_closure.py
@@ -63,8 +68,20 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     env:
       RC8_DATABASE_URL: postgresql+psycopg://rc8:rc8@127.0.0.1:5432/rc8
+      RC8_REDIS_URL: redis://127.0.0.1:6379/0
+      RC8_R1_ROOT: ${{ runner.temp }}/rc8-n9-r1
+      RC8_ARTIFACT_ROOT: ${{ runner.temp }}/rc8-n9-artifacts
       PYTHONPATH: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
@@ -73,16 +90,22 @@ jobs:
           python-version: '3.12'
       - name: Install formal Center dependencies
         run: pip install -r center/requirements.txt
-      - name: Compile N8-N9 production persistence slice
+      - name: Compile N8-N9 production capability slice
         run: >-
           python -m py_compile
           center/migrations/versions/0015_n8_n9_failure_defect_persistence.py
+          rc8_center/api/defect_routes.py
+          rc8_center/api/__init__.py
+          rc8_center/formal_app.py
           rc8_center/infrastructure/postgres_failure_diagnosis.py
           rc8_center/infrastructure/postgres_defect_closure.py
           scripts/rc8_n8_n9_postgres_reality_test.py
+          scripts/rc8_n9_production_http_reality_test.py
       - name: Apply formal PostgreSQL schema
         run: alembic -c center/alembic.ini upgrade head
       - name: Prove N8 PRODUCT route to N9 candidate survives real PostgreSQL reconstruction
         run: python scripts/rc8_n8_n9_postgres_reality_test.py
+      - name: Prove production formal app exposes Center-derived N9 candidate HTTP truth
+        run: python scripts/rc8_n9_production_http_reality_test.py
       - name: Verify schema remains at head
         run: alembic -c center/alembic.ini current

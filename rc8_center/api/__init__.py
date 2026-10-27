@@ -7,6 +7,7 @@ from rc8_center.traceability_query import TraceabilityQueryService
 
 from .artifact_read_routes import register_artifact_read_routes
 from .claim_routes import register_claim_routes
+from .defect_routes import register_defect_routes
 from .delivery_routes import register_delivery_routes
 from .executable_readiness_routes import register_executable_readiness_routes
 from .execution_bundle_routes import register_execution_bundle_routes
@@ -53,6 +54,7 @@ def create_app(
     register_test_round_routes(app)
     register_claim_routes(app)
     register_failure_routes(app)
+    register_defect_routes(app)
     register_runtime_sequence_routes(app)
     register_artifact_read_routes(app)
     register_traceability_routes(app)

@@ -14,8 +14,10 @@ from rc8_center.api import create_app
 from rc8_center.artifacts import FileArtifactStore
 from rc8_center.case_inventory import CenterFrozenCaseInventoryResolver
 from rc8_center.code_sufficiency import CenterCodeSufficiencyEvaluator
+from rc8_center.defect_closure import CenterDefectClosureService
 from rc8_center.executable_readiness import CenterExecutableReadinessService
 from rc8_center.execution_admission import CenterN7ExecutionAdmissionGate
+from rc8_center.failure_diagnosis import CenterFailureDiagnosisService
 from rc8_center.fanout_progression import FanoutSafeRequirementLoopProgressor
 from rc8_center.formal_artifacts import FormalArtifactService
 from rc8_center.formal_control import FormalCenterControlPlane
@@ -39,7 +41,9 @@ from rc8_center.infrastructure import (
     PostgresRequirementRevisionRepository, PostgresStore, PostgresTestRoundRepository,
     PostgresTraceabilityRepository, RedisCoordination, build_engine,
 )
+from rc8_center.infrastructure.postgres_defect_closure import PostgresDefectClosureRepository
 from rc8_center.infrastructure.postgres_executable_readiness import PostgresExecutableSpecRepository
+from rc8_center.infrastructure.postgres_failure_diagnosis import PostgresFailureDiagnosisRepository
 from rc8_center.infrastructure.postgres_prepared_attempt import PostgresPreparedAttemptRepository
 from rc8_center.recovery_service import LeaseRecoveryCoordinator
 
@@ -75,6 +79,10 @@ def build_app():
     prepared_attempt_repository = PostgresPreparedAttemptRepository(postgres)
     executable_spec_repository = PostgresExecutableSpecRepository(postgres)
     traceability_repository = PostgresTraceabilityRepository(postgres)
+    failure_diagnosis_repository = PostgresFailureDiagnosisRepository(postgres)
+    defect_closure_repository = PostgresDefectClosureRepository(postgres)
+    failure_diagnosis_service = CenterFailureDiagnosisService(failure_diagnosis_repository)
+    defect_closure_service = CenterDefectClosureService(defect_closure_repository, failure_diagnosis_repository)
 
     ledger = CentralR1RuntimeLedger(str(Path(settings.r1_root) / "event-stream.jsonl"))
     prepared_attempts = CenterPreparedAttemptService(prepared_attempt_repository)
@@ -161,6 +169,10 @@ def build_app():
     app.state.delivery_repository = delivery_repository
     app.state.revision_repository = revision_repository
     app.state.test_round_repository = test_round_repository
+    app.state.failure_diagnosis_repository = failure_diagnosis_repository
+    app.state.failure_diagnosis_service = failure_diagnosis_service
+    app.state.defect_closure_repository = defect_closure_repository
+    app.state.defect_closure_service = defect_closure_service
     app.state.mission_service = mission_service
     app.state.mission_progressor = mission_progressor
     app.state.formal_control_core = formal_control_core
