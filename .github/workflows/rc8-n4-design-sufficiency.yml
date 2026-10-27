@@ -1,0 +1,27 @@
+name: RC8 N4 Design Sufficiency Worker
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_node/design_sufficiency_worker.py'
+      - 'tests/test_rc8_n4_design_sufficiency_worker.py'
+      - '.github/workflows/rc8-n4-design-sufficiency.yml'
+  workflow_dispatch:
+
+jobs:
+  n4-design-sufficiency:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Compile worker
+        run: python -m py_compile rc8_node/design_sufficiency_worker.py
+      - name: Run targeted tests
+        run: python -m pytest -q tests/test_rc8_n4_design_sufficiency_worker.py
