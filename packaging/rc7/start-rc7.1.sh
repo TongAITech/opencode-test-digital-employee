@@ -13,11 +13,14 @@ fi
 
 PROFILE="${PFC_RC7_DSH_PROFILE:-rc7-bank-rc71-field}"
 DSH_HOME_EFFECTIVE="${DSH_HOME:-${HOME:-}/.dsh}"
+if command -v cygpath >/dev/null 2>&1 && [[ "$DSH_HOME_EFFECTIVE" =~ ^[A-Za-z]:[\\/].* ]]; then
+  DSH_HOME_EFFECTIVE="$(cygpath -u "$DSH_HOME_EFFECTIVE")"
+fi
 PROFILE_DIR="$DSH_HOME_EFFECTIVE/profiles/$PROFILE"
 PATCH="$ROOT/state/rc7-dsh.patch.yml"
 FIELD_POLICY="$ROOT/rc7_release/rc71_field_tool_policy.ts"
 
-if [[ -x "$ROOT/workspace-template/runtime/python/python.exe" ]]; then
+if [[ -f "$ROOT/workspace-template/runtime/python/python.exe" ]]; then
   PY="$ROOT/workspace-template/runtime/python/python.exe"
 elif command -v python.exe >/dev/null 2>&1; then
   PY="$(command -v python.exe)"
@@ -92,7 +95,8 @@ old = "rc7_release.mcp_server_authorized"
 new = "rc7_release.mcp_server_field_validation"
 if old not in text and new not in text:
     raise SystemExit("RC7.1_START_MCP_ENTRY_NOT_FOUND")
-p.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
+with p.open("w", encoding="utf-8", newline="\n") as handle:
+    handle.write(text.replace(old, new))
 PY
 
 cat > "$ROOT/state/rc7.1-field-startup.json" <<EOF
