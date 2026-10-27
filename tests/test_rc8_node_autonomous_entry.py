@@ -13,6 +13,7 @@ from rc8_node.__main__ import (
     _env_flag,
     main,
 )
+from rc8_node.code_analysis_worker import CodeAnalysisWorker
 from rc8_runtime import NodeIdentity
 
 
@@ -26,6 +27,7 @@ def _args(tmp_path: Path) -> Namespace:
         dsh_bin="dsh",
         dsh_cwd="",
         dsh_timeout=300,
+        codegraph_command="codegraph query --json",
         work_dir=str(tmp_path / "work"),
         state_dir=str(tmp_path / "state"),
         center="http://127.0.0.1:4098",
@@ -53,8 +55,10 @@ def test_autonomous_entry_registers_only_currently_implemented_stage_workers(tmp
         "SCOPE_INTAKE",
         "REQUIREMENT_ANALYSIS",
         "REQUIREMENT_SUFFICIENCY",
+        "CODE_ANALYSIS",
         "APPLICABLE_LAYER_EXECUTION",
     }
+    assert isinstance(dispatcher.workers["CODE_ANALYSIS"], CodeAnalysisWorker)
     assert dispatcher.ttl_seconds == 60
     assert dispatcher.idle_sleep_seconds == 1.0
 
@@ -63,8 +67,8 @@ def test_single_node_n1_n10_readiness_fails_closed_until_all_stage_workers_exist
     ready, missing = _autonomous_readiness()
     assert ready is False
     assert missing == tuple(stage for stage in _N1_N10_REQUIRED_STAGES if stage not in _AUTONOMOUS_STAGES)
+    assert "CODE_ANALYSIS" not in missing
     assert {
-        "CODE_ANALYSIS",
         "CODE_SUFFICIENCY",
         "RISK_TEST_MODEL",
         "TEST_DESIGN",
@@ -77,10 +81,9 @@ def test_single_node_n1_n10_readiness_fails_closed_until_all_stage_workers_exist
     }.issubset(set(missing))
 
 
-def test_autonomous_entry_does_not_register_unimplemented_code_or_design_stages(tmp_path: Path) -> None:
+def test_autonomous_entry_keeps_unimplemented_code_sufficiency_and_design_stages_closed(tmp_path: Path) -> None:
     dispatcher = _build_dispatcher(_args(tmp_path), _identity(), FakeCenter())
     forbidden = {
-        "CODE_ANALYSIS",
         "CODE_SUFFICIENCY",
         "RISK_TEST_MODEL",
         "TEST_DESIGN",
@@ -92,6 +95,7 @@ def test_autonomous_entry_does_not_register_unimplemented_code_or_design_stages(
         "REPORT_RELEASE",
     }
     assert forbidden.isdisjoint(dispatcher.supported_stages)
+    assert "CODE_ANALYSIS" in dispatcher.supported_stages
     assert "APPLICABLE_LAYER_EXECUTION" in dispatcher.supported_stages
 
 
