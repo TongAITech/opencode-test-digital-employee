@@ -1,7 +1,7 @@
 """RC7.2 independent diagnosis/recovery orchestration.
 
-This module deliberately composes the existing RC7.2 state machine, canonical
-WorkItemAttemptBinding and Phase-5 worker lifecycle truth.  It does not let the
+This module composes the existing RC7.2 state machine, canonical
+WorkItemAttemptBinding and Phase-5 worker lifecycle truth. It does not let the
 execution worker repair itself in-place and it does not create a second Gap,
 Mission or Attempt store.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from rc6_runtime import contracts as _contracts
 from rc6_runtime import truth as _truth
@@ -24,18 +24,21 @@ from .rc72_worker_lifecycle import WorkerLifecycleService, install_rc72_worker_l
 
 _DIAGNOSIS_CASE = "rc72_diagnosis_case"
 _DIAGNOSIS_OUTCOME = "rc72_diagnosis_outcome"
+_DIAGNOSIS_REPAIR = "rc72_diagnosis_repair"
 _DIAGNOSIS_RECOVERY = "rc72_diagnosis_recovery"
 _WORKER_SESSION = "rc72_worker_session"
 
 _EVENT_TYPES = {
     "RC72_DIAGNOSIS_CASE_UPSERTED": (_DIAGNOSIS_CASE, "diagnosis_id"),
     "RC72_DIAGNOSIS_OUTCOME_UPSERTED": (_DIAGNOSIS_OUTCOME, "diagnosis_id"),
+    "RC72_DIAGNOSIS_REPAIR_UPSERTED": (_DIAGNOSIS_REPAIR, "diagnosis_id"),
     "RC72_DIAGNOSIS_RECOVERY_UPSERTED": (_DIAGNOSIS_RECOVERY, "diagnosis_id"),
 }
 
 _BUCKETS = {
     _DIAGNOSIS_CASE: "rc72_diagnosis_cases",
     _DIAGNOSIS_OUTCOME: "rc72_diagnosis_outcomes",
+    _DIAGNOSIS_REPAIR: "rc72_diagnosis_repairs",
     _DIAGNOSIS_RECOVERY: "rc72_diagnosis_recoveries",
 }
 
@@ -66,6 +69,12 @@ def _required_str(out: Dict[str, Any], name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise _contracts.DomainValidationError("%s_REQUIRED" % name.upper())
     return value.strip()
+
+
+def _optional_str(out: Dict[str, Any], name: str) -> None:
+    value = out.get(name)
+    if value is not None and (not isinstance(value, str) or not value.strip()):
+        raise _contracts.DomainValidationError("%s_INVALID" % name.upper())
 
 
 def _string_list(out: Dict[str, Any], name: str, *, nonempty: bool = False) -> List[str]:
@@ -99,7 +108,6 @@ def _validate_diagnosis_worker_session(payload: Dict[str, Any]) -> Dict[str, Any
     """Phase-6 extension of the canonical Phase-5 worker-session contract."""
     purpose = str(payload.get("purpose") or "").upper()
     if purpose != "DIAGNOSIS":
-        # Keep Phase-5 execution/review behavior unchanged.
         from . import rc72_worker_lifecycle as _wl
 
         return _wl._validate_worker_session(payload)
@@ -138,9 +146,7 @@ def _validate_diagnosis_worker_session(payload: Dict[str, Any]) -> Dict[str, Any
         "dsh_session_id",
         "binding_id",
     ):
-        value = out.get(name)
-        if value is not None and (not isinstance(value, str) or not value.strip()):
-            raise _contracts.DomainValidationError("%s_INVALID" % name.upper())
+        _optional_str(out, name)
     created_at = out.get("created_at")
     if not isinstance(created_at, int) or created_at < 0:
         raise _contracts.DomainValidationError("WORKER_SESSION_CREATED_AT_INVALID")
@@ -168,7 +174,7 @@ def _validate_case(payload: Dict[str, Any]) -> Dict[str, Any]:
     ):
         out[name] = _required_str(out, name)
     out["state"] = out["state"].upper()
-    if out["state"] not in {"DISPATCHED", "CLASSIFIED", "RECOVERY_LINKED"}:
+    if out["state"] not in {"DISPATCHED", "CLASSIFIED", "REPAIR_RECORDED", "RECOVERY_LINKED"}:
         raise _contracts.DomainValidationError("DIAGNOSIS_CASE_STATE_INVALID")
     _string_list(out, "failure_evidence_refs", nonempty=True)
     _string_list(out, "executable_contract_refs", nonempty=True)
@@ -186,15 +192,25 @@ def _validate_outcome(payload: Dict[str, Any]) -> Dict[str, Any]:
     except ValueError as exc:
         raise _contracts.DomainValidationError("DIAGNOSIS_FAILURE_CLASS_INVALID") from exc
     for name in ("responsible_node", "gap_id", "back_edge_id", "transition_id"):
-        value = out.get(name)
-        if value is not None and (not isinstance(value, str) or not value.strip()):
-            raise _contracts.DomainValidationError("%s_INVALID" % name.upper())
+        _optional_str(out, name)
     _string_list(out, "evidence_refs", nonempty=True)
     _string_list(out, "affected_refs")
     if not isinstance(out.get("replacement_attempt_required"), bool):
         raise _contracts.DomainValidationError("REPLACEMENT_ATTEMPT_REQUIRED_INVALID")
     if not isinstance(out.get("created_at"), int) or out["created_at"] < 0:
         raise _contracts.DomainValidationError("DIAGNOSIS_OUTCOME_CREATED_AT_INVALID")
+    return out
+
+
+def _validate_repair(payload: Dict[str, Any]) -> Dict[str, Any]:
+    out = _base(payload, _DIAGNOSIS_REPAIR, "diagnosis_id")
+    for name in ("repair_delivery_id", "impact_set_id", "original_attempt_id", "reason"):
+        out[name] = _required_str(out, name)
+    _string_list(out, "changed_refs", nonempty=True)
+    if not isinstance(out.get("replacement_attempt_required"), bool):
+        raise _contracts.DomainValidationError("REPAIR_REPLACEMENT_ATTEMPT_REQUIRED_INVALID")
+    if not isinstance(out.get("created_at"), int) or out["created_at"] < 0:
+        raise _contracts.DomainValidationError("DIAGNOSIS_REPAIR_CREATED_AT_INVALID")
     return out
 
 
@@ -207,6 +223,7 @@ def _validate_recovery(payload: Dict[str, Any]) -> Dict[str, Any]:
         "replacement_attempt_id",
     ):
         out[name] = _required_str(out, name)
+    _optional_str(out, "impact_set_id")
     if out["original_attempt_id"] == out["replacement_attempt_id"]:
         raise _contracts.DomainValidationError("REPLACEMENT_ATTEMPT_MUST_BE_NEW")
     if not isinstance(out.get("created_at"), int) or out["created_at"] < 0:
@@ -219,6 +236,7 @@ def install_rc72_diagnosis_overlay() -> None:
     _contracts.VALIDATORS[_WORKER_SESSION] = _validate_diagnosis_worker_session
     _contracts.VALIDATORS[_DIAGNOSIS_CASE] = _validate_case
     _contracts.VALIDATORS[_DIAGNOSIS_OUTCOME] = _validate_outcome
+    _contracts.VALIDATORS[_DIAGNOSIS_REPAIR] = _validate_repair
     _contracts.VALIDATORS[_DIAGNOSIS_RECOVERY] = _validate_recovery
     for event_type, (artifact_type, identity) in _EVENT_TYPES.items():
         _truth.EVENT_TYPES[event_type] = (artifact_type, identity)
@@ -245,6 +263,14 @@ class DiagnosisOutcome:
     gap_id: Optional[str]
     back_edge_id: Optional[str]
     transition_id: Optional[str]
+
+
+@dataclass(frozen=True)
+class RepairImpactResult:
+    diagnosis_id: str
+    impact_set_id: str
+    original_attempt_id: str
+    replacement_attempt_required: bool
 
 
 @dataclass(frozen=True)
@@ -467,6 +493,62 @@ class DiagnosisOrchestrator:
             transition_id=route.transition_id,
         )
 
+    def record_upstream_repair(
+        self,
+        *,
+        diagnosis_id: str,
+        repair_delivery_id: str,
+        changed_refs: Sequence[str],
+        reason: str,
+    ) -> RepairImpactResult:
+        case = self._one(_DIAGNOSIS_CASE, diagnosis_id=diagnosis_id)
+        outcome = self._one(_DIAGNOSIS_OUTCOME, diagnosis_id=diagnosis_id)
+        if outcome.get("action") != "SEMANTIC_BACK_EDGE":
+            raise ContractError("UPSTREAM_REPAIR_REQUIRES_SEMANTIC_BACK_EDGE")
+        if not outcome.get("replacement_attempt_required"):
+            raise ContractError("UPSTREAM_REPAIR_NOT_REQUIRED_FOR_DIAGNOSIS")
+        delivery = self._one("rc72_node_delivery", delivery_id=repair_delivery_id)
+        if delivery.get("mission_id") != case.get("mission_id"):
+            raise ContractError("REPAIR_DELIVERY_MISSION_MISMATCH")
+        responsible = outcome.get("responsible_node")
+        if responsible and delivery.get("node_type") != responsible:
+            raise ContractError("REPAIR_DELIVERY_NODE_MISMATCH")
+        changed = list(changed_refs)
+        if not changed or not all(isinstance(v, str) and v.strip() for v in changed):
+            raise ContractError("REPAIR_CHANGED_REFS_REQUIRED")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ContractError("REPAIR_REASON_REQUIRED")
+
+        impact = self.state_machine.propagate_stale(
+            source_delivery_id=repair_delivery_id,
+            changed_refs=changed,
+            reason=reason,
+        )
+        self._append(
+            "RC72_DIAGNOSIS_REPAIR_UPSERTED",
+            {
+                "diagnosis_id": diagnosis_id,
+                "mission_id": case["mission_id"],
+                "repair_delivery_id": repair_delivery_id,
+                "impact_set_id": impact.impact_set_id,
+                "original_attempt_id": case["source_attempt_id"],
+                "changed_refs": changed,
+                "replacement_attempt_required": True,
+                "reason": reason,
+                "created_at": _now(),
+            },
+        )
+        updated_case = dict(case)
+        updated_case["state"] = "REPAIR_RECORDED"
+        updated_case["artifact_version"] = int(case.get("artifact_version", 1)) + 1
+        self.truth.append_atomic("RC72_DIAGNOSIS_CASE_UPSERTED", updated_case)
+        return RepairImpactResult(
+            diagnosis_id=diagnosis_id,
+            impact_set_id=impact.impact_set_id,
+            original_attempt_id=case["source_attempt_id"],
+            replacement_attempt_required=True,
+        )
+
     def record_replacement_attempt(
         self,
         *,
@@ -476,6 +558,15 @@ class DiagnosisOrchestrator:
         case = self._one(_DIAGNOSIS_CASE, diagnosis_id=diagnosis_id)
         original = self._one("rc72_workitem_attempt_binding", binding_id=case["source_binding_id"])
         replacement = self._one("rc72_workitem_attempt_binding", binding_id=replacement_binding_id)
+
+        outcomes = self.truth.query(_DIAGNOSIS_OUTCOME, diagnosis_id=diagnosis_id)
+        repair = None
+        if outcomes and bool(outcomes[0].get("replacement_attempt_required")):
+            repairs = self.truth.query(_DIAGNOSIS_REPAIR, diagnosis_id=diagnosis_id)
+            if len(repairs) != 1:
+                raise ContractError("REPLACEMENT_ATTEMPT_REQUIRES_REPAIR_IMPACT")
+            repair = repairs[0]
+
         if replacement.get("mission_id") != case.get("mission_id"):
             raise ContractError("REPLACEMENT_ATTEMPT_MISSION_MISMATCH")
         for field in ("workitem_id", "etu_id", "case_id"):
@@ -494,6 +585,7 @@ class DiagnosisOrchestrator:
                 "original_attempt_id": original["attempt_id"],
                 "replacement_binding_id": replacement["binding_id"],
                 "replacement_attempt_id": replacement["attempt_id"],
+                "impact_set_id": repair.get("impact_set_id") if repair else None,
                 "created_at": _now(),
             },
         )
