@@ -1,9 +1,9 @@
 """RC7.2 Journey Compiler: CAPTURED teaching truth -> non-executable Candidate IR.
 
 A compiled candidate preserves release/requirement/SST/obligation lineage and
-source-step provenance. Replay and Benchmark may update their own controlled
-status fields, but Candidate remains CANDIDATE, executable=False and
-official=False until a later independent review/promotion slice.
+source-step provenance. Replay, Benchmark and Human Review may update their own
+controlled status fields, but Candidate remains CANDIDATE, executable=False and
+official=False. Official Journey is a separate promoted asset.
 """
 from __future__ import annotations
 
@@ -74,8 +74,8 @@ def _validate_candidate(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise _contracts.DomainValidationError("JOURNEY_CANDIDATE_REPLAY_STATUS_INVALID")
     if out["benchmark_status"] not in {"NOT_RUN", "PASSED", "FAILED"}:
         raise _contracts.DomainValidationError("JOURNEY_CANDIDATE_BENCHMARK_STATUS_INVALID")
-    if out["review_status"] != "NOT_REVIEWED":
-        raise _contracts.DomainValidationError("JOURNEY_CANDIDATE_PREMATURE_PROMOTION_STATE")
+    if out["review_status"] not in {"NOT_REVIEWED", "APPROVED", "REJECTED"}:
+        raise _contracts.DomainValidationError("JOURNEY_CANDIDATE_REVIEW_STATUS_INVALID")
     steps = out.get("steps")
     if not isinstance(steps, list) or not steps:
         raise _contracts.DomainValidationError("JOURNEY_CANDIDATE_STEPS_REQUIRED")
