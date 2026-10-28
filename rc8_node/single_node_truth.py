@@ -9,7 +9,7 @@ reader (HTTP/repository adapter); missing truth is UNKNOWN and fails closed.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence, Tuple
+from typing import Any, Mapping, Tuple
 
 from .single_node_full_loop_proof import SingleNodeFullLoopProof
 
@@ -75,7 +75,11 @@ class SingleNodeCenterTruthVerifier:
             if not artifact_ref.startswith("artifact:") or not artifact_id:
                 raise SingleNodeTruthError("CENTER_ARTIFACT_REF_INVALID:%s" % stage)
             artifact = self._mapping(self.truth_reader.get_artifact(artifact_id), "CENTER_ARTIFACT_MISSING:%s" % stage)
-            if str(artifact.get("work_item_id") or "") != work_item_id or str(artifact.get("attempt_id") or "") != attempt_id:
+            if (
+                str(artifact.get("test_run_id") or "") != proof.test_run_id
+                or str(artifact.get("work_item_id") or "") != work_item_id
+                or str(artifact.get("attempt_id") or "") != attempt_id
+            ):
                 raise SingleNodeTruthError("CENTER_ARTIFACT_IDENTITY_MISMATCH:%s" % stage)
             if str(artifact.get("status") or "") != "COMPLETED":
                 raise SingleNodeTruthError("CENTER_ARTIFACT_NOT_COMPLETED:%s" % stage)
@@ -88,12 +92,20 @@ class SingleNodeCenterTruthVerifier:
             )
             if str(event.get("event_type") or "") != "ATTEMPT_COMPLETED":
                 raise SingleNodeTruthError("R1_ATTEMPT_COMPLETED_INVALID:%s" % stage)
+            if (
+                str(event.get("test_run_id") or "") != proof.test_run_id
+                or str(event.get("work_item_id") or "") != work_item_id
+                or str(event.get("attempt_id") or "") != attempt_id
+            ):
+                raise SingleNodeTruthError("R1_ATTEMPT_COMPLETED_IDENTITY_MISMATCH:%s" % stage)
             event_id = str(event.get("event_id") or "").strip()
             if not event_id:
                 raise SingleNodeTruthError("R1_EVENT_ID_MISSING:%s" % stage)
             r1_ids.append(event_id)
             artifact_ids.append(artifact_id)
 
+        if len(set(artifact_ids)) != len(artifact_ids):
+            raise SingleNodeTruthError("CENTER_ARTIFACT_ID_REUSED")
         if len(set(r1_ids)) != len(r1_ids):
             raise SingleNodeTruthError("R1_EVENT_ID_REUSED")
         return SingleNodeTruthProof(
