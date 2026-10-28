@@ -21,6 +21,7 @@ from .formal_agent import FormalNodeAgent
 from .mission_sufficiency_observation_worker import MissionSufficiencyObservationWorker
 from .n7_execution_worker import N7ExecutionDispatchWorker
 from .precondition_data_prep_worker import PreconditionDataPrepWorker
+from .report_release_observation_worker import ReportReleaseObservationWorker
 from .requirement_analysis_worker import RequirementAnalysisWorker
 from .requirement_sufficiency_worker import RequirementSufficiencyWorker
 from .risk_test_model_worker import RiskTestModelWorker
@@ -33,7 +34,7 @@ _AUTONOMOUS_STAGES = (
     "CODE_ANALYSIS", "CODE_SUFFICIENCY", "RISK_TEST_MODEL", "TEST_DESIGN",
     "DESIGN_SUFFICIENCY", "PRECONDITION_DATA_PREP", "EXECUTABLE_SPEC",
     "APPLICABLE_LAYER_EXECUTION", "FAILURE_COVERAGE_EVALUATION",
-    "DEFECT_CLOSURE_OBSERVATION", "MISSION_SUFFICIENCY",
+    "DEFECT_CLOSURE_OBSERVATION", "MISSION_SUFFICIENCY", "REPORT_RELEASE",
 )
 _N1_N10_REQUIRED_STAGES = (
     "SCOPE_INTAKE", "REQUIREMENT_ANALYSIS", "REQUIREMENT_SUFFICIENCY",
@@ -76,6 +77,7 @@ def _build_dispatcher(args, identity, center: HttpCenterClient) -> AutonomousWor
         "FAILURE_COVERAGE_EVALUATION": FailureCoverageEvaluationWorker(agent=formal_agent, dsh_runner=analysis_runner, work_dir=str(work_root / "failure-coverage-evaluation")),
         "DEFECT_CLOSURE_OBSERVATION": DefectClosureObservationWorker(agent=formal_agent, dsh_runner=analysis_runner, work_dir=str(work_root / "defect-closure-observation")),
         "MISSION_SUFFICIENCY": MissionSufficiencyObservationWorker(agent=formal_agent, dsh_runner=analysis_runner, work_dir=str(work_root / "mission-sufficiency-observation")),
+        "REPORT_RELEASE": ReportReleaseObservationWorker(agent=formal_agent, work_dir=str(work_root / "report-release-observation")),
     }
     return AutonomousWorkerDispatcher(claimant=AutonomousClaimClient(args.center, identity.node_id, timeout_seconds=args.http_timeout), workers=workers, ttl_seconds=args.lease_ttl, idle_sleep_seconds=args.claim_interval)
 
