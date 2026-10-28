@@ -1,17 +1,17 @@
 """RC7.2 R1-native N10 Release Convergence aggregator.
 
-Callers do not provide PASS booleans.  Every ReleaseConvergenceFacts dimension
-is derived from canonical R1 truth.  In particular, a raw TestObligation
-`VERIFIED` flag is insufficient: completion additionally requires PASS ETUs,
-PASS independently-evaluated WorkItems, COMPLETED bindings, PASS execution
-attempts and resolvable canonical Evidence.
+Callers do not provide PASS booleans. Every ReleaseConvergenceFacts dimension
+is derived from canonical R1 truth. A raw TestObligation `VERIFIED` flag is
+insufficient: completion additionally requires PASS ETUs, PASS independently-
+evaluated WorkItems, COMPLETED bindings, PASS execution attempts and resolvable
+canonical Evidence.
 """
 from __future__ import annotations
 
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Mapping, Sequence, Set, Tuple
 
 from rc6_runtime import contracts as _contracts
 from rc6_runtime import truth as _truth
@@ -21,31 +21,17 @@ from .models import ContractError
 from .rc72_coverage_convergence import install_rc72_coverage_overlay
 from .rc72_domain import AutonomousMissionNode, MissionNodeState
 from .rc72_release_scope import ReleaseScopeService, install_rc72_release_scope_overlay
-from .rc72_state_machine import (
-    RC72StateMachine,
-    ReleaseConvergenceFacts,
-    ReleaseConvergenceResult,
-)
+from .rc72_state_machine import RC72StateMachine, ReleaseConvergenceFacts, ReleaseConvergenceResult
 from .truth_overlay import install_rc7_truth_overlay
-
 
 _CONVERGENCE_SNAPSHOT = "rc72_release_convergence_snapshot"
 _EVENT_TYPE = "RC72_RELEASE_CONVERGENCE_SNAPSHOT_UPSERTED"
 _BUCKET = "rc72_release_convergence_snapshots"
 _FACT_FIELDS = (
-    "requirement_completion",
-    "sst_completion",
-    "obligation_completion",
-    "required_l1_l7_completion",
-    "high_risk_completion",
-    "incremental_coverage_met",
-    "critical_defects_closed",
-    "no_blocked_workitems",
-    "no_unresolved_gaps",
-    "evidence_complete",
-    "runtime_integrity",
-    "human_gate_required",
-    "runtime_blocked",
+    "requirement_completion", "sst_completion", "obligation_completion",
+    "required_l1_l7_completion", "high_risk_completion", "incremental_coverage_met",
+    "critical_defects_closed", "no_blocked_workitems", "no_unresolved_gaps",
+    "evidence_complete", "runtime_integrity", "human_gate_required", "runtime_blocked",
 )
 
 
@@ -63,10 +49,6 @@ class ReleaseConvergenceSnapshot:
     unproven_obligation_ids: List[str] = field(default_factory=list)
     coverage_observation_ids: List[str] = field(default_factory=list)
     created_at: int = field(default_factory=lambda: int(time.time()))
-
-
-def _now() -> int:
-    return int(time.time())
 
 
 def _new(prefix: str) -> str:
@@ -88,9 +70,8 @@ def _validate_snapshot(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise _contracts.DomainValidationError("RELEASE_CONVERGENCE_FACTS_INVALID")
     if not all(isinstance(facts[name], bool) for name in _FACT_FIELDS):
         raise _contracts.DomainValidationError("RELEASE_CONVERGENCE_FACTS_MUST_BE_BOOLEAN")
-    result = _required(out, "result").upper()
     try:
-        out["result"] = ReleaseConvergenceResult(result).value
+        out["result"] = ReleaseConvergenceResult(_required(out, "result").upper()).value
     except ValueError as exc:
         raise _contracts.DomainValidationError("RELEASE_CONVERGENCE_RESULT_INVALID") from exc
     for name in ("blockers", "proven_obligation_ids", "unproven_obligation_ids", "coverage_observation_ids"):
@@ -120,17 +101,12 @@ def _ensure_projection_bucket(truth: TruthRuntime) -> None:
 
 class ReleaseConvergenceAggregator:
     _GAP_TERMINAL = {"RESOLVED", "WAIVED", "DUPLICATE", "SUPERSEDED"}
+    _COVERAGE_GAP_TERMINAL = {"RESOLVED", "EXCLUDED_APPROVED"}
     _BACK_EDGE_TERMINAL = {"RESOLVED", "SUPERSEDED"}
     _DEFECT_ACCEPTABLE = {"CLOSED", "DUPLICATE", "NOT_A_DEFECT"}
     _HIGH_RISKS = {"HIGH", "CRITICAL", "BLOCKER"}
 
-    def __init__(
-        self,
-        truth: TruthRuntime,
-        *,
-        release_id: str,
-        runtime: RC72StateMachine,
-    ) -> None:
+    def __init__(self, truth: TruthRuntime, *, release_id: str, runtime: RC72StateMachine) -> None:
         install_rc72_release_convergence_overlay()
         _ensure_projection_bucket(truth)
         if not isinstance(release_id, str) or not release_id.strip():
@@ -155,43 +131,30 @@ class ReleaseConvergenceAggregator:
         return rows[0]
 
     def _one_manifest(self, mission_id: str, release_batch_id: str) -> Dict[str, Any]:
-        rows = self._safe_query("rc72_release_scope_manifest", mission_id=mission_id)
-        rows = [row for row in rows if row.get("release_batch_id") == release_batch_id]
+        rows = [
+            row for row in self._safe_query("rc72_release_scope_manifest", mission_id=mission_id)
+            if row.get("release_batch_id") == release_batch_id
+        ]
         if not rows:
             raise ContractError("RELEASE_CONVERGENCE_SCOPE_MANIFEST_REQUIRED")
         if len(rows) != 1:
             raise ContractError("RELEASE_CONVERGENCE_SCOPE_MANIFEST_NOT_UNIQUE")
         return rows[0]
 
-    def _canonical_evidence_resolves(
-        self,
-        *,
-        mission_id: str,
-        evidence_ids: Sequence[str],
-        subject_refs: Set[str],
-    ) -> bool:
+    def _canonical_evidence_resolves(self, *, mission_id: str, evidence_ids: Sequence[str], subject_refs: Set[str]) -> bool:
         if not evidence_ids:
             return False
         for evidence_id in evidence_ids:
             rows = self._safe_query("rc7_evidence", evidence_id=evidence_id)
             if len(rows) != 1 or rows[0].get("mission_id") != mission_id:
                 return False
-            actual_subjects = set(rows[0].get("subject_refs") or [])
-            if not actual_subjects.intersection(subject_refs):
+            if not set(rows[0].get("subject_refs") or []).intersection(subject_refs):
                 return False
         return True
 
-    def _binding_proves_case(
-        self,
-        *,
-        mission_id: str,
-        obligation: Mapping[str, Any],
-        etu: Mapping[str, Any],
-        case_id: str,
-    ) -> bool:
-        bindings = self._safe_query("rc72_workitem_attempt_binding", mission_id=mission_id)
+    def _binding_proves_case(self, *, mission_id: str, obligation: Mapping[str, Any], etu: Mapping[str, Any], case_id: str) -> bool:
         candidates = [
-            row for row in bindings
+            row for row in self._safe_query("rc72_workitem_attempt_binding", mission_id=mission_id)
             if row.get("etu_id") == etu.get("etu_id")
             and row.get("case_id") == case_id
             and row.get("state") == "COMPLETED"
@@ -209,21 +172,22 @@ class ReleaseConvergenceAggregator:
             if str(attempt.get("layer") or "").upper() != str(obligation.get("test_level") or "").upper():
                 continue
             evidence_ids = list(attempt.get("evidence_refs") or [])
-            if not self._canonical_evidence_resolves(
+            if self._canonical_evidence_resolves(
                 mission_id=mission_id,
                 evidence_ids=evidence_ids,
                 subject_refs={str(binding.get("attempt_id")), case_id, str(obligation.get("obligation_id"))},
             ):
-                continue
-            return True
+                return True
         return False
 
     def _obligation_proven(self, obligation: Mapping[str, Any]) -> bool:
         if obligation.get("status") != "VERIFIED":
             return False
         mission_id = str(obligation["mission_id"])
-        etus = self._safe_query("rc72_etu", mission_id=mission_id)
-        etus = [row for row in etus if row.get("obligation_id") == obligation.get("obligation_id")]
+        etus = [
+            row for row in self._safe_query("rc72_etu", mission_id=mission_id)
+            if row.get("obligation_id") == obligation.get("obligation_id")
+        ]
         if not etus:
             return False
         for etu in etus:
@@ -232,14 +196,11 @@ class ReleaseConvergenceAggregator:
             case_ids = list(etu.get("case_ids") or [])
             if not case_ids:
                 return False
-            for case_id in case_ids:
-                if not self._binding_proves_case(
-                    mission_id=mission_id,
-                    obligation=obligation,
-                    etu=etu,
-                    case_id=case_id,
-                ):
-                    return False
+            if not all(
+                self._binding_proves_case(mission_id=mission_id, obligation=obligation, etu=etu, case_id=case_id)
+                for case_id in case_ids
+            ):
+                return False
         return True
 
     def _coverage_met(self, batch: Mapping[str, Any]) -> Tuple[bool, List[str], List[str]]:
@@ -255,10 +216,7 @@ class ReleaseConvergenceAggregator:
             if not rows:
                 blockers.append("coverage:%s:MISSING" % application_id)
                 continue
-            latest = sorted(
-                rows,
-                key=lambda row: (int(row.get("observed_at") or 0), str(row.get("observation_id") or "")),
-            )[-1]
+            latest = sorted(rows, key=lambda row: (int(row.get("observed_at") or 0), str(row.get("observation_id") or "")))[-1]
             selected.append(str(latest["observation_id"]))
             total = int(latest.get("total_units") or 0)
             covered = int(latest.get("covered_units") or 0)
@@ -276,7 +234,6 @@ class ReleaseConvergenceAggregator:
         structurally_valid = len(nodes) == 10 and len(by_type) == 10 and set(by_type) == set(expected_types)
         if not structurally_valid:
             blockers.append("runtime:N1-N10_GRAPH_INVALID")
-
         human_gate = False
         runtime_blocked = False
         for node_type in expected_types[:-1]:
@@ -290,13 +247,13 @@ class ReleaseConvergenceAggregator:
                 runtime_blocked = True
         n10 = by_type.get(AutonomousMissionNode.N10_RELEASE_CONVERGENCE.value)
         if n10:
-            n10_state = str(n10.get("state"))
-            if n10_state == MissionNodeState.HUMAN_GATE.value:
+            state = str(n10.get("state"))
+            if state == MissionNodeState.HUMAN_GATE.value:
                 human_gate = True
-            if n10_state == MissionNodeState.BLOCKED.value:
+            if state == MissionNodeState.BLOCKED.value:
                 runtime_blocked = True
-            if n10_state in {MissionNodeState.STALE.value, MissionNodeState.NEEDS_REVISION.value, MissionNodeState.NOT_STARTED.value}:
-                blockers.append("node:N10_RELEASE_CONVERGENCE:%s" % n10_state)
+            if state in {MissionNodeState.STALE.value, MissionNodeState.NEEDS_REVISION.value, MissionNodeState.NOT_STARTED.value}:
+                blockers.append("node:N10_RELEASE_CONVERGENCE:%s" % state)
         return structurally_valid and not any(item.startswith("node:") for item in blockers), human_gate, runtime_blocked, blockers
 
     def aggregate(self, *, mission_id: str) -> ReleaseConvergenceSnapshot:
@@ -310,8 +267,10 @@ class ReleaseConvergenceAggregator:
                 blockers.extend("scope:missing-level:%s:%s" % (sst, level) for level in levels)
             blockers.extend("scope:out-of-scope-obligation:%s" % oid for oid in scope_snapshot.out_of_scope_obligation_ids)
 
-        obligations = self._safe_query("rc72_test_obligation", mission_id=mission_id)
-        obligations = [row for row in obligations if row.get("release_batch_id") == batch.get("release_batch_id")]
+        obligations = [
+            row for row in self._safe_query("rc72_test_obligation", mission_id=mission_id)
+            if row.get("release_batch_id") == batch.get("release_batch_id")
+        ]
         proven = {str(row["obligation_id"]) for row in obligations if self._obligation_proven(row)}
         all_ids = {str(row["obligation_id"]) for row in obligations}
         unproven = sorted(all_ids - proven)
@@ -332,7 +291,6 @@ class ReleaseConvergenceAggregator:
                     pair_proven[(sst_id, str(level).upper())] = bool(matching) and any(
                         str(row["obligation_id"]) in proven for row in matching
                     )
-
         required_levels_complete = scope_snapshot.denominator_complete and bool(pair_proven) and all(pair_proven.values())
         sst_completion = required_levels_complete
         requirement_completion = required_levels_complete
@@ -344,19 +302,17 @@ class ReleaseConvergenceAggregator:
         coverage_met, coverage_ids, coverage_blockers = self._coverage_met(batch)
         blockers.extend(coverage_blockers)
 
-        defects = self._safe_query("rc7_defect", mission_id=mission_id)
         critical_defects_closed = True
-        for defect in defects:
+        for defect in self._safe_query("rc7_defect", mission_id=mission_id):
             if str(defect.get("severity") or "").upper() in self._HIGH_RISKS:
                 state = str(defect.get("state") or "").upper()
                 if state not in self._DEFECT_ACCEPTABLE:
                     critical_defects_closed = False
                     blockers.append("defect:%s:%s" % (defect.get("defect_id"), state))
 
-        tasks = self._safe_query("rc7_task", mission_id=mission_id)
         no_blocked_workitems = True
         human_gate_required = False
-        for task in tasks:
+        for task in self._safe_query("rc7_task", mission_id=mission_id):
             state = str(task.get("state") or "").upper()
             if state != "PASS":
                 no_blocked_workitems = False
@@ -373,7 +329,8 @@ class ReleaseConvergenceAggregator:
             if state == "HUMAN_REQUIRED":
                 human_gate_required = True
         for gap in self._safe_query("rc72_coverage_gap", mission_id=mission_id):
-            if gap.get("excluded") is not True:
+            state = str(gap.get("status") or "").upper()
+            if state not in self._COVERAGE_GAP_TERMINAL:
                 no_unresolved_gaps = False
                 blockers.append("coverage-gap:%s" % gap.get("gap_id"))
         for edge in self._safe_query("rc72_back_edge", mission_id=mission_id):
@@ -385,7 +342,6 @@ class ReleaseConvergenceAggregator:
         runtime_integrity, node_human, runtime_blocked, runtime_blockers = self._runtime_facts(mission_id)
         human_gate_required = human_gate_required or node_human
         blockers.extend(runtime_blockers)
-
         for failure in self._safe_query("rc72_provider_failure", mission_id=mission_id):
             state = str(failure.get("state") or "").upper()
             if state in {"BLOCKED_PROVIDER", "OPERATOR_REPAIR_REQUIRED"}:
@@ -417,17 +373,11 @@ class ReleaseConvergenceAggregator:
         )
         result = self.runtime.evaluate_convergence(facts)
         snapshot = ReleaseConvergenceSnapshot(
-            snapshot_id=_new("CONVERGENCE"),
-            mission_id=mission_id,
-            release_batch_id=str(batch["release_batch_id"]),
-            manifest_id=str(manifest["manifest_id"]),
-            scope_snapshot_id=scope_snapshot.snapshot_id,
-            facts=facts,
-            result=result,
-            blockers=sorted(set(blockers)),
-            proven_obligation_ids=sorted(proven),
-            unproven_obligation_ids=unproven,
-            coverage_observation_ids=sorted(coverage_ids),
+            snapshot_id=_new("CONVERGENCE"), mission_id=mission_id,
+            release_batch_id=str(batch["release_batch_id"]), manifest_id=str(manifest["manifest_id"]),
+            scope_snapshot_id=scope_snapshot.snapshot_id, facts=facts, result=result,
+            blockers=sorted(set(blockers)), proven_obligation_ids=sorted(proven),
+            unproven_obligation_ids=unproven, coverage_observation_ids=sorted(coverage_ids),
         )
         self.truth.append_atomic(
             _EVENT_TYPE,
