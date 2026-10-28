@@ -9,17 +9,18 @@ Every construction session MUST first read current `work/rc7.2` HEAD, same-HEAD 
 ```yaml
 branch: work/rc7.2
 design_baseline_sha: a3426e306abf967ab822d44508127c3891c8e91e
-latest_phase3_qualified_code_head_sha: af2de6d8d902647438c5be71b099d2929f0879a9
-latest_phase3_qualified_ci_run: 40709689484
+latest_phase4_qualified_code_head_sha: 74946709560b85cef03f01a594a873901712bc71
+latest_phase4_qualified_ci_run: 40712471496
 phase:
   phase0_reality_baseline: COMPLETE
   phase1_canonical_domain_model: CI_PASS
   phase2_n1_n10_state_machine: CI_PASS
   phase3_sufficiency_gates: CI_PASS
-  phase4_adaptive_task_decomposer: NOT_STARTED
+  phase4_adaptive_task_decomposer: CI_PASS
+  phase5_fresh_worker_reviewer_handoff: NOT_STARTED
 field_evidence: NOT_YET_FIELD_VALIDATED
 release_status: CONSTRUCTION_ONLY
-next_atomic_step: PHASE4_ADAPTIVE_DECOMPOSER_CONTRACT_TESTS_FIRST
+next_atomic_step: PHASE5_FRESH_WORKER_SESSION_ROTATION_CONTRACT_TESTS_FIRST
 ```
 
 `CI_PASS` means repository-level contract/regression qualification only. It does not mean in-bank Field validation.
@@ -44,20 +45,21 @@ Status: `COMPLETE`
 - commit `6fd2d40323e8872d89c5e165025652d2b69a2018`
 - RC7.1 inheritance, eight structural GAPs, ReleaseBatch-root invariant, same-R1/no-shadow-runtime, Session != Truth and Worker STRICT were frozen.
 
+Field validation: `NO`.
+
 ## 4. Phase 1 — Canonical Domain Model
 
 Status: `CI_PASS`
 
-Delivered canonical truth:
+Delivered:
 
-- ReleaseBatch is the business root.
-- N1-N10 MissionNode, NodeDelivery, NodeGate, BackEdge, ImpactSet and NodeTransition are persisted first-class objects.
+- ReleaseBatch is the canonical business root.
+- N1-N10 MissionNode, NodeDelivery, NodeGate, BackEdge, ImpactSet and NodeTransition persist as first-class R1 truth.
 - TestObligation preserves ReleaseBatch/Requirement/SST/Application/business/risk/test-level/oracle lineage.
-- ETU is a persisted schedulable unit with planning snapshot, cohesion and split lineage.
+- ETU persists planning/cohesion/split lineage.
 - existing `rc7_task` remains WorkItem truth; existing `execution_attempt` remains Attempt truth.
 - WorkItemAttemptBinding links ETU -> Task -> Attempt -> worker/session/lease refs.
 - existing RC7 Gap is reused; no duplicate gap store.
-- all RC7.2 truth appends/queries/replays through inherited R1.
 - cross-entity lineage prevents orphan coverage-driven obligations/ETUs.
 
 Key commits include `028460fa...`, `4256819a...`, `712a5220...`, `be66fbf8...`.
@@ -73,21 +75,20 @@ Qualified run: `40693161338`
 
 Delivered:
 
-- ReleaseBatch bootstrap creates exactly N1-N10 persisted nodes.
-- direct PASS forbidden; PASS requires persisted NodeDelivery + NodeGate(PASS).
+- exactly N1-N10 persisted MissionNodes.
+- direct PASS forbidden; PASS requires NodeDelivery + NodeGate(PASS).
 - forward transition requires PASS and non-STALE mandatory upstream truth.
-- conflicting same-version deliveries are rejected.
-- N7 failure persists explicit DIAGNOSIS transition to N8.
-- N8 accepted delivery/gate precedes semantic routing.
-- Gap + BackEdge + Transition persist for N1/N2/N3/N4/N5/N6/N9 routes.
-- provider/capability/resource failures stay separate from SUT defects.
+- conflicting same-version deliveries rejected.
+- N7 failure -> explicit DIAGNOSIS -> N8.
+- N8 persists semantic Gap + BackEdge + Transition.
+- provider/capability/resource failures remain separate from SUT defects.
 - UNKNOWN never auto-PASS.
-- ImpactSet supports explicit/safe-fallback STALE propagation.
+- ImpactSet drives explicit/safe-fallback STALE propagation.
 - STALE truth blocks N7 dispatch.
-- coverage target alone can never make N10 CONVERGED.
+- coverage-only cannot produce N10 CONVERGED.
 - restart/replay reconstructs runtime from R1, not chat history.
 
-Real TDD red run `40692350064` found and drove fixes for delivery conflict ordering and explicit DIAGNOSIS semantics.
+TDD red run `40692350064` exposed and drove fixes for delivery-conflict ordering and explicit DIAGNOSIS semantics.
 
 Field validation: `NO`.
 
@@ -95,89 +96,148 @@ Field validation: `NO`.
 
 Status: `CI_PASS`
 
-### 6.1 Red/green evidence
+Qualified head: `af2de6d8d902647438c5be71b099d2929f0879a9`
+Qualified run: `40709689484`
 
-Tests-first head:
-- `e48957695a368eed9499cbaa36326b8e6709dff3` — `test(rc7.2): freeze N2-N6 sufficiency gate contracts`
-- run `40693906157` = RED on RC7.2 contracts while inherited RC7 regression remained PASS.
+Delivered:
 
-Implementation/fix commits:
-- `cd1d0d081feaf630778c1093a28211bde7a5eb0a` — initial deterministic SufficiencyGateService.
-- `8c8fe758b8b43e33baab9fe399f5256d7643f6f2` — bind sufficiency evidence to canonical `rc7_evidence`.
-- `af2de6d8d902647438c5be71b099d2929f0879a9` — correct isolated Phase 3 fixtures to establish upstream truth using persisted NodeDelivery + NodeGate(PASS), never a production bypass.
+- N2 deterministic Requirement/SST/BR/SR/TR/business-rule/role/state/negative/boundary/permission/data-rule sufficiency.
+- explicit not-applicable requires reason + evidence; unresolved unknowns block PASS.
+- N3 deterministic Requirement/SST -> changed code -> API/DTO/Service/DB/dependency/reverse mapping with Git + CodeGraph evidence.
+- N4 rejects orphan cases, lineage mismatches, TBD/UNKNOWN, missing precondition/steps/oracle/evidence and shallow HIGH-risk design.
+- N5 requires resolved/verified/reserved data strategy and cleanup semantics.
+- N6 requires executable target/tool/input/data/assertion/oracle/evidence/capability/resource contract; executor guessing is blocked.
+- SufficiencySnapshot persists in same R1.
+- deterministic failures create canonical RC7 Gap.
+- reviewer identity is audited but reviewer prose cannot override deterministic failure.
 
-Qualified run:
-- workflow `40709689484`
-- head `af2de6d8d902647438c5be71b099d2929f0879a9`
-- overall `SUCCESS`
-- RC7.2 construction contracts Python 3.8: PASS
-- RC7.2 construction contracts Python 3.11: PASS
-- inherited RC7 source suite Python 3.8: PASS
-- runtime compile: PASS
+TDD RED:
+- head `e48957695a368eed9499cbaa36326b8e6709dff3`, run `40693906157`.
 
-### 6.2 Implemented clauses
+Key fixes:
+- `cd1d0d08...` initial gate service.
+- `8c8fe758...` canonical `rc7_evidence` binding.
+- `af2de6d8...` isolated tests use real upstream Delivery + PASS Gate, no production bypass.
 
-N2 Requirement Gate:
-- Requirement/SST identity, BR/SR/TR, business rules, roles, states/transitions, negative, boundary, permission and data rules are deterministic dimensions.
-- empty dimensions cannot silently pass; explicit not-applicable requires reason + evidence refs.
-- unresolved unknowns block PASS.
-
-N3 Code Analysis Gate:
-- Requirement/SST mapping, changed code, API, DTO, Service, DB, dependency impact, reverse mapping, Git evidence and CodeGraph evidence are deterministic dimensions.
-- missing CodeGraph evidence or dependency impact blocks PASS.
-- graph/git evidence refs must belong to the current canonical sufficiency evidence set.
-
-N4 Test Design Gate:
-- orphan TestCase is rejected.
-- Requirement/SST/TestObligation/test-level lineage is checked.
-- unresolved TBD/UNKNOWN, missing precondition/steps/oracle/evidence requirements block PASS.
-- HIGH-risk obligations require negative and boundary depth.
-
-N5 Test Data Gate:
-- non-NONE data strategies require DataRef/precondition refs, verified and reserved state, cleanup policy.
-- NONE_REQUIRED must be explicit and reasoned.
-
-N6 Executable Readiness Gate:
-- case target, execution target, tool route, input binding, data refs, assertion, oracle, evidence requirements, capabilities, resources and cleanup are checked.
-- TBD/UNKNOWN prevents PASS, so Executor cannot be handed an intentionally incomplete contract and asked to guess.
-
-Common behavior:
-- `SufficiencySnapshot` persists in same R1 and survives replay.
-- deterministic failure generates canonical RC7 Gap facts.
-- reviewer identity/session is persisted in NodeGate.
-- reviewer recommendation cannot override deterministic failure.
-- Gate applies through the existing Phase 2 state machine; no parallel state machine exists.
-
-### 6.3 Phase 3 exit decision
-
-`PHASE3 = CI_PASS`
-
-Open qualification:
-- no real in-bank ReleaseBatch has exercised the new N2-N6 deterministic gates yet.
-- therefore `FIELD_VALIDATED = NO`.
+Field validation: `NO`.
 
 ## 7. Phase 4 — Adaptive Task Decomposer
 
+Status: `CI_PASS`
+
+Qualified code head: `74946709560b85cef03f01a594a873901712bc71`
+Qualified run: `40712471496`
+
+Same-head qualification:
+
+- RC7.2 contracts Python 3.8: PASS
+- RC7.2 contracts Python 3.11: PASS
+- inherited RC7 regression Python 3.8: PASS
+- runtime compile: PASS
+- structured JUnit diagnostics retained as workflow artifacts.
+
+### 7.1 First slice — canonical obligation-to-ETU decomposition
+
+Tests-first commit: `e62884a4...`
+Implementation commit: `409f6824...`
+Qualified run: `40710514513`
+
+Implemented:
+
+- ReleaseBatch/Requirement/SST/TestObligation remains the planning root.
+- unrelated SSTs never merge merely because API/tool/data are the same.
+- homogeneous same-obligation work can merge.
+- 20+ heterogeneous cases split into small lineage-preserving ETUs rather than one large Round.
+- mixed L3/L4 separates by level/tool/browser semantics.
+- completed Case IDs are not rescheduled by default.
+- same frozen input/config produces deterministic ETU identity/order.
+- unmapped coverage produces investigation routing, never orphan Case/ETU.
+- mapped coverage repairs/reprioritizes the existing canonical obligation.
+
+### 7.2 Second slice — runtime feedback and resource isolation semantics
+
+Tests-first commit: `29fd59b0...`
+Implementation commit: `9a1ff61b...`
+Qualified run: `40711052921`
+
+Implemented:
+
+- exclusive mutable data resource conflicts force isolated ETUs.
+- shared reference data does not force artificial splitting.
+- auth role and browser context are explicit cohesion dimensions.
+- high-cost, near-zero coverage yield creates `LOW_COVERAGE_YIELD` replan signal and priority penalty.
+- PRODUCT_DEFECT/VALID_TEST_FAILURE/environment/provider failures are not misclassified as brute-force low-yield.
+- browser ETUs declare browser-context/auth-role capability requirements.
+
+### 7.3 Third slice — multidimensional priority and R1 explainability
+
+Tests-first commit: `82c8f701...`
+Implementation chain:
+
+- `b039f36e...` explicit multi-dimensional planning signals and per-obligation priority explanation.
+- `f6bf9f22...` canonical R1 decomposition snapshot persistence.
+- `28f584de...` Python 3.8 compatibility correction.
+- `47a5635b...` CI JUnit diagnostic artifact retention.
+- `74946709...` replay compatibility fix: planning snapshot field `cases` renamed to `planning_cases` because inherited R1 treats `cases` as a legacy TEST_CASE batch field.
+
+Real failure evidence from run `40712263302`:
+
+- 52 RC7.2 contract tests executed; 51 PASS, 1 FAIL.
+- exact failure: R1 replay interpreted planning snapshot `cases` as legacy `TEST_CASE_UPSERTED`, then failed `MISSING_OR_INVALID_TC_ID`.
+- fix preserved legacy replay semantics and moved RC7.2 planner data to a non-reserved field rather than weakening old compatibility.
+
+Implemented priority dimensions are explicit and explainable:
+
+```text
+business_risk
+requirement_priority
+sst_criticality
+change_impact
+historical_defect_density
+uncovered_changed_code
+coverage_yield_estimate
+production_blast_radius
+blocked_downstream_work
+execution_cost
+resource_contention
+uncertainty_reduction
+```
+
+Additionally:
+
+- coverage_gap and historical low-yield penalty remain visible feedback components.
+- planning snapshot persists config version, planning inputs, weights, per-obligation priority explanation, routes, replan reasons and emitted ETU IDs.
+- generated ETUs persist through CanonicalRC72Repository in the same R1.
+- planning truth survives replay without session/chat history.
+
+### 7.4 Phase 4 exit decision
+
+`PHASE4 = CI_PASS`
+
+The decomposer defines *what work units exist*. It still does not schedule Workers or acquire leases; those belong to Phase 5/7.
+
+Field validation: `NO`. No real in-bank ReleaseBatch has yet exercised RC7.2 adaptive decomposition.
+
+## 8. Phase 5 — Fresh Worker / Fresh Reviewer / Session Rotation / Captain Handoff
+
 Status: `NOT_STARTED`
 
-Next step MUST be tests-first against `04-ADAPTIVE-TASK-DECOMPOSER-CONTRACT.md`.
+Next step MUST be tests-first against `05-AGENTTEAMS-WORKER-LEASE-CONTRACT.md`.
 
-First implementation slice must prove at minimum:
+First slice must prove:
 
-1. ReleaseBatch/Requirement/SST/TestObligation remains the planning root.
-2. unrelated SSTs cannot merge merely because API/tool is the same.
-3. heterogeneous 20+ cases split into cohesive ETUs rather than one large round.
-4. mixed L3/L4 split by tool/resource semantics.
-5. same obligation/API/data/oracle small cases can merge.
-6. coverage gap may reprioritize/repair mapped obligations but cannot create orphan canonical Case.
-7. all ETUs persist planning snapshot/cohesion explanation and preserve lineage.
-8. decomposition is deterministic for identical frozen input/config.
+1. Role is durable semantic identity; Worker and Session are disposable execution identities.
+2. default execution is one ETU -> one fresh Worker/Session -> Evidence/R1 -> close.
+3. a second ETU does not silently reuse an expired/closed Worker session.
+4. rotation is triggered by configured workitem/step/token/runtime/compaction thresholds and persists checkpoint truth before close.
+5. Fresh Reviewer receives current NodeDelivery + criteria + evidence, not executor chat history.
+6. Captain handoff attaches to the same Mission/Team/R1 truth without creating a duplicate Mission or replaying completed WorkItems.
+7. all takeover/rotation decisions are queryable from R1.
 
-Phase 4 must not implement scheduler/Worker leasing yet; Decomposer defines work units, Scheduler later decides when/where/by whom.
+Phase 5 must not yet broaden Worker permissions or solve Browser/Model/Data leasing; those belong to Phase 7.
 
-## 8. Remaining phases
+## 9. Remaining phases
 
-- Phase 4: adaptive TestObligation -> ETU decomposition/scoring/split/merge/reprioritization.
 - Phase 5: Fresh Worker/Fresh Reviewer/session rotation/Captain handoff.
 - Phase 6: independent diagnosis/recovery orchestration.
 - Phase 7: CapabilityBroker, BrowserPool/BrowserLease, DataLease, model failover.
@@ -185,7 +245,7 @@ Phase 4 must not implement scheduler/Worker leasing yet; Decomposer defines work
 - Phase 9: Journey Teaching/Compiler/Replay/Benchmark.
 - final: Windows + Linux + clean-unpack + real in-bank Field Acceptance.
 
-## 9. Anti-drift rule
+## 10. Anti-drift rule
 
 Future sessions MUST NOT infer completion from this file alone. Always inspect:
 
