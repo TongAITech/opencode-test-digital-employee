@@ -16,6 +16,7 @@ from .design_sufficiency_worker import DesignSufficiencyWorker
 from .dsh_json_runner import DshJsonRunner
 from .formal_agent import FormalNodeAgent
 from .n7_execution_worker import N7ExecutionDispatchWorker
+from .precondition_data_prep_worker import PreconditionDataPrepWorker
 from .requirement_analysis_worker import RequirementAnalysisWorker
 from .requirement_sufficiency_worker import RequirementSufficiencyWorker
 from .risk_test_model_worker import RiskTestModelWorker
@@ -26,7 +27,7 @@ from .test_design_worker import TestDesignWorker
 _AUTONOMOUS_STAGES = (
     "SCOPE_INTAKE", "REQUIREMENT_ANALYSIS", "REQUIREMENT_SUFFICIENCY",
     "CODE_ANALYSIS", "CODE_SUFFICIENCY", "RISK_TEST_MODEL", "TEST_DESIGN",
-    "DESIGN_SUFFICIENCY", "APPLICABLE_LAYER_EXECUTION",
+    "DESIGN_SUFFICIENCY", "PRECONDITION_DATA_PREP", "APPLICABLE_LAYER_EXECUTION",
 )
 _N1_N10_REQUIRED_STAGES = (
     "SCOPE_INTAKE", "REQUIREMENT_ANALYSIS", "REQUIREMENT_SUFFICIENCY",
@@ -63,6 +64,7 @@ def _build_dispatcher(args, identity, center: HttpCenterClient) -> AutonomousWor
         "RISK_TEST_MODEL": RiskTestModelWorker(agent=formal_agent, dsh_runner=analysis_runner, work_dir=str(work_root / "risk-test-model")),
         "TEST_DESIGN": TestDesignWorker(agent=formal_agent, dsh_runner=analysis_runner, work_dir=str(work_root / "test-design")),
         "DESIGN_SUFFICIENCY": DesignSufficiencyWorker(agent=formal_agent, work_dir=str(work_root / "design-sufficiency")),
+        "PRECONDITION_DATA_PREP": PreconditionDataPrepWorker(agent=formal_agent, dsh_runner=analysis_runner, work_dir=str(work_root / "precondition-data-prep")),
         "APPLICABLE_LAYER_EXECUTION": N7ExecutionDispatchWorker(agent=formal_agent, dsh_runner=analysis_runner, work_dir=str(work_root / "n7-execution"), center_url=args.center, http_timeout_seconds=args.http_timeout),
     }
     return AutonomousWorkerDispatcher(claimant=AutonomousClaimClient(args.center, identity.node_id, timeout_seconds=args.http_timeout), workers=workers, ttl_seconds=args.lease_ttl, idle_sleep_seconds=args.claim_interval)
