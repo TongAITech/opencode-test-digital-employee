@@ -1,7 +1,7 @@
 """R1 persistence adapter for RC7.2 Autonomous Test Runtime entities.
 
-This module deliberately extends the inherited RC6/RC7 append/replay/projection
-registries. It does not create a shadow database or session-local truth store.
+RC7.2 extends the inherited append/replay/projection registries. It never creates
+a shadow database or session-local truth store.
 """
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from .rc72_domain import (
     ReleaseBatch,
     TestObligation,
 )
+from .rc72_linkage import NodeTransition, WorkItemAttemptBinding
 from .truth_overlay import install_rc7_truth_overlay
 
 
@@ -34,6 +35,8 @@ RC72_EVENT_TYPES = {
     "RC72_TEST_OBLIGATION_UPSERTED": ("rc72_test_obligation", "obligation_id"),
     "RC72_ETU_UPSERTED": ("rc72_etu", "etu_id"),
     "RC72_BACK_EDGE_UPSERTED": ("rc72_back_edge", "back_edge_id"),
+    "RC72_NODE_TRANSITION_UPSERTED": ("rc72_node_transition", "transition_id"),
+    "RC72_WORKITEM_ATTEMPT_BINDING_UPSERTED": ("rc72_workitem_attempt_binding", "binding_id"),
 }
 
 RC72_BUCKETS = {
@@ -44,6 +47,8 @@ RC72_BUCKETS = {
     "rc72_test_obligation": "rc72_test_obligations",
     "rc72_etu": "rc72_execution_task_units",
     "rc72_back_edge": "rc72_back_edges",
+    "rc72_node_transition": "rc72_node_transitions",
+    "rc72_workitem_attempt_binding": "rc72_workitem_attempt_bindings",
 }
 
 _MODEL_EVENT: Dict[Type[Any], str] = {
@@ -54,6 +59,8 @@ _MODEL_EVENT: Dict[Type[Any], str] = {
     TestObligation: "RC72_TEST_OBLIGATION_UPSERTED",
     ExecutionTaskUnit: "RC72_ETU_UPSERTED",
     BackEdge: "RC72_BACK_EDGE_UPSERTED",
+    NodeTransition: "RC72_NODE_TRANSITION_UPSERTED",
+    WorkItemAttemptBinding: "RC72_WORKITEM_ATTEMPT_BINDING_UPSERTED",
 }
 
 _NODE_VALUES = set(RC72_CANONICAL_NODE_ORDER)
@@ -63,6 +70,10 @@ _NODE_STATES = {
 }
 _GATE_DECISIONS = {"PASS", "NEEDS_REVISION", "BLOCKED", "HUMAN_GATE"}
 _BACK_EDGE_STATES = {"OPEN", "RESOLVED", "SUPERSEDED"}
+_TRANSITION_KINDS = {"FORWARD", "BACK_EDGE", "BLOCKED", "HUMAN_GATE", "RESUME"}
+_ATTEMPT_BINDING_STATES = {
+    "RESERVED", "PREPARED", "RUNNING", "EVIDENCE_READY", "COMPLETED", "BLOCKED", "SUPERSEDED",
+}
 
 
 def _json_payload(entity: Any) -> Dict[str, Any]:
@@ -160,9 +171,7 @@ def validate_node_delivery(payload: Dict[str, Any]) -> Dict[str, Any]:
     version = out.get("version")
     if not isinstance(version, int) or version < 1:
         raise _contracts.DomainValidationError("NODE_DELIVERY_VERSION_INVALID")
-    for field in (
-        "input_refs", "artifact_refs", "evidence_refs", "known_gaps", "created_by_workitems",
-    ):
+    for field in ("input_refs", "artifact_refs", "evidence_refs", "known_gaps", "created_by_workitems"):
         _list(out, field)
     score = out.get("sufficiency_score")
     if score is not None and (not isinstance(score, (int, float)) or not 0.0 <= float(score) <= 1.0):
@@ -172,10 +181,7 @@ def validate_node_delivery(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def validate_node_gate(payload: Dict[str, Any]) -> Dict[str, Any]:
     out = _base(payload, "rc72_node_gate", "gate_id")
-    _required_fields(
-        out,
-        ("mission_node_id", "delivery_id", "reviewer_worker_id", "reviewer_session_id"),
-    )
+    _required_fields(out, ("mission_node_id", "delivery_id", "reviewer_worker_id", "reviewer_session_id"))
     _require_node(out, "node_type")
     decision = _contracts._require_str(out, "decision").upper()
     if decision not in _GATE_DECISIONS:
@@ -207,7 +213,6 @@ def validate_test_obligation(payload: Dict[str, Any]) -> Dict[str, Any]:
     for field in ("code_slice_refs", "change_refs", "coverage_targets"):
         _list(out, field)
     _list(out, "oracle_refs", required=True)
-    # Coverage is deliberately optional; ReleaseBatch/Requirement/SST lineage is not.
     return out
 
 
@@ -217,13 +222,23 @@ def validate_etu(payload: Dict[str, Any]) -> Dict[str, Any]:
         out,
         (
             "release_batch_id", "obligation_id", "primary_goal", "primary_code_slice",
-            "test_level", "primary_oracle", "data_domain", "state",
+            "test_level", "primary_oracle", "data_domain", "primary_tool_family",
+            "planning_snapshot_ref", "cohesion_explanation", "state",
         ),
     )
     _list(out, "case_ids", required=True)
-    if len(out["case_ids"]) > 8:
-        raise _contracts.DomainValidationError("ETU_CASE_COUNT_EXCEEDS_DEFAULT_MAX")
     _list(out, "required_capabilities")
+    _list(out, "child_etu_ids")
+    cohesion = out.get("cohesion_score")
+    if not isinstance(cohesion, (int, float)) or not 0.0 <= float(cohesion) <= 1.0:
+        raise _contracts.DomainValidationError("ETU_COHESION_SCORE_INVALID")
+    if len(out["case_ids"]) > 8 and not isinstance(out.get("oversize_justification"), str):
+        raise _contracts.DomainValidationError("ETU_OVERSIZE_REQUIRES_JUSTIFICATION")
+    _optional_nonempty_str(out, "oversize_justification")
+    _optional_nonempty_str(out, "parent_etu_id")
+    _optional_nonempty_str(out, "split_reason")
+    if out["child_etu_ids"] and not out.get("split_reason"):
+        raise _contracts.DomainValidationError("ETU_CHILDREN_REQUIRE_SPLIT_REASON")
     duration = out.get("estimated_duration_minutes")
     if not isinstance(duration, int) or duration <= 0:
         raise _contracts.DomainValidationError("ETU_ESTIMATED_DURATION_INVALID")
@@ -251,6 +266,46 @@ def validate_back_edge(payload: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def validate_node_transition(payload: Dict[str, Any]) -> Dict[str, Any]:
+    out = _base(payload, "rc72_node_transition", "transition_id")
+    _required_fields(out, ("from_mission_node_id", "to_mission_node_id", "reason"))
+    _require_node(out, "from_node_type")
+    _require_node(out, "to_node_type")
+    kind = _contracts._require_str(out, "kind").upper()
+    if kind not in _TRANSITION_KINDS:
+        raise _contracts.DomainValidationError("NODE_TRANSITION_KIND_INVALID")
+    out["kind"] = kind
+    _optional_nonempty_str(out, "source_gate_id")
+    _optional_nonempty_str(out, "back_edge_id")
+    _list(out, "evidence_refs")
+    if kind == "FORWARD" and not out.get("source_gate_id"):
+        raise _contracts.DomainValidationError("FORWARD_TRANSITION_REQUIRES_SOURCE_GATE")
+    if kind == "BACK_EDGE" and not out.get("back_edge_id"):
+        raise _contracts.DomainValidationError("BACK_EDGE_TRANSITION_REQUIRES_BACK_EDGE")
+    if out["from_mission_node_id"] == out["to_mission_node_id"] and kind != "RESUME":
+        raise _contracts.DomainValidationError("NODE_TRANSITION_SELF_ROUTE_FORBIDDEN")
+    return out
+
+
+def validate_workitem_attempt_binding(payload: Dict[str, Any]) -> Dict[str, Any]:
+    out = _base(payload, "rc72_workitem_attempt_binding", "binding_id")
+    _required_fields(out, ("etu_id", "workitem_id", "case_id", "attempt_id"))
+    state = _contracts._require_str(out, "state").upper()
+    if state not in _ATTEMPT_BINDING_STATES:
+        raise _contracts.DomainValidationError("WORKITEM_ATTEMPT_STATE_INVALID")
+    out["state"] = state
+    for field in ("worker_id", "session_id", "task_lease_ref", "parent_attempt_id"):
+        _optional_nonempty_str(out, field)
+    _list(out, "capability_lease_refs")
+    _list(out, "resource_lease_refs")
+    if state in {"PREPARED", "RUNNING", "EVIDENCE_READY", "COMPLETED", "BLOCKED"}:
+        if not out.get("worker_id") or not out.get("session_id"):
+            raise _contracts.DomainValidationError("ACTIVE_ATTEMPT_REQUIRES_WORKER_SESSION")
+    if state in {"RUNNING", "EVIDENCE_READY", "COMPLETED", "BLOCKED"} and not out.get("task_lease_ref"):
+        raise _contracts.DomainValidationError("EXECUTING_ATTEMPT_REQUIRES_TASK_LEASE_REF")
+    return out
+
+
 RC72_VALIDATORS = {
     "rc72_release_batch": validate_release_batch,
     "rc72_mission_node": validate_mission_node,
@@ -259,6 +314,8 @@ RC72_VALIDATORS = {
     "rc72_test_obligation": validate_test_obligation,
     "rc72_etu": validate_etu,
     "rc72_back_edge": validate_back_edge,
+    "rc72_node_transition": validate_node_transition,
+    "rc72_workitem_attempt_binding": validate_workitem_attempt_binding,
 }
 
 
@@ -279,7 +336,6 @@ def append_rc72_entity(
     release_id: str,
     artifact_version: int = 1,
 ):
-    """Append an RC7.2 canonical entity into the inherited R1 event stream."""
     install_rc72_truth_overlay()
     event_type = _MODEL_EVENT.get(type(entity))
     if event_type is None:

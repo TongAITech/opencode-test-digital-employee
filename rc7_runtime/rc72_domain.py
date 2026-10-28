@@ -1,13 +1,8 @@
 """RC7.2 canonical Autonomous Test Runtime domain model.
 
-This module extends the RC7 control-plane model without mutating persisted
-RC7.1 Mission graph identities. The entities here are deliberately session
-independent: a Worker/LLM conversation may disappear while these records remain
-recoverable from R1 truth.
-
-ReleaseBatch is the highest business root. Test assets must preserve the
-ReleaseBatch -> Requirement -> SST -> TestObligation lineage. Coverage is a
-feedback signal attached to an obligation; it is never an alternative root.
+The model is additive over RC7.1. It introduces persisted ReleaseBatch/N1-N10/
+obligation/ETU semantics without changing persisted RC7.1 graph identities.
+Session state is never canonical truth.
 """
 from __future__ import annotations
 
@@ -46,8 +41,6 @@ def _optional_time(value: Optional[int], name: str) -> Optional[int]:
 
 
 class AutonomousMissionNode(str, Enum):
-    """Frozen RC7.2 N1-N10 semantic backbone."""
-
     N1_REALITY = "N1_REALITY"
     N2_REQUIREMENT = "N2_REQUIREMENT"
     N3_CODE_ANALYSIS = "N3_CODE_ANALYSIS"
@@ -76,8 +69,6 @@ class AutonomousMissionNode(str, Enum):
 
 
 class MissionNodeState(str, Enum):
-    """Exact high-level states frozen by the N1-N10 state-machine contract."""
-
     NOT_STARTED = "NOT_STARTED"
     READY = "READY"
     RUNNING = "RUNNING"
@@ -186,9 +177,10 @@ class MissionNodeRecord:
                 self.state = MissionNodeState(str(self.state))
             except ValueError as exc:
                 raise ContractError("MISSION_NODE_STATE_INVALID") from exc
-        if self.active_delivery_version is not None:
-            if not isinstance(self.active_delivery_version, int) or self.active_delivery_version < 1:
-                raise ContractError("MISSION_NODE_ACTIVE_DELIVERY_VERSION_INVALID")
+        if self.active_delivery_version is not None and (
+            not isinstance(self.active_delivery_version, int) or self.active_delivery_version < 1
+        ):
+            raise ContractError("MISSION_NODE_ACTIVE_DELIVERY_VERSION_INVALID")
         _strings(self.delivery_refs, "delivery_refs")
         _strings(self.gate_refs, "gate_refs")
         _strings(self.open_gap_refs, "open_gap_refs")
@@ -233,9 +225,11 @@ class NodeDelivery:
         _strings(self.evidence_refs, "evidence_refs")
         _strings(self.known_gaps, "known_gaps")
         _strings(self.created_by_workitems, "created_by_workitems")
-        if self.sufficiency_score is not None:
-            if not isinstance(self.sufficiency_score, (int, float)) or not 0.0 <= float(self.sufficiency_score) <= 1.0:
-                raise ContractError("NODE_DELIVERY_SUFFICIENCY_SCORE_INVALID")
+        if self.sufficiency_score is not None and (
+            not isinstance(self.sufficiency_score, (int, float))
+            or not 0.0 <= float(self.sufficiency_score) <= 1.0
+        ):
+            raise ContractError("NODE_DELIVERY_SUFFICIENCY_SCORE_INVALID")
 
 
 @dataclass(frozen=True)
@@ -337,6 +331,8 @@ class TestObligation:
 
 @dataclass
 class ExecutionTaskUnit:
+    """Smallest schedulable cohesive unit; 3-8 cases is a default, not a law."""
+
     etu_id: str
     mission_id: str
     release_batch_id: str
@@ -347,9 +343,17 @@ class ExecutionTaskUnit:
     test_level: str
     primary_oracle: str
     data_domain: str
+    primary_tool_family: str
+    planning_snapshot_ref: str
+    cohesion_score: float
+    cohesion_explanation: str
     required_capabilities: List[str] = field(default_factory=list)
     estimated_duration_minutes: int = 15
     estimated_cost: float = 0.0
+    oversize_justification: Optional[str] = None
+    parent_etu_id: Optional[str] = None
+    split_reason: Optional[str] = None
+    child_etu_ids: List[str] = field(default_factory=list)
     state: ETUState = ETUState.REGISTERED
     created_at: int = field(default_factory=_now)
     updated_at: int = field(default_factory=_now)
@@ -358,13 +362,27 @@ class ExecutionTaskUnit:
         for name in (
             "etu_id", "mission_id", "release_batch_id", "obligation_id", "primary_goal",
             "primary_code_slice", "test_level", "primary_oracle", "data_domain",
+            "primary_tool_family", "planning_snapshot_ref", "cohesion_explanation",
         ):
             setattr(self, name, _required(getattr(self, name), name))
         self.test_level = self.test_level.upper()
         _strings(self.case_ids, "case_ids", allow_empty=False)
-        if len(self.case_ids) > 8:
-            raise ContractError("ETU_CASE_COUNT_EXCEEDS_DEFAULT_MAX")
         _strings(self.required_capabilities, "required_capabilities")
+        _strings(self.child_etu_ids, "child_etu_ids")
+        if not isinstance(self.cohesion_score, (int, float)) or not 0.0 <= float(self.cohesion_score) <= 1.0:
+            raise ContractError("ETU_COHESION_SCORE_INVALID")
+        if len(self.case_ids) > 8:
+            if self.oversize_justification is None:
+                raise ContractError("ETU_OVERSIZE_REQUIRES_JUSTIFICATION")
+            self.oversize_justification = _required(self.oversize_justification, "oversize_justification")
+        elif self.oversize_justification is not None:
+            self.oversize_justification = _required(self.oversize_justification, "oversize_justification")
+        if self.parent_etu_id is not None:
+            self.parent_etu_id = _required(self.parent_etu_id, "parent_etu_id")
+        if self.split_reason is not None:
+            self.split_reason = _required(self.split_reason, "split_reason")
+        if self.child_etu_ids and not self.split_reason:
+            raise ContractError("ETU_CHILDREN_REQUIRE_SPLIT_REASON")
         if not isinstance(self.estimated_duration_minutes, int) or self.estimated_duration_minutes <= 0:
             raise ContractError("ETU_ESTIMATED_DURATION_INVALID")
         if not isinstance(self.estimated_cost, (int, float)) or float(self.estimated_cost) < 0:
@@ -410,7 +428,11 @@ class BackEdge:
                 raise ContractError("BACK_EDGE_STATE_INVALID") from exc
         _strings(self.invalidated_refs, "invalidated_refs")
         if self.resolved_by_delivery_id is not None:
-            object.__setattr__(self, "resolved_by_delivery_id", _required(self.resolved_by_delivery_id, "resolved_by_delivery_id"))
+            object.__setattr__(
+                self,
+                "resolved_by_delivery_id",
+                _required(self.resolved_by_delivery_id, "resolved_by_delivery_id"),
+            )
         if self.from_node == self.return_node:
             raise ContractError("BACK_EDGE_SELF_ROUTE_FORBIDDEN")
         if self.state == BackEdgeState.RESOLVED and not self.resolved_by_delivery_id:
