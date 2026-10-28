@@ -6,6 +6,7 @@ import pytest
 from rc8_node.__main__ import (_AUTONOMOUS_STAGES, _N1_N10_REQUIRED_STAGES, _autonomous_readiness, _build_dispatcher, _env_flag, main)
 from rc8_node.code_analysis_worker import CodeAnalysisWorker
 from rc8_node.code_sufficiency_worker import CodeSufficiencyWorker
+from rc8_node.defect_closure_observation_worker import DefectClosureObservationWorker
 from rc8_node.design_sufficiency_worker import DesignSufficiencyWorker
 from rc8_node.executable_spec_worker import ExecutableSpecWorker
 from rc8_node.failure_coverage_evaluation_worker import FailureCoverageEvaluationWorker
@@ -27,7 +28,7 @@ def _identity() -> NodeIdentity:
 def test_autonomous_entry_registers_only_currently_implemented_stage_workers(tmp_path: Path) -> None:
     dispatcher = _build_dispatcher(_args(tmp_path), _identity(), FakeCenter())
     assert dispatcher.supported_stages == tuple(sorted(_AUTONOMOUS_STAGES))
-    assert set(dispatcher.workers) == {"SCOPE_INTAKE", "REQUIREMENT_ANALYSIS", "REQUIREMENT_SUFFICIENCY", "CODE_ANALYSIS", "CODE_SUFFICIENCY", "RISK_TEST_MODEL", "TEST_DESIGN", "DESIGN_SUFFICIENCY", "PRECONDITION_DATA_PREP", "EXECUTABLE_SPEC", "APPLICABLE_LAYER_EXECUTION", "FAILURE_COVERAGE_EVALUATION"}
+    assert set(dispatcher.workers) == {"SCOPE_INTAKE", "REQUIREMENT_ANALYSIS", "REQUIREMENT_SUFFICIENCY", "CODE_ANALYSIS", "CODE_SUFFICIENCY", "RISK_TEST_MODEL", "TEST_DESIGN", "DESIGN_SUFFICIENCY", "PRECONDITION_DATA_PREP", "EXECUTABLE_SPEC", "APPLICABLE_LAYER_EXECUTION", "FAILURE_COVERAGE_EVALUATION", "DEFECT_CLOSURE_OBSERVATION"}
     assert isinstance(dispatcher.workers["CODE_ANALYSIS"], CodeAnalysisWorker)
     assert isinstance(dispatcher.workers["CODE_SUFFICIENCY"], CodeSufficiencyWorker)
     assert isinstance(dispatcher.workers["RISK_TEST_MODEL"], RiskTestModelWorker)
@@ -36,6 +37,7 @@ def test_autonomous_entry_registers_only_currently_implemented_stage_workers(tmp
     assert isinstance(dispatcher.workers["PRECONDITION_DATA_PREP"], PreconditionDataPrepWorker)
     assert isinstance(dispatcher.workers["EXECUTABLE_SPEC"], ExecutableSpecWorker)
     assert isinstance(dispatcher.workers["FAILURE_COVERAGE_EVALUATION"], FailureCoverageEvaluationWorker)
+    assert isinstance(dispatcher.workers["DEFECT_CLOSURE_OBSERVATION"], DefectClosureObservationWorker)
     assert dispatcher.ttl_seconds == 60
     assert dispatcher.idle_sleep_seconds == 1.0
 
@@ -51,6 +53,7 @@ def test_single_node_n1_n10_readiness_fails_closed_until_all_stage_workers_exist
     assert "PRECONDITION_DATA_PREP" not in missing
     assert "EXECUTABLE_SPEC" not in missing
     assert "FAILURE_COVERAGE_EVALUATION" not in missing
+    assert "DEFECT_CLOSURE_OBSERVATION" not in missing
     assert {"MISSION_SUFFICIENCY", "REPORT_RELEASE"}.issubset(set(missing))
 
 def test_autonomous_entry_keeps_later_unimplemented_stages_closed(tmp_path: Path) -> None:
@@ -66,6 +69,7 @@ def test_autonomous_entry_keeps_later_unimplemented_stages_closed(tmp_path: Path
     assert "CODE_SUFFICIENCY" in dispatcher.supported_stages
     assert "APPLICABLE_LAYER_EXECUTION" in dispatcher.supported_stages
     assert "FAILURE_COVERAGE_EVALUATION" in dispatcher.supported_stages
+    assert "DEFECT_CLOSURE_OBSERVATION" in dispatcher.supported_stages
 
 def test_autonomous_cli_requires_dsh_patch_before_any_runtime_registration() -> None:
     with pytest.raises(SystemExit) as captured:
