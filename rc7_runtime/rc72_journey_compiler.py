@@ -1,8 +1,9 @@
 """RC7.2 Journey Compiler: CAPTURED teaching truth -> non-executable Candidate IR.
 
-This slice deliberately stops before replay/benchmark/promotion.  A compiled
-candidate preserves release/requirement/SST/obligation lineage and source-step
-provenance, but remains CANDIDATE, executable=False and official=False.
+A compiled candidate preserves release/requirement/SST/obligation lineage and
+source-step provenance. Replay and Benchmark may update their own controlled
+status fields, but Candidate remains CANDIDATE, executable=False and
+official=False until a later independent review/promotion slice.
 """
 from __future__ import annotations
 
@@ -71,7 +72,9 @@ def _validate_candidate(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise _contracts.DomainValidationError("JOURNEY_CANDIDATE_MUST_NOT_BE_OFFICIAL")
     if out["replay_status"] not in {"NOT_RUN", "PASSED", "FAILED"}:
         raise _contracts.DomainValidationError("JOURNEY_CANDIDATE_REPLAY_STATUS_INVALID")
-    if out["benchmark_status"] != "NOT_RUN" or out["review_status"] != "NOT_REVIEWED":
+    if out["benchmark_status"] not in {"NOT_RUN", "PASSED", "FAILED"}:
+        raise _contracts.DomainValidationError("JOURNEY_CANDIDATE_BENCHMARK_STATUS_INVALID")
+    if out["review_status"] != "NOT_REVIEWED":
         raise _contracts.DomainValidationError("JOURNEY_CANDIDATE_PREMATURE_PROMOTION_STATE")
     steps = out.get("steps")
     if not isinstance(steps, list) or not steps:
