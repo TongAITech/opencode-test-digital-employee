@@ -52,3 +52,21 @@ def test_n10_requires_explicit_active_blocking_gap_denominator():
     value = _candidate(); value["active_blocking_gaps"] = None
     with pytest.raises(MissionSufficiencyObservationWorkerError, match="N10_ACTIVE_BLOCKING_GAPS_LIST_REQUIRED"):
         MissionSufficiencyObservationWorker.validate_candidate(value)
+
+
+def test_n10_execution_rejects_non_mission_sufficiency_work_before_dsh(tmp_path):
+    class Claimed:
+        work_item = {"identity": {"stage": "REPORT_RELEASE", "work_item_id": "w1", "test_run_id": "r1", "scope_refs": ["mission:m1"]}}
+        lease_id = "lease-1"
+        stage_instance_id = "stage-1"
+
+    worker = MissionSufficiencyObservationWorker(agent=object(), dsh_runner=object(), work_dir=str(tmp_path))
+    with pytest.raises(MissionSufficiencyObservationWorkerError, match="WORK_ITEM_STAGE_NOT_MISSION_SUFFICIENCY"):
+        worker.execute(Claimed())
+
+
+def test_n10_prompt_preserves_center_only_convergence_authority():
+    prompt = MissionSufficiencyObservationWorker._prompt(["mission:m1"])
+    assert "MISSION_CONVERGED" in prompt
+    assert "Center owns all final convergence authority" in prompt
+    assert "release" in prompt
