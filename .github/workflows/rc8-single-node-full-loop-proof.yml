@@ -6,6 +6,7 @@ on:
     paths:
       - 'rc8_node/**'
       - 'tests/test_rc8_single_node_full_loop_proof.py'
+      - 'tests/test_rc8_single_node_center_truth.py'
       - '.github/workflows/rc8-single-node-full-loop-proof.yml'
   workflow_dispatch:
 
@@ -23,5 +24,5 @@ jobs:
           python-version: '3.8'
       - name: Install proof test dependency
         run: python -m pip install pytest
-      - name: Run fail-closed SINGLE_NODE proof contract tests
-        run: python -m pytest -q tests/test_rc8_single_node_full_loop_proof.py
+      - name: Run fail-closed SINGLE_NODE proof and Center/R1 truth tests
+        run: python -m pytest -q tests/test_rc8_single_node_full_loop_proof.py tests/test_rc8_single_node_center_truth.py
