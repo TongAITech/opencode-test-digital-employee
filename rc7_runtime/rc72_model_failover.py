@@ -3,7 +3,7 @@
 Model identity is bound to a Worker/Attempt/Session, never the whole Mission.
 Provider failures are persisted in the provider namespace, the old Attempt is
 blocked and checkpointed, and approved fallback creates a fresh Worker plus a
-new child Attempt for the same WorkItem.  Existing long-running sessions are
+new child Attempt for the same WorkItem. Existing long-running sessions are
 never hot-swapped to another model.
 """
 from __future__ import annotations
@@ -12,7 +12,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 from rc6_runtime import contracts as _contracts
 from rc6_runtime import truth as _truth
@@ -209,6 +209,21 @@ def install_rc72_model_failover_overlay() -> None:
         _truth.IDENTITY_FIELDS[artifact_type] = identity
 
 
+def _ensure_projection_buckets(truth: TruthRuntime) -> None:
+    """Upgrade an already-created projection after dynamic RC7.2 type registration.
+
+    TruthRuntime creates its disposable Projection before some optional RC7.2
+    services are instantiated. Registering new global BUCKETS afterwards is not
+    enough for that existing Projection instance. Initialize only this service's
+    new buckets/version maps; do not weaken projection integrity or replay rules.
+    """
+    projection = truth.projection
+    for artifact_type, bucket in _BUCKETS.items():
+        if not hasattr(projection, bucket):
+            setattr(projection, bucket, {})
+        projection._versions.setdefault(artifact_type, {})
+
+
 class ModelFailoverManager:
     def __init__(
         self,
@@ -218,6 +233,7 @@ class ModelFailoverManager:
         worker_lifecycle: WorkerLifecycleService,
     ) -> None:
         install_rc72_model_failover_overlay()
+        _ensure_projection_buckets(truth)
         if not isinstance(release_id, str) or not release_id.strip():
             raise ContractError("MODEL_FAILOVER_RELEASE_ID_REQUIRED")
         self.truth = truth
