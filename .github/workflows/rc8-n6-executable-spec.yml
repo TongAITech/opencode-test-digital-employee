@@ -1,0 +1,29 @@
+name: RC8 N6 Executable Spec Worker
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_node/executable_spec_worker.py'
+      - 'tests/test_rc8_n6_executable_spec_worker.py'
+      - '.github/workflows/rc8-n6-executable-spec.yml'
+  workflow_dispatch:
+
+jobs:
+  n6-executable-spec:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Install pytest
+        run: python -m pip install pytest
+      - name: Compile N6 worker
+        run: python -m py_compile rc8_node/executable_spec_worker.py
+      - name: Run N6 targeted contract tests
+        run: python -m pytest -q tests/test_rc8_n6_executable_spec_worker.py
