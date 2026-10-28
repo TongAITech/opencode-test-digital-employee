@@ -31,8 +31,7 @@ _BUCKET = "rc72_decomposition_snapshots"
 
 
 def _require_dict(out: Dict[str, Any], field: str) -> None:
-    value = out.get(field)
-    if not isinstance(value, dict):
+    if not isinstance(out.get(field), dict):
         raise _contracts.DomainValidationError("%s_MUST_BE_OBJECT" % field.upper())
 
 
@@ -48,27 +47,18 @@ def _validator(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise _contracts.DomainValidationError("ARTIFACT_MUST_BE_OBJECT")
     out = dict(payload)
     for field in (
-        "snapshot_id",
-        "mission_id",
-        "release_batch_id",
-        "current_node",
-        "config_version",
-        "release_id",
+        "snapshot_id", "mission_id", "release_batch_id", "current_node",
+        "config_version", "release_id",
     ):
         out[field] = _contracts._require_str(out, field)
-    for field in (
-        "obligation_ids",
-        "case_ids",
-        "completed_case_ids",
-        "etu_ids",
-    ):
+    for field in ("obligation_ids", "case_ids", "completed_case_ids", "etu_ids"):
         _contracts._require_string_list(out, field)
+    # Do not use legacy batch-reserved names such as `cases`; replay expands
+    # those fields as historical TEST_CASE_UPSERTED batches before RC7.2
+    # projection sees them.
     for field in (
-        "cases",
-        "coverage_gaps",
-        "execution_history",
-        "planning_signals",
-        "coverage_routes",
+        "planning_cases", "coverage_gaps", "execution_history",
+        "planning_signals", "coverage_routes",
     ):
         if not isinstance(out.get(field), list):
             raise _contracts.DomainValidationError("%s_MUST_BE_LIST" % field.upper())
@@ -145,7 +135,7 @@ class PersistentAdaptiveTaskDecomposer:
             "config_version": snapshot.config_version,
             "obligation_ids": [obligation.obligation_id for obligation in snapshot.obligations],
             "case_ids": [case.case_id for case in snapshot.cases],
-            "cases": _dict_list(snapshot.cases),
+            "planning_cases": _dict_list(snapshot.cases),
             "coverage_gaps": _dict_list(snapshot.coverage_gaps),
             "completed_case_ids": list(snapshot.completed_case_ids),
             "execution_history": _dict_list(snapshot.execution_history),
