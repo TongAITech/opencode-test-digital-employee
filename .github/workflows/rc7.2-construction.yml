@@ -1,0 +1,48 @@
+name: RC7.2 Construction Qualification
+
+on:
+  push:
+    branches:
+      - work/rc7.2
+    paths:
+      - 'rc7_runtime/**'
+      - 'tests/test_rc72_*.py'
+      - 'tests/test_rc7_*.py'
+      - 'docs/rc7.2/**'
+      - '.github/workflows/rc7.2-construction.yml'
+  workflow_dispatch:
+
+jobs:
+  phase-contract:
+    name: phase-contract-python-${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install qualification dependency
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile RC7 runtime
+        run: python -m compileall -q rc7_runtime
+      - name: Run RC7.2 construction contract tests
+        run: python -m pytest -q tests/test_rc72_*.py
+
+  rc7-regression:
+    name: inherited-rc7-regression-python-3.8
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Install qualification dependency
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile inherited and RC7.2 runtime
+        run: python -m compileall -q rc6_runtime rc7_runtime
+      - name: Run inherited RC7 source suite
+        run: python -m pytest -q tests/test_rc7_*.py
