@@ -9,18 +9,19 @@ Every construction session MUST first read current `work/rc7.2` HEAD, same-HEAD 
 ```yaml
 branch: work/rc7.2
 design_baseline_sha: a3426e306abf967ab822d44508127c3891c8e91e
-latest_phase4_qualified_code_head_sha: 74946709560b85cef03f01a594a873901712bc71
-latest_phase4_qualified_ci_run: 40712471496
+latest_phase5_qualified_code_head_sha: f7214d9c6ff7bbd3cb65f2d43b63816b677e75c1
+latest_phase5_qualified_ci_run: 40715463547
 phase:
   phase0_reality_baseline: COMPLETE
   phase1_canonical_domain_model: CI_PASS
   phase2_n1_n10_state_machine: CI_PASS
   phase3_sufficiency_gates: CI_PASS
   phase4_adaptive_task_decomposer: CI_PASS
-  phase5_fresh_worker_reviewer_handoff: NOT_STARTED
+  phase5_fresh_worker_reviewer_handoff: CI_PASS
+  phase6_diagnosis_recovery_orchestration: NOT_STARTED
 field_evidence: NOT_YET_FIELD_VALIDATED
 release_status: CONSTRUCTION_ONLY
-next_atomic_step: PHASE5_FRESH_WORKER_SESSION_ROTATION_CONTRACT_TESTS_FIRST
+next_atomic_step: PHASE6_DIAGNOSIS_RECOVERY_CONTRACT_TESTS_FIRST
 ```
 
 `CI_PASS` means repository-level contract/regression qualification only. It does not mean in-bank Field validation.
@@ -220,32 +221,75 @@ Field validation: `NO`. No real in-bank ReleaseBatch has yet exercised RC7.2 ada
 
 ## 8. Phase 5 — Fresh Worker / Fresh Reviewer / Session Rotation / Captain Handoff
 
+Status: `CI_PASS`
+
+Qualified code head: `f7214d9c6ff7bbd3cb65f2d43b63816b677e75c1`
+Qualified run: `40715463547`
+
+Same-head qualification:
+
+- RC7.2 contracts Python 3.8: PASS — `64 passed`.
+- RC7.2 contracts Python 3.11: PASS — `64 passed`.
+- inherited RC7 regression Python 3.8: PASS — `492 passed, 1 skipped`.
+- runtime compile: PASS.
+- JUnit diagnostics retained as workflow artifacts.
+
+Tests-first commits:
+
+- `11fd135a...` freezes fresh worker/session rotation/reviewer/captain-handoff contracts.
+- `f3d73db3...` freezes signed runtime worker + real DSH session binding contracts.
+
+Implementation commits:
+
+- `c4aa4391...` implements fresh worker lifecycle, rotation/checkpoint, fresh reviewer and Captain handoff.
+- `112a391a...` binds lifecycle identity to signed DSH worker assignment, Attempt and real DSH session truth.
+- `f7214d9c...` normalizes attempt lease references at the canonical boundary.
+
+Delivered:
+
+1. Role remains durable semantic identity while Worker/Session are disposable execution identities.
+2. Default execution is one ETU -> one fresh Worker/Session; closed sessions cannot silently bind another ETU.
+3. Fresh worker context is built only from canonical R1 refs; chat history/transcript is explicitly absent.
+4. Rotation policy evaluates workitem/step/token/tool-call/compaction/retry/runtime/context-pressure thresholds.
+5. Rotation persists R1 checkpoint truth before closing the old session and creating the fresh session.
+6. Fresh Reviewer is a distinct worker/session and receives NodeDelivery + criteria + evidence rather than executor transcript.
+7. Captain handoff persists checkpoint truth, reuses the same Mission/Team and fails closed on identity mismatch.
+8. Worker checkpoint, Captain handoff and takeover survive R1 replay.
+9. Signed `DshHeadlessWorkerLauncher` assignment is bound to lifecycle session, existing `rc7_task`, Attempt and TaskLease.
+10. Real DSH session identity upgrades the WorkItemAttemptBinding to RUNNING; worker/session/lease identity mismatch fails closed.
+11. All worker, rotation, reviewer, handoff, runtime-assignment and attempt-binding truth remains queryable from the same R1.
+
+Phase 5 does not broaden Worker permissions and does not implement Browser/Model/Data resource leasing; those remain Phase 7 responsibilities.
+
+Field validation: `NO`. No real in-bank AgentTeams/DSH mission has yet exercised RC7.2 Fresh Worker/session rotation/Captain handoff.
+
+## 9. Phase 6 — Independent Diagnosis / Recovery Orchestration
+
 Status: `NOT_STARTED`
 
-Next step MUST be tests-first against `05-AGENTTEAMS-WORKER-LEASE-CONTRACT.md`.
+Next step MUST be tests-first and must reuse the Phase 2 failure taxonomy/back-edge semantics rather than create a second diagnosis state machine.
 
 First slice must prove:
 
-1. Role is durable semantic identity; Worker and Session are disposable execution identities.
-2. default execution is one ETU -> one fresh Worker/Session -> Evidence/R1 -> close.
-3. a second ETU does not silently reuse an expired/closed Worker session.
-4. rotation is triggered by configured workitem/step/token/runtime/compaction thresholds and persists checkpoint truth before close.
-5. Fresh Reviewer receives current NodeDelivery + criteria + evidence, not executor chat history.
-6. Captain handoff attaches to the same Mission/Team/R1 truth without creating a duplicate Mission or replaying completed WorkItems.
-7. all takeover/rotation decisions are queryable from R1.
+1. N7 failure produces immutable failure evidence and dispatches a fresh diagnosis Worker rather than allowing executor self-repair.
+2. diagnosis Worker receives Attempt/Execution/Evidence/ExecutableContract refs only; it does not inherit executor chat history.
+3. deterministic diagnosis classifies at least `ENVIRONMENT_GAP`, `REQUIREMENT_GAP`, `ANALYSIS_GAP`, `TEST_DESIGN_GAP`, `TEST_DATA_GAP`, `EXECUTABLE_GAP`, `PRODUCT_DEFECT`, provider/capability/resource failures and `UNKNOWN`.
+4. classified analysis/design/data/executable gaps create canonical Gap + BackEdge and return to N3/N4/N5/N6 respectively.
+5. PRODUCT_DEFECT routes to N9 without mutating the original execution Attempt.
+6. provider/capability/resource failures stay infrastructure/runtime failures and are not recorded as SUT defects.
+7. UNKNOWN cannot auto-PASS and must remain blocked/diagnosis-pending with evidence.
+8. after upstream repair, affected downstream delivery/case/data/executable assets become STALE and a new Attempt is required for re-execution.
+9. diagnosis/recovery decisions and replacement Attempt lineage survive R1 replay.
 
-Phase 5 must not yet broaden Worker permissions or solve Browser/Model/Data leasing; those belong to Phase 7.
+## 10. Remaining phases
 
-## 9. Remaining phases
-
-- Phase 5: Fresh Worker/Fresh Reviewer/session rotation/Captain handoff.
 - Phase 6: independent diagnosis/recovery orchestration.
 - Phase 7: CapabilityBroker, BrowserPool/BrowserLease, DataLease, model failover.
 - Phase 8: Libra feedback through Requirement/SST/TestObligation and N10 convergence.
 - Phase 9: Journey Teaching/Compiler/Replay/Benchmark.
 - final: Windows + Linux + clean-unpack + real in-bank Field Acceptance.
 
-## 10. Anti-drift rule
+## 11. Anti-drift rule
 
 Future sessions MUST NOT infer completion from this file alone. Always inspect:
 
