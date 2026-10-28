@@ -34,6 +34,7 @@ def _strings(values: List[str], name: str) -> List[str]:
 
 class NodeTransitionKind(str, Enum):
     FORWARD = "FORWARD"
+    DIAGNOSIS = "DIAGNOSIS"
     BACK_EDGE = "BACK_EDGE"
     BLOCKED = "BLOCKED"
     HUMAN_GATE = "HUMAN_GATE"
@@ -89,6 +90,8 @@ class NodeTransition:
         _strings(self.evidence_refs, "evidence_refs")
         if self.kind == NodeTransitionKind.FORWARD and not self.source_gate_id:
             raise ContractError("FORWARD_TRANSITION_REQUIRES_SOURCE_GATE")
+        if self.kind == NodeTransitionKind.DIAGNOSIS and not self.evidence_refs:
+            raise ContractError("DIAGNOSIS_TRANSITION_REQUIRES_EVIDENCE")
         if self.kind == NodeTransitionKind.BACK_EDGE and not self.back_edge_id:
             raise ContractError("BACK_EDGE_TRANSITION_REQUIRES_BACK_EDGE")
         if self.from_mission_node_id == self.to_mission_node_id and self.kind != NodeTransitionKind.RESUME:
