@@ -38,6 +38,7 @@ def test_full_loop_runner_freezes_denominator_and_never_grants_pass_or_release()
     dispatcher = SequencedProductionDispatcherDouble()
     proof = SingleNodeFullLoopProofRunner(dispatcher=dispatcher).run(test_run_id="TR-SINGLE-N1-N10")
     assert proof.stages == FROZEN_N1_N10_STAGES
+    assert len(proof.work_item_ids) == 15
     assert len(proof.attempt_ids) == 15
     assert len(proof.evidence_refs) == 15
     assert proof.status == "OBSERVED_NOT_AUTHORIZED"
@@ -61,6 +62,18 @@ def test_full_loop_runner_fails_closed_on_idle_or_out_of_order_stage() -> None:
         return DispatchOutcome(status="EXECUTED", stage="CODE_ANALYSIS", work_item_id=outcome.work_item_id, result=outcome.result) if index == 1 else outcome
     with pytest.raises(SingleNodeFullLoopProofError, match="FULL_LOOP_STAGE_ORDER_MISMATCH:REQUIREMENT_ANALYSIS:CODE_ANALYSIS"):
         SingleNodeFullLoopProofRunner(dispatcher=SequencedProductionDispatcherDouble(mutate=wrong_second)).run(test_run_id="TR")
+
+
+def test_full_loop_runner_requires_distinct_work_items() -> None:
+    def no_work_item(index, outcome):
+        return DispatchOutcome(status=outcome.status, stage=outcome.stage, work_item_id="", result=outcome.result) if index == 2 else outcome
+    with pytest.raises(SingleNodeFullLoopProofError, match="FULL_LOOP_WORK_ITEM_ID_MISSING:REQUIREMENT_SUFFICIENCY"):
+        SingleNodeFullLoopProofRunner(dispatcher=SequencedProductionDispatcherDouble(mutate=no_work_item)).run(test_run_id="TR")
+
+    def reused_work_item(index, outcome):
+        return DispatchOutcome(status=outcome.status, stage=outcome.stage, work_item_id="wi-00", result=outcome.result) if index == 1 else outcome
+    with pytest.raises(SingleNodeFullLoopProofError, match="FULL_LOOP_WORK_ITEM_ID_REUSED"):
+        SingleNodeFullLoopProofRunner(dispatcher=SequencedProductionDispatcherDouble(mutate=reused_work_item)).run(test_run_id="TR")
 
 
 def test_full_loop_runner_requires_attempt_bound_canonical_artifact_evidence() -> None:
