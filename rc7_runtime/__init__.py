@@ -108,6 +108,23 @@ from .autonomous_execution_service import (
     AutonomousExecutionServiceError,
     PreparedAutonomousExecutionResult,
 )
+from .rc72_domain import (
+    AutonomousMissionNode,
+    BackEdge,
+    ETUState,
+    ExecutionTaskUnit,
+    MissionNodeRecord,
+    MissionNodeState,
+    NodeDelivery,
+    NodeGate,
+    NodeGateDecision,
+    ObligationStatus,
+    RC72_CANONICAL_NODE_ORDER,
+    ReleaseBatch,
+    TestObligation,
+)
+from .rc72_repository import CanonicalRC72Repository, RC72LineageError
+from .rc72_truth import append_rc72_entity, install_rc72_truth_overlay
 
 __all__ = [
     "RealityCheckedJUnitRunnerAdapter",
@@ -186,4 +203,21 @@ __all__ = [
     "AutonomousClosedLoopExecutionService",
     "AutonomousExecutionServiceError",
     "PreparedAutonomousExecutionResult",
+    "AutonomousMissionNode",
+    "MissionNodeState",
+    "MissionNodeRecord",
+    "NodeDelivery",
+    "NodeGate",
+    "NodeGateDecision",
+    "ReleaseBatch",
+    "TestObligation",
+    "ObligationStatus",
+    "ExecutionTaskUnit",
+    "ETUState",
+    "BackEdge",
+    "RC72_CANONICAL_NODE_ORDER",
+    "CanonicalRC72Repository",
+    "RC72LineageError",
+    "append_rc72_entity",
+    "install_rc72_truth_overlay",
 ]
