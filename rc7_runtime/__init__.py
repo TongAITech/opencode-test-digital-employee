@@ -124,6 +124,12 @@ from .rc72_domain import (
     ReleaseBatch,
     TestObligation,
 )
+from .rc72_linkage import (
+    NodeTransition,
+    NodeTransitionKind,
+    WorkItemAttemptBinding,
+    WorkItemAttemptState,
+)
 from .rc72_repository import CanonicalRC72Repository, RC72LineageError
 from .rc72_truth import append_rc72_entity, install_rc72_truth_overlay
 
@@ -217,6 +223,10 @@ __all__ = [
     "ETUState",
     "BackEdge",
     "BackEdgeState",
+    "NodeTransition",
+    "NodeTransitionKind",
+    "WorkItemAttemptBinding",
+    "WorkItemAttemptState",
     "RC72_CANONICAL_NODE_ORDER",
     "CanonicalRC72Repository",
     "RC72LineageError",
