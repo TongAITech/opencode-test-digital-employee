@@ -1,12 +1,12 @@
 """RC7.2 canonical Autonomous Test Runtime domain model.
 
 This module extends the RC7 control-plane model without mutating persisted
-RC7.1 Mission graph identities.  The entities here are deliberately session
+RC7.1 Mission graph identities. The entities here are deliberately session
 independent: a Worker/LLM conversation may disappear while these records remain
 recoverable from R1 truth.
 
-ReleaseBatch is the highest business root.  Test assets must preserve the
-ReleaseBatch -> Requirement -> SST -> TestObligation lineage.  Coverage is a
+ReleaseBatch is the highest business root. Test assets must preserve the
+ReleaseBatch -> Requirement -> SST -> TestObligation lineage. Coverage is a
 feedback signal attached to an obligation; it is never an alternative root.
 """
 from __future__ import annotations
@@ -37,6 +37,12 @@ def _strings(values: List[str], name: str, *, allow_empty: bool = True) -> List[
     if not allow_empty and not values:
         raise ContractError("%s_REQUIRED" % name.upper())
     return values
+
+
+def _optional_time(value: Optional[int], name: str) -> Optional[int]:
+    if value is not None and (not isinstance(value, int) or value < 0):
+        raise ContractError("%s_INVALID" % name.upper())
+    return value
 
 
 class AutonomousMissionNode(str, Enum):
@@ -70,10 +76,12 @@ class AutonomousMissionNode(str, Enum):
 
 
 class MissionNodeState(str, Enum):
-    REGISTERED = "REGISTERED"
+    """Exact high-level states frozen by the N1-N10 state-machine contract."""
+
+    NOT_STARTED = "NOT_STARTED"
     READY = "READY"
     RUNNING = "RUNNING"
-    EVALUATING = "EVALUATING"
+    REVIEW_PENDING = "REVIEW_PENDING"
     PASS = "PASS"
     NEEDS_REVISION = "NEEDS_REVISION"
     BLOCKED = "BLOCKED"
@@ -113,6 +121,12 @@ class ETUState(str, Enum):
     STALE = "STALE"
 
 
+class BackEdgeState(str, Enum):
+    OPEN = "OPEN"
+    RESOLVED = "RESOLVED"
+    SUPERSEDED = "SUPERSEDED"
+
+
 @dataclass
 class ReleaseBatch:
     release_batch_id: str
@@ -144,11 +158,16 @@ class ReleaseBatch:
 class MissionNodeRecord:
     mission_node_id: str
     mission_id: str
-    node: AutonomousMissionNode
-    state: MissionNodeState = MissionNodeState.REGISTERED
+    node_type: AutonomousMissionNode
+    scope_ref: str
+    state: MissionNodeState = MissionNodeState.NOT_STARTED
+    active_delivery_version: Optional[int] = None
     delivery_refs: List[str] = field(default_factory=list)
     gate_refs: List[str] = field(default_factory=list)
     open_gap_refs: List[str] = field(default_factory=list)
+    entered_at: Optional[int] = None
+    exited_at: Optional[int] = None
+    blocked_reason: Optional[str] = None
     revision: int = 1
     created_at: int = field(default_factory=_now)
     updated_at: int = field(default_factory=_now)
@@ -156,19 +175,27 @@ class MissionNodeRecord:
     def __post_init__(self) -> None:
         self.mission_node_id = _required(self.mission_node_id, "mission_node_id")
         self.mission_id = _required(self.mission_id, "mission_id")
-        if not isinstance(self.node, AutonomousMissionNode):
+        self.scope_ref = _required(self.scope_ref, "scope_ref")
+        if not isinstance(self.node_type, AutonomousMissionNode):
             try:
-                self.node = AutonomousMissionNode(str(self.node))
+                self.node_type = AutonomousMissionNode(str(self.node_type))
             except ValueError as exc:
-                raise ContractError("MISSION_NODE_INVALID") from exc
+                raise ContractError("MISSION_NODE_TYPE_INVALID") from exc
         if not isinstance(self.state, MissionNodeState):
             try:
                 self.state = MissionNodeState(str(self.state))
             except ValueError as exc:
                 raise ContractError("MISSION_NODE_STATE_INVALID") from exc
+        if self.active_delivery_version is not None:
+            if not isinstance(self.active_delivery_version, int) or self.active_delivery_version < 1:
+                raise ContractError("MISSION_NODE_ACTIVE_DELIVERY_VERSION_INVALID")
         _strings(self.delivery_refs, "delivery_refs")
         _strings(self.gate_refs, "gate_refs")
         _strings(self.open_gap_refs, "open_gap_refs")
+        _optional_time(self.entered_at, "entered_at")
+        _optional_time(self.exited_at, "exited_at")
+        if self.blocked_reason is not None:
+            self.blocked_reason = _required(self.blocked_reason, "blocked_reason")
         if not isinstance(self.revision, int) or self.revision < 1:
             raise ContractError("MISSION_NODE_REVISION_INVALID")
 
@@ -177,31 +204,35 @@ class MissionNodeRecord:
 class NodeDelivery:
     delivery_id: str
     mission_id: str
-    node: AutonomousMissionNode
+    mission_node_id: str
+    node_type: AutonomousMissionNode
     version: int
     producer_ref: str
     input_refs: List[str] = field(default_factory=list)
     artifact_refs: List[str] = field(default_factory=list)
     evidence_refs: List[str] = field(default_factory=list)
-    gap_refs: List[str] = field(default_factory=list)
+    known_gaps: List[str] = field(default_factory=list)
+    created_by_workitems: List[str] = field(default_factory=list)
     sufficiency_score: Optional[float] = None
     created_at: int = field(default_factory=_now)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "delivery_id", _required(self.delivery_id, "delivery_id"))
         object.__setattr__(self, "mission_id", _required(self.mission_id, "mission_id"))
+        object.__setattr__(self, "mission_node_id", _required(self.mission_node_id, "mission_node_id"))
         object.__setattr__(self, "producer_ref", _required(self.producer_ref, "producer_ref"))
-        if not isinstance(self.node, AutonomousMissionNode):
+        if not isinstance(self.node_type, AutonomousMissionNode):
             try:
-                object.__setattr__(self, "node", AutonomousMissionNode(str(self.node)))
+                object.__setattr__(self, "node_type", AutonomousMissionNode(str(self.node_type)))
             except ValueError as exc:
-                raise ContractError("NODE_DELIVERY_NODE_INVALID") from exc
+                raise ContractError("NODE_DELIVERY_NODE_TYPE_INVALID") from exc
         if not isinstance(self.version, int) or self.version < 1:
             raise ContractError("NODE_DELIVERY_VERSION_INVALID")
         _strings(self.input_refs, "input_refs")
         _strings(self.artifact_refs, "artifact_refs")
         _strings(self.evidence_refs, "evidence_refs")
-        _strings(self.gap_refs, "gap_refs")
+        _strings(self.known_gaps, "known_gaps")
+        _strings(self.created_by_workitems, "created_by_workitems")
         if self.sufficiency_score is not None:
             if not isinstance(self.sufficiency_score, (int, float)) or not 0.0 <= float(self.sufficiency_score) <= 1.0:
                 raise ContractError("NODE_DELIVERY_SUFFICIENCY_SCORE_INVALID")
@@ -211,10 +242,12 @@ class NodeDelivery:
 class NodeGate:
     gate_id: str
     mission_id: str
-    node: AutonomousMissionNode
+    mission_node_id: str
+    node_type: AutonomousMissionNode
     delivery_id: str
     decision: NodeGateDecision
-    evaluator_ref: str
+    reviewer_worker_id: str
+    reviewer_session_id: str
     criteria: List[str] = field(default_factory=list)
     passed: List[str] = field(default_factory=list)
     failed: List[str] = field(default_factory=list)
@@ -226,13 +259,15 @@ class NodeGate:
     def __post_init__(self) -> None:
         object.__setattr__(self, "gate_id", _required(self.gate_id, "gate_id"))
         object.__setattr__(self, "mission_id", _required(self.mission_id, "mission_id"))
+        object.__setattr__(self, "mission_node_id", _required(self.mission_node_id, "mission_node_id"))
         object.__setattr__(self, "delivery_id", _required(self.delivery_id, "delivery_id"))
-        object.__setattr__(self, "evaluator_ref", _required(self.evaluator_ref, "evaluator_ref"))
-        if not isinstance(self.node, AutonomousMissionNode):
+        object.__setattr__(self, "reviewer_worker_id", _required(self.reviewer_worker_id, "reviewer_worker_id"))
+        object.__setattr__(self, "reviewer_session_id", _required(self.reviewer_session_id, "reviewer_session_id"))
+        if not isinstance(self.node_type, AutonomousMissionNode):
             try:
-                object.__setattr__(self, "node", AutonomousMissionNode(str(self.node)))
+                object.__setattr__(self, "node_type", AutonomousMissionNode(str(self.node_type)))
             except ValueError as exc:
-                raise ContractError("NODE_GATE_NODE_INVALID") from exc
+                raise ContractError("NODE_GATE_NODE_TYPE_INVALID") from exc
         if not isinstance(self.decision, NodeGateDecision):
             try:
                 object.__setattr__(self, "decision", NodeGateDecision(str(self.decision)))
@@ -347,26 +382,39 @@ class BackEdge:
     mission_id: str
     gap_id: str
     from_node: AutonomousMissionNode
-    to_node: AutonomousMissionNode
+    from_delivery_id: str
+    return_node: AutonomousMissionNode
     reason: str
     invalidated_refs: List[str] = field(default_factory=list)
+    resolved_by_delivery_id: Optional[str] = None
+    state: BackEdgeState = BackEdgeState.OPEN
     created_at: int = field(default_factory=_now)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "back_edge_id", _required(self.back_edge_id, "back_edge_id"))
         object.__setattr__(self, "mission_id", _required(self.mission_id, "mission_id"))
         object.__setattr__(self, "gap_id", _required(self.gap_id, "gap_id"))
+        object.__setattr__(self, "from_delivery_id", _required(self.from_delivery_id, "from_delivery_id"))
         object.__setattr__(self, "reason", _required(self.reason, "reason"))
-        for attr in ("from_node", "to_node"):
+        for attr in ("from_node", "return_node"):
             value = getattr(self, attr)
             if not isinstance(value, AutonomousMissionNode):
                 try:
                     object.__setattr__(self, attr, AutonomousMissionNode(str(value)))
                 except ValueError as exc:
                     raise ContractError("BACK_EDGE_%s_INVALID" % attr.upper()) from exc
+        if not isinstance(self.state, BackEdgeState):
+            try:
+                object.__setattr__(self, "state", BackEdgeState(str(self.state)))
+            except ValueError as exc:
+                raise ContractError("BACK_EDGE_STATE_INVALID") from exc
         _strings(self.invalidated_refs, "invalidated_refs")
-        if self.from_node == self.to_node:
+        if self.resolved_by_delivery_id is not None:
+            object.__setattr__(self, "resolved_by_delivery_id", _required(self.resolved_by_delivery_id, "resolved_by_delivery_id"))
+        if self.from_node == self.return_node:
             raise ContractError("BACK_EDGE_SELF_ROUTE_FORBIDDEN")
+        if self.state == BackEdgeState.RESOLVED and not self.resolved_by_delivery_id:
+            raise ContractError("BACK_EDGE_RESOLVED_REQUIRES_DELIVERY")
 
 
 RC72_CANONICAL_NODE_ORDER = tuple(node.value for node in AutonomousMissionNode.ordered())

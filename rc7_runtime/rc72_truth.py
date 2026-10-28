@@ -1,15 +1,15 @@
 """R1 persistence adapter for RC7.2 Autonomous Test Runtime entities.
 
 This module deliberately extends the inherited RC6/RC7 append/replay/projection
-registries.  It does not create a shadow database or session-local truth store.
+registries. It does not create a shadow database or session-local truth store.
 """
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import asdict
 from enum import Enum
 from typing import Any, Dict, Tuple, Type
 
-from dataclasses import asdict
 from rc6_runtime import contracts as _contracts
 from rc6_runtime import truth as _truth
 
@@ -19,6 +19,7 @@ from .rc72_domain import (
     MissionNodeRecord,
     NodeDelivery,
     NodeGate,
+    RC72_CANONICAL_NODE_ORDER,
     ReleaseBatch,
     TestObligation,
 )
@@ -54,6 +55,14 @@ _MODEL_EVENT: Dict[Type[Any], str] = {
     ExecutionTaskUnit: "RC72_ETU_UPSERTED",
     BackEdge: "RC72_BACK_EDGE_UPSERTED",
 }
+
+_NODE_VALUES = set(RC72_CANONICAL_NODE_ORDER)
+_NODE_STATES = {
+    "NOT_STARTED", "READY", "RUNNING", "REVIEW_PENDING", "PASS",
+    "NEEDS_REVISION", "BLOCKED", "HUMAN_GATE", "STALE",
+}
+_GATE_DECISIONS = {"PASS", "NEEDS_REVISION", "BLOCKED", "HUMAN_GATE"}
+_BACK_EDGE_STATES = {"OPEN", "RESOLVED", "SUPERSEDED"}
 
 
 def _json_payload(entity: Any) -> Dict[str, Any]:
@@ -91,6 +100,25 @@ def _required_fields(out: Dict[str, Any], fields: Tuple[str, ...]) -> None:
         out[field] = _contracts._require_str(out, field)
 
 
+def _optional_nonempty_str(out: Dict[str, Any], field: str) -> None:
+    value = out.get(field)
+    if value is not None and (not isinstance(value, str) or not value.strip()):
+        raise _contracts.DomainValidationError("%s_INVALID" % field.upper())
+
+
+def _optional_nonnegative_int(out: Dict[str, Any], field: str) -> None:
+    value = out.get(field)
+    if value is not None and (not isinstance(value, int) or value < 0):
+        raise _contracts.DomainValidationError("%s_INVALID" % field.upper())
+
+
+def _require_node(out: Dict[str, Any], field: str) -> None:
+    value = _contracts._require_str(out, field)
+    if value not in _NODE_VALUES:
+        raise _contracts.DomainValidationError("%s_INVALID" % field.upper())
+    out[field] = value
+
+
 def validate_release_batch(payload: Dict[str, Any]) -> Dict[str, Any]:
     out = _base(payload, "rc72_release_batch", "release_batch_id")
     _required_fields(out, ("name", "state", "readiness"))
@@ -104,9 +132,20 @@ def validate_release_batch(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def validate_mission_node(payload: Dict[str, Any]) -> Dict[str, Any]:
     out = _base(payload, "rc72_mission_node", "mission_node_id")
-    _required_fields(out, ("node", "state"))
+    _require_node(out, "node_type")
+    out["scope_ref"] = _contracts._require_str(out, "scope_ref")
+    state = _contracts._require_str(out, "state").upper()
+    if state not in _NODE_STATES:
+        raise _contracts.DomainValidationError("MISSION_NODE_STATE_INVALID")
+    out["state"] = state
     for field in ("delivery_refs", "gate_refs", "open_gap_refs"):
         _list(out, field)
+    active = out.get("active_delivery_version")
+    if active is not None and (not isinstance(active, int) or active < 1):
+        raise _contracts.DomainValidationError("MISSION_NODE_ACTIVE_DELIVERY_VERSION_INVALID")
+    _optional_nonnegative_int(out, "entered_at")
+    _optional_nonnegative_int(out, "exited_at")
+    _optional_nonempty_str(out, "blocked_reason")
     revision = out.get("revision")
     if not isinstance(revision, int) or revision < 1:
         raise _contracts.DomainValidationError("MISSION_NODE_REVISION_INVALID")
@@ -115,11 +154,15 @@ def validate_mission_node(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def validate_node_delivery(payload: Dict[str, Any]) -> Dict[str, Any]:
     out = _base(payload, "rc72_node_delivery", "delivery_id")
-    _required_fields(out, ("node", "producer_ref"))
+    out["mission_node_id"] = _contracts._require_str(out, "mission_node_id")
+    _require_node(out, "node_type")
+    out["producer_ref"] = _contracts._require_str(out, "producer_ref")
     version = out.get("version")
     if not isinstance(version, int) or version < 1:
         raise _contracts.DomainValidationError("NODE_DELIVERY_VERSION_INVALID")
-    for field in ("input_refs", "artifact_refs", "evidence_refs", "gap_refs"):
+    for field in (
+        "input_refs", "artifact_refs", "evidence_refs", "known_gaps", "created_by_workitems",
+    ):
         _list(out, field)
     score = out.get("sufficiency_score")
     if score is not None and (not isinstance(score, (int, float)) or not 0.0 <= float(score) <= 1.0):
@@ -129,16 +172,26 @@ def validate_node_delivery(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def validate_node_gate(payload: Dict[str, Any]) -> Dict[str, Any]:
     out = _base(payload, "rc72_node_gate", "gate_id")
-    _required_fields(out, ("node", "delivery_id", "decision", "evaluator_ref"))
+    _required_fields(
+        out,
+        ("mission_node_id", "delivery_id", "reviewer_worker_id", "reviewer_session_id"),
+    )
+    _require_node(out, "node_type")
+    decision = _contracts._require_str(out, "decision").upper()
+    if decision not in _GATE_DECISIONS:
+        raise _contracts.DomainValidationError("NODE_GATE_DECISION_INVALID")
+    out["decision"] = decision
     _list(out, "criteria", required=True)
     for field in ("passed", "failed", "evidence_refs"):
         _list(out, field)
-    decision = out["decision"].upper()
-    out["decision"] = decision
     if decision == "PASS" and out["failed"]:
         raise _contracts.DomainValidationError("NODE_GATE_PASS_CANNOT_HAVE_FAILED_CRITERIA")
-    if decision == "NEEDS_REVISION" and not isinstance(out.get("return_node"), str):
-        raise _contracts.DomainValidationError("NODE_GATE_REVISION_REQUIRES_RETURN_NODE")
+    if decision == "NEEDS_REVISION":
+        if not isinstance(out.get("return_node"), str) or out["return_node"] not in _NODE_VALUES:
+            raise _contracts.DomainValidationError("NODE_GATE_REVISION_REQUIRES_VALID_RETURN_NODE")
+    elif out.get("return_node") is not None and out["return_node"] not in _NODE_VALUES:
+        raise _contracts.DomainValidationError("NODE_GATE_RETURN_NODE_INVALID")
+    _optional_nonempty_str(out, "reason")
     return out
 
 
@@ -182,10 +235,19 @@ def validate_etu(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def validate_back_edge(payload: Dict[str, Any]) -> Dict[str, Any]:
     out = _base(payload, "rc72_back_edge", "back_edge_id")
-    _required_fields(out, ("gap_id", "from_node", "to_node", "reason"))
+    _required_fields(out, ("gap_id", "from_delivery_id", "reason"))
+    _require_node(out, "from_node")
+    _require_node(out, "return_node")
     _list(out, "invalidated_refs")
-    if out["from_node"] == out["to_node"]:
+    if out["from_node"] == out["return_node"]:
         raise _contracts.DomainValidationError("BACK_EDGE_SELF_ROUTE_FORBIDDEN")
+    state = _contracts._require_str(out, "state").upper()
+    if state not in _BACK_EDGE_STATES:
+        raise _contracts.DomainValidationError("BACK_EDGE_STATE_INVALID")
+    out["state"] = state
+    _optional_nonempty_str(out, "resolved_by_delivery_id")
+    if state == "RESOLVED" and not out.get("resolved_by_delivery_id"):
+        raise _contracts.DomainValidationError("BACK_EDGE_RESOLVED_REQUIRES_DELIVERY")
     return out
 
 

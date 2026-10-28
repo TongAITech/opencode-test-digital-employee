@@ -1,6 +1,6 @@
 """Canonical RC7.2 repository with cross-entity lineage enforcement.
 
-The low-level R1 adapter validates entity shape.  This repository validates
+The low-level R1 adapter validates entity shape. This repository validates
 relationships before append so autonomous workers cannot create orphan
 coverage-driven obligations/ETUs outside the ReleaseBatch business tree.
 """
@@ -69,22 +69,27 @@ class CanonicalRC72Repository:
             return
 
         if isinstance(entity, NodeDelivery):
-            batch = self._batch_for_mission(entity.mission_id)
-            del batch  # explicit: ReleaseBatch ownership was checked above.
-            rows = [
-                row for row in self.truth.query("rc72_mission_node", mission_id=entity.mission_id)
-                if row.get("node") == entity.node.value
-            ]
-            if len(rows) != 1:
-                raise RC72LineageError("NODE_DELIVERY_REQUIRES_CANONICAL_MISSION_NODE")
+            self._batch_for_mission(entity.mission_id)
+            node = self._one("rc72_mission_node", mission_node_id=entity.mission_node_id)
+            if node.get("mission_id") != entity.mission_id:
+                raise RC72LineageError("NODE_DELIVERY_MISSION_NODE_MISSION_MISMATCH")
+            if node.get("node_type") != entity.node_type.value:
+                raise RC72LineageError("NODE_DELIVERY_MISSION_NODE_TYPE_MISMATCH")
             return
 
         if isinstance(entity, NodeGate):
+            node = self._one("rc72_mission_node", mission_node_id=entity.mission_node_id)
+            if node.get("mission_id") != entity.mission_id:
+                raise RC72LineageError("NODE_GATE_MISSION_NODE_MISSION_MISMATCH")
+            if node.get("node_type") != entity.node_type.value:
+                raise RC72LineageError("NODE_GATE_MISSION_NODE_TYPE_MISMATCH")
             delivery = self._one("rc72_node_delivery", delivery_id=entity.delivery_id)
             if delivery.get("mission_id") != entity.mission_id:
                 raise RC72LineageError("NODE_GATE_DELIVERY_MISSION_MISMATCH")
-            if delivery.get("node") != entity.node.value:
-                raise RC72LineageError("NODE_GATE_DELIVERY_NODE_MISMATCH")
+            if delivery.get("mission_node_id") != entity.mission_node_id:
+                raise RC72LineageError("NODE_GATE_DELIVERY_MISSION_NODE_MISMATCH")
+            if delivery.get("node_type") != entity.node_type.value:
+                raise RC72LineageError("NODE_GATE_DELIVERY_NODE_TYPE_MISMATCH")
             return
 
         if isinstance(entity, TestObligation):
@@ -111,6 +116,17 @@ class CanonicalRC72Repository:
             gap = self._one("rc7_gap", gap_id=entity.gap_id)
             if gap.get("mission_id") != entity.mission_id:
                 raise RC72LineageError("BACK_EDGE_GAP_MISSION_MISMATCH")
+            delivery = self._one("rc72_node_delivery", delivery_id=entity.from_delivery_id)
+            if delivery.get("mission_id") != entity.mission_id:
+                raise RC72LineageError("BACK_EDGE_DELIVERY_MISSION_MISMATCH")
+            if delivery.get("node_type") != entity.from_node.value:
+                raise RC72LineageError("BACK_EDGE_FROM_NODE_DELIVERY_MISMATCH")
+            if entity.resolved_by_delivery_id:
+                resolved = self._one("rc72_node_delivery", delivery_id=entity.resolved_by_delivery_id)
+                if resolved.get("mission_id") != entity.mission_id:
+                    raise RC72LineageError("BACK_EDGE_RESOLUTION_DELIVERY_MISSION_MISMATCH")
+                if resolved.get("node_type") != entity.return_node.value:
+                    raise RC72LineageError("BACK_EDGE_RESOLUTION_DELIVERY_NODE_MISMATCH")
             return
 
         raise TypeError("UNSUPPORTED_RC72_ENTITY")

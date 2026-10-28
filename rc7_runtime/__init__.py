@@ -111,6 +111,7 @@ from .autonomous_execution_service import (
 from .rc72_domain import (
     AutonomousMissionNode,
     BackEdge,
+    BackEdgeState,
     ETUState,
     ExecutionTaskUnit,
     MissionNodeRecord,
@@ -215,6 +216,7 @@ __all__ = [
     "ExecutionTaskUnit",
     "ETUState",
     "BackEdge",
+    "BackEdgeState",
     "RC72_CANONICAL_NODE_ORDER",
     "CanonicalRC72Repository",
     "RC72LineageError",
