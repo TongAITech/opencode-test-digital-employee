@@ -8,7 +8,7 @@ from rc7_runtime.rc72_browser_resources import BrowserAccessMode, BrowserPool
 from rc7_runtime.rc72_domain import ExecutionTaskUnit, ReleaseBatch, TestObligation
 from rc7_runtime.rc72_linkage import WorkItemAttemptBinding, WorkItemAttemptState
 from rc7_runtime.rc72_official_journey_execution import OfficialJourneyExecutionService, OfficialJourneyExecutionState
-from rc7_runtime.rc72_promotion import install_rc72_journey_promotion_overlay
+from rc7_runtime.rc72_journey_promotion import install_rc72_journey_promotion_overlay
 from rc7_runtime.rc72_repository import CanonicalRC72Repository
 from rc7_runtime.truth_overlay import append_entity
 
@@ -72,7 +72,6 @@ def _setup(tmp_path: Path, *, test_level="L5", adapter=None, trusted_field_adapt
         case_id="TC-OJ", attempt_id="ATT-OJ", worker_id="WORKER-OJ", session_id="SESSION-OJ",
         task_lease_ref="TASKLEASE-OJ", state=WorkItemAttemptState.RUNNING,
     ))
-
     install_rc72_journey_promotion_overlay()
     truth.append_atomic("RC72_OFFICIAL_JOURNEY_ASSET_UPSERTED", {
         "official_asset_id": "JOURNEY-1", "mission_id": "M-1", "release_id": "RC7.2",
@@ -83,23 +82,18 @@ def _setup(tmp_path: Path, *, test_level="L5", adapter=None, trusted_field_adapt
         "status": "OFFICIAL", "official": True, "executable": True,
         "field_benchmark_verified": True, "human_field_verified": True,
         "steps": [
-            {
-                "source_step_id": "S1", "sequence": 1, "action_type": "NAVIGATE",
-                "url": "https://fat1.example/config", "page_role": "config", "element_ref": None,
-                "page_state_ref": "page://1", "dom_ref": "dom://1", "network_refs": ["net://1"],
-                "screenshot_ref": "shot://1", "wait_semantics": "network-idle", "evidence_refs": ["ev://1"],
-            },
-            {
-                "source_step_id": "S2", "sequence": 2, "action_type": "ASSERT",
-                "url": "https://fat1.example/config", "page_role": "config", "element_ref": "dom://toast/success",
-                "page_state_ref": "page://2", "dom_ref": "dom://2", "network_refs": ["net://save"],
-                "screenshot_ref": "shot://2", "wait_semantics": "visible", "evidence_refs": ["ev://2"],
-                "oracle_ref": "oracle://success-toast",
-            },
+            {"source_step_id": "S1", "sequence": 1, "action_type": "NAVIGATE",
+             "url": "https://fat1.example/config", "page_role": "config", "element_ref": None,
+             "page_state_ref": "page://1", "dom_ref": "dom://1", "network_refs": ["net://1"],
+             "screenshot_ref": "shot://1", "wait_semantics": "network-idle", "evidence_refs": ["ev://1"]},
+            {"source_step_id": "S2", "sequence": 2, "action_type": "ASSERT",
+             "url": "https://fat1.example/config", "page_role": "config", "element_ref": "dom://toast/success",
+             "page_state_ref": "page://2", "dom_ref": "dom://2", "network_refs": ["net://save"],
+             "screenshot_ref": "shot://2", "wait_semantics": "visible", "evidence_refs": ["ev://2"],
+             "oracle_ref": "oracle://success-toast"},
         ],
         "approval_evidence_refs": ["human-evidence://A1"], "promoted_at": 10, "artifact_version": 1,
     })
-
     pool = BrowserPool(truth, release_id="RC7.2")
     pool.register_instance(
         browser_instance_id="BROWSER-OJ", profile_dir="profiles/official",
@@ -164,16 +158,14 @@ def test_official_journey_execution_is_fail_fast(tmp_path: Path):
     result = _run(service, lease)
     assert result.state == OfficialJourneyExecutionState.FAILED
     assert adapter.calls == [(1, "JOURNEY-1")]
-    row = truth.query("rc72_official_journey_execution", execution_id="OJEXEC-1")[0]
-    assert row["failure_code"] == "ASSERTION_DIVERGENCE"
+    assert truth.query("rc72_official_journey_execution", execution_id="OJEXEC-1")[0]["failure_code"] == "ASSERTION_DIVERGENCE"
 
 
 def test_contract_adapter_cannot_self_claim_field_execution(tmp_path: Path):
     adapter = ContractOfficialJourneyAdapter(self_claim_field=True)
     truth, _, lease, _, service = _setup(tmp_path, adapter=adapter, trusted_field_adapter_kinds=())
     _run(service, lease)
-    row = truth.query("rc72_official_journey_execution", execution_id="OJEXEC-1")[0]
-    assert row["field_verified"] is False
+    assert truth.query("rc72_official_journey_execution", execution_id="OJEXEC-1")[0]["field_verified"] is False
 
 
 def test_official_asset_is_immutable_across_execution(tmp_path: Path):
@@ -182,8 +174,7 @@ def test_official_asset_is_immutable_across_execution(tmp_path: Path):
     _run(service, lease)
     after = truth.query("rc72_official_journey_asset", official_asset_id="JOURNEY-1")[0]
     assert after == before
-    assert after["official"] is True
-    assert after["executable"] is True
+    assert after["official"] is True and after["executable"] is True
 
 
 def test_official_execution_truth_survives_r1_restart(tmp_path: Path):
