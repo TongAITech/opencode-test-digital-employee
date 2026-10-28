@@ -34,8 +34,12 @@ from .rc72_domain import (
 from .rc72_impact import ImpactSet, ImpactStrategy
 from .rc72_impact_truth import append_impact_set
 from .rc72_linkage import NodeTransition, NodeTransitionKind
-from .rc72_repository import CanonicalRC72Repository, RC72LineageError
+from .rc72_phase2_truth import install_rc72_phase2_truth_overlay
+from .rc72_repository import CanonicalRC72Repository
 from .truth_overlay import append_entity
+
+
+install_rc72_phase2_truth_overlay()
 
 
 class StateMachineContractError(ContractError):
@@ -182,6 +186,7 @@ def _uniq(values: Iterable[str]) -> List[str]:
 
 class RC72StateMachine:
     def __init__(self, truth: TruthRuntime, *, release_id: str) -> None:
+        install_rc72_phase2_truth_overlay()
         self.truth = truth
         self.release_id = release_id
         self.repository = CanonicalRC72Repository(truth, release_id=release_id)
@@ -268,8 +273,10 @@ class RC72StateMachine:
         node = self.node(delivery.mission_node_id)
         if node.get("mission_id") != delivery.mission_id or node.get("node_type") != delivery.node_type.value:
             raise StateMachineContractError("NODE_DELIVERY_IDENTITY_MISMATCH")
-        if node.get("state") != MissionNodeState.RUNNING.value:
-            raise StateMachineContractError("NODE_DELIVERY_REQUIRES_RUNNING_NODE")
+
+        # Detect conflicting delivery identity/version before the lifecycle guard.
+        # After the first delivery the node is REVIEW_PENDING; a second producer
+        # for the same active version is a conflict, not merely a wrong state.
         same_version = [
             row
             for row in self.truth.query("rc72_node_delivery", mission_node_id=delivery.mission_node_id)
@@ -282,6 +289,9 @@ class RC72StateMachine:
             refs = node.get("delivery_refs") or []
             if delivery.delivery_id not in refs:
                 raise StateMachineContractError("CONFLICTING_ACTIVE_DELIVERY")
+
+        if node.get("state") != MissionNodeState.RUNNING.value:
+            raise StateMachineContractError("NODE_DELIVERY_REQUIRES_RUNNING_NODE")
         receipt = self.repository.persist(delivery)
         refs = _uniq(list(node.get("delivery_refs") or []) + [delivery.delivery_id])
         self._persist_node_state(
@@ -354,7 +364,12 @@ class RC72StateMachine:
             MissionNodeState.STALE.value,
             MissionNodeState.BLOCKED.value,
         }:
-            self._persist_node_state(target, MissionNodeState.READY, reason="upstream gate passed", bypass_direct_transition=True)
+            self._persist_node_state(
+                target,
+                MissionNodeState.READY,
+                reason="upstream gate passed",
+                bypass_direct_transition=True,
+            )
         transition = NodeTransition(
             transition_id=self._new_id("NT"),
             mission_id=source["mission_id"],
@@ -394,8 +409,6 @@ class RC72StateMachine:
             reason="failure evidence requires independent diagnosis",
             bypass_direct_transition=True,
         )
-        # BLOCKED represents the execution path being stopped and handed to N8;
-        # it is intentionally not a FORWARD PASS transition.
         transition = NodeTransition(
             transition_id=self._new_id("NT-DIAG"),
             mission_id=mission_id,
@@ -403,7 +416,7 @@ class RC72StateMachine:
             from_node_type=AutonomousMissionNode.N7_EXECUTION,
             to_mission_node_id=n8["mission_node_id"],
             to_node_type=AutonomousMissionNode.N8_DIAGNOSIS_RECOVERY,
-            kind=NodeTransitionKind.BLOCKED,
+            kind=NodeTransitionKind.DIAGNOSIS,
             reason=reason,
             evidence_refs=list(failure_evidence_refs),
         )
