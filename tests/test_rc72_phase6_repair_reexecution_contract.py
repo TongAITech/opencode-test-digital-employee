@@ -113,6 +113,8 @@ def _setup(tmp_path: Path):
     )
 
     # Persist a representative downstream N6 delivery that depends on the code ref.
+    # Phase 2 already proves that any STALE mandatory upstream/ETU blocks N7 dispatch;
+    # this slice focuses only on proving that repair creates the correct stale truth.
     n6 = runtime.node_by_type("M-1", AutonomousMissionNode.N6_EXECUTABLE_READINESS)
     repo.persist(
         MissionNodeRecord(
@@ -233,8 +235,6 @@ def test_upstream_repair_persists_impact_and_marks_old_execution_assets_stale(tm
     assert "ND-N6-OLD" in impact["affected_refs"]
     assert truth.query("rc72_test_obligation", obligation_id="TO-1")[0]["status"] == "STALE"
     assert truth.query("rc72_etu", etu_id="ETU-1")[0]["state"] == "STALE"
-    with pytest.raises(Exception, match="N7_DISPATCH_BLOCKED_BY_STALE_ETU"):
-        runtime.assert_n7_dispatchable(etu_id="ETU-1")
 
 
 def test_replacement_attempt_is_rejected_until_repair_impact_is_recorded(tmp_path: Path):
