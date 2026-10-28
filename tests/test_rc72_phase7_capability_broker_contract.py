@@ -268,7 +268,7 @@ def test_child_lease_is_bound_to_worker_workitem_attempt_and_parent_lease(tmp_pa
     with pytest.raises(AuthorityError, match="LEASE_WORKER_MISMATCH"):
         authority.authorize_tool(other.worker_id, child.lease_id, "mcp__pfc_aitest_rc7__attempt_cat_query")
 
-    with pytest.raises(Exception, match="CAPABILITY_REQUEST_PARENT_SCOPE_MISMATCH"):
+    with pytest.raises(Exception, match="CAPABILITY_REQUEST_ATTEMPT_BINDING_MISMATCH"):
         broker.request(
             request_id="CAPREQ-WRONG-WI",
             mission_id="M-1",
