@@ -32,14 +32,14 @@ _AUTONOMOUS_STAGES = (
     "CODE_ANALYSIS", "CODE_SUFFICIENCY", "RISK_TEST_MODEL", "TEST_DESIGN",
     "DESIGN_SUFFICIENCY", "PRECONDITION_DATA_PREP", "EXECUTABLE_SPEC",
     "APPLICABLE_LAYER_EXECUTION", "FAILURE_COVERAGE_EVALUATION",
-    "MISSION_SUFFICIENCY",
+    "DEFECT_CLOSURE_OBSERVATION",
 )
 _N1_N10_REQUIRED_STAGES = (
     "SCOPE_INTAKE", "REQUIREMENT_ANALYSIS", "REQUIREMENT_SUFFICIENCY",
     "CODE_ANALYSIS", "CODE_SUFFICIENCY", "RISK_TEST_MODEL", "TEST_DESIGN",
     "DESIGN_SUFFICIENCY", "PRECONDITION_DATA_PREP", "EXECUTABLE_SPEC",
     "APPLICABLE_LAYER_EXECUTION", "FAILURE_COVERAGE_EVALUATION",
-    "MISSION_SUFFICIENCY", "REPORT_RELEASE",
+    "DEFECT_CLOSURE_OBSERVATION", "MISSION_SUFFICIENCY", "REPORT_RELEASE",
 )
 
 def _autonomous_readiness() -> tuple[bool, tuple[str, ...]]:
@@ -73,7 +73,7 @@ def _build_dispatcher(args, identity, center: HttpCenterClient) -> AutonomousWor
         "EXECUTABLE_SPEC": ExecutableSpecWorker(agent=formal_agent, dsh_runner=analysis_runner, work_dir=str(work_root / "executable-spec")),
         "APPLICABLE_LAYER_EXECUTION": N7ExecutionDispatchWorker(agent=formal_agent, dsh_runner=analysis_runner, work_dir=str(work_root / "n7-execution"), center_url=args.center, http_timeout_seconds=args.http_timeout),
         "FAILURE_COVERAGE_EVALUATION": FailureCoverageEvaluationWorker(agent=formal_agent, dsh_runner=analysis_runner, work_dir=str(work_root / "failure-coverage-evaluation")),
-        "MISSION_SUFFICIENCY": DefectClosureObservationWorker(agent=formal_agent, dsh_runner=analysis_runner, work_dir=str(work_root / "defect-closure-observation")),
+        "DEFECT_CLOSURE_OBSERVATION": DefectClosureObservationWorker(agent=formal_agent, dsh_runner=analysis_runner, work_dir=str(work_root / "defect-closure-observation")),
     }
     return AutonomousWorkerDispatcher(claimant=AutonomousClaimClient(args.center, identity.node_id, timeout_seconds=args.http_timeout), workers=workers, ttl_seconds=args.lease_ttl, idle_sleep_seconds=args.claim_interval)
 
