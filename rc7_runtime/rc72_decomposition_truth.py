@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import asdict
-from typing import Any, Dict, Mapping
+from typing import Any, Dict, Optional
 
 from rc6_runtime import contracts as _contracts
 from rc6_runtime import truth as _truth
@@ -70,8 +70,7 @@ def _validator(payload: Dict[str, Any]) -> Dict[str, Any]:
         "planning_signals",
         "coverage_routes",
     ):
-        value = out.get(field)
-        if not isinstance(value, list):
+        if not isinstance(out.get(field), list):
             raise _contracts.DomainValidationError("%s_MUST_BE_LIST" % field.upper())
     _require_numeric_dict(out, "priority_weights")
     _require_numeric_dict(out, "obligation_priorities")
@@ -116,7 +115,7 @@ class PersistentAdaptiveTaskDecomposer:
         truth: TruthRuntime,
         *,
         release_id: str,
-        decomposer: AdaptiveTaskDecomposer | None = None,
+        decomposer: Optional[AdaptiveTaskDecomposer] = None,
     ) -> None:
         install_rc72_decomposition_truth_overlay()
         if not isinstance(release_id, str) or not release_id.strip():
@@ -132,8 +131,6 @@ class PersistentAdaptiveTaskDecomposer:
         self._validate_canonical_inputs(snapshot)
         result = self.decomposer.decompose(snapshot)
 
-        # Persist ETUs through the canonical repository so their ReleaseBatch ->
-        # TestObligation lineage is checked before a plan can claim them.
         for etu in result.etus:
             if self.truth.query("rc72_etu", etu_id=etu.etu_id):
                 raise ContractError("DECOMPOSITION_ETU_ALREADY_EXISTS:%s" % etu.etu_id)
