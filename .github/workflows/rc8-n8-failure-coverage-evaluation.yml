@@ -1,0 +1,26 @@
+name: RC8 N8 Failure Coverage Evaluation Worker
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_node/failure_coverage_evaluation_worker.py'
+      - 'tests/test_rc8_n8_failure_coverage_evaluation_worker.py'
+      - '.github/workflows/rc8-n8-failure-coverage-evaluation.yml'
+  workflow_dispatch:
+
+jobs:
+  targeted:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - run: python -m pip install pytest
+      - run: python -m py_compile rc8_node/failure_coverage_evaluation_worker.py tests/test_rc8_n8_failure_coverage_evaluation_worker.py
+      - run: python -m pytest -q tests/test_rc8_n8_failure_coverage_evaluation_worker.py
