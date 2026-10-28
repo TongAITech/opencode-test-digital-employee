@@ -46,9 +46,19 @@ def test_autonomous_entry_registers_only_currently_implemented_stage_workers(tmp
     assert dispatcher.idle_sleep_seconds == 1.0
 
 def test_single_node_n1_n10_stage_denominator_is_closed_by_real_workers() -> None:
+    expected = (
+        "SCOPE_INTAKE", "REQUIREMENT_ANALYSIS", "REQUIREMENT_SUFFICIENCY",
+        "CODE_ANALYSIS", "CODE_SUFFICIENCY", "RISK_TEST_MODEL", "TEST_DESIGN",
+        "DESIGN_SUFFICIENCY", "PRECONDITION_DATA_PREP", "EXECUTABLE_SPEC",
+        "APPLICABLE_LAYER_EXECUTION", "FAILURE_COVERAGE_EVALUATION",
+        "DEFECT_CLOSURE_OBSERVATION", "MISSION_SUFFICIENCY", "REPORT_RELEASE",
+    )
     ready, missing = _autonomous_readiness()
     assert ready is True
     assert missing == tuple()
+    # Freeze the full denominator explicitly so a future refactor cannot make readiness
+    # green by silently deleting a required N1-N10 Stage from both runtime sets.
+    assert tuple(_N1_N10_REQUIRED_STAGES) == expected
     assert set(_N1_N10_REQUIRED_STAGES) == set(_AUTONOMOUS_STAGES)
 
 def test_report_release_worker_is_handoff_only_and_center_keeps_release_authority(tmp_path: Path) -> None:
