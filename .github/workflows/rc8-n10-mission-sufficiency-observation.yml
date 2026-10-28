@@ -1,0 +1,29 @@
+name: RC8 N10 Mission Sufficiency Observation
+
+on:
+  push:
+    branches: [work/rc8]
+    paths:
+      - 'rc8_node/mission_sufficiency_observation_worker.py'
+      - 'tests/test_rc8_n10_mission_sufficiency_observation_worker.py'
+      - '.github/workflows/rc8-n10-mission-sufficiency-observation.yml'
+  workflow_dispatch:
+
+jobs:
+  n10-mission-sufficiency-observation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Install pytest
+        run: python -m pip install pytest
+      - name: Compile N10 observation contract
+        run: python -m py_compile rc8_node/mission_sufficiency_observation_worker.py
+      - name: Run N10 targeted tests
+        run: python -m pytest -q tests/test_rc8_n10_mission_sufficiency_observation_worker.py
