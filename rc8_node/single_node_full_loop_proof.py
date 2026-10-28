@@ -1,15 +1,16 @@
 """Fail-closed verifier for one-mission RC8 SINGLE_NODE N1-N10 traversal.
 
 The runner drives the production AutonomousWorkerDispatcher one claim at a time.
-It does not complete stages, invent evidence, or grant PASS authority.  A proof is
+It does not complete stages, invent evidence, or grant PASS authority. A proof is
 accepted only when the frozen 15-stage denominator is observed in order and each
-real worker result carries an Attempt plus canonical artifact Evidence reference.
-Center/Director remain the only MissionNode/convergence/release authorities.
+real worker result carries a distinct WorkItem, Attempt and canonical artifact
+Evidence reference. Center/Director remain the only MissionNode/convergence/
+release authorities.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, List, Sequence, Tuple
 
 
 FROZEN_N1_N10_STAGES: Tuple[str, ...] = (
@@ -29,6 +30,7 @@ class SingleNodeFullLoopProofError(RuntimeError):
 class SingleNodeFullLoopProof:
     test_run_id: str
     stages: Tuple[str, ...]
+    work_item_ids: Tuple[str, ...]
     attempt_ids: Tuple[str, ...]
     evidence_refs: Tuple[str, ...]
     status: str = "OBSERVED_NOT_AUTHORIZED"
@@ -55,6 +57,7 @@ class SingleNodeFullLoopProofRunner:
         if not run_id:
             raise SingleNodeFullLoopProofError("FULL_LOOP_TEST_RUN_ID_REQUIRED")
         observed: List[str] = []
+        work_items: List[str] = []
         attempts: List[str] = []
         evidence: List[str] = []
         for expected in self.required_stages:
@@ -64,6 +67,9 @@ class SingleNodeFullLoopProofRunner:
             actual = str(getattr(outcome, "stage", None) or "").strip()
             if actual != expected:
                 raise SingleNodeFullLoopProofError("FULL_LOOP_STAGE_ORDER_MISMATCH:%s:%s" % (expected, actual or "NONE"))
+            work_item_id = str(getattr(outcome, "work_item_id", None) or "").strip()
+            if not work_item_id:
+                raise SingleNodeFullLoopProofError("FULL_LOOP_WORK_ITEM_ID_MISSING:%s" % expected)
             result = getattr(outcome, "result", None)
             if not isinstance(result, dict) or str(result.get("status") or "") != "COMPLETED":
                 raise SingleNodeFullLoopProofError("FULL_LOOP_WORKER_NOT_COMPLETED:%s" % expected)
@@ -73,16 +79,20 @@ class SingleNodeFullLoopProofRunner:
                 raise SingleNodeFullLoopProofError("FULL_LOOP_ATTEMPT_EVIDENCE_MISSING:%s" % expected)
             if not artifact_ref.startswith("artifact:"):
                 raise SingleNodeFullLoopProofError("FULL_LOOP_ARTIFACT_EVIDENCE_MISSING:%s" % expected)
-            observed.append(actual); attempts.append(attempt_id); evidence.append(artifact_ref)
+            observed.append(actual)
+            work_items.append(work_item_id)
+            attempts.append(attempt_id)
+            evidence.append(artifact_ref)
+        if len(set(work_items)) != len(work_items):
+            raise SingleNodeFullLoopProofError("FULL_LOOP_WORK_ITEM_ID_REUSED")
         if len(set(attempts)) != len(attempts):
             raise SingleNodeFullLoopProofError("FULL_LOOP_ATTEMPT_ID_REUSED")
         if len(set(evidence)) != len(evidence):
             raise SingleNodeFullLoopProofError("FULL_LOOP_EVIDENCE_REF_REUSED")
-        # This is observation of worker execution only.  It deliberately cannot
-        # declare MissionNode PASS, MISSION_CONVERGED, bank reality, or release.
         return SingleNodeFullLoopProof(
             test_run_id=run_id,
             stages=tuple(observed),
+            work_item_ids=tuple(work_items),
             attempt_ids=tuple(attempts),
             evidence_refs=tuple(evidence),
         )
