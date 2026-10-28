@@ -8,6 +8,8 @@ from rc7_runtime.rc72_domain import (
     AutonomousMissionNode,
     MissionNodeState,
     NodeDelivery,
+    NodeGate,
+    NodeGateDecision,
     ReleaseBatch,
     TestObligation,
 )
@@ -49,7 +51,55 @@ def _runtime(tmp_path: Path):
     return truth, runtime, SufficiencyGateService(runtime)
 
 
+def _prime_upstream(runtime: RC72StateMachine, node_type: AutonomousMissionNode):
+    ordered = list(AutonomousMissionNode.ordered())
+    for upstream_type in ordered[: ordered.index(node_type)]:
+        upstream = runtime.node_by_type("M-1", upstream_type)
+        if upstream["state"] == "PASS":
+            continue
+        if upstream["state"] == "NOT_STARTED":
+            runtime.transition_state(
+                upstream["mission_node_id"],
+                MissionNodeState.READY,
+                reason="phase3 canonical upstream precondition",
+            )
+        runtime.transition_state(
+            upstream["mission_node_id"],
+            MissionNodeState.RUNNING,
+            reason="phase3 canonical upstream precondition",
+        )
+        delivery = NodeDelivery(
+            delivery_id="UPSTREAM-%s" % upstream_type.value,
+            mission_id="M-1",
+            mission_node_id=upstream["mission_node_id"],
+            node_type=upstream_type,
+            version=1,
+            producer_ref="test-fixture://%s" % upstream_type.value,
+            artifact_refs=["artifact://upstream/%s" % upstream_type.value],
+            evidence_refs=["EVD-REQ"],
+            created_by_workitems=["WI-UPSTREAM-%s" % upstream_type.value],
+        )
+        runtime.submit_delivery(delivery)
+        runtime.apply_gate(
+            NodeGate(
+                gate_id="GATE-UPSTREAM-%s" % upstream_type.value,
+                mission_id="M-1",
+                mission_node_id=upstream["mission_node_id"],
+                node_type=upstream_type,
+                delivery_id=delivery.delivery_id,
+                decision=NodeGateDecision.PASS,
+                reviewer_worker_id="fixture-reviewer",
+                reviewer_session_id="fixture-review-session-%s" % upstream_type.value,
+                criteria=["PHASE3_TEST_UPSTREAM_PRECONDITION"],
+                passed=["PHASE3_TEST_UPSTREAM_PRECONDITION"],
+                evidence_refs=["EVD-REQ"],
+                reason="canonical upstream truth for isolated phase3 gate test",
+            )
+        )
+
+
 def _prepare_node(runtime: RC72StateMachine, node_type: AutonomousMissionNode, version=1):
+    _prime_upstream(runtime, node_type)
     node = runtime.node_by_type("M-1", node_type)
     runtime.transition_state(node["mission_node_id"], MissionNodeState.READY, reason="phase3 isolated gate test")
     runtime.transition_state(node["mission_node_id"], MissionNodeState.RUNNING, reason="analysis/design produced")
