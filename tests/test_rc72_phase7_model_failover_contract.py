@@ -91,6 +91,28 @@ def _setup(tmp_path: Path):
         workitem_id="WI-1",
         canonical_refs={"etu_refs": ["ETU-1"]},
     )
+
+    # A BLOCKED WorkItemAttemptBinding is accepted only when its inherited
+    # execution_attempt truth exists. Keep that lineage real instead of
+    # weakening CanonicalRC72Repository for a provider-control test.
+    truth.append_atomic(
+        "EXECUTION_ATTEMPT_UPSERTED",
+        {
+            "attempt_id": "ATT-1",
+            "release_id": "RC7.2",
+            "requirement_id": "REQ-1",
+            "tc_id": "TC-1",
+            "case_version": 1,
+            "target_id": "cfg-center",
+            "layer": "L3",
+            "status": "NOT_RUN",
+            "tool_call_refs": [],
+            "evidence_refs": [],
+            "worker_id": original.worker_id,
+            "lease_id": "LEASE-1",
+            "artifact_version": 1,
+        },
+    )
     repo.persist(
         WorkItemAttemptBinding(
             binding_id="BIND-1",
