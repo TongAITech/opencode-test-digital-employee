@@ -9,8 +9,8 @@ Every construction session MUST first read current `work/rc7.2` HEAD, same-HEAD 
 ```yaml
 branch: work/rc7.2
 design_baseline_sha: a3426e306abf967ab822d44508127c3891c8e91e
-latest_phase5_qualified_code_head_sha: f7214d9c6ff7bbd3cb65f2d43b63816b677e75c1
-latest_phase5_qualified_ci_run: 40715463547
+latest_phase6_qualified_code_head_sha: 5678a081e6ff4d622c20b403895ae80dff6ce8f1
+latest_phase6_qualified_ci_run: 40717980037
 phase:
   phase0_reality_baseline: COMPLETE
   phase1_canonical_domain_model: CI_PASS
@@ -18,10 +18,11 @@ phase:
   phase3_sufficiency_gates: CI_PASS
   phase4_adaptive_task_decomposer: CI_PASS
   phase5_fresh_worker_reviewer_handoff: CI_PASS
-  phase6_diagnosis_recovery_orchestration: NOT_STARTED
+  phase6_diagnosis_recovery_orchestration: CI_PASS
+  phase7_resource_runtime: NOT_STARTED
 field_evidence: NOT_YET_FIELD_VALIDATED
 release_status: CONSTRUCTION_ONLY
-next_atomic_step: PHASE6_DIAGNOSIS_RECOVERY_CONTRACT_TESTS_FIRST
+next_atomic_step: PHASE7_CAPABILITY_BROKER_CONTRACT_TESTS_FIRST
 ```
 
 `CI_PASS` means repository-level contract/regression qualification only. It does not mean in-bank Field validation.
@@ -265,31 +266,70 @@ Field validation: `NO`. No real in-bank AgentTeams/DSH mission has yet exercised
 
 ## 9. Phase 6 — Independent Diagnosis / Recovery Orchestration
 
+Status: `CI_PASS`
+
+Qualified code head: `5678a081e6ff4d622c20b403895ae80dff6ce8f1`
+Qualified run: `40717980037`
+
+Same-head qualification:
+
+- RC7.2 contracts Python 3.8: PASS — `78 passed`.
+- RC7.2 contracts Python 3.11: PASS — `78 passed`.
+- inherited RC7 regression Python 3.8: PASS — `492 passed, 1 skipped`.
+- runtime compile: PASS.
+
+Tests-first / implementation chain:
+
+- `e106557e...` froze independent diagnosis/recovery contracts.
+- `c5f5bb42...` implemented fresh diagnosis Worker/Session and semantic classification orchestration; run `40716958593` passed with 75 RC7.2 contracts.
+- `2d41bcf0...` froze repair impact + mandatory re-execution contracts; run `40717313192` intentionally RED with exactly 3 new failures and 75 prior contracts PASS.
+- `a789532f...` added upstream repair ImpactSet binding and mandatory replacement-Attempt gate.
+- `5678a081...` corrected one Phase-6 test fixture that redundantly asserted Phase-2 dispatch-order semantics; production code was not weakened.
+
+Delivered:
+
+1. N7 failure is handed to N8 and a fresh Diagnosis Worker/Session rather than allowing the executor to perform inline self-repair.
+2. diagnosis context is canonical-only: source Binding/Attempt/WorkItem/ETU, failure Evidence and ExecutableContract refs; executor chat/transcript is forbidden.
+3. accepted analysis/design/data/executable gaps reuse the Phase-2 canonical Gap + BackEdge routing to N3/N4/N5/N6.
+4. PRODUCT_DEFECT routes to N9 without mutating the original execution Attempt.
+5. provider/capability/resource failures remain runtime/infrastructure outcomes and do not become SUT defects.
+6. UNKNOWN remains blocked and cannot auto-PASS.
+7. upstream repair reuses Phase-2 ImpactSet propagation to mark affected delivery/obligation/ETU truth STALE.
+8. classifications requiring re-execution cannot accept a replacement Attempt until repair impact truth exists.
+9. re-execution uses a new child Attempt with `parent_attempt_id` pointing to the immutable original Attempt.
+10. diagnosis case/outcome/repair/recovery and replacement-attempt lineage survive R1 replay.
+
+Field validation: `NO`. No real in-bank failed Attempt has yet exercised RC7.2 Fresh Diagnosis Worker + semantic repair + replacement Attempt.
+
+## 10. Phase 7 — Resource / Capability Runtime
+
 Status: `NOT_STARTED`
 
-Next step MUST be tests-first and must reuse the Phase 2 failure taxonomy/back-edge semantics rather than create a second diagnosis state machine.
+Phase 7 MUST proceed one slice at a time. The first slice is CapabilityBroker only. BrowserPool/BrowserLease, DataLease and model failover must not be started in parallel with the first slice.
 
-First slice must prove:
+First CapabilityBroker slice MUST reuse the existing signed TaskLease/DSH authorization path and prove:
 
-1. N7 failure produces immutable failure evidence and dispatches a fresh diagnosis Worker rather than allowing executor self-repair.
-2. diagnosis Worker receives Attempt/Execution/Evidence/ExecutableContract refs only; it does not inherit executor chat history.
-3. deterministic diagnosis classifies at least `ENVIRONMENT_GAP`, `REQUIREMENT_GAP`, `ANALYSIS_GAP`, `TEST_DESIGN_GAP`, `TEST_DATA_GAP`, `EXECUTABLE_GAP`, `PRODUCT_DEFECT`, provider/capability/resource failures and `UNKNOWN`.
-4. classified analysis/design/data/executable gaps create canonical Gap + BackEdge and return to N3/N4/N5/N6 respectively.
-5. PRODUCT_DEFECT routes to N9 without mutating the original execution Attempt.
-6. provider/capability/resource failures stay infrastructure/runtime failures and are not recorded as SUT defects.
-7. UNKNOWN cannot auto-PASS and must remain blocked/diagnosis-pending with evidence.
-8. after upstream repair, affected downstream delivery/case/data/executable assets become STALE and a new Attempt is required for re-execution.
-9. diagnosis/recovery decisions and replacement Attempt lineage survive R1 replay.
+1. Worker remains STRICT; missing permission becomes a persisted `CapabilityRequest`, never automatic Full Access.
+2. request identity is bound to mission/workitem/attempt/worker and exact requested capability + reason.
+3. broker decision is one of `AUTO_GRANT_TEMP_LEASE`, `DELEGATE_TO_SPECIALIST`, `HUMAN_GATE`, `DENY`.
+4. safe auto-grant creates only an exact, temporary, auditable lease/amendment scoped to the requesting mission/workitem/attempt/worker.
+5. wildcard/full-access escalation is forbidden.
+6. high-risk capability can be delegated or human-gated without granting it to the requester.
+7. denied/expired/revoked lease cannot authorize a tool.
+8. a lease cannot be reused by a different worker/attempt/workitem.
+9. Captain Full Access credential/token is never copied into request/lease truth.
+10. CapabilityRequest/decision/lease truth survives R1 replay.
 
-## 10. Remaining phases
+Field validation remains `NO`.
 
-- Phase 6: independent diagnosis/recovery orchestration.
-- Phase 7: CapabilityBroker, BrowserPool/BrowserLease, DataLease, model failover.
+## 11. Remaining phases
+
+- Phase 7: CapabilityBroker first; then BrowserPool/BrowserLease, DataLease, model failover as separate slices.
 - Phase 8: Libra feedback through Requirement/SST/TestObligation and N10 convergence.
 - Phase 9: Journey Teaching/Compiler/Replay/Benchmark.
 - final: Windows + Linux + clean-unpack + real in-bank Field Acceptance.
 
-## 11. Anti-drift rule
+## 12. Anti-drift rule
 
 Future sessions MUST NOT infer completion from this file alone. Always inspect:
 
