@@ -136,6 +136,10 @@ class WorkItemAttemptBinding:
             value = getattr(self, field_name)
             if value is not None:
                 setattr(self, field_name, _required(value, field_name))
+        if isinstance(self.capability_lease_refs, tuple):
+            self.capability_lease_refs = list(self.capability_lease_refs)
+        if isinstance(self.resource_lease_refs, tuple):
+            self.resource_lease_refs = list(self.resource_lease_refs)
         _strings(self.capability_lease_refs, "capability_lease_refs")
         _strings(self.resource_lease_refs, "resource_lease_refs")
         if self.state in {
