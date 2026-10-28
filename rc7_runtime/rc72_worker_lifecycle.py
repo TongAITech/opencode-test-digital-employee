@@ -1,8 +1,8 @@
-"""RC7.2 fresh Worker/Session lifecycle, reviewer isolation and Captain handoff.
+"""RC7.2 Fresh Worker lifecycle, runtime binding, reviewer isolation and Captain handoff.
 
-This layer is control-plane lifecycle truth only. It reuses canonical ETU,
-rc7_task, NodeDelivery and the inherited R1. It does not implement Capability,
-Browser, Data or Model leasing; those remain Phase 7 concerns.
+Lifecycle state is persisted in the inherited R1.  This module reuses existing
+ETU, rc7_task, WorkerAssignment/TaskLease and WorkItemAttemptBinding truth.  It
+does not implement Phase-7 resource/capability leasing.
 """
 from __future__ import annotations
 
@@ -13,9 +13,12 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from rc6_runtime import contracts as _contracts
 from rc6_runtime import truth as _truth
+from rc6_runtime.agent_runtime import WorkerAssignment, WorkerInvocation
 from rc6_runtime.truth import TruthRuntime
 
 from .models import ContractError
+from .rc72_linkage import WorkItemAttemptBinding, WorkItemAttemptState
+from .rc72_repository import CanonicalRC72Repository
 from .truth_overlay import install_rc7_truth_overlay
 
 
@@ -42,18 +45,15 @@ _BUCKETS = {
     _CAPTAIN_HANDOFF: "rc72_captain_handoffs",
     _CAPTAIN_TAKEOVER: "rc72_captain_takeovers",
 }
-
 _ALLOWED_CONTEXT_KEYS = {
     "mission_id", "release_batch_id", "team_id", "role", "etu_id", "workitem_id",
-    "etu_refs", "executable_contract_refs", "data_refs", "evidence_refs",
-    "gap_refs", "coverage_refs", "lease_refs",
+    "etu_refs", "executable_contract_refs", "data_refs", "evidence_refs", "gap_refs",
+    "coverage_refs", "lease_refs",
 }
 _CANONICAL_REF_KEYS = {
-    "etu_refs", "executable_contract_refs", "data_refs", "evidence_refs",
-    "gap_refs", "coverage_refs", "lease_refs",
+    "etu_refs", "executable_contract_refs", "data_refs", "evidence_refs", "gap_refs",
+    "coverage_refs", "lease_refs",
 }
-_SESSION_STATES = {"ACTIVE", "CLOSED"}
-_SESSION_PURPOSES = {"EXECUTION", "REVIEW"}
 
 
 def _now() -> int:
@@ -64,77 +64,72 @@ def _new(prefix: str) -> str:
     return "%s-%s" % (prefix, uuid.uuid4().hex[:20])
 
 
-def _require_string(out: Dict[str, Any], name: str) -> None:
-    out[name] = _contracts._require_str(out, name)
-
-
-def _require_string_list(out: Dict[str, Any], name: str) -> None:
-    _contracts._require_string_list(out, name)
-
-
 def _base(payload: Dict[str, Any], artifact_type: str, identity: str) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         raise _contracts.DomainValidationError("ARTIFACT_MUST_BE_OBJECT")
     out = dict(payload)
     for name in (identity, "mission_id", "release_id"):
-        _require_string(out, name)
+        out[name] = _contracts._require_str(out, name)
     out["artifact_type"] = artifact_type
     out["artifact_version"] = _contracts._artifact_version(out)
     return out
 
 
+def _optional_string(out: Dict[str, Any], name: str) -> None:
+    value = out.get(name)
+    if value is not None and (not isinstance(value, str) or not value.strip()):
+        raise _contracts.DomainValidationError("%s_INVALID" % name.upper())
+
+
 def _validate_worker_session(payload: Dict[str, Any]) -> Dict[str, Any]:
     out = _base(payload, _WORKER_SESSION, "session_id")
     for name in ("worker_id", "release_batch_id", "team_id", "role", "purpose", "state"):
-        _require_string(out, name)
+        out[name] = _contracts._require_str(out, name)
     out["purpose"] = out["purpose"].upper()
     out["state"] = out["state"].upper()
-    if out["purpose"] not in _SESSION_PURPOSES:
+    if out["purpose"] not in {"EXECUTION", "REVIEW"}:
         raise _contracts.DomainValidationError("WORKER_SESSION_PURPOSE_INVALID")
-    if out["state"] not in _SESSION_STATES:
+    if out["state"] not in {"ACTIVE", "CLOSED"}:
         raise _contracts.DomainValidationError("WORKER_SESSION_STATE_INVALID")
     context = out.get("context_bundle")
     if not isinstance(context, dict):
         raise _contracts.DomainValidationError("WORKER_SESSION_CONTEXT_MUST_BE_OBJECT")
-    forbidden = {"chat_history", "messages", "previous_session_transcript"}.intersection(context)
-    if forbidden:
+    if {"chat_history", "messages", "previous_session_transcript"}.intersection(context):
         raise _contracts.DomainValidationError("WORKER_SESSION_CHAT_HISTORY_FORBIDDEN")
     if out["purpose"] == "EXECUTION":
-        for name in ("etu_id", "workitem_id"):
-            _require_string(out, name)
+        out["etu_id"] = _contracts._require_str(out, "etu_id")
+        out["workitem_id"] = _contracts._require_str(out, "workitem_id")
         if set(context).difference(_ALLOWED_CONTEXT_KEYS):
             raise _contracts.DomainValidationError("WORKER_SESSION_CONTEXT_KEY_NOT_ALLOWED")
     else:
-        for name in ("mission_node_id", "delivery_id"):
-            _require_string(out, name)
-    for name in ("parent_session_id", "checkpoint_id", "close_reason"):
-        value = out.get(name)
-        if value is not None and (not isinstance(value, str) or not value.strip()):
-            raise _contracts.DomainValidationError("%s_INVALID" % name.upper())
-    created_at = out.get("created_at")
-    if not isinstance(created_at, int) or created_at < 0:
+        out["mission_node_id"] = _contracts._require_str(out, "mission_node_id")
+        out["delivery_id"] = _contracts._require_str(out, "delivery_id")
+    for name in (
+        "parent_session_id", "checkpoint_id", "close_reason", "runtime_worker_id",
+        "runtime_assignment_id", "task_lease_ref", "runtime_attempt_id", "dsh_session_id",
+        "binding_id",
+    ):
+        _optional_string(out, name)
+    if not isinstance(out.get("created_at"), int) or out["created_at"] < 0:
         raise _contracts.DomainValidationError("WORKER_SESSION_CREATED_AT_INVALID")
-    closed_at = out.get("closed_at")
-    if closed_at is not None and (not isinstance(closed_at, int) or closed_at < 0):
+    if out.get("closed_at") is not None and (not isinstance(out["closed_at"], int) or out["closed_at"] < 0):
         raise _contracts.DomainValidationError("WORKER_SESSION_CLOSED_AT_INVALID")
     if out["state"] == "CLOSED" and not out.get("checkpoint_id"):
         raise _contracts.DomainValidationError("CLOSED_WORKER_SESSION_REQUIRES_CHECKPOINT")
+    if out.get("dsh_session_id") and not out.get("runtime_worker_id"):
+        raise _contracts.DomainValidationError("DSH_SESSION_REQUIRES_RUNTIME_WORKER")
     return out
 
 
 def _validate_checkpoint(payload: Dict[str, Any]) -> Dict[str, Any]:
     out = _base(payload, _WORKER_CHECKPOINT, "checkpoint_id")
     for name in ("session_id", "worker_id", "team_id", "role", "purpose", "reason"):
-        _require_string(out, name)
-    for name in ("etu_id", "workitem_id", "rotation_decision_id"):
-        value = out.get(name)
-        if value is not None and (not isinstance(value, str) or not value.strip()):
-            raise _contracts.DomainValidationError("%s_INVALID" % name.upper())
-    context = out.get("context_bundle")
-    if not isinstance(context, dict):
+        out[name] = _contracts._require_str(out, name)
+    for name in ("etu_id", "workitem_id", "rotation_decision_id", "dsh_session_id", "runtime_worker_id"):
+        _optional_string(out, name)
+    if not isinstance(out.get("context_bundle"), dict):
         raise _contracts.DomainValidationError("WORKER_CHECKPOINT_CONTEXT_MUST_BE_OBJECT")
-    created_at = out.get("created_at")
-    if not isinstance(created_at, int) or created_at < 0:
+    if not isinstance(out.get("created_at"), int) or out["created_at"] < 0:
         raise _contracts.DomainValidationError("WORKER_CHECKPOINT_CREATED_AT_INVALID")
     return out
 
@@ -142,15 +137,14 @@ def _validate_checkpoint(payload: Dict[str, Any]) -> Dict[str, Any]:
 def _validate_rotation(payload: Dict[str, Any]) -> Dict[str, Any]:
     out = _base(payload, _WORKER_ROTATION, "decision_id")
     for name in ("session_id", "worker_id", "team_id", "decision"):
-        _require_string(out, name)
+        out[name] = _contracts._require_str(out, name)
     out["decision"] = out["decision"].upper()
     if out["decision"] not in {"ROTATE", "KEEP"}:
         raise _contracts.DomainValidationError("WORKER_ROTATION_DECISION_INVALID")
-    _require_string_list(out, "reasons")
+    _contracts._require_string_list(out, "reasons")
     if not isinstance(out.get("metrics"), dict):
         raise _contracts.DomainValidationError("WORKER_ROTATION_METRICS_MUST_BE_OBJECT")
-    created_at = out.get("created_at")
-    if not isinstance(created_at, int) or created_at < 0:
+    if not isinstance(out.get("created_at"), int) or out["created_at"] < 0:
         raise _contracts.DomainValidationError("WORKER_ROTATION_CREATED_AT_INVALID")
     return out
 
@@ -158,13 +152,12 @@ def _validate_rotation(payload: Dict[str, Any]) -> Dict[str, Any]:
 def _validate_reviewer(payload: Dict[str, Any]) -> Dict[str, Any]:
     out = _base(payload, _REVIEWER_ASSIGNMENT, "review_id")
     for name in ("worker_id", "session_id", "team_id", "mission_node_id", "delivery_id"):
-        _require_string(out, name)
+        out[name] = _contracts._require_str(out, name)
     for name in ("criteria", "evidence_refs"):
-        _require_string_list(out, name)
+        _contracts._require_string_list(out, name)
     if not isinstance(out.get("context_bundle"), dict):
         raise _contracts.DomainValidationError("REVIEWER_CONTEXT_MUST_BE_OBJECT")
-    created_at = out.get("created_at")
-    if not isinstance(created_at, int) or created_at < 0:
+    if not isinstance(out.get("created_at"), int) or out["created_at"] < 0:
         raise _contracts.DomainValidationError("REVIEWER_CREATED_AT_INVALID")
     return out
 
@@ -172,17 +165,16 @@ def _validate_reviewer(payload: Dict[str, Any]) -> Dict[str, Any]:
 def _validate_handoff(payload: Dict[str, Any]) -> Dict[str, Any]:
     out = _base(payload, _CAPTAIN_HANDOFF, "checkpoint_id")
     for name in ("release_batch_id", "team_id", "old_captain_session_id"):
-        _require_string(out, name)
+        out[name] = _contracts._require_str(out, name)
     for name in (
         "current_node_refs", "latest_delivery_refs", "latest_gate_refs", "next_workitem_ids",
         "active_worker_session_ids", "active_workitem_ids", "blocked_workitem_ids",
         "completed_workitem_ids",
     ):
-        _require_string_list(out, name)
+        _contracts._require_string_list(out, name)
     if not isinstance(out.get("resumable_from_r1"), bool):
         raise _contracts.DomainValidationError("CAPTAIN_HANDOFF_RESUMABLE_INVALID")
-    created_at = out.get("created_at")
-    if not isinstance(created_at, int) or created_at < 0:
+    if not isinstance(out.get("created_at"), int) or out["created_at"] < 0:
         raise _contracts.DomainValidationError("CAPTAIN_HANDOFF_CREATED_AT_INVALID")
     return out
 
@@ -190,14 +182,13 @@ def _validate_handoff(payload: Dict[str, Any]) -> Dict[str, Any]:
 def _validate_takeover(payload: Dict[str, Any]) -> Dict[str, Any]:
     out = _base(payload, _CAPTAIN_TAKEOVER, "takeover_id")
     for name in ("checkpoint_id", "release_batch_id", "team_id", "new_captain_session_id"):
-        _require_string(out, name)
+        out[name] = _contracts._require_str(out, name)
     for name in ("active_worker_session_ids", "next_workitem_ids"):
-        _require_string_list(out, name)
+        _contracts._require_string_list(out, name)
     for name in ("ready", "resumable_from_r1"):
         if not isinstance(out.get(name), bool):
             raise _contracts.DomainValidationError("%s_INVALID" % name.upper())
-    created_at = out.get("created_at")
-    if not isinstance(created_at, int) or created_at < 0:
+    if not isinstance(out.get("created_at"), int) or out["created_at"] < 0:
         raise _contracts.DomainValidationError("CAPTAIN_TAKEOVER_CREATED_AT_INVALID")
     return out
 
@@ -233,8 +224,8 @@ class WorkerLifecyclePolicy:
 
     def __post_init__(self) -> None:
         for name in (
-            "max_workitems", "max_steps", "max_tokens", "max_tool_calls",
-            "max_compactions", "max_retries", "max_age_seconds",
+            "max_workitems", "max_steps", "max_tokens", "max_tool_calls", "max_compactions",
+            "max_retries", "max_age_seconds",
         ):
             value = getattr(self, name)
             if not isinstance(value, int) or value < 1:
@@ -256,8 +247,8 @@ class WorkerSessionMetrics:
 
     def __post_init__(self) -> None:
         for name in (
-            "workitem_count", "step_count", "token_usage", "tool_call_count",
-            "compaction_count", "retry_count", "age_seconds",
+            "workitem_count", "step_count", "token_usage", "tool_call_count", "compaction_count",
+            "retry_count", "age_seconds",
         ):
             value = getattr(self, name)
             if not isinstance(value, int) or value < 0:
@@ -329,6 +320,20 @@ class CaptainTakeoverReadiness:
     resumable_from_r1: bool
 
 
+@dataclass(frozen=True)
+class RuntimeAssignmentBinding:
+    binding_id: str
+    runtime_worker_id: str
+    task_lease_ref: str
+    attempt_id: str
+
+
+@dataclass(frozen=True)
+class DshRuntimeBinding:
+    binding_id: str
+    dsh_session_id: str
+
+
 class WorkerLifecycleService:
     def __init__(
         self,
@@ -343,12 +348,13 @@ class WorkerLifecycleService:
         self.truth = truth
         self.release_id = release_id.strip()
         self.policy = policy or WorkerLifecyclePolicy()
+        self.repository = CanonicalRC72Repository(truth, release_id=self.release_id)
 
     def _append(self, event_type: str, payload: Dict[str, Any]):
-        payload = dict(payload)
-        payload["release_id"] = self.release_id
-        payload.setdefault("artifact_version", 1)
-        return self.truth.append_atomic(event_type, payload)
+        out = dict(payload)
+        out["release_id"] = self.release_id
+        out.setdefault("artifact_version", 1)
+        return self.truth.append_atomic(event_type, out)
 
     def _one(self, artifact_type: str, **filters: Any) -> Dict[str, Any]:
         rows = self.truth.query(artifact_type, **filters)
@@ -358,6 +364,14 @@ class WorkerLifecycleService:
 
     def _batch_for_mission(self, mission_id: str) -> Dict[str, Any]:
         return self._one("rc72_release_batch", mission_id=mission_id)
+
+    def _update_session(self, session: Mapping[str, Any], **changes: Any) -> Dict[str, Any]:
+        updated = dict(session)
+        updated.pop("artifact_type", None)
+        updated.update(changes)
+        updated["artifact_version"] = int(session.get("artifact_version", 1)) + 1
+        self._append("RC72_WORKER_SESSION_UPSERTED", updated)
+        return self._one(_WORKER_SESSION, session_id=str(session["session_id"]))
 
     @staticmethod
     def _canonical_refs(refs: Mapping[str, Any]) -> Dict[str, List[str]]:
@@ -395,8 +409,7 @@ class WorkerLifecycleService:
         refs = self._canonical_refs(canonical_refs)
         if etu_id not in refs["etu_refs"]:
             raise ContractError("WORKER_ETU_REF_REQUIRED")
-        worker_id = _new("WRK")
-        session_id = _new("SES")
+        worker_id, session_id = _new("WRK"), _new("SES")
         context = {
             "mission_id": mission_id,
             "release_batch_id": batch["release_batch_id"],
@@ -423,6 +436,12 @@ class WorkerLifecycleService:
                 "parent_session_id": parent_session_id,
                 "checkpoint_id": None,
                 "close_reason": None,
+                "runtime_worker_id": None,
+                "runtime_assignment_id": None,
+                "task_lease_ref": None,
+                "runtime_attempt_id": None,
+                "dsh_session_id": None,
+                "binding_id": None,
                 "created_at": _now(),
                 "closed_at": None,
             },
@@ -442,16 +461,118 @@ class WorkerLifecycleService:
             raise ContractError("WORKER_SESSION_CLOSED")
         if session.get("purpose") != "EXECUTION":
             raise ContractError("WORKER_SESSION_NOT_EXECUTION")
-        # Phase 5 default is one ETU per session. Rebinding to another ETU is
-        # intentionally forbidden even while the old session is active.
         if session.get("etu_id") != etu_id or session.get("workitem_id") != workitem_id:
             raise ContractError("WORKER_SESSION_REUSE_FORBIDDEN")
         refs = self._canonical_refs(canonical_refs)
-        context = dict(session["context_bundle"])
         for key in _CANONICAL_REF_KEYS:
-            if context.get(key, []) != refs[key]:
+            if session["context_bundle"].get(key, []) != refs[key]:
                 raise ContractError("WORKER_SESSION_CONTEXT_DRIFT")
-        return FreshWorkerAssignment(session["worker_id"], session_id, context)
+        return FreshWorkerAssignment(session["worker_id"], session_id, dict(session["context_bundle"]))
+
+    def bind_signed_runtime_assignment(
+        self,
+        *,
+        lifecycle_session_id: str,
+        assignment: WorkerAssignment,
+        case_id: str,
+    ) -> RuntimeAssignmentBinding:
+        session = self._one(_WORKER_SESSION, session_id=lifecycle_session_id)
+        if session.get("state") != "ACTIVE" or session.get("purpose") != "EXECUTION":
+            raise ContractError("WORKER_SESSION_NOT_ACTIVE_EXECUTION")
+        if assignment.mission_id != session.get("mission_id"):
+            raise ContractError("RUNTIME_ASSIGNMENT_MISSION_MISMATCH")
+        if assignment.scope != session.get("etu_id"):
+            raise ContractError("RUNTIME_ASSIGNMENT_SCOPE_MISMATCH")
+        if assignment.lease.worker_id != assignment.worker_instance_id:
+            raise ContractError("RUNTIME_ASSIGNMENT_LEASE_WORKER_MISMATCH")
+        if assignment.lease.scope_ref != assignment.scope:
+            raise ContractError("RUNTIME_ASSIGNMENT_LEASE_SCOPE_MISMATCH")
+        if not assignment.lease.signature:
+            raise ContractError("RUNTIME_ASSIGNMENT_UNSIGNED_LEASE")
+        etu = self._one("rc72_etu", etu_id=str(session["etu_id"]))
+        if case_id not in list(etu.get("case_ids") or []):
+            raise ContractError("RUNTIME_ASSIGNMENT_CASE_OUTSIDE_ETU")
+        binding_id = _new("WAB")
+        binding = WorkItemAttemptBinding(
+            binding_id=binding_id,
+            mission_id=str(session["mission_id"]),
+            etu_id=str(session["etu_id"]),
+            workitem_id=str(session["workitem_id"]),
+            case_id=case_id,
+            attempt_id=assignment.attempt_id,
+            worker_id=assignment.worker_instance_id,
+            session_id=lifecycle_session_id,
+            task_lease_ref=assignment.lease.lease_id,
+            state=WorkItemAttemptState.PREPARED,
+        )
+        self.repository.persist(binding)
+        self._update_session(
+            session,
+            runtime_worker_id=assignment.worker_instance_id,
+            runtime_assignment_id=assignment.assignment_id,
+            task_lease_ref=assignment.lease.lease_id,
+            runtime_attempt_id=assignment.attempt_id,
+            binding_id=binding_id,
+        )
+        return RuntimeAssignmentBinding(
+            binding_id=binding_id,
+            runtime_worker_id=assignment.worker_instance_id,
+            task_lease_ref=assignment.lease.lease_id,
+            attempt_id=assignment.attempt_id,
+        )
+
+    def record_dsh_session(
+        self,
+        *,
+        lifecycle_session_id: str,
+        invocation: WorkerInvocation,
+    ) -> DshRuntimeBinding:
+        session = self._one(_WORKER_SESSION, session_id=lifecycle_session_id)
+        if session.get("state") != "ACTIVE":
+            raise ContractError("WORKER_SESSION_NOT_ACTIVE")
+        if not session.get("binding_id") or not session.get("runtime_worker_id"):
+            raise ContractError("RUNTIME_ASSIGNMENT_NOT_BOUND")
+        expected = {
+            "worker": session.get("runtime_worker_id"),
+            "mission": session.get("mission_id"),
+            "assignment": session.get("runtime_assignment_id"),
+            "attempt": session.get("runtime_attempt_id"),
+            "lease": session.get("task_lease_ref"),
+            "scope": session.get("etu_id"),
+        }
+        if invocation.worker_instance_id != expected["worker"]:
+            raise ContractError("RUNTIME_WORKER_IDENTITY_MISMATCH")
+        if invocation.mission_id != expected["mission"]:
+            raise ContractError("RUNTIME_MISSION_IDENTITY_MISMATCH")
+        if invocation.assignment_id != expected["assignment"]:
+            raise ContractError("RUNTIME_ASSIGNMENT_IDENTITY_MISMATCH")
+        if invocation.attempt_id != expected["attempt"]:
+            raise ContractError("RUNTIME_ATTEMPT_IDENTITY_MISMATCH")
+        if invocation.lease_id != expected["lease"]:
+            raise ContractError("RUNTIME_LEASE_IDENTITY_MISMATCH")
+        if invocation.scope != expected["scope"]:
+            raise ContractError("RUNTIME_SCOPE_IDENTITY_MISMATCH")
+        if not isinstance(invocation.dsh_session_id, str) or not invocation.dsh_session_id.strip():
+            raise ContractError("RUNTIME_DSH_SESSION_REQUIRED")
+        previous = self._one("rc72_workitem_attempt_binding", binding_id=str(session["binding_id"]))
+        running = WorkItemAttemptBinding(
+            binding_id=previous["binding_id"],
+            mission_id=previous["mission_id"],
+            etu_id=previous["etu_id"],
+            workitem_id=previous["workitem_id"],
+            case_id=previous["case_id"],
+            attempt_id=previous["attempt_id"],
+            worker_id=invocation.worker_instance_id,
+            session_id=invocation.dsh_session_id,
+            task_lease_ref=invocation.lease_id,
+            capability_lease_refs=tuple(previous.get("capability_lease_refs") or []),
+            resource_lease_refs=tuple(previous.get("resource_lease_refs") or []),
+            parent_attempt_id=previous.get("parent_attempt_id"),
+            state=WorkItemAttemptState.RUNNING,
+        )
+        self.repository.persist(running, artifact_version=int(previous.get("artifact_version", 1)) + 1)
+        self._update_session(session, dsh_session_id=invocation.dsh_session_id)
+        return DshRuntimeBinding(str(session["binding_id"]), invocation.dsh_session_id)
 
     def checkpoint_and_close(
         self,
@@ -464,31 +585,33 @@ class WorkerLifecycleService:
         if session.get("state") == "CLOSED":
             raise ContractError("WORKER_SESSION_CLOSED")
         checkpoint_id = _new("WCP")
-        checkpoint = {
-            "checkpoint_id": checkpoint_id,
-            "mission_id": session["mission_id"],
-            "session_id": session_id,
-            "worker_id": session["worker_id"],
-            "team_id": session["team_id"],
-            "role": session["role"],
-            "purpose": session["purpose"],
-            "etu_id": session.get("etu_id"),
-            "workitem_id": session.get("workitem_id"),
-            "rotation_decision_id": rotation_decision_id,
-            "reason": reason,
-            "context_bundle": dict(session["context_bundle"]),
-            "created_at": _now(),
-        }
-        # Order is a safety invariant: durable checkpoint first, then close.
-        self._append("RC72_WORKER_CHECKPOINT_UPSERTED", checkpoint)
-        closed = dict(session)
-        closed["state"] = "CLOSED"
-        closed["checkpoint_id"] = checkpoint_id
-        closed["close_reason"] = reason
-        closed["closed_at"] = _now()
-        closed["artifact_version"] = int(session.get("artifact_version", 1)) + 1
-        closed.pop("artifact_type", None)
-        self._append("RC72_WORKER_SESSION_UPSERTED", closed)
+        self._append(
+            "RC72_WORKER_CHECKPOINT_UPSERTED",
+            {
+                "checkpoint_id": checkpoint_id,
+                "mission_id": session["mission_id"],
+                "session_id": session_id,
+                "worker_id": session["worker_id"],
+                "team_id": session["team_id"],
+                "role": session["role"],
+                "purpose": session["purpose"],
+                "etu_id": session.get("etu_id"),
+                "workitem_id": session.get("workitem_id"),
+                "rotation_decision_id": rotation_decision_id,
+                "dsh_session_id": session.get("dsh_session_id"),
+                "runtime_worker_id": session.get("runtime_worker_id"),
+                "reason": reason,
+                "context_bundle": dict(session["context_bundle"]),
+                "created_at": _now(),
+            },
+        )
+        self._update_session(
+            session,
+            state="CLOSED",
+            checkpoint_id=checkpoint_id,
+            close_reason=reason,
+            closed_at=_now(),
+        )
         return WorkerCheckpointResult(checkpoint_id, session_id)
 
     def evaluate_rotation(self, session_id: str, metrics: WorkerSessionMetrics) -> RotationDecision:
@@ -496,7 +619,7 @@ class WorkerLifecycleService:
         if session.get("state") != "ACTIVE":
             raise ContractError("WORKER_SESSION_NOT_ACTIVE")
         reasons: List[str] = []
-        checks = (
+        for triggered, reason in (
             (metrics.workitem_count >= self.policy.max_workitems, "MAX_WORKITEMS"),
             (metrics.step_count > self.policy.max_steps, "MAX_STEPS"),
             (metrics.token_usage > self.policy.max_tokens, "MAX_TOKENS"),
@@ -505,8 +628,7 @@ class WorkerLifecycleService:
             (metrics.retry_count >= self.policy.max_retries, "MAX_RETRIES"),
             (metrics.age_seconds > self.policy.max_age_seconds, "MAX_AGE"),
             (float(metrics.context_pressure) >= float(self.policy.max_context_pressure), "CONTEXT_PRESSURE"),
-        )
-        for triggered, reason in checks:
+        ):
             if triggered:
                 reasons.append(reason)
         decision_id = _new("ROT")
@@ -538,18 +660,17 @@ class WorkerLifecycleService:
         session = self._one(_WORKER_SESSION, session_id=session_id)
         if session.get("state") != "ACTIVE":
             raise ContractError("WORKER_SESSION_NOT_ACTIVE")
-        required = [
+        candidates = [
             row for row in self.truth.query(_WORKER_ROTATION, session_id=session_id)
             if row.get("decision") == "ROTATE" and row.get("metrics") == metrics.as_dict()
         ]
-        if required:
-            decision = sorted(required, key=lambda row: int(row.get("created_at", 0)))[-1]
-            decision_id = decision["decision_id"]
+        if candidates:
+            decision_id = sorted(candidates, key=lambda row: (int(row.get("created_at", 0)), row["decision_id"]))[-1]["decision_id"]
         else:
-            fresh_decision = self.evaluate_rotation(session_id, metrics)
-            if not fresh_decision.required:
+            decision = self.evaluate_rotation(session_id, metrics)
+            if not decision.required:
                 raise ContractError("WORKER_ROTATION_NOT_REQUIRED")
-            decision_id = fresh_decision.decision_id
+            decision_id = decision.decision_id
         closed = self.checkpoint_and_close(
             session_id,
             reason="ROTATION_REQUIRED",
@@ -581,8 +702,7 @@ class WorkerLifecycleService:
         delivery = self._one("rc72_node_delivery", delivery_id=delivery_id)
         if delivery.get("mission_id") != mission_id or delivery.get("mission_node_id") != mission_node_id:
             raise ContractError("REVIEWER_DELIVERY_LINEAGE_MISMATCH")
-        criteria_list = list(criteria)
-        evidence_list = list(evidence_refs)
+        criteria_list, evidence_list = list(criteria), list(evidence_refs)
         if not criteria_list or not all(isinstance(v, str) and v.strip() for v in criteria_list):
             raise ContractError("REVIEWER_CRITERIA_REQUIRED")
         if not all(isinstance(v, str) and v.strip() for v in evidence_list):
@@ -591,8 +711,7 @@ class WorkerLifecycleService:
         session_id = _new("REVSES")
         while session_id in excluded:
             session_id = _new("REVSES")
-        worker_id = _new("REVWRK")
-        review_id = _new("REV")
+        worker_id, review_id = _new("REVWRK"), _new("REV")
         context = {
             "mission_id": mission_id,
             "team_id": team_id,
@@ -618,6 +737,12 @@ class WorkerLifecycleService:
                 "parent_session_id": None,
                 "checkpoint_id": None,
                 "close_reason": None,
+                "runtime_worker_id": None,
+                "runtime_assignment_id": None,
+                "task_lease_ref": None,
+                "runtime_attempt_id": None,
+                "dsh_session_id": None,
+                "binding_id": None,
                 "created_at": _now(),
                 "closed_at": None,
             },
@@ -662,9 +787,6 @@ class WorkerLifecycleService:
         ]
         active_ids = sorted(row["session_id"] for row in active_sessions)
         tasks = self.truth.query("rc7_task", mission_id=mission_id)
-        active_states = {"READY", "LEASED", "RUNNING"}
-        blocked_states = {"BLOCKED"}
-        completed_states = {"COMPLETED", "CANCELLED"}
         checkpoint_id = _new("CAPHO")
         self._append(
             "RC72_CAPTAIN_HANDOFF_UPSERTED",
@@ -679,9 +801,9 @@ class WorkerLifecycleService:
                 "latest_gate_refs": list(latest_gate_refs),
                 "next_workitem_ids": list(next_workitem_ids),
                 "active_worker_session_ids": active_ids,
-                "active_workitem_ids": sorted(row["task_id"] for row in tasks if str(row.get("state")) in active_states),
-                "blocked_workitem_ids": sorted(row["task_id"] for row in tasks if str(row.get("state")) in blocked_states),
-                "completed_workitem_ids": sorted(row["task_id"] for row in tasks if str(row.get("state")) in completed_states),
+                "active_workitem_ids": sorted(row["task_id"] for row in tasks if str(row.get("state")) in {"READY", "LEASED", "RUNNING"}),
+                "blocked_workitem_ids": sorted(row["task_id"] for row in tasks if str(row.get("state")) == "BLOCKED"),
+                "completed_workitem_ids": sorted(row["task_id"] for row in tasks if str(row.get("state")) in {"COMPLETED", "CANCELLED"}),
                 "resumable_from_r1": True,
                 "created_at": _now(),
             },
@@ -707,27 +829,23 @@ class WorkerLifecycleService:
             if task.get("mission_id") != expected_mission_id:
                 raise ContractError("CAPTAIN_HANDOFF_WORKITEM_MISSION_MISMATCH")
         takeover_id = _new("CAPTO")
-        payload = {
-            "takeover_id": takeover_id,
-            "mission_id": expected_mission_id,
-            "checkpoint_id": checkpoint_id,
-            "release_batch_id": batch["release_batch_id"],
-            "team_id": expected_team_id,
-            "new_captain_session_id": new_captain_session_id,
-            "active_worker_session_ids": list(handoff.get("active_worker_session_ids", [])),
-            "next_workitem_ids": list(handoff.get("next_workitem_ids", [])),
-            "ready": True,
-            "resumable_from_r1": True,
-            "created_at": _now(),
-        }
-        self._append("RC72_CAPTAIN_TAKEOVER_UPSERTED", payload)
-        return CaptainTakeoverReadiness(
-            takeover_id=takeover_id,
-            ready=True,
-            mission_id=expected_mission_id,
-            team_id=expected_team_id,
-            resumable_from_r1=True,
+        self._append(
+            "RC72_CAPTAIN_TAKEOVER_UPSERTED",
+            {
+                "takeover_id": takeover_id,
+                "mission_id": expected_mission_id,
+                "checkpoint_id": checkpoint_id,
+                "release_batch_id": batch["release_batch_id"],
+                "team_id": expected_team_id,
+                "new_captain_session_id": new_captain_session_id,
+                "active_worker_session_ids": list(handoff.get("active_worker_session_ids", [])),
+                "next_workitem_ids": list(handoff.get("next_workitem_ids", [])),
+                "ready": True,
+                "resumable_from_r1": True,
+                "created_at": _now(),
+            },
         )
+        return CaptainTakeoverReadiness(takeover_id, True, expected_mission_id, expected_team_id, True)
 
 
 install_rc72_worker_lifecycle_overlay()
