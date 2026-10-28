@@ -9,18 +9,20 @@ This file is the handoff ledger for RC7.2 implementation. Every construction ses
 ```yaml
 branch: work/rc7.2
 design_baseline_sha: a3426e306abf967ab822d44508127c3891c8e91e
-qualified_code_head_sha: 712a522026902b0c43ced3f667028c8d051744e5
+latest_phase2_qualified_code_head_sha: 0fdd6ef62101ba837bb623091c6ac3bbadef2e5a
+latest_phase2_qualified_ci_run: 40693161338
 ledger_commit_sha: SELF
 phase:
   phase0_reality_baseline: COMPLETE
   phase1_canonical_domain_model: CI_PASS
-  phase2_n1_n10_state_machine: NOT_STARTED
+  phase2_n1_n10_state_machine: CI_PASS
+  phase3_sufficiency_gates: NOT_STARTED
 field_evidence: NOT_YET_FIELD_VALIDATED
 release_status: CONSTRUCTION_ONLY
-next_atomic_step: PHASE2_CONTRACT_TESTS_THEN_STATE_MACHINE_IMPLEMENTATION
+next_atomic_step: PHASE3_SUFFICIENCY_GATE_CONTRACT_TESTS
 ```
 
-The `qualified_code_head_sha` above is the code HEAD that passed Phase 1 CI before this ledger-only commit. The ledger commit itself must also pass construction CI; later sessions must always re-read the actual branch HEAD instead of assuming this SHA remains current.
+The qualified code HEAD above passed RC7.2 contracts on Python 3.8 and 3.11 and the inherited RC7 source suite on Python 3.8 in the same workflow run. This ledger commit is documentation-only and must not be interpreted as Field qualification. Future sessions must always re-read the actual branch HEAD and same-HEAD CI/check-runs.
 
 ## 2. Frozen source contracts
 
@@ -68,7 +70,8 @@ Status: `CI_PASS`
 - 3-8 cases is implemented as a default target, not a blind hard constant: >8 requires explicit justification; 1-2 remains legal for expensive/high-risk work.
 - Existing canonical RC7 `Gap` is reused; no second RC7.2 gap store exists.
 - `BackEdge` is persisted and binds source delivery, Gap, return node and invalidation refs.
-- `NodeTransition` is persisted and explicitly distinguishes forward/back-edge/blocked/human-gate/resume transitions.
+- `ImpactSet` is persisted in the same R1 and records explicit or safe-fallback downstream invalidation scope.
+- `NodeTransition` is persisted and explicitly distinguishes forward/diagnosis/back-edge/blocked/human-gate/resume semantics.
 - Existing `rc7_task` is reused as WorkItem; no duplicate WorkItem store was created.
 - Existing inherited `execution_attempt` remains Attempt truth; no duplicate Attempt store was created.
 - `WorkItemAttemptBinding` durably links ETU -> existing Task -> existing Attempt -> worker/session -> task/capability/resource lease refs.
@@ -81,7 +84,10 @@ Status: `CI_PASS`
 - `rc7_runtime/rc72_linkage.py`
 - `rc7_runtime/rc72_truth.py`
 - `rc7_runtime/rc72_repository.py`
+- `rc7_runtime/rc72_impact.py`
+- `rc7_runtime/rc72_impact_truth.py`
 - `tests/test_rc72_phase1_domain_contract.py`
+- `tests/test_rc72_phase1_impact_contract.py`
 - `.github/workflows/rc7.2-construction.yml`
 
 ### 4.3 Construction commits
@@ -95,68 +101,107 @@ Status: `CI_PASS`
 - `028460fa9b21ee406af55e4e1f9838c2bf250f8b` — frozen N1-N10 contract alignment
 - `4256819a37a3c31946a974a31a93121809d25559` — Transition and existing Task/Attempt linkage model
 - `712a522026902b0c43ced3f667028c8d051744e5` — public Transition/Attempt-linkage API
+- `be66fbf86994a02ef86a7f69067159a45c32adca` — persisted ImpactSet contract and replay qualification
 
-### 4.4 CI evidence
-
-Workflow: `RC7.2 Construction Qualification`
-
-- run `40689797894` on `028460fa...`: `SUCCESS`
-- run `40690976915` on `4256819a...`: `SUCCESS`
-- run `40691059287` on `712a522...`: `SUCCESS`
-
-Latest qualified run `40691059287` proved on the same code HEAD:
-
-- RC7.2 phase contract suite on Python 3.8: PASS
-- RC7.2 phase contract suite on Python 3.11: PASS
-- inherited RC7 source suite on Python 3.8: PASS
-- compile qualification: PASS
-
-CI PASS is not FIELD VALIDATION.
-
-### 4.5 Phase 1 exit decision
+### 4.4 Phase 1 exit decision
 
 `PHASE1 = CI_PASS`
 
 Reason:
 
-- canonical entities exist;
-- they persist/replay through the same R1;
+- canonical entities exist and persist/replay through the same R1;
 - ReleaseBatch/Requirement/SST lineage is enforced;
-- N1-N10 node/delivery/gate/back-edge/transition objects exist;
+- N1-N10 node/delivery/gate/gap/back-edge/impact/transition objects exist;
 - ETU is bound to existing WorkItem/Attempt truth rather than a parallel runtime;
-- inherited RC7 regression remains green.
+- inherited RC7 regression remains green at latest Phase 2 qualified HEAD, which contains all Phase 1 code.
 
 Open qualification:
 
-- real in-bank ReleaseBatch mission has not yet exercised these new RC7.2 entities;
+- real in-bank ReleaseBatch mission has not yet exercised these RC7.2 entities;
 - therefore `FIELD_VALIDATED = NO`.
 
 ## 5. Phase 2 — N1-N10 Runtime State Machine
 
+Status: `CI_PASS`
+
+### 5.1 Implemented clauses
+
+- Bootstrapping a ReleaseBatch creates exactly ten persisted N1-N10 MissionNodes; N1 starts READY and remaining nodes start NOT_STARTED.
+- MissionNode lifecycle is explicit and persisted.
+- Direct `PASS` is forbidden; PASS is reachable only through a persisted `NodeDelivery + NodeGate(PASS)` path.
+- Active delivery version and conflicting same-version producer detection are enforced.
+- Forward N1-N7 transitions require source PASS plus persisted PASS gate and mandatory upstream PASS truth.
+- STALE/non-PASS mandatory upstream nodes block downstream execution readiness.
+- N7 execution failure no longer allows inline redesign to masquerade as execution; it persists an explicit `DIAGNOSIS` transition to N8.
+- N8 diagnosis requires its own accepted delivery/gate before semantic routing.
+- N8 classification persists canonical `Gap + BackEdge + NodeTransition` for N1/N2/N3/N4/N5/N6/N9 routes.
+- Provider/capability/resource classes are distinguished as runtime recovery/broker/resource-manager actions rather than SUT defects.
+- `UNKNOWN` diagnosis cannot auto-pass.
+- Explicit ImpactSet propagation marks dependent MissionNode/TestObligation/ETU truth STALE.
+- Safe fallback invalidation exists when explicit dependency edges are incomplete and is recorded as `SAFE_FALLBACK` rather than silently guessed.
+- STALE upstream/ETU truth blocks N7 dispatch.
+- Release convergence requires all mandatory business/runtime/evidence conditions; coverage target alone cannot produce CONVERGED.
+- Restart/replay reconstructs current node state from R1 without chat/session history.
+- Existing RC7.1 state-machine code remains intact; RC7.2 logic is additive in its own service over the same R1.
+
+### 5.2 Main implementation files
+
+- `rc7_runtime/rc72_state_machine.py`
+- `rc7_runtime/rc72_phase2_truth.py`
+- `tests/test_rc72_phase2_state_machine_contract.py`
+
+### 5.3 Construction commits and red/green evidence
+
+- `8eee85411fbb90a696a9a06b7463a3b2e5c108ba` — Phase 2 contract tests first (intentional TDD red before implementation)
+- `161b64ab3f1a648dbbdd316d0460db7a69550526` — initial persisted N1-N10 state-machine implementation
+- run `40692350064` — real red qualification: 25/27 Phase contracts passed; exactly two failures found:
+  1. conflicting same-version Delivery was masked by lifecycle state check;
+  2. N7->N8 was typed as generic BLOCKED instead of explicit DIAGNOSIS.
+- `c325626943edebb9d5bb3ab5e64701a1bb81e9a4` — add explicit DIAGNOSIS transition kind
+- `e4b31de1a5d74ba116ef08ca9f0052f2dd2dca8b` — register Phase 2 DIAGNOSIS semantics in the same canonical transition validator
+- `0fdd6ef62101ba837bb623091c6ac3bbadef2e5a` — fix delivery conflict ordering and N7->N8 DIAGNOSIS transition
+
+### 5.4 Same-HEAD CI evidence
+
+Workflow: `RC7.2 Construction Qualification`
+
+Run `40693161338`, head `0fdd6ef62101ba837bb623091c6ac3bbadef2e5a`: `SUCCESS`
+
+Same-head jobs:
+
+- RC7.2 construction contracts Python 3.8: PASS
+- RC7.2 construction contracts Python 3.11: PASS
+- inherited RC7 source suite Python 3.8: PASS
+- runtime compile qualification: PASS
+
+This proves repository-level Phase 2 behavior and inherited RC7 compatibility. It does not prove in-bank Field behavior.
+
+### 5.5 Phase 2 exit decision
+
+`PHASE2 = CI_PASS`
+
+`FIELD_VALIDATED = NO`
+
+No claim is made yet that a real in-bank ReleaseBatch has exercised N1-N10 semantic back-edges or stale propagation.
+
+## 6. Phase 3 — Sufficiency / Readiness Gates
+
 Status: `NOT_STARTED`
 
-The next implementation MUST start with executable contract tests derived from `03-N1-N10-RUNTIME-STATE-MACHINE-CONTRACT.md`, then implement runtime behavior.
+The next implementation must start with executable contract tests and then implement deterministic/evidence-backed gates for N2-N6.
 
-Minimum first slice:
+Required first slice:
 
-1. legal MissionNode lifecycle transitions;
-2. PASS reachable only through a persisted PASS NodeGate;
-3. forward transition blocked when mandatory upstream delivery/node is STALE or non-PASS;
-4. N7 execution failure transitions into N8 rather than allowing N7 to silently redesign/retry forever;
-5. N8 failure classification creates semantic routing to N1/N2/N3/N4/N5/N6/N9 as applicable;
-6. semantic back-edge persists Gap + BackEdge + NodeTransition;
-7. ImpactResolver marks affected downstream NodeDelivery/TestObligation/ETU or executable refs STALE;
-8. STALE nodes/assets cannot dispatch new execution work;
-9. Agent text such as "completed" cannot create PASS without Gate/Evidence truth;
-10. restart/replay recovers current node state from R1 without chat history.
+1. N2 Requirement sufficiency cannot PASS with missing mandatory Requirement/SST business-rule/role/state/negative/boundary/permission/data-rule evidence.
+2. N3 Code Analysis cannot PASS without Requirement/SST -> change -> API/DTO/Service/DB/dependency mapping and CodeGraph `graph_evidence` for affected code.
+3. N4 Test Design cannot PASS with orphan cases, missing Requirement/SST/TestObligation lineage, missing Oracle, unresolved TBD/UNKNOWN, or missing negative/boundary/risk obligations where applicable.
+4. N5 Test Data cannot PASS until each executable case has a resolved DataRef/precondition strategy and required discovery/construct/verify/reserve state.
+5. N6 Executable Readiness cannot PASS until endpoint/tool route/input/data/assertion/oracle/evidence requirements are executable and capability/resource requirements are declared.
+6. Gate failure must create deterministic gap facts/return-node guidance; it must not rely on reviewer prose alone.
+7. N7 dispatch must continue to be impossible while any mandatory N2-N6 gate is non-PASS/STALE.
 
-Implementation should be additive, preferably in a dedicated RC7.2 state-machine service layered over `CanonicalRC72Repository`, while preserving inherited RC7.1 `state_machine.py` compatibility.
+## 7. Remaining construction phases
 
-## 6. Open construction gaps
-
-These are expected future phases, not Phase 1 failures:
-
-- Phase 2: N1-N10 state-machine behavior and stale propagation.
 - Phase 3: executable N2-N6 sufficiency/readiness gates.
 - Phase 4: adaptive TestObligation -> ETU decomposition/scoring/split/merge/reprioritization.
 - Phase 5: Fresh Worker/Fresh Reviewer/session rotation/Captain handoff.
@@ -166,7 +211,7 @@ These are expected future phases, not Phase 1 failures:
 - Phase 9: Journey Teaching/Compiler/Replay/Benchmark.
 - final: Windows + Linux + clean-unpack + real in-bank Field Acceptance.
 
-## 7. Anti-drift rule
+## 8. Anti-drift rule
 
 A future session MUST NOT infer completion from this file alone. It must inspect:
 
@@ -174,6 +219,7 @@ A future session MUST NOT infer completion from this file alone. It must inspect
 current work/rc7.2 HEAD
 + same-HEAD source
 + same-HEAD CI/check-runs
++ frozen 00-05 contracts
 + this ledger
 + R1/evidence where applicable
 ```
