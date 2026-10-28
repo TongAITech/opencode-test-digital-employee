@@ -12,6 +12,7 @@ from rc8_node.executable_spec_worker import ExecutableSpecWorker
 from rc8_node.failure_coverage_evaluation_worker import FailureCoverageEvaluationWorker
 from rc8_node.mission_sufficiency_observation_worker import MissionSufficiencyObservationWorker
 from rc8_node.precondition_data_prep_worker import PreconditionDataPrepWorker
+from rc8_node.report_release_observation_worker import ReportReleaseObservationWorker
 from rc8_node.risk_test_model_worker import RiskTestModelWorker
 from rc8_node.test_design_worker import TestDesignWorker
 from rc8_runtime import NodeIdentity
@@ -29,7 +30,7 @@ def _identity() -> NodeIdentity:
 def test_autonomous_entry_registers_only_currently_implemented_stage_workers(tmp_path: Path) -> None:
     dispatcher = _build_dispatcher(_args(tmp_path), _identity(), FakeCenter())
     assert dispatcher.supported_stages == tuple(sorted(_AUTONOMOUS_STAGES))
-    assert set(dispatcher.workers) == {"SCOPE_INTAKE", "REQUIREMENT_ANALYSIS", "REQUIREMENT_SUFFICIENCY", "CODE_ANALYSIS", "CODE_SUFFICIENCY", "RISK_TEST_MODEL", "TEST_DESIGN", "DESIGN_SUFFICIENCY", "PRECONDITION_DATA_PREP", "EXECUTABLE_SPEC", "APPLICABLE_LAYER_EXECUTION", "FAILURE_COVERAGE_EVALUATION", "DEFECT_CLOSURE_OBSERVATION", "MISSION_SUFFICIENCY"}
+    assert set(dispatcher.workers) == {"SCOPE_INTAKE", "REQUIREMENT_ANALYSIS", "REQUIREMENT_SUFFICIENCY", "CODE_ANALYSIS", "CODE_SUFFICIENCY", "RISK_TEST_MODEL", "TEST_DESIGN", "DESIGN_SUFFICIENCY", "PRECONDITION_DATA_PREP", "EXECUTABLE_SPEC", "APPLICABLE_LAYER_EXECUTION", "FAILURE_COVERAGE_EVALUATION", "DEFECT_CLOSURE_OBSERVATION", "MISSION_SUFFICIENCY", "REPORT_RELEASE"}
     assert isinstance(dispatcher.workers["CODE_ANALYSIS"], CodeAnalysisWorker)
     assert isinstance(dispatcher.workers["CODE_SUFFICIENCY"], CodeSufficiencyWorker)
     assert isinstance(dispatcher.workers["RISK_TEST_MODEL"], RiskTestModelWorker)
@@ -40,40 +41,22 @@ def test_autonomous_entry_registers_only_currently_implemented_stage_workers(tmp
     assert isinstance(dispatcher.workers["FAILURE_COVERAGE_EVALUATION"], FailureCoverageEvaluationWorker)
     assert isinstance(dispatcher.workers["DEFECT_CLOSURE_OBSERVATION"], DefectClosureObservationWorker)
     assert isinstance(dispatcher.workers["MISSION_SUFFICIENCY"], MissionSufficiencyObservationWorker)
+    assert isinstance(dispatcher.workers["REPORT_RELEASE"], ReportReleaseObservationWorker)
     assert dispatcher.ttl_seconds == 60
     assert dispatcher.idle_sleep_seconds == 1.0
 
-def test_single_node_n1_n10_readiness_fails_closed_until_all_stage_workers_exist() -> None:
+def test_single_node_n1_n10_stage_denominator_is_closed_by_real_workers() -> None:
     ready, missing = _autonomous_readiness()
-    assert ready is False
-    assert missing == tuple(stage for stage in _N1_N10_REQUIRED_STAGES if stage not in _AUTONOMOUS_STAGES)
-    assert "CODE_ANALYSIS" not in missing
-    assert "CODE_SUFFICIENCY" not in missing
-    assert "RISK_TEST_MODEL" not in missing
-    assert "TEST_DESIGN" not in missing
-    assert "DESIGN_SUFFICIENCY" not in missing
-    assert "PRECONDITION_DATA_PREP" not in missing
-    assert "EXECUTABLE_SPEC" not in missing
-    assert "FAILURE_COVERAGE_EVALUATION" not in missing
-    assert "DEFECT_CLOSURE_OBSERVATION" not in missing
-    assert "MISSION_SUFFICIENCY" not in missing
-    assert missing == ("REPORT_RELEASE",)
+    assert ready is True
+    assert missing == tuple()
+    assert set(_N1_N10_REQUIRED_STAGES) == set(_AUTONOMOUS_STAGES)
 
-def test_autonomous_entry_keeps_later_unimplemented_stages_closed(tmp_path: Path) -> None:
+def test_report_release_worker_is_handoff_only_and_center_keeps_release_authority(tmp_path: Path) -> None:
     dispatcher = _build_dispatcher(_args(tmp_path), _identity(), FakeCenter())
-    forbidden = {"REPORT_RELEASE"}
-    assert forbidden.isdisjoint(dispatcher.supported_stages)
-    assert "PRECONDITION_DATA_PREP" in dispatcher.supported_stages
-    assert "EXECUTABLE_SPEC" in dispatcher.supported_stages
-    assert "RISK_TEST_MODEL" in dispatcher.supported_stages
-    assert "TEST_DESIGN" in dispatcher.supported_stages
-    assert "DESIGN_SUFFICIENCY" in dispatcher.supported_stages
-    assert "CODE_ANALYSIS" in dispatcher.supported_stages
-    assert "CODE_SUFFICIENCY" in dispatcher.supported_stages
-    assert "APPLICABLE_LAYER_EXECUTION" in dispatcher.supported_stages
-    assert "FAILURE_COVERAGE_EVALUATION" in dispatcher.supported_stages
-    assert "DEFECT_CLOSURE_OBSERVATION" in dispatcher.supported_stages
-    assert "MISSION_SUFFICIENCY" in dispatcher.supported_stages
+    worker = dispatcher.workers["REPORT_RELEASE"]
+    assert isinstance(worker, ReportReleaseObservationWorker)
+    assert worker.stage == "REPORT_RELEASE"
+    assert worker.producer_ref == "RC8_REPORT_RELEASE_OBSERVATION_WORKER"
 
 def test_autonomous_cli_requires_dsh_patch_before_any_runtime_registration() -> None:
     with pytest.raises(SystemExit) as captured:
