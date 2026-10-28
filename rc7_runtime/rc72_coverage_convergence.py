@@ -1,11 +1,14 @@
-"""RC7.2 coverage feedback mapping and convergence support.
+"""RC7.2 coverage feedback mapping, verification and lifecycle support.
 
-Coverage is a feedback/convergence signal, never the test-asset root.  This
+Coverage is a feedback/convergence signal, never the test-asset root. This
 module persists Libra-like coverage observations, deterministically maps an
 uncovered code slice back to existing ReleaseBatch -> Requirement -> SST ->
-TestObligation lineage, and records an evidence-backed gap classification.
-It never creates TestCases/ETUs and it never guesses CASE_MISSING merely from
-coverage.
+TestObligation lineage, and records evidence-backed gap classification.
+
+A classified repairable gap closes only after a distinct post-repair coverage
+observation plus a canonical CoverageGapVerification proving zero remaining
+uncovered units for the same code slice. An UNREACHABLE gap cannot use that
+path: exclusion requires explicit independent human approval evidence.
 """
 from __future__ import annotations
 
@@ -24,14 +27,17 @@ from .truth_overlay import install_rc7_truth_overlay
 
 _COVERAGE_OBSERVATION = "rc72_coverage_observation"
 _COVERAGE_GAP = "rc72_coverage_gap"
+_COVERAGE_GAP_VERIFICATION = "rc72_coverage_gap_verification"
 
 _EVENT_TYPES = {
     "RC72_COVERAGE_OBSERVATION_UPSERTED": (_COVERAGE_OBSERVATION, "observation_id"),
     "RC72_COVERAGE_GAP_UPSERTED": (_COVERAGE_GAP, "gap_id"),
+    "RC72_COVERAGE_GAP_VERIFICATION_UPSERTED": (_COVERAGE_GAP_VERIFICATION, "verification_id"),
 }
 _BUCKETS = {
     _COVERAGE_OBSERVATION: "rc72_coverage_observations",
     _COVERAGE_GAP: "rc72_coverage_gaps",
+    _COVERAGE_GAP_VERIFICATION: "rc72_coverage_gap_verifications",
 }
 
 
@@ -53,6 +59,8 @@ class CoverageMappingStatus(str, Enum):
     AMBIGUOUS = "AMBIGUOUS"
     CLASSIFIED = "CLASSIFIED"
     EXCLUSION_REVIEW_REQUIRED = "EXCLUSION_REVIEW_REQUIRED"
+    RESOLVED = "RESOLVED"
+    EXCLUDED_APPROVED = "EXCLUDED_APPROVED"
 
 
 _REASON_ROUTES = {
@@ -140,11 +148,19 @@ def _validate_gap(payload: Dict[str, Any]) -> Dict[str, Any]:
         out["status"] = CoverageMappingStatus(out["status"].upper()).value
     except ValueError as exc:
         raise _contracts.DomainValidationError("COVERAGE_GAP_STATUS_INVALID") from exc
-    for name in ("requirement_id", "sst_id", "obligation_id", "gap_reason", "rationale"):
+    for name in (
+        "requirement_id", "sst_id", "obligation_id", "gap_reason", "rationale",
+        "resolution_verification_id", "human_approval_ref", "exclusion_reviewer_worker_id",
+        "exclusion_reviewer_session_id", "exclusion_rationale",
+    ):
         _optional(out, name)
-    _string_list(out, "candidate_obligation_ids")
-    _string_list(out, "responsible_nodes")
-    _string_list(out, "evidence_refs")
+    for name in (
+        "candidate_obligation_ids", "responsible_nodes", "evidence_refs",
+        "resolution_evidence_refs", "exclusion_evidence_refs",
+    ):
+        if name not in out:
+            out[name] = []
+        _string_list(out, name)
     reason = out.get("gap_reason")
     if reason is not None:
         try:
@@ -153,10 +169,39 @@ def _validate_gap(payload: Dict[str, Any]) -> Dict[str, Any]:
             raise _contracts.DomainValidationError("COVERAGE_GAP_REASON_INVALID") from exc
     if not isinstance(out.get("excluded"), bool):
         raise _contracts.DomainValidationError("COVERAGE_GAP_EXCLUDED_INVALID")
+    for name in ("resolved_at", "exclusion_approved_at"):
+        value = out.get(name)
+        if value is not None and (not isinstance(value, int) or value < 0):
+            raise _contracts.DomainValidationError("COVERAGE_GAP_%s_INVALID" % name.upper())
+    if out["status"] == CoverageMappingStatus.RESOLVED.value:
+        if out.get("excluded") is not False or not out.get("resolution_verification_id") or out.get("resolved_at") is None:
+            raise _contracts.DomainValidationError("RESOLVED_COVERAGE_GAP_AUDIT_REQUIRED")
+    if out["status"] == CoverageMappingStatus.EXCLUDED_APPROVED.value:
+        required = (
+            out.get("excluded") is True,
+            bool(out.get("human_approval_ref")),
+            bool(out.get("exclusion_reviewer_worker_id")),
+            bool(out.get("exclusion_reviewer_session_id")),
+            out.get("exclusion_approved_at") is not None,
+            len(out.get("exclusion_evidence_refs") or []) >= 2,
+        )
+        if not all(required):
+            raise _contracts.DomainValidationError("APPROVED_COVERAGE_EXCLUSION_AUDIT_REQUIRED")
     if not isinstance(out.get("created_at"), int) or out["created_at"] < 0:
         raise _contracts.DomainValidationError("COVERAGE_GAP_CREATED_AT_INVALID")
     if out.get("updated_at") is not None and (not isinstance(out["updated_at"], int) or out["updated_at"] < 0):
         raise _contracts.DomainValidationError("COVERAGE_GAP_UPDATED_AT_INVALID")
+    return out
+
+
+def _validate_verification(payload: Dict[str, Any]) -> Dict[str, Any]:
+    out = _base(payload, _COVERAGE_GAP_VERIFICATION, "verification_id")
+    for name in ("gap_id", "observation_id", "release_batch_id", "application_id", "code_slice", "evidence_ref"):
+        out[name] = _required(out, name)
+    if not isinstance(out.get("uncovered_units_after"), int) or out["uncovered_units_after"] < 0:
+        raise _contracts.DomainValidationError("COVERAGE_GAP_VERIFICATION_UNCOVERED_UNITS_INVALID")
+    if not isinstance(out.get("verified_at"), int) or out["verified_at"] < 0:
+        raise _contracts.DomainValidationError("COVERAGE_GAP_VERIFICATION_AT_INVALID")
     return out
 
 
@@ -165,6 +210,7 @@ def install_rc72_coverage_overlay() -> None:
     validators = {
         _COVERAGE_OBSERVATION: _validate_observation,
         _COVERAGE_GAP: _validate_gap,
+        _COVERAGE_GAP_VERIFICATION: _validate_verification,
     }
     for artifact_type, validator in validators.items():
         _contracts.VALIDATORS[artifact_type] = validator
@@ -287,7 +333,16 @@ class CoverageFeedbackService:
             "uncovered_units": uncovered_units,
             "candidate_obligation_ids": [str(row["obligation_id"]) for row in matches],
             "evidence_refs": [],
+            "resolution_evidence_refs": [],
+            "exclusion_evidence_refs": [],
             "rationale": None,
+            "resolution_verification_id": None,
+            "resolved_at": None,
+            "human_approval_ref": None,
+            "exclusion_reviewer_worker_id": None,
+            "exclusion_reviewer_session_id": None,
+            "exclusion_rationale": None,
+            "exclusion_approved_at": None,
             "excluded": False,
             "created_at": _now(),
             "updated_at": _now(),
@@ -410,4 +465,142 @@ class CoverageFeedbackService:
             gap_reason=reason,
             responsible_nodes=list(nodes),
             action=action,
+        )
+
+    def record_gap_verification(
+        self,
+        *,
+        verification_id: str,
+        gap_id: str,
+        observation_id: str,
+        uncovered_units_after: int,
+        evidence_ref: str,
+    ) -> None:
+        if self.truth.query(_COVERAGE_GAP_VERIFICATION, verification_id=verification_id):
+            raise ContractError("COVERAGE_GAP_VERIFICATION_ALREADY_EXISTS")
+        gap = self._one(_COVERAGE_GAP, gap_id=gap_id)
+        if gap.get("gap_reason") == CoverageGapReason.UNREACHABLE.value:
+            raise ContractError("COVERAGE_EXCLUSION_REQUIRES_APPROVAL_PATH")
+        if gap.get("status") != CoverageMappingStatus.CLASSIFIED.value or not gap.get("obligation_id"):
+            raise ContractError("COVERAGE_GAP_VERIFICATION_REQUIRES_CLASSIFIED_MAPPING")
+        if observation_id == gap.get("observation_id"):
+            raise ContractError("COVERAGE_GAP_VERIFICATION_REQUIRES_POST_OBSERVATION")
+        observation = self._one(_COVERAGE_OBSERVATION, observation_id=observation_id)
+        for field in ("mission_id", "release_batch_id", "application_id"):
+            if observation.get(field) != gap.get(field):
+                raise ContractError("COVERAGE_GAP_VERIFICATION_SCOPE_MISMATCH")
+        if not isinstance(uncovered_units_after, int) or uncovered_units_after < 0:
+            raise ContractError("COVERAGE_GAP_VERIFICATION_UNCOVERED_UNITS_INVALID")
+        if not isinstance(evidence_ref, str) or not evidence_ref.strip():
+            raise ContractError("COVERAGE_GAP_VERIFICATION_EVIDENCE_REQUIRED")
+        self._append(
+            "RC72_COVERAGE_GAP_VERIFICATION_UPSERTED",
+            {
+                "verification_id": verification_id,
+                "gap_id": gap_id,
+                "observation_id": observation_id,
+                "mission_id": gap["mission_id"],
+                "release_batch_id": gap["release_batch_id"],
+                "application_id": gap["application_id"],
+                "code_slice": gap["code_slice"],
+                "uncovered_units_after": uncovered_units_after,
+                "evidence_ref": evidence_ref,
+                "verified_at": _now(),
+            },
+        )
+
+    def resolve_gap(
+        self,
+        *,
+        gap_id: str,
+        verification_id: str,
+        evidence_refs: Sequence[str],
+        rationale: str,
+    ) -> CoverageMappingResult:
+        row = self._one(_COVERAGE_GAP, gap_id=gap_id)
+        if row.get("gap_reason") == CoverageGapReason.UNREACHABLE.value:
+            raise ContractError("COVERAGE_EXCLUSION_REQUIRES_APPROVAL_PATH")
+        if row.get("status") != CoverageMappingStatus.CLASSIFIED.value:
+            raise ContractError("COVERAGE_GAP_NOT_RESOLUTION_READY")
+        verification = self._one(_COVERAGE_GAP_VERIFICATION, verification_id=verification_id)
+        if verification.get("gap_id") != gap_id or verification.get("code_slice") != row.get("code_slice"):
+            raise ContractError("COVERAGE_GAP_VERIFICATION_MISMATCH")
+        if int(verification.get("uncovered_units_after") or 0) != 0:
+            raise ContractError("COVERAGE_GAP_STILL_UNCOVERED")
+        evidence = [str(ref).strip() for ref in evidence_refs if isinstance(ref, str) and str(ref).strip()]
+        if not evidence:
+            raise ContractError("COVERAGE_GAP_RESOLUTION_EVIDENCE_REQUIRED")
+        if not isinstance(rationale, str) or not rationale.strip():
+            raise ContractError("COVERAGE_GAP_RESOLUTION_RATIONALE_REQUIRED")
+        updated = self._upsert_gap(
+            row,
+            status=CoverageMappingStatus.RESOLVED.value,
+            action="CLOSED_BY_POST_REPAIR_VERIFICATION",
+            resolution_verification_id=verification_id,
+            resolution_evidence_refs=evidence,
+            resolved_at=_now(),
+            responsible_nodes=[],
+            excluded=False,
+        )
+        return CoverageMappingResult(
+            gap_id=gap_id,
+            status=CoverageMappingStatus.RESOLVED,
+            requirement_id=updated.get("requirement_id"),
+            sst_id=updated.get("sst_id"),
+            obligation_id=updated.get("obligation_id"),
+            candidate_obligation_ids=list(updated.get("candidate_obligation_ids") or []),
+            gap_reason=CoverageGapReason(updated["gap_reason"]),
+            responsible_nodes=[],
+            action="CLOSED_BY_POST_REPAIR_VERIFICATION",
+        )
+
+    def approve_exclusion(
+        self,
+        *,
+        gap_id: str,
+        reviewer_worker_id: str,
+        reviewer_session_id: str,
+        human_approval_ref: str,
+        evidence_refs: Sequence[str],
+        rationale: str,
+    ) -> CoverageMappingResult:
+        row = self._one(_COVERAGE_GAP, gap_id=gap_id)
+        if row.get("gap_reason") != CoverageGapReason.UNREACHABLE.value:
+            raise ContractError("COVERAGE_EXCLUSION_ONLY_FOR_UNREACHABLE")
+        if row.get("status") != CoverageMappingStatus.EXCLUSION_REVIEW_REQUIRED.value:
+            raise ContractError("COVERAGE_EXCLUSION_NOT_REVIEW_READY")
+        for value, code in (
+            (reviewer_worker_id, "COVERAGE_EXCLUSION_REVIEWER_WORKER_REQUIRED"),
+            (reviewer_session_id, "COVERAGE_EXCLUSION_REVIEWER_SESSION_REQUIRED"),
+            (human_approval_ref, "COVERAGE_EXCLUSION_HUMAN_APPROVAL_REQUIRED"),
+            (rationale, "COVERAGE_EXCLUSION_RATIONALE_REQUIRED"),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                raise ContractError(code)
+        evidence = [str(ref).strip() for ref in evidence_refs if isinstance(ref, str) and str(ref).strip()]
+        if len(evidence) < 2:
+            raise ContractError("COVERAGE_EXCLUSION_EVIDENCE_REQUIRED")
+        updated = self._upsert_gap(
+            row,
+            status=CoverageMappingStatus.EXCLUDED_APPROVED.value,
+            action="CLOSED_BY_APPROVED_COVERAGE_EXCLUSION",
+            responsible_nodes=[],
+            excluded=True,
+            human_approval_ref=human_approval_ref,
+            exclusion_reviewer_worker_id=reviewer_worker_id,
+            exclusion_reviewer_session_id=reviewer_session_id,
+            exclusion_evidence_refs=evidence,
+            exclusion_rationale=rationale,
+            exclusion_approved_at=_now(),
+        )
+        return CoverageMappingResult(
+            gap_id=gap_id,
+            status=CoverageMappingStatus.EXCLUDED_APPROVED,
+            requirement_id=updated.get("requirement_id"),
+            sst_id=updated.get("sst_id"),
+            obligation_id=updated.get("obligation_id"),
+            candidate_obligation_ids=list(updated.get("candidate_obligation_ids") or []),
+            gap_reason=CoverageGapReason.UNREACHABLE,
+            responsible_nodes=[],
+            action="CLOSED_BY_APPROVED_COVERAGE_EXCLUSION",
         )
