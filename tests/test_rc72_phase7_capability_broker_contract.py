@@ -5,15 +5,82 @@ import pytest
 from rc6_runtime.authority import AuthorityError
 from rc6_runtime.truth import TruthRuntime
 from rc7_runtime.authority import RC7AuthorityRuntime
+from rc7_runtime.models import Task
 from rc7_runtime.rc72_capability_broker import (
     CapabilityBroker,
     CapabilityDecision,
     CapabilityPolicyRule,
 )
+from rc7_runtime.rc72_domain import ExecutionTaskUnit, ReleaseBatch, TestObligation
+from rc7_runtime.rc72_linkage import WorkItemAttemptBinding, WorkItemAttemptState
+from rc7_runtime.rc72_repository import CanonicalRC72Repository
+from rc7_runtime.truth_overlay import append_entity
 
 
 def _setup(tmp_path: Path):
     truth = TruthRuntime(tmp_path / "r1.jsonl")
+    repo = CanonicalRC72Repository(truth, release_id="RC7.2")
+    repo.persist(
+        ReleaseBatch(
+            release_batch_id="RB-1",
+            mission_id="M-1",
+            name="batch",
+            application_ids=["cfg-center"],
+            requirement_ids=["REQ-1"],
+        )
+    )
+    repo.persist(
+        TestObligation(
+            obligation_id="TO-1",
+            mission_id="M-1",
+            release_batch_id="RB-1",
+            requirement_id="REQ-1",
+            sst_id="SST-1",
+            application_id="cfg-center",
+            business_scenario="guarantor creation",
+            business_rule="required fields persist",
+            risk_level="HIGH",
+            test_level="L3",
+            code_slice_refs=["Service#create"],
+            oracle_refs=["HTTP", "DB"],
+        )
+    )
+    repo.persist(
+        ExecutionTaskUnit(
+            etu_id="ETU-1",
+            mission_id="M-1",
+            release_batch_id="RB-1",
+            obligation_id="TO-1",
+            case_ids=["TC-1"],
+            primary_goal="execute TC-1",
+            primary_code_slice="Service#create",
+            test_level="L3",
+            primary_oracle="HTTP+DB",
+            data_domain="guarantor",
+            primary_tool_family="api",
+            planning_snapshot_ref="PLAN-1",
+            cohesion_score=1.0,
+            cohesion_explanation="single high-risk case",
+            required_capabilities=["tool:api"],
+            estimated_duration_minutes=5,
+            estimated_cost=1.0,
+        )
+    )
+    append_entity(
+        truth,
+        Task(
+            task_id="WI-1",
+            mission_id="M-1",
+            node="N7_EXECUTION",
+            task_type="ETU_EXECUTION",
+            objective="execute ETU-1",
+            required_capabilities=["api"],
+            input_artifact_refs=["ETU-1"],
+            acceptance_criteria=["evidence persisted"],
+        ),
+        release_id="RC7.2",
+    )
+
     authority = RC7AuthorityRuntime(b"0123456789abcdef0123456789abcdef")
     identity = authority.issue_identity(
         "RC7_EXECUTION_WORKER",
@@ -28,6 +95,20 @@ def _setup(tmp_path: Path):
         ["rc7_execution_candidate"],
         ["mcp__pfc_aitest_rc7__truth_query"],
         ttl_seconds=1800,
+    )
+    repo.persist(
+        WorkItemAttemptBinding(
+            binding_id="BIND-1",
+            mission_id="M-1",
+            etu_id="ETU-1",
+            workitem_id="WI-1",
+            case_id="TC-1",
+            attempt_id="ATT-1",
+            worker_id=identity.worker_id,
+            session_id="DSH-SESSION-1",
+            task_lease_ref=base_lease.lease_id,
+            state=WorkItemAttemptState.PREPARED,
+        )
     )
     broker = CapabilityBroker(
         truth,
