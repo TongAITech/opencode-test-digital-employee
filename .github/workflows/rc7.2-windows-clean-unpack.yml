@@ -177,12 +177,7 @@ jobs:
           $fakeBin = Join-Path $env:RUNNER_TEMP 'rc72-q2b-fake-bin'
           New-Item -ItemType Directory -Force -Path $fakeBin | Out-Null
           $fakeDsh = Join-Path $fakeBin 'dsh'
-          @'
-#!/usr/bin/env bash
-set -euo pipefail
-echo "FAKE_DSH_Q2B $*"
-exit 0
-'@ | Out-File -FilePath $fakeDsh -Encoding ascii
+          @('#!/usr/bin/env bash','set -euo pipefail','echo "FAKE_DSH_Q2B $*"','exit 0') | Set-Content -Path $fakeDsh -Encoding ascii
 
           "DSH_HOME=$dshHome" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           $fakeBin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
