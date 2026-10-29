@@ -58,13 +58,24 @@ class SingleNodeCenterTruthVerifier:
             raise SingleNodeTruthError("SINGLE_NODE_PROOF_REQUIRED")
         if not proof.test_run_id or not proof.work_item_ids:
             raise SingleNodeTruthError("SINGLE_NODE_PROOF_IDENTITY_INCOMPLETE")
-        if not (len(proof.stages) == len(proof.work_item_ids) == len(proof.attempt_ids) == len(proof.evidence_refs)):
+        if not (
+            len(proof.stages)
+            == len(proof.work_item_ids)
+            == len(proof.lease_ids)
+            == len(proof.stage_instance_ids)
+            == len(proof.attempt_ids)
+            == len(proof.evidence_refs)
+        ):
             raise SingleNodeTruthError("SINGLE_NODE_PROOF_DENOMINATOR_DIVERGED")
 
         r1_ids = []
         artifact_ids = []
-        for stage, work_item_id, attempt_id, artifact_ref in zip(
-            proof.stages, proof.work_item_ids, proof.attempt_ids, proof.evidence_refs
+        for stage, work_item_id, stage_instance_id, attempt_id, artifact_ref in zip(
+            proof.stages,
+            proof.work_item_ids,
+            proof.stage_instance_ids,
+            proof.attempt_ids,
+            proof.evidence_refs,
         ):
             work = self._mapping(self.truth_reader.get_work_item(work_item_id), "CENTER_WORK_ITEM_MISSING:%s" % stage)
             if str(work.get("test_run_id") or "") != proof.test_run_id or str(work.get("stage") or "") != stage:
@@ -73,7 +84,11 @@ class SingleNodeCenterTruthVerifier:
                 raise SingleNodeTruthError("CENTER_WORK_ITEM_NOT_COMPLETED:%s" % stage)
 
             attempt = self._mapping(self.truth_reader.get_attempt(attempt_id), "CENTER_ATTEMPT_MISSING:%s" % stage)
-            if str(attempt.get("work_item_id") or "") != work_item_id or str(attempt.get("test_run_id") or "") != proof.test_run_id:
+            if (
+                str(attempt.get("work_item_id") or "") != work_item_id
+                or str(attempt.get("test_run_id") or "") != proof.test_run_id
+                or str(attempt.get("stage_instance_id") or "") != stage_instance_id
+            ):
                 raise SingleNodeTruthError("CENTER_ATTEMPT_IDENTITY_MISMATCH:%s" % stage)
             if str(attempt.get("status") or "") != "COMPLETED":
                 raise SingleNodeTruthError("CENTER_ATTEMPT_NOT_COMPLETED:%s" % stage)
