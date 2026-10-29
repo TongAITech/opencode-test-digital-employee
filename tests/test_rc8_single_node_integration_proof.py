@@ -17,6 +17,7 @@ class _Dispatcher:
     def run_once(self, *, test_run_id):
         return SimpleNamespace(
             status="EXECUTED", stage="SCOPE_INTAKE", work_item_id="wi-1",
+            lease_id="lease-1", stage_instance_id="stage-instance-1",
             result={"status": "COMPLETED", "attempt_id": "att-1", "artifact_ref": "artifact:art-1"},
         )
 
@@ -58,6 +59,8 @@ def test_dispatcher_observation_and_durable_truth_are_one_fail_closed_gate():
     proof = _boundary_double_runner().run(test_run_id="run-1")
     assert proof.status == "DURABLE_INTEGRATION_VERIFIED_NOT_AUTHORIZED"
     assert proof.observed.work_item_ids == ("wi-1",)
+    assert proof.observed.lease_ids == ("lease-1",)
+    assert proof.observed.stage_instance_ids == ("stage-instance-1",)
     assert proof.durable_truth.verified_attempts == ("att-1",)
     assert proof.bank_reality_verified is False
     assert proof.release_status == "HOLD"
