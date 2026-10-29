@@ -3,6 +3,7 @@
 RC7.2 keeps the proven RC7 control plane and replaces only its READY/lease
 ordering view with the canonical cost-window adapter. The underlying Task store,
 state machine, Gap planner and Mission completion authority remain unchanged.
+Critical-path protection is computed only from durable Task dependencies.
 """
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ from typing import Type
 from rc6_runtime.truth import TruthRuntime
 
 from .closed_loop_control import ClosedLoopControlPlane as _BaseClosedLoopControlPlane
+from .rc72_critical_path import CanonicalCriticalPathResolver
 from .rc72_schedule_semantics import WorkScheduleSemanticsService
 from .rc72_scheduler_integration import attach_economy_scheduler
 
@@ -24,9 +26,14 @@ class RC72EconomyClosedLoopControlPlane(_BaseClosedLoopControlPlane):
         self.schedule_semantics = WorkScheduleSemanticsService(
             truth, release_id=release_id
         )
+        self.critical_path = CanonicalCriticalPathResolver(
+            truth,
+            release_id=release_id,
+            schedule_semantics=self.schedule_semantics,
+        )
         self.economy_scheduler = attach_economy_scheduler(
             self,
-            descriptor_resolver=self.schedule_semantics.resolve,
+            descriptor_resolver=self.critical_path.resolve,
         )
 
 
