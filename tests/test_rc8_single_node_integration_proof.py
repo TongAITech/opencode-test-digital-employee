@@ -38,7 +38,12 @@ class _Truth:
         return {"test_run_id": "other" if self.stale else "run-1", "stage": "SCOPE_INTAKE", "status": "COMPLETED"}
 
     def get_attempt(self, attempt_id):
-        return {"test_run_id": "run-1", "work_item_id": "wi-1", "status": "COMPLETED"}
+        return {
+            "test_run_id": "run-1",
+            "work_item_id": "wi-1",
+            "stage_instance_id": "stage-instance-1",
+            "status": "COMPLETED",
+        }
 
     def get_artifact(self, artifact_id):
         return {"test_run_id": "run-1", "work_item_id": "wi-1", "attempt_id": "att-1", "status": "COMPLETED"}
