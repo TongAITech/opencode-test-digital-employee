@@ -47,6 +47,14 @@ from .state_machine import (
     transition_task,
 )
 from .closed_loop_control import ClosedLoopControlError, ClosedLoopControlPlane
+from .rc72_economy_control_plane import (
+    RC72EconomyClosedLoopControlPlane,
+    install_rc72_economy_control_plane_default,
+)
+
+install_rc72_economy_control_plane_default()
+ClosedLoopControlPlane = RC72EconomyClosedLoopControlPlane
+
 from .mission_graph import MissionTaskGraph, MissionTaskGraphCompiler
 from .final_report import FinalReportError, RC7FinalReportBuilder
 from .dsh_worker_bridge import (
@@ -132,6 +140,10 @@ from .rc72_linkage import (
 )
 from .rc72_repository import CanonicalRC72Repository, RC72LineageError
 from .rc72_truth import append_rc72_entity, install_rc72_truth_overlay
+from .rc72_schedule_semantics import (
+    CanonicalScheduleDescriptorResolver,
+    WorkScheduleSemanticsService,
+)
 
 __all__ = [
     "RealityCheckedJUnitRunnerAdapter",
@@ -163,6 +175,8 @@ __all__ = [
     "transition_task",
     "ClosedLoopControlError",
     "ClosedLoopControlPlane",
+    "RC72EconomyClosedLoopControlPlane",
+    "install_rc72_economy_control_plane_default",
     "MissionTaskGraph",
     "MissionTaskGraphCompiler",
     "FinalReportError",
@@ -232,4 +246,6 @@ __all__ = [
     "RC72LineageError",
     "append_rc72_entity",
     "install_rc72_truth_overlay",
+    "CanonicalScheduleDescriptorResolver",
+    "WorkScheduleSemanticsService",
 ]
