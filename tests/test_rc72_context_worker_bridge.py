@@ -201,3 +201,17 @@ def test_descriptor_cannot_change_canonical_task_lineage():
     )
     with pytest.raises(DshWorkerBridgeError, match="CANONICAL_INPUT_LINEAGE_MISMATCH"):
         bridge.compile_prompt(task, _assignment())
+
+
+def test_deterministic_descriptor_cannot_compile_semantic_dsh_prompt():
+    task = _task()
+    bridge = Rc72ContextAwareDshTaskWorkerBridge(
+        _Control(),
+        _Launcher(),
+        context_descriptor_resolver=lambda current: _descriptor(
+            current,
+            mode=ExecutionMode.DETERMINISTIC,
+        ),
+    )
+    with pytest.raises(DshWorkerBridgeError, match="DETERMINISTIC_WORK_MUST_NOT_COMPILE_LLM_PROMPT"):
+        bridge.compile_prompt(task, _assignment())
