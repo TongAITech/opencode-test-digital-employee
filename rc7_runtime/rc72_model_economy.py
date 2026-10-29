@@ -709,13 +709,13 @@ class TokenEconomyService:
         elif metrics["blocked_calls"]:
             status, reason = "HOLD", "MODEL_ECONOMY_WASTE_GUARD_TRIGGERED"
         elif metrics["effective_quota_equivalent_tokens"] > int(budget["max_total_tokens"]):
-            status, reason = "HOLD", "MODEL_ECONOMY_QUOTA_TARGET_EXCEEDED"
+            status, reason = "DEGRADED", "MODEL_ECONOMY_QUOTA_TARGET_EXCEEDED"
         elif metrics["model_calls"] > int(budget["max_model_calls"]):
-            status, reason = "HOLD", "MODEL_ECONOMY_CALL_TARGET_EXCEEDED"
+            status, reason = "DEGRADED", "MODEL_ECONOMY_CALL_TARGET_EXCEEDED"
         elif metrics["retry_effective_tokens"] > int(budget["max_retry_tokens"]):
-            status, reason = "HOLD", "MODEL_ECONOMY_RETRY_TOKEN_TARGET_EXCEEDED"
+            status, reason = "DEGRADED", "MODEL_ECONOMY_RETRY_TOKEN_TARGET_EXCEEDED"
         elif metrics["retry_calls"] > int(budget["max_retry_calls"]):
-            status, reason = "HOLD", "MODEL_ECONOMY_RETRY_CALL_TARGET_EXCEEDED"
+            status, reason = "DEGRADED", "MODEL_ECONOMY_RETRY_CALL_TARGET_EXCEEDED"
         return TokenQualification(status, mission_id, reason, metrics)
 
 
