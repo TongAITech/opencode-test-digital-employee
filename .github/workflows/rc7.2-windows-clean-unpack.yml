@@ -149,8 +149,12 @@ jobs:
           $root = $roots[0].FullName
           $pkgPython = Join-Path $root 'workspace-template\runtime\python\python.exe'
           if (-not (Test-Path $pkgPython)) { throw 'Package-local Python missing for Q2-B' }
+          $evidence = Join-Path $env:RUNNER_TEMP 'rc72-q2b-evidence'
+          if (Test-Path $evidence) { Remove-Item -Recurse -Force $evidence }
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
           "RC72_Q2B_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "RC72_Q2B_PYTHON=$pkgPython" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "RC72_Q2B_EVIDENCE=$evidence" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Prove clean-package R1 and Session A-B-C continuity
         shell: pwsh
@@ -159,7 +163,8 @@ jobs:
           try {
             $env:PYTHONPATH = ''
             $env:PYTHONNOUSERSITE = '1'
-            & $env:RC72_Q2B_PYTHON -m rc7_release.rc72_windows_clean_qualification --package-root $env:RC72_Q2B_ROOT --output rc72-q2b-clean-runtime.json --require-pass
+            $output = Join-Path $env:RC72_Q2B_EVIDENCE 'rc72-q2b-clean-runtime.json'
+            & $env:RC72_Q2B_PYTHON -m rc7_release.rc72_windows_clean_qualification --package-root $env:RC72_Q2B_ROOT --output $output --require-pass
             if ($LASTEXITCODE -ne 0) { throw 'RC7.2 Q2-B clean runtime qualification failed' }
           }
           finally {
@@ -187,10 +192,12 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x "$RUNNER_TEMP/rc72-q2b-fake-bin/dsh"
+          EVIDENCE_POSIX="$(cygpath -u "$RC72_Q2B_EVIDENCE")"
+          mkdir -p "$EVIDENCE_POSIX"
           cd "$RC72_Q2B_ROOT"
           export PFC_RC72_DSH_PROFILE="rc7.2-bank"
-          ./packaging/rc7.2/AITEST.sh | tee rc72-q2b-gitbash-launcher.txt
-          grep -q 'FAKE_DSH_Q2B --profile rc7.2-bank' rc72-q2b-gitbash-launcher.txt
+          ./packaging/rc7.2/AITEST.sh | tee "$EVIDENCE_POSIX/rc72-q2b-gitbash-launcher.txt"
+          grep -q 'FAKE_DSH_Q2B --profile rc7.2-bank' "$EVIDENCE_POSIX/rc72-q2b-gitbash-launcher.txt"
 
       - name: Upload Q2-B clean-runtime evidence
         if: always()
@@ -199,8 +206,8 @@ jobs:
           name: rc72-q2b-windows-clean-runtime-${{ github.sha }}
           path: |
             rc72-q2b-contract.xml
-            ${{ env.RC72_Q2B_ROOT }}/rc72-q2b-clean-runtime.json
-            ${{ env.RC72_Q2B_ROOT }}/rc72-q2b-gitbash-launcher.txt
+            ${{ env.RC72_Q2B_EVIDENCE }}/rc72-q2b-clean-runtime.json
+            ${{ env.RC72_Q2B_EVIDENCE }}/rc72-q2b-gitbash-launcher.txt
             ${{ env.RC72_Q2B_ROOT }}/runtime-state/windows-clean-qualification/r1/event-stream.jsonl
             ${{ env.RC72_Q2B_ROOT }}/state/rc7-dsh-runtime-profile.json
             ${{ env.RC72_Q2B_ROOT }}/state/dsh-plugin-payload.json
