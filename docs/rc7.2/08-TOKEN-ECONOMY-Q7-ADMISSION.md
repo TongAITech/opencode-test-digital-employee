@@ -1,4 +1,4 @@
-# RC7.2 Token Economy / Q7 Admission Contract
+# RC7.2 Model Economy / Q7 Admission Contract
 
 Status: **REPOSITORY_CONSTRUCTION — NOT FIELD VERIFIED**
 
@@ -8,7 +8,9 @@ Frozen sequence remains:
 
 `Q1 → Q2 → Q3 → Q4 → Q5 → Q6 → Q7 → Q8 → Q9`
 
-Token economy is a mandatory **Q7 admission sub-gate** before a real ReleaseBatch N1-N10 run may be accepted.
+This document is governed by `09-MISSION-COMPLETION-FIRST-MODEL-ECONOMY-DESIGN.md` and the amended `02-CONSTRUCTION-CONTRACT.md`.
+
+Model economy is a mandatory Q7 evidence dimension, but **Mission completion and test sufficiency are the primary objective**. Model economy MUST NOT reduce mandatory test scope or turn a quota target into a Mission kill-switch.
 
 ## 1. Root cause established from live runtime
 
@@ -22,15 +24,17 @@ Specific contributing mechanisms already present in the codebase:
 
 1. Worker prompts correctly avoid copying coordinator conversation history and prefer R1 references.
 2. Every worker still pays a repeated fixed contract cost plus task/gap context.
-3. Test-design and script evaluators re-ingest produced artifacts for independent model review.
-4. Parent/fan-out evaluators add additional review calls.
+3. Test-design and script evaluators can re-ingest produced artifacts for independent model review.
+4. Parent/fan-out evaluators can add additional review calls.
 5. Failure/recovery and provider failover can create fresh Worker/Attempt/Session calls.
-6. RC7.2 `WorkerLifecyclePolicy.max_tokens=50000` protects one Worker Session, but does not bound aggregate Mission/ReleaseBatch consumption.
-7. The inspected common DSH launcher does not expose provider token usage in `WorkerInvocation`/`HeadlessRunResult`; therefore a 50K session policy alone is not proof of account-level consumption.
+6. RC7.2 WorkerLifecycle single-session limits do not by themselves control aggregate ReleaseBatch consumption.
+7. The common DSH launcher must use emitted provider usage when available and MUST NOT fabricate missing usage.
 
 The failure mode is therefore:
 
-`many bounded sessions × repeated context × evaluator calls × retries = unbounded ReleaseBatch consumption`
+`many bounded sessions × repeated context × evaluator calls × retries = high ReleaseBatch consumption`
+
+The correction is **not** to coarsen real test work. The correction is to decouple fine test/scheduling WorkItems from model-call granularity.
 
 ## 2. Canonical control
 
@@ -38,134 +42,239 @@ Implementation:
 
 `rc7_runtime/rc72_model_economy.py`
 
-The control stores budget and call observations in canonical R1 using:
+The control stores model-economy policy and call observations in canonical R1. No shadow business truth store is introduced.
 
-- `rc72_token_budget`
-- `rc72_token_call`
+Lineage must support aggregation by:
 
-No shadow business truth store is introduced.
-
-Budget hierarchy begins at Mission/ReleaseBatch scope and records sufficient lineage for later aggregation by:
-
-- Mission
-- N-node
-- Stage
-- WorkItem
-- Attempt
-- Agent
-- retry/non-retry
+- ReleaseBatch/Mission;
+- N-node;
+- Stage;
+- WorkItem;
+- Attempt;
+- Agent;
+- retry/non-retry;
+- cost window;
+- execution/batch identity when implemented.
 
 ## 3. Model-call classifications
 
-Every governed model call must be classified:
+Every governed model call must be classifiable as:
 
 - `LLM_REQUIRED` — reasoning that legitimately needs a model.
-- `LLM_BATCHABLE` — model work that should be grouped when practical.
-- `DETERMINISTIC_NO_LLM` — JSON conversion, state sync, aggregation, SHA/file checks, known routing, R1 lookup or other deterministic work.
+- `LLM_BATCHABLE` — semantic work that should share bounded context when compatible.
+- `DETERMINISTIC_NO_LLM` — JSON/state sync, aggregation, SHA/file checks, known routing, R1 lookup, structured tool execution or other deterministic work.
 
-`DETERMINISTIC_NO_LLM` is fail-closed: admission is rejected before DSH is launched.
+`DETERMINISTIC_NO_LLM` remains fail-closed: an attempted LLM launch is rejected because it is invalid/wasteful, not because the Mission exceeded a token target.
 
-## 4. Admission rules
+## 4. Mission-completion-first economy policy
 
-A Mission must have an explicit token budget. There is no silent unlimited default.
+The previous design of ordinary Mission budget exhaustion as a hard admission block is superseded.
 
-Before each DSH launch the control reserves `max_single_call_tokens` and checks:
+Budget/cost thresholds are now telemetry, warning, forecasting and replanning inputs.
 
-- Mission total-token budget;
-- Mission model-call count;
-- retry-token budget;
-- retry-call count;
-- exact repeated-context call limit;
-- prior UNKNOWN usage under strict measurement mode.
+They may trigger:
 
-Budget exhaustion blocks the next call before quota overshoot.
+```text
+WARN
+REPLAN_EXECUTION_MODE
+BATCH_MORE
+HYDRATE_LESS_CONTEXT
+DEFER_NON_BLOCKING_SEMANTIC_WORK
+PREFER_DETERMINISTIC_WORK
+PREFER_CHEAPER_WINDOW
+```
 
-The architecture deliberately does not hard-code a production budget from the user's 40M account quota. The first real RC7.2 Field run must choose an explicit ReleaseBatch budget and then calibrate it using measured DSH usage. A guessed quota is not qualification evidence.
+They MUST NOT by themselves:
 
-## 5. Actual DSH usage only
+```text
+drop a mandatory TestObligation/Case/ETU/WorkItem
+mark work PASS without execution/evidence
+reduce required L1-L7 scope
+prevent a BLOCKING critical-path semantic call from progressing
+mark N10 CONVERGED to save quota
+```
 
-`TokenMeteredDshLauncher` transparently wraps the existing DSH launcher.
+Hard admission blocks are reserved for correctness/waste conditions such as deterministic misuse, invalid attribution lineage, exact duplicate/no-progress loops, invalid provider/capability assignment or a call already satisfied by canonical output.
 
-It fingerprints the exact prompt before execution and reads the already persisted raw DSH JSONL evidence after execution.
+When a hard waste guard fires, the WorkItem remains incomplete and must be replanned. It is never silently discarded.
 
-Recognized provider usage fields include common forms such as:
+## 5. Bank quota windows
 
-- `input_tokens` / `prompt_tokens`
-- `output_tokens` / `completion_tokens`
-- `total_tokens`
+RC7.2 scheduling must support explicit bank-local quota windows.
+
+Default bank deployment policy:
+
+```text
+workday normal working time before 18:00:
+  quota pool: 40M
+  quota_cost_factor: 1.0
+
+18:00 <= Asia/Shanghai local time < 21:00:
+  quota accounting: 10:1
+  quota_cost_factor: 0.1
+
+Asia/Shanghai local time >= 21:00:
+  quota_limited: false
+```
+
+Timezone and windows must be configuration/runtime policy, not implicit machine-local time.
+
+A NON_BLOCKING high-cost semantic unit may be deferred to a cheaper window while deterministic/tool work continues. A BLOCKING semantic unit on the active Mission critical path may proceed despite expensive quota accounting unless an explicit operational policy/Human Gate forbids it.
+
+## 6. Fine task granularity versus model-call granularity
+
+The following identities are forbidden:
+
+```text
+1 WorkItem = 1 fresh full-context LLM call
+```
+
+and:
+
+```text
+save tokens = merge/delete real test work
+```
+
+The correct architecture is:
+
+```text
+fine TestObligation/TestCase/ETU/WorkItem truth
+ -> deterministic/tool work where possible
+ -> compatible ExecutionBatch for shared context
+ -> minimum ContextEnvelope
+ -> semantic model call only when needed
+ -> per-WorkItem result/assertion/evidence/gap lineage
+```
+
+ExecutionBatch is a context reuse unit, not a new business truth root or a super-task.
+
+## 7. Actual DSH usage only
+
+`TokenMeteredDshLauncher` may wrap the existing DSH launcher and read already persisted DSH JSONL evidence.
+
+Recognized provider usage fields can include common forms such as:
+
+- `input_tokens` / `prompt_tokens`;
+- `output_tokens` / `completion_tokens`;
+- `total_tokens`.
 
 A single unambiguous observation, or an unambiguous final-event observation, is `MEASURED`.
 
 Missing or conflicting/multiple snapshots are `UNKNOWN`.
 
-The control MUST NOT estimate tokens from characters and call that measurement. Character/token estimates may be used later for planning, but never to make Q7 green.
+The control MUST NOT estimate tokens from characters and call that measurement. Character/context estimates may be used for planning only.
 
-## 6. Q7 token-economy admission
+`UNKNOWN` does **not** automatically cancel mandatory Mission work. It means measured model-economy qualification is not proven.
 
-Strict Q7 admission is `PASS` only when:
+## 8. Context economy
 
-1. an explicit Mission budget exists;
-2. at least one real model-call usage observation exists;
-3. no call is still pending;
-4. all model calls have `MEASURED` usage when `require_measured_usage=true`;
-5. N-node/Stage/WorkItem lineage is complete when `require_complete_lineage=true`;
-6. Mission total tokens remain within budget;
-7. model-call count remains within budget;
-8. retry tokens and retry calls remain within budget.
+The runtime must prefer canonical refs and bounded projections over complete mission re-ingestion.
 
-If DSH does not emit usable token counters, the result is:
+Required direction:
 
-`HOLD / TOKEN_USAGE_UNKNOWN`
+1. hydrate only context required for the semantic decision;
+2. reuse immutable ReleaseBatch/Requirement/SST/CodeImpact/TestDesign refs by digest;
+3. deterministic-first worker/evaluator checks;
+4. retry with previous-attempt summary + explicit gap + delta evidence;
+5. batch compatible sibling semantic review while preserving independent verdicts;
+6. do not regenerate PASS siblings because one batch member failed review.
 
-It is never converted to a guessed PASS.
+Full-context retry requires an explicit reason.
 
-## 7. Context amplification metrics
+## 9. Q7 dual qualification
 
-The ledger records:
+Q7 reporting must separate:
+
+```text
+MISSION_COMPLETION_STATUS
+MODEL_ECONOMY_STATUS
+```
+
+Mission completion remains governed by N1-N10, sufficiency, execution, evidence, defect/RCA/regression and N10 convergence contracts.
+
+Model-economy evidence should include:
+
+- real model-call observations when emitted;
+- measured/UNKNOWN truth;
+- N-node/Stage/WorkItem/Attempt lineage;
+- context bytes/digest/reuse factor;
+- retry/review amplification;
+- cost-window classification and quota-equivalent cost;
+- batch/context reuse evidence when implemented;
+- proof that economy policy did not reduce mandatory test scope.
+
+Examples:
+
+- Mission incomplete + good economy => Q7 cannot pass.
+- Mission complete + usage UNKNOWN => functional completion may be true, economy qualification remains HOLD; BANK_FINAL must not claim economy verified.
+- Mission complete + measured economy + no scope loss/waste regression => economy sub-contract may pass.
+
+A hard percentage-reduction claim is prohibited until equivalent-scope field measurements exist.
+
+## 10. Waste guards
+
+A hard guard is valid only when continuing the same model call cannot validly advance the Mission, including:
+
+```text
+DETERMINISTIC step attempting LLM use
+exact same-context loop beyond configured threshold
+retry loop without semantic/evidence progress
+invalid required call lineage
+known duplicate call with canonical result already present
+invalid model/provider/capability assignment
+```
+
+A waste guard must create durable reason/evidence and a replan path. It cannot manufacture PASS.
+
+## 11. Metrics
+
+At minimum report:
 
 - model-call count;
 - measured input/output/total tokens;
-- pending and UNKNOWN reserved tokens;
-- retry call/token consumption;
-- exact prompt SHA-256;
-- exact prompt UTF-8 byte count;
-- total context bytes;
-- unique context bytes;
-- `context_reuse_factor`;
-- incomplete lineage call ids.
+- pending/UNKNOWN usage;
+- retry calls/tokens;
+- evaluator/review calls/tokens;
+- total and unique context bytes;
+- context reuse/repetition factor;
+- model calls per TestObligation / executed Case;
+- quota-equivalent consumption by bank cost window;
+- deferred non-blocking semantic work;
+- hard waste-guard activations;
+- incomplete lineage;
+- Mission completion status beside economy status.
 
-This makes repeated-context amplification visible even before provider-specific optimization.
+## 12. Integration rule
 
-## 8. Integration rule
+Existing RC7 worker/evaluator/business task truth must not be rewritten merely for token saving.
 
-Existing RC7 worker/evaluator code does not need to be rewritten.
+Construction should evolve the existing model-economy wrapper/policy and scheduler integration while preserving:
 
-Construction must wrap the existing `DshHeadlessWorkerLauncher` with `TokenMeteredDshLauncher`, then pass that wrapper into the existing `DshTaskWorkerBridge`.
+```text
+ReleaseBatch -> Requirement -> SST -> TestObligation -> L1-L7 -> Case -> ETU -> WorkItem -> Attempt -> Evidence
+```
 
-For strict Q7, a metadata resolver must bind each assignment to real:
+The Adaptive Task Decomposer continues to decide what work should exist. Scheduler/model economy decides how and when semantic calls run.
 
-`node + stage + workitem_id + retry state`
+## 13. Required regression proof
 
-If the resolver cannot bind those fields, Q7 remains `HOLD / TOKEN_CALL_LINEAGE_INCOMPLETE`.
+Repository tests must prove at least:
 
-## 9. What this does and does not solve
+1. ordinary token-budget pressure does not drop/block mandatory work solely for economy;
+2. deterministic LLM misuse remains hard-blocked;
+3. same-context/no-progress loops remain hard-blocked and replanned;
+4. BLOCKING semantic work can proceed in an expensive window;
+5. NON_BLOCKING high-cost semantic work may defer while other useful work proceeds;
+6. 18:00-21:00 classifies with factor 0.1;
+7. >=21:00 classifies quota-unlimited;
+8. timezone is explicit;
+9. UNKNOWN usage is never zero/MEASURED;
+10. retry-delta/context reuse does not weaken WorkItem/Evidence lineage;
+11. token optimization does not change fine ETU decomposition semantics;
+12. N10 cannot converge because economy targets were met.
 
-This slice immediately prevents uncontrolled aggregate quota consumption and creates trustworthy measurement.
+## 14. Qualification boundary
 
-It does **not** by itself optimize every duplicated evaluator prompt. Once measured field data identifies the highest-cost nodes, the next optimization should target:
+Repository CI can prove policy and contract behavior. It cannot prove the in-bank DSH/provider token counters, actual 40M account behavior, 10:1 accounting, after-21:00 unlimited behavior, scheduler savings or real BLOAN-PF1.2.1 completion.
 
-1. batch sibling Case/Evidence review where independence is preserved;
-2. replace full artifact re-ingestion with canonical refs + bounded evaluator projections;
-3. keep deterministic checks ahead of model evaluators;
-4. bound repair loops by both semantic progress and token budget;
-5. tune decomposition granularity against measured cost per Test Obligation.
-
-The priority is evidence-driven reduction, not weakening test quality to save tokens.
-
-## 10. Qualification boundary
-
-Repository unit/contract tests can prove the control behaves correctly.
-
-They cannot prove the in-bank DSH/provider actually emits usable token counters or that BLOAN-PF1.2.1 stays within the selected Field budget.
-
-That proof belongs to the real Q7 ReleaseBatch run after Q3-Q6 are genuinely passed.
+Those require real Field evidence after prerequisite Q gates are genuinely passed.
