@@ -15,17 +15,10 @@ from rc8_center.single_node_truth_reader import ProductionCenterR1TruthReader
 from .autonomous_claim_client import AutonomousClaimClient
 from .autonomous_dispatcher import AutonomousWorkerDispatcher
 from .formal_agent import FormalNodeAgent
-from .single_node_full_loop_proof import (
-    FROZEN_N1_N10_STAGES,
-    SingleNodeFullLoopProof,
-    SingleNodeFullLoopProofRunner,
-)
+from .single_node_full_loop_proof import FROZEN_N1_N10_STAGES, SingleNodeFullLoopProof, SingleNodeFullLoopProofRunner
 from .single_node_truth import SingleNodeCenterTruthVerifier, SingleNodeTruthProof
 
 
-# Exact worker identities wired by rc8_node.__main__._build_dispatcher.  A dispatcher
-# with all 15 stage labels but generic/double workers is still not a production
-# topology and must not enter the production-driven SINGLE_NODE proof.
 _PRODUCTION_WORKER_IDENTITIES = {
     "SCOPE_INTAKE": ("rc8_node.scope_intake_worker", "ScopeIntakeWorker"),
     "REQUIREMENT_ANALYSIS": ("rc8_node.requirement_analysis_worker", "RequirementAnalysisWorker"),
@@ -54,21 +47,14 @@ class SingleNodeDurableIntegrationProof:
     release_status: str = "HOLD"
 
 
-def assert_production_dispatcher_topology(
-    dispatcher: AutonomousWorkerDispatcher,
-    *,
-    required_stages: Sequence[str] = FROZEN_N1_N10_STAGES,
-) -> None:
+def assert_production_dispatcher_topology(dispatcher: AutonomousWorkerDispatcher, *, required_stages: Sequence[str] = FROZEN_N1_N10_STAGES) -> None:
     """Reject production-shaped dispatchers that are not one coherent real node topology."""
     expected = tuple(sorted(str(stage).strip() for stage in required_stages))
     actual = tuple(sorted(dispatcher.supported_stages))
     if actual != expected:
         missing = tuple(stage for stage in expected if stage not in actual)
         extra = tuple(stage for stage in actual if stage not in expected)
-        raise RuntimeError(
-            "FULL_LOOP_PRODUCTION_STAGE_TOPOLOGY_MISMATCH:missing=%s:extra=%s"
-            % (",".join(missing), ",".join(extra))
-        )
+        raise RuntimeError("FULL_LOOP_PRODUCTION_STAGE_TOPOLOGY_MISMATCH:missing=%s:extra=%s" % (",".join(missing), ",".join(extra)))
 
     claimant_node_id = str(dispatcher.claimant.node_id or "").strip()
     claimant_center = str(dispatcher.claimant.center_url or "").strip().rstrip("/")
@@ -77,19 +63,9 @@ def assert_production_dispatcher_topology(
         expected_identity = _PRODUCTION_WORKER_IDENTITIES.get(stage)
         if expected_identity is None:
             raise RuntimeError("FULL_LOOP_PRODUCTION_WORKER_IDENTITY_UNDEFINED:%s" % stage)
-        actual_identity = (
-            str(getattr(type(worker), "__module__", "")),
-            str(getattr(type(worker), "__name__", "")),
-        )
+        actual_identity = (str(getattr(type(worker), "__module__", "")), str(getattr(type(worker), "__name__", "")))
         if actual_identity != expected_identity:
-            raise RuntimeError(
-                "FULL_LOOP_PRODUCTION_WORKER_IDENTITY_MISMATCH:%s:%s.%s"
-                % (stage, actual_identity[0] or "NONE", actual_identity[1] or "NONE")
-            )
-
-        # Class identity alone is insufficient: a real worker class can still be
-        # constructed around a fake/different agent.  Production proof requires all
-        # workers to share the claimant's exact node identity and Center authority.
+            raise RuntimeError("FULL_LOOP_PRODUCTION_WORKER_IDENTITY_MISMATCH:%s:%s.%s" % (stage, actual_identity[0] or "NONE", actual_identity[1] or "NONE"))
         agent = getattr(worker, "agent", None)
         if not isinstance(agent, FormalNodeAgent):
             raise RuntimeError("FULL_LOOP_PRODUCTION_FORMAL_AGENT_REQUIRED:%s" % stage)
@@ -102,21 +78,10 @@ def assert_production_dispatcher_topology(
 
 
 class SingleNodeDurableIntegrationProofRunner:
-    """Run dispatcher traversal, then verify the exact traversal in durable truth.
+    """Run dispatcher traversal, then verify the exact traversal in durable truth."""
 
-    Production-driven proof is the default. Boundary-double tests must opt out
-    explicitly; they can exercise verifier contracts but can never be promoted as
-    the SINGLE_NODE production full-loop checkpoint.
-    """
-
-    def __init__(
-        self,
-        *,
-        dispatcher: Any,
-        truth_reader: Any,
-        required_stages: Sequence[str] = FROZEN_N1_N10_STAGES,
-        require_production_components: bool = True,
-    ) -> None:
+    def __init__(self, *, dispatcher: Any, truth_reader: Any, required_stages: Sequence[str] = FROZEN_N1_N10_STAGES, require_production_components: bool = True) -> None:
+        expected_node_id = None
         if require_production_components:
             if not isinstance(dispatcher, AutonomousWorkerDispatcher):
                 raise RuntimeError("FULL_LOOP_PRODUCTION_DISPATCHER_REQUIRED")
@@ -125,12 +90,12 @@ class SingleNodeDurableIntegrationProofRunner:
             assert_production_dispatcher_topology(dispatcher, required_stages=required_stages)
             if not isinstance(truth_reader, ProductionCenterR1TruthReader):
                 raise RuntimeError("FULL_LOOP_PRODUCTION_TRUTH_READER_REQUIRED")
+            expected_node_id = str(dispatcher.claimant.node_id or "").strip()
+            if not expected_node_id:
+                raise RuntimeError("FULL_LOOP_PRODUCTION_NODE_ID_REQUIRED")
         self.production_components_verified = bool(require_production_components)
-        self.observer = SingleNodeFullLoopProofRunner(
-            dispatcher=dispatcher,
-            required_stages=required_stages,
-        )
-        self.verifier = SingleNodeCenterTruthVerifier(truth_reader=truth_reader)
+        self.observer = SingleNodeFullLoopProofRunner(dispatcher=dispatcher, required_stages=required_stages)
+        self.verifier = SingleNodeCenterTruthVerifier(truth_reader=truth_reader, expected_node_id=expected_node_id)
 
     def run(self, *, test_run_id: str) -> SingleNodeDurableIntegrationProof:
         observed = self.observer.run(test_run_id=test_run_id)
