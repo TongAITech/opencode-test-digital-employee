@@ -1,6 +1,6 @@
 # RC7.2 Current Construction Checkpoint
 
-Status: **REPOSITORY_CONSTRUCTION_CI_PASS / Q1_CI_PASS / Q2_CI_PASS_ENGINEERING_ONLY / Q3_NOT_RUN / FIELD_VALIDATION_PENDING**
+Status: **REPOSITORY_CONSTRUCTION_CI_PASS / Q1_CI_PASS / Q2_CI_PASS_ENGINEERING_ONLY / Q3_REALITY_CONTRACT_PASS_TARGET_HOLD / FIELD_VALIDATION_PENDING**
 
 This file is the short entry point for every future RC7.2 construction/qualification session. It is a status index, not a replacement for the frozen contracts.
 
@@ -22,32 +22,38 @@ Chat history, stale SHAs and old checkpoint text never override live repository/
 branch: work/rc7.2
 repository_construction: CI_PASS
 phase0_9: CLOSED_AT_REPOSITORY_CI_LEVEL
-latest_q2_qualified_code_sha: 1b4f8ebb4612660ff07d93cdf6bf5b22c30e1d22
-same_head_construction_run: 40801951720
-same_head_rc72_contracts_python_3_8: 225_passed
-same_head_rc72_contracts_python_3_11: 225_passed
+latest_qualified_functional_head: 55ee7d96e6036fa46b4c171032c934313fd90426
+same_head_construction_run: 40803275491
+same_head_rc72_contracts_python_3_8: 237_passed
+same_head_rc72_contracts_python_3_11: 237_passed
 same_head_inherited_rc7: 492_passed_1_skipped
 qualification:
   q1_source_platform_baseline: CI_PASS_ENGINEERING_ONLY
-  q1_same_head_run: 40801951774
+  q1_same_head_run: 40803275548
   q1_windows: SUCCESS
   q1_linux_engineering_proxy: SUCCESS
   q1_summary: SUCCESS
+  q1_windows_artifact_id: 12866069888
+  q1_linux_artifact_id: 12867275735
   q2_windows_clean_unpack: CI_PASS_ENGINEERING_ONLY
-  q2_run: 40801952853
+  q2_same_head_run: 40803275565
   q2a_package_identity_clean_extract: PASS
-  q2a_artifact_id: 12866442208
-  q2a_artifact_digest: sha256:ec7aff88831c5fdc7efce7919a44612f0d024010c2dbf6d9b5bd053c992e32b0
+  q2a_artifact_id: 12866777873
   q2b_clean_runtime_r1_session_gitbash: PASS
-  q2b_artifact_id: 12866217593
-  q2b_artifact_digest: sha256:1f4539e6e046d3944ceecaed1ddb63a6dbfbbadc3814c48b6062c0a7b36eb232
+  q2b_artifact_id: 12866393853
   q2b_session_rotation: SESSION_A_TO_B_TO_C_GENERATION_2
   q2b_chat_history_transferred: false
   q2b_gitbash_profile: rc7.2-bank
   q2b_offline_payload_verified: false
-  q2_field_verified: false
-  q2_bank_final: false
-  q3_target_linux: NOT_RUN
+  q3_reality_binding_contract: CI_PASS
+  q3_same_head_run: 40803275534
+  q3_negative_control: PASS
+  q3_target_linux: HOLD_TARGET_ENVIRONMENT_BINDING_REQUIRED
+  q3_artifact_id: 12866722683
+  q3_observed_platform: Ubuntu_24.04_x86_64
+  q3_hold_reason: GENERIC_LINUX_PROXY_NOT_TARGET
+  target_linux_verified: false
+  field_verified: false
   q4_offline_portable: NOT_RUN
   q5_real_browser_bsk: NOT_RUN
   q6_real_human_approval: NOT_RUN
@@ -55,7 +61,7 @@ qualification:
   q8_failure_recovery: NOT_RUN
 field_validation: NOT_STARTED_FOR_RC7_2
 bank_final: NO
-next_atomic_step: Q3_TARGET_LINUX_REALITY_CONTRACT
+next_atomic_step: Q3_TARGET_SIDE_PROBE_AND_ATTESTATION_INGESTION_TESTS_FIRST
 ```
 
 ## Checkpoints
@@ -63,21 +69,30 @@ next_atomic_step: Q3_TARGET_LINUX_REALITY_CONTRACT
 - `checkpoints/Q1-SOURCE-PLATFORM-BASELINE-CI-PASS.md`
 - `checkpoints/Q2A-WINDOWS-PACKAGE-IDENTITY-CLEAN-UNPACK-CI-PASS.md`
 - `checkpoints/Q2-WINDOWS-CLEAN-UNPACK-CI-PASS.md`
+- `checkpoints/Q3-TARGET-LINUX-REALITY-CONTRACT-HOLD.md`
 
-## Q2 result
+## Q3 result
 
-Q2 is complete at engineering-CI level on source commit `1b4f8ebb...`.
+The Q3 **policy/reality-binding contract is green**, but target Linux itself is deliberately **HOLD**.
 
-The proof includes exact RC7.2 transport identity, SHA verification, fresh extraction, package-local Python, RC7.2 module completeness, durable R1 truth, Session A -> B -> C handoff without chat-history transfer, and a strict RC7.2 Git Bash entrypoint probe using isolated profile `rc7.2-bank`.
+Same-head evidence on `55ee7d96...` proves generic GitHub Ubuntu is correctly rejected as target 信创 Linux:
 
-Q2 deliberately does **not** claim complete offline payload readiness. The launcher proof records `offline_payload_verified=false`; full offline DSH/plugin/tool delivery belongs to Q4.
+```text
+status=HOLD
+reason=GENERIC_LINUX_PROXY_NOT_TARGET
+target_linux_verified=false
+field_verified=false
+bank_final=false
+```
+
+This is a successful fail-closed qualification outcome, not a target-Linux PASS.
 
 ## Next atomic step
 
-Start `Q3_TARGET_LINUX_REALITY_CONTRACT` tests-first.
+Start `Q3_TARGET_SIDE_PROBE_AND_ATTESTATION_INGESTION_TESTS_FIRST`.
 
-Q3 must not accept generic Ubuntu/GitHub-hosted Linux as target 信创 Linux. The first Q3 slice must establish a target-environment binding/evidence contract and return HOLD/fail-closed when no approved target/self-hosted runner identity exists.
+Add a packageable target-side probe plus external target-attestation ingestion. The target probe may observe machine/source facts only; it may not self-approve. Only trusted external target attestation with exact source and machine identity can release Q3 from HOLD.
 
-Until Q3 and all later Field gates complete:
+Do not start Q4 qualification while Q3 remains HOLD.
 
-> **RC7.2 repository construction PASS; Q1/Q2 engineering qualification PASS; Field validation pending; BANK_FINAL = NO.**
+> **RC7.2 repository construction PASS; Q1/Q2 engineering qualification PASS; Q3 policy gate PASS but target environment HOLD; Field validation pending; BANK_FINAL = NO.**
