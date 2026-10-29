@@ -10,6 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Sequence
 
+from rc8_center.single_node_truth_reader import ProductionCenterR1TruthReader
+
+from .autonomous_claim_client import AutonomousClaimClient
+from .autonomous_dispatcher import AutonomousWorkerDispatcher
 from .single_node_full_loop_proof import (
     FROZEN_N1_N10_STAGES,
     SingleNodeFullLoopProof,
@@ -28,7 +32,12 @@ class SingleNodeDurableIntegrationProof:
 
 
 class SingleNodeDurableIntegrationProofRunner:
-    """Run real dispatcher traversal, then verify the exact traversal in durable truth."""
+    """Run dispatcher traversal, then verify the exact traversal in durable truth.
+
+    Production-driven proof is the default.  Boundary-double tests must opt out
+    explicitly; they can exercise verifier contracts but can never be promoted as
+    the SINGLE_NODE production full-loop checkpoint.
+    """
 
     def __init__(
         self,
@@ -36,7 +45,16 @@ class SingleNodeDurableIntegrationProofRunner:
         dispatcher: Any,
         truth_reader: Any,
         required_stages: Sequence[str] = FROZEN_N1_N10_STAGES,
+        require_production_components: bool = True,
     ) -> None:
+        if require_production_components:
+            if not isinstance(dispatcher, AutonomousWorkerDispatcher):
+                raise RuntimeError("FULL_LOOP_PRODUCTION_DISPATCHER_REQUIRED")
+            if not isinstance(getattr(dispatcher, "claimant", None), AutonomousClaimClient):
+                raise RuntimeError("FULL_LOOP_PRODUCTION_CLAIM_CLIENT_REQUIRED")
+            if not isinstance(truth_reader, ProductionCenterR1TruthReader):
+                raise RuntimeError("FULL_LOOP_PRODUCTION_TRUTH_READER_REQUIRED")
+        self.production_components_verified = bool(require_production_components)
         self.observer = SingleNodeFullLoopProofRunner(
             dispatcher=dispatcher,
             required_stages=required_stages,
