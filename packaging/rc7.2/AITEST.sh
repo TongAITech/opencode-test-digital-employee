@@ -28,6 +28,19 @@ if [[ "$PFC_RC7_DSH_PROFILE" == "${PFC_RC7_DSH_BASE_PROFILE:-web}" ]]; then
   exit 4
 fi
 
+DELEGATE="$ROOT/packaging/rc7/AITEST.sh"
+[[ -f "$DELEGATE" ]] || { echo "[RC7.2] mature RC7 delegate launcher missing: $DELEGATE" >&2; exit 2; }
+
 echo "[RC7.2] Package identity verified: $SOURCE_COMMIT"
+
+# Q2 engineering probe: prove the real Git Bash entrypoint, RC7.2 identity,
+# isolated profile, and delegate path without pretending that the Q4 offline
+# plugin/tool payload has already been qualified. Default startup does NOT use
+# this branch and still execs the mature RC7 bootstrap below.
+if [[ "${PFC_RC72_LAUNCHER_PROBE_ONLY:-0}" == "1" ]]; then
+  echo "RC72_LAUNCH_PLAN profile=$PFC_RC7_DSH_PROFILE delegate=packaging/rc7/AITEST.sh field_verified=false bank_final=false offline_payload_verified=false"
+  exit 0
+fi
+
 echo "[RC7.2] Delegating to mature RC7 DSH bootstrap with isolated profile: $PFC_RC7_DSH_PROFILE"
-exec "$ROOT/packaging/rc7/AITEST.sh"
+exec "$DELEGATE"

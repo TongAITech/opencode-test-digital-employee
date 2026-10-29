@@ -171,33 +171,22 @@ jobs:
             Pop-Location
           }
 
-      - name: Prepare controlled fake DSH host for launcher orchestration proof
-        shell: pwsh
-        run: |
-          $dshHome = Join-Path $env:RUNNER_TEMP 'rc72-q2b-dsh-home'
-          $web = Join-Path $dshHome 'profiles\web'
-          New-Item -ItemType Directory -Force -Path $web | Out-Null
-          '{"name":"bank-web-profile-contract","version":"0.0.0-q2b"}' | Out-File -FilePath (Join-Path $web 'package.json') -Encoding utf8
-
-          $fakeBin = Join-Path $env:RUNNER_TEMP 'rc72-q2b-fake-bin'
-          New-Item -ItemType Directory -Force -Path $fakeBin | Out-Null
-          $fakeDsh = Join-Path $fakeBin 'dsh'
-          @('#!/usr/bin/env bash','set -euo pipefail','echo "FAKE_DSH_Q2B $*"','exit 0') | Set-Content -Path $fakeDsh -Encoding ascii
-
-          "DSH_HOME=$dshHome" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          $fakeBin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-
-      - name: Prove RC7.2 Git Bash launcher orchestration without Field claim
+      - name: Prove RC7.2 Git Bash entrypoint and delegate plan without Q4 payload claim
         shell: bash
         run: |
           set -euo pipefail
-          chmod +x "$RUNNER_TEMP/rc72-q2b-fake-bin/dsh"
           EVIDENCE_POSIX="$(cygpath -u "$RC72_Q2B_EVIDENCE")"
           mkdir -p "$EVIDENCE_POSIX"
           cd "$RC72_Q2B_ROOT"
           export PFC_RC72_DSH_PROFILE="rc7.2-bank"
+          export PFC_RC72_LAUNCHER_PROBE_ONLY="1"
           ./packaging/rc7.2/AITEST.sh | tee "$EVIDENCE_POSIX/rc72-q2b-gitbash-launcher.txt"
-          grep -q 'FAKE_DSH_Q2B --profile rc7.2-bank' "$EVIDENCE_POSIX/rc72-q2b-gitbash-launcher.txt"
+          grep -q 'RC72_LAUNCH_PLAN' "$EVIDENCE_POSIX/rc72-q2b-gitbash-launcher.txt"
+          grep -q 'profile=rc7.2-bank' "$EVIDENCE_POSIX/rc72-q2b-gitbash-launcher.txt"
+          grep -q 'delegate=packaging/rc7/AITEST.sh' "$EVIDENCE_POSIX/rc72-q2b-gitbash-launcher.txt"
+          grep -q 'field_verified=false' "$EVIDENCE_POSIX/rc72-q2b-gitbash-launcher.txt"
+          grep -q 'bank_final=false' "$EVIDENCE_POSIX/rc72-q2b-gitbash-launcher.txt"
+          grep -q 'offline_payload_verified=false' "$EVIDENCE_POSIX/rc72-q2b-gitbash-launcher.txt"
 
       - name: Upload Q2-B clean-runtime evidence
         if: always()
@@ -209,7 +198,5 @@ jobs:
             ${{ env.RC72_Q2B_EVIDENCE }}/rc72-q2b-clean-runtime.json
             ${{ env.RC72_Q2B_EVIDENCE }}/rc72-q2b-gitbash-launcher.txt
             ${{ env.RC72_Q2B_ROOT }}/runtime-state/windows-clean-qualification/r1/event-stream.jsonl
-            ${{ env.RC72_Q2B_ROOT }}/state/rc7-dsh-runtime-profile.json
-            ${{ env.RC72_Q2B_ROOT }}/state/dsh-plugin-payload.json
           if-no-files-found: warn
           retention-days: 14

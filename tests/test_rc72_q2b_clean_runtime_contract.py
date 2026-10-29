@@ -64,17 +64,23 @@ def test_rc72_clean_qualification_wrapper_delegates_to_parameterized_legacy_core
     assert result["bank_field_pass"] is False
 
 
-def test_rc72_git_bash_entrypoint_is_thin_verify_then_delegate_wrapper():
+def test_rc72_git_bash_entrypoint_is_verify_probe_then_real_delegate_wrapper():
     launcher = REPO_ROOT / "packaging" / "rc7.2" / "AITEST.sh"
     assert launcher.is_file(), "RC7.2 Git Bash launcher missing"
     text = launcher.read_text(encoding="utf-8")
 
     verify_pos = text.find("rc7_release.rc72_package verify")
-    delegate_pos = text.find("packaging/rc7/AITEST.sh")
+    probe_pos = text.find("PFC_RC72_LAUNCHER_PROBE_ONLY")
+    delegate_pos = text.find("exec \"$DELEGATE\"")
     assert verify_pos >= 0
-    assert delegate_pos > verify_pos
+    assert probe_pos > verify_pos
+    assert delegate_pos > probe_pos
     assert "PFC_RC7_SKIP_QUALIFY=1" in text
     assert "rc7.2-bank" in text
+    assert 'DELEGATE="$ROOT/packaging/rc7/AITEST.sh"' in text
+    assert "field_verified=false" in text
+    assert "bank_final=false" in text
+    assert "offline_payload_verified=false" in text
     assert "dsh plugin add" not in text
     assert "pip install" not in text
     assert "npm install" not in text
@@ -104,3 +110,12 @@ def test_q2b_wrapper_cannot_claim_field_or_bank_final(monkeypatch, tmp_path):
     assert result["field_verified"] is False
     assert result["bank_final"] is False
     assert result["target_linux_verified"] is False
+
+
+def test_q2_probe_mode_is_engineering_only_and_does_not_replace_default_delegate_contract():
+    launcher = REPO_ROOT / "packaging" / "rc7.2" / "AITEST.sh"
+    text = launcher.read_text(encoding="utf-8")
+    assert 'if [[ "${PFC_RC72_LAUNCHER_PROBE_ONLY:-0}" == "1" ]]' in text
+    assert "RC72_LAUNCH_PLAN" in text
+    assert "offline_payload_verified=false" in text
+    assert "exec \"$DELEGATE\"" in text
