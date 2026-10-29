@@ -1,0 +1,92 @@
+name: RC7.2 Platform Qualification Baseline
+
+on:
+  push:
+    branches:
+      - work/rc7.2
+    paths:
+      - 'rc7_runtime/**'
+      - 'rc7_release/**'
+      - 'tests/test_rc72_*.py'
+      - 'tests/test_rc7_*.py'
+      - 'docs/rc7.2/**'
+      - '.github/workflows/rc7.2-platform-qualification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-platform-baseline:
+    name: q1-${{ matrix.label }}-python-3.8
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows-engineering
+            qualification_kind: WINDOWS_ENGINEERING
+          - os: ubuntu-latest
+            label: linux-engineering-proxy
+            qualification_kind: LINUX_ENGINEERING_PROXY
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact RC7.2 source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+
+      - name: Install qualification dependency
+        run: python -m pip install --disable-pip-version-check pytest
+
+      - name: Compile RC7.2 and inherited runtime
+        run: python -m compileall -q rc6_runtime rc7_runtime rc7_release
+
+      - name: Run RC7.2 contract suite
+        run: >-
+          python -c "import glob,subprocess,sys;
+          files=sorted(glob.glob('tests/test_rc72_*.py'));
+          assert files, 'No RC7.2 contract tests found';
+          raise SystemExit(subprocess.call([sys.executable,'-m','pytest','-q','--junitxml=rc72-platform-contracts.xml']+files))"
+
+      - name: Run inherited RC7 regression
+        run: >-
+          python -c "import glob,subprocess,sys;
+          files=sorted(glob.glob('tests/test_rc7_*.py'));
+          assert files, 'No inherited RC7 tests found';
+          raise SystemExit(subprocess.call([sys.executable,'-m','pytest','-q','--junitxml=rc7-inherited-regression.xml']+files))"
+
+      - name: Emit Q1 structured evidence
+        run: >-
+          python -m rc7_release.rc72_platform_qualification
+          --qualification-kind ${{ matrix.qualification_kind }}
+          --source-commit ${{ github.sha }}
+          --output rc72-q1-platform-evidence.json
+
+      - name: Upload Q1 diagnostics and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc72-q1-${{ matrix.label }}-${{ github.sha }}
+          path: |
+            rc72-platform-contracts.xml
+            rc7-inherited-regression.xml
+            rc72-q1-platform-evidence.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  q1-summary:
+    name: q1-source-platform-baseline
+    needs: source-platform-baseline
+    runs-on: ubuntu-latest
+    steps:
+      - name: Q1 baseline decision
+        run: |
+          echo 'Q1 source-platform engineering baseline: PASS'
+          echo 'This is not target Linux Field qualification.'
+          echo 'This is not BANK_FINAL.'
