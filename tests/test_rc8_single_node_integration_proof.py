@@ -35,10 +35,15 @@ class _Truth:
                 "work_item_id": work_item_id, "attempt_id": attempt_id}
 
 
+def _boundary_double_runner(*, stale=False):
+    return SingleNodeDurableIntegrationProofRunner(
+        dispatcher=_Dispatcher(), truth_reader=_Truth(stale=stale),
+        required_stages=("SCOPE_INTAKE",), require_production_components=False,
+    )
+
+
 def test_dispatcher_observation_and_durable_truth_are_one_fail_closed_gate():
-    proof = SingleNodeDurableIntegrationProofRunner(
-        dispatcher=_Dispatcher(), truth_reader=_Truth(), required_stages=("SCOPE_INTAKE",)
-    ).run(test_run_id="run-1")
+    proof = _boundary_double_runner().run(test_run_id="run-1")
     assert proof.status == "DURABLE_INTEGRATION_VERIFIED_NOT_AUTHORIZED"
     assert proof.observed.work_item_ids == ("wi-1",)
     assert proof.durable_truth.verified_attempts == ("att-1",)
@@ -47,8 +52,12 @@ def test_dispatcher_observation_and_durable_truth_are_one_fail_closed_gate():
 
 
 def test_stale_center_truth_cannot_promote_dispatcher_observation():
-    runner = SingleNodeDurableIntegrationProofRunner(
-        dispatcher=_Dispatcher(), truth_reader=_Truth(stale=True), required_stages=("SCOPE_INTAKE",)
-    )
     with pytest.raises(RuntimeError, match="CENTER_WORK_ITEM_IDENTITY_MISMATCH"):
-        runner.run(test_run_id="run-1")
+        _boundary_double_runner(stale=True).run(test_run_id="run-1")
+
+
+def test_boundary_double_cannot_enter_production_full_loop_gate_by_default():
+    with pytest.raises(RuntimeError, match="FULL_LOOP_PRODUCTION_DISPATCHER_REQUIRED"):
+        SingleNodeDurableIntegrationProofRunner(
+            dispatcher=_Dispatcher(), truth_reader=_Truth(), required_stages=("SCOPE_INTAKE",)
+        )
