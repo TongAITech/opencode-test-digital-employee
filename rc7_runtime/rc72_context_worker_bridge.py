@@ -120,6 +120,8 @@ class Rc72ContextAwareDshTaskWorkerBridge(DshTaskWorkerBridge):
         if not isinstance(descriptor, SemanticWorkDescriptor):
             raise DshWorkerBridgeError("RC72_CONTEXT_DESCRIPTOR_INVALID")
         self._validate_descriptor(task, descriptor)
+        if descriptor.execution_mode == ExecutionMode.DETERMINISTIC:
+            raise DshWorkerBridgeError("RC72_DETERMINISTIC_WORK_MUST_NOT_COMPILE_LLM_PROMPT")
 
         envelope = ContextEnvelopeBuilder.build([descriptor])
         envelope_projection = envelope.as_prompt_projection()
