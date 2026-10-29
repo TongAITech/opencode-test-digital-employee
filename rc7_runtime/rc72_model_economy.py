@@ -1,12 +1,19 @@
-"""RC7.2 mission-level token economy control.
+"""RC7.2 mission-completion-first model economy control.
 
-Additive control over the mature RC7 worker/evaluator runtime:
-- durable ReleaseBatch/Mission model-call budgets in canonical R1;
+This module is deliberately a horizontal runtime control:
+- real ReleaseBatch/Mission model-call observations in canonical R1;
 - exact prompt fingerprints to expose repeated-context amplification;
 - actual DSH JSONL usage capture when unambiguous;
 - UNKNOWN rather than guessed usage;
-- fail-closed Q7 qualification;
-- a transparent launcher wrapper, so existing DSH worker/session semantics stay intact.
+- bank-local quota-window classification;
+- soft economy targets that WARN/replan instead of killing mandatory test work;
+- hard guards only for invalid/wasteful calls such as deterministic misuse or
+  exact repeated-context loops;
+- a transparent launcher wrapper, so existing DSH worker/session semantics stay
+  intact.
+
+Mission completion/test sufficiency outrank token economy. Economy optimizes
+HOW/WHEN/CONTEXT/BATCH/MODEL; it must not reduce WHAT MUST BE TESTED.
 """
 from __future__ import annotations
 
@@ -15,6 +22,7 @@ import json
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -35,6 +43,9 @@ _BUCKETS = {
     _TOKEN_CALL: "rc72_token_calls",
 }
 
+_BANK_TZ_NAME = "Asia/Shanghai"
+_BANK_TZ = timezone(timedelta(hours=8), name=_BANK_TZ_NAME)
+
 
 class TokenEconomyError(RuntimeError):
     pass
@@ -52,6 +63,19 @@ class UsageStatus(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
+class MissionCriticality(str, Enum):
+    BLOCKING = "BLOCKING"
+    NON_BLOCKING = "NON_BLOCKING"
+    UNKNOWN = "UNKNOWN"
+
+
+class SemanticCostClass(str, Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+    UNKNOWN = "UNKNOWN"
+
+
 @dataclass(frozen=True)
 class DshTokenUsage:
     status: UsageStatus
@@ -66,11 +90,28 @@ class DshTokenUsage:
 
 
 @dataclass(frozen=True)
+class BankCostWindow:
+    name: str
+    timezone_name: str
+    quota_limited: bool
+    quota_cost_factor_millis: int
+
+    @property
+    def quota_cost_factor(self) -> float:
+        return float(self.quota_cost_factor_millis) / 1000.0
+
+
+@dataclass(frozen=True)
 class TokenAdmission:
     admitted: bool
     call_id: str
     reason: str
     reserved_tokens: int
+    warnings: Tuple[str, ...] = ()
+    cost_window: str = "UNKNOWN"
+    quota_limited: bool = True
+    quota_cost_factor: float = 1.0
+    schedule_recommendation: str = "RUN_NOW"
 
 
 @dataclass(frozen=True)
@@ -87,6 +128,30 @@ def _now() -> int:
 
 def _new(prefix: str) -> str:
     return "%s-%s" % (prefix, uuid.uuid4().hex[:20])
+
+
+def classify_bank_cost_window(when: Optional[datetime] = None) -> BankCostWindow:
+    """Classify the explicit bank-local quota window.
+
+    Naive datetimes are rejected so tests/runtime cannot silently depend on the
+    host timezone. Asia/Shanghai is represented as fixed UTC+08:00, which is
+    sufficient for the current bank schedule and Python 3.8 portability.
+    """
+    current = when or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        raise TokenEconomyError("BANK_COST_WINDOW_REQUIRES_AWARE_DATETIME")
+    local = current.astimezone(_BANK_TZ)
+    if local.hour >= 21:
+        return BankCostWindow(
+            "BANK_AFTER_21_UNLIMITED", _BANK_TZ_NAME, False, 0
+        )
+    if local.hour >= 18:
+        return BankCostWindow(
+            "BANK_18_21_TEN_TO_ONE", _BANK_TZ_NAME, True, 100
+        )
+    return BankCostWindow(
+        "BANK_DAYTIME_FULL_RATE", _BANK_TZ_NAME, True, 1000
+    )
 
 
 def _required(out: Dict[str, Any], name: str) -> str:
@@ -131,7 +196,10 @@ def _validate_budget(payload: Dict[str, Any]) -> Dict[str, Any]:
     out["state"] = _required(out, "state").upper()
     if out["state"] not in {"ACTIVE", "RETIRED"}:
         raise _contracts.DomainValidationError("TOKEN_BUDGET_STATE_INVALID")
-    for name in ("max_total_tokens", "max_model_calls", "max_single_call_tokens", "max_same_context_calls"):
+    for name in (
+        "max_total_tokens", "max_model_calls", "max_single_call_tokens",
+        "max_same_context_calls",
+    ):
         out[name] = _positive_int(out, name)
     for name in ("max_retry_tokens", "max_retry_calls"):
         out[name] = _nonnegative_int(out, name)
@@ -172,6 +240,21 @@ def _validate_call(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise _contracts.DomainValidationError("COMPLETED_TOKEN_CALL_MUST_BE_MEASURED")
     if out["state"] == "COMPLETED_UNKNOWN" and out["usage_status"] != "UNKNOWN":
         raise _contracts.DomainValidationError("UNKNOWN_TOKEN_CALL_STATUS_MISMATCH")
+
+    # Additive/backward-compatible fields. Older R1 events are projected with
+    # safe defaults rather than becoming unreadable after this construction slice.
+    out.setdefault("economy_signal", "NONE")
+    out.setdefault("cost_window", "UNKNOWN")
+    out.setdefault("bank_timezone", _BANK_TZ_NAME)
+    out.setdefault("mission_criticality", MissionCriticality.UNKNOWN.value)
+    out.setdefault("semantic_cost_class", SemanticCostClass.UNKNOWN.value)
+    out.setdefault("schedule_recommendation", "RUN_NOW")
+    out.setdefault("quota_limited", True)
+    out.setdefault("quota_cost_factor_millis", 1000)
+    out.setdefault("quota_equivalent_tokens", 0)
+    out["quota_limited"] = _boolean(out, "quota_limited")
+    out["quota_cost_factor_millis"] = _nonnegative_int(out, "quota_cost_factor_millis")
+    out["quota_equivalent_tokens"] = _nonnegative_int(out, "quota_equivalent_tokens")
     return out
 
 
@@ -278,16 +361,31 @@ def extract_dsh_token_usage(text: str) -> DshTokenUsage:
     )
 
 
-class TokenEconomyService:
-    """Durable Mission token budget and usage ledger backed by canonical R1."""
+Clock = Callable[[], datetime]
 
-    def __init__(self, truth: TruthRuntime, *, release_id: str) -> None:
+
+class TokenEconomyService:
+    """Durable Mission economy targets and usage ledger backed by canonical R1.
+
+    Budget fields are economy targets/telemetry. They are not Mission completion
+    kill-switches. Hard admission rejection is reserved for correctness/waste
+    guards.
+    """
+
+    def __init__(
+        self,
+        truth: TruthRuntime,
+        *,
+        release_id: str,
+        clock: Optional[Clock] = None,
+    ) -> None:
         install_rc72_token_economy_overlay()
         _ensure_projection_buckets(truth)
         if not isinstance(release_id, str) or not release_id.strip():
             raise TokenEconomyError("TOKEN_ECONOMY_RELEASE_ID_REQUIRED")
         self.truth = truth
         self.release_id = release_id.strip()
+        self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def _append(self, event_type: str, payload: Dict[str, Any]) -> None:
         out = dict(payload)
@@ -343,6 +441,12 @@ class TokenEconomyService:
     def _calls(self, mission_id: str) -> List[Dict[str, Any]]:
         return list(self.truth.query(_TOKEN_CALL, mission_id=mission_id))
 
+    @staticmethod
+    def _quota_equivalent(tokens: int, factor_millis: int) -> int:
+        if tokens <= 0 or factor_millis <= 0:
+            return 0
+        return (int(tokens) * int(factor_millis) + 999) // 1000
+
     def summary(self, mission_id: str) -> Dict[str, Any]:
         calls = self._calls(mission_id)
         model_calls = [row for row in calls if row.get("state") != "BLOCKED"]
@@ -361,6 +465,21 @@ class TokenEconomyService:
             int(row.get("reserved_tokens", 0))
             for row in retries if row.get("usage_status") != "MEASURED"
         )
+        measured_quota = sum(int(row.get("quota_equivalent_tokens", 0)) for row in measured)
+        pending_quota = sum(
+            self._quota_equivalent(
+                int(row.get("reserved_tokens", 0)),
+                int(row.get("quota_cost_factor_millis", 1000)),
+            )
+            for row in pending
+        )
+        unknown_quota = sum(
+            self._quota_equivalent(
+                int(row.get("reserved_tokens", 0)),
+                int(row.get("quota_cost_factor_millis", 1000)),
+            )
+            for row in unknown
+        )
         total_context_bytes = sum(int(row.get("context_bytes", 0)) for row in model_calls)
         seen: Dict[str, int] = {}
         for row in model_calls:
@@ -371,12 +490,25 @@ class TokenEconomyService:
         lineage_unknown = [
             row["call_id"]
             for row in model_calls
-            if any(str(row.get(name) or "").upper() == "UNKNOWN" for name in ("node", "stage", "workitem_id"))
+            if any(
+                str(row.get(name) or "").upper() == "UNKNOWN"
+                for name in ("node", "stage", "workitem_id")
+            )
+        ]
+        warning_calls = [
+            row for row in model_calls
+            if str(row.get("economy_signal") or "NONE") != "NONE"
+        ]
+        deferred_recommended = [
+            row for row in model_calls
+            if row.get("schedule_recommendation") == "DEFER_RECOMMENDED"
         ]
         return {
             "mission_id": mission_id,
             "model_calls": len(model_calls),
             "blocked_calls": len(calls) - len(model_calls),
+            "economy_warning_calls": len(warning_calls),
+            "defer_recommended_calls": len(deferred_recommended),
             "pending_calls": len(pending),
             "unknown_usage_calls": len(unknown),
             "measured_calls": len(measured),
@@ -384,6 +516,10 @@ class TokenEconomyService:
             "pending_reserved_tokens": pending_reserved,
             "unknown_reserved_tokens": unknown_reserved,
             "effective_total_tokens": measured_total + pending_reserved + unknown_reserved,
+            "measured_quota_equivalent_tokens": measured_quota,
+            "pending_reserved_quota_equivalent_tokens": pending_quota,
+            "unknown_reserved_quota_equivalent_tokens": unknown_quota,
+            "effective_quota_equivalent_tokens": measured_quota + pending_quota + unknown_quota,
             "retry_calls": len(retries),
             "retry_measured_tokens": retry_measured,
             "retry_effective_tokens": retry_measured + retry_reserved,
@@ -408,38 +544,76 @@ class TokenEconomyService:
         call_class: ModelCallClass,
         retry: bool,
         prompt: str,
+        mission_criticality: Any = MissionCriticality.UNKNOWN,
+        semantic_cost_class: Any = SemanticCostClass.UNKNOWN,
+        when: Optional[datetime] = None,
     ) -> TokenAdmission:
         budget = self._budget(mission_id)
         if not isinstance(call_class, ModelCallClass):
             call_class = ModelCallClass(str(call_class).upper())
+        if not isinstance(mission_criticality, MissionCriticality):
+            mission_criticality = MissionCriticality(str(mission_criticality).upper())
+        if not isinstance(semantic_cost_class, SemanticCostClass):
+            semantic_cost_class = SemanticCostClass(str(semantic_cost_class).upper())
+
         prompt_bytes = prompt.encode("utf-8")
         digest = hashlib.sha256(prompt_bytes).hexdigest()
         summary = self.summary(mission_id)
-        reason, admitted = "ADMITTED", True
+        window = classify_bank_cost_window(when or self.clock())
         reserve = int(budget["max_single_call_tokens"])
+        reserve_quota = self._quota_equivalent(reserve, window.quota_cost_factor_millis)
+        warnings: List[str] = []
+        admitted = True
+        hard_reason = "ADMITTED"
 
+        # Hard guards protect correctness/waste only.
         if call_class == ModelCallClass.DETERMINISTIC_NO_LLM:
-            admitted, reason = False, "DETERMINISTIC_STEP_MUST_NOT_USE_LLM"
-        elif bool(budget["require_measured_usage"]) and summary["unknown_usage_calls"]:
-            admitted, reason = False, "PRIOR_TOKEN_USAGE_UNKNOWN"
-        elif summary["model_calls"] >= int(budget["max_model_calls"]):
-            admitted, reason = False, "MISSION_MODEL_CALL_BUDGET_EXHAUSTED"
-        elif summary["effective_total_tokens"] + reserve > int(budget["max_total_tokens"]):
-            admitted, reason = False, "MISSION_TOKEN_BUDGET_EXHAUSTED"
-        elif retry and summary["retry_calls"] >= int(budget["max_retry_calls"]):
-            admitted, reason = False, "MISSION_RETRY_CALL_BUDGET_EXHAUSTED"
-        elif retry and summary["retry_effective_tokens"] + reserve > int(budget["max_retry_tokens"]):
-            admitted, reason = False, "MISSION_RETRY_TOKEN_BUDGET_EXHAUSTED"
+            admitted = False
+            hard_reason = "DETERMINISTIC_STEP_MUST_NOT_USE_LLM"
         else:
             same_context = [
                 row for row in self._calls(mission_id)
                 if row.get("state") != "BLOCKED" and row.get("context_sha256") == digest
             ]
             if len(same_context) >= int(budget["max_same_context_calls"]):
-                admitted, reason = False, "SAME_CONTEXT_CALL_BUDGET_EXHAUSTED"
+                admitted = False
+                hard_reason = "SAME_CONTEXT_NO_PROGRESS_GUARD"
+
+        # Soft economy signals. These never delete/complete mandatory work.
+        if admitted:
+            if bool(budget["require_measured_usage"]) and summary["unknown_usage_calls"]:
+                warnings.append("PRIOR_TOKEN_USAGE_UNKNOWN")
+            if summary["model_calls"] >= int(budget["max_model_calls"]):
+                warnings.append("MISSION_MODEL_CALL_TARGET_EXCEEDED")
+            if (
+                window.quota_limited
+                and summary["effective_quota_equivalent_tokens"] + reserve_quota
+                > int(budget["max_total_tokens"])
+            ):
+                warnings.append("MISSION_QUOTA_EQUIVALENT_TARGET_EXCEEDED")
+            if retry and summary["retry_calls"] >= int(budget["max_retry_calls"]):
+                warnings.append("MISSION_RETRY_CALL_TARGET_EXCEEDED")
+            if retry and summary["retry_effective_tokens"] + reserve > int(budget["max_retry_tokens"]):
+                warnings.append("MISSION_RETRY_TOKEN_TARGET_EXCEEDED")
+
+        schedule_recommendation = "RUN_NOW"
+        if (
+            admitted
+            and mission_criticality == MissionCriticality.NON_BLOCKING
+            and semantic_cost_class == SemanticCostClass.HIGH
+            and window.quota_limited
+            and window.quota_cost_factor_millis == 1000
+        ):
+            schedule_recommendation = "DEFER_RECOMMENDED"
+            warnings.append("CHEAPER_WINDOW_AVAILABLE")
+
+        reason = hard_reason
+        if admitted and warnings:
+            reason = "ADMITTED_WITH_ECONOMY_WARNINGS:" + ";".join(warnings)
+        economy_signal = ";".join(warnings) if warnings else "NONE"
 
         call_id = _new("TOKCALL")
-        now = _now()
+        now_epoch = _now()
         self._append("RC72_TOKEN_CALL_UPSERTED", {
             "call_id": call_id,
             "mission_id": mission_id,
@@ -460,11 +634,30 @@ class TokenEconomyService:
             "output_tokens": 0,
             "total_tokens": 0,
             "reason": reason,
-            "created_at": now,
-            "updated_at": now,
+            "economy_signal": economy_signal,
+            "cost_window": window.name,
+            "bank_timezone": window.timezone_name,
+            "quota_limited": window.quota_limited,
+            "quota_cost_factor_millis": window.quota_cost_factor_millis,
+            "quota_equivalent_tokens": 0,
+            "mission_criticality": mission_criticality.value,
+            "semantic_cost_class": semantic_cost_class.value,
+            "schedule_recommendation": schedule_recommendation,
+            "created_at": now_epoch,
+            "updated_at": now_epoch,
             "artifact_version": 1,
         })
-        return TokenAdmission(admitted, call_id, reason, reserve if admitted else 0)
+        return TokenAdmission(
+            admitted,
+            call_id,
+            reason,
+            reserve if admitted else 0,
+            tuple(warnings),
+            window.name,
+            window.quota_limited,
+            window.quota_cost_factor,
+            schedule_recommendation,
+        )
 
     def complete_call(self, call_id: str, usage: DshTokenUsage) -> Dict[str, Any]:
         rows = self.truth.query(_TOKEN_CALL, call_id=call_id)
@@ -485,9 +678,14 @@ class TokenEconomyService:
         updated["output_tokens"] = int(usage.output_tokens)
         updated["total_tokens"] = int(usage.total_tokens)
         if usage.status == UsageStatus.MEASURED:
+            updated["quota_equivalent_tokens"] = self._quota_equivalent(
+                int(usage.total_tokens),
+                int(current.get("quota_cost_factor_millis", 1000)),
+            )
             updated["state"] = "COMPLETED"
             updated["reason"] = "DSH_USAGE_MEASURED"
         else:
+            updated["quota_equivalent_tokens"] = 0
             updated["state"] = "COMPLETED_UNKNOWN"
             updated["reason"] = "DSH_USAGE_UNKNOWN"
         self._append("RC72_TOKEN_CALL_UPSERTED", updated)
@@ -499,7 +697,7 @@ class TokenEconomyService:
         except TokenEconomyError as exc:
             return TokenQualification("HOLD", mission_id, str(exc), self.summary(mission_id))
         metrics = self.summary(mission_id)
-        status, reason = "PASS", "TOKEN_ECONOMY_PASS"
+        status, reason = "PASS", "MODEL_ECONOMY_PASS"
         if not metrics["model_calls"]:
             status, reason = "HOLD", "TOKEN_USAGE_EVIDENCE_REQUIRED"
         elif metrics["pending_calls"]:
@@ -508,14 +706,16 @@ class TokenEconomyService:
             status, reason = "HOLD", "TOKEN_USAGE_UNKNOWN"
         elif bool(budget["require_complete_lineage"]) and metrics["unknown_lineage_call_ids"]:
             status, reason = "HOLD", "TOKEN_CALL_LINEAGE_INCOMPLETE"
-        elif metrics["effective_total_tokens"] > int(budget["max_total_tokens"]):
-            status, reason = "BLOCKED", "MISSION_TOKEN_BUDGET_EXCEEDED"
+        elif metrics["blocked_calls"]:
+            status, reason = "HOLD", "MODEL_ECONOMY_WASTE_GUARD_TRIGGERED"
+        elif metrics["effective_quota_equivalent_tokens"] > int(budget["max_total_tokens"]):
+            status, reason = "HOLD", "MODEL_ECONOMY_QUOTA_TARGET_EXCEEDED"
         elif metrics["model_calls"] > int(budget["max_model_calls"]):
-            status, reason = "BLOCKED", "MISSION_MODEL_CALL_BUDGET_EXCEEDED"
+            status, reason = "HOLD", "MODEL_ECONOMY_CALL_TARGET_EXCEEDED"
         elif metrics["retry_effective_tokens"] > int(budget["max_retry_tokens"]):
-            status, reason = "BLOCKED", "MISSION_RETRY_TOKEN_BUDGET_EXCEEDED"
+            status, reason = "HOLD", "MODEL_ECONOMY_RETRY_TOKEN_TARGET_EXCEEDED"
         elif metrics["retry_calls"] > int(budget["max_retry_calls"]):
-            status, reason = "BLOCKED", "MISSION_RETRY_CALL_BUDGET_EXCEEDED"
+            status, reason = "HOLD", "MODEL_ECONOMY_RETRY_CALL_TARGET_EXCEEDED"
         return TokenQualification(status, mission_id, reason, metrics)
 
 
@@ -523,7 +723,7 @@ MetadataResolver = Callable[[Any], Mapping[str, Any]]
 
 
 class TokenMeteredDshLauncher:
-    """Transparent token-governed wrapper for DshHeadlessWorkerLauncher."""
+    """Transparent model-economy wrapper for DshHeadlessWorkerLauncher."""
 
     def __init__(
         self,
@@ -568,6 +768,9 @@ class TokenMeteredDshLauncher:
             call_class=call_class,
             retry=bool(metadata.get("retry", False)),
             prompt=prompt,
+            mission_criticality=metadata.get("mission_criticality", MissionCriticality.UNKNOWN.value),
+            semantic_cost_class=metadata.get("semantic_cost_class", SemanticCostClass.UNKNOWN.value),
+            when=metadata.get("when"),
         )
         if not admission.admitted:
             raise TokenEconomyError("TOKEN_CALL_BLOCKED:%s:%s" % (admission.call_id, admission.reason))
