@@ -8,8 +8,10 @@ on:
       - 'rc7_release/rc72_target_linux_reality.py'
       - 'rc7_release/rc72_target_linux_attestation.py'
       - 'packaging/rc7.2/Q3-TARGET-LINUX-PROBE.sh'
+      - 'packaging/rc7.2/Q3-FIELD-HANDOFF.sh'
       - 'tests/test_rc72_q3_target_linux_reality_contract.py'
       - 'tests/test_rc72_q3_target_probe_attestation_contract.py'
+      - 'tests/test_rc72_q3_field_handoff_contract.py'
       - '.github/workflows/rc7.2-q3-target-linux-reality.yml'
   workflow_dispatch:
 
@@ -34,11 +36,12 @@ jobs:
       - name: Install contract-test dependency
         run: python -m pip install --disable-pip-version-check pytest
 
-      - name: Freeze Q3 target Linux reality and probe/attestation contracts
+      - name: Freeze Q3 target Linux reality, probe, attestation and field-handoff contracts
         run: |
           python -m pytest -q \
             tests/test_rc72_q3_target_linux_reality_contract.py \
             tests/test_rc72_q3_target_probe_attestation_contract.py \
+            tests/test_rc72_q3_field_handoff_contract.py \
             --junitxml=rc72-q3-target-linux-reality.xml
 
       - name: Prove generic Ubuntu remains HOLD not target PASS
@@ -89,7 +92,41 @@ jobs:
           print('Q3_TARGET_PROBE_REQUEST_PASS')
           PY
 
-      - name: Upload Q3 policy and probe evidence
+      - name: Prove field handoff is package-lineage bound and still requires external attestation
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG="$RUNNER_TEMP/rc72-q3-handoff-package"
+          OUT="$GITHUB_WORKSPACE/q3-field-handoff"
+          rm -rf "$PKG" "$OUT"
+          mkdir -p "$PKG"
+          cp -R packaging rc7_release "$PKG/"
+          printf '%s\n' "$GITHUB_SHA" > "$PKG/SOURCE_COMMIT"
+          chmod +x "$PKG/packaging/rc7.2/Q3-FIELD-HANDOFF.sh" "$PKG/packaging/rc7.2/Q3-TARGET-LINUX-PROBE.sh"
+          PFC_RC72_PACKAGE_PYTHON="$(command -v python)" \
+            "$PKG/packaging/rc7.2/Q3-FIELD-HANDOFF.sh" \
+            --package-root "$PKG" \
+            --source-commit "$GITHUB_SHA" \
+            --runner-kind GITHUB_HOSTED_GENERIC \
+            --runner-identity github-hosted-handoff \
+            --output-dir "$OUT"
+          python - <<'PY'
+          import json
+          manifest = json.load(open('q3-field-handoff/q3-target-handoff-manifest.json', encoding='utf-8'))
+          request = json.load(open('q3-field-handoff/q3-target-attestation-request.json', encoding='utf-8'))
+          package = json.load(open('q3-field-handoff/q3-target-package-evidence.json', encoding='utf-8'))
+          assert manifest['qualification_state'] == 'AWAITING_EXTERNAL_ATTESTATION', manifest
+          assert manifest['trusted_verifier_required'] is True, manifest
+          assert manifest['target_linux_verified'] is False, manifest
+          assert manifest['field_verified'] is False, manifest
+          assert manifest['bank_final'] is False, manifest
+          assert request['state'] == 'AWAITING_EXTERNAL_ATTESTATION', request
+          assert package['package_source_match'] is True, package
+          assert package['network_install_performed'] is False, package
+          print('Q3_FIELD_HANDOFF_ENGINEERING_PASS')
+          PY
+
+      - name: Upload Q3 policy, probe and handoff evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -99,5 +136,6 @@ jobs:
             q3-generic-linux-negative-control.json
             q3-target-observation.json
             q3-target-attestation-request.json
+            q3-field-handoff/*.json
           if-no-files-found: warn
           retention-days: 14
