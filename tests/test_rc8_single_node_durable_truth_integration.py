@@ -32,7 +32,7 @@ def test_frozen_denominator_is_verified_through_production_durable_truth_boundar
             work_item_id = "wi-%02d" % index
             lease_id = "lease-%02d" % index
             stage_instance_id = "stage-%02d" % index
-            attempt_id = "att-%02d" % index
+            attempt_id = lease_id
             artifact_id = "art-%02d" % index
             work_item_ids.append(work_item_id)
             lease_ids.append(lease_id)
