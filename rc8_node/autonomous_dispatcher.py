@@ -69,6 +69,9 @@ class AutonomousWorkerDispatcher:
         )
         if not claimed.claimed:
             return DispatchOutcome(status="IDLE")
+        requested_run_id = str(test_run_id or "").strip()
+        if requested_run_id and str(claimed.test_run_id or "").strip() != requested_run_id:
+            raise AutonomousDispatcherError("CLAIMED_TEST_RUN_ID_MISMATCH")
         return self._execute_claim(claimed)
 
     def _execute_claim(self, claimed: ClaimedWork) -> DispatchOutcome:
@@ -78,8 +81,6 @@ class AutonomousWorkerDispatcher:
             raise AutonomousDispatcherError("CLAIMED_WORK_IDENTITY_INCOMPLETE")
         worker = self.workers.get(stage)
         if worker is None:
-            # This should be unreachable because stage_types was part of the
-            # claim request.  Fail closed rather than guessing a worker.
             raise AutonomousDispatcherError("CLAIMED_STAGE_NOT_IMPLEMENTED:%s" % stage)
         result = worker.execute(claimed)
         if not isinstance(result, dict):
