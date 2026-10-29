@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import pytest
 
 from rc8_node.autonomous_claim_client import ClaimedWork
@@ -30,13 +28,13 @@ class Worker:
         return {"status": "COMPLETED", "worker": self.name}
 
 
-def _claim(stage="REQUIREMENT_ANALYSIS"):
+def _claim(stage="REQUIREMENT_ANALYSIS", test_run_id="TR-1"):
     return ClaimedWork(
         claimed=True,
         work_item={
             "identity": {
                 "work_item_id": "WORK-1",
-                "test_run_id": "TR-1",
+                "test_run_id": test_run_id,
                 "stage": stage,
                 "scope_refs": [],
                 "required_capabilities": [],
@@ -63,6 +61,7 @@ def test_dispatcher_claims_only_registered_stage_types() -> None:
     assert outcome.status == "EXECUTED"
     assert outcome.stage == "REQUIREMENT_ANALYSIS"
     assert outcome.result == {"status": "COMPLETED", "worker": "analysis"}
+    assert analysis.claims[0].test_run_id == "TR-1"
     assert claimant.calls == [{
         "ttl_seconds": 60,
         "test_run_id": "TR-1",
@@ -70,6 +69,17 @@ def test_dispatcher_claims_only_registered_stage_types() -> None:
     }]
     assert len(analysis.claims) == 1
     assert sufficiency.claims == []
+
+
+def test_dispatcher_fails_closed_if_center_returns_different_test_run() -> None:
+    worker = Worker("analysis")
+    dispatcher = AutonomousWorkerDispatcher(
+        claimant=FakeClaimant([_claim(test_run_id="TR-OTHER")]),
+        workers={"REQUIREMENT_ANALYSIS": worker},
+    )
+    with pytest.raises(AutonomousDispatcherError, match="CLAIMED_TEST_RUN_ID_MISMATCH"):
+        dispatcher.run_once(test_run_id="TR-1")
+    assert worker.claims == []
 
 
 def test_dispatcher_idle_does_not_execute_worker() -> None:
