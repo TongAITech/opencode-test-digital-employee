@@ -1,6 +1,6 @@
 # RC7.2 Current Construction Checkpoint
 
-Status: **REPOSITORY_CONSTRUCTION_CI_PASS / PLATFORM_QUALIFICATION_BASELINE_FROZEN / FIELD_VALIDATION_PENDING**
+Status: **REPOSITORY_CONSTRUCTION_CI_PASS / Q1_SOURCE_PLATFORM_CI_PASS / PLATFORM_QUALIFICATION_IN_PROGRESS / FIELD_VALIDATION_PENDING**
 
 This file is the short entry point for every future RC7.2 construction/qualification session.
 It is a status index, not a replacement for the frozen contracts.
@@ -18,14 +18,14 @@ It is a status index, not a replacement for the frozen contracts.
 
 Chat history, stale SHAs and old checkpoint text never override live repository/R1/CI truth.
 
-## Current repository truth
+## Current repository and qualification truth
 
 ```yaml
 branch: work/rc7.2
 design_baseline_sha: a3426e306abf967ab822d44508127c3891c8e91e
-latest_repository_qualified_code_head: d43f233ace9c691f881a8b5e0d5be23257b9c5f5
-latest_repository_qualified_ci_run: 40737549865
-latest_repository_qualification:
+repository_construction_functional_head: d43f233ace9c691f881a8b5e0d5be23257b9c5f5
+repository_construction_run: 40737549865
+repository_construction:
   rc72_contracts_python_3_8: 206_passed
   rc72_contracts_python_3_11: 206_passed
   inherited_rc7_python_3_8: 492_passed_1_skipped
@@ -43,7 +43,18 @@ phase_status:
   phase9_journey_teaching: CI_PASS_FIELD_PENDING
 qualification_status:
   contract: FROZEN
-  q1_source_platform_baseline: TDD_RED_PENDING_IMPLEMENTATION
+  q1_source_platform_baseline: CI_PASS_ENGINEERING_ONLY
+  q1_qualified_source_commit: 77e954558f1fdc933febe2adfeb8a069d3d92c00
+  q1_workflow_run: 40791919277
+  q1_windows:
+    rc72_contracts: 210_passed
+    inherited_rc7: 492_passed_1_skipped
+    field_verified: false
+  q1_linux_engineering_proxy:
+    rc72_contracts: 210_passed
+    inherited_rc7: 492_passed_1_skipped
+    target_linux_verified: false
+    field_verified: false
   q2_windows_clean_unpack: NOT_RUN
   q3_target_linux: NOT_RUN
   q4_offline_portable: NOT_RUN
@@ -53,37 +64,30 @@ qualification_status:
   q8_failure_recovery: NOT_RUN
 field_validation: NOT_STARTED_FOR_RC7_2
 bank_final: NO
-next_atomic_step: IMPLEMENT_RC72_PLATFORM_QUALIFICATION_EVIDENCE_AND_GREEN_Q1
+next_atomic_step: Q2_WINDOWS_CLEAN_UNPACK_TESTS_FIRST
 ```
 
-## Qualification baseline
+## Q1 evidence
 
-The qualification contract is frozen in:
+Checkpoint: `checkpoints/Q1-SOURCE-PLATFORM-BASELINE-CI-PASS.md`
 
-- `07-PLATFORM-QUALIFICATION-AND-FIELD-ACCEPTANCE-CONTRACT.md`
-- `.github/workflows/rc7.2-platform-qualification.yml`
-- `tests/test_rc72_platform_qualification_contract.py`
+Q1 proves source/runtime engineering portability on Windows and a generic Linux proxy. It does **not** prove:
 
-The first gate is Q1 source-platform engineering qualification on:
+- Windows clean-unpack package behavior;
+- in-bank Windows PC behavior;
+- target 信创 Linux behavior;
+- clean offline/portable delivery;
+- real BSK/CDP Field execution;
+- real bank Human Approval;
+- a real ReleaseBatch N1-N10 Field mission;
+- BANK_FINAL readiness.
 
-- Windows + Python 3.8;
-- Linux engineering proxy + Python 3.8.
+## Next atomic step
 
-The Linux GitHub-hosted runner is explicitly **not** target 信创 Linux Field evidence.
+Start Q2 Windows clean-unpack tests-first.
 
-## Next stage — do not add another architecture phase
+Q2 must reuse mature RC7/RC7.1 packaging mechanics where valid, but must preserve RC7.2 identity and exact source lineage. It must prove that a fresh archive built from an RC7.2 HEAD can be checksum-verified, extracted into a clean directory outside the source checkout, run using package-local runtime/entrypoint, and contains the RC7.2 runtime modules needed by the delivered capability.
 
-1. implement the Q1 structured evidence module and turn the frozen Q1 RED contract GREEN;
-2. run same-HEAD Windows/Linux engineering source qualification;
-3. qualify Windows clean-unpack package;
-4. validate target Linux runtime;
-5. validate clean-unpack/offline package behavior;
-6. connect and verify real Browser/BSK Field adapter;
-7. connect and verify real bank Human Approval verifier;
-8. run a real ReleaseBatch Field mission through N1-N10;
-9. exercise required gap/recovery scenarios;
-10. persist Field evidence in R1 before advancing readiness.
+Until Q2 and later Field gates complete:
 
-Until those steps are complete:
-
-> **RC7.2 repository construction CI_PASS; platform qualification in progress; Field validation pending; BANK_FINAL = NO.**
+> **RC7.2 repository construction CI_PASS; Q1 engineering platform baseline PASS; Field validation pending; BANK_FINAL = NO.**
