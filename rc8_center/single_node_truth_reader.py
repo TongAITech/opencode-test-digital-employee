@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from sqlalchemy import select
-
 from rc8_runtime.r1_runtime import CentralR1RuntimeLedger
 
 from .infrastructure.postgres import AttemptRow, PostgresStore
@@ -55,6 +53,8 @@ class ProductionCenterR1TruthReader:
                 "test_run_id": row.test_run_id,
                 "stage_instance_id": row.stage_instance_id,
                 "work_item_id": row.work_item_id,
+                "producer_node_id": row.producer_node_id,
+                "producer_ref": row.producer_ref,
                 "status": row.status,
             }
 
@@ -67,6 +67,9 @@ class ProductionCenterR1TruthReader:
             "test_run_id": value.test_run_id,
             "work_item_id": value.work_item_id,
             "attempt_id": value.attempt_id,
+            "node_id": value.node_id,
+            "producer_kind": value.producer_kind.value,
+            "producer_ref": value.producer_ref,
             "status": "COMPLETED" if value.availability.value == "AVAILABLE" else value.availability.value,
         }
 
