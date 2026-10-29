@@ -1,15 +1,15 @@
 """Fail-closed Center/R1 truth verification for RC8 SINGLE_NODE full-loop proof.
 
-This module does not execute work and cannot grant PASS.  It verifies that the
+This module does not execute work and cannot grant PASS. It verifies that the
 identities observed by SingleNodeFullLoopProofRunner are backed by Center truth:
 completed WorkItems, matching terminal Attempts, completed ArtifactManifests and
-R1 ATTEMPT_COMPLETED events.  A caller must provide a production Center truth
-reader (HTTP/repository adapter); missing truth is UNKNOWN and fails closed.
+R1 ATTEMPT_COMPLETED events. A production proof may additionally bind all durable
+producer identities to the exact node that held the production claim/lease.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Tuple
+from typing import Any, Mapping, Optional, Tuple
 
 from .single_node_full_loop_proof import SingleNodeFullLoopProof
 
@@ -33,18 +33,25 @@ class SingleNodeTruthProof:
 class SingleNodeCenterTruthVerifier:
     """Verify a traversal against Center durable/R1 truth without PASS authority."""
 
-    def __init__(self, *, truth_reader: Any) -> None:
+    def __init__(self, *, truth_reader: Any, expected_node_id: Optional[str] = None) -> None:
         required = ("get_work_item", "get_attempt", "get_artifact", "find_r1_attempt_completed")
         missing = [name for name in required if not callable(getattr(truth_reader, name, None))]
         if missing:
             raise SingleNodeTruthError("CENTER_TRUTH_READER_INCOMPLETE:%s" % ",".join(missing))
         self.truth_reader = truth_reader
+        self.expected_node_id = str(expected_node_id or "").strip() or None
 
     @staticmethod
     def _mapping(value: Any, code: str) -> Mapping[str, Any]:
         if not isinstance(value, Mapping):
             raise SingleNodeTruthError(code)
         return value
+
+    def _require_node(self, value: Mapping[str, Any], field: str, code: str) -> None:
+        if self.expected_node_id is None:
+            return
+        if str(value.get(field) or "").strip() != self.expected_node_id:
+            raise SingleNodeTruthError(code)
 
     def verify(self, proof: SingleNodeFullLoopProof) -> SingleNodeTruthProof:
         if not isinstance(proof, SingleNodeFullLoopProof):
@@ -70,6 +77,7 @@ class SingleNodeCenterTruthVerifier:
                 raise SingleNodeTruthError("CENTER_ATTEMPT_IDENTITY_MISMATCH:%s" % stage)
             if str(attempt.get("status") or "") != "COMPLETED":
                 raise SingleNodeTruthError("CENTER_ATTEMPT_NOT_COMPLETED:%s" % stage)
+            self._require_node(attempt, "producer_node_id", "CENTER_ATTEMPT_NODE_ID_MISMATCH:%s" % stage)
 
             artifact_id = str(artifact_ref or "").split("artifact:", 1)[-1].strip()
             if not artifact_ref.startswith("artifact:") or not artifact_id:
@@ -83,6 +91,7 @@ class SingleNodeCenterTruthVerifier:
                 raise SingleNodeTruthError("CENTER_ARTIFACT_IDENTITY_MISMATCH:%s" % stage)
             if str(artifact.get("status") or "") != "COMPLETED":
                 raise SingleNodeTruthError("CENTER_ARTIFACT_NOT_COMPLETED:%s" % stage)
+            self._require_node(artifact, "node_id", "CENTER_ARTIFACT_NODE_ID_MISMATCH:%s" % stage)
 
             event = self._mapping(
                 self.truth_reader.find_r1_attempt_completed(
@@ -98,6 +107,7 @@ class SingleNodeCenterTruthVerifier:
                 or str(event.get("attempt_id") or "") != attempt_id
             ):
                 raise SingleNodeTruthError("R1_ATTEMPT_COMPLETED_IDENTITY_MISMATCH:%s" % stage)
+            self._require_node(event, "node_id", "R1_ATTEMPT_COMPLETED_NODE_ID_MISMATCH:%s" % stage)
             event_id = str(event.get("event_id") or "").strip()
             if not event_id:
                 raise SingleNodeTruthError("R1_EVENT_ID_MISSING:%s" % stage)
