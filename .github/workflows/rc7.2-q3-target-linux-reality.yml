@@ -6,7 +6,10 @@ on:
       - work/rc7.2
     paths:
       - 'rc7_release/rc72_target_linux_reality.py'
+      - 'rc7_release/rc72_target_linux_attestation.py'
+      - 'packaging/rc7.2/Q3-TARGET-LINUX-PROBE.sh'
       - 'tests/test_rc72_q3_target_linux_reality_contract.py'
+      - 'tests/test_rc72_q3_target_probe_attestation_contract.py'
       - '.github/workflows/rc7.2-q3-target-linux-reality.yml'
   workflow_dispatch:
 
@@ -31,8 +34,12 @@ jobs:
       - name: Install contract-test dependency
         run: python -m pip install --disable-pip-version-check pytest
 
-      - name: Freeze Q3 target Linux reality contract
-        run: python -m pytest -q tests/test_rc72_q3_target_linux_reality_contract.py --junitxml=rc72-q3-target-linux-reality.xml
+      - name: Freeze Q3 target Linux reality and probe/attestation contracts
+        run: |
+          python -m pytest -q \
+            tests/test_rc72_q3_target_linux_reality_contract.py \
+            tests/test_rc72_q3_target_probe_attestation_contract.py \
+            --junitxml=rc72-q3-target-linux-reality.xml
 
       - name: Prove generic Ubuntu remains HOLD not target PASS
         shell: bash
@@ -55,7 +62,34 @@ jobs:
           print('Q3_GENERIC_LINUX_NEGATIVE_CONTROL_PASS')
           PY
 
-      - name: Upload Q3 policy evidence
+      - name: Prove target-side probe emits observation only
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x packaging/rc7.2/Q3-TARGET-LINUX-PROBE.sh
+          packaging/rc7.2/Q3-TARGET-LINUX-PROBE.sh \
+            --source-commit "$GITHUB_SHA" \
+            --runner-kind GITHUB_HOSTED_GENERIC \
+            --runner-identity github-hosted-probe \
+            --output q3-target-observation.json
+          python -m rc7_release.rc72_target_linux_attestation request \
+            --observation q3-target-observation.json \
+            --output q3-target-attestation-request.json
+          python - <<'PY'
+          import json
+          obs = json.load(open('q3-target-observation.json', encoding='utf-8'))
+          req = json.load(open('q3-target-attestation-request.json', encoding='utf-8'))
+          forbidden = {'status','decision','target_environment_approved','target_linux_verified','field_verified','bank_final'}
+          assert forbidden.isdisjoint(obs), obs
+          assert req['state'] == 'AWAITING_EXTERNAL_ATTESTATION', req
+          assert req['target_linux_verified'] is False, req
+          assert req['field_verified'] is False, req
+          assert req['bank_final'] is False, req
+          assert 'decision' not in req and 'target_environment_approved' not in req, req
+          print('Q3_TARGET_PROBE_REQUEST_PASS')
+          PY
+
+      - name: Upload Q3 policy and probe evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -63,5 +97,7 @@ jobs:
           path: |
             rc72-q3-target-linux-reality.xml
             q3-generic-linux-negative-control.json
+            q3-target-observation.json
+            q3-target-attestation-request.json
           if-no-files-found: warn
           retention-days: 14
