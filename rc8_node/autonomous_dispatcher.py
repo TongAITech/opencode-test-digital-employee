@@ -25,6 +25,8 @@ class DispatchOutcome:
     status: str
     stage: Optional[str] = None
     work_item_id: Optional[str] = None
+    lease_id: Optional[str] = None
+    stage_instance_id: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
 
 
@@ -86,6 +88,8 @@ class AutonomousWorkerDispatcher:
             status="EXECUTED",
             stage=stage,
             work_item_id=work_item_id,
+            lease_id=str(claimed.lease_id),
+            stage_instance_id=str(claimed.stage_instance_id),
             result=result,
         )
 

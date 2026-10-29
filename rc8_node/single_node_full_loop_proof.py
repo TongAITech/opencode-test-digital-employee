@@ -3,9 +3,9 @@
 The runner drives the production AutonomousWorkerDispatcher one claim at a time.
 It does not complete stages, invent evidence, or grant PASS authority. A proof is
 accepted only when the frozen 15-stage denominator is observed in order and each
-real worker result carries a distinct WorkItem, Attempt and canonical artifact
-Evidence reference. Center/Director remain the only MissionNode/convergence/
-release authorities.
+real worker result carries a distinct WorkItem, lease, Stage instance, Attempt and
+canonical artifact Evidence reference. Center/Director remain the only MissionNode/
+convergence/release authorities.
 """
 from __future__ import annotations
 
@@ -31,6 +31,8 @@ class SingleNodeFullLoopProof:
     test_run_id: str
     stages: Tuple[str, ...]
     work_item_ids: Tuple[str, ...]
+    lease_ids: Tuple[str, ...]
+    stage_instance_ids: Tuple[str, ...]
     attempt_ids: Tuple[str, ...]
     evidence_refs: Tuple[str, ...]
     status: str = "OBSERVED_NOT_AUTHORIZED"
@@ -58,6 +60,8 @@ class SingleNodeFullLoopProofRunner:
             raise SingleNodeFullLoopProofError("FULL_LOOP_TEST_RUN_ID_REQUIRED")
         observed: List[str] = []
         work_items: List[str] = []
+        leases: List[str] = []
+        stage_instances: List[str] = []
         attempts: List[str] = []
         evidence: List[str] = []
         for expected in self.required_stages:
@@ -70,6 +74,12 @@ class SingleNodeFullLoopProofRunner:
             work_item_id = str(getattr(outcome, "work_item_id", None) or "").strip()
             if not work_item_id:
                 raise SingleNodeFullLoopProofError("FULL_LOOP_WORK_ITEM_ID_MISSING:%s" % expected)
+            lease_id = str(getattr(outcome, "lease_id", None) or "").strip()
+            if not lease_id:
+                raise SingleNodeFullLoopProofError("FULL_LOOP_LEASE_ID_MISSING:%s" % expected)
+            stage_instance_id = str(getattr(outcome, "stage_instance_id", None) or "").strip()
+            if not stage_instance_id:
+                raise SingleNodeFullLoopProofError("FULL_LOOP_STAGE_INSTANCE_ID_MISSING:%s" % expected)
             result = getattr(outcome, "result", None)
             if not isinstance(result, dict) or str(result.get("status") or "") != "COMPLETED":
                 raise SingleNodeFullLoopProofError("FULL_LOOP_WORKER_NOT_COMPLETED:%s" % expected)
@@ -81,10 +91,16 @@ class SingleNodeFullLoopProofRunner:
                 raise SingleNodeFullLoopProofError("FULL_LOOP_ARTIFACT_EVIDENCE_MISSING:%s" % expected)
             observed.append(actual)
             work_items.append(work_item_id)
+            leases.append(lease_id)
+            stage_instances.append(stage_instance_id)
             attempts.append(attempt_id)
             evidence.append(artifact_ref)
         if len(set(work_items)) != len(work_items):
             raise SingleNodeFullLoopProofError("FULL_LOOP_WORK_ITEM_ID_REUSED")
+        if len(set(leases)) != len(leases):
+            raise SingleNodeFullLoopProofError("FULL_LOOP_LEASE_ID_REUSED")
+        if len(set(stage_instances)) != len(stage_instances):
+            raise SingleNodeFullLoopProofError("FULL_LOOP_STAGE_INSTANCE_ID_REUSED")
         if len(set(attempts)) != len(attempts):
             raise SingleNodeFullLoopProofError("FULL_LOOP_ATTEMPT_ID_REUSED")
         if len(set(evidence)) != len(evidence):
@@ -93,6 +109,8 @@ class SingleNodeFullLoopProofRunner:
             test_run_id=run_id,
             stages=tuple(observed),
             work_item_ids=tuple(work_items),
+            lease_ids=tuple(leases),
+            stage_instance_ids=tuple(stage_instances),
             attempt_ids=tuple(attempts),
             evidence_refs=tuple(evidence),
         )
