@@ -23,14 +23,20 @@ def test_frozen_denominator_is_verified_through_production_durable_truth_boundar
     ledger = CentralR1RuntimeLedger(temp.name)
 
     work_item_ids = []
+    lease_ids = []
+    stage_instance_ids = []
     attempt_ids = []
     evidence_refs = []
     with store.session() as session:
         for index, stage in enumerate(FROZEN_N1_N10_STAGES, start=1):
             work_item_id = "wi-%02d" % index
+            lease_id = "lease-%02d" % index
+            stage_instance_id = "stage-%02d" % index
             attempt_id = "att-%02d" % index
             artifact_id = "art-%02d" % index
             work_item_ids.append(work_item_id)
+            lease_ids.append(lease_id)
+            stage_instance_ids.append(stage_instance_id)
             attempt_ids.append(attempt_id)
             evidence_refs.append("artifact:%s" % artifact_id)
             session.add(WorkItemRow(
@@ -39,7 +45,7 @@ def test_frozen_denominator_is_verified_through_production_durable_truth_boundar
                 lease_owner_node_id=None, lease_expires_at=None,
             ))
             session.add(AttemptRow(
-                attempt_id=attempt_id, test_run_id="run-integration", stage_instance_id="stage-%02d" % index,
+                attempt_id=attempt_id, test_run_id="run-integration", stage_instance_id=stage_instance_id,
                 work_item_id=work_item_id, producer_node_id="node-1", producer_ref="worker-%02d" % index,
                 input_snapshot_ref="snapshot:integration", status="COMPLETED", case_id=None,
                 action_refs=[], assertion_refs=[], evidence_refs=["artifact:%s" % artifact_id], coverage_refs=[],
@@ -63,7 +69,9 @@ def test_frozen_denominator_is_verified_through_production_durable_truth_boundar
 
     observed = SingleNodeFullLoopProof(
         test_run_id="run-integration", stages=FROZEN_N1_N10_STAGES,
-        work_item_ids=tuple(work_item_ids), attempt_ids=tuple(attempt_ids), evidence_refs=tuple(evidence_refs),
+        work_item_ids=tuple(work_item_ids), lease_ids=tuple(lease_ids),
+        stage_instance_ids=tuple(stage_instance_ids), attempt_ids=tuple(attempt_ids),
+        evidence_refs=tuple(evidence_refs),
     )
     truth = SingleNodeCenterTruthVerifier(
         truth_reader=ProductionCenterR1TruthReader(store=store, r1_ledger=ledger)
