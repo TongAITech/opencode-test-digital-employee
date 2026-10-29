@@ -68,7 +68,9 @@ Never use parent/old CI to claim current-head PASS. A plan, UI, adapter, mock or
 
 P0-0 Cross-platform Director baseline, P0-1 N1–N10 Adoption Spine and P0-2 Director Review + Center MissionNode Gate are DONE/CI_VERIFIED. N1–N10 required Stage denominator is frozen at 15 stages and real autonomous dispatcher workers exist for all 15. `db528fad...` freezes the denominator so readiness cannot become green by deleting a required Stage from both runtime sets. This closes worker/adoption readiness only.
 
-SINGLE_NODE proof infrastructure now drives the production `AutonomousWorkerDispatcher` boundary and fails closed unless one `test_run_id` observes the frozen 15 stages in order with distinct WorkItem IDs, distinct Attempt IDs and canonical `artifact:` Evidence references. `4e70eb4...` repaired the Python 3.8 CI harness; its Ubuntu and Windows 2022 current-head proof-contract checks both passed. `adf5372...` added the Center/R1 truth gate and its Windows/Linux checks passed. `abc99ebe...` further closes stale-truth holes by requiring ArtifactManifest and R1 terminal-event identities to bind to the same TestRun/WorkItem/Attempt and by rejecting reused artifact/R1 identities. This remains **contract/truth-gate CI only** until a production Center truth reader and real one-Mission integration fixture exercise the 15 real workers end to end.
+SINGLE_NODE proof infrastructure now drives the production `AutonomousWorkerDispatcher` boundary and fails closed unless one `test_run_id` observes the frozen 15 stages in order with distinct WorkItem IDs, distinct Attempt IDs and canonical `artifact:` Evidence references. `4e70eb4...` repaired the Python 3.8 CI harness; its Ubuntu and Windows 2022 current-head proof-contract checks both passed. `adf5372...` added the Center/R1 truth gate and its Windows/Linux checks passed. `abc99ebe...` further closes stale-truth holes by requiring ArtifactManifest and R1 terminal-event identities to bind to the same TestRun/WorkItem/Attempt and by rejecting reused artifact/R1 identities.
+
+Production durable truth is now wired through the Center PostgreSQL repositories plus canonical R1 ledger. The 15-stage durable-truth fixture and the composed dispatcher-observation + durable-truth gate are both covered by the SINGLE_NODE Windows 2022 and Ubuntu workflow. Current construction HEAD `4a7cb38...` completed both checks successfully. This proves the composed contract/integration gate, but **does not yet prove production claim/lease caused all 15 real Stage workers to generate those durable records**; that remains the next boundary and SINGLE_NODE full-loop remains NOT_PROVEN.
 
 ## 6. Current construction checkpoint ledger
 
@@ -89,9 +91,11 @@ SINGLE_NODE proof infrastructure now drives the production `AutonomousWorkerDisp
 | N9 Defect Closure | NODE_WORKER_CI_VERIFIED | Center defect authority retained |
 | N10 Global Convergence | NODE_WORKERS_CI_VERIFIED | Center convergence/release authority retained |
 | SINGLE_NODE runtime denominator | CLOSED / CI_VERIFIED | `db528fad...` |
-| SINGLE_NODE proof contract | WINDOWS/LINUX CI_VERIFIED | `4e70eb4...`; contract only, not integration proof |
-| SINGLE_NODE Center/R1 truth gate | CI_VERIFIED_BASELINE / CURRENT_HEAD_PENDING | `adf5372...` green; `abc99ebe...` adds full Artifact/R1 identity binding and awaits current-head CI |
-| SINGLE_NODE N1–N10 full-loop | NOT_PROVEN | next: production Center truth reader + real Center/worker/R1/Evidence integration fixture; no boundary-double promotion |
+| SINGLE_NODE proof contract | WINDOWS/LINUX CI_VERIFIED | `4e70eb4...`; contract only, not full-loop proof |
+| SINGLE_NODE Center/R1 truth gate | WINDOWS/LINUX CI_VERIFIED | strict TestRun/WorkItem/Attempt/Artifact/R1 identity binding; stale/reused truth fails closed |
+| SINGLE_NODE production durable truth reader | WINDOWS/LINUX CI_VERIFIED | Center PostgreSQL + canonical R1 reader; no plan/UI/mock truth fallback |
+| SINGLE_NODE composed durable integration gate | WINDOWS/LINUX CI_VERIFIED | `4a7cb38...`; dispatcher observation must match durable Center/R1 truth |
+| SINGLE_NODE N1–N10 full-loop | NOT_PROVEN | next: production claim/lease must drive the 15 real Stage workers and create the verified durable records; no pre-seeded fixture promotion |
 | DISTRIBUTED N1–N10 full-loop | NOT_PROVEN | after SINGLE_NODE proof |
 | dsh-node runtime adapter | CODE_EXISTS | bank reality pending |
 | dsh-agent-teams process adapter | CODE_EXISTS | bank reality pending |
@@ -101,7 +105,7 @@ SINGLE_NODE proof infrastructure now drives the production `AutonomousWorkerDisp
 
 ## 7. Remaining ordered construction sequence
 
-1. Complete the SINGLE_NODE real integration fixture around production Center claim/lease, `AutonomousWorkerDispatcher`, real Stage workers, ArtifactManifest/Evidence upload and R1 event persistence. The truth reader must prove exact TestRun/WorkItem/Attempt/Artifact/R1 identity continuity; stale/missing/reused truth and active blockers fail closed. Preserve Director review + Center deterministic MissionNode authority.
+1. Complete the SINGLE_NODE real integration fixture around production Center claim/lease, `AutonomousWorkerDispatcher`, real Stage workers, ArtifactManifest/Evidence upload and R1 event persistence. Production claim/lease and workers—not test pre-seeding—must create the durable records subsequently accepted by the production truth reader. The proof must retain exact TestRun/WorkItem/Attempt/Artifact/R1 identity continuity; stale/missing/reused truth and active blockers fail closed. Preserve Director review + Center deterministic MissionNode authority.
 2. Run targeted Windows/Linux CI and repair current-head failures before promotion.
 3. Prove the same semantic denominator/Evidence authority in DISTRIBUTED placement/recovery; no second state machine.
 4. Bank field reality validation: actual DSH/model, dsh-agent-teams bridge, controlled Browser Network, fresh 4A login/re-login, CodeGraph, Maven/JUnit, CAT/log and DB/SQL where applicable.
@@ -112,4 +116,4 @@ Every session/guard run must read latest `work/rc8` HEAD, read this plan from th
 
 ## 9. Immediate next action
 
-> **SINGLE_NODE real integration proof:** after current-head truth-gate CI closes, add the production Center truth reader and exercise production claim/lease + real workers + ArtifactManifest/Evidence + R1 persistence for one Mission across the frozen 15-Stage denominator. The proof must retain Director review and Center deterministic authority and remain fail-closed for missing/stale/reused Evidence, active blockers or unavailable runtime capability. Only current-head Windows/Linux CI may promote this checkpoint. Keep `BANK_REALITY_VERIFIED=NO` and Release HOLD.
+> **SINGLE_NODE production-driven full-loop proof:** use production Center claim/lease to drive the frozen 15 real Stage workers for one Mission. Those workers must themselves create the Attempt, ArtifactManifest/Evidence and canonical R1 terminal records that the existing production durable-truth reader and composed integration gate verify. Do not pre-seed durable truth in the fixture and do not promote a boundary double. Retain Director review and Center deterministic authority; missing/stale/reused Evidence, active blockers or unavailable runtime capability fail closed. Only current-head Windows/Linux CI may promote this checkpoint. Keep `BANK_REALITY_VERIFIED=NO` and Release HOLD.
