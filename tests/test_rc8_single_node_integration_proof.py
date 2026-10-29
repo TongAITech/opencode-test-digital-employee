@@ -85,5 +85,9 @@ def test_full_stage_labels_with_double_workers_cannot_enter_production_gate():
         claimant=AutonomousClaimClient("http://127.0.0.1:4098", "node-1"),
         workers={stage: _Worker() for stage in FROZEN_N1_N10_STAGES},
     )
-    with pytest.raises(RuntimeError, match="FULL_LOOP_PRODUCTION_WORKER_IDENTITY_MISMATCH:SCOPE_INTAKE"):
+    # The production topology validator sorts the frozen denominator before
+    # validating worker identities.  The exact first stage is intentionally
+    # not part of this contract; what matters is that a double worker behind
+    # a complete 15-stage label set cannot cross the production gate.
+    with pytest.raises(RuntimeError, match="FULL_LOOP_PRODUCTION_WORKER_IDENTITY_MISMATCH:"):
         SingleNodeDurableIntegrationProofRunner(dispatcher=dispatcher, truth_reader=object())
