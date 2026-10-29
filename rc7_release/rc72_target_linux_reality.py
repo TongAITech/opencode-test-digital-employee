@@ -5,30 +5,16 @@ import json
 import os
 import platform
 import re
-import sys
 from pathlib import Path
 from typing import Dict, Mapping, Optional, Sequence
+
+from . import rc72_target_linux_attestation as bound_attestation
 
 
 SCHEMA = "pfc.aitest.rc7.2.target-linux-reality.v1"
 QUALIFICATION_KIND = "Q3_TARGET_LINUX"
-# Qualification policy invariant: release-layer changes must be covered by the
-# same-head Construction + Q1 + Q2 + Q3 evidence set before checkpointing.
 GENERIC_RUNNER_KIND = "GITHUB_HOSTED_GENERIC"
-TRUSTED_VERIFIER_KINDS = frozenset(
-    {
-        "APPROVED_SELF_HOSTED_TARGET_LINUX",
-        "BANK_FIELD_TARGET_LINUX",
-    }
-)
-FIELD_VERIFIER_KIND = "BANK_FIELD_TARGET_LINUX"
-FIELD_RUNNER_KIND = "BANK_FIELD_TARGET"
-_REQUIRED_MACHINE_FIELDS = (
-    "platform_family",
-    "platform_release",
-    "architecture",
-    "runner_identity",
-)
+_REQUIRED_MACHINE_FIELDS = ("platform_family", "platform_release", "architecture", "runner_identity")
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
@@ -57,6 +43,8 @@ def _base_record(source_commit: str, observation: Mapping[str, object]) -> Dict[
         "field_verified": False,
         "bank_final": False,
         "verifier_kind": None,
+        "observation_digest": None,
+        "package_evidence_digest": None,
         "notes": [],
     }
 
@@ -66,7 +54,6 @@ def _decision(base: Mapping[str, object], status: str, reason: Optional[str], **
     result.update(updates)
     result["status"] = status
     result["reason"] = reason
-    # No Q3 path may ever promote BANK_FINAL.
     result["bank_final"] = False
     return result
 
@@ -75,32 +62,25 @@ def evaluate_target_linux_reality(
     *,
     source_commit: str,
     observation: Mapping[str, object],
+    package_evidence: Optional[Mapping[str, object]] = None,
     attestation_ref: Optional[str],
     verifier: Optional[object],
 ) -> Dict[str, object]:
-    """Evaluate whether one observed Linux host is an approved RC7.2 target.
+    """Q3 reality facade.
 
-    Machine observation is necessary but never sufficient. PASS requires exact
-    source lineage, complete observed identity and an attestation from an
-    explicitly trusted target verifier. Generic GitHub-hosted Linux is a
-    negative-control engineering proxy and is always HOLD.
+    Generic hosted Linux remains a negative control. Every positive target-Linux
+    decision delegates to the digest-bound attestation boundary so no weaker
+    legacy PASS path can bypass package/observation binding.
     """
-
     commit = _source_commit(source_commit)
     if commit is None:
-        base = _base_record("0" * 40, observation)
-        return _decision(base, "FAIL", "TARGET_LINUX_SOURCE_COMMIT_INVALID")
-
+        return _decision(_base_record("0" * 40, observation), "FAIL", "TARGET_LINUX_SOURCE_COMMIT_INVALID")
     base = _base_record(commit, observation)
     observed_commit = _source_commit(observation.get("source_commit"))
     if observed_commit is None or observed_commit != commit:
         return _decision(base, "FAIL", "TARGET_LINUX_OBSERVATION_SOURCE_MISMATCH")
-
     if any(not str(observation.get(field) or "").strip() for field in _REQUIRED_MACHINE_FIELDS):
         return _decision(base, "HOLD", "TARGET_LINUX_PLATFORM_IDENTITY_INCOMPLETE")
-
-    # This branch is deliberately before attestation checks: generic hosted
-    # Linux can never be upgraded into target truth by a synthetic verifier.
     if str(observation.get("runner_kind") or "") == GENERIC_RUNNER_KIND:
         return _decision(
             base,
@@ -110,60 +90,25 @@ def evaluate_target_linux_reality(
             notes=["Generic Ubuntu/Linux engineering proxy is not target 信创 Linux evidence."],
         )
 
-    if not str(attestation_ref or "").strip() or verifier is None:
-        return _decision(base, "HOLD", "TARGET_LINUX_ATTESTATION_REQUIRED")
-
-    verifier_kind = str(getattr(verifier, "kind", "") or "")
-    base["verifier_kind"] = verifier_kind
-    if verifier_kind not in TRUSTED_VERIFIER_KINDS:
-        return _decision(base, "HOLD", "UNTRUSTED_TARGET_LINUX_VERIFIER")
-
-    try:
-        attestation = verifier.verify(str(attestation_ref))
-    except Exception as exc:
-        return _decision(
-            base,
-            "FAIL",
-            "TARGET_LINUX_ATTESTATION_VERIFY_FAILED",
-            notes=[str(exc)],
-        )
-    if not isinstance(attestation, Mapping):
-        return _decision(base, "FAIL", "TARGET_LINUX_ATTESTATION_INVALID")
-
-    attested_commit = _source_commit(attestation.get("source_commit"))
-    if attested_commit != commit:
-        return _decision(base, "FAIL", "TARGET_LINUX_SOURCE_COMMIT_MISMATCH")
-
-    for field in _REQUIRED_MACHINE_FIELDS:
-        observed = str(observation.get(field) or "").strip()
-        attested = str(attestation.get(field) or "").strip()
-        if attested != observed:
-            return _decision(base, "FAIL", "TARGET_LINUX_ATTESTATION_MACHINE_MISMATCH")
-
-    if str(attestation.get("decision") or "").upper() != "APPROVED":
-        return _decision(base, "HOLD", "TARGET_LINUX_ATTESTATION_NOT_APPROVED")
-    if attestation.get("target_environment_approved") is not True:
-        return _decision(base, "HOLD", "TARGET_LINUX_ENVIRONMENT_NOT_APPROVED")
-
-    evidence_refs = [str(item) for item in (attestation.get("evidence_refs") or ()) if str(item).strip()]
-    if not evidence_refs:
-        return _decision(base, "HOLD", "TARGET_LINUX_EVIDENCE_REQUIRED")
-
-    field_verified = (
-        verifier_kind == FIELD_VERIFIER_KIND
-        and str(observation.get("runner_kind") or "") == FIELD_RUNNER_KIND
+    bound_observation = dict(observation)
+    bound_observation.setdefault("schema", bound_attestation.OBSERVATION_SCHEMA)
+    result = bound_attestation.evaluate_bound_target_attestation(
+        observation=bound_observation,
+        package_evidence=package_evidence,
+        attestation_ref=str(attestation_ref or ""),
+        verifier=verifier,
     )
     return _decision(
         base,
-        "PASS",
-        None,
-        evidence_refs=evidence_refs,
-        target_linux_verified=True,
-        field_verified=field_verified,
-        notes=[
-            "Target Linux identity is attested for this exact source lineage.",
-            "BANK_FINAL remains a later Q9 decision.",
-        ],
+        str(result.get("status") or "HOLD"),
+        result.get("reason"),
+        evidence_refs=list(result.get("evidence_refs") or ()),
+        verifier_kind=result.get("verifier_kind"),
+        observation_digest=result.get("observation_digest"),
+        package_evidence_digest=result.get("package_evidence_digest"),
+        target_linux_verified=result.get("target_linux_verified") is True,
+        field_verified=result.get("field_verified") is True,
+        notes=list(result.get("notes") or ()),
     )
 
 
@@ -186,12 +131,10 @@ def _os_release() -> Dict[str, str]:
 
 def observe_host(*, source_commit: str, runner_kind: str, runner_identity: str) -> Dict[str, object]:
     release = _os_release()
-    family = release.get("NAME") or release.get("ID") or platform.system()
-    version = release.get("VERSION_ID") or release.get("VERSION") or platform.release()
     return {
         "source_commit": source_commit,
-        "platform_family": family,
-        "platform_release": version,
+        "platform_family": release.get("NAME") or release.get("ID") or platform.system(),
+        "platform_release": release.get("VERSION_ID") or release.get("VERSION") or platform.release(),
         "architecture": platform.machine(),
         "python_version": platform.python_version(),
         "shell": os.environ.get("SHELL") or "/bin/bash",
@@ -217,33 +160,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(list(argv) if argv is not None else None)
     if args.command != "probe":
         parser.error("command required")
-
-    observation = observe_host(
-        source_commit=args.source_commit,
-        runner_kind=args.runner_kind,
-        runner_identity=args.runner_identity,
-    )
+    observation = observe_host(source_commit=args.source_commit, runner_kind=args.runner_kind, runner_identity=args.runner_identity)
     result = evaluate_target_linux_reality(
         source_commit=args.source_commit,
         observation=observation,
+        package_evidence=None,
         attestation_ref=None,
         verifier=None,
     )
-    # Generic negative-control probe is still useful evidence even without a
-    # target attestation; keep the exact host observation in notes.
     result["notes"] = list(result.get("notes") or ()) + [
         "observed_host=%s" % json.dumps(observation, ensure_ascii=False, sort_keys=True)
     ]
     result["started_at"] = None
     result["completed_at"] = None
-
     text = json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2)
     if args.output:
         target = Path(args.output)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text + "\n", encoding="utf-8")
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
-
     if args.require_hold:
         return 0 if result.get("status") == "HOLD" else 2
     return 0 if result.get("status") == "PASS" else 2
