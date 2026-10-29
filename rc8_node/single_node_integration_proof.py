@@ -14,6 +14,7 @@ from rc8_center.single_node_truth_reader import ProductionCenterR1TruthReader
 
 from .autonomous_claim_client import AutonomousClaimClient
 from .autonomous_dispatcher import AutonomousWorkerDispatcher
+from .formal_agent import FormalNodeAgent
 from .single_node_full_loop_proof import (
     FROZEN_N1_N10_STAGES,
     SingleNodeFullLoopProof,
@@ -58,7 +59,7 @@ def assert_production_dispatcher_topology(
     *,
     required_stages: Sequence[str] = FROZEN_N1_N10_STAGES,
 ) -> None:
-    """Reject production-shaped dispatchers that are not the real 15-worker topology."""
+    """Reject production-shaped dispatchers that are not one coherent real node topology."""
     expected = tuple(sorted(str(stage).strip() for stage in required_stages))
     actual = tuple(sorted(dispatcher.supported_stages))
     if actual != expected:
@@ -68,6 +69,9 @@ def assert_production_dispatcher_topology(
             "FULL_LOOP_PRODUCTION_STAGE_TOPOLOGY_MISMATCH:missing=%s:extra=%s"
             % (",".join(missing), ",".join(extra))
         )
+
+    claimant_node_id = str(dispatcher.claimant.node_id or "").strip()
+    claimant_center = str(dispatcher.claimant.center_url or "").strip().rstrip("/")
     for stage in expected:
         worker = dispatcher.workers.get(stage)
         expected_identity = _PRODUCTION_WORKER_IDENTITIES.get(stage)
@@ -82,6 +86,19 @@ def assert_production_dispatcher_topology(
                 "FULL_LOOP_PRODUCTION_WORKER_IDENTITY_MISMATCH:%s:%s.%s"
                 % (stage, actual_identity[0] or "NONE", actual_identity[1] or "NONE")
             )
+
+        # Class identity alone is insufficient: a real worker class can still be
+        # constructed around a fake/different agent.  Production proof requires all
+        # workers to share the claimant's exact node identity and Center authority.
+        agent = getattr(worker, "agent", None)
+        if not isinstance(agent, FormalNodeAgent):
+            raise RuntimeError("FULL_LOOP_PRODUCTION_FORMAL_AGENT_REQUIRED:%s" % stage)
+        worker_node_id = str(getattr(getattr(agent, "identity", None), "node_id", "") or "").strip()
+        if not worker_node_id or worker_node_id != claimant_node_id:
+            raise RuntimeError("FULL_LOOP_PRODUCTION_NODE_ID_MISMATCH:%s" % stage)
+        worker_center = str(getattr(getattr(agent, "center", None), "base_url", "") or "").strip().rstrip("/")
+        if not worker_center or worker_center != claimant_center:
+            raise RuntimeError("FULL_LOOP_PRODUCTION_CENTER_AUTHORITY_MISMATCH:%s" % stage)
 
 
 class SingleNodeDurableIntegrationProofRunner:
