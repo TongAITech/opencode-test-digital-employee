@@ -21,39 +21,22 @@ class TruthReader:
 
     def get_attempt(self, attempt_id):
         i = self._index(attempt_id)
-        value = {"test_run_id": "TR", "work_item_id": "wi-%d" % i, "status": "COMPLETED"}
+        value = {"test_run_id": "TR", "work_item_id": "wi-%d" % i, "producer_node_id": "node-a", "status": "COMPLETED"}
         return self.mutate("attempt", i, value) if self.mutate else value
 
     def get_artifact(self, artifact_id):
         i = self._index(artifact_id)
-        value = {
-            "test_run_id": "TR",
-            "work_item_id": "wi-%d" % i,
-            "attempt_id": "attempt-%d" % i,
-            "status": "COMPLETED",
-        }
+        value = {"test_run_id": "TR", "work_item_id": "wi-%d" % i, "attempt_id": "attempt-%d" % i, "node_id": "node-a", "status": "COMPLETED"}
         return self.mutate("artifact", i, value) if self.mutate else value
 
     def find_r1_attempt_completed(self, **identity):
         i = self._index(identity["attempt_id"])
-        value = {
-            "event_id": "event-%d" % i,
-            "event_type": "ATTEMPT_COMPLETED",
-            "test_run_id": "TR",
-            "work_item_id": "wi-%d" % i,
-            "attempt_id": "attempt-%d" % i,
-        }
+        value = {"event_id": "event-%d" % i, "event_type": "ATTEMPT_COMPLETED", "test_run_id": "TR", "work_item_id": "wi-%d" % i, "attempt_id": "attempt-%d" % i, "node_id": "node-a"}
         return self.mutate("r1", i, value) if self.mutate else value
 
 
 def proof():
-    return SingleNodeFullLoopProof(
-        test_run_id="TR",
-        stages=("SCOPE_INTAKE", "REPORT_RELEASE"),
-        work_item_ids=("wi-0", "wi-1"),
-        attempt_ids=("attempt-0", "attempt-1"),
-        evidence_refs=("artifact:evidence-0", "artifact:evidence-1"),
-    )
+    return SingleNodeFullLoopProof(test_run_id="TR", stages=("SCOPE_INTAKE", "REPORT_RELEASE"), work_item_ids=("wi-0", "wi-1"), attempt_ids=("attempt-0", "attempt-1"), evidence_refs=("artifact:evidence-0", "artifact:evidence-1"))
 
 
 def test_center_truth_verifier_requires_completed_work_attempt_artifact_and_r1():
@@ -63,6 +46,11 @@ def test_center_truth_verifier_requires_completed_work_attempt_artifact_and_r1()
     assert verified.status == "CENTER_R1_EVIDENCE_VERIFIED_NOT_AUTHORIZED"
     assert verified.bank_reality_verified is False
     assert verified.release_status == "HOLD"
+
+
+def test_center_truth_verifier_binds_attempt_artifact_and_r1_to_expected_node():
+    verified = SingleNodeCenterTruthVerifier(truth_reader=TruthReader(), expected_node_id="node-a").verify(proof())
+    assert verified.verified_attempts == ("attempt-0", "attempt-1")
 
 
 @pytest.mark.parametrize(
@@ -81,27 +69,34 @@ def test_center_truth_verifier_requires_completed_work_attempt_artifact_and_r1()
 def test_center_truth_verifier_fails_closed_on_missing_or_stale_truth(kind, field, value, error):
     def mutate(actual_kind, index, payload):
         if actual_kind == kind and index == 0:
-            payload = dict(payload)
-            payload[field] = value
+            payload = dict(payload); payload[field] = value
         return payload
-
     with pytest.raises(SingleNodeTruthError, match=error):
         SingleNodeCenterTruthVerifier(truth_reader=TruthReader(mutate=mutate)).verify(proof())
 
 
-def test_center_truth_verifier_rejects_reused_artifact_identity():
-    duplicated = SingleNodeFullLoopProof(
-        test_run_id="TR",
-        stages=("SCOPE_INTAKE", "REPORT_RELEASE"),
-        work_item_ids=("wi-0", "wi-1"),
-        attempt_ids=("attempt-0", "attempt-1"),
-        evidence_refs=("artifact:evidence-0", "artifact:evidence-0"),
-    )
+@pytest.mark.parametrize(
+    "kind,field,error",
+    [
+        ("attempt", "producer_node_id", "CENTER_ATTEMPT_NODE_ID_MISMATCH:SCOPE_INTAKE"),
+        ("artifact", "node_id", "CENTER_ARTIFACT_NODE_ID_MISMATCH:SCOPE_INTAKE"),
+        ("r1", "node_id", "R1_ATTEMPT_COMPLETED_NODE_ID_MISMATCH:SCOPE_INTAKE"),
+    ],
+)
+def test_center_truth_verifier_rejects_split_node_durable_truth(kind, field, error):
+    def mutate(actual_kind, index, payload):
+        if actual_kind == kind and index == 0:
+            payload = dict(payload); payload[field] = "node-b"
+        return payload
+    with pytest.raises(SingleNodeTruthError, match=error):
+        SingleNodeCenterTruthVerifier(truth_reader=TruthReader(mutate=mutate), expected_node_id="node-a").verify(proof())
 
+
+def test_center_truth_verifier_rejects_reused_artifact_identity():
+    duplicated = SingleNodeFullLoopProof(test_run_id="TR", stages=("SCOPE_INTAKE", "REPORT_RELEASE"), work_item_ids=("wi-0", "wi-1"), attempt_ids=("attempt-0", "attempt-1"), evidence_refs=("artifact:evidence-0", "artifact:evidence-0"))
     class ReusedArtifactReader(TruthReader):
         def get_artifact(self, artifact_id):
-            return {"test_run_id": "TR", "work_item_id": "wi-0", "attempt_id": "attempt-0", "status": "COMPLETED"}
-
+            return {"test_run_id": "TR", "work_item_id": "wi-0", "attempt_id": "attempt-0", "node_id": "node-a", "status": "COMPLETED"}
     with pytest.raises(SingleNodeTruthError):
         SingleNodeCenterTruthVerifier(truth_reader=ReusedArtifactReader()).verify(duplicated)
 
@@ -109,9 +104,7 @@ def test_center_truth_verifier_rejects_reused_artifact_identity():
 def test_center_truth_verifier_rejects_reused_r1_event_identity():
     def mutate(kind, index, payload):
         if kind == "r1":
-            payload = dict(payload)
-            payload["event_id"] = "same-event"
+            payload = dict(payload); payload["event_id"] = "same-event"
         return payload
-
     with pytest.raises(SingleNodeTruthError, match="R1_EVENT_ID_REUSED"):
         SingleNodeCenterTruthVerifier(truth_reader=TruthReader(mutate=mutate)).verify(proof())
