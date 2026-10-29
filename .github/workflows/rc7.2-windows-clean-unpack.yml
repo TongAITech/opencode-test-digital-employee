@@ -9,6 +9,7 @@ on:
       - 'rc7_runtime/rc72_*.py'
       - 'packaging/rc7.2/**'
       - 'tests/test_rc72_windows_clean_unpack_contract.py'
+      - 'tests/test_rc72_q2b_clean_runtime_contract.py'
       - '.github/workflows/rc7.2-windows-clean-unpack.yml'
   workflow_dispatch:
 
@@ -103,5 +104,110 @@ jobs:
             ${{ env.RC72_Q2_ZIP }}.sha256
             ${{ env.RC72_Q2_ROOT }}/rc72-q2a-verify.json
             ${{ env.RC72_Q2_ROOT }}/rc72-q2a-imports.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+  q2b-windows-clean-runtime:
+    name: q2b-windows-r1-session-gitbash-python-3.8
+    needs: q2a-windows-clean-unpack
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact RC7.2 source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+
+      - name: Install contract-test dependency
+        run: python -m pip install --disable-pip-version-check pytest
+
+      - name: Freeze Q2-B clean runtime and Git Bash contract
+        run: python -m pytest -q tests/test_rc72_q2b_clean_runtime_contract.py --junitxml=rc72-q2b-contract.xml
+
+      - name: Download exact Q2-A transport artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rc72-q2a-windows-clean-unpack-${{ github.sha }}
+          path: ${{ runner.temp }}/rc72-q2b-input
+
+      - name: Cleanly extract Q2-B transport
+        shell: pwsh
+        run: |
+          $input = Join-Path $env:RUNNER_TEMP 'rc72-q2b-input'
+          $zips = @(Get-ChildItem -Path $input -Filter 'PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10-*.zip' -Recurse)
+          if ($zips.Count -ne 1) { throw "Expected one RC7.2 transport zip, found $($zips.Count)" }
+          $clean = Join-Path $env:RUNNER_TEMP 'rc72-q2b-clean'
+          if (Test-Path $clean) { Remove-Item -Recurse -Force $clean }
+          New-Item -ItemType Directory -Force -Path $clean | Out-Null
+          Expand-Archive -Path $zips[0].FullName -DestinationPath $clean -Force
+          $roots = @(Get-ChildItem -Path $clean -Directory)
+          if ($roots.Count -ne 1) { throw "Expected exactly one clean package root, found $($roots.Count)" }
+          $root = $roots[0].FullName
+          $pkgPython = Join-Path $root 'workspace-template\runtime\python\python.exe'
+          if (-not (Test-Path $pkgPython)) { throw 'Package-local Python missing for Q2-B' }
+          "RC72_Q2B_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "RC72_Q2B_PYTHON=$pkgPython" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Prove clean-package R1 and Session A-B-C continuity
+        shell: pwsh
+        run: |
+          Push-Location $env:RC72_Q2B_ROOT
+          try {
+            $env:PYTHONPATH = ''
+            $env:PYTHONNOUSERSITE = '1'
+            & $env:RC72_Q2B_PYTHON -m rc7_release.rc72_windows_clean_qualification --package-root $env:RC72_Q2B_ROOT --output rc72-q2b-clean-runtime.json --require-pass
+            if ($LASTEXITCODE -ne 0) { throw 'RC7.2 Q2-B clean runtime qualification failed' }
+          }
+          finally {
+            Pop-Location
+          }
+
+      - name: Prepare controlled fake DSH host for launcher orchestration proof
+        shell: pwsh
+        run: |
+          $dshHome = Join-Path $env:RUNNER_TEMP 'rc72-q2b-dsh-home'
+          $web = Join-Path $dshHome 'profiles\web'
+          New-Item -ItemType Directory -Force -Path $web | Out-Null
+          '{"name":"bank-web-profile-contract","version":"0.0.0-q2b"}' | Out-File -FilePath (Join-Path $web 'package.json') -Encoding utf8
+
+          $fakeBin = Join-Path $env:RUNNER_TEMP 'rc72-q2b-fake-bin'
+          New-Item -ItemType Directory -Force -Path $fakeBin | Out-Null
+          $fakeDsh = Join-Path $fakeBin 'dsh'
+          @'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "FAKE_DSH_Q2B $*"
+exit 0
+'@ | Out-File -FilePath $fakeDsh -Encoding ascii
+
+          "DSH_HOME=$dshHome" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $fakeBin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Prove RC7.2 Git Bash launcher orchestration without Field claim
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x "$RUNNER_TEMP/rc72-q2b-fake-bin/dsh"
+          cd "$RC72_Q2B_ROOT"
+          export PFC_RC72_DSH_PROFILE="rc7.2-bank"
+          ./packaging/rc7.2/AITEST.sh | tee rc72-q2b-gitbash-launcher.txt
+          grep -q 'FAKE_DSH_Q2B --profile rc7.2-bank' rc72-q2b-gitbash-launcher.txt
+
+      - name: Upload Q2-B clean-runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc72-q2b-windows-clean-runtime-${{ github.sha }}
+          path: |
+            rc72-q2b-contract.xml
+            ${{ env.RC72_Q2B_ROOT }}/rc72-q2b-clean-runtime.json
+            ${{ env.RC72_Q2B_ROOT }}/rc72-q2b-gitbash-launcher.txt
+            ${{ env.RC72_Q2B_ROOT }}/runtime-state/windows-clean-qualification/r1/event-stream.jsonl
+            ${{ env.RC72_Q2B_ROOT }}/state/rc7-dsh-runtime-profile.json
+            ${{ env.RC72_Q2B_ROOT }}/state/dsh-plugin-payload.json
           if-no-files-found: warn
           retention-days: 14
