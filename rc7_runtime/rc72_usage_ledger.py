@@ -62,14 +62,18 @@ def _validate_optional_tokens(values: Any, name: str) -> Dict[str, Optional[int]
     for field in _TOKEN_FIELDS:
         value = values.get(field)
         if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
-            raise _contracts.DomainValidationError("USAGE_LEDGER_%s_%s_INVALID" % (name.upper(), field.upper()))
+            raise _contracts.DomainValidationError(
+                "USAGE_LEDGER_%s_%s_INVALID" % (name.upper(), field.upper())
+            )
         out[field] = value
     return out
 
 
 def _validate_counter_counts(values: Any) -> Dict[str, int]:
     if not isinstance(values, dict):
-        raise _contracts.DomainValidationError("USAGE_LEDGER_COUNTER_OBSERVATION_COUNTS_MUST_BE_OBJECT")
+        raise _contracts.DomainValidationError(
+            "USAGE_LEDGER_COUNTER_OBSERVATION_COUNTS_MUST_BE_OBJECT"
+        )
     return {
         field: _nonnegative_int(values.get(field), "COUNTER_OBSERVATION_COUNTS_%s" % field)
         for field in _TOKEN_FIELDS
@@ -95,17 +99,26 @@ def validate_rc72_usage_ledger(payload: Dict[str, Any]) -> Dict[str, Any]:
     if out["source_usage_count"] != out["resolved_lineage_count"] + out["unresolved_lineage_count"]:
         raise _contracts.DomainValidationError("USAGE_LEDGER_LINEAGE_COUNTS_INCONSISTENT")
     out["tokens"] = _validate_optional_tokens(out.get("tokens"), "TOKENS")
-    out["counter_observation_counts"] = _validate_counter_counts(out.get("counter_observation_counts"))
-    for name in ("node_summaries", "workitem_summaries", "attempt_summaries", "receipts", "unresolved_lineages"):
+    out["counter_observation_counts"] = _validate_counter_counts(
+        out.get("counter_observation_counts")
+    )
+    for name in (
+        "node_summaries", "workitem_summaries", "attempt_summaries",
+        "receipts", "unresolved_lineages",
+    ):
         value = out.get(name)
         if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
             raise _contracts.DomainValidationError("USAGE_LEDGER_%s_INVALID" % name.upper())
     if out["status"] == "EMPTY" and out["source_usage_count"] != 0:
         raise _contracts.DomainValidationError("USAGE_LEDGER_EMPTY_WITH_USAGE")
-    if out["status"] == "UNKNOWN" and (out["source_usage_count"] == 0 or out["measured_usage_count"] != 0):
+    if out["status"] == "UNKNOWN" and (
+        out["source_usage_count"] == 0 or out["measured_usage_count"] != 0
+    ):
         raise _contracts.DomainValidationError("USAGE_LEDGER_UNKNOWN_STATUS_INCONSISTENT")
     if out["status"] == "MEASURED" and (
-        out["source_usage_count"] == 0 or out["unknown_usage_count"] != 0 or out["unresolved_lineage_count"] != 0
+        out["source_usage_count"] == 0
+        or out["unknown_usage_count"] != 0
+        or out["unresolved_lineage_count"] != 0
     ):
         raise _contracts.DomainValidationError("USAGE_LEDGER_MEASURED_STATUS_INCONSISTENT")
     version = out.get("artifact_version", 1)
@@ -127,17 +140,11 @@ def install_rc72_usage_ledger_overlay() -> None:
 
 
 def _ensure_projection_buckets(truth: TruthRuntime) -> None:
-    """Add only missing empty buckets when overlays are installed after R1 boot.
-
-    Existing source events can only have been appended after their overlay was
-    installed, so their projection buckets already exist. This helper covers the
-    legitimate empty-source case without resetting/replaying or mutating truth.
-    """
+    """Add only missing empty buckets when overlays are installed after R1 boot."""
     projection = getattr(truth, "projection", None)
     if projection is None:
         return
-    artifact_types = (_ARTIFACT_TYPE,) + _SOURCE_ARTIFACTS
-    for artifact_type in artifact_types:
+    for artifact_type in (_ARTIFACT_TYPE,) + _SOURCE_ARTIFACTS:
         bucket = _truth.BUCKETS[artifact_type]
         if not hasattr(projection, bucket):
             setattr(projection, bucket, {})
@@ -147,7 +154,9 @@ def _ensure_projection_buckets(truth: TruthRuntime) -> None:
 
 
 def _ledger_id(release_id: str, mission_id: str) -> str:
-    digest = hashlib.sha256((release_id + "\x1f" + mission_id).encode("utf-8")).hexdigest()[:24]
+    digest = hashlib.sha256(
+        (release_id + "\x1f" + mission_id).encode("utf-8")
+    ).hexdigest()[:24]
     return "USAGELEDGER-" + digest
 
 
@@ -176,13 +185,34 @@ def _add_usage(summary: Dict[str, Any], usage: Mapping[str, Any]) -> None:
         summary["tokens"][field] = value if previous is None else previous + value
 
 
-def _finalize_scoped(summaries: Dict[str, Dict[str, Any]], key_name: str) -> List[Dict[str, Any]]:
+def _finalize_scoped(
+    summaries: Dict[str, Dict[str, Any]], key_name: str
+) -> List[Dict[str, Any]]:
     result: List[Dict[str, Any]] = []
     for key in sorted(summaries):
         row = dict(summaries[key])
         row[key_name] = key
         result.append(row)
     return result
+
+
+def _binding_session_matches(
+    binding_session_id: Any,
+    lifecycle_session_id: Any,
+    dsh_session_id: Any,
+) -> bool:
+    """Accept only the two canonical session identities used by the lifecycle.
+
+    PREPARED bindings point at the lifecycle session. Once DSH is recorded, the
+    RUNNING binding points at the concrete DSH session. No other value is valid.
+    """
+    if binding_session_id is None:
+        return True
+    allowed = {
+        value for value in (lifecycle_session_id, dsh_session_id)
+        if isinstance(value, str) and value.strip()
+    }
+    return isinstance(binding_session_id, str) and binding_session_id in allowed
 
 
 class UsageLedgerService:
@@ -196,12 +226,20 @@ class UsageLedgerService:
 
     def _resolve_lineage(self, usage: Mapping[str, Any]) -> Dict[str, Any]:
         base: Dict[str, Any] = {
-            "lineage_status": "UNRESOLVED", "lineage_reason": None,
-            "lifecycle_session_id": None, "worker_id": None, "release_batch_id": None,
-            "binding_id": None, "workitem_id": None, "etu_id": None,
-            "mission_node_id": None, "mission_node_type": None,
+            "lineage_status": "UNRESOLVED",
+            "lineage_reason": None,
+            "lifecycle_session_id": None,
+            "worker_id": None,
+            "release_batch_id": None,
+            "binding_id": None,
+            "workitem_id": None,
+            "etu_id": None,
+            "mission_node_id": None,
+            "mission_node_type": None,
         }
-        sessions = self.truth.query(_SESSION_ARTIFACT, runtime_assignment_id=usage.get("assignment_id"))
+        sessions = self.truth.query(
+            _SESSION_ARTIFACT, runtime_assignment_id=usage.get("assignment_id")
+        )
         if len(sessions) != 1:
             base["lineage_reason"] = "WORKER_SESSION_NOT_UNIQUE:%d" % len(sessions)
             return base
@@ -222,10 +260,13 @@ class UsageLedgerService:
             if actual != expected:
                 base["lineage_reason"] = reason
                 return base
-        usage_dsh, session_dsh = usage.get("dsh_session_id"), session.get("dsh_session_id")
+
+        usage_dsh = usage.get("dsh_session_id")
+        session_dsh = session.get("dsh_session_id")
         if usage_dsh and session_dsh and usage_dsh != session_dsh:
             base["lineage_reason"] = "WORKER_SESSION_DSH_SESSION_MISMATCH"
             return base
+
         binding_id = session.get("binding_id")
         if not isinstance(binding_id, str) or not binding_id.strip():
             base["lineage_reason"] = "WORKER_SESSION_BINDING_MISSING"
@@ -235,6 +276,7 @@ class UsageLedgerService:
             base["lineage_reason"] = "WORKITEM_BINDING_NOT_UNIQUE:%d" % len(bindings)
             return base
         binding = bindings[0]
+
         for actual, expected, reason in (
             (binding.get("mission_id"), usage.get("mission_id"), "WORKITEM_BINDING_MISSION_MISMATCH"),
             (binding.get("attempt_id"), usage.get("attempt_id"), "WORKITEM_BINDING_ATTEMPT_MISMATCH"),
@@ -244,14 +286,26 @@ class UsageLedgerService:
             if actual != expected:
                 base["lineage_reason"] = reason
                 return base
-        if binding.get("session_id") and binding.get("session_id") != session.get("session_id"):
+
+        if not _binding_session_matches(
+            binding.get("session_id"),
+            session.get("session_id"),
+            session_dsh,
+        ):
             base["lineage_reason"] = "WORKITEM_BINDING_SESSION_MISMATCH"
             return base
+
         if binding.get("mission_node_lineage_status") != "RESOLVED":
             base["lineage_reason"] = "WORKITEM_BINDING_MISSION_NODE_LINEAGE_UNRESOLVED"
             return base
-        node_id, node_type = binding.get("mission_node_id"), binding.get("mission_node_type")
-        if not isinstance(node_id, str) or not node_id.strip() or not isinstance(node_type, str) or not node_type.strip():
+        node_id = binding.get("mission_node_id")
+        node_type = binding.get("mission_node_type")
+        if (
+            not isinstance(node_id, str)
+            or not node_id.strip()
+            or not isinstance(node_type, str)
+            or not node_type.strip()
+        ):
             base["lineage_reason"] = "WORKITEM_BINDING_MISSION_NODE_MISSING"
             return base
         nodes = self.truth.query(_NODE_ARTIFACT, mission_node_id=node_id)
@@ -259,9 +313,13 @@ class UsageLedgerService:
             base["lineage_reason"] = "MISSION_NODE_NOT_UNIQUE:%d" % len(nodes)
             return base
         node = nodes[0]
-        if node.get("mission_id") != usage.get("mission_id") or node.get("node_type") != node_type:
+        if (
+            node.get("mission_id") != usage.get("mission_id")
+            or node.get("node_type") != node_type
+        ):
             base["lineage_reason"] = "MISSION_NODE_LINEAGE_MISMATCH"
             return base
+
         base["mission_node_id"] = node_id
         base["mission_node_type"] = node_type
         base["lineage_status"] = "RESOLVED"
@@ -270,7 +328,11 @@ class UsageLedgerService:
     def build(self, *, mission_id: str, persist: bool = True) -> Dict[str, Any]:
         mission_id = _required(mission_id, "mission_id")
         usages = sorted(
-            self.truth.query(_USAGE_ARTIFACT, release_id=self.release_id, mission_id=mission_id),
+            self.truth.query(
+                _USAGE_ARTIFACT,
+                release_id=self.release_id,
+                mission_id=mission_id,
+            ),
             key=lambda row: str(row.get("token_usage_id", "")),
         )
         mission_summary = _summary()
@@ -280,6 +342,7 @@ class UsageLedgerService:
         receipts: List[Dict[str, Any]] = []
         unresolved: List[Dict[str, Any]] = []
         resolved_count = 0
+
         for usage in usages:
             _add_usage(mission_summary, usage)
             lineage = self._resolve_lineage(usage)
@@ -288,7 +351,8 @@ class UsageLedgerService:
                 "assignment_id": usage.get("assignment_id"),
                 "attempt_id": usage.get("attempt_id"),
                 "dsh_session_id": usage.get("dsh_session_id"),
-                "provider": usage.get("provider"), "model": usage.get("model"),
+                "provider": usage.get("provider"),
+                "model": usage.get("model"),
                 "observation_status": usage.get("observation_status"),
                 "unknown_reason": usage.get("unknown_reason"),
                 "tokens": {field: usage.get(field) for field in _TOKEN_FIELDS},
@@ -302,6 +366,7 @@ class UsageLedgerService:
                     "reason": lineage.get("lineage_reason"),
                 })
                 continue
+
             resolved_count += 1
             node_id = str(lineage["mission_node_id"])
             workitem_id = str(lineage["workitem_id"])
@@ -324,29 +389,48 @@ class UsageLedgerService:
             status = "PARTIAL"
         else:
             status = "MEASURED"
+
         node_rows = _finalize_scoped(node_summaries, "mission_node_id")
         workitem_rows = _finalize_scoped(workitem_summaries, "workitem_id")
         attempt_rows = _finalize_scoped(attempt_summaries, "attempt_id")
         digest_payload = {
-            "release_id": self.release_id, "mission_id": mission_id, "status": status,
-            "mission_summary": mission_summary, "node_summaries": node_rows,
-            "workitem_summaries": workitem_rows, "attempt_summaries": attempt_rows,
-            "receipts": receipts, "unresolved_lineages": unresolved,
+            "release_id": self.release_id,
+            "mission_id": mission_id,
+            "status": status,
+            "mission_summary": mission_summary,
+            "node_summaries": node_rows,
+            "workitem_summaries": workitem_rows,
+            "attempt_summaries": attempt_rows,
+            "receipts": receipts,
+            "unresolved_lineages": unresolved,
         }
         source_digest = hashlib.sha256(
-            json.dumps(digest_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            json.dumps(
+                digest_payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
         ).hexdigest()
         payload: Dict[str, Any] = {
             "usage_ledger_id": _ledger_id(self.release_id, mission_id),
-            "release_id": self.release_id, "mission_id": mission_id, "status": status,
-            "source_digest": source_digest, "source_usage_count": source_count,
-            "measured_usage_count": measured_count, "unknown_usage_count": unknown_count,
-            "resolved_lineage_count": resolved_count, "unresolved_lineage_count": unresolved_count,
+            "release_id": self.release_id,
+            "mission_id": mission_id,
+            "status": status,
+            "source_digest": source_digest,
+            "source_usage_count": source_count,
+            "measured_usage_count": measured_count,
+            "unknown_usage_count": unknown_count,
+            "resolved_lineage_count": resolved_count,
+            "unresolved_lineage_count": unresolved_count,
             "tokens": mission_summary["tokens"],
             "counter_observation_counts": mission_summary["counter_observation_counts"],
-            "node_summaries": node_rows, "workitem_summaries": workitem_rows,
-            "attempt_summaries": attempt_rows, "receipts": receipts,
-            "unresolved_lineages": unresolved, "built_at": _now(),
+            "node_summaries": node_rows,
+            "workitem_summaries": workitem_rows,
+            "attempt_summaries": attempt_rows,
+            "receipts": receipts,
+            "unresolved_lineages": unresolved,
+            "built_at": _now(),
         }
         if not persist:
             payload["artifact_version"] = 1
@@ -361,7 +445,9 @@ class UsageLedgerService:
             raise ContractError("USAGE_LEDGER_TRUTH_NOT_UNIQUE")
         if existing and existing[0].get("source_digest") == payload.get("source_digest"):
             return existing[0]
-        payload["artifact_version"] = int(existing[0].get("artifact_version", 1)) + 1 if existing else 1
+        payload["artifact_version"] = (
+            int(existing[0].get("artifact_version", 1)) + 1 if existing else 1
+        )
         self.truth.append_atomic(_EVENT_TYPE, payload)
         rows = self.truth.query(_ARTIFACT_TYPE, usage_ledger_id=ledger_id)
         if len(rows) != 1:
