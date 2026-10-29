@@ -47,6 +47,36 @@ def _base_scheduler(tmp_path):
     return scheduler
 
 
+def _capability_scheduler(tmp_path):
+    install_rc7_truth_overlay()
+    truth = TruthRuntime(tmp_path / "r1-cap" / "event-stream.jsonl")
+    scheduler = TaskScheduler(truth, "REL-1")
+    scheduler.register(
+        Task(
+            task_id="WI-HIGH",
+            mission_id="MISSION-1",
+            node="TEST_DESIGN",
+            task_type="REPAIR",
+            objective="high-cost semantic work",
+            priority=10,
+            required_capabilities=["high-cost-capability"],
+        )
+    )
+    scheduler.register(
+        Task(
+            task_id="WI-DET",
+            mission_id="MISSION-1",
+            node="TEST_DESIGN",
+            task_type="REPAIR",
+            objective="deterministic progress",
+            priority=20,
+            required_capabilities=["deterministic-capability"],
+        )
+    )
+    scheduler.refresh_ready("MISSION-1")
+    return scheduler
+
+
 def _resolver(task):
     mode = ExecutionMode.DETERMINISTIC if task.task_id == "WI-DET" else ExecutionMode.SEMANTIC
     return SemanticWorkDescriptor.from_task(
@@ -93,6 +123,58 @@ def test_lease_next_uses_exact_same_daytime_order_as_ready_view(tmp_path):
     assert leased.task_id == ready[0].task_id == "WI-DET"
     assert base.task("WI-DET").state == TaskStatus.LEASED
     assert base.task("WI-HIGH").state == TaskStatus.READY
+
+
+def test_daytime_deferred_high_cost_cannot_receive_lease_while_run_now_work_exists(tmp_path):
+    base = _capability_scheduler(tmp_path)
+    adapter = EconomyAwareTaskSchedulerAdapter(
+        base,
+        descriptor_resolver=_resolver,
+        clock=lambda: DAYTIME,
+    )
+
+    # This worker can execute only the high-cost deferred item. The deterministic
+    # RUN_NOW item needs another capability. Deferral must still be enforced at
+    # the lease boundary rather than bypassed by capability mismatch.
+    leased = adapter.lease_next(
+        "MISSION-1",
+        worker_ref="high-cost-worker",
+        capabilities=("high-cost-capability",),
+    )
+
+    assert leased is None
+    assert adapter.last_plan is not None
+    assert adapter.last_plan.run_now_workitem_ids == ("WI-DET",)
+    assert adapter.last_plan.deferred_workitem_ids == ("WI-HIGH",)
+    assert base.task("WI-HIGH").state == TaskStatus.READY
+    assert base.task("WI-DET").state == TaskStatus.READY
+
+
+def test_deferred_high_cost_is_promoted_only_after_no_run_now_ready_work_remains(tmp_path):
+    base = _capability_scheduler(tmp_path)
+    adapter = EconomyAwareTaskSchedulerAdapter(
+        base,
+        descriptor_resolver=_resolver,
+        clock=lambda: DAYTIME,
+    )
+
+    first = adapter.lease_next(
+        "MISSION-1",
+        worker_ref="det-worker",
+        capabilities=("deterministic-capability",),
+    )
+    assert first is not None and first.task_id == "WI-DET"
+    assert base.task("WI-HIGH").state == TaskStatus.READY
+
+    second = adapter.lease_next(
+        "MISSION-1",
+        worker_ref="high-cost-worker",
+        capabilities=("high-cost-capability",),
+    )
+    assert second is not None and second.task_id == "WI-HIGH"
+    assert adapter.last_plan is not None
+    assert adapter.last_plan.reasons["WI-HIGH"] == "MISSION_PROGRESS_OVERRIDE_DEFER"
+    assert base.task("WI-HIGH").state == TaskStatus.LEASED
 
 
 def test_after_cheaper_work_is_leased_only_high_cost_work_is_promoted_not_stalled(tmp_path):

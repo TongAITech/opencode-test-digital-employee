@@ -9,9 +9,11 @@ priority/dependency truth.
 Only execution order changes:
 - deterministic and mission-critical work can move ahead of daytime high-cost,
   non-blocking semantic work;
+- deferred high-cost work stays READY and cannot receive a lease while any
+  RUN_NOW work exists in the same scheduling turn;
 - when only deferred semantic work remains, the selector promotes at least one
   item so the Mission cannot stall merely to save quota;
-- lease order uses the exact same ordered READY view as Driver/Dispatcher.
+- lease order uses the exact same plan seen by Driver/Dispatcher.
 """
 from __future__ import annotations
 
@@ -98,9 +100,26 @@ class EconomyAwareTaskSchedulerAdapter:
         worker_ref: str,
         capabilities: Iterable[str],
     ) -> Optional[Task]:
-        """Lease exactly from the same ordered READY view seen by Driver/Dispatcher."""
+        """Lease only RUN_NOW work from the current canonical economy plan.
+
+        Deferred items remain canonically READY, but they are not eligible for a
+        lease while the selector has other RUN_NOW work. This makes deferral an
+        enforced scheduling decision instead of a best-effort sort order. The
+        selector's mission-progress override still promotes one deferred item
+        when deferral would otherwise leave no RUN_NOW work.
+        """
+        canonical = tuple(self.delegate.ready_tasks(mission_id))
+        plan = self._plan(mission_id, canonical)
+        if plan is None:
+            return None
+        by_id = {task.task_id: task for task in canonical}
+        planned_ids = set(plan.run_now_workitem_ids) | set(plan.deferred_workitem_ids)
+        if planned_ids != set(by_id):
+            raise EconomySchedulerIntegrationError("ECONOMY_READY_PLAN_TASK_SET_MISMATCH")
+
         capability_set = set(capabilities)
-        for task in self.ready_tasks(mission_id):
+        for task_id in plan.run_now_workitem_ids:
+            task = by_id[task_id]
             if not set(task.required_capabilities).issubset(capability_set):
                 continue
             row = self.delegate._row(task.task_id)
