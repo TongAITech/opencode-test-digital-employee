@@ -7,7 +7,7 @@ import pytest
 from rc6_runtime import contracts as _contracts
 from rc6_runtime import truth as _truth
 from rc7_runtime.models import ContractError
-from rc7_runtime.rc72_token_usage import DshTokenUsageParser, TokenUsageAuditService
+from rc7_runtime.rc72_model_usage import DshTokenUsageParser, TokenUsageAuditService
 
 
 class _MemoryTruth:
