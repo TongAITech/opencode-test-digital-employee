@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from rc6_runtime.truth import TruthRuntime
-from rc7_runtime.rc72_token_economy import (
+from rc7_runtime.rc72_model_economy import (
     DshTokenUsage,
     ModelCallClass,
     TokenEconomyError,

@@ -36,7 +36,7 @@ The failure mode is therefore:
 
 Implementation:
 
-`rc7_runtime/rc72_token_economy.py`
+`rc7_runtime/rc72_model_economy.py`
 
 The control stores budget and call observations in canonical R1 using:
 
