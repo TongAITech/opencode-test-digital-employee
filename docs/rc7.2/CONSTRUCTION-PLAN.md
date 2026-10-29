@@ -1,6 +1,6 @@
 # RC7.2 Construction Plan / Checkpoint Ledger
 
-Status: **REPOSITORY_CONSTRUCTION_CI_PASS / Q1_CI_PASS / Q2A_CI_PASS / Q2_IN_PROGRESS / FIELD_VALIDATION_PENDING**
+Status: **REPOSITORY_CONSTRUCTION_CI_PASS / Q1_CI_PASS / Q2_CI_PASS_ENGINEERING_ONLY / Q3_NOT_RUN / FIELD_VALIDATION_PENDING**
 
 Future sessions MUST read current branch HEAD, same-HEAD CI, frozen contracts, this ledger and `CURRENT-CHECKPOINT.md`. Live repository/R1/CI truth overrides stale chat history or stale SHAs.
 
@@ -9,10 +9,18 @@ Future sessions MUST read current branch HEAD, same-HEAD CI, frozen contracts, t
 Phase 0-9 repository construction is closed at repository CI level.
 
 - repository functional head before qualification additions: `d43f233ace9c691f881a8b5e0d5be23257b9c5f5`
-- run: `40737549865`
-- RC7.2 contracts: `206 passed` on Python 3.8 and Python 3.11
-- inherited RC7: `492 passed, 1 skipped`
+- original construction run: `40737549865`
+- original RC7.2 contracts: `206 passed` on Python 3.8 and Python 3.11
+- original inherited RC7: `492 passed, 1 skipped`
 - Phase 9 remains `CI_PASS_FIELD_PENDING`
+
+Latest Q2-qualified implementation source before documentation checkpoint:
+
+- `1b4f8ebb4612660ff07d93cdf6bf5b22c30e1d22`
+- construction run `40801951720`
+- RC7.2 contracts Python 3.8: `225 passed`
+- RC7.2 contracts Python 3.11: `225 passed`
+- inherited RC7: `492 passed, 1 skipped`
 
 Repository CI is not Field validation and not BANK_FINAL.
 
@@ -36,7 +44,11 @@ Qualification contract: `07-PLATFORM-QUALIFICATION-AND-FIELD-ACCEPTANCE-CONTRACT
 
 Status: `CI_PASS_ENGINEERING_ONLY`.
 
-Original qualified source: `77e954558f1fdc933febe2adfeb8a069d3d92c00`, run `40791919277`.
+Latest same-Q2-code-head run: `40801951774` on `1b4f8ebb...`.
+
+- Windows engineering: SUCCESS
+- Linux engineering proxy: SUCCESS
+- Q1 summary: SUCCESS
 
 Q1 proves Windows and generic Linux engineering portability. The generic Linux runner is not target 信创 Linux Field qualification.
 
@@ -44,62 +56,69 @@ Checkpoint: `checkpoints/Q1-SOURCE-PLATFORM-BASELINE-CI-PASS.md`.
 
 ## 4. Q2 — Windows clean-unpack
 
-Status: `IN_PROGRESS`.
+Status: `CI_PASS_ENGINEERING_ONLY`.
+
+Qualified implementation/source commit: `1b4f8ebb4612660ff07d93cdf6bf5b22c30e1d22`.
+
+Workflow run: `40801952853`, SUCCESS.
 
 ### Q2-A — Package identity / clean extraction
 
-Status: `CI_PASS_ENGINEERING_ONLY`.
-
-Qualified source: `120b16143fd5487706156b75c1c86168f642c024`.
-
-Q2-A workflow: `40794043110`, SUCCESS.
+Status: PASS.
 
 Evidence:
 
-- Q2-A contract tests: `8 passed`;
 - exact RC7.2 package identity, not renamed RC7;
 - RC7.2 ZIP + SHA sidecar created and verified;
 - build root deleted before re-extraction;
-- clean extraction into fresh runner directory;
+- clean extraction into fresh Windows runner directory;
 - package-local Python used with source `PYTHONPATH` cleared;
 - RC7.2 manifest/checksum/identity verify PASS;
-- all `26` current `rc7_runtime/rc72_*.py` modules imported from clean package;
-- package file count: `4798`;
-- artifact id: `12861954949`;
-- artifact digest: `sha256:649caabe2aea50eaca6d11070a49ac48055d9d005efe98b270c2fa101912c56f`;
+- all current `rc7_runtime/rc72_*.py` modules imported from clean package;
+- artifact id: `12866442208`;
+- artifact digest: `sha256:ec7aff88831c5fdc7efce7919a44612f0d024010c2dbf6d9b5bd053c992e32b0`;
 - `field_verified=false`, `bank_final=false`.
 
-Same HEAD source-regression evidence:
+### Q2-B — Clean runtime / R1 / Session / Git Bash
 
-- Q1 Windows engineering: SUCCESS;
-- Windows RC7.2 contracts: `218 passed`;
-- Windows inherited RC7: `492 passed, 1 skipped`;
-- Q1 Linux engineering proxy: SUCCESS;
-- Q1 summary: SUCCESS.
+Status: PASS.
 
-Checkpoint: `checkpoints/Q2A-WINDOWS-PACKAGE-IDENTITY-CLEAN-UNPACK-CI-PASS.md`.
+Artifact:
 
-### Q2-B — Clean runtime / Git Bash
+- id: `12866217593`
+- digest: `sha256:1f4539e6e046d3944ceecaed1ddb63a6dbfbbadc3814c48b6062c0a7b36eb232`
+
+Content-level evidence proves:
+
+1. clean package runs with package-local Python;
+2. RC7.2 exact source lineage is preserved;
+3. Mission Graph v2 boots from clean transport;
+4. Reality Recon is runtime-owned and Requirement Analysis routes to Producer Worker;
+5. R1 is durable across runtime recreation;
+6. the same active task hands off Session A -> B -> C;
+7. handoff generations are 1 and 2, final owner is `SESSION-C`;
+8. no conversation/transcript is transferred;
+9. Git Bash entrypoint performs strict RC7.2 package verify;
+10. Q2 Git Bash probe proves isolated profile `rc7.2-bank` and delegate `packaging/rc7/AITEST.sh`;
+11. probe explicitly records `field_verified=false`, `bank_final=false`, `offline_payload_verified=false`.
+
+The Q2 probe does not bypass or weaken default startup. Default RC7.2 startup still delegates to the mature RC7 launcher. Complete offline DSH/plugin/tool payload qualification is intentionally deferred to Q4, per the frozen contract.
+
+Checkpoint: `checkpoints/Q2-WINDOWS-CLEAN-UNPACK-CI-PASS.md`.
+
+Q2 is engineering evidence. In-bank Windows confirmation is still part of later Field acceptance.
+
+## 5. Q3 — Target 信创 Linux
 
 Status: `NOT_RUN`.
 
-Next atomic step: `Q2B_WINDOWS_CLEAN_RUNTIME_AND_GIT_BASH_TESTS_FIRST`.
+Next atomic step: `Q3_TARGET_LINUX_REALITY_CONTRACT`.
 
-Q2-B MUST reuse existing RC7 qualification/runtime continuity logic instead of cloning it. It must prove:
+The first Q3 slice must prove target-environment identity before any target-Linux PASS is possible. Generic GitHub Ubuntu remains only an engineering proxy. If no approved self-hosted/target 信创 Linux runner or equivalent Field evidence is bound, Q3 must return HOLD/fail-closed rather than fabricate PASS.
 
-1. RC7.2 verifier and exact source lineage from clean package;
-2. package-local Python only;
-3. durable R1 truth across runtime recreation;
-4. session A→B→C continuity without conversation/transcript transfer;
-5. Git Bash entrypoint can run from clean package with a controlled engineering DSH harness;
-6. engineering harness never produces Field/BANK_FINAL claims.
-
-Q2 overall cannot PASS until Q2-B is green.
-
-## 5. Later gates
+## 6. Later gates
 
 ```yaml
-q3_target_linux: NOT_RUN
 q4_offline_portable: NOT_RUN
 q5_real_browser_bsk: NOT_RUN
 q6_real_human_approval: NOT_RUN
@@ -108,9 +127,7 @@ q8_failure_recovery: NOT_RUN
 q9_bank_final: NO
 ```
 
-Do not begin Q3 until Q2 is checkpointed complete.
-
-## 6. Anti-drift rule
+## 7. Anti-drift rule
 
 Always verify:
 

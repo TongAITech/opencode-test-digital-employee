@@ -1,6 +1,6 @@
 # RC7.2 Current Construction Checkpoint
 
-Status: **REPOSITORY_CONSTRUCTION_CI_PASS / Q1_CI_PASS / Q2A_CI_PASS / Q2_IN_PROGRESS / FIELD_VALIDATION_PENDING**
+Status: **REPOSITORY_CONSTRUCTION_CI_PASS / Q1_CI_PASS / Q2_CI_PASS_ENGINEERING_ONLY / Q3_NOT_RUN / FIELD_VALIDATION_PENDING**
 
 This file is the short entry point for every future RC7.2 construction/qualification session. It is a status index, not a replacement for the frozen contracts.
 
@@ -22,23 +22,31 @@ Chat history, stale SHAs and old checkpoint text never override live repository/
 branch: work/rc7.2
 repository_construction: CI_PASS
 phase0_9: CLOSED_AT_REPOSITORY_CI_LEVEL
+latest_q2_qualified_code_sha: 1b4f8ebb4612660ff07d93cdf6bf5b22c30e1d22
+same_head_construction_run: 40801951720
+same_head_rc72_contracts_python_3_8: 225_passed
+same_head_rc72_contracts_python_3_11: 225_passed
+same_head_inherited_rc7: 492_passed_1_skipped
 qualification:
   q1_source_platform_baseline: CI_PASS_ENGINEERING_ONLY
-  q1_original_qualified_commit: 77e954558f1fdc933febe2adfeb8a069d3d92c00
-  q2_windows_clean_unpack: IN_PROGRESS
-  q2a_package_identity_clean_extract: CI_PASS_ENGINEERING_ONLY
-  q2a_qualified_commit: 120b16143fd5487706156b75c1c86168f642c024
-  q2a_run: 40794043110
-  q2a_artifact_id: 12861954949
-  q2a_contracts: 8_passed
-  q2a_required_rc72_runtime_modules: 26
-  q2a_package_local_imports: 26_passed
-  q2a_field_verified: false
-  q2a_bank_final: false
-  same_head_q1_windows_rc72_contracts: 218_passed
-  same_head_q1_windows_inherited_rc7: 492_passed_1_skipped
-  same_head_q1_linux_proxy: SUCCESS
-  q2b_clean_runtime_git_bash: NOT_RUN
+  q1_same_head_run: 40801951774
+  q1_windows: SUCCESS
+  q1_linux_engineering_proxy: SUCCESS
+  q1_summary: SUCCESS
+  q2_windows_clean_unpack: CI_PASS_ENGINEERING_ONLY
+  q2_run: 40801952853
+  q2a_package_identity_clean_extract: PASS
+  q2a_artifact_id: 12866442208
+  q2a_artifact_digest: sha256:ec7aff88831c5fdc7efce7919a44612f0d024010c2dbf6d9b5bd053c992e32b0
+  q2b_clean_runtime_r1_session_gitbash: PASS
+  q2b_artifact_id: 12866217593
+  q2b_artifact_digest: sha256:1f4539e6e046d3944ceecaed1ddb63a6dbfbbadc3814c48b6062c0a7b36eb232
+  q2b_session_rotation: SESSION_A_TO_B_TO_C_GENERATION_2
+  q2b_chat_history_transferred: false
+  q2b_gitbash_profile: rc7.2-bank
+  q2b_offline_payload_verified: false
+  q2_field_verified: false
+  q2_bank_final: false
   q3_target_linux: NOT_RUN
   q4_offline_portable: NOT_RUN
   q5_real_browser_bsk: NOT_RUN
@@ -47,29 +55,29 @@ qualification:
   q8_failure_recovery: NOT_RUN
 field_validation: NOT_STARTED_FOR_RC7_2
 bank_final: NO
-next_atomic_step: Q2B_WINDOWS_CLEAN_RUNTIME_AND_GIT_BASH_TESTS_FIRST
+next_atomic_step: Q3_TARGET_LINUX_REALITY_CONTRACT
 ```
 
 ## Checkpoints
 
 - `checkpoints/Q1-SOURCE-PLATFORM-BASELINE-CI-PASS.md`
 - `checkpoints/Q2A-WINDOWS-PACKAGE-IDENTITY-CLEAN-UNPACK-CI-PASS.md`
+- `checkpoints/Q2-WINDOWS-CLEAN-UNPACK-CI-PASS.md`
 
-## Q2-A result
+## Q2 result
 
-The exact RC7.2 source commit `120b1614...` produced a distinct RC7.2 Windows package, verified its ZIP SHA, deleted the built root, cleanly extracted into a fresh directory, verified package identity/checksum using package-local Python, and imported all 26 current `rc72_*` runtime modules from the clean package. The same HEAD retained green Windows/Linux source qualification and inherited RC7 regression.
+Q2 is complete at engineering-CI level on source commit `1b4f8ebb...`.
 
-This is engineering evidence only. It is not in-bank Windows Field evidence.
+The proof includes exact RC7.2 transport identity, SHA verification, fresh extraction, package-local Python, RC7.2 module completeness, durable R1 truth, Session A -> B -> C handoff without chat-history transfer, and a strict RC7.2 Git Bash entrypoint probe using isolated profile `rc7.2-bank`.
+
+Q2 deliberately does **not** claim complete offline payload readiness. The launcher proof records `offline_payload_verified=false`; full offline DSH/plugin/tool delivery belongs to Q4.
 
 ## Next atomic step
 
-Q2-B must reuse the mature RC7 Windows clean qualification/runtime continuity implementation rather than clone it. It must prove from the clean RC7.2 package:
+Start `Q3_TARGET_LINUX_REALITY_CONTRACT` tests-first.
 
-- package-local Python enforcement;
-- RC7.2 verifier and exact source lineage;
-- durable R1 truth across runtime recreation;
-- Mission/session A→B→C continuity without chat history transfer;
-- Git Bash entrypoint execution using a controlled engineering DSH harness;
-- `field_verified=false` and `bank_final=false`.
+Q3 must not accept generic Ubuntu/GitHub-hosted Linux as target 信创 Linux. The first Q3 slice must establish a target-environment binding/evidence contract and return HOLD/fail-closed when no approved target/self-hosted runner identity exists.
 
-Do not begin Q3 until Q2-B is green and Q2 overall is checkpointed.
+Until Q3 and all later Field gates complete:
+
+> **RC7.2 repository construction PASS; Q1/Q2 engineering qualification PASS; Field validation pending; BANK_FINAL = NO.**
