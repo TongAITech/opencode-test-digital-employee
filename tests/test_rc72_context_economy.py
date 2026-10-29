@@ -172,7 +172,8 @@ def test_full_retry_context_requires_explicit_reason_and_is_auditable():
     )
     envelope = ContextEnvelopeBuilder.build([item])
     assert envelope.full_context_workitem_ids == ("WI-RETRY",)
-    assert envelope.workitem_refs["WI-RETRY"] == ("ART-REQ-V2", "ART-CODE", "ART-CASE")
+    assert envelope.shared_refs == ("ART-CASE", "ART-CODE", "ART-REQ-V2")
+    assert envelope.workitem_refs["WI-RETRY"] == ()
     assert envelope.retry_delta_refs["WI-RETRY"] == (
         "ATT-SUMMARY-1",
         "GAP-UPSTREAM-REVISION",
