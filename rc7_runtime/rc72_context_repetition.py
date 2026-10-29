@@ -104,15 +104,15 @@ class ContextRepetitionDetector:
 
     @staticmethod
     def _ordered_unique(rows: List[Mapping[str, Any]], field: str) -> Tuple[str, ...]:
-        values: List[str] = []
-        seen = set()
-        for row in rows:
-            value = str(row.get(field) or "").strip()
-            if not value or value in seen:
-                continue
-            seen.add(value)
-            values.append(value)
-        return tuple(values)
+        # R1 calls created in the same second may be ordered by random call UUIDs.
+        # Reporting identities must therefore be canonical/deterministic rather
+        # than dependent on insertion or UUID order.
+        values = {
+            str(row.get(field) or "").strip()
+            for row in rows
+            if str(row.get(field) or "").strip()
+        }
+        return tuple(sorted(values))
 
     @staticmethod
     def _kind(workitems: Tuple[str, ...], attempts: Tuple[str, ...]) -> ContextRepetitionKind:
