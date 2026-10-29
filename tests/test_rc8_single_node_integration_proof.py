@@ -6,6 +6,7 @@ import pytest
 
 from rc8_node.autonomous_claim_client import AutonomousClaimClient
 from rc8_node.autonomous_dispatcher import AutonomousWorkerDispatcher
+from rc8_node.single_node_full_loop_proof import FROZEN_N1_N10_STAGES
 from rc8_node.single_node_integration_proof import SingleNodeDurableIntegrationProofRunner
 
 
@@ -76,4 +77,13 @@ def test_partial_production_dispatcher_cannot_enter_full_loop_gate():
         workers={"SCOPE_INTAKE": _Worker()},
     )
     with pytest.raises(RuntimeError, match="FULL_LOOP_PRODUCTION_STAGE_TOPOLOGY_MISMATCH"):
+        SingleNodeDurableIntegrationProofRunner(dispatcher=dispatcher, truth_reader=object())
+
+
+def test_full_stage_labels_with_double_workers_cannot_enter_production_gate():
+    dispatcher = AutonomousWorkerDispatcher(
+        claimant=AutonomousClaimClient("http://127.0.0.1:4098", "node-1"),
+        workers={stage: _Worker() for stage in FROZEN_N1_N10_STAGES},
+    )
+    with pytest.raises(RuntimeError, match="FULL_LOOP_PRODUCTION_WORKER_IDENTITY_MISMATCH:SCOPE_INTAKE"):
         SingleNodeDurableIntegrationProofRunner(dispatcher=dispatcher, truth_reader=object())
