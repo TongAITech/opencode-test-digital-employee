@@ -21,7 +21,7 @@ class TruthReader:
 
     def get_attempt(self, attempt_id):
         i = self._index(attempt_id)
-        value = {"test_run_id": "TR", "work_item_id": "wi-%d" % i, "producer_node_id": "node-a", "status": "COMPLETED"}
+        value = {"test_run_id": "TR", "work_item_id": "wi-%d" % i, "stage_instance_id": "stage-%d" % i, "producer_node_id": "node-a", "status": "COMPLETED"}
         return self.mutate("attempt", i, value) if self.mutate else value
 
     def get_artifact(self, artifact_id):
@@ -53,11 +53,35 @@ def test_center_truth_verifier_binds_attempt_artifact_and_r1_to_expected_node():
     assert verified.verified_attempts == ("attempt-0", "attempt-1")
 
 
+def test_center_truth_verifier_rejects_claimed_stage_instance_not_backed_by_attempt():
+    def mutate(kind, index, payload):
+        if kind == "attempt" and index == 0:
+            payload = dict(payload); payload["stage_instance_id"] = "stage-from-another-claim"
+        return payload
+    with pytest.raises(SingleNodeTruthError, match="CENTER_ATTEMPT_IDENTITY_MISMATCH:SCOPE_INTAKE"):
+        SingleNodeCenterTruthVerifier(truth_reader=TruthReader(mutate=mutate)).verify(proof())
+
+
+def test_center_truth_verifier_includes_claim_identity_in_denominator():
+    divergent = SingleNodeFullLoopProof(
+        test_run_id="TR",
+        stages=("SCOPE_INTAKE", "REPORT_RELEASE"),
+        work_item_ids=("wi-0", "wi-1"),
+        lease_ids=("lease-0",),
+        stage_instance_ids=("stage-0", "stage-1"),
+        attempt_ids=("attempt-0", "attempt-1"),
+        evidence_refs=("artifact:evidence-0", "artifact:evidence-1"),
+    )
+    with pytest.raises(SingleNodeTruthError, match="SINGLE_NODE_PROOF_DENOMINATOR_DIVERGED"):
+        SingleNodeCenterTruthVerifier(truth_reader=TruthReader()).verify(divergent)
+
+
 @pytest.mark.parametrize(
     "kind,field,value,error",
     [
         ("work", "status", "READY", "CENTER_WORK_ITEM_NOT_COMPLETED:SCOPE_INTAKE"),
         ("attempt", "work_item_id", "wrong", "CENTER_ATTEMPT_IDENTITY_MISMATCH:SCOPE_INTAKE"),
+        ("attempt", "stage_instance_id", "stale-stage-instance", "CENTER_ATTEMPT_IDENTITY_MISMATCH:SCOPE_INTAKE"),
         ("artifact", "attempt_id", "stale", "CENTER_ARTIFACT_IDENTITY_MISMATCH:SCOPE_INTAKE"),
         ("artifact", "test_run_id", "STALE_RUN", "CENTER_ARTIFACT_IDENTITY_MISMATCH:SCOPE_INTAKE"),
         ("r1", "event_type", "ATTEMPT_STARTED", "R1_ATTEMPT_COMPLETED_INVALID:SCOPE_INTAKE"),
