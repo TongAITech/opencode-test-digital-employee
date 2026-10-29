@@ -7,6 +7,11 @@ Reality Recon stage against R1, hand the next Producer task to a worker session,
 rotate that same active task A -> B -> C through durable R1 handoffs, and remain
 Mission-Conformant after process recreation. It never sets real_mission_pass or
 bank_field_pass.
+
+RC7.2 reuses this runtime proof through ``qualify_with_contract``. The original
+``qualify`` entrypoint remains RC7-identical so inherited qualification and
+regression behavior cannot drift merely because RC7.2 needs a different package
+identity/verifier.
 """
 from __future__ import annotations
 
@@ -16,7 +21,7 @@ import os
 import sys
 import uuid
 from pathlib import Path
-from typing import Dict, Optional, Sequence
+from typing import Callable, Dict, Optional, Sequence
 
 from rc6_runtime.truth import TruthRuntime
 
@@ -42,6 +47,8 @@ REQUIRED_FIELD_HARDENED_FILES = (
     "rc7_release/windows_clean_qualification.py",
 )
 
+PackageVerifier = Callable[[Path], Dict[str, object]]
+
 
 def _same_path(left: Path, right: Path) -> bool:
     return os.path.normcase(str(left.resolve())) == os.path.normcase(str(right.resolve()))
@@ -63,7 +70,21 @@ def _require_conformance(truth: TruthRuntime, mission_id: str, phase: str) -> No
         )
 
 
-def qualify(package_root: Path) -> Dict[str, object]:
+def qualify_with_contract(
+    package_root: Path,
+    *,
+    package_verifier: PackageVerifier,
+    qualification_name: str,
+    mission_prefix: str,
+    release_prefix: str,
+    goal: str,
+) -> Dict[str, object]:
+    """Run the proven clean-package R1/session qualification under an identity contract.
+
+    ``package_verifier`` is the release-family boundary. The runtime/session
+    proof below is intentionally shared. Callers may select an identity but may
+    not weaken the Windows/package-local-Python/R1/session/conformance checks.
+    """
     if os.name != "nt":
         raise WindowsCleanQualificationError("WINDOWS_CLEAN_QUALIFICATION_REQUIRES_WINDOWS")
 
@@ -72,7 +93,7 @@ def qualify(package_root: Path) -> Dict[str, object]:
         raise WindowsCleanQualificationError("PACKAGE_ROOT_NOT_FOUND")
     _require_productized_files(root)
 
-    initial_integrity = verify_package(root)
+    initial_integrity = package_verifier(root)
     if initial_integrity.get("package_local_python_bundled") is not True:
         raise WindowsCleanQualificationError("PACKAGE_LOCAL_PYTHON_REQUIRED")
 
@@ -87,9 +108,8 @@ def qualify(package_root: Path) -> Dict[str, object]:
         raise WindowsCleanQualificationError("PACKAGE_SOURCE_COMMIT_INVALID")
 
     run_token = uuid.uuid4().hex[:12]
-    mission_id = "RC7-WINDOWS-CLEAN-%s-%s" % (source_commit[:12], run_token)
-    release_id = "RC7-FIELD-HARDENED-%s" % source_commit[:12]
-    goal = "Qualify freshly extracted RC7 Windows package Mission Graph v2 runtime and session continuity"
+    mission_id = "%s-%s-%s" % (mission_prefix, source_commit[:12], run_token)
+    release_id = "%s-%s" % (release_prefix, source_commit[:12])
     state_root = root / "runtime-state" / "windows-clean-qualification"
     r1 = state_root / "r1" / "event-stream.jsonl"
 
@@ -131,8 +151,6 @@ def qualify(package_root: Path) -> Dict[str, object]:
     if snapshot.task_state != "PASS":
         raise WindowsCleanQualificationError("RUNTIME_REALITY_RECON_DID_NOT_PASS")
 
-    # Session A starts only the canonical Producer task released by durable
-    # Reality Recon. Director/coordinator does not execute the domain task.
     truth_a = TruthRuntime(r1)
     control_a = ClosedLoopControlPlane(truth_a, release_id, mission_id)
     _require_conformance(truth_a, mission_id, "POST_REALITY")
@@ -161,8 +179,6 @@ def qualify(package_root: Path) -> Dict[str, object]:
     )
     control_a.sessions.activate(handoff_ab.handoff_id, "SESSION-B")
 
-    # Recreate runtime objects at B and prove the same Task, state and durable
-    # artifact context were transferred without conversation/transcript state.
     truth_b = TruthRuntime(r1)
     control_b = ClosedLoopControlPlane(truth_b, release_id, mission_id)
     _require_conformance(truth_b, mission_id, "SESSION_B")
@@ -194,8 +210,6 @@ def qualify(package_root: Path) -> Dict[str, object]:
     if "conversation" in envelope_c or "transcript" in envelope_c:
         raise WindowsCleanQualificationError("SESSION_HANDOFF_CHAT_HISTORY_FORBIDDEN")
 
-    # The Bank Mission entrypoint must resume the same graph-v2 Mission after
-    # A -> B -> C rather than recompiling/upgrading/recreating its Tasks.
     resumed = start_or_resume(
         r1_path=str(r1),
         mission_id=mission_id,
@@ -218,20 +232,19 @@ def qualify(package_root: Path) -> Dict[str, object]:
     if len(identities) != 1 or identities[0].get("content_ref") != "git://%s" % source_commit:
         raise WindowsCleanQualificationError("PACKAGE_RUNTIME_IDENTITY_EVIDENCE_REQUIRED")
 
-    # Runtime-generated truth is intentionally excluded from package checksums;
-    # integrity must still pass after the Mission has written its durable R1.
-    final_integrity = verify_package(root)
+    final_integrity = package_verifier(root)
     if final_integrity.get("status") != "PASS":
         raise WindowsCleanQualificationError("POST_RUNTIME_PACKAGE_INTEGRITY_FAILED")
 
     return {
         "status": "PASS",
-        "qualification": "WINDOWS_CLEAN_PACKAGE",
+        "qualification": qualification_name,
         "scope": "PACKAGE_BOOTSTRAP_R1_GRAPH_V2_RUNTIME_HANDOFF_SESSION_A_B_C",
         "source_commit": source_commit,
         "package_root": str(root),
         "package_local_python": str(expected_python),
         "mission_id": mission_id,
+        "release_id": release_id,
         "graph_version": "v2",
         "r1_path": str(r1),
         "initial_route": {
@@ -257,6 +270,17 @@ def qualify(package_root: Path) -> Dict[str, object]:
         "real_mission_pass": False,
         "bank_field_pass": False,
     }
+
+
+def qualify(package_root: Path) -> Dict[str, object]:
+    return qualify_with_contract(
+        package_root,
+        package_verifier=verify_package,
+        qualification_name="WINDOWS_CLEAN_PACKAGE",
+        mission_prefix="RC7-WINDOWS-CLEAN",
+        release_prefix="RC7-FIELD-HARDENED",
+        goal="Qualify freshly extracted RC7 Windows package Mission Graph v2 runtime and session continuity",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

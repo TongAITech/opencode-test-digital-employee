@@ -5,10 +5,9 @@ import json
 import re
 import shutil
 import stat
-import sys
 import zipfile
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from rc7_release import package as rc7_package
 
@@ -20,6 +19,10 @@ RC72_BUILD_ID_PREFIX = "RC7.2-"
 RC72_RELEASE_FAMILY = "RC7.2"
 RC72_ARCHITECTURE = "RELEASE_BATCH_N1_N10_AUTONOMOUS_TEST_RUNTIME"
 RC72_IDENTITY_FILE = "RC72_RELEASE_IDENTITY.json"
+RC72_Q2B_REQUIRED_FILES = (
+    "rc7_release/rc72_windows_clean_qualification.py",
+    "packaging/rc7.2/AITEST.sh",
+)
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
@@ -71,6 +74,7 @@ def promote_manifest_to_rc72(
             "business_root": "RELEASE_BATCH",
             "runtime_control_backbone": "N1_N10_MISSION_GRAPH",
             "required_rc72_runtime_files": list(required_runtime_files),
+            "required_q2b_files": list(RC72_Q2B_REQUIRED_FILES),
             "field_verified": False,
             "bank_final": False,
             "real_mission_pass": False,
@@ -119,6 +123,10 @@ def validate_rc72_manifest(
     required = tuple(str(item) for item in (manifest.get("required_rc72_runtime_files") or ()))
     if len(set(required)) != len(required):
         raise ValueError("RC72_REQUIRED_RUNTIME_DUPLICATE")
+    required_q2b = tuple(str(item) for item in (manifest.get("required_q2b_files") or ()))
+    if set(required_q2b) != set(RC72_Q2B_REQUIRED_FILES):
+        raise ValueError("RC72_Q2B_REQUIRED_FILE_MANIFEST_MISMATCH")
+
     actual_files = {
         str(item.get("path"))
         for item in (manifest.get("files") or ())
@@ -127,6 +135,9 @@ def validate_rc72_manifest(
     missing = sorted(item for item in required if item not in actual_files)
     if missing:
         raise ValueError("RC72_RUNTIME_FILE_MISSING:" + ",".join(missing))
+    missing_q2b = sorted(item for item in RC72_Q2B_REQUIRED_FILES if item not in actual_files)
+    if missing_q2b:
+        raise ValueError("RC72_Q2B_FILE_MISSING:" + ",".join(missing_q2b))
     return dict(manifest)
 
 
@@ -167,6 +178,20 @@ def _write_identity(package_root: Path, source_commit: str) -> None:
     rc7_package._write_text(package_root / "RELEASE_STATUS", BUILD_STATUS + "\n")
 
 
+def _install_rc72_launchers(repo_root: Path, package_root: Path) -> None:
+    source = repo_root / "packaging" / "rc7.2"
+    if not source.is_dir():
+        raise RuntimeError("RC72_PACKAGING_DIR_MISSING")
+    target = package_root / "packaging" / "rc7.2"
+    if target.exists():
+        shutil.rmtree(str(target))
+    rc7_package._copy_tree(source, target)
+    launcher = target / "AITEST.sh"
+    if not launcher.is_file():
+        raise RuntimeError("RC72_GIT_BASH_LAUNCHER_MISSING")
+    launcher.chmod(launcher.stat().st_mode | stat.S_IXUSR)
+
+
 def _rewrite_manifest(package_root: Path, repo_root: Path, source_commit: str) -> Dict[str, object]:
     manifest_path = package_root / "PACKAGE_MANIFEST.json"
     base_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -201,7 +226,7 @@ def verify_package(
         "CHECKSUMS.sha256",
         "rc7_release/rc72_package.py",
         "rc7_runtime/__init__.py",
-    }
+    }.union(RC72_Q2B_REQUIRED_FILES)
     missing = sorted(name for name in required_files if not (root / name).is_file())
     if missing:
         raise RuntimeError("RC72_PACKAGE_REQUIRED_FILE_MISSING:" + ",".join(missing))
@@ -267,6 +292,7 @@ def verify_package(
         "source_commit": source_commit,
         "build_id": RC72_BUILD_ID_PREFIX + source_commit[:12],
         "required_rc72_runtime_count": len(required_runtime),
+        "q2b_required_file_count": len(RC72_Q2B_REQUIRED_FILES),
         "file_count": len(actual) + 1,
         "package_local_python": rc7_package.PACKAGE_LOCAL_PYTHON.as_posix(),
         "package_local_python_bundled": True,
@@ -292,6 +318,7 @@ def build_package(
         shutil.rmtree(str(package_root))
     base_root.rename(package_root)
 
+    _install_rc72_launchers(repo, package_root)
     _write_identity(package_root, commit)
     _rewrite_manifest(package_root, repo, commit)
     verify_package(package_root, expected_source_commit=commit)
