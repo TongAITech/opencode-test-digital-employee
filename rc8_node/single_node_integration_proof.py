@@ -15,13 +15,13 @@ from .single_node_full_loop_proof import (
     SingleNodeFullLoopProof,
     SingleNodeFullLoopProofRunner,
 )
-from .single_node_truth import SingleNodeCenterTruth, SingleNodeCenterTruthVerifier
+from .single_node_truth import SingleNodeCenterTruthVerifier, SingleNodeTruthProof
 
 
 @dataclass(frozen=True)
 class SingleNodeDurableIntegrationProof:
     observed: SingleNodeFullLoopProof
-    durable_truth: SingleNodeCenterTruth
+    durable_truth: SingleNodeTruthProof
     status: str = "DURABLE_INTEGRATION_VERIFIED_NOT_AUTHORIZED"
     bank_reality_verified: bool = False
     release_status: str = "HOLD"
