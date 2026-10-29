@@ -161,7 +161,13 @@ def _observe_delta(retry_context, task, *, full_context_reason=None):
 def test_delta_retry_measures_tokens_against_real_parent_attempt_without_faking_unknown(tmp_path: Path):
     truth, economy, retry_context = _services(tmp_path)
     task = _task()
-    _call(economy, attempt_id="ATT-1", retry=False, prompt="parent full context", tokens=100)
+    _call(
+        economy,
+        attempt_id="ATT-1",
+        retry=False,
+        prompt="parent full requirement code test data oracle and execution context",
+        tokens=100,
+    )
     _observe_delta(retry_context, task)
     _call(economy, attempt_id="ATT-2", retry=True, prompt="gap plus delta evidence", tokens=40)
 
@@ -179,6 +185,8 @@ def test_delta_retry_measures_tokens_against_real_parent_attempt_without_faking_
     assert attempt.retry_tokens == 40
     assert attempt.parent_tokens == 100
     assert attempt.token_amplification_factor == pytest.approx(0.4)
+    assert attempt.context_amplification_factor is not None
+    assert attempt.context_amplification_factor < 1.0
     assert attempt.exact_parent_context_replay_call_count == 0
     assert "RETRY_TOKEN_USAGE_UNKNOWN" not in attempt.signals
 
