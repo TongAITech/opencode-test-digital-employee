@@ -4,6 +4,7 @@ import hashlib
 import importlib
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -18,12 +19,43 @@ def _attestation_module():
     return importlib.import_module("rc7_release.rc72_target_linux_attestation")
 
 
+def _git_bash_executable():
+    if os.name != "nt":
+        return shutil.which("bash") or "bash"
+
+    override = os.environ.get("PFC_GIT_BASH")
+    candidates = []
+    if override:
+        candidates.append(Path(override))
+
+    git = shutil.which("git")
+    if git:
+        git_path = Path(git).resolve()
+        candidates.extend(
+            [
+                git_path.with_name("bash.exe"),
+                git_path.parent.parent / "bin" / "bash.exe",
+            ]
+        )
+
+    for env_name in ("ProgramW6432", "ProgramFiles"):
+        base = os.environ.get(env_name)
+        if base:
+            candidates.append(Path(base) / "Git" / "bin" / "bash.exe")
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    raise AssertionError("GIT_BASH_EXECUTABLE_NOT_FOUND")
+
+
 def _bash_path(path):
     text = str(path)
     if os.name != "nt":
         return text
+    bash = _git_bash_executable()
     return subprocess.check_output(
-        ["bash", "-lc", 'cygpath -u "$1"', "bash", text],
+        [bash, "-lc", 'cygpath -u "$1"', "bash", text],
         text=True,
     ).strip()
 
@@ -57,7 +89,7 @@ class ExternalVerifier:
 def test_target_probe_script_exists_is_posix_and_contains_no_install_or_self_approval_commands():
     probe = REPO_ROOT / "packaging" / "rc7.2" / "Q3-TARGET-LINUX-PROBE.sh"
     assert probe.is_file()
-    subprocess.run(["bash", "-n", _bash_path(probe)], check=True)
+    subprocess.run([_git_bash_executable(), "-n", _bash_path(probe)], check=True)
     text = probe.read_text(encoding="utf-8")
     assert "/etc/os-release" in text
     assert "uname -m" in text
@@ -88,7 +120,7 @@ def test_probe_runs_on_generic_linux_and_emits_observation_only(tmp_path):
     output = tmp_path / "observation.json"
     subprocess.run(
         [
-            "bash",
+            _git_bash_executable(),
             _bash_path(probe),
             "--source-commit",
             SOURCE,
