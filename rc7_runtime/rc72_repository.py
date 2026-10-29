@@ -12,6 +12,7 @@ from rc6_runtime.truth import TruthRuntime
 
 from .models import ContractError
 from .rc72_domain import (
+    AutonomousMissionNode,
     BackEdge,
     ExecutionTaskUnit,
     MissionNodeRecord,
@@ -20,7 +21,13 @@ from .rc72_domain import (
     ReleaseBatch,
     TestObligation,
 )
-from .rc72_linkage import NodeTransition, NodeTransitionKind, WorkItemAttemptBinding, WorkItemAttemptState
+from .rc72_linkage import (
+    MissionNodeLineageStatus,
+    NodeTransition,
+    NodeTransitionKind,
+    WorkItemAttemptBinding,
+    WorkItemAttemptState,
+)
 from .rc72_truth import append_rc72_entity
 
 
@@ -38,6 +45,8 @@ class CanonicalRC72Repository:
         self.release_id = release_id.strip()
 
     def persist(self, entity: Any, *, artifact_version: int = 1):
+        if isinstance(entity, WorkItemAttemptBinding):
+            self._resolve_workitem_mission_node_lineage(entity)
         self._validate_lineage(entity)
         return append_rc72_entity(
             self.truth,
@@ -68,6 +77,79 @@ class CanonicalRC72Repository:
         if node.get("node_type") != node_type:
             raise RC72LineageError("MISSION_NODE_TYPE_MISMATCH")
         return node
+
+    @staticmethod
+    def _mark_binding_unresolved(entity: WorkItemAttemptBinding, reason: str) -> None:
+        entity.mission_node_id = None
+        entity.mission_node_type = None
+        entity.mission_node_lineage_status = MissionNodeLineageStatus.UNRESOLVED
+        entity.mission_node_lineage_reason = reason
+
+    def _resolve_workitem_mission_node_lineage(self, entity: WorkItemAttemptBinding) -> None:
+        """Resolve binding -> MissionNode only from immutable canonical planning truth.
+
+        Missing legacy/manual planning truth is represented explicitly as UNRESOLVED.
+        Once a canonical snapshot exists, every contradiction fails closed. We never
+        infer N1-N10 from Task.node, scope strings, IDs, role names, or prompts.
+        """
+        etu = self._one("rc72_etu", etu_id=entity.etu_id)
+        snapshot_ref = etu.get("planning_snapshot_ref")
+        if not isinstance(snapshot_ref, str) or not snapshot_ref.strip():
+            self._mark_binding_unresolved(entity, "ETU_PLANNING_SNAPSHOT_REF_MISSING")
+            return
+        snapshot_ref = snapshot_ref.strip()
+
+        # Register the additive planning projection lazily to avoid a module import
+        # cycle: rc72_decomposition_truth itself uses CanonicalRC72Repository.
+        from .rc72_decomposition_truth import install_rc72_decomposition_truth_overlay
+
+        install_rc72_decomposition_truth_overlay()
+        snapshots = self.truth.query("rc72_decomposition_snapshot", snapshot_id=snapshot_ref)
+        if not snapshots:
+            self._mark_binding_unresolved(entity, "PLANNING_SNAPSHOT_NOT_FOUND:%s" % snapshot_ref)
+            return
+        if len(snapshots) != 1:
+            raise RC72LineageError("WORKITEM_BINDING_PLANNING_SNAPSHOT_NOT_UNIQUE")
+        snapshot = snapshots[0]
+
+        if snapshot.get("mission_id") != entity.mission_id:
+            raise RC72LineageError("WORKITEM_BINDING_SNAPSHOT_MISSION_MISMATCH")
+        if snapshot.get("release_id") != self.release_id:
+            raise RC72LineageError("WORKITEM_BINDING_SNAPSHOT_RELEASE_MISMATCH")
+        if snapshot.get("release_batch_id") != etu.get("release_batch_id"):
+            raise RC72LineageError("WORKITEM_BINDING_SNAPSHOT_BATCH_MISMATCH")
+        if entity.etu_id not in list(snapshot.get("etu_ids") or []):
+            raise RC72LineageError("WORKITEM_BINDING_ETU_OUTSIDE_PLANNING_SNAPSHOT")
+
+        try:
+            node_type = AutonomousMissionNode(str(snapshot.get("current_node")))
+        except ValueError as exc:
+            raise RC72LineageError("WORKITEM_BINDING_SNAPSHOT_NODE_INVALID") from exc
+
+        nodes = self.truth.query(
+            "rc72_mission_node",
+            mission_id=entity.mission_id,
+            node_type=node_type.value,
+        )
+        if len(nodes) != 1:
+            raise RC72LineageError(
+                "WORKITEM_BINDING_MISSION_NODE_NOT_UNIQUE:%s:%s" % (node_type.value, len(nodes))
+            )
+        node = nodes[0]
+        mission_node_id = node.get("mission_node_id")
+        if not isinstance(mission_node_id, str) or not mission_node_id.strip():
+            raise RC72LineageError("WORKITEM_BINDING_MISSION_NODE_ID_INVALID")
+        mission_node_id = mission_node_id.strip()
+
+        if entity.mission_node_id is not None and entity.mission_node_id != mission_node_id:
+            raise RC72LineageError("WORKITEM_BINDING_MISSION_NODE_ID_MISMATCH")
+        if entity.mission_node_type is not None and entity.mission_node_type != node_type:
+            raise RC72LineageError("WORKITEM_BINDING_MISSION_NODE_TYPE_MISMATCH")
+
+        entity.mission_node_id = mission_node_id
+        entity.mission_node_type = node_type
+        entity.mission_node_lineage_status = MissionNodeLineageStatus.RESOLVED
+        entity.mission_node_lineage_reason = None
 
     def _validate_lineage(self, entity: Any) -> None:
         if isinstance(entity, ReleaseBatch):
@@ -169,6 +251,14 @@ class CanonicalRC72Repository:
             task = self._one("rc7_task", task_id=entity.workitem_id)
             if task.get("mission_id") != entity.mission_id:
                 raise RC72LineageError("WORKITEM_BINDING_TASK_MISSION_MISMATCH")
+            if entity.mission_node_lineage_status == MissionNodeLineageStatus.RESOLVED:
+                if entity.mission_node_id is None or entity.mission_node_type is None:
+                    raise RC72LineageError("WORKITEM_BINDING_RESOLVED_NODE_REQUIRED")
+                self._validate_node(
+                    entity.mission_node_id,
+                    entity.mission_id,
+                    entity.mission_node_type.value,
+                )
             if entity.state in {
                 WorkItemAttemptState.EVIDENCE_READY,
                 WorkItemAttemptState.COMPLETED,

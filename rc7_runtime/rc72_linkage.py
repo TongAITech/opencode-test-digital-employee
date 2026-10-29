@@ -51,6 +51,11 @@ class WorkItemAttemptState(str, Enum):
     SUPERSEDED = "SUPERSEDED"
 
 
+class MissionNodeLineageStatus(str, Enum):
+    RESOLVED = "RESOLVED"
+    UNRESOLVED = "UNRESOLVED"
+
+
 @dataclass(frozen=True)
 class NodeTransition:
     transition_id: str
@@ -102,10 +107,10 @@ class NodeTransition:
 class WorkItemAttemptBinding:
     """Durable binding from RC7.2 ETU to inherited RC7 Task/Attempt authority.
 
-    `workitem_id` is an existing `rc7_task.task_id`; `attempt_id` is a reserved
-    or existing inherited `execution_attempt.attempt_id`. Lease fields are refs
-    only in Phase 1; the concrete governed lease lifecycles are implemented in
-    Phase 7 without changing this durable lineage.
+    The MissionNode lineage is explicit when the ETU's immutable planning
+    snapshot and canonical MissionNode record are available. Legacy/manual
+    fixtures that bypass planning stay explicitly UNRESOLVED; they are never
+    attributed to a node by parsing Task.node, scope, IDs, or other strings.
     """
 
     binding_id: str
@@ -121,6 +126,10 @@ class WorkItemAttemptBinding:
     capability_lease_refs: List[str] = field(default_factory=list)
     resource_lease_refs: List[str] = field(default_factory=list)
     parent_attempt_id: Optional[str] = None
+    mission_node_id: Optional[str] = None
+    mission_node_type: Optional[AutonomousMissionNode] = None
+    mission_node_lineage_status: MissionNodeLineageStatus = MissionNodeLineageStatus.UNRESOLVED
+    mission_node_lineage_reason: Optional[str] = "CANONICAL_PLANNING_SNAPSHOT_NOT_RESOLVED"
     created_at: int = field(default_factory=_now)
     updated_at: int = field(default_factory=_now)
 
@@ -132,16 +141,40 @@ class WorkItemAttemptBinding:
                 self.state = WorkItemAttemptState(str(self.state))
             except ValueError as exc:
                 raise ContractError("WORKITEM_ATTEMPT_STATE_INVALID") from exc
-        for field_name in ("worker_id", "session_id", "task_lease_ref", "parent_attempt_id"):
+        for field_name in ("worker_id", "session_id", "task_lease_ref", "parent_attempt_id", "mission_node_id"):
             value = getattr(self, field_name)
             if value is not None:
                 setattr(self, field_name, _required(value, field_name))
+        if self.mission_node_type is not None and not isinstance(self.mission_node_type, AutonomousMissionNode):
+            try:
+                self.mission_node_type = AutonomousMissionNode(str(self.mission_node_type))
+            except ValueError as exc:
+                raise ContractError("MISSION_NODE_TYPE_INVALID") from exc
+        if not isinstance(self.mission_node_lineage_status, MissionNodeLineageStatus):
+            try:
+                self.mission_node_lineage_status = MissionNodeLineageStatus(str(self.mission_node_lineage_status))
+            except ValueError as exc:
+                raise ContractError("MISSION_NODE_LINEAGE_STATUS_INVALID") from exc
+        if self.mission_node_lineage_reason is not None:
+            self.mission_node_lineage_reason = _required(
+                self.mission_node_lineage_reason, "mission_node_lineage_reason"
+            )
         if isinstance(self.capability_lease_refs, tuple):
             self.capability_lease_refs = list(self.capability_lease_refs)
         if isinstance(self.resource_lease_refs, tuple):
             self.resource_lease_refs = list(self.resource_lease_refs)
         _strings(self.capability_lease_refs, "capability_lease_refs")
         _strings(self.resource_lease_refs, "resource_lease_refs")
+        if self.mission_node_lineage_status == MissionNodeLineageStatus.RESOLVED:
+            if not self.mission_node_id or self.mission_node_type is None:
+                raise ContractError("RESOLVED_MISSION_NODE_LINEAGE_REQUIRES_NODE")
+            if self.mission_node_lineage_reason is not None:
+                raise ContractError("RESOLVED_MISSION_NODE_LINEAGE_CANNOT_HAVE_REASON")
+        else:
+            if self.mission_node_id is not None or self.mission_node_type is not None:
+                raise ContractError("UNRESOLVED_MISSION_NODE_LINEAGE_CANNOT_CLAIM_NODE")
+            if not self.mission_node_lineage_reason:
+                raise ContractError("UNRESOLVED_MISSION_NODE_LINEAGE_REQUIRES_REASON")
         if self.state in {
             WorkItemAttemptState.PREPARED,
             WorkItemAttemptState.RUNNING,
