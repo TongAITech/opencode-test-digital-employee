@@ -40,7 +40,7 @@ from .rc72_context_economy import (
 )
 from .rc72_model_usage import TokenUsageAuditService
 from .rc72_retry_context import RetryContextAuditService
-from .rc72_token_usage_worker_bridge import Rc72TokenUsageLauncherProxy
+from .rc72_model_usage_worker_bridge import Rc72TokenUsageLauncherProxy
 
 
 ContextDescriptorResolver = Callable[[Task], Optional[SemanticWorkDescriptor]]

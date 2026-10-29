@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from rc7_runtime.rc72_context_worker_bridge import Rc72ContextAwareDshTaskWorkerBridge
 from rc7_runtime.rc72_model_usage import DshTokenUsageParser
-from rc7_runtime.rc72_token_usage_worker_bridge import Rc72TokenUsageLauncherProxy
+from rc7_runtime.rc72_model_usage_worker_bridge import Rc72TokenUsageLauncherProxy
 
 
 class _RecordingAudit:
