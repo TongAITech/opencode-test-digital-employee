@@ -33,6 +33,14 @@ class ClaimedWork:
         return str(value) if value else None
 
     @property
+    def test_run_id(self) -> Optional[str]:
+        if not self.work_item:
+            return None
+        identity = self.work_item.get("identity") or {}
+        value = identity.get("test_run_id")
+        return str(value) if value else None
+
+    @property
     def lease_id(self) -> Optional[str]:
         if not self.work_item:
             return None
