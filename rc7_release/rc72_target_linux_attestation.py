@@ -1,3 +1,11 @@
+"""RC7.2 Q3 target-Linux attestation trust boundary.
+
+This module turns a target observation into a digest-bound request and only
+allows Q3 promotion through a trusted external verifier. Generic hosted Linux,
+local files, self-reported approval, and repository-only evidence cannot
+promote Q3. Q3 never sets BANK_FINAL; that decision remains Q9.
+"""
+
 from __future__ import annotations
 
 import argparse
