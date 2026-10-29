@@ -4,6 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from rc8_node.autonomous_claim_client import AutonomousClaimClient
+from rc8_node.autonomous_dispatcher import AutonomousWorkerDispatcher
 from rc8_node.single_node_integration_proof import SingleNodeDurableIntegrationProofRunner
 
 
@@ -15,6 +17,11 @@ class _Dispatcher:
             status="EXECUTED", stage="SCOPE_INTAKE", work_item_id="wi-1",
             result={"status": "COMPLETED", "attempt_id": "att-1", "artifact_ref": "artifact:art-1"},
         )
+
+
+class _Worker:
+    def execute(self, claimed):
+        return {"status": "COMPLETED"}
 
 
 class _Truth:
@@ -61,3 +68,12 @@ def test_boundary_double_cannot_enter_production_full_loop_gate_by_default():
         SingleNodeDurableIntegrationProofRunner(
             dispatcher=_Dispatcher(), truth_reader=_Truth(), required_stages=("SCOPE_INTAKE",)
         )
+
+
+def test_partial_production_dispatcher_cannot_enter_full_loop_gate():
+    dispatcher = AutonomousWorkerDispatcher(
+        claimant=AutonomousClaimClient("http://127.0.0.1:4098", "node-1"),
+        workers={"SCOPE_INTAKE": _Worker()},
+    )
+    with pytest.raises(RuntimeError, match="FULL_LOOP_PRODUCTION_STAGE_TOPOLOGY_MISMATCH"):
+        SingleNodeDurableIntegrationProofRunner(dispatcher=dispatcher, truth_reader=object())
