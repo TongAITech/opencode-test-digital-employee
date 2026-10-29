@@ -18,7 +18,7 @@ class _Dispatcher:
         return SimpleNamespace(
             status="EXECUTED", stage="SCOPE_INTAKE", work_item_id="wi-1",
             lease_id="lease-1", stage_instance_id="stage-instance-1",
-            result={"status": "COMPLETED", "attempt_id": "att-1", "artifact_ref": "artifact:art-1"},
+            result={"status": "COMPLETED", "attempt_id": "lease-1", "artifact_ref": "artifact:art-1"},
         )
 
 
@@ -46,7 +46,7 @@ class _Truth:
         }
 
     def get_artifact(self, artifact_id):
-        return {"test_run_id": "run-1", "work_item_id": "wi-1", "attempt_id": "att-1", "status": "COMPLETED"}
+        return {"test_run_id": "run-1", "work_item_id": "wi-1", "attempt_id": "lease-1", "status": "COMPLETED"}
 
     def find_r1_attempt_completed(self, *, test_run_id, work_item_id, attempt_id):
         return {"event_id": "evt-1", "event_type": "ATTEMPT_COMPLETED", "test_run_id": test_run_id,
@@ -66,7 +66,7 @@ def test_dispatcher_observation_and_durable_truth_are_one_fail_closed_gate():
     assert proof.observed.work_item_ids == ("wi-1",)
     assert proof.observed.lease_ids == ("lease-1",)
     assert proof.observed.stage_instance_ids == ("stage-instance-1",)
-    assert proof.durable_truth.verified_attempts == ("att-1",)
+    assert proof.durable_truth.verified_attempts == ("lease-1",)
     assert proof.bank_reality_verified is False
     assert proof.release_status == "HOLD"
 
