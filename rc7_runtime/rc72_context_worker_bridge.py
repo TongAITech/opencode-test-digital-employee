@@ -38,7 +38,9 @@ from .rc72_context_economy import (
     ExecutionMode,
     SemanticWorkDescriptor,
 )
+from .rc72_model_usage import TokenUsageAuditService
 from .rc72_retry_context import RetryContextAuditService
+from .rc72_token_usage_worker_bridge import Rc72TokenUsageLauncherProxy
 
 
 ContextDescriptorResolver = Callable[[Task], Optional[SemanticWorkDescriptor]]
@@ -55,10 +57,19 @@ class Rc72ContextAwareDshTaskWorkerBridge(DshTaskWorkerBridge):
         node_policies: Optional[Dict[str, Any]] = None,
         context_descriptor_resolver: Optional[ContextDescriptorResolver] = None,
         retry_context_audit: Optional[RetryContextAuditService] = None,
+        token_usage_audit: Optional[TokenUsageAuditService] = None,
     ) -> None:
         super().__init__(control, launcher, node_policies=node_policies)
         self.context_descriptor_resolver = context_descriptor_resolver
         self.retry_context_audit = retry_context_audit
+        self.token_usage_audit = token_usage_audit
+        if self.token_usage_audit is None:
+            release_id = getattr(control, "release_id", None)
+            truth = getattr(control, "truth", None)
+            if isinstance(release_id, str) and release_id.strip() and truth is not None:
+                self.token_usage_audit = TokenUsageAuditService(truth, release_id=release_id)
+        if self.token_usage_audit is not None:
+            self.launcher = Rc72TokenUsageLauncherProxy(self.launcher, self.token_usage_audit)
 
     @staticmethod
     def _validate_descriptor(task: Task, descriptor: SemanticWorkDescriptor) -> None:
