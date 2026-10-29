@@ -57,14 +57,20 @@ def test_reader_returns_only_durable_production_truth():
     assert reader.get_work_item("wi-1") == {
         "work_item_id": "wi-1", "test_run_id": "run-1", "stage": "SCOPE_INTAKE", "status": "COMPLETED"
     }
-    assert reader.get_attempt("att-1")["work_item_id"] == "wi-1"
+    attempt = reader.get_attempt("att-1")
+    assert attempt["work_item_id"] == "wi-1"
+    assert attempt["producer_node_id"] == "node-1"
+    assert attempt["producer_ref"] == "worker-1"
     assert reader.get_artifact("art-1") == {
         "artifact_id": "art-1", "test_run_id": "run-1", "work_item_id": "wi-1",
-        "attempt_id": "att-1", "status": "COMPLETED",
+        "attempt_id": "att-1", "node_id": "node-1",
+        "producer_kind": RuntimeProducerKind.NODE_AGENT.value, "producer_ref": "worker-1",
+        "status": "COMPLETED",
     }
     event = reader.find_r1_attempt_completed(test_run_id="run-1", work_item_id="wi-1", attempt_id="att-1")
     assert event["event_id"] == "evt-1"
     assert event["event_type"] == "ATTEMPT_COMPLETED"
+    assert event["node_id"] == "node-1"
 
 
 def test_reader_fails_closed_on_duplicate_terminal_r1_truth():
