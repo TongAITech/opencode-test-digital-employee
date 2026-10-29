@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -15,6 +16,16 @@ SOURCE = "a" * 40
 
 def _attestation_module():
     return importlib.import_module("rc7_release.rc72_target_linux_attestation")
+
+
+def _bash_path(path):
+    text = str(path)
+    if os.name != "nt":
+        return text
+    return subprocess.check_output(
+        ["bash", "-lc", 'cygpath -u "$1"', "bash", text],
+        text=True,
+    ).strip()
 
 
 def _observation():
@@ -46,7 +57,7 @@ class ExternalVerifier:
 def test_target_probe_script_exists_is_posix_and_contains_no_install_or_self_approval_commands():
     probe = REPO_ROOT / "packaging" / "rc7.2" / "Q3-TARGET-LINUX-PROBE.sh"
     assert probe.is_file()
-    subprocess.run(["bash", "-n", str(probe)], check=True)
+    subprocess.run(["bash", "-n", _bash_path(probe)], check=True)
     text = probe.read_text(encoding="utf-8")
     assert "/etc/os-release" in text
     assert "uname -m" in text
@@ -78,7 +89,7 @@ def test_probe_runs_on_generic_linux_and_emits_observation_only(tmp_path):
     subprocess.run(
         [
             "bash",
-            str(probe),
+            _bash_path(probe),
             "--source-commit",
             SOURCE,
             "--runner-kind",
@@ -86,7 +97,7 @@ def test_probe_runs_on_generic_linux_and_emits_observation_only(tmp_path):
             "--runner-identity",
             "contract-runner",
             "--output",
-            str(output),
+            _bash_path(output),
         ],
         check=True,
         cwd=REPO_ROOT,
