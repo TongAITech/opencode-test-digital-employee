@@ -12,6 +12,8 @@ from typing import Dict, Mapping, Optional, Sequence
 
 SCHEMA = "pfc.aitest.rc7.2.target-linux-reality.v1"
 QUALIFICATION_KIND = "Q3_TARGET_LINUX"
+# Qualification policy invariant: release-layer changes must be covered by the
+# same-head Construction + Q1 + Q2 + Q3 evidence set before checkpointing.
 GENERIC_RUNNER_KIND = "GITHUB_HOSTED_GENERIC"
 TRUSTED_VERIFIER_KINDS = frozenset(
     {
@@ -216,7 +218,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.command != "probe":
         parser.error("command required")
 
-    commit = _source_commit(args.source_commit)
     observation = observe_host(
         source_commit=args.source_commit,
         runner_kind=args.runner_kind,
