@@ -67,6 +67,29 @@ def test_discover_required_runtime_files_covers_every_current_rc72_module() -> N
     assert "rc7_runtime/rc72_official_journey_execution.py" in discovered
 
 
+def test_every_required_rc72_runtime_module_is_copy_tree_package_eligible() -> None:
+    """Catch runtime filenames that the inherited RC7 secret filter would drop.
+
+    rc7_release.package._copy_tree() evaluates paths relative to rc7_runtime,
+    while RC7.2 dynamically requires every rc72_*.py in the source tree.  Those
+    two contracts must never disagree, otherwise exact-lineage Q2 packaging can
+    demand a runtime module that the package copier silently excludes.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    blocked = []
+    for required in discover_required_rc72_runtime_files(repo_root):
+        path = Path(required)
+        assert path.parts and path.parts[0] == "rc7_runtime"
+        runtime_relative = Path(*path.parts[1:])
+        if rc7_package._looks_secret(runtime_relative):
+            blocked.append(required)
+
+    assert blocked == [], (
+        "Required RC7.2 runtime modules would be silently filtered from the "
+        "transport package by the inherited RC7 secret-path guard: %s" % blocked
+    )
+
+
 def test_promote_manifest_rewrites_identity_and_binds_exact_source() -> None:
     required = (
         "rc7_runtime/rc72_domain.py",
