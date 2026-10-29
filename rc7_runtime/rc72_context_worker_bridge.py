@@ -32,12 +32,13 @@ from .dsh_worker_bridge import (
     _SEMANTIC_PAYLOAD_HINTS,
     _compact_artifact_input_projection,
 )
-from .models import Task
+from .models import ContractError, Task
 from .rc72_context_economy import (
     ContextEnvelopeBuilder,
     ExecutionMode,
     SemanticWorkDescriptor,
 )
+from .rc72_retry_context import RetryContextAuditService
 
 
 ContextDescriptorResolver = Callable[[Task], Optional[SemanticWorkDescriptor]]
@@ -53,9 +54,11 @@ class Rc72ContextAwareDshTaskWorkerBridge(DshTaskWorkerBridge):
         *,
         node_policies: Optional[Dict[str, Any]] = None,
         context_descriptor_resolver: Optional[ContextDescriptorResolver] = None,
+        retry_context_audit: Optional[RetryContextAuditService] = None,
     ) -> None:
         super().__init__(control, launcher, node_policies=node_policies)
         self.context_descriptor_resolver = context_descriptor_resolver
+        self.retry_context_audit = retry_context_audit
 
     @staticmethod
     def _validate_descriptor(task: Task, descriptor: SemanticWorkDescriptor) -> None:
@@ -112,6 +115,25 @@ class Rc72ContextAwareDshTaskWorkerBridge(DshTaskWorkerBridge):
             "continue the leased task and use further allowed tools when evidence requires them."
         )
 
+    def _observe_retry_context(
+        self,
+        task: Task,
+        assignment: WorkerAssignment,
+        descriptor: SemanticWorkDescriptor,
+    ) -> Optional[Dict[str, Any]]:
+        audit = self.retry_context_audit
+        if audit is None:
+            return None
+        try:
+            return audit.observe(
+                task=task,
+                attempt_id=assignment.attempt_id,
+                assignment_id=assignment.assignment_id,
+                descriptor=descriptor,
+            )
+        except ContractError as exc:
+            raise DshWorkerBridgeError(str(exc)) from exc
+
     def compile_prompt(self, task: Task, assignment: WorkerAssignment) -> str:
         resolver = self.context_descriptor_resolver
         descriptor = resolver(task) if resolver is not None else None
@@ -123,6 +145,7 @@ class Rc72ContextAwareDshTaskWorkerBridge(DshTaskWorkerBridge):
         if descriptor.execution_mode == ExecutionMode.DETERMINISTIC:
             raise DshWorkerBridgeError("RC72_DETERMINISTIC_WORK_MUST_NOT_COMPILE_LLM_PROMPT")
 
+        retry_context = self._observe_retry_context(task, assignment, descriptor)
         envelope = ContextEnvelopeBuilder.build([descriptor])
         envelope_projection = envelope.as_prompt_projection()
         retry = descriptor.retry_delta
@@ -130,6 +153,8 @@ class Rc72ContextAwareDshTaskWorkerBridge(DshTaskWorkerBridge):
         if retry is not None:
             context_mode = "FULL_CONTEXT_RETRY" if retry.requires_full_context else "RETRY_DELTA"
             envelope_projection["full_context_reason"] = retry.full_context_reason
+        elif retry_context is not None and retry_context.get("observation_status") == "UNKNOWN":
+            context_mode = "RETRY_DELTA_UNKNOWN"
 
         effective_context_refs = tuple(self._effective_context_refs(descriptor))
         artifact_projection = _compact_artifact_input_projection(
@@ -137,6 +162,17 @@ class Rc72ContextAwareDshTaskWorkerBridge(DshTaskWorkerBridge):
             tuple(ref for ref in effective_context_refs if ref.startswith("ART-")),
         )
         expected_id, expected_type = self.expected_output(task)
+        retry_context_projection = {
+            "observation_status": (
+                retry_context.get("observation_status") if retry_context is not None else "NOT_APPLICABLE"
+            ),
+            "retry_context_id": (
+                retry_context.get("retry_context_id") if retry_context is not None else None
+            ),
+            "parent_attempt_id": (
+                retry_context.get("parent_attempt_id") if retry_context is not None else None
+            ),
+        }
         contract = {
             "mission_id": task.mission_id,
             "task_id": task.task_id,
@@ -168,6 +204,7 @@ class Rc72ContextAwareDshTaskWorkerBridge(DshTaskWorkerBridge):
                 "semantic_cost_class": descriptor.semantic_cost_class.value,
                 "batch_eligible": bool(descriptor.batch_eligible),
                 "context_sha256": envelope.context_sha256,
+                "retry_context": retry_context_projection,
             },
             "expected_output": {
                 "artifact_id": expected_id,
