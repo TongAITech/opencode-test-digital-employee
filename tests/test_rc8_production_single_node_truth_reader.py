@@ -39,13 +39,13 @@ def _seed(store, ledger):
         ))
         session.add(ArtifactMetadataRow(
             artifact_id="art-1", test_run_id="run-1", work_item_id="wi-1", node_id="node-1",
-            kind="SCOPE_EVIDENCE", producer_kind="NODE", producer_ref="worker-1", file_name="scope.json",
-            sha256="a" * 64, size_bytes=2, availability="AVAILABLE", case_id=None, attempt_id="att-1",
-            step_id=None, refs=[], metadata_json={}, created_at=2,
+            kind="SCOPE_EVIDENCE", producer_kind=RuntimeProducerKind.NODE_AGENT.value, producer_ref="worker-1",
+            file_name="scope.json", sha256="a" * 64, size_bytes=2, availability="AVAILABLE", case_id=None,
+            attempt_id="att-1", step_id=None, refs=[], metadata_json={}, created_at=2,
         ))
     ledger.append_runtime(runtime_event(
         event_id="evt-1", test_run_id="run-1", work_item_id="wi-1", node_id="node-1",
-        producer_kind=RuntimeProducerKind.NODE, producer_ref="worker-1",
+        producer_kind=RuntimeProducerKind.NODE_AGENT, producer_ref="worker-1",
         event_type="ATTEMPT_COMPLETED", sequence=1, attempt_id="att-1", occurred_at=2,
     ))
 
@@ -72,7 +72,7 @@ def test_reader_fails_closed_on_duplicate_terminal_r1_truth():
     _seed(store, ledger)
     ledger.append_runtime(runtime_event(
         event_id="evt-2", test_run_id="run-1", work_item_id="wi-1", node_id="node-1",
-        producer_kind=RuntimeProducerKind.NODE, producer_ref="worker-1",
+        producer_kind=RuntimeProducerKind.NODE_AGENT, producer_ref="worker-1",
         event_type="ATTEMPT_COMPLETED", sequence=2, attempt_id="att-1", occurred_at=3,
     ))
 
