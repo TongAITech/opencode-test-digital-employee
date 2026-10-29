@@ -87,6 +87,12 @@ class SingleNodeFullLoopProofRunner:
             artifact_ref = str(result.get("artifact_ref") or "").strip()
             if not attempt_id:
                 raise SingleNodeFullLoopProofError("FULL_LOOP_ATTEMPT_EVIDENCE_MISSING:%s" % expected)
+            # Production Center defines the active lease as the immutable Attempt
+            # identity. Every canonical Stage worker follows attempt_id=lease_id.
+            # Reject a worker result that splices evidence from another Attempt
+            # even when both identities are individually unique and durable.
+            if attempt_id != lease_id:
+                raise SingleNodeFullLoopProofError("FULL_LOOP_ATTEMPT_LEASE_IDENTITY_MISMATCH:%s" % expected)
             if not artifact_ref.startswith("artifact:"):
                 raise SingleNodeFullLoopProofError("FULL_LOOP_ARTIFACT_EVIDENCE_MISSING:%s" % expected)
             observed.append(actual)
