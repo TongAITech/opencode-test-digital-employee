@@ -31,6 +31,29 @@ class SingleNodeDurableIntegrationProof:
     release_status: str = "HOLD"
 
 
+def assert_production_dispatcher_topology(
+    dispatcher: AutonomousWorkerDispatcher,
+    *,
+    required_stages: Sequence[str] = FROZEN_N1_N10_STAGES,
+) -> None:
+    """Reject a production-shaped dispatcher that cannot execute the frozen denominator.
+
+    isinstance checks alone are insufficient: an AutonomousWorkerDispatcher can be
+    constructed with a subset of workers.  Such a dispatcher must never enter the
+    SINGLE_NODE production proof because Center would simply never lease the missing
+    stages and a partial traversal could be mistaken for a production topology.
+    """
+    expected = tuple(sorted(str(stage).strip() for stage in required_stages))
+    actual = tuple(sorted(dispatcher.supported_stages))
+    if actual != expected:
+        missing = tuple(stage for stage in expected if stage not in actual)
+        extra = tuple(stage for stage in actual if stage not in expected)
+        raise RuntimeError(
+            "FULL_LOOP_PRODUCTION_STAGE_TOPOLOGY_MISMATCH:missing=%s:extra=%s"
+            % (",".join(missing), ",".join(extra))
+        )
+
+
 class SingleNodeDurableIntegrationProofRunner:
     """Run dispatcher traversal, then verify the exact traversal in durable truth.
 
@@ -52,6 +75,7 @@ class SingleNodeDurableIntegrationProofRunner:
                 raise RuntimeError("FULL_LOOP_PRODUCTION_DISPATCHER_REQUIRED")
             if not isinstance(getattr(dispatcher, "claimant", None), AutonomousClaimClient):
                 raise RuntimeError("FULL_LOOP_PRODUCTION_CLAIM_CLIENT_REQUIRED")
+            assert_production_dispatcher_topology(dispatcher, required_stages=required_stages)
             if not isinstance(truth_reader, ProductionCenterR1TruthReader):
                 raise RuntimeError("FULL_LOOP_PRODUCTION_TRUTH_READER_REQUIRED")
         self.production_components_verified = bool(require_production_components)
