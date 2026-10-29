@@ -1,6 +1,6 @@
 # RC7.2 Construction Contract
 
-Status: FROZEN CONSTRUCTION CONTRACT
+Status: FROZEN CONSTRUCTION CONTRACT — AMENDED BY `09-MISSION-COMPLETION-FIRST-MODEL-ECONOMY-DESIGN.md`
 
 ## 1. Contract purpose
 
@@ -20,6 +20,8 @@ The following are MUST NOT CHANGE without a prior design-baseline commit:
 8. Browser write ownership is exclusive.
 9. Provider failures are infrastructure conditions, not SUT failures.
 10. No PASS without evidence.
+11. **Mission completion and test sufficiency outrank model/token economy. Model economy may optimize HOW/WHEN/CONTEXT/BATCH/MODEL, but MUST NOT reduce WHAT MUST BE TESTED, delete mandatory TestObligations, suppress required L1-L7 work, fabricate PASS, or converge N10 to save quota.**
+12. **Business task granularity, scheduling granularity, ExecutionBatch granularity and model-call granularity are distinct. Fine ETU/WorkItem decomposition MUST NOT imply one fresh full-context LLM call per WorkItem.**
 
 ## 3. Required implementation phases
 
@@ -118,6 +120,27 @@ Exit gate: 92% target may influence priority and back-edge routing but cannot cr
 Implement Teaching capture, Journey Compiler, Candidate, Replay, Benchmark, Human Review and official L4/L5 Journey asset consumption.
 
 Exit gate: official Journey has ReleaseBatch/Requirement/SST/Obligation lineage and can be replayed by a worker with isolated browser ownership.
+
+### Phase 10 — Mission-Completion-First Model Economy
+
+Implement the design baseline in `09-MISSION-COMPLETION-FIRST-MODEL-ECONOMY-DESIGN.md` without changing the business task root or N1-N10 semantics.
+
+Required slices:
+
+```text
+A. R1 model-call usage + decision telemetry
+B. explicit bank-local cost-window policy
+C. soft budget/warning/replan semantics
+D. hard waste guards only for invalid/duplicate/no-progress behavior
+E. deterministic-first execution/evaluation
+F. minimum ContextEnvelope + retry-delta behavior
+G. ExecutionBatch/EvaluatorBatch with per-WorkItem lineage
+H. Q7 dual outcome: mission completion + model economy
+```
+
+Exit gate requires repository tests proving token/cost pressure cannot delete or silently block mandatory test scope solely for economy, while deterministic misuse and no-progress repeated-context loops remain fail-closed.
+
+Field savings are not complete until equivalent real ReleaseBatch scope is measured in-bank.
 
 ## 4. Required commit discipline
 
@@ -240,6 +263,38 @@ NodeDelivery cannot be committed as complete if MissionNode/WorkItem/Attempt/lea
 
 Coverage target alone is insufficient to mark ReleaseBatch CONVERGED when mandatory Requirement/SST/Obligation/L1-L7/defect/evidence gates fail.
 
+### CT-19 Mission completion outranks token target
+
+Crossing a configured model/token warning threshold MUST NOT by itself delete, PASS, skip or permanently block a mandatory WorkItem. The runtime must record warning/replan/defer decisions and preserve incomplete mission truth.
+
+### CT-20 Cost-window policy
+
+With explicit `Asia/Shanghai` bank-local time, normal workday time uses cost factor 1.0, 18:00-21:00 uses 0.1 quota-equivalent factor, and >=21:00 is quota-unlimited. Machine-local timezone MUST NOT change classification.
+
+### CT-21 Critical-path override
+
+A `BLOCKING` semantic WorkItem may proceed during an expensive window when it is required for mission progress; a `NON_BLOCKING` high-cost semantic unit may be deferred without deleting its requirement.
+
+### CT-22 Deterministic-first
+
+A deterministic step attempting an LLM call is rejected. Equivalent DB/API/CAT/CodeGraph/R1/tool work remains executable without a model call.
+
+### CT-23 Waste guard
+
+Exact same-context or retry-with-no-progress loops beyond configured guard are hard-blocked and replanned; the owning WorkItem remains incomplete rather than being silently dropped.
+
+### CT-24 Unknown usage truth
+
+Missing provider usage is recorded `UNKNOWN`, never zero/MEASURED. UNKNOWN blocks measured economy qualification but does not automatically cancel mandatory mission execution.
+
+### CT-25 Batch lineage
+
+ExecutionBatch/EvaluatorBatch preserves independent WorkItem/Attempt status, actual result, assertion result, evidence and gap lineage for every batch member.
+
+### CT-26 Retry delta
+
+Retry context defaults to prior attempt summary + explicit gap + delta evidence/changed refs. Unchanged full upstream context is not resent without an explicit full-context reason.
+
 ## 7. Required platform qualification
 
 RC7.2 Definition of Done requires:
@@ -272,6 +327,10 @@ The following are explicit contract violations:
 11. Fixed-size rounds used as the main task decomposition model.
 12. Declaring N1-N10 implemented because prompt text names N1-N10.
 13. Declaring Field capability based only on CI simulation.
+14. **Using token quota/cost as justification to reduce mandatory TestObligations, L1-L7 scope, cases, assertions, evidence or defect/RCA/regression work.**
+15. **Equating one fine WorkItem with one fresh full-context model call as a mandatory architecture rule.**
+16. **Treating a Token Budget as a Mission kill-switch for otherwise legitimate mandatory testing.**
+17. **Reporting guessed/character-estimated token counts as measured provider usage.**
 
 ## 9. Field acceptance scenario
 
@@ -306,7 +365,11 @@ Field acceptance must deliberately exercise at least:
 - Browser conflict;
 - Provider quota/auth failure;
 - genuine product failure/defect path;
-- Captain/session handoff.
+- Captain/session handoff;
+- model-economy telemetry with real usage when provider emits it;
+- cost-window classification;
+- at least one retry-delta or context-reuse path;
+- proof that economy policy did not reduce mandatory test scope.
 
 ## 10. RC7.2 release acceptance metrics
 
@@ -329,6 +392,10 @@ H. Provider failure does not lose Mission truth.
 I. A fresh Captain can resume from R1.
 
 J. N10 can explain with evidence why the ReleaseBatch is or is not ready for production.
+
+K. Model/token economy is reported separately from mission completion using measured/UNKNOWN truth; no budget threshold may manufacture mission completion.
+
+L. Equivalent-scope field measurements, not guesses, are required before claiming percentage token savings.
 
 ## 11. Definition of Done
 
@@ -368,3 +435,23 @@ one Captain
 ```
 
 it is an architecture regression even if coverage or CI numbers look good. Such a build MUST NOT be accepted as RC7.2 completion.
+
+The same applies if model economy regresses into either extreme:
+
+```text
+one fine WorkItem = one full-context LLM call
+```
+
+or
+
+```text
+save quota by deleting/coarsening mandatory test work
+```
+
+Both are construction-contract violations.
+
+## 13. Model-economy amendment authority
+
+`09-MISSION-COMPLETION-FIRST-MODEL-ECONOMY-DESIGN.md` is the governing design baseline for model/token economy. Where the older `08-TOKEN-ECONOMY-Q7-ADMISSION.md` or existing code treats ordinary Mission budget exhaustion as a hard stop, construction MUST migrate that behavior to the mission-completion-first semantics defined here and in design 09.
+
+Hard blocking remains valid only for correctness/waste guards such as deterministic misuse, invalid lineage required for safe attribution, exact duplicate/no-progress loops, invalid provider/capability assignment, or other conditions where continuing the same call would not validly advance the Mission.
