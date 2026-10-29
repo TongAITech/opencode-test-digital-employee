@@ -22,16 +22,17 @@ class SequencedProductionDispatcherDouble:
     def run_once(self, *, test_run_id=None):
         self.test_run_ids.append(test_run_id)
         stage = self._stages[self._index]
+        lease_id = "lease-%02d" % self._index
         result = {
             "status": "COMPLETED",
-            "attempt_id": "attempt-%02d" % self._index,
+            "attempt_id": lease_id,
             "artifact_ref": "artifact:evidence-%02d" % self._index,
         }
         outcome = DispatchOutcome(
             status="EXECUTED",
             stage=stage,
             work_item_id="wi-%02d" % self._index,
-            lease_id="lease-%02d" % self._index,
+            lease_id=lease_id,
             stage_instance_id="stage-instance-%02d" % self._index,
             result=result,
         )
@@ -49,6 +50,7 @@ def test_full_loop_runner_freezes_denominator_and_never_grants_pass_or_release()
     assert len(proof.lease_ids) == 15
     assert len(proof.stage_instance_ids) == 15
     assert len(proof.attempt_ids) == 15
+    assert proof.attempt_ids == proof.lease_ids
     assert len(proof.evidence_refs) == 15
     assert proof.status == "OBSERVED_NOT_AUTHORIZED"
     assert proof.bank_reality_verified is False
@@ -95,7 +97,10 @@ def test_full_loop_runner_requires_distinct_claim_identity() -> None:
         SingleNodeFullLoopProofRunner(dispatcher=SequencedProductionDispatcherDouble(mutate=reused_work_item)).run(test_run_id="TR")
 
     def reused_lease(index, outcome):
-        return DispatchOutcome(status=outcome.status, stage=outcome.stage, work_item_id=outcome.work_item_id, lease_id="lease-00", stage_instance_id=outcome.stage_instance_id, result=outcome.result) if index == 1 else outcome
+        if index == 1:
+            result = dict(outcome.result); result["attempt_id"] = "lease-00"
+            return DispatchOutcome(status=outcome.status, stage=outcome.stage, work_item_id=outcome.work_item_id, lease_id="lease-00", stage_instance_id=outcome.stage_instance_id, result=result)
+        return outcome
     with pytest.raises(SingleNodeFullLoopProofError, match="FULL_LOOP_LEASE_ID_REUSED"):
         SingleNodeFullLoopProofRunner(dispatcher=SequencedProductionDispatcherDouble(mutate=reused_lease)).run(test_run_id="TR")
 
@@ -113,6 +118,14 @@ def test_full_loop_runner_requires_attempt_bound_canonical_artifact_evidence() -
         return outcome
     with pytest.raises(SingleNodeFullLoopProofError, match="FULL_LOOP_ATTEMPT_EVIDENCE_MISSING:CODE_SUFFICIENCY"):
         SingleNodeFullLoopProofRunner(dispatcher=SequencedProductionDispatcherDouble(mutate=no_attempt)).run(test_run_id="TR")
+
+    def mismatched_attempt(index, outcome):
+        if index == 6:
+            result = dict(outcome.result); result["attempt_id"] = "lease-from-another-claim"
+            return DispatchOutcome(status=outcome.status, stage=outcome.stage, work_item_id=outcome.work_item_id, lease_id=outcome.lease_id, stage_instance_id=outcome.stage_instance_id, result=result)
+        return outcome
+    with pytest.raises(SingleNodeFullLoopProofError, match="FULL_LOOP_ATTEMPT_LEASE_IDENTITY_MISMATCH:TEST_DESIGN"):
+        SingleNodeFullLoopProofRunner(dispatcher=SequencedProductionDispatcherDouble(mutate=mismatched_attempt)).run(test_run_id="TR")
 
     def stale_ref(index, outcome):
         if index == 7:
