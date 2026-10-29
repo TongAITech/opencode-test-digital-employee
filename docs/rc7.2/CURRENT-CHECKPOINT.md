@@ -56,35 +56,9 @@ bank_final: NO
 next_atomic_step: IMPLEMENT_RC72_PLATFORM_QUALIFICATION_EVIDENCE_AND_GREEN_Q1
 ```
 
-## Phase 9 completed repository chain
-
-```text
-Human Teaching Capture
- -> Journey Compiler / Candidate IR
- -> Replay under canonical Attempt + WRITE BrowserLease
- -> persisted Replay Actual/Evidence
- -> Benchmark with explicit persisted policy
- -> Field-vs-contract replay distinction
- -> trusted Human attestation verification
- -> separate Official Journey Asset
- -> L4/L5 Worker consumption under isolated WRITE BrowserLease
- -> persisted execution Actual/Evidence
-```
-
-Repository CI proves the orchestration/contracts only. It does **not** prove:
-
-- real in-bank BSK/CDP capture/replay;
-- a real bank Human Approval verifier/attestation source;
-- Windows clean-unpack qualification for RC7.2;
-- target Linux qualification;
-- clean-unpack/offline package qualification;
-- a real in-bank ReleaseBatch N1-N10 mission;
-- the required injected/real Field gap scenarios;
-- BANK_FINAL readiness.
-
 ## Qualification baseline
 
-The qualification contract is now frozen in:
+The qualification contract is frozen in:
 
 - `07-PLATFORM-QUALIFICATION-AND-FIELD-ACCEPTANCE-CONTRACT.md`
 - `.github/workflows/rc7.2-platform-qualification.yml`
@@ -99,8 +73,6 @@ The Linux GitHub-hosted runner is explicitly **not** target 信创 Linux Field e
 
 ## Next stage — do not add another architecture phase
 
-The next work is qualification/integration, not Phase 10 feature construction:
-
 1. implement the Q1 structured evidence module and turn the frozen Q1 RED contract GREEN;
 2. run same-HEAD Windows/Linux engineering source qualification;
 3. qualify Windows clean-unpack package;
@@ -109,9 +81,9 @@ The next work is qualification/integration, not Phase 10 feature construction:
 6. connect and verify real Browser/BSK Field adapter;
 7. connect and verify real bank Human Approval verifier;
 8. run a real ReleaseBatch Field mission through N1-N10;
-9. deliberately exercise ANALYSIS_GAP, TEST_DESIGN_GAP, TEST_DATA_GAP, ENVIRONMENT_GAP, CAPABILITY_GAP, Browser conflict, provider quota/auth, genuine product failure and Captain/session handoff;
-10. only after evidence is persisted in R1 may Field status be advanced.
+9. exercise required gap/recovery scenarios;
+10. persist Field evidence in R1 before advancing readiness.
 
-Until those steps are complete, the correct status is:
+Until those steps are complete:
 
 > **RC7.2 repository construction CI_PASS; platform qualification in progress; Field validation pending; BANK_FINAL = NO.**
