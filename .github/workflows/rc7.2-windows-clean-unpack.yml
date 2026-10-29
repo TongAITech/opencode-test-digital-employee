@@ -1,0 +1,107 @@
+name: RC7.2 Q2 Windows Clean Unpack
+
+on:
+  push:
+    branches:
+      - work/rc7.2
+    paths:
+      - 'rc7_release/**'
+      - 'rc7_runtime/rc72_*.py'
+      - 'packaging/rc7.2/**'
+      - 'tests/test_rc72_windows_clean_unpack_contract.py'
+      - '.github/workflows/rc7.2-windows-clean-unpack.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  q2a-windows-clean-unpack:
+    name: q2a-windows-clean-unpack-python-3.8
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact RC7.2 source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+
+      - name: Install contract-test dependency
+        run: python -m pip install --disable-pip-version-check pytest
+
+      - name: Freeze Q2-A package identity contract
+        run: python -m pytest -q tests/test_rc72_windows_clean_unpack_contract.py --junitxml=rc72-q2a-contract.xml
+
+      - name: Build exact-lineage RC7.2 Windows package
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'rc72-q2-build'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          python -m rc7_release.rc72_package build --repo-root . --output $out --source-commit $env:GITHUB_SHA
+
+          $zips = @(Get-ChildItem -Path $out -Filter 'PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10-*.zip')
+          if ($zips.Count -ne 1) { throw "Expected exactly one RC7.2 zip, found $($zips.Count)" }
+          $zip = $zips[0]
+          $sidecar = "$($zip.FullName).sha256"
+          if (-not (Test-Path $sidecar)) { throw 'RC7.2 zip SHA sidecar missing' }
+          $expected = ((Get-Content $sidecar -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          $actual = (Get-FileHash -Algorithm SHA256 -Path $zip.FullName).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw 'RC7.2 transport SHA mismatch' }
+
+          "RC72_Q2_ZIP=$($zip.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "RC72_Q2_ZIP_SHA=$actual" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Delete build root and cleanly re-extract transport
+        shell: pwsh
+        run: |
+          $buildOut = Split-Path -Parent $env:RC72_Q2_ZIP
+          Get-ChildItem -Path $buildOut -Directory | Remove-Item -Recurse -Force
+
+          $clean = Join-Path $env:RUNNER_TEMP 'rc72-q2-clean'
+          if (Test-Path $clean) { Remove-Item -Recurse -Force $clean }
+          New-Item -ItemType Directory -Force -Path $clean | Out-Null
+          Expand-Archive -Path $env:RC72_Q2_ZIP -DestinationPath $clean -Force
+
+          $roots = @(Get-ChildItem -Path $clean -Directory)
+          if ($roots.Count -ne 1) { throw "Expected exactly one clean package root, found $($roots.Count)" }
+          $root = $roots[0].FullName
+          $pkgPython = Join-Path $root 'workspace-template\runtime\python\python.exe'
+          if (-not (Test-Path $pkgPython)) { throw 'Package-local Python missing after clean extract' }
+
+          "RC72_Q2_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "RC72_Q2_PYTHON=$pkgPython" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Verify from clean package-local runtime only
+        shell: pwsh
+        run: |
+          Push-Location $env:RC72_Q2_ROOT
+          try {
+            $env:PYTHONPATH = ''
+            $env:PYTHONNOUSERSITE = '1'
+            & $env:RC72_Q2_PYTHON -m rc7_release.rc72_package verify --package-root $env:RC72_Q2_ROOT --expected-source-commit $env:GITHUB_SHA | Tee-Object -FilePath rc72-q2a-verify.json
+            if ($LASTEXITCODE -ne 0) { throw 'RC7.2 clean package verification failed' }
+
+            & $env:RC72_Q2_PYTHON -c "import glob,importlib,os; files=sorted(glob.glob('rc7_runtime/rc72_*.py')); assert files; [importlib.import_module('rc7_runtime.'+os.path.splitext(os.path.basename(p))[0]) for p in files]; print('RC72_PACKAGE_LOCAL_IMPORTS_PASS', len(files))" | Tee-Object -FilePath rc72-q2a-imports.txt
+            if ($LASTEXITCODE -ne 0) { throw 'RC7.2 package-local module import failed' }
+          }
+          finally {
+            Pop-Location
+          }
+
+      - name: Upload Q2-A clean-unpack evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc72-q2a-windows-clean-unpack-${{ github.sha }}
+          path: |
+            rc72-q2a-contract.xml
+            ${{ env.RC72_Q2_ZIP }}
+            ${{ env.RC72_Q2_ZIP }}.sha256
+            ${{ env.RC72_Q2_ROOT }}/rc72-q2a-verify.json
+            ${{ env.RC72_Q2_ROOT }}/rc72-q2a-imports.txt
+          if-no-files-found: warn
+          retention-days: 14
