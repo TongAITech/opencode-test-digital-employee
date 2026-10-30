@@ -12,15 +12,19 @@ from rc8_node.single_node_full_loop_proof import (
 
 class SequencedProductionDispatcherDouble:
     """Dispatcher boundary double; proof runner itself consumes production DispatchOutcome."""
-    def __init__(self, stages=FROZEN_N1_N10_STAGES, mutate=None):
+    def __init__(self, stages=FROZEN_N1_N10_STAGES, mutate=None, extra_stage=None):
         self.supported_stages = tuple(stages)
         self._stages = list(stages)
+        if extra_stage is not None:
+            self._stages.append(extra_stage)
         self._index = 0
         self._mutate = mutate
         self.test_run_ids = []
 
     def run_once(self, *, test_run_id=None):
         self.test_run_ids.append(test_run_id)
+        if self._index >= len(self._stages):
+            return DispatchOutcome(status="IDLE")
         stage = self._stages[self._index]
         lease_id = "lease-%02d" % self._index
         result = {
@@ -55,7 +59,14 @@ def test_full_loop_runner_freezes_denominator_and_never_grants_pass_or_release()
     assert proof.status == "OBSERVED_NOT_AUTHORIZED"
     assert proof.bank_reality_verified is False
     assert proof.release_status == "HOLD"
-    assert dispatcher.test_run_ids == ["TR-SINGLE-N1-N10"] * 15
+    assert dispatcher.test_run_ids == ["TR-SINGLE-N1-N10"] * 16
+
+
+def test_full_loop_runner_rejects_extra_claimable_work_after_frozen_denominator() -> None:
+    dispatcher = SequencedProductionDispatcherDouble(extra_stage="REPORT_RELEASE")
+    with pytest.raises(SingleNodeFullLoopProofError, match="FULL_LOOP_EXTRA_CLAIMABLE_WORK:REPORT_RELEASE"):
+        SingleNodeFullLoopProofRunner(dispatcher=dispatcher).run(test_run_id="TR")
+    assert dispatcher.test_run_ids == ["TR"] * 16
 
 
 def test_full_loop_runner_rejects_missing_real_worker_denominator() -> None:
