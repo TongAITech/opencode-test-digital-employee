@@ -66,9 +66,10 @@ def _boundary_double_runner(*, stale=False):
     )
 
 
-def test_dispatcher_observation_and_durable_truth_are_one_fail_closed_gate():
+def test_boundary_double_is_explicitly_not_a_production_proof():
     proof = _boundary_double_runner().run(test_run_id="run-1")
-    assert proof.status == "DURABLE_INTEGRATION_VERIFIED_NOT_AUTHORIZED"
+    assert proof.status == "BOUNDARY_DOUBLE_VERIFIED_NOT_PRODUCTION_PROOF"
+    assert proof.production_components_verified is False
     assert proof.observed.work_item_ids == ("wi-1",)
     assert proof.observed.lease_ids == ("lease-1",)
     assert proof.observed.stage_instance_ids == ("stage-instance-1",)
