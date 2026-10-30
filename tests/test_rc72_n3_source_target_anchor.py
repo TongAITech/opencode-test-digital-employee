@@ -64,7 +64,9 @@ def test_n3_raw_dsh_attempt_is_sha256_anchored_without_promoting_source_truth(tm
     assert anchor["attempt_id"] == attempt["attempt_id"]
     assert anchor["dsh_session_id"] == attempt["dsh_session_id"]
     assert anchor["raw_output_sha256"] == expected_hash
-    assert anchor["raw_output_ref"] == "file://" + str(raw_path.resolve())
+    assert anchor["raw_output_ref"].startswith("file://")
+    anchor_path = Path(anchor["raw_output_ref"][len("file://"):])
+    assert anchor_path.resolve() == raw_path.resolve()
     assert anchor["candidate_schema"] == "RC72_N3_SOURCE_TARGET_CANDIDATE_V1"
     for forbidden in (
         "targets", "repository_ref", "source_revision", "target_id",
