@@ -83,9 +83,9 @@ class SingleNodeDurableIntegrationProofRunner:
     """Run dispatcher traversal, then verify the exact traversal in durable truth.
 
     Production component identity is intentionally distinct from production causality.
-    Until a harness proves that Center claim/lease plus the real workers created the
-    durable records (rather than observing pre-seeded truth), this gate MUST keep
-    production_causality_verified false and cannot represent the full-loop proof.
+    A production traversal now also starts with a durable-attempt preflight so
+    pre-seeded Attempts cannot be stitched to later claim observations. This is a
+    necessary causality condition, not sufficient authority to promote the proof.
     """
 
     def __init__(self, *, dispatcher: Any, truth_reader: Any, required_stages: Sequence[str] = FROZEN_N1_N10_STAGES, require_production_components: bool = True) -> None:
@@ -102,6 +102,7 @@ class SingleNodeDurableIntegrationProofRunner:
             if not expected_node_id:
                 raise RuntimeError("FULL_LOOP_PRODUCTION_NODE_ID_REQUIRED")
         self.production_components_verified = bool(require_production_components)
+        self.truth_reader = truth_reader
         self.observer = SingleNodeFullLoopProofRunner(
             dispatcher=dispatcher,
             required_stages=required_stages,
@@ -110,6 +111,10 @@ class SingleNodeDurableIntegrationProofRunner:
         self.verifier = SingleNodeCenterTruthVerifier(truth_reader=truth_reader, expected_node_id=expected_node_id)
 
     def run(self, *, test_run_id: str) -> SingleNodeDurableIntegrationProof:
+        if self.production_components_verified:
+            # This must happen immediately before the first production claim. A
+            # pre-existing Attempt proves the run is not a fresh causality fixture.
+            self.truth_reader.assert_no_attempts_for_test_run(test_run_id)
         observed = self.observer.run(test_run_id=test_run_id)
         durable = self.verifier.verify(observed)
         if durable.verified_work_items != observed.work_item_ids:
