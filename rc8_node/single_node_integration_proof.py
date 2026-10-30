@@ -102,7 +102,11 @@ class SingleNodeDurableIntegrationProofRunner:
             if not expected_node_id:
                 raise RuntimeError("FULL_LOOP_PRODUCTION_NODE_ID_REQUIRED")
         self.production_components_verified = bool(require_production_components)
-        self.observer = SingleNodeFullLoopProofRunner(dispatcher=dispatcher, required_stages=required_stages)
+        self.observer = SingleNodeFullLoopProofRunner(
+            dispatcher=dispatcher,
+            required_stages=required_stages,
+            require_center_claim_provenance=bool(require_production_components),
+        )
         self.verifier = SingleNodeCenterTruthVerifier(truth_reader=truth_reader, expected_node_id=expected_node_id)
 
     def run(self, *, test_run_id: str) -> SingleNodeDurableIntegrationProof:
