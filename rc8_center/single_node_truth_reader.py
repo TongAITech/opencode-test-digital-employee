@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from sqlalchemy import select
+
 from rc8_runtime.r1_runtime import CentralR1RuntimeLedger
 
 from .infrastructure.postgres import AttemptRow, PostgresStore
@@ -31,6 +33,26 @@ class ProductionCenterR1TruthReader:
         self.r1_ledger = r1_ledger
         self.center_repository = PostgresCenterRepository(store)
         self.artifact_repository = PostgresArtifactRepository(store)
+
+    def assert_no_attempts_for_test_run(self, test_run_id: str) -> None:
+        """Fail closed when durable Attempts predate a production traversal.
+
+        A production-causality proof must start before workers create Attempts;
+        otherwise a pre-seeded durable fixture can be stitched to later claim
+        observations. WorkItems may already exist because Center must have work
+        to claim, but Attempts are worker-produced truth and must be absent.
+        """
+        run_id = str(test_run_id or "").strip()
+        if not run_id:
+            raise ProductionTruthReaderError("TEST_RUN_ID_REQUIRED")
+        with self.store.session() as session:
+            attempt_id = session.execute(
+                select(AttemptRow.attempt_id).where(AttemptRow.test_run_id == run_id).limit(1)
+            ).scalar_one_or_none()
+        if attempt_id is not None:
+            raise ProductionTruthReaderError(
+                "PRODUCTION_CAUSALITY_PREFLIGHT_ATTEMPT_ALREADY_EXISTS:%s" % attempt_id
+            )
 
     def get_work_item(self, work_item_id: str) -> Optional[Dict[str, Any]]:
         value = self.center_repository.get_work_item(work_item_id)
