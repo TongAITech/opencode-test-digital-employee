@@ -4,6 +4,14 @@ Workers never hand Python objects directly to acceptance gates. The DSH bridge
 persists a canonical envelope, hashes the exact bytes, and records that file as
 an RC7 Artifact. Evaluators use this reader so a modified/missing/non-file
 candidate cannot be silently accepted after worker handoff.
+
+RC7.2 also hardens inherited DSH final-JSON extraction.  The legacy parser
+returns the *last* decodable JSON object found in text.  That works for flat
+payloads, but a governed candidate such as ``{"facts": {...}}`` can therefore
+collapse to the innermost nested object.  The compatibility hook below only
+intercepts the explicit RC7.2 candidate contract (status/facts/unknowns/gaps),
+selects the outer contract object, and otherwise delegates unchanged to the
+inherited parser.
 """
 
 from __future__ import annotations
@@ -12,9 +20,82 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Mapping, Optional
 
+from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
 from rc6_runtime.truth import TruthRuntime
+
+
+_RC72_CANDIDATE_KEYS = frozenset(("status", "facts", "unknowns", "gaps"))
+
+
+def _event_text_values(event: Mapping[str, Any]) -> Iterable[str]:
+    """Yield text-bearing fields without inventing a new DSH event schema."""
+    for key in ("text", "content", "output", "result"):
+        value = event.get(key)
+        if isinstance(value, str) and value.strip():
+            yield value
+    message = event.get("message")
+    if isinstance(message, Mapping):
+        for key in ("text", "content", "output"):
+            value = message.get(key)
+            if isinstance(value, str) and value.strip():
+                yield value
+
+
+def _rc72_contract_candidate(events: Iterable[Mapping[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Return the outer RC7.2 candidate contract, never an inner facts object."""
+    decoder = json.JSONDecoder()
+    texts = []
+    for event in events:
+        if isinstance(event, Mapping):
+            texts.extend(_event_text_values(event))
+
+    # Prefer later DSH output while, within each text value, preferring the
+    # earliest object that satisfies the complete top-level contract.  This is
+    # the inverse of the legacy "last nested object wins" behavior.
+    for text in reversed(texts):
+        stripped = text.strip()
+        try:
+            exact = json.loads(stripped)
+        except (TypeError, ValueError):
+            exact = None
+        if isinstance(exact, dict) and _RC72_CANDIDATE_KEYS.issubset(exact):
+            return dict(exact)
+
+        for index, char in enumerate(text):
+            if char != "{":
+                continue
+            try:
+                value, _end = decoder.raw_decode(text[index:])
+            except ValueError:
+                continue
+            if isinstance(value, dict) and _RC72_CANDIDATE_KEYS.issubset(value):
+                return dict(value)
+    return None
+
+
+def install_rc72_dsh_candidate_contract_parser() -> None:
+    """Add an RC7.2 contract-aware front door while preserving legacy fallback."""
+    marker = "_rc72_candidate_contract_parser_installed"
+    if getattr(DshHeadlessWorkerLauncher, marker, False):
+        return
+
+    inherited = DshHeadlessWorkerLauncher._final_json
+
+    def _contract_aware_final_json(events):
+        candidate = _rc72_contract_candidate(events)
+        if candidate is not None:
+            return candidate
+        return inherited(events)
+
+    DshHeadlessWorkerLauncher._final_json = staticmethod(_contract_aware_final_json)
+    setattr(DshHeadlessWorkerLauncher, marker, True)
+
+
+# candidate_payload is imported by the RC7 package bootstrap before RC7.2
+# completion services run, so every RC7.2 DSH handoff uses the hardened parser.
+install_rc72_dsh_candidate_contract_parser()
 
 
 class CandidatePayloadError(RuntimeError):
