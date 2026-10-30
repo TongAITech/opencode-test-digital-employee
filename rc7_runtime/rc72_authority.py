@@ -19,6 +19,7 @@ from rc6_runtime.authority import AuthorityError, AuthorityRuntime, TaskLease, W
 REALITY_RECON_WORKER = "REALITY_RECON_WORKER"
 REQUIREMENT_ANALYSIS_WORKER = "REQUIREMENT_ANALYSIS_WORKER"
 SOURCE_TARGET_DISCOVERY_WORKER = "SOURCE_TARGET_DISCOVERY_WORKER"
+SOURCE_TARGET_REVIEWER = "SOURCE_TARGET_REVIEWER"
 
 
 class RC72AuthorityRuntime(AuthorityRuntime):
@@ -27,12 +28,13 @@ class RC72AuthorityRuntime(AuthorityRuntime):
     _ROLE_ARTIFACTS = {
         role: set(artifacts) for role, artifacts in AuthorityRuntime._ROLE_ARTIFACTS.items()
     }
-    # MissionNode workers may invoke leased tools and return candidate handoffs,
-    # but cannot directly author canonical business artifacts. NodeDelivery
-    # admission remains an RC7.2 control-plane responsibility.
+    # MissionNode workers/reviewers may invoke leased tools and return candidate
+    # handoffs/review decisions, but cannot directly author canonical business
+    # artifacts. Acceptance remains a runtime-owned deterministic responsibility.
     _ROLE_ARTIFACTS[REALITY_RECON_WORKER] = set()
     _ROLE_ARTIFACTS[REQUIREMENT_ANALYSIS_WORKER] = set()
     _ROLE_ARTIFACTS[SOURCE_TARGET_DISCOVERY_WORKER] = set()
+    _ROLE_ARTIFACTS[SOURCE_TARGET_REVIEWER] = set()
 
     def adopt_identity(
         self,
