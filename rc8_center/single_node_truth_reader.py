@@ -115,13 +115,32 @@ class ProductionCenterR1TruthReader:
                 "producer_ref": value.producer_ref,
                 "status": "COMPLETED" if value.availability.value == "AVAILABLE" else value.availability.value}
 
-    def find_r1_attempt_completed(self, *, test_run_id: str, work_item_id: str, attempt_id: str) -> Optional[Dict[str, Any]]:
+    def _find_unique_r1_attempt_event(
+        self, *, event_type: str, test_run_id: str, work_item_id: str, attempt_id: str
+    ) -> Optional[Dict[str, Any]]:
         matches = []
         for event in self.r1_ledger.runtime_events(test_run_id=test_run_id, work_item_id=work_item_id):
-            if event.get("event_type") == "ATTEMPT_COMPLETED" and event.get("attempt_id") == attempt_id:
+            if event.get("event_type") == event_type and event.get("attempt_id") == attempt_id:
                 matches.append(event)
         if not matches:
             return None
         if len(matches) != 1:
-            raise ProductionTruthReaderError("R1_ATTEMPT_COMPLETED_NOT_UNIQUE:%s" % attempt_id)
+            raise ProductionTruthReaderError("R1_%s_NOT_UNIQUE:%s" % (event_type, attempt_id))
         return dict(matches[0])
+
+    def find_r1_attempt_started(self, *, test_run_id: str, work_item_id: str, attempt_id: str) -> Optional[Dict[str, Any]]:
+        """Find the unique durable R1 start fact for a Center-issued Attempt identity."""
+        return self._find_unique_r1_attempt_event(
+            event_type="ATTEMPT_STARTED",
+            test_run_id=test_run_id,
+            work_item_id=work_item_id,
+            attempt_id=attempt_id,
+        )
+
+    def find_r1_attempt_completed(self, *, test_run_id: str, work_item_id: str, attempt_id: str) -> Optional[Dict[str, Any]]:
+        return self._find_unique_r1_attempt_event(
+            event_type="ATTEMPT_COMPLETED",
+            test_run_id=test_run_id,
+            work_item_id=work_item_id,
+            attempt_id=attempt_id,
+        )
