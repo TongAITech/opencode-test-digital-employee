@@ -13,6 +13,7 @@ on:
       - 'tests/test_rc8_production_single_node_truth_reader.py'
       - 'tests/test_rc8_single_node_durable_truth_integration.py'
       - 'tests/test_rc8_single_node_integration_proof.py'
+      - 'docs/rc8/N1-N10-CONSTRUCTION-PLAN.md'
       - '.github/workflows/rc8-single-node-full-loop-proof.yml'
   workflow_dispatch:
 
