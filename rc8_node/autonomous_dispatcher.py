@@ -28,6 +28,7 @@ class DispatchOutcome:
     lease_id: Optional[str] = None
     stage_instance_id: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
+    claim_truth_note: Optional[str] = None
 
 
 class AutonomousWorkerDispatcher:
@@ -68,7 +69,7 @@ class AutonomousWorkerDispatcher:
             stage_types=self.supported_stages,
         )
         if not claimed.claimed:
-            return DispatchOutcome(status="IDLE")
+            return DispatchOutcome(status="IDLE", claim_truth_note=str(claimed.truth_note or "").strip() or None)
         requested_run_id = str(test_run_id or "").strip()
         if requested_run_id and str(claimed.test_run_id or "").strip() != requested_run_id:
             raise AutonomousDispatcherError("CLAIMED_TEST_RUN_ID_MISMATCH")
@@ -92,6 +93,7 @@ class AutonomousWorkerDispatcher:
             lease_id=str(claimed.lease_id),
             stage_instance_id=str(claimed.stage_instance_id),
             result=result,
+            claim_truth_note=str(claimed.truth_note or "").strip() or None,
         )
 
     def run_forever(
