@@ -1,12 +1,12 @@
 """RC7.2 authority extensions for adopting governed worker identities.
 
 RC7.2 MissionNode scheduling creates a durable worker identity before the real
-DSH process exists.  The inherited AuthorityRuntime only issues random worker
+DSH process exists. The inherited AuthorityRuntime only issues random worker
 identities, so directly calling its normal assignment path would create a
-second worker identity for the same WorkItem.  This additive runtime lets a
+second worker identity for the same WorkItem. This additive runtime lets a
 previously governed RC7.2 worker identity be adopted fail-closed.
 
-Adoption is authority state, not evidence that DSH started.  A real DSH session
+Adoption is authority state, not evidence that DSH started. A real DSH session
 must still be observed separately before MissionNode Attempt truth is admitted.
 """
 from __future__ import annotations
@@ -17,6 +17,7 @@ from rc6_runtime.authority import AuthorityError, AuthorityRuntime, TaskLease, W
 
 
 REALITY_RECON_WORKER = "REALITY_RECON_WORKER"
+REQUIREMENT_ANALYSIS_WORKER = "REQUIREMENT_ANALYSIS_WORKER"
 
 
 class RC72AuthorityRuntime(AuthorityRuntime):
@@ -25,10 +26,11 @@ class RC72AuthorityRuntime(AuthorityRuntime):
     _ROLE_ARTIFACTS = {
         role: set(artifacts) for role, artifacts in AuthorityRuntime._ROLE_ARTIFACTS.items()
     }
-    # Reality Recon may invoke leased tools and return a candidate handoff, but it
-    # cannot directly author canonical business artifacts. NodeDelivery admission
-    # remains an RC7.2 control-plane responsibility.
+    # MissionNode workers may invoke leased tools and return candidate handoffs,
+    # but cannot directly author canonical business artifacts. NodeDelivery
+    # admission remains an RC7.2 control-plane responsibility.
     _ROLE_ARTIFACTS[REALITY_RECON_WORKER] = set()
+    _ROLE_ARTIFACTS[REQUIREMENT_ANALYSIS_WORKER] = set()
 
     def adopt_identity(
         self,
