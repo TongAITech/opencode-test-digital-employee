@@ -6,7 +6,7 @@ plans, UI projections, mocks, or worker return values.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from sqlalchemy import select
 
@@ -53,6 +53,32 @@ class ProductionCenterR1TruthReader:
             raise ProductionTruthReaderError(
                 "PRODUCTION_CAUSALITY_PREFLIGHT_ATTEMPT_ALREADY_EXISTS:%s" % attempt_id
             )
+
+    def attempt_ids_for_test_run(self, test_run_id: str) -> Tuple[str, ...]:
+        """Return the complete durable Attempt identity set for a TestRun.
+
+        Production full-loop proof can compare this post-run set with the
+        Center-issued lease/Attempt identities actually observed during the
+        traversal.  This prevents extra or unrelated durable Attempts from
+        being hidden behind the expected stage results.
+        """
+        run_id = str(test_run_id or "").strip()
+        if not run_id:
+            raise ProductionTruthReaderError("TEST_RUN_ID_REQUIRED")
+        with self.store.session() as session:
+            attempt_ids = tuple(
+                str(value)
+                for value in session.execute(
+                    select(AttemptRow.attempt_id)
+                    .where(AttemptRow.test_run_id == run_id)
+                    .order_by(AttemptRow.attempt_id.asc())
+                ).scalars().all()
+            )
+        if any(not attempt_id for attempt_id in attempt_ids):
+            raise ProductionTruthReaderError("DURABLE_ATTEMPT_ID_MISSING:%s" % run_id)
+        if len(set(attempt_ids)) != len(attempt_ids):
+            raise ProductionTruthReaderError("DURABLE_ATTEMPT_ID_NOT_UNIQUE:%s" % run_id)
+        return attempt_ids
 
     def get_work_item(self, work_item_id: str) -> Optional[Dict[str, Any]]:
         value = self.center_repository.get_work_item(work_item_id)
