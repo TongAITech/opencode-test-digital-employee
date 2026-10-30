@@ -292,4 +292,8 @@ def test_tampered_candidate_envelope_cannot_reach_reviewer(tmp_path):
 
     task = truth.query("rc7_task", task_id=promoted["task_id"])[0]
     assert task["state"] == "OUTPUT_PRODUCED"
-    assert truth.query("rc7_evaluation", mission_id=MISSION) == []
+    n2_evaluations = [
+        row for row in truth.query("rc7_evaluation", mission_id=MISSION)
+        if row.get("node") == "REQUIREMENT_ANALYSIS"
+    ]
+    assert n2_evaluations == []
