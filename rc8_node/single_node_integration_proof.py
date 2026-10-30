@@ -42,7 +42,8 @@ _PRODUCTION_WORKER_IDENTITIES = {
 class SingleNodeDurableIntegrationProof:
     observed: SingleNodeFullLoopProof
     durable_truth: SingleNodeTruthProof
-    status: str = "DURABLE_INTEGRATION_VERIFIED_NOT_AUTHORIZED"
+    production_components_verified: bool
+    status: str
     bank_reality_verified: bool = False
     release_status: str = "HOLD"
 
@@ -108,4 +109,14 @@ class SingleNodeDurableIntegrationProofRunner:
             raise RuntimeError("CLOUD_INTEGRATION_MUST_NOT_ASSERT_BANK_REALITY")
         if durable.release_status != "HOLD":
             raise RuntimeError("INTEGRATION_PROOF_MUST_NOT_AUTHORIZE_RELEASE")
-        return SingleNodeDurableIntegrationProof(observed=observed, durable_truth=durable)
+        status = (
+            "DURABLE_INTEGRATION_VERIFIED_NOT_AUTHORIZED"
+            if self.production_components_verified
+            else "BOUNDARY_DOUBLE_VERIFIED_NOT_PRODUCTION_PROOF"
+        )
+        return SingleNodeDurableIntegrationProof(
+            observed=observed,
+            durable_truth=durable,
+            production_components_verified=self.production_components_verified,
+            status=status,
+        )
