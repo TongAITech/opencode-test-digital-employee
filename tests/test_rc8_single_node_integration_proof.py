@@ -39,6 +39,14 @@ class _Worker:
 class _Truth:
     def __init__(self, *, stale=False):
         self.stale = stale
+        self.preflight_calls = []
+        self.lease_binding_calls = []
+
+    def assert_no_attempts_for_test_run(self, test_run_id):
+        self.preflight_calls.append(test_run_id)
+
+    def assert_attempt_ids_match_observed_leases(self, *, test_run_id, observed_lease_ids):
+        self.lease_binding_calls.append((test_run_id, tuple(observed_lease_ids)))
 
     def get_work_item(self, work_item_id):
         return {"test_run_id": "other" if self.stale else "run-1", "stage": "SCOPE_INTAKE", "status": "COMPLETED"}
@@ -73,6 +81,17 @@ def test_boundary_double_is_explicitly_not_a_production_proof():
     assert proof.observed.stage_instance_ids == ("stage-instance-1",)
     assert proof.durable_truth.verified_attempts == ("lease-1",)
     assert proof.bank_reality_verified is False
+    assert proof.release_status == "HOLD"
+
+
+def test_production_run_binds_observed_center_leases_to_complete_durable_attempt_set():
+    runner = _boundary_double_runner()
+    runner.production_components_verified = True
+    proof = runner.run(test_run_id="run-1")
+    assert runner.truth_reader.preflight_calls == ["run-1"]
+    assert runner.truth_reader.lease_binding_calls == [("run-1", ("lease-1",))]
+    assert proof.production_components_verified is True
+    assert proof.production_causality_verified is False
     assert proof.release_status == "HOLD"
 
 
