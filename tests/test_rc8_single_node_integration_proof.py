@@ -14,7 +14,13 @@ from rc8_node.single_node_integration_proof import SingleNodeDurableIntegrationP
 class _Dispatcher:
     supported_stages = ("SCOPE_INTAKE",)
 
+    def __init__(self):
+        self._claimed = False
+
     def run_once(self, *, test_run_id):
+        if self._claimed:
+            return SimpleNamespace(status="IDLE")
+        self._claimed = True
         return SimpleNamespace(
             status="EXECUTED", stage="SCOPE_INTAKE", work_item_id="wi-1",
             lease_id="lease-1", stage_instance_id="stage-instance-1",
