@@ -36,7 +36,7 @@ class TruthReader:
 
 
 def proof():
-    return SingleNodeFullLoopProof(test_run_id="TR", stages=("SCOPE_INTAKE", "REPORT_RELEASE"), work_item_ids=("wi-0", "wi-1"), lease_ids=("lease-0", "lease-1"), stage_instance_ids=("stage-0", "stage-1"), attempt_ids=("attempt-0", "attempt-1"), evidence_refs=("artifact:evidence-0", "artifact:evidence-1"))
+    return SingleNodeFullLoopProof(test_run_id="TR", stages=("SCOPE_INTAKE", "REPORT_RELEASE"), work_item_ids=("wi-0", "wi-1"), lease_ids=("attempt-0", "attempt-1"), stage_instance_ids=("stage-0", "stage-1"), attempt_ids=("attempt-0", "attempt-1"), evidence_refs=("artifact:evidence-0", "artifact:evidence-1"))
 
 
 def test_center_truth_verifier_requires_completed_work_attempt_artifact_and_r1():
@@ -67,13 +67,27 @@ def test_center_truth_verifier_includes_claim_identity_in_denominator():
         test_run_id="TR",
         stages=("SCOPE_INTAKE", "REPORT_RELEASE"),
         work_item_ids=("wi-0", "wi-1"),
-        lease_ids=("lease-0",),
+        lease_ids=("attempt-0",),
         stage_instance_ids=("stage-0", "stage-1"),
         attempt_ids=("attempt-0", "attempt-1"),
         evidence_refs=("artifact:evidence-0", "artifact:evidence-1"),
     )
     with pytest.raises(SingleNodeTruthError, match="SINGLE_NODE_PROOF_DENOMINATOR_DIVERGED"):
         SingleNodeCenterTruthVerifier(truth_reader=TruthReader()).verify(divergent)
+
+
+def test_center_truth_verifier_rejects_attempt_not_issued_by_observed_center_lease():
+    stitched = SingleNodeFullLoopProof(
+        test_run_id="TR",
+        stages=("SCOPE_INTAKE", "REPORT_RELEASE"),
+        work_item_ids=("wi-0", "wi-1"),
+        lease_ids=("lease-from-claim-0", "attempt-1"),
+        stage_instance_ids=("stage-0", "stage-1"),
+        attempt_ids=("attempt-0", "attempt-1"),
+        evidence_refs=("artifact:evidence-0", "artifact:evidence-1"),
+    )
+    with pytest.raises(SingleNodeTruthError, match="CENTER_LEASE_ATTEMPT_IDENTITY_MISMATCH:SCOPE_INTAKE"):
+        SingleNodeCenterTruthVerifier(truth_reader=TruthReader()).verify(stitched)
 
 
 @pytest.mark.parametrize(
@@ -117,7 +131,7 @@ def test_center_truth_verifier_rejects_split_node_durable_truth(kind, field, err
 
 
 def test_center_truth_verifier_rejects_reused_artifact_identity():
-    duplicated = SingleNodeFullLoopProof(test_run_id="TR", stages=("SCOPE_INTAKE", "REPORT_RELEASE"), work_item_ids=("wi-0", "wi-1"), lease_ids=("lease-0", "lease-1"), stage_instance_ids=("stage-0", "stage-1"), attempt_ids=("attempt-0", "attempt-1"), evidence_refs=("artifact:evidence-0", "artifact:evidence-0"))
+    duplicated = SingleNodeFullLoopProof(test_run_id="TR", stages=("SCOPE_INTAKE", "REPORT_RELEASE"), work_item_ids=("wi-0", "wi-1"), lease_ids=("attempt-0", "attempt-1"), stage_instance_ids=("stage-0", "stage-1"), attempt_ids=("attempt-0", "attempt-1"), evidence_refs=("artifact:evidence-0", "artifact:evidence-0"))
     class ReusedArtifactReader(TruthReader):
         def get_artifact(self, artifact_id):
             return {"test_run_id": "TR", "work_item_id": "wi-0", "attempt_id": "attempt-0", "node_id": "node-a", "status": "COMPLETED"}
