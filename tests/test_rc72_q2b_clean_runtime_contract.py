@@ -93,6 +93,13 @@ def test_rc72_package_contract_requires_q2b_runtime_and_launcher_files():
     assert "packaging/rc7.2/AITEST.sh" in required
 
 
+def test_rc72_package_discovery_includes_n3_source_handoff_and_raw_anchor_runtime():
+    module = importlib.import_module("rc7_release.rc72_package")
+    required_runtime = set(module.discover_required_rc72_runtime_files(REPO_ROOT))
+    assert "rc7_runtime/rc72_n3_source_target_handoff.py" in required_runtime
+    assert "rc7_runtime/rc72_n3_source_target_anchor.py" in required_runtime
+
+
 def test_q2b_wrapper_cannot_claim_field_or_bank_final(monkeypatch, tmp_path):
     module = importlib.import_module("rc7_release.rc72_windows_clean_qualification")
 
