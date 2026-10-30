@@ -70,6 +70,7 @@ def test_boundary_double_is_explicitly_not_a_production_proof():
     proof = _boundary_double_runner().run(test_run_id="run-1")
     assert proof.status == "BOUNDARY_DOUBLE_VERIFIED_NOT_PRODUCTION_PROOF"
     assert proof.production_components_verified is False
+    assert proof.production_causality_verified is False
     assert proof.observed.work_item_ids == ("wi-1",)
     assert proof.observed.lease_ids == ("lease-1",)
     assert proof.observed.stage_instance_ids == ("stage-instance-1",)
