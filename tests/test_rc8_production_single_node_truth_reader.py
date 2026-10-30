@@ -44,9 +44,14 @@ def _seed(store, ledger):
             attempt_id="att-1", step_id=None, refs=[], metadata_json={}, created_at=2,
         ))
     ledger.append_runtime(runtime_event(
+        event_id="evt-start-1", test_run_id="run-1", work_item_id="wi-1", node_id="node-1",
+        producer_kind=RuntimeProducerKind.NODE_AGENT, producer_ref="worker-1",
+        event_type="ATTEMPT_STARTED", sequence=1, attempt_id="att-1", occurred_at=1,
+    ))
+    ledger.append_runtime(runtime_event(
         event_id="evt-1", test_run_id="run-1", work_item_id="wi-1", node_id="node-1",
         producer_kind=RuntimeProducerKind.NODE_AGENT, producer_ref="worker-1",
-        event_type="ATTEMPT_COMPLETED", sequence=1, attempt_id="att-1", occurred_at=2,
+        event_type="ATTEMPT_COMPLETED", sequence=2, attempt_id="att-1", occurred_at=2,
     ))
 
 
@@ -67,6 +72,10 @@ def test_reader_returns_only_durable_production_truth():
         "producer_kind": RuntimeProducerKind.NODE_AGENT.value, "producer_ref": "worker-1",
         "status": "COMPLETED",
     }
+    started = reader.find_r1_attempt_started(test_run_id="run-1", work_item_id="wi-1", attempt_id="att-1")
+    assert started["event_id"] == "evt-start-1"
+    assert started["event_type"] == "ATTEMPT_STARTED"
+    assert started["node_id"] == "node-1"
     event = reader.find_r1_attempt_completed(test_run_id="run-1", work_item_id="wi-1", attempt_id="att-1")
     assert event["event_id"] == "evt-1"
     assert event["event_type"] == "ATTEMPT_COMPLETED"
@@ -79,11 +88,24 @@ def test_reader_fails_closed_on_duplicate_terminal_r1_truth():
     ledger.append_runtime(runtime_event(
         event_id="evt-2", test_run_id="run-1", work_item_id="wi-1", node_id="node-1",
         producer_kind=RuntimeProducerKind.NODE_AGENT, producer_ref="worker-1",
-        event_type="ATTEMPT_COMPLETED", sequence=2, attempt_id="att-1", occurred_at=3,
+        event_type="ATTEMPT_COMPLETED", sequence=3, attempt_id="att-1", occurred_at=3,
     ))
 
     with pytest.raises(ProductionTruthReaderError, match="R1_ATTEMPT_COMPLETED_NOT_UNIQUE"):
         reader.find_r1_attempt_completed(test_run_id="run-1", work_item_id="wi-1", attempt_id="att-1")
+
+
+def test_reader_fails_closed_on_duplicate_start_r1_truth():
+    store, ledger, reader = _reader()
+    _seed(store, ledger)
+    ledger.append_runtime(runtime_event(
+        event_id="evt-start-2", test_run_id="run-1", work_item_id="wi-1", node_id="node-1",
+        producer_kind=RuntimeProducerKind.NODE_AGENT, producer_ref="worker-1",
+        event_type="ATTEMPT_STARTED", sequence=3, attempt_id="att-1", occurred_at=3,
+    ))
+
+    with pytest.raises(ProductionTruthReaderError, match="R1_ATTEMPT_STARTED_NOT_UNIQUE"):
+        reader.find_r1_attempt_started(test_run_id="run-1", work_item_id="wi-1", attempt_id="att-1")
 
 
 def test_reader_never_falls_back_when_truth_is_missing():
@@ -91,4 +113,5 @@ def test_reader_never_falls_back_when_truth_is_missing():
     assert reader.get_work_item("missing") is None
     assert reader.get_attempt("missing") is None
     assert reader.get_artifact("missing") is None
+    assert reader.find_r1_attempt_started(test_run_id="run-x", work_item_id="wi-x", attempt_id="att-x") is None
     assert reader.find_r1_attempt_completed(test_run_id="run-x", work_item_id="wi-x", attempt_id="att-x") is None
