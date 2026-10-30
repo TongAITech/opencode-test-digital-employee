@@ -46,26 +46,53 @@ def _reader(values):
 
 def test_attempt_ids_for_test_run_returns_complete_sorted_durable_identity_set():
     reader = _reader(("attempt-a", "attempt-b", "attempt-c"))
-
     assert reader.attempt_ids_for_test_run("run-1") == (
-        "attempt-a",
-        "attempt-b",
-        "attempt-c",
+        "attempt-a", "attempt-b", "attempt-c"
     )
 
 
 def test_attempt_ids_for_test_run_rejects_blank_test_run_identity():
     reader = _reader(())
-
     with pytest.raises(ProductionTruthReaderError, match="TEST_RUN_ID_REQUIRED"):
         reader.attempt_ids_for_test_run("   ")
 
 
 def test_attempt_ids_for_test_run_rejects_duplicate_durable_identity():
     reader = _reader(("attempt-a", "attempt-a"))
-
     with pytest.raises(
         ProductionTruthReaderError,
         match="DURABLE_ATTEMPT_ID_NOT_UNIQUE:run-1",
     ):
         reader.attempt_ids_for_test_run("run-1")
+
+
+def test_observed_center_leases_must_exactly_match_complete_durable_attempt_set():
+    reader = _reader(("lease-a", "lease-b", "lease-c"))
+    reader.assert_attempt_ids_match_observed_leases(
+        test_run_id="run-1",
+        observed_lease_ids=("lease-c", "lease-a", "lease-b"),
+    )
+
+
+def test_observed_center_leases_reject_missing_or_unexpected_durable_attempts():
+    reader = _reader(("lease-a", "stale-attempt"))
+    with pytest.raises(
+        ProductionTruthReaderError,
+        match="PRODUCTION_CAUSALITY_ATTEMPT_LEASE_SET_MISMATCH:run-1",
+    ):
+        reader.assert_attempt_ids_match_observed_leases(
+            test_run_id="run-1",
+            observed_lease_ids=("lease-a", "lease-b"),
+        )
+
+
+def test_observed_center_leases_reject_duplicate_identity_before_set_comparison():
+    reader = _reader(("lease-a",))
+    with pytest.raises(
+        ProductionTruthReaderError,
+        match="OBSERVED_LEASE_ID_NOT_UNIQUE:run-1",
+    ):
+        reader.assert_attempt_ids_match_observed_leases(
+            test_run_id="run-1",
+            observed_lease_ids=("lease-a", "lease-a"),
+        )
