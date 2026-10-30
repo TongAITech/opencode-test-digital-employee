@@ -8,6 +8,13 @@ runtime evidence and a strict source-target candidate contract.
 The candidate is not canonical source truth. This layer does not promote a
 repository/revision mapping, create CODE_ANALYSIS WorkItems, decide an N3
 NodeGate, release N4, or claim field/BANK_FINAL status.
+
+Important parsing boundary: the inherited DSH launcher accepts the last JSON
+object it can find in final text. That is intentionally broad for legacy agent
+outputs, but a nested N3 target object can therefore be mistaken for the whole
+candidate. N3 re-parses the raw final event as one strict top-level JSON object
+before any candidate or Attempt truth is admitted. Live and crash-recovery
+paths use the same parser.
 """
 from __future__ import annotations
 
@@ -409,6 +416,45 @@ class N3SourceTargetDshHandoffService:
             )
         return dict(candidate)
 
+    @staticmethod
+    def _strict_top_level_final_json(
+        events: Sequence[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Parse exactly one top-level JSON object from a final DSH event.
+
+        Do not recursively walk the string looking for JSON objects: source
+        targets/gaps are themselves objects and must never replace the envelope.
+        """
+        candidates: List[Dict[str, Any]] = []
+        for event in events:
+            kind = str(
+                event.get("type") or event.get("event") or event.get("kind") or ""
+            ).lower()
+            if not (
+                kind in {"text", "final", "message", "assistant"}
+                or "final" in kind
+                or "text" in kind
+            ):
+                continue
+            for key in ("text", "content", "message", "output"):
+                value = event.get(key)
+                if isinstance(value, Mapping):
+                    candidates.append(dict(value))
+                    continue
+                if not isinstance(value, str) or not value.strip():
+                    continue
+                try:
+                    parsed = json.loads(value.strip())
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(parsed, dict):
+                    candidates.append(parsed)
+        if not candidates:
+            raise N3SourceTargetHandoffError(
+                "RC72_N3_SOURCE_HANDOFF_STRICT_TOP_LEVEL_FINAL_JSON_REQUIRED"
+            )
+        return candidates[-1]
+
     def _handoff_events(
         self, mission_id: str, runtime_assignment_id: str
     ) -> List[Dict[str, Any]]:
@@ -464,7 +510,7 @@ class N3SourceTargetDshHandoffService:
             )
         text = path.read_text(encoding="utf-8", errors="replace")
         events = tuple(self.launcher._parse_json_lines(text))
-        candidate = self.launcher._final_json(events)
+        candidate = self._strict_top_level_final_json(events)
         return self._validate_candidate(candidate, application_id)
 
     @staticmethod
@@ -629,7 +675,9 @@ class N3SourceTargetDshHandoffService:
             dsh_session_id=str(event.get("dsh_session_id") or "") or None,
             exit_code=event.get("exit_code") if isinstance(event.get("exit_code"), int) else None,
         )
-        candidate = self._candidate_from_raw_evidence(invocation, str(assignment["application_id"]))
+        candidate = self._candidate_from_raw_evidence(
+            invocation, str(assignment["application_id"])
+        )
         return self._persist_from_invocation(
             assignment=assignment,
             attempt_id=attempt_id,
@@ -672,7 +720,8 @@ class N3SourceTargetDshHandoffService:
             "using only authorized real tools and evidence. Never infer a repository name from the "
             "application id. If no mapping can be proven, return targets=[] and at least one explicit gap. "
             "Do not run CODE_ANALYSIS, do not claim NodeGate/PASS/N4/field_verified/BANK_FINAL. "
-            "Return strict JSON with exactly status,application_id,targets,unknowns,gaps. Context="
+            "Return one strict top-level JSON object only, with exactly "
+            "status,application_id,targets,unknowns,gaps and no markdown fences. Context="
             + json.dumps(context, ensure_ascii=False, sort_keys=True)
             + " RequiredShape="
             + json.dumps(shape, ensure_ascii=False, sort_keys=True)
@@ -711,7 +760,9 @@ class N3SourceTargetDshHandoffService:
                 "attempt_state": row["state"],
                 "workitem_state": str(task["state"]),
             }
-        recovered = self._handoff_events(str(assignment["mission_id"]), runtime_assignment_id)
+        recovered = self._handoff_events(
+            str(assignment["mission_id"]), runtime_assignment_id
+        )
         if len(recovered) > 1:
             raise N3SourceTargetHandoffError(
                 "RC72_N3_SOURCE_HANDOFF_RUNTIME_EVENT_NOT_UNIQUE"
@@ -766,11 +817,16 @@ class N3SourceTargetDshHandoffService:
             allowed_artifact_types=(),
             allowed_tools=tuple(self.allowed_tools),
         )
-        invocation, candidate = self.launcher.execute(
+        invocation, _launcher_candidate = self.launcher.execute(
             runtime_assignment, self._prompt(assignment)
         )
-        self._validate_candidate(candidate, application_id)
-        events = self._handoff_events(str(assignment["mission_id"]), runtime_assignment_id)
+        # Re-parse the exact persisted raw DSH output. The inherited launcher
+        # intentionally uses a permissive "last JSON object" extractor and can
+        # return a nested target/gap object instead of the N3 envelope.
+        candidate = self._candidate_from_raw_evidence(invocation, application_id)
+        events = self._handoff_events(
+            str(assignment["mission_id"]), runtime_assignment_id
+        )
         if len(events) != 1:
             raise N3SourceTargetHandoffError(
                 "RC72_N3_SOURCE_HANDOFF_HANDOFF_RETURNED_REQUIRED:%d" % len(events)
