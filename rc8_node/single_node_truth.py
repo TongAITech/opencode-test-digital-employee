@@ -68,6 +68,15 @@ class SingleNodeCenterTruthVerifier:
         ):
             raise SingleNodeTruthError("SINGLE_NODE_PROOF_DENOMINATOR_DIVERGED")
 
+        # Production workers use the Center-issued lease as the immutable Attempt
+        # identity.  Without this equality a pre-seeded Attempt can be stitched to
+        # an otherwise valid claim traversal and look causally production-driven.
+        # Keep this as a necessary fail-closed causality invariant; it does not by
+        # itself promote SINGLE_NODE to production_causality_verified.
+        for stage, lease_id, attempt_id in zip(proof.stages, proof.lease_ids, proof.attempt_ids):
+            if str(lease_id or "").strip() != str(attempt_id or "").strip():
+                raise SingleNodeTruthError("CENTER_LEASE_ATTEMPT_IDENTITY_MISMATCH:%s" % stage)
+
         r1_ids = []
         artifact_ids = []
         for stage, work_item_id, stage_instance_id, attempt_id, artifact_ref in zip(
