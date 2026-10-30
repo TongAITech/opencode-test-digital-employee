@@ -156,10 +156,25 @@ class ModelResilienceTests(unittest.TestCase):
             assignment1 = self._assignment(launcher, "rate-1")
             assignment2 = self._assignment(launcher, "rate-2")
             waits = []
-            launcher._rc71_sleep_fn = lambda seconds: (waits.append(seconds), time.sleep(seconds))[1]
+
+            # This is an integration check for the launcher's automatic resume,
+            # not a wall-clock performance benchmark.  The former 0.1s window
+            # was platform-speed dependent: on a slower Windows runner the first
+            # fixture call could consume the whole window, so no wait was
+            # correctly required and the test failed spuriously.  Keep a long
+            # deterministic window, then fast-forward the persisted timestamps
+            # when the injected sleeper is invoked.
+            def fast_forward_window(seconds):
+                waits.append(seconds)
+                state_path = Path(root) / "model-governor" / "shared-window.json"
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                state["timestamps"] = [float(value) - float(seconds) - 1.0 for value in state.get("timestamps", [])]
+                state_path.write_text(json.dumps(state, sort_keys=True) + "\n", encoding="utf-8")
+
+            launcher._rc71_sleep_fn = fast_forward_window
             env = {
                 "PFC_RC71_MODEL_RATE_MAX": "1",
-                "PFC_RC71_MODEL_RATE_WINDOW_SECONDS": "0.1",
+                "PFC_RC71_MODEL_RATE_WINDOW_SECONDS": "60",
                 "PFC_RC71_MODEL_TRANSIENT_RETRIES": "0",
             }
             with patch.dict(os.environ, env, clear=False):
