@@ -53,6 +53,11 @@ class SingleNodeCenterTruthVerifier:
         if str(value.get(field) or "").strip() != self.expected_node_id:
             raise SingleNodeTruthError(code)
 
+    @staticmethod
+    def _require_worker_producer(value: Mapping[str, Any], field: str, code: str) -> None:
+        if str(value.get(field) or "").strip().upper() != "WORKER":
+            raise SingleNodeTruthError(code)
+
     def verify(self, proof: SingleNodeFullLoopProof) -> SingleNodeTruthProof:
         if not isinstance(proof, SingleNodeFullLoopProof):
             raise SingleNodeTruthError("SINGLE_NODE_PROOF_REQUIRED")
@@ -68,11 +73,10 @@ class SingleNodeCenterTruthVerifier:
         ):
             raise SingleNodeTruthError("SINGLE_NODE_PROOF_DENOMINATOR_DIVERGED")
 
-        # Production workers use the Center-issued lease as the immutable Attempt
-        # identity.  Without this equality a pre-seeded Attempt can be stitched to
-        # an otherwise valid claim traversal and look causally production-driven.
-        # Keep this as a necessary fail-closed causality invariant; it does not by
-        # itself promote SINGLE_NODE to production_causality_verified.
+        # Center owns the immutable Attempt identity and issues it as the claim
+        # lease. Workers may only publish evidence against that active identity.
+        # Without this equality a pre-seeded Attempt can be stitched to an
+        # otherwise valid claim traversal and look causally production-driven.
         for stage, lease_id, attempt_id in zip(proof.stages, proof.lease_ids, proof.attempt_ids):
             if str(lease_id or "").strip() != str(attempt_id or "").strip():
                 raise SingleNodeTruthError("CENTER_LEASE_ATTEMPT_IDENTITY_MISMATCH:%s" % stage)
@@ -116,6 +120,9 @@ class SingleNodeCenterTruthVerifier:
             if str(artifact.get("status") or "") != "COMPLETED":
                 raise SingleNodeTruthError("CENTER_ARTIFACT_NOT_COMPLETED:%s" % stage)
             self._require_node(artifact, "node_id", "CENTER_ARTIFACT_NODE_ID_MISMATCH:%s" % stage)
+            self._require_worker_producer(
+                artifact, "producer_kind", "CENTER_ARTIFACT_NOT_WORKER_PRODUCED:%s" % stage
+            )
 
             event = self._mapping(
                 self.truth_reader.find_r1_attempt_completed(
@@ -132,6 +139,9 @@ class SingleNodeCenterTruthVerifier:
             ):
                 raise SingleNodeTruthError("R1_ATTEMPT_COMPLETED_IDENTITY_MISMATCH:%s" % stage)
             self._require_node(event, "node_id", "R1_ATTEMPT_COMPLETED_NODE_ID_MISMATCH:%s" % stage)
+            self._require_worker_producer(
+                event, "producer_kind", "R1_ATTEMPT_COMPLETED_NOT_WORKER_PRODUCED:%s" % stage
+            )
             event_id = str(event.get("event_id") or "").strip()
             if not event_id:
                 raise SingleNodeTruthError("R1_EVENT_ID_MISSING:%s" % stage)
