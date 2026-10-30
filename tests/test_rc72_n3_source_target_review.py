@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
+from rc6_runtime.agent_runtime import AgentRuntimeError, DshHeadlessWorkerLauncher
 from rc7_runtime.closed_loop_control import ClosedLoopControlPlane
 from rc7_runtime.rc72_authority import RC72AuthorityRuntime
 from rc7_runtime.rc72_n3_source_target_review import (
@@ -250,7 +250,7 @@ def test_source_mapping_review_requires_real_tool_call(tmp_path: Path):
     )
 
     with pytest.raises(
-        N3SourceTargetReviewError,
+        AgentRuntimeError,
         match="REAL_TOOL_CALL_MISSING",
     ):
         service.review_and_apply(
