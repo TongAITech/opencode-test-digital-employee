@@ -43,6 +43,7 @@ class SingleNodeDurableIntegrationProof:
     observed: SingleNodeFullLoopProof
     durable_truth: SingleNodeTruthProof
     production_components_verified: bool
+    production_causality_verified: bool
     status: str
     bank_reality_verified: bool = False
     release_status: str = "HOLD"
@@ -79,7 +80,13 @@ def assert_production_dispatcher_topology(dispatcher: AutonomousWorkerDispatcher
 
 
 class SingleNodeDurableIntegrationProofRunner:
-    """Run dispatcher traversal, then verify the exact traversal in durable truth."""
+    """Run dispatcher traversal, then verify the exact traversal in durable truth.
+
+    Production component identity is intentionally distinct from production causality.
+    Until a harness proves that Center claim/lease plus the real workers created the
+    durable records (rather than observing pre-seeded truth), this gate MUST keep
+    production_causality_verified false and cannot represent the full-loop proof.
+    """
 
     def __init__(self, *, dispatcher: Any, truth_reader: Any, required_stages: Sequence[str] = FROZEN_N1_N10_STAGES, require_production_components: bool = True) -> None:
         expected_node_id = None
@@ -110,7 +117,7 @@ class SingleNodeDurableIntegrationProofRunner:
         if durable.release_status != "HOLD":
             raise RuntimeError("INTEGRATION_PROOF_MUST_NOT_AUTHORIZE_RELEASE")
         status = (
-            "DURABLE_INTEGRATION_VERIFIED_NOT_AUTHORIZED"
+            "PRODUCTION_COMPONENTS_DURABLE_TRUTH_MATCHED_CAUSALITY_NOT_PROVEN"
             if self.production_components_verified
             else "BOUNDARY_DOUBLE_VERIFIED_NOT_PRODUCTION_PROOF"
         )
@@ -118,5 +125,6 @@ class SingleNodeDurableIntegrationProofRunner:
             observed=observed,
             durable_truth=durable,
             production_components_verified=self.production_components_verified,
+            production_causality_verified=False,
             status=status,
         )
