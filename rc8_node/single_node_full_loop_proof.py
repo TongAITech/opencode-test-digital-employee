@@ -21,6 +21,9 @@ FROZEN_N1_N10_STAGES: Tuple[str, ...] = (
     "DEFECT_CLOSURE_OBSERVATION", "MISSION_SUFFICIENCY", "REPORT_RELEASE",
 )
 
+CENTER_CLAIM_TRUTH_NOTE = "POSTGRES_CANDIDATE_STAGE_FILTER_CAPABILITY_FILTER_REDIS_LEASE_CAS_POSTGRES_MIRROR"
+CENTER_IDLE_TRUTH_NOTE = "NO_COMPATIBLE_READY_WORK_ITEM"
+
 
 class SingleNodeFullLoopProofError(RuntimeError):
     pass
@@ -43,7 +46,13 @@ class SingleNodeFullLoopProof:
 class SingleNodeFullLoopProofRunner:
     """Observe a real dispatcher traversal without becoming a PASS authority."""
 
-    def __init__(self, *, dispatcher: Any, required_stages: Sequence[str] = FROZEN_N1_N10_STAGES) -> None:
+    def __init__(
+        self,
+        *,
+        dispatcher: Any,
+        required_stages: Sequence[str] = FROZEN_N1_N10_STAGES,
+        require_center_claim_provenance: bool = False,
+    ) -> None:
         stages = tuple(str(v or "").strip() for v in required_stages)
         if not stages or any(not v for v in stages) or len(set(stages)) != len(stages):
             raise SingleNodeFullLoopProofError("FULL_LOOP_STAGE_DENOMINATOR_INVALID")
@@ -53,6 +62,7 @@ class SingleNodeFullLoopProofRunner:
             raise SingleNodeFullLoopProofError("FULL_LOOP_WORKER_DENOMINATOR_MISSING:%s" % ",".join(missing))
         self.dispatcher = dispatcher
         self.required_stages = stages
+        self.require_center_claim_provenance = bool(require_center_claim_provenance)
 
     def run(self, *, test_run_id: str) -> SingleNodeFullLoopProof:
         run_id = str(test_run_id or "").strip()
@@ -68,6 +78,10 @@ class SingleNodeFullLoopProofRunner:
             outcome = self.dispatcher.run_once(test_run_id=run_id)
             if getattr(outcome, "status", None) != "EXECUTED":
                 raise SingleNodeFullLoopProofError("FULL_LOOP_STAGE_NOT_EXECUTED:%s" % expected)
+            if self.require_center_claim_provenance:
+                claim_truth_note = str(getattr(outcome, "claim_truth_note", None) or "").strip()
+                if claim_truth_note != CENTER_CLAIM_TRUTH_NOTE:
+                    raise SingleNodeFullLoopProofError("FULL_LOOP_CENTER_CLAIM_PROVENANCE_MISSING:%s" % expected)
             actual = str(getattr(outcome, "stage", None) or "").strip()
             if actual != expected:
                 raise SingleNodeFullLoopProofError("FULL_LOOP_STAGE_ORDER_MISMATCH:%s:%s" % (expected, actual or "NONE"))
@@ -108,15 +122,14 @@ class SingleNodeFullLoopProofRunner:
         if len(set(evidence)) != len(evidence):
             raise SingleNodeFullLoopProofError("FULL_LOOP_EVIDENCE_REF_REUSED")
 
-        # A frozen denominator is exact, not merely a minimum. After all 15
-        # canonical stages have executed, the same TestRun must have no further
-        # claimable work for this production dispatcher. Otherwise a duplicate
-        # or unexpected supported-stage WorkItem could be silently left outside
-        # the proof while the mission is incorrectly presented as fully observed.
         terminal = self.dispatcher.run_once(test_run_id=run_id)
         if getattr(terminal, "status", None) != "IDLE":
             extra_stage = str(getattr(terminal, "stage", None) or "UNKNOWN").strip() or "UNKNOWN"
             raise SingleNodeFullLoopProofError("FULL_LOOP_EXTRA_CLAIMABLE_WORK:%s" % extra_stage)
+        if self.require_center_claim_provenance:
+            terminal_truth_note = str(getattr(terminal, "claim_truth_note", None) or "").strip()
+            if terminal_truth_note != CENTER_IDLE_TRUTH_NOTE:
+                raise SingleNodeFullLoopProofError("FULL_LOOP_CENTER_TERMINAL_PROVENANCE_MISSING")
 
         return SingleNodeFullLoopProof(
             test_run_id=run_id,
