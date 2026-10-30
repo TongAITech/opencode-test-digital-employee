@@ -87,10 +87,6 @@ class SingleNodeFullLoopProofRunner:
             artifact_ref = str(result.get("artifact_ref") or "").strip()
             if not attempt_id:
                 raise SingleNodeFullLoopProofError("FULL_LOOP_ATTEMPT_EVIDENCE_MISSING:%s" % expected)
-            # Production Center defines the active lease as the immutable Attempt
-            # identity. Every canonical Stage worker follows attempt_id=lease_id.
-            # Reject a worker result that splices evidence from another Attempt
-            # even when both identities are individually unique and durable.
             if attempt_id != lease_id:
                 raise SingleNodeFullLoopProofError("FULL_LOOP_ATTEMPT_LEASE_IDENTITY_MISMATCH:%s" % expected)
             if not artifact_ref.startswith("artifact:"):
@@ -111,6 +107,17 @@ class SingleNodeFullLoopProofRunner:
             raise SingleNodeFullLoopProofError("FULL_LOOP_ATTEMPT_ID_REUSED")
         if len(set(evidence)) != len(evidence):
             raise SingleNodeFullLoopProofError("FULL_LOOP_EVIDENCE_REF_REUSED")
+
+        # A frozen denominator is exact, not merely a minimum. After all 15
+        # canonical stages have executed, the same TestRun must have no further
+        # claimable work for this production dispatcher. Otherwise a duplicate
+        # or unexpected supported-stage WorkItem could be silently left outside
+        # the proof while the mission is incorrectly presented as fully observed.
+        terminal = self.dispatcher.run_once(test_run_id=run_id)
+        if getattr(terminal, "status", None) != "IDLE":
+            extra_stage = str(getattr(terminal, "stage", None) or "UNKNOWN").strip() or "UNKNOWN"
+            raise SingleNodeFullLoopProofError("FULL_LOOP_EXTRA_CLAIMABLE_WORK:%s" % extra_stage)
+
         return SingleNodeFullLoopProof(
             test_run_id=run_id,
             stages=tuple(observed),
