@@ -11,6 +11,7 @@ on:
       - 'tests/test_rc8_single_node_claim_provenance.py'
       - 'tests/test_rc8_single_node_center_truth.py'
       - 'tests/test_rc8_production_single_node_truth_reader.py'
+      - 'tests/test_rc8_production_truth_attempt_set.py'
       - 'tests/test_rc8_single_node_durable_truth_integration.py'
       - 'tests/test_rc8_single_node_integration_proof.py'
       - 'tests/test_rc8_single_node_causality_preflight.py'
@@ -33,4 +34,4 @@ jobs:
       - name: Install proof test dependencies
         run: python -m pip install pytest sqlalchemy redis
       - name: Run fail-closed SINGLE_NODE proof, production dispatcher, Center claim provenance, causality preflight, Center/R1 truth, production truth-reader, and durable integration tests
-        run: python -m pytest -q tests/test_rc8_autonomous_dispatcher.py tests/test_rc8_single_node_full_loop_proof.py tests/test_rc8_single_node_claim_provenance.py tests/test_rc8_single_node_center_truth.py tests/test_rc8_production_single_node_truth_reader.py tests/test_rc8_single_node_durable_truth_integration.py tests/test_rc8_single_node_integration_proof.py tests/test_rc8_single_node_causality_preflight.py
+        run: python -m pytest -q tests/test_rc8_autonomous_dispatcher.py tests/test_rc8_single_node_full_loop_proof.py tests/test_rc8_single_node_claim_provenance.py tests/test_rc8_single_node_center_truth.py tests/test_rc8_production_single_node_truth_reader.py tests/test_rc8_production_truth_attempt_set.py tests/test_rc8_single_node_durable_truth_integration.py tests/test_rc8_single_node_integration_proof.py tests/test_rc8_single_node_causality_preflight.py
