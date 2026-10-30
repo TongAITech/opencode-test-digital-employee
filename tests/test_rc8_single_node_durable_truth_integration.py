@@ -53,7 +53,7 @@ def test_frozen_denominator_is_verified_through_production_durable_truth_boundar
             ))
             session.add(ArtifactMetadataRow(
                 artifact_id=artifact_id, test_run_id="run-integration", work_item_id=work_item_id, node_id="node-1",
-                kind="STAGE_EVIDENCE", producer_kind=RuntimeProducerKind.NODE_AGENT.value,
+                kind="STAGE_EVIDENCE", producer_kind=RuntimeProducerKind.WORKER.value,
                 producer_ref="worker-%02d" % index, file_name="%s.json" % stage.lower(), sha256=("%064x" % index),
                 size_bytes=2, availability="AVAILABLE", case_id=None, attempt_id=attempt_id, step_id=None,
                 refs=[], metadata_json={}, created_at=index + 1,
@@ -62,7 +62,7 @@ def test_frozen_denominator_is_verified_through_production_durable_truth_boundar
     for index, (work_item_id, attempt_id) in enumerate(zip(work_item_ids, attempt_ids), start=1):
         ledger.append_runtime(runtime_event(
             event_id="evt-%02d" % index, test_run_id="run-integration", work_item_id=work_item_id,
-            node_id="node-1", producer_kind=RuntimeProducerKind.NODE_AGENT,
+            node_id="node-1", producer_kind=RuntimeProducerKind.WORKER,
             producer_ref="worker-%02d" % index, event_type="ATTEMPT_COMPLETED", sequence=index,
             attempt_id=attempt_id, occurred_at=index + 1,
         ))
