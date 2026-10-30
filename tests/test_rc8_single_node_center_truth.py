@@ -26,12 +26,12 @@ class TruthReader:
 
     def get_artifact(self, artifact_id):
         i = self._index(artifact_id)
-        value = {"test_run_id": "TR", "work_item_id": "wi-%d" % i, "attempt_id": "attempt-%d" % i, "node_id": "node-a", "status": "COMPLETED"}
+        value = {"test_run_id": "TR", "work_item_id": "wi-%d" % i, "attempt_id": "attempt-%d" % i, "node_id": "node-a", "producer_kind": "WORKER", "status": "COMPLETED"}
         return self.mutate("artifact", i, value) if self.mutate else value
 
     def find_r1_attempt_completed(self, **identity):
         i = self._index(identity["attempt_id"])
-        value = {"event_id": "event-%d" % i, "event_type": "ATTEMPT_COMPLETED", "test_run_id": "TR", "work_item_id": "wi-%d" % i, "attempt_id": "attempt-%d" % i, "node_id": "node-a"}
+        value = {"event_id": "event-%d" % i, "event_type": "ATTEMPT_COMPLETED", "test_run_id": "TR", "work_item_id": "wi-%d" % i, "attempt_id": "attempt-%d" % i, "node_id": "node-a", "producer_kind": "WORKER"}
         return self.mutate("r1", i, value) if self.mutate else value
 
 
@@ -64,13 +64,9 @@ def test_center_truth_verifier_rejects_claimed_stage_instance_not_backed_by_atte
 
 def test_center_truth_verifier_includes_claim_identity_in_denominator():
     divergent = SingleNodeFullLoopProof(
-        test_run_id="TR",
-        stages=("SCOPE_INTAKE", "REPORT_RELEASE"),
-        work_item_ids=("wi-0", "wi-1"),
-        lease_ids=("attempt-0",),
-        stage_instance_ids=("stage-0", "stage-1"),
-        attempt_ids=("attempt-0", "attempt-1"),
-        evidence_refs=("artifact:evidence-0", "artifact:evidence-1"),
+        test_run_id="TR", stages=("SCOPE_INTAKE", "REPORT_RELEASE"), work_item_ids=("wi-0", "wi-1"),
+        lease_ids=("attempt-0",), stage_instance_ids=("stage-0", "stage-1"),
+        attempt_ids=("attempt-0", "attempt-1"), evidence_refs=("artifact:evidence-0", "artifact:evidence-1"),
     )
     with pytest.raises(SingleNodeTruthError, match="SINGLE_NODE_PROOF_DENOMINATOR_DIVERGED"):
         SingleNodeCenterTruthVerifier(truth_reader=TruthReader()).verify(divergent)
@@ -78,13 +74,9 @@ def test_center_truth_verifier_includes_claim_identity_in_denominator():
 
 def test_center_truth_verifier_rejects_attempt_not_issued_by_observed_center_lease():
     stitched = SingleNodeFullLoopProof(
-        test_run_id="TR",
-        stages=("SCOPE_INTAKE", "REPORT_RELEASE"),
-        work_item_ids=("wi-0", "wi-1"),
-        lease_ids=("lease-from-claim-0", "attempt-1"),
-        stage_instance_ids=("stage-0", "stage-1"),
-        attempt_ids=("attempt-0", "attempt-1"),
-        evidence_refs=("artifact:evidence-0", "artifact:evidence-1"),
+        test_run_id="TR", stages=("SCOPE_INTAKE", "REPORT_RELEASE"), work_item_ids=("wi-0", "wi-1"),
+        lease_ids=("lease-from-claim-0", "attempt-1"), stage_instance_ids=("stage-0", "stage-1"),
+        attempt_ids=("attempt-0", "attempt-1"), evidence_refs=("artifact:evidence-0", "artifact:evidence-1"),
     )
     with pytest.raises(SingleNodeTruthError, match="CENTER_LEASE_ATTEMPT_IDENTITY_MISMATCH:SCOPE_INTAKE"):
         SingleNodeCenterTruthVerifier(truth_reader=TruthReader()).verify(stitched)
@@ -98,13 +90,15 @@ def test_center_truth_verifier_rejects_attempt_not_issued_by_observed_center_lea
         ("attempt", "stage_instance_id", "stale-stage-instance", "CENTER_ATTEMPT_IDENTITY_MISMATCH:SCOPE_INTAKE"),
         ("artifact", "attempt_id", "stale", "CENTER_ARTIFACT_IDENTITY_MISMATCH:SCOPE_INTAKE"),
         ("artifact", "test_run_id", "STALE_RUN", "CENTER_ARTIFACT_IDENTITY_MISMATCH:SCOPE_INTAKE"),
+        ("artifact", "producer_kind", "CENTER", "CENTER_ARTIFACT_NOT_WORKER_PRODUCED:SCOPE_INTAKE"),
         ("r1", "event_type", "ATTEMPT_STARTED", "R1_ATTEMPT_COMPLETED_INVALID:SCOPE_INTAKE"),
         ("r1", "test_run_id", "STALE_RUN", "R1_ATTEMPT_COMPLETED_IDENTITY_MISMATCH:SCOPE_INTAKE"),
         ("r1", "work_item_id", "wrong", "R1_ATTEMPT_COMPLETED_IDENTITY_MISMATCH:SCOPE_INTAKE"),
         ("r1", "attempt_id", "wrong", "R1_ATTEMPT_COMPLETED_IDENTITY_MISMATCH:SCOPE_INTAKE"),
+        ("r1", "producer_kind", "CENTER", "R1_ATTEMPT_COMPLETED_NOT_WORKER_PRODUCED:SCOPE_INTAKE"),
     ],
 )
-def test_center_truth_verifier_fails_closed_on_missing_or_stale_truth(kind, field, value, error):
+def test_center_truth_verifier_fails_closed_on_missing_stale_or_non_worker_truth(kind, field, value, error):
     def mutate(actual_kind, index, payload):
         if actual_kind == kind and index == 0:
             payload = dict(payload); payload[field] = value
@@ -134,7 +128,7 @@ def test_center_truth_verifier_rejects_reused_artifact_identity():
     duplicated = SingleNodeFullLoopProof(test_run_id="TR", stages=("SCOPE_INTAKE", "REPORT_RELEASE"), work_item_ids=("wi-0", "wi-1"), lease_ids=("attempt-0", "attempt-1"), stage_instance_ids=("stage-0", "stage-1"), attempt_ids=("attempt-0", "attempt-1"), evidence_refs=("artifact:evidence-0", "artifact:evidence-0"))
     class ReusedArtifactReader(TruthReader):
         def get_artifact(self, artifact_id):
-            return {"test_run_id": "TR", "work_item_id": "wi-0", "attempt_id": "attempt-0", "node_id": "node-a", "status": "COMPLETED"}
+            return {"test_run_id": "TR", "work_item_id": "wi-0", "attempt_id": "attempt-0", "node_id": "node-a", "producer_kind": "WORKER", "status": "COMPLETED"}
     with pytest.raises(SingleNodeTruthError):
         SingleNodeCenterTruthVerifier(truth_reader=ReusedArtifactReader()).verify(duplicated)
 
