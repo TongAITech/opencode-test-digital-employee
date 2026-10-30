@@ -83,9 +83,10 @@ class SingleNodeDurableIntegrationProofRunner:
     """Run dispatcher traversal, then verify the exact traversal in durable truth.
 
     Production component identity is intentionally distinct from production causality.
-    A production traversal now also starts with a durable-attempt preflight so
-    pre-seeded Attempts cannot be stitched to later claim observations. This is a
-    necessary causality condition, not sufficient authority to promote the proof.
+    A production traversal starts with a durable-attempt preflight and, after the
+    traversal, binds the complete durable Attempt identity set to the Center-issued
+    lease identities actually observed by the dispatcher. These are necessary
+    causality conditions, not sufficient authority to promote the proof.
     """
 
     def __init__(self, *, dispatcher: Any, truth_reader: Any, required_stages: Sequence[str] = FROZEN_N1_N10_STAGES, require_production_components: bool = True) -> None:
@@ -116,6 +117,14 @@ class SingleNodeDurableIntegrationProofRunner:
             # pre-existing Attempt proves the run is not a fresh causality fixture.
             self.truth_reader.assert_no_attempts_for_test_run(test_run_id)
         observed = self.observer.run(test_run_id=test_run_id)
+        if self.production_components_verified:
+            # The post-traversal durable Attempt set must be exactly the set of
+            # Center-issued leases observed in this traversal. Extra/stale/missing
+            # Attempts therefore fail before durable evidence can be promoted.
+            self.truth_reader.assert_attempt_ids_match_observed_leases(
+                test_run_id=test_run_id,
+                observed_lease_ids=observed.lease_ids,
+            )
         durable = self.verifier.verify(observed)
         if durable.verified_work_items != observed.work_item_ids:
             raise RuntimeError("FULL_LOOP_DURABLE_WORK_ITEM_IDENTITY_MISMATCH")
