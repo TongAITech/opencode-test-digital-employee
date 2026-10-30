@@ -18,6 +18,7 @@ from rc6_runtime.authority import AuthorityError, AuthorityRuntime, TaskLease, W
 
 REALITY_RECON_WORKER = "REALITY_RECON_WORKER"
 REQUIREMENT_ANALYSIS_WORKER = "REQUIREMENT_ANALYSIS_WORKER"
+SOURCE_TARGET_DISCOVERY_WORKER = "SOURCE_TARGET_DISCOVERY_WORKER"
 
 
 class RC72AuthorityRuntime(AuthorityRuntime):
@@ -31,6 +32,7 @@ class RC72AuthorityRuntime(AuthorityRuntime):
     # admission remains an RC7.2 control-plane responsibility.
     _ROLE_ARTIFACTS[REALITY_RECON_WORKER] = set()
     _ROLE_ARTIFACTS[REQUIREMENT_ANALYSIS_WORKER] = set()
+    _ROLE_ARTIFACTS[SOURCE_TARGET_DISCOVERY_WORKER] = set()
 
     def adopt_identity(
         self,
