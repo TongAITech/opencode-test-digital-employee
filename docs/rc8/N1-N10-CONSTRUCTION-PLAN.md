@@ -70,7 +70,7 @@ P0-0 Cross-platform Director baseline, P0-1 N1–N10 Adoption Spine and P0-2 Dir
 
 SINGLE_NODE proof infrastructure drives the production `AutonomousWorkerDispatcher` boundary and fails closed unless one `test_run_id` observes the frozen 15 stages in order with distinct WorkItem IDs, distinct Attempt IDs and canonical `artifact:` Evidence references. Production durable truth is wired through Center PostgreSQL repositories plus canonical R1 ledger. Center claim provenance, zero-preseed causality preflight, complete durable Attempt-set equality, Artifact/R1 identity continuity and worker-produced `ATTEMPT_STARTED -> ATTEMPT_COMPLETED` production binding are all necessary gates; none alone proves the production-driven 15-worker full-loop.
 
-At `05b5fb5e...`, current-head Windows 2022 and Ubuntu `single-node-full-loop-proof` checks passed for the durable attempt-start chain gate. The next causality-hardening slice now retains the exact verified `ATTEMPT_STARTED` event identities in `SingleNodeTruthProof`, alongside completion identities, so downstream composed proof cannot discard the start half of the durable chain after verification. `a4bf0e3d...` implements the retained proof surface and `f21afc70...` freezes positive regression behavior. This slice is **CI_PENDING** and does not promote production causality or SINGLE_NODE full-loop.
+At `c11b42e...`, current-head Windows 2022 and Ubuntu `single-node-full-loop-proof` checks passed for the retained start-event proof slice. `a4bf0e3d...` retains the exact verified `ATTEMPT_STARTED` event identities in `SingleNodeTruthProof`, alongside completion identities, so downstream composed proof cannot discard the start half of the durable chain after verification; `f21afc70...` freezes positive regression behavior. This slice is **WINDOWS/LINUX CI_VERIFIED** and remains a necessary causality-hardening condition only; it does not promote production causality or SINGLE_NODE full-loop.
 
 ## 6. Current construction checkpoint ledger
 
@@ -100,7 +100,7 @@ At `05b5fb5e...`, current-head Windows 2022 and Ubuntu `single-node-full-loop-pr
 | SINGLE_NODE durable Attempt-set causality primitive | WINDOWS/LINUX CI_VERIFIED | complete durable Attempt identity set available for exact equality |
 | SINGLE_NODE Attempt/lease-set integration binding | WINDOWS/LINUX CI_VERIFIED | exact post-run durable Attempt-set equality enforced before Evidence promotion |
 | SINGLE_NODE durable start/completion production gate | WINDOWS/LINUX CI_VERIFIED | `20c56943...`→`05b5fb5e...`; current-head checks passed; necessary condition only |
-| SINGLE_NODE retained start-event proof surface | CODE_TEST_COMMITTED / CI_PENDING | `a4bf0e3d...`→`f21afc70...`; retain verified STARTED identities for downstream composed proof; no PASS authority |
+| SINGLE_NODE retained start-event proof surface | WINDOWS/LINUX CI_VERIFIED | `a4bf0e3d...`→`f21afc70...`→`c11b42e...`; retained STARTED identities verified on current-head Windows/Linux CI; no PASS authority |
 | SINGLE_NODE N1–N10 full-loop | NOT_PROVEN | production claim/lease must drive 15 real Stage workers and create verified durable records; no pre-seeded fixture promotion |
 | DISTRIBUTED N1–N10 full-loop | NOT_PROVEN | after SINGLE_NODE proof |
 | dsh-node runtime adapter | CODE_EXISTS | bank reality pending |
@@ -122,4 +122,4 @@ Every session/guard run must read latest `work/rc8` HEAD, read this plan from th
 
 ## 9. Immediate next action
 
-> **SINGLE_NODE production-driven full-loop proof:** wait for current-head Windows/Linux CI on the retained start-event proof slice; fix red first. If green, promote that checkpoint and continue wiring production Center claim/lease to the frozen 15 real Stage workers for one fresh Mission/TestRun. Workers must themselves create Attempt, ArtifactManifest/Evidence and canonical R1 STARTED/COMPLETED records. Do not pre-seed durable truth and do not promote a boundary double. Keep `BANK_REALITY_VERIFIED=NO` and Release HOLD.
+> **SINGLE_NODE production-driven full-loop proof:** wire production Center claim/lease to the frozen 15 real Stage workers for one fresh Mission/TestRun. Workers must themselves create Attempt, ArtifactManifest/Evidence and canonical R1 STARTED/COMPLETED records, and the composed proof must retain and validate those identities end-to-end. Do not pre-seed durable truth and do not promote a boundary double. Keep `BANK_REALITY_VERIFIED=NO` and Release HOLD.
