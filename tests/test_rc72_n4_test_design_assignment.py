@@ -86,7 +86,8 @@ def test_n4_assigns_one_distinct_fresh_worker_per_requirement_sst(
 def test_n4_assignment_replay_is_idempotent_and_preserves_lease_owner(
     tmp_path: Path, monkeypatch
 ):
-    truth, _snapshot, _dispatched = _dispatched(tmp_path, monkeypatch)
+    truth, _snapshot, dispatched = _dispatched(tmp_path, monkeypatch)
+    assert dispatched["design_scopes"]
     service = N4TestDesignAssignmentService(truth, source_commit=COMMIT)
     first = service.assign_all(release_batch_id=BATCH)
     second = service.assign_all(release_batch_id=BATCH)
@@ -144,7 +145,7 @@ def test_n4_assignment_has_no_authority_before_dispatch(tmp_path: Path, monkeypa
     truth, _snapshot = _n4_ready(tmp_path, monkeypatch)
     with pytest.raises(
         N4TestDesignAssignmentError,
-        match="DISPATCH_SET_REQUIRED",
+        match="N4_NOT_RUNNING",
     ):
         N4TestDesignAssignmentService(
             truth, source_commit=COMMIT
