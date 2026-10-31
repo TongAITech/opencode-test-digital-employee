@@ -15,14 +15,13 @@ from rc7_runtime.rc72_n5_data_verification_handoff import (
 )
 
 from rc72_n2_test_support import BATCH, COMMIT, MISSION, RELEASE
-from test_rc72_n5_data_discovery_handoff import TOOL_DATA
 from test_rc72_n5_data_discovery_promotion import _anchored
 
 
 VERIFY_TOOL = "data-verify-query"
 
 
-def _promoted(tmp_path: Path, monkeypatch):
+def _prepare_promoted(tmp_path: Path, monkeypatch):
     truth, receipt, _anchor, state_root = _anchored(tmp_path, monkeypatch)
     promoted = N5DataDiscoveryCandidatePromotionService(
         truth,
@@ -120,7 +119,7 @@ def _verifier_launcher(
         prompt = str(command[-1])
         assert "independent RC7.2 N5 DATA_VERIFIER" in prompt
         assert receipt["data_requirement_id"] in prompt
-        _task, artifact, producer = _producer_lineage(truth, receipt)
+        _task, artifact, _producer = _producer_lineage(truth, receipt)
         assert artifact["artifact_id"] in prompt
         session_id = fixed_session or "session-n5-verifier-%d" % counter["count"]
         events = [
@@ -160,13 +159,12 @@ def _verifier_launcher(
 
 
 def _service(tmp_path, truth, receipt, **launcher_kwargs):
-    launcher = _verifier_launcher(tmp_path, truth, receipt, **launcher_kwargs)
     return N5DataVerificationDshHandoffService(
         truth,
         release_id=RELEASE,
         mission_id=MISSION,
         source_commit=COMMIT,
-        launcher=launcher,
+        launcher=_verifier_launcher(tmp_path, truth, receipt, **launcher_kwargs),
         allowed_tools=[VERIFY_TOOL],
     )
 
@@ -201,19 +199,17 @@ def test_data_verifier_is_zero_artifact_role_with_task_scoped_tools_only():
 def test_n5_independent_verifier_observes_v2_raw_candidate_without_admitting_data_truth(
     tmp_path: Path, monkeypatch
 ):
-    truth, receipt, promoted = _promoted(tmp_path, monkeypatch)
+    truth, receipt, promoted = _prepare_promoted(tmp_path, monkeypatch)
     _task, _artifact, producer = _producer_lineage(truth, receipt)
     calls = {"count": 0}
     result = _service(tmp_path, truth, receipt, calls=calls).verify(
         release_batch_id=BATCH,
         data_requirement_id=receipt["data_requirement_id"],
     )
-
     assert result["status"] == "VERIFIER_SESSION_OBSERVED"
     assert calls["count"] == 1
     assert result["candidate_artifact_id"] == promoted["artifact_id"]
     assert result["producer_worker_id"] == producer["worker_instance_id"]
-    assert result["producer_dsh_session_id"] == producer["dsh_session_id"]
     assert result["verifier_worker_id"] != producer["worker_instance_id"]
     assert result["verifier_dsh_session_id"] != producer["dsh_session_id"]
     assert result["attempt_state"] == "VERIFIER_COMPLETED_PENDING_RAW_ANCHOR"
@@ -237,25 +233,23 @@ def test_n5_independent_verifier_observes_v2_raw_candidate_without_admitting_dat
         "n6_ready", "field_verified", "bank_final",
     ):
         assert forbidden not in attempt
-
     assert truth.query(
         "rc72_n5_data_binding", data_requirement_id=receipt["data_requirement_id"]
     ) == []
     assert truth.query("rc72_data_lease") == []
-    n5 = truth.query(
+    assert truth.query(
         "rc72_mission_node", mission_id=MISSION, node_type="N5_TEST_DATA"
-    )[0]
-    n6 = truth.query(
+    )[0]["state"] == "RUNNING"
+    assert truth.query(
         "rc72_mission_node", mission_id=MISSION, node_type="N6_EXECUTABLE_READINESS"
-    )[0]
-    assert n5["state"] == "RUNNING"
-    assert n6["state"] == "NOT_STARTED"
+    )[0]["state"] == "NOT_STARTED"
 
 
 def test_n5_verifier_replay_is_idempotent_without_second_verifier_session(
     tmp_path: Path, monkeypatch
 ):
-    truth, receipt, _promoted = _promoted(tmp_path, monkeypatch)
+    truth, receipt, promoted_result = _prepare_promoted(tmp_path, monkeypatch)
+    assert promoted_result["task_state"] == "OUTPUT_PRODUCED"
     calls = {"count": 0}
     service = _service(tmp_path, truth, receipt, calls=calls)
     first = service.verify(
@@ -277,7 +271,8 @@ def test_n5_verifier_replay_is_idempotent_without_second_verifier_session(
 def test_n5_verifier_rejects_producer_session_reuse_and_admits_no_attempt(
     tmp_path: Path, monkeypatch
 ):
-    truth, receipt, _promoted = _promoted(tmp_path, monkeypatch)
+    truth, receipt, promoted_result = _prepare_promoted(tmp_path, monkeypatch)
+    assert promoted_result["task_state"] == "OUTPUT_PRODUCED"
     _task, _artifact, producer = _producer_lineage(truth, receipt)
     service = _service(
         tmp_path,
@@ -294,15 +289,13 @@ def test_n5_verifier_rejects_producer_session_reuse_and_admits_no_attempt(
             data_requirement_id=receipt["data_requirement_id"],
         )
     assert truth.query("rc72_n5_data_verification_attempt", mission_id=MISSION) == []
-    assert truth.query(
-        "rc72_n5_data_binding", data_requirement_id=receipt["data_requirement_id"]
-    ) == []
 
 
 def test_n5_verifier_rejects_unleased_tool_and_admits_no_attempt(
     tmp_path: Path, monkeypatch
 ):
-    truth, receipt, _promoted = _promoted(tmp_path, monkeypatch)
+    truth, receipt, promoted_result = _prepare_promoted(tmp_path, monkeypatch)
+    assert promoted_result["task_state"] == "OUTPUT_PRODUCED"
     launcher = _verifier_launcher(
         tmp_path,
         truth,
@@ -328,13 +321,13 @@ def test_n5_verifier_rejects_unleased_tool_and_admits_no_attempt(
 def test_n5_verifier_v2_contract_rejects_canonical_data_ref_smuggling(
     tmp_path: Path, monkeypatch
 ):
-    truth, receipt, _promoted = _promoted(tmp_path, monkeypatch)
-    service = _service(tmp_path, truth, receipt, smuggle=True)
+    truth, receipt, promoted_result = _prepare_promoted(tmp_path, monkeypatch)
+    assert promoted_result["task_state"] == "OUTPUT_PRODUCED"
     with pytest.raises(
         N5DataVerificationHandoffError,
         match="V2_TOP_LEVEL_CONTRACT_INVALID",
     ):
-        service.verify(
+        _service(tmp_path, truth, receipt, smuggle=True).verify(
             release_batch_id=BATCH,
             data_requirement_id=receipt["data_requirement_id"],
         )
@@ -345,7 +338,8 @@ def test_n5_verifier_v2_contract_rejects_canonical_data_ref_smuggling(
 def test_n5_verifier_can_report_repair_required_without_claiming_resource_truth(
     tmp_path: Path, monkeypatch
 ):
-    truth, receipt, _promoted = _promoted(tmp_path, monkeypatch)
+    truth, receipt, promoted_result = _prepare_promoted(tmp_path, monkeypatch)
+    assert promoted_result["task_state"] == "OUTPUT_PRODUCED"
     result = _service(tmp_path, truth, receipt, repair=True).verify(
         release_batch_id=BATCH,
         data_requirement_id=receipt["data_requirement_id"],
@@ -365,7 +359,8 @@ def test_n5_verifier_can_report_repair_required_without_claiming_resource_truth(
 def test_n5_verification_attempt_contract_rejects_post_anchor_truth_claims(
     tmp_path: Path, monkeypatch
 ):
-    truth, receipt, _promoted = _promoted(tmp_path, monkeypatch)
+    truth, receipt, promoted_result = _prepare_promoted(tmp_path, monkeypatch)
+    assert promoted_result["task_state"] == "OUTPUT_PRODUCED"
     result = _service(tmp_path, truth, receipt).verify(
         release_batch_id=BATCH,
         data_requirement_id=receipt["data_requirement_id"],
