@@ -101,6 +101,7 @@ At `c11b42e...`, current-head Windows 2022 and Ubuntu `single-node-full-loop-pro
 | SINGLE_NODE Attempt/lease-set integration binding | WINDOWS/LINUX CI_VERIFIED | exact post-run durable Attempt-set equality enforced before Evidence promotion |
 | SINGLE_NODE durable start/completion production gate | WINDOWS/LINUX CI_VERIFIED | `20c56943...`→`05b5fb5e...`; current-head checks passed; necessary condition only |
 | SINGLE_NODE retained start-event proof surface | WINDOWS/LINUX CI_VERIFIED | `a4bf0e3d...`→`f21afc70...`→`c11b42e...`; retained STARTED identities verified on current-head Windows/Linux CI; no PASS authority |
+| SINGLE_NODE traversal identity uniqueness | CI_PENDING | `c8d56439...`→`c2394721...`; WorkItem/lease/StageInstance/Attempt duplicates now fail closed before durable truth lookup; await current-head Windows/Linux CI |
 | SINGLE_NODE N1–N10 full-loop | NOT_PROVEN | production claim/lease must drive 15 real Stage workers and create verified durable records; no pre-seeded fixture promotion |
 | DISTRIBUTED N1–N10 full-loop | NOT_PROVEN | after SINGLE_NODE proof |
 | dsh-node runtime adapter | CODE_EXISTS | bank reality pending |
@@ -122,4 +123,4 @@ Every session/guard run must read latest `work/rc8` HEAD, read this plan from th
 
 ## 9. Immediate next action
 
-> **SINGLE_NODE production-driven full-loop proof:** wire production Center claim/lease to the frozen 15 real Stage workers for one fresh Mission/TestRun. Workers must themselves create Attempt, ArtifactManifest/Evidence and canonical R1 STARTED/COMPLETED records, and the composed proof must retain and validate those identities end-to-end. Do not pre-seed durable truth and do not promote a boundary double. Keep `BANK_REALITY_VERIFIED=NO` and Release HOLD.
+> **SINGLE_NODE production-driven full-loop proof:** first resolve the current-head traversal-identity uniqueness CI checkpoint; then wire production Center claim/lease to the frozen 15 real Stage workers for one fresh Mission/TestRun. Workers must themselves create Attempt, ArtifactManifest/Evidence and canonical R1 STARTED/COMPLETED records, and the composed proof must retain and validate those identities end-to-end. Do not pre-seed durable truth and do not promote a boundary double. Keep `BANK_REALITY_VERIFIED=NO` and Release HOLD.
