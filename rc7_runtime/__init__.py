@@ -85,6 +85,14 @@ from .rc72_n3_code_analysis_gate_contract import (
 # into mutually incompatible schemas depending on import order.
 install_rc72_n3_code_analysis_gate_contract()
 
+from .rc72_n3_completion import N3CompletionError, N3DeliveryGateService
+from .rc72_n3_completion_r1_replay import install_rc72_n3_completion_r1_replay
+
+# Canonical DSH tool Evidence stores the immutable outer R1 event identity.
+# Aggregate N3 verification must replay that raw event instead of confusing it
+# with the projected agent_runtime_event payload id.
+install_rc72_n3_completion_r1_replay()
+
 from .dsh_test_design_evaluator import (
     DshTestDesignEvaluation,
     DshTestDesignEvaluatorError,
@@ -164,6 +172,7 @@ __all__ = [
     "install_rc7_1_model_resilience",
     "install_rc7_1_worker_output_contracts",
     "install_rc72_n3_code_analysis_gate_contract",
+    "install_rc72_n3_completion_r1_replay",
     "Artifact",
     "ArtifactStatus",
     "Evaluation",
@@ -206,6 +215,8 @@ __all__ = [
     "DshCodeEvaluation",
     "DshCodeEvaluator",
     "DshCodeEvaluatorError",
+    "N3CompletionError",
+    "N3DeliveryGateService",
     "DshTestDesignEvaluation",
     "DshTestDesignEvaluator",
     "DshTestDesignEvaluatorError",
