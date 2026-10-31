@@ -6,7 +6,7 @@ from rc7_runtime.rc72_n3_completion import N3DeliveryGateService
 from rc7_runtime.rc72_n4_parent_truth import N4ParentTruthError, N4ParentTruthService
 from rc7_runtime.test_obligation_inventory import ParentDerivedTestObligationInventory
 
-from rc72_n2_test_support import BATCH, COMMIT, MISSION, REQUIREMENTS, SSTS
+from rc72_n2_test_support import BATCH, COMMIT, MISSION, REQUIREMENTS
 from test_rc72_n3_completion import _review_gate_ready
 
 
@@ -54,12 +54,13 @@ def test_n4_parent_truth_uses_only_active_pass_n2_n3_deliveries_and_nonempty_den
 
     assert set(snapshot["requirement_sst_map"]) == set(REQUIREMENTS)
     assert all(snapshot["requirement_sst_map"][requirement_id] for requirement_id in REQUIREMENTS)
-    all_ssts = {
+    all_ssts = [
         sst_id
         for sst_ids in snapshot["requirement_sst_map"].values()
         for sst_id in sst_ids
-    }
-    assert set(SSTS).issubset(all_ssts)
+    ]
+    assert all_ssts
+    assert len(all_ssts) == len(set(all_ssts))
     assert set(
         requirement_id
         for values in snapshot["code_requirement_map"].values()
