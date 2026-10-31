@@ -103,6 +103,7 @@ class SingleNodeDurableIntegrationProofRunner:
             if not expected_node_id:
                 raise RuntimeError("FULL_LOOP_PRODUCTION_NODE_ID_REQUIRED")
         self.production_components_verified = bool(require_production_components)
+        self.expected_node_id = expected_node_id
         self.truth_reader = truth_reader
         self.observer = SingleNodeFullLoopProofRunner(
             dispatcher=dispatcher,
@@ -130,6 +131,17 @@ class SingleNodeDurableIntegrationProofRunner:
             raise RuntimeError("FULL_LOOP_DURABLE_WORK_ITEM_IDENTITY_MISMATCH")
         if durable.verified_attempts != observed.attempt_ids:
             raise RuntimeError("FULL_LOOP_DURABLE_ATTEMPT_IDENTITY_MISMATCH")
+        if self.production_components_verified:
+            # The composed proof must retain the production node authority and both
+            # halves of the worker-produced R1 chain.  Losing either after the
+            # truth verifier would make a later promotion unable to prove that the
+            # Center-issued leases and durable events came from the same node/run.
+            if durable.verified_production_node_id != self.expected_node_id:
+                raise RuntimeError("FULL_LOOP_DURABLE_PRODUCTION_NODE_IDENTITY_MISMATCH")
+            if len(durable.verified_r1_start_events) != len(observed.attempt_ids):
+                raise RuntimeError("FULL_LOOP_DURABLE_START_EVENT_CARDINALITY_MISMATCH")
+            if len(durable.verified_r1_events) != len(observed.attempt_ids):
+                raise RuntimeError("FULL_LOOP_DURABLE_COMPLETION_EVENT_CARDINALITY_MISMATCH")
         if durable.bank_reality_verified:
             raise RuntimeError("CLOUD_INTEGRATION_MUST_NOT_ASSERT_BANK_REALITY")
         if durable.release_status != "HOLD":
