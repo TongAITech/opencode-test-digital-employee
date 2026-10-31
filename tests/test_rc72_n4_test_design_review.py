@@ -160,7 +160,7 @@ def test_n4_explicit_gap_is_deterministically_rejected_without_reviewer_model_ca
 def test_n4_completed_scope_review_is_idempotent_and_does_not_launch_second_reviewer(
     tmp_path: Path, monkeypatch
 ):
-    truth, scope, _anchor, _promoted = _promoted(tmp_path, monkeypatch)
+    truth, scope, _anchor, _promoted_result = _promoted(tmp_path, monkeypatch)
     launcher = FakeDesignReviewerLauncher(tool_mode="full", decision="PASS")
     service = _review_service(truth, launcher)
 
