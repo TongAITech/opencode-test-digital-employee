@@ -14,8 +14,11 @@ from test_rc72_n3_code_analysis_handoff import _ready
 import test_rc72_n3_real_code_gate_integration as gate_support
 
 
+_ORIGINAL_GATE_READY_CANDIDATE = gate_support._gate_ready_candidate
+
+
 def _canonical_candidate(row):
-    candidate = gate_support._gate_ready_candidate(row)
+    candidate = _ORIGINAL_GATE_READY_CANDIDATE(row)
     candidate["requirement_ids"] = list(REQUIREMENTS)
     candidate["reverse_requirement_mappings"] = [
         {
