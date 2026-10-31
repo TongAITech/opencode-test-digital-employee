@@ -29,6 +29,11 @@ class TruthReader:
         value = {"test_run_id": "TR", "work_item_id": "wi-%d" % i, "attempt_id": "attempt-%d" % i, "node_id": "node-a", "producer_kind": "WORKER", "status": "COMPLETED"}
         return self.mutate("artifact", i, value) if self.mutate else value
 
+    def find_r1_attempt_started(self, **identity):
+        i = self._index(identity["attempt_id"])
+        value = {"event_id": "start-%d" % i, "event_type": "ATTEMPT_STARTED", "test_run_id": "TR", "work_item_id": "wi-%d" % i, "attempt_id": "attempt-%d" % i, "node_id": "node-a", "producer_kind": "WORKER"}
+        return self.mutate("r1_start", i, value) if self.mutate else value
+
     def find_r1_attempt_completed(self, **identity):
         i = self._index(identity["attempt_id"])
         value = {"event_id": "event-%d" % i, "event_type": "ATTEMPT_COMPLETED", "test_run_id": "TR", "work_item_id": "wi-%d" % i, "attempt_id": "attempt-%d" % i, "node_id": "node-a", "producer_kind": "WORKER"}
@@ -48,9 +53,40 @@ def test_center_truth_verifier_requires_completed_work_attempt_artifact_and_r1()
     assert verified.release_status == "HOLD"
 
 
-def test_center_truth_verifier_binds_attempt_artifact_and_r1_to_expected_node():
+def test_center_truth_verifier_binds_attempt_start_completion_chain_to_expected_node():
     verified = SingleNodeCenterTruthVerifier(truth_reader=TruthReader(), expected_node_id="node-a").verify(proof())
     assert verified.verified_attempts == ("attempt-0", "attempt-1")
+
+
+def test_center_truth_verifier_requires_start_reader_for_production_binding():
+    class NoStartReader(TruthReader):
+        find_r1_attempt_started = None
+    with pytest.raises(SingleNodeTruthError, match="CENTER_TRUTH_READER_INCOMPLETE:find_r1_attempt_started"):
+        SingleNodeCenterTruthVerifier(truth_reader=NoStartReader(), expected_node_id="node-a")
+
+
+def test_center_truth_verifier_rejects_missing_or_stale_attempt_start():
+    class MissingStartReader(TruthReader):
+        def find_r1_attempt_started(self, **identity):
+            return None
+    with pytest.raises(SingleNodeTruthError, match="R1_ATTEMPT_STARTED_MISSING:SCOPE_INTAKE"):
+        SingleNodeCenterTruthVerifier(truth_reader=MissingStartReader(), expected_node_id="node-a").verify(proof())
+
+    def mutate(kind, index, payload):
+        if kind == "r1_start" and index == 0:
+            payload = dict(payload); payload["attempt_id"] = "stale-attempt"
+        return payload
+    with pytest.raises(SingleNodeTruthError, match="R1_ATTEMPT_STARTED_IDENTITY_MISMATCH:SCOPE_INTAKE"):
+        SingleNodeCenterTruthVerifier(truth_reader=TruthReader(mutate=mutate), expected_node_id="node-a").verify(proof())
+
+
+def test_center_truth_verifier_rejects_reused_attempt_start_event_identity():
+    def mutate(kind, index, payload):
+        if kind == "r1_start":
+            payload = dict(payload); payload["event_id"] = "same-start"
+        return payload
+    with pytest.raises(SingleNodeTruthError, match="R1_ATTEMPT_STARTED_EVENT_ID_REUSED"):
+        SingleNodeCenterTruthVerifier(truth_reader=TruthReader(mutate=mutate), expected_node_id="node-a").verify(proof())
 
 
 def test_center_truth_verifier_rejects_claimed_stage_instance_not_backed_by_attempt():
@@ -112,6 +148,7 @@ def test_center_truth_verifier_fails_closed_on_missing_stale_or_non_worker_truth
     [
         ("attempt", "producer_node_id", "CENTER_ATTEMPT_NODE_ID_MISMATCH:SCOPE_INTAKE"),
         ("artifact", "node_id", "CENTER_ARTIFACT_NODE_ID_MISMATCH:SCOPE_INTAKE"),
+        ("r1_start", "node_id", "R1_ATTEMPT_STARTED_NODE_ID_MISMATCH:SCOPE_INTAKE"),
         ("r1", "node_id", "R1_ATTEMPT_COMPLETED_NODE_ID_MISMATCH:SCOPE_INTAKE"),
     ],
 )
