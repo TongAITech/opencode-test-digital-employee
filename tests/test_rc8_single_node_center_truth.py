@@ -182,3 +182,29 @@ def test_center_truth_verifier_rejects_reused_r1_event_identity():
         return payload
     with pytest.raises(SingleNodeTruthError, match="R1_EVENT_ID_REUSED"):
         SingleNodeCenterTruthVerifier(truth_reader=TruthReader(mutate=mutate)).verify(proof())
+
+
+@pytest.mark.parametrize(
+    "field,error",
+    [
+        ("work_item_ids", "SINGLE_NODE_PROOF_WORK_ITEM_ID_REUSED"),
+        ("lease_ids", "SINGLE_NODE_PROOF_LEASE_ID_REUSED"),
+        ("stage_instance_ids", "SINGLE_NODE_PROOF_STAGE_INSTANCE_ID_REUSED"),
+        ("attempt_ids", "SINGLE_NODE_PROOF_ATTEMPT_ID_REUSED"),
+    ],
+)
+def test_center_truth_verifier_rejects_reused_traversal_identity(field, error):
+    base = proof()
+    values = {
+        "test_run_id": base.test_run_id,
+        "stages": base.stages,
+        "work_item_ids": base.work_item_ids,
+        "lease_ids": base.lease_ids,
+        "stage_instance_ids": base.stage_instance_ids,
+        "attempt_ids": base.attempt_ids,
+        "evidence_refs": base.evidence_refs,
+    }
+    values[field] = (values[field][0], values[field][0])
+    duplicated = SingleNodeFullLoopProof(**values)
+    with pytest.raises(SingleNodeTruthError, match=error):
+        SingleNodeCenterTruthVerifier(truth_reader=TruthReader()).verify(duplicated)
