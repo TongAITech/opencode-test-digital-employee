@@ -75,6 +75,16 @@ from .dsh_requirement_evaluator import (
     DshRequirementEvaluatorError,
 )
 from .dsh_code_evaluator import DshCodeEvaluation, DshCodeEvaluator, DshCodeEvaluatorError
+from .rc72_n3_code_analysis_gate_contract import (
+    install_rc72_n3_code_analysis_gate_contract,
+)
+
+# RC7.2 N3 raw candidates keep their replayable V1 envelope but are promoted
+# into the canonical schema required by the real deterministic Code gate.  This
+# must be installed package-wide so source handoff/promotion/review cannot drift
+# into mutually incompatible schemas depending on import order.
+install_rc72_n3_code_analysis_gate_contract()
+
 from .dsh_test_design_evaluator import (
     DshTestDesignEvaluation,
     DshTestDesignEvaluatorError,
@@ -153,6 +163,7 @@ __all__ = [
     "classify_failure",
     "install_rc7_1_model_resilience",
     "install_rc7_1_worker_output_contracts",
+    "install_rc72_n3_code_analysis_gate_contract",
     "Artifact",
     "ArtifactStatus",
     "Evaluation",
