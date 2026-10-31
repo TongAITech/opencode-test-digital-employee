@@ -49,6 +49,7 @@ def test_center_truth_verifier_requires_completed_work_attempt_artifact_and_r1()
     assert verified.verified_work_items == ("wi-0", "wi-1")
     assert verified.verified_r1_events == ("event-0", "event-1")
     assert verified.verified_r1_start_events == ()
+    assert verified.verified_production_node_id is None
     assert verified.status == "CENTER_R1_EVIDENCE_VERIFIED_NOT_AUTHORIZED"
     assert verified.bank_reality_verified is False
     assert verified.release_status == "HOLD"
@@ -59,6 +60,7 @@ def test_center_truth_verifier_binds_attempt_start_completion_chain_to_expected_
     assert verified.verified_attempts == ("attempt-0", "attempt-1")
     assert verified.verified_r1_start_events == ("start-0", "start-1")
     assert verified.verified_r1_events == ("event-0", "event-1")
+    assert verified.verified_production_node_id == "node-a"
 
 
 def test_center_truth_verifier_requires_start_reader_for_production_binding():
