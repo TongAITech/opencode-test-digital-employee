@@ -145,3 +145,39 @@ def test_real_worker_classes_cannot_use_different_center_authority(monkeypatch):
     dispatcher = AutonomousWorkerDispatcher(claimant=AutonomousClaimClient("http://127.0.0.1:4098", "node-1"), workers=workers)
     with pytest.raises(RuntimeError, match="FULL_LOOP_PRODUCTION_CENTER_AUTHORITY_MISMATCH:CODE_ANALYSIS"):
         proof_module.assert_production_dispatcher_topology(dispatcher)
+
+
+def test_composed_production_proof_rejects_lost_node_identity(monkeypatch):
+    runner = _boundary_double_runner()
+    runner.production_components_verified = True
+    runner.expected_node_id = "node-1"
+    monkeypatch.setattr(
+        runner.verifier,
+        "verify",
+        lambda observed: SimpleNamespace(
+            verified_work_items=observed.work_item_ids,
+            verified_attempts=observed.attempt_ids,
+            verified_production_node_id="node-2",
+        ),
+    )
+    with pytest.raises(RuntimeError, match="FULL_LOOP_DURABLE_PRODUCTION_NODE_IDENTITY_MISMATCH"):
+        runner.run(test_run_id="run-1")
+
+
+def test_composed_production_proof_rejects_missing_start_event(monkeypatch):
+    runner = _boundary_double_runner()
+    runner.production_components_verified = True
+    runner.expected_node_id = "node-1"
+    monkeypatch.setattr(
+        runner.verifier,
+        "verify",
+        lambda observed: SimpleNamespace(
+            verified_work_items=observed.work_item_ids,
+            verified_attempts=observed.attempt_ids,
+            verified_production_node_id="node-1",
+            verified_r1_start_events=(),
+            verified_r1_events=("evt-completed-1",),
+        ),
+    )
+    with pytest.raises(RuntimeError, match="FULL_LOOP_DURABLE_START_EVENT_CARDINALITY_MISMATCH"):
+        runner.run(test_run_id="run-1")
