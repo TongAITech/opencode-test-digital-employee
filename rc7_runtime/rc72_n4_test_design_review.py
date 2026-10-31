@@ -255,8 +255,18 @@ class N4TestDesignReviewService:
         ]
         gaps: List[Gap] = []
         for kind, items, category, severity in (
-            ("UNKNOWN", unknowns, "TEST_DESIGN_EXPLICIT_UNKNOWN", GapSeverity.BLOCKER),
-            ("GAP", explicit_gaps, "TEST_DESIGN_EXPLICIT_GAP", GapSeverity.HIGH),
+            (
+                "UNKNOWN",
+                unknowns,
+                "TEST_DESIGN_SOURCE_OBLIGATION_GAP",
+                GapSeverity.BLOCKER,
+            ),
+            (
+                "GAP",
+                explicit_gaps,
+                "TEST_DESIGN_REVIEW_GAP",
+                GapSeverity.HIGH,
+            ),
         ):
             for index, item in enumerate(items):
                 detail = _stable_text(item)
