@@ -83,10 +83,10 @@ class SingleNodeDurableIntegrationProofRunner:
     """Run dispatcher traversal, then verify the exact traversal in durable truth.
 
     Production component identity is intentionally distinct from production causality.
-    A production traversal starts with a durable-attempt preflight and, after the
-    traversal, binds the complete durable Attempt identity set to the Center-issued
-    lease identities actually observed by the dispatcher. These are necessary
-    causality conditions, not sufficient authority to promote the proof.
+    A production traversal starts with clean durable Attempt and R1 lifecycle preflights and,
+    after the traversal, binds the complete durable Attempt identity set to the Center-issued
+    lease identities actually observed by the dispatcher. These are necessary causality
+    conditions, not sufficient authority to promote the proof.
     """
 
     def __init__(self, *, dispatcher: Any, truth_reader: Any, required_stages: Sequence[str] = FROZEN_N1_N10_STAGES, require_production_components: bool = True) -> None:
@@ -115,6 +115,7 @@ class SingleNodeDurableIntegrationProofRunner:
     def run(self, *, test_run_id: str) -> SingleNodeDurableIntegrationProof:
         if self.production_components_verified:
             self.truth_reader.assert_no_attempts_for_test_run(test_run_id)
+            self.truth_reader.assert_no_r1_attempt_lifecycle_for_test_run(test_run_id)
         observed = self.observer.run(test_run_id=test_run_id)
         if self.production_components_verified:
             self.truth_reader.assert_attempt_ids_match_observed_leases(
@@ -135,10 +136,6 @@ class SingleNodeDurableIntegrationProofRunner:
                 raise RuntimeError("FULL_LOOP_DURABLE_START_EVENT_CARDINALITY_MISMATCH")
             if len(completion_events) != len(observed.attempt_ids):
                 raise RuntimeError("FULL_LOOP_DURABLE_COMPLETION_EVENT_CARDINALITY_MISMATCH")
-            # Cardinality alone is insufficient: duplicated event IDs can make 15
-            # Attempts appear to have 15 events while actually reusing durable truth.
-            # STARTED and COMPLETED must each be one event per Attempt, and the two
-            # lifecycle halves must never alias the same R1 event identity.
             if len(set(start_events)) != len(start_events):
                 raise RuntimeError("FULL_LOOP_DURABLE_START_EVENT_IDENTITY_REUSED")
             if len(set(completion_events)) != len(completion_events):
