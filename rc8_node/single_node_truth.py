@@ -92,6 +92,21 @@ class SingleNodeCenterTruthVerifier:
         ):
             raise SingleNodeTruthError("SINGLE_NODE_PROOF_DENOMINATOR_DIVERGED")
 
+        # Equal tuple lengths do not prove a real denominator: repeated identities
+        # can otherwise occupy multiple required Stage slots while referring to the
+        # same durable claim/work/attempt. Reject that stitching before reading any
+        # durable truth so duplicates cannot be hidden by reader behavior.
+        identity_sets = (
+            (proof.work_item_ids, "SINGLE_NODE_PROOF_WORK_ITEM_ID_REUSED"),
+            (proof.lease_ids, "SINGLE_NODE_PROOF_LEASE_ID_REUSED"),
+            (proof.stage_instance_ids, "SINGLE_NODE_PROOF_STAGE_INSTANCE_ID_REUSED"),
+            (proof.attempt_ids, "SINGLE_NODE_PROOF_ATTEMPT_ID_REUSED"),
+        )
+        for identities, error in identity_sets:
+            normalized = tuple(str(value or "").strip() for value in identities)
+            if any(not value for value in normalized) or len(set(normalized)) != len(normalized):
+                raise SingleNodeTruthError(error)
+
         for stage, lease_id, attempt_id in zip(proof.stages, proof.lease_ids, proof.attempt_ids):
             if str(lease_id or "").strip() != str(attempt_id or "").strip():
                 raise SingleNodeTruthError("CENTER_LEASE_ATTEMPT_IDENTITY_MISMATCH:%s" % stage)
