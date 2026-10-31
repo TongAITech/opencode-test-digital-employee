@@ -114,14 +114,9 @@ class SingleNodeDurableIntegrationProofRunner:
 
     def run(self, *, test_run_id: str) -> SingleNodeDurableIntegrationProof:
         if self.production_components_verified:
-            # This must happen immediately before the first production claim. A
-            # pre-existing Attempt proves the run is not a fresh causality fixture.
             self.truth_reader.assert_no_attempts_for_test_run(test_run_id)
         observed = self.observer.run(test_run_id=test_run_id)
         if self.production_components_verified:
-            # The post-traversal durable Attempt set must be exactly the set of
-            # Center-issued leases observed in this traversal. Extra/stale/missing
-            # Attempts therefore fail before durable evidence can be promoted.
             self.truth_reader.assert_attempt_ids_match_observed_leases(
                 test_run_id=test_run_id,
                 observed_lease_ids=observed.lease_ids,
@@ -132,15 +127,24 @@ class SingleNodeDurableIntegrationProofRunner:
         if durable.verified_attempts != observed.attempt_ids:
             raise RuntimeError("FULL_LOOP_DURABLE_ATTEMPT_IDENTITY_MISMATCH")
         if self.production_components_verified and self.expected_node_id:
-            # A true production runner always has expected_node_id from the claimant.
-            # The guard also keeps explicit boundary-double tests from being promoted
-            # merely by toggling the diagnostic production_components flag.
             if durable.verified_production_node_id != self.expected_node_id:
                 raise RuntimeError("FULL_LOOP_DURABLE_PRODUCTION_NODE_IDENTITY_MISMATCH")
-            if len(durable.verified_r1_start_events) != len(observed.attempt_ids):
+            start_events = tuple(durable.verified_r1_start_events)
+            completion_events = tuple(durable.verified_r1_events)
+            if len(start_events) != len(observed.attempt_ids):
                 raise RuntimeError("FULL_LOOP_DURABLE_START_EVENT_CARDINALITY_MISMATCH")
-            if len(durable.verified_r1_events) != len(observed.attempt_ids):
+            if len(completion_events) != len(observed.attempt_ids):
                 raise RuntimeError("FULL_LOOP_DURABLE_COMPLETION_EVENT_CARDINALITY_MISMATCH")
+            # Cardinality alone is insufficient: duplicated event IDs can make 15
+            # Attempts appear to have 15 events while actually reusing durable truth.
+            # STARTED and COMPLETED must each be one event per Attempt, and the two
+            # lifecycle halves must never alias the same R1 event identity.
+            if len(set(start_events)) != len(start_events):
+                raise RuntimeError("FULL_LOOP_DURABLE_START_EVENT_IDENTITY_REUSED")
+            if len(set(completion_events)) != len(completion_events):
+                raise RuntimeError("FULL_LOOP_DURABLE_COMPLETION_EVENT_IDENTITY_REUSED")
+            if set(start_events).intersection(completion_events):
+                raise RuntimeError("FULL_LOOP_DURABLE_LIFECYCLE_EVENT_IDENTITY_COLLISION")
         if durable.bank_reality_verified:
             raise RuntimeError("CLOUD_INTEGRATION_MUST_NOT_ASSERT_BANK_REALITY")
         if durable.release_status != "HOLD":
