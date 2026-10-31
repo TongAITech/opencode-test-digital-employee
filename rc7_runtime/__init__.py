@@ -17,10 +17,14 @@ from .model_resilience import (
     classify_failure,
     install_rc7_1_model_resilience,
 )
+from .rc72_dsh_json_output_contract import install_rc72_dsh_json_output_contract
 
 install_rc7_1_junit_reality_gate()
 install_rc7_1_worker_timeout_diagnostics()
 install_rc7_1_model_resilience()
+# RC7.2 strict workers emit nested JSON contracts. Install the outer-object
+# selector before any RC7.2 handoff/evaluator module can launch DSH.
+install_rc72_dsh_json_output_contract()
 
 from .models import (
     Artifact,
@@ -199,6 +203,7 @@ __all__ = [
     "classify_failure",
     "install_rc7_1_model_resilience",
     "install_rc7_1_worker_output_contracts",
+    "install_rc72_dsh_json_output_contract",
     "install_rc72_n3_code_analysis_gate_contract",
     "install_rc72_n3_completion_r1_replay",
     "install_rc72_n4_parent_inventory_contract",
