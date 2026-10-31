@@ -26,6 +26,7 @@ class SingleNodeTruthProof:
     verified_attempts: Tuple[str, ...]
     verified_artifacts: Tuple[str, ...]
     verified_r1_events: Tuple[str, ...]
+    verified_r1_start_events: Tuple[str, ...] = ()
     status: str = "CENTER_R1_EVIDENCE_VERIFIED_NOT_AUTHORIZED"
     bank_reality_verified: bool = False
     release_status: str = "HOLD"
@@ -186,4 +187,5 @@ class SingleNodeCenterTruthVerifier:
             verified_attempts=tuple(proof.attempt_ids),
             verified_artifacts=tuple(artifact_ids),
             verified_r1_events=tuple(r1_ids),
+            verified_r1_start_events=tuple(r1_start_ids),
         )
