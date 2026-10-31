@@ -93,6 +93,17 @@ from .rc72_n3_completion_r1_replay import install_rc72_n3_completion_r1_replay
 # with the projected agent_runtime_event payload id.
 install_rc72_n3_completion_r1_replay()
 
+from .rc72_n4_parent_truth import (
+    N4ParentTruthError,
+    N4ParentTruthService,
+    install_rc72_n4_parent_inventory_contract,
+)
+
+# RC7.2 persists N2/N3 candidates under the current runtime artifact types.
+# Install the compatibility layer before importing the inherited Test Design
+# evaluators so their parent-derived denominator can never silently become empty.
+install_rc72_n4_parent_inventory_contract()
+
 from .dsh_test_design_evaluator import (
     DshTestDesignEvaluation,
     DshTestDesignEvaluatorError,
@@ -173,6 +184,7 @@ __all__ = [
     "install_rc7_1_worker_output_contracts",
     "install_rc72_n3_code_analysis_gate_contract",
     "install_rc72_n3_completion_r1_replay",
+    "install_rc72_n4_parent_inventory_contract",
     "Artifact",
     "ArtifactStatus",
     "Evaluation",
@@ -217,6 +229,8 @@ __all__ = [
     "DshCodeEvaluatorError",
     "N3CompletionError",
     "N3DeliveryGateService",
+    "N4ParentTruthError",
+    "N4ParentTruthService",
     "DshTestDesignEvaluation",
     "DshTestDesignEvaluator",
     "DshTestDesignEvaluatorError",
