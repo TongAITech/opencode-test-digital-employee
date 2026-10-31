@@ -125,6 +125,14 @@ from .rc72_n4_test_design_assignment import (
 install_rc72_n4_test_design_dispatch_overlay()
 install_rc72_n4_test_design_assignment_overlay()
 
+from .rc72_n4_gap_candidate_contract import install_rc72_n4_gap_candidate_contract
+
+# Explicit N4 design gaps may legitimately carry zero TestCases: the worker is
+# required to surface the gap instead of inventing a case.  This admission does
+# not weaken the N4 sufficiency gate; uncovered required obligations remain
+# non-PASS until repaired.
+install_rc72_n4_gap_candidate_contract()
+
 from .dsh_test_design_evaluator import (
     DshTestDesignEvaluation,
     DshTestDesignEvaluatorError,
@@ -209,6 +217,7 @@ __all__ = [
     "install_rc72_n4_parent_inventory_contract",
     "install_rc72_n4_test_design_dispatch_overlay",
     "install_rc72_n4_test_design_assignment_overlay",
+    "install_rc72_n4_gap_candidate_contract",
     "Artifact",
     "ArtifactStatus",
     "Evaluation",
