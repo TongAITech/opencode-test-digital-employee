@@ -22,6 +22,7 @@ SOURCE_TARGET_DISCOVERY_WORKER = "SOURCE_TARGET_DISCOVERY_WORKER"
 SOURCE_TARGET_REVIEWER = "SOURCE_TARGET_REVIEWER"
 CODE_ANALYSIS_WORKER = "CODE_ANALYSIS_WORKER"
 TEST_DESIGN_WORKER = "TEST_DESIGN_WORKER"
+DATA_PREPARER = "DATA_PREPARER"
 
 
 class RC72AuthorityRuntime(AuthorityRuntime):
@@ -36,6 +37,11 @@ class RC72AuthorityRuntime(AuthorityRuntime):
     _ROLE_ARTIFACTS[SOURCE_TARGET_REVIEWER] = set()
     _ROLE_ARTIFACTS[CODE_ANALYSIS_WORKER] = set()
     _ROLE_ARTIFACTS[TEST_DESIGN_WORKER] = set()
+    # N5 data workers are execution identities only at handoff time. They may
+    # call tools explicitly granted by their task-scoped lease, but they cannot
+    # write canonical professional artifacts directly. DataRef/binding/lease
+    # truth is admitted only by downstream evidence-backed promotion services.
+    _ROLE_ARTIFACTS[DATA_PREPARER] = set()
 
     def adopt_identity(
         self,
