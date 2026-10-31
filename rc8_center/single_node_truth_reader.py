@@ -47,6 +47,21 @@ class ProductionCenterR1TruthReader:
                 "PRODUCTION_CAUSALITY_PREFLIGHT_ATTEMPT_ALREADY_EXISTS:%s" % attempt_id
             )
 
+    def assert_no_r1_attempt_lifecycle_for_test_run(self, test_run_id: str) -> None:
+        """Reject pre-seeded durable Attempt lifecycle truth before production dispatch."""
+        run_id = str(test_run_id or "").strip()
+        if not run_id:
+            raise ProductionTruthReaderError("TEST_RUN_ID_REQUIRED")
+        for event in self.r1_ledger.runtime_events(test_run_id=run_id):
+            event_type = str(event.get("event_type") or "").strip()
+            if event_type not in {"ATTEMPT_STARTED", "ATTEMPT_COMPLETED"}:
+                continue
+            event_id = str(event.get("event_id") or "").strip() or "UNKNOWN"
+            raise ProductionTruthReaderError(
+                "PRODUCTION_CAUSALITY_PREFLIGHT_R1_ATTEMPT_EVENT_ALREADY_EXISTS:%s:%s"
+                % (event_type, event_id)
+            )
+
     def attempt_ids_for_test_run(self, test_run_id: str) -> Tuple[str, ...]:
         """Return the complete durable Attempt identity set for a TestRun."""
         run_id = str(test_run_id or "").strip()
