@@ -92,7 +92,8 @@ def test_n5_assignment_leases_each_discovery_workitem_to_distinct_fresh_worker(
 def test_n5_assignment_replay_is_idempotent_and_does_not_rotate_worker_early(
     tmp_path: Path, monkeypatch
 ):
-    truth, _inventory, _dispatched = _dispatched(tmp_path, monkeypatch)
+    truth, _inventory, dispatched = _dispatched(tmp_path, monkeypatch)
+    assert dispatched["dispatch_count"] >= 1
     service = N5DataDiscoveryAssignmentService(
         truth,
         release_id=RELEASE,
