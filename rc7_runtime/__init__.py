@@ -104,6 +104,23 @@ from .rc72_n4_parent_truth import (
 # evaluators so their parent-derived denominator can never silently become empty.
 install_rc72_n4_parent_inventory_contract()
 
+from .rc72_n4_test_design_dispatch import (
+    N4TestDesignDispatchError,
+    N4TestDesignDispatchService,
+    install_rc72_n4_test_design_dispatch_overlay,
+)
+from .rc72_n4_test_design_assignment import (
+    N4TestDesignAssignmentError,
+    N4TestDesignAssignmentService,
+    install_rc72_n4_test_design_assignment_overlay,
+)
+
+# Register the N4 durable dispatch/assignment truth types package-wide.  These
+# services stop before DSH launch and therefore cannot manufacture execution or
+# design PASS truth merely by being imported.
+install_rc72_n4_test_design_dispatch_overlay()
+install_rc72_n4_test_design_assignment_overlay()
+
 from .dsh_test_design_evaluator import (
     DshTestDesignEvaluation,
     DshTestDesignEvaluatorError,
@@ -185,6 +202,8 @@ __all__ = [
     "install_rc72_n3_code_analysis_gate_contract",
     "install_rc72_n3_completion_r1_replay",
     "install_rc72_n4_parent_inventory_contract",
+    "install_rc72_n4_test_design_dispatch_overlay",
+    "install_rc72_n4_test_design_assignment_overlay",
     "Artifact",
     "ArtifactStatus",
     "Evaluation",
@@ -231,6 +250,10 @@ __all__ = [
     "N3DeliveryGateService",
     "N4ParentTruthError",
     "N4ParentTruthService",
+    "N4TestDesignDispatchError",
+    "N4TestDesignDispatchService",
+    "N4TestDesignAssignmentError",
+    "N4TestDesignAssignmentService",
     "DshTestDesignEvaluation",
     "DshTestDesignEvaluator",
     "DshTestDesignEvaluatorError",
