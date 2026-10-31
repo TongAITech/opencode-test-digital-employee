@@ -80,7 +80,10 @@ def _launcher(
         counter["count"] += 1
         prompt = str(command[-1])
         counter.setdefault("prompts", []).append(prompt)
-        matches = [row for row in rows if row["target_id"] in prompt]
+        matches = [
+            row for row in rows
+            if ('"target_id": "%s"' % row["target_id"]) in prompt
+        ]
         assert len(matches) == 1
         row = matches[0]
         assert row["repository_ref"] in prompt
