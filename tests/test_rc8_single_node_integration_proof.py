@@ -181,3 +181,68 @@ def test_composed_production_proof_rejects_missing_start_event(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="FULL_LOOP_DURABLE_START_EVENT_CARDINALITY_MISMATCH"):
         runner.run(test_run_id="run-1")
+
+
+def test_composed_production_proof_rejects_reused_start_event_identity(monkeypatch):
+    runner = _boundary_double_runner()
+    runner.production_components_verified = True
+    runner.expected_node_id = "node-1"
+    runner.observer.run = lambda **_: SimpleNamespace(
+        work_item_ids=("wi-1", "wi-2"), attempt_ids=("lease-1", "lease-2"), lease_ids=("lease-1", "lease-2")
+    )
+    monkeypatch.setattr(runner.truth_reader, "assert_attempt_ids_match_observed_leases", lambda **_: None)
+    monkeypatch.setattr(
+        runner.verifier,
+        "verify",
+        lambda observed: SimpleNamespace(
+            verified_work_items=observed.work_item_ids,
+            verified_attempts=observed.attempt_ids,
+            verified_production_node_id="node-1",
+            verified_r1_start_events=("evt-start-1", "evt-start-1"),
+            verified_r1_events=("evt-completed-1", "evt-completed-2"),
+        ),
+    )
+    with pytest.raises(RuntimeError, match="FULL_LOOP_DURABLE_START_EVENT_IDENTITY_REUSED"):
+        runner.run(test_run_id="run-1")
+
+
+def test_composed_production_proof_rejects_reused_completion_event_identity(monkeypatch):
+    runner = _boundary_double_runner()
+    runner.production_components_verified = True
+    runner.expected_node_id = "node-1"
+    runner.observer.run = lambda **_: SimpleNamespace(
+        work_item_ids=("wi-1", "wi-2"), attempt_ids=("lease-1", "lease-2"), lease_ids=("lease-1", "lease-2")
+    )
+    monkeypatch.setattr(runner.truth_reader, "assert_attempt_ids_match_observed_leases", lambda **_: None)
+    monkeypatch.setattr(
+        runner.verifier,
+        "verify",
+        lambda observed: SimpleNamespace(
+            verified_work_items=observed.work_item_ids,
+            verified_attempts=observed.attempt_ids,
+            verified_production_node_id="node-1",
+            verified_r1_start_events=("evt-start-1", "evt-start-2"),
+            verified_r1_events=("evt-completed-1", "evt-completed-1"),
+        ),
+    )
+    with pytest.raises(RuntimeError, match="FULL_LOOP_DURABLE_COMPLETION_EVENT_IDENTITY_REUSED"):
+        runner.run(test_run_id="run-1")
+
+
+def test_composed_production_proof_rejects_start_completion_event_collision(monkeypatch):
+    runner = _boundary_double_runner()
+    runner.production_components_verified = True
+    runner.expected_node_id = "node-1"
+    monkeypatch.setattr(
+        runner.verifier,
+        "verify",
+        lambda observed: SimpleNamespace(
+            verified_work_items=observed.work_item_ids,
+            verified_attempts=observed.attempt_ids,
+            verified_production_node_id="node-1",
+            verified_r1_start_events=("evt-shared-1",),
+            verified_r1_events=("evt-shared-1",),
+        ),
+    )
+    with pytest.raises(RuntimeError, match="FULL_LOOP_DURABLE_LIFECYCLE_EVENT_IDENTITY_COLLISION"):
+        runner.run(test_run_id="run-1")
