@@ -30,7 +30,7 @@ jobs:
             label: linux-engineering-proxy
             qualification_kind: LINUX_ENGINEERING_PROXY
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    timeout-minutes: 30
     steps:
       - name: Checkout exact RC7.2 source
         uses: actions/checkout@v4
@@ -47,19 +47,19 @@ jobs:
       - name: Compile RC7.2 and inherited runtime
         run: python -m compileall -q rc6_runtime rc7_runtime rc7_release
 
-      - name: Run RC7.2 contract suite
+      - name: Run RC7.2 contract suite with bounded file diagnostics
         run: >-
-          python -c "import glob,subprocess,sys;
-          files=sorted(glob.glob('tests/test_rc72_*.py'));
-          assert files, 'No RC7.2 contract tests found';
-          raise SystemExit(subprocess.call([sys.executable,'-m','pytest','-q','--junitxml=rc72-platform-contracts.xml']+files))"
+          python -m rc7_release.rc72_bounded_pytest
+          --pattern "tests/test_rc72_*.py"
+          --timeout-seconds 180
+          --junit-dir rc72-platform-junit
 
-      - name: Run inherited RC7 regression
+      - name: Run inherited RC7 regression with bounded file diagnostics
         run: >-
-          python -c "import glob,subprocess,sys;
-          files=sorted(glob.glob('tests/test_rc7_*.py'));
-          assert files, 'No inherited RC7 tests found';
-          raise SystemExit(subprocess.call([sys.executable,'-m','pytest','-q','--junitxml=rc7-inherited-regression.xml']+files))"
+          python -m rc7_release.rc72_bounded_pytest
+          --pattern "tests/test_rc7_*.py"
+          --timeout-seconds 180
+          --junit-dir rc7-inherited-junit
 
       - name: Emit Q1 structured evidence
         run: >-
@@ -74,8 +74,8 @@ jobs:
         with:
           name: rc72-q1-${{ matrix.label }}-${{ github.sha }}
           path: |
-            rc72-platform-contracts.xml
-            rc7-inherited-regression.xml
+            rc72-platform-junit/*.xml
+            rc7-inherited-junit/*.xml
             rc72-q1-platform-evidence.json
           if-no-files-found: warn
           retention-days: 14
