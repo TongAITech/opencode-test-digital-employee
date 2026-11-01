@@ -40,9 +40,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.8'
+          cache: 'pip'
+          cache-dependency-path: rc7_release/requirements-qualification.txt
 
-      - name: Install qualification dependency
-        run: python -m pip install --disable-pip-version-check pytest
+      - name: Bootstrap pinned qualification dependency with hard timeout
+        run: >-
+          python -m rc7_release.rc72_pytest_bootstrap
+          --requirements rc7_release/requirements-qualification.txt
+          --timeout-seconds 120
 
       - name: Compile RC7.2 and inherited runtime
         run: python -m compileall -q rc6_runtime rc7_runtime rc7_release
