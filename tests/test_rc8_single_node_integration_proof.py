@@ -56,9 +56,7 @@ class _Truth:
         return {"test_run_id": "other" if self.stale else "run-1", "stage": "SCOPE_INTAKE", "status": "COMPLETED"}
 
     def get_attempt(self, attempt_id):
-        return {
-            "test_run_id": "run-1", "work_item_id": "wi-1", "stage_instance_id": "stage-instance-1", "status": "COMPLETED",
-        }
+        return {"test_run_id": "run-1", "work_item_id": "wi-1", "stage_instance_id": "stage-instance-1", "status": "COMPLETED"}
 
     def get_artifact(self, artifact_id):
         return {"test_run_id": "run-1", "work_item_id": "wi-1", "attempt_id": "lease-1", "producer_kind": "WORKER", "status": "COMPLETED"}
@@ -75,6 +73,12 @@ def _boundary_double_runner(*, stale=False):
     )
 
 
+def _force_internal_production_state(runner):
+    """Unit-test downstream production guards without exercising constructor identity gates."""
+    runner._production_components_verified = True
+    runner.expected_node_id = "node-1"
+
+
 def test_boundary_double_is_explicitly_not_a_production_proof():
     proof = _boundary_double_runner().run(test_run_id="run-1")
     assert proof.status == "BOUNDARY_DOUBLE_VERIFIED_NOT_PRODUCTION_PROOF"
@@ -88,16 +92,17 @@ def test_boundary_double_is_explicitly_not_a_production_proof():
     assert proof.release_status == "HOLD"
 
 
-def test_production_run_binds_observed_center_leases_to_complete_durable_attempt_set():
+def test_boundary_double_cannot_be_promoted_by_mutating_public_production_flag():
     runner = _boundary_double_runner()
-    runner.production_components_verified = True
+    with pytest.raises(AttributeError):
+        runner.production_components_verified = True
     proof = runner.run(test_run_id="run-1")
-    assert runner.truth_reader.preflight_calls == ["run-1"]
-    assert runner.truth_reader.r1_preflight_calls == ["run-1"]
-    assert runner.truth_reader.lease_binding_calls == [("run-1", ("lease-1",))]
-    assert proof.production_components_verified is True
+    assert runner.truth_reader.preflight_calls == []
+    assert runner.truth_reader.r1_preflight_calls == []
+    assert runner.truth_reader.lease_binding_calls == []
+    assert proof.production_components_verified is False
     assert proof.production_causality_verified is False
-    assert proof.release_status == "HOLD"
+    assert proof.status == "BOUNDARY_DOUBLE_VERIFIED_NOT_PRODUCTION_PROOF"
 
 
 def test_stale_center_truth_cannot_promote_dispatcher_observation():
@@ -106,9 +111,6 @@ def test_stale_center_truth_cannot_promote_dispatcher_observation():
 
 
 def test_boundary_double_cannot_enter_production_full_loop_gate_by_default():
-    # Production mode freezes the full N1-N10 denominator before any component
-    # identity checks. A one-stage boundary double therefore cannot use a reduced
-    # denominator to reach (or masquerade as) the production component gate.
     with pytest.raises(RuntimeError, match="FULL_LOOP_PRODUCTION_DENOMINATOR_OVERRIDE_FORBIDDEN"):
         SingleNodeDurableIntegrationProofRunner(dispatcher=_Dispatcher(), truth_reader=_Truth(), required_stages=("SCOPE_INTAKE",))
 
@@ -130,7 +132,6 @@ def test_real_worker_classes_cannot_be_split_across_node_authorities(monkeypatch
         def __init__(self, node_id, center_url):
             self.identity = SimpleNamespace(node_id=node_id)
             self.center = SimpleNamespace(base_url=center_url)
-
     monkeypatch.setattr(proof_module, "FormalNodeAgent", _FormalAgent)
     monkeypatch.setattr(proof_module, "_PRODUCTION_WORKER_IDENTITIES", {stage: (__name__, "_Worker") for stage in FROZEN_N1_N10_STAGES})
     workers = {stage: _Worker(_FormalAgent("node-1", "http://127.0.0.1:4098")) for stage in FROZEN_N1_N10_STAGES}
@@ -145,7 +146,6 @@ def test_real_worker_classes_cannot_use_different_center_authority(monkeypatch):
         def __init__(self, node_id, center_url):
             self.identity = SimpleNamespace(node_id=node_id)
             self.center = SimpleNamespace(base_url=center_url)
-
     monkeypatch.setattr(proof_module, "FormalNodeAgent", _FormalAgent)
     monkeypatch.setattr(proof_module, "_PRODUCTION_WORKER_IDENTITIES", {stage: (__name__, "_Worker") for stage in FROZEN_N1_N10_STAGES})
     workers = {stage: _Worker(_FormalAgent("node-1", "http://127.0.0.1:4098")) for stage in FROZEN_N1_N10_STAGES}
@@ -157,100 +157,59 @@ def test_real_worker_classes_cannot_use_different_center_authority(monkeypatch):
 
 def test_composed_production_proof_rejects_lost_node_identity(monkeypatch):
     runner = _boundary_double_runner()
-    runner.production_components_verified = True
-    runner.expected_node_id = "node-1"
-    monkeypatch.setattr(
-        runner.verifier,
-        "verify",
-        lambda observed: SimpleNamespace(
-            verified_work_items=observed.work_item_ids,
-            verified_attempts=observed.attempt_ids,
-            verified_production_node_id="node-2",
-        ),
-    )
+    _force_internal_production_state(runner)
+    monkeypatch.setattr(runner.verifier, "verify", lambda observed: SimpleNamespace(
+        verified_work_items=observed.work_item_ids, verified_attempts=observed.attempt_ids,
+        verified_production_node_id="node-2"))
     with pytest.raises(RuntimeError, match="FULL_LOOP_DURABLE_PRODUCTION_NODE_IDENTITY_MISMATCH"):
         runner.run(test_run_id="run-1")
 
 
 def test_composed_production_proof_rejects_missing_start_event(monkeypatch):
     runner = _boundary_double_runner()
-    runner.production_components_verified = True
-    runner.expected_node_id = "node-1"
-    monkeypatch.setattr(
-        runner.verifier,
-        "verify",
-        lambda observed: SimpleNamespace(
-            verified_work_items=observed.work_item_ids,
-            verified_attempts=observed.attempt_ids,
-            verified_production_node_id="node-1",
-            verified_r1_start_events=(),
-            verified_r1_events=("evt-completed-1",),
-        ),
-    )
+    _force_internal_production_state(runner)
+    monkeypatch.setattr(runner.verifier, "verify", lambda observed: SimpleNamespace(
+        verified_work_items=observed.work_item_ids, verified_attempts=observed.attempt_ids,
+        verified_production_node_id="node-1", verified_r1_start_events=(),
+        verified_r1_events=("evt-completed-1",)))
     with pytest.raises(RuntimeError, match="FULL_LOOP_DURABLE_START_EVENT_CARDINALITY_MISMATCH"):
         runner.run(test_run_id="run-1")
 
 
 def test_composed_production_proof_rejects_reused_start_event_identity(monkeypatch):
     runner = _boundary_double_runner()
-    runner.production_components_verified = True
-    runner.expected_node_id = "node-1"
+    _force_internal_production_state(runner)
     runner.observer.run = lambda **_: SimpleNamespace(
-        work_item_ids=("wi-1", "wi-2"), attempt_ids=("lease-1", "lease-2"), lease_ids=("lease-1", "lease-2")
-    )
+        work_item_ids=("wi-1", "wi-2"), attempt_ids=("lease-1", "lease-2"), lease_ids=("lease-1", "lease-2"))
     monkeypatch.setattr(runner.truth_reader, "assert_attempt_ids_match_observed_leases", lambda **_: None)
-    monkeypatch.setattr(
-        runner.verifier,
-        "verify",
-        lambda observed: SimpleNamespace(
-            verified_work_items=observed.work_item_ids,
-            verified_attempts=observed.attempt_ids,
-            verified_production_node_id="node-1",
-            verified_r1_start_events=("evt-start-1", "evt-start-1"),
-            verified_r1_events=("evt-completed-1", "evt-completed-2"),
-        ),
-    )
+    monkeypatch.setattr(runner.verifier, "verify", lambda observed: SimpleNamespace(
+        verified_work_items=observed.work_item_ids, verified_attempts=observed.attempt_ids,
+        verified_production_node_id="node-1", verified_r1_start_events=("evt-start-1", "evt-start-1"),
+        verified_r1_events=("evt-completed-1", "evt-completed-2")))
     with pytest.raises(RuntimeError, match="FULL_LOOP_DURABLE_START_EVENT_IDENTITY_REUSED"):
         runner.run(test_run_id="run-1")
 
 
 def test_composed_production_proof_rejects_reused_completion_event_identity(monkeypatch):
     runner = _boundary_double_runner()
-    runner.production_components_verified = True
-    runner.expected_node_id = "node-1"
+    _force_internal_production_state(runner)
     runner.observer.run = lambda **_: SimpleNamespace(
-        work_item_ids=("wi-1", "wi-2"), attempt_ids=("lease-1", "lease-2"), lease_ids=("lease-1", "lease-2")
-    )
+        work_item_ids=("wi-1", "wi-2"), attempt_ids=("lease-1", "lease-2"), lease_ids=("lease-1", "lease-2"))
     monkeypatch.setattr(runner.truth_reader, "assert_attempt_ids_match_observed_leases", lambda **_: None)
-    monkeypatch.setattr(
-        runner.verifier,
-        "verify",
-        lambda observed: SimpleNamespace(
-            verified_work_items=observed.work_item_ids,
-            verified_attempts=observed.attempt_ids,
-            verified_production_node_id="node-1",
-            verified_r1_start_events=("evt-start-1", "evt-start-2"),
-            verified_r1_events=("evt-completed-1", "evt-completed-1"),
-        ),
-    )
+    monkeypatch.setattr(runner.verifier, "verify", lambda observed: SimpleNamespace(
+        verified_work_items=observed.work_item_ids, verified_attempts=observed.attempt_ids,
+        verified_production_node_id="node-1", verified_r1_start_events=("evt-start-1", "evt-start-2"),
+        verified_r1_events=("evt-completed-1", "evt-completed-1")))
     with pytest.raises(RuntimeError, match="FULL_LOOP_DURABLE_COMPLETION_EVENT_IDENTITY_REUSED"):
         runner.run(test_run_id="run-1")
 
 
 def test_composed_production_proof_rejects_start_completion_event_collision(monkeypatch):
     runner = _boundary_double_runner()
-    runner.production_components_verified = True
-    runner.expected_node_id = "node-1"
-    monkeypatch.setattr(
-        runner.verifier,
-        "verify",
-        lambda observed: SimpleNamespace(
-            verified_work_items=observed.work_item_ids,
-            verified_attempts=observed.attempt_ids,
-            verified_production_node_id="node-1",
-            verified_r1_start_events=("evt-shared-1",),
-            verified_r1_events=("evt-shared-1",),
-        ),
-    )
+    _force_internal_production_state(runner)
+    monkeypatch.setattr(runner.verifier, "verify", lambda observed: SimpleNamespace(
+        verified_work_items=observed.work_item_ids, verified_attempts=observed.attempt_ids,
+        verified_production_node_id="node-1", verified_r1_start_events=("evt-shared-1",),
+        verified_r1_events=("evt-shared-1",)))
     with pytest.raises(RuntimeError, match="FULL_LOOP_DURABLE_LIFECYCLE_EVENT_IDENTITY_COLLISION"):
         runner.run(test_run_id="run-1")
