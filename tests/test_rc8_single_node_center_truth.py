@@ -36,7 +36,7 @@ class TruthReader:
 
     def find_r1_attempt_completed(self, **identity):
         i = self._index(identity["attempt_id"])
-        value = {"event_id": "event-%d" % i, "event_type": "ATTEMPT_COMPLETED", "test_run_id": "TR", "work_item_id": "wi-%d" % i, "attempt_id": "attempt-%d" % i, "node_id": "node-a", "producer_kind": "WORKER"}
+        value = {"event_id": "event-%d" % i, "event_type": "ATTEMPT_COMPLETED", "test_run_id": "TR", "work_item_id": "wi-%d" % i, "attempt_id": "attempt-%d" % i, "node_id": "node-a", "producer_kind": "WORKER", "data": {"evidence_refs": ["artifact:evidence-%d" % i]}}
         return self.mutate("r1", i, value) if self.mutate else value
 
 
@@ -145,6 +145,15 @@ def test_center_truth_verifier_fails_closed_on_missing_stale_or_non_worker_truth
             payload = dict(payload); payload[field] = value
         return payload
     with pytest.raises(SingleNodeTruthError, match=error):
+        SingleNodeCenterTruthVerifier(truth_reader=TruthReader(mutate=mutate)).verify(proof())
+
+
+def test_center_truth_verifier_rejects_completion_without_observed_artifact_edge():
+    def mutate(kind, index, payload):
+        if kind == "r1" and index == 0:
+            payload = dict(payload); payload["data"] = {"evidence_refs": ["artifact:stale"]}
+        return payload
+    with pytest.raises(SingleNodeTruthError, match="R1_ATTEMPT_COMPLETED_ARTIFACT_MISMATCH:SCOPE_INTAKE"):
         SingleNodeCenterTruthVerifier(truth_reader=TruthReader(mutate=mutate)).verify(proof())
 
 
