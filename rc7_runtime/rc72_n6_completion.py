@@ -138,6 +138,14 @@ def validate_rc72_n6_executable_contract(payload: Dict[str, Any]) -> Dict[str, A
     ):
         if not isinstance(out.get(name), list) or not out[name]:
             raise _contracts.DomainValidationError("RC72_N6_CONTRACT_%s_REQUIRED" % name.upper())
+    for alias, legacy in (
+        ("required_capabilities", "capabilities"),
+        ("required_resources", "resources"),
+    ):
+        if alias in out and out.get(alias) != out.get(legacy):
+            raise _contracts.DomainValidationError(
+                "RC72_N6_CONTRACT_%s_MISMATCH" % alias.upper()
+            )
     for name in ("data_lease_id", "data_leases", "execution_result", "actual_result", "n7_pass", "field_verified", "bank_final"):
         if name in out:
             raise _contracts.DomainValidationError("RC72_N6_CONTRACT_PREMATURE_CLAIM_FORBIDDEN:%s" % name)
@@ -253,7 +261,12 @@ class N6DeliveryGateService:
             if len(current) != 1:
                 raise N6CompletionError("RC72_N6_COMPLETION_CONTRACT_NOT_UNIQUE")
             for key, value in expected.items():
-                if current[0].get(key) != value:
+                current_value = current[0].get(key)
+                if current_value is None and key == "required_capabilities":
+                    current_value = current[0].get("capabilities")
+                elif current_value is None and key == "required_resources":
+                    current_value = current[0].get("resources")
+                if current_value != value:
                     raise N6CompletionError("RC72_N6_COMPLETION_EXISTING_CONTRACT_CONFLICT:%s" % key)
             return contract_id
         self.truth.append_atomic(EVENT_N6_EXECUTABLE_CONTRACT_COMPILED, expected)
