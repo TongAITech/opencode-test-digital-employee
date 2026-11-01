@@ -40,10 +40,14 @@ class _Truth:
     def __init__(self, *, stale=False):
         self.stale = stale
         self.preflight_calls = []
+        self.r1_preflight_calls = []
         self.lease_binding_calls = []
 
     def assert_no_attempts_for_test_run(self, test_run_id):
         self.preflight_calls.append(test_run_id)
+
+    def assert_no_r1_attempt_lifecycle_for_test_run(self, test_run_id):
+        self.r1_preflight_calls.append(test_run_id)
 
     def assert_attempt_ids_match_observed_leases(self, *, test_run_id, observed_lease_ids):
         self.lease_binding_calls.append((test_run_id, tuple(observed_lease_ids)))
@@ -89,6 +93,7 @@ def test_production_run_binds_observed_center_leases_to_complete_durable_attempt
     runner.production_components_verified = True
     proof = runner.run(test_run_id="run-1")
     assert runner.truth_reader.preflight_calls == ["run-1"]
+    assert runner.truth_reader.r1_preflight_calls == ["run-1"]
     assert runner.truth_reader.lease_binding_calls == [("run-1", ("lease-1",))]
     assert proof.production_components_verified is True
     assert proof.production_causality_verified is False
