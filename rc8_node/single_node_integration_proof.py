@@ -121,12 +121,15 @@ class SingleNodeDurableIntegrationProofRunner:
         self.truth_reader.assert_no_r1_attempt_lifecycle_for_test_run(test_run_id)
 
     def run(self, *, test_run_id: str) -> SingleNodeDurableIntegrationProof:
+        run_id = str(test_run_id or "").strip()
+        if not run_id:
+            raise RuntimeError("FULL_LOOP_TEST_RUN_ID_REQUIRED")
         if self.production_components_verified:
-            self._assert_clean_production_preflight(test_run_id)
-        observed = self.observer.run(test_run_id=test_run_id)
+            self._assert_clean_production_preflight(run_id)
+        observed = self.observer.run(test_run_id=run_id)
         if self.production_components_verified:
             self.truth_reader.assert_attempt_ids_match_observed_leases(
-                test_run_id=test_run_id,
+                test_run_id=run_id,
                 observed_lease_ids=observed.lease_ids,
             )
         durable = self.verifier.verify(observed)
