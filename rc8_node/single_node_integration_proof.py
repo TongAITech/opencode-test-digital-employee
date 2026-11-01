@@ -136,6 +136,10 @@ class SingleNodeDurableIntegrationProofRunner:
                 test_run_id=run_id,
                 observed_lease_ids=observed.lease_ids,
             )
+            self.truth_reader.assert_r1_attempt_lifecycle_matches_observed_leases(
+                test_run_id=run_id,
+                observed_lease_ids=observed.lease_ids,
+            )
         durable = self.verifier.verify(observed)
         if durable.verified_work_items != observed.work_item_ids:
             raise RuntimeError("FULL_LOOP_DURABLE_WORK_ITEM_IDENTITY_MISMATCH")
