@@ -48,8 +48,9 @@ def _runner(truth):
         required_stages=("SCOPE_INTAKE",),
         require_production_components=False,
     )
-    # Exercise the production run ordering without weakening constructor topology gates.
-    runner.production_components_verified = True
+    # Unit-test the downstream production preflight ordering without weakening
+    # the constructor-established, read-only production identity contract.
+    runner._production_components_verified = True
     runner.observer.run = lambda **_: (_ for _ in ()).throw(
         AssertionError("observer must not run before both production preflights pass")
     )
