@@ -106,7 +106,10 @@ def test_stale_center_truth_cannot_promote_dispatcher_observation():
 
 
 def test_boundary_double_cannot_enter_production_full_loop_gate_by_default():
-    with pytest.raises(RuntimeError, match="FULL_LOOP_PRODUCTION_DISPATCHER_REQUIRED"):
+    # Production mode freezes the full N1-N10 denominator before any component
+    # identity checks. A one-stage boundary double therefore cannot use a reduced
+    # denominator to reach (or masquerade as) the production component gate.
+    with pytest.raises(RuntimeError, match="FULL_LOOP_PRODUCTION_DENOMINATOR_OVERRIDE_FORBIDDEN"):
         SingleNodeDurableIntegrationProofRunner(dispatcher=_Dispatcher(), truth_reader=_Truth(), required_stages=("SCOPE_INTAKE",))
 
 
