@@ -59,12 +59,20 @@ def test_frozen_denominator_is_verified_through_production_durable_truth_boundar
                 refs=[], metadata_json={}, created_at=index + 1,
             ))
 
-    for index, (work_item_id, attempt_id) in enumerate(zip(work_item_ids, attempt_ids), start=1):
+    for index, (work_item_id, attempt_id, evidence_ref) in enumerate(
+        zip(work_item_ids, attempt_ids, evidence_refs), start=1
+    ):
         ledger.append_runtime(runtime_event(
-            event_id="evt-%02d" % index, test_run_id="run-integration", work_item_id=work_item_id,
+            event_id="evt-start-%02d" % index, test_run_id="run-integration", work_item_id=work_item_id,
             node_id="node-1", producer_kind=RuntimeProducerKind.WORKER,
-            producer_ref="worker-%02d" % index, event_type="ATTEMPT_COMPLETED", sequence=index,
-            attempt_id=attempt_id, occurred_at=index + 1,
+            producer_ref="worker-%02d" % index, event_type="ATTEMPT_STARTED", sequence=(index * 2) - 1,
+            attempt_id=attempt_id, occurred_at=index,
+        ))
+        ledger.append_runtime(runtime_event(
+            event_id="evt-complete-%02d" % index, test_run_id="run-integration", work_item_id=work_item_id,
+            node_id="node-1", producer_kind=RuntimeProducerKind.WORKER,
+            producer_ref="worker-%02d" % index, event_type="ATTEMPT_COMPLETED", sequence=index * 2,
+            attempt_id=attempt_id, occurred_at=index + 1, data={"evidence_refs": [evidence_ref]},
         ))
 
     observed = SingleNodeFullLoopProof(
@@ -81,6 +89,7 @@ def test_frozen_denominator_is_verified_through_production_durable_truth_boundar
     assert truth.verified_work_items == tuple(work_item_ids)
     assert truth.verified_attempts == tuple(attempt_ids)
     assert truth.verified_artifacts == tuple("art-%02d" % i for i in range(1, 16))
-    assert truth.verified_r1_events == tuple("evt-%02d" % i for i in range(1, 16))
+    assert truth.verified_r1_events == tuple("evt-complete-%02d" % i for i in range(1, 16))
+    assert truth.verified_r1_start_events == tuple("evt-start-%02d" % i for i in range(1, 16))
     assert truth.bank_reality_verified is False
     assert truth.release_status == "HOLD"
