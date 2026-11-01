@@ -103,6 +103,52 @@ class ProductionCenterR1TruthReader:
                 % (run_id, ",".join(missing) or "-", ",".join(unexpected) or "-")
             )
 
+    def assert_r1_attempt_lifecycle_matches_observed_leases(
+        self, *, test_run_id: str, observed_lease_ids: Iterable[str]
+    ) -> None:
+        """Require the complete R1 Attempt lifecycle denominator to equal this traversal.
+
+        Per-attempt lookups prove expected facts exist, but without this set-level gate an
+        extra worker-produced or stale lifecycle identity could remain in the same fresh
+        TestRun and escape the composed proof. Exactly one STARTED and one COMPLETED fact
+        must exist for every observed Center lease, with no unexpected Attempt identity.
+        """
+        run_id = str(test_run_id or "").strip()
+        if not run_id:
+            raise ProductionTruthReaderError("TEST_RUN_ID_REQUIRED")
+        observed = tuple(str(value or "").strip() for value in observed_lease_ids)
+        if any(not value for value in observed):
+            raise ProductionTruthReaderError("OBSERVED_LEASE_ID_MISSING:%s" % run_id)
+        if len(set(observed)) != len(observed):
+            raise ProductionTruthReaderError("OBSERVED_LEASE_ID_NOT_UNIQUE:%s" % run_id)
+
+        starts = []
+        completions = []
+        for event in self.r1_ledger.runtime_events(test_run_id=run_id):
+            event_type = str(event.get("event_type") or "").strip()
+            if event_type not in {"ATTEMPT_STARTED", "ATTEMPT_COMPLETED"}:
+                continue
+            attempt_id = str(event.get("attempt_id") or "").strip()
+            if not attempt_id:
+                raise ProductionTruthReaderError("R1_ATTEMPT_LIFECYCLE_ID_MISSING:%s" % run_id)
+            if event_type == "ATTEMPT_STARTED":
+                starts.append(attempt_id)
+            else:
+                completions.append(attempt_id)
+
+        expected = set(observed)
+        for label, values in (("STARTED", starts), ("COMPLETED", completions)):
+            if len(values) != len(set(values)):
+                raise ProductionTruthReaderError("R1_ATTEMPT_%s_ID_NOT_UNIQUE:%s" % (label, run_id))
+            actual = set(values)
+            if actual != expected:
+                missing = sorted(expected - actual)
+                unexpected = sorted(actual - expected)
+                raise ProductionTruthReaderError(
+                    "PRODUCTION_CAUSALITY_R1_%s_LEASE_SET_MISMATCH:%s:missing=%s:unexpected=%s"
+                    % (label, run_id, ",".join(missing) or "-", ",".join(unexpected) or "-")
+                )
+
     def get_work_item(self, work_item_id: str) -> Optional[Dict[str, Any]]:
         value = self.center_repository.get_work_item(work_item_id)
         if value is None:
