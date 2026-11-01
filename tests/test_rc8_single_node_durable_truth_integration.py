@@ -82,7 +82,8 @@ def test_frozen_denominator_is_verified_through_production_durable_truth_boundar
         evidence_refs=tuple(evidence_refs),
     )
     truth = SingleNodeCenterTruthVerifier(
-        truth_reader=ProductionCenterR1TruthReader(store=store, r1_ledger=ledger)
+        truth_reader=ProductionCenterR1TruthReader(store=store, r1_ledger=ledger),
+        expected_node_id="node-1",
     ).verify(observed)
 
     assert truth.status == "CENTER_R1_EVIDENCE_VERIFIED_NOT_AUTHORIZED"
@@ -91,5 +92,6 @@ def test_frozen_denominator_is_verified_through_production_durable_truth_boundar
     assert truth.verified_artifacts == tuple("art-%02d" % i for i in range(1, 16))
     assert truth.verified_r1_events == tuple("evt-complete-%02d" % i for i in range(1, 16))
     assert truth.verified_r1_start_events == tuple("evt-start-%02d" % i for i in range(1, 16))
+    assert truth.verified_production_node_id == "node-1"
     assert truth.bank_reality_verified is False
     assert truth.release_status == "HOLD"
