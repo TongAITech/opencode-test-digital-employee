@@ -2,7 +2,7 @@
 
 This runner intentionally uses only the Python standard library so the Windows
 engineering qualification cannot hang indefinitely inside one opaque pytest
-process.  Each file gets its own JUnit report and an explicit start/pass/fail
+process. Each file gets its own JUnit report and an explicit start/pass/fail
 marker, making the offending file visible in GitHub Actions diagnostics.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Sequence
+from typing import List, Optional, Sequence
 
 
 def _safe_stem(path: str) -> str:
@@ -81,7 +81,7 @@ def run_files(
     return 0
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pattern", required=True)
     parser.add_argument("--timeout-seconds", type=int, default=180)
