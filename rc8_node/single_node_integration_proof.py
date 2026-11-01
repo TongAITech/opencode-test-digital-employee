@@ -92,6 +92,9 @@ class SingleNodeDurableIntegrationProofRunner:
     def __init__(self, *, dispatcher: Any, truth_reader: Any, required_stages: Sequence[str] = FROZEN_N1_N10_STAGES, require_production_components: bool = True) -> None:
         expected_node_id = None
         if require_production_components:
+            requested_denominator = tuple(str(stage).strip() for stage in required_stages)
+            if requested_denominator != tuple(FROZEN_N1_N10_STAGES):
+                raise RuntimeError("FULL_LOOP_PRODUCTION_DENOMINATOR_OVERRIDE_FORBIDDEN")
             if not isinstance(dispatcher, AutonomousWorkerDispatcher):
                 raise RuntimeError("FULL_LOOP_PRODUCTION_DISPATCHER_REQUIRED")
             if not isinstance(getattr(dispatcher, "claimant", None), AutonomousClaimClient):
