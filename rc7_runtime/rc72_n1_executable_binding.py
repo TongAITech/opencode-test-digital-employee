@@ -1,12 +1,14 @@
 """Canonical RC7.2 N1 executable-runtime binding truth.
 
-This module does not discover or guess routes.  It only promotes an explicitly
-verified executable binding that already exists inside the hash-anchored N1 DSH
-candidate after the canonical N1 NodeGate has PASSed.
+N1 owns runtime reality: environment, deployed endpoint/API route, tool route,
+capabilities, resources, and their authoritative sources.  It does not own
+request/schema or cleanup semantics; those are supplied by N3/N4 when N6
+assembles the final ExecutableContract.
 
-The resulting artifact is intended to be consumed by N6 using an exact
-``binding_key``.  Missing, ambiguous, unverified, or lineage-mismatched bindings
-fail closed and remain an N1 gap.
+This module never discovers or guesses routes.  It only promotes one explicitly
+verified binding from the hash-anchored N1 DSH candidate after the canonical N1
+NodeGate has PASSed. Missing, ambiguous, unverified, or lineage-mismatched
+bindings fail closed.
 """
 from __future__ import annotations
 
@@ -20,7 +22,10 @@ from rc6_runtime.truth import TruthRuntime
 
 from .models import ContractError
 from .rc72_domain import AutonomousMissionNode, MissionNodeState, NodeGateDecision
-from .rc72_n1_completion import N1DeliveryGateService, install_rc72_n1_completion_overlay
+from .rc72_n1_completion import (
+    N1DeliveryGateService,
+    install_rc72_n1_completion_overlay,
+)
 from .rc72_truth import install_rc72_truth_overlay
 from .truth_overlay import install_rc7_truth_overlay
 
@@ -29,7 +34,20 @@ _NODE = AutonomousMissionNode.N1_REALITY
 _ARTIFACT = "rc72_n1_executable_binding"
 _EVENT = "RC72_N1_EXECUTABLE_BINDING_UPSERTED"
 _BUCKET = "rc72_n1_executable_bindings"
-_SCHEMA_VERSION = "rc7.2-n1-executable-binding-v1"
+_SCHEMA_VERSION = "rc7.2-n1-executable-binding-v2"
+_UNRESOLVED = {
+    "",
+    "TBD",
+    "TODO",
+    "UNKNOWN",
+    "UNRESOLVED",
+    "GUESS",
+    "GUESSED",
+    "N/A",
+    "NA",
+    "NONE",
+    "NULL",
+}
 
 
 class N1ExecutableBindingError(ContractError):
@@ -38,8 +56,15 @@ class N1ExecutableBindingError(ContractError):
 
 def _required(value: Any, name: str) -> str:
     if not isinstance(value, str) or not value.strip():
-        raise N1ExecutableBindingError("RC72_N1_EXEC_BIND_%s_REQUIRED" % name.upper())
-    return value.strip()
+        raise N1ExecutableBindingError(
+            "RC72_N1_EXEC_BIND_%s_REQUIRED" % name.upper()
+        )
+    text = value.strip()
+    if text.upper() in _UNRESOLVED:
+        raise N1ExecutableBindingError(
+            "RC72_N1_EXEC_BIND_%s_UNRESOLVED" % name.upper()
+        )
+    return text
 
 
 def _stable_id(prefix: str, *parts: str) -> str:
@@ -77,13 +102,20 @@ def _verified_route(
             "RC72_N1_EXEC_BIND_%s_NOT_VERIFIED" % name.upper()
         )
     _required(item.get("source_ref"), "%s_source_ref" % name)
-    if not any(
-        isinstance(item.get(key), str) and item.get(key).strip()
+    route_values = [
+        item.get(key)
         for key in value_keys
-    ):
+        if isinstance(item.get(key), str) and item.get(key).strip()
+    ]
+    if not route_values:
         raise N1ExecutableBindingError(
             "RC72_N1_EXEC_BIND_%s_VALUE_REQUIRED" % name.upper()
         )
+    for route_value in route_values:
+        if route_value.strip().upper() in _UNRESOLVED:
+            raise N1ExecutableBindingError(
+                "RC72_N1_EXEC_BIND_%s_VALUE_UNRESOLVED" % name.upper()
+            )
     return item
 
 
@@ -93,14 +125,24 @@ def _ready_items(value: Any, name: str) -> List[Dict[str, Any]]:
             "RC72_N1_EXEC_BIND_%s_REQUIRED" % name.upper()
         )
     out: List[Dict[str, Any]] = []
+    seen = set()
     for index, raw in enumerate(value):
         item = _mapping(raw, "%s_%d" % (name, index))
-        _required(item.get("name"), "%s_%d_name" % (name, index))
+        item_name = _required(
+            item.get("name"), "%s_%d_name" % (name, index)
+        )
+        if item_name in seen:
+            raise N1ExecutableBindingError(
+                "RC72_N1_EXEC_BIND_%s_DUPLICATE" % name.upper()
+            )
+        seen.add(item_name)
         if str(item.get("status") or "").upper() != "READY":
             raise N1ExecutableBindingError(
                 "RC72_N1_EXEC_BIND_%s_%d_NOT_READY" % (name.upper(), index)
             )
-        _required(item.get("source_ref"), "%s_%d_source_ref" % (name, index))
+        _required(
+            item.get("source_ref"), "%s_%d_source_ref" % (name, index)
+        )
         out.append(item)
     return out
 
@@ -115,7 +157,24 @@ def _uniq(values: Iterable[str]) -> List[str]:
     return out
 
 
-def validate_rc72_n1_executable_binding(payload: Dict[str, Any]) -> Dict[str, Any]:
+def _forbid_cross_node_fields(value: Mapping[str, Any]) -> None:
+    for forbidden in (
+        "request",
+        "request_schema",
+        "schema",
+        "schema_ref",
+        "contract_ref",
+        "cleanup",
+    ):
+        if forbidden in value:
+            raise N1ExecutableBindingError(
+                "RC72_N1_EXEC_BIND_CROSS_NODE_FIELD_FORBIDDEN:%s" % forbidden
+            )
+
+
+def validate_rc72_n1_executable_binding(
+    payload: Dict[str, Any],
+) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         raise _contracts.DomainValidationError("ARTIFACT_MUST_BE_OBJECT")
     out = dict(payload)
@@ -135,26 +194,46 @@ def validate_rc72_n1_executable_binding(payload: Dict[str, Any]) -> Dict[str, An
     ):
         out[name] = _contracts._require_str(out, name)
     if out["schema_version"] != _SCHEMA_VERSION:
-        raise _contracts.DomainValidationError("RC72_N1_EXEC_BIND_SCHEMA_INVALID")
+        raise _contracts.DomainValidationError(
+            "RC72_N1_EXEC_BIND_SCHEMA_INVALID"
+        )
     if out.get("verified") is not True:
-        raise _contracts.DomainValidationError("RC72_N1_EXEC_BIND_VERIFIED_REQUIRED")
-    if not out["source_raw_sha256"].startswith("sha256:") or len(out["source_raw_sha256"]) != 71:
-        raise _contracts.DomainValidationError("RC72_N1_EXEC_BIND_SOURCE_SHA_INVALID")
+        raise _contracts.DomainValidationError(
+            "RC72_N1_EXEC_BIND_VERIFIED_REQUIRED"
+        )
+    if (
+        not out["source_raw_sha256"].startswith("sha256:")
+        or len(out["source_raw_sha256"]) != 71
+    ):
+        raise _contracts.DomainValidationError(
+            "RC72_N1_EXEC_BIND_SOURCE_SHA_INVALID"
+        )
     digest = out["binding_sha256"].lower()
-    if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
-        raise _contracts.DomainValidationError("RC72_N1_EXEC_BIND_SHA256_INVALID")
-    for name in ("environment", "endpoint", "tool_route", "request"):
+    if len(digest) != 64 or any(
+        ch not in "0123456789abcdef" for ch in digest
+    ):
+        raise _contracts.DomainValidationError(
+            "RC72_N1_EXEC_BIND_SHA256_INVALID"
+        )
+    for name in ("environment", "endpoint", "tool_route"):
         if not isinstance(out.get(name), dict) or not out[name]:
             raise _contracts.DomainValidationError(
                 "RC72_N1_EXEC_BIND_%s_OBJECT_REQUIRED" % name.upper()
             )
-    for name in ("capabilities", "resources", "authoritative_sources"):
+    for name in (
+        "capabilities",
+        "resources",
+        "authoritative_sources",
+    ):
         if not isinstance(out.get(name), list) or not out[name]:
             raise _contracts.DomainValidationError(
                 "RC72_N1_EXEC_BIND_%s_REQUIRED" % name.upper()
             )
+    try:
+        _forbid_cross_node_fields(out)
+    except N1ExecutableBindingError as exc:
+        raise _contracts.DomainValidationError(str(exc)) from exc
     for forbidden in (
-        "cleanup",
         "data_ref",
         "data_refs",
         "data_lease_id",
@@ -169,8 +248,14 @@ def validate_rc72_n1_executable_binding(payload: Dict[str, Any]) -> Dict[str, An
                 "RC72_N1_EXEC_BIND_PREMATURE_CLAIM_FORBIDDEN:%s" % forbidden
             )
     version = out.get("artifact_version", 1)
-    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
-        raise _contracts.DomainValidationError("RC72_N1_EXEC_BIND_ARTIFACT_VERSION_INVALID")
+    if (
+        isinstance(version, bool)
+        or not isinstance(version, int)
+        or version < 1
+    ):
+        raise _contracts.DomainValidationError(
+            "RC72_N1_EXEC_BIND_ARTIFACT_VERSION_INVALID"
+        )
     out["artifact_version"] = version
     out["artifact_type"] = _ARTIFACT
     return out
@@ -203,21 +288,26 @@ class N1ExecutableBindingService:
         _ensure_bucket(truth)
         self.truth = truth
         self.source_commit = _required(source_commit, "source_commit")
-        self.n1 = N1DeliveryGateService(truth, source_commit=self.source_commit)
+        self.n1 = N1DeliveryGateService(
+            truth, source_commit=self.source_commit
+        )
 
-    def _one(self, artifact_type: str, **filters: Any) -> Dict[str, Any]:
+    def _one(
+        self, artifact_type: str, **filters: Any
+    ) -> Dict[str, Any]:
         rows = self.truth.query(artifact_type, **filters)
         if len(rows) != 1:
             raise N1ExecutableBindingError(
-                "RC72_N1_EXEC_BIND_TRUTH_NOT_UNIQUE:%s:%d" % (
-                    artifact_type,
-                    len(rows),
-                )
+                "RC72_N1_EXEC_BIND_TRUTH_NOT_UNIQUE:%s:%d"
+                % (artifact_type, len(rows))
             )
         return rows[0]
 
     def _passed_n1(self, release_batch_id: str):
-        batch = self._one("rc72_release_batch", release_batch_id=release_batch_id)
+        batch = self._one(
+            "rc72_release_batch",
+            release_batch_id=release_batch_id,
+        )
         mission_id = _required(batch.get("mission_id"), "mission_id")
         node = self._one(
             "rc72_mission_node",
@@ -225,19 +315,27 @@ class N1ExecutableBindingService:
             node_type=_NODE.value,
         )
         if node.get("state") != MissionNodeState.PASS.value:
-            raise N1ExecutableBindingError("RC72_N1_EXEC_BIND_N1_NOT_PASS")
+            raise N1ExecutableBindingError(
+                "RC72_N1_EXEC_BIND_N1_NOT_PASS"
+            )
         version = node.get("active_delivery_version")
-        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        if (
+            isinstance(version, bool)
+            or not isinstance(version, int)
+            or version < 1
+        ):
             raise N1ExecutableBindingError(
                 "RC72_N1_EXEC_BIND_ACTIVE_DELIVERY_REQUIRED"
             )
         deliveries = [
             row
             for row in self.truth.query(
-                "rc72_node_delivery", mission_node_id=str(node["mission_node_id"])
+                "rc72_node_delivery",
+                mission_node_id=str(node["mission_node_id"]),
             )
             if row.get("version") == version
-            and row.get("delivery_id") in list(node.get("delivery_refs") or [])
+            and row.get("delivery_id")
+            in list(node.get("delivery_refs") or [])
         ]
         if len(deliveries) != 1:
             raise N1ExecutableBindingError(
@@ -247,7 +345,8 @@ class N1ExecutableBindingService:
         gates = [
             row
             for row in self.truth.query(
-                "rc72_node_gate", mission_node_id=str(node["mission_node_id"])
+                "rc72_node_gate",
+                mission_node_id=str(node["mission_node_id"]),
             )
             if row.get("delivery_id") == delivery.get("delivery_id")
             and row.get("gate_id") in list(node.get("gate_refs") or [])
@@ -255,13 +354,21 @@ class N1ExecutableBindingService:
             and not list(row.get("failed") or [])
         ]
         if len(gates) != 1:
-            raise N1ExecutableBindingError("RC72_N1_EXEC_BIND_PASS_GATE_NOT_UNIQUE")
+            raise N1ExecutableBindingError(
+                "RC72_N1_EXEC_BIND_PASS_GATE_NOT_UNIQUE"
+            )
         artifact_refs = list(delivery.get("artifact_refs") or [])
         if len(artifact_refs) != 1:
-            raise N1ExecutableBindingError("RC72_N1_EXEC_BIND_N1_ARTIFACT_REQUIRED")
-        artifact = self._one("rc7_artifact", artifact_id=str(artifact_refs[0]))
+            raise N1ExecutableBindingError(
+                "RC72_N1_EXEC_BIND_N1_ARTIFACT_REQUIRED"
+            )
+        artifact = self._one(
+            "rc7_artifact", artifact_id=str(artifact_refs[0])
+        )
         if artifact.get("artifact_type_name") != "N1_REALITY_CANDIDATE":
-            raise N1ExecutableBindingError("RC72_N1_EXEC_BIND_N1_ARTIFACT_TYPE_INVALID")
+            raise N1ExecutableBindingError(
+                "RC72_N1_EXEC_BIND_N1_ARTIFACT_TYPE_INVALID"
+            )
         return batch, node, delivery, gates[0], artifact
 
     def _anchored_candidate(
@@ -271,7 +378,9 @@ class N1ExecutableBindingService:
     ) -> Dict[str, Any]:
         attempt = self.n1._attempt(release_batch_id)
         anchor = self.n1._anchor(attempt)
-        candidate, content_ref, raw_hash, _calls = self.n1._raw_candidate(attempt, anchor)
+        candidate, content_ref, raw_hash, _calls = self.n1._raw_candidate(
+            attempt, anchor
+        )
         if (
             artifact.get("content_ref") != content_ref
             or artifact.get("content_hash") != raw_hash
@@ -292,7 +401,10 @@ class N1ExecutableBindingService:
         binding_key: str,
     ) -> Dict[str, Any]:
         if raw.get("verified") is not True:
-            raise N1ExecutableBindingError("RC72_N1_EXEC_BIND_NOT_VERIFIED")
+            raise N1ExecutableBindingError(
+                "RC72_N1_EXEC_BIND_NOT_VERIFIED"
+            )
+        _forbid_cross_node_fields(raw)
         for field, expected in (
             ("release_id", release_id),
             ("mission_id", mission_id),
@@ -305,13 +417,18 @@ class N1ExecutableBindingService:
                     "RC72_N1_EXEC_BIND_%s_MISMATCH" % field.upper()
                 )
 
-        environment = _mapping(raw.get("environment"), "environment")
+        environment = _mapping(
+            raw.get("environment"), "environment"
+        )
         _required(environment.get("name"), "environment_name")
         if str(environment.get("status") or "").upper() != "READY":
             raise N1ExecutableBindingError(
                 "RC72_N1_EXEC_BIND_ENVIRONMENT_NOT_READY"
             )
-        _required(environment.get("source_ref"), "environment_source_ref")
+        _required(
+            environment.get("source_ref"),
+            "environment_source_ref",
+        )
 
         endpoint = _verified_route(
             raw.get("endpoint"),
@@ -323,40 +440,52 @@ class N1ExecutableBindingService:
             name="tool_route",
             value_keys=("tool", "name", "route"),
         )
-
-        request = _mapping(raw.get("request"), "request")
-        _required(request.get("source_ref"), "request_source_ref")
-        if not any(
-            isinstance(request.get(key), str) and request.get(key).strip()
-            for key in ("schema_ref", "schema", "contract_ref")
-        ):
-            raise N1ExecutableBindingError(
-                "RC72_N1_EXEC_BIND_REQUEST_SCHEMA_REQUIRED"
-            )
-        if "method" in request:
-            _required(request.get("method"), "request_method")
-
-        capabilities = _ready_items(raw.get("capabilities"), "capabilities")
-        resources = _ready_items(raw.get("resources"), "resources")
+        capabilities = _ready_items(
+            raw.get("capabilities"), "capabilities"
+        )
+        resources = _ready_items(
+            raw.get("resources"), "resources"
+        )
 
         declared_sources = raw.get("authoritative_sources")
         if not isinstance(declared_sources, list) or not declared_sources:
             raise N1ExecutableBindingError(
                 "RC72_N1_EXEC_BIND_AUTHORITATIVE_SOURCES_REQUIRED"
             )
-        sources = []
-        for value in declared_sources:
-            sources.append(_required(value, "authoritative_source"))
+        sources = [
+            _required(value, "authoritative_source")
+            for value in declared_sources
+        ]
         sources.extend(
             [
-                _required(environment.get("source_ref"), "environment_source_ref"),
-                _required(endpoint.get("source_ref"), "endpoint_source_ref"),
-                _required(tool_route.get("source_ref"), "tool_route_source_ref"),
-                _required(request.get("source_ref"), "request_source_ref"),
+                _required(
+                    environment.get("source_ref"),
+                    "environment_source_ref",
+                ),
+                _required(
+                    endpoint.get("source_ref"),
+                    "endpoint_source_ref",
+                ),
+                _required(
+                    tool_route.get("source_ref"),
+                    "tool_route_source_ref",
+                ),
             ]
         )
-        sources.extend(_required(item.get("source_ref"), "capability_source_ref") for item in capabilities)
-        sources.extend(_required(item.get("source_ref"), "resource_source_ref") for item in resources)
+        sources.extend(
+            _required(
+                item.get("source_ref"),
+                "capability_source_ref",
+            )
+            for item in capabilities
+        )
+        sources.extend(
+            _required(
+                item.get("source_ref"),
+                "resource_source_ref",
+            )
+            for item in resources
+        )
 
         return {
             "schema_version": _SCHEMA_VERSION,
@@ -369,7 +498,6 @@ class N1ExecutableBindingService:
             "environment": environment,
             "endpoint": endpoint,
             "tool_route": tool_route,
-            "request": request,
             "capabilities": capabilities,
             "resources": resources,
             "authoritative_sources": _uniq(sources),
@@ -381,26 +509,42 @@ class N1ExecutableBindingService:
         release_batch_id: str,
         binding_key: str,
     ) -> Dict[str, Any]:
-        release_batch_id = _required(release_batch_id, "release_batch_id")
+        release_batch_id = _required(
+            release_batch_id, "release_batch_id"
+        )
         binding_key = _required(binding_key, "binding_key")
-        batch, _node, delivery, gate, artifact = self._passed_n1(release_batch_id)
+        (
+            batch,
+            _node,
+            delivery,
+            gate,
+            artifact,
+        ) = self._passed_n1(release_batch_id)
         mission_id = _required(batch.get("mission_id"), "mission_id")
         release_id = _required(batch.get("release_id"), "release_id")
-        candidate = self._anchored_candidate(release_batch_id, artifact)
+        candidate = self._anchored_candidate(
+            release_batch_id, artifact
+        )
         facts = candidate.get("facts")
         if not isinstance(facts, Mapping):
-            raise N1ExecutableBindingError("RC72_N1_EXEC_BIND_FACTS_REQUIRED")
+            raise N1ExecutableBindingError(
+                "RC72_N1_EXEC_BIND_FACTS_REQUIRED"
+            )
         bindings = facts.get("executable_bindings")
         if not isinstance(bindings, list) or not bindings:
-            raise N1ExecutableBindingError("RC72_N1_EXEC_BIND_BINDINGS_REQUIRED")
+            raise N1ExecutableBindingError(
+                "RC72_N1_EXEC_BIND_BINDINGS_REQUIRED"
+            )
         exact = [
             item
             for item in bindings
-            if isinstance(item, Mapping) and item.get("binding_key") == binding_key
+            if isinstance(item, Mapping)
+            and item.get("binding_key") == binding_key
         ]
         if len(exact) != 1:
             raise N1ExecutableBindingError(
-                "RC72_N1_EXEC_BIND_EXACT_BINDING_REQUIRED:%d" % len(exact)
+                "RC72_N1_EXEC_BIND_EXACT_BINDING_REQUIRED:%d"
+                % len(exact)
             )
         semantic = self._normalize(
             exact[0],
@@ -421,15 +565,23 @@ class N1ExecutableBindingService:
         expected.update(
             {
                 "binding_id": binding_id,
-                "source_n1_artifact_id": str(artifact["artifact_id"]),
-                "source_n1_delivery_id": str(delivery["delivery_id"]),
+                "source_n1_artifact_id": str(
+                    artifact["artifact_id"]
+                ),
+                "source_n1_delivery_id": str(
+                    delivery["delivery_id"]
+                ),
                 "source_n1_gate_id": str(gate["gate_id"]),
-                "source_raw_sha256": str(artifact["content_hash"]),
+                "source_raw_sha256": str(
+                    artifact["content_hash"]
+                ),
                 "binding_sha256": digest,
                 "artifact_version": 1,
             }
         )
-        current = self.truth.query(_ARTIFACT, binding_id=binding_id)
+        current = self.truth.query(
+            _ARTIFACT, binding_id=binding_id
+        )
         if current:
             if len(current) != 1:
                 raise N1ExecutableBindingError(
@@ -438,11 +590,14 @@ class N1ExecutableBindingService:
             for key, value in expected.items():
                 if current[0].get(key) != value:
                     raise N1ExecutableBindingError(
-                        "RC72_N1_EXEC_BIND_EXISTING_CONFLICT:%s" % key
+                        "RC72_N1_EXEC_BIND_EXISTING_CONFLICT:%s"
+                        % key
                     )
             return dict(current[0])
         self.truth.append_atomic(_EVENT, expected)
-        rows = self.truth.query(_ARTIFACT, binding_id=binding_id)
+        rows = self.truth.query(
+            _ARTIFACT, binding_id=binding_id
+        )
         if len(rows) != 1:
             raise N1ExecutableBindingError(
                 "RC72_N1_EXEC_BIND_PERSISTENCE_FAILED"
