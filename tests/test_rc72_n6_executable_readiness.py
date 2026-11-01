@@ -126,6 +126,8 @@ def test_compile_verified_executable_contract():
     assert payload["tool_route"]["tool"] == "api-http-worker"
     assert payload["data_refs"][0]["resolved_ref_status"] == "VERIFIED"
     assert payload["assertions"][0]["source"] == "N4.expected"
+    assert payload["required_capabilities"] == payload["capabilities"]
+    assert payload["required_resources"] == payload["resources"]
     assert payload["contract_sha256"]
     assert "data_lease" not in payload
 
