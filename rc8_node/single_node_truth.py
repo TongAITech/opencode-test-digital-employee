@@ -77,6 +77,25 @@ class SingleNodeCenterTruthVerifier:
         ):
             raise SingleNodeTruthError("R1_%s_IDENTITY_MISMATCH:%s" % (event_type, stage))
 
+    @staticmethod
+    def _require_r1_artifact_evidence(event: Mapping[str, Any], *, artifact_ref: str, stage: str) -> None:
+        """Bind the worker completion event to the exact artifact observed in traversal.
+
+        Matching TestRun/WorkItem/Attempt identities are not sufficient causality: an
+        ATTEMPT_COMPLETED event from the same Attempt could otherwise be accepted while
+        referring to stale or different evidence. Production workers publish the
+        canonical artifact reference in data.evidence_refs; require that exact edge.
+        """
+        data = event.get("data")
+        if not isinstance(data, Mapping):
+            raise SingleNodeTruthError("R1_ATTEMPT_COMPLETED_EVIDENCE_MISSING:%s" % stage)
+        evidence_refs = data.get("evidence_refs")
+        if not isinstance(evidence_refs, (list, tuple)):
+            raise SingleNodeTruthError("R1_ATTEMPT_COMPLETED_EVIDENCE_MISSING:%s" % stage)
+        normalized = tuple(str(value or "").strip() for value in evidence_refs if str(value or "").strip())
+        if artifact_ref not in normalized:
+            raise SingleNodeTruthError("R1_ATTEMPT_COMPLETED_ARTIFACT_MISMATCH:%s" % stage)
+
     def verify(self, proof: SingleNodeFullLoopProof) -> SingleNodeTruthProof:
         if not isinstance(proof, SingleNodeFullLoopProof):
             raise SingleNodeTruthError("SINGLE_NODE_PROOF_REQUIRED")
@@ -92,10 +111,6 @@ class SingleNodeCenterTruthVerifier:
         ):
             raise SingleNodeTruthError("SINGLE_NODE_PROOF_DENOMINATOR_DIVERGED")
 
-        # Equal tuple lengths do not prove a real denominator: repeated identities
-        # can otherwise occupy multiple required Stage slots while referring to the
-        # same durable claim/work/attempt. Reject that stitching before reading any
-        # durable truth so duplicates cannot be hidden by reader behavior.
         identity_sets = (
             (proof.work_item_ids, "SINGLE_NODE_PROOF_WORK_ITEM_ID_REUSED"),
             (proof.lease_ids, "SINGLE_NODE_PROOF_LEASE_ID_REUSED"),
@@ -183,6 +198,7 @@ class SingleNodeCenterTruthVerifier:
             )
             self._require_node(event, "node_id", "R1_ATTEMPT_COMPLETED_NODE_ID_MISMATCH:%s" % stage)
             self._require_worker_producer(event, "producer_kind", "R1_ATTEMPT_COMPLETED_NOT_WORKER_PRODUCED:%s" % stage)
+            self._require_r1_artifact_evidence(event, artifact_ref=artifact_ref, stage=stage)
             event_id = str(event.get("event_id") or "").strip()
             if not event_id:
                 raise SingleNodeTruthError("R1_EVENT_ID_MISSING:%s" % stage)
