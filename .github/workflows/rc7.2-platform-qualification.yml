@@ -16,6 +16,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: rc72-platform-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   source-platform-baseline:
     name: q1-${{ matrix.label }}-python-3.8
