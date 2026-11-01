@@ -1,4 +1,5 @@
 from copy import deepcopy
+from datetime import timedelta
 
 import pytest
 
@@ -44,11 +45,12 @@ def _ready_truth(tmp_path, monkeypatch):
     return truth
 
 
-def _service(truth):
+def _service(truth, *, now=NOW):
     return N6DeliveryGateService(
         truth,
         release_id=RELEASE,
         source_commit=COMMIT,
+        now=now,
     )
 
 
@@ -87,6 +89,7 @@ def test_n6_completion_persists_contract_gates_and_releases_n7(tmp_path, monkeyp
     assert gate["reviewer_worker_id"] == "rc72-runtime-n6-gate"
     assert gate["reviewer_session_id"] == "runtime://rc72/n6-gate/v1"
     assert gate["decision"] == "PASS"
+    assert "N6_DATA_REFS_CURRENT" in gate["passed"]
     assert "N6_NO_PREMATURE_DATA_LEASE" in gate["passed"]
 
 
@@ -136,6 +139,24 @@ def test_n6_gate_detects_r1_contract_tamper_and_keeps_n7_locked(tmp_path, monkey
 
     assert result["decision"] == "NEEDS_REVISION"
     assert "N6_EXECUTABLE_CONTRACT_DIGEST_VALID" in result["failed"]
+    assert result["n6_state"] == "NEEDS_REVISION"
+    assert result["n7_state"] == "NOT_STARTED"
+    assert truth.query("rc72_data_lease") == []
+
+
+def test_n6_gate_rechecks_data_ref_expiry_before_releasing_n7(tmp_path, monkeypatch):
+    truth = _ready_truth(tmp_path, monkeypatch)
+    service = _service(truth, now=NOW + timedelta(days=2))
+    admitted = service.admit_delivery(
+        release_batch_id=BATCH,
+        contracts=[_contract()],
+    )
+    assert admitted["node_state"] == "REVIEW_PENDING"
+
+    result = service.apply_gate(release_batch_id=BATCH)
+
+    assert result["decision"] == "NEEDS_REVISION"
+    assert "N6_DATA_REFS_CURRENT" in result["failed"]
     assert result["n6_state"] == "NEEDS_REVISION"
     assert result["n7_state"] == "NOT_STARTED"
     assert truth.query("rc72_data_lease") == []
