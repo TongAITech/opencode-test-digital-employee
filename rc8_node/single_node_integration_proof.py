@@ -112,10 +112,14 @@ class SingleNodeDurableIntegrationProofRunner:
         )
         self.verifier = SingleNodeCenterTruthVerifier(truth_reader=truth_reader, expected_node_id=expected_node_id)
 
+    def _assert_clean_production_preflight(self, test_run_id: str) -> None:
+        """Fail before the first Center claim if either durable truth surface is dirty."""
+        self.truth_reader.assert_no_attempts_for_test_run(test_run_id)
+        self.truth_reader.assert_no_r1_attempt_lifecycle_for_test_run(test_run_id)
+
     def run(self, *, test_run_id: str) -> SingleNodeDurableIntegrationProof:
         if self.production_components_verified:
-            self.truth_reader.assert_no_attempts_for_test_run(test_run_id)
-            self.truth_reader.assert_no_r1_attempt_lifecycle_for_test_run(test_run_id)
+            self._assert_clean_production_preflight(test_run_id)
         observed = self.observer.run(test_run_id=test_run_id)
         if self.production_components_verified:
             self.truth_reader.assert_attempt_ids_match_observed_leases(
