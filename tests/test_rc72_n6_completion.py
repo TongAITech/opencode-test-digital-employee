@@ -3,7 +3,11 @@ from datetime import timedelta
 
 import pytest
 
-from rc7_runtime.rc72_n6_completion import N6CompletionError, N6DeliveryGateService
+from rc7_runtime.rc72_n6_completion import (
+    N6CompletionError,
+    N6DeliveryGateService,
+    _stable_id,
+)
 from rc7_runtime.rc72_n6_executable_readiness import N6ExecutableReadinessCompiler
 
 from rc72_n2_test_support import BATCH, COMMIT, MISSION, RELEASE, REQUIREMENTS
@@ -75,6 +79,8 @@ def test_n6_completion_persists_contract_gates_and_releases_n7(tmp_path, monkeyp
     assert len(stored) == 1
     assert stored[0]["case_id"] == "case-limit-001"
     assert stored[0]["contract_sha256"] == _contract().contract_sha256
+    assert stored[0]["required_capabilities"] == stored[0]["capabilities"]
+    assert stored[0]["required_resources"] == stored[0]["resources"]
     assert "data_lease_id" not in stored[0]
     assert truth.query("rc72_data_lease") == []
 
@@ -115,6 +121,40 @@ def test_n6_completion_replay_is_idempotent(tmp_path, monkeypatch):
         truth.query("rc72_node_gate", mission_id=MISSION, node_type="N6_EXECUTABLE_READINESS")
     ) == 1
     assert truth.query("rc72_data_lease") == []
+
+
+def test_n6_replays_legacy_contract_without_frozen_alias_conflict(tmp_path, monkeypatch):
+    truth = _ready_truth(tmp_path, monkeypatch)
+    service = _service(truth)
+    contract = _contract()
+    contract_id = _stable_id(
+        "N6CONTRACT", MISSION, contract.case_id, contract.contract_sha256
+    )
+    legacy = contract.to_payload()
+    legacy.pop("artifact_type", None)
+    legacy.pop("required_capabilities", None)
+    legacy.pop("required_resources", None)
+    legacy.update(
+        {
+            "contract_id": contract_id,
+            "release_id": RELEASE,
+            "source_commit": COMMIT,
+            "artifact_version": 1,
+        }
+    )
+    truth.append_atomic("rc72.n6.executable_contract_compiled", legacy)
+
+    result = service.admit_delivery(
+        release_batch_id=BATCH,
+        contracts=[contract],
+    )
+
+    assert result["status"] == "DELIVERY_ADMITTED"
+    assert result["contract_ids"] == [contract_id]
+    stored = truth.query("rc72_n6_executable_contract", contract_id=contract_id)
+    assert len(stored) == 1
+    assert "required_capabilities" not in stored[0]
+    assert "required_resources" not in stored[0]
 
 
 def test_n6_gate_detects_r1_contract_tamper_and_keeps_n7_locked(tmp_path, monkeypatch):
