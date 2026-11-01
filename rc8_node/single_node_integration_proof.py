@@ -82,16 +82,15 @@ def assert_production_dispatcher_topology(dispatcher: AutonomousWorkerDispatcher
 class SingleNodeDurableIntegrationProofRunner:
     """Run dispatcher traversal, then verify the exact traversal in durable truth.
 
+    Production mode is constructor-established and immutable. A boundary-double runner
+    must never be promoted after construction by mutating a public verification flag.
     Production component identity is intentionally distinct from production causality.
-    A production traversal starts with clean durable Attempt and R1 lifecycle preflights and,
-    after the traversal, binds the complete durable Attempt identity set to the Center-issued
-    lease identities actually observed by the dispatcher. These are necessary causality
-    conditions, not sufficient authority to promote the proof.
     """
 
     def __init__(self, *, dispatcher: Any, truth_reader: Any, required_stages: Sequence[str] = FROZEN_N1_N10_STAGES, require_production_components: bool = True) -> None:
         expected_node_id = None
-        if require_production_components:
+        production_mode = bool(require_production_components)
+        if production_mode:
             requested_denominator = tuple(str(stage).strip() for stage in required_stages)
             if requested_denominator != tuple(FROZEN_N1_N10_STAGES):
                 raise RuntimeError("FULL_LOOP_PRODUCTION_DENOMINATOR_OVERRIDE_FORBIDDEN")
@@ -105,15 +104,20 @@ class SingleNodeDurableIntegrationProofRunner:
             expected_node_id = str(dispatcher.claimant.node_id or "").strip()
             if not expected_node_id:
                 raise RuntimeError("FULL_LOOP_PRODUCTION_NODE_ID_REQUIRED")
-        self.production_components_verified = bool(require_production_components)
+        self._production_components_verified = production_mode
         self.expected_node_id = expected_node_id
         self.truth_reader = truth_reader
         self.observer = SingleNodeFullLoopProofRunner(
             dispatcher=dispatcher,
             required_stages=required_stages,
-            require_center_claim_provenance=bool(require_production_components),
+            require_center_claim_provenance=production_mode,
         )
         self.verifier = SingleNodeCenterTruthVerifier(truth_reader=truth_reader, expected_node_id=expected_node_id)
+
+    @property
+    def production_components_verified(self) -> bool:
+        """Constructor-established production identity; intentionally read-only."""
+        return self._production_components_verified
 
     def _assert_clean_production_preflight(self, test_run_id: str) -> None:
         """Fail before the first Center claim if either durable truth surface is dirty."""
