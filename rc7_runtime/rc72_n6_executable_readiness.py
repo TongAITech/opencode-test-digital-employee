@@ -11,12 +11,28 @@ N6_SCHEMA_VERSION = _core.N6_SCHEMA_VERSION
 
 ReadinessViolation = _core.ReadinessViolation
 ExecutableReadinessError = _core.ExecutableReadinessError
-ExecutableContract = _core.ExecutableContract
+_CoreExecutableContract = _core.ExecutableContract
 
 _RUNTIME_BINDING_VIOLATION_CODES = {
     "N6_REQUEST_SCHEMA_UNRESOLVED",
     "N6_REQUEST_UNRESOLVED",
 }
+
+
+class ExecutableContract(_CoreExecutableContract):
+    """Frozen-contract-compatible public N6 contract.
+
+    ``capabilities``/``resources`` remain available for backward compatibility,
+    while the serialized canonical payload also exposes the frozen N6 names
+    ``required_capabilities``/``required_resources``.  The aliases are derived
+    from one source of truth and therefore cannot drift during compilation.
+    """
+
+    def to_payload(self) -> Dict[str, Any]:
+        payload = super().to_payload()
+        payload["required_capabilities"] = [dict(item) for item in self.capabilities]
+        payload["required_resources"] = [dict(item) for item in self.resources]
+        return payload
 
 
 class CanonicalN5DataRefError(ValueError):
@@ -143,7 +159,7 @@ class N6ExecutableReadinessCompiler(_core.N6ExecutableReadinessCompiler):
         now: Optional[datetime] = None,
     ) -> ExecutableContract:
         try:
-            return super().compile(
+            compiled = super().compile(
                 case_payload,
                 data_ref_payloads,
                 runtime_binding,
@@ -169,6 +185,7 @@ class N6ExecutableReadinessCompiler(_core.N6ExecutableReadinessCompiler):
             if changed:
                 raise ExecutableReadinessError(tuple(rewritten)) from error
             raise
+        return ExecutableContract(**vars(compiled))
 
 
 __all__ = [
