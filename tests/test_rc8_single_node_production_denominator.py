@@ -35,7 +35,20 @@ def test_boundary_double_may_keep_small_denominator_for_contract_testing():
             return type("Result", (), {"status": "IDLE"})()
 
     class _Truth:
-        pass
+        # Boundary-double construction still obeys the existing durable truth-reader
+        # interface contract.  The denominator test is not allowed to bypass that
+        # independent fail-closed gate with an intentionally incomplete stub.
+        def get_work_item(self, work_item_id):
+            return None
+
+        def get_attempt(self, attempt_id):
+            return None
+
+        def get_artifact(self, artifact_ref):
+            return None
+
+        def find_r1_attempt_completed(self, **kwargs):
+            return None
 
     runner = SingleNodeDurableIntegrationProofRunner(
         dispatcher=_Dispatcher(),
