@@ -67,7 +67,8 @@ class _Truth:
 
     def find_r1_attempt_completed(self, *, test_run_id, work_item_id, attempt_id):
         return {"event_id": "evt-1", "event_type": "ATTEMPT_COMPLETED", "test_run_id": test_run_id,
-                "work_item_id": work_item_id, "attempt_id": attempt_id, "producer_kind": "WORKER"}
+                "work_item_id": work_item_id, "attempt_id": attempt_id, "producer_kind": "WORKER",
+                "data": {"evidence_refs": ["artifact:art-1"]}}
 
 
 def _boundary_double_runner(*, stale=False):
