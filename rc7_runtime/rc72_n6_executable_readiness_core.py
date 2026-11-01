@@ -421,13 +421,16 @@ class N6ExecutableReadinessCompiler:
         for index, raw in enumerate(data_ref_payloads or ()):
             ref = _mapping(raw)
             field = "data_refs[{}]".format(index)
-            if ref.get("resolved_ref_status") != "VERIFIED":
+            ref_status = _clean_text(
+                ref.get("resolved_ref_status") or ref.get("status")
+            ).upper()
+            if ref_status != "VERIFIED":
                 violations.append(
                     ReadinessViolation(
                         "N6_DATA_REF_UNVERIFIED",
                         _TARGET_N5,
                         field,
-                        "N5 DataRef must have resolved_ref_status=VERIFIED",
+                        "N5 DataRef must be explicitly VERIFIED",
                     )
                 )
             for key in ("release_batch_id", "mission_id", "requirement_id", "case_id"):
@@ -450,26 +453,60 @@ class N6ExecutableReadinessCompiler:
                         "verified DataRef must contain a concrete data_ref",
                     )
                 )
+
             expires_at = _clean_text(ref.get("expires_at"))
-            try:
-                if _iso(expires_at) <= current:
+            validity_window = _clean_text(ref.get("validity_window"))
+            if expires_at:
+                try:
+                    if _iso(expires_at) <= current:
+                        violations.append(
+                            ReadinessViolation(
+                                "N6_DATA_REF_EXPIRED",
+                                _TARGET_N5,
+                                "{}.expires_at".format(field),
+                                "DataRef expired before executable contract compilation",
+                            )
+                        )
+                except (TypeError, ValueError):
                     violations.append(
                         ReadinessViolation(
-                            "N6_DATA_REF_EXPIRED",
+                            "N6_DATA_REF_EXPIRY_INVALID",
                             _TARGET_N5,
                             "{}.expires_at".format(field),
-                            "DataRef expired before executable contract compilation",
+                            "DataRef expires_at is invalid",
                         )
                     )
-            except (TypeError, ValueError):
+            elif _is_unresolved(validity_window):
                 violations.append(
                     ReadinessViolation(
-                        "N6_DATA_REF_EXPIRY_INVALID",
+                        "N6_DATA_REF_VALIDITY_UNRESOLVED",
                         _TARGET_N5,
-                        "{}.expires_at".format(field),
-                        "DataRef expiry is missing or invalid",
+                        "{}.validity_window".format(field),
+                        "DataRef requires explicit expires_at or canonical validity_window",
                     )
                 )
+
+            if "resolved_ref_status" not in ref and "status" in ref:
+                source_case_sha256 = _clean_text(ref.get("source_case_sha256"))
+                evidence_refs = _sequence(ref.get("verification_evidence_refs"))
+                if not source_case_sha256.startswith("sha256:"):
+                    violations.append(
+                        ReadinessViolation(
+                            "N6_DATA_REF_CASE_HASH_UNRESOLVED",
+                            _TARGET_N5,
+                            "{}.source_case_sha256".format(field),
+                            "canonical N5 DataRef requires source_case_sha256",
+                        )
+                    )
+                if not evidence_refs or any(_is_unresolved(item) for item in evidence_refs):
+                    violations.append(
+                        ReadinessViolation(
+                            "N6_DATA_REF_VERIFICATION_EVIDENCE_MISSING",
+                            _TARGET_N5,
+                            "{}.verification_evidence_refs".format(field),
+                            "canonical N5 DataRef requires verification evidence",
+                        )
+                    )
             refs.append(dict(ref))
 
         binding = _mapping(runtime_binding)
