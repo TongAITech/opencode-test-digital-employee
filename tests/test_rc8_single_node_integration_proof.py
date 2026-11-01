@@ -42,6 +42,7 @@ class _Truth:
         self.preflight_calls = []
         self.r1_preflight_calls = []
         self.lease_binding_calls = []
+        self.r1_lifecycle_binding_calls = []
 
     def assert_no_attempts_for_test_run(self, test_run_id):
         self.preflight_calls.append(test_run_id)
@@ -51,6 +52,9 @@ class _Truth:
 
     def assert_attempt_ids_match_observed_leases(self, *, test_run_id, observed_lease_ids):
         self.lease_binding_calls.append((test_run_id, tuple(observed_lease_ids)))
+
+    def assert_r1_attempt_lifecycle_matches_observed_leases(self, *, test_run_id, observed_lease_ids):
+        self.r1_lifecycle_binding_calls.append((test_run_id, tuple(observed_lease_ids)))
 
     def get_work_item(self, work_item_id):
         return {"test_run_id": "other" if self.stale else "run-1", "stage": "SCOPE_INTAKE", "status": "COMPLETED"}
@@ -100,6 +104,7 @@ def test_boundary_double_cannot_be_promoted_by_mutating_public_production_flag()
     assert runner.truth_reader.preflight_calls == []
     assert runner.truth_reader.r1_preflight_calls == []
     assert runner.truth_reader.lease_binding_calls == []
+    assert runner.truth_reader.r1_lifecycle_binding_calls == []
     assert proof.production_components_verified is False
     assert proof.production_causality_verified is False
     assert proof.status == "BOUNDARY_DOUBLE_VERIFIED_NOT_PRODUCTION_PROOF"
@@ -213,3 +218,17 @@ def test_composed_production_proof_rejects_start_completion_event_collision(monk
         verified_r1_events=("evt-shared-1",)))
     with pytest.raises(RuntimeError, match="FULL_LOOP_DURABLE_LIFECYCLE_EVENT_IDENTITY_COLLISION"):
         runner.run(test_run_id="run-1")
+
+
+def test_production_path_binds_complete_r1_lifecycle_set_before_truth_promotion(monkeypatch):
+    runner = _boundary_double_runner()
+    _force_internal_production_state(runner)
+    monkeypatch.setattr(runner.verifier, "verify", lambda observed: SimpleNamespace(
+        verified_work_items=observed.work_item_ids, verified_attempts=observed.attempt_ids,
+        verified_production_node_id="node-1", verified_r1_start_events=("evt-start-1",),
+        verified_r1_events=("evt-completed-1",), bank_reality_verified=False, release_status="HOLD"))
+    proof = runner.run(test_run_id="run-1")
+    assert runner.truth_reader.lease_binding_calls == [("run-1", ("lease-1",))]
+    assert runner.truth_reader.r1_lifecycle_binding_calls == [("run-1", ("lease-1",))]
+    assert proof.production_causality_verified is False
+    assert proof.release_status == "HOLD"
