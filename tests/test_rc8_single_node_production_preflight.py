@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 from rc8_node.single_node_integration_proof import SingleNodeDurableIntegrationProofRunner
@@ -56,6 +54,13 @@ def _runner(truth):
         AssertionError("observer must not run before both production preflights pass")
     )
     return runner
+
+
+def test_invalid_test_run_identity_fails_before_any_durable_truth_access_or_claim():
+    truth = _Truth()
+    with pytest.raises(RuntimeError, match="FULL_LOOP_TEST_RUN_ID_REQUIRED"):
+        _runner(truth).run(test_run_id="   ")
+    assert truth.calls == []
 
 
 def test_preexisting_attempt_truth_fails_before_r1_preflight_and_before_claim():
