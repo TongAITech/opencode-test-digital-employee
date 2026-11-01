@@ -260,7 +260,7 @@ class N1ExecutableBindingService:
         if len(artifact_refs) != 1:
             raise N1ExecutableBindingError("RC72_N1_EXEC_BIND_N1_ARTIFACT_REQUIRED")
         artifact = self._one("rc7_artifact", artifact_id=str(artifact_refs[0]))
-        if artifact.get("artifact_type") != "N1_REALITY_CANDIDATE":
+        if artifact.get("artifact_type_name") != "N1_REALITY_CANDIDATE":
             raise N1ExecutableBindingError("RC72_N1_EXEC_BIND_N1_ARTIFACT_TYPE_INVALID")
         return batch, node, delivery, gates[0], artifact
 
