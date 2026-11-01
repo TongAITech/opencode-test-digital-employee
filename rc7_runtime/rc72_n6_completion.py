@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Dict, Iterable, List, Mapping, Sequence, Set
+from datetime import datetime, timezone
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set
 
 from rc6_runtime import contracts as _contracts
 from rc6_runtime import truth as _truth
@@ -41,6 +42,7 @@ _CRITERIA = (
     "N6_EXECUTABLE_CONTRACT_LINEAGE_MATCH",
     "N6_RUNTIME_BINDINGS_RESOLVED",
     "N6_DATA_REFS_VERIFIED",
+    "N6_DATA_REFS_CURRENT",
     "N6_PRECONDITIONS_STEPS_DEFINED",
     "N6_ASSERTIONS_ORACLES_DEFINED",
     "N6_EVIDENCE_REQUIREMENTS_DEFINED",
@@ -80,6 +82,18 @@ def _map(value: Any) -> Mapping[str, Any]:
 
 def _maps(value: Any) -> List[Mapping[str, Any]]:
     return [item for item in value if isinstance(item, Mapping)] if isinstance(value, list) else []
+
+
+def _iso(value: Any) -> datetime:
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("timestamp is empty")
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(text)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _semantic(row: Mapping[str, Any]) -> Dict[str, Any]:
@@ -154,12 +168,26 @@ def _ensure_bucket(truth: TruthRuntime) -> None:
 
 
 class N6DeliveryGateService:
-    def __init__(self, truth: TruthRuntime, *, release_id: str, source_commit: str) -> None:
+    def __init__(
+        self,
+        truth: TruthRuntime,
+        *,
+        release_id: str,
+        source_commit: str,
+        now: Optional[datetime] = None,
+    ) -> None:
         install_rc72_n6_completion_overlay()
         _ensure_bucket(truth)
         self.truth = truth
         self.release_id = _required(release_id, "release_id")
         self.source_commit = _required(source_commit, "source_commit")
+        self._now_override = now
+
+    def _now(self) -> datetime:
+        current = self._now_override or datetime.now(timezone.utc)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        return current.astimezone(timezone.utc)
 
     def _one(self, artifact_type: str, **filters: Any) -> Dict[str, Any]:
         rows = self.truth.query(artifact_type, **filters)
@@ -275,9 +303,12 @@ class N6DeliveryGateService:
 
     @staticmethod
     def _runtime_ok(row: Mapping[str, Any]) -> bool:
+        environment = _map(row.get("environment"))
         endpoint, tool, request = _map(row.get("endpoint")), _map(row.get("tool_route")), _map(row.get("request"))
         return bool(
-            _map(row.get("environment")).get("status") == "READY"
+            environment.get("name")
+            and environment.get("status") == "READY"
+            and environment.get("source_ref")
             and endpoint.get("verified") is True and endpoint.get("source_ref")
             and (endpoint.get("url") or endpoint.get("endpoint") or endpoint.get("path"))
             and tool.get("verified") is True and tool.get("source_ref")
@@ -286,6 +317,21 @@ class N6DeliveryGateService:
             and _maps(row.get("capabilities")) and all(item.get("status") == "READY" and item.get("source_ref") for item in _maps(row.get("capabilities")))
             and _maps(row.get("resources")) and all(item.get("status") == "READY" and item.get("source_ref") for item in _maps(row.get("resources")))
         )
+
+    def _data_ref_current(self, row: Mapping[str, Any], ref: Mapping[str, Any]) -> bool:
+        if ref.get("resolved_ref_status") != "VERIFIED" or not ref.get("data_ref"):
+            return False
+        for key in ("release_batch_id", "mission_id", "requirement_id", "case_id"):
+            if str(ref.get(key) or "") != str(row.get(key) or ""):
+                return False
+        expires_at = str(ref.get("expires_at") or "").strip()
+        if expires_at:
+            try:
+                return _iso(expires_at) > self._now()
+            except (TypeError, ValueError):
+                return False
+        validity_window = str(ref.get("validity_window") or "").strip()
+        return bool(validity_window)
 
     def _criteria(self, *, mission_id: str, batch_id: str, delivery: Mapping[str, Any], parent_gate: Mapping[str, Any]) -> Dict[str, bool]:
         refs = list(delivery.get("artifact_refs") or [])
@@ -299,6 +345,7 @@ class N6DeliveryGateService:
             "N6_EXECUTABLE_CONTRACT_LINEAGE_MATCH": bool(rows) and all(row.get("release_id") == self.release_id and row.get("release_batch_id") == batch_id and row.get("mission_id") == mission_id and row.get("schema_version") == N6_SCHEMA_VERSION for row in rows),
             "N6_RUNTIME_BINDINGS_RESOLVED": bool(rows) and all(self._runtime_ok(row) for row in rows),
             "N6_DATA_REFS_VERIFIED": bool(rows) and all(_maps(row.get("data_refs")) and all(ref.get("resolved_ref_status") == "VERIFIED" and ref.get("data_ref") for ref in _maps(row.get("data_refs"))) for row in rows),
+            "N6_DATA_REFS_CURRENT": bool(rows) and all(_maps(row.get("data_refs")) and all(self._data_ref_current(row, ref) for ref in _maps(row.get("data_refs"))) for row in rows),
             "N6_PRECONDITIONS_STEPS_DEFINED": bool(rows) and all(list(row.get("preconditions") or []) and list(row.get("steps") or []) for row in rows),
             "N6_ASSERTIONS_ORACLES_DEFINED": bool(rows) and all(list(row.get("assertions") or []) and list(row.get("oracles") or []) for row in rows),
             "N6_EVIDENCE_REQUIREMENTS_DEFINED": bool(rows) and all(list(row.get("evidence_required") or []) for row in rows),
