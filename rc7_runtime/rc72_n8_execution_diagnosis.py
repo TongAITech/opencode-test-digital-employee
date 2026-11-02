@@ -198,6 +198,37 @@ class ExecutionDiagnosisService:
             receipt = self._verify(self._one(_KIND, diagnosis_id=diagnosis_id))
         return self._accept(p, case, facts, receipt)
 
+    def request_capability_recovery(self, preparation_id, *, broker):
+        """Route a proved physical tool absence to the native policy broker.
+
+        A temporary permission cannot install a missing executable. This intake
+        supports denial, specialist delegation and external approval requests;
+        none of those decisions proves restoration or retries the old Attempt.
+        """
+        from .rc72_capability_broker import CapabilityBroker, CapabilityDecision
+        if (not isinstance(broker, CapabilityBroker) or broker.authority is not self.preparation.authority
+                or broker.release_id != self.preparation.release_id
+                or Path(broker.truth.store.path).resolve() != Path(self.truth.store.path).resolve()):
+            raise ContractError('N8_CAPABILITY_NATIVE_BROKER_SCOPE_REQUIRED')
+        outcome = self.run(preparation_id)
+        if outcome['failure_class'] != 'CAPABILITY_GAP' or outcome.get('action') != 'CAPABILITY_BROKER':
+            raise ContractError('N8_ACCEPTED_CAPABILITY_DIAGNOSIS_REQUIRED')
+        p, facts = self._facts(preparation_id)
+        receipt = self._verify(self._one(_KIND, diagnosis_id=outcome['diagnosis_id']))
+        if receipt['input_sha256'] != _hash(facts):
+            raise ContractError('N8_DIAGNOSIS_INPUT_CHANGED')
+        tools = sorted({row['spec']['tool_id'] for row in facts['checks']
+                        if row['kind'] == 'TOOL_UNAVAILABLE' and row['success'] is False})
+        if len(tools) != 1 or receipt['result']['affected_refs'] != tools:
+            raise ContractError('N8_CAPABILITY_EXACT_TOOL_REQUIRED')
+        rule = broker.policies.get(tools[0])
+        if rule and rule.decision == CapabilityDecision.AUTO_GRANT_TEMP_LEASE:
+            raise ContractError('N8_CAPABILITY_PHYSICAL_RESTORATION_REQUIRED')
+        return broker.request(request_id='N8CAP-' + _hash([outcome['diagnosis_id'], p['attempt_id'], tools[0]])[:24],
+            mission_id=p['mission_id'], workitem_id=p['workitem_id'], attempt_id=p['attempt_id'],
+            worker_id=p['worker_id'], parent_task_lease_id=p['task_lease']['lease_id'],
+            requested_capability=tools[0], reason='accepted physical tool absence ' + outcome['diagnosis_id'])
+
     def _fresh_data_repair_proofs(self, p, original_gate_id, failed_refs):
         """Every failed DataRef needs a new independent observation, not a label.
 

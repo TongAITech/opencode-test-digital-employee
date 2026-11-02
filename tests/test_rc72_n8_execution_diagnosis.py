@@ -236,7 +236,8 @@ class _MissingExecutableEnvironment(LocalHTTPEnvironment):
             'filesystem-probe://' + target_id, 'file://' + str(path), None)
 
 
-def test_actual_failed_tool_probe_routes_capability_without_semantic_mutation_or_business_retry(tmp_path, monkeypatch):
+@pytest.mark.parametrize('decision_name', ['DENY', 'DELEGATE_TO_SPECIALIST', 'HUMAN_GATE'])
+def test_actual_failed_tool_probe_routes_capability_without_semantic_mutation_or_business_retry(tmp_path, monkeypatch, decision_name):
     truth, plan, prep, server, url = formal_setup(tmp_path, monkeypatch)
     try:
         server.tool_ready = False
@@ -258,6 +259,25 @@ def test_actual_failed_tool_probe_routes_capability_without_semantic_mutation_or
         assert truth.query('execution_attempt')[0]['status'] == 'BLOCKED'
         before = truth.store.path.read_bytes()
         assert service.run(p['preparation_id']) == result
+        assert truth.store.path.read_bytes() == before
+        from rc7_runtime.rc72_capability_broker import CapabilityBroker, CapabilityDecision
+        from rc7_runtime.rc72_capability_broker import CapabilityPolicyRule
+        rule = CapabilityPolicyRule(CapabilityDecision(decision_name),
+            delegate_role='DATA_PREPARER' if decision_name == 'DELEGATE_TO_SPECIALIST' else None)
+        broker = CapabilityBroker(truth, release_id=p['release_id'], authority=prep.authority, policies={'api_http': rule})
+        decision = service.request_capability_recovery(p['preparation_id'], broker=broker)
+        assert decision.decision.value == decision_name
+        request = truth.query('rc72_capability_request')[0]
+        assert request['attempt_id'] == p['attempt_id'] and request['workitem_id'] == p['workitem_id']
+        assert request['requested_capability'] == 'api_http'
+        assert not truth.query('rc72_capability_lease')
+        before = truth.store.path.read_bytes()
+        assert service.request_capability_recovery(p['preparation_id'], broker=broker) == decision
+        assert truth.store.path.read_bytes() == before and server.calls == []
+        from rc7_runtime.rc72_capability_broker import CapabilityPolicyRule
+        broker.policies['api_http'] = CapabilityPolicyRule(CapabilityDecision.AUTO_GRANT_TEMP_LEASE)
+        with pytest.raises(ContractError, match='PHYSICAL_RESTORATION_REQUIRED'):
+            service.request_capability_recovery(p['preparation_id'], broker=broker)
         assert truth.store.path.read_bytes() == before
     finally:
         server.shutdown()

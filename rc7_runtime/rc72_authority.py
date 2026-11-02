@@ -89,6 +89,19 @@ class RC72AuthorityRuntime(AuthorityRuntime):
         self._identities[identity.worker_id] = identity
         return identity
 
+    def get_identity(self, worker_id):
+        return self._require_identity(worker_id)
+
+    def get_lease(self, lease_id):
+        return self._require_lease(lease_id)
+
+    def revoke_lease(self, lease_id):
+        self._require_lease(lease_id)
+        self.revoke_worker_lease(lease_id)
+
+    def is_lease_revoked(self, lease_id):
+        return lease_id in getattr(self, '_revoked_lease_ids', set())
+
     def revoke_worker_lease(self, lease_id: str):
         revoked = getattr(self, "_revoked_lease_ids", None)
         if revoked is None:

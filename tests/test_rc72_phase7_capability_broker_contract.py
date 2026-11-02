@@ -17,7 +17,7 @@ from rc7_runtime.rc72_repository import CanonicalRC72Repository
 from rc7_runtime.truth_overlay import append_entity
 
 
-def _setup(tmp_path: Path):
+def _setup(tmp_path: Path, *, native=False):
     truth = TruthRuntime(tmp_path / "r1.jsonl")
     repo = CanonicalRC72Repository(truth, release_id="RC7.2")
     repo.persist(
@@ -81,9 +81,10 @@ def _setup(tmp_path: Path):
         release_id="RC7.2",
     )
 
-    authority = RC7AuthorityRuntime(b"0123456789abcdef0123456789abcdef")
+    from rc7_runtime.rc72_authority import RC72AuthorityRuntime
+    authority = (RC72AuthorityRuntime if native else RC7AuthorityRuntime)(b"0123456789abcdef0123456789abcdef")
     identity = authority.issue_identity(
-        "RC7_EXECUTION_WORKER",
+        "L3_EXECUTE" if native else "RC7_EXECUTION_WORKER",
         "EXECUTION",
         None,
         0,
@@ -92,7 +93,7 @@ def _setup(tmp_path: Path):
     base_lease = authority.issue_lease(
         identity.worker_id,
         "task:WI-1",
-        ["rc7_execution_candidate"],
+        [] if native else ["rc7_execution_candidate"],
         ["mcp__pfc_aitest_rc7__truth_query"],
         ttl_seconds=1800,
     )
@@ -349,3 +350,191 @@ def test_capability_truth_survives_r1_replay_without_secrets(tmp_path: Path):
     assert "0123456789abcdef" not in serialized
     assert "captain_token" not in serialized
     assert "signature" not in lease
+
+
+def test_same_request_replay_does_not_issue_or_write_again_and_conflicts_are_rejected(tmp_path, monkeypatch):
+    truth, authority, identity, parent, broker = _setup(tmp_path, native=True)
+    capability = 'mcp__pfc_aitest_rc7__attempt_cat_query'
+    result = _request(broker, identity, parent, capability)
+    before = truth.store.path.read_bytes()
+    count = len(authority._leases)
+    assert _request(broker, identity, parent, capability) == result
+    assert len(authority._leases) == count and truth.store.path.read_bytes() == before
+    with pytest.raises(Exception, match='REPLAY_CONFLICT'):
+        _request(broker, identity, parent, 'different-tool')
+    assert truth.store.path.read_bytes() == before
+
+
+def test_observed_grant_survives_lost_metadata_response_without_duplicate_issuance(tmp_path, monkeypatch):
+    truth, authority, identity, parent, broker = _setup(tmp_path, native=True)
+    original = broker._append
+    def interrupt(event, payload):
+        if event == 'RC72_CAPABILITY_DECISION_UPSERTED':
+            raise RuntimeError('interrupted metadata projection')
+        return original(event, payload)
+    monkeypatch.setattr(broker, '_append', interrupt)
+    capability = 'mcp__pfc_aitest_rc7__attempt_cat_query'
+    with pytest.raises(RuntimeError, match='interrupted metadata'):
+        _request(broker, identity, parent, capability)
+    child_count = len(authority._leases)
+    assert truth.query('rc72_capability_resolution')[0]['state'] == 'OBSERVED'
+    monkeypatch.setattr(broker, '_append', original)
+    result = _request(broker, identity, parent, capability)
+    assert result.signed_task_lease_id and len(authority._leases) == child_count
+    assert len(truth.query('rc72_capability_lease')) == 1
+
+
+def test_unknown_issuance_never_reissues_even_after_lock_file_loss(tmp_path, monkeypatch):
+    truth, authority, identity, parent, broker = _setup(tmp_path, native=True)
+    issue = authority.issue_lease
+    calls = []
+    def lost_response(*args, **kwargs):
+        calls.append(issue(*args, **kwargs))
+        raise RuntimeError('lost authority issuance response')
+    monkeypatch.setattr(authority, 'issue_lease', lost_response)
+    capability = 'mcp__pfc_aitest_rc7__attempt_cat_query'
+    with pytest.raises(RuntimeError, match='lost authority'):
+        _request(broker, identity, parent, capability)
+    assert truth.query('rc72_capability_resolution')[0]['state'] == 'ISSUING'
+    for lock in truth.store.path.with_suffix('.capability-locks').iterdir():
+        lock.unlink()
+    monkeypatch.setattr(authority, 'issue_lease', issue)
+    with pytest.raises(Exception, match='ISSUANCE_EFFECT_UNKNOWN'):
+        _request(broker, identity, parent, capability)
+    assert len(calls) == 1 and truth.query('rc72_capability_decision') == []
+
+
+def test_native_cold_child_restore_requires_live_parent_and_signed_resolution(tmp_path):
+    from rc7_runtime.rc72_authority import RC72AuthorityRuntime
+    truth, authority, identity, parent, broker = _setup(tmp_path, native=True)
+    capability = 'mcp__pfc_aitest_rc7__attempt_cat_query'
+    result = _request(broker, identity, parent, capability)
+    cold = RC72AuthorityRuntime(b'0123456789abcdef0123456789abcdef')
+    cold.restore_signed_worker_lease(identity, parent, expected_scope=parent.scope_ref)
+    replay = CapabilityBroker(TruthRuntime(truth.store.path), release_id='RC7.2', authority=cold, policies={})
+    before = truth.store.path.read_bytes()
+    assert _request(replay, identity, parent, capability) == result
+    assert result.signed_task_lease_id not in cold._leases
+    replay.assert_capability_lease_usable(capability_lease_id=result.capability_lease_id,
+        mission_id='M-1', workitem_id='WI-1', attempt_id='ATT-1', worker_id=identity.worker_id)
+    assert result.signed_task_lease_id in cold._leases
+    assert truth.store.path.read_bytes() == before
+    replay.revoke(result.capability_lease_id, reason='task completed')
+    assert _request(replay, identity, parent, capability) == result
+    with pytest.raises(Exception, match='NOT_ACTIVE'):
+        replay.assert_capability_lease_usable(capability_lease_id=result.capability_lease_id,
+            mission_id='M-1', workitem_id='WI-1', attempt_id='ATT-1', worker_id=identity.worker_id)
+    assert replay.truth.query('rc72_capability_lease')[0]['state'] == 'REVOKED'
+
+
+def test_revoked_parent_blocks_child_even_when_child_itself_is_not_revoked(tmp_path):
+    truth, authority, identity, parent, broker = _setup(tmp_path, native=True)
+    result = _request(broker, identity, parent, 'mcp__pfc_aitest_rc7__attempt_cat_query')
+    authority.revoke_worker_lease(parent.lease_id)
+    with pytest.raises(AuthorityError):
+        broker.assert_capability_lease_usable(capability_lease_id=result.capability_lease_id,
+            mission_id='M-1', workitem_id='WI-1', attempt_id='ATT-1', worker_id=identity.worker_id)
+
+
+def test_resolution_signature_tamper_cannot_restore_a_child(tmp_path):
+    truth, authority, identity, parent, broker = _setup(tmp_path, native=True)
+    result = _request(broker, identity, parent, 'mcp__pfc_aitest_rc7__attempt_cat_query')
+    row = truth.query('rc72_capability_resolution')[0]
+    row['signature'] = '0' * 64
+    row['artifact_version'] += 1
+    truth.append_atomic('RC72_CAPABILITY_RESOLUTION_UPSERTED', row)
+    before = truth.store.path.read_bytes()
+    with pytest.raises(Exception, match='SIGNATURE_INVALID'):
+        broker.assert_capability_lease_usable(capability_lease_id=result.capability_lease_id,
+            mission_id='M-1', workitem_id='WI-1', attempt_id='ATT-1', worker_id=identity.worker_id)
+    assert truth.store.path.read_bytes() == before
+
+
+def test_signed_revocation_blocks_cold_restore_even_if_metadata_write_was_interrupted(tmp_path, monkeypatch):
+    from rc7_runtime.rc72_authority import RC72AuthorityRuntime
+    truth, authority, identity, parent, broker = _setup(tmp_path, native=True)
+    result = _request(broker, identity, parent, 'mcp__pfc_aitest_rc7__attempt_cat_query')
+    append = truth.append_atomic
+    def interrupt(event, payload):
+        if event == 'RC72_CAPABILITY_LEASE_UPSERTED' and payload['state'] == 'REVOKED':
+            raise RuntimeError('lost revoke projection')
+        return append(event, payload)
+    monkeypatch.setattr(truth, 'append_atomic', interrupt)
+    with pytest.raises(RuntimeError, match='lost revoke'):
+        broker.revoke(result.capability_lease_id, reason='boundary closed')
+    monkeypatch.setattr(truth, 'append_atomic', append)
+    cold = RC72AuthorityRuntime(b'0123456789abcdef0123456789abcdef')
+    cold.restore_signed_worker_lease(identity, parent, expected_scope=parent.scope_ref)
+    replay = CapabilityBroker(TruthRuntime(truth.store.path), release_id='RC7.2', authority=cold, policies={})
+    with pytest.raises(Exception, match='CHILD_REVOKED'):
+        replay.assert_capability_lease_usable(capability_lease_id=result.capability_lease_id,
+            mission_id='M-1', workitem_id='WI-1', attempt_id='ATT-1', worker_id=identity.worker_id)
+    assert result.signed_task_lease_id not in cold._leases
+    replay.revoke(result.capability_lease_id, reason='resume original revoke')
+    assert replay.truth.query('rc72_capability_lease')[0]['state'] == 'REVOKED'
+
+
+def test_concurrent_native_requests_cannot_duplicate_child_authority(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    truth, authority, identity, parent, broker = _setup(tmp_path, native=True)
+    entered, release = Event(), Event()
+    issue = authority.issue_lease
+    calls = []
+    def held_issue(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        calls.append(issue(*args, **kwargs))
+        return calls[-1]
+    monkeypatch.setattr(authority, 'issue_lease', held_issue)
+    capability = 'mcp__pfc_aitest_rc7__attempt_cat_query'
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        first = pool.submit(_request, broker, identity, parent, capability)
+        assert entered.wait(5)
+        try:
+            with pytest.raises(Exception, match='REQUEST_IN_PROGRESS'):
+                _request(broker, identity, parent, capability)
+        finally:
+            release.set()
+        result = first.result(timeout=5)
+    assert len(calls) == 1
+    assert _request(broker, identity, parent, capability) == result
+    assert len(truth.query('rc72_capability_lease')) == 1
+
+
+def test_fresh_process_bootstrap_can_read_signed_capability_resolution(tmp_path):
+    import json
+    import subprocess
+    import sys
+    truth, _, identity, parent, broker = _setup(tmp_path, native=True)
+    _request(broker, identity, parent, 'mcp__pfc_aitest_rc7__attempt_cat_query')
+    code = '''import json,sys
+import rc7_runtime
+from rc6_runtime.truth import TruthRuntime
+truth = TruthRuntime(sys.argv[1])
+print(json.dumps({kind: len(truth.query(kind)) for kind in ('rc72_capability_resolution','rc72_capability_lease','rc72_capability_decision')}))
+'''
+    result = subprocess.run([sys.executable, '-c', code, str(truth.store.path)],
+        cwd=str(Path(__file__).resolve().parents[1]), capture_output=True, text=True, check=True)
+    assert json.loads(result.stdout) == dict(rc72_capability_resolution=1, rc72_capability_lease=1, rc72_capability_decision=1)
+
+
+def test_broker_cannot_issue_against_a_different_release_binding(tmp_path):
+    truth, authority, identity, parent, broker = _setup(tmp_path, native=True)
+    foreign = CapabilityBroker(truth, release_id='OTHER-RELEASE', authority=authority, policies=broker.policies)
+    before = truth.store.path.read_bytes()
+    with pytest.raises(Exception, match='ATTEMPT_BINDING_MISMATCH'):
+        _request(foreign, identity, parent, 'mcp__pfc_aitest_rc7__attempt_cat_query')
+    assert truth.store.path.read_bytes() == before and len(authority._leases) == 1
+
+
+def test_capability_use_refreshes_a_binding_superseded_by_another_runtime(tmp_path):
+    truth, authority, identity, parent, broker = _setup(tmp_path, native=True)
+    result = _request(broker, identity, parent, 'mcp__pfc_aitest_rc7__attempt_cat_query')
+    other = TruthRuntime(truth.store.path)
+    binding = other.query('rc72_workitem_attempt_binding')[0]
+    other.append_atomic('RC72_WORKITEM_ATTEMPT_BINDING_UPSERTED',
+        dict(binding, state='SUPERSEDED', artifact_version=binding['artifact_version'] + 1))
+    with pytest.raises(Exception, match='ATTEMPT_NOT_ACTIVE'):
+        broker.assert_capability_lease_usable(capability_lease_id=result.capability_lease_id,
+            mission_id='M-1', workitem_id='WI-1', attempt_id='ATT-1', worker_id=identity.worker_id)

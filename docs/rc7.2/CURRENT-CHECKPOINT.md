@@ -15,6 +15,45 @@ Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md. Finish
 construction before preparing a delivery package. Candidate 9476b57 remains
 quarantined. This checkpoint supersedes earlier component-only descriptions.
 
+## Native capability recovery intake and durable decisions — 2026-11-03
+
+N8's accepted exact physical-tool absence can now submit an exact native
+CapabilityBroker request tied to the original worker, WorkItem, Attempt and
+parent lease. Default deny, specialist-delegation and human-gate policies are
+consumed without any business replay or automatic grant. A permission grant
+cannot install a missing executable; AUTO_GRANT is rejected by this physical
+restoration intake. Specialist execution, external approval, actual restoration
+and fresh re-probe remain subsequent work, not claimed by a delegation label.
+
+Actual integration found two inherited incompatibilities: CapabilityBroker
+accepted only RC7AuthorityRuntime while native N7 uses RC72AuthorityRuntime, and
+its scope guard lacked the native task:WorkItem/attempt:Attempt scope. Both now
+use concrete compatible runtime interfaces and exact release/worker/Attempt
+scope checks; artifact scope is never increased.
+
+The broker now freezes runtime-signed request/policy/parent decisions in R1,
+serializes broker writers with an OS-held ledger lock and records ISSUING before
+any child authority effect. The same request cannot issue twice, changed input
+cannot reuse its identity, and unknown issuance blocks even if lock files are
+lost. A recorded observation can recover missing audit projections without a
+second grant. Completed replay is historical and does not restore authority.
+Only live usability checks can restore an authenticated child after current
+parent, binding, scope, TTL and revocation checks.
+
+Revocation is signed and durable before lease metadata projection. Interrupted
+revocation cannot restore a child on cold restart. The legacy capability
+metadata still contains no signing key, Captain credential or lease signature;
+the separate runtime resolution proof contains HMAC-authenticated grant context.
+No Field claim is made. Legacy requests without such proof require explicit
+reconciliation rather than repeated issuance. Global non-broker journal/resource
+locking, unknown-issuance orphan reconciliation and actual call-time tool
+interception remain C06/C07 work. Integration chain: 65 passed (2 existing
+collection warnings) in 81.72s. Subsequent final cold/native-policy chain: 38
+passed (1 existing warning) in 38.30s. Final Broker hardening, including
+cross-release rejection and a binding superseded by another runtime, passed
+19 checks; native usability refreshes R1 before accepting the binding.
+Compilation/diff checks passed; same-source platform qualification is pending.
+
 ## Actual failed-tool probe diagnosis — 2026-11-03
 
 C03 now captures failed real tool probes as runtime-signed, attempt/Case/tool-scoped

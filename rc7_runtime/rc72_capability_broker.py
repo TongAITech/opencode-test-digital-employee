@@ -20,6 +20,7 @@ from rc6_runtime.authority import AuthorityError
 from rc6_runtime.truth import TruthRuntime
 
 from .authority import RC7AuthorityRuntime
+from .rc72_authority import RC72AuthorityRuntime
 from .models import ContractError
 from .truth_overlay import install_rc7_truth_overlay
 
@@ -186,7 +187,7 @@ class CapabilityBroker:
         install_rc72_capability_overlay()
         if not isinstance(release_id, str) or not release_id.strip():
             raise ContractError("CAPABILITY_RELEASE_ID_REQUIRED")
-        if not isinstance(authority, RC7AuthorityRuntime):
+        if not isinstance(authority, (RC7AuthorityRuntime, RC72AuthorityRuntime)):
             raise ContractError("CAPABILITY_BROKER_REQUIRES_RC7_AUTHORITY")
         self.truth = truth
         self.release_id = release_id.strip()
@@ -223,7 +224,7 @@ class CapabilityBroker:
         parent_task_lease_id: str,
     ) -> Dict[str, Any]:
         rows = self.truth.query("rc72_workitem_attempt_binding", workitem_id=workitem_id)
-        rows = [row for row in rows if row.get("mission_id") == mission_id]
+        rows = [row for row in rows if row.get("mission_id") == mission_id and row.get("release_id") == self.release_id]
         rows = [row for row in rows if row.get("attempt_id") == attempt_id]
         rows = [row for row in rows if row.get("worker_id") == worker_id]
         rows = [row for row in rows if row.get("task_lease_ref") == parent_task_lease_id]
@@ -245,110 +246,11 @@ class CapabilityBroker:
         requested_capability: str,
         reason: str,
     ) -> CapabilityBrokerResult:
-        for value, name in (
-            (request_id, "request_id"), (mission_id, "mission_id"), (workitem_id, "workitem_id"),
-            (attempt_id, "attempt_id"), (worker_id, "worker_id"),
-            (parent_task_lease_id, "parent_task_lease_id"), (reason, "reason"),
-        ):
-            if not isinstance(value, str) or not value.strip():
-                raise ContractError("%s_REQUIRED" % name.upper())
-        capability = self._exact_capability(requested_capability)
-        binding = self._binding(
-            mission_id=mission_id,
-            workitem_id=workitem_id,
-            attempt_id=attempt_id,
-            worker_id=worker_id,
-            parent_task_lease_id=parent_task_lease_id,
-        )
-        parent = self.authority.get_lease(parent_task_lease_id)
-        identity = self.authority.get_identity(worker_id)
-        self.authority._validate_lease(identity, parent, None)
-        if parent.worker_id != worker_id:
-            raise ContractError("CAPABILITY_REQUEST_PARENT_WORKER_MISMATCH")
-        valid_scopes = {"task:%s" % workitem_id, str(binding.get("etu_id") or "")}
-        if parent.scope_ref not in valid_scopes:
-            raise ContractError("CAPABILITY_REQUEST_PARENT_SCOPE_MISMATCH")
-
-        now = _now()
-        self._append(
-            "RC72_CAPABILITY_REQUEST_UPSERTED",
-            {
-                "request_id": request_id,
-                "mission_id": mission_id,
-                "workitem_id": workitem_id,
-                "attempt_id": attempt_id,
-                "worker_id": worker_id,
-                "parent_task_lease_id": parent_task_lease_id,
-                "requested_capability": capability,
-                "reason": reason,
-                "state": "REQUESTED",
-                "created_at": now,
-            },
-        )
-
-        rule = self.policies.get(capability, CapabilityPolicyRule(CapabilityDecision.DENY))
-        capability_lease_id: Optional[str] = None
-        signed_task_lease_id: Optional[str] = None
-        decision_reason = "policy:%s" % rule.decision.value
-
-        if rule.decision == CapabilityDecision.AUTO_GRANT_TEMP_LEASE:
-            remaining = parent.expires_at - now
-            ttl = min(rule.max_ttl_seconds, remaining)
-            if ttl < 1:
-                raise ContractError("CAPABILITY_PARENT_LEASE_EXPIRED")
-            child = self.authority.issue_lease(
-                worker_id,
-                parent.scope_ref,
-                parent.allowed_artifact_types,
-                tuple(sorted(set(parent.allowed_tools) | {capability})),
-                ttl_seconds=ttl,
-            )
-            capability_lease_id = _new("CAPLEASE")
-            signed_task_lease_id = child.lease_id
-            self._append(
-                "RC72_CAPABILITY_LEASE_UPSERTED",
-                {
-                    "capability_lease_id": capability_lease_id,
-                    "request_id": request_id,
-                    "mission_id": mission_id,
-                    "workitem_id": workitem_id,
-                    "attempt_id": attempt_id,
-                    "worker_id": worker_id,
-                    "parent_task_lease_id": parent_task_lease_id,
-                    "signed_task_lease_id": child.lease_id,
-                    "requested_capability": capability,
-                    "scope_ref": child.scope_ref,
-                    "issued_at": child.issued_at,
-                    "expires_at": child.expires_at,
-                    "state": "ACTIVE",
-                    "revoked_at": None,
-                    "revoked_reason": None,
-                },
-            )
-
-        self._append(
-            "RC72_CAPABILITY_DECISION_UPSERTED",
-            {
-                "request_id": request_id,
-                "mission_id": mission_id,
-                "workitem_id": workitem_id,
-                "attempt_id": attempt_id,
-                "worker_id": worker_id,
-                "requested_capability": capability,
-                "decision": rule.decision.value,
-                "reason": decision_reason,
-                "delegate_role": rule.delegate_role,
-                "capability_lease_id": capability_lease_id,
-                "decided_at": now,
-            },
-        )
-        return CapabilityBrokerResult(
-            request_id=request_id,
-            decision=rule.decision,
-            capability_lease_id=capability_lease_id,
-            signed_task_lease_id=signed_task_lease_id,
-            delegate_role=rule.delegate_role,
-        )
+        from .rc72_capability_resolution import CapabilityResolutionService
+        return CapabilityResolutionService(self).request(
+            request_id=request_id, mission_id=mission_id, workitem_id=workitem_id,
+            attempt_id=attempt_id, worker_id=worker_id, parent_task_lease_id=parent_task_lease_id,
+            requested_capability=requested_capability, reason=reason)
 
     def assert_capability_lease_usable(
         self,
@@ -360,6 +262,7 @@ class CapabilityBroker:
         worker_id: str,
         now: Optional[int] = None,
     ) -> Dict[str, Any]:
+        self.truth.rebuild_projection()
         row = self._one(_CAPABILITY_LEASE, capability_lease_id=capability_lease_id)
         if row.get("state") != "ACTIVE":
             raise ContractError("CAPABILITY_LEASE_NOT_ACTIVE")
@@ -384,6 +287,11 @@ class CapabilityBroker:
             worker_id=worker_id,
             parent_task_lease_id=str(row["parent_task_lease_id"]),
         )
+        parent = self.authority.get_lease(row['parent_task_lease_id'])
+        identity = self.authority.get_identity(worker_id)
+        self.authority._validate_lease(identity, parent, current)
+        from .rc72_capability_resolution import CapabilityResolutionService
+        CapabilityResolutionService(self).restore_child(row)
         self.authority.authorize_tool(
             worker_id,
             str(row["signed_task_lease_id"]),
@@ -393,19 +301,8 @@ class CapabilityBroker:
         return row
 
     def revoke(self, capability_lease_id: str, *, reason: str) -> None:
-        if not isinstance(reason, str) or not reason.strip():
-            raise ContractError("CAPABILITY_REVOKE_REASON_REQUIRED")
-        row = self._one(_CAPABILITY_LEASE, capability_lease_id=capability_lease_id)
-        if row.get("state") != "ACTIVE":
-            raise ContractError("CAPABILITY_LEASE_NOT_ACTIVE")
-        self.authority.revoke_lease(str(row["signed_task_lease_id"]))
-        updated = dict(row)
-        updated.pop("artifact_type", None)
-        updated["artifact_version"] = int(row.get("artifact_version", 1)) + 1
-        updated["state"] = "REVOKED"
-        updated["revoked_at"] = _now()
-        updated["revoked_reason"] = reason
-        self.truth.append_atomic("RC72_CAPABILITY_LEASE_UPSERTED", updated)
+        from .rc72_capability_resolution import CapabilityResolutionService
+        CapabilityResolutionService(self).revoke(capability_lease_id, reason)
 
 
 install_rc72_capability_overlay()

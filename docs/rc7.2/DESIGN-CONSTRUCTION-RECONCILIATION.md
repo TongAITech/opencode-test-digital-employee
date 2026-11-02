@@ -346,3 +346,31 @@ one real classification path; it does not close the entire C03 or broker/product
 recovery integration. Final-source chain: 43 passed, one pre-existing collection
 warning; inherited compensation/retry/finalization: 29 passed before final causal
 narrowing (which has its own final-source coverage).
+
+
+## Native capability recovery consumer / signed decision journal — 2026-11-03
+
+Accepted N8 physical-tool absence now calls the native policy Broker with the
+same scoped worker/WorkItem/Attempt/parent lease. Deny, delegation and human-gate
+outcomes do not replay business work or imply physical restoration. Automatic
+permission is rejected for a missing executable. Real specialist repair,
+approval consumption, re-probe and replacement execution remain open.
+
+The inherited Broker was not compatible with native RC72AuthorityRuntime or its
+exact task/attempt scope. Native interface support now preserves release,
+identity, parent and artifact/tool bounds. Runtime-signed resolution records
+freeze the request/policy/parent; OS-held broker ledger serialization and an
+ISSUING pre-effect state prevent duplicate grants. Lost observations remain
+unknown and cannot automatically issue again. Recorded effects recover missing
+metadata without issuing; historical replay itself restores no authority.
+Live usability refreshes R1 and checks current binding/parent/TTL/revocation
+before HMAC-authenticated child restoration. Signed revocation precedes its
+metadata projection and survives interrupted cleanup and cold restart.
+
+Proof: integration65, final cold/native policy38, final broker19 passed; existing
+collection warnings only. These checks cover real local HTTP failure/native
+N8/Broker intake, three safe policies, forged proof, concurrent requests,
+unknown issuance, replay/projection recovery, fresh-process schema bootstrap,
+revocation, parent revocation and externally superseded bindings. Global
+non-broker resource/journal locks and actual call-time DSH scope enforcement
+remain incomplete and cannot be inferred from these Broker tests.
