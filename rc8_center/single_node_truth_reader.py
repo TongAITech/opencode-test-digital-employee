@@ -48,13 +48,7 @@ class ProductionCenterR1TruthReader:
             )
 
     def assert_no_artifacts_for_test_run(self, test_run_id: str) -> None:
-        """Reject pre-seeded Artifact truth before production workers execute.
-
-        WorkItems legitimately exist before dispatch because Center must have work to
-        lease. Attempts, worker Evidence artifacts and R1 Attempt lifecycle facts do
-        not. Requiring the artifact surface to be clean closes the remaining path where
-        a traversal could match Evidence that existed before the first production claim.
-        """
+        """Reject pre-seeded Artifact truth before production workers execute."""
         run_id = str(test_run_id or "").strip()
         if not run_id:
             raise ProductionTruthReaderError("TEST_RUN_ID_REQUIRED")
@@ -67,6 +61,48 @@ class ProductionCenterR1TruthReader:
         if artifact_id is not None:
             raise ProductionTruthReaderError(
                 "PRODUCTION_CAUSALITY_PREFLIGHT_ARTIFACT_ALREADY_EXISTS:%s" % artifact_id
+            )
+
+    def worker_artifact_refs_for_test_run(self, test_run_id: str) -> Tuple[str, ...]:
+        """Return the complete durable worker-owned Artifact denominator for a TestRun."""
+        run_id = str(test_run_id or "").strip()
+        if not run_id:
+            raise ProductionTruthReaderError("TEST_RUN_ID_REQUIRED")
+        with self.store.session() as session:
+            artifact_ids = tuple(
+                str(value)
+                for value in session.execute(
+                    select(ArtifactMetadataRow.artifact_id)
+                    .where(ArtifactMetadataRow.test_run_id == run_id)
+                    .where(ArtifactMetadataRow.producer_kind == "WORKER")
+                    .order_by(ArtifactMetadataRow.artifact_id.asc())
+                ).scalars().all()
+            )
+        if any(not artifact_id for artifact_id in artifact_ids):
+            raise ProductionTruthReaderError("DURABLE_WORKER_ARTIFACT_ID_MISSING:%s" % run_id)
+        if len(set(artifact_ids)) != len(artifact_ids):
+            raise ProductionTruthReaderError("DURABLE_WORKER_ARTIFACT_ID_NOT_UNIQUE:%s" % run_id)
+        return tuple("artifact:%s" % artifact_id for artifact_id in artifact_ids)
+
+    def assert_worker_artifact_refs_match_observed_evidence(
+        self, *, test_run_id: str, observed_evidence_refs: Iterable[str]
+    ) -> None:
+        """Require post-run worker Artifact truth to equal this traversal exactly."""
+        run_id = str(test_run_id or "").strip()
+        if not run_id:
+            raise ProductionTruthReaderError("TEST_RUN_ID_REQUIRED")
+        observed = tuple(str(value or "").strip() for value in observed_evidence_refs)
+        if any(not value or not value.startswith("artifact:") for value in observed):
+            raise ProductionTruthReaderError("OBSERVED_ARTIFACT_REF_INVALID:%s" % run_id)
+        if len(set(observed)) != len(observed):
+            raise ProductionTruthReaderError("OBSERVED_ARTIFACT_REF_NOT_UNIQUE:%s" % run_id)
+        durable = self.worker_artifact_refs_for_test_run(run_id)
+        if set(durable) != set(observed):
+            missing = sorted(set(observed) - set(durable))
+            unexpected = sorted(set(durable) - set(observed))
+            raise ProductionTruthReaderError(
+                "PRODUCTION_CAUSALITY_ARTIFACT_SET_MISMATCH:%s:missing=%s:unexpected=%s"
+                % (run_id, ",".join(missing) or "-", ",".join(unexpected) or "-")
             )
 
     def assert_no_r1_attempt_lifecycle_for_test_run(self, test_run_id: str) -> None:
@@ -128,13 +164,7 @@ class ProductionCenterR1TruthReader:
     def assert_r1_attempt_lifecycle_matches_observed_leases(
         self, *, test_run_id: str, observed_lease_ids: Iterable[str]
     ) -> None:
-        """Require the complete R1 Attempt lifecycle denominator to equal this traversal.
-
-        Per-attempt lookups prove expected facts exist, but without this set-level gate an
-        extra worker-produced or stale lifecycle identity could remain in the same fresh
-        TestRun and escape the composed proof. Exactly one STARTED and one COMPLETED fact
-        must exist for every observed Center lease, with no unexpected Attempt identity.
-        """
+        """Require the complete R1 Attempt lifecycle denominator to equal this traversal."""
         run_id = str(test_run_id or "").strip()
         if not run_id:
             raise ProductionTruthReaderError("TEST_RUN_ID_REQUIRED")
