@@ -15,8 +15,8 @@ from test_rc72_n4_test_design_handoff import _candidate
 from rc72_n2_test_support import BATCH, COMMIT, RELEASE
 
 
-def _n4_driver(tmp_path, *, incomplete_parent=False, explicit_gap=False, shallow=False, invalid_oracle=False, compact=False):
-    truth, driver, calls = _n3_driver(tmp_path, two_targets=True)
+def _n4_driver(tmp_path, *, incomplete_parent=False, explicit_gap=False, shallow=False, invalid_oracle=False, compact=False, materialized=False):
+    truth, driver, calls = _n3_driver(tmp_path, two_targets=True, runtime_family='API' if materialized else None)
     script = tmp_path / 'n4-protocol-worker.py'
     script.write_text('import sys,json,uuid\n'
         'print(json.dumps(dict(type="session",session_id="session-n4-product-"+uuid.uuid4().hex)))\n'
@@ -70,6 +70,15 @@ def _n4_driver(tmp_path, *, incomplete_parent=False, explicit_gap=False, shallow
                     interaction['coverage_links'].append(dict(subject_id=regression[0]['obligation_id'],
                         evidence_ref=regression[0]['evidence_refs'][0]))
                     candidate['cases'].append(interaction)
+                if materialized:
+                    from test_rc72_n6_executable_readiness import _binding
+                    from test_rc72_n1_executable_binding import BINDING_KEY
+                    spec = _binding()
+                    for case in candidate['cases']:
+                        case['execution'] = dict(binding_key=BINDING_KEY,
+                            inputs=dict(fixture_input='explicit reviewed input'),
+                            request=deepcopy(spec['request']), cleanup=deepcopy(spec['cleanup']),
+                            authoritative_sources=[spec['request']['source_ref'],spec['cleanup']['source_ref']])
                 if incomplete_parent:
                     # Same symbol ID appears in two reviewed repositories. An
                     # obligation for the other parent must not cover this one.

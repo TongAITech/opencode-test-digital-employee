@@ -16,7 +16,7 @@ from test_rc72_n1_executable_binding import _binding
 from test_rc72_n2_requirement_review import _candidate
 
 
-def _driver(tmp_path, *, gap=False):
+def _driver(tmp_path, *, gap=False, runtime_family=None):
     truth = build_truth(tmp_path)
     start_n1(truth)
     script = tmp_path / 'protocol-worker.py'
@@ -36,6 +36,8 @@ def _driver(tmp_path, *, gap=False):
                 candidate['facts']['deployment_records'][0]['application_id'] = 'BLOAN'
                 binding = _binding()
                 binding.update(release_id=RELEASE, mission_id=MISSION, release_batch_id=BATCH, source_commit=COMMIT)
+                if runtime_family is not None:
+                    binding['tool_route']['family'] = runtime_family
                 candidate['facts']['executable_bindings'] = [binding]
             elif role == 'n2':
                 reqs = [req for req in REQUIREMENTS if req in prompt]

@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 import pytest
 from rc7_runtime.models import ContractError
+from rc7_runtime.rc72_canonical_design import CanonicalDesignService
 
 from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
 from rc7_runtime.rc72_authority import RC72AuthorityRuntime
@@ -15,8 +16,8 @@ from test_rc72_n5_data_verification_handoff import _v2_candidate
 from rc72_n2_test_support import BATCH, COMMIT, RELEASE
 
 
-def _n5_driver(tmp_path, *, negative=False):
-    truth, driver, calls = _n4_driver(tmp_path, compact=True)
+def _n5_driver(tmp_path, *, negative=False, materialized=False):
+    truth, driver, calls = _n4_driver(tmp_path, compact=True, materialized=materialized)
     script = tmp_path / 'n5-protocol-worker.py'
     script.write_text('import sys,json,uuid\n'
         'print(json.dumps(dict(type="session",session_id="session-n5-product-"+uuid.uuid4().hex)))\n'
@@ -53,9 +54,13 @@ def _n5_driver(tmp_path, *, negative=False):
 def test_all_canonical_case_data_requirements_are_independently_verified_before_n6(tmp_path):
     truth,driver,calls = _n5_driver(tmp_path)
     result = driver.run(release_batch_id=BATCH)
-    assert result['status']=='HOLD' and result['reason']=='NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED'
+    assert result['status']=='HOLD' and result['reason']=='N6_APPROVED_INPUTS_INCOMPLETE'
     states = {n['node_type']:n['state'] for n in result['nodes']}
     assert states['N5_TEST_DATA']=='PASS' and states['N6_EXECUTABLE_READINESS']=='READY'
+    design_cases = CanonicalDesignService(truth,release_id=RELEASE,source_commit=COMMIT).load(release_batch_id=BATCH).cases
+    assert {v['case_id'] for v in result['violations']}=={c['tc_id'] for c in design_cases}
+    assert all(v['target_node']=='N4' for v in result['violations'])
+    assert not truth.query('rc72_n6_executable_contract')
     requirements = truth.query('rc72_n5_data_requirement')
     required = {r['data_requirement_id'] for r in requirements}
     assert required and len(required)>2

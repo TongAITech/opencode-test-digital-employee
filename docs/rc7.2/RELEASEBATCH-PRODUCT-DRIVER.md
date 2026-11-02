@@ -41,9 +41,18 @@
   `N5OwnedWorkItemGateService` 不允许已验证绑定掩盖未完成工作，也独立检查
   Evaluation 与验证结果、原始发现/验证字节、候选哈希的精确关系。
   完成 N5 不产生 DataLease，不代替后续实际 Case 执行。
+- N6：自动从规范已验收 Case、原 N1 运行绑定、精确独立验证的 N5 DataRef
+  编译并正式验收整批执行契约。不接受调用者另传契约或替代用例。
+  缺少 N4 执行物化时，在编译写入前列出全部受影响 Case 与 N4 归属；
+  其他确定性就绪缺口保留 Case ID 和实际归属节点。原生 request/schema
+  归属 N3，不发送给明确禁止拥有这些事实的 N1。
+  规范映射修复了多义务 Case：coverage_links 中的次级义务也保留正式映射，
+  严查 Requirement/SST/层级且拒绝孤儿链接，不复制 Case 或删减义务。
+  契约和 N6 Delivery 持久化后中断，由原规范记录接续验收，不重复上游工作。
+  N6 不占用 DataLease，不生成实际执行 Attempt 或 Case PASS。
 - 已提交候选的接续重查原始证据和规范候选，不重启分析工作进程。
   已验收的前缀调用原生 Gate 重新审计，不仅检查 PASS 标签。
-- 完成前缀后，N6 及以后未接入节点明确返回 HOLD / NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED。
+- 完成前缀后，N7 及以后未接入节点明确返回 HOLD / NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED。
   全部节点标签 PASS 仍需正式发布收敛审计；推进器不自行宣布 Mission 完成。
 
 只读状态入口不需要工作进程配置或密钥：
@@ -68,7 +77,7 @@ N1 复核不得将它回退到 READY。必须保留原 Gate 到原 N2 的正式 
 `release-driver-boundary-regression.log`，45 passed / 2.16 s。
 工作进程是工程协议适配器，不能据此声称真实银行 DSH/工具调用或 Field 通过。
 
-尚需完成：N6..N10 和 N8 回边/修复/重新执行的实际服务路由、Provider/会话接管、
+尚需完成：N7..N10 和 N8 回边/修复/重新执行的实际服务路由、Provider/会话接管、
 生产工作进程工厂及完整运行入口、全角色实际工具调用时权限、Journey/Browser、
 经济性和同源平台验证，以及 RC7.1 等价完整搬运包。C07/C08 均未完成。
 
@@ -114,3 +123,17 @@ N5 最终本轮源码证据：`release-driver-n5-final.log`，4 passed / 134.05 
 工作流整套任务上限调整为 120 分钟，原有逐文件 180 秒及依赖安装 120 秒
 保护保持不变，没有减少文件、降低断言或放宽验收标准。
 `qualification-suite-budget.log`：7 passed / 0.03 s。仍需新源码同源平台结果。
+
+N6 本轮工程证据：`release-driver-n6-regression.log`，67 passed / 40.83 s；
+`release-driver-n6-recovery-final.log`，1 passed / 34.79 s，覆盖同一整批流程中
+首条契约持久化后、全部契约及 Delivery 写入而 Gate 尚未执行时的两次冷接续。
+`release-driver-n6-provenance.log`，1 passed / 0.37 s，验证原生请求结构缺口
+归 N3 而非 N1。完整 N1→N6 正向工程链已运行，原步骤/输入/断言/来源哈希保持，
+主归属以外被 Case 覆盖的义务全部保留正式记录。
+N7/N10 对次级覆盖义务的证据归集仍需实现/审核，不能将当前契约编译等同于
+全部义务已执行或最终发布收敛。协议子进程不构成银行真实 DSH/工具体 Field 证据。
+
+最终本轮整批链路：`release-driver-n6-chain-final.log`，4 passed / 135.64 s，
+覆盖 N5 原始证据审计、已验证绑定对应工作项验收、N5 三处恢复、缺失物化时
+全量 Case 归 N4 阻断，以及完整 N1→N6 编译与只读复核。完整正向链同时确认
+次级覆盖义务全部成为正式 TestObligation，且仍保持原 Case 主归属及原执行范围。

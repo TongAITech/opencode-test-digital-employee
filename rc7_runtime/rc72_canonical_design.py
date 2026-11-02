@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List
+from typing import Mapping, Any, Dict, List
 
 from rc6_runtime.truth import TruthRuntime
 from .candidate_payload import CandidatePayloadReader
@@ -97,9 +97,19 @@ class CanonicalDesignService:
                 cases[cid] = case
         if not cases or not raw_obligations:
             raise CanonicalDesignError('N4_CANONICAL_DESIGN_EMPTY')
+        cases_by_obligation = {oid: [] for oid in raw_obligations}
+        for case in cases.values():
+            covered = {case.get('obligation_id')}
+            for link in case.get('coverage_links', []):
+                if not isinstance(link, Mapping) or link.get('subject_id') not in raw_obligations:
+                    raise CanonicalDesignError('N4_CANONICAL_ORPHAN_COVERAGE_LINK')
+                covered.add(link['subject_id'])
+            for oid in covered:
+                if oid in cases_by_obligation:
+                    cases_by_obligation[oid].append(case)
         obligations = []
         for oid, (raw, artifact_id, artifact_hash) in sorted(raw_obligations.items()):
-            members = [case for case in cases.values() if case.get('obligation_id') == oid]
+            members = cases_by_obligation[oid]
             if not members:
                 raise CanonicalDesignError('N4_CANONICAL_OBLIGATION_WITHOUT_CASE')
             requirement_id = _text(raw.get('requirement_id'), 'requirement_id')

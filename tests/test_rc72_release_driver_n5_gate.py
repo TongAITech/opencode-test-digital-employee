@@ -20,7 +20,7 @@ def test_verified_bindings_cannot_hide_open_work_and_resume_accepts_without_work
     monkeypatch.setattr(N5WorkItemFinalizer,'finalize',original)
     count=len(calls)
     result=driver.run(release_batch_id=BATCH)
-    assert result['reason']=='NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED'
+    assert result['reason']=='N6_APPROVED_INPUTS_INCOMPLETE'
     assert all(t['state']=='PASS' for t in truth.query('rc7_task',node='TEST_DATA'))
     assert truth.query('rc72_mission_node',node_type='N6_EXECUTABLE_READINESS')[0]['state']=='READY'
     assert len(calls)==count

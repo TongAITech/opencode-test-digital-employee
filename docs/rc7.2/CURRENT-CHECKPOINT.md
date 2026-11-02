@@ -1,5 +1,31 @@
 # RC7.2 Current Construction Checkpoint
 
+## Native N6 product route and canonical multi-obligation Cases — 2026-11-03
+
+The product driver now automatically uses N6PipelineService and the existing
+CanonicalExecutableService, not caller-supplied ExecutableContracts. Every
+approved Case is checked for reviewed execution materialization before compile
+writes; all missing Case IDs are returned with owning N4. Typed readiness
+violations retain their actual canonical Case scope. Native request/schema
+facts are routed to N3 at this Case boundary, never to N1 (which explicitly
+cannot own them); inherited standalone compiler behavior remains compatible.
+
+Composition exposed canonical mapping incorrectly requiring every obligation
+to be a Case's primary owner. CanonicalDesignService now also recognizes the
+approved coverage_links, checking Requirement/SST/layer lineage and rejecting
+orphan links. It preserves all obligations, original Case identity, primary
+ownership and source hashes. It never duplicates Cases or drops secondary
+obligations to make N6 pass. N7/N10 must still consume the full semantic coverage
+relationship; final convergence of secondary obligations remains C05 work.
+
+N6 PASS/review-pending recovery re-audits the original approved sources and
+reuses immutable contracts; no data occupancy or Case execution result is
+created. Missing execution materialization remains HOLD rather than guessing.
+Engineering protocol evidence and limits are in RELEASEBATCH-PRODUCT-DRIVER.md.
+C08 remains incomplete: N7..N10, semantic repair routing, production factory/run
+command, C07 all-role fences and final RC7.1-equivalent package remain open.
+
+
 ## Native N5 product route and owned WorkItem closure — 2026-11-03
 
 The ReleaseBatch product driver now connects concrete N5PipelineService:

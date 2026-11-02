@@ -14,8 +14,8 @@ from test_rc72_n3_completion import _canonical_candidate
 from rc72_n2_test_support import BATCH, COMMIT, MISSION, RELEASE
 
 
-def _n3_driver(tmp_path, *, source_gap=False, two_targets=False, code_gap=False):
-    truth, driver, calls = _driver(tmp_path)
+def _n3_driver(tmp_path, *, source_gap=False, two_targets=False, code_gap=False, runtime_family=None):
+    truth, driver, calls = _driver(tmp_path, runtime_family=runtime_family)
     script = tmp_path / 'n3-protocol-worker.py'
     script.write_text('import sys,json,uuid\n'
         'print(json.dumps(dict(type="session",session_id="session-n3-product-"+uuid.uuid4().hex)))\n'

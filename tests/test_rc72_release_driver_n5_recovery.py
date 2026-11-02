@@ -60,7 +60,7 @@ def test_partial_finalization_replan_and_delivery_resume_without_repeating_worke
     assert len(calls)==worker_count
     cold = cold_resume()
     result = driver.run(release_batch_id=BATCH)
-    assert result['reason']=='NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED'
+    assert result['reason']=='N6_APPROVED_INPUTS_INCOMPLETE'
     assert cold.query('rc72_mission_node',node_type='N5_TEST_DATA')[0]['state']=='PASS'
     assert cold.query('rc72_mission_node',node_type='N6_EXECUTABLE_READINESS')[0]['state']=='READY'
     assert len(calls)==worker_count

@@ -20,6 +20,7 @@ from .rc72_n5_data_resolution import N5DataResolutionService
 from .rc72_n6_completion import N6DeliveryGateService
 from .rc72_n6_executable_readiness import (
     ExecutableContract, N6ExecutableReadinessCompiler, canonical_n5_data_ref,
+    ExecutableReadinessError, ReadinessViolation,
 )
 
 
@@ -71,7 +72,17 @@ def compile_approved_case(case: Mapping[str, Any], *, mission_id: str,
         raise CanonicalExecutableError('N6_N1_BINDING_KEY_MISMATCH')
     binding.update(request=deepcopy(execution['request']), cleanup=deepcopy(execution['cleanup']))
     binding['authoritative_sources'] = list(binding.get('authoritative_sources', [])) + payload['authoritative_sources']
-    return N6ExecutableReadinessCompiler().compile(payload, data_refs, binding, now=now)
+    try:
+        return N6ExecutableReadinessCompiler().compile(payload, data_refs, binding, now=now)
+    except ExecutableReadinessError as exc:
+        # Native N1 explicitly cannot own request/schema facts. These fields
+        # came from the reviewed Case's N3-backed request materialization.
+        rewritten = [ReadinessViolation(v.code, 'N3', v.field, v.reason)
+            if v.code in {'N6_REQUEST_SCHEMA_UNRESOLVED', 'N6_REQUEST_UNRESOLVED'} else v
+            for v in exc.violations]
+        if tuple(rewritten) != exc.violations:
+            raise ExecutableReadinessError(rewritten) from exc
+        raise
 
 
 class CanonicalExecutableService:
@@ -102,8 +113,13 @@ class CanonicalExecutableService:
                 if row['case_id'] == case['tc_id']:
                     refs.append(canonical_n5_data_ref(n5.verified_binding(data_requirement_id=row['data_requirement_id']), row))
             runtime = n1.canonicalize(release_batch_id=release_batch_id, binding_key=case['execution']['binding_key'])
-            compiled.append(compile_approved_case(case, mission_id=design.batch['mission_id'],
-                                                  runtime_binding=runtime, data_refs=refs, now=self.now))
+            try:
+                compiled.append(compile_approved_case(case, mission_id=design.batch['mission_id'],
+                                                      runtime_binding=runtime, data_refs=refs, now=self.now))
+            except ExecutableReadinessError as exc:
+                # Preserve the canonical Case scope for the owning repair node.
+                exc.case_id = case['tc_id']
+                raise
         return N6DeliveryGateService(self.truth, release_id=self.release_id,
                                      source_commit=self.source_commit, now=self.now).complete(
             release_batch_id=release_batch_id, contracts=compiled,
