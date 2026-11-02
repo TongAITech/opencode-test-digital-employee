@@ -319,3 +319,26 @@ def test_repair_then_new_attempt_records_immutable_attempt_lineage_and_replays(t
     assert repair_truth["original_attempt_id"] == "ATT-1"
     assert recovery_truth["original_attempt_id"] == "ATT-1"
     assert recovery_truth["replacement_attempt_id"] == "ATT-2"
+
+
+@pytest.mark.parametrize("changes", [dict(mission_id="OTHER"), dict(original_attempt_id="OTHER")])
+def test_replacement_rejects_repair_from_other_failure(tmp_path, changes):
+    truth, _, repo, orchestrator = _setup(tmp_path)
+    diagnosis_id = _persist_diagnosis_case(truth, orchestrator)
+    orchestrator._append("RC72_DIAGNOSIS_REPAIR_UPSERTED", dict(
+        diagnosis_id=diagnosis_id, mission_id="M-1", repair_delivery_id="REPAIR",
+        impact_set_id="IMPACT", original_attempt_id="ATT-1", changed_refs=["ETU-1"],
+        replacement_attempt_required=True, reason="repair recorded", created_at=1))
+    repair = truth.query("rc72_diagnosis_repair")[0]
+    truth.append_atomic("RC72_DIAGNOSIS_REPAIR_UPSERTED",
+        dict(repair, **changes, artifact_version=repair["artifact_version"] + 1))
+    repo.persist(WorkItemAttemptBinding(binding_id="BIND-2", mission_id="M-1",
+        etu_id="ETU-1", workitem_id="WI-1", case_id="TC-1", attempt_id="ATT-2",
+        worker_id="EXEC-WORKER-2", session_id="DSH-EXEC-SESSION-2",
+        task_lease_ref="LEASE-EXEC-2", parent_attempt_id="ATT-1",
+        state=WorkItemAttemptState.RUNNING))
+    before = (tmp_path / "r1.jsonl").read_bytes()
+    with pytest.raises(Exception, match="REPLACEMENT_REPAIR_LINEAGE_MISMATCH"):
+        orchestrator.record_replacement_attempt(diagnosis_id=diagnosis_id,
+            replacement_binding_id="BIND-2")
+    assert (tmp_path / "r1.jsonl").read_bytes() == before

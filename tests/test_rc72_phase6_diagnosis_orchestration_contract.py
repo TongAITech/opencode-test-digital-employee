@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from rc6_runtime.truth import TruthRuntime
-from rc7_runtime.models import Evidence, Task
+from rc7_runtime.models import ContractError, Evidence, Task
 from rc7_runtime.rc72_diagnosis_orchestration import DiagnosisOrchestrator
 from rc7_runtime.rc72_domain import (
     AutonomousMissionNode,
@@ -335,6 +335,11 @@ def test_unknown_diagnosis_stays_blocked_and_never_auto_passes(tmp_path: Path):
 def test_replacement_attempt_requires_parent_lineage_and_survives_r1_replay(tmp_path: Path):
     truth, _, repo, orchestrator = _setup(tmp_path)
     assignment = _begin(orchestrator)
+    delivery = _accept_n8(orchestrator.state_machine, assignment, FailureClass.PROVIDER_TIMEOUT)
+    orchestrator.accept_classification(
+        diagnosis_id=assignment.diagnosis_id, failure_class=FailureClass.PROVIDER_TIMEOUT,
+        source_delivery_id=delivery.delivery_id, evidence_refs=["EVD-FAIL-1"],
+        affected_refs=["ETU-1"], rationale="provider timed out")
     replacement = WorkItemAttemptBinding(
         binding_id="BIND-2",
         mission_id="M-1",
@@ -362,3 +367,104 @@ def test_replacement_attempt_requires_parent_lineage_and_survives_r1_replay(tmp_
     assert row["original_attempt_id"] == "ATT-1"
     assert row["replacement_attempt_id"] == "ATT-2"
     assert replayed.query("rc72_workitem_attempt_binding", binding_id="BIND-1")[0]["attempt_id"] == "ATT-1"
+
+
+def _replacement(repo, **changes):
+    values = dict(binding_id="BIND-2", mission_id="M-1", etu_id="ETU-1",
+        workitem_id="WI-1", case_id="TC-1", attempt_id="ATT-2",
+        worker_id="EXEC-WORKER-2", session_id="DSH-EXEC-SESSION-2",
+        task_lease_ref="LEASE-EXEC-2", parent_attempt_id="ATT-1",
+        state=WorkItemAttemptState.RUNNING)
+    values.update(changes)
+    repo.persist(WorkItemAttemptBinding(**values))
+
+
+def _classified_recovery(tmp_path, failure_class=FailureClass.PROVIDER_TIMEOUT):
+    truth, runtime, repo, orchestrator = _setup(tmp_path)
+    assignment = _begin(orchestrator)
+    delivery = _accept_n8(runtime, assignment, failure_class)
+    orchestrator.accept_classification(diagnosis_id=assignment.diagnosis_id,
+        failure_class=failure_class, source_delivery_id=delivery.delivery_id,
+        evidence_refs=["EVD-FAIL-1"], affected_refs=["ETU-1"], rationale="observed failure")
+    return truth, repo, orchestrator, assignment.diagnosis_id
+
+
+def test_unclassified_diagnosis_cannot_link_replacement(tmp_path):
+    truth, _, repo, orchestrator = _setup(tmp_path)
+    assignment = _begin(orchestrator)
+    _replacement(repo)
+    with pytest.raises(ContractError, match="RC72_DIAGNOSIS_OUTCOME_NOT_UNIQUE"):
+        orchestrator.record_replacement_attempt(diagnosis_id=assignment.diagnosis_id,
+            replacement_binding_id="BIND-2")
+    assert not truth.query("rc72_diagnosis_recovery")
+
+
+@pytest.mark.parametrize("failure_class", [FailureClass.UNKNOWN, FailureClass.PRODUCT_DEFECT])
+def test_non_recovery_diagnosis_cannot_link_replacement(tmp_path, failure_class):
+    truth, repo, orchestrator, diagnosis_id = _classified_recovery(tmp_path, failure_class)
+    _replacement(repo)
+    with pytest.raises(ContractError, match="REPLACEMENT_DIAGNOSIS_NOT_RECOVERABLE"):
+        orchestrator.record_replacement_attempt(diagnosis_id=diagnosis_id,
+            replacement_binding_id="BIND-2")
+    assert not truth.query("rc72_diagnosis_recovery")
+
+
+@pytest.mark.parametrize("changes", [dict(worker_id="EXEC-WORKER-1"),
+    dict(session_id="DSH-EXEC-SESSION-1"), dict(task_lease_ref="LEASE-EXEC-1"),
+    dict(state=WorkItemAttemptState.RESERVED)])
+def test_replacement_requires_fresh_prepared_authority(tmp_path, changes):
+    truth, repo, orchestrator, diagnosis_id = _classified_recovery(tmp_path)
+    _replacement(repo, **changes)
+    with pytest.raises(ContractError, match="REPLACEMENT_ATTEMPT_(FRESH_AUTHORITY_REQUIRED|NOT_PREPARED)"):
+        orchestrator.record_replacement_attempt(diagnosis_id=diagnosis_id,
+            replacement_binding_id="BIND-2")
+    assert not truth.query("rc72_diagnosis_recovery")
+
+
+def test_recovery_link_resumes_interrupted_state_write_and_cold_replay(tmp_path, monkeypatch):
+    truth, repo, orchestrator, diagnosis_id = _classified_recovery(tmp_path)
+    _replacement(repo)
+    original_binding = truth.query("rc72_workitem_attempt_binding", binding_id="BIND-1")[0]
+    append = truth.append_atomic
+
+    def interrupted(event, payload, *args, **kwargs):
+        if event == "RC72_DIAGNOSIS_CASE_UPSERTED" and payload["state"] == "RECOVERY_LINKED":
+            raise RuntimeError("injected crash after recovery link")
+        return append(event, payload, *args, **kwargs)
+
+    monkeypatch.setattr(truth, "append_atomic", interrupted)
+    with pytest.raises(RuntimeError, match="injected crash"):
+        orchestrator.record_replacement_attempt(diagnosis_id=diagnosis_id,
+            replacement_binding_id="BIND-2")
+    stored = truth.query("rc72_diagnosis_recovery")[0]
+    replayed = TruthRuntime(tmp_path / "r1.jsonl")
+    runtime = RC72StateMachine(replayed, release_id="RC7.2")
+    recovered = DiagnosisOrchestrator(replayed, release_id="RC7.2", state_machine=runtime,
+        worker_lifecycle=WorkerLifecycleService(replayed, release_id="RC7.2"))
+    recovered.record_replacement_attempt(diagnosis_id=diagnosis_id, replacement_binding_id="BIND-2")
+    before = (tmp_path / "r1.jsonl").read_bytes()
+    recovered.record_replacement_attempt(diagnosis_id=diagnosis_id, replacement_binding_id="BIND-2")
+    assert (tmp_path / "r1.jsonl").read_bytes() == before
+    assert replayed.query("rc72_diagnosis_recovery") == [stored]
+    assert replayed.query("rc72_diagnosis_case")[0]["state"] == "RECOVERY_LINKED"
+    assert replayed.query("rc72_workitem_attempt_binding", binding_id="BIND-1")[0] == original_binding
+    replay_repo = CanonicalRC72Repository(replayed, release_id="RC7.2")
+    _replacement(replay_repo, binding_id="BIND-3", attempt_id="ATT-3")
+    before_conflict = (tmp_path / "r1.jsonl").read_bytes()
+    with pytest.raises(ContractError, match="REPLACEMENT_ATTEMPT_REPLAY_CONFLICT"):
+        recovered.record_replacement_attempt(diagnosis_id=diagnosis_id, replacement_binding_id="BIND-3")
+    assert (tmp_path / "r1.jsonl").read_bytes() == before_conflict
+    assert replayed.query("rc72_diagnosis_recovery") == [stored]
+
+
+@pytest.mark.parametrize("changes", [dict(mission_id="OTHER"), dict(source_attempt_id="OTHER")])
+def test_recovery_rejects_diagnosis_lineage_drift_without_writes(tmp_path, changes):
+    truth, repo, orchestrator, diagnosis_id = _classified_recovery(tmp_path)
+    _replacement(repo)
+    outcome = truth.query("rc72_diagnosis_outcome")[0]
+    truth.append_atomic("RC72_DIAGNOSIS_OUTCOME_UPSERTED",
+        dict(outcome, **changes, artifact_version=outcome["artifact_version"] + 1))
+    before = (tmp_path / "r1.jsonl").read_bytes()
+    with pytest.raises(ContractError, match="REPLACEMENT_DIAGNOSIS_LINEAGE_MISMATCH"):
+        orchestrator.record_replacement_attempt(diagnosis_id=diagnosis_id, replacement_binding_id="BIND-2")
+    assert (tmp_path / "r1.jsonl").read_bytes() == before

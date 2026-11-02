@@ -595,13 +595,27 @@ class DiagnosisOrchestrator:
         original = self._one("rc72_workitem_attempt_binding", binding_id=case["source_binding_id"])
         replacement = self._one("rc72_workitem_attempt_binding", binding_id=replacement_binding_id)
 
-        outcomes = self.truth.query(_DIAGNOSIS_OUTCOME, diagnosis_id=diagnosis_id)
+        outcome = self._one(_DIAGNOSIS_OUTCOME, diagnosis_id=diagnosis_id)
+        if (outcome.get("mission_id") != case["mission_id"]
+                or outcome.get("source_attempt_id") != original["attempt_id"]
+                or case["source_attempt_id"] != original["attempt_id"]):
+            raise ContractError("REPLACEMENT_DIAGNOSIS_LINEAGE_MISMATCH")
+        if outcome.get("action") not in {
+            "SEMANTIC_BACK_EDGE", "RUNTIME_RECOVERY", "CAPABILITY_BROKER", "RESOURCE_MANAGER"
+        }:
+            raise ContractError("REPLACEMENT_DIAGNOSIS_NOT_RECOVERABLE")
+        if (outcome.get("action") == "SEMANTIC_BACK_EDGE"
+                and not outcome.get("replacement_attempt_required")):
+            raise ContractError("REPLACEMENT_DIAGNOSIS_NOT_RECOVERABLE")
         repair = None
-        if outcomes and bool(outcomes[0].get("replacement_attempt_required")):
+        if bool(outcome.get("replacement_attempt_required")):
             repairs = self.truth.query(_DIAGNOSIS_REPAIR, diagnosis_id=diagnosis_id)
             if len(repairs) != 1:
                 raise ContractError("REPLACEMENT_ATTEMPT_REQUIRES_REPAIR_IMPACT")
             repair = repairs[0]
+            if (repair["mission_id"] != case["mission_id"]
+                    or repair["original_attempt_id"] != original["attempt_id"]):
+                raise ContractError("REPLACEMENT_REPAIR_LINEAGE_MISMATCH")
 
         if replacement.get("mission_id") != case.get("mission_id"):
             raise ContractError("REPLACEMENT_ATTEMPT_MISSION_MISMATCH")
@@ -612,23 +626,31 @@ class DiagnosisOrchestrator:
             raise ContractError("REPLACEMENT_ATTEMPT_PARENT_REQUIRED")
         if replacement.get("attempt_id") == original.get("attempt_id"):
             raise ContractError("REPLACEMENT_ATTEMPT_MUST_BE_NEW")
-        self._append(
-            "RC72_DIAGNOSIS_RECOVERY_UPSERTED",
-            {
-                "diagnosis_id": diagnosis_id,
-                "mission_id": case["mission_id"],
-                "original_binding_id": original["binding_id"],
-                "original_attempt_id": original["attempt_id"],
-                "replacement_binding_id": replacement["binding_id"],
-                "replacement_attempt_id": replacement["attempt_id"],
-                "impact_set_id": repair.get("impact_set_id") if repair else None,
-                "created_at": _now(),
-            },
-        )
-        updated_case = dict(case)
-        updated_case["state"] = "RECOVERY_LINKED"
-        updated_case["artifact_version"] = int(case.get("artifact_version", 1)) + 1
-        self.truth.append_atomic("RC72_DIAGNOSIS_CASE_UPSERTED", updated_case)
+        expected = {
+            "mission_id": case["mission_id"],
+            "original_binding_id": original["binding_id"],
+            "original_attempt_id": original["attempt_id"],
+            "replacement_binding_id": replacement["binding_id"],
+            "replacement_attempt_id": replacement["attempt_id"],
+            "impact_set_id": repair.get("impact_set_id") if repair else None,
+        }
+        previous = self.truth.query(_DIAGNOSIS_RECOVERY, diagnosis_id=diagnosis_id)
+        if previous:
+            if len(previous) != 1 or any(previous[0].get(k) != v for k, v in expected.items()):
+                raise ContractError("REPLACEMENT_ATTEMPT_REPLAY_CONFLICT")
+        else:
+            for field in ("worker_id", "session_id", "task_lease_ref"):
+                if not replacement.get(field) or replacement[field] == original.get(field):
+                    raise ContractError("REPLACEMENT_ATTEMPT_FRESH_AUTHORITY_REQUIRED")
+            if replacement.get("state") not in {"PREPARED", "RUNNING", "EVIDENCE_READY", "COMPLETED"}:
+                raise ContractError("REPLACEMENT_ATTEMPT_NOT_PREPARED")
+            self._append("RC72_DIAGNOSIS_RECOVERY_UPSERTED",
+                dict(expected, diagnosis_id=diagnosis_id, created_at=_now()))
+        # A crash after the durable link must finish only the missing state write.
+        if case["state"] != "RECOVERY_LINKED":
+            self.truth.append_atomic("RC72_DIAGNOSIS_CASE_UPSERTED",
+                dict(case, state="RECOVERY_LINKED",
+                     artifact_version=int(case.get("artifact_version", 1)) + 1))
         return RecoveryAttemptLink(
             diagnosis_id=diagnosis_id,
             original_attempt_id=original["attempt_id"],

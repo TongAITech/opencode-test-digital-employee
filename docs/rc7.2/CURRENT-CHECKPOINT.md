@@ -11,6 +11,30 @@ Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md. Finish
 construction before preparing a delivery package. Candidate 9476b57 remains
 quarantined. This checkpoint supersedes earlier component-only descriptions.
 
+## Recovery link admission and interruption recovery
+
+Replacement registration now requires a classified, recoverable diagnosis for
+exactly the original Mission/Attempt. Semantic repairs require an impact record
+for that same failure; UNKNOWN and PRODUCT_DEFECT cannot directly register a
+replacement. Initial registration requires distinct nonempty Worker, Session
+and task lease identities and a prepared-or-later binding. Original WorkItem,
+ETU, Case and parent Attempt checks remain mandatory.
+
+The durable recovery tuple is immutable on replay. A crash after writing the
+link resumes only the missing diagnosis-state update; completed replay adds no
+journal events. A different replacement binding or changed impact is rejected.
+This is a lineage/admission check, not runtime authorization: signed preparation,
+current canonical planning and resource authority still govern actual execution.
+The new-plan/original-WorkItem/ETU identity mismatch described below remains OPEN;
+this change does not claim an actual repaired N5 -> recompiled N6 -> N7 retry.
+
+Validation: recovery contract suites 26 passed (2 existing collection warnings),
+Actual N8 diagnosis/repair-boundary plus recovery regression: 48 passed in
+89.55s (2 existing collection warnings); four additional scope-negative tests
+were then covered by the final 26-pass contract run. Coverage includes
+interrupted write with a cold TruthRuntime, unchanged original binding,
+no-write replay/conflict, stale diagnosis/repair scope and reused authority.
+
 ## Implemented execution composition
 
 Current canonical N1-N6 source/gate admission -> persistent Case-to-WorkItem
