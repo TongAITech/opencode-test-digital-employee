@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Iterable, Optional
 
 from rc6_runtime.authority import AuthorityError, AuthorityRuntime, TaskLease, WorkerIdentity
+from .authority import RC7AuthorityRuntime
 
 
 REALITY_RECON_WORKER = "REALITY_RECON_WORKER"
@@ -38,6 +39,10 @@ class RC72AuthorityRuntime(AuthorityRuntime):
     _ROLE_ARTIFACTS[SOURCE_TARGET_REVIEWER] = set()
     _ROLE_ARTIFACTS[CODE_ANALYSIS_WORKER] = set()
     _ROLE_ARTIFACTS[TEST_DESIGN_WORKER] = set()
+    # Reuse the inherited independent design reviewer candidate permissions;
+    # this does not grant canonical Case, obligation, Evaluation or Gate writes.
+    _ROLE_ARTIFACTS["RC7_TEST_DESIGN_REVIEWER"] = set(
+        RC7AuthorityRuntime._ROLE_ARTIFACTS["RC7_TEST_DESIGN_REVIEWER"])
     # N5 data workers are execution identities only. They may call tools
     # explicitly granted by their task-scoped lease, but cannot write canonical
     # professional artifacts directly. DataRef/binding/lease truth is admitted

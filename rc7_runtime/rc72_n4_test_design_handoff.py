@@ -395,10 +395,12 @@ class N4TestDesignDshHandoffService:
                 "business_scope", "change_slice", "risk", "layer",
                 "oracle_types", "evidence_refs", "required",
             }
-            if set(item.keys()) != required_keys:
+            if set(item.keys()) - {"source_refs"} != required_keys:
                 raise N4TestDesignHandoffError(
                     "RC72_N4_HANDOFF_OBLIGATION_CONTRACT_INVALID:%d" % index
                 )
+            if "source_refs" in item:
+                _strings(item["source_refs"], "obligation_source_refs", required=True)
             obligation_id = _required(item.get("obligation_id"), "obligation_id")
             if obligation_id in obligation_ids:
                 raise N4TestDesignHandoffError("RC72_N4_HANDOFF_OBLIGATION_ID_DUPLICATE")
@@ -791,6 +793,7 @@ class N4TestDesignDshHandoffService:
                 "oracle_types": ["required concrete oracle types"],
                 "evidence_refs": ["real tool/source refs"],
                 "required": True,
+                "source_refs": ["exact KIND:source_id:parent_artifact_id from parent_obligation_source_refs"],
             }],
             "cases": [{
                 "tc_id": "stable id",
@@ -804,7 +807,9 @@ class N4TestDesignDshHandoffService:
                 "data_requirements": ["concrete data requirement"],
                 "steps": ["ordered executable step"],
                 "expected_results": ["observable expected result"],
-                "oracle": {"checks": [{"type": "concrete oracle type", "evidence_ref": "real evidence ref"}]},
+                "oracle": {"checks": [{"id": "stable check id", "type": "concrete oracle type",
+                    "evidence_ref": "real evidence ref", "actual_path": "source-grounded actual-result path",
+                    "operator": "EQ", "expected": "source-proven expected value"}]},
                 "evidence_requirements": ["evidence to collect during execution"],
                 "code_trace": ["changed symbol/file/source trace"],
                 "action_semantics": {"state_changing": False, "negative": False, "authorization_sensitive": False},
@@ -816,8 +821,9 @@ class N4TestDesignDshHandoffService:
         }
         return (
             "You are the dsh-agent-teams TEST_DESIGN_WORKER for canonical RC7.2 N4. "
-            "Design exactly one Requirement x SST scope. Derive the denominator from the provided PASS N2/N3 parent artifacts and parent_obligation_source_refs; never replace it with a self-authored smaller scope or case count target. "
+            "Design exactly one Requirement x SST scope. Derive the denominator from the provided PASS N2/N3 parent artifacts and parent_obligation_source_refs; never replace it with a self-authored smaller scope or case count target. Every mandatory parent_obligation_source_ref must appear verbatim in a required same-kind obligation source_refs; preserve parent artifact identity even when source IDs repeat. "
             "Use real source reads and CodeGraph where code impact exists. Cover positive, negative, boundary, state, role/permission, data, dependency, side effect, change impact, regression and integration risks where applicable. "
+            "Each Oracle must have a concrete source-grounded actual_path, supported deterministic operator and expected value where required; report gaps rather than guessing response semantics. Preserve inherited anti-collapse, risk-depth and interaction-coverage sufficiency. "
             "L1-L7 applicability must be explicit through obligations/cases; when evidence is insufficient, record unknowns/gaps instead of inventing a case. "
             "When established N1/N3/N4 facts permit, each Case may also carry execution={binding_key,inputs,request,cleanup,authoritative_sources}. "
             "binding_key selects an existing approved N1 route; request/schema, concrete input template and cleanup must have real source refs. "

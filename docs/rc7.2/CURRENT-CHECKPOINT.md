@@ -1,5 +1,32 @@
 # RC7.2 Current Construction Checkpoint
 
+## Native N4 product route and parent-scoped acceptance — 2026-11-03
+
+The ReleaseBatch driver now connects N4PipelineService: the exact canonical
+Requirement x SST set -> native assignment -> DSH design -> immediate raw
+anchor -> candidate promotion -> independent design review -> formal N4 Gate.
+Cold assignment/review boundaries resume without repeating the designer.
+
+Composition uncovered a real acceptance gap: legacy N4 obligation schema could
+not carry its parent source mapping. The additive source_refs contract preserves
+exact KIND:source_id:parent_artifact_id identities. N4ParentScopedDesignEvaluator
+requires every mandatory parent source in a required same-kind obligation;
+equal symbol IDs in different repositories cannot collapse the denominator.
+It composes actual independent review with inherited deterministic Oracle and
+SufficiencyV2 depth/interaction guards, retaining the native RC7.2 Case contract.
+N4ParentScopedDeliveryGateService independently recomputes these checks before
+writing a Delivery or opening N5, including when older review rows say PASS.
+
+Actual DSH independent design review also required the inherited reviewer role
+in RC72AuthorityRuntime; only its exact review-candidate/analysis-gap permissions
+were added, never canonical Case, obligation, Evaluation or Gate write rights.
+N4/driver regression and recovery evidence is recorded in
+RELEASEBATCH-PRODUCT-DRIVER.md. Protocol children are engineering adapters, not
+bank DSH/physical-tool Field proof. C08 remains incomplete: N5..N10, repair/retry,
+worker factory/run command and C07 all-role live fences remain open. No final
+RC7.1-equivalent portable package has been built or delivered.
+
+
 ## Native N3 product routing — 2026-11-03
 
 The ReleaseBatch product driver now uses concrete N3PipelineService for the
