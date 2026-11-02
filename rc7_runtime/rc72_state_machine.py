@@ -9,6 +9,8 @@ ImpactSets and STALE runtime assets.
 from __future__ import annotations
 
 import time
+import hashlib
+import json
 import uuid
 from dataclasses import dataclass
 from enum import Enum
@@ -460,7 +462,10 @@ class RC72StateMachine:
             return DiagnosisRoute(failure_class, None, action)
 
         target = self.node_by_type(mission_id, target_type)
-        gap_id = self._new_id("GAP-%s" % failure_class.value)
+        # Stable route identities recover interrupted gap/edge/transition writes.
+        route_key = hashlib.sha256(json.dumps([mission_id, source_delivery_id, failure_class.value,
+            list(evidence_refs), list(affected_refs), rationale], sort_keys=True).encode()).hexdigest()[:24]
+        gap_id = "GAP-%s-%s" % (failure_class.value, route_key)
         gap = Gap(
             gap_id=gap_id,
             mission_id=mission_id,
@@ -470,9 +475,16 @@ class RC72StateMachine:
             target_node=target_type.value,
             description=rationale,
         )
-        append_entity(self.truth, gap, release_id=self.release_id)
+        existing_gap = self.truth.query('rc7_gap', gap_id=gap_id)
+        if existing_gap:
+            if (len(existing_gap) != 1 or existing_gap[0]['mission_id'] != mission_id
+                    or existing_gap[0]['category'] != failure_class.value
+                    or existing_gap[0]['target_node'] != target_type.value or existing_gap[0]['description'] != rationale):
+                raise StateMachineContractError('DIAGNOSIS_ROUTE_GAP_CONFLICT')
+        else:
+            append_entity(self.truth, gap, release_id=self.release_id)
         edge = BackEdge(
-            back_edge_id=self._new_id("BE-%s" % failure_class.value),
+            back_edge_id="BE-%s-%s" % (failure_class.value, route_key),
             mission_id=mission_id,
             gap_id=gap_id,
             from_node=AutonomousMissionNode.N8_DIAGNOSIS_RECOVERY,
@@ -481,15 +493,21 @@ class RC72StateMachine:
             reason=failure_class.value,
             invalidated_refs=list(affected_refs),
         )
-        self.repository.persist(edge)
-        self._persist_node_state(
-            target,
-            MissionNodeState.NEEDS_REVISION,
-            reason="semantic back-edge %s" % failure_class.value,
-            bypass_direct_transition=True,
-        )
+        existing_edge = self.truth.query('rc72_back_edge', back_edge_id=edge.back_edge_id)
+        if existing_edge:
+            if (len(existing_edge) != 1 or existing_edge[0]['gap_id'] != gap_id
+                    or existing_edge[0]['from_delivery_id'] != source_delivery_id
+                    or existing_edge[0]['invalidated_refs'] != list(affected_refs)):
+                raise StateMachineContractError('DIAGNOSIS_ROUTE_EDGE_CONFLICT')
+        else:
+            self.repository.persist(edge)
+        transition_id = "NT-%s-%s" % (failure_class.value, route_key)
+        existing_transition = self.truth.query('rc72_node_transition', transition_id=transition_id)
+        if not existing_transition and target['state'] != MissionNodeState.NEEDS_REVISION.value:
+            self._persist_node_state(target, MissionNodeState.NEEDS_REVISION,
+                reason="semantic back-edge %s" % failure_class.value, bypass_direct_transition=True)
         transition = NodeTransition(
-            transition_id=self._new_id("NT-%s" % failure_class.value),
+            transition_id=transition_id,
             mission_id=mission_id,
             from_mission_node_id=n8["mission_node_id"],
             from_node_type=AutonomousMissionNode.N8_DIAGNOSIS_RECOVERY,
@@ -500,7 +518,13 @@ class RC72StateMachine:
             back_edge_id=edge.back_edge_id,
             evidence_refs=list(evidence_refs),
         )
-        self.repository.persist(transition)
+        if existing_transition:
+            if (len(existing_transition) != 1 or existing_transition[0]['back_edge_id'] != edge.back_edge_id
+                    or existing_transition[0]['evidence_refs'] != list(evidence_refs)
+                    or existing_transition[0]['to_mission_node_id'] != target['mission_node_id']):
+                raise StateMachineContractError('DIAGNOSIS_ROUTE_TRANSITION_CONFLICT')
+        else:
+            self.repository.persist(transition)
         return DiagnosisRoute(
             failure_class=failure_class,
             responsible_node=target_type,

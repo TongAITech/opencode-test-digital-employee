@@ -1,3 +1,41 @@
+# N8 actual data-failure diagnosis, independent review and recovery — 2026-11-02
+
+status: LOCAL_PROCESS_COMPOSITION_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY
+implemented:
+- Runtime-sign every live N7 preparation check, including failed checks that never
+  reach a formal runner receipt. N8 checks exact frozen scope, signature and bytes.
+- Actual independent read-only diagnostic process and separate fresh quality
+  reviewer/process, with exact input digest, PIDs, outputs and signed result.
+- Conclusive signed DataRef verification failure -> TEST_DATA_GAP -> accepted N8
+  delivery/gate -> semantic N5 NEEDS_REVISION. Classification confidence,
+  rationale, affected refs and requested remediation are persisted.
+- Unsupported causality remains UNKNOWN/BLOCKED with no PASS gate or back-edge;
+  process exit and unexplained Oracle/precondition failure cannot fabricate a
+  product defect. Altered diagnostic conclusion is independently rejected.
+- Stable route identities and guarded classification replay recover partial
+  gate/gap/edge/transition/outcome writes; replay reuses saved process evidence.
+- Repair admission requires a newer active accepted N5 delivery, current native
+  full-inventory verification and changed refs covering the failed DataRefs.
+  Restoring live data alone or reusing the pre-failure gate is rejected.
+validation: full RC7.2 + inherited regression 1363 passed / 1 skipped /
+32 existing collection warnings in 467.79s. Related combined chain 59 passed /
+3 existing collection warnings. Final N8 proof suite 14 passed (includes two
+additional receipt/process-tamper tests added after full-run collection; runtime
+source was unchanged). Compilation and whitespace checks passed. Local logs:
+work/evidence/n8-full-final.log, n8-final-combined.log and n8-proof-final.log
+(not tracked). New-HEAD remote CI is checked after push; pending is not PASS.
+remaining: positive actual N5 repair -> N6 recompilation -> fresh signed Attempt;
+additional independent diagnosis rules/DSH specialists; multi-event initial
+assignment/orphan recovery; N9/N10; product controller; global resource exclusion
+and Field. The repair intake alone does not prove actual repair completion.
+Next located dependency: N5 bind_verified is immutable by requirement/DataRef;
+its delivery signature lacks a re-verification revision/digest. Implement governed
+same-DataRef re-verification/new delivery before claiming positive repair replay.
+No business I/O is performed by diagnosis and original failure is not rewritten.
+DELIVERY_AUTHORIZED=false; FIELD_VERIFIED=false; BANK_FINAL=NO.
+
+---
+
 # N7 formal execution through independent evidence finalization — 2026-11-02
 
 status: REAL_LOCAL_EXECUTION_COMPOSITION_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY

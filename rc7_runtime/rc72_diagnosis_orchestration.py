@@ -460,6 +460,25 @@ class DiagnosisOrchestrator:
         if not isinstance(failure_class, FailureClass):
             failure_class = FailureClass(str(failure_class))
         evidence = self._validate_evidence(case["mission_id"], evidence_refs)
+        previous = self.truth.query(_DIAGNOSIS_OUTCOME, diagnosis_id=diagnosis_id)
+        if previous:
+            if (len(previous) != 1 or previous[0]['failure_class'] != failure_class.value
+                    or previous[0]['evidence_refs'] != evidence
+                    or previous[0]['affected_refs'] != list(affected_refs)
+                    or previous[0]['rationale'] != rationale
+                    or previous[0].get('source_delivery_id', source_delivery_id) != source_delivery_id):
+                raise ContractError('DIAGNOSIS_CLASSIFICATION_REPLAY_CONFLICT')
+            delivery = self._one('rc72_node_delivery', delivery_id=source_delivery_id)
+            if delivery['mission_id'] != case['mission_id'] or delivery['node_type'] != 'N8_DIAGNOSIS_RECOVERY':
+                raise ContractError('DIAGNOSIS_CLASSIFICATION_DELIVERY_CONFLICT')
+            row = previous[0]
+            if case['state'] == 'DISPATCHED':
+                self.truth.append_atomic('RC72_DIAGNOSIS_CASE_UPSERTED',
+                    dict(case, state='CLASSIFIED', artifact_version=case['artifact_version'] + 1))
+            return DiagnosisOutcome(diagnosis_id=diagnosis_id, failure_class=failure_class,
+                responsible_node=AutonomousMissionNode(row['responsible_node']) if row.get('responsible_node') else None,
+                action=row['action'], gap_id=row.get('gap_id'), back_edge_id=row.get('back_edge_id'),
+                transition_id=row.get('transition_id'))
         route: DiagnosisRoute = self.state_machine.route_diagnosis(
             failure_class,
             mission_id=case['mission_id'],
@@ -482,6 +501,7 @@ class DiagnosisOrchestrator:
                 "diagnosis_id": diagnosis_id,
                 "mission_id": case["mission_id"],
                 "source_attempt_id": case["source_attempt_id"],
+                "source_delivery_id": source_delivery_id,
                 "failure_class": failure_class.value,
                 "responsible_node": route.responsible_node.value if route.responsible_node else None,
                 "action": route.action,

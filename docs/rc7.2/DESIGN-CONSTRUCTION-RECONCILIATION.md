@@ -33,7 +33,7 @@ No row below is considered whole-product COMPLETE.
 | Phase 3: N2–N6 sufficient before N7 | rc72_n1..n6 completion services, rc72_sufficiency | INTEGRATED COMPONENT: dedicated current-source/gate admission and live formal precondition/DataRef verification; production ingress remains OPEN |
 | Phase 4: adaptive obligation-first decomposition | rc72_decomposer, rc72_decomposition_truth | INTEGRATED COMPONENT: N7 planning service creates persistent WorkItems; feedback/product continuation remains OPEN |
 | Phase 5: fresh worker, signed Attempt binding, reviewer, captain handoff | rc72_worker_lifecycle; phase5 tests | INTEGRATED COMPONENT: signed N7 workers, fresh review and cold finalization replay; product captain continuation remains OPEN |
-| Phase 6: independent diagnosis, correct semantic back-edge | rc72_diagnosis_orchestration, rc72_impact_truth | COMPONENT; stitch actual N7 result, independent N8 worker, revised upstream delivery, STALE propagation, new Attempt |
+| Phase 6: independent diagnosis, correct semantic back-edge | rc72_diagnosis_orchestration, rc72_impact_truth | INTEGRATED DATA-FAILURE DIAGNOSIS: real N8 process/review -> N5 back-edge; actual accepted repair, STALE propagation and fresh execution remain OPEN |
 | Phase 7: capability/browser/data/model leases | rc72_capability_broker, rc72_browser_resources, rc72_data_resources, rc72_model_failover | INTEGRATED COMPONENT: admitted signed execution and verified cleanup release; global exclusion/orphan recovery remains OPEN |
 | Phase 8: coverage mappings and full-denominator N10 | rc72_coverage_convergence, rc72_release_scope, rc72_release_convergence | COMPONENT; connect real execution/defect/coverage state, prohibit caller-supplied success flags |
 | Phase 9: teaching→compile→replay→benchmark→human→official consumption | rc72_journey_* and rc72_official_journey_execution | COMPONENT; check product exposure, real Browser adapter/ownership and trusted review; fixtures do not qualify |
@@ -44,7 +44,7 @@ No row below is considered whole-product COMPLETE.
 | GAP-04: fresh worker provider failover | rc72_model_failover | AUDIT actual launcher and same-WorkItem retry linkage |
 | GAP-05: browser isolation | rc72_browser_resources | AUDIT real BSK/browser acquisition at execution and release |
 | GAP-06: STRICT capability request/amendment/delegation | rc72_authority, rc72_capability_broker | AUDIT actual Task/Attempt/Worker-scope enforcement and specialist resumption |
-| GAP-07: enforce N2–N8 boundaries | node services + state machine | INTEGRATED N7 success chain; OPEN independent N8 result/repair consumption |
+| GAP-07: enforce N2–N8 boundaries | node services + state machine | INTEGRATED N7 success and narrow N8 data-failure result/review/back-edge; actual repair/retry remains OPEN |
 | GAP-08: ReleaseBatch business root | domain/state machine/repository | OPEN product ingress and running mission driver integration |
 | Product entry (01 §2, 02 DoD) | bank_mission / mission_autonomous_driver / admin and field mission helper | OPEN: direct searches found no N6DeliveryGateService consumer outside its module; no rc72 node-service references in bank_mission, mission_autonomous_driver or admin server; field mission helper only bootstraps nodes |
 | Q1/Q2 | current source platform + clean-unpack CI | Engineering only; read exact-HEAD conclusions; does not close above open construction work |
@@ -231,3 +231,22 @@ engineering composition evidence, not real Field proof or a DSH semantic review.
 Full source regression result is recorded in CONSTRUCTION-PLAN.md. N8 actual
 repair/retry, accepted conclusive failure admission, N9/N10, product ingress,
 global cross-process resource exclusion and Field requirements remain OPEN.
+
+
+## N8 actual signed-data-failure diagnosis — 2026-11-02
+
+A real independent deterministic diagnostic process and a distinct reviewer/process
+now consume signed failed N7 preparation facts and actual file bytes. An exact
+frozen DataRef failure can produce a reviewed N8 delivery/gate and the existing
+semantic back-edge to N5. Rationale, confidence, affected refs and requested repair
+are persisted. No caller provides a failure class or approval flag on this path.
+Unproven causality remains UNKNOWN/BLOCKED; no product defect is inferred from
+runner failure. Saved process proof survives cold replay. Stable route identities
+and classification replay avoid duplicate gaps/edges after partial writes.
+
+The repair admission checks a newer accepted active N5 delivery, recomputes native
+full-inventory criteria and requires coverage of failed DataRefs. Its negative
+old-gate check is proven; a positive actual N5 repair -> recompiled N6 -> fresh
+Attempt integration remains OPEN and is not claimed complete. Additional failure
+classifications, initial-assignment/orphan recovery, DSH semantic specialists,
+N9/N10, product continuation and Field requirements remain OPEN.

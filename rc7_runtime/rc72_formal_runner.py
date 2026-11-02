@@ -273,11 +273,13 @@ class FormalN7RunnerAdapter:
             evidence_id = 'N7CHECK-' + _hash([p['attempt_id'], kind, spec, digest])[:24]
             check = dict(kind=kind, spec=spec, success=result['success'], evidence_id=evidence_id,
                          captured_ref='file://' + str(captured), sha256=digest)
+            check_signature = self.preparation.authority._sign(dict(
+                purpose='N7_LIVE_PREPARATION_CHECK', attempt_id=p['attempt_id'], **check))
             evidence._ensure('rc7_evidence', 'RC7_EVIDENCE_UPSERTED', 'evidence_id', dict(
                 evidence_id=evidence_id, release_id=p['release_id'], mission_id=p['mission_id'],
                 kind='N7_FORMAL_' + kind, source_ref=result['evidence_ref'], content_ref=check['captured_ref'],
                 content_hash=digest, subject_refs=[p['attempt_id'], p['case_id']], check_spec=spec,
-                check_success=result['success'], artifact_version=1))
+                check_success=result['success'], check_runtime_signature=check_signature, artifact_version=1))
             evidence._ensure('evidence', 'EVIDENCE_UPSERTED', 'id', dict(id=evidence_id,
                 release_id=p['release_id'], kind='N7_FORMAL_' + kind, ref=check['captured_ref'],
                 source_artifact_ref=contract['contract_id'], tc_id=p['case_id'], attempt_id=p['attempt_id'], artifact_version=1))

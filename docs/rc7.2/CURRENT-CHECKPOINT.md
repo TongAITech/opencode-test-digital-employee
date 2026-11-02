@@ -52,7 +52,47 @@ recovery reuse recorded review and never rerun completed business calls. Histori
 lease audit does not restore tool authority. N7 success cannot converge the whole
 mission: RC7.2-bound missions require an accepted active N10 delivery/gate.
 
+## N8 actual evidence diagnosis and governed repair boundary
+
+ExecutionDiagnosisService consumes a real failed N7 Attempt, exact contract and
+runtime-signed live preparation checks. A separate read-only diagnostic process
+rechecks file bytes and emits classification/confidence/rationale/affected refs
+and requested remediation. A different fresh reviewer and subprocess recompute
+the conclusion; caller-supplied classification or approval is not accepted.
+
+The supported conclusive rule is deliberately narrow: an exact frozen DataRef
+with a signed failed live verification becomes TEST_DATA_GAP. Reviewed N8 output
+is delivered and gated before the existing semantic route returns N5 to
+NEEDS_REVISION. No product defect is inferred from process exit or an unexplained
+precondition/Oracle failure: UNKNOWN remains BLOCKED with no PASS gate/back-edge.
+Diagnostic/review PIDs, output hashes and exact input scope are runtime-signed.
+Saved results and cold replay reuse the process proof. Stable semantic route IDs
+recover partial gate/gap/back-edge/transition/outcome writes without duplicates.
+
+A repair intake now rejects old N5 delivery/gates, incomplete changed-data scope,
+and generic success flags. A newer active accepted N5 delivery must still satisfy
+the native full-inventory data criteria before recording repair impact. This is a
+repair admission boundary, not proof of an executed N5 repair or a new successful
+Attempt. Positive actual N5 repair -> recompiled N6 -> new signed Attempt remains
+OPEN. Next concrete dependency: bind_verified fixes identity to requirement +
+DataRef and rejects changed verification evidence; N5 delivery signature currently
+uses requirement/plan/binding/DataRef identities without a re-verification digest.
+A governed same-DataRef re-verification/version path must be implemented and
+tested before claiming a repaired-data replay. Original Attempts and owned resource leases are not silently rewritten or
+released by diagnosis. The classifier/reviewer are deterministic processes, not
+DSH semantic specialists. Other conclusive failure classes remain OPEN.
+
 ## Evidence and limits
+
+Latest N8 source validation: full RC7.2/inherited regression 1363 passed,
+1 skipped, 32 existing collection warnings in 467.79s; related combined chain
+59 passed; final N8 proof suite 14 passed. Two additional tamper tests in that
+14-test suite were added after the full run collected tests; runtime source was
+unchanged. Compilation and whitespace checks passed. Logs are local under
+work/evidence/n8-full-final.log, n8-final-combined.log and n8-proof-final.log.
+Remote new-HEAD CI is checked after push; it does not become PASS by implication.
+
+The prior N7 validation below is retained as historical engineering evidence.
 
 Targeted actual-runner/finalization/isolation plus inherited runtime checks:
 24 passed. After the legacy explicit-module-path compatibility correction,
@@ -74,7 +114,7 @@ semantic reviewer or product-controller run.
 
 ## Remaining construction
 
-Actual independent N8 classification -> upstream repair -> fresh Attempt;
+Additional independent N8 classifications; actual upstream repair -> fresh Attempt;
 N9 defect/accepted-failure integration; N10 full release denominator convergence;
 production adapter/product-controller continuation; remaining phase/GAP rows and
 real qualification/Field evidence. Mechanical data checks do not replace N5
@@ -86,5 +126,6 @@ N8 multi-event dispatch recovery, and OS-level isolation remain OPEN/AUDIT.
 Per-call exclusion is not global event-store locking. Unresolved legacy cleanup
 requires governed N4/N6 repair. No delivery or whole-product completion is claimed.
 
-Next: connect actual N8 repair/retry and N9/N10 consumers to this proven success
+Next: execute accepted N5 repair and N6 recompilation into a new signed Attempt,
+then connect N9/N10 consumers to this proven success
 chain, then product ingress. Packaging does not substitute for construction.
