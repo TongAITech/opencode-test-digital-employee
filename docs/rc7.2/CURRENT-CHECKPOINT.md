@@ -15,6 +15,46 @@ Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md. Finish
 construction before preparing a delivery package. Candidate 9476b57 remains
 quarantined. This checkpoint supersedes earlier component-only descriptions.
 
+## Native unchanged-Case repair continuation — 2026-11-03
+
+C02 now has a callable native continuation from an accepted, independently
+verified N5 repair and applied impact set through real N6 recompilation to a
+signed retry plan. The complete original Case denominator, decomposition
+snapshot, ETU and WorkItem identities are preserved. Historical admission hashes,
+original Case source bytes/semantics and exact Case-to-ETU mapping are checked
+before any STALE target is restored to READY. A signed durable reconciliation
+freezes every restoration target and the completed compensation boundary;
+interruption after restoration resumes without minting another decomposition.
+
+Current N6 contracts and N7 admissions are produced by the ordinary compiler and
+admission services. Ordinary planning refuses an unreconciled accepted repair;
+identity reuse requires the runtime-signed exact reconciliation, followed by all
+normal current-source checks. The replacement uses a fresh worker/session/lease
+and child Attempt linked to the original failure; no Case PASS is manufactured.
+
+N5 repair can now cover other Cases in the original approved plan, each with its
+own exact original contract/DataRef and independent specialist work. This is
+needed when the failed input check exposes an inventory-wide physical outage.
+It cannot import a different Case or silently restore unrelated data. Recognized
+raw verifier evidence bytes are rehashed by native N5 resolution before a new
+Gate and subsequent compilation, rather than trusting only stored metadata.
+
+Local engineering validation runs real physical repair/verification subprocesses,
+strict formal runner, HTTP business actions, frozen cleanup and independent
+whole-plan evidence review/finalization. The full original denominator reaches
+N7_PASS with the old BLOCKED Attempt unchanged; N10 is not auto-converged. Eight
+final-source retry checks passed, covering actual full execution, interrupted
+restoration, forged signatures, changed source snapshot, historical admission/
+Case-to-ETU mapping and damaged raw evidence. The inherited planning suite also
+passed in the preceding 12-check run.
+The N5/N7/N8/canonical-source cross-node run passed 238 checks in 217.85s.
+The final signed-boundary/historical-decision hardening is additionally covered
+by the final-source eight-check run (21.11s). Final-source platform qualification
+remains pending.
+This is local engineering proof, not Field/BSK/bank acceptance. C03..C12 remain
+open, including other failure classes, multi-member completed-attempt recovery,
+global resource ownership and product controller wiring.
+
 ## Existing-DataRef repair and independent N5 proof — 2026-11-03
 
 ExistingDataRepairService consumes a signed completed N8 compensation boundary
@@ -49,7 +89,7 @@ a real independent protocol subprocess performing the physical HTTP repair, a
 separate verification subprocess, native N5 Gate and native N8 repair intake.
 Approved upstream facts and the DSH-protocol worker are engineering fixtures;
 this is not real bank DSH/BSK qualification. Production controller wiring remains
-C08. Revised N6/planning/original-WorkItem/ETU retry remains C02.
+C08. Revised N6/planning/original-WorkItem/ETU retry is implemented above; product controller wiring remains C08.
 
 Validation: N5/N8/canonical-source/N7-admission chain 145 passed in 141.79s.
 Explicit schema bootstrap, generic DIAGNOSIS-session replay composition and

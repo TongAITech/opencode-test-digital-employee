@@ -88,6 +88,28 @@ class ExistingDataRepairService:
             raise ContractError('N5_EXISTING_REPAIR_N5_RUNNING_REQUIRED')
         return p, c, grant
 
+    def _source_contract(self, p, requirement, binding):
+        # N5 owns the whole approved inventory, including unexecuted Cases.
+        # Every request still has one exact original Case/contract/DataRef scope.
+        plan = self._one('rc72_n7_execution_plan', plan_id=p['plan_id'])
+        items = [item for item in plan['items'] if item['case_id'] == requirement['case_id']]
+        if len(items) != 1:
+            raise ContractError('N5_EXISTING_REPAIR_CASE_OUTSIDE_ORIGINAL_PLAN')
+        contract = self._one('rc72_n6_executable_contract', contract_id=items[0]['contract_id'])
+        from .rc72_n6_completion import _digest, _stable_id
+        if (contract['mission_id'] != p['mission_id'] or contract['release_batch_id'] != p['release_batch_id']
+                or contract['source_commit'] != p['source_commit'] or contract['case_id'] != requirement['case_id']
+                or contract['contract_sha256'] != _digest(contract)
+                or contract['contract_id'] != _stable_id('N6CONTRACT', p['mission_id'], requirement['case_id'], contract['contract_sha256'])
+                or requirement['source_case_sha256'] not in contract['authoritative_sources']
+                or not any(ref['data_ref'] == binding['data_ref'] and ref['data_requirement_id'] == requirement['data_requirement_id']
+                           for ref in contract['data_refs'])):
+            raise ContractError('N5_EXISTING_REPAIR_EXACT_BINDING_REQUIRED')
+        if any(lease['state'] == 'ACTIVE' and lease['data_ref'] == binding['data_ref']
+               for lease in self.truth.query('rc72_data_lease')):
+            raise ContractError('N5_EXISTING_REPAIR_DATA_OWNER_MUST_DRAIN')
+        return contract
+
     def request(self, preparation_id, *, data_requirement_id, binding_revision):
         if isinstance(binding_revision, bool) or not isinstance(binding_revision, int) or binding_revision < 1:
             raise ContractError('N5_EXISTING_REPAIR_BINDING_REVISION_REQUIRED')
@@ -102,10 +124,11 @@ class ExistingDataRepairService:
         requirement = self._finalizer(p['mission_id']).resolution._requirement(data_requirement_id)
         binding = self._one('rc72_n5_data_binding', data_requirement_id=data_requirement_id)
         resource = self._one('rc72_data_resource', data_ref=binding['data_ref'])
+        c = self._source_contract(p, requirement, binding)
         expected = dict(release_id=p['release_id'], mission_id=p['mission_id'], release_batch_id=p['release_batch_id'],
                         source_commit=p['source_commit'], data_requirement_id=data_requirement_id)
         if (any(requirement.get(key) != value or binding.get(key) != value for key, value in expected.items())
-                or requirement['case_id'] != p['case_id'] or binding['source_case_sha256'] != requirement['source_case_sha256']
+                or binding['source_case_sha256'] != requirement['source_case_sha256']
                 or binding['artifact_version'] != binding_revision
                 or binding['data_ref'] not in {item['data_ref'] for item in c['data_refs']}
                 or resource['release_id'] != p['release_id'] or resource['verified'] is not True
@@ -116,6 +139,7 @@ class ExistingDataRepairService:
         row = dict(expected, **{key: requirement[key] for key in ('mission_node_id', 'case_id', 'requirement_id',
                 'sst_id', 'obligation_id', 'source_case_sha256')},
             repair_id=repair_id, preparation_id=preparation_id, boundary_id=grant['boundary_id'],
+            source_contract_id=c['contract_id'], source_contract_sha256=c['contract_sha256'],
             verification_attempt_id='N5RVERIFY-' + _hash(repair_id)[:24],
             workitem_id='WI-N5RVERIFY-' + _hash(repair_id)[:24], workitem_role=DATA_VERIFIER, original_binding=binding,
             requirement=requirement, resource=resource, allowed_tools=list(self.tools), runtime_root=str(self.launcher.state_root), state='REQUESTED')
@@ -127,7 +151,11 @@ class ExistingDataRepairService:
     def _live(self, row):
         if tuple(row['allowed_tools']) != self.tools or row['runtime_root'] != str(self.launcher.state_root):
             raise ContractError('N5_EXISTING_REPAIR_TOOL_SCOPE_CHANGED')
-        _, _, grant = self._context(row['preparation_id'])
+        p, _, grant = self._context(row['preparation_id'])
+        contract = self._source_contract(p, row['requirement'], row['original_binding'])
+        if (contract['contract_id'] != row.get('source_contract_id', p['contract_id'])
+                or contract['contract_sha256'] != row.get('source_contract_sha256', contract['contract_sha256'])):
+            raise ContractError('N5_EXISTING_REPAIR_SOURCE_CONTEXT_CHANGED')
         if grant['boundary_id'] != row['boundary_id']:
             raise ContractError('N5_EXISTING_REPAIR_BOUNDARY_CHANGED')
         if (self._one('rc72_n5_data_requirement', data_requirement_id=row['data_requirement_id']) != row['requirement']

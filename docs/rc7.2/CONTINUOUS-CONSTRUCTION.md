@@ -37,7 +37,7 @@
 Gate 版本机制；复用 DataRef 独立物理修复/复验和新 Gate/修复接纳；影响集冻结、
 局部中断恢复及新 Attempt 关联约束。
 
-已有证据不能覆盖：真实银行端到端任务、全部 N8 分类、实际修复后重试、
+已有证据不能覆盖：真实银行端到端任务、全部 N8 分类、
 N9/N10 产品消费者、全局并发/孤儿恢复、Journey/经济策略的所有产品调用点。
 详细历史证据见 CURRENT-CHECKPOINT 和 DESIGN-CONSTRUCTION-RECONCILIATION。
 旧搬运包保持隔离，不进入本次交付。
@@ -47,7 +47,7 @@ N9/N10 产品消费者、全局并发/孤儿恢复、Journey/经济策略的所�
 | 编号 | 施工范围 | 完成证据 | 当前状态 |
 |---|---|---|---|
 | C01 | N5 复用数据缺少 discovery candidate 时的独立修复 assignment、原 DataRef 复验、新 Gate | 实际 N8 边界进入；独立 verifier/原始证据；旧证明不复用；失败不放行 | CODE_COMPLETE_CI_PENDING：145 项跨节点通过；最终源码冷启动等 69 项通过 |
-| C02 | 修复影响后 N6 重编译；新规划保留原 WorkItem/ETU/Case、继承 parent Attempt | 实际修复→重编译→新签名 Attempt→执行；原失败历史不变；完整分母 | ACTIVE / 下一施工段 |
+| C02 | 修复影响后 N6 重编译；新规划保留原 WorkItem/ETU/Case、继承 parent Attempt | 实际修复→重编译→新签名 Attempt→执行；原失败历史不变；完整分母 | CODE_COMPLETE_CI_PENDING：238 项跨节点通过；最终源码 8 项恢复/篡改/完整执行通过 |
 | C03 | N8 其余语义分类与 N1/N2/N3/N4/N6 修复回边、受控重试/UNKNOWN | 独立证据审查；版本失效和新 Attempt；非产品故障不生成缺陷 | OPEN |
 | C04 | N9 缺陷/有效失败接纳、RCA/回归与 N7 完整分母审查 | 真实动作/结果证据关联；缺陷生命周期和验收分支；非叙述定案 | OPEN |
 | C05 | N10 全 ReleaseBatch 消费者与 coverage 反馈闭环 | 全 Requirement/SST/Obligation/L1..L7、高风险/缺陷/gap/证据/STALE 分母；结构化未收敛理由 | OPEN |

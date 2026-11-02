@@ -305,3 +305,29 @@ the prior reuse-only candidate/assignment absence for this exact-ref policy only
 The user's requested final deliverable is a complete RC7.1-equivalent portable
 package; bank acceptance follows user transfer and is not a prerequisite for
 finishing repository construction and producing that engineering-qualified package.
+
+
+## Native same-identity retry after accepted data repair — 2026-11-03
+
+C02 implements the actual data-repair continuation using native N6 compilation,
+current admissions, a runtime-signed durable identity reconciliation and existing
+fresh-generation preparation. The original immutable decomposition, full Case
+inventory, ETUs and WorkItems remain authoritative; changed Case source, old
+admission hashes or Case-to-ETU mapping cannot authorize restoration. Only the
+frozen impact-authorized STALE targets become READY; no PASS is manufactured.
+Partial restoration resumes idempotently. The compensation boundary and old
+Attempt/binding remain immutable lineage in the signed record.
+
+The engineering test restores every physically unavailable DataRef via separate
+preparer and verifier processes, recompiles N6, executes all original Cases with
+the strict runner, verifies cleanup and independently finalizes N7. The original
+failed Attempt remains BLOCKED and N10 remains un-converged. Native N5 now rejects
+changed raw-verifier bytes before issuing its Gate. Other original-plan Cases
+may obtain exact-resource repair assignments; outside-plan Cases and active
+resource owners remain forbidden. Arbitrary alternate decomposition is not
+accepted through this unchanged-semantics protocol.
+
+This closes the narrow data-repair-to-execution gap, not the full Phase 6 gate.
+Other semantic failure classes, completed-member reconciliation, production
+call-time tool scopes, global ownership and controller wiring remain open.
+Local protocol subprocesses are engineering evidence, not bank Field proof.

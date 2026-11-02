@@ -61,9 +61,10 @@ def install_rc72_n7_execution_planning_overlay():
 
 class ExecutionPlanningService:
     def __init__(self, truth: TruthRuntime, *, release_id: str, source_commit: str,
-                 now: Optional[datetime] = None):
+                 now: Optional[datetime] = None, authority=None):
         install_rc72_n7_execution_planning_overlay()
         self.truth, self.release_id, self.source_commit = truth, release_id, source_commit
+        self.authority = authority
         self.admission = ExecutionAdmissionService(truth, release_id=release_id, source_commit=source_commit, now=now)
 
     def _one(self, kind, **filters):
@@ -128,6 +129,14 @@ class ExecutionPlanningService:
                           for case in design.cases]
         digest = _hash(dict(inputs=sorted(inputs, key=lambda value: value['case_id']), planning_cases=[asdict(item) for item in planning_cases], config='canonical-n7-v1'))
         plan_id, snapshot_id = 'N7PLAN-' + digest[:24], 'N7SNAP-' + digest[:24]
+        recovered = [row for row in self.truth.query(_ARTIFACT, mission_id=mission_id)
+                     if row.get('recovery_id') and row['input_digest'] == digest]
+        if recovered:
+            if len(recovered) != 1:
+                raise ExecutionPlanningError('N7_RECOVERY_PLAN_NOT_UNIQUE')
+            return self.assert_current(recovered[0]['plan_id'])
+        if self.truth.query('rc72_diagnosis_repair', mission_id=mission_id):
+            raise ExecutionPlanningError('N7_GOVERNED_REPAIR_RECONCILIATION_REQUIRED')
         current = self.truth.query(_ARTIFACT, plan_id=plan_id)
         if current:
             return self.assert_current(plan_id)
@@ -185,6 +194,10 @@ class ExecutionPlanningService:
         plan = self._one(_ARTIFACT, plan_id=plan_id)
         if plan.get('source_commit') != self.source_commit or plan.get('release_id') != self.release_id:
             raise ExecutionPlanningError('N7_PLAN_SOURCE_MISMATCH')
+        recovery = None
+        if plan.get('recovery_id'):
+            from .rc72_n8_retry_truth import assert_reconciled_plan
+            recovery = assert_reconciled_plan(self, plan)
         design = CanonicalDesignService(self.truth, release_id=self.release_id,
                                         source_commit=self.source_commit).load(release_batch_id=plan['release_batch_id'])
         source_cases = {case['tc_id']: case for case in design.cases}
@@ -218,8 +231,9 @@ class ExecutionPlanningService:
         current_cases.sort(key=lambda value: value['case_id'])
         digest = _hash(dict(inputs=sorted(current_inputs, key=lambda value: value['case_id']),
                             planning_cases=current_cases, config='canonical-n7-v1'))
-        if (plan['input_digest'] != digest or plan['plan_id'] != 'N7PLAN-' + digest[:24]
-                or plan['snapshot_id'] != 'N7SNAP-' + digest[:24]
+        if (plan['input_digest'] != digest
+                or (recovery is None and (plan['plan_id'] != 'N7PLAN-' + digest[:24]
+                                          or plan['snapshot_id'] != 'N7SNAP-' + digest[:24]))
                 or snapshot.get('planning_cases') != current_cases or snapshot.get('current_node') != 'N7_EXECUTION'
                 or snapshot.get('mission_id') != plan['mission_id']):
             raise ExecutionPlanningError('N7_PLAN_SNAPSHOT_STALE')

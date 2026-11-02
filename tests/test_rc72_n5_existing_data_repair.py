@@ -354,6 +354,14 @@ def test_new_n5_gate_alone_cannot_certify_a_missing_or_changed_failed_ref_proof(
         else:
             proof = truth.query('rc72_n5_existing_data_repair')[0]
             Path(proof['raw_output_ref'][len('file://'):]).write_bytes(b'changed verification bytes')
+            # The native N5 gate now rejects damaged bytes before repair intake.
+            before = truth.store.path.read_bytes()
+            with pytest.raises(ContractError, match='VERIFICATION_PROOF_BYTES_CHANGED'):
+                N5DeliveryGateService(truth, release_id=p['release_id'], source_commit=p['source_commit']).complete(
+                    release_batch_id=p['release_batch_id'])
+            assert truth.store.path.read_bytes() == before
+            assert truth.query('rc72_diagnosis_repair') == []
+            return
         n5 = N5DeliveryGateService(truth, release_id=p['release_id'], source_commit=p['source_commit']).complete(
             release_batch_id=p['release_batch_id'])
         before = truth.store.path.read_bytes()

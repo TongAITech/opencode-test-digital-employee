@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from rc6_runtime import contracts as _contracts
@@ -314,6 +315,13 @@ class N5DataResolutionService:
                     "RC72_N5_RESOLUTION_VERIFICATION_EVIDENCE_NOT_CANONICAL:%s"
                     % ref
                 )
+            evidence = rows[0]
+            if evidence.get('kind') in {'N5_DATA_VERIFICATION_DSH_RAW_PROOF', 'N5_EXISTING_DATA_REVERIFICATION'}:
+                content = evidence.get('content_ref', '')
+                path = Path(content[len('file://'):]) if content.startswith('file://') else None
+                if (path is None or not path.is_file()
+                        or evidence.get('content_hash') != 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest()):
+                    raise N5DataResolutionError('RC72_N5_RESOLUTION_VERIFICATION_PROOF_BYTES_CHANGED')
             refs.append(ref)
         if not refs:
             raise N5DataResolutionError(

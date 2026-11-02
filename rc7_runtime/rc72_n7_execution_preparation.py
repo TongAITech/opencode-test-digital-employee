@@ -77,7 +77,7 @@ class ExecutionPreparationService:
             raise ExecutionPreparationError('N7_PREPARATION_TTL_INVALID')
         self.truth, self.release_id, self.source_commit = truth, release_id, source_commit
         self.authority, self.tool_registry, self.ttl = authority, tool_registry, ttl_seconds
-        self.planning = ExecutionPlanningService(truth, release_id=release_id, source_commit=source_commit, now=now)
+        self.planning = ExecutionPlanningService(truth, release_id=release_id, source_commit=source_commit, now=now, authority=authority)
         self.lifecycle = WorkerLifecycleService(truth, release_id=release_id)
         self.data = DataLeaseManager(truth, release_id=release_id)
         self.browser = BrowserPool(truth, release_id=release_id)
