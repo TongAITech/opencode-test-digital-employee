@@ -519,3 +519,29 @@ Generic unknown-effect/orphan recovery and remote drain are not established.
 Final checkpoint9 tests passed32.63s; actual two-member boundary1 passed5.69s.
 Inherited member/review/finalization/repair47 passed124.91s; heartbeat/retry
 chain21 passed101.98s. Compilation/diff checks passed. Field/BANK_FINAL stays unverified.
+
+
+## Current-plan review reuses only unchanged drained members — 2026-11-03
+
+Signed retry reconciliation freezes the original drained peers and exact native
+impact. Explicit unchanged dependency scope, contract digest (including data
+proof), N1..N4 lineage and current N1..N6 admission are required. Historical
+preparation/lease/Attempt/WorkItem/ETU remain immutable; old execution permission
+is not restored. Current whole-plan independent review consumes checkpoint bytes
+and retains every Case. Read-only admission supports REVIEW_PENDING/PASS without
+relaxing live admission. Finalized historical owner changes require matching
+signed independent review; completed checkpoint/review cold replay is read-only.
+
+Actual two-member local business/cleanup -> exact other-member data loss -> N8
+independent diagnosis -> signed drain -> scoped compensation -> physical N5
+repair/independent re-probe/new Gate -> native N6/replan -> same first Attempt
+evidence + actual replacement execution -> full independent N7_PASS is proven.
+A previous failed Attempt is preserved, business actions equal original Cases,
+and no Mission/Field/BANK_FINAL result is manufactured. Tampered capture, impact
+or decision fails before new permission; interrupted READY publication resumes
+without another execution. If the completed member's data is physically repaired
+or its contract/impact changes, reuse is refused; its governed new Attempt and
+generic orphan recovery remain open. Integrated planning/admission/review/
+finalization/drain/retry62 passed203.00s; final reuse/renewal/repair-boundary34
+passed113.95s, including a renewed original member and cold finalization replay.
+Compilation/diff checks passed.

@@ -123,14 +123,15 @@ class ExecutionAdmissionService:
             raise ExecutionAdmissionError('N7_UPSTREAM_GATE_INVALID:%s' % node_type.value)
         return node, delivery, gate
 
-    def _check(self, batch_id: str, contract_id: str) -> Dict[str, Any]:
+    def _check(self, batch_id: str, contract_id: str, *, review_only=False) -> Dict[str, Any]:
         batch = self._one('rc72_release_batch', release_batch_id=batch_id)
         if batch.get('release_id') != self.release_id:
             raise ExecutionAdmissionError('N7_RELEASE_MISMATCH')
         mission_id = str(batch['mission_id'])
         n7 = self._one('rc72_mission_node', mission_id=mission_id, node_type='N7_EXECUTION')
         if (n7.get('release_id') != self.release_id or n7.get('scope_ref') != 'release-batch://' + batch_id
-                or n7.get('state') not in {'READY', 'RUNNING'} or n7.get('open_gap_refs')):
+                or n7.get('state') not in ({'READY', 'RUNNING', 'REVIEW_PENDING', 'PASS'} if review_only else {'READY', 'RUNNING'})
+                or n7.get('open_gap_refs')):
             raise ExecutionAdmissionError('N7_NODE_NOT_ADMITTED')
         upstream = [self._active_pass(mission_id, batch_id, kind) for kind in _UPSTREAM]
         n6_delivery = upstream[-1][1]
@@ -247,6 +248,18 @@ class ExecutionAdmissionService:
         current = self._check(receipt['release_batch_id'], receipt['contract_id'])
         if receipt.get('status') != 'ADMITTED' or any(receipt.get(key) != value for key, value in current.items()):
             raise ExecutionAdmissionError('N7_ADMISSION_STALE')
+        return receipt
+
+    def assert_review_current(self, admission_id: str) -> Dict[str, Any]:
+        """Read-only current-source evidence check, never execution admission.
+
+        Source/data/runtime checks remain identical. Review may be pending or
+        finalized; admit/assert_current retain the live READY/RUNNING gate.
+        """
+        receipt = self._one(_ARTIFACT, admission_id=_required(admission_id, 'admission_id'))
+        current = self._check(receipt['release_batch_id'], receipt['contract_id'], review_only=True)
+        if receipt.get('status') != 'ADMITTED' or any(receipt.get(key) != value for key, value in current.items()):
+            raise ExecutionAdmissionError('N7_REVIEW_ADMISSION_STALE')
         return receipt
 
 

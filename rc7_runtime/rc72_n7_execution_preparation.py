@@ -107,6 +107,11 @@ class ExecutionPreparationService:
         if len(items) != 1:
             raise ExecutionPreparationError('N7_WORKITEM_OUTSIDE_PLAN')
         item = items[0]
+        if plan.get('recovery_id'):
+            from .rc72_n8_retry_truth import assert_reconciled_plan
+            reconciliation = assert_reconciled_plan(self.planning, plan)
+            if any(decision['workitem_id'] == workitem_id for decision in reconciliation.get('member_decisions', [])):
+                raise ExecutionPreparationError('N7_MEMBER_ALREADY_EXECUTED_REVIEW_REQUIRED')
         current = self.truth.query(_ARTIFACT, workitem_id=workitem_id, status='PREPARED')
         if current:
             if len(current) != 1 or current[0].get('plan_id') != plan_id:

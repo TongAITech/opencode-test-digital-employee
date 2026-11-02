@@ -132,21 +132,30 @@ class DataRepairContinuationService:
         if set(source_cases) != {item['case_id'] for item in old['items']}:
             raise ContractError('N8_RETRY_CASE_DENOMINATOR_CHANGED')
         obligations = {item.obligation_id: item for item in design.obligations}
-        planned = []
+        planned, members = [], []
         for item in old['items']:
             case = source_cases[item['case_id']]
             contract = self._one('rc72_n6_executable_contract', contract_id=item['contract_id'])
             if case['source_case_sha256'] not in contract['authoritative_sources']:
                 raise ContractError('N8_RETRY_APPROVED_CASE_CHANGED')
             planned.append(self.planning._planning_case(case, contract, obligations[case['obligation_id']]))
+            candidates = self.truth.query('rc72_n7_execution_preparation', plan_id=old['plan_id'],
+                                          workitem_id=item['workitem_id'], status='DRAINED')
+            member = None
+            if candidates:
+                if len(candidates) != 1 or item['workitem_id'] == p['workitem_id']:
+                    raise ContractError('N8_RETRY_MEMBER_CHECKPOINT_NOT_UNIQUE')
+                from .rc72_n7_member_drain import assert_drained_member
+                member = assert_drained_member(self.preparation, candidates[0]['preparation_id'])
+                members.append(member)
             task = self._one('rc7_task', task_id=item['workitem_id'])
             if (task['mission_id'] != p['mission_id'] or task['node'] != 'EXECUTION'
                     or task['task_type'] != 'RC72_CASE_EXECUTION'
                     or task['input_artifact_refs'] != [case['source_artifact_id']]
                     or task['required_capabilities'] != [cap['name'] for cap in contract['capabilities']]
-                    or task['state'] != ('STALE' if item['workitem_id'] == p['workitem_id'] else 'READY')):
+                    or task['state'] != ('RUNNING' if member else 'STALE' if item['workitem_id'] == p['workitem_id'] else 'READY')):
                 raise ContractError('N8_RETRY_WORKITEM_RECONCILIATION_REQUIRED')
-            if item['workitem_id'] != p['workitem_id'] and self.truth.query(
+            if member is None and item['workitem_id'] != p['workitem_id'] and self.truth.query(
                     'rc72_workitem_attempt_binding', workitem_id=item['workitem_id']):
                 raise ContractError('N8_RETRY_COMPLETED_MEMBERS_REQUIRE_RECONCILIATION')
         if [asdict(case) for case in planned] != snapshot['planning_cases']:
@@ -206,8 +215,8 @@ class DataRepairContinuationService:
         return self._persist(dict(reconciliation_id='N8RECON-' + _hash([preparation_id, repair['impact_set_id']])[:24],
             purpose=_PURPOSE, release_id=p['release_id'], source_commit=p['source_commit'], mission_id=p['mission_id'],
             release_batch_id=p['release_batch_id'], preparation_id=preparation_id, original_preparation=p,
-            original_plan=old, original_snapshot=snapshot, original_binding=original_binding,
-            repair_record=repair, boundary_record=grant, n5_context=self._n5(p), targets=targets, n6_before=n6, n7_before=n7, state='PLANNED'))
+            original_plan=old, original_snapshot=snapshot, original_binding=original_binding, members=members,
+            repair_record=repair, impact_record=impact, boundary_record=grant, n5_context=self._n5(p), targets=targets, n6_before=n6, n7_before=n7, state='PLANNED'))
 
     def _pending_target(self, target):
         original, kind, key = target['original'], target['kind'], target['key']
@@ -257,6 +266,10 @@ class DataRepairContinuationService:
         self.diagnosis.record_accepted_repair(p['preparation_id'], repair_delivery_id=repair['repair_delivery_id'],
             changed_refs=repair['changed_refs'], reason=repair['reason'])
         self._drained(p, row['original_plan'])
+        for member in row.get('members', []):
+            from .rc72_n7_member_drain import assert_drained_member
+            if assert_drained_member(self.preparation, member['preparation_id']) != member:
+                raise ContractError('N8_RETRY_MEMBER_CHECKPOINT_CHANGED')
 
     def _compile(self, row):
         p = row['original_preparation']
@@ -320,7 +333,9 @@ class DataRepairContinuationService:
             if plan != row['plan']:
                 raise ContractError('N8_RETRY_PLAN_REPLAY_CONFLICT')
         else:
-            row = self._persist(row, state='READY', plan=plan)
+            from .rc72_n8_member_reuse import member_reuse_decisions
+            decisions = member_reuse_decisions(self.planning, row, plan)
+            row = self._persist(row, state='READY', plan=plan, member_decisions=decisions)
         self.truth.append_atomic('RC72_N7_EXECUTION_PLAN_UPSERTED', plan)
         return self.planning.assert_current(plan['plan_id'])
 

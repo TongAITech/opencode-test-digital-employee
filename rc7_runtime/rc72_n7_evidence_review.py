@@ -155,6 +155,11 @@ class ExecutionEvidenceReviewService:
             raise EvidenceReviewError('N7_REVIEW_CASE_DENOMINATOR_MISMATCH')
         result = []
         for item in sorted(plan['items'], key=lambda item: item['case_id']):
+            from .rc72_n8_member_reuse import reused_member
+            member = reused_member(self.preparation, plan, item, allow_finalized=allow_finalized)
+            if member is not None:
+                result.append(member['case_snapshot'])
+                continue
             prepared = self.truth.query('rc72_n7_execution_preparation', plan_id=plan_id,
                                         workitem_id=item['workitem_id'], status='PREPARED')
             if len(prepared) != 1:
@@ -268,7 +273,17 @@ class ExecutionEvidenceReviewService:
         collected, total_bytes = [], 0
         for case in cases:
             for declared in case['evidence_declarations']:
-                data = self._file_bytes(declared)
+                item = next(item for item in plan['items'] if item['case_id'] == case['case_id'])
+                from .rc72_n8_member_reuse import reused_member
+                member = reused_member(self.preparation, plan, item)
+                if member is None:
+                    data = self._file_bytes(declared)
+                else:
+                    capture = next(entry for entry in member['captured_evidence'] if entry['requirement'] == declared['requirement'])
+                    with Path(capture['content_ref'][len('file://'):]).open('rb') as source:
+                        data = source.read(self.max_file_bytes + 1)
+                    if len(data) > self.max_file_bytes or _sha(data) != declared['sha256']:
+                        raise EvidenceReviewError('N7_REUSE_CAPTURE_BYTES_INVALID')
                 total_bytes += len(data)
                 if total_bytes > self.max_bundle_bytes:
                     raise EvidenceReviewError('N7_EVIDENCE_BUNDLE_SIZE_LIMIT_EXCEEDED')

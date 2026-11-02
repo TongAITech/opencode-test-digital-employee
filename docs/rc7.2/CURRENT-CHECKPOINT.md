@@ -15,6 +15,49 @@ Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md. Finish
 construction before preparing a delivery package. Candidate 9476b57 remains
 quarantined. This checkpoint supersedes earlier component-only descriptions.
 
+## Unaffected member reuse in the current repaired plan — 2026-11-03
+
+The native retry reconciler now freezes each drained peer and the actual repair
+impact in its signed decision. An unchanged member can enter the new plan's
+whole-denominator review with its original Case/ETU/WorkItem/Attempt, worker,
+session, formal receipt, business assertion and cleanup proof. Its immutable
+preparation/admission is not rewritten and its old lease remains revoked.
+Preparing that WorkItem for another business execution is explicitly rejected.
+
+Reuse requires explicit dependency impact, no affected obligation/ETU, no changed
+reference anywhere in the original contract, identical complete contract digest
+(including data verification provenance), unchanged N1..N4 lineage, and a current
+N1..N6 admission for the new plan. Signed checkpoint/impact/decision and all
+captured required bytes are rechecked. A matching DataRef or non-STALE label alone
+is insufficient. Read-only admission validation permits review/finalized node
+states; actual execution admission retains READY/RUNNING and all source gates.
+
+The complete evidence bundle copies reused bytes from the verified checkpoint,
+so a new attempt's separate output directory cannot lose the historical member.
+The actual independent reviewer still reviews every current plan Case. Changes
+from original RUNNING/EVIDENCE_READY to finalized Task/binding states are accepted
+only with the matching signed successful independent review and exact scope;
+forged completion metadata cannot activate that historical branch. Completed
+review and checkpoint replay remain read-only across a cold restart.
+
+Actual local proof: first Case executes/cleans, a different Case loses only its
+own exact DataRef, independent N8 diagnosis/checkpoint/scoped compensation/native
+N5 physical repair+independent re-probe/new Gate/native N6/new plan follows. The
+unaffected first Attempt is reused and the failed Case gets actual new execution;
+all original Cases enter independent N7_PASS with one business action per Case,
+old failed history intact, and no Mission convergence or Field claim.
+
+Captured bytes/impact/decision tampering block before replacement permission.
+Signed READY recovered before plan publication causes no repeated business call.
+Actual repair of the completed member's data refuses reuse and retains its
+DRAINED state without new execution permission: governed replacement Attempt for that affected member remains C06 work.
+Generic orphan/drain disposition and provider/session/DSH call-time fencing are
+still incomplete. Integrated planning/admission/review/finalization/drain/retry62
+passed203.00s; final reuse/lease-renewal/repair-boundary34 passed113.95s, including
+renewed historical member evidence, cold completion replay and negative proofs.
+Compilation/diff checks passed. No final package exists.
+Parent c17a647 Windows clean unpack passed; Construction/platform remain live.
+
 ## Executed-member evidence checkpoint and repair drain — 2026-11-03
 
 ExecutionMemberDrainService now checkpoints one actual formal N7 member only

@@ -76,7 +76,7 @@ class ExecutionMemberDrainService:
         self.truth.append_atomic(_EVENT, payload)
         return signed_member_drain(self.preparation, self._one(_KIND, preparation_id=row['preparation_id']))
 
-    def _snapshot(self, p):
+    def _snapshot(self, p, *, allow_finalized=False):
         plan = self._one('rc72_n7_execution_plan', plan_id=p['plan_id'])
         if any(plan[key] != p[key] for key in ('release_id', 'source_commit', 'mission_id', 'release_batch_id')):
             raise ContractError('N7_MEMBER_DRAIN_PLAN_SCOPE_CHANGED')
@@ -93,7 +93,7 @@ class ExecutionMemberDrainService:
             raise ContractError('N7_MEMBER_DRAIN_ORIGINAL_ADMISSION_CHANGED')
         # Historical validation never admits current execution or a PASS. N5/N6
         # may already be invalidated by another member's accepted diagnosis.
-        case = self.review._case_snapshot(plan, items[0], cases, p, current_upstream=False)
+        case = self.review._case_snapshot(plan, items[0], cases, p, current_upstream=False, allow_finalized=allow_finalized)
         if any(not call.get('runtime_signature') for call in self.truth.query(
                 'rc72_n7_cleanup_call', preparation_id=p['preparation_id'])):
             raise ContractError('N7_MEMBER_DRAIN_SIGNED_CLEANUP_REQUIRED')
@@ -103,16 +103,46 @@ class ExecutionMemberDrainService:
             raise ContractError('N7_MEMBER_DRAIN_LIVE_DISPATCH_MUST_EXIT')
         return case
 
-    def _audit(self, row, *, terminal=False):
+    def _accepted_finalization(self, row, task, binding):
+        p = row['original_preparation']
+        attempt = self._one('execution_attempt', attempt_id=p['attempt_id'])
+        receipt_id = attempt.get('final_review_result_id')
+        if not receipt_id or attempt['status'] != 'PASS':
+            raise ContractError('N7_MEMBER_DRAIN_SIGNED_FINAL_REVIEW_REQUIRED')
+        from .rc72_n7_finalization import ExecutionFinalizationService
+        from .rc72_n7_evidence_review import _validate as validate_bundle
+        receipt = ExecutionFinalizationService(self.review)._verify(
+            self._one('rc72_n7_execution_review', review_result_id=receipt_id))
+        bundle = validate_bundle(self._one('rc72_n7_evidence_bundle', bundle_id=receipt['bundle_id']))
+        cases = [case for case in bundle['case_results'] if case['preparation_id'] == p['preparation_id']]
+        if (receipt['verdict'] != 'PASS' or receipt['bundle_sha256'] != bundle['bundle_sha256'] or len(cases) != 1
+                or any(receipt[key] != p[key] for key in ('release_id', 'source_commit'))
+                or any(cases[0].get(k) != v for k, v in row['case_snapshot'].items())):
+            raise ContractError('N7_MEMBER_DRAIN_FINAL_REVIEW_SCOPE_CHANGED')
+        ignored_task = {'state', 'artifact_version', 'updated_at', 'output_artifact_refs', 'evaluation_id'}
+        ignored_binding = {'state', 'artifact_version'}
+        if (task['state'] not in {'RUNNING', 'OUTPUT_PRODUCED', 'EVALUATING', 'PASS'}
+                or binding['state'] not in {'EVIDENCE_READY', 'COMPLETED'}
+                or {k: v for k, v in task.items() if k not in ignored_task}
+                != {k: v for k, v in row['original_task'].items() if k not in ignored_task}
+                or {k: v for k, v in binding.items() if k not in ignored_binding}
+                != {k: v for k, v in row['original_binding'].items() if k not in ignored_binding}):
+            raise ContractError('N7_MEMBER_DRAIN_FINALIZED_OWNER_CHANGED')
+
+    def _audit(self, row, *, terminal=False, allow_finalized=False):
         signed_member_drain(self.preparation, row)
         p = self._one('rc72_n7_execution_preparation', preparation_id=row['preparation_id'])
         original = row['original_preparation']
         expected = dict(original, status='DRAINED', artifact_version=original['artifact_version'] + 1)
         if p != (expected if terminal else original) and (terminal or p != expected):
             raise ContractError('N7_MEMBER_DRAIN_PREPARATION_CHANGED')
-        if (self._one('rc7_task', task_id=p['workitem_id']) != row['original_task']
-                or self._one('rc72_workitem_attempt_binding', binding_id=p['binding_id']) != row['original_binding']
-                or self._snapshot(p) != row['case_snapshot']):
+        task = self._one('rc7_task', task_id=p['workitem_id'])
+        binding = self._one('rc72_workitem_attempt_binding', binding_id=p['binding_id'])
+        if task != row['original_task'] or binding != row['original_binding']:
+            if not allow_finalized:
+                raise ContractError('N7_MEMBER_DRAIN_EXECUTION_EVIDENCE_CHANGED')
+            self._accepted_finalization(row, task, binding)
+        if self._snapshot(p, allow_finalized=allow_finalized) != row['case_snapshot']:
             raise ContractError('N7_MEMBER_DRAIN_EXECUTION_EVIDENCE_CHANGED')
         declarations = {item['requirement']: item for item in row['case_snapshot']['evidence_declarations']}
         captures = row['captured_evidence']
@@ -133,11 +163,11 @@ class ExecutionMemberDrainService:
             raise ContractError('N7_MEMBER_DRAIN_SESSION_CHANGED')
         return p
 
-    def assert_drained(self, preparation_id):
+    def assert_drained(self, preparation_id, *, allow_finalized=False):
         row = signed_member_drain(self.preparation, self._one(_KIND, preparation_id=preparation_id))
         if row['state'] != 'DRAINED':
             raise ContractError('N7_MEMBER_DRAIN_INCOMPLETE')
-        self._audit(row, terminal=True)
+        self._audit(row, terminal=True, allow_finalized=allow_finalized)
         return row
 
     def drain(self, preparation_id):
@@ -148,7 +178,7 @@ class ExecutionMemberDrainService:
                     raise ContractError('N7_MEMBER_DRAIN_NOT_UNIQUE')
                 row = signed_member_drain(self.preparation, prior[0])
                 if row['state'] == 'DRAINED':
-                    return self.assert_drained(preparation_id)
+                    return self.assert_drained(preparation_id, allow_finalized=True)
             else:
                 p = self._one('rc72_n7_execution_preparation', preparation_id=preparation_id)
                 if p['status'] != 'PREPARED':
@@ -191,11 +221,11 @@ class ExecutionMemberDrainService:
             return row
 
 
-def assert_drained_member(preparation, preparation_id):
+def assert_drained_member(preparation, preparation_id, *, allow_finalized=False):
     row = signed_member_drain(preparation, preparation._one(_KIND, preparation_id=preparation_id))
     review = ExecutionEvidenceReviewService(preparation, adapter_output_root=row['adapter_output_root'],
                                            capture_root=row['capture_root'])
-    return ExecutionMemberDrainService(review).assert_drained(preparation_id)
+    return ExecutionMemberDrainService(review).assert_drained(preparation_id, allow_finalized=allow_finalized)
 
 
 install_rc72_n7_member_drain_overlay()

@@ -19,6 +19,10 @@ def _validate(payload):
     for key in ('original_plan', 'original_snapshot', 'original_preparation', 'original_binding', 'repair_record', 'boundary_record', 'n5_context'):
         if not isinstance(row.get(key), dict):
             raise contracts.DomainValidationError('N8_RETRY_RECONCILIATION_CONTEXT_REQUIRED')
+    if not isinstance(row.get('members', []), list) or any(not isinstance(member, dict) for member in row.get('members', [])):
+        raise contracts.DomainValidationError('N8_RETRY_MEMBER_CHECKPOINTS_REQUIRED')
+    if row['state'] == 'READY' and not isinstance(row.get('member_decisions', []), list):
+        raise contracts.DomainValidationError('N8_RETRY_MEMBER_DECISIONS_REQUIRED')
     if not isinstance(row.get('targets'), list):
         raise contracts.DomainValidationError('N8_RETRY_RECONCILIATION_TARGETS_REQUIRED')
     if row['state'] == 'READY' and not isinstance(row.get('plan'), dict):
@@ -72,6 +76,9 @@ def assert_reconciled_plan(planning, plan):
     for item in plan['items']:
         if any(item[key] != old_items[item['case_id']][key] for key in ('workitem_id', 'etu_id', 'input_artifact_refs')):
             raise ContractError('N8_RETRY_ORIGINAL_IDENTITY_REQUIRED')
+    from .rc72_n8_member_reuse import member_reuse_decisions
+    if row.get('member_decisions', []) != member_reuse_decisions(planning, row, plan):
+        raise ContractError('N8_REUSE_DECISION_CHANGED')
     return row
 
 
