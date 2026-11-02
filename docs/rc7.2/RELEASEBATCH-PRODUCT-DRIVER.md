@@ -108,3 +108,9 @@ N5 最终本轮源码证据：`release-driver-n5-final.log`，4 passed / 134.05 
 不能掩盖未完成工作项、同一流程三处持久化后冷接续。重流程分文件执行，
 没有删减必验数据需求范围。`release-driver-n5-native-regression.log`，
 124 passed / 137.46 s；`release-driver-n5-control-regression.log`，7 passed / 0.52 s。
+
+平台验证时间预算：b032924 的 Linux 工程验证已通过，Windows 检查
+125533816804 明确因整项任务超过 30m0s 而取消，不能记为通过。
+工作流整套任务上限调整为 120 分钟，原有逐文件 180 秒及依赖安装 120 秒
+保护保持不变，没有减少文件、降低断言或放宽验收标准。
+`qualification-suite-budget.log`：7 passed / 0.03 s。仍需新源码同源平台结果。

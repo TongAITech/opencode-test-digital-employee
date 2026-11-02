@@ -35,7 +35,9 @@ jobs:
             label: linux-engineering-proxy
             qualification_kind: LINUX_ENGINEERING_PROXY
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # The full Windows suite exceeded 30m on b032924 (check run 125533816804).
+    # Per-file 180s worker bounds remain unchanged; allow the complete suite.
+    timeout-minutes: 120
     steps:
       - name: Checkout exact RC7.2 source
         uses: actions/checkout@v4
