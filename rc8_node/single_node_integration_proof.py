@@ -122,8 +122,6 @@ class SingleNodeDurableIntegrationProofRunner:
     def _assert_clean_production_preflight(self, test_run_id: str) -> None:
         """Fail before the first Center claim if any worker-owned durable truth is dirty."""
         self.truth_reader.assert_no_attempts_for_test_run(test_run_id)
-        # Only the production reader can establish the Artifact surface as production
-        # truth. Boundary doubles used by unit tests are deliberately not promotable.
         if isinstance(self.truth_reader, ProductionCenterR1TruthReader):
             self.truth_reader.assert_no_artifacts_for_test_run(test_run_id)
         self.truth_reader.assert_no_r1_attempt_lifecycle_for_test_run(test_run_id)
@@ -139,6 +137,10 @@ class SingleNodeDurableIntegrationProofRunner:
             self.truth_reader.assert_attempt_ids_match_observed_leases(
                 test_run_id=run_id,
                 observed_lease_ids=observed.lease_ids,
+            )
+            self.truth_reader.assert_worker_artifact_refs_match_observed_evidence(
+                test_run_id=run_id,
+                observed_evidence_refs=observed.evidence_refs,
             )
             self.truth_reader.assert_r1_attempt_lifecycle_matches_observed_leases(
                 test_run_id=run_id,
