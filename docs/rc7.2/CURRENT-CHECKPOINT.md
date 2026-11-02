@@ -15,6 +15,40 @@ Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md. Finish
 construction before preparing a delivery package. Candidate 9476b57 remains
 quarantined. This checkpoint supersedes earlier component-only descriptions.
 
+## Executed-member evidence checkpoint and repair drain — 2026-11-03
+
+ExecutionMemberDrainService now checkpoints one actual formal N7 member only
+when its original signed owner/contract/dispatch, business Oracle, Attempt and
+Assertion, successful formal receipt, signed cleanup calls, independent cleanup
+predicates and released exact resource denominator all verify. Every declared
+required evidence file is captured and hashed before a durable signed intent.
+That intent suspends cold/live preparation restoration before worker closure and
+the preparation moves to DRAINED. Task RUNNING, binding EVIDENCE_READY and the
+original BLOCKED Attempt remain unchanged: there is no Case PASS or reuse grant.
+
+The whole-plan review retains its complete Case denominator and all current
+upstream checks. Its existing member verifier was extracted for reuse by the
+historical checkpoint (which cannot authorize execution or review). The native
+repair boundary accepts a DRAINED peer only after revalidating its signed record,
+original execution/cleanup proof and captured bytes. A real two-Case test proves
+an executed peer initially blocks N8 repair, then verified checkpoint permits
+the failed Case's scoped compensation without another business action.
+
+PLANNED/session-close/preparation-update crashes resume without subprocess or
+business replay. Cold preparation cannot revive the old lease. Missing cleanup,
+unsigned/altered cleanup and changed captured bytes block checkpoint acceptance.
+Unknown actual business effects retain resource custody and cannot be promoted
+to a drained member. A separate repaired-plan impact/scope decision is still
+required to reuse a historical member or safely create its replacement Attempt;
+DataRepairContinuationService still rejects those members pending that work.
+This is not a completed multi-member retry/reuse feature or generic orphan drain.
+
+Validation: final member checkpoint9 passed32.63s; actual two-member boundary1
+passed5.69s. Inherited member/review/finalization/repair chain47 passed124.91s.
+Heartbeat/retry and actual unknown-effect chain21 passed101.98s.
+Compilation and diff checks passed. Field/BANK_FINAL remains false. Parent e6e212d Windows clean unpack
+passed; b0ca19c Construction/platform qualification remains in progress.
+
 ## Actual formal-process heartbeat and automatic renewal — 2026-11-03
 
 SignedToolDispatchService now binds the concrete FormalN7RunnerAdapter to its

@@ -496,3 +496,26 @@ Parent 2ffe9f9 passed Construction, Windows clean unpack and Windows/Linux
 platform baseline. This source needs its own exact-commit platform qualification.
 Generic orphan recovery, multi-member drain/reuse, DSH call-time fencing and
 product-wide scheduling remain open. No Field or BANK_FINAL claim is made.
+
+
+## Executed-member checkpoint before N8 repair — 2026-11-03
+
+Native member drain consumes the same original business/Oracle/Attempt/assertion/
+formal receipt and exact cleanup/resource proof as the whole-plan review, with
+a separate signed historical candidate that grants no review or execution. All
+required bytes are captured before signed PLANNED, which suspends cold authority;
+closure and DRAINED resume after interruption without new business I/O. Original
+Task RUNNING/binding EVIDENCE_READY/Attempt BLOCKED are preserved. The native
+repair boundary audits DRAINED peers instead of accepting their status alone.
+Actual two-member local execution -> data failure -> independent N8 diagnosis ->
+blocked boundary -> peer checkpoint -> scoped compensation/REPAIR_OPEN passed.
+Missing/unsigned/changed cleanup and tampered captured files fail closed.
+
+The full-plan denominator and live upstream source checks remain unchanged.
+Historical drain cannot itself approve old evidence for a repaired plan. Impact/
+scope-equivalence reuse decisions and fresh Attempt scheduling for affected
+completed members remain C06 work; the current retry reconciler rejects them.
+Generic unknown-effect/orphan recovery and remote drain are not established.
+Final checkpoint9 tests passed32.63s; actual two-member boundary1 passed5.69s.
+Inherited member/review/finalization/repair47 passed124.91s; heartbeat/retry
+chain21 passed101.98s. Compilation/diff checks passed. Field/BANK_FINAL stays unverified.

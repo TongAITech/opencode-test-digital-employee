@@ -6,6 +6,7 @@ submits the whole Case denominator for review. Target/runner gaps stay explicit.
 """
 from copy import deepcopy
 import hashlib
+import hmac
 import os
 import tempfile
 from pathlib import Path
@@ -92,6 +93,12 @@ class ExecutionEvidenceReviewService:
         for phase, tool in (('CLEANUP', cleanup['tool']), ('VERIFY', verification['tool'])):
             call_id = 'N7CLEAN-' + _hash([p['preparation_id'], c['contract_sha256'], phase, tool])[:24]
             row = self._one('rc72_n7_cleanup_call', call_id=call_id)
+            signature = row.get('runtime_signature')
+            if signature is not None:
+                signed = {key: value for key, value in row.items()
+                          if key not in {'runtime_signature', 'artifact_type', 'artifact_version'}}
+                if not hmac.compare_digest(signature, self.preparation.authority._sign(signed)):
+                    raise EvidenceReviewError('N7_REVIEW_CLEANUP_SIGNATURE_INVALID')
             context = {key: deepcopy(p[key]) for key in ('workitem_id', 'attempt_id', 'worker_id',
                         'session_id', 'data_lease_ids', 'browser_lease_ids')}
             context.update(phase=phase, cleanup_receipt_ref=calls[0]['call_id'] if calls else None)
@@ -152,64 +159,67 @@ class ExecutionEvidenceReviewService:
                                         workitem_id=item['workitem_id'], status='PREPARED')
             if len(prepared) != 1:
                 raise EvidenceReviewError('N7_REVIEW_CASE_EXECUTION_REQUIRED')
-            p, c, binding, admission, dispatch, oracle = self.evidence.observation(prepared[0]['preparation_id'])
-            if (p['case_id'] != item['case_id'] or p['contract_id'] != item['contract_id']
-                    or p['admission_id'] != item['admission_id'] or p['etu_id'] != item['etu_id']
-                    or p['mission_id'] != plan['mission_id'] or binding['state'] not in ({'EVIDENCE_READY', 'COMPLETED'} if allow_finalized else {'EVIDENCE_READY'})
-                    or cases[p['case_id']]['source_case_sha256'] not in c['authoritative_sources']):
-                raise EvidenceReviewError('N7_REVIEW_CASE_BINDING_INVALID')
-            for parent in admission['upstream_refs']:
-                current = self.preparation.planning.admission._active_pass(p['mission_id'], p['release_batch_id'],
-                    AutonomousMissionNode(parent['node_type']))
-                if parent['digest'] != _hash(list(current)):
-                    raise EvidenceReviewError('N7_REVIEW_UPSTREAM_CHANGED')
-            if dispatch['state'] != 'RETURNED' or not oracle or not oracle['passed']:
-                raise EvidenceReviewError('N7_REVIEW_BUSINESS_RESULT_NOT_PASSING')
-            task = self._one('rc7_task', task_id=p['workitem_id'])
-            allowed_tasks = {'RUNNING', 'OUTPUT_PRODUCED', 'EVALUATING', 'PASS'} if allow_finalized else {'RUNNING'}
-            if (task['state'] not in allowed_tasks or task.get('lease_owner') != p['worker_id']
-                    or task.get('mission_id') != plan['mission_id']
-                    or task.get('input_artifact_refs') != item['input_artifact_refs']):
-                raise EvidenceReviewError('N7_REVIEW_WORKITEM_NOT_CURRENT')
-            attempt = self._one('execution_attempt', attempt_id=p['attempt_id'])
-            assertion = self._one('assertion', id=attempt['assertion_ref'])
-            expected_assertion = 'N7ASSERT-' + _hash([p['attempt_id'], oracle])[:24]
-            if (attempt['assertion_ref'] != expected_assertion
-                    or attempt.get('tool_call_refs') != [dispatch['dispatch_id']]
-                    or attempt.get('contract_sha256') != c['contract_sha256']
-                    or assertion.get('details') != oracle['details']
-                    or assertion.get('evidence_refs') != attempt.get('observation_evidence_refs', attempt['evidence_refs'])
-                    or attempt.get('actual_result') != dispatch['raw_result'] or attempt.get('worker_id') != p['worker_id']
-                    or assertion.get('attempt_id') != p['attempt_id'] or assertion.get('passed') is not True
-                    or assertion.get('oracle_ref') != oracle['assertion_ref']):
-                raise EvidenceReviewError('N7_REVIEW_ATTEMPT_ASSERTION_MISMATCH')
-            from .rc72_formal_runner import verified_formal_receipt
-            formal = verified_formal_receipt(self.preparation, p, c, dispatch['raw_result'])
-            if formal and (formal['runner_result']['exit_code'] != 0 or not formal['required_tool_observed']):
-                raise EvidenceReviewError('N7_REVIEW_FORMAL_RUNNER_INTEGRITY_FAILED')
-            proof_id = self._cleanup_proof(p, c)
-            required = c['evidence_required']
-            declarations = dispatch['raw_result'].get('evidence')
-            if (not all(isinstance(label, str) and label.strip() for label in required)
-                    or len(set(required)) != len(required) or not isinstance(declarations, list)
-                    or len(declarations) != len(required) or not all(isinstance(row, dict) and isinstance(row.get('requirement'), str) for row in declarations)
-                    or {row.get('requirement') for row in declarations} != set(required)):
-                raise EvidenceReviewError('N7_REQUIRED_EVIDENCE_DENOMINATOR_MISMATCH')
-            for declared in declarations:
-                if (declared.get('attempt_id') != p['attempt_id'] or declared.get('tool') != dispatch['tool']
-                        or not isinstance(declared.get('path'), str) or not declared['path']
-                        or not isinstance(declared.get('sha256'), str) or len(declared['sha256']) != 64
-                        or any(ch not in '0123456789abcdef' for ch in declared['sha256'])):
-                    raise EvidenceReviewError('N7_REQUIRED_EVIDENCE_BINDING_INVALID')
-            result.append(dict(case_id=p['case_id'], workitem_id=p['workitem_id'], preparation_id=p['preparation_id'],
-                attempt_id=p['attempt_id'], worker_id=p['worker_id'], session_id=p['session_id'],
-                contract_id=c['contract_id'], contract_sha256=c['contract_sha256'], dispatch_id=dispatch['dispatch_id'],
-                receipt_sha256=dispatch['receipt_sha256'], assertion_ref=attempt['assertion_ref'],
-                observation_evidence_refs=attempt.get('observation_evidence_refs', attempt['evidence_refs']), cleanup_evidence_ref=proof_id,
-                formal_runner_receipt_ref=formal['runner_receipt_id'] if formal else None,
-                formal_proof_gaps=[] if formal else list(_GAPS),
-                evidence_declarations=sorted(declarations, key=lambda row: row['requirement'])))
+            result.append(self._case_snapshot(plan, item, cases, prepared[0], allow_finalized=allow_finalized))
         return plan, result
+
+    def _case_snapshot(self, plan, item, cases, prepared, *, allow_finalized=False, current_upstream=True):
+        p, c, binding, admission, dispatch, oracle = self.evidence.observation(prepared['preparation_id'])
+        if (p['case_id'] != item['case_id'] or p['contract_id'] != item['contract_id']
+                or p['admission_id'] != item['admission_id'] or p['etu_id'] != item['etu_id']
+                or p['mission_id'] != plan['mission_id'] or binding['state'] not in ({'EVIDENCE_READY', 'COMPLETED'} if allow_finalized else {'EVIDENCE_READY'})
+                or cases[p['case_id']]['source_case_sha256'] not in c['authoritative_sources']):
+            raise EvidenceReviewError('N7_REVIEW_CASE_BINDING_INVALID')
+        for parent in admission['upstream_refs'] if current_upstream else []:
+            current = self.preparation.planning.admission._active_pass(p['mission_id'], p['release_batch_id'],
+                AutonomousMissionNode(parent['node_type']))
+            if parent['digest'] != _hash(list(current)):
+                raise EvidenceReviewError('N7_REVIEW_UPSTREAM_CHANGED')
+        if dispatch['state'] != 'RETURNED' or not oracle or not oracle['passed']:
+            raise EvidenceReviewError('N7_REVIEW_BUSINESS_RESULT_NOT_PASSING')
+        task = self._one('rc7_task', task_id=p['workitem_id'])
+        allowed_tasks = {'RUNNING', 'OUTPUT_PRODUCED', 'EVALUATING', 'PASS'} if allow_finalized else {'RUNNING'}
+        if (task['state'] not in allowed_tasks or task.get('lease_owner') != p['worker_id']
+                or task.get('mission_id') != plan['mission_id']
+                or task.get('input_artifact_refs') != item['input_artifact_refs']):
+            raise EvidenceReviewError('N7_REVIEW_WORKITEM_NOT_CURRENT')
+        attempt = self._one('execution_attempt', attempt_id=p['attempt_id'])
+        assertion = self._one('assertion', id=attempt['assertion_ref'])
+        expected_assertion = 'N7ASSERT-' + _hash([p['attempt_id'], oracle])[:24]
+        if (attempt['assertion_ref'] != expected_assertion
+                or attempt.get('tool_call_refs') != [dispatch['dispatch_id']]
+                or attempt.get('contract_sha256') != c['contract_sha256']
+                or assertion.get('details') != oracle['details']
+                or assertion.get('evidence_refs') != attempt.get('observation_evidence_refs', attempt['evidence_refs'])
+                or attempt.get('actual_result') != dispatch['raw_result'] or attempt.get('worker_id') != p['worker_id']
+                or assertion.get('attempt_id') != p['attempt_id'] or assertion.get('passed') is not True
+                or assertion.get('oracle_ref') != oracle['assertion_ref']):
+            raise EvidenceReviewError('N7_REVIEW_ATTEMPT_ASSERTION_MISMATCH')
+        from .rc72_formal_runner import verified_formal_receipt
+        formal = verified_formal_receipt(self.preparation, p, c, dispatch['raw_result'])
+        if formal and (formal['runner_result']['exit_code'] != 0 or not formal['required_tool_observed']):
+            raise EvidenceReviewError('N7_REVIEW_FORMAL_RUNNER_INTEGRITY_FAILED')
+        proof_id = self._cleanup_proof(p, c)
+        required = c['evidence_required']
+        declarations = dispatch['raw_result'].get('evidence')
+        if (not all(isinstance(label, str) and label.strip() for label in required)
+                or len(set(required)) != len(required) or not isinstance(declarations, list)
+                or len(declarations) != len(required) or not all(isinstance(row, dict) and isinstance(row.get('requirement'), str) for row in declarations)
+                or {row.get('requirement') for row in declarations} != set(required)):
+            raise EvidenceReviewError('N7_REQUIRED_EVIDENCE_DENOMINATOR_MISMATCH')
+        for declared in declarations:
+            if (declared.get('attempt_id') != p['attempt_id'] or declared.get('tool') != dispatch['tool']
+                    or not isinstance(declared.get('path'), str) or not declared['path']
+                    or not isinstance(declared.get('sha256'), str) or len(declared['sha256']) != 64
+                    or any(ch not in '0123456789abcdef' for ch in declared['sha256'])):
+                raise EvidenceReviewError('N7_REQUIRED_EVIDENCE_BINDING_INVALID')
+        return dict(case_id=p['case_id'], workitem_id=p['workitem_id'], preparation_id=p['preparation_id'],
+            attempt_id=p['attempt_id'], worker_id=p['worker_id'], session_id=p['session_id'],
+            contract_id=c['contract_id'], contract_sha256=c['contract_sha256'], dispatch_id=dispatch['dispatch_id'],
+            receipt_sha256=dispatch['receipt_sha256'], assertion_ref=attempt['assertion_ref'],
+            observation_evidence_refs=attempt.get('observation_evidence_refs', attempt['evidence_refs']), cleanup_evidence_ref=proof_id,
+            formal_runner_receipt_ref=formal['runner_receipt_id'] if formal else None,
+            formal_proof_gaps=[] if formal else list(_GAPS),
+            evidence_declarations=sorted(declarations, key=lambda row: row['requirement']))
 
     def _file_bytes(self, declared):
         path = (self.output_root / declared['path']).resolve()

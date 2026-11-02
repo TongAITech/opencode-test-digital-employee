@@ -42,7 +42,7 @@ def _validate(payload):
                 'mission_id', 'plan_id', 'admission_id', 'contract_id', 'case_id',
                 'etu_id', 'workitem_id', 'attempt_id', 'binding_id', 'worker_id', 'session_id'):
         out[key] = contracts._require_str(out, key)
-    if out.get('status') not in {'PREPARED', 'INTERRUPTED'} or not isinstance(out.get('worker_identity'), dict) or not isinstance(out.get('task_lease'), dict):
+    if out.get('status') not in {'PREPARED', 'INTERRUPTED', 'DRAINED'} or not isinstance(out.get('worker_identity'), dict) or not isinstance(out.get('task_lease'), dict):
         raise contracts.DomainValidationError('N7_PREPARATION_AUTHORITY_REQUIRED')
     for key in ('allowed_artifact_types', 'allowed_tools'):
         value = out['task_lease'].get(key)
@@ -206,6 +206,11 @@ class ExecutionPreparationService:
         return self.assert_current(payload['preparation_id'])
 
     def _assert_runtime_suspension(self, row):
+        for drain in self.truth.query('rc72_n7_member_drain', preparation_id=row['preparation_id']):
+            from .rc72_n7_member_drain import signed_member_drain
+            signed_member_drain(self, drain)
+            self.authority.revoke_worker_lease(row['task_lease']['lease_id'])
+            raise ExecutionPreparationError('N7_EXECUTION_SUSPENDED_BY_MEMBER_CHECKPOINT')
         if self.truth.query('rc72_n8_repair_boundary', preparation_id=row['preparation_id']):
             self.authority.revoke_worker_lease(row['task_lease']['lease_id'])
             raise ExecutionPreparationError('N7_EXECUTION_SUSPENDED_BY_REPAIR_BOUNDARY')

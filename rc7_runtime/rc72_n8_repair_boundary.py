@@ -107,6 +107,9 @@ class RepairBoundaryService:
                     or parent['delivery_id'] not in node['delivery_refs'] or _hash([node, delivery, gate]) != parent['digest']):
                 raise ContractError('N8_CLEANUP_UPSTREAM_SOURCE_CHANGED')
         for other in self.truth.query('rc72_n7_execution_preparation', mission_id=p['mission_id']):
+            if other['status'] == 'DRAINED':
+                from .rc72_n7_member_drain import assert_drained_member
+                assert_drained_member(self.preparation, other['preparation_id'])
             if other['preparation_id'] != preparation_id and other['status'] == 'PREPARED':
                 raise ContractError('N8_REPAIR_OTHER_EXECUTION_MUST_DRAIN')
         for kind in ('rc72_data_lease', 'rc72_browser_lease'):
