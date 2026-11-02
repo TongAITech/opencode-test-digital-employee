@@ -434,6 +434,13 @@ class N5DataResolutionService:
         )
         return resource
 
+    def verified_binding(self, *, data_requirement_id: str) -> Dict[str, Any]:
+        """Resolve a unique binding and recheck its live resource and Evidence."""
+        requirement = self._requirement(data_requirement_id)
+        binding = self._one("rc72_n5_data_binding", data_requirement_id=data_requirement_id)
+        self._validate_binding(requirement, binding)
+        return binding
+
     def _plan_payload(self, requirement: Mapping[str, Any]) -> Dict[str, Any]:
         data_requirement_id = str(requirement["data_requirement_id"])
         bindings = self.truth.query(

@@ -1,6 +1,6 @@
 # RC7.2 Current Construction Checkpoint
 
-Status: **DESIGN_RECONCILED_INCOMPLETE / N7_ADMISSION_NEXT / NO_DELIVERY**
+Status: **DESIGN_RECONCILED_INCOMPLETE / N7_ADMISSION_COMPONENT_TESTED / NO_DELIVERY**
 
 BASELINE_HEAD=9476b57cf70056f958352762c14a5ec3b2b2151d
 CONTRACT_SET=docs/rc7.2/00..05 + 07 + 08 + 09
@@ -26,3 +26,11 @@ Next atomic step: implement and negatively test replay-safe N7 admission from
 active non-stale N6 contract and complete upstream canonical gates, before
 creating execution leases or results. Then continue the corrected construction
 sequence until the implementation rows are closed.
+
+## N7 admission slice update
+
+ExecutionAdmissionService now has 11 negative/replay/lineage tests; combined
+focused regression: 25 passed. Actual dispatch consumers are still pending.
+Next: approved N4 assets/canonical N6 adaptation → persisted N7 planning →
+signed worker/resource acquisition → thin execution → independent diagnosis.
+The N7 admission component is not a claim that N7 is complete.

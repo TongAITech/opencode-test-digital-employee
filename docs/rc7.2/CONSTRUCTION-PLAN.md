@@ -1,3 +1,22 @@
+# N7 admission construction slice — 2026-11-02
+
+baseline_head: 9476b57cf70056f958352762c14a5ec3b2b2151d
+phase: N7_EXECUTION_ADMISSION
+clauses: 01 sections 3/5/9; 02 Phase 3, CT-01/04/17; 03 section 10
+status: CODE_COMPLETE_COMPONENT_ONLY
+implemented: read-only current N1-N6 active gate/delivery checks, immutable N6
+content identity, full canonical Case denominator, live hash-verified N3/N4/N5
+inventory, current verified resources/Evidence, DataRef and expiry checks,
+replay-safe admission, revalidation before use, no leases/results on admission.
+test_evidence: 25 focused passed (11 new N7 + N5 inventory/resolution + cold start).
+field_evidence: unavailable
+remaining: actual planning/WorkItem/worker/resource/tool consumer; result/diagnosis
+and product wiring; N4 canonical asset promotion/N6 canonical compiler integration.
+next_atomic_step: canonical approved N4 assets and N6 contract adapter, then
+persistent N7 planning and actual dispatch. Overall remains INCOMPLETE.
+
+---
+
 # Authoritative construction correction — 2026-11-02
 
 OVERALL_STATUS=INCOMPLETE; DELIVERY_AUTHORIZED=false.

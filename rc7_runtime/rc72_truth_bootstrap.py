@@ -10,6 +10,7 @@ from threading import RLock
 _LOCK = RLock()
 _INSTALLED = False
 _INSTALLERS = (
+    ('rc72_n7_execution_admission', 'install_rc72_n7_execution_admission_overlay'),
     ('rc72_browser_resources', 'install_rc72_browser_overlay'),
     ('rc72_capability_broker', 'install_rc72_capability_overlay'),
     ('rc72_coverage_convergence', 'install_rc72_coverage_overlay'),

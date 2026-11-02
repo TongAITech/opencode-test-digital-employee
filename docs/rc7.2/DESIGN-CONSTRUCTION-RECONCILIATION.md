@@ -92,3 +92,16 @@ until an explicit runnable product path and negative regressions establish it.
 
 A later slice may reveal more gaps. Add them explicitly; do not change the design
 or lower acceptance gates to make this ledger look complete.
+
+## Construction findings after the initial audit
+
+- Added rc72_n7_execution_admission: component-only, 11 new tests; no real
+  dispatch consumer yet. Recheck reads hash-verified live N3/N4 inventory and
+  canonical N5 binding/resources; no write occurs on denial.
+- N4 candidate obligations are not yet promoted by N4 completion into the
+  rc72_test_obligation repository consumed by the persistent decomposer. This
+  is a confirmed canonical asset bridge gap, not a missing field environment.
+- Existing N6 tests compile a separate Case-shaped fixture rather than the
+  approved N4 Case. A canonical N4→N6 adapter and semantic lineage checks remain
+  necessary before product integration can be considered closed.
+- Historical portable preparation is quarantined and is not a delivery.

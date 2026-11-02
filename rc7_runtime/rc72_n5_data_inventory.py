@@ -389,7 +389,7 @@ class N5DataRequirementInventoryService:
         return {key: sorted(set(value)) for key, value in result.items()}
 
     def _expected(
-        self, *, release_batch_id: str
+        self, *, release_batch_id: str, execution_recheck: bool = False
     ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], List[Dict[str, Any]], Dict[str, Any]]:
         batch = self._one("rc72_release_batch", release_batch_id=release_batch_id)
         mission_id = _required(batch.get("mission_id"), "mission_id")
@@ -402,16 +402,14 @@ class N5DataRequirementInventoryService:
         )
         if n5.get("scope_ref") != "release-batch://%s" % release_batch_id:
             raise N5DataInventoryError("RC72_N5_DATA_NODE_SCOPE_MISMATCH")
-        if n5.get("state") not in {
-            MissionNodeState.READY.value,
-            MissionNodeState.RUNNING.value,
-        }:
-            raise N5DataInventoryError(
-                "RC72_N5_DATA_N5_NOT_ADMITTED:%s"
-                % str(n5.get("state") or "UNKNOWN")
-            )
-        if n6.get("state") != MissionNodeState.NOT_STARTED.value:
-            raise N5DataInventoryError("RC72_N5_DATA_N6_PREMATURELY_RELEASED")
+        if execution_recheck:
+            if n5.get("state") != "PASS" or n6.get("state") != "PASS":
+                raise N5DataInventoryError("RC72_N5_EXECUTION_RECHECK_REQUIRES_PASS_N5_N6")
+        else:
+            if n5.get("state") not in {"READY", "RUNNING"}:
+                raise N5DataInventoryError("RC72_N5_DATA_N5_NOT_ADMITTED:%s" % n5.get("state"))
+            if n6.get("state") != "NOT_STARTED":
+                raise N5DataInventoryError("RC72_N5_DATA_N6_PREMATURELY_RELEASED")
 
         _n4_node, n4_delivery, n4_gate = self._active_pass_delivery(
             mission_id=mission_id,
@@ -685,6 +683,27 @@ class N5DataRequirementInventoryService:
         ):
             result[name] = list(row.get(name) or [])
         return result
+
+    def current_requirements(self, *, release_batch_id: str) -> List[Dict[str, Any]]:
+        """Read-only execution recheck against current hash-verified N3/N4 truth.
+
+        Re-derive the denominator without mutating completed N5 state. A stale
+        inventory, changed artifact bytes or changed parent gate fails closed.
+        """
+        _batch, _n5, _n6, expected, snapshot = self._expected(
+            release_batch_id=release_batch_id, execution_recheck=True,
+        )
+        stored = self._one(_SNAPSHOT_ARTIFACT, release_batch_id=release_batch_id)
+        if self._snapshot_signature(stored) != self._snapshot_signature(snapshot):
+            raise N5DataInventoryError("RC72_N5_EXECUTION_INVENTORY_STALE")
+        actual = self.truth.query(_REQUIREMENT_ARTIFACT, release_batch_id=release_batch_id)
+        by_id = {row["data_requirement_id"]: row for row in actual}
+        if len(by_id) != len(actual) or set(by_id) != {row["data_requirement_id"] for row in expected}:
+            raise N5DataInventoryError("RC72_N5_EXECUTION_DENOMINATOR_MISMATCH")
+        for row in expected:
+            if self._requirement_signature(by_id[row["data_requirement_id"]]) != self._requirement_signature(row):
+                raise N5DataInventoryError("RC72_N5_EXECUTION_REQUIREMENT_STALE")
+        return expected
 
     def materialize(self, *, release_batch_id: str) -> Dict[str, Any]:
         release_batch_id = _required(release_batch_id, "release_batch_id")
