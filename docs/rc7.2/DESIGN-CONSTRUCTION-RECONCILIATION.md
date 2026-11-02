@@ -432,3 +432,41 @@ for every expired external process. Renewal, unknown-effect/orphan adjudication,
 cleanup-time expiry after other failure classes, actual DSH call-time fencing
 and final browser field recovery remain C06/C07/C09 work. Full design and portable
 package delivery remain incomplete; Field/BANK_FINAL stays unverified.
+
+
+## Native whole-ownership temporal renewal — 2026-11-03
+
+The native renewal API extends one live owned Attempt's worker/data/browser
+windows together, with original preparation and signed lease retained as history.
+Signed PLANNED/APPLIED generation records bind Mission/Batch/WorkItem/Attempt/
+Worker/Session, original contract/plan, policy, prior lease and complete resource
+denominator. All projections must commit before the effective signed temporal
+amendment is usable. No scope, tool, data mode, cleanup policy or identity may
+change. Partial renewal blocks native execution and resumes only while its prior
+deadline and current ownership remain valid. Expired or diagnosed work cannot be
+revived by renewal. IN_FLIGHT requires the actual live dispatcher instance; cold
+reconstruction is not a liveness proof. Policy refusal preserves incomplete work.
+
+Preparation and renewal now share exact tuple/resource validation. A validly
+signed wrong-task lease or altered data mode/cleanup contract fails before new
+authority. Dispatch and formal execution carry runtime authorization capsules
+with effective expiry/renewal reference and exact compiled contract/source scope.
+Historical evidence consumes signed capsules/renewal history without restoring
+permission, including after data repair interrupts the original preparation.
+Actual local tests cross the original deadline using deterministic lease clocks,
+run the full strict business/cleanup/independent finalization denominator and
+preserve old preparation. Renewed data failure -> expiry -> accepted compensation
+-> same WorkItem/ETU replacement -> full N7_PASS is exercised as well. No Mission
+convergence or Field proof is manufactured.
+
+Inherited chain86 passed165.06s; final source/scope/history/process/Broker53 passed
+80.71s (1 inherited collection warning). Automatic product heartbeats, generic
+orphan/drain recovery, provider/session takeover and DSH call-time interception
+remain C06/C07/C08 work; this is not the full Phase 7 completion gate.
+
+Platform17dd427: Construction/Q2/Linux engineering passed, Windows Q1 failed
+contention checks because a sentinel byte was read before obtaining its lock.
+The range is now locked without pre-read or initialization, retaining nonblocking
+conflict handling for empty and existing lock files. [Microsoft CRT documentation](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/locking)
+permits locking a range beyond EOF. Actual Windows qualification of the fix is
+pending on the next exact source; no scope or timeout was reduced to hide failure.

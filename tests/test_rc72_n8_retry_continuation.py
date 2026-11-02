@@ -69,14 +69,27 @@ def _whole_inventory_repaired(tmp_path, monkeypatch):
         raise
 
 
+@pytest.mark.parametrize('renew_before_failure', [False, True])
 @pytest.mark.parametrize('expired_custody', [False, True])
-def test_actual_full_denominator_retry_runs_strict_runner_and_finalizes_without_changing_old_failure(tmp_path, monkeypatch, expired_custody):
+def test_actual_full_denominator_retry_runs_strict_runner_and_finalizes_without_changing_old_failure(tmp_path, monkeypatch, expired_custody, renew_before_failure):
     from rc72_formal_runner_support import LocalHTTPEnvironment
     from rc7_runtime.rc72_formal_runner import FormalN7RunnerAdapter
     from rc7_runtime.rc72_n7_tool_dispatch import SignedToolDispatchService
     from rc7_runtime.rc72_n7_cleanup import ExecutionCleanupService
     from rc7_runtime.rc72_n7_evidence_review import ExecutionEvidenceReviewService
     from rc7_runtime.rc72_n7_finalization import ExecutionFinalizationService
+    renewed = []
+    if renew_before_failure:
+        from rc7_runtime.rc72_n7_tool_dispatch import SignedToolDispatchService
+        from rc7_runtime.rc72_lease_renewal import ExecutionLeaseRenewalService
+        original_dispatch = SignedToolDispatchService.dispatch
+        def dispatch_after_renewal(dispatcher, preparation_id):
+            if not renewed:
+                renewed.append(ExecutionLeaseRenewalService(dispatcher.preparation,
+                    max_extension_seconds=600, max_total_seconds=3600).renew(preparation_id,
+                    renewal_id='RETRY-ORIGINAL-RENEWAL', ttl_seconds=600))
+            return original_dispatch(dispatcher, preparation_id)
+        monkeypatch.setattr(SignedToolDispatchService, 'dispatch', dispatch_after_renewal)
     expired = []
     if expired_custody:
         from rc7_runtime.rc72_n8_repair_boundary import RepairBoundaryService
@@ -110,6 +123,8 @@ def test_actual_full_denominator_retry_runs_strict_runner_and_finalizes_without_
             assert truth.query('rc72_data_lease', data_lease_id=expired[0]['data_lease_id'])[0]['state'] == 'RELEASED'
         assert len(server.calls) == len(plan['items'])
         assert truth.query('execution_attempt', attempt_id=p['attempt_id'])[0] == old
+        if renew_before_failure:
+            assert renewed[0]['state'] == 'APPLIED'
         assert len(truth.query('execution_attempt')) == len(plan['items']) + 1
         assert len(truth.query('rc72_decomposition_snapshot')) == 1
         assert truth.query('rc7_mission', mission_id=p['mission_id'])[0]['state'] != 'CONVERGED'

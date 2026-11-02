@@ -15,6 +15,60 @@ Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md. Finish
 construction before preparing a delivery package. Candidate 9476b57 remains
 quarantined. This checkpoint supersedes earlier component-only descriptions.
 
+## Native same-attempt lease renewal and explicit runtime authorization — 2026-11-03
+
+ExecutionLeaseRenewalService now renews one owned native N7 execution and every
+owned data/browser reservation together under the OS ledger gate. It preserves
+original preparation, lease ID/issued time, worker/session/Attempt, exact tools,
+artifact rights, data identity/mode/cleanup policy and browser context. Original
+signatures remain immutable history; a separately signed generation chain holds
+the temporal amendment and complete resource snapshots. No new decomposition,
+WorkItem, Attempt or business invocation is minted by renewal.
+
+A live unexpired parent, unchanged approved plan/contract, owned active session
+and full resource tuple are required. Expired/quarantined/revoked/diagnosed or
+completed work cannot gain another live grant. An IN_FLIGHT operation requires
+the same concrete dispatch controller's live invocation; a reconstructed object
+or lost-controller marker is insufficient. Before APPLIED the runtime rechecks
+liveness and the prior deadline. Partial projection suspends execution and may
+roll forward the same signed decision only before that deadline. Completed
+request replay is historical and issues no new permission. Policy limits return
+a controlled refusal without dropping mandatory work or declaring convergence.
+
+Normal preparation and renewal share the same canonical tuple/resource checks,
+including exact task/attempt lease scope and data reservation/cleanup policy.
+Live authority is restored only after those checks. New dispatch intents and
+formal runner receipts carry a runtime authorization capsule referencing the
+actual effective lease, renewal record, exact source commit/compiled contract
+and authorization time. Historical evidence verifies that capsule and its signed
+renewal chain without restoring authority, including after repair interruption.
+
+Engineering validation uses deterministic lease clocks and real local business
+HTTP execution. After the original deadline, renewed permission runs every Case
+in the unchanged plan through strict execution/cleanup/independent N7_PASS; the
+original preparation and Case denominator remain intact. Tests also cover renewal
+before a real data failure, expired custody, accepted compensation, same-identity
+replacement and complete re-execution. Broader inherited native chain86 passed
+165.06s; final exact scope/repaired-history/resource/Broker chain53 passed
+80.71s (1 existing collection warning). Prior intermediate
+integration64 passed55.78s; final source/proof42 passed22.41s before top-level
+lineage indexing was added. Compilation/diff checks passed.
+
+This is the native renewal API and evidence consumer, not an automatic product
+heartbeat or a DSH tool-call interceptor. C08 must drive the API, and C06/C07 still
+owe generic orphan/drain disposition, provider/session takeover and actual
+call-time fencing. No Field/BANK_FINAL claim is made.
+
+Platform follow-up: exact parent17dd427 Q2/Construction and Linux engineering
+passed. Its Windows Q1 failed four contention assertions in two files: the
+pre-lock sentinel read hit PermissionError on an already locked byte before
+normal conflict handling. The lock now acquires the range without pre-reading
+or initializing that byte. Microsoft documents that _locking may lock beyond
+EOF ([CRT reference](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/locking)).
+Real empty-file contention/process-death tests remain in the suite; local tests
+pass, but the corrected Windows build has not yet been qualified. No timeout or
+scope was relaxed to hide this failure.
+
 ## Expiry custody and native verified compensation — 2026-11-03
 
 Expired Data leases and WRITE browser leases no longer become free resources.

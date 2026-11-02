@@ -140,6 +140,11 @@ def verified_formal_receipt(preparation, p, c, raw):
         raise FormalRunnerError('FORMAL_RUNNER_RECEIPT_PURPOSE_INVALID')
     if ref != 'N7RUNNER-' + _hash([p['preparation_id'], c['contract_sha256']])[:24]:
         raise FormalRunnerError('FORMAL_RUNNER_RECEIPT_ID_INVALID')
+    if row.get('authorization_protocol') is not None:
+        from .rc72_lease_renewal import verify_execution_authorization
+        if row['authorization_protocol'] != 'TEMPORAL_LEASE_V1':
+            raise FormalRunnerError('FORMAL_EXECUTION_AUTHORIZATION_PROTOCOL_INVALID')
+        verify_execution_authorization(preparation, p, row.get('execution_authorization'))
     expected = build_approved_target(c, at=_utc(row['started_at']))
     if row['target_identity'] != expected.as_dict():
         raise FormalRunnerError('FORMAL_RUNNER_TARGET_IDENTITY_MISMATCH')
@@ -290,6 +295,8 @@ class FormalN7RunnerAdapter:
 
     def __call__(self, *, contract, context):
         p, target, bundle, cwd = self._load(contract, context)
+        from .rc72_lease_renewal import execution_authorization_snapshot
+        authorization = execution_authorization_snapshot(self.preparation, p)
         started = datetime.now(timezone.utc).isoformat()
         probe = self.environment_adapter.probe_tool(tool_id=contract['tool_route']['tool'], target_id=target.target_id, layer=bundle.spec.layer)
         ExecutionEnvironmentAdmissionService._validate_probe(probe, tool_id=contract['tool_route']['tool'])
@@ -361,6 +368,7 @@ class FormalN7RunnerAdapter:
             script_qualification_ref=bundle.upstream_result_ref,
             script_qualification_sha256=hashlib.sha256(Path(bundle.upstream_result_ref[len('file://'):]).read_bytes()).hexdigest(), runner_result=asdict(result),
             actual_sha256=_hash(raw), started_at=started,
+            authorization_protocol='TEMPORAL_LEASE_V1', execution_authorization=authorization,
             process_evidence_sha256={key: hashlib.sha256(Path(getattr(result, key)[len('file://'):]).read_bytes()).hexdigest()
                 for key in ('stdout_ref', 'stderr_ref')})
         receipt['signature'] = self.preparation.authority._sign(receipt)

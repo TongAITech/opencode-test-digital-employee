@@ -118,6 +118,28 @@ class RC72AuthorityRuntime(AuthorityRuntime):
         """Authenticate past observations only; never restore revoked authority."""
         return super()._validate_lease(identity, lease, lease.issued_at)
 
+    def restore_renewed_worker_lease(self, identity, original, renewed):
+        """Restore an authenticated same-scope temporal amendment, never scope."""
+        from dataclasses import asdict
+        self.validate_historical_lease(identity, original)
+        left, right = asdict(original), asdict(renewed)
+        for key in ('expires_at', 'signature'):
+            left.pop(key)
+            right.pop(key)
+        if left != right or renewed.expires_at < original.expires_at:
+            raise AuthorityError('LEASE_RENEWAL_SCOPE_CHANGED')
+        self._validate_lease(identity, renewed, None)
+        current = self._leases.get(renewed.lease_id)
+        if current is not None:
+            observed = asdict(current)
+            for key in ('expires_at', 'signature'):
+                observed.pop(key)
+            if observed != left or current.expires_at > renewed.expires_at:
+                raise AuthorityError('LEASE_RENEWAL_REGRESSION')
+        self.adopt_identity(**asdict(identity))
+        self._leases[renewed.lease_id] = renewed
+        return renewed
+
     def restore_signed_worker_lease(self, identity, lease, *, expected_scope: str):
         """Restore audit metadata only after verifying the original HMAC and TTL."""
         from dataclasses import asdict

@@ -68,6 +68,7 @@ class SignedToolDispatchService:
     def __init__(self, preparation, *, adapters):
         install_rc72_n7_tool_dispatch_overlay()
         self.preparation = preparation
+        self._live_invocations = set()
         self.truth = preparation.truth
         self.adapters = dict(adapters)
 
@@ -108,6 +109,9 @@ class SignedToolDispatchService:
             contract_sha256=contract['contract_sha256'], tool=tool,
             request_sha256=_hash({'contract': contract, 'context': context}),
             state='IN_FLIGHT', artifact_version=1)
+        from .rc72_lease_renewal import execution_authorization_snapshot
+        row.update(authorization_protocol='TEMPORAL_LEASE_V1',
+                   execution_authorization=execution_authorization_snapshot(self.preparation, prepared))
         # The durable intent precedes scheduler start too: a crash at either
         # boundary may block progress, but can never trigger an automatic re-call.
         claim_dir = Path(str(self.truth.store.path) + '.n7-dispatch-claims')
@@ -133,6 +137,7 @@ class SignedToolDispatchService:
             for field in fields(WorkItemAttemptBinding) if field.name in binding})
         entity.state = WorkItemAttemptState.RUNNING
         self.preparation.lifecycle.repository.persist(entity, artifact_version=binding['artifact_version'] + 1)
+        self._live_invocations.add(preparation_id)
         try:
             result = adapter(contract=deepcopy(contract), context=deepcopy(context))
             if not isinstance(result, dict) or not result:
@@ -145,6 +150,8 @@ class SignedToolDispatchService:
             failed = dict(row, state='FAILED', error_type=type(exc).__name__, artifact_version=2)
             self.truth.append_atomic(_EVENT, failed)
             return self.truth.query(_KIND, dispatch_id=dispatch_id)[0]
+        finally:
+            self._live_invocations.discard(preparation_id)
         returned = dict(row, state='RETURNED', raw_result=result,
                         receipt_sha256=_hash(result), artifact_version=2)
         self.truth.append_atomic(_EVENT, returned)

@@ -203,11 +203,7 @@ class ExecutionPreparationService:
             raise
         return self.assert_current(payload['preparation_id'])
 
-    def assert_current(self, preparation_id: str) -> Dict[str, Any]:
-        row = self._one(_ARTIFACT, preparation_id=preparation_id)
-        if self.truth.query('rc72_n8_repair_boundary', preparation_id=preparation_id):
-            self.authority.revoke_worker_lease(row['task_lease']['lease_id'])
-            raise ExecutionPreparationError('N7_EXECUTION_SUSPENDED_BY_REPAIR_BOUNDARY')
+    def _current_tuple(self, row):
         plan = self.planning.assert_current(row['plan_id'])
         item = next((item for item in plan['items'] if item['workitem_id'] == row['workitem_id']), None)
         if item is None or item['contract_id'] != row['contract_id'] or item['admission_id'] != row['admission_id']:
@@ -228,6 +224,7 @@ class ExecutionPreparationService:
                 or identity.generation != row['attempt_generation'] - 1 or identity.worker_id != row['worker_id'] or identity.session_id != row['session_id']
                 or identity.role != etu['test_level'] + '_EXECUTE' or identity.phase != 'N7_EXECUTION'
                 or identity.layer != etu['test_level'] or lease.allowed_artifact_types
+                or lease.scope_ref != scope
                 or lease.allowed_tools != expected_tools or session['state'] != 'ACTIVE'
                 or binding.get('worker_id') != row['worker_id'] or binding.get('attempt_id') != row['attempt_id']
                 or binding.get('mission_id') != row['mission_id'] or binding.get('session_id') != row['session_id']
@@ -239,11 +236,18 @@ class ExecutionPreparationService:
                 or task.get('state') not in {'LEASED', 'RUNNING'} or task.get('lease_owner') != row['worker_id']):
             raise ExecutionPreparationError('N7_PREPARATION_BINDING_INVALID')
         self.authority.validate_historical_lease(identity, lease)
+        return identity, lease, contract, etu, scope, plan
+
+    def _current_resources(self, row, contract, etu, plan, *, locked=False):
+        data_check = self.data._assert_usable_locked if locked else self.data.assert_usable
+        browser_check = self.browser._assert_usable_locked if locked else self.browser.assert_usable
         if len(row['data_lease_ids']) != len(contract['data_refs']):
             raise ExecutionPreparationError('N7_DATA_LEASE_DENOMINATOR_MISMATCH')
         for lease_id, ref in zip(row['data_lease_ids'], sorted(contract['data_refs'], key=lambda value: value['data_ref'])):
-            self.data.assert_usable(data_lease_id=lease_id, mission_id=row['mission_id'], workitem_id=row['workitem_id'],
+            resource = data_check(data_lease_id=lease_id, mission_id=row['mission_id'], workitem_id=row['workitem_id'],
                 attempt_id=row['attempt_id'], worker_id=row['worker_id'], data_ref=ref['data_ref'])
+            if resource['mode'] != ref['reservation_policy'] or resource['cleanup_policy'] != ref['cleanup_policy']:
+                raise ExecutionPreparationError('N7_DATA_LEASE_CONTRACT_SCOPE_MISMATCH')
         if etu['test_level'] in {'L4', 'L5'} and len(row['browser_lease_ids']) != 1:
             raise ExecutionPreparationError('N7_BROWSER_LEASE_REQUIRED')
         if etu['test_level'] not in {'L4', 'L5'} and row['browser_lease_ids']:
@@ -251,16 +255,26 @@ class ExecutionPreparationService:
         snapshot = self._one('rc72_decomposition_snapshot', snapshot_id=plan['snapshot_id']) if row['browser_lease_ids'] else None
         planned = next((case for case in snapshot['planning_cases'] if case['case_id'] == row['case_id']), None) if snapshot else None
         for lease_id in row['browser_lease_ids']:
-            self.browser.assert_usable(browser_lease_id=lease_id, mission_id=row['mission_id'], workitem_id=row['workitem_id'],
+            browser_check(browser_lease_id=lease_id, mission_id=row['mission_id'], workitem_id=row['workitem_id'],
                 attempt_id=row['attempt_id'], worker_id=row['worker_id'], access_mode=BrowserAccessMode.WRITE,
                 auth_asset_ref=planned['browser_context'])
+
+    def assert_current(self, preparation_id: str) -> Dict[str, Any]:
+        row = self._one(_ARTIFACT, preparation_id=preparation_id)
+        if self.truth.query('rc72_n8_repair_boundary', preparation_id=preparation_id):
+            self.authority.revoke_worker_lease(row['task_lease']['lease_id'])
+            raise ExecutionPreparationError('N7_EXECUTION_SUSPENDED_BY_REPAIR_BOUNDARY')
+        identity, lease, contract, etu, scope, plan = self._current_tuple(row)
+        self._current_resources(row, contract, etu, plan)
         # Authority restoration is the last operation after all resource checks.
         # In particular a failed cold read must not leave a live business lease.
         self.truth.rebuild_projection()
         if self.truth.query('rc72_n8_repair_boundary', preparation_id=preparation_id):
             self.authority.revoke_worker_lease(lease.lease_id)
             raise ExecutionPreparationError('N7_EXECUTION_SUSPENDED_BY_REPAIR_BOUNDARY')
-        self.authority.restore_signed_worker_lease(identity, lease, expected_scope=scope)
+        from .rc72_lease_renewal import effective_worker_lease
+        effective = effective_worker_lease(self, row)
+        self.authority.restore_renewed_worker_lease(identity, lease, effective)
         return row
 
     def release_unstarted(self, preparation_id: str, *, reason: str) -> Dict[str, Any]:

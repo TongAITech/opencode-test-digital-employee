@@ -287,6 +287,21 @@ class DataLeaseManager:
         data_ref: str,
         now: Optional[int] = None,
     ) -> Dict[str, Any]:
+        return self._assert_usable_locked(
+            data_lease_id=data_lease_id, mission_id=mission_id, workitem_id=workitem_id, attempt_id=attempt_id, worker_id=worker_id, data_ref=data_ref, now=now)
+
+    def _assert_usable_locked(
+        self,
+        *,
+        data_lease_id: str,
+        mission_id: str,
+        workitem_id: str,
+        attempt_id: str,
+        worker_id: str,
+        data_ref: str,
+        now: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        # Internal: caller already holds this ledger's resource gate.
         row = self.lease(data_lease_id)
         if row.get("state") != "ACTIVE":
             raise ContractError("DATA_LEASE_NOT_ACTIVE")

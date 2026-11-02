@@ -306,6 +306,22 @@ class BrowserPool:
         auth_asset_ref: Optional[str] = None,
         now: Optional[int] = None,
     ) -> Dict[str, Any]:
+        return self._assert_usable_locked(
+            browser_lease_id=browser_lease_id, mission_id=mission_id, workitem_id=workitem_id, attempt_id=attempt_id, worker_id=worker_id, access_mode=access_mode, auth_asset_ref=auth_asset_ref, now=now)
+
+    def _assert_usable_locked(
+        self,
+        *,
+        browser_lease_id: str,
+        mission_id: str,
+        workitem_id: str,
+        attempt_id: str,
+        worker_id: str,
+        access_mode: BrowserAccessMode,
+        auth_asset_ref: Optional[str] = None,
+        now: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        # Internal: caller already holds this ledger's resource gate.
         row = self.lease(browser_lease_id)
         if row.get("state") != "ACTIVE":
             raise ContractError("BROWSER_LEASE_NOT_ACTIVE")

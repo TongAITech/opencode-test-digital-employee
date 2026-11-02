@@ -182,3 +182,15 @@ def test_write_ownership_is_global_across_independent_missions(tmp_path, kind):
                 cleanup_policy='release reservation', **common)
         else:
             manager.acquire(access_mode=BrowserAccessMode.WRITE, purpose='EXECUTION', **common)
+
+
+def test_empty_lock_file_needs_no_prelock_content_read_or_sentinel(tmp_path):
+    from rc7_runtime.rc72_ledger_lock import ledger_lock, ledger_lock_path
+    truth, manager, a, _ = data_setup(tmp_path)
+    lock = ledger_lock_path(truth)
+    assert lock.stat().st_size == 0
+    with ledger_lock(truth):
+        with pytest.raises(Exception, match='LEDGER_BUSY'):
+            acquire_data(manager, a, 'data://subproject/SP-001', DataAccessMode.EXCLUSIVE_WRITE)
+    acquire_data(manager, a, 'data://subproject/SP-001', DataAccessMode.EXCLUSIVE_WRITE)
+    assert lock.stat().st_size == 0

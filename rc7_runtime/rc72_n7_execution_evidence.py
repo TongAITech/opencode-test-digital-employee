@@ -78,6 +78,11 @@ class ExecutionEvidenceService:
         for key in ('attempt_id', 'worker_id', 'workitem_id'):
             if b.get(key) != p.get(key) or d.get(key) != p.get(key):
                 raise ExecutionEvidenceError('N7_OBSERVATION_OWNER_MISMATCH')
+        if d.get('authorization_protocol') is not None:
+            from .rc72_lease_renewal import verify_execution_authorization
+            if d['authorization_protocol'] != 'TEMPORAL_LEASE_V1':
+                raise ExecutionEvidenceError('N7_EXECUTION_AUTHORIZATION_PROTOCOL_INVALID')
+            verify_execution_authorization(self.preparation, p, d.get('execution_authorization'))
         oracle = None
         if d['state'] == 'RETURNED':
             if d['receipt_sha256'] != _hash(d['raw_result']):
