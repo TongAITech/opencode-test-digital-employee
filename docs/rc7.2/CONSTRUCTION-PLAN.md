@@ -1,3 +1,17 @@
+# Authoritative construction correction — 2026-11-02
+
+OVERALL_STATUS=INCOMPLETE; DELIVERY_AUTHORIZED=false.
+User clarified: finish all design implementation before producing delivery.
+The portable-preparation interpretation below is superseded.
+
+Read DESIGN-CONSTRUCTION-RECONCILIATION.md for phase/GAP/CT obligations,
+located components, confirmed integration gaps and corrected construction order.
+A component's CI PASS is not whole-phase or whole-product implementation closure.
+Next atomic slice: N7 ExecutionAdmission, followed by actual execution/resource/
+diagnosis integration and product entry wiring. Field evidence remains absent.
+
+---
+
 # Portable transport preparation — 2026-11-02
 
 User delivery scope: first provide transport, final acceptance occurs on site.
