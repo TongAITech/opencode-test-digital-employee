@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
@@ -8,6 +9,7 @@ from sqlalchemy import create_engine
 from rc8_center.infrastructure.postgres import Base, PostgresStore
 from rc8_center.infrastructure.postgres_artifact import ArtifactMetadataRow
 from rc8_center.single_node_truth_reader import ProductionCenterR1TruthReader, ProductionTruthReaderError
+from rc8_node.single_node_integration_proof import SingleNodeDurableIntegrationProofRunner
 from rc8_runtime import RuntimeProducerKind
 from rc8_runtime.r1_runtime import CentralR1RuntimeLedger
 
@@ -108,3 +110,37 @@ def test_missing_worker_artifact_fails_complete_artifact_denominator():
             test_run_id="run-missing",
             observed_evidence_refs=("artifact:art-present", "artifact:art-missing"),
         )
+
+
+def test_composed_production_runner_binds_complete_artifact_set_before_truth_promotion():
+    calls = []
+
+    class Truth:
+        def assert_no_attempts_for_test_run(self, _test_run_id): pass
+        def assert_no_r1_attempt_lifecycle_for_test_run(self, _test_run_id): pass
+        def assert_attempt_ids_match_observed_leases(self, **_kwargs): pass
+        def assert_r1_attempt_lifecycle_matches_observed_leases(self, **_kwargs): pass
+        def assert_worker_artifact_refs_match_observed_evidence(self, *, test_run_id, observed_evidence_refs):
+            calls.append((test_run_id, tuple(observed_evidence_refs)))
+
+    observed = SimpleNamespace(
+        work_item_ids=("wi-1",), attempt_ids=("lease-1",), lease_ids=("lease-1",),
+        evidence_refs=("artifact:art-1",),
+    )
+    durable = SimpleNamespace(
+        verified_work_items=("wi-1",), verified_attempts=("lease-1",),
+        verified_production_node_id="node-1", verified_r1_start_events=("evt-start-1",),
+        verified_r1_events=("evt-complete-1",), bank_reality_verified=False, release_status="HOLD",
+    )
+    runner = SingleNodeDurableIntegrationProofRunner.__new__(SingleNodeDurableIntegrationProofRunner)
+    runner._production_components_verified = True
+    runner.expected_node_id = "node-1"
+    runner.truth_reader = Truth()
+    runner.observer = SimpleNamespace(run=lambda **_kwargs: observed)
+    runner.verifier = SimpleNamespace(verify=lambda _observed: durable)
+
+    proof = runner.run(test_run_id="run-1")
+
+    assert calls == [("run-1", ("artifact:art-1",))]
+    assert proof.production_causality_verified is False
+    assert proof.release_status == "HOLD"
