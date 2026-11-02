@@ -243,7 +243,6 @@ class ExecutionDiagnosisService:
             repair = self._one('rc72_diagnosis_repair', diagnosis_id=case['diagnosis_id'])
             if repair['repair_delivery_id'] != repair_delivery_id or repair['changed_refs'] != list(changed_refs) or repair['reason'] != reason:
                 raise ContractError('N8_REPAIR_REPLAY_CONFLICT')
-            return repair
         self.orchestrator.record_upstream_repair(diagnosis_id=case['diagnosis_id'], repair_delivery_id=repair_delivery_id,
             changed_refs=changed_refs, reason=reason)
         return self._one('rc72_diagnosis_repair', diagnosis_id=case['diagnosis_id'])

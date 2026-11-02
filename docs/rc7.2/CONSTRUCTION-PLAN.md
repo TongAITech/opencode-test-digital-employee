@@ -1,3 +1,31 @@
+# Durable repair invalidation and repair-registration recovery — 2026-11-03
+
+status: COMPONENT_RECOVERY_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY
+implemented:
+- Persist a complete scoped impact decision and original target versions before
+  native STALE writes. Reuse the same ImpactSet after interruption.
+- Persist a diagnosis-scoped repair request before invalidation; refuse changed
+  delivery/reference/reason requests after interruption.
+- Preflight every frozen target before resumed writes; reject newer/replanned
+  targets or changed source/target scope. Completed replay does not invalidate
+  later rebuilt assets.
+- Resume missing repair registration/case-state writes without duplicated impact
+  sets or state rollback after RECOVERY_LINKED. Accepted N8 repair retains native
+  N5 proof/Gate validation while finishing interrupted registration.
+- Fault injection covers before/after durable writes, partial target updates,
+  cold TruthRuntime and a separate Python process, source/scope drift, no-write
+  replay and protection of rebuilt ETUs.
+validation: full RC7.2/inherited regression 1411 passed / 1 skipped / 32 existing
+collection warnings in 800.49s. Final diagnosis-scope, interrupted-request and
+node-revision checks were added during that run; final-source affected chain
+then passed 94 tests / 3 existing collection warnings in 303.02s. Compilation
+and diff checks passed. Real local N8 diagnosis/compensation is in the affected
+chain; repair invalidation/restart tests use canonical fixtures and a separate
+Python process. This does not establish actual repaired N5 -> fresh N7 execution.
+remaining: governed reuse-only N5 repair assignment; revised N6/N7 planning that
+preserves original WorkItem/ETU with a new Attempt; actual repair/retry composition;
+global exclusion and the other OPEN items below. No release package is authorized.
+
 # Accepted N8 compensation and actual repair-boundary opening — 2026-11-02
 
 status: REAL_LOCAL_COMPENSATION_COMPOSITION_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY

@@ -25,6 +25,7 @@ from .rc72_worker_lifecycle import WorkerLifecycleService, install_rc72_worker_l
 _DIAGNOSIS_CASE = "rc72_diagnosis_case"
 _DIAGNOSIS_OUTCOME = "rc72_diagnosis_outcome"
 _DIAGNOSIS_REPAIR = "rc72_diagnosis_repair"
+_DIAGNOSIS_REPAIR_INTENT = "rc72_diagnosis_repair_intent"
 _DIAGNOSIS_RECOVERY = "rc72_diagnosis_recovery"
 _WORKER_SESSION = "rc72_worker_session"
 
@@ -32,6 +33,7 @@ _EVENT_TYPES = {
     "RC72_DIAGNOSIS_CASE_UPSERTED": (_DIAGNOSIS_CASE, "diagnosis_id"),
     "RC72_DIAGNOSIS_OUTCOME_UPSERTED": (_DIAGNOSIS_OUTCOME, "diagnosis_id"),
     "RC72_DIAGNOSIS_REPAIR_UPSERTED": (_DIAGNOSIS_REPAIR, "diagnosis_id"),
+    "RC72_DIAGNOSIS_REPAIR_INTENT_UPSERTED": (_DIAGNOSIS_REPAIR_INTENT, "diagnosis_id"),
     "RC72_DIAGNOSIS_RECOVERY_UPSERTED": (_DIAGNOSIS_RECOVERY, "diagnosis_id"),
 }
 
@@ -39,6 +41,7 @@ _BUCKETS = {
     _DIAGNOSIS_CASE: "rc72_diagnosis_cases",
     _DIAGNOSIS_OUTCOME: "rc72_diagnosis_outcomes",
     _DIAGNOSIS_REPAIR: "rc72_diagnosis_repairs",
+    _DIAGNOSIS_REPAIR_INTENT: "rc72_diagnosis_repair_intents",
     _DIAGNOSIS_RECOVERY: "rc72_diagnosis_recoveries",
 }
 
@@ -214,6 +217,14 @@ def _validate_repair(payload: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _validate_repair_intent(payload: Dict[str, Any]) -> Dict[str, Any]:
+    out = _base(payload, _DIAGNOSIS_REPAIR_INTENT, "diagnosis_id")
+    for name in ("repair_delivery_id", "original_attempt_id", "reason"):
+        out[name] = _required_str(out, name)
+    _string_list(out, "changed_refs", nonempty=True)
+    return out
+
+
 def _validate_recovery(payload: Dict[str, Any]) -> Dict[str, Any]:
     out = _base(payload, _DIAGNOSIS_RECOVERY, "diagnosis_id")
     for name in (
@@ -237,6 +248,7 @@ def install_rc72_diagnosis_overlay() -> None:
     _contracts.VALIDATORS[_DIAGNOSIS_CASE] = _validate_case
     _contracts.VALIDATORS[_DIAGNOSIS_OUTCOME] = _validate_outcome
     _contracts.VALIDATORS[_DIAGNOSIS_REPAIR] = _validate_repair
+    _contracts.VALIDATORS[_DIAGNOSIS_REPAIR_INTENT] = _validate_repair_intent
     _contracts.VALIDATORS[_DIAGNOSIS_RECOVERY] = _validate_recovery
     for event_type, (artifact_type, identity) in _EVENT_TYPES.items():
         _truth.EVENT_TYPES[event_type] = (artifact_type, identity)
@@ -539,6 +551,10 @@ class DiagnosisOrchestrator:
     ) -> RepairImpactResult:
         case = self._one(_DIAGNOSIS_CASE, diagnosis_id=diagnosis_id)
         outcome = self._one(_DIAGNOSIS_OUTCOME, diagnosis_id=diagnosis_id)
+        if (outcome.get("mission_id") != case["mission_id"]
+                or outcome.get("source_attempt_id") != case["source_attempt_id"]
+                or outcome.get("release_id") != self.release_id or case.get("release_id") != self.release_id):
+            raise ContractError("REPAIR_DIAGNOSIS_LINEAGE_MISMATCH")
         if outcome.get("action") != "SEMANTIC_BACK_EDGE":
             raise ContractError("UPSTREAM_REPAIR_REQUIRES_SEMANTIC_BACK_EDGE")
         if not outcome.get("replacement_attempt_required"):
@@ -546,6 +562,8 @@ class DiagnosisOrchestrator:
         delivery = self._one("rc72_node_delivery", delivery_id=repair_delivery_id)
         if delivery.get("mission_id") != case.get("mission_id"):
             raise ContractError("REPAIR_DELIVERY_MISSION_MISMATCH")
+        if delivery.get("release_id") != self.release_id:
+            raise ContractError("REPAIR_DELIVERY_RELEASE_MISMATCH")
         responsible = outcome.get("responsible_node")
         if responsible and delivery.get("node_type") != responsible:
             raise ContractError("REPAIR_DELIVERY_NODE_MISMATCH")
@@ -555,32 +573,44 @@ class DiagnosisOrchestrator:
         if not isinstance(reason, str) or not reason.strip():
             raise ContractError("REPAIR_REASON_REQUIRED")
 
-        impact = self.state_machine.propagate_stale(
-            source_delivery_id=repair_delivery_id,
-            changed_refs=changed,
-            reason=reason,
-        )
-        self._append(
-            "RC72_DIAGNOSIS_REPAIR_UPSERTED",
-            {
-                "diagnosis_id": diagnosis_id,
-                "mission_id": case["mission_id"],
-                "repair_delivery_id": repair_delivery_id,
-                "impact_set_id": impact.impact_set_id,
-                "original_attempt_id": case["source_attempt_id"],
-                "changed_refs": changed,
-                "replacement_attempt_required": True,
-                "reason": reason,
-                "created_at": _now(),
-            },
-        )
-        updated_case = dict(case)
-        updated_case["state"] = "REPAIR_RECORDED"
-        updated_case["artifact_version"] = int(case.get("artifact_version", 1)) + 1
-        self.truth.append_atomic("RC72_DIAGNOSIS_CASE_UPSERTED", updated_case)
+        previous = self.truth.query(_DIAGNOSIS_REPAIR, diagnosis_id=diagnosis_id)
+        if previous:
+            if (len(previous) != 1 or previous[0]["mission_id"] != case["mission_id"]
+                    or previous[0]["repair_delivery_id"] != repair_delivery_id
+                    or previous[0]["original_attempt_id"] != case["source_attempt_id"]
+                    or previous[0]["changed_refs"] != changed or previous[0]["reason"] != reason):
+                raise ContractError("DIAGNOSIS_REPAIR_REPLAY_CONFLICT")
+            impact_id = previous[0]["impact_set_id"]
+            impact_row = self._one("rc72_impact_set", impact_set_id=impact_id)
+            if (impact_row["mission_id"] != case["mission_id"]
+                    or impact_row["source_delivery_id"] != repair_delivery_id
+                    or impact_row["changed_refs"] != changed or impact_row["reason"] != reason):
+                raise ContractError("DIAGNOSIS_REPAIR_IMPACT_CONFLICT")
+        else:
+            intent = dict(diagnosis_id=diagnosis_id, mission_id=case["mission_id"],
+                repair_delivery_id=repair_delivery_id, original_attempt_id=case["source_attempt_id"],
+                changed_refs=changed, reason=reason, release_id=self.release_id, artifact_version=1)
+            intents = self.truth.query(_DIAGNOSIS_REPAIR_INTENT, diagnosis_id=diagnosis_id)
+            if intents:
+                if (len(intents) != 1 or any(intents[0].get(key) != value for key, value in intent.items())):
+                    raise ContractError("DIAGNOSIS_REPAIR_INTENT_CONFLICT")
+            else:
+                self.truth.append_atomic("RC72_DIAGNOSIS_REPAIR_INTENT_UPSERTED", intent)
+            impact = self.state_machine.propagate_stale(
+                source_delivery_id=repair_delivery_id, changed_refs=changed, reason=reason)
+            impact_id = impact.impact_set_id
+            self._append("RC72_DIAGNOSIS_REPAIR_UPSERTED", {
+                "diagnosis_id": diagnosis_id, "mission_id": case["mission_id"],
+                "repair_delivery_id": repair_delivery_id, "impact_set_id": impact_id,
+                "original_attempt_id": case["source_attempt_id"], "changed_refs": changed,
+                "replacement_attempt_required": True, "reason": reason, "created_at": _now(),
+            })
+        if case["state"] not in {"REPAIR_RECORDED", "RECOVERY_LINKED"}:
+            self.truth.append_atomic("RC72_DIAGNOSIS_CASE_UPSERTED", dict(case,
+                state="REPAIR_RECORDED", artifact_version=int(case.get("artifact_version", 1)) + 1))
         return RepairImpactResult(
             diagnosis_id=diagnosis_id,
-            impact_set_id=impact.impact_set_id,
+            impact_set_id=impact_id,
             original_attempt_id=case["source_attempt_id"],
             replacement_attempt_required=True,
         )

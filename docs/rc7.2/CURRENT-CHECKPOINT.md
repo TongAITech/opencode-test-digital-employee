@@ -11,6 +11,37 @@ Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md. Finish
 construction before preparing a delivery package. Candidate 9476b57 remains
 quarantined. This checkpoint supersedes earlier component-only descriptions.
 
+## Durable repair impact application
+
+Repair invalidation now freezes its complete decision and original target
+versions before the first STALE mutation. A deterministic application identity
+is scoped to release, mission, repair delivery, changed references and reason.
+A diagnosis-scoped durable repair intent also freezes the requested delivery,
+changed references and reason; partial replay cannot silently switch repairs.
+The native ImpactSet is retained once; interrupted application resumes only
+against unchanged targets or the one expected STALE revision. All pending
+versions are checked before resumed asset writes. Newer/replanned targets and
+source/denominator drift fail closed instead of being overwritten.
+
+An APPLIED record is historical: replay does not invalidate assets that were
+rebuilt afterward. Repair registration likewise resumes the missing repair/case
+write and preserves later RECOVERY_LINKED state. The actual N8 accepted-repair
+consumer no longer returns early before completing an interrupted case update.
+Its existing signed diagnosis, newer accepted N5 Gate and canonical proof checks
+remain mandatory. This is native journal/state-machine recovery, demonstrated
+with contract fixtures and a separate Python process; it does not certify a new
+N5 repair or execute a replacement N7 Attempt. Cross-process exclusion remains
+OPEN: a frozen decision and version checks are not a global lock. Unregistered
+legacy interruptions without a frozen decision require reconciliation.
+
+Validation: full RC7.2/inherited regression 1411 passed, 1 skipped, 32 existing
+collection warnings in 800.49s. Final diagnosis-scope, interrupted-request and
+node-revision tightening was applied during that run; affected final-source
+chain passed 94 tests (3 existing collection warnings) in 303.02s, including
+actual local N8 diagnosis and compensation-boundary regression. New fault
+coverage is a canonical control-plane fixture and a separate real Python process,
+not an accepted new N5 repair or new N7 business execution.
+
 ## Recovery link admission and interruption recovery
 
 Replacement registration now requires a classified, recoverable diagnosis for

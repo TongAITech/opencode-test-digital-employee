@@ -33,8 +33,8 @@ from .rc72_domain import (
     ReleaseBatch,
     TestObligation,
 )
-from .rc72_impact import ImpactSet, ImpactStrategy
-from .rc72_impact_truth import append_impact_set
+from .rc72_impact import ImpactSet
+from .rc72_impact_application import apply_stale_impact
 from .rc72_linkage import NodeTransition, NodeTransitionKind
 from .rc72_phase2_truth import install_rc72_phase2_truth_overlay
 from .rc72_repository import CanonicalRC72Repository
@@ -544,86 +544,8 @@ class RC72StateMachine:
         changed_refs: Sequence[str],
         reason: str,
     ) -> ImpactSet:
-        if not changed_refs:
-            raise StateMachineContractError("STALE_PROPAGATION_REQUIRES_CHANGED_REFS")
-        source_rows = self.truth.query("rc72_node_delivery", delivery_id=source_delivery_id)
-        if len(source_rows) != 1:
-            raise StateMachineContractError("IMPACT_SOURCE_DELIVERY_NOT_UNIQUE")
-        source = source_rows[0]
-        mission_id = source["mission_id"]
-        source_type = AutonomousMissionNode(source["node_type"])
-        changed = set(changed_refs)
-
-        stale_node_ids: List[str] = []
-        affected_refs: List[str] = []
-        for delivery in self.truth.query("rc72_node_delivery", mission_id=mission_id):
-            if delivery.get("delivery_id") == source_delivery_id:
-                continue
-            refs = set(delivery.get("input_refs") or [])
-            if refs & changed:
-                node = self.node(delivery["mission_node_id"])
-                if node["mission_node_id"] not in stale_node_ids:
-                    self.mark_stale(node["mission_node_id"], reason=reason)
-                    stale_node_ids.append(node["mission_node_id"])
-                affected_refs.append(delivery["delivery_id"])
-
-        stale_obligation_ids: List[str] = []
-        for obligation in self.truth.query("rc72_test_obligation", mission_id=mission_id):
-            refs = set(obligation.get("code_slice_refs") or []) | set(obligation.get("change_refs") or [])
-            if refs & changed:
-                self._persist_obligation_status(obligation, ObligationStatus.STALE)
-                stale_obligation_ids.append(obligation["obligation_id"])
-                affected_refs.append(obligation["obligation_id"])
-
-        stale_etu_ids: List[str] = []
-        for etu in self.truth.query("rc72_etu", mission_id=mission_id):
-            if etu.get("obligation_id") in stale_obligation_ids or etu.get("primary_code_slice") in changed:
-                self._persist_etu_state(etu, ETUState.STALE)
-                stale_etu_ids.append(etu["etu_id"])
-                affected_refs.append(etu["etu_id"])
-
-        strategy = ImpactStrategy.EXPLICIT_DEPENDENCY
-        if not (stale_node_ids or stale_obligation_ids or stale_etu_ids):
-            strategy = ImpactStrategy.SAFE_FALLBACK
-            ordered = list(AutonomousMissionNode.ordered())
-            source_index = ordered.index(source_type)
-            for node_type in ordered[source_index + 1 :]:
-                if node_type in {
-                    AutonomousMissionNode.N8_DIAGNOSIS_RECOVERY,
-                    AutonomousMissionNode.N9_DEFECT,
-                    AutonomousMissionNode.N10_RELEASE_CONVERGENCE,
-                }:
-                    continue
-                node = self.node_by_type(mission_id, node_type)
-                if node.get("state") != MissionNodeState.NOT_STARTED.value:
-                    self.mark_stale(node["mission_node_id"], reason="SAFE_FALLBACK: %s" % reason)
-                    stale_node_ids.append(node["mission_node_id"])
-                    affected_refs.append(node["mission_node_id"])
-            for obligation in self.truth.query("rc72_test_obligation", mission_id=mission_id):
-                self._persist_obligation_status(obligation, ObligationStatus.STALE)
-                stale_obligation_ids.append(obligation["obligation_id"])
-                affected_refs.append(obligation["obligation_id"])
-            for etu in self.truth.query("rc72_etu", mission_id=mission_id):
-                self._persist_etu_state(etu, ETUState.STALE)
-                stale_etu_ids.append(etu["etu_id"])
-                affected_refs.append(etu["etu_id"])
-
-        impact = ImpactSet(
-            impact_set_id=self._new_id("IMPACT"),
-            mission_id=mission_id,
-            source_mission_node_id=source["mission_node_id"],
-            source_node_type=source_type,
-            source_delivery_id=source_delivery_id,
-            changed_refs=list(changed_refs),
-            affected_refs=_uniq(affected_refs),
-            stale_mission_node_ids=_uniq(stale_node_ids),
-            stale_obligation_ids=_uniq(stale_obligation_ids),
-            stale_etu_ids=_uniq(stale_etu_ids),
-            strategy=strategy,
-            reason=reason,
-        )
-        append_impact_set(self.truth, impact, release_id=self.release_id)
-        return impact
+        return apply_stale_impact(self, source_delivery_id=source_delivery_id,
+                                  changed_refs=changed_refs, reason=reason)
 
     def assert_n7_dispatchable(self, *, etu_id: Optional[str] = None) -> None:
         mission_id = self._single_mission_id()
