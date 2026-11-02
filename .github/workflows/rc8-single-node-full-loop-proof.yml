@@ -2,10 +2,11 @@ name: RC8 Single Node Full Loop Proof
 
 on:
   push:
-    branches: [work/rc8]
+    branches:
+      - work/rc8
     paths:
       - 'rc8_node/**'
-      - 'rc8_center/single_node_truth_reader.py'
+      - 'rc8_center/**'
       - 'tests/test_rc8_autonomous_dispatcher.py'
       - 'tests/test_rc8_single_node_full_loop_proof.py'
       - 'tests/test_rc8_single_node_claim_provenance.py'
@@ -21,7 +22,6 @@ on:
       - 'tests/test_rc8_single_node_causality_preflight.py'
       - 'tests/test_rc8_single_node_production_preflight.py'
       - 'tests/test_rc8_single_node_production_denominator.py'
-      - 'docs/rc8/N1-N10-CONSTRUCTION-PLAN.md'
       - '.github/workflows/rc8-single-node-full-loop-proof.yml'
   workflow_dispatch:
 
@@ -36,8 +36,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.8'
+          python-version: '3.11'
       - name: Install proof test dependencies
         run: python -m pip install pytest sqlalchemy redis
+      - name: Run production bootstrap wiring regression
+        run: python -m pytest -q tests/test_rc8_production_bootstrap_wiring.py
       - name: Run fail-closed SINGLE_NODE proof, production dispatcher, Center claim provenance, causality preflight, Center/R1 truth, production truth-reader, production Center bootstrap, and durable integration tests
-        run: python -m pytest -q tests/test_rc8_autonomous_dispatcher.py tests/test_rc8_single_node_full_loop_proof.py tests/test_rc8_single_node_claim_provenance.py tests/test_rc8_single_node_center_truth.py tests/test_rc8_production_single_node_truth_reader.py tests/test_rc8_production_truth_attempt_set.py tests/test_rc8_production_truth_artifact_preflight.py tests/test_rc8_production_work_item_preflight.py tests/test_rc8_single_node_production_bootstrap.py tests/test_rc8_production_bootstrap_wiring.py tests/test_rc8_single_node_durable_truth_integration.py tests/test_rc8_single_node_integration_proof.py tests/test_rc8_single_node_causality_preflight.py tests/test_rc8_single_node_production_preflight.py tests/test_rc8_single_node_production_denominator.py
+        run: python -m pytest -q tests/test_rc8_autonomous_dispatcher.py tests/test_rc8_single_node_full_loop_proof.py tests/test_rc8_single_node_claim_provenance.py tests/test_rc8_single_node_center_truth.py tests/test_rc8_production_single_node_truth_reader.py tests/test_rc8_production_truth_attempt_set.py tests/test_rc8_production_truth_artifact_preflight.py tests/test_rc8_production_work_item_preflight.py tests/test_rc8_single_node_production_bootstrap.py tests/test_rc8_single_node_durable_truth_integration.py tests/test_rc8_single_node_integration_proof.py tests/test_rc8_single_node_causality_preflight.py tests/test_rc8_single_node_production_preflight.py tests/test_rc8_single_node_production_denominator.py
