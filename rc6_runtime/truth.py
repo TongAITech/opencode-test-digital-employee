@@ -171,6 +171,14 @@ class Projection:
         except KeyError as exc:
             raise ProjectionIntegrityError("UNKNOWN_PROJECTION_ARTIFACT") from exc
 
+    def _ensure_bucket(self, artifact_type: str) -> Dict[str, Dict[str, Any]]:
+        # Resolve first: unknown types must never create projection state.
+        name = self._bucket_name(artifact_type)
+        if not hasattr(self, name):
+            setattr(self, name, {})
+        self._versions.setdefault(artifact_type, {})
+        return getattr(self, name)
+
     def apply_atomic(self, event: Dict[str, Any]) -> None:
         event_type = event.get("event_type")
         payload = event.get("payload")
@@ -181,6 +189,7 @@ class Projection:
         except EventValidationError as exc:
             raise ProjectionIntegrityError(str(exc)) from exc
 
+        self._ensure_bucket(artifact_type)
         version_key = f"{entity_id}@{version}"
         version_bucket = self._versions[artifact_type]
         previous = version_bucket.get(version_key)
@@ -190,7 +199,7 @@ class Projection:
             return
         version_bucket[version_key] = deepcopy(canonical)
 
-        bucket = getattr(self, self._bucket_name(artifact_type))
+        bucket = self._ensure_bucket(artifact_type)
         current = bucket.get(entity_id)
         if current is None or _version_for(artifact_type, canonical) > _version_for(artifact_type, current):
             bucket[entity_id] = deepcopy(canonical)
@@ -198,17 +207,18 @@ class Projection:
             raise ProjectionIntegrityError("CONFLICTING_LATEST_ENTITY_VERSION")
 
     def history(self, artifact_type: str, entity_id: str) -> List[Dict[str, Any]]:
+        self._ensure_bucket(artifact_type)
         prefix = entity_id + "@"
         found = [v for k, v in self._versions[artifact_type].items() if k.startswith(prefix)]
         return sorted(found, key=lambda x: _version_for(artifact_type, x))
 
     def get(self, artifact_type: str, entity_id: str) -> Optional[Dict[str, Any]]:
-        bucket = getattr(self, self._bucket_name(artifact_type))
+        bucket = self._ensure_bucket(artifact_type)
         value = bucket.get(entity_id)
         return deepcopy(value) if value is not None else None
 
     def query(self, artifact_type: str, **filters: Any) -> List[Dict[str, Any]]:
-        bucket = getattr(self, self._bucket_name(artifact_type))
+        bucket = self._ensure_bucket(artifact_type)
         rows = []
         for entity_id in sorted(bucket):
             item = bucket[entity_id]
@@ -219,10 +229,10 @@ class Projection:
     def snapshot(self) -> Dict[str, Any]:
         def ordered(bucket: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
             return [deepcopy(bucket[k]) for k in sorted(bucket)]
-        return {bucket: ordered(getattr(self, bucket)) for bucket in BUCKETS.values()}
+        return {bucket: ordered(self._ensure_bucket(kind)) for kind, bucket in list(BUCKETS.items())}
 
     def full_inventory(self) -> Dict[str, int]:
-        return {artifact_type: len(getattr(self, bucket)) for artifact_type, bucket in BUCKETS.items()}
+        return {kind: len(self._ensure_bucket(kind)) for kind in list(BUCKETS)}
 
 
 def _legacy_children(raw_event: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:

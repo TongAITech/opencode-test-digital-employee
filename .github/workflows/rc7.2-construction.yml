@@ -5,6 +5,7 @@ on:
     branches:
       - work/rc7.2
     paths:
+      - 'rc6_runtime/**'
       - 'rc7_runtime/**'
       - 'rc7_release/**'
       - 'tests/test_rc72_*.py'

@@ -1,3 +1,19 @@
+# Current repair entry — 2026-11-02
+
+phase: TRUTH_COLD_START_REPAIR
+baseline_head: 07835859b49605ca2906c13e54f4d4449f5a310c
+status: IN_PROGRESS
+clauses: R1 replay consistency, complete known schema registration, CT-17
+commits: see current git log
+ci_runs: baseline 41288965091 FAILED; new same-HEAD runs pending
+field_evidence: unavailable; Q3 target HOLD; BANK_FINAL=NO
+open_gaps: same-HEAD Q1/Q2, N7 admission, Q3-Q9 field/offline qualification
+next_atomic_step: full isolated tests and same-HEAD platform qualification
+
+The entries below are historical; their earlier PASS does not qualify current HEAD.
+
+---
+
 # RC7.2 Construction Plan / Checkpoint Ledger
 
 Status: **REPOSITORY_CONSTRUCTION_CI_PASS / Q1_CI_PASS / Q2_CI_PASS_ENGINEERING_ONLY / Q3_PACKAGE_BOUND_ATTESTATION_CONTRACT_PASS_TARGET_HOLD / FIELD_VALIDATION_PENDING**

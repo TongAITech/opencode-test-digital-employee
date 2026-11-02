@@ -322,3 +322,8 @@ __all__ = [
     "CanonicalScheduleDescriptorResolver",
     "WorkScheduleSemanticsService",
 ]
+
+# Complete the durable schema registry before exposing any RC7.2 service.
+from .rc72_truth_bootstrap import bootstrap_rc72_truth
+
+bootstrap_rc72_truth()
