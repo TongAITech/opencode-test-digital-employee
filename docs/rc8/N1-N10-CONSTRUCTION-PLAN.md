@@ -76,6 +76,8 @@ At `1a19a2eb...`, current-head Windows 2022 and Ubuntu `single-node-full-loop-pr
 
 At `4249c8ad...`, current-head Windows 2022 and Ubuntu `single-node-full-loop-proof` checks passed after dual-surface clean-preflight ordering, immutable production-mode hardening, normalized TestRun identity preflight, exact durable Attempt-set binding and complete R1 STARTED/COMPLETED lifecycle-denominator checks. Extra, missing, duplicate or stale R1 Attempt lifecycle identities fail closed. These are **WINDOWS/LINUX CI_VERIFIED** causality prerequisites only; they do not promote `production_causality_verified`, SINGLE_NODE full-loop, bank reality, or release readiness.
 
+At `a6677f99...`, production causality preflight was extended to require a clean PostgreSQL Artifact surface before the first Center claim. This closes the loophole where a traversal could match worker Evidence that had been pre-seeded before execution. Dedicated regression coverage is included in the Windows/Linux proof workflow. This checkpoint remains **CI_PENDING** until current-head checks pass and does not promote production causality.
+
 ## 6. Current construction checkpoint ledger
 
 | Item | Checkpoint | Evidence / next action |
@@ -101,6 +103,7 @@ At `4249c8ad...`, current-head Windows 2022 and Ubuntu `single-node-full-loop-pr
 | SINGLE_NODE composed durable integration gate | WINDOWS/LINUX CI_VERIFIED | dispatcher observation must match durable Center/R1 truth; production causality remains separate |
 | SINGLE_NODE Center claim provenance | WINDOWS/LINUX CI_VERIFIED | production claim provenance verified; production causality still not proven |
 | SINGLE_NODE production causality preflight | WINDOWS/LINUX CI_VERIFIED | target TestRun must have zero durable Attempts before traversal |
+| SINGLE_NODE artifact clean causality preflight | CI_PENDING | `56c3d05b...`→`6ae38939...`→`cbba0b39...`→`a6677f99...`; target TestRun must have zero durable worker Evidence artifacts before first production claim |
 | SINGLE_NODE durable Attempt-set causality primitive | WINDOWS/LINUX CI_VERIFIED | complete durable Attempt identity set available for exact equality |
 | SINGLE_NODE Attempt/lease-set integration binding | WINDOWS/LINUX CI_VERIFIED | exact post-run durable Attempt-set equality enforced before Evidence promotion |
 | SINGLE_NODE durable start/completion production gate | WINDOWS/LINUX CI_VERIFIED | `20c56943...`→`05b5fb5e...`; current-head checks passed; necessary condition only |
@@ -119,7 +122,7 @@ At `4249c8ad...`, current-head Windows 2022 and Ubuntu `single-node-full-loop-pr
 
 ## 7. Remaining ordered construction sequence
 
-1. Complete the SINGLE_NODE real integration fixture around production Center claim/lease, `AutonomousWorkerDispatcher`, real Stage workers, ArtifactManifest/Evidence upload and R1 event persistence. Production claim/lease and workers—not test pre-seeding—must create the durable records subsequently accepted by the production truth reader. Require the post-run complete durable Attempt identity set to equal the 15 Center-issued/observed lease identities exactly and retain both verified STARTED and COMPLETED R1 event identities in the composed proof. Preserve exact TestRun/WorkItem/Attempt/Artifact/R1 continuity and Center claim provenance; stale/missing/reused/extra truth and active blockers fail closed. Preserve Director review + Center deterministic MissionNode authority.
+1. Complete the SINGLE_NODE real integration fixture around production Center claim/lease, `AutonomousWorkerDispatcher`, real Stage workers, ArtifactManifest/Evidence upload and R1 event persistence. Production claim/lease and workers—not test pre-seeding—must create the durable records subsequently accepted by the production truth reader. Require clean Attempt, Artifact and R1 Attempt-lifecycle surfaces before the first production claim. Require the post-run complete durable Attempt identity set to equal the 15 Center-issued/observed lease identities exactly and retain both verified STARTED and COMPLETED R1 event identities in the composed proof. Preserve exact TestRun/WorkItem/Attempt/Artifact/R1 continuity and Center claim provenance; stale/missing/reused/extra truth and active blockers fail closed. Preserve Director review + Center deterministic MissionNode authority.
 2. Run targeted Windows/Linux CI and repair current-head failures before promotion.
 3. Prove the same semantic denominator/Evidence authority in DISTRIBUTED placement/recovery; no second state machine.
 4. Bank field reality validation: actual DSH/model, dsh-agent-teams bridge, controlled Browser Network, fresh 4A login/re-login, CodeGraph, Maven/JUnit, CAT/log and DB/SQL where applicable.
@@ -130,4 +133,4 @@ Every session/guard run must read latest `work/rc8` HEAD, read this plan from th
 
 ## 9. Immediate next action
 
-> **SINGLE_NODE production-driven full-loop proof:** all currently implemented causality prerequisites through complete R1 lifecycle-denominator binding are current-head Windows/Linux CI verified. Continue wiring production Center claim/lease to the frozen 15 real Stage workers for one fresh Mission/TestRun. Workers must themselves create Attempt, ArtifactManifest/Evidence and canonical R1 STARTED/COMPLETED records, and the composed proof must retain and validate those identities end-to-end. Do not pre-seed durable truth and do not promote a boundary double. Keep `production_causality_verified=False`, `BANK_REALITY_VERIFIED=NO` and Release HOLD until the corresponding real evidence exists.
+> **SINGLE_NODE production-driven full-loop proof:** artifact clean-preflight hardening is now implemented and awaiting current-head Windows/Linux CI. After it is verified, continue wiring production Center claim/lease to the frozen 15 real Stage workers for one fresh Mission/TestRun. Workers must themselves create Attempt, ArtifactManifest/Evidence and canonical R1 STARTED/COMPLETED records, and the composed proof must retain and validate those identities end-to-end. Do not pre-seed durable truth and do not promote a boundary double. Keep `production_causality_verified=False`, `BANK_REALITY_VERIFIED=NO` and Release HOLD until the corresponding real evidence exists.
