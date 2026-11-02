@@ -304,7 +304,8 @@ class StrictScriptExecutionBundleLoader:
 class _EvidenceBackedProcessHarness:
     """Drop-in RunnerAdapter harness that persists process output bytes."""
 
-    def __init__(self, *, evidence_root: str, timeout_seconds: int) -> None:
+    def __init__(self, *, evidence_root: str, timeout_seconds: int, process_controller=None) -> None:
+        self.process_controller = process_controller
         self.root = Path(evidence_root).resolve()
         self.timeout_seconds = int(timeout_seconds)
 
@@ -318,11 +319,18 @@ class _EvidenceBackedProcessHarness:
         started = time.monotonic()
         merged = scoped_process_environment(env, home=folder / 'process-home', allow_explicit_pythonpath=True)
         try:
-            completed = subprocess.run(
-                list(command), cwd=cwd, env=merged,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                timeout=self.timeout_seconds, check=False,
-            )
+            if self.process_controller is None:
+                completed = subprocess.run(
+                    list(command), cwd=cwd, env=merged,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                    timeout=self.timeout_seconds, check=False,
+                )
+            else:
+                from .rc72_execution_heartbeat import ExecutionProcessHeartbeat
+                if not isinstance(self.process_controller, ExecutionProcessHeartbeat):
+                    raise RuntimeError('FORMAL_OWNED_PROCESS_CONTROLLER_REQUIRED')
+                completed = self.process_controller.execute(command, cwd=cwd, env=merged,
+                    timeout_seconds=self.timeout_seconds, run_id=run_id)
             stdout = completed.stdout or ""
             stderr = completed.stderr or ""
             code = int(completed.returncode)
@@ -332,24 +340,35 @@ class _EvidenceBackedProcessHarness:
             stderr += "\nPROCESS_TIMEOUT"
             code = 124
         except OSError as exc:
+            if self.process_controller is not None:
+                # No Popen ownership means no fabricated PID/terminal proof.
+                raise
             stderr = "%s:%s" % (type(exc).__name__, exc)
             code = 127
         duration_ms = int((time.monotonic() - started) * 1000)
         stdout_path = folder / "stdout.log"
         stderr_path = folder / "stderr.log"
         command_path = folder / "command.json"
-        stdout_path.write_text(stdout, encoding="utf-8")
-        stderr_path.write_text(stderr, encoding="utf-8")
-        command_path.write_text(
-            json.dumps({
-                "name": name,
-                "command": list(command),
-                "cwd": str(Path(cwd).resolve()),
-                "exit_code": code,
-                "duration_ms": duration_ms,
-            }, ensure_ascii=False, sort_keys=True, indent=2),
-            encoding="utf-8",
-        )
+        try:
+            stdout_path.write_text(stdout, encoding="utf-8")
+            stderr_path.write_text(stderr, encoding="utf-8")
+            command_path.write_text(
+                json.dumps({
+                    "name": name,
+                    "command": list(command),
+                    "cwd": str(Path(cwd).resolve()),
+                    "exit_code": code,
+                    "duration_ms": duration_ms,
+                }, ensure_ascii=False, sort_keys=True, indent=2),
+                encoding="utf-8",
+            )
+            if self.process_controller is not None:
+                self.process_controller.after_capture(run_id, stdout_path=stdout_path,
+                    stderr_path=stderr_path, command_path=command_path)
+        except BaseException:
+            if self.process_controller is not None:
+                self.process_controller.capture_failed(run_id)
+            raise
         return ProcessStepResult(
             name=name,
             command=tuple(str(item) for item in command),

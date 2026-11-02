@@ -59,6 +59,10 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self.server.calls.append(json.loads(raw))
         self.server.restored = False
+        delay = getattr(self.server, 'business_delay', 0)
+        if delay:
+            import time
+            time.sleep(delay)
         self._send({'http': {'status': 200}, 'business': {'outcome': 'APPROVED_FIXTURE_RESULT'}})
 
 

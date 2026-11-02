@@ -470,3 +470,29 @@ The range is now locked without pre-read or initialization, retaining nonblockin
 conflict handling for empty and existing lock files. [Microsoft CRT documentation](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/locking)
 permits locking a range beyond EOF. Actual Windows qualification of the fix is
 pending on the next exact source; no scope or timeout was reduced to hide failure.
+
+
+## Owned native process heartbeat — 2026-11-03
+
+FormalN7RunnerAdapter now uses its actual SignedToolDispatchService invocation
+and owned Popen controller to poll current scope and renew the original complete
+worker/data/browser tuple. Signed process observations bind PID, run/command,
+worker/session/Attempt, source/compiled contract, renewal references and actual
+exit. Captured stdout/stderr/command bytes are hashed and verified by the formal
+receipt consumer. Neither process termination nor renewal establishes Case PASS.
+
+Failure revokes business authority, kills/reaps the owned direct child with a
+bounded wait, and retains resource custody. Remote jobs/descendants are not
+presumed drained. Cold execution cannot recover authority from a saved PID or
+IN_FLIGHT record. Lost append responses recover the exact fsynced signed record
+without business replay. Evidence capture failure remains durably FAILED; failed
+spawn cannot manufacture a PID, heartbeat or formal receipt.
+
+Integrated native chain: 69 passed in 177.65s. Additional failure/history/cold
+proof chain: 36 passed in 63.93s. Final source chain initially found a missing
+PIPE constant in the isolated spawn-failure test double (36 other tests passed);
+that test double was corrected; the complete heartbeat file passed all 9 tests.
+Parent 2ffe9f9 passed Construction, Windows clean unpack and Windows/Linux
+platform baseline. This source needs its own exact-commit platform qualification.
+Generic orphan recovery, multi-member drain/reuse, DSH call-time fencing and
+product-wide scheduling remain open. No Field or BANK_FINAL claim is made.

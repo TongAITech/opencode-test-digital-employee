@@ -112,7 +112,7 @@ def test_inflight_renewal_requires_same_live_dispatch_controller_not_a_new_objec
         dispatcher.dispatch(p['preparation_id'])
     assert observed[0]['state'] == 'APPLIED' and not dispatcher._live_invocations
     before = truth.store.path.read_bytes()
-    with pytest.raises(ContractError, match='LIVE_DISPATCH_CONTROLLER_REQUIRED'):
+    with pytest.raises(ContractError, match='EXECUTION_CONTROLLER_RECOVERY_REQUIRED'):
         service.renew(p['preparation_id'], renewal_id='NO-ORPHAN', ttl_seconds=900, dispatcher=dispatcher)
     assert truth.store.path.read_bytes() == before
 

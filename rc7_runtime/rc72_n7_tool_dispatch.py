@@ -73,6 +73,13 @@ class SignedToolDispatchService:
         self.adapters = dict(adapters)
 
     def dispatch(self, preparation_id):
+        self.truth.rebuild_projection()
+        pending = self.truth.query(_KIND, preparation_id=preparation_id)
+        if any(row['state'] == 'IN_FLIGHT' for row in pending):
+            if preparation_id not in self.preparation._active_dispatches:
+                original = self.preparation._one('rc72_n7_execution_preparation', preparation_id=preparation_id)
+                self.preparation.authority.revoke_worker_lease(original['task_lease']['lease_id'])
+            raise ToolDispatchError('N7_SIDE_EFFECTS_UNKNOWN_DIAGNOSIS_REQUIRED')
         prepared = self.preparation.assert_current(preparation_id)
         contract = self.preparation._one('rc72_n6_executable_contract',
                                          contract_id=prepared['contract_id'])
@@ -138,8 +145,13 @@ class SignedToolDispatchService:
         entity.state = WorkItemAttemptState.RUNNING
         self.preparation.lifecycle.repository.persist(entity, artifact_version=binding['artifact_version'] + 1)
         self._live_invocations.add(preparation_id)
+        self.preparation._active_dispatches[preparation_id] = self
         try:
-            result = adapter(contract=deepcopy(contract), context=deepcopy(context))
+            from .rc72_formal_runner import FormalN7RunnerAdapter
+            if isinstance(adapter, FormalN7RunnerAdapter):
+                result = adapter.run_with_dispatch(contract=deepcopy(contract), context=deepcopy(context), dispatcher=self)
+            else:
+                result = adapter(contract=deepcopy(contract), context=deepcopy(context))
             if not isinstance(result, dict) or not result:
                 raise ToolDispatchError('N7_TOOL_RAW_RESULT_REQUIRED')
             # Reject non-durable Python objects and NaN rather than inventing
@@ -152,6 +164,7 @@ class SignedToolDispatchService:
             return self.truth.query(_KIND, dispatch_id=dispatch_id)[0]
         finally:
             self._live_invocations.discard(preparation_id)
+            self.preparation._active_dispatches.pop(preparation_id, None)
         returned = dict(row, state='RETURNED', raw_result=result,
                         receipt_sha256=_hash(result), artifact_version=2)
         self.truth.append_atomic(_EVENT, returned)

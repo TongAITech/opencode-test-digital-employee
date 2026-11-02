@@ -15,6 +15,48 @@ Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md. Finish
 construction before preparing a delivery package. Candidate 9476b57 remains
 quarantined. This checkpoint supersedes earlier component-only descriptions.
 
+## Actual formal-process heartbeat and automatic renewal — 2026-11-03
+
+SignedToolDispatchService now binds the concrete FormalN7RunnerAdapter to its
+actual live invocation. The inherited RC7 harness remains unchanged when no
+controller is supplied; native formal execution uses an owned Popen controller
+and bounded communicate/poll intervals. The same thread checks current scope and
+renews the full original lease/resource tuple near its deadline, without a
+concurrent R1-writing timer thread. Generic callable adapters do not receive an
+invented automatic heartbeat.
+
+A new runtime-signed process heartbeat records exact worker/Attempt/contract,
+real PID, run/command identity, automatic renewal refs and observed exit code.
+RUNNING -> EXITED -> COMPLETED requires actual raw stdout/stderr/command capture;
+formal receipts name those records and historical verification rechecks HMAC,
+full scope, file bytes and command/runtime exit consistency. Process completion
+is not Case PASS. Independent full-plan review/finalization is still required.
+
+Renewal denial, timeout or evidence-capture failure revokes old business authority
+and leaves a durable failure/suspension. The controller kills/reaps its exact
+owned child with a bounded drain wait. This does not prove all descendants or
+remote operations have drained; resource custody remains held and diagnosis
+stays UNKNOWN when causality is unproven. No automatic compensation/replay or
+product-defect claim follows such a failure. Cold runtimes cannot restore
+business authority from an in-flight dispatch/PID/heartbeat marker: the actual
+local controller/process ownership must exist. Saved completed observations can
+recover an fsynced append response without another process or business call.
+
+Engineering proof includes real local HTTP actions, automatic renewal under a
+configured early-renew window, all original Cases through cleanup/independent
+N7_PASS, renewal refusal/timeout, cold liveness denial, file tampering, and
+retained custody. Native integrated69 passed177.65s; additional failure/history/cold
+proof36 passed63.93s. Final source37-test chain had one test-double error
+(missing subprocess.PIPE), corrected without production changes; complete
+heartbeat file9 passed. Failed spawn fabricates no process or formal receipt. This is native Pytest/JUnit process maintenance, not generic remote
+job recovery or DSH call-time enforcement. Product-wide scheduling, multi-member
+drain/reuse and orphan disposition remain C06/C07/C08 work.
+
+Platform follow-up: exact parent2ffe9f9 Construction, Windows clean unpack and
+Windows/Linux platform baseline all passed. This confirms the prior Windows
+pre-lock-read fix on real engineering runners. The current heartbeat source
+requires its own qualification after commit. Field/BANK_FINAL remains false.
+
 ## Native same-attempt lease renewal and explicit runtime authorization — 2026-11-03
 
 ExecutionLeaseRenewalService now renews one owned native N7 execution and every

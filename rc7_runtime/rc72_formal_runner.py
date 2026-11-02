@@ -145,6 +145,14 @@ def verified_formal_receipt(preparation, p, c, raw):
         if row['authorization_protocol'] != 'TEMPORAL_LEASE_V1':
             raise FormalRunnerError('FORMAL_EXECUTION_AUTHORIZATION_PROTOCOL_INVALID')
         verify_execution_authorization(preparation, p, row.get('execution_authorization'))
+    if row.get('heartbeat_protocol') is not None:
+        from .rc72_execution_heartbeat import verify_process_heartbeats
+        if row['heartbeat_protocol'] != 'OWNED_PROCESS_V1':
+            raise FormalRunnerError('FORMAL_HEARTBEAT_PROTOCOL_INVALID')
+        heartbeats = verify_process_heartbeats(preparation, p, row.get('process_heartbeat_refs'))
+        if row['runner_result']['exit_code'] == 0 and any(
+                item['state'] != 'COMPLETED' or item['observed_exit_code'] != 0 for item in heartbeats):
+            raise FormalRunnerError('FORMAL_HEARTBEAT_CANNOT_AUTHORIZE_SUCCESS')
     expected = build_approved_target(c, at=_utc(row['started_at']))
     if row['target_identity'] != expected.as_dict():
         raise FormalRunnerError('FORMAL_RUNNER_TARGET_IDENTITY_MISMATCH')
@@ -180,11 +188,14 @@ def verified_formal_receipt(preparation, p, c, raw):
 
 
 class FormalN7RunnerAdapter:
-    def __init__(self, preparation, *, evidence_root, timeout_seconds=300, execution_env=None, environment_adapter=None):
+    def __init__(self, preparation, *, evidence_root, timeout_seconds=300, execution_env=None, environment_adapter=None,
+                 heartbeat_interval_seconds=5, renew_before_seconds=30, renewal_ttl_seconds=None):
         install_rc72_formal_runner_overlay()
         self.preparation, self.truth = preparation, preparation.truth
         self.root = Path(evidence_root).resolve()
         self.timeout = timeout_seconds
+        self.heartbeat_options = dict(interval_seconds=heartbeat_interval_seconds, renew_before_seconds=renew_before_seconds,
+                                      renewal_ttl_seconds=renewal_ttl_seconds)
         self.execution_env = scoped_process_environment(execution_env, home=self.root / 'qualification-home')
         self.environment_adapter = environment_adapter
         self.loader = StrictScriptExecutionBundleLoader(evidence_root=str(self.root / 'qualification'),
@@ -294,6 +305,12 @@ class FormalN7RunnerAdapter:
         return checks
 
     def __call__(self, *, contract, context):
+        return self._execute(contract=contract, context=context, dispatcher=None)
+
+    def run_with_dispatch(self, *, contract, context, dispatcher):
+        return self._execute(contract=contract, context=context, dispatcher=dispatcher)
+
+    def _execute(self, *, contract, context, dispatcher):
         p, target, bundle, cwd = self._load(contract, context)
         from .rc72_lease_renewal import execution_authorization_snapshot
         authorization = execution_authorization_snapshot(self.preparation, p)
@@ -343,7 +360,12 @@ class FormalN7RunnerAdapter:
         if bundle.spec.runner_type not in runners:
             raise FormalRunnerError('FORMAL_RUNNER_NOT_IMPLEMENTED')
         runner = runners[bundle.spec.runner_type](timeout_seconds=self.timeout)
-        runner.harness = _EvidenceBackedProcessHarness(evidence_root=str(self.root), timeout_seconds=self.timeout)
+        heartbeat = None
+        if dispatcher is not None:
+            from .rc72_execution_heartbeat import ExecutionProcessHeartbeat
+            heartbeat = ExecutionProcessHeartbeat(self.preparation, p, dispatcher, **self.heartbeat_options)
+        runner.harness = _EvidenceBackedProcessHarness(evidence_root=str(self.root), timeout_seconds=self.timeout,
+                                                     process_controller=heartbeat)
         env = dict(self.environment_adapter.execution_env(target_id=target.target_id, layer=bundle.spec.layer))
         env.update(self.execution_env)
         # The inherited runner supports explicit legacy module paths; N7 denies them.
@@ -371,6 +393,8 @@ class FormalN7RunnerAdapter:
             authorization_protocol='TEMPORAL_LEASE_V1', execution_authorization=authorization,
             process_evidence_sha256={key: hashlib.sha256(Path(getattr(result, key)[len('file://'):]).read_bytes()).hexdigest()
                 for key in ('stdout_ref', 'stderr_ref')})
+        if heartbeat is not None:
+            receipt.update(heartbeat_protocol='OWNED_PROCESS_V1', process_heartbeat_refs=list(heartbeat.refs))
         receipt['signature'] = self.preparation.authority._sign(receipt)
         receipt['artifact_version'] = 1
         self.truth.append_atomic(_EVENT, receipt)

@@ -77,6 +77,8 @@ class ExecutionPreparationService:
             raise ExecutionPreparationError('N7_PREPARATION_TTL_INVALID')
         self.truth, self.release_id, self.source_commit = truth, release_id, source_commit
         self.authority, self.tool_registry, self.ttl = authority, tool_registry, ttl_seconds
+        self._active_dispatches = {}
+        self._active_process_heartbeats = {}
         self.planning = ExecutionPlanningService(truth, release_id=release_id, source_commit=source_commit, now=now, authority=authority)
         self.lifecycle = WorkerLifecycleService(truth, release_id=release_id)
         self.data = DataLeaseManager(truth, release_id=release_id)
@@ -203,7 +205,24 @@ class ExecutionPreparationService:
             raise
         return self.assert_current(payload['preparation_id'])
 
+    def _assert_runtime_suspension(self, row):
+        if self.truth.query('rc72_n8_repair_boundary', preparation_id=row['preparation_id']):
+            self.authority.revoke_worker_lease(row['task_lease']['lease_id'])
+            raise ExecutionPreparationError('N7_EXECUTION_SUSPENDED_BY_REPAIR_BOUNDARY')
+        for heartbeat in self.truth.query('rc72_execution_process_heartbeat', preparation_id=row['preparation_id']):
+            from .rc72_execution_heartbeat import signed_heartbeat
+            signed_heartbeat(self, heartbeat)
+            if (heartbeat['state'] == 'FAILED' or heartbeat['state'] in {'RUNNING', 'EXITED'}
+                    and heartbeat['heartbeat_id'] not in self._active_process_heartbeats):
+                self.authority.revoke_worker_lease(row['task_lease']['lease_id'])
+                raise ExecutionPreparationError('N7_EXECUTION_PROCESS_RECOVERY_REQUIRED')
+        calls = self.truth.query('rc72_n7_tool_dispatch', preparation_id=row['preparation_id'])
+        if any(call['state'] == 'IN_FLIGHT' for call in calls) and row['preparation_id'] not in self._active_dispatches:
+            self.authority.revoke_worker_lease(row['task_lease']['lease_id'])
+            raise ExecutionPreparationError('N7_EXECUTION_CONTROLLER_RECOVERY_REQUIRED')
+
     def _current_tuple(self, row):
+        self._assert_runtime_suspension(row)
         plan = self.planning.assert_current(row['plan_id'])
         item = next((item for item in plan['items'] if item['workitem_id'] == row['workitem_id']), None)
         if item is None or item['contract_id'] != row['contract_id'] or item['admission_id'] != row['admission_id']:
@@ -261,17 +280,13 @@ class ExecutionPreparationService:
 
     def assert_current(self, preparation_id: str) -> Dict[str, Any]:
         row = self._one(_ARTIFACT, preparation_id=preparation_id)
-        if self.truth.query('rc72_n8_repair_boundary', preparation_id=preparation_id):
-            self.authority.revoke_worker_lease(row['task_lease']['lease_id'])
-            raise ExecutionPreparationError('N7_EXECUTION_SUSPENDED_BY_REPAIR_BOUNDARY')
+        self._assert_runtime_suspension(row)
         identity, lease, contract, etu, scope, plan = self._current_tuple(row)
         self._current_resources(row, contract, etu, plan)
         # Authority restoration is the last operation after all resource checks.
         # In particular a failed cold read must not leave a live business lease.
         self.truth.rebuild_projection()
-        if self.truth.query('rc72_n8_repair_boundary', preparation_id=preparation_id):
-            self.authority.revoke_worker_lease(lease.lease_id)
-            raise ExecutionPreparationError('N7_EXECUTION_SUSPENDED_BY_REPAIR_BOUNDARY')
+        self._assert_runtime_suspension(row)
         from .rc72_lease_renewal import effective_worker_lease
         effective = effective_worker_lease(self, row)
         self.authority.restore_renewed_worker_lease(identity, lease, effective)
