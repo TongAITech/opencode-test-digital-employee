@@ -39,6 +39,9 @@ def install_execution_sources(tmp_path, monkeypatch):
     monkeypatch.setattr(base, 'complete_n1', complete_n1)
     original_candidate = n4_fixture._candidate
     spec = _binding()
+    spec['cleanup'].update(tool=runtime['tool_route']['tool'], verification=dict(
+        tool=runtime['tool_route']['tool'], source_ref=spec['cleanup']['source_ref'],
+        checks=[dict(id='fixture-data-restored', type='DATA_STATE', actual_path='restored', operator='EQ', expected=True)]))
 
     def candidate(*args, **kwargs):
         value = original_candidate(*args, **kwargs)

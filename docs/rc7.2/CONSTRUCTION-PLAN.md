@@ -1,3 +1,36 @@
+# N7 inherited evidence, defined cleanup and N8 handoff — 2026-11-02
+
+status: COMPONENT_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY
+implemented:
+- Canonical N7 RUNNING at dispatch, inherited execution_attempt/assertion and both
+  Evidence surfaces from stored raw receipt + exact signed Attempt/Worker tuple.
+- Historical observation after TTL expiry/upstream STALE is audit-only; no renewed
+  tool authority. N4 delivery revision and N1 environment source are explicit.
+- Frozen cleanup tool/source/machine verification required before main I/O.
+  No runtime-invented cleanup and no release based on an adapter success flag.
+- Separate cleanup/verification intent and raw receipt; whole DataRef denominator;
+  per-ref fixed predicates; complete owner/ref validation before cleanup proof;
+  release only after machine verification; interrupted release replays locally.
+- Execution and cleanup failures dispatch a fresh independent N8 assignment from
+  real evidence; completed dispatch replay is idempotent; explicit mission scope
+  for both failure routing and subsequent diagnosis classification routing.
+validation: final combined chain 136 passed / 4 existing collection warnings
+in 93.71s; cleanup-preflight suite separately 47 passed. Evidence logs:
+work/evidence/n7-cleanup-release-chain.log and n7-cleanup-preflight.log (local,
+not tracked). Syntax compilation and diff whitespace checks passed.
+fixtures: N1-N6 services are real repository composition, external adapters are
+injected. New cleanup specifications are added to N4 source BEFORE approval and
+hashing; tests do not modify frozen N6 contracts to manufacture a cleanup PASS.
+remaining: real target/runner adapters and full TargetIdentity/frozen Case;
+independent review/evidence finalization; actual N8 classification/repair/retry;
+N9/N10; product controller; global lease/process isolation; exact-source CI/Field.
+known_limits: Attempt stays BLOCKED after successful cleanup pending full evidence
+review; mechanical verification is not independent N5 certification. N8 multi-
+event dispatch crash recovery and pre-intent orphan-claim recovery remain open.
+DELIVERY_AUTHORIZED=false; FIELD_VERIFIED=false; BANK_FINAL=NO.
+
+---
+
 # Signed N7 tool dispatch and frozen Oracle — 2026-11-02
 
 status: COMPONENT_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY

@@ -229,7 +229,7 @@ class ExecutionPreparationService:
                 or binding.get('worker_id') != row['worker_id'] or binding.get('attempt_id') != row['attempt_id']
                 or binding.get('mission_id') != row['mission_id'] or binding.get('session_id') != row['session_id']
                 or binding.get('workitem_id') != row['workitem_id'] or binding.get('etu_id') != row['etu_id']
-                or binding.get('task_lease_ref') != lease.lease_id or binding.get('state') not in {'PREPARED', 'RUNNING'}
+                or binding.get('task_lease_ref') != lease.lease_id or binding.get('state') not in {'PREPARED', 'RUNNING', 'EVIDENCE_READY'}
                 or binding.get('resource_lease_refs') != row['data_lease_ids'] + row['browser_lease_ids']
                 or binding.get('case_id') != row['case_id'] or binding.get('mission_node_lineage_status') != 'RESOLVED'
                 or binding.get('mission_node_type') != 'N7_EXECUTION'

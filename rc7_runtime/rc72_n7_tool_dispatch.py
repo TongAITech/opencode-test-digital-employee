@@ -15,6 +15,8 @@ from .oracle_runtime import DeterministicOracleRuntime
 from rc6_runtime import contracts, truth as registry
 from .closed_loop_control import ClosedLoopControlPlane
 from .models import ContractError
+from .rc72_state_machine import RC72StateMachine
+from .rc72_domain import AutonomousMissionNode, MissionNodeState
 from .rc72_linkage import WorkItemAttemptBinding, WorkItemAttemptState
 from .rc72_n7_execution_admission import _hash
 from .truth_overlay import install_rc7_truth_overlay
@@ -79,6 +81,11 @@ class SignedToolDispatchService:
             raise ToolDispatchError('N7_TOOL_ADAPTER_REQUIRED:' + tool)
         self.preparation.authority.authorize_tool(prepared['worker_id'],
             prepared['task_lease']['lease_id'], tool)
+        from .rc72_n7_cleanup import frozen_cleanup_spec
+        cleanup, verification = frozen_cleanup_spec(contract)
+        for spec in (cleanup, verification):
+            if spec['tool'] not in prepared['task_lease']['allowed_tools'] or not callable(self.adapters.get(spec['tool'])):
+                raise ToolDispatchError('N7_CLEANUP_TOOL_NOT_READY_OR_OUTSIDE_SCOPE')
         dispatch_id = 'N7CALL-' + _hash([preparation_id, contract['contract_sha256'], tool])[:24]
         existing = self.truth.query(_KIND, dispatch_id=dispatch_id)
         if existing:
@@ -112,6 +119,12 @@ class SignedToolDispatchService:
         self.truth.append_atomic(_EVENT, row)
         ClosedLoopControlPlane(self.truth, prepared['release_id'], prepared['mission_id']).start(
             prepared['workitem_id'], worker_ref=prepared['worker_id'])
+        runtime = RC72StateMachine(self.truth, release_id=prepared['release_id'])
+        node = runtime.node_by_type(prepared['mission_id'], AutonomousMissionNode.N7_EXECUTION)
+        if node['state'] == 'READY':
+            runtime.transition_state(node['mission_node_id'], MissionNodeState.RUNNING, reason='signed N7 tool dispatch')
+        elif node['state'] != 'RUNNING':
+            raise ToolDispatchError('N7_EXECUTION_NODE_NOT_RUNNING')
         binding = self.preparation._one('rc72_workitem_attempt_binding', binding_id=prepared['binding_id'])
         entity = WorkItemAttemptBinding(**{field.name: binding[field.name]
             for field in fields(WorkItemAttemptBinding) if field.name in binding})

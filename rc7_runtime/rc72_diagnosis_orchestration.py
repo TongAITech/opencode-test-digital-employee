@@ -349,7 +349,22 @@ class DiagnosisOrchestrator:
         if not executable_refs or not all(isinstance(v, str) and v.strip() for v in executable_refs):
             raise ContractError("DIAGNOSIS_EXECUTABLE_CONTRACT_REQUIRED")
 
+        prior = self.truth.query(_DIAGNOSIS_CASE, source_binding_id=source_binding_id)
+        if prior:
+            if (len(prior) != 1 or prior[0].get('mission_id') != mission_id
+                    or prior[0].get('team_id') != team_id
+                    or prior[0].get('failure_evidence_refs') != evidence_refs
+                    or prior[0].get('executable_contract_refs') != executable_refs
+                    or prior[0].get('reason') != reason):
+                raise ContractError('DIAGNOSIS_DISPATCH_REPLAY_CONFLICT')
+            case = prior[0]
+            session = self._one(_WORKER_SESSION, session_id=case['diagnosis_session_id'])
+            return FreshDiagnosisAssignment(diagnosis_id=case['diagnosis_id'],
+                worker_id=case['diagnosis_worker_id'], session_id=case['diagnosis_session_id'],
+                source_attempt_id=case['source_attempt_id'], context_bundle=session['context_bundle'],
+                transition_id=case['transition_id'])
         transition = self.state_machine.route_execution_failure(
+            mission_id=mission_id,
             failure_evidence_refs=evidence_refs,
             reason=reason,
         )
@@ -447,6 +462,7 @@ class DiagnosisOrchestrator:
         evidence = self._validate_evidence(case["mission_id"], evidence_refs)
         route: DiagnosisRoute = self.state_machine.route_diagnosis(
             failure_class,
+            mission_id=case['mission_id'],
             source_delivery_id=source_delivery_id,
             evidence_refs=evidence,
             affected_refs=list(affected_refs),

@@ -389,8 +389,9 @@ class RC72StateMachine:
         *,
         failure_evidence_refs: Sequence[str],
         reason: str,
+        mission_id: Optional[str] = None,
     ) -> NodeTransition:
-        mission_id = self._single_mission_id()
+        mission_id = mission_id or self._single_mission_id()
         n7 = self.node_by_type(mission_id, AutonomousMissionNode.N7_EXECUTION)
         n8 = self.node_by_type(mission_id, AutonomousMissionNode.N8_DIAGNOSIS_RECOVERY)
         if n7.get("state") != MissionNodeState.RUNNING.value:
@@ -431,10 +432,11 @@ class RC72StateMachine:
         evidence_refs: Sequence[str],
         affected_refs: Sequence[str],
         rationale: str,
+        mission_id: Optional[str] = None,
     ) -> DiagnosisRoute:
         if not isinstance(failure_class, FailureClass):
             failure_class = FailureClass(str(failure_class))
-        mission_id = self._single_mission_id()
+        mission_id = mission_id or self._single_mission_id()
         n8 = self.node_by_type(mission_id, AutonomousMissionNode.N8_DIAGNOSIS_RECOVERY)
         if n8.get("state") != MissionNodeState.PASS.value:
             raise StateMachineContractError("DIAGNOSIS_ROUTE_REQUIRES_ACCEPTED_N8_GATE")

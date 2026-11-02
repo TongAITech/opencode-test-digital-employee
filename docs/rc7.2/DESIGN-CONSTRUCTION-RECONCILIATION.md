@@ -151,3 +151,30 @@ No cleanup, release, Case PASS, N7 PASS or delivery decision is manufactured.
 Production tool adapters, inherited Attempt/Evidence finalization, actual cleanup,
 resource re-verification, N8/N9/N10 and product controller remain OPEN. Broader
 cross-process lease exclusion and worker environment isolation remain under audit.
+
+## N7 inherited evidence / cleanup / independent N8 assignment — 2026-11-02
+
+Located implementations: rc72_n7_execution_evidence, rc72_n7_cleanup and the
+signed tool dispatch, lifecycle, diagnosis and state-machine services.
+
+The runnable component chain now covers signed preparation -> actual configured
+adapter invocation -> stored raw receipt -> fixed Oracle -> inherited Attempt,
+Assertion and both Evidence stores -> defined cleanup call -> separate actual
+per-DataRef observation -> fixed verification -> owned resource release. Execution
+or cleanup failure can hand actual evidence to a fresh independent N8 assignment.
+Both node routing and diagnosis replay are scoped to the source mission/binding.
+
+Contract enforcement rejects unresolved cleanup before main tool execution.
+Cleanup requires explicit tool/source and machine verification fields in approved
+N4 materialization; their bytes propagate unchanged into the N6 contract. Missing
+legacy fields require upstream repair; the executor cannot fill them in.
+
+Status remains COMPONENT. Attempt is BLOCKED, task RUNNING; no success, Case
+completion or Node PASS is fabricated. External adapters are fixtures. Case
+revision is explicitly N4 delivery revision; target is explicitly N1 environment
+source. Full inherited frozen-Case/TargetIdentity/runner integration, complete
+required-evidence review, actual independent N8 classification/recovery, N9/N10,
+product ingress and Field remain OPEN. Cleanup machine predicates do not replace
+independent N5 certification. Partial multi-event diagnosis dispatch recovery,
+orphan claims, global cross-process lease exclusion and child environment
+isolation remain under audit.
