@@ -151,6 +151,21 @@ class TaskScheduler:
             return task
         return None
 
+    def lease_task(self, mission_id: str, task_id: str, *, worker_ref: str,
+                   capabilities: Iterable[str]) -> Optional[Task]:
+        """Lease one governed WorkItem without accidentally leasing a sibling."""
+        row = self._required_row(task_id)
+        if row["mission_id"] != mission_id:
+            raise ControlPlaneError("TASK_MISSION_MISMATCH")
+        if row["state"] != TaskStatus.READY.value or not self._inputs_valid(row.get("input_artifact_refs", [])):
+            return None
+        task = self._task_from_row(row)
+        if not set(task.required_capabilities).issubset(set(capabilities)):
+            return None
+        transition_task(task, TaskStatus.LEASED, lease_owner=worker_ref)
+        self._persist_task(task, int(row["artifact_version"]) + 1)
+        return task
+
     def start(self, task_id: str, *, worker_ref: str) -> Task:
         row = self._required_row(task_id)
         task = self._task_from_row(row)

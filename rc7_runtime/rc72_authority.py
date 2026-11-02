@@ -89,6 +89,35 @@ class RC72AuthorityRuntime(AuthorityRuntime):
         self._identities[identity.worker_id] = identity
         return identity
 
+    def revoke_worker_lease(self, lease_id: str):
+        revoked = getattr(self, "_revoked_lease_ids", None)
+        if revoked is None:
+            self._revoked_lease_ids = revoked = set()
+        revoked.add(lease_id)
+        self._leases.pop(lease_id, None)
+
+    def _validate_lease(self, identity, lease, now):
+        if lease.lease_id in getattr(self, "_revoked_lease_ids", set()):
+            raise AuthorityError("LEASE_REVOKED")
+        return super()._validate_lease(identity, lease, now)
+
+    def restore_signed_worker_lease(self, identity, lease, *, expected_scope: str):
+        """Restore audit metadata only after verifying the original HMAC and TTL."""
+        from dataclasses import asdict
+        if lease.scope_ref != expected_scope:
+            raise AuthorityError("LEASE_SCOPE_MISMATCH")
+        if identity.role not in self._ROLE_ARTIFACTS or not set(lease.allowed_artifact_types).issubset(self._ROLE_ARTIFACTS[identity.role]):
+            raise AuthorityError("LEASE_ARTIFACT_SCOPE_EXCEEDS_ROLE")
+        if any("*" in tool for tool in lease.allowed_tools):
+            raise AuthorityError("WILDCARD_TOOL_FORBIDDEN")
+        self._validate_lease(identity, lease, None)
+        current = self._leases.get(lease.lease_id)
+        if current is not None and current != lease:
+            raise AuthorityError("LEASE_RESTORE_CONFLICT")
+        self.adopt_identity(**asdict(identity))
+        self._leases[lease.lease_id] = lease
+        return lease
+
     def validate_identity(
         self,
         worker_id: str,

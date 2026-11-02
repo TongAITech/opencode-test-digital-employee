@@ -66,3 +66,28 @@ def test_plan_cannot_be_reused_after_source_changes(tmp_path, monkeypatch):
     with pytest.raises(ExecutionPlanningError, match='SOURCE_MISMATCH'):
         ExecutionPlanningService(truth, release_id=RELEASE, source_commit='2'*40, now=NOW).assert_current(first['plan_id'])
     assert list(truth.store.iter_raw()) == before
+
+
+def test_etu_cannot_relabel_api_work_as_a_different_test_level(tmp_path, monkeypatch):
+    truth, _ = _ready(tmp_path, monkeypatch)
+    plan = _service(truth).plan(release_batch_id=BATCH)
+    etu = truth.query('rc72_etu', etu_id=plan['items'][0]['etu_id'])[0]
+    etu.update(test_level='L6', artifact_version=etu['artifact_version'] + 1)
+    truth.append_atomic('RC72_ETU_UPSERTED', etu)
+    before = list(truth.store.iter_raw())
+    with pytest.raises(ExecutionPlanningError, match='LINEAGE_MISMATCH'):
+        _service(truth).assert_current(plan['plan_id'])
+    assert list(truth.store.iter_raw()) == before
+
+
+def test_planning_snapshot_cannot_change_the_approved_auth_role(tmp_path, monkeypatch):
+    truth, _ = _ready(tmp_path, monkeypatch)
+    plan = _service(truth).plan(release_batch_id=BATCH)
+    snapshot = truth.query('rc72_decomposition_snapshot', snapshot_id=plan['snapshot_id'])[0]
+    snapshot['planning_cases'][0]['auth_role'] = 'different-role'
+    snapshot['artifact_version'] += 1
+    truth.append_atomic('RC72_DECOMPOSITION_SNAPSHOT_UPSERTED', snapshot)
+    before = list(truth.store.iter_raw())
+    with pytest.raises(ExecutionPlanningError, match='SNAPSHOT_STALE'):
+        _service(truth).assert_current(plan['plan_id'])
+    assert list(truth.store.iter_raw()) == before

@@ -1,3 +1,21 @@
+# Signed N7 preparation and resource ownership — 2026-11-02
+
+status: COMPONENT_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY
+implemented: exact-task scheduler leasing (including economy deferral); signed
+Worker identity/task/Attempt scope, deny wildcard and professional artifact writes;
+restore and verify leases on restart; deterministic data reservations and browser
+auth-context selection; fresh takeover session/Attempt with parent lineage.
+rollback_policy: reservation rollback only before tools start; RUNNING refuses it.
+replay_fixes: tuple/list normalization; N6 content-addressed recompilation ignores
+new wall-clock compiled_at and cannot be invalidated by unrelated valid N7 leases.
+N6 still forbids lease/result material inside its own executable contracts.
+evidence: final focused chain 64 passed (2 collection warnings); browser auth
+context selection/revalidation and preparation subset 21 passed. External system calls are injected fixtures.
+remaining: execution receipts, actual cleanup/data re-verification, independent
+N8 diagnosis, N9/N10 and product ingress. No transport release is authorized.
+
+---
+
 # N7 canonical planning and executable Oracle checks — 2026-11-02
 
 baseline_head: ab863663751d5b4271288bb738508ea2ce006b09

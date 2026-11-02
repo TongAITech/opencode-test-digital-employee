@@ -261,6 +261,11 @@ class N6DeliveryGateService:
             if len(current) != 1:
                 raise N6CompletionError("RC72_N6_COMPLETION_CONTRACT_NOT_UNIQUE")
             for key, value in expected.items():
+                # Compilation time describes the first immutable emission, not
+                # a semantic revision. Recompiling identical content later must
+                # recover that original event instead of conflicting on the clock.
+                if key == "compiled_at":
+                    continue
                 current_value = current[0].get(key)
                 if current_value is None and key == "required_capabilities":
                     current_value = current[0].get("capabilities")
@@ -363,7 +368,9 @@ class N6DeliveryGateService:
             "N6_ASSERTIONS_ORACLES_DEFINED": bool(rows) and all(list(row.get("assertions") or []) and list(row.get("oracles") or []) for row in rows),
             "N6_EVIDENCE_REQUIREMENTS_DEFINED": bool(rows) and all(list(row.get("evidence_required") or []) for row in rows),
             "N6_AUTHORITATIVE_SOURCES_BOUND": bool(rows) and all(list(row.get("authoritative_sources") or []) for row in rows),
-            "N6_NO_PREMATURE_DATA_LEASE": bool(rows) and not self.truth.query("rc72_data_lease") and all(not any(key in row for key in ("data_lease_id", "data_leases", "execution_result", "actual_result")) for row in rows),
+            # N6 owns contracts, not global resource occupancy. N7 may already
+            # hold legitimate leases when this immutable N6 delivery is replayed.
+            "N6_NO_PREMATURE_DATA_LEASE": bool(rows) and all(not any(key in row for key in ("data_lease_id", "data_leases", "execution_result", "actual_result")) for row in rows),
         }
 
     def apply_gate(self, *, release_batch_id: str) -> Dict[str, Any]:

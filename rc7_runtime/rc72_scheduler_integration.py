@@ -130,6 +130,14 @@ class EconomyAwareTaskSchedulerAdapter:
             return task
         return None
 
+    def lease_task(self, mission_id: str, task_id: str, *, worker_ref: str,
+                   capabilities: Iterable[str]) -> Optional[Task]:
+        canonical = tuple(self.delegate.ready_tasks(mission_id))
+        plan = self._plan(mission_id, canonical)
+        if plan is None or task_id not in plan.run_now_workitem_ids:
+            return None
+        return self.delegate.lease_task(mission_id, task_id, worker_ref=worker_ref, capabilities=capabilities)
+
 
 def attach_economy_scheduler(
     control: Any,

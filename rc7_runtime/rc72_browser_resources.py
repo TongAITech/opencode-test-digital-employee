@@ -227,6 +227,7 @@ class BrowserPool:
         purpose: str,
         ttl_seconds: int,
         now: Optional[int] = None,
+        auth_asset_ref: Optional[str] = None,
     ) -> BrowserLeaseGrant:
         if not isinstance(access_mode, BrowserAccessMode):
             access_mode = BrowserAccessMode(str(access_mode).upper())
@@ -244,7 +245,8 @@ class BrowserPool:
         current = _now() if now is None else int(now)
 
         candidates = sorted(
-            [row for row in self.truth.query(_BROWSER_INSTANCE) if row.get("state") == "READY"],
+            [row for row in self.truth.query(_BROWSER_INSTANCE) if row.get("state") == "READY"
+             and (auth_asset_ref is None or row.get("auth_asset_ref") == auth_asset_ref)],
             key=lambda row: row["browser_instance_id"],
         )
         selected = None
@@ -296,6 +298,7 @@ class BrowserPool:
         attempt_id: str,
         worker_id: str,
         access_mode: BrowserAccessMode,
+        auth_asset_ref: Optional[str] = None,
         now: Optional[int] = None,
     ) -> Dict[str, Any]:
         row = self.lease(browser_lease_id)
@@ -320,6 +323,11 @@ class BrowserPool:
         current = _now() if now is None else int(now)
         if current > int(row["expires_at"]):
             raise ContractError("BROWSER_LEASE_EXPIRED")
+        instance = self._one(_BROWSER_INSTANCE, browser_instance_id=row["browser_instance_id"])
+        if instance.get("state") != "READY":
+            raise ContractError("BROWSER_INSTANCE_NOT_READY")
+        if auth_asset_ref is not None and instance.get("auth_asset_ref") != auth_asset_ref:
+            raise ContractError("BROWSER_INSTANCE_AUTH_CONTEXT_MISMATCH")
         self._binding(mission_id=mission_id, workitem_id=workitem_id, attempt_id=attempt_id, worker_id=worker_id)
         return row
 

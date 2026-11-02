@@ -291,3 +291,29 @@ def test_browser_instance_and_lease_truth_survive_r1_replay(tmp_path: Path):
     assert persisted["attempt_id"] == "ATT-L4"
     assert persisted["worker_id"] == "WORKER-L4"
     assert persisted["access_mode"] == "WRITE"
+
+
+def test_browser_acquisition_does_not_substitute_another_auth_context(tmp_path):
+    truth, pool, ids = _setup(tmp_path, instance_count=1)
+    wi, att, worker = ids['L4']
+    before = list(truth.store.iter_raw())
+    with pytest.raises(BrowserResourceConflict):
+        pool.acquire(mission_id='M-1', workitem_id=wi, attempt_id=att, worker_id=worker,
+            access_mode=BrowserAccessMode.WRITE, purpose='L4_EXECUTION', ttl_seconds=300,
+            auth_asset_ref='auth://different-role')
+    assert list(truth.store.iter_raw()) == before
+    grant = pool.acquire(mission_id='M-1', workitem_id=wi, attempt_id=att, worker_id=worker,
+        access_mode=BrowserAccessMode.WRITE, purpose='L4_EXECUTION', ttl_seconds=300,
+        auth_asset_ref='auth://shared-4a')
+    assert grant.browser_instance_id == 'BROWSER-1'
+
+
+def test_browser_use_revalidates_registered_auth_context(tmp_path):
+    truth, pool, ids = _setup(tmp_path, instance_count=1)
+    grant = _acquire(pool, ids['L4'], purpose='L4_EXECUTION')
+    wi, att, worker = ids['L4']
+    kwargs = dict(browser_lease_id=grant.browser_lease_id, mission_id='M-1', workitem_id=wi,
+        attempt_id=att, worker_id=worker, access_mode=BrowserAccessMode.WRITE)
+    pool.assert_usable(auth_asset_ref='auth://shared-4a', **kwargs)
+    with pytest.raises(Exception, match='BROWSER_INSTANCE_AUTH_CONTEXT_MISMATCH'):
+        pool.assert_usable(auth_asset_ref='auth://different-role', **kwargs)

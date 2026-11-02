@@ -1,51 +1,33 @@
 # RC7.2 Current Construction Checkpoint
 
-Status: **DESIGN_RECONCILED_INCOMPLETE / N7_ADMISSION_COMPONENT_TESTED / NO_DELIVERY**
+Status: **DESIGN_RECONCILED_INCOMPLETE / NO_DELIVERY**
 
-BASELINE_HEAD=9476b57cf70056f958352762c14a5ec3b2b2151d
 CONTRACT_SET=docs/rc7.2/00..05 + 07 + 08 + 09
+DELIVERY_AUTHORIZED=false
+FIELD_VERIFIED=false
+BANK_FINAL=NO
 
-Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md first.
-Do not repeat the former mistake of replacing unfinished construction with a
-portable candidate. User requires full design implementation before delivery.
+The authoritative design comparison is DESIGN-CONSTRUCTION-RECONCILIATION.md.
+Construction must finish before a transport package is prepared for delivery.
+The old portable candidate at 9476b57 is quarantined and is not a release.
 
-IMPLEMENTED_CLAUSES: Truth cold-start/bootstrap and legal late-bucket projection
-repair (55ca13f); focused and full isolated regression passed.
-UNIMPLEMENTED_CLAUSES: N7 admission and execution orchestration; decomposition,
-resource/lifecycle/diagnosis/convergence and product integration closure; other
-phase/GAP rows remain component-only or under audit as recorded in reconciliation.
-FIELD_EVIDENCE_STATUS: unavailable; field_verified=false; BANK_FINAL=NO.
-KNOWN_DEVIATIONS: premature portable preparation at 9476b57, now quarantined.
+Implemented component composition: Truth bootstrap; current canonical N1/N4/N5
+source bridge; N6 executable machine predicates; read-only N7 admission;
+persistent adaptive planning into actual WorkItems; signed task/Attempt-scoped
+fresh Workers, exact-task scheduler admission and data/browser reservations.
+Unstarted takeover keeps the WorkItem but creates a fresh session and Attempt;
+RUNNING tasks cannot use reservation rollback to claim SUT cleanup.
 
-Regression evidence: local macOS Python 3.9 RC7.2 736 passed; inherited RC7
-492 passed/1 skipped. Source construction CI 41378144747 passed Python 3.8 and
-3.11 plus inherited regression. Q2 41378144662 passed. Read current Q1 separately.
-These are engineering evidence, not proof of whole-design completion.
+Local final focused regression: 64 passed, two collection warnings. Browser
+authorization and preparation subset: 21 passed. Fixtures inject
+external I/O. These tests do not establish real system or field acceptance.
+Remote construction/Q1/Q2 passed at ab86366; newer changes need their own checks.
 
-Next atomic step: implement and negatively test replay-safe N7 admission from
-active non-stale N6 contract and complete upstream canonical gates, before
-creating execution leases or results. Then continue the corrected construction
-sequence until the implementation rows are closed.
+Remaining construction: actual tool invocation and raw receipts; immutable
+Oracle evaluation; actual cleanup and data re-verification; independent N8
+diagnosis/recovery; N9/N10 convergence; product entry/controller wiring and all
+remaining phase/GAP rows. Cross-process lease exclusion and scoped worker
+environment isolation remain under audit. No phase-wide closure is implied.
 
-## N7 admission slice update
-
-ExecutionAdmissionService now has 11 negative/replay/lineage tests; combined
-focused regression: 25 passed. Actual dispatch consumers are still pending.
-Next: approved N4 assets/canonical N6 adaptation → persisted N7 planning →
-signed worker/resource acquisition → thin execution → independent diagnosis.
-The N7 admission component is not a claim that N7 is complete.
-
-## Canonical source bridge update
-
-41 focused tests passed. N4 promotion and N6 source adapter now compose actual
-N1–N6 services into N7 admission with injected external I/O. No field claim.
-Next: persist adaptive N7 planning and connect signed worker/resource/execution
-consumers, then diagnosis/recovery, convergence and product ingress.
-
-## N7 planner/Oracle bridge
-
-Persistent decomposition now creates actual N7 WorkItems from canonical source
-assets and admissions; replay reuses them. Explicit N1 tool families prevent
-test-level relabeling. Executable Oracles require machine predicates. Planning
-and resource preparation were locally exercised together (19 passed); prepared
-worker/resource code is the next separate slice, not whole-product closure.
+Next atomic step: connect signed preparations to real tool receipts and
+fail-closed execution/cleanup, then independent diagnosis and product ingress.

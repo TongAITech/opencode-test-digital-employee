@@ -475,13 +475,15 @@ class WorkerLifecycleService:
         lifecycle_session_id: str,
         assignment: WorkerAssignment,
         case_id: str,
+        parent_attempt_id: Optional[str] = None,
     ) -> RuntimeAssignmentBinding:
         session = self._one(_WORKER_SESSION, session_id=lifecycle_session_id)
         if session.get("state") != "ACTIVE" or session.get("purpose") != "EXECUTION":
             raise ContractError("WORKER_SESSION_NOT_ACTIVE_EXECUTION")
         if assignment.mission_id != session.get("mission_id"):
             raise ContractError("RUNTIME_ASSIGNMENT_MISSION_MISMATCH")
-        if assignment.scope != session.get("etu_id"):
+        scoped_attempt = "task:%s/attempt:%s" % (session.get("workitem_id"), assignment.attempt_id)
+        if assignment.scope not in {session.get("etu_id"), scoped_attempt}:
             raise ContractError("RUNTIME_ASSIGNMENT_SCOPE_MISMATCH")
         if assignment.lease.worker_id != assignment.worker_instance_id:
             raise ContractError("RUNTIME_ASSIGNMENT_LEASE_WORKER_MISMATCH")
@@ -504,6 +506,7 @@ class WorkerLifecycleService:
             session_id=lifecycle_session_id,
             task_lease_ref=assignment.lease.lease_id,
             state=WorkItemAttemptState.PREPARED,
+            parent_attempt_id=parent_attempt_id,
         )
         self.repository.persist(binding)
         self._update_session(

@@ -250,3 +250,14 @@ def test_descriptor_identity_mismatch_fails_closed(tmp_path):
     )
     with pytest.raises(EconomySchedulerIntegrationError, match="WORKITEM_MISMATCH"):
         adapter.ready_tasks("MISSION-1")
+
+
+def test_specific_workitem_lease_does_not_bypass_the_economy_plan(tmp_path):
+    base = _base_scheduler(tmp_path)
+    adapter = EconomyAwareTaskSchedulerAdapter(base, descriptor_resolver=_resolver, clock=lambda: DAYTIME)
+    assert adapter.lease_task('MISSION-1', 'WI-HIGH', worker_ref='worker', capabilities=[]) is None
+    assert base.task('WI-HIGH').state == TaskStatus.READY
+    task = adapter.lease_task('MISSION-1', 'WI-DET', worker_ref='worker', capabilities=[])
+    assert task.task_id == 'WI-DET'
+    assert task.state == TaskStatus.LEASED
+    assert base.task('WI-HIGH').state == TaskStatus.READY

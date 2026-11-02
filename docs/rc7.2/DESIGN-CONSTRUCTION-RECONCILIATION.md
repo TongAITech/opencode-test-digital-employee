@@ -126,3 +126,15 @@ Oracle shapes: type + evidence_ref alone is descriptive, not executable.
 Executable materialization now requires fixed machine predicates and exact
 source preservation through N6/N7. L1–L7 requires an explicit compatible N1
 tool family, including real performance/security families for L6/L7.
+
+## Signed preparation slice (component evidence only)
+
+Actual persisted WorkItems now receive fresh signed Worker/session/Attempt
+bindings with exact-task scope, deterministic data/browser reservations and
+restart HMAC revalidation. Unstarted takeover preserves WorkItem lineage but
+replaces the concrete worker and Attempt. Started execution requires a separate
+cleanup/diagnosis path; it cannot use preparation rollback. N6 recompilation
+preserves immutable emission time and does not treat unrelated N7 leases as its
+own premature acquisitions. Final focused regression: 64 passed, including browser context hardening. Actual tool execution, cleanup/re-verification, independent
+N8, N9/N10 and product controller integration remain OPEN. Multi-process lease
+exclusion and child-process credential isolation are not yet proven.
