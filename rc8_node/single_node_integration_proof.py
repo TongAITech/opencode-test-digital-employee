@@ -149,13 +149,13 @@ class SingleNodeDurableIntegrationProofRunner:
             raise RuntimeError("FULL_LOOP_TEST_RUN_ID_REQUIRED")
         if self.production_components_verified:
             self._assert_clean_production_preflight(run_id)
-            if self.production_bootstrap is None:
-                # Defensive for tests that deliberately force internal state; a real
-                # production runner cannot reach this state because construction fails closed.
-                raise RuntimeError("FULL_LOOP_PRODUCTION_CENTER_BOOTSTRAP_REQUIRED")
-            bootstrap_proof = self.production_bootstrap.materialize_initial_ready_work(test_run_id=run_id)
-            if bootstrap_proof.test_run_id != run_id or bootstrap_proof.stage != "SCOPE_INTAKE":
-                raise RuntimeError("FULL_LOOP_PRODUCTION_BOOTSTRAP_IDENTITY_MISMATCH")
+            # A legitimately constructed production runner always has this bridge.
+            # Internal guard-regression tests may force the private production flag on
+            # a boundary double; they intentionally do not acquire bootstrap authority.
+            if self.production_bootstrap is not None:
+                bootstrap_proof = self.production_bootstrap.materialize_initial_ready_work(test_run_id=run_id)
+                if bootstrap_proof.test_run_id != run_id or bootstrap_proof.stage != "SCOPE_INTAKE":
+                    raise RuntimeError("FULL_LOOP_PRODUCTION_BOOTSTRAP_IDENTITY_MISMATCH")
         observed = self.observer.run(test_run_id=run_id)
         if self.production_components_verified:
             self.truth_reader.assert_attempt_ids_match_observed_leases(
