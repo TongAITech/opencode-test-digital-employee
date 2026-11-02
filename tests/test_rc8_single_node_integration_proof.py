@@ -42,6 +42,7 @@ class _Truth:
         self.preflight_calls = []
         self.r1_preflight_calls = []
         self.lease_binding_calls = []
+        self.artifact_binding_calls = []
         self.r1_lifecycle_binding_calls = []
 
     def assert_no_attempts_for_test_run(self, test_run_id):
@@ -52,6 +53,9 @@ class _Truth:
 
     def assert_attempt_ids_match_observed_leases(self, *, test_run_id, observed_lease_ids):
         self.lease_binding_calls.append((test_run_id, tuple(observed_lease_ids)))
+
+    def assert_worker_artifact_refs_match_observed_evidence(self, *, test_run_id, observed_evidence_refs):
+        self.artifact_binding_calls.append((test_run_id, tuple(observed_evidence_refs)))
 
     def assert_r1_attempt_lifecycle_matches_observed_leases(self, *, test_run_id, observed_lease_ids):
         self.r1_lifecycle_binding_calls.append((test_run_id, tuple(observed_lease_ids)))
@@ -105,6 +109,7 @@ def test_boundary_double_cannot_be_promoted_by_mutating_public_production_flag()
     assert runner.truth_reader.preflight_calls == []
     assert runner.truth_reader.r1_preflight_calls == []
     assert runner.truth_reader.lease_binding_calls == []
+    assert runner.truth_reader.artifact_binding_calls == []
     assert runner.truth_reader.r1_lifecycle_binding_calls == []
     assert proof.production_components_verified is False
     assert proof.production_causality_verified is False
@@ -186,7 +191,8 @@ def test_composed_production_proof_rejects_reused_start_event_identity(monkeypat
     runner = _boundary_double_runner()
     _force_internal_production_state(runner)
     runner.observer.run = lambda **_: SimpleNamespace(
-        work_item_ids=("wi-1", "wi-2"), attempt_ids=("lease-1", "lease-2"), lease_ids=("lease-1", "lease-2"))
+        work_item_ids=("wi-1", "wi-2"), attempt_ids=("lease-1", "lease-2"), lease_ids=("lease-1", "lease-2"),
+        evidence_refs=("artifact:art-1", "artifact:art-2"))
     monkeypatch.setattr(runner.truth_reader, "assert_attempt_ids_match_observed_leases", lambda **_: None)
     monkeypatch.setattr(runner.verifier, "verify", lambda observed: SimpleNamespace(
         verified_work_items=observed.work_item_ids, verified_attempts=observed.attempt_ids,
@@ -200,7 +206,8 @@ def test_composed_production_proof_rejects_reused_completion_event_identity(monk
     runner = _boundary_double_runner()
     _force_internal_production_state(runner)
     runner.observer.run = lambda **_: SimpleNamespace(
-        work_item_ids=("wi-1", "wi-2"), attempt_ids=("lease-1", "lease-2"), lease_ids=("lease-1", "lease-2"))
+        work_item_ids=("wi-1", "wi-2"), attempt_ids=("lease-1", "lease-2"), lease_ids=("lease-1", "lease-2"),
+        evidence_refs=("artifact:art-1", "artifact:art-2"))
     monkeypatch.setattr(runner.truth_reader, "assert_attempt_ids_match_observed_leases", lambda **_: None)
     monkeypatch.setattr(runner.verifier, "verify", lambda observed: SimpleNamespace(
         verified_work_items=observed.work_item_ids, verified_attempts=observed.attempt_ids,
@@ -230,6 +237,7 @@ def test_production_path_binds_complete_r1_lifecycle_set_before_truth_promotion(
         verified_r1_events=("evt-completed-1",), bank_reality_verified=False, release_status="HOLD"))
     proof = runner.run(test_run_id="run-1")
     assert runner.truth_reader.lease_binding_calls == [("run-1", ("lease-1",))]
+    assert runner.truth_reader.artifact_binding_calls == [("run-1", ("artifact:art-1",))]
     assert runner.truth_reader.r1_lifecycle_binding_calls == [("run-1", ("lease-1",))]
     assert proof.production_causality_verified is False
     assert proof.release_status == "HOLD"
