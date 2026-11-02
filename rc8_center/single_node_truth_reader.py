@@ -13,7 +13,7 @@ from sqlalchemy import select
 from rc8_runtime.r1_runtime import CentralR1RuntimeLedger
 
 from .infrastructure.postgres import AttemptRow, PostgresStore
-from .infrastructure.postgres_artifact import PostgresArtifactRepository
+from .infrastructure.postgres_artifact import ArtifactMetadataRow, PostgresArtifactRepository
 from .infrastructure.postgres_control import PostgresCenterRepository
 
 
@@ -45,6 +45,28 @@ class ProductionCenterR1TruthReader:
         if attempt_id is not None:
             raise ProductionTruthReaderError(
                 "PRODUCTION_CAUSALITY_PREFLIGHT_ATTEMPT_ALREADY_EXISTS:%s" % attempt_id
+            )
+
+    def assert_no_artifacts_for_test_run(self, test_run_id: str) -> None:
+        """Reject pre-seeded Artifact truth before production workers execute.
+
+        WorkItems legitimately exist before dispatch because Center must have work to
+        lease. Attempts, worker Evidence artifacts and R1 Attempt lifecycle facts do
+        not. Requiring the artifact surface to be clean closes the remaining path where
+        a traversal could match Evidence that existed before the first production claim.
+        """
+        run_id = str(test_run_id or "").strip()
+        if not run_id:
+            raise ProductionTruthReaderError("TEST_RUN_ID_REQUIRED")
+        with self.store.session() as session:
+            artifact_id = session.execute(
+                select(ArtifactMetadataRow.artifact_id)
+                .where(ArtifactMetadataRow.test_run_id == run_id)
+                .limit(1)
+            ).scalar_one_or_none()
+        if artifact_id is not None:
+            raise ProductionTruthReaderError(
+                "PRODUCTION_CAUSALITY_PREFLIGHT_ARTIFACT_ALREADY_EXISTS:%s" % artifact_id
             )
 
     def assert_no_r1_attempt_lifecycle_for_test_run(self, test_run_id: str) -> None:
