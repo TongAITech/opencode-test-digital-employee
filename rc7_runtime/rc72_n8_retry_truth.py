@@ -50,8 +50,8 @@ def verify_record(authority, row):
     return row
 
 
-def assert_reconciled_plan(planning, plan):
-    """Authenticate exact identity reuse; all normal current-source checks follow."""
+def verify_reconciled_history(planning, plan):
+    """Authenticate immutable past plan identity; grant no current permission."""
     from .rc72_n7_execution_admission import _hash
     row = verify_record(planning.authority,
         planning._one(_KIND, reconciliation_id=plan['recovery_id']))
@@ -76,6 +76,28 @@ def assert_reconciled_plan(planning, plan):
     for item in plan['items']:
         if any(item[key] != old_items[item['case_id']][key] for key in ('workitem_id', 'etu_id', 'input_artifact_refs')):
             raise ContractError('N8_RETRY_ORIGINAL_IDENTITY_REQUIRED')
+    # Content-addressed admissions/contracts cannot silently acquire a different
+    # historical payload just because the enclosing plan remains signed.
+    from .rc72_n6_completion import _digest, _stable_id
+    for item in plan['items']:
+        admission = planning._one('rc72_n7_execution_admission', admission_id=item['admission_id'])
+        payload = {k: v for k, v in admission.items() if k not in {'admission_id', 'status', 'artifact_type', 'artifact_version'}}
+        contract = planning._one('rc72_n6_executable_contract', contract_id=item['contract_id'])
+        if (admission['admission_id'] != 'N7ADM-' + _hash(payload)[:24] or admission['status'] != 'ADMITTED'
+                or any(admission[k] != plan[k] for k in ('release_id', 'source_commit', 'mission_id', 'release_batch_id'))
+                or admission['case_id'] != item['case_id'] or admission['contract_id'] != item['contract_id']
+                or any(contract[k] != plan[k] for k in ('release_id', 'source_commit', 'mission_id', 'release_batch_id'))
+                or contract['case_id'] != item['case_id']
+                or any(admission[k] != contract[k] for k in ('requirement_id', 'sst_id', 'obligation_id'))
+                or _digest(contract) != contract['contract_sha256']
+                or contract['contract_id'] != _stable_id('N6CONTRACT', contract['mission_id'], contract['case_id'], contract['contract_sha256'])):
+            raise ContractError('N8_RETRY_HISTORICAL_ADMISSION_OR_CONTRACT_CHANGED')
+    return row
+
+
+def assert_reconciled_plan(planning, plan):
+    """Authenticate past identity AND current governed member dispositions."""
+    row = verify_reconciled_history(planning, plan)
     from .rc72_n8_member_reuse import member_reuse_decisions
     if row.get('member_decisions', []) != member_reuse_decisions(planning, row, plan):
         raise ContractError('N8_REUSE_DECISION_CHANGED')

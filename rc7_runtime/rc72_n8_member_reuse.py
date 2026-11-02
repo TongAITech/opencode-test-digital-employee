@@ -35,10 +35,21 @@ def member_reuse_decisions(planning, reconciliation, plan):
         if not hmac.compare_digest(member['signature'], planning.authority._sign(signed)):
             raise ContractError('N8_REUSE_CHECKPOINT_SIGNATURE_INVALID')
         old = member['original_preparation']
-        if (member['state'] != 'DRAINED' or old['case_id'] in seen or member['plan_id'] != reconciliation['original_plan']['plan_id']
+        if (member['state'] != 'DRAINED' or old['case_id'] in seen
                 or any(member[key] != plan[key] for key in ('mission_id', 'release_batch_id', 'release_id', 'source_commit'))
                 or planning._one('rc72_n7_member_drain', drain_id=member['drain_id']) != member):
             raise ContractError('N8_REUSE_CHECKPOINT_SCOPE_CHANGED')
+        inherited_reexecution = False
+        if member['plan_id'] != reconciliation['original_plan']['plan_id']:
+            from .rc72_n8_retry_truth import verify_reconciled_history
+            parent = verify_reconciled_history(planning, reconciliation['original_plan'])
+            inherited = [d for d in parent.get('member_decisions', []) if d['preparation_id'] == old['preparation_id']]
+            if (member not in parent.get('members', []) or len(inherited) != 1
+                    or inherited[0]['disposition'] not in {'REUSE_FOR_CURRENT_REVIEW', 'REEXECUTE_AFTER_VERIFIED_DRAIN'}):
+                raise ContractError('N8_REUSE_INHERITED_MEMBER_PROOF_REQUIRED')
+            # A mandatory re-execution is sticky until an actual fresh Attempt
+            # produces new evidence. Later source equality cannot revive it.
+            inherited_reexecution = inherited[0]['disposition'] == 'REEXECUTE_AFTER_VERIFIED_DRAIN'
         seen.add(old['case_id'])
         item = items.get(old['case_id'])
         if item is None or any(item[key] != old[key] for key in ('workitem_id', 'etu_id')):
@@ -50,7 +61,7 @@ def member_reuse_decisions(planning, reconciliation, plan):
         # digest. Merely keeping the same DataRef or non-STALE ETU is insufficient.
         if _digest(current) != current['contract_sha256'] or _digest(previous) != previous['contract_sha256']:
             raise ContractError('N8_MEMBER_CONTRACT_DIGEST_INVALID')
-        unaffected = (impact['strategy'] == 'EXPLICIT_DEPENDENCY' and old['etu_id'] not in impact['stale_etu_ids']
+        unaffected = (not inherited_reexecution and impact['strategy'] == 'EXPLICIT_DEPENDENCY' and old['etu_id'] not in impact['stale_etu_ids']
                 and previous['obligation_id'] not in impact['stale_obligation_ids']
                 and not changed & _strings(previous) and current['contract_sha256'] == previous['contract_sha256'])
         disposition = 'REUSE_FOR_CURRENT_REVIEW' if unaffected else 'REEXECUTE_AFTER_VERIFIED_DRAIN'

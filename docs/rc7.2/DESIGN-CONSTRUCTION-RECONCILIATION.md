@@ -572,3 +572,27 @@ retry/drain/renewal/finalization/admission63 passed229.89s. Compilation/diff
 checks passed.
 Multi-round recovery, generic orphan disposition and actual tool-call fencing
 remain open. This is engineering evidence, not Field/BANK_FINAL.
+
+
+## Repeated native recovery with authenticated past-plan identity — 2026-11-03
+
+Historical reconciliation verification is now separate from current admission/
+permission. Signed prior scope/identity/repair/boundary and content-addressed
+admissions/semantic contract identities remain checked; stale past plans never
+become executable through this read-only surface. A new current reconciliation
+resolves an original drained peer via the signed ancestor mapping, re-evaluates
+current source/impact and preserves mandatory re-execution until real new evidence.
+Pending already-completed supersession projections can carry forward unchanged,
+with no old authority restored or duplicate business/repair/projection writes.
+
+Actual two-round local failures -> fresh independent N8 diagnoses -> scoped
+compensations -> exact physical data repair/independent re-probes/new N5 gates ->
+native N6/new child parentage -> complete independent N7_PASS cover both unchanged
+reuse and a pending mandatory regression member. Both failures and prior signed
+reconciliation remain immutable. Cold completed review is read-only. Ancestor/
+admission/captured-evidence tampering, rehashed old contract identity, and second-
+round partial publication are covered. Inherited integration32 passed230.79s;
+repeated-round source12 passed133.61s. Final rehashed contract identity refusal
+and both actual full/cold flows3 passed46.52s after the last identity check.
+Compilation/diff checks passed. Multi-completed-peer/more-round scenario
+proof, generic orphan recovery and actual product scheduling remain open.

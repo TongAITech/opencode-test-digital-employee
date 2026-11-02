@@ -78,8 +78,8 @@ class DataRepairContinuationService:
 
     def _original_plan(self, p, old, snapshot):
         if old.get('recovery_id'):
-            from .rc72_n8_retry_truth import assert_reconciled_plan
-            assert_reconciled_plan(self.planning, old)
+            from .rc72_n8_retry_truth import verify_reconciled_history
+            verify_reconciled_history(self.planning, old)
             return
         inputs = []
         for item in old['items']:
@@ -133,6 +133,10 @@ class DataRepairContinuationService:
             raise ContractError('N8_RETRY_CASE_DENOMINATOR_CHANGED')
         obligations = {item.obligation_id: item for item in design.obligations}
         planned, members = [], []
+        ancestor = None
+        if old.get('recovery_id'):
+            from .rc72_n8_retry_truth import verify_reconciled_history
+            ancestor = verify_reconciled_history(self.planning, old)
         for item in old['items']:
             case = source_cases[item['case_id']]
             contract = self._one('rc72_n6_executable_contract', contract_id=item['contract_id'])
@@ -141,19 +145,33 @@ class DataRepairContinuationService:
             planned.append(self.planning._planning_case(case, contract, obligations[case['obligation_id']]))
             candidates = self.truth.query('rc72_n7_execution_preparation', plan_id=old['plan_id'],
                                           workitem_id=item['workitem_id'], status='DRAINED')
-            member = None
+            member, inherited = None, []
+            if not candidates and ancestor is not None:
+                inherited = [d for d in ancestor.get('member_decisions', []) if d['workitem_id'] == item['workitem_id']]
+                if len(inherited) > 1:
+                    raise ContractError('N8_RETRY_INHERITED_MEMBER_NOT_UNIQUE')
+                if inherited and inherited[0]['disposition'] not in {'REUSE_FOR_CURRENT_REVIEW', 'REEXECUTE_AFTER_VERIFIED_DRAIN'}:
+                    raise ContractError('N8_RETRY_INHERITED_DISPOSITION_UNSUPPORTED')
+                if inherited:
+                    candidates = [self._one('rc72_n7_execution_preparation', preparation_id=inherited[0]['preparation_id'])]
+            pending = bool(inherited and inherited[0]['disposition'] == 'REEXECUTE_AFTER_VERIFIED_DRAIN')
             if candidates:
                 if len(candidates) != 1 or item['workitem_id'] == p['workitem_id']:
                     raise ContractError('N8_RETRY_MEMBER_CHECKPOINT_NOT_UNIQUE')
-                from .rc72_n7_member_drain import assert_drained_member
-                member = assert_drained_member(self.preparation, candidates[0]['preparation_id'])
+                if pending:
+                    from .rc72_n8_member_disposition import assert_disposed_member
+                    member = next(m for m in ancestor['members'] if m['preparation_id'] == candidates[0]['preparation_id'])
+                    assert_disposed_member(self.preparation, ancestor, member)
+                else:
+                    from .rc72_n7_member_drain import assert_drained_member
+                    member = assert_drained_member(self.preparation, candidates[0]['preparation_id'])
                 members.append(member)
             task = self._one('rc7_task', task_id=item['workitem_id'])
             if (task['mission_id'] != p['mission_id'] or task['node'] != 'EXECUTION'
                     or task['task_type'] != 'RC72_CASE_EXECUTION'
                     or task['input_artifact_refs'] != [case['source_artifact_id']]
                     or task['required_capabilities'] != [cap['name'] for cap in contract['capabilities']]
-                    or task['state'] != ('RUNNING' if member else 'STALE' if item['workitem_id'] == p['workitem_id'] else 'READY')):
+                    or task['state'] != ('READY' if pending else 'RUNNING' if member else 'STALE' if item['workitem_id'] == p['workitem_id'] else 'READY')):
                 raise ContractError('N8_RETRY_WORKITEM_RECONCILIATION_REQUIRED')
             if member is None and item['workitem_id'] != p['workitem_id'] and self.truth.query(
                     'rc72_workitem_attempt_binding', workitem_id=item['workitem_id']):
@@ -267,9 +285,16 @@ class DataRepairContinuationService:
             changed_refs=repair['changed_refs'], reason=repair['reason'])
         self._drained(p, row['original_plan'])
         for member in row.get('members', []) if row['state'] == 'PLANNED' else []:
-            from .rc72_n7_member_drain import assert_drained_member
-            if assert_drained_member(self.preparation, member['preparation_id']) != member:
-                raise ContractError('N8_RETRY_MEMBER_CHECKPOINT_CHANGED')
+            current = self._one('rc72_n7_execution_preparation', preparation_id=member['preparation_id'])
+            if current['status'] == 'DRAINED':
+                from .rc72_n7_member_drain import assert_drained_member
+                if assert_drained_member(self.preparation, member['preparation_id']) != member:
+                    raise ContractError('N8_RETRY_MEMBER_CHECKPOINT_CHANGED')
+            else:
+                from .rc72_n8_retry_truth import verify_reconciled_history
+                from .rc72_n8_member_disposition import assert_disposed_member
+                parent = verify_reconciled_history(self.planning, row['original_plan'])
+                assert_disposed_member(self.preparation, parent, member)
 
     def _compile(self, row):
         p = row['original_preparation']

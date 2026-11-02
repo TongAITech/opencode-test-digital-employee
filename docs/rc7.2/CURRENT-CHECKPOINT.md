@@ -15,6 +15,45 @@ Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md. Finish
 construction before preparing a delivery package. Candidate 9476b57 remains
 quarantined. This checkpoint supersedes earlier component-only descriptions.
 
+## Repeated native data repair and inherited member decisions — 2026-11-03
+
+A distinct read-only historical reconciliation verifier now authenticates the
+signed immutable prior plan, original failed preparation/binding, accepted repair
+and boundary, complete identity mapping, content-addressed admission payloads,
+and semantic contract digests/identities. It issues no permission and does not
+pretend that a past admission remains current. Normal plan assertion still adds
+all current source, admission and member ownership/disposition checks. The stale
+previous plan is therefore auditable but cannot authorize another execution.
+
+The next reconciliation can resolve an original drained peer through the prior
+signed member decision without rewriting its old plan/preparation/Attempt. The
+new current source/repair impact is evaluated again. An inherited mandatory
+re-execution remains mandatory until actual fresh execution produces new evidence;
+it cannot downgrade to historical reuse. If that peer was already safely handed
+off and is still READY, the next signed decision verifies the prior complete
+projection and carries it forward without repeating supersession writes or
+restoring the old worker lease.
+
+Actual local flows now cover two successive independent N8 data-gap diagnoses,
+scoped compensations, physical exact-DataRef repairs, independent re-probes/new
+N5 gates, native N6 compilation and new child execution. Both an unaffected
+original member and a pending mandatory regression member retain their proper
+reuse/re-execute disposition. The failed WorkItem's third Attempt names its
+second failed Attempt as parent; both failed histories and the first signed
+reconciliation remain unchanged. Full independent N7_PASS includes every Case,
+and cold completion replay grants no old authority or additional business I/O.
+
+Tampered ancestor signatures, admission content identity, original captured bytes,
+and a rehashed contract under its old identity are rejected before a new plan or
+lease. Interrupted second-round PLANNED/READY/publication resumes retain the
+original peer and perform no duplicate business/repair/projection. Broader
+integration32 passed230.79s; repeated-round source12 passed133.61s.
+After the final contract-identity check, rehashed-identity refusal and both actual
+full/cold flows3 passed46.52s. Compilation/diff checks passed. More-than-one completed peer, already-executed affected peer across
+later rounds, generic orphan adjudication and product-wide scheduling still
+require further C06/C07/C08 proof. No full-design/package/Field claim is made.
+Parent76a2f6a Construction and Windows clean unpack passed; platform is live.
+
 ## Affected completed-member disposition and fresh child execution — 2026-11-03
 
 A current signed retry reconciliation now chooses either historical reuse or
