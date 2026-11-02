@@ -238,6 +238,13 @@ class DataLeaseManager:
             raise ContractError("DATA_REF_NOT_VERIFIED")
         if resource.get("mutable") and mode != DataAccessMode.EXCLUSIVE_WRITE:
             raise ContractError("MUTABLE_DATA_REQUIRES_EXCLUSIVE_WRITE")
+        # Parent-gated repair calls share this ledger gate with reservations.
+        # Unknown effects retain custody even after their worker/controller ends.
+        if 'rc72_native_tool_call' in _truth.BUCKETS:
+            for call in self.truth.query('rc72_native_tool_call', data_ref=data_ref):
+                if call['state'] in {'IN_FLIGHT', 'UNKNOWN'} and (
+                        mode == DataAccessMode.EXCLUSIVE_WRITE or call['access_mode'] == 'WRITE'):
+                    raise DataResourceConflict('DATA_RESOURCE_CONFLICT:NATIVE_TOOL_CUSTODY_HELD')
         current = _now() if now is None else int(now)
         active = self._active(data_ref, current)
         blockers = active if mode == DataAccessMode.EXCLUSIVE_WRITE else [

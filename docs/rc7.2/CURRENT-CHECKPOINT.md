@@ -1,5 +1,36 @@
 # RC7.2 Current Construction Checkpoint
 
+## Native N5 call-time authority — 2026-11-03
+
+C07 now has an actual MCP-to-parent execution bridge for existing-DataRef
+preparation and independent verification. Each physical handler is admitted at
+call time against the signed assignment, exact tool and arguments, current task
+owner, unrecalled lease and deadline. Child workers receive a scoped ephemeral
+capability and isolated environment, never the parent signing key. Native mode
+cannot fall back to the legacy field handler. A reported tool call or positive
+output without matching signed physical observations cannot produce a handoff.
+
+Signed call records distinguish IN_FLIGHT, RETURNED and UNKNOWN. A transport
+retry of the same returned request does not repeat effects; an unknown effect
+cannot replay or reopen its former invocation. In-flight/unknown calls and data
+reservations share the ledger gate and preserve conflicting resource custody
+across missions. Historical evidence verifies scope and observations without
+restoring an old live capability.
+
+Validation: `native-call-gate-integrated.log`: 54 passed (129.04 s), covering the
+actual MCP subprocess entry, native repair finalizers and inherited DSH/MCP
+contracts. The protocol worker is an engineering adapter, not real DSH-host or
+bank Field qualification. Additional custody/process checks: `native-call-gate-custody.log`, 14 passed
+(29.50 s), including a different mission denied during IN_FLIGHT and after
+UNKNOWN plus controller closure.
+
+C07 remains incomplete: other node roles, non-MCP tools, physical specialists,
+provider/captain/session takeover and the unified production driver still need
+implementation/qualification. Generic unknown-effect disposition and full N5
+lifecycle reservations remain C06 work. C03/C04/C05/C08/C09/C10/C11/C12 remain
+open as tracked below; this component does not authorize final delivery.
+
+
 Status: **DESIGN_RECONCILED_INCOMPLETE / NO_DELIVERY**
 
 CONTRACT_SET=docs/rc7.2/00..05 + 07 + 08 + 09

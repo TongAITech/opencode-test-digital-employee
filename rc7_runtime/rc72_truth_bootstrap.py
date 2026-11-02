@@ -10,6 +10,7 @@ from threading import RLock
 _LOCK = RLock()
 _INSTALLED = False
 _INSTALLERS = (
+    ('rc72_native_n5_tool_gate', 'install_rc72_native_tool_gate_overlay'),
     ('rc72_n7_member_drain', 'install_rc72_n7_member_drain_overlay'),
     ('rc72_execution_heartbeat', 'install_rc72_execution_heartbeat_overlay'),
     ('rc72_lease_renewal', 'install_rc72_lease_renewal_overlay'),

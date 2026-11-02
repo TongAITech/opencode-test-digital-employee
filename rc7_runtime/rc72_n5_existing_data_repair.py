@@ -374,6 +374,10 @@ class ExistingDataRepairService:
                for prior in self.truth.query('rc72_worker_session')):
             raise ContractError('N5_EXISTING_REPAIR_VERIFIER_NOT_INDEPENDENT')
         result = _strict_final_json(events)
+        if row.get('call_gate_required'):
+            from .rc72_native_n5_tool_gate import verify_native_handoff
+            original = self._signed(self._one(_KIND, repair_id=row['repair_id']))
+            verify_native_handoff(self, original, row, event, calls, result)
         keys = {'schema', 'repair_id', 'data_ref', 'binding_revision', 'source_case_sha256', 'status',
                 'verification', 'precondition_refs', 'unknowns', 'gaps'}
         expected = dict(schema=schema, repair_id=row['repair_id'], data_ref=row['original_binding']['data_ref'],
@@ -465,7 +469,8 @@ class ExistingDataRepairService:
                 workitem_id='WI-N5RPREP-' + _hash(repair_id)[:24], workitem_role=DATA_PREPARER,
                 identity=asdict(assignment.identity), lease=asdict(assignment.lease),
                 assignment_id=assignment.assignment_id, input_refs=list(assignment.input_refs),
-                allowed_tools=tools, runtime_root=str(launcher.state_root))
+                allowed_tools=tools, runtime_root=str(launcher.state_root),
+                call_gate_required=bool(getattr(launcher, 'native_service', None) is self))
             row = self._persist(row, producer=producer)
             self._start_workitem(self._producer_row(row))
             context = json.loads(self._prompt(self._producer_row(row)).rsplit('\n', 1)[1])
@@ -515,7 +520,7 @@ class ExistingDataRepairService:
                 input_refs=(row['original_binding']['data_ref'],
                     'data-requirement://' + row['data_requirement_id'], 'repair-boundary://' + row['boundary_id']),
                 allowed_artifact_types=(), allowed_tools=tuple(row['allowed_tools']))
-            row = self._persist(row, state='DISPATCHING', identity=asdict(assignment.identity),
+            row = self._persist(row, state='DISPATCHING', call_gate_required=bool(getattr(self.launcher, 'native_service', None) is self), identity=asdict(assignment.identity),
                 lease=asdict(assignment.lease), assignment_id=assignment.assignment_id, input_refs=list(assignment.input_refs))
             self._start_workitem(row)
             try:

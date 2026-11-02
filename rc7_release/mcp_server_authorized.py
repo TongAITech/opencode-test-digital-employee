@@ -165,6 +165,24 @@ def _canonicalize_scoped_source_path(message: Dict[str, Any]) -> Dict[str, Any]:
 def handle(message: Dict[str, Any]):
     method = message.get("method")
     delegated = message
+    if os.environ.get('PFC_RC72_TOOL_GATE_URL'):
+        from rc7_runtime.rc72_native_tool_client import handle_native_mcp_call, native_tool_schemas
+        if method == 'tools/list':
+            return {'jsonrpc': '2.0', 'id': message.get('id'), 'result': {'tools': native_tool_schemas()}}
+        if method == 'tools/call':
+            try:
+                return handle_native_mcp_call(message)
+            except Exception as exc:
+                return _error(message.get('id'), exc)
+        if method == 'initialize':
+            return {'jsonrpc': '2.0', 'id': message.get('id'), 'result': {
+                'protocolVersion': field.PROTOCOL_VERSION, 'capabilities': {'tools': {}},
+                'serverInfo': {'name': 'pfc-aitest-rc72-native-n5', 'version': 'RC7.2'}}}
+        if method == 'notifications/initialized':
+            return None
+        if method == 'ping':
+            return {'jsonrpc': '2.0', 'id': message.get('id'), 'result': {}}
+        return _error(message.get('id'), McpToolAuthorityError('NATIVE_TOOL_MCP_METHOD_FORBIDDEN'))
     if method == "tools/call":
         try:
             _authorize_call(message)

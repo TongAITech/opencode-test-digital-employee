@@ -134,7 +134,7 @@ with ledger_lock(TruthRuntime(sys.argv[1])):
     assert manager.lease(acquired.data_lease_id)['state'] == 'ACTIVE'
 
 
-def _second_mission(truth):
+def _second_mission(truth, *, planning_snapshot_ref=None):
     from dataclasses import fields
     from rc7_runtime.models import Task
     from rc7_runtime.rc72_domain import ReleaseBatch, TestObligation, ExecutionTaskUnit
@@ -152,6 +152,8 @@ def _second_mission(truth):
     values = {field.name: etu[field.name] for field in fields(ExecutionTaskUnit) if field.name in etu}
     values.update(etu_id='ETU-SECOND', mission_id='M-SECOND', release_batch_id='RB-SECOND',
         obligation_id='TO-SECOND', case_ids=['TC-SECOND'])
+    if planning_snapshot_ref is not None:
+        values['planning_snapshot_ref'] = planning_snapshot_ref
     repo.persist(ExecutionTaskUnit(**values))
     append_entity(truth, Task(task_id='WI-SECOND', mission_id='M-SECOND', node='N7_EXECUTION',
         task_type='SECOND_MISSION_EXECUTION', objective='same physical resource in a different mission',

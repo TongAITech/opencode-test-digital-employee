@@ -1,5 +1,36 @@
 # RC7.2 持续施工与最终搬运交付
 
+## Native N5 call-time authority — 2026-11-03
+
+C07 now has an actual MCP-to-parent execution bridge for existing-DataRef
+preparation and independent verification. Each physical handler is admitted at
+call time against the signed assignment, exact tool and arguments, current task
+owner, unrecalled lease and deadline. Child workers receive a scoped ephemeral
+capability and isolated environment, never the parent signing key. Native mode
+cannot fall back to the legacy field handler. A reported tool call or positive
+output without matching signed physical observations cannot produce a handoff.
+
+Signed call records distinguish IN_FLIGHT, RETURNED and UNKNOWN. A transport
+retry of the same returned request does not repeat effects; an unknown effect
+cannot replay or reopen its former invocation. In-flight/unknown calls and data
+reservations share the ledger gate and preserve conflicting resource custody
+across missions. Historical evidence verifies scope and observations without
+restoring an old live capability.
+
+Validation: `native-call-gate-integrated.log`: 54 passed (129.04 s), covering the
+actual MCP subprocess entry, native repair finalizers and inherited DSH/MCP
+contracts. The protocol worker is an engineering adapter, not real DSH-host or
+bank Field qualification. Additional custody/process checks: `native-call-gate-custody.log`, 14 passed
+(29.50 s), including a different mission denied during IN_FLIGHT and after
+UNKNOWN plus controller closure.
+
+C07 remains incomplete: other node roles, non-MCP tools, physical specialists,
+provider/captain/session takeover and the unified production driver still need
+implementation/qualification. Generic unknown-effect disposition and full N5
+lifecycle reservations remain C06 work. C03/C04/C05/C08/C09/C10/C11/C12 remain
+open as tracked below; this component does not authorize final delivery.
+
+
 更新：2026-11-03。起点：8563f984f714e589048106c2a115ceddac6478c5。
 状态：ACTIVE / DESIGN_INCOMPLETE。用户已授权完成全部设计落地后制作开箱即用搬运包。
 
@@ -54,7 +85,7 @@ N9/N10 产品消费者、全局并发/孤儿恢复、Journey/经济策略的所�
 | C04 | N9 缺陷/有效失败接纳、RCA/回归与 N7 完整分母审查 | 真实动作/结果证据关联；缺陷生命周期和验收分支；非叙述定案 | OPEN |
 | C05 | N10 全 ReleaseBatch 消费者与 coverage 反馈闭环 | 全 Requirement/SST/Obligation/L1..L7、高风险/缺陷/gap/证据/STALE 分母；结构化未收敛理由 | OPEN |
 | C06 | 全局 Data/Browser 写排他、过期/续约、孤儿 claim/session、初始 N8 多事件恢复 | 多进程争用、崩溃恢复、不能重复业务 I/O、旧权限不复活 | ACTIVE：原生进程自动心跳/全租约续约、过期 custody、签名补偿；已执行成员签名排空、未影响复用及受影响新 Attempt 贯通整体验收；原生混合多成员、已执行/待重跑成员双轮修复及整体验收已验证；通用孤儿、其他故障补偿及调用 fencing 待完成 |
-| C07 | 同任务 Provider/Captain/会话接管；STRICT Capability amendment/delegation | 实际启动器/任务入口；丢会话不丢工作；权限不扩大、不继承 Captain 凭证 | ACTIVE：原生 N8→Broker 请求、持久幂等决定/冷恢复/撤销；实际委派执行和调用时拦截仍待落地 |
+| C07 | 同任务 Provider/Captain/会话接管；STRICT Capability amendment/delegation | 实际启动器/任务入口；丢会话不丢工作；权限不扩大、不继承 Captain 凭证 | ACTIVE：原生 N8→Broker 决定/冷恢复/撤销；N5 准备与独立验证已接实际 MCP 调用时拦截，其他角色/非 MCP/接管仍待落地 |
 | C08 | 统一产品入口/推进器/状态查询接上全部原生节点服务 | 真实产品命令/接口从 ReleaseBatch 驱动 N1..N10；重启从 R1 接续；无测试专用快捷开关 | OPEN |
 | C09 | Journey 教学→编译→回放→基准→人工批准→正式 L4/L5；真实 Browser 所有权 | 正式资产和完整业务谱系；独立浏览器租约及批准范围核验 | OPEN/AUDIT |
 | C10 | 模型经济 A..H 与真实生产/审查/修复启动点集成 | 实测或 UNKNOWN 用量、上海时窗、软预算、浪费硬门、最小上下文/重试增量、逐成员 batch 证据、Q7 双结果 | OPEN/AUDIT |
