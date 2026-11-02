@@ -1,3 +1,18 @@
+# Portable transport preparation — 2026-11-02
+
+User delivery scope: first provide transport, final acceptance occurs on site.
+Functional repair source: 55ca13f77775fbb747381261a2a51aa211469c57.
+Construction run 41377525518: PASS (Python 3.8/3.11 + inherited regression).
+Q2 run 41377525556: PASS (clean unpack, package Python, R1/session/Git Bash).
+Q1 run 41377525473: Linux passed, Windows pending at checkpoint preparation.
+
+New workflow prepares all runtime-lock payloads on Windows at build time,
+reseals the RC7.2 identity, and verifies a second clean extraction. It is
+preparation for transport; it does not advance Q3/Q4 or claim field acceptance.
+Next: same-HEAD CI and complete portable artifact; final acceptance on site.
+
+---
+
 # Current repair entry — 2026-11-02
 
 phase: TRUTH_COLD_START_REPAIR

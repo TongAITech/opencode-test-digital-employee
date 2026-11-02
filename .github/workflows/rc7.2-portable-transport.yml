@@ -1,0 +1,94 @@
+name: RC7.2 Portable Transport Preparation
+
+on:
+  push:
+    branches: [work/rc7.2]
+    paths:
+      - '.github/workflows/rc7.2-portable-transport.yml'
+      - 'packaging/rc7.2/start-rc7.2.cmd'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portable-transport:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare pinned test tooling and verified build tools
+        shell: pwsh
+        run: |
+          python -m pip install -r rc7_release/requirements-qualification.txt
+          if ($LASTEXITCODE -ne 0) { throw 'test tooling failed' }
+          python -m rc7_release.runtime_build_bootstrap ripgrep --output .build-runtime/ripgrep --github-path $env:GITHUB_PATH
+          if ($LASTEXITCODE -ne 0) { throw 'verified ripgrep bootstrap failed' }
+      - name: Acquire complete offline plugin payloads at build time
+        shell: pwsh
+        run: |
+          python -m rc7_release.plugin_payload acquire --repo-root .
+          if ($LASTEXITCODE -ne 0) { throw 'plugin payload acquisition failed' }
+      - name: Build exact RC7.2 source and materialize offline runtimes
+        shell: pwsh
+        run: |
+          python -m rc7_release.rc72_package build --repo-root . --output dist --source-commit $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'RC7.2 build failed' }
+          $pkg = (Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10').Path
+          python -m rc7_release.runtime_payload_materializer --package-root $pkg
+          if ($LASTEXITCODE -ne 0) { throw 'offline runtime materialization failed' }
+          Copy-Item packaging/rc7.2/start-rc7.2.cmd (Join-Path $pkg 'start-rc7.2.cmd')
+          Copy-Item packaging/rc7.2/TRANSPORT-README.md (Join-Path $pkg 'READ-ME-FIRST.md')
+          python -c "import pathlib,os; from rc7_release.rc72_package import _rewrite_manifest,verify_package; from rc7_release.runtime_payload_materializer import _repack; p=pathlib.Path(r'$pkg'); _rewrite_manifest(p,pathlib.Path('.').resolve(),os.environ['GITHUB_SHA']); verify_package(p,expected_source_commit=os.environ['GITHUB_SHA']); _repack(p,pathlib.Path('dist/RC72-PORTABLE-WIN10-'+os.environ['GITHUB_SHA'][:12]+'.zip'))"
+          if ($LASTEXITCODE -ne 0) { throw 'RC7.2 manifest reseal failed' }
+      - name: Clean extraction and package-local verification
+        shell: pwsh
+        run: |
+          $zip = (Get-ChildItem dist/RC72-PORTABLE-WIN10-*.zip).FullName
+          Remove-Item dist/PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10 -Recurse -Force
+          $clean = Join-Path $env:RUNNER_TEMP 'rc72-portable-clean'
+          Expand-Archive $zip $clean -Force
+          $pkg = (Get-ChildItem $clean -Directory).FullName
+          $py = Join-Path $pkg 'workspace-template/runtime/python/python.exe'
+          $evidence = (New-Item -ItemType Directory -Force dist/evidence).FullName
+          Push-Location $pkg
+          try {
+            $env:PYTHONPATH = ''
+            $env:PYTHONNOUSERSITE = '1'
+            & $py -m rc7_release.rc72_package verify --package-root $pkg --expected-source-commit $env:GITHUB_SHA | Tee-Object (Join-Path $evidence 'package-identity.json')
+            if ($LASTEXITCODE -ne 0) { throw 'package identity/checksums failed' }
+            & $py -m rc7_release.runtime_delivery_contract --package-root $pkg | Tee-Object (Join-Path $evidence 'physical-payload-inventory.json')
+            if ($LASTEXITCODE -ne 0) { throw 'offline payload inventory incomplete' }
+            & $py -m rc7_release.rc72_windows_clean_qualification --package-root $pkg --output (Join-Path $evidence 'clean-runtime.json') --require-pass
+            if ($LASTEXITCODE -ne 0) { throw 'package-local R1/session continuity failed' }
+          } finally { Pop-Location }
+          'Preparation only: Q3/Q4/Field/BANK_FINAL qualification remains pending.' | Set-Content (Join-Path $evidence 'QUALIFICATION-BOUNDARY.txt')
+      - name: Upload complete portable transport and engineering evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: RC72-PORTABLE-WIN10-${{ github.sha }}
+          path: |
+            dist/RC72-PORTABLE-WIN10-*.zip
+            dist/RC72-PORTABLE-WIN10-*.zip.sha256
+            dist/evidence/*
+          compression-level: 0
+          retention-days: 30
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc72-portable-build-failure-${{ github.sha }}
+          path: |
+            rc7_release/vendor/*.manifest.json
+            dist/evidence/*
+          if-no-files-found: ignore
