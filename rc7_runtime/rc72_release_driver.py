@@ -1,0 +1,184 @@
+"""ReleaseBatch-rooted product driver; canonical services own every decision.
+
+No stage callbacks, synthetic PASS, or driver-owned completion flags. A missing
+production route is an explicit construction hold, never a completed Mission.
+"""
+from contextlib import contextmanager
+import hashlib
+import os
+from pathlib import Path
+import re
+
+from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
+from .models import ContractError
+from .closed_loop_control import ClosedLoopControlPlane
+from .dsh_requirement_evaluator import DshRequirementEvaluator
+from .rc72_authority import RC72AuthorityRuntime
+from .rc72_domain import AutonomousMissionNode
+from .rc72_field_mission_start import ReleaseBatchFieldMissionLauncher
+from .rc72_mission_node_dispatch import N1AutonomousDispatchService
+from .rc72_mission_node_assignment import N1AgentTeamsAssignmentService
+from .rc72_n1_strict_pipeline import N1StrictPipelineService
+from .rc72_n1_strict_reality_gate import N1StrictRealityGateService
+from .rc72_n2_requirement_dispatch import N2RequirementDispatchService
+from .rc72_n2_requirement_assignment import N2RequirementAssignmentService
+from .rc72_n2_candidate_guard import N2GovernedRequirementHandoffService
+from .rc72_n2_requirement_promotion import N2RequirementCandidatePromotionService
+from .rc72_n2_requirement_review import N2RequirementReviewService
+from .rc72_n2_completion import N2DeliveryGateService
+
+
+@contextmanager
+def _driver_lock(truth, batch_id):
+    """One controller per ledger + exact batch, including separate processes."""
+    if not isinstance(batch_id, str) or not batch_id.strip():
+        raise ContractError('RC72_RELEASE_DRIVER_BATCH_REQUIRED')
+    digest = hashlib.sha256(batch_id.encode()).hexdigest()
+    path = Path(truth.store.path).resolve()
+    lock = path.parent / ('.' + path.name + '.release-driver-' + digest + '.lock')
+    with lock.open('a+b') as handle:
+        handle.seek(0)
+        try:
+            if os.name == 'nt':
+                import msvcrt
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise ContractError('RC72_RELEASE_DRIVER_ALREADY_RUNNING') from exc
+        try:
+            yield
+        finally:
+            if os.name == 'nt':
+                import msvcrt
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def release_batch_status(truth, *, source_commit, release_batch_id):
+    if not isinstance(source_commit, str) or not re.fullmatch('[0-9a-f]{40}', source_commit):
+        raise ContractError('RC72_RELEASE_DRIVER_EXACT_SOURCE_REQUIRED')
+    truth.rebuild_projection()
+    batches = truth.query('rc72_release_batch', release_batch_id=release_batch_id)
+    if len(batches) != 1:
+        raise ContractError('RC72_RELEASE_DRIVER_TRUTH_NOT_UNIQUE:rc72_release_batch')
+    batch = batches[0]
+    rows = truth.query('rc72_mission_node', mission_id=batch['mission_id'])
+    by_type = {row['node_type']: row for row in rows}
+    if len(by_type) != len(rows):
+        raise ContractError('RC72_RELEASE_DRIVER_DUPLICATE_NODE')
+    nodes = [by_type[node.value] for node in AutonomousMissionNode.ordered() if node.value in by_type]
+    return dict(release_batch_id=release_batch_id, mission_id=batch['mission_id'], release_id=batch['release_id'],
+        source_commit=source_commit, nodes=nodes, field_verified=False, bank_final=False)
+
+
+
+class ReleaseBatchDriver:
+    def __init__(self, truth, *, source_commit, n1_launcher, n1_tools,
+                 n2_launcher, n2_tools, n2_evaluator):
+        if not isinstance(source_commit, str) or not re.fullmatch('[0-9a-f]{40}', source_commit):
+            raise ContractError('RC72_RELEASE_DRIVER_EXACT_SOURCE_REQUIRED')
+        if not isinstance(n2_evaluator, DshRequirementEvaluator):
+            raise ContractError('RC72_RELEASE_DRIVER_INDEPENDENT_REVIEWER_REQUIRED')
+        for launcher in (n1_launcher, n2_launcher, n2_evaluator.launcher):
+            if (not isinstance(launcher, DshHeadlessWorkerLauncher) or launcher.truth is not truth
+                    or not isinstance(launcher.authority, RC72AuthorityRuntime)):
+                raise ContractError('RC72_RELEASE_DRIVER_NATIVE_WORKER_REQUIRED')
+        self.truth, self.source_commit = truth, source_commit
+        self.n1_launcher, self.n2_launcher = n1_launcher, n2_launcher
+        if not isinstance(n1_tools, (list, tuple)) or not isinstance(n2_tools, (list, tuple)):
+            raise ContractError('RC72_RELEASE_DRIVER_EXACT_TOOLS_REQUIRED')
+        self.n1_tools, self.n2_tools = tuple(n1_tools), tuple(n2_tools)
+        for tools in (self.n1_tools, self.n2_tools, n2_evaluator.allowed_tools):
+            if not tools or len(set(tools)) != len(tools) or any(not isinstance(t, str) or not t.strip() or '*' in t for t in tools):
+                raise ContractError('RC72_RELEASE_DRIVER_EXACT_TOOLS_REQUIRED')
+        self.n2_evaluator = n2_evaluator
+
+    def _one(self, kind, **filters):
+        rows = self.truth.query(kind, **filters)
+        if len(rows) != 1:
+            raise ContractError('RC72_RELEASE_DRIVER_TRUTH_NOT_UNIQUE:' + kind)
+        return rows[0]
+
+    def status(self, *, release_batch_id):
+        return release_batch_status(self.truth, source_commit=self.source_commit, release_batch_id=release_batch_id)
+
+    def _n2(self, batch):
+        bid = batch['release_batch_id']
+        dispatch = N2RequirementDispatchService(self.truth, source_commit=self.source_commit).dispatch(release_batch_id=bid)
+        N2RequirementAssignmentService(self.truth, source_commit=self.source_commit).assign_all(release_batch_id=bid)
+        handoff = N2GovernedRequirementHandoffService(self.truth, source_commit=self.source_commit,
+            launcher=self.n2_launcher, allowed_tools=self.n2_tools)
+        promotion = N2RequirementCandidatePromotionService(self.truth, release_id=batch['release_id'],
+            mission_id=batch['mission_id'], source_commit=self.source_commit, state_root=str(self.n2_launcher.state_root))
+        review = N2RequirementReviewService(ClosedLoopControlPlane(self.truth, batch['release_id'], batch['mission_id']), self.n2_evaluator)
+        if (len(dispatch['requirement_ids']) != len(dispatch['workitem_ids'])
+                or len(dispatch['requirement_ids']) != len(batch['requirement_ids'])
+                or set(dispatch['requirement_ids']) != set(batch['requirement_ids'])):
+            raise ContractError('RC72_RELEASE_DRIVER_REQUIREMENT_DENOMINATOR_CHANGED')
+        holds = []
+        for requirement_id, task_id in zip(dispatch['requirement_ids'], dispatch['workitem_ids']):
+            task = self._one('rc7_task', task_id=task_id)
+            if task['state'] == 'PASS':
+                continue  # The whole-node gate below independently audits this.
+            if task['state'] == 'REPAIR_REQUIRED':
+                continue  # Native whole-node review retains this failed member.
+            if task['state'] in {'BLOCKED', 'HUMAN_REQUIRED'}:
+                holds.append(task_id)
+                continue
+            if task['state'] == 'LEASED':
+                handoff.handoff(release_batch_id=bid, requirement_id=requirement_id)
+            elif task['state'] not in {'RUNNING', 'OUTPUT_PRODUCED'}:
+                holds.append(task_id)
+                continue
+            # Promotion revalidates existing raw anchor + candidate bytes. A
+            # promoted candidate is not a reason to launch its producer again.
+            candidate = promotion.promote(release_batch_id=bid, requirement_id=requirement_id)
+            review.review_and_apply(task_id=candidate['task_id'], artifact_id=candidate['artifact_id'])
+        if holds:
+            return dict(status='HOLD', reason='N2_REPAIR_OR_HUMAN_REVIEW_REQUIRED', workitem_ids=holds)
+        return N2DeliveryGateService(self.truth, source_commit=self.source_commit).complete(release_batch_id=bid)
+
+    def run(self, *, release_batch_id):
+        with _driver_lock(self.truth, release_batch_id):
+            self.truth.rebuild_projection()
+            batch = self._one('rc72_release_batch', release_batch_id=release_batch_id)
+            if any(l.release_id != batch['release_id'] for l in (self.n1_launcher, self.n2_launcher, self.n2_evaluator.launcher)):
+                raise ContractError('RC72_RELEASE_DRIVER_WORKER_RELEASE_MISMATCH')
+            # Admission is rechecked even when canonical nodes already exist.
+            ReleaseBatchFieldMissionLauncher(self.truth, source_commit=self.source_commit).start(release_batch_id=release_batch_id)
+            # Cold continuation audits accepted source bytes, not merely PASS labels.
+            for node in self.status(release_batch_id=release_batch_id)['nodes']:
+                if node['state'] != 'PASS':
+                    break
+                if node['node_type'] == 'N1_REALITY':
+                    N1StrictRealityGateService(self.truth, source_commit=self.source_commit).complete(release_batch_id=release_batch_id)
+                elif node['node_type'] == 'N2_REQUIREMENT':
+                    N2DeliveryGateService(self.truth, source_commit=self.source_commit).complete(release_batch_id=release_batch_id)
+            while True:
+                snapshot = self.status(release_batch_id=release_batch_id)
+                pending = [n for n in snapshot['nodes'] if n['state'] != 'PASS']
+                if not pending:
+                    return dict(snapshot, status='HOLD', reason='RELEASE_CONVERGENCE_AUDIT_REQUIRED')
+                node = pending[0]
+                if node['state'] not in {'READY', 'RUNNING'}:
+                    return dict(snapshot, status='HOLD', reason='NODE_NOT_READY', mission_node_id=node['mission_node_id'])
+                if node['node_type'] == 'N1_REALITY':
+                    N1AutonomousDispatchService(self.truth, source_commit=self.source_commit).dispatch(release_batch_id=release_batch_id)
+                    N1AgentTeamsAssignmentService(self.truth, source_commit=self.source_commit).assign(release_batch_id=release_batch_id)
+                    N1StrictPipelineService(self.truth, source_commit=self.source_commit, launcher=self.n1_launcher,
+                        allowed_tools=self.n1_tools).complete(release_batch_id=release_batch_id)
+                elif node['node_type'] == 'N2_REQUIREMENT':
+                    result = self._n2(batch)
+                    if result.get('status') == 'HOLD':
+                        return dict(self.status(release_batch_id=release_batch_id), **result)
+                else:
+                    return dict(snapshot, status='HOLD', reason='NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED',
+                        mission_node_id=node['mission_node_id'])
+                current = self._one('rc72_mission_node', mission_node_id=node['mission_node_id'])
+                if current['state'] != 'PASS':
+                    return dict(self.status(release_batch_id=release_batch_id), status='HOLD', reason='NATIVE_NODE_GATE_NOT_PASS')

@@ -1,0 +1,48 @@
+# ReleaseBatch 原生产品推进器
+
+状态：C08 ACTIVE / PARTIAL_NATIVE_ROUTE / DESIGN_INCOMPLETE / NO_DELIVERY。
+
+`rc7_runtime.rc72_release_driver.ReleaseBatchDriver.run(release_batch_id=...)`
+从 R1 中解析 Mission 和 release，重新核对同源 Q7 接纳，再接续原生服务。
+调用方不能覆盖 Mission、release 或提交自定义 PASS 回调。
+启动器和独立审查器必须是实际运行时类型，工具集必须明确且无通配符。
+每个账本、每个 ReleaseBatch 通过系统文件锁排除并行控制进程；锁文件保留，
+实际进程退出由操作系统释放占用，不能根据文件存在推断进程存活。
+
+已接入的链路：
+
+- N1：原生派发、Agent Teams 分配、严格 DSH 工作会话、原始证据锚定、
+  runtime binding admission、独立节点 Gate 和正式运行时绑定。
+- N2：正式需求全集派发/分配、逐需求 DSH 候选及原始证据、规范产物提交、
+  独立 DSH 审查和确定性充分性检查，再执行完整分母的正式节点 Gate。
+  某需求审查不通过仍处理其他独立需求，不缩减分母。修订/人工处置不自动放行。
+- 已提交候选的接续重查原始证据和规范候选，不重启分析工作进程。
+  已验收的前缀调用原生 Gate 重新审计，不仅检查 PASS 标签。
+- 完成前缀后，未接入节点明确返回 HOLD / NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED。
+  全部节点标签 PASS 仍需正式发布收敛审计；推进器不自行宣布 Mission 完成。
+
+只读状态入口不需要工作进程配置或密钥：
+
+```text
+python -m rc7_release.rc72_mission_cli status --ledger <existing-r1.jsonl> --source-commit <exact-40-char-sha> --release-batch <canonical-id>
+```
+
+状态直接重建 R1 投影，不创建任务、会话、节点或验收声明。不存在的账本会拒绝，
+不会静默创建新账本。`field_verified` 和 `bank_final` 均不会由该入口提升。
+工作进程启动配置工厂、完整运行命令及面向最终用户的交互仍待接入；
+当前可调用推进 API 不等同于完整银行产品入口。
+
+统一接续发现并修复 N1 历史 Gate 的下游状态约束：N2 可以已在运行、完成或修订，
+N1 复核不得将它回退到 READY。必须保留原 Gate 到原 N2 的正式 FORWARD 关系；
+缺失且 N2 尚 READY 时只恢复中断的关系写入，已推进但无关系则拒绝。
+
+工程证据：`release-driver-native-regression.log`，37 passed / 5.60 s。
+覆盖真正子进程协议会话、全部需求独立审查、源版本不符拒绝、只读冷状态命令、
+跨进程排他、候选提交后中断接续、原始字节改动拒绝及正式推进关系改动拒绝。
+启动、派发、分配、候选及严格 Gate 边界回归：
+`release-driver-boundary-regression.log`，45 passed / 2.16 s。
+工作进程是工程协议适配器，不能据此声称真实银行 DSH/工具调用或 Field 通过。
+
+尚需完成：N3..N10 和 N8 回边/修复/重新执行的实际服务路由、Provider/会话接管、
+生产工作进程工厂及完整运行入口、全角色实际工具调用时权限、Journey/Browser、
+经济性和同源平台验证，以及 RC7.1 等价完整搬运包。C07/C08 均未完成。

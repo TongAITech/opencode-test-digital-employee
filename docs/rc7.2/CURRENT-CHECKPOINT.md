@@ -1,5 +1,23 @@
 # RC7.2 Current Construction Checkpoint
 
+## ReleaseBatch product route foundation — 2026-11-03
+
+C08 is now ACTIVE: the concrete ReleaseBatchDriver connects actual N1 strict
+completion to the whole N2 Requirement fanout, governed candidate promotion,
+independent DSH review and formal NodeGate. No caller-provided PASS callback or
+driver completion record exists. Read-only `rc7_release.rc72_mission_cli status`
+reads existing R1 without worker configuration. Cross-process batch ownership,
+cold source audits, interrupted promotion-to-review continuation and unchanged
+required denominator are exercised. Native regression: 37 passed / 5.60 s.
+
+This composition uncovered and fixed N1 replay requiring N2 to stay READY:
+advanced downstream states now require the original canonical forward lineage
+and are not reset. See RELEASEBATCH-PRODUCT-DRIVER.md for actual route and limits.
+N3..N10, repair/retry routing, production worker configuration/run command and
+all-role call-time tool fences remain open. This is not a complete C08 product,
+Field qualification or final package. The overall goal remains ACTIVE.
+
+
 ## Whole-repair resource custody — 2026-11-03
 
 Existing-DataRef repair admission now takes the same OS ledger lock as data

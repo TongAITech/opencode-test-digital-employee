@@ -694,12 +694,23 @@ class N1DeliveryGateService:
     ) -> str:
         n2 = runtime.node_by_type(mission_id, _NEXT_NODE)
         if n2.get("state") == MissionNodeState.NOT_STARTED.value:
-            runtime.forward(_NODE, _NEXT_NODE, source_gate_id=gate_id)
+            runtime.forward(_NODE, _NEXT_NODE, source_gate_id=gate_id, mission_id=mission_id)
             n2 = runtime.node_by_type(mission_id, _NEXT_NODE)
-        if n2.get("state") != MissionNodeState.READY.value:
-            raise N1CompletionError(
-                "RC72_N1_N2_NOT_READY_AFTER_PASS:%s" % n2.get("state")
-            )
+        source = runtime.node_by_type(mission_id, _NODE)
+        def forwards():
+            return [edge for edge in self.truth.query("rc72_node_transition", mission_id=mission_id)
+                    if edge.get("kind") == "FORWARD" and edge.get("source_gate_id") == gate_id
+                    and edge.get("from_mission_node_id") == source["mission_node_id"]
+                    and edge.get("to_mission_node_id") == n2["mission_node_id"]
+                    and edge.get("from_node_type") == _NODE.value
+                    and edge.get("to_node_type") == _NEXT_NODE.value]
+        if not forwards() and n2.get("state") == MissionNodeState.READY.value:
+            # Recover interruption after the READY projection, before the edge.
+            runtime.forward(_NODE, _NEXT_NODE, source_gate_id=gate_id, mission_id=mission_id)
+        if not forwards():
+            raise N1CompletionError("RC72_N1_N2_FORWARD_LINEAGE_REQUIRED")
+        # Downstream execution/review may already have advanced. Historical N1
+        # audit must not reset it to READY or require it to remain idle forever.
         return str(n2["state"])
 
     def evaluate_and_advance(self, *, release_batch_id: str) -> Dict[str, Any]:

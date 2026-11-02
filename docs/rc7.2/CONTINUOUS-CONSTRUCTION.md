@@ -1,5 +1,23 @@
 # RC7.2 持续施工与最终搬运交付
 
+## ReleaseBatch product route foundation — 2026-11-03
+
+C08 is now ACTIVE: the concrete ReleaseBatchDriver connects actual N1 strict
+completion to the whole N2 Requirement fanout, governed candidate promotion,
+independent DSH review and formal NodeGate. No caller-provided PASS callback or
+driver completion record exists. Read-only `rc7_release.rc72_mission_cli status`
+reads existing R1 without worker configuration. Cross-process batch ownership,
+cold source audits, interrupted promotion-to-review continuation and unchanged
+required denominator are exercised. Native regression: 37 passed / 5.60 s.
+
+This composition uncovered and fixed N1 replay requiring N2 to stay READY:
+advanced downstream states now require the original canonical forward lineage
+and are not reset. See RELEASEBATCH-PRODUCT-DRIVER.md for actual route and limits.
+N3..N10, repair/retry routing, production worker configuration/run command and
+all-role call-time tool fences remain open. This is not a complete C08 product,
+Field qualification or final package. The overall goal remains ACTIVE.
+
+
 ## Whole-repair resource custody — 2026-11-03
 
 Existing-DataRef repair admission now takes the same OS ledger lock as data
@@ -111,7 +129,7 @@ N9/N10 产品消费者、全局并发/孤儿恢复、Journey/经济策略的所�
 | C05 | N10 全 ReleaseBatch 消费者与 coverage 反馈闭环 | 全 Requirement/SST/Obligation/L1..L7、高风险/缺陷/gap/证据/STALE 分母；结构化未收敛理由 | OPEN |
 | C06 | 全局 Data/Browser 写排他、过期/续约、孤儿 claim/session、初始 N8 多事件恢复 | 多进程争用、崩溃恢复、不能重复业务 I/O、旧权限不复活 | ACTIVE：原生进程自动心跳/全租约续约、过期 custody、签名补偿；已执行成员签名排空、未影响复用及受影响新 Attempt 贯通整体验收；原生混合多成员、已执行/待重跑成员双轮修复及整体验收已验证；通用孤儿、其他故障补偿及调用 fencing 待完成 |
 | C07 | 同任务 Provider/Captain/会话接管；STRICT Capability amendment/delegation | 实际启动器/任务入口；丢会话不丢工作；权限不扩大、不继承 Captain 凭证 | ACTIVE：原生 N8→Broker 决定/冷恢复/撤销；N5 准备与独立验证已接实际 MCP 调用时拦截，其他角色/非 MCP/接管仍待落地 |
-| C08 | 统一产品入口/推进器/状态查询接上全部原生节点服务 | 真实产品命令/接口从 ReleaseBatch 驱动 N1..N10；重启从 R1 接续；无测试专用快捷开关 | OPEN |
+| C08 | 统一产品入口/推进器/状态查询接上全部原生节点服务 | 真实产品命令/接口从 ReleaseBatch 驱动 N1..N10；重启从 R1 接续；无测试专用快捷开关 | ACTIVE：N1→N2 实际推进/审查/Gate 与只读状态已接通；N3..N10 和生产运行入口待落地 |
 | C09 | Journey 教学→编译→回放→基准→人工批准→正式 L4/L5；真实 Browser 所有权 | 正式资产和完整业务谱系；独立浏览器租约及批准范围核验 | OPEN/AUDIT |
 | C10 | 模型经济 A..H 与真实生产/审查/修复启动点集成 | 实测或 UNKNOWN 用量、上海时窗、软预算、浪费硬门、最小上下文/重试增量、逐成员 batch 证据、Q7 双结果 | OPEN/AUDIT |
 | C11 | 全设计/CT/GAP 审核与同源 Windows/Linux 工程验证 | 当前源的逐项证据表；否定用例；CI 不能替代现场 | OPEN |
