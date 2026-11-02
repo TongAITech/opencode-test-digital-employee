@@ -121,6 +121,17 @@ class SingleNodeDurableIntegrationProofRunner:
 
     def _assert_clean_production_preflight(self, test_run_id: str) -> None:
         """Fail before the first Center claim if any worker-owned durable truth is dirty."""
+        if isinstance(self.truth_reader, ProductionCenterR1TruthReader):
+            existing_work_items = tuple(
+                item.identity.work_item_id
+                for item in self.truth_reader.center_repository.list_work_items()
+                if item.identity.test_run_id == test_run_id
+            )
+            if existing_work_items:
+                raise RuntimeError(
+                    "PRODUCTION_CAUSALITY_PREFLIGHT_WORK_ITEM_ALREADY_EXISTS:%s"
+                    % ",".join(sorted(existing_work_items))
+                )
         self.truth_reader.assert_no_attempts_for_test_run(test_run_id)
         if isinstance(self.truth_reader, ProductionCenterR1TruthReader):
             self.truth_reader.assert_no_artifacts_for_test_run(test_run_id)
