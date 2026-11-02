@@ -16,6 +16,7 @@ from .autonomous_claim_client import AutonomousClaimClient
 from .autonomous_dispatcher import AutonomousWorkerDispatcher
 from .formal_agent import FormalNodeAgent
 from .single_node_full_loop_proof import FROZEN_N1_N10_STAGES, SingleNodeFullLoopProof, SingleNodeFullLoopProofRunner
+from .single_node_production_bootstrap import ProductionSingleNodeBootstrap
 from .single_node_truth import SingleNodeCenterTruthVerifier, SingleNodeTruthProof
 
 
@@ -80,14 +81,14 @@ def assert_production_dispatcher_topology(dispatcher: AutonomousWorkerDispatcher
 
 
 class SingleNodeDurableIntegrationProofRunner:
-    """Run dispatcher traversal, then verify the exact traversal in durable truth.
+    """Run production bootstrap + dispatcher traversal, then verify durable truth.
 
     Production mode is constructor-established and immutable. A boundary-double runner
     must never be promoted after construction by mutating a public verification flag.
     Production component identity is intentionally distinct from production causality.
     """
 
-    def __init__(self, *, dispatcher: Any, truth_reader: Any, required_stages: Sequence[str] = FROZEN_N1_N10_STAGES, require_production_components: bool = True) -> None:
+    def __init__(self, *, dispatcher: Any, truth_reader: Any, required_stages: Sequence[str] = FROZEN_N1_N10_STAGES, require_production_components: bool = True, production_bootstrap: Any = None) -> None:
         expected_node_id = None
         production_mode = bool(require_production_components)
         if production_mode:
@@ -101,12 +102,17 @@ class SingleNodeDurableIntegrationProofRunner:
             assert_production_dispatcher_topology(dispatcher, required_stages=required_stages)
             if not isinstance(truth_reader, ProductionCenterR1TruthReader):
                 raise RuntimeError("FULL_LOOP_PRODUCTION_TRUTH_READER_REQUIRED")
+            if not isinstance(production_bootstrap, ProductionSingleNodeBootstrap):
+                raise RuntimeError("FULL_LOOP_PRODUCTION_CENTER_BOOTSTRAP_REQUIRED")
+            if production_bootstrap.truth_reader is not truth_reader:
+                raise RuntimeError("FULL_LOOP_PRODUCTION_BOOTSTRAP_TRUTH_READER_MISMATCH")
             expected_node_id = str(dispatcher.claimant.node_id or "").strip()
             if not expected_node_id:
                 raise RuntimeError("FULL_LOOP_PRODUCTION_NODE_ID_REQUIRED")
         self._production_components_verified = production_mode
         self.expected_node_id = expected_node_id
         self.truth_reader = truth_reader
+        self.production_bootstrap = production_bootstrap
         self.observer = SingleNodeFullLoopProofRunner(
             dispatcher=dispatcher,
             required_stages=required_stages,
@@ -143,6 +149,13 @@ class SingleNodeDurableIntegrationProofRunner:
             raise RuntimeError("FULL_LOOP_TEST_RUN_ID_REQUIRED")
         if self.production_components_verified:
             self._assert_clean_production_preflight(run_id)
+            if self.production_bootstrap is None:
+                # Defensive for tests that deliberately force internal state; a real
+                # production runner cannot reach this state because construction fails closed.
+                raise RuntimeError("FULL_LOOP_PRODUCTION_CENTER_BOOTSTRAP_REQUIRED")
+            bootstrap_proof = self.production_bootstrap.materialize_initial_ready_work(test_run_id=run_id)
+            if bootstrap_proof.test_run_id != run_id or bootstrap_proof.stage != "SCOPE_INTAKE":
+                raise RuntimeError("FULL_LOOP_PRODUCTION_BOOTSTRAP_IDENTITY_MISMATCH")
         observed = self.observer.run(test_run_id=run_id)
         if self.production_components_verified:
             self.truth_reader.assert_attempt_ids_match_observed_leases(
