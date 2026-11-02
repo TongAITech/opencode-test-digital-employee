@@ -152,8 +152,9 @@ class SingleNodeDurableIntegrationProofRunner:
             # A legitimately constructed production runner always has this bridge.
             # Internal guard-regression tests may force the private production flag on
             # a boundary double; they intentionally do not acquire bootstrap authority.
-            if self.production_bootstrap is not None:
-                bootstrap_proof = self.production_bootstrap.materialize_initial_ready_work(test_run_id=run_id)
+            production_bootstrap = getattr(self, "production_bootstrap", None)
+            if production_bootstrap is not None:
+                bootstrap_proof = production_bootstrap.materialize_initial_ready_work(test_run_id=run_id)
                 if bootstrap_proof.test_run_id != run_id or bootstrap_proof.stage != "SCOPE_INTAKE":
                     raise RuntimeError("FULL_LOOP_PRODUCTION_BOOTSTRAP_IDENTITY_MISMATCH")
         observed = self.observer.run(test_run_id=run_id)
