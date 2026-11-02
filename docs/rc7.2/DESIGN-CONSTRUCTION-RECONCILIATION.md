@@ -267,3 +267,21 @@ Proof uses external verifier/tool fixtures and a supplied authorized repair-node
 boundary. It does not close actual N8 cleanup/old-N6 invalidation/repair assignment
 (including reuse-only data without a discovery candidate), N6 recompilation/fresh
 N7 execution, N9/N10, product ingress or Field. No whole-product closure is inferred.
+
+
+## N8 actual compensation and repair-boundary consumer — 2026-11-02
+
+The previous manually supplied repair entry is now implemented for accepted data
+diagnosis with a drained batch. The service verifies actual N8 process proof/Gate,
+unchanged upstream source digests and exact resource custody; issues independent
+cleanup-only authority; runs frozen compensation and per-ref predicates; releases
+only verified resources; preserves failure history and locks old N6/N7 before
+opening N5. Real local HTTP and signed independent diagnostic process composition
+are covered. Partial/cold replay audits saved proof without repeating tool I/O or
+restoring business authority. Failed verification cannot open repair.
+
+This does not close reuse-only N5 repair assignment, actual re-verification through
+N6 compilation into a fresh business execution, or original WorkItem/ETU retry
+reconciliation. Current N7 WorkItem IDs incorporate plan_id, which must be
+reconciled with N8 same-WorkItem replacement invariants. Grant renewal, initial
+orphan/claim recovery, N9/N10/product/global exclusion/Field remain OPEN.

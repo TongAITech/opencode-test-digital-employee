@@ -70,11 +70,16 @@ def install_rc72_n7_cleanup_overlay():
 
 
 class ExecutionCleanupService:
-    def __init__(self, preparation, *, adapters):
+    def __init__(self, preparation, *, adapters, recovery_authorizer=None):
         install_rc72_n7_cleanup_overlay()
         self.preparation = preparation
         self.truth = preparation.truth
         self.adapters = dict(adapters)
+        if recovery_authorizer is not None:
+            from .rc72_n8_repair_boundary import RepairBoundaryService
+            if not isinstance(recovery_authorizer, RepairBoundaryService) or recovery_authorizer.preparation is not preparation:
+                raise CleanupError('N7_TRUSTED_REPAIR_BOUNDARY_REQUIRED')
+        self.recovery_authorizer = recovery_authorizer
         self.evidence = ExecutionEvidenceService(preparation)
 
     def _spec(self, contract):
@@ -106,12 +111,19 @@ class ExecutionCleanupService:
             return existing[0]
         # Only new external I/O requires current admission, TTL and all leases.
         # Resuming persisted cleanup receipts below cannot authorize another call.
-        self.preparation.assert_current(p['preparation_id'])
-        self.preparation.authority.authorize_tool(p['worker_id'], p['task_lease']['lease_id'], tool)
+        if self.recovery_authorizer is None:
+            self.preparation.assert_current(p['preparation_id'])
+            self.preparation.authority.authorize_tool(p['worker_id'], p['task_lease']['lease_id'], tool)
+            recovery_grant = None
+        else:
+            recovery_grant = self.recovery_authorizer.authorize_cleanup(p, c, phase, tool)
+
         row = dict(call_id=call_id, preparation_id=p['preparation_id'], release_id=p['release_id'],
             source_commit=p['source_commit'], contract_id=c['contract_id'], contract_sha256=c['contract_sha256'],
             attempt_id=p['attempt_id'], worker_id=p['worker_id'], tool=tool, phase=phase,
             request_sha256=digest, state='IN_FLIGHT', artifact_version=1)
+        if recovery_grant is not None:
+            row['recovery_grant_ref'] = recovery_grant
         directory = Path(str(self.truth.store.path) + '.n7-dispatch-claims')
         directory.mkdir(parents=True, exist_ok=True)
         try:

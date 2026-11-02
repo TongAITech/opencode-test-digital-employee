@@ -1,3 +1,57 @@
+# Accepted N8 compensation and actual repair-boundary opening — 2026-11-02
+
+status: REAL_LOCAL_COMPENSATION_COMPOSITION_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY
+implemented:
+- RepairBoundaryService consumes the actual signed N8 process result, accepted
+  independent N8 Gate/outcome, exact original failure and unchanged N1-N4 digests.
+  Other prepared executions and other active resource owners must drain first,
+  including cross-mission owners of the same DataRef/browser instance.
+- Fresh cleanup worker identity/short-lived signed lease with cleanup-only scope,
+  no artifact writes and a distinct N8_RECOVERY_CLEANUP phase. Revoked/expired
+  business authority is not restored. Generic authorization callbacks are denied.
+  Native resource TTL/owner/auth-context usability is required for every new call;
+  expired resource custody cannot be reused by a fresh cleanup identity.
+- Reuse the frozen original cleanup/verification tools and source specifications,
+  durable intent and per-call claims. Receipts retain original resource custody
+  and record the fresh recovery-grant identity. Real local HTTP compensation and
+  per-DataRef machine verification precede any resource release.
+- Failed verification retains resources and keeps N5 NEEDS_REVISION. No success
+  flag opens repair. Completed receipts survive partial release and control-state
+  interruptions without another compensation call.
+- After verified release: original binding SUPERSEDED, original WorkItem STALE,
+  preparation INTERRUPTED, execution/cleanup sessions closed and leases revoked.
+  Original failed Attempt is unchanged. Old N6/N7 deliveries/Gates remain history,
+  but active pointers are cleared and nodes locked NOT_STARTED. N5 enters RUNNING.
+- Signed completed-boundary replay audits native receipts, predicates, both
+  Evidence stores and exact released-resource ownership without restoring a lease
+  or requiring the repair to remain at its old node state. New downstream delivery
+  conflicts prevent partial-boundary recovery from overwriting newer work.
+validation: full RC7.2 + inherited regression 1384 passed / 1 skipped /
+32 existing collection warnings in 519.72s. Initial related chain 45 passed.
+Final original-N6/current-N8 gate scope tightening was applied during the full
+run; latest-source affected boundary/cleanup/diagnosis chain then passed 40 tests,
+including expired custody and changed-original-N6 rejection. One extra scope test
+was added after full collection. Compilation and whitespace checks passed.
+Local logs: work/evidence/n8-repair-boundary-current-source-full.log and
+n8-repair-final-scope.log (not tracked). An intermediate full run with an invalid
+new test constructor is superseded by the corrected run above.
+Previous HEAD eadfae2: construction 41413110785, Windows clean-unpack 41413110794
+and platform 41413110802 all PASS; these do not qualify the new source. New-HEAD
+remote CI is checked after push; queued/running is not PASS.
+engineering_scope: actual local HTTP target/cleanup and independent N8 subprocesses;
+initial design/approval facts and professional script inputs are engineering fixtures.
+No Field evidence, N5 repair execution or fresh N7 business Attempt is claimed.
+remaining: reuse-only N5 repair assignment without a discovery candidate; actual
+new N5 verifier -> renewed Gate -> N6 recompilation -> same-WorkItem/ETU retry.
+Expired-resource re-reservation is not implemented. Located retry dependency: N7 WorkItem IDs include plan_id, while N8 replacement
+lineage requires original WorkItem/ETU; revised-plan reconciliation must preserve
+that identity rather than silently creating unrelated work. Multi-running-worker drain orchestration, cleanup grant renewal,
+cleanup-failure-specific recovery and initial orphan-session/claim recovery also
+remain OPEN, alongside N9/N10/product/global resource exclusion/Field.
+DELIVERY_AUTHORIZED=false; FIELD_VERIFIED=false; BANK_FINAL=NO.
+
+---
+
 # N5 same-DataRef independent re-verification and renewed delivery — 2026-11-02
 
 status: NATIVE_COMPONENT_COMPOSITION_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY

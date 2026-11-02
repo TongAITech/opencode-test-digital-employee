@@ -99,12 +99,61 @@ idempotent and successful reactivation survives cold truth replay.
 
 The complete N5 delivery identity now includes verification revision/evidence.
 Old Gate replay rejects stale evidence; a new whole-inventory delivery/Gate is
-required before N6 readiness. Tests explicitly provide an authorized repair
-boundary and locked N6; actual N8 cleanup/invalidation/repair assignment is not
-silently supplied by test state. Reuse-only data lacking an original discovery
+required before N6 readiness. N5-only tests explicitly provide an authorized repair
+boundary and locked N6. The actual N8 compensation/entry consumer is now described
+below; reuse-only N5 repair assignment still is not supplied by test state. Reuse-only data lacking an original discovery
 candidate still needs its own governed repair assignment consumer.
 
+## N8 accepted compensation and actual repair entry
+
+RepairBoundaryService now binds accepted signed N8 data-failure diagnosis to a
+fresh cleanup-only worker/lease and unchanged N1-N4 source digests. It requires
+other executions and resource owners in the batch to drain, plus cross-mission
+owners of the same DataRef/browser instance. Original business
+execution authority is not restored, even when already revoked. Only the concrete
+repair service can authorize the recovery cleanup hook; no generic callback or
+caller success flag grants authority. Native resource TTL, original owner and
+browser auth context are rechecked before each new external call. Fresh worker
+authority does not rescue expired resource custody; governed resource renewal
+is still required and is not implemented.
+
+Frozen cleanup and complete machine verification run through the existing durable
+cleanup engine. Actual local HTTP compensation is exercised. All owned resources
+must verify before release. Failure retains ownership and does not open N5.
+Verified completion supersedes the old binding, marks its WorkItem STALE and
+preparation INTERRUPTED, closes sessions and revokes old/cleanup leases. The failed
+Attempt is unchanged. N6/N7 retain historical deliveries/Gates but active pointers
+are cleared and both nodes lock NOT_STARTED; N5 opens RUNNING through the native
+state transition. Partial and cold recovery do not repeat compensation calls.
+
+Completed-boundary replay is a read-only receipt/predicate/evidence/resource audit;
+it does not depend on the repair still being at the original N5 state. Partial
+recovery refuses newer downstream delivery/version conflicts. Source changes,
+missing accepted diagnosis, failed verification, undrained workers and forged
+proof are covered by negative checks. Fresh cleanup authority renewal, multi-running-worker drain orchestration, orphan
+assignment/claim recovery and cleanup-failure-specific recovery remain OPEN.
+
+This closes the previously supplied test-only repair entry boundary for supported
+single-drained-execution data failures. It does not supply a reuse-only N5 repair
+candidate/assignment or execute a new N7 business Attempt. N7 plans currently
+include plan_id in WorkItem identity, whereas N8 retry requires original WorkItem
+and ETU lineage. Revised-plan reconciliation must resolve this before retry is
+claimed. Other batches are untouched; global cross-process exclusion is unchanged.
+
 ## Evidence and limits
+
+Latest repair-entry validation: full RC7.2 + inherited regression 1384 passed,
+1 skipped, 32 existing collection warnings in 519.72s. Initial related chain:
+45 passed. Original-N6/current-N8 scope tightening was applied during the full run;
+latest-source affected boundary/cleanup/diagnosis suite then passed 40 tests.
+One additional scope test was added after full collection. Compilation/whitespace
+checks passed. Logs are local work/evidence/n8-repair-boundary-current-source-full.log
+and n8-repair-final-scope.log. Earlier intermediate failure from a test constructor
+mistake is superseded by this corrected full run. Current new-HEAD remote result
+must still be observed after push; it is not inferred from previous green runs.
+
+Older engineering evidence is retained below for history.
+
 
 Latest N5 revision validation: full RC7.2 + inherited regression 1371 passed,
 1 skipped, 32 existing collection warnings in 484.99s; N5-N8 chain 208 passed.
@@ -165,7 +214,7 @@ N8 multi-event dispatch recovery, and OS-level isolation remain OPEN/AUDIT.
 Per-call exclusion is not global event-store locking. Unresolved legacy cleanup
 requires governed N4/N6 repair. No delivery or whole-product completion is claimed.
 
-Next: wire actual N8 repair-boundary entry and owned cleanup, then N6 recompilation
-into a new signed Attempt,
+Next: wire reuse-only N5 repair verification and renewed delivery, then reconcile
+N6/new-plan compilation with original WorkItem/ETU retry lineage,
 then connect N9/N10 consumers to this proven success
 chain, then product ingress. Packaging does not substitute for construction.
