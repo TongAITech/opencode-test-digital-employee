@@ -120,8 +120,12 @@ class SingleNodeDurableIntegrationProofRunner:
         return self._production_components_verified
 
     def _assert_clean_production_preflight(self, test_run_id: str) -> None:
-        """Fail before the first Center claim if either durable truth surface is dirty."""
+        """Fail before the first Center claim if any worker-owned durable truth is dirty."""
         self.truth_reader.assert_no_attempts_for_test_run(test_run_id)
+        # Only the production reader can establish the Artifact surface as production
+        # truth. Boundary doubles used by unit tests are deliberately not promotable.
+        if isinstance(self.truth_reader, ProductionCenterR1TruthReader):
+            self.truth_reader.assert_no_artifacts_for_test_run(test_run_id)
         self.truth_reader.assert_no_r1_attempt_lifecycle_for_test_run(test_run_id)
 
     def run(self, *, test_run_id: str) -> SingleNodeDurableIntegrationProof:
