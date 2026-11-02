@@ -16,9 +16,15 @@
 - N2：正式需求全集派发/分配、逐需求 DSH 候选及原始证据、规范产物提交、
   独立 DSH 审查和确定性充分性检查，再执行完整分母的正式节点 Gate。
   某需求审查不通过仍处理其他独立需求，不缩减分母。修订/人工处置不自动放行。
+- N3：正式应用全集源码目标发现、原始证据锚定、规范候选与独立映射审查；
+  只从通过审查的目标派发代码分析，逐目标执行 Git/CodeGraph 观察记录、
+  原始证据、规范产物、独立 Code 审查和实际充分性门槛，最后完整 N3 Gate。
+  保留现有必需 Git/CodeGraph 工具集；不得通过调用者回调替代审查。
+  发现阶段有未解决疑点时不制造可接受候选，不启动分析；代码影响范围不足
+  不能靠审查文字 PASS 放行 N4。未通过的目标不减少必测分母。
 - 已提交候选的接续重查原始证据和规范候选，不重启分析工作进程。
   已验收的前缀调用原生 Gate 重新审计，不仅检查 PASS 标签。
-- 完成前缀后，未接入节点明确返回 HOLD / NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED。
+- 完成前缀后，N4 及以后未接入节点明确返回 HOLD / NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED。
   全部节点标签 PASS 仍需正式发布收敛审计；推进器不自行宣布 Mission 完成。
 
 只读状态入口不需要工作进程配置或密钥：
@@ -43,6 +49,17 @@ N1 复核不得将它回退到 READY。必须保留原 Gate 到原 N2 的正式 
 `release-driver-boundary-regression.log`，45 passed / 2.16 s。
 工作进程是工程协议适配器，不能据此声称真实银行 DSH/工具调用或 Field 通过。
 
-尚需完成：N3..N10 和 N8 回边/修复/重新执行的实际服务路由、Provider/会话接管、
+尚需完成：N4..N10 和 N8 回边/修复/重新执行的实际服务路由、Provider/会话接管、
 生产工作进程工厂及完整运行入口、全角色实际工具调用时权限、Journey/Browser、
 经济性和同源平台验证，以及 RC7.1 等价完整搬运包。C07/C08 均未完成。
+
+N3 接续工程证据：`release-driver-n3-recovery.log`，15 passed / 10.93 s，
+含 N1→N2→N3 连续推进、单应用两个经规范链路接纳的发现目标的完整逐目标分母、
+发现/分析候选提交后的冷投影接续、歧义拒绝、完整影响维度缺失拒绝和
+已通过 N3 正式 Gate 的只读重审。子进程仍是工程协议适配器，
+不代表银行 DSH/真实 Git/CodeGraph 工具体执行已经具备 Field 证据。
+
+N3 与统一入口继承回归：`release-driver-n3-regression.log`，98 passed / 20.67 s。
+
+分配前中断、发现审查前中断、代码审查前中断：
+`release-driver-n3-assignment-recovery.log`，3 passed / 4.52 s。

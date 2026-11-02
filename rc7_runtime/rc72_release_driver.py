@@ -26,6 +26,8 @@ from .rc72_n2_candidate_guard import N2GovernedRequirementHandoffService
 from .rc72_n2_requirement_promotion import N2RequirementCandidatePromotionService
 from .rc72_n2_requirement_review import N2RequirementReviewService
 from .rc72_n2_completion import N2DeliveryGateService
+from .rc72_n3_pipeline import N3PipelineService
+from .rc72_n3_completion import N3DeliveryGateService
 
 
 @contextmanager
@@ -79,7 +81,7 @@ def release_batch_status(truth, *, source_commit, release_batch_id):
 
 class ReleaseBatchDriver:
     def __init__(self, truth, *, source_commit, n1_launcher, n1_tools,
-                 n2_launcher, n2_tools, n2_evaluator):
+                 n2_launcher, n2_tools, n2_evaluator, n3_pipeline=None):
         if not isinstance(source_commit, str) or not re.fullmatch('[0-9a-f]{40}', source_commit):
             raise ContractError('RC72_RELEASE_DRIVER_EXACT_SOURCE_REQUIRED')
         if not isinstance(n2_evaluator, DshRequirementEvaluator):
@@ -97,6 +99,10 @@ class ReleaseBatchDriver:
             if not tools or len(set(tools)) != len(tools) or any(not isinstance(t, str) or not t.strip() or '*' in t for t in tools):
                 raise ContractError('RC72_RELEASE_DRIVER_EXACT_TOOLS_REQUIRED')
         self.n2_evaluator = n2_evaluator
+        if n3_pipeline is not None and (not isinstance(n3_pipeline, N3PipelineService)
+                or n3_pipeline.truth is not truth or n3_pipeline.source_commit != source_commit):
+            raise ContractError('RC72_RELEASE_DRIVER_N3_PIPELINE_SCOPE_MISMATCH')
+        self.n3_pipeline = n3_pipeline
 
     def _one(self, kind, **filters):
         rows = self.truth.query(kind, **filters)
@@ -149,6 +155,10 @@ class ReleaseBatchDriver:
             batch = self._one('rc72_release_batch', release_batch_id=release_batch_id)
             if any(l.release_id != batch['release_id'] for l in (self.n1_launcher, self.n2_launcher, self.n2_evaluator.launcher)):
                 raise ContractError('RC72_RELEASE_DRIVER_WORKER_RELEASE_MISMATCH')
+            if self.n3_pipeline is not None and (self.n3_pipeline.truth is not self.truth
+                    or self.n3_pipeline.source_commit != self.source_commit
+                    or any(l.truth is not self.truth or l.release_id != batch['release_id'] for l in self.n3_pipeline.launchers)):
+                raise ContractError('RC72_RELEASE_DRIVER_N3_PIPELINE_SCOPE_MISMATCH')
             # Admission is rechecked even when canonical nodes already exist.
             ReleaseBatchFieldMissionLauncher(self.truth, source_commit=self.source_commit).start(release_batch_id=release_batch_id)
             # Cold continuation audits accepted source bytes, not merely PASS labels.
@@ -159,6 +169,8 @@ class ReleaseBatchDriver:
                     N1StrictRealityGateService(self.truth, source_commit=self.source_commit).complete(release_batch_id=release_batch_id)
                 elif node['node_type'] == 'N2_REQUIREMENT':
                     N2DeliveryGateService(self.truth, source_commit=self.source_commit).complete(release_batch_id=release_batch_id)
+                elif node['node_type'] == 'N3_CODE_ANALYSIS':
+                    N3DeliveryGateService(self.truth, source_commit=self.source_commit).complete(release_batch_id=release_batch_id)
             while True:
                 snapshot = self.status(release_batch_id=release_batch_id)
                 pending = [n for n in snapshot['nodes'] if n['state'] != 'PASS']
@@ -174,6 +186,10 @@ class ReleaseBatchDriver:
                         allowed_tools=self.n1_tools).complete(release_batch_id=release_batch_id)
                 elif node['node_type'] == 'N2_REQUIREMENT':
                     result = self._n2(batch)
+                    if result.get('status') == 'HOLD':
+                        return dict(self.status(release_batch_id=release_batch_id), **result)
+                elif node['node_type'] == 'N3_CODE_ANALYSIS' and self.n3_pipeline is not None:
+                    result = self.n3_pipeline.complete(release_batch_id=release_batch_id)
                     if result.get('status') == 'HOLD':
                         return dict(self.status(release_batch_id=release_batch_id), **result)
                 else:

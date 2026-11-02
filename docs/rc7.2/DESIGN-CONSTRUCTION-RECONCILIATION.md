@@ -1,5 +1,23 @@
 # RC7.2 design/construction reconciliation — 2026-11-02
 
+## Native N3 product routing — 2026-11-03
+
+The ReleaseBatch product driver now uses concrete N3PipelineService for the
+application discovery -> anchored candidate -> independent source mapping
+review -> every discovered code target -> independent Code evaluator -> whole
+N3 Gate chain. Native Git/CodeGraph requirements and mandatory impact dimensions
+remain authoritative. Unresolved discovery is a HOLD before promotion/code;
+negative code sufficiency never opens N4. Source and code promotion interruption
+resumes from canonical bytes without repeating discovery or analysis. Completed
+N3 replays the native Gate without rolling downstream state back.
+
+N1/N2/N3 product and recovery chain: 15 passed / 10.93 s. See
+RELEASEBATCH-PRODUCT-DRIVER.md. Engineering child protocols do not qualify actual
+bank DSH/Git/CodeGraph tool bodies. C08 remains ACTIVE, incomplete: N4..N10,
+repair/retry routing, production factory/run command and all-role C07 fences
+still open. Final RC7.1-equivalent portable package has not been built/delivered.
+
+
 ## ReleaseBatch product route foundation — 2026-11-03
 
 C08 is now ACTIVE: the concrete ReleaseBatchDriver connects actual N1 strict
