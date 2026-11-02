@@ -116,3 +116,13 @@ anchoring, rather than planting a manual N1 PASS. The external worker/tool I/O
 remains injected, so this proves repository composition, not Field operation.
 Legacy N4 candidates lacking materialization remain non-executable and require
 repair. Planner/worker/resource/execution/product consumers remain OPEN.
+
+## N7 planning and Oracle findings
+
+The persistent decomposer now has a non-test N7 planning service consumer.
+It persists source-bound snapshots/ETUs and ordinary RC7 WorkItems. Product
+entry/driver wiring remains open. An additional defect was found in old N4
+Oracle shapes: type + evidence_ref alone is descriptive, not executable.
+Executable materialization now requires fixed machine predicates and exact
+source preservation through N6/N7. L1–L7 requires an explicit compatible N1
+tool family, including real performance/security families for L6/L7.

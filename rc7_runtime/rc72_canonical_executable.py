@@ -12,6 +12,7 @@ from typing import Any, Dict, Mapping, Optional, Sequence
 
 from rc6_runtime.truth import TruthRuntime
 from .models import ContractError
+from .oracle_runtime import DeterministicOracleRuntime, DeterministicOracleError
 from .rc72_canonical_design import CanonicalDesignService
 from .rc72_n1_executable_binding import N1ExecutableBindingService
 from .rc72_n5_data_inventory import N5DataRequirementInventoryService
@@ -42,6 +43,10 @@ def approved_case_payload(case: Mapping[str, Any], *, mission_id: str) -> Dict[s
     oracle = case.get('oracle')
     if not isinstance(oracle, Mapping) or not oracle.get('checks'):
         raise CanonicalExecutableError('N6_APPROVED_CASE_ORACLE_MISSING')
+    try:
+        DeterministicOracleRuntime.validate_contract(dict(oracle))
+    except DeterministicOracleError as exc:
+        raise CanonicalExecutableError('N6_APPROVED_CASE_ORACLE_UNRESOLVED:N4') from exc
     return dict(
         release_batch_id=case['release_batch_id'], mission_id=mission_id,
         requirement_id=case['requirement_id'], sst_id=case['sst_id'],
@@ -49,7 +54,8 @@ def approved_case_payload(case: Mapping[str, Any], *, mission_id: str) -> Dict[s
         case_ref='r1://artifact/' + case['source_artifact_id'] + '#case/' + case['tc_id'],
         status='PASS', preconditions=deepcopy(case['preconditions']), steps=deepcopy(case['steps']),
         inputs=deepcopy(execution['inputs']), expected=deepcopy(case['expected_results']),
-        oracles=deepcopy(oracle['checks']), evidence_requirements=deepcopy(case['evidence_requirements']),
+        oracles=deepcopy(oracle['checks']), assertions=deepcopy(oracle['checks']),
+        evidence_requirements=deepcopy(case['evidence_requirements']),
         authoritative_sources=list(execution['authoritative_sources']) + [
             case['source_artifact_id'], case['source_artifact_sha256'], case['source_case_sha256']],
     )

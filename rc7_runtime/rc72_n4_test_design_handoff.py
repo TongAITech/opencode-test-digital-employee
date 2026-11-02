@@ -441,10 +441,17 @@ class N4TestDesignDshHandoffService:
                 )
             if "execution" in item:
                 execution = item["execution"]
-                if not isinstance(execution, dict) or set(execution) != {
+                if not isinstance(execution, dict) or set(execution) - {"planning"} != {
                     "binding_key", "inputs", "request", "cleanup", "authoritative_sources",
                 }:
                     raise N4TestDesignHandoffError("RC72_N4_HANDOFF_EXECUTION_SPEC_INVALID")
+                if "planning" in execution:
+                    planning = execution["planning"]
+                    fields = {"primary_code_slice", "auth_role", "browser_context", "data_domain", "execution_tool"}
+                    if not isinstance(planning, dict) or set(planning) != fields:
+                        raise N4TestDesignHandoffError("RC72_N4_HANDOFF_PLANNING_SPEC_INVALID")
+                    for field in fields:
+                        _required(planning[field], "planning_" + field)
                 _required(execution.get("binding_key"), "execution_binding_key")
                 if not isinstance(execution.get("inputs"), dict) or not execution["inputs"]:
                     raise N4TestDesignHandoffError("RC72_N4_HANDOFF_EXECUTION_INPUTS_REQUIRED")
@@ -494,10 +501,16 @@ class N4TestDesignDshHandoffService:
                 raise N4TestDesignHandoffError("RC72_N4_HANDOFF_ORACLE_INVALID:%s" % tc_id)
             checks = _require_object_list(oracle.get("checks"), "oracle_checks")
             for check in checks:
-                if set(check.keys()) != {"type", "evidence_ref"}:
+                if set(check.keys()) - {"id", "actual_path", "operator", "expected"} != {"type", "evidence_ref"}:
                     raise N4TestDesignHandoffError("RC72_N4_HANDOFF_ORACLE_CHECK_CONTRACT_INVALID:%s" % tc_id)
                 _required(check.get("type"), "oracle_type")
                 _required(check.get("evidence_ref"), "oracle_evidence_ref")
+            if "execution" in item:
+                from .oracle_runtime import DeterministicOracleRuntime, DeterministicOracleError
+                try:
+                    DeterministicOracleRuntime.validate_contract(oracle)
+                except DeterministicOracleError as exc:
+                    raise N4TestDesignHandoffError("RC72_N4_HANDOFF_EXECUTION_ORACLE_UNRESOLVED:%s" % tc_id) from exc
             links = _require_object_list(item.get("coverage_links"), "coverage_links")
             link_ids = set()
             for link in links:

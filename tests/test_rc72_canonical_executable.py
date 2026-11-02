@@ -31,7 +31,7 @@ def test_n1_through_n6_uses_actual_approval_hashes_and_approved_cases(tmp_path, 
         assert contract['preconditions'] == case['preconditions']
         assert contract['input'] == case['execution']['inputs']
         assert contract['oracles'] == case['oracle']['checks']
-        assert contract['assertions'][0]['expected'] == case['expected_results']
+        assert contract['assertions'] == case['oracle']['checks']
         assert all(ref['source_case_sha256'] == case['source_case_sha256'] for ref in contract['data_refs'])
         assert ExecutionAdmissionService(truth, release_id=RELEASE, source_commit=COMMIT, now=NOW).admit(
             release_batch_id=BATCH, contract_id=contract['contract_id'])['status'] == 'ADMITTED'
@@ -84,3 +84,14 @@ def test_read_only_n1_recheck_rejects_a_modified_persisted_binding(tmp_path, mon
     with pytest.raises(ValueError, match='EXISTING_CONFLICT'):
         service.assert_current(admission['admission_id'])
     assert list(truth.store.iter_raw()) == before
+
+
+def test_descriptive_oracle_cannot_be_treated_as_a_machine_assertion(tmp_path, monkeypatch):
+    from rc7_runtime.rc72_canonical_executable import approved_case_payload
+    install_execution_sources(tmp_path, monkeypatch)
+    truth = _ready_truth(tmp_path, monkeypatch)
+    design = CanonicalDesignService(truth, release_id=RELEASE, source_commit=COMMIT).load(release_batch_id=BATCH)
+    case = design.cases[0]
+    case['oracle']['checks'] = [{'type': 'API_RESPONSE', 'evidence_ref': 'tool://fixture'}]
+    with pytest.raises(CanonicalExecutableError, match='ORACLE_UNRESOLVED'):
+        approved_case_payload(case, mission_id=MISSION)

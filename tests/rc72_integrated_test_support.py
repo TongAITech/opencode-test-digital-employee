@@ -19,6 +19,7 @@ def install_execution_sources(tmp_path, monkeypatch):
         monkeypatch.setattr(n1_fixture, key, value)
     runtime = n1_binding_fixture._binding()
     runtime.update(release_id=RELEASE, mission_id=MISSION, release_batch_id=BATCH, source_commit=COMMIT)
+    runtime['tool_route']['family'] = 'API'
 
     def complete_n1(truth):
         base.start_n1(truth)
@@ -42,10 +43,16 @@ def install_execution_sources(tmp_path, monkeypatch):
     def candidate(*args, **kwargs):
         value = original_candidate(*args, **kwargs)
         for case in value['cases']:
+            for index, check in enumerate(case['oracle']['checks']):
+                check.update(id='fixture-oracle-%d' % index, operator='EQ',
+                             actual_path='http.status' if check['type'] == 'API_RESPONSE' else 'business.outcome',
+                             expected=200 if check['type'] == 'API_RESPONSE' else 'APPROVED_FIXTURE_RESULT')
             case['execution'] = dict(
                 binding_key=runtime['binding_key'], inputs=dict(fixture_input='explicit reviewed input'),
                 request=deepcopy(spec['request']), cleanup=deepcopy(spec['cleanup']),
                 authoritative_sources=[spec['request']['source_ref'], spec['cleanup']['source_ref']],
+                planning=dict(primary_code_slice=case['code_trace'][0], auth_role='fixture-tester',
+                              browser_context='fixture-api-no-browser', data_domain='pcc-config', execution_tool=runtime['tool_route']['tool']),
             )
         return value
 

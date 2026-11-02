@@ -1,3 +1,23 @@
+# N7 canonical planning and executable Oracle checks — 2026-11-02
+
+baseline_head: ab863663751d5b4271288bb738508ea2ce006b09
+status: COMPONENT_COMPOSITION_TESTED
+implemented: actual PersistentAdaptiveTaskDecomposer consumer; approved canonical
+Case/Obligation → persisted snapshot/ETUs → RC7 WorkItems; same-input replay
+resumes existing work; plan use revalidates sources, scope, Case denominator,
+ETU state and snapshot digest. L1-L7 tool family must be explicitly established
+by N1; labels cannot turn API work into Browser/performance/security work.
+Oracle correction: executable N4 materialization must include actual_path,
+operator and expected value where required. N6 copies approved machine checks;
+N7 rejects descriptive Oracle labels as executable assertions.
+evidence: planning 4 tests passed; machine-Oracle/source/planning combination
+34 passed; additional descriptive-Oracle rejection test passed in later focused run.
+remaining: signed preparation, actual execution/cleanup, independent diagnosis,
+convergence and product controller integration. Overall INCOMPLETE.
+next_atomic_step: signed scoped Worker/Attempt + deterministic resource acquisition.
+
+---
+
 # Canonical N4 → N6 → N7 source bridge — 2026-11-02
 
 baseline_head: 123eaa2a0a31337938ae8a9a11e4f71f83762a41

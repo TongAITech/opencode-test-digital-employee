@@ -195,7 +195,7 @@ class ExecutionAdmissionService:
                             ('evidence_required', 'evidence_requirements')):
             if contract.get(actual) != approved.get(key):
                 raise ExecutionAdmissionError('N7_CASE_SEMANTICS_CHANGED:%s' % actual)
-        expected_assertions = [dict(kind='EXPECTED_RESULT', expected=approved['expected'], source='N4.expected')]
+        expected_assertions = approved['assertions']
         if (contract.get('assertions') != expected_assertions
                 or contract.get('request') != case['execution']['request']
                 or contract.get('cleanup') != case['execution']['cleanup']):

@@ -41,3 +41,11 @@ The N7 admission component is not a claim that N7 is complete.
 N1–N6 services into N7 admission with injected external I/O. No field claim.
 Next: persist adaptive N7 planning and connect signed worker/resource/execution
 consumers, then diagnosis/recovery, convergence and product ingress.
+
+## N7 planner/Oracle bridge
+
+Persistent decomposition now creates actual N7 WorkItems from canonical source
+assets and admissions; replay reuses them. Explicit N1 tool families prevent
+test-level relabeling. Executable Oracles require machine predicates. Planning
+and resource preparation were locally exercised together (19 passed); prepared
+worker/resource code is the next separate slice, not whole-product closure.
