@@ -508,6 +508,7 @@ class N1ExecutableBindingService:
         *,
         release_batch_id: str,
         binding_key: str,
+        persist: bool = True,
     ) -> Dict[str, Any]:
         release_batch_id = _required(
             release_batch_id, "release_batch_id"
@@ -594,6 +595,8 @@ class N1ExecutableBindingService:
                         % key
                     )
             return dict(current[0])
+        if not persist:
+            raise N1ExecutableBindingError("RC72_N1_EXEC_BIND_CANONICAL_BINDING_REQUIRED")
         self.truth.append_atomic(_EVENT, expected)
         rows = self.truth.query(
             _ARTIFACT, binding_id=binding_id

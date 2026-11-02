@@ -17,29 +17,11 @@ from test_rc72_n6_executable_readiness import NOW, _binding
 
 
 def _ready(tmp_path, monkeypatch):
+    from rc72_integrated_test_support import install_execution_sources
+    from rc7_runtime.rc72_canonical_executable import CanonicalExecutableService
+    install_execution_sources(tmp_path, monkeypatch)
     truth = _ready_truth(tmp_path, monkeypatch)
-    requirements = truth.query('rc72_n5_data_requirement', release_batch_id=BATCH)
-    grouped = {}
-    for row in requirements:
-        grouped.setdefault(row['case_id'], []).append(row)
-    compiled = []
-    for case_id, rows in grouped.items():
-        requirement = rows[0]
-        durable = CandidatePayloadReader().load(truth, requirement['source_n4_artifact_id'], expected_mission_id=MISSION)
-        source = next(case for case in durable.semantic_payload['cases'] if case['tc_id'] == case_id)
-        case = deepcopy(source)
-        case.update(case_id=case_id, mission_id=MISSION, status='PASS',
-                    case_ref='r1://artifact/' + requirement['source_n4_artifact_id'] + '#case/' + case_id,
-                    inputs={'fixture_input': 'explicit fixture runtime binding'},
-                    expected=source['expected_results'], oracles=source['oracle']['checks'],
-                    authoritative_sources=[requirement['source_n4_artifact_id']])
-        refs = []
-        for row in rows:
-            binding = truth.query('rc72_n5_data_binding', data_requirement_id=row['data_requirement_id'])[0]
-            refs.append(canonical_n5_data_ref(binding, row))
-        compiled.append(N6ExecutableReadinessCompiler().compile(case, refs, _binding(), now=NOW))
-    n6 = N6DeliveryGateService(truth, release_id=RELEASE, source_commit=COMMIT, now=NOW)
-    result = n6.complete(release_batch_id=BATCH, contracts=compiled)
+    result = CanonicalExecutableService(truth, release_id=RELEASE, source_commit=COMMIT, now=NOW).compile_batch(release_batch_id=BATCH)
     assert result['gate']['decision'] == 'PASS'
     return truth, result['delivery']['contract_ids']
 
@@ -144,7 +126,7 @@ def test_rehashing_changed_steps_cannot_reuse_the_previously_approved_identity(t
     row['artifact_version'] += 1
     truth.append_atomic('rc72.n6.executable_contract_compiled', row)
     count = len(_events(truth))
-    with pytest.raises(ExecutionAdmissionError, match='IDENTITY_CHANGED'):
+    with pytest.raises(ExecutionAdmissionError, match='IDENTITY_CHANGED|CASE_SEMANTICS_CHANGED'):
         _service(truth).admit(release_batch_id=BATCH, contract_id=ids[0])
     assert len(_events(truth)) == count
 

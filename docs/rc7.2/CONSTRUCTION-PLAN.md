@@ -1,3 +1,24 @@
+# Canonical N4 → N6 → N7 source bridge — 2026-11-02
+
+baseline_head: 123eaa2a0a31337938ae8a9a11e4f71f83762a41
+phase: CANONICAL_DESIGN_EXECUTABLE_INTEGRATION
+status: CODE_COMPLETE_COMPONENT_COMPOSITION
+implemented: approved hash-verified N4 candidate assets → canonical TestObligation;
+exact original Case + explicit reviewed execution materialization + current
+canonical N1 route and verified N5 data → N6 compiler/gate → N7 preflight.
+legacy_policy: old N4 candidates replay unchanged; missing concrete execution
+inputs/request/cleanup blocks at N6 rather than manufacturing a runnable Case.
+N7 now rechecks approved Case semantics, canonical Obligation and actual N1
+binding bytes; read-only N1 revalidation cannot create a new binding.
+test_evidence: 41 focused passed, including actual N1–N6 service composition
+with external DSH/tool I/O fixtures; not Field evidence.
+remaining: persistent N7 planner/WorkItem consumers, signed fresh workers,
+resource acquisition/cleanup, execution/independent diagnosis, N10 and product wiring.
+next_atomic_step: connect canonical assets and admissions to persistent N7 planning.
+OVERALL_STATUS: INCOMPLETE
+
+---
+
 # N7 admission construction slice — 2026-11-02
 
 baseline_head: 9476b57cf70056f958352762c14a5ec3b2b2151d

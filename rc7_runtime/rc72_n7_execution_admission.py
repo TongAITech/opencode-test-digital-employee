@@ -15,6 +15,9 @@ from typing import Any, Dict, Optional
 from rc6_runtime import contracts, truth as registry
 from rc6_runtime.truth import TruthRuntime
 from .models import ContractError
+from .rc72_canonical_design import CanonicalDesignService
+from .rc72_canonical_executable import approved_case_payload
+from .rc72_n1_executable_binding import N1ExecutableBindingService
 from .rc72_domain import AutonomousMissionNode
 from .rc72_n5_data_inventory import N5DataRequirementInventoryService
 from .rc72_n5_data_resolution import N5DataResolutionService
@@ -172,6 +175,37 @@ class ExecutionAdmissionService:
             if not n6._data_ref_current(contract, ref):
                 raise ExecutionAdmissionError('N7_DATA_REF_EXPIRED')
             bindings.append(binding)
+        design = CanonicalDesignService(self.truth, release_id=self.release_id,
+                                         source_commit=self.source_commit).load(release_batch_id=batch_id)
+        obligation = self._one('rc72_test_obligation', obligation_id=contract['obligation_id'])
+        expected_obligation = next((item for item in design.obligations
+                                    if item.obligation_id == contract['obligation_id']), None)
+        if (expected_obligation is None or obligation.get('release_id') != self.release_id
+                or obligation.get('mission_id') != mission_id or obligation.get('release_batch_id') != batch_id
+                or obligation.get('requirement_id') != contract['requirement_id']
+                or obligation.get('sst_id') != contract['sst_id']
+                or obligation.get('change_refs') != expected_obligation.change_refs):
+            raise ExecutionAdmissionError('N7_CANONICAL_OBLIGATION_STALE')
+        case = next((item for item in design.cases if item['tc_id'] == contract['case_id']), None)
+        if case is None:
+            raise ExecutionAdmissionError('N7_CASE_NOT_IN_APPROVED_N4')
+        approved = approved_case_payload(case, mission_id=mission_id)
+        for actual, key in (('case_ref', 'case_ref'), ('preconditions', 'preconditions'),
+                            ('steps', 'steps'), ('input', 'inputs'), ('oracles', 'oracles'),
+                            ('evidence_required', 'evidence_requirements')):
+            if contract.get(actual) != approved.get(key):
+                raise ExecutionAdmissionError('N7_CASE_SEMANTICS_CHANGED:%s' % actual)
+        expected_assertions = [dict(kind='EXPECTED_RESULT', expected=approved['expected'], source='N4.expected')]
+        if (contract.get('assertions') != expected_assertions
+                or contract.get('request') != case['execution']['request']
+                or contract.get('cleanup') != case['execution']['cleanup']):
+            raise ExecutionAdmissionError('N7_CASE_SEMANTICS_CHANGED:assertion/request/cleanup')
+        runtime = N1ExecutableBindingService(self.truth, source_commit=self.source_commit).canonicalize(
+            release_batch_id=batch_id, binding_key=case['execution']['binding_key'], persist=False,
+        )
+        if any(contract.get(key) != runtime.get(key) for key in
+               ('environment', 'endpoint', 'tool_route', 'capabilities', 'resources')):
+            raise ExecutionAdmissionError('N7_N1_RUNTIME_BINDING_STALE')
         # The N6 delivery approved immutable content-addressed identities, not
         # just whatever payload happens to occupy that identity at query time.
         for row in contracts_in_delivery:

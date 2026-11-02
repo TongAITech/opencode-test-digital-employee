@@ -34,3 +34,10 @@ focused regression: 25 passed. Actual dispatch consumers are still pending.
 Next: approved N4 assets/canonical N6 adaptation → persisted N7 planning →
 signed worker/resource acquisition → thin execution → independent diagnosis.
 The N7 admission component is not a claim that N7 is complete.
+
+## Canonical source bridge update
+
+41 focused tests passed. N4 promotion and N6 source adapter now compose actual
+N1–N6 services into N7 admission with injected external I/O. No field claim.
+Next: persist adaptive N7 planning and connect signed worker/resource/execution
+consumers, then diagnosis/recovery, convergence and product ingress.

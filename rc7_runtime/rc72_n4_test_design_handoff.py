@@ -435,10 +435,24 @@ class N4TestDesignDshHandoffService:
                 "evidence_requirements", "code_trace", "action_semantics",
                 "coverage_links", "status",
             }
-            if set(item.keys()) != required_keys:
+            if set(item.keys()) - {"execution"} != required_keys:
                 raise N4TestDesignHandoffError(
                     "RC72_N4_HANDOFF_CASE_CONTRACT_INVALID:%d" % index
                 )
+            if "execution" in item:
+                execution = item["execution"]
+                if not isinstance(execution, dict) or set(execution) != {
+                    "binding_key", "inputs", "request", "cleanup", "authoritative_sources",
+                }:
+                    raise N4TestDesignHandoffError("RC72_N4_HANDOFF_EXECUTION_SPEC_INVALID")
+                _required(execution.get("binding_key"), "execution_binding_key")
+                if not isinstance(execution.get("inputs"), dict) or not execution["inputs"]:
+                    raise N4TestDesignHandoffError("RC72_N4_HANDOFF_EXECUTION_INPUTS_REQUIRED")
+                for field in ("request", "cleanup"):
+                    if not isinstance(execution.get(field), dict) or not execution[field]:
+                        raise N4TestDesignHandoffError("RC72_N4_HANDOFF_EXECUTION_%s_REQUIRED" % field.upper())
+                    _required(execution[field].get("source_ref"), field + "_source_ref")
+                _strings(execution.get("authoritative_sources"), "execution_sources", required=True)
             tc_id = _required(item.get("tc_id"), "tc_id")
             if tc_id in case_ids:
                 raise N4TestDesignHandoffError("RC72_N4_HANDOFF_CASE_ID_DUPLICATE")
@@ -781,6 +795,9 @@ class N4TestDesignDshHandoffService:
             "Design exactly one Requirement x SST scope. Derive the denominator from the provided PASS N2/N3 parent artifacts and parent_obligation_source_refs; never replace it with a self-authored smaller scope or case count target. "
             "Use real source reads and CodeGraph where code impact exists. Cover positive, negative, boundary, state, role/permission, data, dependency, side effect, change impact, regression and integration risks where applicable. "
             "L1-L7 applicability must be explicit through obligations/cases; when evidence is insufficient, record unknowns/gaps instead of inventing a case. "
+            "When established N1/N3/N4 facts permit, each Case may also carry execution={binding_key,inputs,request,cleanup,authoritative_sources}. "
+            "binding_key selects an existing approved N1 route; request/schema, concrete input template and cleanup must have real source refs. "
+            "Do not invent execution facts: a Case without this materialization remains blocked at N6 and must be repaired by its owning node. "
             "No TBD, TODO, guess during execution, find data later, placeholder oracle, PASS, NodeGate, N5 READY, Q7 PASS, field_verified or BANK_FINAL. "
             "Return strict JSON with exactly the shown top-level and nested contracts. Context="
             + json.dumps(context, ensure_ascii=False, sort_keys=True)

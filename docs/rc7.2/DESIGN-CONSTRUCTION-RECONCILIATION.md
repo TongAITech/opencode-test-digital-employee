@@ -105,3 +105,14 @@ or lower acceptance gates to make this ledger look complete.
   approved N4 Case. A canonical N4→N6 adapter and semantic lineage checks remain
   necessary before product integration can be considered closed.
 - Historical portable preparation is quarantined and is not a delivery.
+
+## Canonical source bridge follow-up
+
+CanonicalDesignService now promotes approved N4 obligations and exposes exact
+source Cases; CanonicalExecutableService compiles only reviewed execution
+materialization plus actual canonical N1/N5 truth. N7 validates those sources
+again before admission. New integrated fixtures run actual N1 completion and
+anchoring, rather than planting a manual N1 PASS. The external worker/tool I/O
+remains injected, so this proves repository composition, not Field operation.
+Legacy N4 candidates lacking materialization remain non-executable and require
+repair. Planner/worker/resource/execution/product consumers remain OPEN.

@@ -403,8 +403,8 @@ class N5DataRequirementInventoryService:
         if n5.get("scope_ref") != "release-batch://%s" % release_batch_id:
             raise N5DataInventoryError("RC72_N5_DATA_NODE_SCOPE_MISMATCH")
         if execution_recheck:
-            if n5.get("state") != "PASS" or n6.get("state") != "PASS":
-                raise N5DataInventoryError("RC72_N5_EXECUTION_RECHECK_REQUIRES_PASS_N5_N6")
+            if n5.get("state") != "PASS" or n6.get("state") not in {"READY", "RUNNING", "REVIEW_PENDING", "PASS"}:
+                raise N5DataInventoryError("RC72_N5_RECHECK_REQUIRES_PASS_N5_AND_ADMITTED_N6")
         else:
             if n5.get("state") not in {"READY", "RUNNING"}:
                 raise N5DataInventoryError("RC72_N5_DATA_N5_NOT_ADMITTED:%s" % n5.get("state"))
