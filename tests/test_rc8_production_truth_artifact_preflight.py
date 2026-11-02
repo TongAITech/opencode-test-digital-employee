@@ -24,17 +24,11 @@ def _reader():
     )
 
 
-def test_clean_test_run_has_no_preseeded_artifact_truth():
-    _store, reader = _reader()
-    reader.assert_no_artifacts_for_test_run("run-clean")
-
-
-def test_preseeded_worker_artifact_fails_production_causality_preflight():
-    store, reader = _reader()
+def _add_artifact(store, *, artifact_id: str, test_run_id: str, attempt_id: str = "lease-1"):
     with store.session() as session:
         session.add(ArtifactMetadataRow(
-            artifact_id="artifact-preseeded",
-            test_run_id="run-dirty",
+            artifact_id=artifact_id,
+            test_run_id=test_run_id,
             work_item_id="wi-1",
             node_id="node-1",
             kind="STAGE_EVIDENCE",
@@ -45,12 +39,22 @@ def test_preseeded_worker_artifact_fails_production_causality_preflight():
             size_bytes=2,
             availability="AVAILABLE",
             case_id=None,
-            attempt_id="lease-1",
+            attempt_id=attempt_id,
             step_id=None,
             refs=[],
             metadata_json={},
             created_at=1,
         ))
+
+
+def test_clean_test_run_has_no_preseeded_artifact_truth():
+    _store, reader = _reader()
+    reader.assert_no_artifacts_for_test_run("run-clean")
+
+
+def test_preseeded_worker_artifact_fails_production_causality_preflight():
+    store, reader = _reader()
+    _add_artifact(store, artifact_id="artifact-preseeded", test_run_id="run-dirty")
 
     with pytest.raises(
         ProductionTruthReaderError,
@@ -63,3 +67,44 @@ def test_artifact_preflight_requires_test_run_identity():
     _store, reader = _reader()
     with pytest.raises(ProductionTruthReaderError, match="TEST_RUN_ID_REQUIRED"):
         reader.assert_no_artifacts_for_test_run("   ")
+
+
+def test_complete_worker_artifact_set_matches_observed_traversal():
+    store, reader = _reader()
+    _add_artifact(store, artifact_id="art-1", test_run_id="run-match", attempt_id="lease-1")
+    _add_artifact(store, artifact_id="art-2", test_run_id="run-match", attempt_id="lease-2")
+
+    assert reader.worker_artifact_refs_for_test_run("run-match") == ("artifact:art-1", "artifact:art-2")
+    reader.assert_worker_artifact_refs_match_observed_evidence(
+        test_run_id="run-match",
+        observed_evidence_refs=("artifact:art-2", "artifact:art-1"),
+    )
+
+
+def test_unexpected_worker_artifact_fails_complete_artifact_denominator():
+    store, reader = _reader()
+    _add_artifact(store, artifact_id="art-expected", test_run_id="run-extra", attempt_id="lease-1")
+    _add_artifact(store, artifact_id="art-unexpected", test_run_id="run-extra", attempt_id="lease-extra")
+
+    with pytest.raises(
+        ProductionTruthReaderError,
+        match=r"PRODUCTION_CAUSALITY_ARTIFACT_SET_MISMATCH:run-extra:missing=-:unexpected=artifact:art-unexpected",
+    ):
+        reader.assert_worker_artifact_refs_match_observed_evidence(
+            test_run_id="run-extra",
+            observed_evidence_refs=("artifact:art-expected",),
+        )
+
+
+def test_missing_worker_artifact_fails_complete_artifact_denominator():
+    store, reader = _reader()
+    _add_artifact(store, artifact_id="art-present", test_run_id="run-missing")
+
+    with pytest.raises(
+        ProductionTruthReaderError,
+        match=r"PRODUCTION_CAUSALITY_ARTIFACT_SET_MISMATCH:run-missing:missing=artifact:art-missing:unexpected=-",
+    ):
+        reader.assert_worker_artifact_refs_match_observed_evidence(
+            test_run_id="run-missing",
+            observed_evidence_refs=("artifact:art-present", "artifact:art-missing"),
+        )
