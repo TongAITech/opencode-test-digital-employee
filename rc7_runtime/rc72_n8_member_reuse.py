@@ -1,4 +1,4 @@
-"""Read-only scope decision for an unchanged, drained execution member.
+"""Read-only current-scope disposition for a drained execution member.
 
 A current admission plus signed reconciliation can carry historical evidence to
 whole-plan review. It cannot restore the old worker lease or produce a PASS.
@@ -39,9 +39,6 @@ def member_reuse_decisions(planning, reconciliation, plan):
                 or any(member[key] != plan[key] for key in ('mission_id', 'release_batch_id', 'release_id', 'source_commit'))
                 or planning._one('rc72_n7_member_drain', drain_id=member['drain_id']) != member):
             raise ContractError('N8_REUSE_CHECKPOINT_SCOPE_CHANGED')
-        expected = dict(old, status='DRAINED', artifact_version=old['artifact_version'] + 1)
-        if planning._one('rc72_n7_execution_preparation', preparation_id=old['preparation_id']) != expected:
-            raise ContractError('N8_REUSE_ORIGINAL_PREPARATION_CHANGED')
         seen.add(old['case_id'])
         item = items.get(old['case_id'])
         if item is None or any(item[key] != old[key] for key in ('workitem_id', 'etu_id')):
@@ -51,11 +48,17 @@ def member_reuse_decisions(planning, reconciliation, plan):
         changed = set(reconciliation['repair_record']['changed_refs']) | set(impact['changed_refs'])
         # Data proof provenance and every business/runtime field are in this
         # digest. Merely keeping the same DataRef or non-STALE ETU is insufficient.
-        if (impact['strategy'] != 'EXPLICIT_DEPENDENCY' or old['etu_id'] in impact['stale_etu_ids']
-                or previous['obligation_id'] in impact['stale_obligation_ids']
-                or changed & _strings(previous) or current['contract_sha256'] != previous['contract_sha256']
-                or _digest(current) != current['contract_sha256'] or _digest(previous) != previous['contract_sha256']):
-            raise ContractError('N8_AFFECTED_COMPLETED_MEMBER_RETRY_REQUIRED')
+        if _digest(current) != current['contract_sha256'] or _digest(previous) != previous['contract_sha256']:
+            raise ContractError('N8_MEMBER_CONTRACT_DIGEST_INVALID')
+        unaffected = (impact['strategy'] == 'EXPLICIT_DEPENDENCY' and old['etu_id'] not in impact['stale_etu_ids']
+                and previous['obligation_id'] not in impact['stale_obligation_ids']
+                and not changed & _strings(previous) and current['contract_sha256'] == previous['contract_sha256'])
+        disposition = 'REUSE_FOR_CURRENT_REVIEW' if unaffected else 'REEXECUTE_AFTER_VERIFIED_DRAIN'
+        expected = dict(old, status='DRAINED', artifact_version=old['artifact_version'] + 1)
+        actual = planning._one('rc72_n7_execution_preparation', preparation_id=old['preparation_id'])
+        interrupted = dict(old, status='INTERRUPTED', artifact_version=old['artifact_version'] + 2)
+        if actual != expected and (unaffected or actual != interrupted):
+            raise ContractError('N8_REUSE_ORIGINAL_PREPARATION_CHANGED')
         original_admission = planning._one('rc72_n7_execution_admission', admission_id=old['admission_id'])
         admission = planning.admission.assert_review_current(item['admission_id'])
         required = {'N1_REALITY', 'N2_REQUIREMENT', 'N3_CODE_ANALYSIS', 'N4_TEST_DESIGN'}
@@ -77,7 +80,7 @@ def member_reuse_decisions(planning, reconciliation, plan):
                 raise ContractError('N8_REUSE_CAPTURE_BYTES_CHANGED')
         decisions.append(dict(case_id=old['case_id'], workitem_id=old['workitem_id'], etu_id=old['etu_id'],
             preparation_id=old['preparation_id'], attempt_id=old['attempt_id'], drain_id=member['drain_id'],
-            disposition='REUSE_FOR_CURRENT_REVIEW', current_contract_id=item['contract_id'],
+            disposition=disposition, current_contract_id=item['contract_id'],
             current_contract_sha256=current['contract_sha256'], current_admission_id=item['admission_id'],
             impact_set_id=impact['impact_set_id']))
     return decisions
@@ -88,6 +91,9 @@ def reused_member(preparation, plan, item, *, allow_finalized=False):
         return None
     from .rc72_n8_retry_truth import assert_reconciled_plan
     row = assert_reconciled_plan(preparation.planning, plan)
+    if not any(d['workitem_id'] == item['workitem_id'] and d['disposition'] == 'REUSE_FOR_CURRENT_REVIEW'
+               for d in row.get('member_decisions', [])):
+        return None
     matches = [member for member in row.get('members', [])
                if member['original_preparation']['workitem_id'] == item['workitem_id']]
     if not matches:

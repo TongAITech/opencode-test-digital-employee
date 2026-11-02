@@ -174,15 +174,52 @@ def test_signed_ready_decision_recovers_missing_plan_publication_without_new_exe
         _close(server)
 
 
-def test_physical_repair_of_completed_members_data_requires_new_attempt_instead_of_reuse(tmp_path, monkeypatch):
+def test_physical_repair_of_completed_members_data_creates_fresh_child_and_full_independent_review(tmp_path, monkeypatch):
     truth, prep, server, completed, failed, diagnosis, drain = _repaired(tmp_path, monkeypatch, repair_completed=True)
     try:
-        with pytest.raises(ContractError, match='AFFECTED_COMPLETED_MEMBER_RETRY_REQUIRED'):
-            DataRepairContinuationService(diagnosis).reconcile(failed['preparation_id'])
-        assert truth.query('rc72_n8_retry_reconciliation')[0]['state'] == 'PLANNED'
-        assert len(server.calls) == 1 and len(truth.query('execution_attempt')) == 2
-        assert truth.query('execution_attempt', attempt_id=completed['attempt_id'])[0]['status'] == 'BLOCKED'
-        assert truth.query('rc72_n7_execution_preparation', preparation_id=completed['preparation_id'])[0]['status'] == 'DRAINED'
+        from rc7_runtime.rc72_n8_member_disposition import assert_disposed_member
+        original = prep._one('execution_attempt', attempt_id=completed['attempt_id'])
+        failed_history = prep._one('execution_attempt', attempt_id=failed['attempt_id'])
+        plan = DataRepairContinuationService(diagnosis).reconcile(failed['preparation_id'])
+        row = truth.query('rc72_n8_retry_reconciliation')[0]
+        assert row['member_decisions'][0]['disposition'] == 'REEXECUTE_AFTER_VERIFIED_DRAIN'
+        assert prep._one('rc7_task', task_id=completed['workitem_id'])['state'] == 'READY'
+        assert prep._one('rc72_n7_execution_preparation', preparation_id=completed['preparation_id'])['status'] == 'INTERRUPTED'
+        assert prep._one('rc72_workitem_attempt_binding', binding_id=completed['binding_id'])['state'] == 'SUPERSEDED'
+        assert prep.authority.is_lease_revoked(completed['task_lease']['lease_id'])
+        assert len(server.calls) == 1
+        root = tmp_path / 'all-repaired-members'
+        env = LocalHTTPEnvironment('http://127.0.0.1:%d' % server.server_address[1], root)
+        runner = FormalN7RunnerAdapter(prep, evidence_root=root, environment_adapter=env,
+            execution_env={'RC72_OUTPUT_ROOT': str(root)}, timeout_seconds=30)
+        children = []
+        for item in plan['items']:
+            child = prep.prepare(plan_id=plan['plan_id'], workitem_id=item['workitem_id'])
+            children.append(child)
+            assert SignedToolDispatchService(prep, adapters={'api_http': runner}).dispatch(child['preparation_id'])['state'] == 'RETURNED'
+            assert ExecutionCleanupService(prep, adapters={'api_http': env.cleanup}).run(child['preparation_id'])['state'] == 'CLEANUP_VERIFIED'
+        replacement = next(child for child in children if child['workitem_id'] == completed['workitem_id'])
+        assert replacement['attempt_id'] != completed['attempt_id'] and replacement['worker_id'] != completed['worker_id']
+        assert replacement['attempt_generation'] == completed['attempt_generation'] + 1
+        assert prep._one('rc72_workitem_attempt_binding', binding_id=replacement['binding_id'])['parent_attempt_id'] == completed['attempt_id']
+        assert [(item['case_id'], item['etu_id'], item['workitem_id']) for item in plan['items']] == [
+            (item['case_id'], item['etu_id'], item['workitem_id']) for item in row['original_plan']['items']]
+        review = ExecutionEvidenceReviewService(prep, adapter_output_root=root, capture_root=tmp_path / 'captured-all-repaired')
+        bundle = review.build(plan['plan_id'])
+        final = ExecutionFinalizationService(review).finalize(bundle['bundle_id'])
+        assert final['state'] == 'N7_PASS'
+        assert len(server.calls) == len(plan['items']) + 1
+        assert len(truth.query('execution_attempt')) == len(plan['items']) + 2
+        assert prep._one('execution_attempt', attempt_id=completed['attempt_id']) == original
+        assert prep._one('execution_attempt', attempt_id=failed['attempt_id']) == failed_history
+        assert_disposed_member(prep, row, row['members'][0])
+        cold = _service(TruthRuntime(truth.store.path))
+        before = cold.truth.store.path.read_bytes()
+        assert_disposed_member(cold, row, row['members'][0])
+        cold_review = ExecutionEvidenceReviewService(cold, adapter_output_root=root, capture_root=review.capture_root)
+        assert ExecutionFinalizationService(cold_review).finalize(bundle['bundle_id']) == final
+        assert cold.truth.store.path.read_bytes() == before and not cold.authority._leases
+        assert truth.query('rc7_mission')[0]['state'] != 'CONVERGED'
     finally:
         _close(server)
 

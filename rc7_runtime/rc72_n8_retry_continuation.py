@@ -266,7 +266,7 @@ class DataRepairContinuationService:
         self.diagnosis.record_accepted_repair(p['preparation_id'], repair_delivery_id=repair['repair_delivery_id'],
             changed_refs=repair['changed_refs'], reason=repair['reason'])
         self._drained(p, row['original_plan'])
-        for member in row.get('members', []):
+        for member in row.get('members', []) if row['state'] == 'PLANNED' else []:
             from .rc72_n7_member_drain import assert_drained_member
             if assert_drained_member(self.preparation, member['preparation_id']) != member:
                 raise ContractError('N8_RETRY_MEMBER_CHECKPOINT_CHANGED')
@@ -336,6 +336,8 @@ class DataRepairContinuationService:
             from .rc72_n8_member_reuse import member_reuse_decisions
             decisions = member_reuse_decisions(self.planning, row, plan)
             row = self._persist(row, state='READY', plan=plan, member_decisions=decisions)
+        from .rc72_n8_member_disposition import apply_member_dispositions
+        apply_member_dispositions(self.preparation, row)
         self.truth.append_atomic('RC72_N7_EXECUTION_PLAN_UPSERTED', plan)
         return self.planning.assert_current(plan['plan_id'])
 

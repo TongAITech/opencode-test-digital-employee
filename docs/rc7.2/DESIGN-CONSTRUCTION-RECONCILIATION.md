@@ -545,3 +545,30 @@ generic orphan recovery remain open. Integrated planning/admission/review/
 finalization/drain/retry62 passed203.00s; final reuse/renewal/repair-boundary34
 passed113.95s, including a renewed original member and cold finalization replay.
 Compilation/diff checks passed.
+
+
+## Affected completed-member fresh execution — 2026-11-03
+
+Signed current-plan member decisions now distinguish unchanged reuse from
+mandatory re-execution after actual verified drain. Before publication, the
+consumer under the shared ledger gate preflights every member and applies exact
+resumable binding/Task/preparation transitions. Old owners are cleared/revoked,
+closed sessions are required, original signed drain/Attempt history stays intact.
+Only an actual newly signed scoped worker/session/lease with next generation,
+original parent Attempt and current contract/admission can own the same WorkItem
+afterward. Historical proof after supersession uses an explicit authenticated
+disposition, not generally relaxed owner/state checks. No old lease or process
+is revived and no business I/O is launched by reconciliation.
+
+Actual two-member local flow physically repairs both completed/failed data,
+independently verifies N5, recompiles N6, executes fresh signed child Attempts
+for the entire original Case denominator and reaches independent N7_PASS. Both
+original Attempts remain unchanged. Business actions count the original completed
+action plus every mandatory regression Case; cold finalization/history replay
+is read-only. Six interrupted writes and projection-tampering guards9 passed
+63.39s; actual full chain1 passed15.19s; child/heartbeat/expired-custody21 passed
+68.08s. Final member source/session fence20 passed149.40s; integrated member/
+retry/drain/renewal/finalization/admission63 passed229.89s. Compilation/diff
+checks passed.
+Multi-round recovery, generic orphan disposition and actual tool-call fencing
+remain open. This is engineering evidence, not Field/BANK_FINAL.

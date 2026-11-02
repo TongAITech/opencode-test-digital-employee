@@ -76,7 +76,7 @@ class ExecutionMemberDrainService:
         self.truth.append_atomic(_EVENT, payload)
         return signed_member_drain(self.preparation, self._one(_KIND, preparation_id=row['preparation_id']))
 
-    def _snapshot(self, p, *, allow_finalized=False):
+    def _snapshot(self, p, *, allow_finalized=False, historical_task=None):
         plan = self._one('rc72_n7_execution_plan', plan_id=p['plan_id'])
         if any(plan[key] != p[key] for key in ('release_id', 'source_commit', 'mission_id', 'release_batch_id')):
             raise ContractError('N7_MEMBER_DRAIN_PLAN_SCOPE_CHANGED')
@@ -93,7 +93,7 @@ class ExecutionMemberDrainService:
             raise ContractError('N7_MEMBER_DRAIN_ORIGINAL_ADMISSION_CHANGED')
         # Historical validation never admits current execution or a PASS. N5/N6
         # may already be invalidated by another member's accepted diagnosis.
-        case = self.review._case_snapshot(plan, items[0], cases, p, current_upstream=False, allow_finalized=allow_finalized)
+        case = self.review._case_snapshot(plan, items[0], cases, p, current_upstream=False, allow_finalized=allow_finalized, historical_task=historical_task)
         if any(not call.get('runtime_signature') for call in self.truth.query(
                 'rc72_n7_cleanup_call', preparation_id=p['preparation_id'])):
             raise ContractError('N7_MEMBER_DRAIN_SIGNED_CLEANUP_REQUIRED')
@@ -129,20 +129,25 @@ class ExecutionMemberDrainService:
                 != {k: v for k, v in row['original_binding'].items() if k not in ignored_binding}):
             raise ContractError('N7_MEMBER_DRAIN_FINALIZED_OWNER_CHANGED')
 
-    def _audit(self, row, *, terminal=False, allow_finalized=False):
+    def _audit(self, row, *, terminal=False, allow_finalized=False, disposition=None):
         signed_member_drain(self.preparation, row)
         p = self._one('rc72_n7_execution_preparation', preparation_id=row['preparation_id'])
         original = row['original_preparation']
         expected = dict(original, status='DRAINED', artifact_version=original['artifact_version'] + 1)
+        if disposition is not None:
+            from .rc72_n8_member_disposition import verify_member_projection
+            verify_member_projection(self.preparation.planning, disposition, row, partial=not terminal)
+            expected = p  # Exact permitted projection was authenticated above.
         if p != (expected if terminal else original) and (terminal or p != expected):
             raise ContractError('N7_MEMBER_DRAIN_PREPARATION_CHANGED')
         task = self._one('rc7_task', task_id=p['workitem_id'])
         binding = self._one('rc72_workitem_attempt_binding', binding_id=p['binding_id'])
-        if task != row['original_task'] or binding != row['original_binding']:
+        if disposition is None and (task != row['original_task'] or binding != row['original_binding']):
             if not allow_finalized:
                 raise ContractError('N7_MEMBER_DRAIN_EXECUTION_EVIDENCE_CHANGED')
             self._accepted_finalization(row, task, binding)
-        if self._snapshot(p, allow_finalized=allow_finalized) != row['case_snapshot']:
+        if self._snapshot(p, allow_finalized=allow_finalized,
+                historical_task=row['original_task'] if disposition is not None else None) != row['case_snapshot']:
             raise ContractError('N7_MEMBER_DRAIN_EXECUTION_EVIDENCE_CHANGED')
         declarations = {item['requirement']: item for item in row['case_snapshot']['evidence_declarations']}
         captures = row['captured_evidence']
@@ -158,7 +163,7 @@ class ExecutionMemberDrainService:
                 raise ContractError('N7_MEMBER_DRAIN_CAPTURE_BYTES_CHANGED')
         session = self._one('rc72_worker_session', session_id=p['session_id'])
         if (session['worker_id'] != p['worker_id'] or session['workitem_id'] != p['workitem_id']
-                or session['state'] not in ({'CLOSED'} if terminal else {'ACTIVE', 'CLOSED'})
+                or session['state'] not in ({'CLOSED'} if terminal or disposition is not None else {'ACTIVE', 'CLOSED'})
                 or (session['state'] == 'CLOSED' and session.get('close_reason') != _REASON)):
             raise ContractError('N7_MEMBER_DRAIN_SESSION_CHANGED')
         return p

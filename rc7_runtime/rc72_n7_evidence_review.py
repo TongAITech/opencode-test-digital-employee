@@ -167,11 +167,12 @@ class ExecutionEvidenceReviewService:
             result.append(self._case_snapshot(plan, item, cases, prepared[0], allow_finalized=allow_finalized))
         return plan, result
 
-    def _case_snapshot(self, plan, item, cases, prepared, *, allow_finalized=False, current_upstream=True):
+    def _case_snapshot(self, plan, item, cases, prepared, *, allow_finalized=False, current_upstream=True, historical_task=None):
         p, c, binding, admission, dispatch, oracle = self.evidence.observation(prepared['preparation_id'])
         if (p['case_id'] != item['case_id'] or p['contract_id'] != item['contract_id']
                 or p['admission_id'] != item['admission_id'] or p['etu_id'] != item['etu_id']
-                or p['mission_id'] != plan['mission_id'] or binding['state'] not in ({'EVIDENCE_READY', 'COMPLETED'} if allow_finalized else {'EVIDENCE_READY'})
+                or p['mission_id'] != plan['mission_id'] or binding['state'] not in ({'EVIDENCE_READY', 'SUPERSEDED'} if historical_task is not None else
+                    {'EVIDENCE_READY', 'COMPLETED'} if allow_finalized else {'EVIDENCE_READY'})
                 or cases[p['case_id']]['source_case_sha256'] not in c['authoritative_sources']):
             raise EvidenceReviewError('N7_REVIEW_CASE_BINDING_INVALID')
         for parent in admission['upstream_refs'] if current_upstream else []:
@@ -181,7 +182,7 @@ class ExecutionEvidenceReviewService:
                 raise EvidenceReviewError('N7_REVIEW_UPSTREAM_CHANGED')
         if dispatch['state'] != 'RETURNED' or not oracle or not oracle['passed']:
             raise EvidenceReviewError('N7_REVIEW_BUSINESS_RESULT_NOT_PASSING')
-        task = self._one('rc7_task', task_id=p['workitem_id'])
+        task = self._one('rc7_task', task_id=p['workitem_id']) if historical_task is None else historical_task
         allowed_tasks = {'RUNNING', 'OUTPUT_PRODUCED', 'EVALUATING', 'PASS'} if allow_finalized else {'RUNNING'}
         if (task['state'] not in allowed_tasks or task.get('lease_owner') != p['worker_id']
                 or task.get('mission_id') != plan['mission_id']

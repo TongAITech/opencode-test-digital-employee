@@ -15,6 +15,52 @@ Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md. Finish
 construction before preparing a delivery package. Candidate 9476b57 remains
 quarantined. This checkpoint supersedes earlier component-only descriptions.
 
+## Affected completed-member disposition and fresh child execution — 2026-11-03
+
+A current signed retry reconciliation now chooses either historical reuse or
+REEXECUTE_AFTER_VERIFIED_DRAIN for each drained member. Changed data proof,
+contract or dependency impact requires fresh execution; unchanged N1..N4 and the
+canonical complete Case/ETU/WorkItem denominator are still mandatory. No old
+business lease is renewed or restored by this choice.
+
+After signed READY, the native disposition consumer preflights the entire member
+set under the shared OS ledger gate. Exact old binding EVIDENCE_READY ->
+SUPERSEDED, Task RUNNING -> STALE -> READY (clearing the old owner), and old
+preparation DRAINED -> INTERRUPTED projections are resumable. The original signed
+checkpoint remains immutable historical evidence. Plan publication follows all
+required projections; no tool, worker execution or compensation is launched by
+this consumer. The actual new preparation receives its own worker/session/lease
+and resource acquisitions with the original Attempt as parent.
+
+Current plan validation authenticates both completed projections and any actual
+fresh child: exact original scope, current contract/admission, next generation,
+signed worker/lease, parent binding, actual Task owner and unchanged permissions.
+A metadata-only RUNNING/PASS or unrelated child cannot take ownership. Old worker
+sessions must remain closed with the verified checkpoint reason before any
+projection. Historical drain audit has an explicit signed-disposition path; it
+can verify original business/Oracle/Attempt/formal/cleanup/captured proof after
+the Task belongs to its child, without rewriting the original Attempt or issuing
+permission. Canonical signed JSON comparisons preserve tuple/list equivalence
+across journal replay while retaining every signed field and artifact version.
+
+Actual local proof repairs both the completed member's and failed member's exact
+DataRefs using native physical repair and independent re-probe, recompiles N6,
+creates real fresh child Attempts, executes every current Case and cleanup,
+and reaches independent full N7_PASS. Both original execution histories remain
+unchanged, and business actions equal the original completed action plus all
+mandatory current Cases. Cold finalization and historical disposition replay
+perform no business actions and restore no old authority.
+
+Validation: actual full chain1 passed15.19s; six crash points and projection
+mutation guards9 passed63.39s; child/heartbeat/expired-custody chain21 passed68.08s.
+Final session-fence/member source20 passed149.40s; integrated member/retry/
+drain/renewal/finalization/admission63 passed229.89s. Compilation/diff checks
+passed.
+Multi-round failed retry/reuse, generic orphan adjudication, call-time fencing
+and product-wide scheduling remain C06/C07/C08 work. No final package or Field/
+BANK_FINAL claim exists. Parent a0ea01c Windows clean unpack passed; its remaining
+Construction/platform qualifications are still in progress.
+
 ## Unaffected member reuse in the current repaired plan — 2026-11-03
 
 The native retry reconciler now freezes each drained peer and the actual repair

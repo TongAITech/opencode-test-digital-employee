@@ -110,7 +110,8 @@ class ExecutionPreparationService:
         if plan.get('recovery_id'):
             from .rc72_n8_retry_truth import assert_reconciled_plan
             reconciliation = assert_reconciled_plan(self.planning, plan)
-            if any(decision['workitem_id'] == workitem_id for decision in reconciliation.get('member_decisions', [])):
+            if any(decision['workitem_id'] == workitem_id and decision['disposition'] == 'REUSE_FOR_CURRENT_REVIEW'
+                   for decision in reconciliation.get('member_decisions', [])):
                 raise ExecutionPreparationError('N7_MEMBER_ALREADY_EXECUTED_REVIEW_REQUIRED')
         current = self.truth.query(_ARTIFACT, workitem_id=workitem_id, status='PREPARED')
         if current:

@@ -79,6 +79,8 @@ def assert_reconciled_plan(planning, plan):
     from .rc72_n8_member_reuse import member_reuse_decisions
     if row.get('member_decisions', []) != member_reuse_decisions(planning, row, plan):
         raise ContractError('N8_REUSE_DECISION_CHANGED')
+    from .rc72_n8_member_disposition import assert_member_projections
+    assert_member_projections(planning, row)
     return row
 
 
