@@ -250,3 +250,20 @@ old-gate check is proven; a positive actual N5 repair -> recompiled N6 -> fresh
 Attempt integration remains OPEN and is not claimed complete. Additional failure
 classifications, initial-assignment/orphan recovery, DSH semantic specialists,
 N9/N10, product continuation and Field requirements remain OPEN.
+
+
+## N5 native re-verification revision composition — 2026-11-02
+
+The previously located immutable same-DataRef binding/delivery obstacle is now
+addressed by an explicit native re-verification mode. A binding-revision request
+creates a distinct verifier Attempt/session; anchoring/finalization selects the
+exact Attempt and retains native raw/source/worker checks. Journal sequence proves
+the observation postdates both binding and previous accepted N5 Gate. Successful
+proof appends verification history; failed proof suspends old usability; a new
+independent proof is required to reactivate. Delivery identity includes revised
+verification evidence, and stale Gate replay is rejected.
+
+Proof uses external verifier/tool fixtures and a supplied authorized repair-node
+boundary. It does not close actual N8 cleanup/old-N6 invalidation/repair assignment
+(including reuse-only data without a discovery candidate), N6 recompilation/fresh
+N7 execution, N9/N10, product ingress or Field. No whole-product closure is inferred.

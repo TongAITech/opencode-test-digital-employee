@@ -74,15 +74,47 @@ and generic success flags. A newer active accepted N5 delivery must still satisf
 the native full-inventory data criteria before recording repair impact. This is a
 repair admission boundary, not proof of an executed N5 repair or a new successful
 Attempt. Positive actual N5 repair -> recompiled N6 -> new signed Attempt remains
-OPEN. Next concrete dependency: bind_verified fixes identity to requirement +
-DataRef and rejects changed verification evidence; N5 delivery signature currently
-uses requirement/plan/binding/DataRef identities without a re-verification digest.
-A governed same-DataRef re-verification/version path must be implemented and
-tested before claiming a repaired-data replay. Original Attempts and owned resource leases are not silently rewritten or
+OPEN. The same-DataRef re-verification/version dependency is now implemented
+through the explicit native handoff/anchor/finalization path below. Actual repair
+boundary entry, resource cleanup and fresh business execution still need wiring. Original Attempts and owned resource leases are not silently rewritten or
 released by diagnosis. The classifier/reviewer are deterministic processes, not
 DSH semantic specialists. Other conclusive failure classes remain OPEN.
 
+## N5 same-DataRef re-verification and renewed Gate
+
+An explicit native verifier request names the binding revision, yielding a fresh
+Attempt/session. Ordinary initial verification keeps rejecting existing bindings.
+Exact Attempt selection is supported in anchoring/finalization; ambiguous attempts
+fail closed. Raw bytes, source/Case/producer/verifier lineage and existing native
+candidate checks are retained, with external DSH/tool output fixtures in tests.
+
+Successful re-verification appends a binding revision/history without replacing
+its DataRef or original evidence. Journal sequence requires the verifier to start after the
+current binding and last accepted N5 Gate; finishing afterward is insufficient.
+Cached/old proof cannot certify repair.
+Semantic source/strategy/cleanup changes require their governed repair path.
+Failed re-verification blocks old binding usability. A further fresh independent
+verification is required to reactivate it. Both success and failed replay are
+idempotent and successful reactivation survives cold truth replay.
+
+The complete N5 delivery identity now includes verification revision/evidence.
+Old Gate replay rejects stale evidence; a new whole-inventory delivery/Gate is
+required before N6 readiness. Tests explicitly provide an authorized repair
+boundary and locked N6; actual N8 cleanup/invalidation/repair assignment is not
+silently supplied by test state. Reuse-only data lacking an original discovery
+candidate still needs its own governed repair assignment consumer.
+
 ## Evidence and limits
+
+Latest N5 revision validation: full RC7.2 + inherited regression 1371 passed,
+1 skipped, 32 existing collection warnings in 484.99s; N5-N8 chain 208 passed.
+The final worker-start ordering tightening was applied during that full run;
+latest-source affected N5 suite then passed 71 tests. Final freshness suite:
+8 passed (two tests were added after full-run collection). Compilation/whitespace
+passed. Logs are local work/evidence/n5-reverification-full-final.log,
+n5-n8-reverification-final.log, n5-reverification-latest-source.log and
+n5-final-freshness-proof.log. New-HEAD remote qualification remains to be observed.
+
 
 Latest N8 source validation: full RC7.2/inherited regression 1363 passed,
 1 skipped, 32 existing collection warnings in 467.79s; related combined chain
@@ -133,6 +165,7 @@ N8 multi-event dispatch recovery, and OS-level isolation remain OPEN/AUDIT.
 Per-call exclusion is not global event-store locking. Unresolved legacy cleanup
 requires governed N4/N6 repair. No delivery or whole-product completion is claimed.
 
-Next: execute accepted N5 repair and N6 recompilation into a new signed Attempt,
+Next: wire actual N8 repair-boundary entry and owned cleanup, then N6 recompilation
+into a new signed Attempt,
 then connect N9/N10 consumers to this proven success
 chain, then product ingress. Packaging does not substitute for construction.

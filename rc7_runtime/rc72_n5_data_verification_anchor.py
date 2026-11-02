@@ -203,7 +203,7 @@ class N5DataVerificationEvidenceAnchorService:
             for index, _item in enumerate(values)
         ]
 
-    def _lineage(self, release_batch_id: str, data_requirement_id: str):
+    def _lineage(self, release_batch_id: str, data_requirement_id: str, verification_attempt_id=None):
         rows = [
             row for row in self.truth.query("rc72_n5_data_verification_attempt", release_batch_id=release_batch_id)
             if row.get("source_commit") == self.source_commit
@@ -211,6 +211,7 @@ class N5DataVerificationEvidenceAnchorService:
             and row.get("state") == _ATTEMPT_STATE
             and row.get("process_outcome") == "SUCCEEDED"
             and row.get("candidate_schema") == _SCHEMA
+            and (verification_attempt_id is None or row['verification_attempt_id'] == verification_attempt_id)
         ]
         if len(rows) != 1:
             raise N5DataVerificationEvidenceAnchorError(
@@ -350,11 +351,11 @@ class N5DataVerificationEvidenceAnchorService:
         )
         return content_ref, _sha256(raw)
 
-    def anchor(self, *, release_batch_id: str, data_requirement_id: str) -> Dict[str, Any]:
+    def anchor(self, *, release_batch_id: str, data_requirement_id: str, verification_attempt_id=None) -> Dict[str, Any]:
         release_batch_id = _required(release_batch_id, "release_batch_id")
         data_requirement_id = _required(data_requirement_id, "data_requirement_id")
         attempt, requirement, plan, artifact, producer_semantic = self._lineage(
-            release_batch_id, data_requirement_id
+            release_batch_id, data_requirement_id, verification_attempt_id
         )
         content_ref, raw_hash = self._raw(attempt, requirement, plan, artifact, producer_semantic)
         anchor_id = self._anchor_id(str(attempt["verification_attempt_id"]))

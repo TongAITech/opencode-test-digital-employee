@@ -288,7 +288,7 @@ class N5DataVerificationDshHandoffService:
         ]
 
     def _candidate(
-        self, release_batch_id: str, data_requirement_id: str
+        self, release_batch_id: str, data_requirement_id: str, *, reverification=False
     ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         requirement = self._one(
             "rc72_n5_data_requirement", data_requirement_id=data_requirement_id
@@ -310,12 +310,12 @@ class N5DataVerificationDshHandoffService:
             if row.get("data_requirement_id") == data_requirement_id
             and row.get("source_commit") == self.source_commit
         ]
-        if len(plans) != 1 or plans[0].get("status") != "DISCOVERY_REQUIRED":
+        if len(plans) != 1 or plans[0].get("status") not in ({"DISCOVERY_REQUIRED", "REUSE_VERIFIED"} if reverification else {"DISCOVERY_REQUIRED"}):
             raise N5DataVerificationHandoffError(
                 "RC72_N5_DATA_VERIFY_DISCOVERY_PLAN_REQUIRED"
             )
         plan = plans[0]
-        if plan.get("binding_id") not in (None, "") or plan.get("data_ref") not in (None, ""):
+        if not reverification and (plan.get("binding_id") not in (None, "") or plan.get("data_ref") not in (None, "")):
             raise N5DataVerificationHandoffError(
                 "RC72_N5_DATA_VERIFY_PREMATURE_BINDING_FOUND"
             )
@@ -421,7 +421,7 @@ class N5DataVerificationDshHandoffService:
             raise N5DataVerificationHandoffError(
                 "RC72_N5_DATA_VERIFY_NODE_BOUNDARY_INVALID"
             )
-        if self.truth.query("rc72_n5_data_binding", data_requirement_id=data_requirement_id):
+        if not reverification and self.truth.query("rc72_n5_data_binding", data_requirement_id=data_requirement_id):
             raise N5DataVerificationHandoffError(
                 "RC72_N5_DATA_VERIFY_BINDING_ALREADY_EXISTS"
             )
@@ -772,13 +772,20 @@ class N5DataVerificationDshHandoffService:
             )
         return rows[0]
 
-    def verify(
-        self, *, release_batch_id: str, data_requirement_id: str
-    ) -> Dict[str, Any]:
+    def verify(self, *, release_batch_id: str, data_requirement_id: str) -> Dict[str, Any]:
+        return self._verify(release_batch_id=release_batch_id, data_requirement_id=data_requirement_id)
+
+    def reverify(self, *, release_batch_id: str, data_requirement_id: str, binding_revision: int) -> Dict[str, Any]:
+        if isinstance(binding_revision, bool) or not isinstance(binding_revision, int) or binding_revision < 1:
+            raise N5DataVerificationHandoffError('RC72_N5_REVERIFY_REVISION_REQUIRED')
+        return self._verify(release_batch_id=release_batch_id, data_requirement_id=data_requirement_id,
+                            binding_revision=binding_revision)
+
+    def _verify(self, *, release_batch_id: str, data_requirement_id: str, binding_revision=None) -> Dict[str, Any]:
         release_batch_id = _required(release_batch_id, "release_batch_id")
         data_requirement_id = _required(data_requirement_id, "data_requirement_id")
         requirement, plan, task, artifact, extra = self._candidate(
-            release_batch_id, data_requirement_id
+            release_batch_id, data_requirement_id, reverification=binding_revision is not None
         )
         durable = extra["durable"]
         semantic = extra["semantic"]
@@ -786,6 +793,11 @@ class N5DataVerificationDshHandoffService:
         verification_attempt_id = self._verification_attempt_id(
             str(artifact["artifact_id"]), str(artifact["content_hash"])
         )
+        if binding_revision is not None:
+            binding = self._one('rc72_n5_data_binding', data_requirement_id=data_requirement_id)
+            verification_attempt_id += '-REV-%d' % binding_revision
+            if not self._prior_attempts(verification_attempt_id) and binding['artifact_version'] != binding_revision:
+                raise N5DataVerificationHandoffError('RC72_N5_REVERIFY_BINDING_REVISION_CHANGED')
         existing = self._prior_attempts(verification_attempt_id)
         if existing:
             if len(existing) != 1:
@@ -890,15 +902,12 @@ class N5DataVerificationDshHandoffService:
             raise N5DataVerificationHandoffError(
                 "RC72_N5_DATA_VERIFY_VERIFIER_NOT_INDEPENDENT"
             )
-        invocation, candidate = self.launcher.execute(
-            assignment,
-            self._prompt(
-                requirement=requirement,
-                plan=plan,
-                artifact=artifact,
-                producer_semantic=semantic,
-            ),
-        )
+        prompt = self._prompt(requirement=requirement, plan=plan, artifact=artifact, producer_semantic=semantic)
+        if binding_revision is not None:
+            prompt = ("Re-verification of exact existing DataRef %s at binding revision %d. "
+                      "Observe it again with the allowed real-system tools; prior evidence is not a new observation.\n"
+                      % (binding['data_ref'], binding_revision)) + prompt
+        invocation, candidate = self.launcher.execute(assignment, prompt)
         self._validate_v2_candidate(
             candidate,
             requirement=requirement,

@@ -447,13 +447,89 @@ class N5DataVerificationFinalizationService:
         self.truth.append_atomic(_RESULT_EVENT, payload)
         return self._one(_RESULT_ARTIFACT, finalization_id=finalization_id)
 
+    def _require_new_observation(self, anchor, current):
+        for field in ('release_id', 'mission_id', 'release_batch_id', 'source_commit',
+                      'data_requirement_id', 'source_case_sha256'):
+            if current.get(field) != anchor.get(field):
+                raise N5DataVerificationFinalizationError('RC72_N5_REVERIFY_BINDING_SCOPE_CHANGED:' + field)
+        binding_seq, attempt_seq, gate_seq = None, None, 0
+        for event in self.truth.store.iter_raw():
+            payload = event.get('payload', {})
+            if (event.get('entity_type') == 'rc72_node_gate' and payload.get('node_type') == 'N5_TEST_DATA'
+                    and payload.get('mission_id') == self.mission_id and payload.get('decision') == 'PASS'):
+                gate_seq = max(gate_seq, event['seq'])
+            if event.get('entity_type') == 'rc72_n5_data_binding' and event.get('entity_id') == current['binding_id'] and event.get('entity_version') == current['artifact_version']:
+                binding_seq = event['seq']
+            if ((event.get('entity_type') == 'agent_runtime_event' and payload.get('attempt_id') == anchor['verification_attempt_id'])
+                    or (event.get('entity_type') == 'rc72_n5_data_verification_attempt' and event.get('entity_id') == anchor['verification_attempt_id'])):
+                # The worker must start after the cutoff, not merely finish later.
+                attempt_seq = event['seq'] if attempt_seq is None else min(attempt_seq, event['seq'])
+        if binding_seq is None or attempt_seq is None or attempt_seq <= max(binding_seq, gate_seq):
+            raise N5DataVerificationFinalizationError('RC72_N5_REVERIFY_NEW_OBSERVATION_REQUIRED')
+
+    def _revise_binding(self, *, anchor, inputs):
+        current = self._one('rc72_n5_data_binding', data_requirement_id=inputs['data_requirement_id'])
+        if current['data_ref'] != inputs['data_ref']:
+            raise N5DataVerificationFinalizationError('RC72_N5_REVERIFY_DATA_SUBSTITUTION_FORBIDDEN')
+        stable = ('strategy', 'source_or_constructor', 'cleanup_policy')
+        if any(current[key] != inputs[key] for key in stable):
+            raise N5DataVerificationFinalizationError('RC72_N5_REVERIFY_SEMANTIC_REPAIR_REQUIRED')
+        evidence = inputs['verification_evidence_refs']
+        if current['verification_evidence_refs'] == evidence:
+            if current.get('reverification_anchor_id') != anchor['anchor_id']:
+                raise N5DataVerificationFinalizationError('RC72_N5_REVERIFY_FRESH_ANCHOR_REQUIRED')
+            return dict(status='RESUMED', binding_id=current['binding_id'], reservation_mode=current['reservation_mode'])
+        self._require_new_observation(anchor, current)
+        # Reusing any prior accepted evidence must never roll the binding back.
+        history = list(current.get('verification_history', []))
+        old_refs = set(current['verification_evidence_refs'])
+        for revision in history:
+            old_refs.update(revision['verification_evidence_refs'])
+        if old_refs.intersection(evidence):
+            raise N5DataVerificationFinalizationError('RC72_N5_REVERIFY_EVIDENCE_REUSE_FORBIDDEN')
+        previous_anchors = self.truth.query('rc72_n5_data_verification_evidence_anchor',
+                                          data_requirement_id=inputs['data_requirement_id'])
+        for previous in previous_anchors:
+            if previous['anchor_id'] == anchor['anchor_id']:
+                continue
+            if any(str(previous.get('verification_attempt_id')) in
+                   self._one('rc7_evidence', evidence_id=ref).get('subject_refs', [])
+                   for ref in current['verification_evidence_refs']):
+                if previous['verifier_worker_id'] == anchor['verifier_worker_id'] or previous['verifier_dsh_session_id'] == anchor['verifier_dsh_session_id']:
+                    raise N5DataVerificationFinalizationError('RC72_N5_REVERIFY_FRESH_VERIFIER_REQUIRED')
+        history.append(dict(artifact_version=current['artifact_version'],
+                            verification_evidence_refs=current['verification_evidence_refs'],
+                            anchor_id=current.get('reverification_anchor_id')))
+        updated = dict(current, verification=inputs['verification'], verification_evidence_refs=evidence,
+            precondition_refs=inputs['precondition_refs'], validity_window=inputs['validity_window'],
+            reverification_anchor_id=anchor['anchor_id'], verification_history=history,
+            updated_at=max(current['updated_at'], int(anchor['created_at'])),
+            artifact_version=current['artifact_version'] + 1)
+        updated.pop('verification_blocked_by_anchor', None)
+        self.truth.append_atomic('RC72_N5_DATA_BINDING_UPSERTED', updated)
+        return dict(status='BOUND_VERIFIED', binding_id=current['binding_id'], reservation_mode=current['reservation_mode'])
+
     def finalize(self, *, release_batch_id: str, data_requirement_id: str) -> Dict[str, Any]:
+        return self._finalize(release_batch_id=release_batch_id, data_requirement_id=data_requirement_id,
+                              reverify=False)
+
+    def reverify(self, *, release_batch_id: str, data_requirement_id: str, verification_attempt_id=None) -> Dict[str, Any]:
+        """Consume a fresh native verifier anchor for an existing exact DataRef.
+
+        This is a request to revalidate, never a caller-supplied verification flag.
+        The original source/worker/raw-output checks run again before any revision.
+        """
+        return self._finalize(release_batch_id=release_batch_id, data_requirement_id=data_requirement_id,
+                              reverify=True, verification_attempt_id=verification_attempt_id)
+
+    def _finalize(self, *, release_batch_id: str, data_requirement_id: str, reverify: bool, verification_attempt_id=None) -> Dict[str, Any]:
         release_batch_id = _required(release_batch_id, "release_batch_id")
         data_requirement_id = _required(data_requirement_id, "data_requirement_id")
         try:
             anchor = self.anchor_service.anchor(
                 release_batch_id=release_batch_id,
                 data_requirement_id=data_requirement_id,
+                **({'verification_attempt_id': verification_attempt_id} if verification_attempt_id else {}),
             )
         except N5DataVerificationEvidenceAnchorError as exc:
             raise N5DataVerificationFinalizationError(
@@ -500,6 +576,13 @@ class N5DataVerificationFinalizationService:
             "artifact_version": 1,
         }
         if decision == "REPAIR_REQUIRED":
+            if reverify:
+                current = self._one('rc72_n5_data_binding', data_requirement_id=data_requirement_id)
+                if current.get('verification_blocked_by_anchor') != anchor['anchor_id']:
+                    self._require_new_observation(anchor, current)
+                    self.truth.append_atomic('RC72_N5_DATA_BINDING_UPSERTED', dict(current,
+                        verification_blocked_by_anchor=anchor['anchor_id'],
+                        artifact_version=current['artifact_version'] + 1))
             common.update({
                 "candidate_ref": None,
                 "data_ref": None,
@@ -526,8 +609,12 @@ class N5DataVerificationFinalizationService:
 
         candidate_ref = _required(candidate.get("candidate_ref"), "candidate_ref")
         data_ref = self._canonical_data_ref(candidate_ref)
+        if reverify:
+            current = self._one('rc72_n5_data_binding', data_requirement_id=data_requirement_id)
+            if current['data_ref'] != data_ref:
+                raise N5DataVerificationFinalizationError('RC72_N5_REVERIFY_DATA_SUBSTITUTION_FORBIDDEN')
         self._ensure_resource(data_ref=data_ref, candidate=candidate)
-        bound = self.resolution.bind_verified(
+        binding_inputs = dict(
             data_requirement_id=data_requirement_id,
             data_ref=data_ref,
             strategy=_required(candidate.get("strategy"), "strategy"),
@@ -538,6 +625,10 @@ class N5DataVerificationFinalizationService:
             validity_window=_required(candidate.get("validity_window"), "validity_window"),
             cleanup_policy=_required(candidate.get("cleanup_policy"), "cleanup_policy"),
         )
+        if reverify:
+            bound = self._revise_binding(anchor=anchor, inputs=binding_inputs)
+        else:
+            bound = self.resolution.bind_verified(**binding_inputs)
         common.update({
             "candidate_ref": candidate_ref,
             "data_ref": data_ref,

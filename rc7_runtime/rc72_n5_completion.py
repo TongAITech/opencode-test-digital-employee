@@ -309,6 +309,7 @@ class N5DeliveryGateService:
             and binding.get("source_commit") == self.source_commit
             and binding.get("source_case_sha256") == requirement.get("source_case_sha256")
             and binding.get("status") == "VERIFIED"
+            and not binding.get('verification_blocked_by_anchor')
         )
         resources = self.truth.query("rc72_data_resource", data_ref=data_ref)
         if len(resources) != 1:
@@ -352,6 +353,8 @@ class N5DeliveryGateService:
             "data_requirement_id": data_requirement_id,
             "plan_id": str(plan["plan_id"]),
             "binding_id": binding_id,
+            "binding_revision": int(binding.get("artifact_version", 1)),
+            "verification_evidence_refs": list(binding.get("verification_evidence_refs") or []),
             "data_ref": data_ref,
             "source_commit_ok": source_ok,
             "plan_reuse_verified": True,
@@ -418,7 +421,8 @@ class N5DeliveryGateService:
                 row["plan_id"],
                 row["binding_id"],
                 row["data_ref"],
-            )
+            ) + (":verification-revision=%s:%s" % (row['binding_revision'],
+                     ",".join(row['verification_evidence_refs'])) if row.get('binding_revision', 1) > 1 else "")
             for row in records
         )
 
@@ -588,6 +592,9 @@ class N5DeliveryGateService:
         delivery = deliveries[0]
         if list(delivery.get("artifact_refs") or []) != [row["binding_id"] for row in records]:
             raise N5CompletionError("RC72_N5_COMPLETION_DELIVERY_CURRENT_TRUTH_MISMATCH")
+        expected_evidence = _uniq(evidence_id for row in records for evidence_id in row['evidence_ids'])
+        if list(delivery.get('evidence_refs') or []) != expected_evidence:
+            raise N5CompletionError('RC72_N5_COMPLETION_DELIVERY_VERIFICATION_REVISION_STALE')
         criterion = self._criterion_results(
             records=records,
             snapshot=snapshot,

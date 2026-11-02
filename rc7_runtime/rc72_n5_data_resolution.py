@@ -132,6 +132,24 @@ def validate_rc72_n5_data_binding(payload: Dict[str, Any]) -> Dict[str, Any]:
             raise _contracts.DomainValidationError(
                 "RC72_N5_DATA_BINDING_PREMATURE_CLAIM_FORBIDDEN:%s" % forbidden
             )
+    for field in ('reverification_anchor_id', 'verification_blocked_by_anchor'):
+        if field in out:
+            out[field] = _contracts._require_str(out, field)
+    if 'verification_history' in out:
+        history = out['verification_history']
+        if not isinstance(history, list) or not history:
+            raise _contracts.DomainValidationError('RC72_N5_REVERIFY_HISTORY_INVALID')
+        history_version = out.get('artifact_version', 1)
+        if isinstance(history_version, bool) or not isinstance(history_version, int):
+            raise _contracts.DomainValidationError('RC72_N5_REVERIFY_HISTORY_VERSION_INVALID')
+        versions = []
+        for revision in history:
+            if not isinstance(revision, dict) or isinstance(revision.get('artifact_version'), bool) or not isinstance(revision.get('artifact_version'), int):
+                raise _contracts.DomainValidationError('RC72_N5_REVERIFY_HISTORY_INVALID')
+            _validate_string_list(revision, 'verification_evidence_refs')
+            versions.append(revision['artifact_version'])
+        if versions != sorted(set(versions)) or any(v < 1 or v >= history_version for v in versions):
+            raise _contracts.DomainValidationError('RC72_N5_REVERIFY_HISTORY_VERSION_INVALID')
     version = out.get("artifact_version", 1)
     if isinstance(version, bool) or not isinstance(version, int) or version < 1:
         raise _contracts.DomainValidationError(
@@ -416,6 +434,8 @@ class N5DataResolutionService:
             raise N5DataResolutionError("RC72_N5_RESOLUTION_BINDING_SOURCE_MISMATCH")
         if binding.get("source_case_sha256") != requirement.get("source_case_sha256"):
             raise N5DataResolutionError("RC72_N5_RESOLUTION_BINDING_CASE_STALE")
+        if binding.get('verification_blocked_by_anchor'):
+            raise N5DataResolutionError('RC72_N5_RESOLUTION_REVERIFICATION_REPAIR_REQUIRED')
         if binding.get("status") != _BINDING_STATUS:
             raise N5DataResolutionError("RC72_N5_RESOLUTION_BINDING_NOT_VERIFIED")
         resource = self._one("rc72_data_resource", data_ref=str(binding["data_ref"]))

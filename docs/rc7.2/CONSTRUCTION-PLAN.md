@@ -1,3 +1,47 @@
+# N5 same-DataRef independent re-verification and renewed delivery — 2026-11-02
+
+status: NATIVE_COMPONENT_COMPOSITION_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY
+implemented:
+- Explicit native verifier reverify request names an existing binding revision;
+  obtains a distinct verifier Attempt/session and retains original task-scoped
+  tools, producer independence and raw DSH evidence validation. Ordinary verify
+  still rejects pre-existing bindings. A supplied revision is a request, not PASS.
+- Anchor/finalization can select an exact verification Attempt; ambiguity is not
+  resolved by guessing the latest record. Reverification rechecks the same native
+  raw hash, source/Case/worker lineage and VERIFIED_CANDIDATE contract.
+- A successful exact-DataRef verification appends a binding revision, preserving
+  old verification refs/history. Source/constructor/strategy/cleanup changes need
+  semantic repair. No DataRef substitution or old evidence rollback is accepted.
+- Journal ordering requires a new verifier observation after the current binding
+  AND previous accepted N5 Gate, rather than trusting wall-clock seconds.
+- REPAIR_REQUIRED suspends old binding usability; old proofs cannot keep it green.
+  Another fresh verified observation can reactivate it; replay preserves history.
+- N5 delivery identity includes verification revisions; old Gate replay rechecks
+  exact current evidence and rejects a stale verification revision. Renewed full
+  denominator delivery gets its own Gate before releasing N6 readiness.
+validation: full RC7.2 + inherited regression 1371 passed / 1 skipped /
+32 existing collection warnings in 484.99s. Related N5-N8 chain 208 passed.
+The final cutoff tightening (verifier START rather than completion after Gate)
+was applied during the full run; the entire affected N5 suite then passed 71
+tests on latest source. Final freshness proof suite 8 passed, including a worker
+started before Gate but completed afterward. Two extra tests were added after
+full-run collection. Compilation and whitespace checks passed. Local logs:
+work/evidence/n5-reverification-full-final.log, n5-n8-reverification-final.log,
+n5-reverification-latest-source.log and n5-final-freshness-proof.log (not tracked).
+engineering_scope: actual native handoff/anchor/finalization/resolution/gate code;
+external DSH/tool outputs are fixtures. The new-delivery test explicitly supplies
+an already authorized repair boundary (N5 RUNNING/N6 locked); it does not prove
+actual N8 cleanup/suspension or a fresh business execution.
+remaining: production N8 -> owned cleanup -> lock/invalidate old N6 -> N5 repair
+assignment (including reuse-only data with no original discovery candidate),
+recompile N6 and create a new signed N7 Attempt with original failure lineage;
+N9/N10/product continuation/global exclusion/Field. No delivery is authorized.
+Previous HEAD 0cfeb66 construction run 41407875674 and platform run 41407875585
+both PASS; these are historical engineering evidence, not qualification of new code.
+DELIVERY_AUTHORIZED=false; FIELD_VERIFIED=false; BANK_FINAL=NO.
+
+---
+
 # Windows qualification fixture byte correction — 2026-11-02
 
 Previous N7 HEAD 7c220db: construction and Windows clean-unpack PASS; Q1 platform
