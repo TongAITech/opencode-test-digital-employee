@@ -147,6 +147,7 @@ class SingleNodeDurableIntegrationProofRunner:
         run_id = str(test_run_id or "").strip()
         if not run_id:
             raise RuntimeError("FULL_LOOP_TEST_RUN_ID_REQUIRED")
+        bootstrap_proof = None
         if self.production_components_verified:
             self._assert_clean_production_preflight(run_id)
             # A legitimately constructed production runner always has this bridge.
@@ -158,6 +159,11 @@ class SingleNodeDurableIntegrationProofRunner:
                 if bootstrap_proof.test_run_id != run_id or bootstrap_proof.stage != "SCOPE_INTAKE":
                     raise RuntimeError("FULL_LOOP_PRODUCTION_BOOTSTRAP_IDENTITY_MISMATCH")
         observed = self.observer.run(test_run_id=run_id)
+        if bootstrap_proof is not None:
+            if not observed.work_item_ids or observed.work_item_ids[0] != bootstrap_proof.work_item_id:
+                raise RuntimeError("FULL_LOOP_PRODUCTION_BOOTSTRAP_WORK_ITEM_NOT_FIRST_CLAIM")
+            if not observed.stage_instance_ids or observed.stage_instance_ids[0] != bootstrap_proof.stage_instance_id:
+                raise RuntimeError("FULL_LOOP_PRODUCTION_BOOTSTRAP_STAGE_INSTANCE_NOT_FIRST_CLAIM")
         if self.production_components_verified:
             self.truth_reader.assert_attempt_ids_match_observed_leases(
                 test_run_id=run_id,
