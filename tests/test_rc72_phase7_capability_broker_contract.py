@@ -396,8 +396,8 @@ def test_unknown_issuance_never_reissues_even_after_lock_file_loss(tmp_path, mon
     with pytest.raises(RuntimeError, match='lost authority'):
         _request(broker, identity, parent, capability)
     assert truth.query('rc72_capability_resolution')[0]['state'] == 'ISSUING'
-    for lock in truth.store.path.with_suffix('.capability-locks').iterdir():
-        lock.unlink()
+    from rc7_runtime.rc72_ledger_lock import ledger_lock_path
+    ledger_lock_path(truth).unlink()
     monkeypatch.setattr(authority, 'issue_lease', issue)
     with pytest.raises(Exception, match='ISSUANCE_EFFECT_UNKNOWN'):
         _request(broker, identity, parent, capability)
@@ -538,3 +538,14 @@ def test_capability_use_refreshes_a_binding_superseded_by_another_runtime(tmp_pa
     with pytest.raises(Exception, match='ATTEMPT_NOT_ACTIVE'):
         broker.assert_capability_lease_usable(capability_lease_id=result.capability_lease_id,
             mission_id='M-1', workitem_id='WI-1', attempt_id='ATT-1', worker_id=identity.worker_id)
+
+
+def test_broker_uses_the_same_ledger_gate_as_data_and_browser_reservations(tmp_path):
+    from rc7_runtime.rc72_ledger_lock import ledger_lock
+    truth, authority, identity, parent, broker = _setup(tmp_path, native=True)
+    capability = 'mcp__pfc_aitest_rc7__attempt_cat_query'
+    with ledger_lock(truth):
+        with pytest.raises(Exception, match='REQUEST_IN_PROGRESS'):
+            _request(broker, identity, parent, capability)
+    assert len(authority._leases) == 1 and truth.query('rc72_capability_resolution') == []
+    assert _request(broker, identity, parent, capability).capability_lease_id

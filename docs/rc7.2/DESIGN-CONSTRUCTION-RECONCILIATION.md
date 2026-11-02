@@ -374,3 +374,26 @@ unknown issuance, replay/projection recovery, fresh-process schema bootstrap,
 revocation, parent revocation and externally superseded bindings. Global
 non-broker resource/journal locks and actual call-time DSH scope enforcement
 remain incomplete and cannot be inferred from these Broker tests.
+
+
+## Cross-process active resource reservation — 2026-11-03
+
+C06 now serializes DataLeaseManager, BrowserPool and native capability decision
+writers through one OS-held ledger gate. R1 projection and the event-store
+sequence cursor are refreshed before decisions. Release/worker/binding checks
+are fresh; distinct processes or independent missions cannot acquire a second
+active mutable DataRef/WRITE browser owner from a stale snapshot. Shared readers
+retain their intended semantics. A dead process releases the lock without
+requiring deletion of a durable marker; existing resource ownership is never
+silently transferred or replaced.
+
+Actual subprocess evidence covers competing writers, shared readers and unique
+monotonic sequence numbers, dead lock-holder recovery, stale superseded bindings
+and two separate canonical mission/batch/obligation/ETU/Attempt lineages. Native
+preparation/compensation/retry regression75 passed; final process/Broker27 passed.
+The existing TTL auto-expiry/reacquire path is not proof that unknown external
+I/O has drained or cleanup completed. Expired-writer custody, verified
+compensation/re-use, renewal, orphan reconciliation and actual tool-call fencing
+remain mandatory C06/C07 work. Non-participating journal writers are not claimed
+serialized by this manager-level gate. No Field or whole-release qualification
+is inferred from these tests.

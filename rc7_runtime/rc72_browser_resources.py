@@ -19,6 +19,7 @@ from rc6_runtime import truth as _truth
 from rc6_runtime.truth import TruthRuntime
 
 from .models import ContractError
+from .rc72_ledger_lock import resource_guard
 from .truth_overlay import install_rc7_truth_overlay
 
 
@@ -153,6 +154,7 @@ class BrowserPool:
             raise ContractError("BROWSER_TRUTH_NOT_UNIQUE:%s:%d" % (artifact_type, len(rows)))
         return rows[0]
 
+    @resource_guard(busy='RESOURCE_CONFLICT:LEDGER_BUSY', conflict=BrowserResourceConflict)
     def register_instance(
         self,
         *,
@@ -190,7 +192,7 @@ class BrowserPool:
 
     def _binding(self, *, mission_id: str, workitem_id: str, attempt_id: str, worker_id: str) -> Dict[str, Any]:
         rows = self.truth.query("rc72_workitem_attempt_binding", workitem_id=workitem_id)
-        rows = [row for row in rows if row.get("mission_id") == mission_id]
+        rows = [row for row in rows if row.get("mission_id") == mission_id and row.get("release_id") == self.release_id]
         rows = [row for row in rows if row.get("attempt_id") == attempt_id]
         rows = [row for row in rows if row.get("worker_id") == worker_id]
         if len(rows) != 1:
@@ -216,6 +218,7 @@ class BrowserPool:
             if row.get("state") == "ACTIVE" and int(row.get("expires_at") or 0) >= now
         ]
 
+    @resource_guard(busy='RESOURCE_CONFLICT:LEDGER_BUSY', conflict=BrowserResourceConflict)
     def acquire(
         self,
         *,
@@ -239,7 +242,7 @@ class BrowserPool:
         ):
             if not isinstance(value, str) or not value.strip():
                 raise ContractError("%s_REQUIRED" % name.upper())
-        if not isinstance(ttl_seconds, int) or ttl_seconds < 1:
+        if isinstance(ttl_seconds, bool) or not isinstance(ttl_seconds, int) or ttl_seconds < 1:
             raise ContractError("BROWSER_LEASE_TTL_INVALID")
         self._binding(mission_id=mission_id, workitem_id=workitem_id, attempt_id=attempt_id, worker_id=worker_id)
         current = _now() if now is None else int(now)
@@ -289,6 +292,7 @@ class BrowserPool:
     def lease(self, browser_lease_id: str) -> Dict[str, Any]:
         return self._one(_BROWSER_LEASE, browser_lease_id=browser_lease_id)
 
+    @resource_guard(busy='RESOURCE_CONFLICT:LEDGER_BUSY', conflict=BrowserResourceConflict)
     def assert_usable(
         self,
         *,
@@ -331,6 +335,7 @@ class BrowserPool:
         self._binding(mission_id=mission_id, workitem_id=workitem_id, attempt_id=attempt_id, worker_id=worker_id)
         return row
 
+    @resource_guard(busy='RESOURCE_CONFLICT:LEDGER_BUSY', conflict=BrowserResourceConflict)
     def release(self, browser_lease_id: str, *, reason: str) -> None:
         if not isinstance(reason, str) or not reason.strip():
             raise ContractError("BROWSER_RELEASE_REASON_REQUIRED")

@@ -4,16 +4,14 @@ A missing issuance receipt after ISSUING is unknown authority, never permission
 to issue again. Completed replay is historical; only assert_usable may restore a
 signed child after current parent/binding/revocation/TTL checks.
 """
-from contextlib import contextmanager
 from dataclasses import asdict
 import hmac
 import json
-import os
-from pathlib import Path
 
 from rc6_runtime import contracts, truth as registry
 from rc6_runtime.authority import TaskLease
 from .models import ContractError
+from .rc72_ledger_lock import ledger_lock
 
 _KIND = 'rc72_capability_resolution'
 _EVENT = 'RC72_CAPABILITY_RESOLUTION_UPSERTED'
@@ -44,32 +42,6 @@ def install_rc72_capability_resolution_overlay():
     registry.BUCKETS[_KIND] = 'rc72_capability_resolutions'
 
 
-@contextmanager
-def _request_lock(path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open('a+b') as handle:
-        handle.seek(0)
-        if not handle.read(1):
-            handle.write(b'0')
-            handle.flush()
-        handle.seek(0)
-        try:
-            if os.name == 'nt':
-                import msvcrt
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as exc:
-            raise ContractError('CAPABILITY_REQUEST_IN_PROGRESS') from exc
-        try:
-            yield
-        finally:
-            if os.name == 'nt':
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 class CapabilityResolutionService:
@@ -134,9 +106,7 @@ class CapabilityResolutionService:
             if not isinstance(value, str) or not value.strip():
                 raise ContractError(key.upper() + '_REQUIRED')
         values['requested_capability'] = self.broker._exact_capability(values['requested_capability'])
-        identity_key = 'requests.lock'
-        lock = Path(self.truth.store.path).with_suffix('.capability-locks') / identity_key
-        with _request_lock(lock):
+        with ledger_lock(self.truth, busy='CAPABILITY_REQUEST_IN_PROGRESS'):
             # Another runtime/process may have appended since this projection loaded.
             self.truth.rebuild_projection()
             rows = self.truth.query(_KIND, request_id=values['request_id'])
@@ -197,8 +167,7 @@ class CapabilityResolutionService:
         if not isinstance(reason, str) or not reason.strip():
             raise ContractError('CAPABILITY_REVOKE_REASON_REQUIRED')
         cap = self.broker._one('rc72_capability_lease', capability_lease_id=capability_lease_id)
-        lock = Path(self.truth.store.path).with_suffix('.capability-locks') / 'requests.lock'
-        with _request_lock(lock):
+        with ledger_lock(self.truth, busy='CAPABILITY_REQUEST_IN_PROGRESS'):
             self.truth.rebuild_projection()
             row = self._signed(self.broker._one(_KIND, request_id=cap['request_id']))
             if row.get('capability_lease_id') != capability_lease_id or not row.get('child'):

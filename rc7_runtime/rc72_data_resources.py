@@ -18,6 +18,7 @@ from rc6_runtime import truth as _truth
 from rc6_runtime.truth import TruthRuntime
 
 from .models import ContractError
+from .rc72_ledger_lock import resource_guard
 from .truth_overlay import install_rc7_truth_overlay
 
 
@@ -153,6 +154,7 @@ class DataLeaseManager:
             raise ContractError("DATA_TRUTH_NOT_UNIQUE:%s:%d" % (artifact_type, len(rows)))
         return rows[0]
 
+    @resource_guard(busy='DATA_RESOURCE_CONFLICT:LEDGER_BUSY', conflict=DataResourceConflict)
     def register_data_ref(
         self,
         *,
@@ -178,7 +180,7 @@ class DataLeaseManager:
 
     def _binding(self, *, mission_id: str, workitem_id: str, attempt_id: str, worker_id: str) -> Dict[str, Any]:
         rows = self.truth.query("rc72_workitem_attempt_binding", workitem_id=workitem_id)
-        rows = [row for row in rows if row.get("mission_id") == mission_id]
+        rows = [row for row in rows if row.get("mission_id") == mission_id and row.get("release_id") == self.release_id]
         rows = [row for row in rows if row.get("attempt_id") == attempt_id]
         rows = [row for row in rows if row.get("worker_id") == worker_id]
         if len(rows) != 1:
@@ -204,6 +206,7 @@ class DataLeaseManager:
             if row.get("state") == "ACTIVE" and int(row.get("expires_at") or 0) >= now
         ]
 
+    @resource_guard(busy='DATA_RESOURCE_CONFLICT:LEDGER_BUSY', conflict=DataResourceConflict)
     def acquire(
         self,
         *,
@@ -226,7 +229,7 @@ class DataLeaseManager:
         ):
             if not isinstance(value, str) or not value.strip():
                 raise ContractError("%s_REQUIRED" % name.upper())
-        if not isinstance(ttl_seconds, int) or ttl_seconds < 1:
+        if isinstance(ttl_seconds, bool) or not isinstance(ttl_seconds, int) or ttl_seconds < 1:
             raise ContractError("DATA_LEASE_TTL_INVALID")
         self._binding(mission_id=mission_id, workitem_id=workitem_id, attempt_id=attempt_id, worker_id=worker_id)
         resource = self._one(_DATA_RESOURCE, data_ref=data_ref)
@@ -270,6 +273,7 @@ class DataLeaseManager:
     def lease(self, data_lease_id: str) -> Dict[str, Any]:
         return self._one(_DATA_LEASE, data_lease_id=data_lease_id)
 
+    @resource_guard(busy='DATA_RESOURCE_CONFLICT:LEDGER_BUSY', conflict=DataResourceConflict)
     def assert_usable(
         self,
         *,
@@ -309,6 +313,7 @@ class DataLeaseManager:
             raise ContractError("DATA_REF_NOT_VERIFIED")
         return row
 
+    @resource_guard(busy='DATA_RESOURCE_CONFLICT:LEDGER_BUSY', conflict=DataResourceConflict)
     def release(
         self,
         data_lease_id: str,

@@ -15,6 +15,39 @@ Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md. Finish
 construction before preparing a delivery package. Candidate 9476b57 remains
 quarantined. This checkpoint supersedes earlier component-only descriptions.
 
+## Cross-process resource reservation — 2026-11-03
+
+DataLeaseManager and BrowserPool now hold the same OS ledger gate as capability
+request/revocation decisions while registering, reserving, releasing or checking
+resources. They refresh R1 before making a decision. Independent runtimes cannot
+both reserve an actively owned mutable DataRef or WRITE browser from stale
+projections. Canonical worker bindings must also match the release. Boolean TTLs
+are rejected. The existing shared-read/write rules are preserved.
+
+JsonlEventStore's in-process next-sequence cursor is refreshed under the same
+gate, avoiding duplicate sequence numbers between these participating writers.
+The lock path uses the resolved ledger path. OS process death releases the held
+handle; a leftover lock file neither grants ownership nor prevents progress.
+No resource is silently substituted when a reservation conflicts.
+
+Actual subprocess tests cover stale simultaneous writers, concurrent shared
+readers with monotonic unique journal sequences, dead lock-holder recovery and
+fresh observation of an externally superseded binding. Cross-mission tests use
+a separate canonical batch/obligation/ETU/WorkItem/Attempt and the same physical
+resource. Native preparation, compensation and unchanged-Case retry regression
+passed 75 checks in 62.85s (3 existing collection warnings). Final process/Broker
+chain including both cross-mission cases and the shared Broker gate passed
+27 in 3.55s (1 existing collection warning). Compile/diff checks passed;
+same-source Windows/Linux qualification remains pending.
+
+This closes atomic active reservation among participating RC7.2 managers, not
+all C06 obligations. Non-participating legacy journal writers, expiry while
+external I/O may still be running, proven compensation before re-use, renewal,
+unknown-effect orphan reconciliation and actual tool-call fencing remain open.
+Physical capability repair still needs approved exact installation scope,
+resource drain, independent re-probe and replacement execution; it is not
+claimed complete by this reservation work.
+
 ## Native capability recovery intake and durable decisions — 2026-11-03
 
 N8's accepted exact physical-tool absence can now submit an exact native
