@@ -178,3 +178,26 @@ product ingress and Field remain OPEN. Cleanup machine predicates do not replace
 independent N5 certification. Partial multi-event diagnosis dispatch recovery,
 orphan claims, global cross-process lease exclusion and child environment
 isolation remain under audit.
+
+## N7 whole-denominator evidence and independent review admission — 2026-11-02
+
+ExecutionEvidenceReviewService composes canonical N1-N6 source checks, signed N7
+observations, inherited Attempt/Assertion and actual cleanup/release proof. The
+entire planned Case denominator must be present. Each frozen evidence requirement
+must have actual file bytes with the exact Attempt/tool and expected checksum.
+Copies live separately from adapter outputs in an atomic content-addressed store;
+review rechecks bytes and canonical evidence. Missing/changed/out-of-scope or
+oversize data blocks the whole bundle without reducing evidence scope.
+
+The full bundle is a single R1 entity with case_results (avoiding legacy batch
+replay), then a whole-plan N7 NodeDelivery and a fresh independent reviewer
+assignment. Source/gate changes invalidate admission. Completed replay, delivery
+append interruption, reviewer-session interruption, corrupt bytes, forged scope
+and actual separate-process schema replay are covered by focused tests.
+
+Status remains COMPONENT / NO_DELIVERY. Node is REVIEW_PENDING, Attempts BLOCKED,
+WorkItems RUNNING. The service does not execute a reviewer, accept a reviewer
+verdict, create NodeGate PASS or finalize execution. Full target identity and
+approved runner receipt remain explicit known gaps. These facts must be bound
+before the independent review/finalization slice can grant any success. Actual
+N8 recovery, N9/N10, product ingress and real Field remain OPEN.

@@ -35,11 +35,25 @@ Execution failure or cleanup failure can create a fresh independent N8 diagnosis
 assignment consuming actual evidence. Completed dispatch replays reuse it. N7/N8
 routing accepts explicit mission scope, so another batch is not modified.
 
+ExecutionEvidenceReviewService now preflights the whole planned Case denominator,
+current N1-N6 source/gate digests, exact Attempt/Assertion and cleanup/release
+proof. Every frozen evidence requirement needs actual adapter-output file bytes,
+expected checksum and exact Attempt/tool binding. Files are copied into a separate
+content-addressed store by atomic complete-file publication; no source file or
+missing requirement is silently substituted or truncated. Capture limits fail
+closed. Captured bytes and both Evidence records are rechecked before review.
+
+A whole-plan NodeDelivery then moves N7 to REVIEW_PENDING and receives a fresh
+independent reviewer assignment with canonical criteria and evidence only. Replay
+reuses the delivery/reviewer, including recovery after delivery append or orphan
+review-session creation. This is review ADMISSION, not an executed reviewer result
+or a NodeGate PASS. Known target/runner gaps remain in bundle and NodeDelivery.
+
 ## Evidence and limits
 
-Final combined chain: 136 passed / 4 existing collection warnings, including
-cleanup preflight, historical evidence, diagnosis, cold replay and resource
-release recovery. Focused cleanup-preflight suite separately passed 47 tests. External adapters are injected fixtures;
+Final combined chain: 156 passed / 4 existing collection warnings, including
+20 evidence-review tests with atomic publication, partial-write recovery, source
+invalidation, forged scope and independent-process replay. External adapters are injected fixtures;
 these are repository component/integration tests, not real target or Field proof.
 
 Case revision is explicitly the admitted N4 delivery version and source reference.
@@ -49,11 +63,13 @@ cannot grant PASS, coverage/convergence closure, NodeGate PASS or delivery.
 
 ## Remaining construction
 
-Production adapters and product controller/continuation wiring; complete evidence
-requirements and independent review/finalization; full target/runner identities;
+Production adapters and product controller/continuation wiring; actual independent
+review result and execution finalization; full target/runner identities;
 independent N8 actual classification/repair/new Attempt; N9/N10 convergence;
 remaining phase/GAP rows and real qualification/Field verification. Mechanical
-cleanup verification does not replace independent N5 data certification.
+cleanup verification does not replace independent N5 data certification. The new
+review-admission slice admits successfully asserted/cleaned attempts; combining
+independently accepted conclusive defect failures from N8/N9 remains OPEN.
 
 Cross-process Data/Browser lease exclusion and worker environment isolation remain
 under audit. Per-call exclusion markers are not global event-store locking.
@@ -61,6 +77,6 @@ Recovery for a claim before intent, and crashes during multi-event N8 dispatch,
 requires further hardening. Unresolved legacy cleanup still needs governed N4/N6
 repair, not an executor-invented plan.
 
-Next atomic step: close independent execution evidence review/finalization and
-full runner/target integration, then drive actual N8 recovery into a fresh Attempt
-and wire N9/N10 and product ingress. Do not substitute packaging for construction.
+Next atomic step: bind full inherited target/frozen-Case/runner proof and consume
+an actual independent review result before finalizing any Attempt or NodeGate.
+Then drive actual N8 recovery into a fresh Attempt and wire N9/N10/product ingress. Do not substitute packaging for construction.

@@ -1,3 +1,37 @@
+# N7 complete evidence capture and fresh review admission — 2026-11-02
+
+status: COMPONENT_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY
+implemented:
+- Entire canonical Case denominator, current approved source/gate digests, exact
+  WorkItem/Attempt/Worker, fixed Assertion and cleanup proof required before capture.
+- Every frozen evidence label maps to actual file bytes from the configured adapter
+  output root, with exact Attempt/tool ownership and checksum. Missing, foreign,
+  outside-root, changed, empty or over-limit evidence prevents the whole bundle.
+- Separate content-addressed evidence store; atomic complete-file publication;
+  both inherited Evidence stores and a checksum-bound single bundle entity.
+- Read-only revalidation checks captured bytes, R1 evidence, current sources and
+  full scope even when adapter output files have disappeared. No I/O is replayed.
+- Whole-plan N7 NodeDelivery -> REVIEW_PENDING -> fresh reviewer assignment.
+  Excludes executor workers/sessions. Replays recover delivery-before-node update
+  and review-session-before-assignment interruptions without another reviewer.
+- Bundle field is case_results, not the legacy reserved batch field cases;
+  separate-process cold replay is covered.
+validation: final combined chain 156 passed / 4 existing collection warnings
+in 112.22s, including 20 evidence-review tests. Focused chain previously 65 passed.
+Syntax compilation and diff whitespace checks passed. Local evidence log:
+work/evidence/n7-review-final-chain.log (not tracked).
+known_gaps: FULL_TARGET_IDENTITY_BINDING_REQUIRED; APPROVED_RUNNER_RECEIPT_REQUIRED.
+They stay explicit in bundle and delivery; rehashing cannot hide them or change
+mission/source scope. No actual reviewer verdict or gate is manufactured.
+remaining: full target/frozen-Case/runner integration; actual independent reviewer
+result and finalization; actual N8 classification/repair/retry; N9/N10; product
+controller; global lease/process isolation and real Field qualification. Accepted
+conclusive failure evidence from N8/N9 still needs a review-admission branch; this
+slice admits passing business assertions and never relabels a failure to proceed.
+DELIVERY_AUTHORIZED=false; FIELD_VERIFIED=false; BANK_FINAL=NO.
+
+---
+
 # N7 inherited evidence, defined cleanup and N8 handoff — 2026-11-02
 
 status: COMPONENT_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY
