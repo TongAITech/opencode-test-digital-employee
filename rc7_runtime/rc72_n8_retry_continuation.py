@@ -70,10 +70,10 @@ class DataRepairContinuationService:
                 raise ContractError('N8_RETRY_OTHER_EXECUTION_MUST_DRAIN')
         refs = {ref['data_ref'] for item in plan['items'] for ref in
                 self._one('rc72_n6_executable_contract', contract_id=item['contract_id'])['data_refs']}
-        if any(lease['state'] == 'ACTIVE' and (lease['mission_id'] == p['mission_id'] or lease['data_ref'] in refs)
+        if any(lease['state'] in {'ACTIVE', 'EXPIRED'} and (lease['mission_id'] == p['mission_id'] or lease['data_ref'] in refs)
                for lease in self.truth.query('rc72_data_lease')):
             raise ContractError('N8_RETRY_RESOURCE_OWNER_MUST_DRAIN')
-        if any(lease['state'] == 'ACTIVE' for lease in self.truth.query('rc72_browser_lease', mission_id=p['mission_id'])):
+        if any(lease['state'] in {'ACTIVE', 'EXPIRED'} for lease in self.truth.query('rc72_browser_lease', mission_id=p['mission_id'])):
             raise ContractError('N8_RETRY_RESOURCE_OWNER_MUST_DRAIN')
 
     def _original_plan(self, p, old, snapshot):

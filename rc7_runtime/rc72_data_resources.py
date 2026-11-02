@@ -199,11 +199,12 @@ class DataLeaseManager:
             updated["state"] = "EXPIRED"
             self.truth.append_atomic("RC72_DATA_LEASE_UPSERTED", updated)
 
+    # Expiry removes use authority, not custody of unverified external effects.
     def _active(self, data_ref: str, now: int) -> List[Dict[str, Any]]:
         self._expire_due(now)
         return [
             row for row in self.truth.query(_DATA_LEASE, data_ref=data_ref)
-            if row.get("state") == "ACTIVE" and int(row.get("expires_at") or 0) >= now
+            if row.get("state") in {"ACTIVE", "EXPIRED"}
         ]
 
     @resource_guard(busy='DATA_RESOURCE_CONFLICT:LEDGER_BUSY', conflict=DataResourceConflict)
@@ -239,11 +240,12 @@ class DataLeaseManager:
             raise ContractError("MUTABLE_DATA_REQUIRES_EXCLUSIVE_WRITE")
         current = _now() if now is None else int(now)
         active = self._active(data_ref, current)
-        if mode == DataAccessMode.EXCLUSIVE_WRITE:
-            if active:
-                raise DataResourceConflict("DATA_RESOURCE_CONFLICT:EXCLUSIVE_OWNER_EXISTS")
-        elif any(row.get("mode") == DataAccessMode.EXCLUSIVE_WRITE.value for row in active):
-            raise DataResourceConflict("DATA_RESOURCE_CONFLICT:EXCLUSIVE_OWNER_EXISTS")
+        blockers = active if mode == DataAccessMode.EXCLUSIVE_WRITE else [
+            row for row in active if row['mode'] == DataAccessMode.EXCLUSIVE_WRITE.value]
+        if blockers:
+            reason = ('EXPIRED_CUSTODY_RECOVERY_REQUIRED' if any(row['state'] == 'EXPIRED' for row in blockers)
+                      else 'EXCLUSIVE_OWNER_EXISTS')
+            raise DataResourceConflict('DATA_RESOURCE_CONFLICT:' + reason)
 
         lease_id = data_lease_id or _new("DATALEASE")
         if self.truth.query(_DATA_LEASE, data_lease_id=lease_id):
@@ -320,14 +322,22 @@ class DataLeaseManager:
         *,
         cleanup_evidence_ref: str,
         reason: str,
+        recovery_authorizer=None,
     ) -> None:
         if not isinstance(cleanup_evidence_ref, str) or not cleanup_evidence_ref.strip():
             raise ContractError("DATA_CLEANUP_EVIDENCE_REQUIRED")
         if not isinstance(reason, str) or not reason.strip():
             raise ContractError("DATA_RELEASE_REASON_REQUIRED")
         row = self.lease(data_lease_id)
-        if row.get("state") != "ACTIVE":
+        if row.get("state") not in {"ACTIVE", "EXPIRED"}:
             raise ContractError("DATA_LEASE_NOT_ACTIVE")
+        if row['state'] == 'EXPIRED' or _now() > int(row['expires_at']):
+            from .rc72_n8_repair_boundary import RepairBoundaryService
+            if (not isinstance(recovery_authorizer, RepairBoundaryService)
+                    or recovery_authorizer.truth is not self.truth
+                    or recovery_authorizer.preparation.release_id != self.release_id):
+                raise ContractError('DATA_EXPIRED_CUSTODY_VERIFIED_RECOVERY_REQUIRED')
+            recovery_authorizer.authorize_expired_release(row, cleanup_evidence_ref)
         updated = dict(row)
         updated.pop("artifact_type", None)
         updated["artifact_version"] = int(row.get("artifact_version", 1)) + 1

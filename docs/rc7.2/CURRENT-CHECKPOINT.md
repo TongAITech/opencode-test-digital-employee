@@ -15,6 +15,50 @@ Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md. Finish
 construction before preparing a delivery package. Candidate 9476b57 remains
 quarantined. This checkpoint supersedes earlier component-only descriptions.
 
+## Expiry custody and native verified compensation — 2026-11-03
+
+Expired Data leases and WRITE browser leases no longer become free resources.
+Use authority expires, while custody remains reserved until verified recovery.
+An expired data reader also prevents a new writer until it is drained/released;
+shared-reader semantics otherwise remain unchanged. Calling release with a
+claimed evidence string cannot bypass this rule, even if metadata still says
+ACTIVE after wall-clock expiry. N5 exact-data repair, N8 shared-resource checks
+and retry drain guards also respect expired custody.
+
+The existing accepted TEST_DATA_GAP boundary now performs cleanup with a fresh
+cleanup-only lease over the unchanged frozen contract while old data/browser
+custody is expired. New cleanup receipts carry runtime HMACs. Before any release,
+the full exact ownership tuple, native cleanup/verification calls, actual raw
+results, complete DataRef denominator, frozen predicates and canonical evidence
+are audited. Expired release additionally requires the concrete native signed
+repair boundary and both authentic runtime observations. Legacy unsigned
+observations do not acquire this new expired-release authority.
+
+Original business authority is revoked before compensation I/O, including when
+verification fails. Cold preparation rejects a durable repair-boundary marker;
+normal authority restoration now happens only after all resource checks pass.
+This fixes the prior possibility of restoring a business lease and then failing
+a resource check, leaving that lease installed in a cold authority runtime.
+
+Engineering proof uses deterministic expiry injection and actual HTTP effects:
+expired custody -> accepted N8 cleanup/verification -> N5 physical repair and
+independent verification -> new N6/Attempt -> whole original denominator
+strict execution/cleanup/independent N7_PASS. The old failed Attempt remains
+unchanged. Another test makes a real business POST then loses its controller
+response: it stays IN_FLIGHT/UNKNOWN with expired custody held and no cleanup or
+reassignment. Failed/falsified compensation remains quarantined. Cold partial
+finalization resumes saved observations without another tool call.
+
+Validation so far: compensation/finalization/resource integrated76 passed
+117.73s (2 existing warnings); N5/expiry/full-retry chain62 passed126.31s (2
+existing warnings) before final authority-restoration hardening. Final cold/authority/retry chain40 passed104.53s; final proof checks10
+passed20.20s. After stricter evidence lineage checks, final expiry/boundary
+chain22 passed49.63s. Compilation/diff checks passed; same-source platform
+qualification remains pending. No Field proof is claimed.
+The positive recovery consumer is the accepted exact-data failure path; generic
+in-flight drain/orphan adjudication, renewal, general cleanup-time expiry,
+physical capability restoration, and final browser field recovery remain open.
+
 ## Cross-process resource reservation — 2026-11-03
 
 DataLeaseManager and BrowserPool now hold the same OS ledger gate as capability

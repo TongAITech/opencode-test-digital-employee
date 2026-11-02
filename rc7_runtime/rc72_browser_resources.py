@@ -211,11 +211,12 @@ class BrowserPool:
             updated["state"] = "EXPIRED"
             self.truth.append_atomic("RC72_BROWSER_LEASE_UPSERTED", updated)
 
+    # An expired WRITE owner still fences control until verified recovery.
     def _active_for_instance(self, browser_instance_id: str, now: int) -> List[Dict[str, Any]]:
         self._expire_due(now)
         return [
             row for row in self.truth.query(_BROWSER_LEASE, browser_instance_id=browser_instance_id)
-            if row.get("state") == "ACTIVE" and int(row.get("expires_at") or 0) >= now
+            if row.get("state") in {"ACTIVE", "EXPIRED"}
         ]
 
     @resource_guard(busy='RESOURCE_CONFLICT:LEDGER_BUSY', conflict=BrowserResourceConflict)
@@ -336,12 +337,19 @@ class BrowserPool:
         return row
 
     @resource_guard(busy='RESOURCE_CONFLICT:LEDGER_BUSY', conflict=BrowserResourceConflict)
-    def release(self, browser_lease_id: str, *, reason: str) -> None:
+    def release(self, browser_lease_id: str, *, reason: str, cleanup_evidence_ref=None, recovery_authorizer=None) -> None:
         if not isinstance(reason, str) or not reason.strip():
             raise ContractError("BROWSER_RELEASE_REASON_REQUIRED")
         row = self.lease(browser_lease_id)
-        if row.get("state") != "ACTIVE":
+        if row.get("state") not in {"ACTIVE", "EXPIRED"}:
             raise ContractError("BROWSER_LEASE_NOT_ACTIVE")
+        if row['state'] == 'EXPIRED' or _now() > int(row['expires_at']):
+            from .rc72_n8_repair_boundary import RepairBoundaryService
+            if (not isinstance(recovery_authorizer, RepairBoundaryService)
+                    or recovery_authorizer.truth is not self.truth
+                    or recovery_authorizer.preparation.release_id != self.release_id):
+                raise ContractError('BROWSER_EXPIRED_CUSTODY_VERIFIED_RECOVERY_REQUIRED')
+            recovery_authorizer.authorize_expired_release(row, cleanup_evidence_ref)
         updated = dict(row)
         updated.pop("artifact_type", None)
         updated["artifact_version"] = int(row.get("artifact_version", 1)) + 1

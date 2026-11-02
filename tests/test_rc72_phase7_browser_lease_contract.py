@@ -234,7 +234,7 @@ def test_release_makes_instance_reusable_but_never_transfers_same_lease(tmp_path
     assert truth.query("rc72_browser_lease", browser_lease_id=old.browser_lease_id)[0]["state"] == "RELEASED"
 
 
-def test_expired_write_lease_no_longer_authorizes_and_instance_can_be_reclaimed(tmp_path: Path):
+def test_expired_write_lease_revokes_use_but_keeps_control_custody(tmp_path: Path):
     _, pool, ids = _setup(tmp_path, instance_count=1)
     old = _acquire(pool, ids["L4"], purpose="L4_EXECUTION")
     row = pool.lease(old.browser_lease_id)
@@ -248,17 +248,20 @@ def test_expired_write_lease_no_longer_authorizes_and_instance_can_be_reclaimed(
             access_mode=BrowserAccessMode.WRITE,
             now=row["expires_at"] + 1,
         )
-    reclaimed = pool.acquire(
-        mission_id="M-1",
-        workitem_id="WI-L5",
-        attempt_id="ATT-L5",
-        worker_id="WORKER-L5",
-        access_mode=BrowserAccessMode.WRITE,
-        purpose="L5_EXECUTION",
-        ttl_seconds=300,
-        now=row["expires_at"] + 1,
-    )
-    assert reclaimed.browser_instance_id == old.browser_instance_id
+    with pytest.raises(BrowserResourceConflict, match='RESOURCE_CONFLICT'):
+        pool.acquire(
+            mission_id="M-1",
+            workitem_id="WI-L5",
+            attempt_id="ATT-L5",
+            worker_id="WORKER-L5",
+            access_mode=BrowserAccessMode.WRITE,
+            purpose="L5_EXECUTION",
+            ttl_seconds=300,
+            now=row["expires_at"] + 1,
+        )
+    assert pool.lease(old.browser_lease_id)['state'] == 'EXPIRED'
+    with pytest.raises(Exception, match='VERIFIED_RECOVERY_REQUIRED'):
+        pool.release(old.browser_lease_id, reason='claimed expired browser reset')
 
 
 def test_registration_rejects_duplicate_profile_cdp_or_bsk_identity(tmp_path: Path):

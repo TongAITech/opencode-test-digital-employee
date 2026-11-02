@@ -231,7 +231,7 @@ def test_release_runs_auditable_cleanup_and_allows_new_lease_not_transfer(tmp_pa
     assert new.data_lease_id != old.data_lease_id
 
 
-def test_expiry_fail_closed_and_resource_can_be_reacquired_with_new_lease(tmp_path: Path):
+def test_expiry_revokes_use_but_retains_custody_until_verified_recovery(tmp_path: Path):
     _, manager, a, b = _setup(tmp_path)
     old = _acquire(manager, a, "data://subproject/SP-001", DataAccessMode.EXCLUSIVE_WRITE)
     row = manager.lease(old.data_lease_id)
@@ -245,18 +245,21 @@ def test_expiry_fail_closed_and_resource_can_be_reacquired_with_new_lease(tmp_pa
             data_ref="data://subproject/SP-001",
             now=row["expires_at"] + 1,
         )
-    new = manager.acquire(
-        data_ref="data://subproject/SP-001",
-        mission_id="M-1",
-        workitem_id="WI-B",
-        attempt_id="ATT-B",
-        worker_id="WORKER-B",
-        mode=DataAccessMode.EXCLUSIVE_WRITE,
-        ttl_seconds=300,
-        cleanup_policy="release reservation",
-        now=row["expires_at"] + 1,
-    )
-    assert new.data_lease_id != old.data_lease_id
+    with pytest.raises(DataResourceConflict, match='RESOURCE_CONFLICT'):
+        manager.acquire(
+            data_ref="data://subproject/SP-001",
+            mission_id="M-1",
+            workitem_id="WI-B",
+            attempt_id="ATT-B",
+            worker_id="WORKER-B",
+            mode=DataAccessMode.EXCLUSIVE_WRITE,
+            ttl_seconds=300,
+            cleanup_policy="release reservation",
+            now=row["expires_at"] + 1,
+        )
+    assert manager.lease(old.data_lease_id)['state'] == 'EXPIRED'
+    with pytest.raises(Exception, match='VERIFIED_RECOVERY_REQUIRED'):
+        manager.release(old.data_lease_id, cleanup_evidence_ref='claimed-cleanup', reason='claimed clean')
 
 
 def test_data_resource_and_lease_truth_survive_r1_replay(tmp_path: Path):

@@ -6,6 +6,7 @@ No resource is released before frozen cleanup and machine verification succeed.
 from copy import deepcopy
 from dataclasses import asdict, fields
 import hmac
+import time
 
 from rc6_runtime import contracts, truth as registry
 from rc6_runtime.authority import TaskLease, WorkerIdentity
@@ -109,7 +110,7 @@ class RepairBoundaryService:
             if other['preparation_id'] != preparation_id and other['status'] == 'PREPARED':
                 raise ContractError('N8_REPAIR_OTHER_EXECUTION_MUST_DRAIN')
         for kind in ('rc72_data_lease', 'rc72_browser_lease'):
-            if any(row['state'] == 'ACTIVE' and row['attempt_id'] != p['attempt_id']
+            if any(row['state'] in {'ACTIVE', 'EXPIRED'} and row['attempt_id'] != p['attempt_id']
                    for row in self.truth.query(kind, mission_id=p['mission_id'])):
                 raise ContractError('N8_REPAIR_OTHER_RESOURCE_OWNER_MUST_DRAIN')
         n5 = self.runtime.node_by_type(p['mission_id'], AutonomousMissionNode.N5_TEST_DATA)
@@ -123,7 +124,7 @@ class RepairBoundaryService:
         browser_instances = {self._one('rc72_browser_lease', browser_lease_id=value)['browser_instance_id'] for value in p['browser_lease_ids']}
         for kind, key, values in (('rc72_data_lease', 'data_ref', data_refs),
                                   ('rc72_browser_lease', 'browser_instance_id', browser_instances)):
-            if any(row['state'] == 'ACTIVE' and row[key] in values and row['attempt_id'] != p['attempt_id']
+            if any(row['state'] in {'ACTIVE', 'EXPIRED'} and row[key] in values and row['attempt_id'] != p['attempt_id']
                    for row in self.truth.query(kind)):
                 raise ContractError('N8_REPAIR_SHARED_RESOURCE_OWNER_MUST_DRAIN')
         return p, c, case
@@ -143,24 +144,32 @@ class RepairBoundaryService:
             raise ContractError('N8_CLEANUP_SCOPE_INVALID')
         self._context(p['preparation_id'])
         self._check_old_node_versions(p, grant)
+        # The durable signed boundary suspends business authority before any
+        # compensation I/O, including when compensation later fails.
+        self.preparation.authority.revoke_worker_lease(p['task_lease']['lease_id'])
         for kind, key, ids in (('rc72_data_lease', 'data_lease_id', p['data_lease_ids']),
                                ('rc72_browser_lease', 'browser_lease_id', p['browser_lease_ids'])):
             for value in ids:
                 resource = self._one(kind, **{key: value})
-                if resource['state'] != 'ACTIVE' or any(resource[k] != p[k] for k in ('mission_id', 'workitem_id', 'attempt_id', 'worker_id')):
+                if resource['state'] not in {'ACTIVE', 'EXPIRED'} or any(resource[k] != p[k] for k in ('mission_id', 'workitem_id', 'attempt_id', 'worker_id')):
                     raise ContractError('N8_CLEANUP_RESOURCE_CUSTODY_CHANGED')
         for value in p['data_lease_ids']:
             resource = self._one('rc72_data_lease', data_lease_id=value)
-            self.preparation.data.assert_usable(data_lease_id=value, mission_id=p['mission_id'],
-                workitem_id=p['workitem_id'], attempt_id=p['attempt_id'], worker_id=p['worker_id'], data_ref=resource['data_ref'])
+            if resource['state'] == 'ACTIVE' and int(resource['expires_at']) >= time.time():
+                self.preparation.data.assert_usable(data_lease_id=value, mission_id=p['mission_id'],
+                    workitem_id=p['workitem_id'], attempt_id=p['attempt_id'], worker_id=p['worker_id'], data_ref=resource['data_ref'])
         for value in p['browser_lease_ids']:
             resource = self._one('rc72_browser_lease', browser_lease_id=value)
             plan = self._one('rc72_n7_execution_plan', plan_id=p['plan_id'])
             snapshot = self._one('rc72_decomposition_snapshot', snapshot_id=plan['snapshot_id'])
             planned = next(row for row in snapshot['planning_cases'] if row['case_id'] == p['case_id'])
-            self.preparation.browser.assert_usable(browser_lease_id=value, mission_id=p['mission_id'],
-                workitem_id=p['workitem_id'], attempt_id=p['attempt_id'], worker_id=p['worker_id'],
-                access_mode=resource['access_mode'], auth_asset_ref=planned['browser_context'])
+            instance = self._one('rc72_browser_instance', browser_instance_id=resource['browser_instance_id'])
+            if instance['state'] != 'READY' or instance.get('auth_asset_ref') != planned['browser_context']:
+                raise ContractError('N8_CLEANUP_BROWSER_CONTEXT_CHANGED')
+            if resource['state'] == 'ACTIVE' and int(resource['expires_at']) >= time.time():
+                self.preparation.browser.assert_usable(browser_lease_id=value, mission_id=p['mission_id'],
+                    workitem_id=p['workitem_id'], attempt_id=p['attempt_id'], worker_id=p['worker_id'],
+                    access_mode=resource['access_mode'], auth_asset_ref=planned['browser_context'])
         identity = WorkerIdentity(**grant['cleanup_identity'])
         session = self._one('rc72_worker_session', session_id=identity.session_id)
         if session['state'] != 'ACTIVE' or session['worker_id'] != identity.worker_id:
@@ -176,7 +185,7 @@ class RepairBoundaryService:
             raise ContractError('N8_CLEANUP_AUTHORITY_INVALID')
         return grant['boundary_id']
 
-    def _audit_completed(self, grant):
+    def _audit_cleanup_proof(self, grant):
         from .oracle_runtime import DeterministicOracleRuntime
         p, c, _, _, _, _ = self.diagnosis.evidence.observation(grant['preparation_id'])
         if grant['contract_sha256'] != c['contract_sha256']:
@@ -199,15 +208,28 @@ class RepairBoundaryService:
             dict(attempt_id=p['attempt_id'], data_ref=ref, cleanup_call_ref=action['call_id'],
                  verification_call_ref=observed['call_id'], receipt_sha256=observed['receipt_sha256'])) for ref in refs}
         expected_id = 'N7CLEANEV-' + _hash([p['attempt_id'], action['receipt_sha256'], observed['receipt_sha256'], results])[:24]
-        evidence = self._one('rc7_evidence', evidence_id=grant['cleanup_evidence_ref'])
-        if (expected_id != grant['cleanup_evidence_ref'] or not all(row['passed'] for row in results.values())
-                or evidence['content_hash'] != _hash(results) or evidence['data_assertions'] != results):
+        evidence = self._one('rc7_evidence', evidence_id=grant.get('cleanup_evidence_ref') or expected_id)
+        if (expected_id != (grant.get('cleanup_evidence_ref') or expected_id) or not all(row['passed'] for row in results.values())
+                or evidence['content_hash'] != _hash(results) or evidence['data_assertions'] != results
+                or evidence.get('kind') != 'N7_CLEANUP_DATA_REVERIFIED'
+                or evidence.get('subject_refs') != [p['workitem_id'], p['attempt_id']] + refs
+                or evidence.get('cleanup_call_ref') != action['call_id']
+                or evidence.get('verification_call_ref') != observed['call_id']
+                or evidence.get('source_ref') != 'r1://artifact/' + observed['call_id']
+                or evidence.get('content_ref') != 'r1://artifact/' + observed['call_id']):
             raise ContractError('N8_COMPLETED_CLEANUP_EVIDENCE_CHANGED')
         canonical = self._one('evidence', id=expected_id)
         if (canonical.get('attempt_id') != p['attempt_id'] or canonical.get('tc_id') != p['case_id']
+                or canonical.get('kind') != 'N7_CLEANUP_DATA_REVERIFIED'
+                or canonical.get('release_id') != p['release_id']
+                or canonical.get('requirement_id') != c['requirement_id']
                 or canonical.get('source_artifact_ref') != observed['call_id']
                 or evidence.get('mission_id') != p['mission_id']):
             raise ContractError('N8_COMPLETED_CLEANUP_CANONICAL_EVIDENCE_CHANGED')
+        return p, c, expected_id
+
+    def _audit_completed(self, grant):
+        p, c, expected_id = self._audit_cleanup_proof(grant)
         expected_data = dict(zip(p['data_lease_ids'], sorted(c['data_refs'], key=lambda row: row['data_ref'])))
         for kind, key, ids in (('rc72_data_lease', 'data_lease_id', p['data_lease_ids']),
                                ('rc72_browser_lease', 'browser_lease_id', p['browser_lease_ids'])):
@@ -218,6 +240,32 @@ class RepairBoundaryService:
                         or any(resource[k] != p[k] for k in ('mission_id', 'workitem_id', 'attempt_id', 'worker_id'))):
                     raise ContractError('N8_COMPLETED_RESOURCE_RELEASE_CHANGED')
         return dict(state='REPAIR_OPEN', boundary_id=grant['boundary_id'], cleanup_evidence_ref=expected_id)
+
+    def authorize_expired_release(self, resource, cleanup_evidence_ref):
+        """Only signed accepted N8 compensation can relinquish expired custody."""
+        preparations = self.truth.query('rc72_n7_execution_preparation', attempt_id=resource['attempt_id'])
+        if len(preparations) != 1:
+            raise ContractError('N8_EXPIRED_RESOURCE_PREPARATION_NOT_UNIQUE')
+        preparation_id = preparations[0]['preparation_id']
+        grant = self._signed(self._one(_KIND, preparation_id=preparation_id))
+        if grant['state'] != 'CLEANUP_AUTHORIZED':
+            raise ContractError('N8_EXPIRED_RESOURCE_RECOVERY_SCOPE_REQUIRED')
+        self._context(preparation_id, opened=True)
+        self._check_old_node_versions(preparations[0], grant)
+        p, c, expected_id = self._audit_cleanup_proof(grant)
+        # New expired-resource recovery requires authentic runtime observations;
+        # legacy unsigned cleanup receipts cannot acquire this extra authority.
+        for phase in ('CLEANUP', 'VERIFY'):
+            call = self._one('rc72_n7_cleanup_call', preparation_id=preparation_id, phase=phase)
+            signed = {key: value for key, value in call.items()
+                      if key not in {'runtime_signature', 'artifact_type', 'artifact_version'}}
+            if not hmac.compare_digest(call.get('runtime_signature', ''), self.preparation.authority._sign(signed)):
+                raise ContractError('N8_EXPIRED_CLEANUP_RUNTIME_PROOF_REQUIRED')
+        key, ids = ('data_lease_id', p['data_lease_ids']) if 'data_lease_id' in resource else ('browser_lease_id', p['browser_lease_ids'])
+        if (resource[key] not in ids or cleanup_evidence_ref != expected_id
+                or any(resource[k] != p[k] for k in ('mission_id', 'workitem_id', 'attempt_id', 'worker_id'))):
+            raise ContractError('N8_EXPIRED_CLEANUP_RESOURCE_OR_PROOF_MISMATCH')
+        return expected_id
 
     def open(self, preparation_id):
         prior = self.truth.query(_KIND, preparation_id=preparation_id)

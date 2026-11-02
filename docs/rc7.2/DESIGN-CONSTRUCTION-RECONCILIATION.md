@@ -397,3 +397,38 @@ compensation/re-use, renewal, orphan reconciliation and actual tool-call fencing
 remain mandatory C06/C07 work. Non-participating journal writers are not claimed
 serialized by this manager-level gate. No Field or whole-release qualification
 is inferred from these tests.
+
+
+## Expired custody and accepted native compensation — 2026-11-03
+
+Automatic expiry no longer frees a mutable DataRef or WRITE browser. EXPIRED is
+unusable retained custody; a new writer waits for verified recovery, including
+when another reader expired. Wall-clock expiry also requires recovery even if a
+caller avoided an expiry projection and metadata still reads ACTIVE. N5 physical
+repair and N8 retry/drain checks honor expired owners.
+
+Accepted TEST_DATA_GAP compensation can clean the unchanged frozen scope through
+its distinct cleanup-only actor/lease. Both cleanup phases now have runtime HMAC
+receipts; a concrete native signed boundary must audit exact ownership, full
+DataRef denominator, actual frozen-predicate results, two native proof records
+and canonical Evidence before releasing expired custody. Invalid/missing
+signatures and unrelated evidence cannot extend legacy release authority.
+Business authority is revoked before compensation, survives failed verification
+as a durable suspension marker and is not restored by cold startup. Native
+preparation restores authority only after all resource checks pass.
+
+Engineering validation injects expiry deterministically but executes real local
+HTTP compensation, physical data repair, independent verification, fresh same-
+WorkItem/ETU Attempt and full strict-runner evidence finalization to N7_PASS.
+Old failure history is unchanged. A real POST with lost controller response
+remains IN_FLIGHT/UNKNOWN: no compensating call or new owner is invented. Cold
+partial finalization reuses signed observations without another action. Failed
+cleanup retains expired custody. Integrated76 and N5/retry62 passed before final
+authority hardening; final authority/retry40 and final proof/lineage22 passed.
+Collection warnings are inherited. Compilation/diff checks passed.
+
+This is a concrete accepted-data-gap recovery consumer, not generic drain proof
+for every expired external process. Renewal, unknown-effect/orphan adjudication,
+cleanup-time expiry after other failure classes, actual DSH call-time fencing
+and final browser field recovery remain C06/C07/C09 work. Full design and portable
+package delivery remain incomplete; Field/BANK_FINAL stays unverified.

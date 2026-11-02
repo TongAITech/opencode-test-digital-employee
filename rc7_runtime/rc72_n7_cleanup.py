@@ -7,6 +7,7 @@ N7 cleanup, not independent N5 redesign or a Case/Node completion decision.
 """
 from copy import deepcopy
 import json
+import hmac
 import os
 from pathlib import Path
 
@@ -108,6 +109,12 @@ class ExecutionCleanupService:
                 raise CleanupError('N7_CLEANUP_REPLAY_CONFLICT')
             if existing[0]['state'] == 'IN_FLIGHT':
                 raise CleanupError('N7_CLEANUP_SIDE_EFFECTS_UNKNOWN_DIAGNOSIS_REQUIRED')
+            signature = existing[0].get('runtime_signature')
+            if signature is not None:
+                signed = {key: value for key, value in existing[0].items()
+                          if key not in {'runtime_signature', 'artifact_type', 'artifact_version'}}
+                if not hmac.compare_digest(signature, self.preparation.authority._sign(signed)):
+                    raise CleanupError('N7_CLEANUP_RUNTIME_SIGNATURE_INVALID')
             return existing[0]
         # Only new external I/O requires current admission, TTL and all leases.
         # Resuming persisted cleanup receipts below cannot authorize another call.
@@ -142,6 +149,8 @@ class ExecutionCleanupService:
         else:
             updated = dict(row, state='RETURNED', raw_result=result,
                            receipt_sha256=_hash(result), artifact_version=2)
+        updated['runtime_signature'] = self.preparation.authority._sign(
+            {key: value for key, value in updated.items() if key not in {'artifact_type', 'artifact_version'}})
         self.truth.append_atomic(_EVENT, updated)
         return self.preparation._one(_KIND, call_id=call_id)
 
@@ -186,7 +195,7 @@ class ExecutionCleanupService:
                 resource = self.preparation._one(kind, **{key: lease_id})
                 if (any(resource.get(k) != p[k] for k in ('mission_id', 'workitem_id', 'attempt_id', 'worker_id'))
                         or (kind == 'rc72_data_lease' and resource.get('data_ref') != expected_data[lease_id]['data_ref'])
-                        or resource['state'] not in {'ACTIVE', 'RELEASED'}
+                        or resource['state'] not in ({'ACTIVE', 'EXPIRED', 'RELEASED'} if self.recovery_authorizer else {'ACTIVE', 'RELEASED'})
                         or (resource['state'] == 'RELEASED' and resource.get('release_reason') != reason)):
                     raise CleanupError('N7_CLEANUP_RESOURCE_OWNER_OR_STATE_MISMATCH')
                 resources.append((kind, lease_id, resource['state']))
@@ -200,13 +209,26 @@ class ExecutionCleanupService:
             id=evidence_id, release_id=p['release_id'], kind='N7_CLEANUP_DATA_REVERIFIED',
             ref=evidence_ref, source_artifact_ref=observed['call_id'], requirement_id=c['requirement_id'],
             tc_id=p['case_id'], attempt_id=p['attempt_id'], artifact_version=1))
+        if self.recovery_authorizer is not None:
+            # Check all expired release authority before relinquishing the first
+            # resource. Each manager rechecks under its ledger gate as well.
+            import time
+            for kind, lease_id, state in resources:
+                if state == 'RELEASED':
+                    continue
+                key = 'data_lease_id' if kind == 'rc72_data_lease' else 'browser_lease_id'
+                resource = self.preparation._one(kind, **{key: lease_id})
+                if state == 'EXPIRED' or time.time() > int(resource['expires_at']):
+                    self.recovery_authorizer.authorize_expired_release(resource, evidence_id)
         for kind, lease_id, state in resources:
             if state == 'RELEASED':
                 continue
             if kind == 'rc72_data_lease':
-                self.preparation.data.release(lease_id, cleanup_evidence_ref=evidence_id, reason=reason)
+                self.preparation.data.release(lease_id, cleanup_evidence_ref=evidence_id, reason=reason,
+                    recovery_authorizer=self.recovery_authorizer)
             else:
-                self.preparation.browser.release(lease_id, reason=reason)
+                self.preparation.browser.release(lease_id, reason=reason, cleanup_evidence_ref=evidence_id,
+                    recovery_authorizer=self.recovery_authorizer)
         return dict(state='CLEANUP_VERIFIED', evidence_ref=evidence_id, data_assertions=results,
                     resources_released=True)
 

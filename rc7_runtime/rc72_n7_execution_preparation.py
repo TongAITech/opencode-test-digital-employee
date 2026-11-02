@@ -205,6 +205,9 @@ class ExecutionPreparationService:
 
     def assert_current(self, preparation_id: str) -> Dict[str, Any]:
         row = self._one(_ARTIFACT, preparation_id=preparation_id)
+        if self.truth.query('rc72_n8_repair_boundary', preparation_id=preparation_id):
+            self.authority.revoke_worker_lease(row['task_lease']['lease_id'])
+            raise ExecutionPreparationError('N7_EXECUTION_SUSPENDED_BY_REPAIR_BOUNDARY')
         plan = self.planning.assert_current(row['plan_id'])
         item = next((item for item in plan['items'] if item['workitem_id'] == row['workitem_id']), None)
         if item is None or item['contract_id'] != row['contract_id'] or item['admission_id'] != row['admission_id']:
@@ -235,7 +238,7 @@ class ExecutionPreparationService:
                 or binding.get('mission_node_type') != 'N7_EXECUTION'
                 or task.get('state') not in {'LEASED', 'RUNNING'} or task.get('lease_owner') != row['worker_id']):
             raise ExecutionPreparationError('N7_PREPARATION_BINDING_INVALID')
-        self.authority.restore_signed_worker_lease(identity, lease, expected_scope=scope)
+        self.authority.validate_historical_lease(identity, lease)
         if len(row['data_lease_ids']) != len(contract['data_refs']):
             raise ExecutionPreparationError('N7_DATA_LEASE_DENOMINATOR_MISMATCH')
         for lease_id, ref in zip(row['data_lease_ids'], sorted(contract['data_refs'], key=lambda value: value['data_ref'])):
@@ -251,6 +254,13 @@ class ExecutionPreparationService:
             self.browser.assert_usable(browser_lease_id=lease_id, mission_id=row['mission_id'], workitem_id=row['workitem_id'],
                 attempt_id=row['attempt_id'], worker_id=row['worker_id'], access_mode=BrowserAccessMode.WRITE,
                 auth_asset_ref=planned['browser_context'])
+        # Authority restoration is the last operation after all resource checks.
+        # In particular a failed cold read must not leave a live business lease.
+        self.truth.rebuild_projection()
+        if self.truth.query('rc72_n8_repair_boundary', preparation_id=preparation_id):
+            self.authority.revoke_worker_lease(lease.lease_id)
+            raise ExecutionPreparationError('N7_EXECUTION_SUSPENDED_BY_REPAIR_BOUNDARY')
+        self.authority.restore_signed_worker_lease(identity, lease, expected_scope=scope)
         return row
 
     def release_unstarted(self, preparation_id: str, *, reason: str) -> Dict[str, Any]:

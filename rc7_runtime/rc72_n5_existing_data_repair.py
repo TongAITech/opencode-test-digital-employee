@@ -105,7 +105,7 @@ class ExistingDataRepairService:
                 or not any(ref['data_ref'] == binding['data_ref'] and ref['data_requirement_id'] == requirement['data_requirement_id']
                            for ref in contract['data_refs'])):
             raise ContractError('N5_EXISTING_REPAIR_EXACT_BINDING_REQUIRED')
-        if any(lease['state'] == 'ACTIVE' and lease['data_ref'] == binding['data_ref']
+        if any(lease['state'] in {'ACTIVE', 'EXPIRED'} and lease['data_ref'] == binding['data_ref']
                for lease in self.truth.query('rc72_data_lease')):
             raise ContractError('N5_EXISTING_REPAIR_DATA_OWNER_MUST_DRAIN')
         return contract

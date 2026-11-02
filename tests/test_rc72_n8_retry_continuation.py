@@ -69,13 +69,25 @@ def _whole_inventory_repaired(tmp_path, monkeypatch):
         raise
 
 
-def test_actual_full_denominator_retry_runs_strict_runner_and_finalizes_without_changing_old_failure(tmp_path, monkeypatch):
+@pytest.mark.parametrize('expired_custody', [False, True])
+def test_actual_full_denominator_retry_runs_strict_runner_and_finalizes_without_changing_old_failure(tmp_path, monkeypatch, expired_custody):
     from rc72_formal_runner_support import LocalHTTPEnvironment
     from rc7_runtime.rc72_formal_runner import FormalN7RunnerAdapter
     from rc7_runtime.rc72_n7_tool_dispatch import SignedToolDispatchService
     from rc7_runtime.rc72_n7_cleanup import ExecutionCleanupService
     from rc7_runtime.rc72_n7_evidence_review import ExecutionEvidenceReviewService
     from rc7_runtime.rc72_n7_finalization import ExecutionFinalizationService
+    expired = []
+    if expired_custody:
+        from rc7_runtime.rc72_n8_repair_boundary import RepairBoundaryService
+        from test_rc72_expired_resource_recovery import _expire_by_contending
+        original_open = RepairBoundaryService.open
+        def open_after_expiry(boundary, preparation_id):
+            original = boundary.preparation._one('rc72_n7_execution_preparation', preparation_id=preparation_id)
+            if not expired:
+                expired.append(_expire_by_contending(boundary.preparation, original, monkeypatch))
+            return original_open(boundary, preparation_id)
+        monkeypatch.setattr(RepairBoundaryService, 'open', open_after_expiry)
     truth, prep, server, p, _, data, _, _, _ = _whole_inventory_repaired(tmp_path, monkeypatch)
     try:
         old = truth.query('execution_attempt', attempt_id=p['attempt_id'])[0]
@@ -94,6 +106,8 @@ def test_actual_full_denominator_retry_runs_strict_runner_and_finalizes_without_
         bundle = review.build(plan['plan_id'])
         final = ExecutionFinalizationService(review).finalize(bundle['bundle_id'])
         assert final['state'] == 'N7_PASS'
+        if expired_custody:
+            assert truth.query('rc72_data_lease', data_lease_id=expired[0]['data_lease_id'])[0]['state'] == 'RELEASED'
         assert len(server.calls) == len(plan['items'])
         assert truth.query('execution_attempt', attempt_id=p['attempt_id'])[0] == old
         assert len(truth.query('execution_attempt')) == len(plan['items']) + 1
