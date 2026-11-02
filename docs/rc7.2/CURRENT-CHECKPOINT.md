@@ -23,11 +23,22 @@ authorization and preparation subset: 21 passed. Fixtures inject
 external I/O. These tests do not establish real system or field acceptance.
 Remote construction/Q1/Q2 passed at ab86366; newer changes need their own checks.
 
-Remaining construction: actual tool invocation and raw receipts; immutable
-Oracle evaluation; actual cleanup and data re-verification; independent N8
+New component: SignedToolDispatchService connects signed preparation to an
+explicit registered adapter, persists intent before I/O, retains JSON raw receipt
+and hash, and evaluates only stored actual against frozen N6 Oracle predicates.
+Task and binding remain RUNNING: assertion PASS is not Case/Node completion.
+Exclusive-create per-dispatch claims block concurrent or uncertain re-invocation;
+this does not prove global cross-process Data/Browser lease exclusion.
+Tests inject adapters; no real target/Field execution is claimed.
+
+Remaining construction: production tool adapters and inherited execution_attempt/
+Evidence integration; actual cleanup and data re-verification; independent N8
 diagnosis/recovery; N9/N10 convergence; product entry/controller wiring and all
 remaining phase/GAP rows. Cross-process lease exclusion and scoped worker
 environment isolation remain under audit. No phase-wide closure is implied.
 
-Next atomic step: connect signed preparations to real tool receipts and
-fail-closed execution/cleanup, then independent diagnosis and product ingress.
+Next atomic step: finalize signed dispatch receipts into inherited Attempt and
+Evidence, execute contract cleanup with data re-verification, route actual failure
+to independent N8 diagnosis, then close convergence and product ingress.
+Component evidence: 77 combined tests passed / 2 existing collection warnings;
+14 dispatch tests including separate-process cold replay passed.

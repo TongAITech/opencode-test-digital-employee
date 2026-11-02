@@ -138,3 +138,16 @@ preserves immutable emission time and does not treat unrelated N7 leases as its
 own premature acquisitions. Final focused regression: 64 passed, including browser context hardening. Actual tool execution, cleanup/re-verification, independent
 N8, N9/N10 and product controller integration remain OPEN. Multi-process lease
 exclusion and child-process credential isolation are not yet proven.
+
+## Signed dispatch boundary slice — 2026-11-02
+
+N7 now has a callable adapter boundary consuming current signed preparations.
+Intent precedes I/O; receipt, raw result and digest are durable; task and binding
+enter RUNNING. Interrupted/failed calls do not repeat automatically. A permanent
+exclusive-create marker also blocks calls after a crash before intent append.
+Frozen N6 Oracle predicates evaluate persisted actual without caller substitutions.
+This is component evidence only: injected adapters are not real Field evidence.
+No cleanup, release, Case PASS, N7 PASS or delivery decision is manufactured.
+Production tool adapters, inherited Attempt/Evidence finalization, actual cleanup,
+resource re-verification, N8/N9/N10 and product controller remain OPEN. Broader
+cross-process lease exclusion and worker environment isolation remain under audit.

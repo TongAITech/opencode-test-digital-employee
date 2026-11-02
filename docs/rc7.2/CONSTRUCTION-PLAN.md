@@ -1,3 +1,26 @@
+# Signed N7 tool dispatch and frozen Oracle — 2026-11-02
+
+status: COMPONENT_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY
+implemented: adapter dispatch from current signed preparation; scoped tool check;
+durable intent before external I/O; task and binding RUNNING before invocation;
+JSON raw receipt with hash; exceptions retain class only; unknown-side-effect
+interruptions and failures never automatically re-invoke the same attempt.
+Permanent exclusive-create per-dispatch claims provide fail-closed exclusion on
+the same local event-store path. A claim without an intent requires diagnosis.
+This is not global event-store locking or Data/Browser cross-process exclusion.
+Oracle: reads only persisted receipt + current frozen N6 predicates; emits
+content-addressed assertion result. Even a matching Oracle leaves task RUNNING
+and resources held pending real cleanup/reverification and finalization.
+Evidence: final dispatch/cold-process replay suite 14 passed; final combined
+chain 77 passed / 2 existing collection warnings. Cold replay added afterward
+and verified independently. No external target was exercised.
+Adapters are injected construction fixtures. No target or Field PASS is claimed.
+Remaining: production adapters; inherited execution_attempt and Evidence records;
+actual cleanup + data verification; independent N8; N9/N10; product controller.
+DELIVERY_AUTHORIZED=false; FIELD_VERIFIED=false; BANK_FINAL=NO.
+
+---
+
 # Signed N7 preparation and resource ownership — 2026-11-02
 
 status: COMPONENT_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY
