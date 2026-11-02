@@ -82,6 +82,13 @@ def _optional_string(out: Dict[str, Any], name: str) -> None:
 
 
 def _validate_worker_session(payload: Dict[str, Any]) -> Dict[str, Any]:
+    # Diagnosis extends this same canonical artifact. Reinstalling the base
+    # lifecycle (including generic cold bootstrap) must retain that contract.
+    # The extension delegates non-diagnosis purposes back here, so dispatch
+    # only the explicit known purpose; unknown purposes remain fail-closed.
+    if isinstance(payload, dict) and str(payload.get("purpose") or "").upper() == "DIAGNOSIS":
+        from .rc72_diagnosis_orchestration import _validate_diagnosis_worker_session
+        return _validate_diagnosis_worker_session(payload)
     out = _base(payload, _WORKER_SESSION, "session_id")
     for name in ("worker_id", "release_batch_id", "team_id", "role", "purpose", "state"):
         out[name] = _contracts._require_str(out, name)

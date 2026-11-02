@@ -285,3 +285,23 @@ N6 compilation into a fresh business execution, or original WorkItem/ETU retry
 reconciliation. Current N7 WorkItem IDs incorporate plan_id, which must be
 reconciled with N8 same-WorkItem replacement invariants. Grant renewal, initial
 orphan/claim recovery, N9/N10/product/global exclusion/Field remain OPEN.
+
+
+## Existing DataRef physical repair / independent verification — 2026-11-03
+
+A completed accepted N8 boundary now has a callable native repair consumer even
+when N5 reused data without any discovery artifact. Separate scoped DATA_PREPARER
+and DATA_VERIFIER processes restore/observe the original DataRef. Runtime anchors
+raw output, denies substitution or self-issued PASS, suspends old proof and uses
+the native binding revision and full N5 Gate. Each failed DataRef must have a fresh
+post-original-Gate proof at accepted repair intake. Partial/cold replay never
+repeats known completed preparation/verification; unknown effects remain blocked.
+
+Actual HTTP preparation and independent observation are engineering-composed with
+native N8 diagnosis/compensation and N5 acceptance. The worker is a DSH-protocol
+engineering adapter, not bank/provider Field proof. Revised planning/Attempt,
+global exclusion/orphan recovery and product entry remain OPEN. This supersedes
+the prior reuse-only candidate/assignment absence for this exact-ref policy only.
+The user's requested final deliverable is a complete RC7.1-equivalent portable
+package; bank acceptance follows user transfer and is not a prerequisite for
+finishing repository construction and producing that engineering-qualified package.

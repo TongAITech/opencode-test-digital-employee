@@ -1,3 +1,32 @@
+# Existing-DataRef physical repair, independent verification and owned WorkItems — 2026-11-03
+
+status: CODE_COMPLETE_LOCAL / CI_PENDING / OVERALL_INCOMPLETE / NO_DELIVERY
+implemented:
+- Accepted signed N8 compensation opens exact-DataRef repair requests without
+  inventing a discovery candidate. Requests suspend old binding usability,
+  including the interruption window before the suspension write.
+- Separate native DATA_PREPARER / DATA_VERIFIER WorkItems, fresh DSH actors,
+  task/Attempt-scoped zero-artifact leases and actual observed tool calls.
+  Physical preparation is not verification. Both raw outputs are anchored;
+  native raw-proof Artifacts and independent Evaluations close data WorkItems.
+- Fixed source/Case/DataRef/preconditions/strategy/source/cleanup/validity;
+  current approved N4 bytes are rechecked before actions. Unknown effects block
+  automatic replay even if filesystem claims were lost during R1 restoration.
+- Reuse native binding revisions/history and full N5 Gate. Accepted N8 repair
+  now requires a fresh post-original-Gate independent proof for every failed
+  DataRef; changed_refs labels, generic new Gates or changed bytes cannot pass.
+- Explicit new-schema bootstrap and purpose-based session-validator composition
+  restore generic cold R1 replay with DIAGNOSIS sessions after base reinstall.
+validation: N5/N8/canonical/N7-admission chain 145 passed in 141.79s. Final schema,
+cold-session and missing-claim guards were added after that run; final-source
+cold/lifecycle/diagnosis/repair chain 69 passed / 4 existing collection warnings
+in 61.85s. Real local HTTP preparation and a distinct verifier subprocess are
+engineering protocol adapters, not bank DSH/BSK evidence. Same-HEAD remote
+qualification remains pending after push.
+remaining: C02 revised N6/planning/original-WorkItem/ETU retry, C03..C12 and full
+RC7.1-equivalent portable delivery per CONTINUOUS-CONSTRUCTION.md. User performs
+Field acceptance after transfer; no fixture BANK_FINAL is allowed.
+
 # Durable repair invalidation and repair-registration recovery — 2026-11-03
 
 status: COMPONENT_RECOVERY_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY

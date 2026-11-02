@@ -198,6 +198,96 @@ class ExecutionDiagnosisService:
             receipt = self._verify(self._one(_KIND, diagnosis_id=diagnosis_id))
         return self._accept(p, case, facts, receipt)
 
+    def _fresh_data_repair_proofs(self, p, original_gate_id, failed_refs):
+        """Every failed DataRef needs a new independent observation, not a label.
+
+        A new whole-N5 Gate is insufficient if some failed bindings still carry
+        pre-failure evidence. Read the accepted native anchor bytes again.
+        """
+        from .rc72_n5_data_verification_anchor import _strict_final_json
+        from .rc72_n5_data_verification_finalization import N5DataVerificationFinalizationService
+        from .rc72_n5_existing_data_repair_truth import install_rc72_n5_existing_data_repair_overlay
+        from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
+        install_rc72_n5_existing_data_repair_overlay()
+        original = self._one('rc72_n6_executable_contract', contract_id=p['contract_id'])
+        affected = [item for item in original['data_refs'] if item['data_ref'] in failed_refs]
+        if {item['data_ref'] for item in affected} != set(failed_refs):
+            raise ContractError('N8_REPAIR_FAILED_DATA_SCOPE_UNRESOLVED')
+        cutoff = next((event['seq'] for event in self.truth.store.iter_raw()
+                       if event.get('entity_type') == 'rc72_node_gate' and event.get('entity_id') == original_gate_id), None)
+        if cutoff is None:
+            raise ContractError('N8_REPAIR_ORIGINAL_GATE_EVIDENCE_REQUIRED')
+        for old in affected:
+            binding = self._one('rc72_n5_data_binding', data_requirement_id=old['data_requirement_id'])
+            if (binding['data_ref'] != old['data_ref'] or binding.get('verification_blocked_by_anchor')
+                    or binding['verification_evidence_refs'] == old['verification_evidence_refs']):
+                raise ContractError('N8_REPAIR_FRESH_DATA_OBSERVATION_REQUIRED')
+            anchor_id = binding.get('reverification_anchor_id')
+            existing = self.truth.query('rc72_n5_existing_data_repair', repair_id=anchor_id) if anchor_id else []
+            if existing:
+                proof = self._one('rc72_n5_existing_data_repair', repair_id=anchor_id)
+                value = {key: item for key, item in proof.items() if key not in {'signature', 'artifact_type', 'artifact_version'}}
+                if (not hmac.compare_digest(proof['signature'], self.preparation.authority._sign(value))
+                        or proof['state'] != 'VERIFIED' or proof['preparation_id'] != p['preparation_id']
+                        or proof['original_binding']['binding_id'] != binding['binding_id']
+                        or binding['verification_evidence_refs'] != [proof['evidence_ref']]):
+                    raise ContractError('N8_REPAIR_INDEPENDENT_DATA_PROOF_INVALID')
+                worker_id, assignment_id = proof['identity']['worker_id'], proof['assignment_id']
+                producer = proof.get('producer')
+                if producer:
+                    producer_path = Path(producer['raw_output_ref'][len('file://'):])
+                    if (producer.get('state') not in {'PREPARED', 'REPAIR_REQUIRED'}
+                            or producer['identity']['worker_id'] == worker_id
+                            or producer['dsh_session_id'] == proof['dsh_session_id']
+                            or not producer['raw_output_ref'].startswith('file://') or not producer_path.is_file()
+                            or 'sha256:' + hashlib.sha256(producer_path.read_bytes()).hexdigest() != producer['raw_output_sha256']):
+                        raise ContractError('N8_REPAIR_DATA_PROOF_BYTES_CHANGED')
+                expected_status = 'VERIFIED'
+                session_id = proof['dsh_session_id']
+            else:
+                anchors = self.truth.query('rc72_n5_data_verification_evidence_anchor', anchor_id=anchor_id) if anchor_id else []
+                if len(anchors) != 1:
+                    raise ContractError('N8_REPAIR_FRESH_DATA_ANCHOR_REQUIRED')
+                proof = anchors[0]
+                worker_id, assignment_id = proof['verifier_worker_id'], proof['runtime_assignment_id']
+                expected_status = 'VERIFIED_CANDIDATE'
+                session_id = proof['verifier_dsh_session_id']
+            if (proof.get('mission_id') != p['mission_id'] or proof.get('release_id') != p['release_id']
+                    or proof.get('source_commit') != p['source_commit']
+                    or proof.get('data_requirement_id') != old['data_requirement_id']
+                    or proof.get('source_case_sha256') != old['source_case_sha256'] or worker_id == p['worker_id']):
+                raise ContractError('N8_REPAIR_INDEPENDENT_DATA_PROOF_INVALID')
+            path = Path(proof['raw_output_ref'][len('file://'):])
+            if (not proof['raw_output_ref'].startswith('file://') or not path.is_file()
+                    or 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest() != proof['raw_output_sha256']):
+                raise ContractError('N8_REPAIR_DATA_PROOF_BYTES_CHANGED')
+            parsed = tuple(DshHeadlessWorkerLauncher._parse_json_lines(path.read_text(encoding='utf-8')))
+            semantic = _strict_final_json(parsed)
+            if semantic.get('status') != expected_status:
+                raise ContractError('N8_REPAIR_INDEPENDENT_DATA_PROOF_INVALID')
+            if expected_status == 'VERIFIED':
+                if semantic != proof['result'] or semantic.get('data_ref') != old['data_ref']:
+                    raise ContractError('N8_REPAIR_INDEPENDENT_DATA_PROOF_INVALID')
+            elif N5DataVerificationFinalizationService._canonical_data_ref(semantic.get('candidate_ref')) != old['data_ref']:
+                raise ContractError('N8_REPAIR_INDEPENDENT_DATA_PROOF_INVALID')
+            handoffs = self.truth.query('agent_runtime_event', mission_id=p['mission_id'],
+                attempt_id=proof['verification_attempt_id'], event_name='HANDOFF_RETURNED')
+            starts = [event['seq'] for event in self.truth.store.iter_raw()
+                if event.get('entity_type') == 'agent_runtime_event'
+                and event.get('payload', {}).get('attempt_id') == proof['verification_attempt_id']]
+            if (not starts or min(starts) <= cutoff or len(handoffs) != 1
+                    or handoffs[0]['worker_instance_id'] != worker_id
+                    or handoffs[0]['assignment_id'] != assignment_id or handoffs[0]['result'] != 'PASS'
+                    or handoffs[0]['dsh_session_id'] != session_id
+                    or DshHeadlessWorkerLauncher._session_id(parsed) != session_id
+                    or not DshHeadlessWorkerLauncher._tool_calls(parsed)):
+                raise ContractError('N8_REPAIR_POST_GATE_INDEPENDENT_OBSERVATION_REQUIRED')
+            for evidence_id in binding['verification_evidence_refs']:
+                evidence = self._one('rc7_evidence', evidence_id=evidence_id)
+                if (evidence['mission_id'] != p['mission_id'] or evidence['content_ref'] != proof['raw_output_ref']
+                        or evidence.get('content_hash') != proof['raw_output_sha256']):
+                    raise ContractError('N8_REPAIR_CANONICAL_DATA_PROOF_CHANGED')
+
     def record_accepted_repair(self, preparation_id, *, repair_delivery_id, changed_refs, reason):
         """Admit only a newer, independently accepted upstream data repair.
 
@@ -236,6 +326,7 @@ class ExecutionDiagnosisService:
         if (set(gates[0]['criteria']) != set(N5_CRITERIA) or not all(criteria.values())
                 or delivery['artifact_refs'] != [row['binding_id'] for row in records]):
             raise ContractError('N8_CANONICAL_N5_REPAIR_PROOF_REQUIRED')
+        self._fresh_data_repair_proofs(p, original['gate_id'], receipt['result']['affected_refs'])
         if not set(receipt['result']['affected_refs']).issubset(set(changed_refs)):
             raise ContractError('N8_REPAIR_MUST_COVER_FAILED_DATA_REFS')
         repairs = self.truth.query('rc72_diagnosis_repair', diagnosis_id=case['diagnosis_id'])

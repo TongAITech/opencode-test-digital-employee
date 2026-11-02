@@ -49,6 +49,14 @@ class _Handler(BaseHTTPRequestHandler):
         self._send({'restored': True})
     def do_POST(self):
         raw = self.rfile.read(int(self.headers['Content-Length']))
+        if self.path == '/repair':
+            ref = json.loads(raw)['data_ref']
+            self.server.allowed_data_refs.add(ref)
+            if not hasattr(self.server, 'repair_calls'):
+                self.server.repair_calls = []
+            self.server.repair_calls.append(ref)
+            self._send({'data_ref': ref, 'data_exists': ref in self.server.allowed_data_refs})
+            return
         self.server.calls.append(json.loads(raw))
         self.server.restored = False
         self._send({'http': {'status': 200}, 'business': {'outcome': 'APPROVED_FIXTURE_RESULT'}})

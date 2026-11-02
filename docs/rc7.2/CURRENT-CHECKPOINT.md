@@ -3,6 +3,10 @@
 Status: **DESIGN_RECONCILED_INCOMPLETE / NO_DELIVERY**
 
 CONTRACT_SET=docs/rc7.2/00..05 + 07 + 08 + 09
+CONTINUOUS_GOAL=ACTIVE
+PACKAGING_AUTHORIZATION=after_all_repository_design_implementation_and_engineering_validation
+FIELD_ACCEPTANCE_OWNER=user_after_package_transfer
+EXECUTION_PLAN=docs/rc7.2/CONTINUOUS-CONSTRUCTION.md
 DELIVERY_AUTHORIZED=false
 FIELD_VERIFIED=false
 BANK_FINAL=NO
@@ -10,6 +14,53 @@ BANK_FINAL=NO
 Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md. Finish
 construction before preparing a delivery package. Candidate 9476b57 remains
 quarantined. This checkpoint supersedes earlier component-only descriptions.
+
+## Existing-DataRef repair and independent N5 proof — 2026-11-03
+
+ExistingDataRepairService consumes a signed completed N8 compensation boundary
+and the exact failed Case/Requirement/binding/resource. It creates no discovery
+candidate for reuse-only data. A durable signed request suspends the old binding;
+the native resolver also rejects a pending request if interruption occurred
+before the suspension write. N6/N7 remain locked while repair is unresolved.
+
+A fresh zero-artifact DATA_PREPARER may restore the physical resource using only
+explicit tools and the original source/constructor policy. PREPARED is not data
+verification. A distinct DATA_VERIFIER/session must then observe the exact DataRef
+and declared preconditions. Both roles have separate ordinary WorkItems and signed task/Attempt scopes, raw DSH
+output, observed tool calls and revoked post-process leases. Canonical raw-proof
+artifacts and independent Evaluations close these data WorkItems; failed data
+work remains failed until superseded by an evidenced later verification. The worker cannot
+substitute data, change source/strategy/cleanup/validity or emit canonical PASS.
+
+Raw bytes, exact output schema, session/tool/runtime lineage, HMAC and journal
+freshness are rechecked before the native binding revision is admitted. Historical
+proof survives cold restart; partial finalization and lost handoff responses reuse
+observations without another process/action. Unknown producer/dispatch effects
+block verification and do not auto-replay. Global exclusion/orphan reconciliation
+remain C06 work; this path requires a drained accepted repair boundary.
+
+Only the native whole-inventory N5 Gate releases N6. The actual N8 repair intake
+now requires a fresh post-original-Gate independent anchor for every failed
+DataRef. A new generic N5 Gate, changed_refs label, missing anchor or changed raw
+proof is insufficient. Original Attempt/WorkItem failure history remains intact.
+
+Engineering proof includes real local failure/diagnostic/reviewer/compensation,
+a real independent protocol subprocess performing the physical HTTP repair, a
+separate verification subprocess, native N5 Gate and native N8 repair intake.
+Approved upstream facts and the DSH-protocol worker are engineering fixtures;
+this is not real bank DSH/BSK qualification. Production controller wiring remains
+C08. Revised N6/planning/original-WorkItem/ETU retry remains C02.
+
+Validation: N5/N8/canonical-source/N7-admission chain 145 passed in 141.79s.
+Explicit schema bootstrap, generic DIAGNOSIS-session replay composition and
+no-marker unknown-dispatch guards were completed afterward; final-source cold
+start/lifecycle/diagnosis/data-repair chain 69 passed (4 existing collection
+warnings) in 61.85s. The new generic-process replay test found the prior base
+session validator overwriting DIAGNOSIS support; explicit purpose dispatch now
+preserves it after lifecycle reinstall while unknown purposes remain rejected.
+Unknown dispatch cannot repeat from a restored R1 even if claim files are absent.
+New-HEAD qualification is observed after push, not inferred from these results.
+
 
 ## Durable repair impact application
 
@@ -128,8 +179,9 @@ A repair intake now rejects old N5 delivery/gates, incomplete changed-data scope
 and generic success flags. A newer active accepted N5 delivery must still satisfy
 the native full-inventory data criteria before recording repair impact. This is a
 repair admission boundary, not proof of an executed N5 repair or a new successful
-Attempt. Positive actual N5 repair -> recompiled N6 -> new signed Attempt remains
-OPEN. The same-DataRef re-verification/version dependency is now implemented
+Attempt. The complete positive repair -> recompiled N6 -> new signed Attempt remains
+OPEN; exact-DataRef physical repair/verification and accepted repair intake are
+now implemented in the newer section above. The same-DataRef re-verification/version dependency is now implemented
 through the explicit native handoff/anchor/finalization path below. Actual repair
 boundary entry, resource cleanup and fresh business execution still need wiring. Original Attempts and owned resource leases are not silently rewritten or
 released by diagnosis. The classifier/reviewer are deterministic processes, not
@@ -269,7 +321,6 @@ N8 multi-event dispatch recovery, and OS-level isolation remain OPEN/AUDIT.
 Per-call exclusion is not global event-store locking. Unresolved legacy cleanup
 requires governed N4/N6 repair. No delivery or whole-product completion is claimed.
 
-Next: wire reuse-only N5 repair verification and renewed delivery, then reconcile
-N6/new-plan compilation with original WorkItem/ETU retry lineage,
+Next: reconcile N6/new-plan compilation with original WorkItem/ETU retry lineage,
 then connect N9/N10 consumers to this proven success
 chain, then product ingress. Packaging does not substitute for construction.

@@ -434,6 +434,14 @@ class N5DataResolutionService:
             raise N5DataResolutionError("RC72_N5_RESOLUTION_BINDING_SOURCE_MISMATCH")
         if binding.get("source_case_sha256") != requirement.get("source_case_sha256"):
             raise N5DataResolutionError("RC72_N5_RESOLUTION_BINDING_CASE_STALE")
+        # An interrupted repair request may be durable before its suspension
+        # write. The old evidence cannot pass N5 through that crash window.
+        from .rc72_n5_existing_data_repair_truth import install_rc72_n5_existing_data_repair_overlay
+        install_rc72_n5_existing_data_repair_overlay()
+        if any(row['original_binding']['binding_id'] == binding['binding_id']
+               and row['state'] in {'REQUESTED', 'DISPATCHING', 'OBSERVED'}
+               for row in self.truth.query('rc72_n5_existing_data_repair', data_requirement_id=requirement['data_requirement_id'])):
+            raise N5DataResolutionError('RC72_N5_RESOLUTION_REVERIFICATION_REPAIR_REQUIRED')
         if binding.get('verification_blocked_by_anchor'):
             raise N5DataResolutionError('RC72_N5_RESOLUTION_REVERIFICATION_REPAIR_REQUIRED')
         if binding.get("status") != _BINDING_STATUS:

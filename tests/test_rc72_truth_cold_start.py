@@ -98,3 +98,30 @@ def test_bootstrap_is_idempotent_and_unknown_events_stay_closed():
             assert list(runtime.store.iter_raw()) == []
             assert 'rc72_unknown' not in runtime.projection._versions
     ''')
+
+
+def test_diagnosis_session_contract_survives_base_overlay_reinstallation():
+    _cold("""
+        import rc7_runtime
+        from rc6_runtime.contracts import validate_artifact, DomainValidationError
+        from rc7_runtime.rc72_worker_lifecycle import install_rc72_worker_lifecycle_overlay
+        from rc7_runtime.rc72_diagnosis_orchestration import install_rc72_diagnosis_overlay
+        payload = dict(session_id='S-DIAG', worker_id='W-DIAG', mission_id='M', release_id='RC7.2',
+            release_batch_id='RB', team_id='TEAM', role='diagnosis-worker', purpose='DIAGNOSIS', state='ACTIVE',
+            source_binding_id='B', source_attempt_id='A', source_workitem_id='WI', source_etu_id='ETU',
+            failure_evidence_refs=['E'], executable_contract_refs=['C'], created_at=1,
+            context_bundle=dict(mission_id='M', source_attempt_id='A'))
+        for install in (install_rc72_worker_lifecycle_overlay, install_rc72_diagnosis_overlay,
+                        install_rc72_worker_lifecycle_overlay):
+            install()
+            assert validate_artifact('rc72_worker_session', payload)['purpose'] == 'DIAGNOSIS'
+            for invalid in (dict(payload, purpose='UNKNOWN'),
+                            dict(payload, context_bundle=dict(chat_history=['forbidden'])),
+                            dict(payload, state='CLOSED')):
+                try:
+                    validate_artifact('rc72_worker_session', invalid)
+                except DomainValidationError:
+                    pass
+                else:
+                    raise AssertionError('invalid session accepted')
+    """)

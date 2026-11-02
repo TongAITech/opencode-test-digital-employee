@@ -10,6 +10,7 @@ from threading import RLock
 _LOCK = RLock()
 _INSTALLED = False
 _INSTALLERS = (
+    ('rc72_n5_existing_data_repair_truth', 'install_rc72_n5_existing_data_repair_overlay'),
     ('rc72_n8_repair_boundary', 'install_rc72_n8_repair_boundary_overlay'),
     ('rc72_n8_execution_diagnosis', 'install_rc72_n8_execution_diagnosis_overlay'),
     ('rc72_n7_finalization', 'install_rc72_n7_finalization_overlay'),
