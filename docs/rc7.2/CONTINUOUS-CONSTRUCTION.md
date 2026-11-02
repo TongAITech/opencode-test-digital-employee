@@ -28,6 +28,8 @@
 - 搬运包必须达到 RC7.1 同等级完整载荷：不是源码包、增量补丁或测试压缩包；
   对照继承 package 构建器逐项核对 Python/离线依赖、DSH/工具/插件、浏览器/CodeGraph、
   工作区模板、配置引导、双平台入口、运行诊断和验收材料。
+  具体继承载荷见 COMPLETE-TRANSPORT-BASELINE.md（含 Node、Java/Maven 离线仓库、
+  OCR/CV、Allure/k6/ZAP、BSK CLI/扩展及最终封装链，不能只用工程包构建器）。
 
 ## 当前对齐
 
