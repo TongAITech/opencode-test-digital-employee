@@ -1,5 +1,32 @@
 # RC7.2 Current Construction Checkpoint
 
+## Native N5 product route and owned WorkItem closure — 2026-11-03
+
+The ReleaseBatch product driver now connects concrete N5PipelineService:
+canonical whole-Case inventory, deterministic reuse/discovery planning, native
+discovery assignment and DSH output, immediate raw anchoring/promotion, a fresh
+independent verifier, native resource/binding finalization and whole N5 Gate.
+Dispatched plans keep their original denominator while work is in progress;
+only after all results are finalized may verified reuse plans be recomputed.
+Cold continuation handles mixed finalized/pending work and partial replanning.
+
+N5WorkItemFinalizer re-audits actual native verifier output before closing each
+owned discovery task through canonical Evaluation. Negative results create
+explicit TEST_DATA_GAP repair work owned by TEST_DATA with test_data capability;
+the inherited TEST_DATA_DEFECT -> SCRIPT_READINESS policy remains unchanged.
+N5OwnedWorkItemGateService rejects verified bindings that hide unfinished owned
+tasks, independently binds Evaluations to native verifier results, and rechecks
+producer/verifier raw bytes and promoted candidate hash. This is data-work
+acceptance, never Case execution PASS, DataLease authority, Field or BANK_FINAL.
+
+The driver now resumes REVIEW_PENDING through actual registered N1..N5 Gate
+services, rather than returning NODE_NOT_READY after a durable Delivery write.
+Unsupported nodes remain HOLD. Production N6..N10, semantic repair execution,
+worker factory/run command, C07 all-role live tool fences and full portable
+package remain open. General interruption inside inherited Evaluation/Gap/task
+journal writes remains C06 work; tested recovery points are listed separately.
+
+
 ## Native N4 product route and parent-scoped acceptance — 2026-11-03
 
 The ReleaseBatch driver now connects N4PipelineService: the exact canonical

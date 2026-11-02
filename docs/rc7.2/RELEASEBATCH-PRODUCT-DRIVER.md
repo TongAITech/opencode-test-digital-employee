@@ -32,9 +32,18 @@
   正式 Gate 重新计算父级完整性、断言及设计深度，不能仅依赖旧 PASS 记录。
   保持 RC7.2 Case/nested execution 契约；缺少具体执行物化仍由 N6 阻断并交回
   所属节点修复，不凭空转换成另一种旧版 Case/数据构造格式。
+- N5：当前 N4 全部规范 Case 的完整数据需求清单、已验证绑定复用或正式发现
+  计划、发现任务分配、DSH 发现原始证据及产物、独立验证与原生资源/绑定确认。
+  发现已派发后保留完整计划；不能因部分结果已验证就重算掉未完任务。
+  全部独立确认后才重算 REUSE_VERIFIED 计划并调用正式 N5 Gate。
+  `N5WorkItemFinalizer` 从实际独立验证证据关闭原发现工作项；失败保留正式
+  数据缺口和要求 test_data 能力的修复工作项，不越权交给 Script/执行层。
+  `N5OwnedWorkItemGateService` 不允许已验证绑定掩盖未完成工作，也独立检查
+  Evaluation 与验证结果、原始发现/验证字节、候选哈希的精确关系。
+  完成 N5 不产生 DataLease，不代替后续实际 Case 执行。
 - 已提交候选的接续重查原始证据和规范候选，不重启分析工作进程。
   已验收的前缀调用原生 Gate 重新审计，不仅检查 PASS 标签。
-- 完成前缀后，N5 及以后未接入节点明确返回 HOLD / NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED。
+- 完成前缀后，N6 及以后未接入节点明确返回 HOLD / NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED。
   全部节点标签 PASS 仍需正式发布收敛审计；推进器不自行宣布 Mission 完成。
 
 只读状态入口不需要工作进程配置或密钥：
@@ -59,7 +68,7 @@ N1 复核不得将它回退到 READY。必须保留原 Gate 到原 N2 的正式 
 `release-driver-boundary-regression.log`，45 passed / 2.16 s。
 工作进程是工程协议适配器，不能据此声称真实银行 DSH/工具调用或 Field 通过。
 
-尚需完成：N5..N10 和 N8 回边/修复/重新执行的实际服务路由、Provider/会话接管、
+尚需完成：N6..N10 和 N8 回边/修复/重新执行的实际服务路由、Provider/会话接管、
 生产工作进程工厂及完整运行入口、全角色实际工具调用时权限、Journey/Browser、
 经济性和同源平台验证，以及 RC7.1 等价完整搬运包。C07/C08 均未完成。
 
@@ -84,3 +93,18 @@ N4 施工证据：`release-driver-n4-recovery.log`，8 passed / 16.36 s，
 最终本轮源码：`release-driver-n4-final.log`，60 passed / 40.23 s。
 额外三项检查通过实际继承审查器产生正面记录，再证明正式产品 Gate 会在
 写入 Delivery 前分别拒绝父级来源互代、缺失确定性断言、缺失深度/交互覆盖。
+
+N5 恢复使用同一真实工程协议工作流，依次在首项工作项验收后、第一条已验证
+计划重算持久化后，以及 N5 Delivery 已写入且节点 REVIEW_PENDING 时中断。
+重新建立 R1 投影后接续，其余任务继续且不重复已完成发现/验证。
+通用控制面的 Evaluation/Gap/task 多次日志写入内部中断仍需 C06 完成治理，
+不能把上述三个已测试边界扩大为所有中断均已证明安全。
+同一 Case 的全部父级义务仍保留；N5 工程样例使用经真实 SufficiencyV2 检查的
+有界多义务 Case 链接来缩短测试运行时间，没有删减数据需求分母或绕过审查。
+完整银行工具体和正式 Field 验收仍由实际运行环境证明。
+
+N5 最终本轮源码证据：`release-driver-n5-final.log`，4 passed / 134.05 s，
+分别覆盖完整正向范围/原始字节改动拒绝、全部独立负面结果、旧原生确认结果
+不能掩盖未完成工作项、同一流程三处持久化后冷接续。重流程分文件执行，
+没有删减必验数据需求范围。`release-driver-n5-native-regression.log`，
+124 passed / 137.46 s；`release-driver-n5-control-regression.log`，7 passed / 0.52 s。

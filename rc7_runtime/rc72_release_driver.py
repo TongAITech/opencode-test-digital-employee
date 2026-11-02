@@ -30,6 +30,8 @@ from .rc72_n3_pipeline import N3PipelineService
 from .rc72_n3_completion import N3DeliveryGateService
 from .rc72_n4_pipeline import N4PipelineService
 from .rc72_n4_parent_guard import N4ParentScopedDeliveryGateService
+from .rc72_n5_pipeline import N5PipelineService
+from .rc72_n5_workitem_acceptance import N5OwnedWorkItemGateService
 
 
 @contextmanager
@@ -83,7 +85,7 @@ def release_batch_status(truth, *, source_commit, release_batch_id):
 
 class ReleaseBatchDriver:
     def __init__(self, truth, *, source_commit, n1_launcher, n1_tools,
-                 n2_launcher, n2_tools, n2_evaluator, n3_pipeline=None, n4_pipeline=None):
+                 n2_launcher, n2_tools, n2_evaluator, n3_pipeline=None, n4_pipeline=None, n5_pipeline=None):
         if not isinstance(source_commit, str) or not re.fullmatch('[0-9a-f]{40}', source_commit):
             raise ContractError('RC72_RELEASE_DRIVER_EXACT_SOURCE_REQUIRED')
         if not isinstance(n2_evaluator, DshRequirementEvaluator):
@@ -109,6 +111,10 @@ class ReleaseBatchDriver:
                 or n4_pipeline.truth is not truth or n4_pipeline.source_commit != source_commit):
             raise ContractError('RC72_RELEASE_DRIVER_N4_PIPELINE_SCOPE_MISMATCH')
         self.n4_pipeline = n4_pipeline
+        if n5_pipeline is not None and (not isinstance(n5_pipeline, N5PipelineService)
+                or n5_pipeline.truth is not truth or n5_pipeline.source_commit != source_commit):
+            raise ContractError('RC72_RELEASE_DRIVER_N5_PIPELINE_SCOPE_MISMATCH')
+        self.n5_pipeline = n5_pipeline
 
     def _one(self, kind, **filters):
         rows = self.truth.query(kind, **filters)
@@ -155,6 +161,18 @@ class ReleaseBatchDriver:
             return dict(status='HOLD', reason='N2_REPAIR_OR_HUMAN_REVIEW_REQUIRED', workitem_ids=holds)
         return N2DeliveryGateService(self.truth, source_commit=self.source_commit).complete(release_batch_id=bid)
 
+    @staticmethod
+    def _gate_types():
+        return {'N1_REALITY': N1StrictRealityGateService, 'N2_REQUIREMENT': N2DeliveryGateService,
+            'N3_CODE_ANALYSIS': N3DeliveryGateService, 'N4_TEST_DESIGN': N4ParentScopedDeliveryGateService,
+            'N5_TEST_DATA': N5OwnedWorkItemGateService}
+
+    def _complete_gate(self, node_type, batch):
+        options = dict(source_commit=self.source_commit)
+        if node_type == 'N5_TEST_DATA':
+            options['release_id'] = batch['release_id']
+        return self._gate_types()[node_type](self.truth, **options).complete(release_batch_id=batch['release_batch_id'])
+
     def run(self, *, release_batch_id):
         with _driver_lock(self.truth, release_batch_id):
             self.truth.rebuild_projection()
@@ -169,26 +187,31 @@ class ReleaseBatchDriver:
                     or self.n4_pipeline.source_commit != self.source_commit
                     or any(l.truth is not self.truth or l.release_id != batch['release_id'] for l in self.n4_pipeline.launchers)):
                 raise ContractError('RC72_RELEASE_DRIVER_N4_PIPELINE_SCOPE_MISMATCH')
+            if self.n5_pipeline is not None and (self.n5_pipeline.truth is not self.truth
+                    or self.n5_pipeline.source_commit != self.source_commit
+                    or any(l.truth is not self.truth or l.release_id != batch['release_id'] for l in self.n5_pipeline.launchers)):
+                raise ContractError('RC72_RELEASE_DRIVER_N5_PIPELINE_SCOPE_MISMATCH')
             # Admission is rechecked even when canonical nodes already exist.
             ReleaseBatchFieldMissionLauncher(self.truth, source_commit=self.source_commit).start(release_batch_id=release_batch_id)
             # Cold continuation audits accepted source bytes, not merely PASS labels.
             for node in self.status(release_batch_id=release_batch_id)['nodes']:
                 if node['state'] != 'PASS':
                     break
-                if node['node_type'] == 'N1_REALITY':
-                    N1StrictRealityGateService(self.truth, source_commit=self.source_commit).complete(release_batch_id=release_batch_id)
-                elif node['node_type'] == 'N2_REQUIREMENT':
-                    N2DeliveryGateService(self.truth, source_commit=self.source_commit).complete(release_batch_id=release_batch_id)
-                elif node['node_type'] == 'N3_CODE_ANALYSIS':
-                    N3DeliveryGateService(self.truth, source_commit=self.source_commit).complete(release_batch_id=release_batch_id)
-                elif node['node_type'] == 'N4_TEST_DESIGN':
-                    N4ParentScopedDeliveryGateService(self.truth, source_commit=self.source_commit).complete(release_batch_id=release_batch_id)
+                if node['node_type'] in self._gate_types():
+                    self._complete_gate(node['node_type'], batch)
             while True:
                 snapshot = self.status(release_batch_id=release_batch_id)
                 pending = [n for n in snapshot['nodes'] if n['state'] != 'PASS']
                 if not pending:
                     return dict(snapshot, status='HOLD', reason='RELEASE_CONVERGENCE_AUDIT_REQUIRED')
                 node = pending[0]
+                if node['state'] == 'REVIEW_PENDING':
+                    if node['node_type'] not in self._gate_types():
+                        return dict(snapshot, status='HOLD', reason='NATIVE_GATE_ROUTE_NOT_IMPLEMENTED')
+                    self._complete_gate(node['node_type'], batch)
+                    if self._one('rc72_mission_node', mission_node_id=node['mission_node_id'])['state']=='PASS':
+                        continue
+                    return dict(self.status(release_batch_id=release_batch_id), status='HOLD', reason='NATIVE_NODE_GATE_NOT_PASS')
                 if node['state'] not in {'READY', 'RUNNING'}:
                     return dict(snapshot, status='HOLD', reason='NODE_NOT_READY', mission_node_id=node['mission_node_id'])
                 if node['node_type'] == 'N1_REALITY':
@@ -206,6 +229,10 @@ class ReleaseBatchDriver:
                         return dict(self.status(release_batch_id=release_batch_id), **result)
                 elif node['node_type'] == 'N4_TEST_DESIGN' and self.n4_pipeline is not None:
                     result = self.n4_pipeline.complete(release_batch_id=release_batch_id)
+                    if result.get('status') == 'HOLD':
+                        return dict(self.status(release_batch_id=release_batch_id), **result)
+                elif node['node_type'] == 'N5_TEST_DATA' and self.n5_pipeline is not None:
+                    result = self.n5_pipeline.complete(release_batch_id=release_batch_id)
                     if result.get('status') == 'HOLD':
                         return dict(self.status(release_batch_id=release_batch_id), **result)
                 else:

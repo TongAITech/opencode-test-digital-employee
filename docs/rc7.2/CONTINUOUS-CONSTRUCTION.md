@@ -1,5 +1,32 @@
 # RC7.2 持续施工与最终搬运交付
 
+## Native N5 product route and owned WorkItem closure — 2026-11-03
+
+The ReleaseBatch product driver now connects concrete N5PipelineService:
+canonical whole-Case inventory, deterministic reuse/discovery planning, native
+discovery assignment and DSH output, immediate raw anchoring/promotion, a fresh
+independent verifier, native resource/binding finalization and whole N5 Gate.
+Dispatched plans keep their original denominator while work is in progress;
+only after all results are finalized may verified reuse plans be recomputed.
+Cold continuation handles mixed finalized/pending work and partial replanning.
+
+N5WorkItemFinalizer re-audits actual native verifier output before closing each
+owned discovery task through canonical Evaluation. Negative results create
+explicit TEST_DATA_GAP repair work owned by TEST_DATA with test_data capability;
+the inherited TEST_DATA_DEFECT -> SCRIPT_READINESS policy remains unchanged.
+N5OwnedWorkItemGateService rejects verified bindings that hide unfinished owned
+tasks, independently binds Evaluations to native verifier results, and rechecks
+producer/verifier raw bytes and promoted candidate hash. This is data-work
+acceptance, never Case execution PASS, DataLease authority, Field or BANK_FINAL.
+
+The driver now resumes REVIEW_PENDING through actual registered N1..N5 Gate
+services, rather than returning NODE_NOT_READY after a durable Delivery write.
+Unsupported nodes remain HOLD. Production N6..N10, semantic repair execution,
+worker factory/run command, C07 all-role live tool fences and full portable
+package remain open. General interruption inside inherited Evaluation/Gap/task
+journal writes remains C06 work; tested recovery points are listed separately.
+
+
 ## Native N4 product route and parent-scoped acceptance — 2026-11-03
 
 The ReleaseBatch driver now connects N4PipelineService: the exact canonical
@@ -174,7 +201,7 @@ N9/N10 产品消费者、全局并发/孤儿恢复、Journey/经济策略的所�
 | C05 | N10 全 ReleaseBatch 消费者与 coverage 反馈闭环 | 全 Requirement/SST/Obligation/L1..L7、高风险/缺陷/gap/证据/STALE 分母；结构化未收敛理由 | OPEN |
 | C06 | 全局 Data/Browser 写排他、过期/续约、孤儿 claim/session、初始 N8 多事件恢复 | 多进程争用、崩溃恢复、不能重复业务 I/O、旧权限不复活 | ACTIVE：原生进程自动心跳/全租约续约、过期 custody、签名补偿；已执行成员签名排空、未影响复用及受影响新 Attempt 贯通整体验收；原生混合多成员、已执行/待重跑成员双轮修复及整体验收已验证；通用孤儿、其他故障补偿及调用 fencing 待完成 |
 | C07 | 同任务 Provider/Captain/会话接管；STRICT Capability amendment/delegation | 实际启动器/任务入口；丢会话不丢工作；权限不扩大、不继承 Captain 凭证 | ACTIVE：原生 N8→Broker 决定/冷恢复/撤销；N5 准备与独立验证已接实际 MCP 调用时拦截，其他角色/非 MCP/接管仍待落地 |
-| C08 | 统一产品入口/推进器/状态查询接上全部原生节点服务 | 真实产品命令/接口从 ReleaseBatch 驱动 N1..N10；重启从 R1 接续；无测试专用快捷开关 | ACTIVE：N1→N2→N3→N4 实际推进/独立审查/父级范围验收已接通；N5..N10 和生产运行入口待落地 |
+| C08 | 统一产品入口/推进器/状态查询接上全部原生节点服务 | 真实产品命令/接口从 ReleaseBatch 驱动 N1..N10；重启从 R1 接续；无测试专用快捷开关 | ACTIVE：N1→N2→N3→N4→N5 与发现工作项正式验收已接通；N6..N10 和生产运行入口待落地 |
 | C09 | Journey 教学→编译→回放→基准→人工批准→正式 L4/L5；真实 Browser 所有权 | 正式资产和完整业务谱系；独立浏览器租约及批准范围核验 | OPEN/AUDIT |
 | C10 | 模型经济 A..H 与真实生产/审查/修复启动点集成 | 实测或 UNKNOWN 用量、上海时窗、软预算、浪费硬门、最小上下文/重试增量、逐成员 batch 证据、Q7 双结果 | OPEN/AUDIT |
 | C11 | 全设计/CT/GAP 审核与同源 Windows/Linux 工程验证 | 当前源的逐项证据表；否定用例；CI 不能替代现场 | OPEN |

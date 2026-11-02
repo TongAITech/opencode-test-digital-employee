@@ -50,6 +50,7 @@ _CAPABILITIES_BY_NODE = {
     "REQUIREMENT_ANALYSIS": ("requirement_reasoning",),
     "CODE_ANALYSIS": ("code_reasoning", "code_reality"),
     "TEST_DESIGN": ("test_design",),
+    "TEST_DATA": ("test_data",),
     "SCRIPT_READINESS": ("test_automation",),
     "EXECUTION": ("test_execution",),
     "DEFECT": ("defect_analysis",),

@@ -15,7 +15,7 @@ from test_rc72_n4_test_design_handoff import _candidate
 from rc72_n2_test_support import BATCH, COMMIT, RELEASE
 
 
-def _n4_driver(tmp_path, *, incomplete_parent=False, explicit_gap=False, shallow=False, invalid_oracle=False):
+def _n4_driver(tmp_path, *, incomplete_parent=False, explicit_gap=False, shallow=False, invalid_oracle=False, compact=False):
     truth, driver, calls = _n3_driver(tmp_path, two_targets=True)
     script = tmp_path / 'n4-protocol-worker.py'
     script.write_text('import sys,json,uuid\n'
@@ -47,6 +47,21 @@ def _n4_driver(tmp_path, *, incomplete_parent=False, explicit_gap=False, shallow
                             check.update(actual_path='response.status_code', operator='EQ', expected=200)
                     candidate['obligations'].append(obligation)
                     candidate['cases'].append(case)
+                if compact:
+                    # Preserve every required parent obligation; group bounded
+                    # compatible links, still checked by real SufficiencyV2.
+                    groups = []
+                    for kind in ('CODE_IMPACT','REGRESSION'):
+                        same = [o for o in candidate['obligations'] if o['kind']==kind]
+                        groups.extend(same[i:i+3] for i in range(0,len(same),3))
+                    others = [o for o in candidate['obligations'] if o['kind'] not in {'CODE_IMPACT','REGRESSION'}]
+                    groups.extend(others[i:i+4] for i in range(0,len(others),4))
+                    by_id = {c['obligation_id']: c for c in candidate['cases']}
+                    candidate['cases'] = []
+                    for group in groups:
+                        case = deepcopy(by_id[group[0]['obligation_id']])
+                        case['coverage_links'] = [dict(subject_id=o['obligation_id'], evidence_ref=o['evidence_refs'][0]) for o in group]
+                        candidate['cases'].append(case)
                 code_obligations = [o for o in candidate['obligations'] if o['kind'] == 'CODE_IMPACT']
                 regression = [o for o in candidate['obligations'] if o['kind'] == 'REGRESSION']
                 if not shallow and len(code_obligations) >= 2 and len(regression) >= 2:
