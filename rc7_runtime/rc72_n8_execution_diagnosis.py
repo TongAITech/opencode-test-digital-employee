@@ -1,6 +1,6 @@
 """Actual independent diagnostic process and evidence review for N7 failures.
 
-Only directly verified data gaps are routed automatically. Unknown causality
+Only directly verified data/tool gaps are routed automatically. Unknown causality
 remains BLOCKED; no caller can provide a classification or approval flag.
 """
 from copy import deepcopy
@@ -66,10 +66,10 @@ class ExecutionDiagnosisService:
         if attempt['status'] != 'BLOCKED' or attempt['reason'] == 'CLEANUP_AND_EVIDENCE_CLOSURE_REQUIRED':
             raise ContractError('N8_ACTUAL_FAILED_ATTEMPT_REQUIRED')
         checks = []
-        expected = preparation_check_specs(c)
+        expected = preparation_check_specs(c) + [(kind, dict(tool_id=c['tool_route']['tool'])) for kind in ('TOOL_PROBE', 'TOOL_UNAVAILABLE')]
         for evidence_id in attempt['evidence_refs']:
             row = self._one('rc7_evidence', evidence_id=evidence_id)
-            if row['kind'] not in {'N7_FORMAL_PRECONDITION', 'N7_FORMAL_DATA_RECHECK'}:
+            if row['kind'] not in {'N7_FORMAL_PRECONDITION', 'N7_FORMAL_DATA_RECHECK', 'N7_FORMAL_TOOL_PROBE', 'N7_FORMAL_TOOL_UNAVAILABLE'}:
                 continue
             check = dict(kind=row['kind'][len('N7_FORMAL_'):], spec=row['check_spec'], success=row['check_success'],
                 evidence_id=row['evidence_id'], captured_ref=row['content_ref'], sha256=row['content_hash'])
@@ -395,15 +395,17 @@ class ExecutionDiagnosisService:
                 self.runtime.apply_gate(NodeGate(gate_id=gate_id, mission_id=p['mission_id'], mission_node_id=node['mission_node_id'],
                     node_type=AutonomousMissionNode.N8_DIAGNOSIS_RECOVERY, delivery_id=receipt['delivery_id'], decision=NodeGateDecision.PASS,
                     reviewer_worker_id=receipt['reviewer_worker_id'], reviewer_session_id=receipt['reviewer_session_id'],
-                    criteria=_CRITERIA, passed=_CRITERIA, evidence_refs=refs, reason='independent process review of signed live data failure'))
+                    criteria=_CRITERIA, passed=_CRITERIA, evidence_refs=refs, reason='independent process review of signed live failure evidence'))
         outcome = self.orchestrator.accept_classification(diagnosis_id=case['diagnosis_id'],
             failure_class=FailureClass(result['failure_class']), source_delivery_id=receipt['delivery_id'], evidence_refs=refs,
             affected_refs=result['affected_refs'], rationale=result['rationale'])
         for session_id in (receipt['diagnosis_session_id'], receipt['reviewer_session_id']):
             if self._one('rc72_worker_session', session_id=session_id)['state'] == 'ACTIVE':
                 self.preparation.lifecycle.checkpoint_and_close(session_id, reason='actual N8 diagnosis and review accepted')
-        return dict(state='REPAIR_REQUIRED', diagnosis_id=case['diagnosis_id'], failure_class=result['failure_class'],
-                    responsible_node=outcome.responsible_node.value, gap_id=outcome.gap_id)
+        return dict(state='REPAIR_REQUIRED' if outcome.responsible_node else 'RECOVERY_REQUIRED',
+                    diagnosis_id=case['diagnosis_id'], failure_class=result['failure_class'],
+                    responsible_node=outcome.responsible_node.value if outcome.responsible_node else None,
+                    action=outcome.action, gap_id=outcome.gap_id)
 
 
 install_rc72_n8_execution_diagnosis_overlay()

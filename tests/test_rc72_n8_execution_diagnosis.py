@@ -221,3 +221,96 @@ def test_saved_n8_process_proof_cannot_be_changed_during_replay(tmp_path, monkey
     finally:
         server.shutdown()
         server.server_close()
+
+
+class _MissingExecutableEnvironment(LocalHTTPEnvironment):
+    def probe_tool(self, *, tool_id, target_id, layer):
+        import json
+        from rc7_runtime.execution_environment import ToolProbeResult
+        executable = self.root / 'unavailable-tool'
+        path = self.root / 'executable-probe.json'
+        exists = executable.exists()
+        path.write_text(json.dumps(dict(executable=str(executable), exists=exists)))
+        return ToolProbeResult(tool_id, exists, 'local-tool://' + tool_id,
+            'file://' + str(executable), 'adapter://engineering-local-filesystem',
+            'filesystem-probe://' + target_id, 'file://' + str(path), None)
+
+
+def test_actual_failed_tool_probe_routes_capability_without_semantic_mutation_or_business_retry(tmp_path, monkeypatch):
+    truth, plan, prep, server, url = formal_setup(tmp_path, monkeypatch)
+    try:
+        server.tool_ready = False
+        root = tmp_path / 'actual-capability'
+        runner = FormalN7RunnerAdapter(prep, evidence_root=root,
+            environment_adapter=_MissingExecutableEnvironment(url, root), timeout_seconds=30)
+        p = prep.prepare(plan_id=plan['plan_id'], workitem_id=plan['items'][0]['workitem_id'])
+        assert SignedToolDispatchService(prep, adapters={'api_http': runner}).dispatch(p['preparation_id'])['state'] == 'FAILED'
+        from rc7_runtime.rc72_n7_execution_evidence import ExecutionEvidenceService
+        ExecutionEvidenceService(prep).record(p['preparation_id'])
+        service = ExecutionDiagnosisService(prep, evidence_root=tmp_path / 'capability-diagnosis')
+        result = service.run(p['preparation_id'])
+        assert result['state'] == 'RECOVERY_REQUIRED'
+        assert result['failure_class'] == 'CAPABILITY_GAP'
+        assert result['action'] == 'CAPABILITY_BROKER' and result['responsible_node'] is None
+        assert server.calls == [] and truth.query('rc72_back_edge') == []
+        assert truth.query('rc72_diagnosis_outcome')[0]['replacement_attempt_required'] is False
+        assert truth.query('rc72_n8_process_diagnosis')[0]['result']['affected_refs'] == ['api_http']
+        assert truth.query('execution_attempt')[0]['status'] == 'BLOCKED'
+        before = truth.store.path.read_bytes()
+        assert service.run(p['preparation_id']) == result
+        assert truth.store.path.read_bytes() == before
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.parametrize('tamper', ['bytes', 'tool_scope', 'signature'])
+def test_failed_tool_probe_requires_unchanged_runtime_attestation(tmp_path, monkeypatch, tamper):
+    truth, plan, prep, server, url = formal_setup(tmp_path, monkeypatch)
+    try:
+        server.tool_ready = False
+        root = tmp_path / 'actual-capability'
+        runner = FormalN7RunnerAdapter(prep, evidence_root=root,
+            environment_adapter=_MissingExecutableEnvironment(url, root), timeout_seconds=30)
+        p = prep.prepare(plan_id=plan['plan_id'], workitem_id=plan['items'][0]['workitem_id'])
+        SignedToolDispatchService(prep, adapters={'api_http': runner}).dispatch(p['preparation_id'])
+        from rc7_runtime.rc72_n7_execution_evidence import ExecutionEvidenceService
+        ExecutionEvidenceService(prep).record(p['preparation_id'])
+        row = truth.query('rc7_evidence', kind='N7_FORMAL_TOOL_UNAVAILABLE')[0]
+        if tamper == 'bytes':
+            Path(row['content_ref'][len('file://'):]).write_bytes(b'changed probe observation')
+        else:
+            if tamper == 'tool_scope':
+                row['check_spec']['tool_id'] = 'unapproved-tool'
+            else:
+                row['check_runtime_signature'] = '0' * 64
+            row['artifact_version'] += 1
+            truth.append_atomic('RC7_EVIDENCE_UPSERTED', row)
+        before = truth.store.path.read_bytes()
+        with pytest.raises(ContractError, match='N8_LIVE_CHECK_'):
+            ExecutionDiagnosisService(prep, evidence_root=tmp_path / 'diagnosis').run(p['preparation_id'])
+        assert truth.store.path.read_bytes() == before
+        assert truth.query('rc72_diagnosis_outcome') == [] and server.calls == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_generic_failed_tool_health_probe_does_not_establish_capability_cause(tmp_path, monkeypatch):
+    truth, plan, prep, server, url = formal_setup(tmp_path, monkeypatch)
+    try:
+        server.tool_ready = False
+        root = tmp_path / 'ambiguous-tool-probe'
+        runner = FormalN7RunnerAdapter(prep, evidence_root=root,
+            environment_adapter=LocalHTTPEnvironment(url, root), timeout_seconds=30)
+        p = prep.prepare(plan_id=plan['plan_id'], workitem_id=plan['items'][0]['workitem_id'])
+        SignedToolDispatchService(prep, adapters={'api_http': runner}).dispatch(p['preparation_id'])
+        from rc7_runtime.rc72_n7_execution_evidence import ExecutionEvidenceService
+        ExecutionEvidenceService(prep).record(p['preparation_id'])
+        result = ExecutionDiagnosisService(prep, evidence_root=tmp_path / 'diagnosis').run(p['preparation_id'])
+        assert result['failure_class'] == 'UNKNOWN' and result['state'] == 'BLOCKED'
+        assert truth.query('rc72_diagnosis_outcome') == []
+        assert server.calls == []
+    finally:
+        server.shutdown()
+        server.server_close()

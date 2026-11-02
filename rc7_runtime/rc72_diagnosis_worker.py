@@ -14,6 +14,13 @@ def classify(request):
         path = Path(row['captured_ref'][len('file://'):])
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != row['sha256']:
             raise ValueError('DIAGNOSIS_EVIDENCE_BYTES_CHANGED')
+    failed_tools = [row for row in facts['checks'] if row['kind'] == 'TOOL_UNAVAILABLE' and row['success'] is False]
+    if failed_tools:
+        return dict(diagnosis_id=request['diagnosis_id'], input_sha256=request['input_sha256'],
+            failure_class='CAPABILITY_GAP', confidence='DIRECT_MACHINE_EVIDENCE',
+            affected_refs=sorted(row['spec']['tool_id'] for row in failed_tools),
+            rationale='Runtime observed the exact required tool executable absent on disk during a real failed capability probe',
+            requested_remediation='CapabilityBroker must restore and re-probe the exact required tool; no automatic business replay')
     failed_data = [row for row in facts['checks'] if row['kind'] == 'DATA_RECHECK' and row['success'] is False]
     proven = bool(failed_data)
     return dict(diagnosis_id=request['diagnosis_id'], input_sha256=request['input_sha256'],

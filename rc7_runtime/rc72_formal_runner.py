@@ -293,7 +293,9 @@ class FormalN7RunnerAdapter:
         started = datetime.now(timezone.utc).isoformat()
         probe = self.environment_adapter.probe_tool(tool_id=contract['tool_route']['tool'], target_id=target.target_id, layer=bundle.spec.layer)
         ExecutionEnvironmentAdmissionService._validate_probe(probe, tool_id=contract['tool_route']['tool'])
-        if not probe.success or not probe.evidence_ref or not probe.evidence_ref.startswith('file://'):
+        if not isinstance(probe.success, bool):
+            raise FormalRunnerError('FORMAL_EXECUTION_TOOL_PROBE_SUCCESS_INVALID')
+        if not probe.evidence_ref or not probe.evidence_ref.startswith('file://'):
             raise FormalRunnerError('FORMAL_EXECUTION_TOOL_PROBE_FAILED')
         probe_path = Path(probe.evidence_ref[len('file://'):])
         if not probe_path.is_file():
@@ -302,6 +304,33 @@ class FormalN7RunnerAdapter:
         probe_capture = self.root / 'formal-probes' / (p['attempt_id'] + '.json')
         probe_capture.parent.mkdir(parents=True, exist_ok=True)
         probe_capture.write_bytes(probe_bytes)
+        if not probe.success:
+            # The runtime captures a real failed adapter observation before
+            # throwing. Worker exception strings cannot authorize classification.
+            from .rc72_n7_execution_evidence import ExecutionEvidenceService
+            evidence = ExecutionEvidenceService(self.preparation)
+            spec = dict(tool_id=contract['tool_route']['tool'])
+            evidence_id = 'N7PROBE-' + _hash([p['attempt_id'], spec, hashlib.sha256(probe_bytes).hexdigest()])[:24]
+            executable = probe.executable_ref
+            absent = (executable.startswith('file://') and
+                      Path(executable[len('file://'):]).is_absolute() and
+                      not Path(executable[len('file://'):]).exists())
+            kind = 'TOOL_UNAVAILABLE' if absent else 'TOOL_PROBE'
+            check = dict(kind=kind, spec=spec, success=False, evidence_id=evidence_id,
+                         captured_ref='file://' + str(probe_capture), sha256=hashlib.sha256(probe_bytes).hexdigest())
+            signature = self.preparation.authority._sign(dict(purpose='N7_LIVE_PREPARATION_CHECK',
+                                                               attempt_id=p['attempt_id'], **check))
+            evidence._ensure('rc7_evidence', 'RC7_EVIDENCE_UPSERTED', 'evidence_id', dict(
+                evidence_id=evidence_id, release_id=p['release_id'], mission_id=p['mission_id'],
+                kind='N7_FORMAL_' + kind, source_ref=probe.evidence_ref,
+                content_ref=check['captured_ref'], content_hash=check['sha256'],
+                subject_refs=[p['attempt_id'], p['case_id']], check_spec=spec,
+                check_success=False, check_runtime_signature=signature, artifact_version=1))
+            evidence._ensure('evidence', 'EVIDENCE_UPSERTED', 'id', dict(
+                id=evidence_id, release_id=p['release_id'], kind='N7_FORMAL_' + kind,
+                ref=check['captured_ref'], source_artifact_ref=contract['contract_id'],
+                tc_id=p['case_id'], attempt_id=p['attempt_id'], artifact_version=1))
+            raise FormalRunnerError('FORMAL_EXECUTION_TOOL_PROBE_FAILED')
         preparation_checks = self._check_preparation(p, target, contract)
         runners = {'PYTEST': PytestRunnerAdapter, 'JUNIT': JUnitRunnerAdapter}
         if bundle.spec.runner_type not in runners:

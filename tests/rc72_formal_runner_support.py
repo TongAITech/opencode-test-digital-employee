@@ -43,7 +43,7 @@ class _Handler(BaseHTTPRequestHandler):
             ref = parse_qs(urlsplit(self.path).query).get('ref', [''])[0]
             self._send({'data_ref': ref, 'data_exists': ref in self.server.allowed_data_refs})
             return
-        self._send({'restored': self.server.restored, 'ready': True})
+        self._send({'restored': self.server.restored, 'ready': getattr(self.server, 'tool_ready', True)})
     def do_DELETE(self):
         self.server.restored = True
         self._send({'restored': True})
@@ -74,7 +74,7 @@ class LocalHTTPEnvironment(ExecutionEnvironmentAdapter):
             raw = response.read()
         path = self.root / ('probe-' + target_id + '.json')
         path.write_bytes(raw)
-        return ToolProbeResult(tool_id, True, self.url, 'python://urllib.request',
+        return ToolProbeResult(tool_id, json.loads(raw).get('ready') is True, self.url, 'python://urllib.request',
             'adapter://engineering-local-real-http', 'http-call://' + target_id,
             'file://' + str(path), 'target-probe://' + target_id)
     def resolve_precondition(self, spec, context):

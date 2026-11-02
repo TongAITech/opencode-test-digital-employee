@@ -331,3 +331,18 @@ This closes the narrow data-repair-to-execution gap, not the full Phase 6 gate.
 Other semantic failure classes, completed-member reconciliation, production
 call-time tool scopes, global ownership and controller wiring remain open.
 Local protocol subprocesses are engineering evidence, not bank Field proof.
+
+
+## Failed tool probe causal boundary — 2026-11-03
+
+The real formal adapter now preserves failed tool probe bytes under a signed
+attempt/Case/tool scope. Native evidence and independent N8 processes consume
+those observations. Runtime-observed absence of the exact absolute local tool
+executable supports CAPABILITY_GAP -> CAPABILITY_BROKER; a generic health failure
+or unsatisfied business precondition remains UNKNOWN. Tampered bytes, tool scope
+and signatures are rejected before diagnosis. The original Attempt stays BLOCKED
+and no semantic back edge or automatic business retry is produced. This closes
+one real classification path; it does not close the entire C03 or broker/product
+recovery integration. Final-source chain: 43 passed, one pre-existing collection
+warning; inherited compensation/retry/finalization: 29 passed before final causal
+narrowing (which has its own final-source coverage).

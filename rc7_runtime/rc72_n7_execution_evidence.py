@@ -110,7 +110,7 @@ class ExecutionEvidenceService:
             ref=ref, source_artifact_ref=dispatch['dispatch_id'], requirement_id=c['requirement_id'],
             tc_id=p['case_id'], attempt_id=p['attempt_id'], artifact_version=1))
         check_refs = sorted(row['evidence_id'] for row in self.truth.query('rc7_evidence', mission_id=p['mission_id'])
-            if row.get('kind') in {'N7_FORMAL_PRECONDITION', 'N7_FORMAL_DATA_RECHECK'}
+            if row.get('kind') in {'N7_FORMAL_PRECONDITION', 'N7_FORMAL_DATA_RECHECK', 'N7_FORMAL_TOOL_PROBE', 'N7_FORMAL_TOOL_UNAVAILABLE'}
             and p['attempt_id'] in row.get('subject_refs', []))
         observation_refs = [evidence_id] + check_refs
         assertion_id = None

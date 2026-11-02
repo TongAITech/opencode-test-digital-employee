@@ -15,6 +15,31 @@ Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md. Finish
 construction before preparing a delivery package. Candidate 9476b57 remains
 quarantined. This checkpoint supersedes earlier component-only descriptions.
 
+## Actual failed-tool probe diagnosis — 2026-11-03
+
+C03 now captures failed real tool probes as runtime-signed, attempt/Case/tool-scoped
+raw evidence before the dispatch exception. Native N7 observations retain the
+proof for independent N8 diagnosis and fresh reviewer processes. Only a failed
+probe together with runtime-observed absence of the exact local executable at
+an absolute file path may establish CAPABILITY_GAP. Generic failed endpoint/tool
+health or business preconditions remain UNKNOWN: tool unavailability is not
+inferred from an exception string or a caller's failure-class label.
+
+The accepted outcome reports RECOVERY_REQUIRED / CAPABILITY_BROKER with no
+semantic upstream target. It does not create an N1..N6 back edge, grant authority,
+replay a business action or promote the blocked Attempt. Exact source bytes,
+tool scope and HMAC are checked before diagnosis and rechecked for replay.
+
+This is a concrete classification/routing extension only. CapabilityBroker
+consumer wiring, physical restoration/re-probe and fresh execution recovery
+remain C07/C08 work; broader environment/analysis/design/executable diagnosis and
+controlled semantic repair remain C03. No broad Phase 6 completion is claimed.
+Final-source causal/runner/evidence/broker chain: 43 passed (one existing
+collection warning) in 48.36s. Inherited compensation/same-identity retry/N7
+finalization run: 29 passed in 62.30s; it preceded the final causal narrowing,
+which is covered by the 43-check final-source chain. Compilation and diff checks
+passed. Same-source platform qualification remains pending.
+
 ## Native unchanged-Case repair continuation — 2026-11-03
 
 C02 now has a callable native continuation from an accepted, independently
