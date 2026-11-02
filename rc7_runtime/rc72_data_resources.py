@@ -238,6 +238,29 @@ class DataLeaseManager:
             raise ContractError("DATA_REF_NOT_VERIFIED")
         if resource.get("mutable") and mode != DataAccessMode.EXCLUSIVE_WRITE:
             raise ContractError("MUTABLE_DATA_REQUIRES_EXCLUSIVE_WRITE")
+        # A complete repair owns custody between physical preparation and its
+        # independent verification, including controller/process restarts.
+        if 'rc72_n5_existing_data_repair' in _truth.BUCKETS:
+            repairs = self.truth.query('rc72_n5_existing_data_repair')
+            for repair in repairs:
+                if repair['original_binding']['data_ref'] != data_ref or repair['state'] == 'VERIFIED':
+                    continue
+                # A known negative observation is not a release of a verified
+                # resource. Only a later independently verified binding revision
+                # can retire that failed repair's custody.
+                if repair['state'] == 'REPAIR_REQUIRED':
+                    bindings = self.truth.query('rc72_n5_data_binding',
+                        binding_id=repair['original_binding']['binding_id'])
+                    if len(bindings) == 1:
+                        binding = bindings[0]
+                        if (binding['data_ref'] == data_ref and not binding.get('verification_blocked_by_anchor')
+                                and any(candidate['state'] == 'VERIFIED'
+                                    and candidate['repair_id'] == binding.get('reverification_anchor_id')
+                                    and candidate['original_binding']['binding_id'] == binding['binding_id']
+                                    and candidate['evidence_ref'] in binding['verification_evidence_refs']
+                                    for candidate in repairs)):
+                            continue
+                raise DataResourceConflict('DATA_RESOURCE_CONFLICT:N5_REPAIR_CUSTODY_HELD')
         # Parent-gated repair calls share this ledger gate with reservations.
         # Unknown effects retain custody even after their worker/controller ends.
         if 'rc72_native_tool_call' in _truth.BUCKETS:

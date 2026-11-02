@@ -16,6 +16,7 @@ from .models import Artifact, ContractError, Evidence, Evaluation, EvaluationRes
 from .closed_loop_control import ClosedLoopControlPlane
 from .state_machine import transition_task
 from .rc72_authority import DATA_PREPARER, DATA_VERIFIER
+from .rc72_ledger_lock import resource_guard
 from .rc72_canonical_design import CanonicalDesignService
 from .rc72_n5_data_verification_anchor import _strict_final_json
 from .rc72_n5_data_verification_finalization import N5DataVerificationFinalizationService
@@ -110,6 +111,7 @@ class ExistingDataRepairService:
             raise ContractError('N5_EXISTING_REPAIR_DATA_OWNER_MUST_DRAIN')
         return contract
 
+    @resource_guard(busy='N5_EXISTING_REPAIR_LEDGER_BUSY')
     def request(self, preparation_id, *, data_requirement_id, binding_revision):
         if isinstance(binding_revision, bool) or not isinstance(binding_revision, int) or binding_revision < 1:
             raise ContractError('N5_EXISTING_REPAIR_BINDING_REVISION_REQUIRED')
@@ -136,6 +138,9 @@ class ExistingDataRepairService:
             raise ContractError('N5_EXISTING_REPAIR_EXACT_BINDING_REQUIRED')
         if any(row['state'] not in _FINAL for row in self.truth.query(_KIND, data_requirement_id=data_requirement_id)):
             raise ContractError('N5_EXISTING_REPAIR_PRIOR_REQUEST_UNRESOLVED')
+        if any(other['state'] not in _FINAL and other['original_binding']['data_ref'] == binding['data_ref']
+               for other in self.truth.query(_KIND)):
+            raise ContractError('N5_EXISTING_REPAIR_OTHER_RESOURCE_CUSTODY_HELD')
         row = dict(expected, **{key: requirement[key] for key in ('mission_node_id', 'case_id', 'requirement_id',
                 'sst_id', 'obligation_id', 'source_case_sha256')},
             repair_id=repair_id, preparation_id=preparation_id, boundary_id=grant['boundary_id'],

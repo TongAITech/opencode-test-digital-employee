@@ -101,7 +101,7 @@ def test_inflight_and_unknown_effects_hold_data_custody_across_missions(tmp_path
         _second_mission(truth, planning_snapshot_ref='manual-planning://second-mission')
         original = gate.handlers[READ].execute
         def observe_then_revoke(arguments):
-            with pytest.raises(Exception, match='NATIVE_TOOL_CUSTODY_HELD'):
+            with pytest.raises(Exception, match='(?:NATIVE_TOOL|N5_REPAIR)_CUSTODY_HELD'):
                 reserve(truth, arguments['data_ref'])
             blocked.append('IN_FLIGHT')
             result = original(arguments)
@@ -117,7 +117,56 @@ def test_inflight_and_unknown_effects_hold_data_custody_across_missions(tmp_path
         call = truth.query('rc72_native_tool_call')[0]
         assert call['state'] == 'UNKNOWN' and call['access_mode'] == 'READ'
         assert truth.query('rc72_native_tool_gate')[0]['state'] == 'CLOSED'
-        with pytest.raises(Exception, match='NATIVE_TOOL_CUSTODY_HELD'):
+        with pytest.raises(Exception, match='(?:NATIVE_TOOL|N5_REPAIR)_CUSTODY_HELD'):
             reserve(truth, call['data_ref'])
+    finally:
+        _close(server)
+
+
+@pytest.mark.parametrize('restore', [True, False])
+def test_whole_repair_retains_custody_between_preparation_and_independent_verification(tmp_path, monkeypatch, restore):
+    from rc6_runtime.truth import TruthRuntime
+    from rc7_runtime.rc72_data_resources import DataLeaseManager, DataAccessMode
+    from test_rc72_resource_process_exclusion import _second_mission
+    truth, prep, server, p, service, request, producer, effects, captured = _fenced_setup(tmp_path, monkeypatch)
+    try:
+        _second_mission(truth, planning_snapshot_ref='manual-planning://second-mission')
+        # Independent controller projection observes durable custody, not a live
+        # process or the presence of a claim file.
+        cold = TruthRuntime(truth.store.path)
+        manager = DataLeaseManager(cold, release_id='RC7.2')
+        def acquire():
+            return manager.acquire(data_ref=request['original_binding']['data_ref'],
+                mission_id='M-SECOND', workitem_id='WI-SECOND', attempt_id='ATT-SECOND',
+                worker_id='WORKER-SECOND', mode=DataAccessMode.EXCLUSIVE_WRITE,
+                ttl_seconds=300, cleanup_policy='release reservation')
+        with pytest.raises(Exception, match='N5_REPAIR_CUSTODY_HELD'):
+            acquire()
+        if not restore:
+            assert service.run(request['repair_id'])['state'] == 'REPAIR_REQUIRED'
+            assert truth.query('rc72_native_tool_call')[0]['state'] == 'RETURNED'
+            with pytest.raises(Exception, match='N5_REPAIR_CUSTODY_HELD'):
+                acquire()
+            assert [mode for mode, ref in effects] == ['READ']
+            binding = service._one('rc72_n5_data_binding', binding_id=request['original_binding']['binding_id'])
+            retry = service.request(p['preparation_id'], data_requirement_id=request['data_requirement_id'],
+                binding_revision=binding['artifact_version'])
+            assert retry['repair_id'] != request['repair_id']
+            assert service.prepare(retry['repair_id'], launcher=producer, allowed_tools=[WRITE])['state'] == 'PREPARED'
+            with pytest.raises(Exception, match='N5_REPAIR_CUSTODY_HELD'):
+                acquire()
+            assert service.run(retry['repair_id'])['state'] == 'VERIFIED'
+            assert acquire().data_ref == request['original_binding']['data_ref']
+            assert [mode for mode, ref in effects] == ['READ', 'WRITE', 'READ']
+            return
+        assert service.prepare(request['repair_id'], launcher=producer, allowed_tools=[WRITE])['state'] == 'PREPARED'
+        assert truth.query('rc72_native_tool_call')[0]['state'] == 'RETURNED'
+        assert producer._native_gate is None
+        with pytest.raises(Exception, match='N5_REPAIR_CUSTODY_HELD'):
+            acquire()
+        assert service.run(request['repair_id'])['state'] == 'VERIFIED'
+        grant = acquire()
+        assert grant.data_ref == request['original_binding']['data_ref']
+        assert [mode for mode, ref in effects] == ['WRITE', 'READ']
     finally:
         _close(server)

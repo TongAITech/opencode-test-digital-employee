@@ -1,5 +1,30 @@
 # RC7.2 Current Construction Checkpoint
 
+## Whole-repair resource custody — 2026-11-03
+
+Existing-DataRef repair admission now takes the same OS ledger lock as data
+reservations and native tool calls. Its durable request owns exact-resource
+custody while preparation and independent verification are in progress, across
+process/controller restarts and the gap between returned tool calls. Another
+repair cannot concurrently claim that resource. Native tool calls reject a
+conflicting unfinished repair, and normal reservations cannot bypass it.
+
+A negative independent result (`REPAIR_REQUIRED`) retains custody. A later
+repair may restore the exact resource; ordinary reservations reopen only when
+that repair is independently VERIFIED, the exact binding revision points to its
+anchor and contains its actual verification evidence, and its block is cleared.
+A failed terminal row by itself never makes the resource available.
+
+Validation: actual MCP preparation/verifier, independent cold-controller
+reservation, negative verification then a fresh exact-binding repair and
+successful verification: `native-repair-lifecycle-retry.log`, 2 passed (13.99 s).
+Native repair integration: `native-repair-lifecycle.log`, 36 passed (127.98 s).
+Custody/fencing and cross-process reservation checks:
+`native-repair-lifecycle-cold.log`, 16 passed (40.88 s). Unknown-effect disposition,
+all journal writers and general orphan recovery still require C06 construction;
+this is not full design or delivery qualification.
+
+
 ## Native N5 call-time authority — 2026-11-03
 
 C07 now has an actual MCP-to-parent execution bridge for existing-DataRef

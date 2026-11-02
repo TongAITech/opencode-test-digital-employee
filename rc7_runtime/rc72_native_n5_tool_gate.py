@@ -293,6 +293,10 @@ class NativeN5ToolGate:
             if self.truth.query(_CALL, gate_id=self.gate_id, tool=tool):
                 raise ContractError('NATIVE_TOOL_SINGLE_EXACT_OPERATION_REQUIRED')
             mode = self.handlers[tool].mode
+            for repair in self.truth.query('rc72_n5_existing_data_repair'):
+                if (repair['repair_id'] != self.repair_id and repair['state'] not in {'VERIFIED', 'REPAIR_REQUIRED'}
+                        and repair['original_binding']['data_ref'] == self.scope['data_ref']):
+                    raise ContractError('NATIVE_TOOL_OTHER_REPAIR_CUSTODY_HELD')
             for owner in self.truth.query('rc72_data_lease', data_ref=self.scope['data_ref']):
                 if owner['state'] in {'ACTIVE', 'EXPIRED'} and (mode == 'WRITE' or owner['mode'] == 'EXCLUSIVE_WRITE'):
                     raise ContractError('NATIVE_TOOL_DATA_LEASE_CUSTODY_HELD')
