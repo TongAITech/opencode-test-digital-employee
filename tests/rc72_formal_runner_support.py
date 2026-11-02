@@ -150,7 +150,9 @@ def test_formal_api():
         manifest.write(json.dumps(dict(type='actual_result',value=actual))+'\\n')
     assert not FAIL_AFTER_ACTUAL
 '''
-    source.write_text(code.replace('EMIT_TOOL', str(emit_tool)).replace('FAIL_AFTER_ACTUAL', str(fail)), encoding='utf-8')
+    # Qualification binds exact UTF-8 bytes. Text-mode Windows writes would
+    # translate LF to CRLF while read_text normalizes the candidate back to LF.
+    source.write_bytes(code.replace('EMIT_TOOL', str(emit_tool)).replace('FAIL_AFTER_ACTUAL', str(fail)).encode('utf-8'))
     frozen = {k: deepcopy(v) for k, v in source_case.items() if k not in
               {'execution', 'source_artifact_id', 'source_artifact_sha256', 'source_case_sha256'}}
     frozen.update(status='FROZEN', case_version=1, release_id=RELEASE,

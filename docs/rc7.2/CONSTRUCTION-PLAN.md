@@ -1,3 +1,18 @@
+# Windows qualification fixture byte correction — 2026-11-02
+
+Previous N7 HEAD 7c220db: construction and Windows clean-unpack PASS; Q1 platform
+run 41404947540 FAILED in Windows formal runner/finalization tests. Generated
+fixture scripts used Windows text-mode writes (CRLF), while candidate read_text
+normalized them to LF. The real strict loader correctly rejected the mismatch.
+Corrected fixture script publication to exact UTF-8 bytes; source drift, R1 hashes
+and frozen qualification checks are not weakened. This also covers N8's shared
+formal execution fixture. Affected actual N7/N8 execution, finalization, script
+readiness and inherited strict qualification chain: 31 passed in 102.40s.
+Whitespace checks passed. Local log: work/evidence/n8-windows-source-fix.log
+(not tracked). New-HEAD platform result remains pending until actually observed.
+
+---
+
 # N8 actual data-failure diagnosis, independent review and recovery — 2026-11-02
 
 status: LOCAL_PROCESS_COMPOSITION_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY

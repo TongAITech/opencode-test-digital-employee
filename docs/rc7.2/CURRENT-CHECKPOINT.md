@@ -91,6 +91,13 @@ Latest N8 source validation: full RC7.2/inherited regression 1363 passed,
 unchanged. Compilation and whitespace checks passed. Logs are local under
 work/evidence/n8-full-final.log, n8-final-combined.log and n8-proof-final.log.
 Remote new-HEAD CI is checked after push; it does not become PASS by implication.
+The previous N7 HEAD 7c220db passed construction and Windows clean-unpack but
+failed Q1 Windows platform tests. Inspection located text-mode CRLF translation
+of the generated qualification fixture script versus the normalized LF candidate;
+the strict loader correctly rejected source drift. Fixture script publication now
+uses exact UTF-8 bytes. The loader/source hash checks are unchanged. Affected
+chain revalidation passed 31 tests in 102.40s. New-HEAD Windows CI must still
+qualify the correction; do not claim Windows PASS from local results.
 
 The prior N7 validation below is retained as historical engineering evidence.
 
