@@ -98,6 +98,9 @@ class SignedToolDispatchService:
         context = {key: deepcopy(prepared[key]) for key in
                    ('workitem_id', 'attempt_id', 'worker_id', 'session_id',
                     'data_lease_ids', 'browser_lease_ids')}
+        preflight = getattr(adapter, 'preflight', None)
+        if callable(preflight):
+            preflight(contract=deepcopy(contract), context=deepcopy(context))
         row = dict(dispatch_id=dispatch_id, preparation_id=preparation_id,
             release_id=prepared['release_id'], source_commit=prepared['source_commit'],
             workitem_id=prepared['workitem_id'], attempt_id=prepared['attempt_id'],

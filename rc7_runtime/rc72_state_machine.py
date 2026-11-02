@@ -344,8 +344,9 @@ class RC72StateMachine:
         to_node_type: AutonomousMissionNode,
         *,
         source_gate_id: str,
+        mission_id: Optional[str] = None,
     ) -> NodeTransition:
-        source = self.node_by_type(self._single_mission_id(), from_node_type)
+        source = self.node_by_type(mission_id or self._single_mission_id(), from_node_type)
         target = self.node_by_type(source["mission_id"], to_node_type)
         if source.get("state") != MissionNodeState.PASS.value:
             raise StateMachineContractError("FORWARD_SOURCE_NOT_PASS")

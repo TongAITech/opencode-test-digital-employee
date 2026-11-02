@@ -29,22 +29,22 @@ No row below is considered whole-product COMPLETE.
 |---|---|---|
 | Phase 0: preserve RC7.1 capabilities, close GAP-01..08 | 06 baseline; inherited RC7 regression | COMPONENT; recheck each gap through RC7.2 entry and real dispatch |
 | Phase 1: ReleaseBatch/Node/Delivery/Gate/Obligation/ETU + R1 | rc72_domain, rc72_truth, rc72_repository; phase1 tests | COMPONENT; prove canonical objects used by product ingress and all execution consumers |
-| Phase 2: real N1–N10 state machine and back-edges | rc72_state_machine, rc72_impact; phase2 and phase6 tests | COMPONENT; real N7 failure-to-N8 routing and full resumption not demonstrated |
-| Phase 3: N2–N6 sufficient before N7 | rc72_n1..n6 completion services, rc72_sufficiency | OPEN: no dedicated N7 ExecutionAdmission; READY alone is insufficient; revalidate active deliveries, gates, contract bytes and data immediately before dispatch |
-| Phase 4: adaptive obligation-first decomposition | rc72_decomposer, rc72_decomposition_truth | COMPONENT; persistent planner has no located non-test service consumer outside its definition; connect planner to actual N7 work creation and feedback |
-| Phase 5: fresh worker, signed Attempt binding, reviewer, captain handoff | rc72_worker_lifecycle; phase5 tests | COMPONENT; lifecycle is used by diagnosis/failover helpers, but unified execution dispatch/resume integration remains to prove |
+| Phase 2: real N1–N10 state machine and back-edges | rc72_state_machine, rc72_impact; phase2 and phase6 tests | INTEGRATED COMPONENT: actual local N7 failures dispatch N8; classification/repair/full resumption remains OPEN |
+| Phase 3: N2–N6 sufficient before N7 | rc72_n1..n6 completion services, rc72_sufficiency | INTEGRATED COMPONENT: dedicated current-source/gate admission and live formal precondition/DataRef verification; production ingress remains OPEN |
+| Phase 4: adaptive obligation-first decomposition | rc72_decomposer, rc72_decomposition_truth | INTEGRATED COMPONENT: N7 planning service creates persistent WorkItems; feedback/product continuation remains OPEN |
+| Phase 5: fresh worker, signed Attempt binding, reviewer, captain handoff | rc72_worker_lifecycle; phase5 tests | INTEGRATED COMPONENT: signed N7 workers, fresh review and cold finalization replay; product captain continuation remains OPEN |
 | Phase 6: independent diagnosis, correct semantic back-edge | rc72_diagnosis_orchestration, rc72_impact_truth | COMPONENT; stitch actual N7 result, independent N8 worker, revised upstream delivery, STALE propagation, new Attempt |
-| Phase 7: capability/browser/data/model leases | rc72_capability_broker, rc72_browser_resources, rc72_data_resources, rc72_model_failover | COMPONENT; bind to admitted execution and signed authority; prove release/orphan recovery in the real path |
+| Phase 7: capability/browser/data/model leases | rc72_capability_broker, rc72_browser_resources, rc72_data_resources, rc72_model_failover | INTEGRATED COMPONENT: admitted signed execution and verified cleanup release; global exclusion/orphan recovery remains OPEN |
 | Phase 8: coverage mappings and full-denominator N10 | rc72_coverage_convergence, rc72_release_scope, rc72_release_convergence | COMPONENT; connect real execution/defect/coverage state, prohibit caller-supplied success flags |
 | Phase 9: teaching→compile→replay→benchmark→human→official consumption | rc72_journey_* and rc72_official_journey_execution | COMPONENT; check product exposure, real Browser adapter/ownership and trusted review; fixtures do not qualify |
 | Phase 10 A–H: measured usage, cost windows, warning semantics, context, batch, dual Q7 | rc72_model_*, rc72_context_*, rc72_economy_*, rc72_safe_execution_batch, rc72_q7_admission | COMPONENT; some economy adapter integration exists; trace every real producer/evaluator/retry call and preserve mandatory scope |
 | 01 §14 + GAP-01: readiness/auth recovery chain | inherited readiness/model resilience + rc72_n1_* | AUDIT: prove provider-client refresh/recreation and real dispatch blocked until required readiness |
-| GAP-02: adaptive decomposition | planner modules above | OPEN integration: planner must create the actual canonical execution work, not remain a fixture API |
+| GAP-02: adaptive decomposition | planner modules above | INTEGRATED COMPONENT: canonical N7 planner creates actual WorkItems; product entry remains OPEN |
 | GAP-03: productized Journey Teaching | journey modules above | AUDIT product entry/real capture and promotion |
 | GAP-04: fresh worker provider failover | rc72_model_failover | AUDIT actual launcher and same-WorkItem retry linkage |
 | GAP-05: browser isolation | rc72_browser_resources | AUDIT real BSK/browser acquisition at execution and release |
 | GAP-06: STRICT capability request/amendment/delegation | rc72_authority, rc72_capability_broker | AUDIT actual Task/Attempt/Worker-scope enforcement and specialist resumption |
-| GAP-07: enforce N2–N8 boundaries | node services + state machine | OPEN N7 admission/execution integration and independent N8 result consumption |
+| GAP-07: enforce N2–N8 boundaries | node services + state machine | INTEGRATED N7 success chain; OPEN independent N8 result/repair consumption |
 | GAP-08: ReleaseBatch business root | domain/state machine/repository | OPEN product ingress and running mission driver integration |
 | Product entry (01 §2, 02 DoD) | bank_mission / mission_autonomous_driver / admin and field mission helper | OPEN: direct searches found no N6DeliveryGateService consumer outside its module; no rc72 node-service references in bank_mission, mission_autonomous_driver or admin server; field mission helper only bootstraps nodes |
 | Q1/Q2 | current source platform + clean-unpack CI | Engineering only; read exact-HEAD conclusions; does not close above open construction work |
@@ -58,13 +58,13 @@ until an explicit runnable product path and negative regressions establish it.
 
 | Contract | Required integrated proof | Current status |
 |---|---|---|
-| CT-01 | every execution Case has batch/requirement/SST/obligation lineage | COMPONENT; enforce at N7 admission |
+| CT-01 | every execution Case has batch/requirement/SST/obligation lineage | INTEGRATED COMPONENT: canonical N7 lineage/source admission and formal runner binding; product ingress remains OPEN |
 | CT-02..04 | insufficient analysis/design/data prevents real dispatch | COMPONENT; negative actual dispatch tests needed |
 | CT-05..07 | actual failure → independent diagnosis → N3/N4/N5 revision | COMPONENT; full consumer chain needed |
 | CT-08..10 | fresh ETU workers, session loss recovery, captain takeover without duplicate work | COMPONENT; actual mission orchestration integration needed |
 | CT-11..13 | exclusive browser, provider takeover, scoped STRICT capability requests | COMPONENT; actual dispatch/cleanup integration needed |
 | CT-14 | coverage cannot create orphan cases | COMPONENT; actual coverage feedback wiring needed |
-| CT-15..17 | fresh independent review, no executor upstream edits, consistent R1 truth | COMPONENT; admission and real result/gate binding needed |
+| CT-15..17 | fresh independent review, no executor upstream edits, consistent R1 truth | INTEGRATED N7 deterministic evidence review/result/gate; DSH/product-wide review remains OPEN |
 | CT-18 | complete release denominator, defects, evidence and gaps govern N10 | COMPONENT; real execution/convergence path needed |
 | CT-19..21 | economy never drops scope; Shanghai windows; critical path override | COMPONENT; real scheduling call-chain coverage needed |
 | CT-22..24 | deterministic-first, waste guard, UNKNOWN usage truth | COMPONENT; actual producer/evaluator/repair launch coverage needed |
@@ -201,3 +201,33 @@ verdict, create NodeGate PASS or finalize execution. Full target identity and
 approved runner receipt remain explicit known gaps. These facts must be bound
 before the independent review/finalization slice can grant any success. Actual
 N8 recovery, N9/N10, product ingress and real Field remain OPEN.
+
+
+## N7 formal local execution and finalization — 2026-11-02
+
+This supersedes prior N7 target/runner/review-admission limitations above for the
+formal branch. Approved fresh N1 facts bind a complete inherited TargetIdentity.
+N4 runner declarations are source-validated. The unmodified strict loader verifies
+durable upstream script qualification and exact frozen Case/Oracle/source hashes.
+Actual environment tool probes and complete frozen precondition/DataRef checks
+produce captured evidence before the actual business runner process. Runtime
+signs proof for exact target/Attempt/Worker/process. Failed preparation feeds N8;
+process failure or absent professional-tool evidence cannot become Oracle PASS.
+
+The complete evidence bundle is read by a fresh deterministic reviewer process.
+Accepted signed process proof finalizes native Attempts, bindings, WorkItems and
+independent Evaluations, accepts an N7 NodeGate and makes N9 READY. Recovery after
+partial writes and cold restart reuses recorded review and completed business I/O.
+The legacy convergence entry now requires an accepted active N10 Gate for an
+RC7.2 mission; caller-supplied success cannot converge after N7 alone.
+
+Ambient credentials, user configuration and pytest plugins are excluded from child
+environments. N7 injection controls fail closed; inherited explicit module paths
+remain supported. OS-level filesystem/network isolation is not implemented.
+
+Proof uses a real local HTTP service and real readiness/runner/reviewer processes.
+Approved design/target facts and script qualification inputs are fixtures. This is
+engineering composition evidence, not real Field proof or a DSH semantic review.
+Full source regression result is recorded in CONSTRUCTION-PLAN.md. N8 actual
+repair/retry, accepted conclusive failure admission, N9/N10, product ingress,
+global cross-process resource exclusion and Field requirements remain OPEN.

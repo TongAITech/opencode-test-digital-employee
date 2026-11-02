@@ -35,6 +35,7 @@ from rc6_runtime.automation import (
 from rc6_runtime.capability import ToolCapabilityBroker
 from rc6_runtime.executable_spec import ExecutableTestSpec
 from rc6_runtime.execution import ExecutionProfileRegistry, ExecutionRecord, ExecutionRuntime
+from rc6_runtime.process_environment import scoped_process_environment
 from rc6_runtime.preparation import PreparedAttempt
 from rc6_runtime.truth import TruthRuntime
 
@@ -315,9 +316,7 @@ class _EvidenceBackedProcessHarness:
         stderr = ""
         code = 1
         started = time.monotonic()
-        merged = os.environ.copy()
-        if env:
-            merged.update({str(key): str(value) for key, value in env.items()})
+        merged = scoped_process_environment(env, home=folder / 'process-home', allow_explicit_pythonpath=True)
         try:
             completed = subprocess.run(
                 list(command), cwd=cwd, env=merged,

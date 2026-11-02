@@ -101,6 +101,10 @@ class RC72AuthorityRuntime(AuthorityRuntime):
             raise AuthorityError("LEASE_REVOKED")
         return super()._validate_lease(identity, lease, now)
 
+    def validate_historical_lease(self, identity, lease):
+        """Authenticate past observations only; never restore revoked authority."""
+        return super()._validate_lease(identity, lease, lease.issued_at)
+
     def restore_signed_worker_lease(self, identity, lease, *, expected_scope: str):
         """Restore audit metadata only after verifying the original HMAC and TTL."""
         from dataclasses import asdict

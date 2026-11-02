@@ -21,6 +21,7 @@ import uuid
 from typing import Callable, Mapping, Optional, Sequence
 
 from rc6_runtime.automation import AutomationContractError, ProcessStepResult, ScriptArtifact, ScriptValidation
+from rc6_runtime.process_environment import scoped_process_environment
 from rc6_runtime.executable_spec import ExecutableSpecBuilder, ExecutableTestSpec, canonical_fingerprint
 
 
@@ -72,9 +73,7 @@ class EvidenceBackedScriptReadinessValidator:
         run_id = "VALRUN-" + uuid.uuid4().hex
         run_root = self.evidence_root / "script-validation" / script.script_id / run_id
         run_root.mkdir(parents=True, exist_ok=True)
-        merged = os.environ.copy()
-        if env:
-            merged.update({str(key): str(value) for key, value in env.items()})
+        merged = scoped_process_environment(env, home=run_root / 'process-home', allow_explicit_pythonpath=True)
 
         runner = script.runner_type.upper()
         steps = []

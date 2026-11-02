@@ -1,3 +1,42 @@
+# N7 formal execution through independent evidence finalization — 2026-11-02
+
+status: REAL_LOCAL_EXECUTION_COMPOSITION_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY
+implemented:
+- Full fresh approved N1 TargetIdentity, exact release/environment/endpoint scope;
+  N4-declared qualified script and real strict loader with frozen Case/Oracle binding.
+- Actual professional runner subprocess with captured process result, actual
+  tool probe and complete live precondition/DataRef checks. Signed receipts bind
+  sources, worker, Attempt, target, frozen fingerprints and evidence bytes.
+- Ambient credential/profile/plugin isolation; explicit legacy module-path
+  compatibility retained; N7 import/loader injection denied. No OS sandbox claim.
+- Missing live preparation proof blocks business I/O and feeds real N8 evidence.
+  Nonzero runner exit/missing professional tool cannot hide behind Oracle success.
+- Actual fresh deterministic reviewer subprocess; signed result; inherited native
+  Attempt/WorkItem/Evaluation finalization; accepted N7 Gate; sessions closed and
+  N9 READY. Partial and cold replay reuse proof without repeating business I/O.
+- RC7.2-bound legacy mission convergence requires accepted active N10 Gate;
+  N7 completion alone cannot close the release.
+validation: full RC7.2 + inherited regression 1350 passed / 1 skipped /
+32 existing collection warnings in 330.79s. The final import-injection tightening
+and its new negative test were applied during that full run; the complete
+affected subset then passed 22 tests on final source (actual runner/finalization/
+isolation + strict inherited qualification). Compilation and whitespace passed.
+Local logs: work/evidence/formal-full-final.log and
+formal-injection-boundary-final.log (not tracked).
+Previous committed HEAD 9368c7d has all three remote construction/platform/Windows
+clean-unpack runs successful; those do not qualify this new source. New-HEAD CI
+will be recorded from its actual status after push.
+engineering_scope: actual local HTTP/probe/precondition/data/cleanup and real
+qualification/runner/reviewer subprocesses; approved source inputs are fixtures.
+The reviewer is deterministic, not an independent DSH semantic evaluation.
+remaining: actual N8 repair/retry, accepted defect failures, N9/N10 completion,
+product controller/production adapters, global lease exclusion/orphan recovery,
+OS isolation and Field qualification. Ordinary fixture adapters retain explicit
+target/runner gaps and cannot finalize. No delivery package is prepared.
+DELIVERY_AUTHORIZED=false; FIELD_VERIFIED=false; BANK_FINAL=NO.
+
+---
+
 # N7 complete evidence capture and fresh review admission — 2026-11-02
 
 status: COMPONENT_TESTED / OVERALL_INCOMPLETE / NO_DELIVERY

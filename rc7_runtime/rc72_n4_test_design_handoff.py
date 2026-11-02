@@ -441,10 +441,21 @@ class N4TestDesignDshHandoffService:
                 )
             if "execution" in item:
                 execution = item["execution"]
-                if not isinstance(execution, dict) or set(execution) - {"planning"} != {
+                if not isinstance(execution, dict) or set(execution) - {"planning", "runner"} != {
                     "binding_key", "inputs", "request", "cleanup", "authoritative_sources",
                 }:
                     raise N4TestDesignHandoffError("RC72_N4_HANDOFF_EXECUTION_SPEC_INVALID")
+                if "runner" in execution:
+                    runner = execution["runner"]
+                    if not isinstance(runner, dict) or set(runner) != {"script_result_ref", "cwd", "source_ref"}:
+                        raise N4TestDesignHandoffError("RC72_N4_HANDOFF_RUNNER_SPEC_INVALID")
+                    for field in ("script_result_ref", "cwd", "source_ref"):
+                        _required(runner[field], "runner_" + field)
+                    if (not runner["script_result_ref"].startswith("file://")
+                            or not Path(runner["script_result_ref"][len("file://"):]).is_absolute()
+                            or not Path(runner["cwd"]).is_absolute()
+                            or runner["source_ref"] not in execution.get("authoritative_sources", [])):
+                        raise N4TestDesignHandoffError("RC72_N4_HANDOFF_RUNNER_SOURCE_UNBOUND")
                 if "planning" in execution:
                     planning = execution["planning"]
                     fields = {"primary_code_slice", "auth_role", "browser_context", "data_domain", "execution_tool"}

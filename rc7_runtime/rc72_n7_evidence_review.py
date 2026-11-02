@@ -133,12 +133,13 @@ class ExecutionEvidenceReviewService:
                     raise EvidenceReviewError('N7_REVIEW_RESOURCES_NOT_RELEASED')
         return proof_id
 
-    def _snapshot(self, plan_id):
+    def _snapshot(self, plan_id, *, allow_finalized=False):
         plan = self._one('rc72_n7_execution_plan', plan_id=plan_id)
         if plan['release_id'] != self.preparation.release_id or plan['source_commit'] != self.preparation.source_commit:
             raise EvidenceReviewError('N7_REVIEW_SOURCE_MISMATCH')
         node = self.runtime.node_by_type(plan['mission_id'], AutonomousMissionNode.N7_EXECUTION)
-        if node['state'] not in {'RUNNING', 'REVIEW_PENDING'}:
+        allowed_nodes = {'RUNNING', 'REVIEW_PENDING', 'PASS'} if allow_finalized else {'RUNNING', 'REVIEW_PENDING'}
+        if node['state'] not in allowed_nodes:
             raise EvidenceReviewError('N7_REVIEW_NODE_NOT_ACTIVE')
         design = CanonicalDesignService(self.truth, release_id=plan['release_id'],
             source_commit=plan['source_commit']).load(release_batch_id=plan['release_batch_id'])
@@ -154,7 +155,7 @@ class ExecutionEvidenceReviewService:
             p, c, binding, admission, dispatch, oracle = self.evidence.observation(prepared[0]['preparation_id'])
             if (p['case_id'] != item['case_id'] or p['contract_id'] != item['contract_id']
                     or p['admission_id'] != item['admission_id'] or p['etu_id'] != item['etu_id']
-                    or p['mission_id'] != plan['mission_id'] or binding['state'] != 'EVIDENCE_READY'
+                    or p['mission_id'] != plan['mission_id'] or binding['state'] not in ({'EVIDENCE_READY', 'COMPLETED'} if allow_finalized else {'EVIDENCE_READY'})
                     or cases[p['case_id']]['source_case_sha256'] not in c['authoritative_sources']):
                 raise EvidenceReviewError('N7_REVIEW_CASE_BINDING_INVALID')
             for parent in admission['upstream_refs']:
@@ -165,7 +166,8 @@ class ExecutionEvidenceReviewService:
             if dispatch['state'] != 'RETURNED' or not oracle or not oracle['passed']:
                 raise EvidenceReviewError('N7_REVIEW_BUSINESS_RESULT_NOT_PASSING')
             task = self._one('rc7_task', task_id=p['workitem_id'])
-            if (task['state'] != 'RUNNING' or task.get('lease_owner') != p['worker_id']
+            allowed_tasks = {'RUNNING', 'OUTPUT_PRODUCED', 'EVALUATING', 'PASS'} if allow_finalized else {'RUNNING'}
+            if (task['state'] not in allowed_tasks or task.get('lease_owner') != p['worker_id']
                     or task.get('mission_id') != plan['mission_id']
                     or task.get('input_artifact_refs') != item['input_artifact_refs']):
                 raise EvidenceReviewError('N7_REVIEW_WORKITEM_NOT_CURRENT')
@@ -176,11 +178,15 @@ class ExecutionEvidenceReviewService:
                     or attempt.get('tool_call_refs') != [dispatch['dispatch_id']]
                     or attempt.get('contract_sha256') != c['contract_sha256']
                     or assertion.get('details') != oracle['details']
-                    or assertion.get('evidence_refs') != attempt['evidence_refs']
+                    or assertion.get('evidence_refs') != attempt.get('observation_evidence_refs', attempt['evidence_refs'])
                     or attempt.get('actual_result') != dispatch['raw_result'] or attempt.get('worker_id') != p['worker_id']
                     or assertion.get('attempt_id') != p['attempt_id'] or assertion.get('passed') is not True
                     or assertion.get('oracle_ref') != oracle['assertion_ref']):
                 raise EvidenceReviewError('N7_REVIEW_ATTEMPT_ASSERTION_MISMATCH')
+            from .rc72_formal_runner import verified_formal_receipt
+            formal = verified_formal_receipt(self.preparation, p, c, dispatch['raw_result'])
+            if formal and (formal['runner_result']['exit_code'] != 0 or not formal['required_tool_observed']):
+                raise EvidenceReviewError('N7_REVIEW_FORMAL_RUNNER_INTEGRITY_FAILED')
             proof_id = self._cleanup_proof(p, c)
             required = c['evidence_required']
             declarations = dispatch['raw_result'].get('evidence')
@@ -199,7 +205,9 @@ class ExecutionEvidenceReviewService:
                 attempt_id=p['attempt_id'], worker_id=p['worker_id'], session_id=p['session_id'],
                 contract_id=c['contract_id'], contract_sha256=c['contract_sha256'], dispatch_id=dispatch['dispatch_id'],
                 receipt_sha256=dispatch['receipt_sha256'], assertion_ref=attempt['assertion_ref'],
-                observation_evidence_refs=attempt['evidence_refs'], cleanup_evidence_ref=proof_id,
+                observation_evidence_refs=attempt.get('observation_evidence_refs', attempt['evidence_refs']), cleanup_evidence_ref=proof_id,
+                formal_runner_receipt_ref=formal['runner_receipt_id'] if formal else None,
+                formal_proof_gaps=[] if formal else list(_GAPS),
                 evidence_declarations=sorted(declarations, key=lambda row: row['requirement'])))
         return plan, result
 
@@ -277,18 +285,18 @@ class ExecutionEvidenceReviewService:
             release_batch_id=plan['release_batch_id'], mission_id=plan['mission_id'], plan_id=plan_id,
             input_digest=input_digest, state='EVIDENCE_READY_FOR_REVIEW',
             case_results=[dict(case, captured_evidence=captured[case['case_id']]) for case in cases],
-            known_gaps=list(_GAPS))
+            known_gaps=[gap for gap in _GAPS if any(gap in case['formal_proof_gaps'] for case in cases)])
         digest = _hash(payload)
         payload.update(bundle_id='N7BUNDLE-' + digest[:24], bundle_sha256=digest, artifact_version=1)
         self.truth.append_atomic(_EVENT, payload)
         return self.assert_current(payload['bundle_id'])
 
-    def assert_current(self, bundle_id):
+    def assert_current(self, bundle_id, *, allow_finalized=False):
         bundle = self._one(_KIND, bundle_id=bundle_id)
         _validate(bundle)
-        plan, cases = self._snapshot(bundle['plan_id'])
+        plan, cases = self._snapshot(bundle['plan_id'], allow_finalized=allow_finalized)
         if (any(bundle.get(k) != plan[k] for k in ('release_id', 'source_commit', 'release_batch_id', 'mission_id'))
-                or bundle['known_gaps'] != _GAPS):
+                or bundle['known_gaps'] != [gap for gap in _GAPS if any(gap in case['formal_proof_gaps'] for case in cases)]):
             raise EvidenceReviewError('N7_EVIDENCE_BUNDLE_SCOPE_OR_GAPS_CHANGED')
         if bundle['input_digest'] != _hash([bundle['plan_id'], cases]):
             raise EvidenceReviewError('N7_EVIDENCE_BUNDLE_INPUTS_CHANGED')

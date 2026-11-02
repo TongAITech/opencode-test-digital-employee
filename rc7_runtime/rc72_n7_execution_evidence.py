@@ -49,7 +49,7 @@ class ExecutionEvidenceService:
         lease = TaskLease(**lease)
         # Verify HMAC at original issuance time solely to admit historical
         # observations. This cannot restore an expired lease or authorize I/O.
-        self.preparation.authority._validate_lease(identity, lease, lease.issued_at)
+        self.preparation.authority.validate_historical_lease(identity, lease)
         context = {key: deepcopy(p[key]) for key in ('workitem_id', 'attempt_id', 'worker_id',
                     'session_id', 'data_lease_ids', 'browser_lease_ids')}
         etu = self._one('rc72_etu', etu_id=p['etu_id'])
@@ -109,24 +109,34 @@ class ExecutionEvidenceService:
             id=evidence_id, release_id=p['release_id'], kind='N7_EXECUTION_OBSERVATION',
             ref=ref, source_artifact_ref=dispatch['dispatch_id'], requirement_id=c['requirement_id'],
             tc_id=p['case_id'], attempt_id=p['attempt_id'], artifact_version=1))
+        check_refs = sorted(row['evidence_id'] for row in self.truth.query('rc7_evidence', mission_id=p['mission_id'])
+            if row.get('kind') in {'N7_FORMAL_PRECONDITION', 'N7_FORMAL_DATA_RECHECK'}
+            and p['attempt_id'] in row.get('subject_refs', []))
+        observation_refs = [evidence_id] + check_refs
         assertion_id = None
         if oracle is not None:
             assertion_id = 'N7ASSERT-' + _hash([p['attempt_id'], oracle])[:24]
             self._ensure('assertion', 'ASSERTION_UPSERTED', 'id', dict(
                 id=assertion_id, release_id=p['release_id'], attempt_id=p['attempt_id'], tc_id=p['case_id'],
                 oracle_ref=oracle['assertion_ref'], passed=oracle['passed'], details=deepcopy(oracle['details']),
-                evidence_refs=[evidence_id], artifact_version=1))
+                evidence_refs=observation_refs, artifact_version=1))
+        from .rc72_formal_runner import verified_formal_receipt
+        formal = verified_formal_receipt(self.preparation, p, c, dispatch.get('raw_result') or {})
         reason = ('TOOL_SIDE_EFFECTS_UNKNOWN' if dispatch['state'] == 'IN_FLIGHT' else
                   'TOOL_INVOCATION_FAILED' if dispatch['state'] == 'FAILED' else
+                  'RUNNER_PROCESS_FAILED' if formal and formal['runner_result']['exit_code'] != 0 else
+                  'RUNNER_TOOL_EVIDENCE_MISSING' if formal and not formal['required_tool_observed'] else
                   'ORACLE_FAILED' if not oracle['passed'] else 'CLEANUP_AND_EVIDENCE_CLOSURE_REQUIRED')
         payload = dict(attempt_id=p['attempt_id'], release_id=p['release_id'],
-            requirement_id=c['requirement_id'], tc_id=p['case_id'], case_version=delivery['version'],
-            case_version_source='N4_DELIVERY_VERSION', case_revision_ref=delivery['delivery_id'],
-            target_id=c['environment']['source_ref'], target_identity_scope='N1_ENVIRONMENT_SOURCE',
+            requirement_id=c['requirement_id'], tc_id=p['case_id'], case_version=formal['frozen_case']['case_version'] if formal else delivery['version'],
+            case_version_source='FROZEN_CASE_FINGERPRINT' if formal else 'N4_DELIVERY_VERSION', case_revision_ref=delivery['delivery_id'],
+            target_id=formal['target_identity']['target_id'] if formal else c['environment']['source_ref'],
+            target_identity_scope='FULL_TARGET_IDENTITY' if formal else 'N1_ENVIRONMENT_SOURCE',
             layer=self._one('rc72_etu', etu_id=p['etu_id'])['test_level'], status='BLOCKED',
             worker_id=p['worker_id'], lease_id=p['task_lease']['lease_id'], mission_id=p['mission_id'],
             parent_attempt_id=b.get('parent_attempt_id'), workitem_id=p['workitem_id'], contract_id=c['contract_id'], contract_sha256=c['contract_sha256'],
-            tool_call_refs=[dispatch['dispatch_id']], evidence_refs=[evidence_id],
+            tool_call_refs=[dispatch['dispatch_id']], evidence_refs=observation_refs,
+            formal_runner_receipt_ref=formal['runner_receipt_id'] if formal else None,
             actual_result=deepcopy(dispatch.get('raw_result')), assertion_ref=assertion_id,
             assertion_passed=oracle['passed'] if oracle else None, reason=reason, artifact_version=1)
         attempt = self._ensure('execution_attempt', 'EXECUTION_ATTEMPT_UPSERTED', 'attempt_id', payload)

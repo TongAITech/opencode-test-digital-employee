@@ -7,76 +7,84 @@ DELIVERY_AUTHORIZED=false
 FIELD_VERIFIED=false
 BANK_FINAL=NO
 
-Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md. Construction
-must finish before a transport package is prepared for delivery. The old portable
-candidate at 9476b57 remains quarantined and is not a release.
+Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md. Finish
+construction before preparing a delivery package. Candidate 9476b57 remains
+quarantined. This checkpoint supersedes earlier component-only descriptions.
 
-## Implemented component composition
+## Implemented execution composition
 
-Truth bootstrap; current canonical N1/N4/N5 source bridge; N6 machine predicates;
-read-only N7 admission; persistent planning into actual WorkItems; fresh signed
-Workers scoped to exact task/Attempt; data/browser reservations; signed tool
-dispatch with durable intent, raw receipts, fixed Oracle and duplicate-call guard.
+Current canonical N1-N6 source/gate admission -> persistent Case-to-WorkItem
+planning -> fresh signed exact-task/Attempt Worker -> owned resource reservations
+-> durable tool intent -> actual adapter call -> raw signed observation -> fixed
+Oracle -> inherited Attempt/Assertion/Evidence -> frozen cleanup/reverification
+-> owned release -> complete evidence capture -> fresh review assignment.
 
-New slice: N7 dispatch marks the canonical N7 node RUNNING. ExecutionEvidenceService
-admits stored observations into inherited execution_attempt, assertion, evidence
-and rc7_evidence, with EVIDENCE_READY binding. Historical audit is allowed after
-TTL expiry/upstream STALE without restoring execution authority. Attempts remain
-BLOCKED even when the business Oracle passes: cleanup/evidence review is pending.
+The formal N7 branch now binds a full inherited TargetIdentity from approved,
+fresh N1 facts, with exact environment/endpoint/business release and authoritative
+sources. N4 explicitly declares approved script qualification and workspace.
+The real StrictScriptExecutionBundleLoader checks durable upstream qualification,
+source hashes and exact frozen Case/Oracle fingerprints; no substituted loader
+is required. Actual Pytest/JUnit process harnesses persist exit/stdout/stderr.
+The active environment must probe the tool and verify every frozen precondition
+and DataRef with file evidence before business execution. A missing check blocks
+execution and its evidence is retained for independent N8 diagnosis.
 
-ExecutionCleanupService executes only frozen tool/source-backed cleanup and
-verification specifications. Main dispatch rejects unresolved or unscoped cleanup
-before any action. Cleanup and verification have separate durable intents and raw
-receipts. Fixed predicates evaluate actual results for the complete DataRef set.
-All original resource ownership tuples are rechecked before cleanup evidence and
-release; partial release replay never repeats external cleanup/verification.
+Runtime signs full target/Case/source/process/probe/preparation proof for the exact
+Attempt and worker. Business Oracle success cannot hide a failed runner process
+or missing professional-tool evidence. Source-only preflight does not execute
+readiness subprocesses before dispatch intent. Child environments omit ambient
+credentials, user profiles and pytest plugins. N7 rejects import/loader injection;
+legacy explicit PYTHONPATH callers retain compatibility. This is configuration
+isolation, not an OS filesystem/network sandbox.
 
-Execution failure or cleanup failure can create a fresh independent N8 diagnosis
-assignment consuming actual evidence. Completed dispatch replays reuse it. N7/N8
-routing accepts explicit mission scope, so another batch is not modified.
+Whole-plan capture still requires every frozen evidence declaration, actual bytes,
+checksum and exact Attempt ownership. A separate content-addressed store publishes
+complete files atomically; both Evidence stores and live source facts are checked.
+Formal proof closes the two prior target/runner gaps only for proven Cases. Plain
+fixture-adapter results retain those gaps and cannot enter finalization.
 
-ExecutionEvidenceReviewService now preflights the whole planned Case denominator,
-current N1-N6 source/gate digests, exact Attempt/Assertion and cleanup/release
-proof. Every frozen evidence requirement needs actual adapter-output file bytes,
-expected checksum and exact Attempt/tool binding. Files are copied into a separate
-content-addressed store by atomic complete-file publication; no source file or
-missing requirement is silently substituted or truncated. Capture limits fail
-closed. Captured bytes and both Evidence records are rechecked before review.
-
-A whole-plan NodeDelivery then moves N7 to REVIEW_PENDING and receives a fresh
-independent reviewer assignment with canonical criteria and evidence only. Replay
-reuses the delivery/reviewer, including recovery after delivery append or orphan
-review-session creation. This is review ADMISSION, not an executed reviewer result
-or a NodeGate PASS. Known target/runner gaps remain in bundle and NodeDelivery.
+An actual separate, read-only deterministic reviewer process verifies the bundle
+and captured evidence denominator/checksums. Runtime rechecks canonical sources
+before accepting its signed process result. Only this result can finalize native
+Attempts, WorkItem bindings, independent Evaluations and the N7 NodeGate. Worker
+sessions close, leases revoke, and N9 becomes READY. Partial-write and cold-replay
+recovery reuse recorded review and never rerun completed business calls. Historical
+lease audit does not restore tool authority. N7 success cannot converge the whole
+mission: RC7.2-bound missions require an accepted active N10 delivery/gate.
 
 ## Evidence and limits
 
-Final combined chain: 156 passed / 4 existing collection warnings, including
-20 evidence-review tests with atomic publication, partial-write recovery, source
-invalidation, forged scope and independent-process replay. External adapters are injected fixtures;
-these are repository component/integration tests, not real target or Field proof.
+Targeted actual-runner/finalization/isolation plus inherited runtime checks:
+24 passed. After the legacy explicit-module-path compatibility correction,
+actual-runner/finalization/isolation plus strict qualification: 21 passed.
+Full RC7.2/inherited regression: 1350 passed, 1 skipped, 32 existing collection
+warnings in 330.79s. The final import-injection tightening and new negative test
+were applied during that full run, then the complete affected actual-runner,
+finalization, process-isolation and strict-qualification subset passed 22 tests
+on the final source. Syntax compilation and whitespace checks passed. Local logs:
+work/evidence/formal-full-final.log and formal-injection-boundary-final.log
+(not tracked). Earlier intermediate failures are not final-source evidence.
 
-Case revision is explicitly the admitted N4 delivery version and source reference.
-Target identity is explicitly the N1 environment source reference. Full inherited
-frozen-Case/TargetIdentity and runner integration remains to close; these records
-cannot grant PASS, coverage/convergence closure, NodeGate PASS or delivery.
+The integration tests use an actual local HTTP target, real child processes,
+actual probe/data/precondition/cleanup requests and an actual reviewer process.
+Approved N1 facts, N4 inputs and upstream qualification are engineering fixtures.
+This proves repository execution composition, not a production target or Field
+acceptance. The reviewer is deterministic evidence verification, not a DSH
+semantic reviewer or product-controller run.
 
 ## Remaining construction
 
-Production adapters and product controller/continuation wiring; actual independent
-review result and execution finalization; full target/runner identities;
-independent N8 actual classification/repair/new Attempt; N9/N10 convergence;
-remaining phase/GAP rows and real qualification/Field verification. Mechanical
-cleanup verification does not replace independent N5 data certification. The new
-review-admission slice admits successfully asserted/cleaned attempts; combining
-independently accepted conclusive defect failures from N8/N9 remains OPEN.
+Actual independent N8 classification -> upstream repair -> fresh Attempt;
+N9 defect/accepted-failure integration; N10 full release denominator convergence;
+production adapter/product-controller continuation; remaining phase/GAP rows and
+real qualification/Field evidence. Mechanical data checks do not replace N5
+independent certification. Review currently admits passing asserted/cleaned Cases;
+accepted conclusive N8/N9 failures still need their governed branch.
 
-Cross-process Data/Browser lease exclusion and worker environment isolation remain
-under audit. Per-call exclusion markers are not global event-store locking.
-Recovery for a claim before intent, and crashes during multi-event N8 dispatch,
-requires further hardening. Unresolved legacy cleanup still needs governed N4/N6
-repair, not an executor-invented plan.
+Global cross-process Data/Browser exclusion, pre-intent orphan-claim recovery,
+N8 multi-event dispatch recovery, and OS-level isolation remain OPEN/AUDIT.
+Per-call exclusion is not global event-store locking. Unresolved legacy cleanup
+requires governed N4/N6 repair. No delivery or whole-product completion is claimed.
 
-Next atomic step: bind full inherited target/frozen-Case/runner proof and consume
-an actual independent review result before finalizing any Attempt or NodeGate.
-Then drive actual N8 recovery into a fresh Attempt and wire N9/N10/product ingress. Do not substitute packaging for construction.
+Next: connect actual N8 repair/retry and N9/N10 consumers to this proven success
+chain, then product ingress. Packaging does not substitute for construction.

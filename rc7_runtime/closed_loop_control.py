@@ -438,6 +438,21 @@ class ClosedLoopControlPlane:
             raise ClosedLoopControlError(str(exc)) from exc
 
     def _require_mission_convergence_pass_ready(self) -> None:
+        batches = self.truth.query('rc72_release_batch', mission_id=self.mission_id)
+        if batches:
+            nodes = self.truth.query('rc72_mission_node', mission_id=self.mission_id, node_type='N10_RELEASE_CONVERGENCE')
+            if len(batches) != 1 or len(nodes) != 1 or nodes[0].get('state') != 'PASS':
+                raise ClosedLoopControlError('RC72_N10_ACCEPTED_GATE_REQUIRED')
+            node = nodes[0]
+            deliveries = [row for row in self.truth.query('rc72_node_delivery', mission_node_id=node['mission_node_id'])
+                if row.get('version') == node.get('active_delivery_version') and row['delivery_id'] in node.get('delivery_refs', [])]
+            if len(deliveries) != 1 or deliveries[0].get('known_gaps'):
+                raise ClosedLoopControlError('RC72_N10_ACTIVE_DELIVERY_REQUIRED')
+            gates = [row for row in self.truth.query('rc72_node_gate', delivery_id=deliveries[0]['delivery_id'])
+                if row['gate_id'] in node.get('gate_refs', [])]
+            if (len(gates) != 1 or gates[0].get('decision') != 'PASS' or gates[0].get('failed')
+                    or not gates[0].get('criteria') or set(gates[0]['criteria']) != set(gates[0].get('passed', []))):
+                raise ClosedLoopControlError('RC72_N10_ACCEPTED_GATE_REQUIRED')
         if not execution_recovery_contract_enabled(self.truth, self.mission_id):
             return
         try:
