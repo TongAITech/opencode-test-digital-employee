@@ -16,10 +16,21 @@ from test_rc72_n5_existing_data_repair import _launcher
 from test_rc72_n7_member_drain import _close
 
 
-def _second_repair(tmp_path, monkeypatch, *, repair_completed=False):
+def _second_repair(tmp_path, monkeypatch, *, repair_completed=False, execute_peer=False):
     truth, prep, server, completed, failed, first_diagnosis, drain = _repaired(tmp_path, monkeypatch, repair_completed=repair_completed)
     try:
-        child = DataRepairContinuationService(first_diagnosis).prepare_replacement(failed['preparation_id'])
+        service = DataRepairContinuationService(first_diagnosis)
+        peer, peer_root = None, tmp_path / 'completed-regression-peer'
+        if execute_peer:
+            assert repair_completed
+            first_plan = service.reconcile(failed['preparation_id'])
+            peer = prep.prepare(plan_id=first_plan['plan_id'], workitem_id=completed['workitem_id'])
+            peer_env = LocalHTTPEnvironment('http://127.0.0.1:%d' % server.server_address[1], peer_root)
+            peer_runner = FormalN7RunnerAdapter(prep, evidence_root=peer_root, environment_adapter=peer_env,
+                execution_env={'RC72_OUTPUT_ROOT': str(peer_root)}, timeout_seconds=30)
+            assert SignedToolDispatchService(prep, adapters={'api_http': peer_runner}).dispatch(peer['preparation_id'])['state'] == 'RETURNED'
+            assert ExecutionCleanupService(prep, adapters={'api_http': peer_env.cleanup}).run(peer['preparation_id'])['state'] == 'CLEANUP_VERIFIED'
+        child = service.prepare_replacement(failed['preparation_id'])
         first_reconciliation = truth.query('rc72_n8_retry_reconciliation')[0]
         failed_refs = {ref['data_ref'] for ref in prep._one('rc72_n6_executable_contract', contract_id=child['contract_id'])['data_refs']}
         server.allowed_data_refs.difference_update(failed_refs)
@@ -30,6 +41,11 @@ def _second_repair(tmp_path, monkeypatch, *, repair_completed=False):
         assert SignedToolDispatchService(prep, adapters={'api_http': runner}).dispatch(child['preparation_id'])['state'] == 'FAILED'
         second_diagnosis = ExecutionDiagnosisService(prep, evidence_root=tmp_path / 'second-diagnosis')
         assert second_diagnosis.run(child['preparation_id'])['failure_class'] == 'TEST_DATA_GAP'
+        if peer is not None:
+            from rc7_runtime.rc72_n7_member_drain import ExecutionMemberDrainService
+            ExecutionMemberDrainService(ExecutionEvidenceReviewService(prep, adapter_output_root=peer_root,
+                capture_root=tmp_path / 'captured-regression-peer')).drain(peer['preparation_id'])
+            completed = peer
         boundary = RepairBoundaryService(second_diagnosis, cleanup_adapters={'api_http': env.cleanup})
         assert boundary.open(child['preparation_id'])['state'] == 'REPAIR_OPEN'
         calls = []

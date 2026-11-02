@@ -15,6 +15,47 @@ Read DESIGN-CONSTRUCTION-RECONCILIATION.md and CONSTRUCTION-PLAN.md. Finish
 construction before preparing a delivery package. Candidate 9476b57 remains
 quarantined. This checkpoint supersedes earlier component-only descriptions.
 
+## Multiple completed members and fresh regression evidence — 2026-11-03
+
+Engineering execution now covers three originally approved Cases with two real
+completed/cleaned members and one independent data-gap failure. The third Case
+is introduced before native N4 handoff/approval, N5 inventory, decomposition and
+actual script qualification; no approved plan or result denominator is edited.
+Native scoped repair affects one completed member and the failed member, while
+the other completed member retains unchanged evidence.
+
+The signed current decision contains both REEXECUTE and REUSE members. Actual
+fresh execution/cleanup for the affected member and failed Case, plus the other
+member's original evidence, enter complete independent three-Case N7_PASS. The
+original Case/ETU/WorkItem mapping and one immutable decomposition snapshot are
+preserved. Five Attempts and four real business actions represent exactly the
+three original executions (one pre-action data failure) plus the required two
+regression executions. Original affected/failed histories remain unchanged;
+cold finalization replays without writes or permissions.
+
+A bad later member after signed READY blocks every earlier member projection.
+If the first supersession write already completed before a crash, cold recovery
+rechecks the other member before advancing; a changed later capture prevents
+further projection/publication. Valid recovery leaves the unchanged member's
+Task/binding/preparation versions untouched and does not repeat physical repair
+or business I/O.
+
+A separate actual two-round flow now executes an affected peer's fresh regression
+Attempt before the other Case fails again. That fresh peer is checkpointed and
+its new post-repair evidence can be reused for the final current review; the
+invalidated root Attempt remains retired. Both failed histories and the old
+root history remain unchanged. This distinguishes a pending mandatory rerun
+from a completed rerun with genuinely new evidence.
+
+Validation: executed regression peer/full/cold flow1 passed19.69s; mixed three-Case
+full/cold flow1 passed19.90s; whole-member preflight/partial recovery3 passed30.56s.
+Final mixed-peer/repeated-round/disposition integration19 passed195.69s.
+Compilation/diff checks passed. These prove native controlled
+data repair combinations, not generic unknown-effect/orphan drain, actual DSH
+argument/time fencing, other semantic failure classes or complete product
+scheduling. C03/C04/C05/C07/C08..C12 remain incomplete. No final package or Field/
+BANK_FINAL claim is made.
+
 ## Repeated native data repair and inherited member decisions — 2026-11-03
 
 A distinct read-only historical reconciliation verifier now authenticates the

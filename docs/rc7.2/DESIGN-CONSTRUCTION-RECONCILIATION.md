@@ -596,3 +596,26 @@ repeated-round source12 passed133.61s. Final rehashed contract identity refusal
 and both actual full/cold flows3 passed46.52s after the last identity check.
 Compilation/diff checks passed. Multi-completed-peer/more-round scenario
 proof, generic orphan recovery and actual product scheduling remain open.
+
+
+## Mixed multiple peers and completed-regression reuse — 2026-11-03
+
+Three Cases enter native N4 approval/N5 inventory/decomposition/actual script
+qualification before any business execution. Two actually execute and clean;
+third data-gap failure enters independent N8 diagnosis and scoped compensation.
+Physical repair/independent re-probe changes one peer and the failed Case. Native
+current decisions contain both REEXECUTE and REUSE, actual required regression
+executes, and all three Cases reach independent N7_PASS with one original
+snapshot/mapping and preserved affected/failed histories. Cold replay is read-only.
+A bad later peer blocks all earlier projections; after a partial first-member
+write, changed later evidence blocks roll-forward before further projection.
+
+A separate two-round actual flow completes an affected peer's new regression
+Attempt before another failure, then checkpoints/reuses that fresh evidence.
+The invalidated root result is never revived. Both failed histories/root history
+remain intact and current independent review includes the correct new peer.
+Executed-peer/full/cold1 passed19.69s; mixed-three-Case/full/cold1 passed19.90s;
+preflight/partial-recovery3 passed30.56s. Final mixed-peer/repeated-round/
+disposition integration19 passed195.69s. Compilation/diff checks passed.
+Generic orphan/drain and DSH call-time fencing remain incomplete; these tests
+do not establish full-design completion or bank/Field qualification.
