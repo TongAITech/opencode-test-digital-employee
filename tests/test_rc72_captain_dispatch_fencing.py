@@ -168,3 +168,29 @@ def test_lease_expires_on_exact_ttl_boundary_not_after_one_extra_second(tmp_path
         cold.assert_owner(
             mission_id="M-1", lease_id=owner["lease_id"],
             captain_session_id="CAPTAIN-A")
+
+
+
+@pytest.mark.parametrize("state", ["LEASED", "RUNNING", "OUTPUT_PRODUCED"])
+def test_first_captain_must_not_adopt_legacy_worker_with_active_uncheckpointed_work(
+        tmp_path, state):
+    from rc7_runtime.control_plane import TaskScheduler
+    from rc7_runtime.models import TaskStatus
+
+    truth, _, _ = _runtime(tmp_path)
+    scheduler = TaskScheduler(truth, "RC7.2")
+    original = truth.query("rc7_task", task_id="WI-1")[0]
+    task = scheduler._task_from_row(original)
+    task.state = TaskStatus(state)
+    task.lease_owner = "LEGACY-WORKER-UNFENCED"
+    scheduler._persist_task(task, original["artifact_version"] + 1)
+
+    before = list(truth.store.iter_raw())
+    with pytest.raises(
+            ContractError,
+            match="CAPTAIN_BOOTSTRAP_UNGOVERNED_ACTIVE_WORK_RECONCILIATION_REQUIRED"):
+        CaptainDispatchFencer(truth, release_id="RC7.2").acquire_initial(
+            mission_id="M-1", team_id="TEAM-1",
+            captain_session_id="CAPTAIN-NEW")
+    assert list(truth.store.iter_raw()) == before
+    assert truth.query("rc72_captain_dispatch_lease", mission_id="M-1") == []
