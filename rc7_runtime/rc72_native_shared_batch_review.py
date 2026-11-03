@@ -25,6 +25,7 @@ from .models import ContractError
 from .rc72_native_shared_batch import (
     _one, _required, install_native_batch_candidate_overlay,
 )
+from .rc72_native_batch_raw_proof import attest_native_raw, verify_native_raw_digest
 
 
 _ARTIFACT = "rc72_native_batch_review"
@@ -56,6 +57,12 @@ def _validate(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise _contracts.DomainValidationError("BATCH_REVIEW_WORKER_NOT_INDEPENDENT")
     if not out["raw_output_ref"].startswith("file://") or len(out["output_sha256"]) != 64:
         raise _contracts.DomainValidationError("BATCH_REVIEW_EVIDENCE_INVALID")
+    out.setdefault("raw_output_sha256", None)
+    if out["raw_output_sha256"] is not None and (
+        not isinstance(out["raw_output_sha256"], str)
+        or len(out["raw_output_sha256"]) != 64
+    ):
+        raise _contracts.DomainValidationError("BATCH_REVIEW_RAW_DIGEST_INVALID")
     reviewer_tool_refs = out.get("review_tool_refs")
     if (
         not isinstance(reviewer_tool_refs, list)
@@ -131,6 +138,10 @@ class NativeSharedEvaluatorBatch:
         )
         if candidate.get("release_id") != self.release_id or candidate.get("status") != "UNVERIFIED":
             raise NativeBatchReviewError("BATCH_REVIEW_CANDIDATE_INVALID")
+        verify_native_raw_digest(
+            raw_ref=candidate["raw_output_ref"],
+            expected_sha256=candidate.get("raw_output_sha256"),
+        )
         if getattr(assignment, "mission_id", None) != candidate["mission_id"]:
             raise NativeBatchReviewError("BATCH_REVIEW_MISSION_MISMATCH")
         if getattr(assignment, "scope", None) != "evaluation-batch:" + candidate["batch_id"]:
@@ -219,6 +230,10 @@ class NativeSharedEvaluatorBatch:
         ]
         if len(raw) != 1:
             raise NativeBatchReviewError("BATCH_REVIEW_RAW_EVIDENCE_NOT_UNIQUE")
+        raw_proof = attest_native_raw(
+            self.launcher, raw_ref=raw[0], session_id=session,
+            expected_tool_refs=reviewer_tool_refs,
+        )
         if not isinstance(output, dict) or set(output) != {"status", "members"}:
             raise NativeBatchReviewError("BATCH_REVIEW_STRICT_OUTPUT_REQUIRED")
         if output["status"] != "REVIEW_CANDIDATE":
@@ -280,6 +295,7 @@ class NativeSharedEvaluatorBatch:
             "producer_session_id": candidate["dsh_session_id"],
             "dsh_session_id": session,
             "raw_output_ref": raw[0],
+            "raw_output_sha256": raw_proof["raw_output_sha256"],
             "review_tool_refs": reviewer_tool_refs,
             "output_sha256": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
             "token_call_id": metering["call_id"],
