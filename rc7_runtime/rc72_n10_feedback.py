@@ -5,6 +5,8 @@ review/disposition queue; unknown cases deliberately go to independent N8.
 No caller-supplied percentages, invented obligations or synthetic evidence.
 This read-only projection never marks a Gap resolved or creates a Node Gate.
 """
+from dataclasses import asdict
+
 from .models import ContractError
 from .rc72_domain import AutonomousMissionNode
 from .rc72_release_convergence import ReleaseConvergenceSnapshot
@@ -27,9 +29,21 @@ class NativeN10FeedbackService:
         if batch['release_id'] != self.release_id or batch['mission_id'] != snapshot.mission_id:
             raise ContractError('N10_FEEDBACK_RELEASE_SCOPE_CHANGED')
         saved = self._one('rc72_release_convergence_snapshot', snapshot_id=snapshot.snapshot_id)
-        if (saved['release_id'] != self.release_id or saved['release_batch_id'] != snapshot.release_batch_id
-                or saved['mission_id'] != snapshot.mission_id or saved['result'] != snapshot.result.value
-                or saved['blockers'] != snapshot.blockers):
+        expected_snapshot = {
+            'mission_id': snapshot.mission_id,
+            'release_batch_id': snapshot.release_batch_id,
+            'manifest_id': snapshot.manifest_id,
+            'scope_snapshot_id': snapshot.scope_snapshot_id,
+            'facts': asdict(snapshot.facts),
+            'result': snapshot.result.value,
+            'blockers': snapshot.blockers,
+            'proven_obligation_ids': snapshot.proven_obligation_ids,
+            'unproven_obligation_ids': snapshot.unproven_obligation_ids,
+            'coverage_observation_ids': snapshot.coverage_observation_ids,
+            'created_at': snapshot.created_at,
+        }
+        if (saved.get('release_id') != self.release_id
+                or any(saved.get(name) != value for name, value in expected_snapshot.items())):
             raise ContractError('N10_FEEDBACK_SNAPSHOT_CHANGED')
         manifest = self._one('rc72_release_scope_manifest', manifest_id=snapshot.manifest_id)
         if manifest['mission_id'] != snapshot.mission_id or manifest['release_batch_id'] != snapshot.release_batch_id:
@@ -64,10 +78,33 @@ class NativeN10FeedbackService:
                 gap = self._one('rc72_coverage_gap', gap_id=gap_id)
                 if gap['mission_id'] != snapshot.mission_id or gap['release_batch_id'] != snapshot.release_batch_id:
                     raise ContractError('N10_FEEDBACK_COVERAGE_GAP_SCOPE_CHANGED')
+                if (not gap.get('code_slice') or not gap.get('application_id')
+                        or not isinstance(gap.get('candidate_obligation_ids'), list)):
+                    raise ContractError('N10_FEEDBACK_COVERAGE_GAP_INCOMPLETE')
+                # Mappings must resolve to original, authoritative
+                # Requirement/SST/Obligation identities; a local changed label
+                # or a foreign-release obligation cannot be promoted to a
+                # misleading N10 business issue.
+                if gap.get('obligation_id'):
+                    obligation = self._one('rc72_test_obligation', obligation_id=gap['obligation_id'])
+                    if (obligation['mission_id'] != snapshot.mission_id
+                            or obligation['release_batch_id'] != snapshot.release_batch_id
+                            or obligation['requirement_id'] != gap.get('requirement_id')
+                            or obligation['sst_id'] != gap.get('sst_id')
+                            or gap['obligation_id'] not in gap['candidate_obligation_ids']):
+                        raise ContractError('N10_FEEDBACK_COVERAGE_OBLIGATION_LINEAGE_CHANGED')
+                elif gap.get('requirement_id') or gap.get('sst_id'):
+                    raise ContractError('N10_FEEDBACK_PARTIAL_COVERAGE_LINEAGE_FORBIDDEN')
+                for candidate_id in gap['candidate_obligation_ids']:
+                    candidate = self._one('rc72_test_obligation', obligation_id=candidate_id)
+                    if (candidate['mission_id'] != snapshot.mission_id
+                            or candidate['release_batch_id'] != snapshot.release_batch_id):
+                        raise ContractError('N10_FEEDBACK_COVERAGE_CANDIDATE_SCOPE_CHANGED')
                 assigned = [n for n in gap.get('responsible_nodes', []) if n in known_nodes]
                 issue.update(gap_reason=gap.get('gap_reason') or 'COVERAGE_CAUSE_UNKNOWN',
                     responsible_node=assigned[0] if len(assigned) == 1 else 'N8_DIAGNOSIS_RECOVERY',
-                    scope_refs=[root] + [kind + '://' + gap[key] for kind, key in
+                    scope_refs=[root, 'application://' + gap['application_id'],
+                        'code-slice://' + gap['code_slice']] + [kind + '://' + gap[key] for kind, key in
                         (('requirement', 'requirement_id'), ('sst', 'sst_id'), ('obligation', 'obligation_id'))
                         if gap.get(key)], priority='P0' if gap.get('status') == 'AMBIGUOUS' else 'P1',
                     evidence_refs=base_evidence + list(gap.get('evidence_refs', [])) + ['r1://artifact/' + gap_id])
