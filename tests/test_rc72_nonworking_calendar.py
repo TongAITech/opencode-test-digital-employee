@@ -73,7 +73,10 @@ def test_explicit_weekday_holiday_and_weekend_makeup_shift_properly():
     assert holiday.name == "BANK_NON_WORKING_DAY_UNLIMITED"
     assert not holiday.quota_limited
     assert holiday.quota_cost_factor == 0
-    # A compensatory weekend workday is NOT free.
+    assert classify_bank_cost_window(_shanghai("2026-11-05", 19), config=policy).quota_limited is False
+    assert classify_bank_cost_window(_shanghai("2026-11-05", 23), config=policy).quota_cost_factor == 0.0
+    # A compensatory weekend workday is NOT free, including after midnight.
+    assert classify_bank_cost_window(_shanghai("2026-11-07", 0, 1), config=policy).quota_cost_factor == 1.0
     assert classify_bank_cost_window(_shanghai("2026-11-07", 17, 59), config=policy).quota_cost_factor == 1.0
     assert classify_bank_cost_window(_shanghai("2026-11-07", 18, 0), config=policy).quota_cost_factor == 0.1
     assert classify_bank_cost_window(_shanghai("2026-11-07", 20, 59), config=policy).quota_cost_factor == 0.1
