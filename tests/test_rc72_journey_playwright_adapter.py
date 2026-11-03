@@ -366,8 +366,12 @@ def test_visible_wait_without_element_fails_closed_not_faked_as_pass(tmp_path):
     assert actual["failure_code"] == "JOURNEY_VISIBLE_WAIT_ELEMENT_REQUIRED"
 
 
-@pytest.mark.parametrize("expected,status", [(200, "PASSED"), (201, "FAILED")])
-def test_business_network_oracle_reads_actual_observed_post_not_recording_ref(tmp_path, expected, status):
+@pytest.mark.parametrize("expected,trigger,status", [
+    (200, "S-CLICK", "PASSED"),
+    (201, "S-CLICK", "FAILED"),
+    (200, "S1", "FAILED"),
+])
+def test_business_network_oracle_reads_actual_observed_post_not_recording_ref(tmp_path, expected, trigger, status):
     truth, pool, lease, page, adapter, service = make_replay(tmp_path)
     candidate = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]
     updated = dict(candidate)
@@ -386,7 +390,8 @@ def test_business_network_oracle_reads_actual_observed_post_not_recording_ref(tm
     def network_resolver(ref, kind, context):
         if kind == "oracle" and ref == "oracle://save-network":
             return {"type": "network_status", "method": "POST",
-                    "url": "https://fat1.example/api/config", "status": expected}
+                    "url": "https://fat1.example/api/config", "status": expected,
+                    "trigger_source_step_id": trigger}
         return resolver(ref, kind, context)
 
     adapter.resolve = network_resolver
