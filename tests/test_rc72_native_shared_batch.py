@@ -244,6 +244,7 @@ def test_two_real_native_batch_calls_keep_independent_case_attempts_and_review_s
     candidate = _dispatch(truth, batch, execution, assignment)
     assert candidate["status"] == "UNVERIFIED"
     assert len(candidate["members"]) == 2
+    assert len(candidate["raw_output_sha256"]) == 64
     assert candidate["token_call_id"] == truth.query(
         "rc72_token_call", workitem_id="EXECUTION_BATCH:" + batch.batch_id
     )[0]["call_id"]
@@ -265,6 +266,7 @@ def test_two_real_native_batch_calls_keep_independent_case_attempts_and_review_s
     assert reviewer.execute_count == 1
     assert len(reviewer.native_calls) == 1
     assert reviewed["status"] == "UNVERIFIED_INDEPENDENT_REVIEW"
+    assert len(reviewed["raw_output_sha256"]) == 64
     assert len(reviewed["review_tool_refs"]) >= 1
     assert reviewed["token_call_id"] == truth.query(
         "rc72_token_call", workitem_id="EVALUATOR_BATCH:" + batch.batch_id
@@ -667,4 +669,49 @@ def test_evaluator_without_real_native_evidence_tool_call_cannot_pass_review(tmp
             assignment=_review_assignment(batch.batch_id, candidate["raw_output_ref"]),
         )
     assert truth.query("rc72_native_batch_review", mission_id=MISSION) == []
+    assert truth.query("execution_attempt", release_id=RELEASE) == []
+
+
+
+def test_changed_producer_raw_dsh_file_blocks_evaluator_before_model_call(tmp_path):
+    from pathlib import Path
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    candidate = _dispatch(truth, batch, execution, assignment)
+    path = Path(candidate["raw_output_ref"][len("file://"):])
+    original = path.read_text(encoding="utf-8")
+    path.write_text(original + "\n" + json.dumps({
+        "type": "tool_call", "tool_name": "forged-after-native",
+    }), encoding="utf-8")
+    service = NativeSharedEvaluatorBatch(
+        truth, release_id=RELEASE, launcher=reviewer,
+    )
+    with pytest.raises(ContractError, match="RAW_DIGEST_CHANGED"):
+        service.review(
+            candidate_id=candidate["candidate_id"],
+            assignment=_review_assignment(batch.batch_id, candidate["raw_output_ref"]),
+        )
+    assert reviewer.execute_count == 0
+    assert truth.query("rc72_native_batch_review", mission_id=MISSION) == []
+
+
+def test_invocation_forged_tool_ref_not_present_in_raw_dsh_file_blocks_batch(tmp_path):
+    truth, _, batch, execution, _, assignment = _fixture(tmp_path)
+    original = execution.execute
+
+    def forged(assignment, prompt):
+        invocation, result = original(assignment, prompt)
+        # An untrusted adapter fabricated a tool-call reference in memory.
+        # The actual JSONL file still has only the real event indexes.
+        invocation.tool_calls.append({
+            "call_ref": "dsh-event://tool-call/999",
+            "tool_name": "invented-by-adapter",
+        })
+        result["members"][1]["observed_tool_refs"] = ["dsh-event://tool-call/999"]
+        return invocation, result
+
+    execution.execute = forged
+    with pytest.raises(ContractError, match="RAW_TOOL_CALL_MISMATCH"):
+        _dispatch(truth, batch, execution, assignment)
+    assert truth.query("rc72_native_batch_candidate", mission_id=MISSION) == []
     assert truth.query("execution_attempt", release_id=RELEASE) == []
