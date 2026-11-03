@@ -23,6 +23,7 @@ from urllib.request import url2pathname
 from .models import ContractError
 from .rc72_browser_resources import BrowserAccessMode
 from .rc72_journey_playwright import _atomic_json, _public_url, _safe_id
+from .rc72_journey_png import verify_png_file
 from .rc72_journey_teaching import JourneyActionType, JourneyTeachingService
 
 _OPERATION_KINDS = {
@@ -176,9 +177,7 @@ class BSKJourneyTeachingImporter:
             dom_ref, screenshot_ref = step_info.get("dom_ref"), step_info.get("screenshot_ref")
             _real_file(dom_ref)
             shot = _real_file(screenshot_ref, suffix=".png")
-            with shot.open("rb") as fp:
-                if fp.read(8) != _PNG_SIGNATURE:
-                    raise ContractError("JOURNEY_BSK_SCREENSHOT_NOT_PNG")
+            screenshot_proof = verify_png_file(shot)
             page = op.get("after") or op.get("before")
             if not isinstance(page, Mapping) or page.get("state") != "available":
                 raise ContractError("JOURNEY_BSK_PAGE_OBSERVATION_REQUIRED")
@@ -222,6 +221,7 @@ class BSKJourneyTeachingImporter:
                 "element_ref": ref if kind != JourneyActionType.NAVIGATE else None,
                 "dom_ref": dom_ref, "screenshot_ref": screenshot_ref,
                 "network": network, "metadata": bound,
+                "screenshot_sha256": screenshot_proof["sha256"],
                 "credential_ref": step_info.get("credential_ref"),
                 "wait_semantics": str(step_info.get("wait_semantics") or "domcontentloaded"),
             })
@@ -256,7 +256,8 @@ class BSKJourneyTeachingImporter:
                 {"source": "BROWSER_SKILL_DEBUG",
                  "operation_id": step["op"]["id"], "url": step["page_url"],
                  "page_role": step["page_role"],
-                 "value_source": "REDACTED_BSK_PAGE_OBSERVATION"})
+                 "value_source": "REDACTED_BSK_PAGE_OBSERVATION",
+                 "screenshot_sha256": step["screenshot_sha256"]})
             network_ref = _atomic_json(
                 folder / ("step-%04d-network.json" % index),
                 {"responses": step["network"],
