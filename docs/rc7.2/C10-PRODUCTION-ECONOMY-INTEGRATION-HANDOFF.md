@@ -244,3 +244,88 @@ Current release CLI output includes
 The actual bank field comparison, ContextEnvelope-driven hydration,
 true single-call batch dispatch, N8/N9/N10 end-to-end execution and
 same-HEAD multi-platform acceptance remain open.
+
+
+## 2026-11-04 C10 new construction: actual RetryDelta DSH hydration + shared batch dispatch APIs
+
+### Native RetryDelta applied to actual final DSH prompt
+
+\`rc72_native_delta_prompt.py\` now replaces *only*
+\`Context.input_refs\` in the final authorized DSH command with a real
+\`ContextEnvelopeBuilder\` retry delta (parent summary, Gap and changed
+Evidence/dependency refs) when **all** of the following hold: R1 child
+WorkItemAttemptBinding exists with RESOLVED MissionNode and exact parent
+Attempt; R1 RetryContext observation is OBSERVED with matching child
+Attempt and assignment ID; role is a producer, not an independent reviewer;
+the Context object contains the exact Mission and WorkItem ID; every old
+input_ref belongs to canonical source/assignment refs; a real prior summary
+appears in the new effective refs; resulting UTF-8 prompt is smaller; the
+rest of Context, every business Case/Oracle/parent obligation, RequiredShape,
+auth/tool instructions remain unchanged.
+
+If any item fails, the original input refs are retained. No new model
+assumption is treated as a signed retry; no Task, TestObligation or Attempt
+business state changes. C10-only R1 token-call receipts now differentiate
+\`REFERENCE_ONLY\` from \`NATIVE_RETRY_DELTA_VERIFIED\`, with
+\`context_projection_applied_to_prompt=true\` and
+\`native_retry_delta_saved_bytes\` only after actual substitution.
+\`observed_native_retry_delta_prompt_saved_bytes\` is *input bytes*, NOT
+provider Token savings. This does NOT close the A-owned full N8
+diagnosis→repair→fresh Attempt→N9 regression→N10 convergence orchestration.
+
+### One actual native DSH process per multi-WorkItem semantic ExecutionBatch
+
+C10 adds these dedicated interfaces, instead of altering A-owned Mission
+Factory / ReleaseBatchDriver:
+
+- \`rc72_native_shared_batch_composition.compose_native_batch_services\`:
+  validates two **different** real native DSH launchers, the same Mission
+  R1 store/release, and real model token auditors; installs both native
+  command-boundary meters before dispatch, fail-closes prior to partial binding.
+- \`rc72_native_shared_batch.NativeSharedExecutionBatch.dispatch\`:
+  requires an actual host-issued \`execution-batch:<batch_id>\` WorkerAssignment,
+  exact authorized ContextEnvelope refs, approved tool list, explicit
+  \`SEMANTIC\` R1 classification for EVERY member, and an admitted
+  SafeExecutionBatch receipt whose independent WorkItem/ETU/Case/Attempt IDs
+  belong to one resolved MissionNode. It makes ONE real
+  \`DshHeadlessWorkerLauncher.execute\` call, so one corresponding model-call
+  receipt (named \`EXECUTION_BATCH:<batch_id>\`) exists for all members.
+  Each member must cite a **distinct actual** \`dsh-event://tool-call/N\`
+  observed by that native DSH invocation, otherwise its output is rejected.
+  Only an additive R1 \`rc72_native_batch_candidate\` with state
+  \`UNVERIFIED\`, signed raw JSONL proof, model call ID and independent member
+  identities is recorded, never fabricated business PASS.
+- \`rc72_native_shared_batch_review.NativeSharedEvaluatorBatch.review\`:
+  requires a separate approved \`evaluation-batch:<batch_id>\` scoped
+  WorkerAssignment, EXACT producer raw JSONL file as minimal input, different
+  worker and actual DSH session, and a second actual model-call receipt
+  (\`EVALUATOR_BATCH:<batch_id>\`). Each original member gets an independent
+  \`SUFFICIENT_CANDIDATE / INSUFFICIENT / UNKNOWN\` review. It records only
+  \`UNVERIFIED_INDEPENDENT_REVIEW\`, not a business PASS or release gate.
+
+The proof distinguishes: **one model call for N WorkItems** versus N
+independent business WorkItems/Attempts. The model cannot turn a missing
+N7 actual tool, Oracle, cleanup, repair, independent evidence verification
+or N9 regression into PASS. On any invalid/missing member or forged tool
+call ref, no candidate/review is recorded; R1 preserves the admitted batch
+and failed attempt for fail-safe retry with a NEW authorization. Cold R1
+replay and idempotent resume are covered by tests.
+
+### Product integration still required: do not call this finished C10
+
+The actual N7 product entrypoint must acquire **fresh batch and reviewer
+DSH WorkerAssignments** with real authority / tools and invoke these
+services only after formal N7 binding/leases are granted; the reviewer
+assignment cannot be minted until the real producer raw proof exists.
+Then **existing N7 ExecutionEvidenceService and deterministic Oracle
+and independent Evidence Review** must consume the member observations
+and independently establish actual results. No direct bridge from
+\`UNVERIFIED\` model candidate to canonical PASS exists or should exist.
+The A-group N8/N9/N10 Mission controllers must also exercise the real
+retry/repair/reexecution loop. None of those shared A-owned source files
+have been edited in this C10 branch.
+
+Same-HEAD Python 3.8/3.11 + Ubuntu/Windows CI is still required; bank
+provider runtime, tool permission and equal-scope Token baseline
+measurements remain FIELD_PENDING. No schedule/date or token savings
+percentage can be justified from isolated contract tests alone.
