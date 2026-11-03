@@ -23,7 +23,7 @@ from rc72_formal_runner_support import LocalHTTPEnvironment
 
 
 def test_qa_c01_c02_physical_repair_recompile_fresh_execution_preserves_history(tmp_path, monkeypatch):
-    values, _ = _whole_inventory_repaired(tmp_path, monkeypatch)
+    values = _whole_inventory_repaired(tmp_path, monkeypatch)
     truth, prep, server, failed_preparation, _, data, _, _, _ = values
     try:
         original_failure = prep._one('execution_attempt', attempt_id=failed_preparation['attempt_id'])
@@ -86,7 +86,7 @@ def test_qa_c01_c02_physical_repair_recompile_fresh_execution_preserves_history(
 
 
 def test_qa_c01_c02_changed_independent_verifier_bytes_stop_n6_before_any_new_attempt(tmp_path, monkeypatch):
-    values, _ = _whole_inventory_repaired(tmp_path, monkeypatch)
+    values = _whole_inventory_repaired(tmp_path, monkeypatch)
     truth, prep, server, failed_preparation, _, data, _, _, _ = values
     try:
         old_failed = prep._one('execution_attempt', attempt_id=failed_preparation['attempt_id'])
