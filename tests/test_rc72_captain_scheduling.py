@@ -241,3 +241,82 @@ def test_orphan_recovery_rejects_wrong_captain_without_mutating_r1(tmp_path, mon
             captain_session_id="CAP-OTHER", captain_lease_id=owner["lease_id"],
             workitem_id="WI-1", session_id=session["session_id"])
     assert truth.store.path.read_bytes() == before
+
+
+
+def _seed_n7_plan(truth, *, bound_etu="ETU-1", create_snapshot=True):
+    from rc7_runtime.rc72_n7_execution_planning import install_rc72_n7_execution_planning_overlay
+    from rc7_runtime.rc72_decomposition_truth import install_rc72_decomposition_truth_overlay
+
+    install_rc72_n7_execution_planning_overlay()
+    install_rc72_decomposition_truth_overlay()
+    if create_snapshot:
+        truth.append_atomic("RC72_DECOMPOSITION_SNAPSHOT_UPSERTED", {
+            "snapshot_id": "PLAN-1", "mission_id": "M-1",
+            "release_id": "RC7.2", "release_batch_id": "RB-1",
+            "current_node": "N7_EXECUTION", "config_version": "test",
+            "obligation_ids": ["TO-1"], "case_ids": ["TC-1", "TC-2"],
+            "completed_case_ids": [], "etu_ids": ["ETU-1", "ETU-2"],
+            "planning_cases": [], "coverage_gaps": [], "execution_history": [],
+            "planning_signals": [], "coverage_routes": [],
+            "priority_weights": {}, "obligation_priorities": {},
+            "priority_explanations": {}, "replan_reasons": {},
+            "created_at": 1, "artifact_version": 1,
+        })
+    truth.append_atomic("RC72_N7_EXECUTION_PLAN_UPSERTED", {
+        "plan_id": "N7PLAN-TEST", "release_id": "RC7.2",
+        "source_commit": "0" * 40, "release_batch_id": "RB-1",
+        "mission_id": "M-1", "snapshot_id": "PLAN-1",
+        "input_digest": "hash-of-reviewed-inputs", "status": "PLANNED",
+        "items": [{
+            "case_id": "TC-1", "contract_id": "N6-C1",
+            "admission_id": "N7-ADMIT-1", "etu_id": bound_etu,
+            "workitem_id": "WI-1", "input_artifact_refs": [],
+        }],
+        "artifact_version": 1,
+    })
+
+
+def _mark_n7_case_task(truth):
+    scheduler = TaskScheduler(truth, "RC7.2")
+    row = truth.query("rc7_task", task_id="WI-1")[0]
+    task = scheduler._task_from_row(row)
+    task.task_type = "RC72_CASE_EXECUTION"
+    scheduler._persist_task(task, row["artifact_version"] + 1)
+
+
+def test_n7_case_workitem_requires_canonical_planning_lineage(tmp_path):
+    truth, _, owner, _, bridge = _ready_fixture(tmp_path)
+    _mark_n7_case_task(truth)
+    with pytest.raises(CaptainSchedulingError, match="N7_PLAN_ITEM_NOT_UNIQUE"):
+        _admit(bridge, owner, "WI-1")
+    assert truth.query("rc72_worker_session", mission_id="M-1") == []
+
+
+def test_n7_case_cannot_dispatch_using_wrong_etu_from_same_mission(tmp_path):
+    truth, _, owner, _, bridge = _ready_fixture(tmp_path)
+    _mark_n7_case_task(truth)
+    _seed_n7_plan(truth, bound_etu="ETU-2")
+    with pytest.raises(CaptainSchedulingError, match="N7_CANONICAL_LINEAGE_MISMATCH"):
+        _admit(bridge, owner, "WI-1")
+    assert truth.query("rc7_task", task_id="WI-1")[0]["state"] == "READY"
+    assert truth.query("rc72_worker_session", mission_id="M-1") == []
+
+
+def test_n7_case_plan_snapshot_must_exist_before_worker_is_allocated(tmp_path):
+    truth, _, owner, _, bridge = _ready_fixture(tmp_path)
+    _mark_n7_case_task(truth)
+    _seed_n7_plan(truth, create_snapshot=False)
+    with pytest.raises(CaptainSchedulingError, match="N7_SNAPSHOT_NOT_VERIFIED"):
+        _admit(bridge, owner, "WI-1")
+    assert truth.query("rc72_worker_session", mission_id="M-1") == []
+
+
+def test_n7_case_canonical_plan_and_snapshot_allow_fresh_worker(tmp_path):
+    truth, _, owner, _, bridge = _ready_fixture(tmp_path)
+    _mark_n7_case_task(truth)
+    _seed_n7_plan(truth)
+    admitted = _admit(bridge, owner, "WI-1")
+    assert admitted.state == "LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH"
+    assert len(truth.query("rc72_worker_session", mission_id="M-1")) == 1
+    assert truth.query("rc7_task", task_id="WI-1")[0]["lease_owner"] == admitted.worker_id
