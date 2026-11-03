@@ -30,6 +30,8 @@ from .rc72_expected_scope_input import ExpectedScopeInputService
 from .rc72_libra_measurement import NativeLibraMeasurementService
 from .rc72_native_coverage_intake import NativeCoverageGapIntakeService
 from .rc72_native_coverage_diagnosis import NativeCoveragePathDiagnosisService
+from .rc72_native_coverage_repair import NativeCoverageRepairService
+from .rc72_native_coverage_rerun import NativeCoverageRerunService
 from .rc72_n10_control import NativeN10ControlService
 from .rc72_release_driver import ReleaseBatchDriver
 
@@ -141,7 +143,13 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
     measurement = NativeLibraMeasurementService(expected, n9, capture_root=root/'coverage-captures')
     intake = NativeCoverageGapIntakeService(measurement)
     diagnosis = NativeCoveragePathDiagnosisService(intake, evidence_root=root/'coverage-diagnosis')
-    n10 = NativeN10ControlService(expected, n9, measurement, intake, diagnosis)
+    # Production N10 must own the accepted repair -> fresh physical N7 ->
+    # fresh Libra sequence; standalone component tests cannot substitute for
+    # the ReleaseBatch product entry.  All three services share this R1 truth.
+    repair = NativeCoverageRepairService(diagnosis)
+    rerun = NativeCoverageRerunService(repair)
+    n10 = NativeN10ControlService(expected, n9, measurement, intake, diagnosis,
+        repair=repair, rerun=rerun)
     return ReleaseBatchDriver(truth, source_commit=source_commit,
         n1_launcher=launcher('reality'), n1_tools=tools('reality'),
         n2_launcher=launcher('requirement'), n2_tools=tools('requirement'),
