@@ -163,6 +163,11 @@ class ReleaseBatchDriver:
         if n8 is not None and (not isinstance(n8,NativeN8ProductRecoveryService)
                 or self.n7_pipeline is None or n8.n7 is not self.n7_pipeline
                 or n8.diagnosis is not self.n7_pipeline.diagnosis
+                or n8.boundary.diagnosis is not n8.diagnosis
+                or n8.boundary.preparation is not self.n7_pipeline.preparation
+                or n8.boundary.cleanup.adapters!=self.n7_pipeline.cleanup.adapters
+                or n8.continuation.diagnosis is not n8.diagnosis
+                or n8.continuation.preparation is not self.n7_pipeline.preparation
                 or n8.truth is not self.truth
                 or n8.source_commit!=self.source_commit
                 or n8.release_id!=self.n7_pipeline.release_id):
