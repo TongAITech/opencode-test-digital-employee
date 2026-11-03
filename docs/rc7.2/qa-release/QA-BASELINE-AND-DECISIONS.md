@@ -155,3 +155,20 @@ packaging/rc7.2/QA-Q3-Q9-EVIDENCE.py 新增 --verify-archive 只读命令：
 - A/core 仍需在真实 ReleaseBatchDriver.run 接入通用非 bypass N8、专业 N9 缺陷处理与最终 N10 收敛；N10 Repair/Rerun 工厂装配不能单独核销 C03/C04/C05/C08。
 - Q3 目标信创 Linux、Q4 离线、Q5 CDP、Q6 真审批、Q7 全链路 ReleaseBatch、Q8 故障/冷恢复、Q9 银行现场签收全部缺实际行内 Evidence。
 - **QA 验收工具新补强均为 GitHub 提交候选。GitHub Actions 排队时只能报 CI_PENDING，不能报 PASS。**
+
+
+## 12. 第四轮：Q1 原始失败日志与正式 N8 产品门禁
+
+2026-11-04 从 **同一主线提交 `7efb3c8aa62f22629e570e3381727969524bf598`** 重新检索 [Q1 run #41679951422](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/41679951422) 的 `q1-linux-engineering-proxy-python-3.8` 作业 `126071464041` 原始日志。Linux 最后明确 `RC72_BOUNDED_PYTEST_RESULT::FAIL::count=2`：`tests/test_rc72_n10_control.py` 有 1 failed/4 passed，`tests/test_rc72_native_coverage_rerun.py` 有 2 failed/1 passed（计 2 个失败测试文件、3 个失败用例）。Q1 Windows 作业 `126071463528` 在核查时仍 IN_PROGRESS；不可合并推算出全平台通过。
+
+同 SHA [Construction run #41679951672](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/41679951672) 已确认为 FAILURE，两组 Python3.8/3.11 均为 1406 passed、3 failed、3 skipped。Q1 Linux 与 Construction 原始失败相互佐证；这仍只是当前老主线，不替代 A 组不同 SHA 候选后续同源 CI。
+
+### C03/N8 产品入口新增必要回归门禁
+
+QA 的 `tests/test_rc72_qa_product_wiring.py` 新增 **必要条件性质**的 `test_qa_release_driver_has_an_owned_non_bypass_n8_product_execution_route`：校验正式 `ReleaseBatchDriver.run` 是否在非 bypass N8 路径执行 `complete/run/dispatch/resume/reconcile` 的实际服务调用，而不是仅对已通过 N7 的 N8 进行跳过，也不能默认 `NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED`。此测试在受审主线**预期为 RED**，用于持续阻止 C03 仅凭模块存在被提前核销。它是静态入口门禁，不是端到端执行成功证据；修复后仍需新 HTTP SUT/真实 provider 的错误分类、人工 Gate、R1 签名、冷恢复以及原业务副作用断言。
+
+### Q3–Q9 导出反向校验新增一致性
+
+独立 `--verify-archive` 现同时解析 ZIP 内 `PACKAGE_MANIFEST.json` 和 `FULL-CAPABILITY-INVENTORY.json` 的限长 JSON，要求 source/build/release/status 与 ZIP 收据、索引、SOURCE_COMMIT 完全一致；虚假 `BANK_FINAL`、`real_mission_pass`、`delivery_pass`、`bank_field_pass` 必须被拒绝。增加 ZIP SHA 正确但内嵌 Manifest/Inventory 伪造源提交、状态的负面测试。该验证仍仅说明**拷贝字节与身份互相一致**，不等于 Field Gate 或 R1 业务真值成立。
+
+**当前验收判定不变：Q1=FAIL，C01/C02/C03/C11/C12=HOLD，Q3–Q9=NO FIELD EVIDENCE，BANK_FINAL=NO。** QA 本轮新增测试/工具仍需最新 QA HEAD CI 真正运行后逐项核销。
