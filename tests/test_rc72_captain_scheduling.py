@@ -397,3 +397,28 @@ def test_raw_r1_capability_event_blocks_orphan_recovery_even_without_tool_call(t
             captain_session_id="CAP-A", captain_lease_id=owner["lease_id"],
             workitem_id="WI-1", session_id=session["session_id"])
     assert cold.query("rc72_worker_session", session_id=session["session_id"])[0]["state"] == "ACTIVE"
+
+
+
+def test_stale_dependency_rejects_ready_task_before_worker_allocation(tmp_path):
+    truth, _, owner, _, bridge = _ready_fixture(tmp_path)
+    scheduler = TaskScheduler(truth, "RC7.2")
+    row = truth.query("rc7_task", task_id="WI-1")[0]
+    task = scheduler._task_from_row(row)
+    task.dependency_task_ids = ["WI-2"]
+    scheduler._persist_task(task, row["artifact_version"] + 1)
+    with pytest.raises(CaptainSchedulingError, match="DEPENDENCY_NOT_PASS"):
+        _admit(bridge, owner, "WI-1")
+    assert truth.query("rc72_worker_session", mission_id="M-1") == []
+
+
+def test_stale_etu_blocks_ready_workitem_even_when_role_has_all_capabilities(tmp_path):
+    truth, _, owner, _, bridge = _ready_fixture(tmp_path)
+    etu = dict(truth.query("rc72_etu", etu_id="ETU-1")[0])
+    etu.pop("artifact_type", None)
+    etu["artifact_version"] += 1
+    etu["state"] = "STALE"
+    truth.append_atomic("RC72_ETU_UPSERTED", etu)
+    with pytest.raises(CaptainSchedulingError, match="ETU_NOT_EXECUTABLE"):
+        _admit(bridge, owner, "WI-1")
+    assert truth.query("rc72_worker_session", mission_id="M-1") == []
