@@ -232,7 +232,7 @@ class JourneyTeachingService:
         return rows[0]
 
     def _assert_browser(self, recording: Mapping[str, Any]) -> Dict[str, Any]:
-        return self.browser_pool.assert_usable(
+        lease = self.browser_pool.assert_usable(
             browser_lease_id=str(recording["browser_lease_id"]),
             mission_id=str(recording["mission_id"]),
             workitem_id=str(recording["workitem_id"]),
@@ -240,6 +240,9 @@ class JourneyTeachingService:
             worker_id=str(recording["worker_id"]),
             access_mode=BrowserAccessMode.WRITE,
         )
+        if str(lease.get("purpose") or "").upper() != "JOURNEY_TEACHING":
+            raise ContractError("JOURNEY_TEACHING_BROWSER_PURPOSE_MISMATCH")
+        return lease
 
     def start_recording(
         self,
