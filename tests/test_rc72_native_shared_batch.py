@@ -17,7 +17,10 @@ from rc7_runtime.rc72_model_economy import (
     MissionCriticality, SemanticCostClass, TokenEconomyService,
 )
 from rc7_runtime.rc72_model_usage import TokenUsageAuditService
-from rc7_runtime.rc72_production_economy_wiring import bind_production_model_economy
+from rc7_runtime.rc72_production_economy_wiring import (
+    ProductionEconomyBindingError, bind_production_model_economy,
+)
+from rc7_runtime.rc72_native_shared_batch_composition import compose_native_batch_services
 from rc7_runtime.rc72_native_shared_batch import (
     NativeSharedBatchError, NativeSharedExecutionBatch,
     canonical_batch_metadata_resolver, install_native_batch_candidate_overlay,
@@ -201,14 +204,13 @@ def _fixture(tmp_path):
         max_retry_calls=10,
     )
     audit = TokenUsageAuditService(truth, release_id=RELEASE)
-    for native, is_review in ((execution, False), (reviewer, True)):
-        bind_production_model_economy(
-            native, economy=economy, usage_audit=audit,
-            metadata_resolver=canonical_batch_metadata_resolver(
-                truth, release_id=RELEASE, mission_id=MISSION,
-                review=is_review,
-            ),
-        )
+    services = compose_native_batch_services(
+        truth, release_id=RELEASE, mission_id=MISSION,
+        execution_launcher=execution, evaluator_launcher=reviewer,
+        economy=economy, usage_audit=audit,
+    )
+    assert isinstance(services.execution, NativeSharedExecutionBatch)
+    assert isinstance(services.evaluator, NativeSharedEvaluatorBatch)
     exec_assignment = SimpleNamespace(
         mission_id=MISSION, scope="execution-batch:" + batch.batch_id,
         assignment_id="AS-BATCH-EXEC", attempt_id="ATT-BATCH-EXEC",
@@ -403,3 +405,29 @@ def test_deterministic_or_missing_semantic_truth_never_spawns_dsh_batch(tmp_path
     assert execution.execute_count == 0
     assert truth.query("rc72_execution_batch_receipt", mission_id=MISSION) == []
     assert truth.query("rc72_native_batch_candidate", mission_id=MISSION) == []
+
+
+
+def test_batch_composer_rejects_nonindependent_or_prebound_workers_before_partial_hooking(tmp_path):
+    truth, economy, batch, execution, reviewer, _ = _fixture(tmp_path)
+    audit = TokenUsageAuditService(truth, release_id=RELEASE)
+    clone = _NativeDshLauncher(
+        truth, tmp_path / "clone", "unbound",
+        _execution_output(), session_id="session-new",
+    )
+    with pytest.raises(ProductionEconomyBindingError, match="INDEPENDENT_LAUNCHERS_REQUIRED"):
+        compose_native_batch_services(
+            truth, release_id=RELEASE, mission_id=MISSION,
+            execution_launcher=clone, evaluator_launcher=clone,
+            economy=economy, usage_audit=audit,
+        )
+    assert not getattr(clone, "_rc72_production_economy_bound", False)
+
+    with pytest.raises(ProductionEconomyBindingError, match="NATIVE_BATCH_LAUNCHER_INVALID"):
+        compose_native_batch_services(
+            truth, release_id=RELEASE, mission_id=MISSION,
+            execution_launcher=clone, evaluator_launcher=reviewer,
+            economy=economy, usage_audit=audit,
+        )
+    assert not getattr(clone, "_rc72_production_economy_bound", False)
+    assert truth.query("rc72_token_call", mission_id=MISSION) == []
