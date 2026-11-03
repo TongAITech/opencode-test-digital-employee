@@ -69,10 +69,31 @@ def _fixture(tmp_path):
     return truth, importer, doc, export, recording_args, evidence_map
 
 
-def _invoke(importer, export, args, mapping, assertions=()):
+def _owned_receipt(importer, args, *, tab_id=1):
+    pool = importer.teaching.browser_pool
+    lease = pool.lease(args["browser_lease_id"])
+    instance = pool.truth.query(
+        "rc72_browser_instance", browser_instance_id=lease["browser_instance_id"])[0]
+    return {
+        "bsk_session_id": "bsk-task-a1", "tab_id": tab_id,
+        "state": "ACTIVE", "source_receipt_ref": "r1://bsk-bound-session",
+        "browser_instance_id": instance["browser_instance_id"],
+        "profile_dir": instance["profile_dir"],
+        "bsk_endpoint": instance["bsk_endpoint"],
+        "auth_asset_ref": instance["auth_asset_ref"],
+        "browser_lease_id": args["browser_lease_id"],
+        "mission_id": args["mission_id"], "workitem_id": args["workitem_id"],
+        "attempt_id": args["attempt_id"], "worker_id": args["worker_id"],
+        "dsh_session_id": args["session_id"],
+    }
+
+
+def _invoke(importer, export, args, mapping, assertions=(), receipt=None):
     return importer.import_export(
         export_file=export, bsk_session_id="bsk-task-a1",
-        recording_args=args, evidence_map=mapping, assertions=assertions)
+        recording_args=args,
+        bsk_session_receipt=receipt if receipt is not None else _owned_receipt(importer, args),
+        evidence_map=mapping, assertions=assertions)
 
 
 def test_bsk_human_click_source_produces_nonexecuting_compiled_candidate(tmp_path):
@@ -148,3 +169,31 @@ def test_bsk_never_invents_business_oracle_from_http_200(tmp_path):
     candidate = truth.query("rc72_journey_candidate", candidate_id="JC-NO-ORACLE")[0]
     assert not any(s.get("oracle_ref") for s in candidate["steps"])
     assert candidate["executable"] is False
+
+
+@pytest.mark.parametrize("mutation,error", [
+    ("other_attempt", "JOURNEY_BSK_TEACHING_SESSION_SCOPE_MISMATCH"),
+    ("other_profile", "JOURNEY_BSK_TEACHING_SESSION_SCOPE_MISMATCH"),
+    ("other_4a", "JOURNEY_BSK_TEACHING_SESSION_SCOPE_MISMATCH"),
+    ("other_dsh", "JOURNEY_BSK_TEACHING_SESSION_SCOPE_MISMATCH"),
+    ("other_tab", "JOURNEY_BSK_TEACHING_SESSION_PROVENANCE_INVALID"),
+    ("missing_receipt", "JOURNEY_BSK_TEACHING_SESSION_PROVENANCE_INVALID"),
+])
+def test_bsk_import_requires_live_b_group_tab_4a_attempt_receipt(tmp_path, mutation, error):
+    truth, importer, doc, export, args, mapping = _fixture(tmp_path)
+    receipt = _owned_receipt(importer, args)
+    if mutation == "other_attempt":
+        receipt["attempt_id"] = "ATT-OTHER"
+    elif mutation == "other_profile":
+        receipt["profile_dir"] = "profiles/unrelated"
+    elif mutation == "other_4a":
+        receipt["auth_asset_ref"] = "auth://wrong"
+    elif mutation == "other_dsh":
+        receipt["dsh_session_id"] = "SESSION-OTHER"
+    elif mutation == "other_tab":
+        receipt["tab_id"] = 99
+    elif mutation == "missing_receipt":
+        receipt.pop("source_receipt_ref")
+    with pytest.raises(Exception, match=error):
+        _invoke(importer, export, args, mapping, receipt=receipt)
+    assert not truth.query("rc72_journey_recording", recording_id="JR-BSK-1")
