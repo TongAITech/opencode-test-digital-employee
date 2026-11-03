@@ -84,6 +84,7 @@ class JourneyPlaywrightAdapter:
         self._endpoint = None
         self._active_run_id = None
         self._active_attempt_id = None
+        self._instance_fingerprint = None
         self._network_observations = {}
 
     def close(self) -> None:
@@ -95,6 +96,7 @@ class JourneyPlaywrightAdapter:
         self._endpoint = None
         self._active_run_id = None
         self._active_attempt_id = None
+        self._instance_fingerprint = None
         self._network_observations.clear()
 
     def _guard(self, context: Mapping[str, Any]) -> Dict[str, Any]:
@@ -109,7 +111,11 @@ class JourneyPlaywrightAdapter:
             worker_id=context["worker_id"],
             access_mode=BrowserAccessMode.WRITE,
         )
-        if lease.get("purpose", "").upper() not in {"JOURNEY_REPLAY", "OFFICIAL_JOURNEY_EXECUTION"}:
+        required_purpose = (
+            "OFFICIAL_JOURNEY_EXECUTION" if context.get("execution_id")
+            else "JOURNEY_REPLAY" if context.get("replay_id")
+            else None)
+        if not required_purpose or str(lease.get("purpose") or "").upper() != required_purpose:
             raise ContractError("JOURNEY_BROWSER_PURPOSE_MISMATCH")
         instances = self.pool.truth.query(
             "rc72_browser_instance", browser_instance_id=lease["browser_instance_id"])
@@ -118,7 +124,13 @@ class JourneyPlaywrightAdapter:
         endpoint = str(instances[0]["cdp_endpoint"])
         if not endpoint.startswith(("http://127.0.0.1:", "http://localhost:", "ws://127.0.0.1:", "ws://localhost:")):
             raise ContractError("JOURNEY_CDP_LOCAL_ENDPOINT_REQUIRED")
-        return {"lease": lease, "instance": instances[0], "endpoint": endpoint}
+        instance = instances[0]
+        fingerprint = tuple(str(instance.get(k) or "") for k in (
+            "browser_instance_id", "profile_dir", "cdp_endpoint",
+            "bsk_endpoint", "auth_asset_ref"))
+        if self._instance_fingerprint is not None and fingerprint != self._instance_fingerprint:
+            raise ContractError("JOURNEY_BROWSER_INSTANCE_IDENTITY_CHANGED")
+        return {"lease": lease, "instance": instance, "endpoint": endpoint, "fingerprint": fingerprint}
 
     def _attach(self, endpoint: str) -> Any:
         if self._browser is not None:
@@ -295,6 +307,7 @@ class JourneyPlaywrightAdapter:
                 raise ContractError("JOURNEY_ADAPTER_ATTEMPT_SWITCH_REQUIRES_CLOSE")
             self._active_run_id = run_id
             self._active_attempt_id = context["attempt_id"]
+            self._instance_fingerprint = binding["fingerprint"]
             page = self._page(binding["endpoint"])
             def on_response(response: Any) -> None:
                 try:
