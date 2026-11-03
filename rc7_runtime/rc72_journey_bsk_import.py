@@ -17,7 +17,8 @@ import json
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence
-from urllib.parse import unquote, urlsplit
+from urllib.parse import urlsplit
+from urllib.request import url2pathname
 
 from .models import ContractError
 from .rc72_journey_playwright import _atomic_json, _public_url, _safe_id
@@ -38,7 +39,7 @@ def _real_file(ref: Any, *, suffix: Optional[str] = None) -> Path:
     parsed = urlsplit(ref)
     if parsed.netloc not in ("", "localhost") or parsed.query or parsed.fragment:
         raise ContractError("JOURNEY_BSK_LOCAL_EVIDENCE_REF_INVALID")
-    target = Path(unquote(parsed.path))
+    target = Path(url2pathname(parsed.path))
     if not target.is_file() or target.stat().st_size == 0:
         raise ContractError("JOURNEY_BSK_REAL_EVIDENCE_FILE_REQUIRED")
     if suffix is not None and target.suffix.lower() != suffix:
@@ -108,6 +109,8 @@ class BSKJourneyTeachingImporter:
         except (ValueError, UnicodeError) as exc:
             raise ContractError("JOURNEY_BSK_EXPORT_JSON_INVALID") from exc
         run = _check_recording(doc, bsk_session_id)
+        if not isinstance(run.get("id"), str) or not run["id"]:
+            raise ContractError("JOURNEY_BSK_RUN_ID_REQUIRED")
         if not isinstance(recording_args.get("recording_id"), str):
             raise ContractError("JOURNEY_BSK_RECORDING_ID_REQUIRED")
         recording_id = _safe_id(recording_args["recording_id"])
@@ -123,7 +126,9 @@ class BSKJourneyTeachingImporter:
                     op.get("state") != "completed" or
                     op.get("truncated") is True):
                 raise ContractError("JOURNEY_BSK_OPERATION_INCOMPLETE")
-            method = str(op.get("method") or "").lower().removeprefix("tool.")
+            method = str(op.get("method") or "").lower()
+            if method.startswith("tool."):
+                method = method[5:]
             kind = _OPERATION_KINDS.get(method)
             if kind is None:
                 raise ContractError("JOURNEY_BSK_OPERATION_UNSUPPORTED:" + method)
@@ -230,10 +235,10 @@ class BSKJourneyTeachingImporter:
                 wait_semantics=step["wait_semantics"],
                 evidence_refs=evidence, capture_metadata=step["metadata"],
                 credential_ref=step["credential_ref"])
-        for a in assertions:
+        for offset, a in enumerate(assertions, 1):
             source_id = a["source_operation_id"]
             origin = next(s for s in prepared if s["op"]["id"] == source_id)
-            seq = len(prepared) + list(assertions).index(a) + 1
+            seq = len(prepared) + offset
             page_ref = _atomic_json(folder / ("assert-%04d-page.json" % seq),
                                     {"source": "BROWSER_SKILL_VERIFIED_OPERATOR_ORACLE",
                                      "source_operation_id": source_id,
