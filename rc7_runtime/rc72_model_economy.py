@@ -378,10 +378,25 @@ def _validate_call(payload: Dict[str, Any]) -> Dict[str, Any]:
     # prompt actually consumed fewer tokens. Proof of prompt reduction must
     # come from native final prompt bytes, never from an inferred ref count.
     out.setdefault("context_projection_status", "NOT_BOUND")
-    if out["context_projection_status"] not in {"NOT_BOUND", "REFERENCE_ONLY"}:
+    if out["context_projection_status"] not in {
+        "NOT_BOUND", "REFERENCE_ONLY", "NATIVE_RETRY_DELTA_VERIFIED"
+    }:
         raise _contracts.DomainValidationError("TOKEN_CONTEXT_PROJECTION_STATUS_INVALID")
     out.setdefault("context_projection_applied_to_prompt", False)
-    if out["context_projection_applied_to_prompt"] is not False:
+    out.setdefault("native_retry_delta_saved_bytes", 0)
+    out["native_retry_delta_saved_bytes"] = _nonnegative_int(
+        out, "native_retry_delta_saved_bytes"
+    )
+    native_delta_applied = out["context_projection_status"] == "NATIVE_RETRY_DELTA_VERIFIED"
+    if native_delta_applied:
+        if (
+            out["context_projection_applied_to_prompt"] is not True
+            or out.get("context_mode") != "RETRY_DELTA"
+            or not out.get("parent_attempt_id")
+            or out["native_retry_delta_saved_bytes"] < 1
+        ):
+            raise _contracts.DomainValidationError("TOKEN_NATIVE_RETRY_DELTA_PROOF_REQUIRED")
+    elif out["context_projection_applied_to_prompt"] is not False or out["native_retry_delta_saved_bytes"] != 0:
         raise _contracts.DomainValidationError("TOKEN_CONTEXT_SAVINGS_UNPROVEN")
     for name in (
         "context_canonical_ref_count", "context_effective_ref_count",
@@ -389,7 +404,7 @@ def _validate_call(payload: Dict[str, Any]) -> Dict[str, Any]:
     ):
         out.setdefault(name, 0)
         out[name] = _nonnegative_int(out, name)
-    if out["context_projection_status"] == "REFERENCE_ONLY":
+    if out["context_projection_status"] in {"REFERENCE_ONLY", "NATIVE_RETRY_DELTA_VERIFIED"}:
         for name in ("context_envelope_id", "context_envelope_sha256", "context_mode"):
             out[name] = _required(out, name)
         if len(out["context_envelope_sha256"]) != 64:
@@ -690,6 +705,14 @@ class TokenEconomyService:
         lossless_json_compacted_calls = sum(
             row.get("prompt_compaction_status") == "LOSSLESS_JSON" for row in returned_calls
         )
+        native_retry_delta_applied_calls = sum(
+            row.get("context_projection_status") == "NATIVE_RETRY_DELTA_VERIFIED"
+            for row in returned_calls
+        )
+        native_retry_delta_saved_bytes = sum(
+            int(row.get("native_retry_delta_saved_bytes", 0))
+            for row in returned_calls
+        )
         reference_projection_calls = sum(
             row.get("context_projection_status") == "REFERENCE_ONLY"
             for row in model_calls
@@ -781,7 +804,8 @@ class TokenEconomyService:
                 if unique_context_bytes else 0.0
             ),
             "native_reference_projection_calls": reference_projection_calls,
-            "native_minimal_prompt_proven_calls": 0,
+            "native_minimal_prompt_proven_calls": native_retry_delta_applied_calls,
+            "observed_native_retry_delta_prompt_saved_bytes": native_retry_delta_saved_bytes,
             "verified_context_savings_bytes": None,
             "lossless_json_compacted_calls": lossless_json_compacted_calls,
             "verified_prompt_serialization_saved_bytes": real_prompt_serialization_bytes_saved,
@@ -829,12 +853,23 @@ class TokenEconomyService:
             "context_canonical_ref_count", "context_effective_ref_count",
             "context_unhydrated_lineage_ref_count",
             "context_projection_applied_to_prompt", "context_projection_status",
-            "parent_attempt_id",
+            "parent_attempt_id", "native_retry_delta_saved_bytes",
         }
         if set(projection) - accepted_projection:
             raise TokenEconomyError("TOKEN_CONTEXT_PROJECTION_FIELDS_INVALID")
-        if projection and projection.get("context_projection_applied_to_prompt") is not False:
-            raise TokenEconomyError("TOKEN_CONTEXT_SAVINGS_UNPROVEN")
+        if projection:
+            applied = projection.get("context_projection_applied_to_prompt")
+            if applied is True:
+                if (
+                    projection.get("context_projection_status") != "NATIVE_RETRY_DELTA_VERIFIED"
+                    or projection.get("context_mode") != "RETRY_DELTA"
+                    or not projection.get("parent_attempt_id")
+                    or type(projection.get("native_retry_delta_saved_bytes")) is not int
+                    or projection["native_retry_delta_saved_bytes"] < 1
+                ):
+                    raise TokenEconomyError("TOKEN_NATIVE_RETRY_DELTA_PROOF_REQUIRED")
+            elif applied is not False:
+                raise TokenEconomyError("TOKEN_CONTEXT_SAVINGS_UNPROVEN")
         prompt_bytes = prompt.encode("utf-8")
         actual_prompt_bytes = len(prompt_bytes)
         if original_prompt_bytes is None:
