@@ -31,6 +31,7 @@ class GovernedFreshDispatch:
     session_id: str
     captain_generation: int
     captain_lease_id: str
+    captain_session_id: str
     state: str
 
 
@@ -45,7 +46,9 @@ class CaptainFencedWorkItemScheduler:
     invent capabilities at dispatch. No Captain secret is placed in Worker input.
     """
 
-    _ETU_EXECUTOR_ROLES = frozenset({"test-executor", "performance-executor", "security-executor"})
+    _ETU_EXECUTOR_ROLES = frozenset(
+        {"test-executor", "performance-executor", "security-executor"}
+        | {"L%d_EXECUTE" % level for level in range(1, 8)})
 
     def __init__(self, *, truth, release_id: str, fencer: CaptainDispatchFencer,
                  lifecycle: WorkerLifecycleService, scheduler: TaskScheduler,
@@ -230,7 +233,9 @@ class CaptainFencedWorkItemScheduler:
                 mission_id=mission_id, workitem_id=workitem_id,
                 etu_id=etu_id, role=role, worker_id=fresh.worker_id,
                 session_id=fresh.session_id, captain_generation=owner["generation"],
-                captain_lease_id=owner["lease_id"], state="LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH")
+                captain_lease_id=owner["lease_id"],
+                captain_session_id=owner["captain_session_id"],
+                state="LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH")
 
 
     @staticmethod
