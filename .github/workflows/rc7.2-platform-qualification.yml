@@ -67,6 +67,7 @@ jobs:
           --pattern "tests/test_rc72_*.py"
           --timeout-seconds 180
           --file-timeout tests/test_rc72_release_driver_n7.py=900
+          --file-timeout tests/test_rc72_release_driver_n10.py=900
           --junit-dir rc72-platform-junit
 
       - name: Run inherited RC7 regression with bounded file diagnostics

@@ -36,6 +36,7 @@ from .rc72_n6_pipeline import N6PipelineService
 from .rc72_n7_pipeline import N7PipelineService
 from .rc72_n9_accepted_scope import AcceptedScopeN9Service
 from .rc72_expected_scope_input import ExpectedScopeInputService
+from .rc72_n10_control import NativeN10ControlService
 
 
 @contextmanager
@@ -89,7 +90,7 @@ def release_batch_status(truth, *, source_commit, release_batch_id):
 
 class ReleaseBatchDriver:
     def __init__(self, truth, *, source_commit, n1_launcher, n1_tools,
-                 n2_launcher, n2_tools, n2_evaluator, n3_pipeline=None, n4_pipeline=None, n5_pipeline=None, n7_pipeline=None, n9_pipeline=None, expected_scope=None):
+                 n2_launcher, n2_tools, n2_evaluator, n3_pipeline=None, n4_pipeline=None, n5_pipeline=None, n7_pipeline=None, n9_pipeline=None, expected_scope=None, n10_pipeline=None):
         if not isinstance(source_commit, str) or not re.fullmatch('[0-9a-f]{40}', source_commit):
             raise ContractError('RC72_RELEASE_DRIVER_EXACT_SOURCE_REQUIRED')
         if not isinstance(n2_evaluator, DshRequirementEvaluator):
@@ -127,6 +128,8 @@ class ReleaseBatchDriver:
         self._assert_n9_scope()
         self.expected_scope=expected_scope
         self._assert_expected_scope()
+        self.n10_pipeline=n10_pipeline
+        self._assert_n10_scope()
 
     def _assert_expected_scope(self,release_batch_id=None):
         policy=self.expected_scope
@@ -140,6 +143,17 @@ class ReleaseBatchDriver:
                 or policy.pipeline.handoff_service.launcher is not self.n1_launcher):
             raise ContractError('RC72_RELEASE_DRIVER_EXPECTED_SCOPE_MISMATCH')
 
+    def _assert_n10_scope(self,release_batch_id=None):
+        pipeline=self.n10_pipeline
+        if (pipeline is None and release_batch_id is not None
+                and self.truth.query('rc72_libra_measurement',release_batch_id=release_batch_id)):
+            raise ContractError('RC72_RELEASE_DRIVER_NATIVE_N10_PROVIDER_REQUIRED')
+        if pipeline is not None and (not isinstance(pipeline,NativeN10ControlService)
+                or pipeline.truth is not self.truth or pipeline.source_commit!=self.source_commit
+                or pipeline.n9 is not self.n9_pipeline or pipeline.expected_scope is not self.expected_scope
+                or pipeline.n9.pipeline is not self.n7_pipeline):
+            raise ContractError('RC72_RELEASE_DRIVER_N10_PIPELINE_SCOPE_MISMATCH')
+
     def _assert_n9_scope(self):
         n9=self.n9_pipeline
         if n9 is not None and (not isinstance(n9,AcceptedScopeN9Service) or n9.pipeline is not self.n7_pipeline
@@ -149,7 +163,8 @@ class ReleaseBatchDriver:
     def _has_gate(self,node_type):
         return (node_type in self._gate_types() or node_type=='N6_EXECUTABLE_READINESS'
                 or node_type=='N7_EXECUTION' and self.n7_pipeline is not None
-                or node_type=='N9_DEFECT' and self.n9_pipeline is not None)
+                or node_type=='N9_DEFECT' and self.n9_pipeline is not None
+                or node_type=='N10_RELEASE_CONVERGENCE' and self.n10_pipeline is not None)
 
     def _diagnosis_bypassed(self,nodes,mission_id):
         by_type={n['node_type']:n for n in nodes}
@@ -212,6 +227,8 @@ class ReleaseBatchDriver:
             'N5_TEST_DATA': N5OwnedWorkItemGateService}
 
     def _complete_gate(self, node_type, batch):
+        if node_type=='N10_RELEASE_CONVERGENCE' and self.n10_pipeline is not None:
+            return self.n10_pipeline.complete(release_batch_id=batch['release_batch_id'])
         if node_type=='N9_DEFECT' and self.n9_pipeline is not None:
             return self.n9_pipeline.complete(release_batch_id=batch['release_batch_id'])
         if node_type=='N1_REALITY':
@@ -252,6 +269,7 @@ class ReleaseBatchDriver:
                     or self.n7_pipeline.source_commit!=self.source_commit or self.n7_pipeline.release_id!=batch['release_id']):
                 raise ContractError('RC72_RELEASE_DRIVER_N7_PIPELINE_SCOPE_MISMATCH')
             self._assert_n9_scope()
+            self._assert_n10_scope(release_batch_id=release_batch_id)
             self._assert_expected_scope(release_batch_id=batch['release_batch_id'])
             # Admission is rechecked even when canonical nodes already exist.
             ReleaseBatchFieldMissionLauncher(self.truth, source_commit=self.source_commit).start(release_batch_id=release_batch_id)
@@ -318,6 +336,10 @@ class ReleaseBatchDriver:
                         return dict(self.status(release_batch_id=release_batch_id), **result)
                 elif node['node_type']=='N7_EXECUTION' and self.n7_pipeline is not None:
                     result = self.n7_pipeline.complete(release_batch_id=release_batch_id)
+                    if result.get('status')=='HOLD':
+                        return dict(self.status(release_batch_id=release_batch_id), **result)
+                elif node['node_type']=='N10_RELEASE_CONVERGENCE' and self.n10_pipeline is not None:
+                    result=self.n10_pipeline.complete(release_batch_id=release_batch_id)
                     if result.get('status')=='HOLD':
                         return dict(self.status(release_batch_id=release_batch_id), **result)
                 elif node['node_type']=='N9_DEFECT' and self.n9_pipeline is not None:

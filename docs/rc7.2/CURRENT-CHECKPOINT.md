@@ -1,5 +1,48 @@
 # RC7.2 Current Construction Checkpoint
 
+## Concrete N10 advancement and full original-source product run — 2026-11-03
+
+Added NativeN10ControlService and typed ReleaseBatchDriver `n10_pipeline`
+composition. It audits original expected scope/N9, executes actual report
+collection/intake/independent supported diagnosis, and returns canonical
+convergence blockers and original pending investigation WorkItems. Recorded
+measurement history cannot omit the native N10 provider on restart. It does not
+write a terminal N10 Gate or claim Mission completion; terminal review remains
+an explicit required closure, including when a fact snapshot is converged.
+
+The small coverage fixture was correctly refused by the existing N4 full-parent
+guard. The guard was not weakened. Replaced that insufficient prefix test with
+the FULL original source route: actual original N1 MCP read, N1..N6 full scope,
+28 actual native N7 Case HTTP/process/cleanup/independent acceptance, N9 and N10.
+**1 passed in 687.41s**; actual JUnit properties record 28 original Cases, 78
+original obligations (ALL L3), 28 business calls, one coverage read, all seven
+original expected levels retained. A 100% measured report still correctly yields
+NOT_CONVERGED. Re-entry repeats no source worker/business/report effect, and
+omitting the native provider refuses before writes. Bounded new full-file CI
+allowance is 900s; other defaults unchanged. Local controller/original-scope
+regression separately passed 32 in 61.95s. Two fixture setup errors were fixed
+before the full pass; neither runtime guard nor expected denominator was relaxed.
+
+Forensic captured runtime was preserved separately (817 files, 6,270,296 bytes),
+with original references retained; it is engineering inspection evidence, not
+initial bank state. Complete package, terminal N10 review, professional repair,
+physical remaining layers and final same-source qualification remain open.
+See NATIVE-N10-CONTROL-CONTRACT.md.
+
+## Full Python portable payload construction — 2026-11-03
+
+Found and corrected an actual RC7.1-equivalence omission: the portable
+materializer previously installed only Pillow/OpenCV. Complete inherited
+document/ONNX/OCR dependencies and an isolated offline package-local interpreter
+probe are now included. The probe roundtrips DOCX/XLSX/PPTX/PDF and performs OCR
+inference, rejecting host modules/stale or cv2-only markers. Clean extraction
+reruns it. Contract tests: 18 passed in 0.37s. Local dependency acquisition failed
+through proxy/direct TLS paths, so no local actual OCR PASS is claimed. Dedicated
+Windows copied-runtime/clean-unpack component workflow 41595427225 was actually
+started for source90601b1 and is pending its actual result. That component test
+archive is not the complete user delivery. FULL-PYTHON-PAYLOAD-CONTRACT.md records
+the scope; full product/complete-package qualification remains mandatory.
+
 ## Native observed-path diagnosis and N8 professional intake — 2026-11-03
 
 Implemented independent actual diagnosis and review processes over the accepted
