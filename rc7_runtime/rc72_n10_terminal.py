@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import subprocess
 import sys
 from dataclasses import asdict
@@ -187,6 +188,16 @@ class NativeN10TerminalReviewService:
             raise ContractError('N10_TERMINAL_REVIEWER_CONTEXT_CHANGED')
         return reviewer,session
 
+    def _safe_review_root(self,review_id):
+        # Reviewer IDs are controlled by native Lifecycle. Never permit a
+        # persisted R1 label to become a path outside the evidence root.
+        if not re.fullmatch(r'(?:REV-[0-9a-f]{32}|N10REV-[0-9a-f]{24})',review_id):
+            raise ContractError('N10_TERMINAL_REVIEWER_PATH_INVALID')
+        root=self.root/review_id
+        if root.is_symlink():
+            raise ContractError('N10_TERMINAL_REVIEWER_PATH_SYMLINK')
+        return root
+
     def _verify_receipt(self,receipt,snapshot,reviewer):
         raw={key:value for key,value in receipt.items()
              if key not in {'signature','artifact_type','artifact_version'}}
@@ -200,13 +211,20 @@ class NativeN10TerminalReviewService:
                 or receipt['reviewer_session_id']!=reviewer['session_id']
                 or receipt['delivery_id']!=reviewer['delivery_id']):
             raise ContractError('N10_TERMINAL_REVIEW_LINEAGE_CHANGED')
+        allowed_root=self._safe_review_root(reviewer['review_id']).resolve()
         for key in ('input','stdout','stderr'):
             ref=receipt[key+'_ref']
             path=Path(ref[len('file://'):]) if ref.startswith('file://') else None
-            if (path is None or path.is_symlink() or not path.is_file()
-                    or hashlib.sha256(path.read_bytes()).hexdigest()!=receipt[key+'_sha256']):
+            if path is None or path.is_symlink() or not path.is_file():
+                raise ContractError('N10_TERMINAL_REVIEW_PROCESS_BYTES_CHANGED')
+            try:
+                path.resolve().relative_to(allowed_root)
+            except ValueError as exc:
+                raise ContractError('N10_TERMINAL_REVIEW_PROCESS_PATH_ESCAPED') from exc
+            if hashlib.sha256(path.read_bytes()).hexdigest()!=receipt[key+'_sha256']:
                 raise ContractError('N10_TERMINAL_REVIEW_PROCESS_BYTES_CHANGED')
         try:
+            input_payload=json.loads(Path(receipt['input_ref'][len('file://'):]).read_text(encoding='utf-8'))
             output=json.loads(Path(receipt['stdout_ref'][len('file://'):]).read_text(encoding='utf-8'))
         except (UnicodeError,ValueError) as exc:
             raise ContractError('N10_TERMINAL_REVIEW_RESULT_INVALID') from exc
@@ -214,7 +232,12 @@ class NativeN10TerminalReviewService:
             review_id=reviewer['review_id'],reviewer_worker_id=reviewer['worker_id'],
             reviewer_session_id=reviewer['session_id'],criteria=_CRITERIA,
             accepted=(receipt['verdict']=='PASS'))
-        if (output!=expected or receipt['process_result']!=expected
+        from .rc72_n10_review_worker import review as independently_recompute
+        if (input_payload.get('snapshot')!=self._snapshot(snapshot)
+                or input_payload.get('snapshot_sha256')!=_hash(self._snapshot(snapshot))
+                or input_payload.get('review_id')!=reviewer['review_id']
+                or output!=independently_recompute(input_payload)
+                or output!=expected or receipt['process_result']!=expected
                 or receipt['exit_code']!=0 or receipt['verdict']!='PASS'):
             raise ContractError('N10_TERMINAL_REVIEW_NOT_ACCEPTED')
         return receipt
@@ -225,9 +248,11 @@ class NativeN10TerminalReviewService:
             snapshot_sha256=_hash(data),review_id=reviewer['review_id'],
             reviewer_worker_id=reviewer['worker_id'],
             reviewer_session_id=reviewer['session_id'],criteria=_CRITERIA)
-        root=self.root/reviewer['review_id']
+        root=self._safe_review_root(reviewer['review_id'])
         root.mkdir(parents=True,exist_ok=True)
         input_path=root/'input.json'
+        if input_path.is_symlink() or (root/'stdout.json').is_symlink() or (root/'stderr.log').is_symlink():
+            raise ContractError('N10_TERMINAL_REVIEW_FILE_SYMLINK')
         source=json.dumps(payload,sort_keys=True,ensure_ascii=False).encode('utf-8')
         input_path.write_bytes(source)
         proc=subprocess.Popen([sys.executable,'-I',
