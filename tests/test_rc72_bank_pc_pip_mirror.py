@@ -81,3 +81,9 @@ def test_clean_unpack_field_request_cannot_omit_mirror_gate_configuration(tmp_pa
     result=qualify(tmp_path,**inputs)
     assert result['status']=='FAIL' and result['reason']=='BANK_PC_PIP_MIRROR_GATE_CONFIGURATION_REQUIRED'
     assert result['bank_pc_pip_mirror_gate']['status']=='NOT_RUN' and result['field_verified'] is False
+
+
+
+def test_bank_mirror_probe_and_entry_are_mandatory_package_files():
+    from rc7_release.rc72_package import RC72_Q2B_REQUIRED_FILES
+    assert {'rc7_release/bank_pc_pip_mirror_probe.py','packaging/rc7.2/BANK-PIP-MIRROR-CHECK.cmd'}.issubset(RC72_Q2B_REQUIRED_FILES)

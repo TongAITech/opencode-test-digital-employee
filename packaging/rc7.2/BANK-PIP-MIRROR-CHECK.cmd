@@ -10,7 +10,7 @@ set "PYTHONPATH="
 set "PYTHONHOME="
 set "PYTHONNOUSERSITE=1"
 pushd "%RC72_ROOT%"
-"%RC72_PYTHON%" -s -m rc7_release.rc72_windows_clean_qualification --package-root "%RC72_ROOT%" --bank-field --require-pass %*
+"%RC72_PYTHON%" -s -m rc7_release.rc72_windows_clean_qualification %* --package-root "%RC72_ROOT%" --bank-field --require-pass
 set "RC72_RESULT=%ERRORLEVEL%"
 popd
 exit /b %RC72_RESULT%

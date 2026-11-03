@@ -22,6 +22,8 @@ RC72_IDENTITY_FILE = "RC72_RELEASE_IDENTITY.json"
 RC72_Q2B_REQUIRED_FILES = (
     "rc7_release/rc72_windows_clean_qualification.py",
     "packaging/rc7.2/AITEST.sh",
+    "rc7_release/bank_pc_pip_mirror_probe.py",
+    "packaging/rc7.2/BANK-PIP-MIRROR-CHECK.cmd",
 )
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
