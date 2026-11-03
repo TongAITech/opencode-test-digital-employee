@@ -284,23 +284,31 @@ class BSKJourneyTeachingImporter:
         }
         folder = self.root / recording_id
         summary_ref = _atomic_json(folder / "bsk-source.json", summary)
-        for index, step in enumerate(prepared, 1):
+        # An Oracle belongs immediately after its source business action,
+        # never at the tail of a multi-page recording. Otherwise the later
+        # page could make an earlier checkpoint appear to pass or fail.
+        assertions_after: Dict[str, List[Mapping[str, Any]]] = {}
+        for assertion in assertions:
+            assertions_after.setdefault(assertion["source_operation_id"], []).append(assertion)
+        sequence = 0
+        for step in prepared:
+            sequence += 1
             page_ref = _atomic_json(
-                folder / ("step-%04d-page.json" % index),
+                folder / ("step-%04d-page.json" % sequence),
                 {"source": "BROWSER_SKILL_DEBUG",
                  "operation_id": step["op"]["id"], "url": step["page_url"],
                  "page_role": step["page_role"],
                  "value_source": "REDACTED_BSK_PAGE_OBSERVATION",
                  "screenshot_sha256": step["screenshot_sha256"]})
             network_ref = _atomic_json(
-                folder / ("step-%04d-network.json" % index),
+                folder / ("step-%04d-network.json" % sequence),
                 {"responses": step["network"],
                  "association": "BSK_OPERATION_WINDOW_NOT_CAUSAL_PROOF"})
             evidence = [summary_ref, page_ref, step["dom_ref"],
                         network_ref, step["screenshot_ref"]]
             self.teaching.append_step(
-                recording_id=recording_id, step_id="%s:%d" % (recording_id, index),
-                sequence=index, action_type=step["kind"],
+                recording_id=recording_id, step_id="%s:%d" % (recording_id, sequence),
+                sequence=sequence, action_type=step["kind"],
                 url=step["page_url"], page_role=step["page_role"],
                 element_ref=step["element_ref"],
                 page_state_ref=page_ref, dom_ref=step["dom_ref"],
@@ -308,23 +316,23 @@ class BSKJourneyTeachingImporter:
                 wait_semantics=step["wait_semantics"],
                 evidence_refs=evidence, capture_metadata=step["metadata"],
                 credential_ref=step["credential_ref"])
-        for offset, a in enumerate(assertions, 1):
-            source_id = a["source_operation_id"]
-            origin = next(s for s in prepared if s["op"]["id"] == source_id)
-            seq = len(prepared) + offset
-            page_ref = _atomic_json(folder / ("assert-%04d-page.json" % seq),
-                                    {"source": "BROWSER_SKILL_VERIFIED_OPERATOR_ORACLE",
-                                     "source_operation_id": source_id,
-                                     "url": origin["page_url"]})
-            self.teaching.append_step(
-                recording_id=recording_id, step_id="%s:%d" % (recording_id, seq),
-                sequence=seq, action_type=JourneyActionType.ASSERT,
-                url=origin["page_url"], page_role=origin["page_role"],
-                element_ref=a.get("locator_ref"), page_state_ref=page_ref,
-                dom_ref=origin["dom_ref"], network_refs=[],
-                screenshot_ref=origin["screenshot_ref"],
-                wait_semantics="visible" if a.get("locator_ref") else "none",
-                evidence_refs=[page_ref, origin["screenshot_ref"]],
-                capture_metadata={"oracle_ref": a["oracle_ref"]})
+            for assertion in assertions_after.get(step["op"]["id"], ()):
+                sequence += 1
+                assertion_page = _atomic_json(
+                    folder / ("assert-%04d-page.json" % sequence),
+                    {"source": "BROWSER_SKILL_VERIFIED_OPERATOR_ORACLE",
+                     "source_operation_id": step["op"]["id"],
+                     "url": step["page_url"]})
+                self.teaching.append_step(
+                    recording_id=recording_id,
+                    step_id="%s:%d" % (recording_id, sequence),
+                    sequence=sequence, action_type=JourneyActionType.ASSERT,
+                    url=step["page_url"], page_role=step["page_role"],
+                    element_ref=assertion.get("locator_ref"),
+                    page_state_ref=assertion_page, dom_ref=step["dom_ref"],
+                    network_refs=[], screenshot_ref=step["screenshot_ref"],
+                    wait_semantics="visible" if assertion.get("locator_ref") else "none",
+                    evidence_refs=[assertion_page, step["screenshot_ref"]],
+                    capture_metadata={"oracle_ref": assertion["oracle_ref"]})
         return self.teaching.complete_recording(
             recording_id=recording_id, evidence_refs=[summary_ref])
