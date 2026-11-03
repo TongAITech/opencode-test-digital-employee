@@ -186,3 +186,26 @@ def test_python_presence_cannot_fake_local_ocr_cv_capability(tmp_path: Path) -> 
 
     with pytest.raises(RuntimeDeliveryContractError, match="REQUIRED_CAPABILITY_MARKER_MISSING:local_ocr_cv"):
         verify_runtime_delivery(tmp_path)
+
+
+def test_full_turnkey_carries_gitnexus_without_making_it_a_core_runtime_requirement(tmp_path):
+    _full_layout(tmp_path);lock=_lock();lock['payloads']['gitnexus']['turnkey_bundle_required']=True
+    _write_json(tmp_path/'runtime-lock.json',lock)
+    with pytest.raises(RuntimeDeliveryContractError,match='TURNKEY_BUNDLE_INCOMPLETE:gitnexus'):
+        verify_runtime_delivery(tmp_path)
+    package=tmp_path/'workspace-template/runtime/node-execution/node_modules/gitnexus'
+    _write_json(package/'package.json',dict(name='gitnexus',version='fixture',bin=dict(gitnexus='dist/cli/index.js')))
+    cli=package/'dist/cli/index.js';cli.parent.mkdir(parents=True);cli.write_text('// fixture CLI, not runtime evidence')
+    result=verify_runtime_delivery(tmp_path)
+    assert result['status']=='PASS' and result['required_payload_count']==4
+    assert result['turnkey_bundles'][0]['version']=='fixture'
+    assert next(r for r in result['payloads'] if r['payload']=='gitnexus')['required_for_delivery'] is False
+    cli.unlink()
+    with pytest.raises(RuntimeDeliveryContractError,match='NPM_PACKAGE_CLI_REQUIRED'):verify_runtime_delivery(tmp_path)
+
+
+@pytest.mark.parametrize('binary',['../outside.js','C:/outside.js','/outside.js'])
+def test_turnkey_graph_cannot_point_its_cli_outside_its_package(tmp_path,binary):
+    from rc7_release.runtime_delivery_contract import verify_turnkey_npm_package
+    _write_json(tmp_path/'package.json',dict(name='gitnexus',version='fixture',bin=dict(gitnexus=binary)))
+    assert verify_turnkey_npm_package(tmp_path,'gitnexus')['status']=='FAIL'

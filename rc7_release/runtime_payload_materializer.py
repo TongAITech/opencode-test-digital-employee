@@ -13,8 +13,8 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
-from .package import PACKAGE_LOCAL_BROWSER, PACKAGE_LOCAL_CODEGRAPH, PACKAGE_LOCAL_PYTHON, sha256_file, write_checksums
-from .runtime_delivery_contract import OCR_CV_MARKER, verify_runtime_delivery
+from .package import _is_runtime_generated, PACKAGE_LOCAL_BROWSER, PACKAGE_LOCAL_CODEGRAPH, PACKAGE_LOCAL_PYTHON, sha256_file, write_checksums
+from .runtime_delivery_contract import OCR_CV_MARKER, verify_runtime_delivery, verify_turnkey_npm_package
 
 
 SCHEMA_VERSION = "pfc.aitest.rc7.runtime-payload-materializer.v1"
@@ -370,9 +370,9 @@ def _materialize_playwright(root: Path) -> Dict[str, Any]:
     env = dict(os.environ)
     env["PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD"] = "1"
     _run(
-        [str(npm), "install", "--prefix", str(target), "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", "playwright@latest"],
+        [str(npm), "install", "--prefix", str(target), "--omit=dev", "--no-audit", "--no-fund", "--package-lock=true", "playwright@latest", "gitnexus@latest"],
         cwd=root,
-        timeout=600,
+        timeout=900,
         env=env,
     )
     package_json = target / "node_modules/playwright/package.json"
@@ -381,7 +381,16 @@ def _materialize_playwright(root: Path) -> Dict[str, Any]:
     manifest = json.loads(package_json.read_text(encoding="utf-8"))
     node = root / "workspace-template/runtime/node/node.exe"
     _run([str(node), "-e", "require('playwright'); console.log('playwright-ok')"], cwd=target, timeout=60)
-    return _record("playwright", target / "node_modules/playwright", version=str(manifest.get("version") or ""), source="NPM_LATEST_AT_BUILD", sha256=_sha256(package_json))
+    companion = verify_turnkey_npm_package(target / "node_modules/gitnexus", "gitnexus")
+    if companion["status"] != "PASS":
+        raise RuntimePayloadMaterializerError("GITNEXUS_TURNKEY_PAYLOAD_INCOMPLETE:" + str(companion.get("reason")))
+    _run([str(node), str(target / "node_modules/gitnexus" / companion["cli_relative_path"]), "--version"], cwd=target, timeout=60)
+    lock = target / "package-lock.json"
+    if not lock.is_file():
+        raise RuntimePayloadMaterializerError("EXECUTION_NODE_LOCKFILE_REQUIRED")
+    row = _record("playwright", target / "node_modules/playwright", version=str(manifest.get("version") or ""), source="NPM_BUILD_TIME_LOCKED", sha256=_sha256(package_json))
+    row.update(companion_packages=[companion], dependency_lockfile=lock.as_posix(), dependency_lockfile_sha256=_sha256(lock))
+    return row
 
 
 def _materialize_ocr_cv(root: Path) -> Dict[str, Any]:
@@ -501,7 +510,7 @@ def _repack(root: Path, zip_path: Path) -> str:
         zip_path.unlink()
     with zipfile.ZipFile(str(zip_path), "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for path in sorted(root.rglob("*")):
-            if path.is_file():
+            if path.is_file() and not _is_runtime_generated(root, path):
                 arc = Path(root.name) / path.relative_to(root)
                 archive.write(str(path), arc.as_posix())
     digest = _sha256(zip_path)
@@ -536,6 +545,10 @@ def materialize(package_root: Path | str, zip_path: Optional[Path | str] = None)
     _update_manifest(root, inventory)
     write_checksums(root)
     contract = verify_runtime_delivery(root)
+    family = root / "RELEASE_FAMILY"
+    if family.is_file() and family.read_text(encoding="utf-8").strip() == "RC7.2":
+        from .rc72_complete_payload_inventory import write_inventory as write_complete_inventory
+        write_complete_inventory(root)
     manifest_path = root / "PACKAGE_MANIFEST.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["delivery_runtime_complete"] = True

@@ -1,0 +1,68 @@
+name: RC7.2 Full Execution Node Component Qualification
+
+on:
+  push:
+    branches: [work/rc7.2-execution-capability]
+    paths:
+      - '.github/workflows/rc7.2-execution-payload.yml'
+      - 'rc7_release/runtime_payload_materializer.py'
+      - 'rc7_release/rc72_execution_node_qualification.py'
+      - 'rc7_release/runtime_delivery_contract.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  copied-execution-node-clean-unpack:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Acquire complete execution tooling with native installation
+        shell: pwsh
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP 'rc72-execution-component-stage'
+          $env:RC72_EXECUTION_COMPONENT_STAGE = $stage
+          python -c "import pathlib,os; from rc7_release.runtime_payload_materializer import _materialize_node,_materialize_playwright; p=pathlib.Path(os.environ['RC72_EXECUTION_COMPONENT_STAGE']); p.mkdir(parents=True,exist_ok=True); _materialize_node(p); _materialize_playwright(p)"
+          if ($LASTEXITCODE -ne 0) { throw 'complete execution dependency acquisition failed' }
+      - name: Clean extraction and actual offline native graph verification
+        shell: pwsh
+        run: |
+          $stage = $env:RC72_EXECUTION_COMPONENT_STAGE
+          $archive = Join-Path $env:RUNNER_TEMP 'rc72-execution-component.zip'
+          $clean = Join-Path $env:RUNNER_TEMP 'rc72 execution clean unpack'
+          Compress-Archive (Join-Path $stage '*') $archive
+          Remove-Item $stage -Recurse -Force
+          Expand-Archive $archive $clean
+          $node = Join-Path $clean 'workspace-template/runtime/node/node.exe'
+          Set-NetFirewallProfile -Profile Domain,Private,Public -Enabled True
+          New-NetFirewallRule -Name 'RC72-Execution-Node-Offline' -DisplayName 'RC72 isolated component qualification' -Program $node -Direction Outbound -Action Block -Profile Any -Enabled True | Out-Null
+          try {
+            python -m rc7_release.rc72_execution_node_qualification --package-root $clean --evidence-root dist/execution-component-evidence --require-windows-outbound-block
+            if ($LASTEXITCODE -ne 0) { throw 'actual offline clean execution component verification failed' }
+          } finally {
+            Remove-NetFirewallRule -Name 'RC72-Execution-Node-Offline'
+          }
+          @{
+            source_commit = '${{ github.sha }}'
+            qualification_scope = 'WINDOWS_EXECUTION_NODE_COMPONENT_CLEAN_UNPACK_ONLY'
+            full_product_package = $false
+            field_verified = $false
+            bank_final = $false
+            component_archive_sha256 = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          } | ConvertTo-Json | Set-Content -Encoding utf8 dist/execution-component-evidence/qualification-boundary.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-full-execution-component-evidence-${{ github.sha }}
+          path: dist/execution-component-evidence/*
+          retention-days: 30

@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import zipfile
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from .optional_plugin_payload import OPTIONAL_PLUGIN_NAMES
@@ -32,7 +32,7 @@ def _safe_target(raw: object) -> Path:
     if not value:
         raise RuntimeDeliveryContractError("RUNTIME_TARGET_REQUIRED")
     path = Path(value)
-    if path.is_absolute() or ".." in path.parts:
+    if path.is_absolute() or PureWindowsPath(value).drive or ".." in path.parts:
         raise RuntimeDeliveryContractError("UNSAFE_RUNTIME_TARGET:%s" % value)
     return path
 
@@ -140,6 +140,33 @@ def _verify_optional_turnkey_bundle(archive: Path) -> Dict[str, Any]:
     return result
 
 
+def verify_turnkey_npm_package(package_root: Path, name: str) -> Dict[str, Any]:
+    """Physical transport completeness, separate from runtime activation/probes."""
+    result: Dict[str, Any] = {"payload": name, "status": "FAIL"}
+    manifest_path = package_root / "package.json"
+    if package_root.is_symlink() or manifest_path.is_symlink() or not manifest_path.is_file():
+        return dict(result, reason="NPM_PACKAGE_MANIFEST_REQUIRED")
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(data, Mapping):
+            return dict(result, reason="NPM_PACKAGE_MANIFEST_OR_CLI_INVALID")
+        if data.get("name") != name or not isinstance(data.get("version"), str) or not data["version"].strip():
+            return dict(result, reason="NPM_PACKAGE_IDENTITY_INVALID")
+        binary = data.get("bin")
+        raw = binary.get(name) if isinstance(binary, Mapping) else binary
+        if not isinstance(raw, str):
+            return dict(result, reason="NPM_PACKAGE_CLI_REQUIRED")
+        relative = _safe_target(raw)
+        entry = package_root / relative
+        entry.resolve().relative_to(package_root.resolve())
+        if entry.is_symlink() or not entry.is_file() or entry.stat().st_size == 0:
+            return dict(result, reason="NPM_PACKAGE_CLI_REQUIRED")
+        return dict(result, status="PASS", version=data["version"], license=data.get("license"),
+                    cli_relative_path=relative.as_posix(), reason=None)
+    except (ValueError, OSError, TypeError, RuntimeDeliveryContractError):
+        return dict(result, reason="NPM_PACKAGE_MANIFEST_OR_CLI_INVALID")
+
+
 def verify_runtime_delivery(package_root: Path | str) -> Dict[str, Any]:
     root = Path(package_root).expanduser().resolve()
     if not root.is_dir():
@@ -186,7 +213,9 @@ def verify_runtime_delivery(package_root: Path | str) -> Dict[str, Any]:
 
         turnkey_status: Optional[str] = None
         if turnkey_bundle_required:
-            if name != "dsh_optional_plugins":
+            if name == "gitnexus":
+                turnkey_result = verify_turnkey_npm_package(absolute, name)
+            elif name != "dsh_optional_plugins":
                 turnkey_result = {"status": "FAIL", "reason": "UNSUPPORTED_TURNKEY_BUNDLE_VALIDATOR", "payload": name}
             else:
                 turnkey_result = _verify_optional_turnkey_bundle(absolute)

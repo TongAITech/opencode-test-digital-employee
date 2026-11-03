@@ -181,3 +181,31 @@ def test_full_python_probe_refuses_interpreter_outside_declared_package(tmp_path
     assert child.returncode==1
     result=json.loads(output.read_text())
     assert result['status']=='FAIL' and result['error']=='FULL_PYTHON_PACKAGE_INTERPRETER_REQUIRED'
+
+
+def test_repack_excludes_build_caches_and_initial_session_state_but_preserves_product_files(tmp_path):
+    root=tmp_path/'package';root.mkdir()
+    (root/'product.py').write_text('print("fixture")')
+    (root/'__pycache__').mkdir();(root/'__pycache__/product.pyc').write_bytes(b'cache')
+    (root/'state').mkdir();(root/'state/startup-proof.json').write_text('{"CI_ONLY":true}')
+    (root/'runtime-state').mkdir();(root/'runtime-state/r1.jsonl').write_text('CI initial session')
+    target=tmp_path/'archive.zip';materializer._repack(root,target)
+    with zipfile.ZipFile(target) as archive:
+        assert set(archive.namelist())=={'package/product.py','package/CHECKSUMS.sha256'}
+    assert (root/'runtime-state/r1.jsonl').is_file()  # Archive filtering never deletes user data.
+
+
+def test_execution_materializer_cannot_accept_playwright_without_full_graph_companion(tmp_path,monkeypatch):
+    monkeypatch.setattr(materializer,'_which',lambda *args:Path('npm'))
+    commands=[]
+    def install(command,**kwargs):
+        commands.append(list(command))
+        if 'install' in command:
+            package=tmp_path/'workspace-template/runtime/node-execution/node_modules/playwright/package.json'
+            package.parent.mkdir(parents=True);package.write_text('{"name":"playwright","version":"fixture"}')
+        return ''
+    monkeypatch.setattr(materializer,'_run',install)
+    with pytest.raises(materializer.RuntimePayloadMaterializerError,match='GITNEXUS_TURNKEY_PAYLOAD_INCOMPLETE'):
+        materializer._materialize_playwright(tmp_path)
+    assert 'gitnexus@latest' in commands[0] and '--ignore-scripts' not in commands[0]
+    assert '--package-lock=true' in commands[0]
