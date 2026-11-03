@@ -20,12 +20,29 @@ from .rc72_native_shared_batch import (
     NativeSharedExecutionBatch, canonical_batch_metadata_resolver,
 )
 from .rc72_native_shared_batch_review import NativeSharedEvaluatorBatch
+from .rc72_native_batch_formal_n7 import NativeBatchFormalN7Reconciler
 
 
 @dataclass(frozen=True)
 class NativeBatchServices:
     execution: NativeSharedExecutionBatch
     evaluator: NativeSharedEvaluatorBatch
+
+    def reconcile_accepted_n7(
+        self, pipeline, *, release_batch_id: str,
+        batch_receipt_id: str, candidate_id: str, review_id: str,
+    ):
+        """No model verdict becomes N7 PASS: require formal full-N7 proof."""
+        if pipeline.truth is not self.execution.truth:
+            raise ProductionEconomyBindingError("NATIVE_BATCH_FORMAL_LEDGER_MISMATCH")
+        if pipeline.release_id != self.execution.release_id:
+            raise ProductionEconomyBindingError("NATIVE_BATCH_FORMAL_RELEASE_MISMATCH")
+        return NativeBatchFormalN7Reconciler(pipeline).reconcile(
+            release_batch_id=release_batch_id,
+            batch_receipt_id=batch_receipt_id,
+            candidate_id=candidate_id,
+            review_id=review_id,
+        )
 
 
 def compose_native_batch_services(
