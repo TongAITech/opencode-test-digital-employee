@@ -45,6 +45,8 @@ class CaptainFencedWorkItemScheduler:
     invent capabilities at dispatch. No Captain secret is placed in Worker input.
     """
 
+    _ETU_EXECUTOR_ROLES = frozenset({"test-executor", "performance-executor", "security-executor"})
+
     def __init__(self, *, truth, release_id: str, fencer: CaptainDispatchFencer,
                  lifecycle: WorkerLifecycleService, scheduler: TaskScheduler,
                  role_profiles: Mapping[str, Sequence[str]]):
@@ -61,7 +63,8 @@ class CaptainFencedWorkItemScheduler:
             if not capabilities or any(not isinstance(x, str) or not x.strip() for x in capabilities):
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_EMPTY_ROLE_CAPABILITY")
             values = frozenset(capabilities)
-            if any(x.lower() in {"*", "all", "full_access", "field_full_access", "admin"}
+            if any(x.lower().replace("-", "_").replace(" ", "_")
+                   in {"*", "all", "full_access", "field_full_access", "admin", "captain"}
                    or "*" in x for x in values):
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_FULL_ACCESS_FORBIDDEN")
             validated[role] = values
@@ -121,6 +124,8 @@ class CaptainFencedWorkItemScheduler:
             capabilities = self.role_profiles.get(role)
             if capabilities is None:
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_UNREGISTERED_ROLE")
+            if role not in self._ETU_EXECUTOR_ROLES:
+                raise CaptainSchedulingError("CAPTAIN_SCHEDULER_ROLE_CANNOT_EXECUTE_ETU")
             task_rows = self.truth.query("rc7_task", task_id=workitem_id)
             if len(task_rows) != 1 or task_rows[0].get("mission_id") != mission_id:
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_WORKITEM_MISMATCH")
@@ -132,11 +137,18 @@ class CaptainFencedWorkItemScheduler:
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_CAPABILITY_GAP")
             if not self.scheduler._inputs_valid(task.input_artifact_refs):
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_INPUTS_NOT_VERIFIED")
+            for ref in task.input_artifact_refs:
+                artifacts = self.truth.query("rc7_artifact", artifact_id=ref)
+                if artifacts and (len(artifacts) != 1
+                                  or artifacts[0].get("mission_id") != mission_id):
+                    raise CaptainSchedulingError("CAPTAIN_SCHEDULER_INPUT_MISSION_MISMATCH")
             etus = self.truth.query("rc72_etu", etu_id=etu_id)
             batch = self.fencer._batch(mission_id)
             if (len(etus) != 1 or etus[0]["mission_id"] != mission_id
                     or etus[0]["release_batch_id"] != batch["release_batch_id"]):
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_ETU_MISMATCH")
+            if not set(etus[0].get("required_capabilities") or ()).issubset(capabilities):
+                raise CaptainSchedulingError("CAPTAIN_SCHEDULER_ETU_CAPABILITY_GAP")
             self._assert_n7_planning_lineage(
                 mission_id=mission_id, batch=batch, task=task, etu=etus[0])
             existing = [s for s in self.truth.query("rc72_worker_session", mission_id=mission_id)
