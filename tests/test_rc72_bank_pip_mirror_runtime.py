@@ -116,3 +116,19 @@ def test_unsigned_returned_marker_never_promotes_unknown_or_replays(tmp_path,mon
     with pytest.raises(ContractError,match='SIGNATURE_OR_SCOPE'):
         service.run(release_batch_id=BATCH,engineering=True,retry_returned_failure=True)
     assert not calls and truth.query('rc72_bank_pip_mirror_execution')[0]['state']=='UNKNOWN'
+
+
+
+def test_changed_user_configuration_is_returned_failure_not_a_pass_marker(tmp_path,monkeypatch):
+    truth,service,calls=_setup(tmp_path,monkeypatch)
+    from rc7_release import bank_pc_pip_mirror_probe as probe
+    original=probe.qualify
+    def changed(*args,**kwargs):
+        (tmp_path/'user appdata/pip/pip.ini').write_text('changed during observation')
+        return original(*args,**kwargs)
+    monkeypatch.setattr(probe,'qualify',changed)
+    result=service.run(release_batch_id=BATCH,engineering=True)
+    row=truth.query('rc72_bank_pip_mirror_execution')[0]
+    assert result['status']=='HOLD' and row['state']=='RETURNED'
+    marker=json.loads((service.evidence/row['execution_id']/'controller-result.json').read_text())
+    assert marker['status']=='FAIL' and marker['reason']=='BANK_PIP_MIRROR_SOURCE_CHANGED_DURING_OBSERVATION'

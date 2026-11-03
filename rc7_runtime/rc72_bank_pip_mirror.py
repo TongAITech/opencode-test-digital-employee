@@ -4,7 +4,7 @@ The controller retains the signing authority. Pip receives only the real user's
 configuration and an owned installation target. Unknown executions never replay.
 """
 from copy import deepcopy
-import hashlib,hmac,json,os,time
+import hashlib,hmac,json,os,re,time
 from pathlib import Path
 from rc6_runtime import contracts,truth as registry
 from .models import ContractError
@@ -234,9 +234,17 @@ class NativeBankPipMirrorService:
                 proof=qualify(self.root,self.archive,json.loads(self.config.read_text(encoding='utf-8')),
                     directory/'probe',bridge=bridge_user_config,engineering=engineering)
                 if proof.get('status')!='PASS':raise ContractError('BANK_PIP_MIRROR_QUALIFIER_NOT_PASS')
+                if (any(proof.get(k)!=binding[k] for k in ('source_commit','archive_sha256','package_root'))
+                        or proof.get('discovery',{}).get('user_config_sha256')!=binding['user_config_sha256']
+                        or _file_sha(self.config)!=binding['field_config_sha256']
+                        or _file_sha(self.archive)!=binding['archive_sha256']):
+                    raise ContractError('BANK_PIP_MIRROR_SOURCE_CHANGED_DURING_OBSERVATION')
                 result=dict(execution_id=eid,binding=binding,status='PASS',proof=proof,observed_at=int(time.time()))
             except Exception as exc:
-                result=dict(execution_id=eid,binding=binding,status='FAIL',error_type=type(exc).__name__,observed_at=int(time.time()))
+                reason=str(exc)
+                if not re.fullmatch(r'(?:BANK_PIP_MIRROR_|PIP_MIRROR_)[A-Z_]+(?::[a-z-]+)?',reason):
+                    reason='BANK_PIP_MIRROR_NATIVE_QUALIFICATION_EXCEPTION'
+                result=dict(execution_id=eid,binding=binding,status='FAIL',error_type=type(exc).__name__,reason=reason,observed_at=int(time.time()))
             envelope=dict(result,signature=self.authority._sign(result))
             with path.open('x',encoding='utf-8') as stream:
                 stream.write(json.dumps(envelope,sort_keys=True)+'\n');stream.flush();os.fsync(stream.fileno())
