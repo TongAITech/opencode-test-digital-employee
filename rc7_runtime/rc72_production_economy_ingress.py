@@ -241,6 +241,19 @@ def bind_release_batch_model_economy(
         economy.configure_budget(mission_id=mission_id, **targets)
     elif budget_rows[0].get("state") != "ACTIVE":
         raise ProductionEconomyBindingError("RC72_ECONOMY_BUDGET_RETIRED")
+    else:
+        persisted = budget_rows[0].get("bank_cost_window_config")
+        if persisted is None:
+            # Old budgets predate the schedule projection. Preserve every
+            # existing soft target while versioning the canonical R1 policy.
+            economy.configure_budget(
+                mission_id=mission_id,
+                **{name: budget_rows[0][name] for name in _DEFAULT_TARGETS}
+            )
+        elif persisted != window.as_mapping():
+            # Running provider accounting and Mission scheduling with different
+            # rates would make quota-equivalent reports non-reproducible.
+            raise ProductionEconomyBindingError("RC72_ECONOMY_BANK_SCHEDULE_DRIFT")
     # Install the R1 semantic projection even when the first production run
     # has not constructed an in-memory scheduling control plane.
     WorkScheduleSemanticsService(truth, release_id=release_id)
