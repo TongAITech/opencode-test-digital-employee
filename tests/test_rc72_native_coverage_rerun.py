@@ -99,3 +99,24 @@ def test_cold_resume_after_fresh_n7_before_libra_never_reexecutes_business(tmp_p
         assert truth.store.path.read_bytes()==before and len(business.calls)==bc and len(server.calls)==cc
     finally:
         server.shutdown();server.server_close();business.shutdown();business.server_close()
+
+
+def test_accepted_origin_is_reviewable_without_reopening_n7_execution(tmp_path,monkeypatch):
+    """Historical PASS proof may be audited, but it never reauthorizes an old Attempt."""
+    import pytest
+    from rc7_runtime.rc72_n7_execution_admission import ExecutionAdmissionError
+    truth,plan,pipeline,business,server,diagnosis,gap_id=_diagnosis(tmp_path,monkeypatch)
+    try:
+        planner=pipeline.preparation.planning
+        # Native N7 already has its accepted Gate; this is NOT a new dispatch.
+        n7=truth.query('rc72_mission_node',node_type='N7_EXECUTION')[0]
+        assert n7['state']=='PASS'
+        with pytest.raises(ExecutionAdmissionError,match='N7_NODE_NOT_ADMITTED'):
+            planner.assert_current(plan['plan_id'])
+        before=truth.store.path.read_bytes()
+        audited=planner.assert_current(plan['plan_id'],review_only=True)
+        assert audited['plan_id']==plan['plan_id']
+        assert truth.store.path.read_bytes()==before
+        assert len(business.calls)==len(plan['items'])
+    finally:
+        server.shutdown();server.server_close();business.shutdown();business.server_close()

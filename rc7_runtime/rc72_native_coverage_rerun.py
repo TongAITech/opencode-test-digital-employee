@@ -147,7 +147,7 @@ class NativeCoverageRerunService:
         # Only the first durable rerun receipt is allowed to stale the then-current
         # accepted N7 epoch, so creation performs the stronger current audit.
         gate,delivery,bundle,review=self._historical_origin(origin_gate,audit_current=not bool(rows))
-        origin_plan=self.planning.assert_current(bundle['plan_id'])
+        origin_plan=self.planning.base.assert_current(bundle['plan_id'], review_only=True)
         plan_id='N7COVPLAN-'+_hash([rid,origin_plan['input_digest']])[:24]
         scope=_hash([origin_plan['plan_id'],origin_plan['snapshot_id'],origin_plan['input_digest'],
                      [(item['case_id'],item['contract_id'],item['admission_id'],item['etu_id'],item['input_artifact_refs']) for item in origin_plan['items']]])
@@ -176,7 +176,7 @@ class NativeCoverageRerunService:
     def _assert_plan(self,plan):
         record=self._signed(self._one(_KIND,rerun_id=plan['coverage_rerun_id']))
         self._assert_repairs(record);self._historical_origin(record['origin_n7_gate_id'])
-        origin=self.planning.assert_current(record['origin_plan_id']) if record['origin_plan_id']!=plan['plan_id'] else None
+        origin=self.planning.base.assert_current(record['origin_plan_id'], review_only=True) if record['origin_plan_id']!=plan['plan_id'] else None
         if origin is None:raise ContractError('COVERAGE_RERUN_ORIGIN_PLAN_INVALID')
         expected=self._expected_items(record,origin)
         scope=_hash([origin['plan_id'],origin['snapshot_id'],origin['input_digest'],
@@ -199,7 +199,7 @@ class NativeCoverageRerunService:
 
     def _ensure_plan(self,record):
         record=self._signed(record);self._assert_repairs(record)
-        origin=self.planning.assert_current(record['origin_plan_id'])
+        origin=self.planning.base.assert_current(record['origin_plan_id'], review_only=True)
         items=self._expected_items(record,origin);control=ClosedLoopControlPlane(self.truth,self.release_id,record['mission_id'])
         for index,item in enumerate(items):
             contract=self._one('rc72_n6_executable_contract',contract_id=item['contract_id'])

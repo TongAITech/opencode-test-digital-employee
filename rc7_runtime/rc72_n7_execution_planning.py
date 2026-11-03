@@ -190,7 +190,7 @@ class ExecutionPlanningService:
         self.truth.append_atomic(_EVENT, payload)
         return self.assert_current(plan_id)
 
-    def assert_current(self, plan_id: str) -> Dict[str, Any]:
+    def assert_current(self, plan_id: str, *, review_only: bool = False) -> Dict[str, Any]:
         plan = self._one(_ARTIFACT, plan_id=plan_id)
         if plan.get('source_commit') != self.source_commit or plan.get('release_id') != self.release_id:
             raise ExecutionPlanningError('N7_PLAN_SOURCE_MISMATCH')
@@ -207,7 +207,7 @@ class ExecutionPlanningService:
         snapshot = self._one('rc72_decomposition_snapshot', snapshot_id=plan['snapshot_id'])
         current_inputs, current_cases = [], []
         for item in plan['items']:
-            admission, current_input = self.admission._current_input(item['admission_id'])
+            admission, current_input = self.admission._current_input(item['admission_id'], review_only=review_only)
             if (current_input['release_batch_id'] != plan['release_batch_id']
                     or current_input['contract_id'] != item['contract_id']):
                 raise ExecutionPlanningError('N7_PLAN_LINEAGE_MISMATCH')
