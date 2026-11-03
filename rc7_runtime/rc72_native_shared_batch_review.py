@@ -164,6 +164,10 @@ class NativeSharedEvaluatorBatch:
         if len(existing) > 1:
             raise NativeBatchReviewError("BATCH_REVIEW_R1_NOT_UNIQUE")
         if existing:
+            verify_native_raw_digest(
+                raw_ref=existing[0]["raw_output_ref"],
+                expected_sha256=existing[0].get("raw_output_sha256"),
+            )
             return existing[0]
         if self.truth.query(
             "rc72_token_call", mission_id=candidate["mission_id"],
