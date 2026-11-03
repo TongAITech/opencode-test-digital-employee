@@ -22,7 +22,8 @@ from .rc72_context_economy import (
 )
 from .rc72_model_economy import MissionCriticality, SemanticCostClass
 from .rc72_retry_context import (
-    _ensure_projection_bucket, install_rc72_retry_context_overlay,
+    _ensure_projection_bucket, _retry_delta_digest,
+    install_rc72_retry_context_overlay,
 )
 
 
@@ -124,6 +125,8 @@ def native_context_projection(
                 changed_dependency_refs=receipt.get("changed_dependency_refs") or (),
                 full_context_reason=receipt.get("full_context_reason"),
             )
+            if receipt.get("retry_delta_sha256") != _retry_delta_digest(retry):
+                raise NativeContextProjectionError("RC72_NATIVE_CONTEXT_RETRY_DELTA_DIGEST_MISMATCH")
             previous_summary_ref = retry.previous_attempt_summary_ref
             # The source producer alone may swap prompt input_refs. A valid
             # reviewer candidate must never be lost by reducing upstream
