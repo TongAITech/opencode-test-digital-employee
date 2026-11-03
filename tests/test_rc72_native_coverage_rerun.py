@@ -27,6 +27,10 @@ def test_n10_runs_fresh_full_n7_then_fresh_libra_and_closes_original_gap(tmp_pat
         boundary=truth.query('rc72_native_coverage_repair')[0];origin_gate=boundary['origin_n7_gate_id']
         original_attempts={case['attempt_id'] for bundle in truth.query('rc72_n7_evidence_bundle') for case in bundle['case_results']}
         original_business_calls=len(business.calls);original_coverage_calls=len(server.calls)
+        # Review-only signature must survive the native planner decorator.
+        before_plan_audit=truth.store.path.read_bytes()
+        assert rerun.planning.assert_current(plan['plan_id'],review_only=True)['plan_id']==plan['plan_id']
+        assert truth.store.path.read_bytes()==before_plan_audit
         code=truth.query('rc72_coverage_gap',gap_id=gap_id)[0]['code_slice']
         def covered(row):
             for unit in row['units']:
@@ -41,6 +45,9 @@ def test_n10_runs_fresh_full_n7_then_fresh_libra_and_closes_original_gap(tmp_pat
         assert len(rerun_row['fresh_attempt_ids'])==len(plan['items']) and not (set(rerun_row['fresh_attempt_ids']) & original_attempts)
         fresh_bundle=truth.query('rc72_n7_evidence_bundle',bundle_id=rerun_row['fresh_bundle_id'])[0]
         assert fresh_bundle['plan_id']==rerun_row['rerun_plan_id']
+        before_fresh_plan_audit=truth.store.path.read_bytes()
+        assert rerun.planning.assert_current(rerun_row['rerun_plan_id'],review_only=True)['plan_id']==rerun_row['rerun_plan_id']
+        assert truth.store.path.read_bytes()==before_fresh_plan_audit
         assert all(case['workitem_id'].startswith('N7COVWI-') for case in fresh_bundle['case_results'])
         n7=truth.query('rc72_mission_node',mission_id=rerun_row['mission_id'],node_type='N7_EXECUTION')[0]
         assert n7['state']=='PASS' and n7['active_delivery_version']>boundary['origin_n7_delivery_version']
