@@ -246,7 +246,7 @@ class JourneyReplayService:
         try:
             # The service fences *every* adapter (including BSK/contract adapters),
             # not merely the concrete Playwright implementation.
-            self.browser_pool.assert_usable(
+            live_lease = self.browser_pool.assert_usable(
                 browser_lease_id=str(context["browser_lease_id"]),
                 mission_id=str(context["mission_id"]),
                 workitem_id=str(context["workitem_id"]),
@@ -254,9 +254,11 @@ class JourneyReplayService:
                 worker_id=str(context["worker_id"]),
                 access_mode=BrowserAccessMode.WRITE,
             )
+            if str(live_lease.get("purpose") or "").upper() != "JOURNEY_REPLAY":
+                raise ContractError("JOURNEY_BROWSER_PURPOSE_CHANGED_DURING_ACTION")
             raw = self.adapter.execute_step(dict(step), dict(context))
             # Revocation during a browser action must never produce a PASS.
-            self.browser_pool.assert_usable(
+            live_lease = self.browser_pool.assert_usable(
                 browser_lease_id=str(context["browser_lease_id"]),
                 mission_id=str(context["mission_id"]),
                 workitem_id=str(context["workitem_id"]),
@@ -264,6 +266,8 @@ class JourneyReplayService:
                 worker_id=str(context["worker_id"]),
                 access_mode=BrowserAccessMode.WRITE,
             )
+            if str(live_lease.get("purpose") or "").upper() != "JOURNEY_REPLAY":
+                raise ContractError("JOURNEY_BROWSER_PURPOSE_CHANGED_DURING_ACTION")
             if not isinstance(raw, Mapping):
                 raise ContractError("JOURNEY_REPLAY_ADAPTER_RESULT_INVALID")
             status = str(raw.get("status") or "").upper()
