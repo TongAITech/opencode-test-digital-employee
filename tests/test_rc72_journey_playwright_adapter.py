@@ -284,6 +284,9 @@ def test_click_before_navigation_preserves_precise_teaching_order(tmp_path):
     recorded = sorted(truth.query("rc72_journey_capture_step", recording_id="JR-NAV"), key=lambda row: row["sequence"])
     assert [row["action_type"] for row in recorded] == ["NAVIGATE"]
     assert truth.query("rc72_journey_recording", recording_id="JR-NAV")[0]["state"] == "CAPTURING"
+    assert len(recorder.events) == 1  # old-page action remains available for diagnosis
+    with pytest.raises(Exception, match="JOURNEY_TEACHING_PENDING_ACTIONS_NOT_CAPTURED"):
+        recorder.finish()
 
 
 class FakeDialog:
@@ -397,3 +400,63 @@ def test_business_network_oracle_reads_actual_observed_post_not_recording_ref(tm
     if status == "FAILED":
         assert truth.query("rc72_journey_replay", replay_id="REAL-1")[0][
             "failure_code"] == "JOURNEY_ASSERT_NETWORK_STATUS_MISMATCH"
+
+
+def test_teaching_finish_rejects_unpolled_browser_events_and_can_recover(tmp_path):
+    truth, teaching, pool, lease = teaching_fixture(tmp_path)
+    page = FakePage()
+    page.url = "https://fat1.example/config"
+    recorder = JourneyCDPTeachingRecorder(
+        teaching=teaching, evidence_root=tmp_path / "capture",
+        connector=lambda endpoint: FakeBrowser(page))
+    recorder.begin(
+        recording_id="JR-PENDING", mission_id="M-1", release_batch_id="RB-1",
+        requirement_id="REQ-1", sst_id="SST-1", obligation_id="TO-1",
+        workitem_id="WI-1", attempt_id="ATT-1", worker_id="WORKER-1",
+        session_id="SESSION-1", browser_lease_id=lease.browser_lease_id,
+        human_operator_ref="human://operator/001")
+    page.events = [{"type": "CLICK", "element_ref": "css:#save",
+                    "url": "https://fat1.example/config"}]
+    with pytest.raises(Exception, match="JOURNEY_TEACHING_PENDING_ACTIONS_NOT_CAPTURED"):
+        recorder.finish()
+    assert len(recorder.events) == 1
+    assert truth.query("rc72_journey_recording", recording_id="JR-PENDING")[0]["state"] == "CAPTURING"
+    assert recorder.poll(page_role="config") == ["JR-PENDING:2"]
+    recorder.record_assertion(page_role="config", oracle_ref="oracle://success-toast")
+    assert recorder.finish().state.value == "CAPTURED"
+    steps = sorted(truth.query("rc72_journey_capture_step", recording_id="JR-PENDING"),
+                   key=lambda row: row["sequence"])
+    assert [step["action_type"] for step in steps] == ["NAVIGATE", "CLICK", "ASSERT"]
+
+
+def test_teaching_preflight_validation_is_atomic_and_retains_partial_batch(tmp_path):
+    truth, teaching, pool, lease = teaching_fixture(tmp_path)
+    page = FakePage()
+    page.url = "https://fat1.example/config"
+    recorder = JourneyCDPTeachingRecorder(
+        teaching=teaching, evidence_root=tmp_path / "capture",
+        connector=lambda endpoint: FakeBrowser(page))
+    recorder.begin(
+        recording_id="JR-ATOMIC", mission_id="M-1", release_batch_id="RB-1",
+        requirement_id="REQ-1", sst_id="SST-1", obligation_id="TO-1",
+        workitem_id="WI-1", attempt_id="ATT-1", worker_id="WORKER-1",
+        session_id="SESSION-1", browser_lease_id=lease.browser_lease_id,
+        human_operator_ref="human://operator/001")
+    page.events = [
+        {"type": "CLICK", "element_ref": "css:#save"},
+        {"type": "INPUT", "element_ref": "css:#amount"},
+    ]
+    with pytest.raises(Exception, match="JOURNEY_TEACHING_VALUE_REFERENCE_REQUIRED"):
+        recorder.poll(page_role="config")
+    assert len(recorder.events) == 2
+    assert truth.query("rc72_journey_recording", recording_id="JR-ATOMIC")[0]["step_count"] == 1
+    assert recorder.poll(page_role="config", bindings={
+        "css:#amount": {"value_ref": "var://approved-amount"}
+    }) == ["JR-ATOMIC:2", "JR-ATOMIC:3"]
+    recorder.record_assertion(page_role="config", oracle_ref="oracle://business-value")
+    assert recorder.finish().state.value == "CAPTURED"
+    steps = sorted(truth.query("rc72_journey_capture_step", recording_id="JR-ATOMIC"),
+                   key=lambda row: row["sequence"])
+    assert [step["action_type"] for step in steps] == ["NAVIGATE", "CLICK", "INPUT", "ASSERT"]
+    assert steps[2]["capture_metadata"]["value_ref"] == "var://approved-amount"
+    assert "approved-amount" not in json.dumps(page.actions)
