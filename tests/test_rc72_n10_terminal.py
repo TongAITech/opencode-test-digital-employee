@@ -40,7 +40,9 @@ def test_isolated_n10_reviewer_rejects_mandatory_scope_or_source_mutation(alter)
         snapshot['facts']['human_gate_required']=True
     elif alter=='blocker':
         snapshot['blockers']=['scope:missing-level:SST-1:L6']
-    if alter!='hash':
+    if alter=='hash':
+        data['snapshot_sha256']='0'*64
+    else:
         data['snapshot_sha256']=hashlib.sha256(canonical(snapshot)).hexdigest()
     assert review(data)['accepted'] is False
 
