@@ -278,3 +278,80 @@ def test_click_before_navigation_preserves_precise_teaching_order(tmp_path):
     assert [row["action_type"] for row in recorded] == ["NAVIGATE", "CLICK", "NAVIGATE"]
     assert recorded[1]["url"] == "https://fat1.example/config"
     assert recorded[2]["url"] == "https://fat1.example/confirmation"
+
+
+class FakeDialog:
+    type = "confirm"
+
+    def __init__(self):
+        self.accepted = False
+        self.dismissed = False
+
+    def accept(self, **kwargs):
+        self.accepted = True
+
+    def dismiss(self):
+        self.dismissed = True
+
+
+def _page_with_dialog(page):
+    dialog = FakeDialog()
+    navigate = page.goto
+
+    def with_confirmation(url, **kwargs):
+        navigate(url, **kwargs)
+        for listener in list(page.handlers.get("dialog", [])):
+            listener(dialog)
+
+    page.goto = with_confirmation
+    return dialog
+
+
+def test_unexpected_js_dialog_is_dismissed_and_fails_with_actual_evidence(tmp_path):
+    truth, pool, lease, page, adapter, service = make_replay(tmp_path)
+    dialog = _page_with_dialog(page)
+    result = run_replay(service, lease)
+    assert result.state.value == "FAILED"
+    assert dialog.dismissed is True and dialog.accepted is False
+    actual = json.loads((tmp_path / "evidence" / "REAL-1" / "step-0001" / "actual.json").read_text())
+    assert actual["failure_code"] == "JOURNEY_UNEXPECTED_DIALOG"
+    assert truth.query("rc72_journey_replay", replay_id="REAL-1")[0]["field_verified"] is False
+
+
+def test_explicit_reference_bound_dialog_policy_allows_confirm_and_preserves_evidence(tmp_path):
+    truth, pool, lease, page, adapter, service = make_replay(tmp_path)
+    dialog = _page_with_dialog(page)
+    candidate = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]
+    updated = dict(candidate)
+    updated.pop("artifact_type", None)
+    updated["artifact_version"] += 1
+    updated["steps"] = [dict(item) for item in candidate["steps"]]
+    updated["steps"][0]["dialog_policy_ref"] = "dialog://confirmed"
+    truth.append_atomic("RC72_JOURNEY_CANDIDATE_UPSERTED", updated)
+
+    def policy_resolver(ref, kind, context):
+        if ref == "dialog://confirmed" and kind == "dialog":
+            return {"type": "confirm", "action": "accept"}
+        return resolver(ref, kind, context)
+
+    adapter.resolve = policy_resolver
+    result = run_replay(service, lease)
+    assert result.state.value == "PASSED"
+    assert dialog.accepted is True and dialog.dismissed is False
+    assert Path(tmp_path / "evidence" / "REAL-1" / "step-0001" / "actual.json").is_file()
+
+
+def test_visible_wait_without_element_fails_closed_not_faked_as_pass(tmp_path):
+    truth, pool, lease, page, adapter, service = make_replay(tmp_path)
+    candidate = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]
+    updated = dict(candidate)
+    updated.pop("artifact_type", None)
+    updated["artifact_version"] += 1
+    updated["steps"] = [dict(item) for item in candidate["steps"]]
+    updated["steps"][0]["action_type"] = "WAIT"
+    updated["steps"][0]["wait_semantics"] = "visible"
+    updated["steps"][0]["element_ref"] = None
+    truth.append_atomic("RC72_JOURNEY_CANDIDATE_UPSERTED", updated)
+    assert run_replay(service, lease).state.value == "FAILED"
+    actual = json.loads((tmp_path / "evidence" / "REAL-1" / "step-0001" / "actual.json").read_text())
+    assert actual["failure_code"] == "JOURNEY_VISIBLE_WAIT_ELEMENT_REQUIRED"
