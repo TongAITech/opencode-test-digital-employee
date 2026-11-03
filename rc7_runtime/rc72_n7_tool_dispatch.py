@@ -31,15 +31,17 @@ def _validate(payload):
                 'workitem_id', 'attempt_id', 'worker_id', 'contract_id',
                 'contract_sha256', 'tool', 'request_sha256'):
         out[key] = contracts._require_str(out, key)
-    if out.get('state') not in {'IN_FLIGHT', 'RETURNED', 'FAILED'}:
+    if out.get('state') not in {'IN_FLIGHT', 'RETURNED', 'FAILED', 'UNKNOWN'}:
         raise contracts.DomainValidationError('N7_DISPATCH_STATE_INVALID')
     if out.get('state') == 'RETURNED':
         if not isinstance(out.get('raw_result'), dict) or not out['raw_result']:
             raise contracts.DomainValidationError('N7_RAW_RESULT_REQUIRED')
         if out.get('receipt_sha256') != _hash(out['raw_result']):
             raise contracts.DomainValidationError('N7_RECEIPT_HASH_MISMATCH')
-    if out.get('state') == 'FAILED':
+    if out.get('state') in {'FAILED', 'UNKNOWN'}:
         contracts._require_str(out, 'error_type')
+    if out.get('state') == 'UNKNOWN' and (out.get('replay_prohibited') is not True or out.get('possible_external_effect') is not True):
+        raise contracts.DomainValidationError('N7_UNKNOWN_EFFECT_MUST_BLOCK_REPLAY')
     for key in ('passed', 'field_verified', 'bank_final', 'cleanup_complete'):
         if key in out:
             raise contracts.DomainValidationError('N7_DISPATCH_PREMATURE_CLAIM')
@@ -75,7 +77,7 @@ class SignedToolDispatchService:
     def dispatch(self, preparation_id):
         self.truth.rebuild_projection()
         pending = self.truth.query(_KIND, preparation_id=preparation_id)
-        if any(row['state'] == 'IN_FLIGHT' for row in pending):
+        if any(row['state'] in {'IN_FLIGHT', 'UNKNOWN'} for row in pending):
             if preparation_id not in self.preparation._active_dispatches:
                 original = self.preparation._one('rc72_n7_execution_preparation', preparation_id=preparation_id)
                 self.preparation.authority.revoke_worker_lease(original['task_lease']['lease_id'])
@@ -100,7 +102,7 @@ class SignedToolDispatchService:
             if len(existing) != 1:
                 raise ToolDispatchError('N7_DISPATCH_NOT_UNIQUE')
             row = existing[0]
-            if row['state'] == 'IN_FLIGHT':
+            if row['state'] in {'IN_FLIGHT', 'UNKNOWN'}:
                 raise ToolDispatchError('N7_SIDE_EFFECTS_UNKNOWN_DIAGNOSIS_REQUIRED')
             return row
         context = {key: deepcopy(prepared[key]) for key in
@@ -159,8 +161,12 @@ class SignedToolDispatchService:
             result = json.loads(json.dumps(result, allow_nan=False))
         except Exception as exc:
             # Exception text can contain credentials; persist the class only.
-            failed = dict(row, state='FAILED', error_type=type(exc).__name__, artifact_version=2)
-            self.truth.append_atomic(_EVENT, failed)
+            # An adapter exception after admission cannot prove whether the bank
+            # accepted a write. No automatic retry, even for timeout/network errors.
+            unknown = dict(row, state='UNKNOWN', error_type=type(exc).__name__,
+                           possible_external_effect=True, replay_prohibited=True,
+                           artifact_version=2)
+            self.truth.append_atomic(_EVENT, unknown)
             return self.truth.query(_KIND, dispatch_id=dispatch_id)[0]
         finally:
             self._live_invocations.discard(preparation_id)
