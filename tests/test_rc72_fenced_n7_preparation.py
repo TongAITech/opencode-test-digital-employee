@@ -53,6 +53,11 @@ def test_captain_fenced_admission_reuses_exact_worker_for_real_signed_n7_prepara
     assert len(before) == 1
     assert dispatch.worker_id == before[0]["worker_id"]
     assert dispatch.session_id == before[0]["session_id"]
+    admitted = truth.query("rc72_captain_etu_admission", admission_id=dispatch.admission_id)
+    assert len(admitted) == 1
+    assert admitted[0]["worker_id"] == dispatch.worker_id
+    assert admitted[0]["state"] == dispatch.state
+    assert "captain_token" not in admitted[0]
     assert truth.query("rc7_task", task_id=item["workitem_id"])[0]["state"] == "LEASED"
 
     prep = _service(truth)
@@ -81,11 +86,14 @@ def test_cold_r1_fenced_worker_consumption_preserves_worker_identity(tmp_path, m
         fenced_admission=dispatch)
     assert prepared["worker_id"] == dispatch.worker_id
     assert prepared["session_id"] == dispatch.session_id
+    assert cold.query("rc72_captain_etu_admission",
+                      admission_id=dispatch.admission_id)[0]["session_id"] == dispatch.session_id
     assert len(cold.query("rc72_worker_session", mission_id=MISSION)) == 1
     assert cold.query("rc7_task", task_id=item["workitem_id"])[0]["state"] == "LEASED"
 
 
 @pytest.mark.parametrize("change", [
+    {"admission_id": "CAPAD-MISSING-R1-PROOF"},
     {"worker_id": "WRK-FORGED"},
     {"etu_id": "ETU-WRONG"},
     {"captain_generation": 42},
