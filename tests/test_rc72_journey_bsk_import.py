@@ -28,7 +28,9 @@ def _fixture(tmp_path):
         screenshots.append(screenshot)
         dom = folder / ("observed-dom-%d.json" % seq)
         dom.write_text(json.dumps({
-            "source": "BSK_OBSERVE", "operation_sequence": seq,
+            "session_id": "bsk-task-a1", "tab_id": 1,
+            "context_id": "bsk-context-%d" % seq,
+            "source": "BSK_COOPERATE_SYNC", "operation_sequence": seq,
             "element": "button#save"}))
         doms.append(dom)
     operations = [
@@ -226,5 +228,21 @@ def test_bsk_evidence_is_per_operation_and_scoped_to_authorized_capture(tmp_path
     elif mutation == "extra_operation":
         mapping["operation-not-in-BSK"] = dict(mapping["operation-1"])
     with pytest.raises(Exception, match=error):
+        _invoke(importer, export, args, mapping)
+    assert not truth.query("rc72_journey_recording", recording_id="JR-BSK-1")
+
+
+@pytest.mark.parametrize("field,value", [
+    ("session_id", "other-task"),
+    ("tab_id", 19),
+    ("context_id", ""),
+])
+def test_bsk_dom_observation_must_match_live_session_tab_context(tmp_path, field, value):
+    truth, importer, doc, export, args, mapping = _fixture(tmp_path)
+    dom = Path(mapping["operation-2"]["dom_ref"][7:])
+    evidence = json.loads(dom.read_text())
+    evidence[field] = value
+    dom.write_text(json.dumps(evidence))
+    with pytest.raises(Exception, match="JOURNEY_BSK_OBSERVATION_SCOPE_INVALID"):
         _invoke(importer, export, args, mapping)
     assert not truth.query("rc72_journey_recording", recording_id="JR-BSK-1")
