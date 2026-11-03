@@ -156,6 +156,28 @@ class ExecutionPreparationService:
                     or task.state != TaskStatus.LEASED
                     or task.lease_owner != fenced_admission.worker_id):
                 raise ExecutionPreparationError('N7_FENCED_ADMISSION_SCOPE_MISMATCH')
+            # A caller-provided dataclass is not authority: exact admission
+            # must have been durably written by the scoped scheduler in R1
+            # *after* that real WorkItem lease. Missing/mismatched records
+            # cannot mint a signed TaskLease or silently create a Worker.
+            admission_rows = self.truth.query(
+                'rc72_captain_etu_admission',
+                admission_id=fenced_admission.admission_id)
+            if len(admission_rows) != 1:
+                raise ExecutionPreparationError('N7_FENCED_ADMISSION_R1_REQUIRED')
+            admission = admission_rows[0]
+            expected = dict(release_id=self.release_id,
+                mission_id=plan['mission_id'], team_id='TEAM-' + plan['mission_id'],
+                captain_lease_id=fenced_admission.captain_lease_id,
+                captain_session_id=fenced_admission.captain_session_id,
+                captain_generation=fenced_admission.captain_generation,
+                etu_id=item['etu_id'], workitem_id=workitem_id,
+                role=fenced_admission.role, worker_id=fenced_admission.worker_id,
+                session_id=fenced_admission.session_id,
+                state='LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH')
+            if admission.get('artifact_version') != 1 or any(
+                    admission.get(k) != v for k, v in expected.items()):
+                raise ExecutionPreparationError('N7_FENCED_ADMISSION_R1_MISMATCH')
             owner = CaptainDispatchFencer(self.truth, release_id=self.release_id).assert_owner(
                 mission_id=plan['mission_id'], lease_id=fenced_admission.captain_lease_id,
                 captain_session_id=fenced_admission.captain_session_id)
