@@ -7,9 +7,11 @@ on:
     paths:
       - 'rc7_runtime/rc72_n7_tool_dispatch.py'
       - 'rc7_runtime/rc72_captain_dispatch_fencing.py'
+      - 'rc7_runtime/rc72_captain_scheduling.py'
       - 'rc7_runtime/rc72_n7_no_effect_attestation.py'
       - 'tests/test_rc72_n7_tool_dispatch.py'
       - 'tests/test_rc72_captain_dispatch_fencing.py'
+      - 'tests/test_rc72_captain_scheduling.py'
       - '.github/workflows/rc7.2-runtime-contracts.yml'
   workflow_dispatch:
 
@@ -33,7 +35,8 @@ jobs:
       - name: Install test runner
         run: python -m pip install --disable-pip-version-check pytest
       - name: Compile C06/C07 changes
-        run: python -m py_compile rc7_runtime/rc72_n7_tool_dispatch.py rc7_runtime/rc72_n7_no_effect_attestation.py rc7_runtime/rc72_captain_dispatch_fencing.py tests/test_rc72_n7_tool_dispatch.py tests/test_rc72_captain_dispatch_fencing.py
+        run: python -m py_compile rc7_runtime/rc72_n7_tool_dispatch.py rc7_runtime/rc72_n7_no_effect_attestation.py rc7_runtime/rc72_captain_dispatch_fencing.py rc7_runtime/rc72_captain_scheduling.py tests/test_rc72_n7_tool_dispatch.py tests/test_rc72_captain_dispatch_fencing.py
+          tests/test_rc72_captain_scheduling.py
       - name: Run C06/C07 targeted and inherited resource contracts
         run: >-
           python -m pytest -q
