@@ -370,8 +370,14 @@ def test_business_network_oracle_reads_actual_observed_post_not_recording_ref(tm
     updated = dict(candidate)
     updated.pop("artifact_type", None)
     updated["artifact_version"] += 1
-    updated["steps"] = [dict(item) for item in candidate["steps"]]
-    updated["steps"][1]["oracle_ref"] = "oracle://save-network"
+    steps = [dict(item) for item in candidate["steps"]]
+    click_step = dict(steps[1])
+    click_step.update(source_step_id="S-CLICK", sequence=2, action_type="CLICK",
+                      element_ref="css:#save", wait_semantics="none")
+    click_step.pop("oracle_ref", None)
+    steps[1]["sequence"] = 3
+    steps[1]["oracle_ref"] = "oracle://save-network"
+    updated["steps"] = [steps[0], click_step, steps[1]]
     truth.append_atomic("RC72_JOURNEY_CANDIDATE_UPSERTED", updated)
 
     def network_resolver(ref, kind, context):
