@@ -47,3 +47,36 @@ def test_same_cardinality_stale_artifact_identity_fails_closed():
     )
     forged = replace(proof, durable_truth=stale)
     assert ProductionCausalityIntegrationRunner._durable_truth_verified(forged) is False
+
+
+def test_same_cardinality_reused_r1_start_identity_fails_closed():
+    proof = _proof()
+    reused = replace(
+        proof.durable_truth,
+        verified_r1_start_events=tuple("start-reused" for _ in FROZEN_N1_N10_STAGES),
+    )
+    assert ProductionCausalityIntegrationRunner._durable_truth_verified(
+        replace(proof, durable_truth=reused)
+    ) is False
+
+
+def test_same_cardinality_reused_r1_completion_identity_fails_closed():
+    proof = _proof()
+    reused = replace(
+        proof.durable_truth,
+        verified_r1_events=tuple("done-reused" for _ in FROZEN_N1_N10_STAGES),
+    )
+    assert ProductionCausalityIntegrationRunner._durable_truth_verified(
+        replace(proof, durable_truth=reused)
+    ) is False
+
+
+def test_r1_start_completion_identity_collision_fails_closed():
+    proof = _proof()
+    collided = replace(
+        proof.durable_truth,
+        verified_r1_events=proof.durable_truth.verified_r1_start_events,
+    )
+    assert ProductionCausalityIntegrationRunner._durable_truth_verified(
+        replace(proof, durable_truth=collided)
+    ) is False
