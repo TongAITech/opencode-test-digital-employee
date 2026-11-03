@@ -95,10 +95,15 @@ def compact_native_prompt_json(prompt: str) -> NativePromptCompaction:
             )
         else:
             return unchanged
-    except (ValueError, TypeError, OverflowError):
+    except (ValueError, TypeError, OverflowError, UnicodeError, RecursionError):
         return unchanged
 
-    compacted_bytes = len(candidate.encode("utf-8"))
+    try:
+        compacted_bytes = len(candidate.encode("utf-8"))
+    except (UnicodeError, ValueError, RecursionError):
+        # Original ASCII-escaped surrogate data may be legitimate input for a
+        # native caller; never let an optional optimizer break the worker.
+        return unchanged
     if compacted_bytes >= original_bytes:
         return unchanged
     return NativePromptCompaction(
