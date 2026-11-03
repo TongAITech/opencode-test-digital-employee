@@ -40,6 +40,7 @@ def test_signed_n7_adapter_consumes_only_approved_l5_case_and_emits_raw_receipt(
     raw = adapter(contract=_contract(), context=_context(lease))
     assert raw["journey"]["state"] == "PASSED"
     assert raw["journey"]["case_id"] == "TC-OJ"
+    assert truth.query("rc72_official_journey_asset", official_asset_id="JOURNEY-1")[0]["case_id"] == "TC-OJ"
     assert len(raw["journey"]["actual_refs"]) == 2
     assert "passed" not in raw and "field_verified" not in raw
     assert truth.query("rc72_official_journey_execution")[0]["field_verified"] is False
