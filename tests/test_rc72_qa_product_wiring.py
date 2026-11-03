@@ -22,3 +22,38 @@ def test_qa_formal_factory_wires_coverage_repair_and_fresh_n7_rerun(tmp_path):
     assert controller.rerun.repair is controller.repair
     assert controller.repair.diagnosis is controller.diagnosis
     assert truth.store.path.read_bytes() == before
+
+
+
+def test_qa_release_driver_has_an_owned_non_bypass_n8_product_execution_route():
+    """Necessary source seam only; NOT a sufficient end-to-end N8 admission.
+
+    The current product driver explicitly *skips* N8 for accepted N7 results,
+    but an N7 failure needs an owned service route, not a HOLD/default fallthrough.
+    This intentionally remains RED until production supplies that route.
+    """
+    import ast
+    import inspect
+    import textwrap
+    from rc7_runtime.rc72_release_driver import ReleaseBatchDriver
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(ReleaseBatchDriver.run)))
+    owners = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        if not any(isinstance(k, ast.Constant) and k.value == "N8_DIAGNOSIS_RECOVERY"
+                   for k in ast.walk(node.test)):
+            continue
+        # Exclude the historical accepted-N7 bypass, which merely continues,
+        # and the N8-filtering branch, which removes it from pending work.
+        body_calls = [k for stmt in node.body for k in ast.walk(stmt)
+                      if isinstance(k, ast.Call)]
+        if any(isinstance(call.func, ast.Attribute)
+               and call.func.attr in {"complete", "run", "dispatch", "resume", "reconcile"}
+               for call in body_calls):
+            owners.append(node)
+    assert owners, (
+        "P0: ReleaseBatchDriver.run lacks an owned non-bypass N8 execution/recovery "
+        "branch; N8 failure must not end as NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED"
+    )
