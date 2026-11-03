@@ -1,6 +1,6 @@
 # RC7.2 C10 — Product economy integration handoff
 
-Status: PARTIAL — COMPONENT / CONTRACT TESTED; PRODUCT INGRESS AND FIELD MEASUREMENT PENDING.
+Status: PARTIAL — CANONICAL CLI PRODUCT INGRESS CODE IMPLEMENTED; FULL CI, N8–N10 AND FIELD MEASUREMENT PENDING.
 This document does not override frozen RC7.2 contracts 02, 04, 09 or 10.
 
 ## Audit finding
@@ -14,6 +14,12 @@ The native product composer in rc7_runtime/rc72_mission_factory.py requires DshH
 - rc7_runtime/rc72_economy_scheduler.py accepts the same configurable schedule. It may reorder or temporarily defer non-critical work, not mutate WorkItem identities, obligations or results.
 - tests/test_rc72_production_economy_wiring.py and tests/test_rc72_cost_window_configuration.py exercise the simulated DSH command boundary, metering, UNKNOWN, deterministic misuse, quota pressure and schedule cases on Python 3.8 and 3.11.
 - .github/workflows/rc7.2-economy-c10.yml runs this independent regression.
+
+## Formal native product ingress now installed
+
+The real command-line ReleaseBatch Mission entry in rc7_release/rc72_mission_cli.py now invokes bind_release_batch_model_economy **before** create_mission_driver whenever command=run. It binds all eleven native role launchers, uses the same canonical R1 store, and preserves the concrete launcher types and N1 native gate. The parser accepts an optional trusted --economy-config JSON for explicit Shanghai windows / soft budget targets. status and mirror-check remain LLM-free and do not create economy call receipts. The R1 resolver supports task-scoped producers, native N1 worker assignment, and independent reviewers traced through approved artifacts.
+
+The command-line run output now separates MISSION_COMPLETION_STATUS and MODEL_ECONOMY_STATUS and keeps ACTUAL_TOTAL_TOKENS null if usage is not fully observed. This is source integration, not Field evidence or proven token savings.
 
 ## A group — exact formal integration interface
 
@@ -37,7 +43,7 @@ Every new model/provider/Captain/Fresh Worker launcher needs a fresh binder call
 
 ## Product integration pending
 
-1. Bind the hook for ALL native semantic and reviewer roles in the actual Mission Factory path; verify N1 native service and lease remain valid. Current independent tests only simulate the process boundary.
+1. The CLI run product ingress is source-wired. A group must verify its real controlled Mission Factory + native N1 admission end-to-end, and any alternate embedded/API factory entry must call the same binder before dispatch (CLI-only wiring does not cover these entrypoints).
 2. Consume minimum ContextEnvelope in the N2–N5 production prompt compilers and N8 RetryDelta in the retry producer, rather than only in the separate DshTaskWorkerBridge subclass.
 3. Wire SafeExecutionBatchService and independent EvaluatorBatch where compatibility is proven, without collapsing per-WorkItem Attempt, oracle, evidence, gap or TestObligation denominator.
 4. Propagate the same explicit bank policy into the live Scheduler and model ledger. Critical-path semantic work must continue at full price when mandatory.
@@ -47,4 +53,4 @@ Every new model/provider/Captain/Fresh Worker launcher needs a fresh binder call
 
 ## Truth boundary
 
-Repository CI cannot prove bank provider usage format, model quota, real token savings, an executed system test, N8/N9/N10 convergence or the offline install. Keep C10 COMPONENT_TESTED or PRODUCT_INTEGRATION_PENDING until factory calls, full regression and Field R1/Evidence establish the higher statuses. Never infer a saving percentage from simulated usage.
+Repository CI cannot prove bank provider usage format, model quota, real token savings, an executed system test, N8/N9/N10 convergence or the offline install. Keep C10 at PRODUCT_INGRESS_CODED / ENGINEERING_VERIFICATION_PENDING until full same-HEAD regression and Field R1/Evidence establish the higher statuses. Never infer a saving percentage from simulated usage.
