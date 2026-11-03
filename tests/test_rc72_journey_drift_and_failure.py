@@ -198,3 +198,54 @@ def test_teaching_completion_rejects_revoked_browser_lease(tmp_path):
     with pytest.raises(Exception, match="BROWSER_LEASE_NOT_ACTIVE"):
         teaching.complete_recording(recording_id="JR-1", evidence_refs=["file://evidence"])
     assert truth.query("rc72_journey_recording", recording_id="JR-1")[0]["state"] == "CAPTURING"
+
+
+class BrowserProcessInterrupted:
+    adapter_kind = "ENGINEERING_TEST"
+    field_verified = False
+
+    def __init__(self):
+        self.calls = 0
+
+    def execute_step(self, step, context):
+        self.calls += 1
+        # Uncatchable process abort: the SUT may have received the CLICK.
+        raise KeyboardInterrupt()
+
+
+def test_replay_cold_crash_holds_unknown_side_effects_without_duplicate_browser_io(tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    crashed = BrowserProcessInterrupted()
+    service = JourneyReplayService(
+        truth, release_id="RC7.2", browser_pool=pool, adapter=crashed)
+    arguments = dict(candidate_id="JC-1", workitem_id="WI-R1",
+                     attempt_id="ATT-R1", worker_id="WORKER-R1",
+                     session_id="SESSION-R1", browser_lease_id=lease.browser_lease_id)
+    with pytest.raises(KeyboardInterrupt):
+        service.replay(replay_id="JRP-CRASH", **arguments)
+    assert truth.query("rc72_journey_replay", replay_id="JRP-CRASH")[0]["state"] == "STARTED"
+    reloaded = TruthRuntime(tmp_path / "r1.jsonl")
+    recovered = JourneyReplayService(
+        reloaded, release_id="RC7.2",
+        browser_pool=BrowserPool(reloaded, release_id="RC7.2"),
+        adapter=crashed)
+    with pytest.raises(Exception, match="UNKNOWN_SIDE_EFFECTS_RECOVERY_REQUIRED"):
+        recovered.replay(replay_id="JRP-CRASH-NEW", **arguments)
+    assert crashed.calls == 1
+    assert not reloaded.query("rc72_journey_replay", replay_id="JRP-CRASH-NEW")
+
+
+def test_official_cold_crash_holds_unknown_side_effects_without_duplicate_browser_io(tmp_path):
+    crashed = BrowserProcessInterrupted()
+    truth, pool, lease, _, service = official_setup(tmp_path, adapter=crashed)
+    with pytest.raises(KeyboardInterrupt):
+        _run(service, lease, execution_id="OJ-CRASH")
+    assert truth.query("rc72_official_journey_execution", execution_id="OJ-CRASH")[0]["state"] == "STARTED"
+    reloaded = TruthRuntime(tmp_path / "r1.jsonl")
+    recovered = OfficialJourneyExecutionService(
+        reloaded, release_id="RC7.2",
+        browser_pool=BrowserPool(reloaded, release_id="RC7.2"), adapter=crashed)
+    with pytest.raises(Exception, match="UNKNOWN_SIDE_EFFECTS_RECOVERY_REQUIRED"):
+        _run(recovered, lease, execution_id="OJ-NEW")
+    assert crashed.calls == 1
+    assert not reloaded.query("rc72_official_journey_execution", execution_id="OJ-NEW")
