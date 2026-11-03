@@ -64,6 +64,8 @@ def _validate_candidate(payload: Dict[str, Any]) -> Dict[str, Any]:
         out["state"] = JourneyCandidateState(out["state"].upper()).value
     except ValueError as exc:
         raise _contracts.DomainValidationError("JOURNEY_CANDIDATE_STATE_INVALID") from exc
+    if "case_id" in out:
+        out["case_id"] = _required(out, "case_id")
     if out["asset_class"] != "CANDIDATE":
         raise _contracts.DomainValidationError("JOURNEY_CANDIDATE_ASSET_CLASS_INVALID")
     if out.get("executable") is not False:
@@ -214,6 +216,7 @@ class JourneyCompiler:
             "requirement_id": recording["requirement_id"],
             "sst_id": recording["sst_id"],
             "obligation_id": recording["obligation_id"],
+            "case_id": recording.get("case_id"),
             "source_recording_id": recording_id,
             "state": JourneyCandidateState.COMPILED_CANDIDATE.value,
             "asset_class": "CANDIDATE",
