@@ -1,0 +1,39 @@
+name: RC7.2 Windows User Pip Mirror Component Qualification
+
+on:
+  push:
+    branches: [work/rc7.2-pip-mirror-capability]
+    paths:
+      - '.github/workflows/rc7.2-pip-mirror.yml'
+      - 'rc7_release/bank_pc_pip_mirror_probe.py'
+      - 'tests/test_rc72_bank_pc_pip_mirror*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  actual-copied-python-user-config-mirror:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      RC72_PIP_MIRROR_COMPONENT: '1'
+      RC72_PIP_MIRROR_EVIDENCE: '${{ github.workspace }}/dist/pip-mirror-evidence/public'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prepare engineering test runner
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Actual copied Python, real Windows user config, owned mirror and negative checks
+        run: python -m pytest tests/test_rc72_bank_pc_pip_mirror.py tests/test_rc72_bank_pc_pip_mirror_windows.py -q --junitxml=dist/pip-mirror-evidence/public/windows-user-mirror.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-windows-user-pip-mirror-${{ github.sha }}
+          path: dist/pip-mirror-evidence/public/*
+          retention-days: 30
