@@ -222,12 +222,14 @@ def test_capture_real_dom_events_and_network_metadata_without_input_values(tmp_p
         human_operator_ref="human://operator/001", auth_asset_ref="auth://4a/session-asset")
     recorder.begin(**args)
     page.events = [{"type": "CLICK", "element_ref": "css:#save", "tag": "BUTTON"}]
-    assert recorder.poll(page_role="config") == ["JR-REAL:1"]
+    assert recorder.poll(page_role="config") == ["JR-REAL:2"]
+    assert recorder.record_wait(page_role="config", wait_semantics="network-idle") == "JR-REAL:3"
     recorder.record_assertion(page_role="config", oracle_ref="oracle://success-toast")
     recorder.finish()
     assert truth.query("rc72_journey_recording", recording_id="JR-REAL")[0]["state"] == "CAPTURED"
     events = truth.query("rc72_journey_capture_step", recording_id="JR-REAL")
-    assert len(events) == 2
+    assert len(events) == 4
+    assert [e["action_type"] for e in sorted(events, key=lambda e: e["sequence"])] == ["NAVIGATE", "CLICK", "WAIT", "ASSERT"]
     assert events[0]["screenshot_ref"].startswith("file://")
     assert all("not-persisted" not in json.dumps(event) for event in events)
     from rc7_runtime.rc72_journey_promotion import install_rc72_journey_promotion_overlay
@@ -250,3 +252,26 @@ def test_capture_rejects_browser_ownership_loss(tmp_path):
     pool.release(lease.browser_lease_id, reason="authkeeper contention")
     with pytest.raises(Exception, match="BROWSER_LEASE_NOT_ACTIVE"):
         recorder.poll(page_role="config")
+
+
+def test_click_before_navigation_preserves_precise_teaching_order(tmp_path):
+    truth, teaching, pool, lease = teaching_fixture(tmp_path)
+    page = FakePage()
+    page.url = "https://fat1.example/config"
+    recorder = JourneyCDPTeachingRecorder(
+        teaching=teaching, evidence_root=tmp_path / "captures",
+        connector=lambda endpoint: FakeBrowser(page))
+    recorder.begin(
+        recording_id="JR-NAV", mission_id="M-1", release_batch_id="RB-1",
+        requirement_id="REQ-1", sst_id="SST-1", obligation_id="TO-1",
+        workitem_id="WI-1", attempt_id="ATT-1", worker_id="WORKER-1",
+        session_id="SESSION-1", browser_lease_id=lease.browser_lease_id,
+        human_operator_ref="human://operator/001")
+    page.events = [{"type": "CLICK", "element_ref": "css:#next", "url": "https://fat1.example/config"}]
+    page.url = "https://fat1.example/confirmation"
+    assert recorder.poll(page_role="config") == ["JR-NAV:2", "JR-NAV:3"]
+    recorder.finish()
+    recorded = sorted(truth.query("rc72_journey_capture_step", recording_id="JR-NAV"), key=lambda row: row["sequence"])
+    assert [row["action_type"] for row in recorded] == ["NAVIGATE", "CLICK", "NAVIGATE"]
+    assert recorded[1]["url"] == "https://fat1.example/config"
+    assert recorded[2]["url"] == "https://fat1.example/confirmation"
