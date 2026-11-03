@@ -68,11 +68,7 @@ jobs:
           EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           BASE_SOURCE_SHA: ${{ github.event.pull_request.base.sha || inputs.target_main_sha }}
         run: |
-          python tools/rc72_qa_source_provenance.py \\
-            --repo-root . \\
-            --expected-head "$EXPECTED_SOURCE_SHA" \\
-            --expected-base "$BASE_SOURCE_SHA" \\
-            --report qa-source-provenance.json
+          python tools/rc72_qa_source_provenance.py --repo-root . --expected-head "$EXPECTED_SOURCE_SHA" --expected-base "$BASE_SOURCE_SHA" --report qa-source-provenance.json
       - name: Install test harness
         id: test_harness
         run: python -m pip install --disable-pip-version-check pytest
