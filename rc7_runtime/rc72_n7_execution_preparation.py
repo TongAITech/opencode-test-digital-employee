@@ -267,7 +267,40 @@ class ExecutionPreparationService:
                 attempt_id=attempt_id, binding_id=binding.binding_id, worker_id=worker.worker_id, session_id=worker.session_id,
                 attempt_generation=generation, worker_identity=asdict(identity), task_lease=asdict(lease), data_lease_ids=acquired,
                 browser_lease_ids=browser_leases, status='PREPARED', artifact_version=1)
-            self.truth.append_atomic(_EVENT, payload)
+            if fenced_admission is None:
+                self.truth.append_atomic(_EVENT, payload)
+            else:
+                # Final admission is the execution authority boundary. Resource
+                # acquisition can yield control to a new Captain, so repeat
+                # the R1 owner/generation check and persist PREPARED under the
+                # same cross-process lock. A raced handoff must not publish an
+                # executable attempt with an old Captain's credentials.
+                from .rc72_ledger_lock import ledger_lock
+                from .rc72_captain_dispatch_fencing import CaptainDispatchFencer
+                with ledger_lock(self.truth, busy='N7_FENCED_FINAL_ADMISSION_BUSY',
+                                 conflict=ExecutionPreparationError):
+                    owner = CaptainDispatchFencer(self.truth, release_id=self.release_id)._owner(
+                        plan['mission_id'], fenced_admission.captain_lease_id,
+                        fenced_admission.captain_session_id, int(time.time()))
+                    current_task = control.scheduler.task(workitem_id)
+                    current_session = self._one('rc72_worker_session', session_id=worker.session_id)
+                    current_admissions = self.truth.query(
+                        'rc72_captain_etu_admission',
+                        admission_id=fenced_admission.admission_id)
+                    if (owner['generation'] != fenced_admission.captain_generation
+                            or owner['team_id'] != fenced_admission.team_id
+                            or current_task.state != TaskStatus.LEASED
+                            or current_task.lease_owner != worker.worker_id
+                            or current_session['state'] != 'ACTIVE'
+                            or current_session.get('task_lease_ref') != lease.lease_id
+                            or current_session.get('runtime_attempt_id') != attempt_id
+                            or current_session.get('binding_id') != binding.binding_id
+                            or len(current_admissions) != 1
+                            or current_admissions[0].get('artifact_version') != 1
+                            or current_admissions[0].get('worker_id') != worker.worker_id
+                            or current_admissions[0].get('session_id') != worker.session_id):
+                        raise ExecutionPreparationError('N7_FENCED_FINAL_ADMISSION_STALE')
+                    self.truth.append_atomic(_EVENT, payload)
         except Exception:
             # No tool has been invoked by this service. Rollback releases only
             # reservations and records that control-plane fact, never fake SUT cleanup.
