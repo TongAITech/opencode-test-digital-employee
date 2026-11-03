@@ -275,6 +275,8 @@ class OfficialJourneyExecutionService:
         asset = self._one("rc72_official_journey_asset", official_asset_id=official_asset_id)
         if asset.get("status") != "OFFICIAL" or asset.get("official") is not True or asset.get("executable") is not True:
             raise ContractError("OFFICIAL_JOURNEY_ASSET_NOT_EXECUTABLE")
+        from .rc72_journey_drift import JourneyDriftService
+        JourneyDriftService(self.truth, release_id=self.release_id).assert_eligible(official_asset_id)
         mission_id = str(asset["mission_id"])
         binding = self._binding(
             mission_id=mission_id, workitem_id=workitem_id, attempt_id=attempt_id,
