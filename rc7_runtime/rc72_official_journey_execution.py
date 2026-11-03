@@ -305,6 +305,9 @@ class OfficialJourneyExecutionService:
         asset = self._one("rc72_official_journey_asset", official_asset_id=official_asset_id)
         if asset.get("status") != "OFFICIAL" or asset.get("official") is not True or asset.get("executable") is not True:
             raise ContractError("OFFICIAL_JOURNEY_ASSET_NOT_EXECUTABLE")
+        if not any(step.get("action_type") == "ASSERT" and step.get("oracle_ref")
+                   for step in asset.get("steps", [])):
+            raise ContractError("OFFICIAL_JOURNEY_BUSINESS_ORACLE_REQUIRED")
         from .rc72_journey_drift import JourneyDriftService
         JourneyDriftService(self.truth, release_id=self.release_id).assert_eligible(official_asset_id)
         mission_id = str(asset["mission_id"])
@@ -321,8 +324,7 @@ class OfficialJourneyExecutionService:
         if etu.get("obligation_id") != asset.get("obligation_id"):
             raise ContractError("OFFICIAL_JOURNEY_ETU_OBLIGATION_MISMATCH")
         if (binding.get("case_id") not in list(etu.get("case_ids") or [])
-                or (asset.get("case_id") is not None
-                    and asset.get("case_id") != binding.get("case_id"))):
+                or asset.get("case_id") != binding.get("case_id")):
             raise ContractError("OFFICIAL_JOURNEY_CANONICAL_CASE_MISMATCH")
         task = self._one("rc7_task", task_id=workitem_id)
         if task.get("mission_id") != mission_id or official_asset_id not in list(task.get("input_artifact_refs") or []):
