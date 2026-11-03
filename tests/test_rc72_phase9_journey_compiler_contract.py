@@ -181,3 +181,28 @@ def test_candidate_survives_r1_replay(tmp_path: Path):
     assert row["state"] == "COMPILED_CANDIDATE"
     assert row["executable"] is False
     assert [step["source_step_id"] for step in row["steps"]] == ["S1", "S2", "S3"]
+
+
+def test_compiler_preserves_explicit_dialog_policy_reference_without_text_value(tmp_path: Path):
+    truth, teaching, compiler = _setup(tmp_path, complete=False)
+    teaching.append_step(
+        recording_id="JR-1", step_id="S2", sequence=2,
+        action_type=JourneyActionType.CLICK,
+        url="https://fat1.example/config", page_role="config",
+        element_ref="testid:submit",
+        page_state_ref="page://2", dom_ref="dom://2",
+        network_refs=["net://save"], screenshot_ref="shot://2",
+        wait_semantics="network-idle", evidence_refs=["ev://2"],
+        capture_metadata={
+            "dialog_policy_ref": "dialog://business-confirmation",
+            "api_code_mapping_ref": "codegraph://validated/save-config",
+        })
+    teaching.complete_recording(recording_id="JR-1", evidence_refs=["ev://summary"])
+    compiler.compile(candidate_id="JC-DIALOG", recording_id="JR-1")
+    candidate = truth.query("rc72_journey_candidate", candidate_id="JC-DIALOG")[0]
+    assert candidate["case_id"] == "TC-1"
+    step = candidate["steps"][1]
+    assert step["dialog_policy_ref"] == "dialog://business-confirmation"
+    assert step["api_code_mapping_ref"] == "codegraph://validated/save-config"
+    assert "capture_metadata" not in step and "value" not in step
+    assert candidate["executable"] is False and candidate["official"] is False
