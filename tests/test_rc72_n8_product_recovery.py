@@ -129,3 +129,50 @@ def test_n8_product_historical_repaired_n7_replay_reaudits_old_diagnosis_without
         assert truth.store.path.read_bytes()==before
     finally:
         server.shutdown();server.server_close()
+
+
+def test_native_n8_product_consumes_real_repaired_n5_gate_and_driver_admits_new_n7_only(tmp_path,monkeypatch):
+    """No synthetic repair marker: real independent N5 physical evidence must exist."""
+    from test_rc72_n8_retry_continuation import _whole_inventory_repaired
+    from rc7_runtime.rc72_release_driver import ReleaseBatchDriver
+    from rc7_runtime.rc72_n7_execution_planning import ExecutionPlanningService
+    values=_whole_inventory_repaired(tmp_path,monkeypatch)
+    truth,prep,server,original,_,data,_,_,_=values
+    try:
+        root=tmp_path/'native-n8-resume-accepted'
+        runner=FormalN7RunnerAdapter(prep,evidence_root=root,
+            environment_adapter=LocalHTTPEnvironment(
+                'http://127.0.0.1:%d'%server.server_address[1],root),
+            execution_env={'RC72_OUTPUT_ROOT':str(root)},timeout_seconds=30)
+        n7=N7PipelineService(prep,runner=runner,capture_root=tmp_path/'native-n8-retry')
+        n8=NativeN8ProductRecoveryService(n7)
+        old=truth.query('execution_attempt',attempt_id=original['attempt_id'])[0]
+        before_business=len(server.calls)
+        resumed=n8.complete(release_batch_id=original['release_batch_id'])
+        assert resumed['status']=='CONTINUE'
+        assert resumed['reason']=='N8_ACCEPTED_N5_REPAIR_N7_RETRY_READY'
+        assert resumed['original_attempt_id']==old['attempt_id']
+        assert resumed['recovery_plan_id']!=original['plan_id']
+        assert truth.query('execution_attempt',attempt_id=original['attempt_id'])[0]==old
+        # The real product driver's continuation barrier must see a fresh
+        # planner with exact R1 admission and a READY/RUNNING N7.
+        driver=object.__new__(ReleaseBatchDriver)
+        driver.truth,driver.n7_pipeline=truth,n7
+        batch=truth.query('rc72_release_batch',release_batch_id=original['release_batch_id'])[0]
+        actual=driver._validated_n8_continue(batch,resumed)
+        assert actual['plan_id']==resumed['recovery_plan_id']
+        assert actual['recovery_id']
+        assert len(server.calls)==before_business
+        before=truth.store.path.read_bytes()
+        assert n8.complete(release_batch_id=original['release_batch_id'])==resumed
+        assert truth.store.path.read_bytes()==before
+        assert not truth.query('rc7_defect')
+        with pytest.raises(ContractError,match='UNVERIFIED_N8_CONTINUATION'):
+            driver._validated_n8_continue(batch,dict(resumed,
+                reason='UNKNOWN_CAUSE_CANNOT_RESTART'))
+        with pytest.raises(ContractError,match='N8_FRESH_N7_NOT_ADMITTED'):
+            driver._validated_n8_continue(batch,dict(resumed,
+                recovery_plan_id=original['plan_id']))
+        assert truth.store.path.read_bytes()==before and len(server.calls)==before_business
+    finally:
+        server.shutdown();server.server_close()
