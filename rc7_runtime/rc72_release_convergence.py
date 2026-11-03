@@ -493,9 +493,11 @@ class ReleaseConvergenceAggregator:
                             application_id=gap[0]['application_id'])
                         verification=self.truth.query('rc72_coverage_gap_verification',
                             verification_id=repaired['verification_id'])
+                        current_report=(self.coverage_proof._one('rc72_libra_measurement',
+                            measurement_id=current['measurement_id']) if current is not None else None)
                         if (current is None or len(verification)!=1 or current['measurement_id']!=repaired['fresh_measurement_id']
-                                or current['n7_gate_id']!=repaired['fresh_n7_gate_id']
-                                or current['n7_gate_id']==repaired['origin_n7_gate_id']
+                                or current_report['n7_gate_id']!=repaired['fresh_n7_gate_id']
+                                or current_report['n7_gate_id']==repaired['origin_n7_gate_id']
                                 or gap[0]['code_slice'] in current['uncovered_code_slices']
                                 or verification[0]['gap_id']!=gap[0]['gap_id']
                                 or verification[0]['uncovered_units_after']!=0
