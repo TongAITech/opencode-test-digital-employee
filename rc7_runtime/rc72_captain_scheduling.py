@@ -242,6 +242,9 @@ class CaptainFencedWorkItemScheduler:
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_ETU_NOT_EXECUTABLE")
             if not set(etus[0].get("required_capabilities") or ()).issubset(capabilities):
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_ETU_CAPABILITY_GAP")
+            if (task.task_type == "RC72_CASE_EXECUTION"
+                    and role != etus[0]["test_level"] + "_EXECUTE"):
+                raise CaptainSchedulingError("CAPTAIN_SCHEDULER_N7_ROLE_SCOPE_MISMATCH")
             self._assert_n7_planning_lineage(
                 mission_id=mission_id, batch=batch, task=task, etu=etus[0])
             existing = [s for s in self.truth.query("rc72_worker_session", mission_id=mission_id)
