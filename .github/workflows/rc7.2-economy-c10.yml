@@ -36,6 +36,7 @@ jobs:
         run: >-
           python -m pytest -q
           tests/test_rc72_production_economy_wiring.py
+          tests/test_rc72_lossless_prompt_compaction.py
           tests/test_rc72_production_economy_ingress.py
           tests/test_rc72_native_context_projection.py
           tests/test_rc72_mission_economy_cli_ingress.py
