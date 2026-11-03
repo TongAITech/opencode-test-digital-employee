@@ -160,6 +160,7 @@ def canonical_role_metadata_resolver(
         )
         return {
             **context,
+            "role": role,
             "mission_id": mission_id,
             "workitem_id": workitem_id,
             "attempt_id": attempt_id,
