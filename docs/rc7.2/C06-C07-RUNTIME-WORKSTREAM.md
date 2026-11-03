@@ -29,7 +29,7 @@ Source: `05` §§3,8,12,14,15,17,18,19,21,22; `10` C06/C07.
 - Cold/hot redispatch refuses UNKNOWN instead of returning a FAILED result that might be misinterpreted as harmless.
 - The R1 intent still precedes external I/O; original permanent OS claim is retained.
 - Existing preflight failures remain before business I/O, and returned receipts remain independently evaluated.
-- `rc72_n7_no_effect_attestation.py` verifies signed N7 precondition/probe failure and captured evidence SHA256, rejects unsigned/fabricated error claims, and rejects any observed business process/native call.
+- `rc72_n7_no_effect_attestation.py` verifies signed N7 precondition/probe failure and captured evidence SHA256, rejects unsigned/fabricated error claims, and rejects any observed business process/native call. **Raw append-only R1 effect events** for the same attempt/preparation/worker override even a valid signed negative check, including cold interpreters with optional tool overlays not imported.
 - Tests: `test_rc72_n7_tool_dispatch.py` now verifies timeout **after simulated remote commit**, cold resume, error redaction, no additional call, retained DataLease, and forged failure-class refusal.
 - CI first Windows 3.11 run (old SHA `0ca7aaf`) found 96 passed, 7 failed, due to the earlier overbroad UNKNOWN classification and one cold test ordering error; both were specifically corrected in follow-up commits. Final HEAD CI results must be verified independently.
 - IMPORTANT: This is an engineering failure-injection test, not proof of a real bank payment, DSH provider, or environment.
@@ -41,18 +41,18 @@ Source: `05` §§3,8,12,14,15,17,18,19,21,22; `10` C06/C07.
 - Explicit `acquire_initial`, `assert_owner`, `heartbeat`, `prepare_handoff`, `takeover`.
 - `prepare_handoff` quiesces dispatch **before** `WorkerLifecycleService.create_captain_handoff`; crash leaves old Captain disabled.
 - Takeover requires existing canonical `rc72_captain_handoff` and delegates readiness to `WorkerLifecycleService.takeover_captain` under the same R1/ledger.
-- New generation fences old Captain and cannot be re-used after lease expiration.
+- New generation fences old Captain; authority expires **at** `expires_at`, never one second after the TTL boundary.
 - Tests: `test_rc72_captain_dispatch_fencing.py` covers R1 cold replay, two Captain contention, safe takeover, crash before checkpoint, expiry, multi-process race.
 - Intended product integration contract for Session A: call `assert_owner(mission_id,lease_id,captain_session_id)` before accepting new scheduling commands; route Captain checkpoint/takeover via `prepare_handoff`/`takeover`. To close the dispatch race fully, the production scheduler must also atomically persist per-WorkItem dispatch admission under the leader fence; the current fencer alone is **not** a C07 product-closure proof.
 
 ### Slice C07-U02 — canonical TaskScheduler + Fresh Worker admission
 
 - New `rc72_captain_scheduling.py` calls the existing `TaskScheduler.lease_task` and `WorkerLifecycleService.assign_fresh_worker` under the **same** cross-process R1 ledger lock as Captain ownership checks.
-- Requires explicit Mission, Team, Captain session/lease, ETU/WorkItem lineage and trusted role-capability profile. It blocks Full Access, capability gaps and stale task/inputs *before* creating worker state.
+- Requires explicit Mission, Team, Captain session/lease, ETU/WorkItem lineage and trusted role-capability profile. It blocks Full Access, executor/reviewer role confusion, missing **both WorkItem and ETU capability scopes**, cross-Mission source artifacts and stale task/inputs *before* creating worker state. Formal N7 Case WorkItems additionally require a **unique exact match** in the canonical N7 plan (`Case → ETU → WorkItem`) and decomposition snapshot; same-Mission membership alone is insufficient.
 - Multiple independent ETUs in the same Mission receive different fresh Worker/Session identities. Lost Session state cannot authorize automatic duplicate WorkItem lease.
-- Crash after WorkerSession creation but before scheduler lease leaves an orphan. `recover_unleased_orphan` checks R1 for absence of signed authority, observed DSH identity, data/browser/capability leases, Attempts, tool effects and worker evidence, then checkpoints the orphan and authorizes a new fresh successor with `parent_session_id`. If any provenance exists, it fails closed.
+- Crash after WorkerSession creation but before scheduler lease leaves an orphan. `recover_unleased_orphan` scans **raw R1 history** for exactly one initial WorkerSession event referencing the worker, as well as signed authority, observed DSH identity, data/browser/capability leases, Attempts, tool effects and worker evidence. If any extra raw provenance exists (including an overlay not imported in this interpreter), it fails closed. Only then is the orphan checkpointed and a fresh successor linked by `parent_session_id`.
 - Tool authority issuance, real DSH launch and observed Attempt are **not** side effects of this interface. Return state is explicitly `LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH`. Product entry must connect signed TaskLease/CapabilityLease + actual DSH WorkerInvocation before claiming the work executed.
-- Tests: `tests/test_rc72_captain_scheduling.py`: same-Mission two workers, Captain A→B, cross-process task competition, wrong Captain and weak capability rejection, crash before dispatch, cold orphan reconciliation, negative unknown authority/effect, no leaked Captain tokens. These are engineering-level R1 tests, not real DSH/field execution.
+- Tests: `tests/test_rc72_captain_scheduling.py`: same-Mission two workers, Captain A→B, cross-process task competition, wrong Captain and weak capability/role rejection, N7 cross-ETU Case mismatch, missing planning snapshot, cross-Mission input artifact, crash before dispatch, cold orphan reconciliation and unknown R1 capability provenance. Tests simulate failures; they are NOT live DSH/field execution.
 
 ## Explicit remaining gaps / NO claims
 
@@ -60,15 +60,15 @@ Source: `05` §§3,8,12,14,15,17,18,19,21,22; `10` C06/C07.
 - `C06`: Tool boundary for BrowserSkill/4A, physical orphan process custody, multi-process end-to-end effects, real environment negative validation.
 - `C07`: All role dispatch and live Worker/Attempt/CapabilityLease/ModelAssignment in same production product entrypoint, resource-bound model failover, all-role Fresh Worker lifecycle, Captain fencing integration and true session-expiry probes.
 - No live DSH/BSK/4A/bank proof is claimed. No PASS, BANK_FINAL, Q3–Q9 evidence, or overall implementation percentage is asserted.
-- New tests are engineering-level. PR CI must finish on exact current head before `ENGINEERING_VERIFIED` can be considered; no CI result here is presumed.
+- New tests are engineering-level. The matrix must **execute**, not just compile, `tests/test_rc72_captain_scheduling.py`. PR CI must finish on exact current head before `ENGINEERING_VERIFIED` can be considered; no CI result here is presumed. Attempted local clone for additional tests was blocked by outbound DNS, so it is not counted as test execution.
 
 ## Session A integration interface
 
 1. Install `install_captain_dispatch_overlay()` before cold R1 replay (module import installs it).
 2. Use exactly one canonical `TruthRuntime` instance for `CaptainDispatchFencer` and `WorkerLifecycleService` for a scheduling transaction.
 3. Bind `release_id`, `mission_id`, `team_id`, and Captain session; never expose Captain credentials to a Worker.
-4. Gate every scheduling admission at the product entry, not only CLI tests.
-5. Complete atomic work-dispatch admission, orchestrator integration, and provider/field qualification prior to closure.
+4. Call `CaptainFencedWorkItemScheduler.dispatch_etu` for actual product ETU admission; never call the inherited `TaskScheduler.lease_task` directly from an unfenced Captain path. Keep signed TaskLease/CapabilityLease issuance + real WorkerInvocation separate and mandatory before execution.
+5. Complete product scheduling/orchestrator integration, real DSH launch and Attempt/Evidence binding, provider/field qualification and all-role coverage prior to closure.
 
 ## Evidence verification
 
