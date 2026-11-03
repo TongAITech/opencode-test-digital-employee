@@ -77,6 +77,8 @@ def _validate_replay(payload: Dict[str, Any]) -> Dict[str, Any]:
         out[name] = _required(out, name)
     out["artifact_type"] = _REPLAY
     out["artifact_version"] = _contracts._artifact_version(out)
+    if out.get("case_id") is not None:
+        out["case_id"] = _required(out, "case_id")
     try:
         out["state"] = JourneyReplayState(out["state"].upper()).value
     except ValueError as exc:
@@ -342,10 +344,18 @@ class JourneyReplayService:
         if not steps:
             raise ContractError("JOURNEY_REPLAY_STEPS_REQUIRED")
         mission_id = str(candidate["mission_id"])
-        self._binding(
+        binding = self._binding(
             mission_id=mission_id, workitem_id=workitem_id, attempt_id=attempt_id,
             worker_id=worker_id, session_id=session_id,
         )
+        etu = self._one("rc72_etu", etu_id=str(binding["etu_id"]))
+        if (etu.get("mission_id") != mission_id
+                or etu.get("release_batch_id") != candidate.get("release_batch_id")
+                or etu.get("obligation_id") != candidate.get("obligation_id")
+                or binding.get("case_id") not in list(etu.get("case_ids") or [])
+                or (candidate.get("case_id") is not None
+                    and binding.get("case_id") != candidate.get("case_id"))):
+            raise ContractError("JOURNEY_REPLAY_CANONICAL_CASE_MISMATCH")
         lease = self.browser_pool.assert_usable(
             browser_lease_id=browser_lease_id,
             mission_id=mission_id,
@@ -366,6 +376,7 @@ class JourneyReplayService:
             "requirement_id": candidate["requirement_id"],
             "sst_id": candidate["sst_id"],
             "obligation_id": candidate["obligation_id"],
+            "case_id": binding["case_id"],
             "workitem_id": workitem_id,
             "attempt_id": attempt_id,
             "worker_id": worker_id,
