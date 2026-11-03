@@ -89,6 +89,30 @@ def main(argv=None):
                 result = dict(result,field_verified=False,bank_final=False)
             else:
                 result = driver.run(release_batch_id=args.release_batch)
+                economy_result = economy.qualification(snapshot['mission_id'])
+                # Functional ReleaseBatch truth and model efficiency are
+                # independent. Never infer N10 convergence from low cost or
+                # an optimistic driver label without all canonical N-nodes.
+                node_rows = truth.query('rc72_mission_node', mission_id=snapshot['mission_id'])
+                n10_pass = any(
+                    row.get('node_type') == 'N10_RELEASE_CONVERGENCE'
+                    and row.get('state') == 'PASS'
+                    for row in node_rows
+                )
+                all_nodes_pass = bool(node_rows) and all(
+                    row.get('state') == 'PASS' for row in node_rows
+                )
+                mission_complete = (
+                    result.get('status') == 'PASS' and n10_pass and all_nodes_pass
+                )
+                result = dict(
+                    result,
+                    MISSION_COMPLETION_STATUS='PASS' if mission_complete else 'HOLD',
+                    MODEL_ECONOMY_STATUS=economy_result.status,
+                    MODEL_ECONOMY_REASON=economy_result.reason,
+                    MODEL_USAGE_TOTAL_STATUS=economy_result.metrics.get('usage_total_status', 'UNKNOWN'),
+                    ACTUAL_TOTAL_TOKENS=economy_result.metrics.get('actual_total_tokens'),
+                )
         except (ContractError, RuntimeError, OSError, ValueError) as exc:
             # Public run output carries only a contract code. Error details may
             # include private host paths or credentials and are not receipts.
@@ -99,6 +123,11 @@ def main(argv=None):
             result = dict(release_batch_id=args.release_batch, release_id=args.release_id,
                 source_commit=args.source_commit, status='HOLD', reason=code,
                 field_verified=False, bank_final=False)
+            if args.command == 'run':
+                result.update(MISSION_COMPLETION_STATUS='HOLD',
+                    MODEL_ECONOMY_STATUS='HOLD',
+                    MODEL_ECONOMY_REASON='MISSION_RUN_NOT_COMPLETED',
+                    MODEL_USAGE_TOTAL_STATUS='UNKNOWN', ACTUAL_TOTAL_TOKENS=None)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     if args.command == 'status':
         return 0
