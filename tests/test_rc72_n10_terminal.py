@@ -60,3 +60,21 @@ def test_legacy_self_declared_green_cannot_be_accepted_as_native_n10_gate(tmp_pa
     assert not truth.query('rc72_node_delivery',node_type='N10_RELEASE_CONVERGENCE')
     assert not truth.query('rc72_node_gate',node_type='N10_RELEASE_CONVERGENCE')
     assert not truth.query('rc72_n10_terminal_review')
+
+
+@pytest.mark.parametrize('review_id,accepted',[
+    ('REV-'+'a'*20,True),('N10REV-'+'b'*24,True),
+    ('REV-'+'c'*32,False),('../N10REV-'+'d'*24,False),
+    ('REV-../../foreign',False),('REV-'+'a'*19,False)])
+def test_n10_reviewer_evidence_root_confined_to_canonical_lifecycle_identity(
+        tmp_path,review_id,accepted):
+    # Pure path policy; does not instantiate a release review or manufacture
+    # a Gate. Source reviewer IDs are minted by native lifecycle with 20 hex.
+    service=object.__new__(NativeN10TerminalReviewService)
+    service.root=tmp_path.resolve()
+    if accepted:
+        assert service._safe_review_root(review_id)==service.root/review_id
+    else:
+        with pytest.raises(ContractError,match='N10_TERMINAL_REVIEWER_PATH_INVALID'):
+            service._safe_review_root(review_id)
+    assert list(tmp_path.iterdir())==[]
