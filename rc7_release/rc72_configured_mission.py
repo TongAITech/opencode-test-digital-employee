@@ -31,7 +31,9 @@ _FIELDS = {'schema', 'release_id', 'source_commit', 'package_root', 'state_root'
            'environment_module', 'archive', 'pip_field_config', 'model_environment_names'}
 _OPTIONAL_FIELDS = {'http_auth_asset_root'}
 _FORBIDDEN_ENV = {'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'DSH_HOME',
-                  'XDG_CONFIG_HOME', 'PYTHONPATH', 'PYTHONHOME', 'NODE_OPTIONS'}
+                  'XDG_CONFIG_HOME', 'PYTHONPATH', 'PYTHONHOME', 'NODE_OPTIONS',
+                  'PFC_RC72_TOOL_GATE_URL', 'PFC_RC72_TOOL_GATE_TOKEN',
+                  'PFC_RC72_TOOL_GATE_CONTEXT', 'PFC_RC72_TOOL_GATE_PROTOCOL'}
 
 
 def _pairs(items):

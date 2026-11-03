@@ -1,5 +1,7 @@
 """Fresh package ingress preserves original metadata, never seeds Q7 or nodes."""
 import json
+import subprocess
+import sys
 
 import pytest
 from rc6_runtime.truth import TruthRuntime
@@ -115,3 +117,16 @@ def test_retry_preserves_later_canonical_batch_state_without_a_new_write(tmp_pat
     capsys.readouterr()
     assert ledger.read_bytes()==before
     assert TruthRuntime(ledger).query('rc72_release_batch')[0]['state']=='RUNNING'
+
+
+def test_fresh_cli_process_can_register_then_cold_status_without_in_process_overlay_state(tmp_path):
+    _,_,ledger,args=_input(tmp_path)
+    registered=subprocess.run([sys.executable,'-m','rc7_release.rc72_mission_cli',*args],
+        capture_output=True,text=True,timeout=20,check=True)
+    assert json.loads(registered.stdout)['status']=='REGISTERED'
+    before=ledger.read_bytes()
+    status=subprocess.run([sys.executable,'-m','rc7_release.rc72_mission_cli','status',
+        '--ledger',str(ledger),'--source-commit',COMMIT,'--release-batch','BATCH-1'],
+        capture_output=True,text=True,timeout=20,check=True)
+    assert json.loads(status.stdout)['nodes']==[]
+    assert ledger.read_bytes()==before

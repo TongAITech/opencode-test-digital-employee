@@ -955,3 +955,26 @@ before its assertion so future full-package failures retain the HOLD code.
 Dedicated factory matrix now includes actual worker HTTP auth and original
 batch registration suites. Ubuntu22.04 setup succeeded in e8 run41642878655;
 its long full-driver jobs remain live. No final package or Field claim.
+
+
+## Native MCP boot projection and archive inventory — 2026-11-03
+
+The pinned public SDK explicitly scrubs credential-shaped environment names
+before MCP child spawn. Generated tool overlays now forward the four native
+gate fields via current-process JavaScript expressions, never serialized token
+values. Model environment selection cannot supply these parent-owned fields.
+30 patch/authority/enhancement/field tests PASS in 16.49s. An additional 24
+native-MCP/N1 tests PASS in 18.72s, including actual child read after SDK-equivalent
+scrub and denial without explicit capability projection. These are protocol/
+engineering proofs, not bank SDK/model calls. See NATIVE-MCP-BOOT-ENVIRONMENT.md
+for limits and exact pinned source. Full automatic per-role SDK boot remains open.
+
+Shared full capability inventory now finds the unique carried Allure/k6/ZAP
+entry inside actual versioned release folders, records its exact relative path,
+and refuses absent/multiple/symlink/outside candidates. 22 inventory/tool tests
+PASS in 0.60s. Initial batch registration additionally passed a real fresh CLI
+process followed by separate cold status process: final 20 tests PASS in 1.47s.
+No nodes, Q7 admission or Field fact are created by registration. Dedicated
+factory validation includes these new suites. Exact e8 factory run41642878655
+has now completed SUCCESS (all four jobs), including the Ubuntu22.04 fix.
+Exact f9 full preparation41643890193 and factory41643835445 remain live.

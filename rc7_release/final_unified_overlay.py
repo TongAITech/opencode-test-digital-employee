@@ -94,6 +94,20 @@ def cap(cap_id: str, status: str, tier: str, path: Optional[str] = None, **extra
     return out
 
 
+def _unique_carried_file(directory: Path, filename: str, *, package_root: Path) -> Optional[Path]:
+    matches = list(directory.rglob(filename))
+    if len(matches) != 1 or matches[0].is_symlink() or not matches[0].is_file():
+        return None
+    try:
+        matches[0].resolve().relative_to(directory.resolve())
+        matches[0].resolve().relative_to(package_root.resolve())
+    except ValueError:
+        return None
+    if directory.is_symlink():
+        return None
+    return matches[0]
+
+
 def build_inventory(root: Path, source_commit: str) -> Dict[str, object]:
     runtime = root / "workspace-template" / "runtime"
     vendor = runtime / "dsh-plugins"
@@ -104,9 +118,9 @@ def build_inventory(root: Path, source_commit: str) -> Dict[str, object]:
     maven = runtime / "maven" / "bin" / "mvn.cmd"
     java = runtime / "java" / "bin" / "java.exe"
     javac = runtime / "java" / "bin" / "javac.exe"
-    k6 = runtime / "k6" / "k6.exe"
-    allure = runtime / "allure" / "bin" / "allure.bat"
-    zap = runtime / "zap" / "zap.bat"
+    k6 = _unique_carried_file(runtime / "k6", "k6.exe", package_root=root)
+    allure = _unique_carried_file(runtime / "allure", "allure.bat", package_root=root)
+    zap = _unique_carried_file(runtime / "zap", "zap.bat", package_root=root)
     rg_candidates = list((runtime / "ripgrep").rglob("rg.exe")) if (runtime / "ripgrep").exists() else []
     gitnexus_candidates = list((exec_node / "node_modules" / ".bin").glob("gitnexus*.cmd")) if exec_node.exists() else []
     playwright_pkg = exec_node / "node_modules" / "playwright" / "package.json"
@@ -131,9 +145,9 @@ def build_inventory(root: Path, source_commit: str) -> Dict[str, object]:
         cap("JDK", "BUNDLED_ENABLED" if java.is_file() and javac.is_file() else "MISSING", "L1_L2", "workspace-template/runtime/java"),
         cap("MAVEN", "BUNDLED_ENABLED" if maven.is_file() else "MISSING", "L1_L2", "workspace-template/runtime/maven"),
         cap("MAVEN_BOOTSTRAP_REPOSITORY", "BUNDLED_ENABLED" if (runtime / "maven-repository").exists() else "MISSING", "L1_L2", "workspace-template/runtime/maven-repository", project_dependencies="BANK_MIRROR_FIRST"),
-        cap("ALLURE_CLI", "BUNDLED_ENABLED" if allure.is_file() else "MISSING", "REPORT", "workspace-template/runtime/allure"),
-        cap("K6", "BUNDLED_ENABLED" if k6.is_file() else "MISSING", "L6", "workspace-template/runtime/k6"),
-        cap("ZAP", "BUNDLED_ENABLED" if zap.is_file() else "MISSING", "L7", "workspace-template/runtime/zap"),
+        cap("ALLURE_CLI", "BUNDLED_ENABLED" if allure else "MISSING", "REPORT", allure.relative_to(root).as_posix() if allure else None),
+        cap("K6", "BUNDLED_ENABLED" if k6 else "MISSING", "L6", k6.relative_to(root).as_posix() if k6 else None),
+        cap("ZAP", "BUNDLED_ENABLED" if zap else "MISSING", "L7", zap.relative_to(root).as_posix() if zap else None),
         cap("RIPGREP", "BUNDLED_ENABLED" if rg_candidates else "MISSING", "CODE_FALLBACK", str(rg_candidates[0].relative_to(root)).replace("\\", "/") if rg_candidates else None),
         cap("FOURA_ADAPTER", "BUNDLED_ADAPTER_BANK_BINDING_REQUIRED", "BANK", "rc7_release/bank_binding.py", dynamic_challenges="HUMAN_OR_BANK_APPROVED_PROVIDER"),
         cap("CAT_ADAPTER", "BUNDLED_ADAPTER_BANK_BINDING_REQUIRED", "BANK", "rc7_release/bank_binding.py"),

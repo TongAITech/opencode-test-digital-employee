@@ -28,6 +28,13 @@ TOOL_ENV_KEYS = (
 )
 
 TOOL_POLICY_PLUGIN_NAME = "rc7-tool-policy.ts"
+# The SDK scrubs credential-shaped parent names before spawning MCP. These
+# task-bound capability values must be explicit, evaluated at Worker boot;
+# never serialize their current values into the generated patch.
+NATIVE_WORKER_MCP_ENV_KEYS = (
+    'PFC_RC72_TOOL_GATE_URL', 'PFC_RC72_TOOL_GATE_TOKEN',
+    'PFC_RC72_TOOL_GATE_CONTEXT', 'PFC_RC72_TOOL_GATE_PROTOCOL',
+)
 DEFAULT_RUNTIME_ENHANCEMENTS: Tuple[Tuple[str, str], ...] = (
     ("vision-router", "dsh-vision-router"),
     ("memento", "dsh-memento"),
@@ -275,6 +282,8 @@ def write_patch(
         value = os.environ.get(key)
         if value:
             lines.append("          %s: %s" % (key, _yaml_quote(value)))
+    for key in NATIVE_WORKER_MCP_ENV_KEYS:
+        lines.append("          %s: !!js process.env.%s ?? ''" % (key, key))
     lines.extend(
         [
             "        cwd: %s" % _yaml_quote(root),

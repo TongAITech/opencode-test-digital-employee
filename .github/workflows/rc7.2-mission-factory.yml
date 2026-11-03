@@ -42,6 +42,8 @@ jobs:
               'tests/test_rc72_controller_secret_paths.py',
               'tests/test_rc72_configured_mission.py',
               'tests/test_rc72_tool_environment.py',
+              'tests/test_rc72_carried_inventory_paths.py',
+              'tests/test_rc72_native_mcp_environment.py',
               'tests/test_rc72_mission_bindings.py',
               'tests/test_rc72_q2b_clean_runtime_contract.py',
               'tests/test_rc72_windows_clean_unpack_contract.py',
