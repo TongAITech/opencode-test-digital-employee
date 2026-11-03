@@ -245,3 +245,28 @@ def test_bsk_denies_cross_attempt_and_cross_4a_session_binding(tmp_path):
         assert outcome["status"] == "FAILED"
         assert outcome["failure_code"] == "JOURNEY_BSK_SESSION_RECEIPT_SCOPE_MISMATCH"
         assert runner.calls == []
+
+
+def test_bsk_duplicate_attempt_step_never_replays_or_overwrites_original_actual(tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    runner = TestBSK()
+    adapter = _adapter(pool, tmp_path, runner)
+    candidate = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]
+    step = candidate["steps"][0]
+    context = {
+        "replay_id": "BSK-REPLAY-ONCE", "mission_id": "M-1",
+        "workitem_id": "WI-R1", "attempt_id": "ATT-R1",
+        "worker_id": "WORKER-R1", "session_id": "SESSION-R1",
+        "browser_lease_id": lease.browser_lease_id}
+    first = adapter.execute_step(step, context)
+    assert first["status"] == "PASSED"
+    original_bytes = Path(first["actual_refs"][0][7:]).read_bytes()
+    before = sum(1 for cmd in runner.calls if "step" in cmd)
+    assert before == 1
+    again = adapter.execute_step(step, context)
+    assert again["status"] == "FAILED"
+    assert again["failure_code"] == "JOURNEY_BSK_DUPLICATE_STEP_EFFECT_UNKNOWN"
+    assert sum(1 for cmd in runner.calls if "step" in cmd) == before
+    assert Path(first["actual_refs"][0][7:]).read_bytes() == original_bytes
+    assert Path(again["actual_refs"][0][7:]).is_file()
+    assert first["actual_refs"] != again["actual_refs"]
