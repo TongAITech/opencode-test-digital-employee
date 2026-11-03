@@ -272,12 +272,11 @@ def test_click_before_navigation_preserves_precise_teaching_order(tmp_path):
         human_operator_ref="human://operator/001")
     page.events = [{"type": "CLICK", "element_ref": "css:#next", "url": "https://fat1.example/config"}]
     page.url = "https://fat1.example/confirmation"
-    assert recorder.poll(page_role="config") == ["JR-NAV:2", "JR-NAV:3"]
-    recorder.finish()
+    with pytest.raises(Exception, match="JOURNEY_TEACHING_PRE_NAVIGATION_EVIDENCE_REQUIRED"):
+        recorder.poll(page_role="config")
     recorded = sorted(truth.query("rc72_journey_capture_step", recording_id="JR-NAV"), key=lambda row: row["sequence"])
-    assert [row["action_type"] for row in recorded] == ["NAVIGATE", "CLICK", "NAVIGATE"]
-    assert recorded[1]["url"] == "https://fat1.example/config"
-    assert recorded[2]["url"] == "https://fat1.example/confirmation"
+    assert [row["action_type"] for row in recorded] == ["NAVIGATE"]
+    assert truth.query("rc72_journey_recording", recording_id="JR-NAV")[0]["state"] == "CAPTURING"
 
 
 class FakeDialog:
