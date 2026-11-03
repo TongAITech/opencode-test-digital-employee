@@ -272,6 +272,34 @@ class ReleaseBatchDriver:
             self.expected_scope.freeze(release_batch_id=batch['release_batch_id'])
         return result
 
+    def _validated_n8_continue(self, batch, recovered):
+        """Accept only a real new admitted N7 plan before another driver turn.
+
+        The retry planner owns all R1 restoration and N6 compilation. This
+        check prevents a replayed N8 CONTINUE response from spinning forever
+        while N7 is still NOT_STARTED, or from reusing an old signed Attempt.
+        """
+        if (recovered.get('status')!='CONTINUE'
+                or recovered.get('reason')!='N8_ACCEPTED_N5_REPAIR_N7_RETRY_READY'
+                or not recovered.get('recovery_plan_id')):
+            raise ContractError('RC72_RELEASE_DRIVER_UNVERIFIED_N8_CONTINUATION')
+        original=self._one('rc72_n7_execution_preparation',
+            preparation_id=recovered['preparation_id'])
+        if original['release_batch_id']!=batch['release_batch_id']:
+            raise ContractError('RC72_RELEASE_DRIVER_N8_RETRY_BATCH_CHANGED')
+        planned=self.n7_pipeline.preparation.planning.assert_current(
+            recovered['recovery_plan_id'])
+        node=self._one('rc72_mission_node',mission_id=batch['mission_id'],
+            node_type='N7_EXECUTION')
+        if (planned.get('recovery_id') is None
+                or planned['plan_id']==original['plan_id']
+                or planned['release_batch_id']!=batch['release_batch_id']
+                or planned['mission_id']!=batch['mission_id']
+                or node['state'] not in {'READY','RUNNING'}
+                or not self.truth.query('execution_attempt',attempt_id=original['attempt_id'])):
+            raise ContractError('RC72_RELEASE_DRIVER_N8_FRESH_N7_NOT_ADMITTED')
+        return planned
+
     def run(self, *, release_batch_id):
         with _driver_lock(self.truth, release_batch_id):
             self.truth.rebuild_projection()
@@ -324,6 +352,7 @@ class ReleaseBatchDriver:
                         and failed_n7['state'] in {'NEEDS_REVISION','BLOCKED','STALE','NOT_STARTED'}):
                     repaired=self.n8_pipeline.complete(release_batch_id=release_batch_id)
                     if repaired.get('status')=='CONTINUE':
+                        self._validated_n8_continue(batch,repaired)
                         continue
                     return dict(self.status(release_batch_id=release_batch_id),**repaired)
                 pending = [n for n in snapshot['nodes'] if n['state'] != 'PASS']
@@ -407,6 +436,7 @@ class ReleaseBatchDriver:
                 elif node['node_type']=='N8_DIAGNOSIS_RECOVERY' and self.n8_pipeline is not None:
                     result=self.n8_pipeline.complete(release_batch_id=release_batch_id)
                     if result.get('status')=='CONTINUE':
+                        self._validated_n8_continue(batch,result)
                         continue
                     return dict(self.status(release_batch_id=release_batch_id),**result)
                 elif node['node_type']=='N10_RELEASE_CONVERGENCE' and self.n10_pipeline is not None:
