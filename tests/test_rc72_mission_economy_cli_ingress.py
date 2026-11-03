@@ -96,6 +96,9 @@ def test_canonical_run_entry_binds_all_eleven_real_role_objects_before_factory(t
     assert output["MODEL_ECONOMY_STATUS"] == "HOLD"
     assert output["MODEL_USAGE_TOTAL_STATUS"] == "NO_CALLS"
     assert output["ACTUAL_TOTAL_TOKENS"] is None
+    assert output["LOSSLESS_JSON_COMPACTED_CALLS"] == 0
+    assert output["VERIFIED_PROMPT_SERIALIZATION_SAVED_BYTES"] == 0
+    assert output["VERIFIED_PROMPT_TOKEN_SAVINGS"] is None
     replay = TruthRuntime(ledger)
     assert len(replay.query("rc72_token_budget", budget_id="M-CLI-C10")) == 1
     assert replay.query("rc72_token_call", mission_id="M-CLI-C10") == []
