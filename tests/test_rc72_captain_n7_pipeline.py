@@ -125,7 +125,7 @@ def test_quiesced_captain_between_governed_n7_preparation_and_tool_execution_blo
         with pytest.raises(ContractError, match="CAPTAIN_DISPATCH_NOT_ACTIVE"):
             pipeline.complete(release_batch_id=BATCH)
         assert server.calls == []
-        assert truth.query("rc72_n7_tool_dispatch", mission_id=plan["mission_id"]) == []
+        assert truth.query("rc72_n7_tool_dispatch") == []
         assert not any(row.get("state") == "PASS" for row in
                        truth.query("rc72_mission_node", mission_id=plan["mission_id"],
                                    node_type="N7_EXECUTION"))
