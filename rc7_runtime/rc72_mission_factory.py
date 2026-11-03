@@ -25,6 +25,7 @@ from .rc72_n5_pipeline import N5PipelineService
 from .rc72_n7_execution_preparation import ExecutionPreparationService
 from .rc72_formal_runner import FormalN7RunnerAdapter
 from .rc72_n7_pipeline import N7PipelineService
+from .rc72_n8_product_recovery import NativeN8ProductRecoveryService
 from .rc72_n9_accepted_scope import AcceptedScopeN9Service
 from .rc72_expected_scope_input import ExpectedScopeInputService
 from .rc72_libra_measurement import NativeLibraMeasurementService
@@ -139,6 +140,7 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
     n7 = N7PipelineService(preparation, runner=FormalN7RunnerAdapter(preparation,
         evidence_root=root/'runner', execution_env=execution_env, environment_adapter=execution_environment),
         capture_root=root/'execution-captures')
+    n8 = NativeN8ProductRecoveryService(n7)
     n9 = AcceptedScopeN9Service(n7)
     measurement = NativeLibraMeasurementService(expected, n9, capture_root=root/'coverage-captures')
     intake = NativeCoverageGapIntakeService(measurement)
@@ -155,4 +157,5 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
         n2_launcher=launcher('requirement'), n2_tools=tools('requirement'),
         n2_evaluator=DshRequirementEvaluator(launcher('requirement_review'), allowed_tools=tools('requirement_review')),
         n3_pipeline=n3, n4_pipeline=n4, n5_pipeline=n5, n7_pipeline=n7,
+        n8_pipeline=n8,
         n9_pipeline=n9, expected_scope=expected, n10_pipeline=n10, bank_pip_mirror=bank_pip_mirror)
