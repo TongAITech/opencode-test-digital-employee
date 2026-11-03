@@ -1,5 +1,38 @@
 # RC7.2 design/construction reconciliation — 2026-11-02
 
+## Windows user pip mirror path constructed and natively qualified — 2026-11-03
+
+Remote mandatory user-mirror contract commits ede8bb5 and 8d02074 were preserved
+and merged into ongoing construction. Existing bank user configuration is reused;
+no duplicate mirror setup or credential configuration is shipped.
+
+Exact source `60c13be61283624b824fc079489b74669c610efd`, Windows component
+`41606174266`: SUCCESS. Downloaded proof confirms copied package pip 26.2.2,
+real user config discovery and explicit original-config bridging, actual mirror
+wheel download/install, and same-interpreter import from a fresh owned target.
+Six actual negatives refused hidden APPDATA, NUL override, unapproved effective
+index, missing mirror dependency, successful host pip with package pip absent,
+and a host-only import. The executing probe/Python/pip bytes bind to the source
+ZIP. This is engineering simulation, not a bank-mirror Field fact. Initial run
+41605571519 failed on pip 26's changed config storage and was corrected.
+
+Full transport clean extraction now runs the same gate against the actual
+extracted full package/archive. Bank clean-package Field requests fail when
+mirror configuration is missing; the packaged Windows entry preserves real user
+profile discovery. Probe and entry are mandatory package files. Current package
+identity/entry regression: **36 passed in 0.49s**. The next integrated build is
+pending; canonical R1 Field admission/final aggregation wiring remains open.
+See BANK-PC-PIP-MIRROR-IMPLEMENTATION.md for exact scope and remaining work.
+
+Prior full-payload build **41604113855 SUCCESS**, exact 8bb77da, produced artifact
+13217545199 (1,458,308,622 bytes). CRC-checked range inspection of actual package
+and evidence confirms all thirteen groups (30,646 files, 3,453,602,353 bytes),
+full Python offline document/OCR PASS, copied graph/MCP/native FTS PASS, package
+identity and R1/session continuity PASS. Whole archive was not locally downloaded
+or hashed. That source predates the mirror contract integration and other
+unfinished product design, so the preparation artifact is not the user delivery.
+
+
 ## Copied offline full-text search now qualified — 2026-11-03
 
 Actual doctor run `41602670990` proved the copied native database loaded but
