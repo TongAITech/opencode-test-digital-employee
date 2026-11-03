@@ -21,9 +21,17 @@ def _root(tmp_path):
         "SOURCE_COMMIT": COMMIT,
         "BUILD_ID": "RC7.2-" + COMMIT[:12],
         "RELEASE_FAMILY": "RC7.2",
-        "PACKAGE_MANIFEST.json": "{}",
+        "PACKAGE_MANIFEST.json": json.dumps({
+            "source_commit": COMMIT, "build_id": "RC7.2-" + COMMIT[:12],
+            "release_family": "RC7.2", "field_verified": False,
+            "bank_final": False, "real_mission_pass": False,
+            "delivery_pass": False, "bank_field_pass": False,
+        }),
         "CHECKSUMS.sha256": "",
-        "FULL-CAPABILITY-INVENTORY.json": "{}",
+        "FULL-CAPABILITY-INVENTORY.json": json.dumps({
+            "source_commit": COMMIT, "release_family": "RC7.2",
+            "field_verified": False, "bank_final": False,
+        }),
         "runtime-state/r1/event-stream.jsonl": json.dumps({
             "seq": 1, "event_id": "qa-synthetic-0001", "event_type": "ENGINEERING_TEST_ONLY",
             "entity_type": "qa_synthetic", "entity_id": "fixture-1",
@@ -240,4 +248,23 @@ def test_valid_receipt_cannot_hide_duplicate_zip_index(tmp_path):
     digest = hashlib.sha256(out.read_bytes()).hexdigest()
     Path(str(out) + ".sha256").write_text(digest + "  " + out.name + "\n", encoding="utf-8")
     with pytest.raises(exporter.ExportError, match="ZIP_DUPLICATE_OR_MISSING_INDEX"):
+        exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
+
+
+@pytest.mark.parametrize("path,field,value,reason", [
+    ("PACKAGE_MANIFEST.json", "source_commit", "c" * 40, "ZIP_MANIFEST_IDENTITY_MISMATCH"),
+    ("PACKAGE_MANIFEST.json", "bank_final", True, "ZIP_MANIFEST_IDENTITY_MISMATCH"),
+    ("PACKAGE_MANIFEST.json", "real_mission_pass", True, "ZIP_MANIFEST_IDENTITY_MISMATCH"),
+    ("FULL-CAPABILITY-INVENTORY.json", "source_commit", "c" * 40, "ZIP_INVENTORY_IDENTITY_MISMATCH"),
+    ("FULL-CAPABILITY-INVENTORY.json", "field_verified", True, "ZIP_INVENTORY_IDENTITY_MISMATCH"),
+])
+def test_matching_zip_receipt_cannot_hide_forged_package_identity(tmp_path, path, field, value, reason):
+    root = _root(tmp_path)
+    document = root / path
+    body = json.loads(document.read_text(encoding="utf-8"))
+    body[field] = value
+    document.write_text(json.dumps(body), encoding="utf-8")
+    out = tmp_path / "signed-but-false-source.zip"
+    exporter.export_evidence(root, out, source_commit=COMMIT)
+    with pytest.raises(exporter.ExportError, match=reason):
         exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
