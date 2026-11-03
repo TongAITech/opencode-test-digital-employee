@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, Mapping, Optional
 from .models import ContractError
 from .rc72_browser_resources import BrowserAccessMode, BrowserPool
 from .rc72_journey_playwright import _atomic_json, _public_url, _safe_id
+from .rc72_journey_png import verify_png_file
 
 class JourneyBSKAdapter:
     adapter_kind = "BROWSERSKILL_NATIVE"
@@ -312,6 +313,7 @@ class JourneyBSKAdapter:
         step_result: Dict[str, Any] = {}
         started_at = int(time.time())
         evidence_refs = []
+        png_proof = None
         try:
             binding = self._guard(context)
             if self._run_id is not None and (
@@ -333,10 +335,10 @@ class JourneyBSKAdapter:
                 "screenshot", "--session", session,
                 "--tab-id", str(binding["tab_id"]),
                 "--out", str(screenshot), "--json"])
-            if (not screenshot.is_file() or screenshot.stat().st_size < 8
-                    or screenshot.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n"
-                    or picture.get("byte_size") != screenshot.stat().st_size
-                    or picture.get("tab_id") != binding["tab_id"]):
+            png_proof = verify_png_file(screenshot)
+            if (picture.get("byte_size") != png_proof["bytes"]
+                    or picture.get("tab_id") != binding["tab_id"]
+                    or picture.get("format") != "png"):
                 raise ContractError("JOURNEY_BSK_SCREENSHOT_INVALID")
             self._guard(context)
             evidence_refs.append(screenshot.resolve().as_uri())
@@ -354,6 +356,10 @@ class JourneyBSKAdapter:
             "source_step_id": step.get("source_step_id"),
             "started_at": started_at, "completed_at": int(time.time()),
             "result_category": step_result.get("action"),
+            "screenshot_sha256": png_proof["sha256"] if png_proof else None,
+            "screenshot_dimensions": (
+                [png_proof["width"], png_proof["height"]]
+                if png_proof else None),
         })
         evidence_refs.append(receipt)
         return {"status": status, "actual_refs": [receipt],
