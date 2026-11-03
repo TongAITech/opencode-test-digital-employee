@@ -132,6 +132,34 @@ def _strict_archive_relative(rel):
     return rel
 
 
+def _verify_canonical_r1_jsonl(stream):
+    """Structural truth check; business provenance still needs independent QA."""
+    last_seq, count = 0, 0
+    for line in stream:
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line.decode("utf-8"))
+        except (ValueError, UnicodeError) as exc:
+            raise ExportError("FIELD_EVIDENCE_ZIP_R1_JSONL_INVALID") from exc
+        if not isinstance(event, dict):
+            raise ExportError("FIELD_EVIDENCE_ZIP_R1_EVENT_INVALID")
+        seq = event.get("seq")
+        if type(seq) is not int or seq != last_seq + 1:
+            raise ExportError("FIELD_EVIDENCE_ZIP_R1_SEQUENCE_INVALID")
+        if any(not isinstance(event.get(key), str) or not event[key]
+               for key in ("event_id", "event_type", "entity_type", "entity_id")):
+            raise ExportError("FIELD_EVIDENCE_ZIP_R1_EVENT_INVALID")
+        if (type(event.get("entity_version")) is not int or event["entity_version"] < 1
+                or not isinstance(event.get("payload"), dict)):
+            raise ExportError("FIELD_EVIDENCE_ZIP_R1_EVENT_INVALID")
+        last_seq = seq
+        count += 1
+    if not count:
+        raise ExportError("FIELD_EVIDENCE_ZIP_EMPTY_R1")
+    return count
+
+
 def verify_evidence_export(archive_path, *, expected_source_commit):
     """Independently check exported ZIP/receipt and every index file byte.
 
@@ -212,8 +240,8 @@ def verify_evidence_export(archive_path, *, expected_source_commit):
                         count += len(chunk)
                 if count != row["size"] or digest.hexdigest() != row["sha256"].lower():
                     raise ExportError("FIELD_EVIDENCE_ZIP_BYTES_MISMATCH:" + rel)
-            if listed[r1]["size"] == 0:
-                raise ExportError("FIELD_EVIDENCE_ZIP_EMPTY_R1")
+            with archive.open("payload/" + r1, "r") as stream:
+                r1_event_count = _verify_canonical_r1_jsonl(stream)
             if (archive.read("payload/SOURCE_COMMIT").decode("utf-8").strip().lower() != expected_source_commit.lower()
                     or archive.read("payload/BUILD_ID").decode("utf-8").strip() != "RC7.2-" + expected_source_commit.lower()[:12]
                     or archive.read("payload/RELEASE_FAMILY").decode("utf-8").strip() != "RC7.2"):
@@ -224,7 +252,8 @@ def verify_evidence_export(archive_path, *, expected_source_commit):
         "status": "EVIDENCE_COPY_INTEGRITY_ONLY",
         "source_commit": expected_source_commit.lower(),
         "archive_sha256": receipt[0].lower(),
-        "file_count": len(listed),
+        "file_count": len(listed), "r1_structural_event_count": r1_event_count,
+        "r1_validation_scope": "JSONL_SHAPE_AND_SEQUENCE_ONLY_NOT_BUSINESS_ORACLE",
         "field_verified": False, "bank_final": False, "q9_bank_final": "NOT_ADMITTED",
     }
 
