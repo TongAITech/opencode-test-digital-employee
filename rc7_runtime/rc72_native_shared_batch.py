@@ -73,10 +73,12 @@ def _validate(payload: Dict[str, Any]) -> Dict[str, Any]:
         for name in ("workitem_id", "attempt_id", "proposed_observation"):
             _contracts._require_str(member, name)
         refs = member.get("observed_tool_refs")
-        if not isinstance(refs, list) or not refs or len(refs) != len(set(refs)):
+        if not isinstance(refs, list) or not refs:
             raise _contracts.DomainValidationError("NATIVE_BATCH_MEMBER_TOOL_REFS_REQUIRED")
         if not all(isinstance(ref, str) and ref.startswith("dsh-event://tool-call/") for ref in refs):
             raise _contracts.DomainValidationError("NATIVE_BATCH_UNOBSERVED_TOOL_REF")
+        if len(refs) != len(set(refs)):
+            raise _contracts.DomainValidationError("NATIVE_BATCH_MEMBER_TOOL_REFS_REQUIRED")
         for name in ("gaps", "unknowns"):
             if not isinstance(member.get(name), list):
                 raise _contracts.DomainValidationError("NATIVE_BATCH_MEMBER_%s_INVALID" % name.upper())
@@ -214,6 +216,11 @@ class NativeSharedExecutionBatch:
                 "proposed_observation", "gaps", "unknowns",
             }:
                 raise NativeSharedBatchError("NATIVE_BATCH_MEMBER_STRICT_FIELDS_REQUIRED")
+            if any(
+                not isinstance(row.get(name), str) or not row[name].strip()
+                for name in ("workitem_id", "attempt_id")
+            ):
+                raise NativeSharedBatchError("NATIVE_BATCH_MEMBER_IDENTITY_INVALID")
             identity = (row["workitem_id"], row["attempt_id"])
             if identity not in expected or identity in separated:
                 raise NativeSharedBatchError("NATIVE_BATCH_MEMBER_LINEAGE_MISMATCH")
