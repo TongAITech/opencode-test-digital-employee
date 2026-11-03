@@ -128,3 +128,30 @@ packaging/rc7.2/QA-Q3-Q9-EVIDENCE.py：
 **本轮门禁**：C01/C02 = BLOCKED_PRODUCT_INTEGRATION；C11 = BLOCKED_SAME_SHA_CI；C12 = HOLD_FIELD_AND_FULL_PAYLOAD; Q1 = FAIL；Q2 = ENGINEERING_VERIFIED_SCOPE_ONLY；Q3–Q9 = PENDING。95 项权重未冻结，不发布百分比；BANK_FINAL = NO。
 
 本段是同源 GitHub 检查的即时观察，不是银行现场 R1/Evidence 的新增签收。待当前 QA check-runs 完成后应按结果刷新，不得以 QUEUED 代替执行成功。
+
+## 11. 第三轮 QA 独立防误放行验收补强（2026-11-04）
+
+**基准仍为 work/rc7.2 @ 7efb3c8aa62f22629e570e3381727969524bf598；主线 Construction CI #41679951672 最终 FAILURE。** A/B/C/D 开发分支的新代码不是已集成主线的事实，QA CI 没有同 SHA 完成证据之前不得升级任何条款状态。
+
+### C12 身份、路径和只读边界
+
+本轮将完全独立于被测生产打包器的工具 tools/rc72_qa_offline_audit.py 加入严格的 RC7.2 身份核对：
+
+1. SOURCE_COMMIT、BUILD_ID、RELEASE_FAMILY、RELEASE_STATUS、RC72_RELEASE_IDENTITY.json、PACKAGE_MANIFEST.json、FULL-CAPABILITY-INVENTORY.json 七个身份对象不得相互矛盾。Manifest 和 Release Identity 的 schema、source、build、包名、ReleaseBatch/N1–N10 控制骨架与字段 false 状态必须符合实际 RC7.2 工程候选契约。
+2. BANK_FINAL、Field、real_mission_pass、delivery_pass、bank_field_pass 不允许伪造成真。畸形 JSON、Manifest 大小/hash 类型也必须报显式 FAIL。
+3. 审计参数 --report 不得写进受审包或覆盖已有外部回执，否则独立“只读审计”本身会污染包的哈希。
+4. --dsh-relpath **不能指向任意已列入清单的文件**；仅允许包内 runtime/dsh/dsh.exe 或 runtime/dsh/dsh 的原生可执行头及基本大小检查。这仍只是物理“可执行外观”证据，绝不构成 DSH 真启动、真实版本或银行模型接通的资格；还需另行执行、校验实际来源与运行日志。
+
+### Q3–Q9 证据 ZIP 闭环的“反向验证”
+
+packaging/rc7.2/QA-Q3-Q9-EVIDENCE.py 新增 --verify-archive 只读命令：
+- 对 ZIP 本体、外置 .sha256 回执、ZIP 中每个 payload 的真实 SHA256/size、全覆盖成员集、Source/Build/Release 身份和非空 R1 逐一验收；
+- 拒绝伪造 Q3–Q8 验收标签、Q9=BANK_FINAL、额外/重复/危险 ZIP 文件、索引欺骗；
+- 负面测试直接篡改 R1 或索引并重算外层 ZIP 收据，保证校验不是只看一个 SHA。
+- 成功结果仅能是 EVIDENCE_COPY_INTEGRITY_ONLY，**不自动升格 R1 业务真实性、Human Gate、Field Verified 或银行最终放行**。
+
+### 未关闭的硬门禁
+
+- A/core 仍需在真实 ReleaseBatchDriver.run 接入通用非 bypass N8、专业 N9 缺陷处理与最终 N10 收敛；N10 Repair/Rerun 工厂装配不能单独核销 C03/C04/C05/C08。
+- Q3 目标信创 Linux、Q4 离线、Q5 CDP、Q6 真审批、Q7 全链路 ReleaseBatch、Q8 故障/冷恢复、Q9 银行现场签收全部缺实际行内 Evidence。
+- **QA 验收工具新补强均为 GitHub 提交候选。GitHub Actions 排队时只能报 CI_PENDING，不能报 PASS。**
