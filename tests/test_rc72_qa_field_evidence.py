@@ -213,3 +213,31 @@ def test_r1_missing_event_sequence_is_rejected_with_valid_sha(tmp_path):
     exporter.export_evidence(root, out, source_commit=COMMIT)
     with pytest.raises(exporter.ExportError, match="ZIP_R1_SEQUENCE_INVALID"):
         exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("payload/../outside.json", "ZIP_PATH_ESCAPE"),
+    ("payload/unlisted-extra.txt", "ZIP_ENTRY_COVERAGE_MISMATCH"),
+])
+def test_valid_receipt_does_not_authorize_extra_or_unsafe_zip_entries(tmp_path, name, expected):
+    root = _root(tmp_path)
+    out = tmp_path / "unexpected-members.zip"
+    exporter.export_evidence(root, out, source_commit=COMMIT)
+    with zipfile.ZipFile(str(out), "a") as archive:
+        archive.writestr(name, "unreviewed input")
+    digest = hashlib.sha256(out.read_bytes()).hexdigest()
+    Path(str(out) + ".sha256").write_text(digest + "  " + out.name + "\n", encoding="utf-8")
+    with pytest.raises(exporter.ExportError, match=expected):
+        exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
+
+
+def test_valid_receipt_cannot_hide_duplicate_zip_index(tmp_path):
+    root = _root(tmp_path)
+    out = tmp_path / "duplicate-index.zip"
+    exporter.export_evidence(root, out, source_commit=COMMIT)
+    with zipfile.ZipFile(str(out), "a") as archive:
+        archive.writestr("QA-EVIDENCE-INDEX.json", "{}")
+    digest = hashlib.sha256(out.read_bytes()).hexdigest()
+    Path(str(out) + ".sha256").write_text(digest + "  " + out.name + "\n", encoding="utf-8")
+    with pytest.raises(exporter.ExportError, match="ZIP_DUPLICATE_OR_MISSING_INDEX"):
+        exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
