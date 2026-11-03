@@ -20,9 +20,12 @@ def main(argv=None):
     parser.add_argument('--mission-config')
     parser.add_argument('--package-root')
     parser.add_argument('--evidence-root')
+    parser.add_argument('--economy-config', help='trusted JSON for bank cost windows and soft mission economy targets')
     parser.add_argument('--bridge-user-config', action='store_true')
     parser.add_argument('--retry-returned-failure', action='store_true')
     args = parser.parse_args(argv)
+    if args.command != 'run' and args.economy_config:
+        parser.error('economy-config is only valid for run')
     if args.command != 'mirror-check' and (args.bridge_user_config or args.retry_returned_failure):
         parser.error('mirror options require mirror-check')
     path = Path(args.ledger).expanduser().resolve()
@@ -63,6 +66,18 @@ def main(argv=None):
             else:
                 bindings = load_mission_bindings(args.bindings_module, truth=truth,
                     release_id=args.release_id, source_commit=args.source_commit)
+            if args.command == 'run':
+                # C10: bind actual native model process boundaries before Factory
+                # dispatch, preserving its exact worker-type/authority guards.
+                # Mirror-check has no LLM and must not create economy receipts.
+                from rc7_runtime.rc72_production_economy_ingress import (
+                    bind_release_batch_model_economy, read_mission_economy_config,
+                )
+                bind_release_batch_model_economy(
+                    truth, workers=bindings.workers, release_id=args.release_id,
+                    mission_id=snapshot['mission_id'],
+                    policy=read_mission_economy_config(args.economy_config),
+                )
             driver = create_mission_driver(truth, release_id=args.release_id, source_commit=args.source_commit,
                 evidence_root=Path(args.evidence_root).expanduser().resolve(),
                 **{f.name: getattr(bindings, f.name) for f in fields(bindings)})
