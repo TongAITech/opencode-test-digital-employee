@@ -63,6 +63,21 @@ class NativeN8ProductRecoveryService:
                 raise ContractError('N8_PRODUCT_ATTEMPT_NOT_UNIQUE')
             if current and current[0]['status']=='BLOCKED' and current[0]['reason']!='CLEANUP_AND_EVIDENCE_CLOSURE_REQUIRED':
                 admitted.append((p,current[0]))
+        # An N7 tool or precondition may fail before ExecutionEvidenceService
+        # wrote its original Attempt.  Materialize only the authenticated
+        # already-returned/failed dispatch evidence, never launch a runner or
+        # infer that a missing Attempt means PASS.
+        if not admitted and n7['state']=='RUNNING' and n8['state']=='NOT_STARTED':
+            pending=[]
+            for p in attempts:
+                dispatch=self.truth.query('rc72_n7_tool_dispatch',preparation_id=p['preparation_id'])
+                historical=self.truth.query('execution_attempt',attempt_id=p['attempt_id'])
+                if (len(dispatch)==1 and dispatch[0]['state'] in {'FAILED','RETURNED'}
+                        and not historical):
+                    pending.append(p)
+            if len(pending)==1:
+                self.diagnosis.evidence.record(pending[0]['preparation_id'])
+                return self._failure(release_batch_id)
         # Do not accidentally repair one failure while ignoring siblings.
         if len(admitted)!=1:
             raise ContractError('N8_PRODUCT_FAILED_ATTEMPT_NOT_UNIQUE')
