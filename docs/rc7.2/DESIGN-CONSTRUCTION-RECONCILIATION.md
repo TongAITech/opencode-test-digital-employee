@@ -1,5 +1,41 @@
 # RC7.2 design/construction reconciliation — 2026-11-02
 
+## Native accepted execution → full obligation evidence rollup — 2026-11-03
+
+`AcceptedObligationExecutionProof` refreshes R1 under the shared ledger lock and
+requires the actual accepted current N7 Delivery. New read-only finalization
+`audit` rechecks signed independent process bytes, full bundle/source/cleanup
+proof, Gate and Delivery scope, canonical review Evidence, original completed
+bindings, actual PASS Attempts, independently accepted WorkItems and matching
+output artifacts, and closed executor/reviewer identities. It cannot resume or
+repair partial finalization, dispatch tools, restore leases or write acceptance.
+
+The rollup maps every approved primary and secondary coverage_links obligation
+to its unchanged original Case SHA, actual Attempt and current-plan ETU. Whole
+Case/ETU denominators and exact canonical obligation lineage are checked; blocked,
+stale, revision/split/merged ETUs do not pass. No copied Case/ETU, repeated business
+call or manually promoted VERIFIED flag substitutes for accepted evidence.
+
+`ReleaseConvergenceAggregator(execution_proof=...)` optionally consumes this
+concrete same-R1/same-release native service before publishing any observation.
+The existing legacy path remains compatible. Actual HTTP/pytest tests prove
+primary/secondary sharing, unchanged execution count and read-only audit, while
+changed process bytes, evaluator identity, canonical obligation lineage and
+blocked ETU reject. The fixture deliberately retains required L1..L7 policy:
+accepted L3 evidence does not turn missing levels or Mission convergence PASS.
+
+Local verification: 16 passed in 37.42s across the native proof, inherited N10
+convergence/coverage terminal and N7 pipeline tests; additional blocked-ETU proof
+1 passed in 6.41s. Upstream N6 merge validation 2 passed in 76.54s. The full
+28-Case product integration now also asserts whole primary/secondary obligation
+rollup; its new exact-source CI is pending, not claimed by the earlier N7 run.
+
+C05 remains ACTIVE: full incremental coverage/Gap closure, multi-version release
+convergence and the production N9/N10 driver route remain open. C03/C04 conclusive
+failure/defect handling, C07 all-role tool fences, product factory, Journey/economy,
+final same-source qualification and COMPLETE RC7.1-equivalent package remain open.
+
+
 ## Native formal N7 product route — 2026-11-03
 
 N7PipelineService connects the actual planning/preparation, signed dispatch,

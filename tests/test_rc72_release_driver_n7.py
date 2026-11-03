@@ -54,7 +54,13 @@ def test_full_n1_to_n7_product_flow_uses_actual_process_http_cleanup_and_full_re
         assert len(server.calls)==len(design.cases)
         assert len(truth.query('execution_attempt'))==len(design.cases)
         assert all(r['state']=='RELEASED' for r in truth.query('rc72_data_lease'))
+        from rc7_runtime.rc72_obligation_execution_proof import AcceptedObligationExecutionProof
         before=truth.store.path.read_bytes()
+        proof=AcceptedObligationExecutionProof(driver.n7_pipeline).audit(release_batch_id=BATCH)
+        assert set(proof['verified_obligation_ids'])=={o.obligation_id for o in design.obligations}
+        assert proof['case_count']==len(design.cases)
+        assert len(proof['attempt_ids'])==len(design.cases)
+        assert truth.store.path.read_bytes()==before and len(server.calls)==len(design.cases)
         count=len(calls)
         assert driver.run(release_batch_id=BATCH)==result
         assert truth.store.path.read_bytes()==before and len(calls)==count and len(server.calls)==len(design.cases)

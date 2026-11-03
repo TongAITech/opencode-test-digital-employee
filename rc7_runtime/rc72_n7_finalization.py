@@ -124,6 +124,82 @@ class ExecutionFinalizationService:
         self.truth.append_atomic(_EVENT, receipt)
         return self._one(_KIND, review_result_id=receipt['review_result_id'])
 
+    def audit(self, bundle_id):
+        """Verify completed native acceptance without repairing or writing it."""
+        receipt = self._verify(self._one(_KIND, bundle_id=bundle_id))
+        bundle = self.review.assert_current(bundle_id, allow_finalized=True)
+        if (receipt['verdict'] != 'PASS' or bundle['known_gaps']
+                or receipt['release_id'] != bundle['release_id']
+                or receipt['source_commit'] != bundle['source_commit']
+                or receipt['bundle_sha256'] != bundle['bundle_sha256']):
+            raise ExecutionFinalizationError('N7_ACCEPTED_REVIEW_REQUIRED')
+        gate_id = 'N7GATE-' + _hash([receipt['review_result_id'], bundle_id])[:24]
+        gate = self._one('rc72_node_gate', gate_id=gate_id)
+        node = self.review.runtime.node_by_type(bundle['mission_id'], AutonomousMissionNode.N7_EXECUTION)
+        delivery = self._one('rc72_node_delivery', delivery_id=receipt['delivery_id'])
+        evidence_id = 'N7REVIEW-EV-' + _hash([receipt['review_result_id'], receipt['stdout_sha256']])[:24]
+        if (node['state'] != 'PASS' or gate_id not in node['gate_refs']
+                or gate['decision'] != 'PASS' or gate['delivery_id'] != receipt['delivery_id']
+                or gate['reviewer_worker_id'] != receipt['reviewer_worker_id']
+                or gate['reviewer_session_id'] != receipt['reviewer_session_id']
+                or gate['criteria'] != _CRITERIA or gate['passed'] != _CRITERIA
+                or gate['evidence_refs'] != [evidence_id]
+                or delivery['delivery_id'] not in node['delivery_refs']
+                or delivery['version'] != node['active_delivery_version']
+                or delivery['artifact_refs'] != [bundle_id]):
+            raise ExecutionFinalizationError('N7_ACCEPTED_GATE_REQUIRED')
+        review_evidence = self._one('rc7_evidence', evidence_id=evidence_id)
+        canonical_evidence = self._one('evidence', id=evidence_id)
+        expected_delivery = dict(mission_id=bundle['mission_id'], mission_node_id=node['mission_node_id'],
+            node_type='N7_EXECUTION', producer_ref='runtime://signed-n7-evidence',
+            artifact_refs=[bundle_id], input_refs=[bundle['plan_id']], known_gaps=[],
+            created_by_workitems=sorted(c['workitem_id'] for c in bundle['case_results']),
+            evidence_refs=sorted({ref for c in bundle['case_results'] for ref in
+                c['observation_evidence_refs'] + [c['cleanup_evidence_ref']] +
+                [r['evidence_id'] for r in c['captured_evidence']]}))
+        if (any(delivery.get(k) != v for k, v in expected_delivery.items())
+                or gate['mission_id'] != bundle['mission_id'] or gate['mission_node_id'] != node['mission_node_id']
+                or gate['node_type'] != 'N7_EXECUTION'
+                or review_evidence.get('mission_id') != bundle['mission_id']
+                or review_evidence.get('kind') != 'N7_INDEPENDENT_PROCESS_REVIEW'
+                or review_evidence.get('source_ref') != 'r1://artifact/' + receipt['review_result_id']
+                or review_evidence.get('content_ref') != receipt['stdout_ref']
+                or review_evidence.get('content_hash') != receipt['stdout_sha256']
+                or review_evidence.get('subject_refs') != [bundle_id]
+                or canonical_evidence.get('kind') != 'N7_INDEPENDENT_PROCESS_REVIEW'
+                or canonical_evidence.get('ref') != receipt['stdout_ref']
+                or canonical_evidence.get('source_artifact_ref') != receipt['review_result_id']):
+            raise ExecutionFinalizationError('N7_ACCEPTED_DELIVERY_OR_REVIEW_EVIDENCE_CHANGED')
+        for case in bundle['case_results']:
+            refs = list(dict.fromkeys(case['observation_evidence_refs'] + [case['cleanup_evidence_ref'], evidence_id]
+                       + [row['evidence_id'] for row in case['captured_evidence']]))
+            attempt = self._one('execution_attempt', attempt_id=case['attempt_id'])
+            p = self._one('rc72_n7_execution_preparation', preparation_id=case['preparation_id'])
+            binding = self._one('rc72_workitem_attempt_binding', binding_id=p['binding_id'])
+            task = self._one('rc7_task', task_id=case['workitem_id'])
+            evaluation_id = 'N7EVAL-' + _hash([receipt['review_result_id'], case['workitem_id']])[:24]
+            evaluation = self._one('rc7_evaluation', evaluation_id=evaluation_id)
+            artifact_id = 'N7OUT-' + _hash([bundle_id, case['attempt_id']])[:24]
+            artifact = self._one('rc7_artifact', artifact_id=artifact_id)
+            if (attempt['status'] != 'PASS' or attempt.get('final_review_result_id') != receipt['review_result_id']
+                    or attempt.get('evidence_refs') != refs or binding['state'] != 'COMPLETED'
+                    or task['state'] != 'PASS' or task.get('evaluation_id') != evaluation_id
+                    or evaluation['result'] != 'PASS' or evaluation['evaluator_ref'] != receipt['reviewer_worker_id']
+                    or evaluation['artifact_refs'] != [artifact_id] or evaluation['evidence_refs'] != refs
+                    or artifact_id not in task['output_artifact_refs']
+                    or artifact['producer_task_id'] != task['task_id']
+                    or artifact['content_ref'] != 'r1://artifact/' + bundle_id
+                    or artifact['content_hash'] != bundle['bundle_sha256'] or artifact['evidence_refs'] != refs
+                    or self._one('rc72_worker_session', session_id=case['session_id'])['state'] != 'CLOSED'):
+                raise ExecutionFinalizationError('N7_ACCEPTED_CASE_FINALIZATION_REQUIRED')
+        reviewer = self._one('rc72_worker_session', session_id=receipt['reviewer_session_id'])
+        if any(reviewer.get(k) != v for k, v in dict(state='CLOSED', purpose='REVIEW',
+                role='quality-reviewer', worker_id=receipt['reviewer_worker_id'], mission_id=bundle['mission_id'],
+                mission_node_id=node['mission_node_id'], delivery_id=receipt['delivery_id']).items()):
+            raise ExecutionFinalizationError('N7_ACCEPTED_REVIEWER_CLOSURE_REQUIRED')
+        return dict(state='N7_PASS', gate_id=gate_id, review_result_id=receipt['review_result_id'],
+                    bundle_id=bundle_id, attempt_ids=[case['attempt_id'] for case in bundle['case_results']])
+
     def finalize(self, bundle_id):
         existing = self.truth.query(_KIND, bundle_id=bundle_id)
         if len(existing) > 1:

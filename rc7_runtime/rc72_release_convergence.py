@@ -4,7 +4,9 @@ Callers do not provide PASS booleans. Every ReleaseConvergenceFacts dimension
 is derived from canonical R1 truth. A raw TestObligation `VERIFIED` flag is
 insufficient: completion additionally requires PASS ETUs, PASS independently-
 evaluated WorkItems, COMPLETED bindings, PASS execution attempts and resolvable
-canonical Evidence.
+canonical Evidence. The optional native accepted-N7 proof path instead audits
+the complete current formal acceptance and derives primary/secondary obligation
+coverage from the same original Cases/Attempts without trusting mutable flags.
 """
 from __future__ import annotations
 
@@ -106,7 +108,7 @@ class ReleaseConvergenceAggregator:
     _DEFECT_ACCEPTABLE = {"CLOSED", "DUPLICATE", "NOT_A_DEFECT"}
     _HIGH_RISKS = {"HIGH", "CRITICAL", "BLOCKER"}
 
-    def __init__(self, truth: TruthRuntime, *, release_id: str, runtime: RC72StateMachine) -> None:
+    def __init__(self, truth: TruthRuntime, *, release_id: str, runtime: RC72StateMachine, execution_proof=None) -> None:
         install_rc72_release_convergence_overlay()
         _ensure_projection_bucket(truth)
         if not isinstance(release_id, str) or not release_id.strip():
@@ -115,6 +117,12 @@ class ReleaseConvergenceAggregator:
         self.release_id = release_id.strip()
         self.runtime = runtime
         self.scope = ReleaseScopeService(truth, release_id=self.release_id)
+        if execution_proof is not None:
+            from .rc72_obligation_execution_proof import AcceptedObligationExecutionProof
+            if (not isinstance(execution_proof, AcceptedObligationExecutionProof)
+                    or execution_proof.truth is not truth or execution_proof.release_id != self.release_id):
+                raise ContractError('RELEASE_CONVERGENCE_NATIVE_EXECUTION_PROOF_SCOPE_REQUIRED')
+        self.execution_proof = execution_proof
 
     def install_overlay(self) -> None:
         install_rc72_release_convergence_overlay()
@@ -259,6 +267,10 @@ class ReleaseConvergenceAggregator:
     def aggregate(self, *, mission_id: str) -> ReleaseConvergenceSnapshot:
         batch = self._one_batch(mission_id)
         manifest = self._one_manifest(mission_id, str(batch["release_batch_id"]))
+        native_ids = None
+        if self.execution_proof is not None:
+            audited = self.execution_proof.audit(release_batch_id=str(batch['release_batch_id']))
+            native_ids = set(audited['verified_obligation_ids'])
         scope_snapshot = self.scope.evaluate_denominator(manifest_id=str(manifest["manifest_id"]))
         blockers: List[str] = []
         if not scope_snapshot.denominator_complete:
@@ -271,7 +283,11 @@ class ReleaseConvergenceAggregator:
             row for row in self._safe_query("rc72_test_obligation", mission_id=mission_id)
             if row.get("release_batch_id") == batch.get("release_batch_id")
         ]
-        proven = {str(row["obligation_id"]) for row in obligations if self._obligation_proven(row)}
+        # Native N7 proofs preserve approved secondary coverage without requiring
+        # duplicated executions or trusting externally written VERIFIED flags.
+        proven = {str(row["obligation_id"]) for row in obligations
+                  if (str(row['obligation_id']) in native_ids if native_ids is not None
+                      else self._obligation_proven(row))}
         all_ids = {str(row["obligation_id"]) for row in obligations}
         unproven = sorted(all_ids - proven)
         blockers.extend("obligation:%s:UNPROVEN" % oid for oid in unproven)

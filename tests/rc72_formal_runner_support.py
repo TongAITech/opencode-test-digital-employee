@@ -201,7 +201,7 @@ def test_formal_api():
     (folder / 'result.json').write_text(json.dumps(result), encoding='utf-8')
 
 
-def formal_setup(tmp_path, monkeypatch, *, fail=False, emit_tool=True, profile_mutator=None):
+def formal_setup(tmp_path, monkeypatch, *, fail=False, emit_tool=True, profile_mutator=None, design_mutator=None):
     import test_rc72_n1_executable_binding as n1
     import rc72_integrated_test_support as support
     import test_rc72_n4_test_design_handoff as n4
@@ -227,6 +227,8 @@ def formal_setup(tmp_path, monkeypatch, *, fail=False, emit_tool=True, profile_m
         original = n4._candidate
         def candidate(*args, **kwargs):
             value = original(*args, **kwargs)
+            if design_mutator is not None:
+                design_mutator(value)
             for case in value['cases']:
                 root = tmp_path / 'qualified' / case['tc_id']
                 source_ref = 'approved-runner://' + case['tc_id']
