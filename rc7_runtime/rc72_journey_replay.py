@@ -304,6 +304,11 @@ class JourneyReplayService:
                 raise ContractError("%s_REQUIRED" % name.upper())
         if self.truth.query(_REPLAY, replay_id=replay_id):
             raise ContractError("JOURNEY_REPLAY_ALREADY_EXISTS")
+        # A separate replay ID is not permission to repeat business side effects.
+        # Benchmark replays require independent Attempt leases.
+        if any(row.get("candidate_id") == candidate_id and row.get("attempt_id") == attempt_id
+               for row in self.truth.query(_REPLAY)):
+            raise ContractError("JOURNEY_REPLAY_ATTEMPT_ALREADY_USED_DIAGNOSIS_REQUIRED")
         candidate = self._one("rc72_journey_candidate", candidate_id=candidate_id)
         if candidate.get("state") != JourneyCandidateState.COMPILED_CANDIDATE.value:
             raise ContractError("JOURNEY_REPLAY_REQUIRES_COMPILED_CANDIDATE")
