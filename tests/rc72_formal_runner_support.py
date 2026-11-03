@@ -124,7 +124,7 @@ def _profile(url, environment):
     databases = {app: fact('database', app, dict(application=app, environment_id=env, profile_id='engineering-db-' + app)) for app in REQUIRED_DATABASE_APPS}
     frontend = fact('route', 'frontend', dict(environment_id=env, url=url + '/ui'))
     gateway = fact('route', 'gateway', dict(environment_id=env, url=url))
-    auth = fact('auth', 'local-auth', dict(environment_id=env))
+    auth = fact('auth', 'local-auth', dict(environment_id=env,authentication_mode='ANONYMOUS'))
     cat = fact('cat', 'local-cat', dict(environment_id=env))
     account = fact('account', 'local-account', dict(environment_id=env))
     return dict(max_age_seconds=3600, facts=facts, selectors=dict(release_id=release, deployment_mode='REMOTE_DEPLOYMENT',
@@ -133,7 +133,7 @@ def _profile(url, environment):
         cat_fact_id=cat, account_fact_id=account))
 
 
-def _qualify(root, source_case, contract, *, fail=False, emit_tool=True):
+def _qualify(root, source_case, contract, *, fail=False, emit_tool=True, fake_native=False, tamper_native=False, repeat_native=False):
     root.mkdir(parents=True, exist_ok=True)
     source = root / 'test_formal_api.py'
     # Business I/O only occurs inside the test, never during collect/readiness.
@@ -145,8 +145,21 @@ def test_formal_api():
     assert 'RC72_PARENT_SECRET' not in os.environ
     c=json.loads(os.environ['RC72_EXECUTABLE_CONTRACT'])
     actor=json.loads(os.environ['RC72_ATTEMPT_CONTEXT'])
-    with urlopen(Request(c['endpoint']['url'], data=json.dumps(c['input']).encode(), headers={'Content-Type':'application/json'}, method='POST'), timeout=5) as response:
-        actual=json.loads(response.read())
+    if FAKE_NATIVE_RESULT:
+        actual={'http':{'status':200},'business':{'outcome':'APPROVED_FIXTURE_RESULT'}}
+    elif USE_NATIVE_GATE:
+        with urlopen(Request(os.environ['RC72_NATIVE_HTTP_URL'],data=b'{"request_id":"business"}',
+            headers={'Content-Type':'application/json','Authorization':'Bearer '+os.environ['RC72_NATIVE_HTTP_TOKEN']},method='POST'),timeout=20) as response:
+            actual=json.loads(response.read())['result']
+        if REPEAT_NATIVE_CALL:
+            with urlopen(Request(os.environ['RC72_NATIVE_HTTP_URL'],data=b'{"request_id":"business"}',
+                headers={'Content-Type':'application/json','Authorization':'Bearer '+os.environ['RC72_NATIVE_HTTP_TOKEN']},method='POST'),timeout=20) as response:
+                actual=json.loads(response.read())['result']
+    else:
+        with urlopen(Request(c['endpoint']['url'], data=json.dumps(c['input']).encode(), headers={'Content-Type':'application/json'}, method='POST'), timeout=5) as response:
+            actual=json.loads(response.read())
+    if TAMPER_NATIVE_RESULT:
+        actual['business']['outcome']='FORGED_SCRIPT_VALUE'
     out=Path(os.environ['RC72_OUTPUT_ROOT'])
     out.mkdir(parents=True,exist_ok=True)
     files=[]
@@ -164,7 +177,7 @@ def test_formal_api():
 '''
     # Qualification binds exact UTF-8 bytes. Text-mode Windows writes would
     # translate LF to CRLF while read_text normalizes the candidate back to LF.
-    source.write_bytes(code.replace('EMIT_TOOL', str(emit_tool)).replace('FAIL_AFTER_ACTUAL', str(fail)).encode('utf-8'))
+    source.write_bytes(code.replace('USE_NATIVE_GATE',str(bool(source_case.get('execution',{}).get('runner',{}).get('transport')))).replace('FAKE_NATIVE_RESULT',str(fake_native)).replace('TAMPER_NATIVE_RESULT',str(tamper_native)).replace('REPEAT_NATIVE_CALL',str(repeat_native)).replace('EMIT_TOOL', str(emit_tool)).replace('FAIL_AFTER_ACTUAL', str(fail)).encode('utf-8'))
     frozen = {k: deepcopy(v) for k, v in source_case.items() if k not in
               {'execution', 'source_artifact_id', 'source_artifact_sha256', 'source_case_sha256'}}
     frozen.update(status='FROZEN', case_version=1, release_id=RELEASE,
@@ -235,6 +248,9 @@ def formal_setup(tmp_path, monkeypatch, *, fail=False, emit_tool=True, profile_m
                 case['execution']['runner'] = dict(script_result_ref='file://' + str(root / 'qualification' / 'result.json'),
                     cwd=str(root), source_ref=source_ref)
                 case['execution']['authoritative_sources'].append(source_ref)
+                case['execution']['planning']['auth_role']='ANONYMOUS'
+                case['execution']['runner']['transport']=dict(protocol='RC72_NATIVE_API_HTTP_V1',source_ref=source_ref,auth_mode='ANONYMOUS',
+                    result_mapping={'http':'$http','business':'$json.business'})
             return value
         monkeypatch.setattr(n4, '_candidate', candidate)
     monkeypatch.setattr(support, 'install_execution_sources', install)

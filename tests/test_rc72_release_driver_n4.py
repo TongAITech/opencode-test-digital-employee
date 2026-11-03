@@ -88,10 +88,12 @@ def _n4_driver(tmp_path, *, incomplete_parent=False, explicit_gap=False, shallow
                             case['execution']['cleanup'].update(tool='api_http',verification=dict(tool='api_http',
                                 source_ref=spec['cleanup']['source_ref'],checks=[dict(id='restored-data',type='DATA_STATE',
                                     actual_path='restored',operator='EQ',expected=True)]))
-                            case['execution']['planning']=dict(primary_code_slice=case['code_trace'][0],auth_role='fixture-tester',
+                            case['execution']['planning']=dict(primary_code_slice=case['code_trace'][0],auth_role='ANONYMOUS',
                                 browser_context='fixture-api-no-browser',data_domain='BLOAN_TEST_DATA',execution_tool='api_http')
                             case['execution']['runner']=dict(script_result_ref='file://'+str(root/'qualification'/'result.json'),
                                 cwd=str(root),source_ref=runner_source)
+                            case['execution']['runner']['transport']=dict(protocol='RC72_NATIVE_API_HTTP_V1',source_ref=runner_source,auth_mode='ANONYMOUS',
+                                result_mapping={'http':'$http','business':'$json.business'})
                             case['execution']['authoritative_sources'].append(runner_source)
 
                 if incomplete_parent:

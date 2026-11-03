@@ -449,8 +449,11 @@ class N4TestDesignDshHandoffService:
                     raise N4TestDesignHandoffError("RC72_N4_HANDOFF_EXECUTION_SPEC_INVALID")
                 if "runner" in execution:
                     runner = execution["runner"]
-                    if not isinstance(runner, dict) or set(runner) != {"script_result_ref", "cwd", "source_ref"}:
+                    if not isinstance(runner, dict) or set(runner) - {"transport"} != {"script_result_ref", "cwd", "source_ref"}:
                         raise N4TestDesignHandoffError("RC72_N4_HANDOFF_RUNNER_SPEC_INVALID")
+                    if "transport" in runner:
+                        from .rc72_native_http_gate import validate_mapping
+                        validate_mapping(runner["transport"],execution.get("authoritative_sources",[]))
                     for field in ("script_result_ref", "cwd", "source_ref"):
                         _required(runner[field], "runner_" + field)
                     if (not runner["script_result_ref"].startswith("file://")
@@ -828,6 +831,9 @@ class N4TestDesignDshHandoffService:
             "When established N1/N3/N4 facts permit, each Case may also carry execution={binding_key,inputs,request,cleanup,authoritative_sources}. "
             "binding_key selects an existing approved N1 route; request/schema, concrete input template and cleanup must have real source refs. "
             "Do not invent execution facts: a Case without this materialization remains blocked at N6 and must be repaired by its owning node. "
+            "An established API Script runner binding must declare transport={protocol:RC72_NATIVE_API_HTTP_V1,auth_mode:ANONYMOUS,source_ref,result_mapping}. "
+            "Freeze response mapping from authoritative N3 schema/code before running: mapping values are $http (actual HTTP status), $json or $json.path. "
+            "The runtime owns actual target/method/input; the Script uses its task-scoped native gateway and cannot supply alternate HTTP arguments. "
             "No TBD, TODO, guess during execution, find data later, placeholder oracle, PASS, NodeGate, N5 READY, Q7 PASS, field_verified or BANK_FINAL. "
             "Return strict JSON with exactly the shown top-level and nested contracts. Context="
             + json.dumps(context, ensure_ascii=False, sort_keys=True)

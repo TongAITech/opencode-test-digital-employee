@@ -1,5 +1,55 @@
 # RC7.2 Current Construction Checkpoint
 
+## Actual parent-owned HTTP execution and replay economy — 2026-11-03
+
+The N7 formal API Runner now uses `RC72_NATIVE_API_HTTP_V1`: an ephemeral local
+capability invokes the parent-owned transport with the original approved N6
+endpoint, method and JSON input. The child cannot supply replacement request
+arguments. Before the effect, the parent refreshes R1 under the shared ledger
+lock, checks the live dispatcher, exact contract, worker authority and resource
+custody, and persists a signed intent. It checks authority again after the
+response. Revocation or interruption retains UNKNOWN/IN_FLIGHT custody; no
+business replay or automatic cleanup is authorized. A duplicate request in the
+same live invocation returns the authenticated observation without another I/O.
+
+The parent captures real response bytes outside the declared child output root.
+Signed formal receipts bind those bytes, the frozen N4 response mapping and both
+temporal authorization snapshots. Child-reported tool names or invented result
+values cannot establish API execution. Independent discrepancy review rehashes
+and maps the actual native response before recomputing the frozen Oracles.
+An API result labeled as DB/CAT or another independent tool Oracle remains HOLD
+until that native provider supplies its own evidence.
+
+Current transport scope is anonymous HTTP(S), JSON input and frozen response
+projection only. Both the selected N1 authentication Fact and original Case must
+explicitly authorize ANONYMOUS. Authenticated bank APIs do not fall back to
+anonymous execution. Host credential providers, DB/CAT/Browser tool gates,
+all-role DSH enforcement and general process isolation remain OPEN under C07/C09.
+This is construction evidence, not bank Field qualification.
+
+Validation recorded so far: `native-http-integrated-final.log` 49 passed;
+`native-http-oracle-provenance-final.log` 1 passed;
+`native-http-replay-economy-final.log` 34 passed. Current-source affected-service regression: `native-http-final-affected.log`
+24 passed. Recovery regression found 76 passes and three obsolete expectations;
+strict native evidence-gap requalification passed all 20 evidence tests, and
+renewal-denied/process-timeout requalification passed both fault tests while
+retaining blocked Attempts and custody. Full 28-Case product-chain results are
+pending; no final-source platform claim is made. Parent source `36f7d05` has
+terminal Windows/Linux platform, construction and clean-unpack CI success.
+
+Ledger replay still validates every native/legacy event and rebuilds from the
+complete journal on each locked decision. It avoids a second normalization and
+an unused returned snapshot. A 1,974-event, 3,353,609-byte real construction R1
+prefix produced identical current state AND all version histories; observed
+rebuild time was 0.420s before and 0.346s after. This narrow local measurement does
+not establish whole-release scalability or close C10.
+
+Next: complete the recovery/product regressions, qualify exact committed source
+on Windows/Linux, and continue authenticated native providers, N9 professional
+qualification/fix/regression, N10/controller completion and the complete RC7.1
+transport inventory. C01–C12 reconciliation remains authoritative. Overall
+status stays ACTIVE / NO_DELIVERY; there is no complete portable package yet.
+
 ## Frozen-contract business discrepancy → independent N8 → N9 intake — 2026-11-03
 
 The concrete N7 pipeline now handles an actual successful approved Runner whose
@@ -34,10 +84,10 @@ obligation audit. Final targeted `conclusive-failure-qualification-final.log`
 signature, changed capture bytes, independently rejected product-defect claims,
 and interruptions after capture, failure proof or actual diagnosis fsync.
 
-Limits: this is a discrepancy under the current approved Script/Runner contract.
-The runner still derives its tool-observation list from generated-script traces;
-actual call-time native tool fencing/transport attestation remains C07 work and
-is required before final delivery. Local tests perform actual HTTP/process I/O,
+Historical limit at this checkpoint: the approved Script/Runner trace alone
+was insufficient native tool attestation. The newer parent-owned HTTP section
+above supersedes that API-only boundary; other tool/provider gates remain C07
+work required before final delivery. Local tests perform actual HTTP/process I/O,
 but are not bank DSH/physical-tool Field qualification. N9 professional defect
 qualification/RCA/fix/regression, other semantic C03 repair classes, upstream N8
 repair execution in the controller, actual N9/N10 driver/factory and complete

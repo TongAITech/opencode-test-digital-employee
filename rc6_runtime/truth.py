@@ -189,7 +189,19 @@ class Projection:
         except EventValidationError as exc:
             raise ProjectionIntegrityError(str(exc)) from exc
 
+        self._apply_validated(artifact_type, entity_id, version, canonical)
+
+    def _apply_validated(self, artifact_type: str, entity_id: str, version: int, canonical: Dict[str, Any]) -> None:
+        """Internal projection step after full domain validation/normalization.
+
+        Public apply_atomic still validates untrusted input. Replay expansion
+        already performed that same validation; do not repeat the expensive
+        canonicalization for each historical event on every resource decision.
+        """
         self._ensure_bucket(artifact_type)
+        if (str(canonical[IDENTITY_FIELDS[artifact_type]]) != entity_id
+                or _version_for(artifact_type, canonical) != version):
+            raise ProjectionIntegrityError("CANONICAL_ENTITY_METADATA_MISMATCH")
         version_key = f"{entity_id}@{version}"
         version_bucket = self._versions[artifact_type]
         previous = version_bucket.get(version_key)
@@ -300,13 +312,16 @@ class TruthRuntime:
         self.projection = Projection()
         self.rebuild_projection()
 
-    def rebuild_projection(self) -> Dict[str, Any]:
+    def rebuild_projection(self, *, include_snapshot: bool = True) -> Optional[Dict[str, Any]]:
         rebuilt = Projection()
         for raw in self.store.iter_raw():
             for atomic in expand_for_replay(raw, allow_legacy=self.allow_legacy_replay):
-                rebuilt.apply_atomic(atomic)
+                # expand_for_replay validates every native/legacy unit and
+                # derives these metadata fields from canonical payloads.
+                rebuilt._apply_validated(atomic['entity_type'], atomic['entity_id'],
+                                         atomic['entity_version'], atomic['payload'])
         self.projection = rebuilt
-        return self.projection.snapshot()
+        return self.projection.snapshot() if include_snapshot else None
 
     def append_atomic(self, event_type: str, payload: Dict[str, Any]) -> PersistenceReceipt:
         artifact_type, entity_id, version, canonical = _canonical_payload(event_type, payload)

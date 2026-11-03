@@ -179,6 +179,12 @@ def verified_formal_receipt(preparation, p, c, raw):
         evidence = preparation._one('rc7_evidence', evidence_id=check['evidence_id'])
         if evidence.get('content_hash') != check['sha256'] or p['attempt_id'] not in evidence.get('subject_refs', []):
             raise FormalRunnerError('FORMAL_PREPARATION_CHECK_TRUTH_MISMATCH')
+    if row.get('native_http_protocol') is not None:
+        from .rc72_native_http_gate import PROTOCOL,verify_receipt
+        if row['native_http_protocol']!=PROTOCOL:
+            raise FormalRunnerError('FORMAL_NATIVE_HTTP_PROTOCOL_INVALID')
+        verify_receipt(preparation,p,c,row.get('native_http_call_id'),row.get('native_http_transport'),
+            {k:v for k,v in raw.items() if k not in {'evidence','runner_receipt_id'}})
     result = row['runner_result']
     for field in ('stdout_ref', 'stderr_ref'):
         path = Path(result[field][len('file://'):]) if result[field].startswith('file://') else None
@@ -219,6 +225,9 @@ class FormalN7RunnerAdapter:
         spec = source['execution'].get('runner')
         if not isinstance(spec, dict) or spec.get('source_ref') not in contract['authoritative_sources']:
             raise FormalRunnerError('FORMAL_APPROVED_RUNNER_BINDING_REQUIRED:N4')
+        if contract['tool_route'].get('family')=='API':
+            from .rc72_native_http_gate import validate_transport
+            validate_transport(spec.get('transport'),contract)
         result_ref = spec.get('script_result_ref')
         cwd = spec.get('cwd')
         if not isinstance(result_ref, str) or not result_ref.startswith('file://') or not isinstance(cwd, str):
@@ -254,7 +263,7 @@ class FormalN7RunnerAdapter:
             raise FormalRunnerError('FORMAL_APPROVED_SCRIPT_SOURCE_CHANGED')
         if bundle.spec.runner_type == 'PYTEST' and not re.fullmatch(r'(?:[A-Za-z_]\w*::)*[A-Za-z_]\w*(?:\[[^/\\]+\])?', bundle.script.test_symbol):
             raise FormalRunnerError('FORMAL_PYTEST_SYMBOL_MUST_STAY_IN_APPROVED_SOURCE')
-        return p, target, bundle, cwd
+        return p, target, bundle, cwd, deepcopy(source['execution']['runner'].get('transport'))
 
     def preflight(self, *, contract, context):
         # No subprocess, import, collect or other external tool before durable intent.
@@ -311,7 +320,7 @@ class FormalN7RunnerAdapter:
         return self._execute(contract=contract, context=context, dispatcher=dispatcher)
 
     def _execute(self, *, contract, context, dispatcher):
-        p, target, bundle, cwd = self._load(contract, context)
+        p, target, bundle, cwd, transport = self._load(contract, context)
         from .rc72_lease_renewal import execution_authorization_snapshot
         authorization = execution_authorization_snapshot(self.preparation, p)
         started = datetime.now(timezone.utc).isoformat()
@@ -373,10 +382,28 @@ class FormalN7RunnerAdapter:
         env.update(RC72_EXECUTABLE_CONTRACT=json.dumps(contract, sort_keys=True),
                    RC72_ATTEMPT_CONTEXT=json.dumps(context, sort_keys=True),
                    RC72_TARGET_IDENTITY=json.dumps(target.as_dict(), sort_keys=True))
-        result = runner.execute(spec=bundle.spec, script=bundle.script, validation=bundle.validation, cwd=cwd, env=env)
+        native_gate = None
+        if transport is not None:
+            from .rc72_native_http_gate import NativeHTTPGate
+            native_gate = NativeHTTPGate(self.preparation,p,contract,transport,dispatcher,
+                evidence_root=self.root.parent/(self.root.name+'.native-http'),timeout_seconds=self.timeout).open()
+            env.update(native_gate.environment())
+        try:
+            result = runner.execute(spec=bundle.spec, script=bundle.script, validation=bundle.validation, cwd=cwd, env=env)
+        finally:
+            if native_gate is not None:
+                native_gate.close()
         raw = deepcopy(result.actual_result)
         if 'runner_receipt_id' in raw:
             raise FormalRunnerError('FORMAL_RUNNER_RESERVED_RESULT_FIELD_FORBIDDEN')
+        native = None
+        if native_gate is not None:
+            from .rc72_native_http_gate import verify_receipt
+            rows = self.truth.query('rc72_n7_http_call',call_id=native_gate.call_id)
+            if len(rows)!=1 or rows[0]['state']!='RETURNED':
+                raise FormalRunnerError('FORMAL_NATIVE_HTTP_ACTUAL_CALL_REQUIRED')
+            native = verify_receipt(self.preparation,p,contract,native_gate.call_id,transport,
+                {k:v for k,v in raw.items() if k!='evidence'})
         receipt_id = 'N7RUNNER-' + _hash([p['preparation_id'], contract['contract_sha256']])[:24]
         receipt = dict(runner_receipt_id=receipt_id, purpose='N7_FORMAL_RUNNER_RECEIPT', release_id=p['release_id'], source_commit=p['source_commit'],
             preparation_id=p['preparation_id'], attempt_id=p['attempt_id'], worker_id=p['worker_id'],
@@ -385,7 +412,7 @@ class FormalN7RunnerAdapter:
             case_fingerprint=bundle.spec.case_fingerprint, oracle_fingerprint=bundle.spec.oracle_fingerprint,
             preparation_checks=preparation_checks, tool_probe=asdict(probe), tool_probe_captured_ref='file://' + str(probe_capture),
             tool_probe_sha256=hashlib.sha256(probe_bytes).hexdigest(),
-            required_tool_observed=any(call['tool_id'] == contract['tool_route']['tool'] for call in result.tool_calls),
+            required_tool_observed=native is not None or any(call['tool_id'] == contract['tool_route']['tool'] for call in result.tool_calls),
             spec_id=bundle.spec.spec_id, script_id=bundle.script.script_id, script_source_sha256=bundle.source_sha256, script_source_ref=bundle.script.source_ref,
             script_qualification_ref=bundle.upstream_result_ref,
             script_qualification_sha256=hashlib.sha256(Path(bundle.upstream_result_ref[len('file://'):]).read_bytes()).hexdigest(), runner_result=asdict(result),
@@ -393,6 +420,9 @@ class FormalN7RunnerAdapter:
             authorization_protocol='TEMPORAL_LEASE_V1', execution_authorization=authorization,
             process_evidence_sha256={key: hashlib.sha256(Path(getattr(result, key)[len('file://'):]).read_bytes()).hexdigest()
                 for key in ('stdout_ref', 'stderr_ref')})
+        if native is not None:
+            receipt.update(native_http_protocol=transport['protocol'],native_http_transport=transport,
+                native_http_call_id=native['call_id'])
         if heartbeat is not None:
             receipt.update(heartbeat_protocol='OWNED_PROCESS_V1', process_heartbeat_refs=list(heartbeat.refs))
         receipt['signature'] = self.preparation.authority._sign(receipt)

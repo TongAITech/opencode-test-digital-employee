@@ -298,14 +298,18 @@ class ExecutionPreparationService:
         # decision lock. Per-resource refreshes followed by another replay left
         # a gap between the last ownership check and authority restoration.
         with ledger_lock(self.truth, busy='N7_PREPARATION_LEDGER_BUSY', conflict=ExecutionPreparationError):
-            row = self._one(_ARTIFACT, preparation_id=preparation_id)
-            self._assert_runtime_suspension(row)
-            identity, lease, contract, etu, scope, plan = self._current_tuple(row)
-            self._current_resources(row, contract, etu, plan, locked=True)
-            from .rc72_lease_renewal import effective_worker_lease
-            effective = effective_worker_lease(self, row)
-            self.authority.restore_renewed_worker_lease(identity, lease, effective)
-            return row
+            return self._assert_current_locked(preparation_id)
+
+    def _assert_current_locked(self, preparation_id):
+        """Internal: caller owns the shared ledger decision lock."""
+        row = self._one(_ARTIFACT, preparation_id=preparation_id)
+        self._assert_runtime_suspension(row)
+        identity, lease, contract, etu, scope, plan = self._current_tuple(row)
+        self._current_resources(row, contract, etu, plan, locked=True)
+        from .rc72_lease_renewal import effective_worker_lease
+        effective = effective_worker_lease(self, row)
+        self.authority.restore_renewed_worker_lease(identity, lease, effective)
+        return row
 
     def release_unstarted(self, preparation_id: str, *, reason: str) -> Dict[str, Any]:
         """Checkpoint an unstarted worker so takeover can create a fresh Attempt.

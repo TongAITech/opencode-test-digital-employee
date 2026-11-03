@@ -49,6 +49,24 @@ def verify_conclusive_failure(facts):
     # deterministic operators. The independent process recomputes every check.
     sys.path.insert(0,str(Path(__file__).resolve().parent))
     from oracle_runtime import DeterministicOracleRuntime
+    from rc72_http_projection import map_response
+    native=proof['native_http_observation']
+    response_ref=native['response_ref']
+    response_path=Path(response_ref[len('file://'):]) if response_ref.startswith('file://') else None
+    if (native['purpose']!='RC72_NATIVE_API_HTTP_V1' or native['state']!='RETURNED'
+            or any(native[k]!=proof[k] for k in ('preparation_id','attempt_id','workitem_id','contract_id','contract_sha256'))
+            or native['transport_sha256']!=_hash(proof['native_http_transport'])
+            or response_path is None or response_path.is_symlink() or not response_path.is_file()
+            or hashlib.sha256(response_path.read_bytes()).hexdigest()!=native['response_sha256']):
+        raise ValueError('CONCLUSIVE_FAILURE_NATIVE_HTTP_OBSERVATION_CHANGED')
+    try:
+        body=json.loads(response_path.read_bytes().decode('utf-8'))
+    except (ValueError,UnicodeError):
+        body=None
+    mapped=map_response(proof['native_http_transport']['result_mapping'],native['status_code'],body)
+    actual={k:v for k,v in proof['actual_result'].items() if k not in {'evidence','runner_receipt_id'}}
+    if mapped!=actual or native['result']!=actual or native['result_sha256']!=_hash(actual):
+        raise ValueError('CONCLUSIVE_FAILURE_NATIVE_HTTP_RESULT_CHANGED')
     oracle = DeterministicOracleRuntime().evaluate({'checks':proof['oracles']},proof['actual_result'],context)
     if oracle!=proof['oracle_result'] or oracle['passed'] is not False or case['assertion_ref']!='N7ASSERT-'+_hash([facts['attempt_id'],oracle])[:24]:
         raise ValueError('CONCLUSIVE_FAILURE_ORACLE_NOT_REPRODUCIBLE')

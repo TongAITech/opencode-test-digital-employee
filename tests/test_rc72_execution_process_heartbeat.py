@@ -61,7 +61,7 @@ def test_guardian_renewal_failure_stops_owned_child_and_cold_business_permission
         monkeypatch.setattr(ExecutionLeaseRenewalService, 'renew', denied)
         p = prep.prepare(plan_id=plan['plan_id'], workitem_id=plan['items'][0]['workitem_id'])
         dispatch = SignedToolDispatchService(prep, adapters={'api_http': runner}).dispatch(p['preparation_id'])
-        assert dispatch['state'] == 'RETURNED'
+        assert dispatch['state'] == 'FAILED'
         heartbeat = truth.query('rc72_execution_process_heartbeat')[0]
         assert heartbeat['state'] == 'FAILED' and heartbeat['observed_exit_code'] is not None
         assert heartbeat['runtime_exit_code'] == 125 and heartbeat['captured_files']
@@ -141,7 +141,7 @@ def test_timeout_reaps_owned_child_but_does_not_claim_remote_business_drain(tmp_
         runner.timeout = 2  # Keep source validation independent of the deliberately short process budget.
         p = prep.prepare(plan_id=plan['plan_id'], workitem_id=plan['items'][0]['workitem_id'])
         result = SignedToolDispatchService(prep, adapters={'api_http': runner}).dispatch(p['preparation_id'])
-        assert result['state'] == 'RETURNED'
+        assert result['state'] == 'FAILED'
         heartbeat = truth.query('rc72_execution_process_heartbeat')[0]
         assert heartbeat['state'] == 'FAILED' and heartbeat['failure_kind'] == 'PROCESS_TIMEOUT'
         assert heartbeat['runtime_exit_code'] == 124 and heartbeat['observed_exit_code'] is not None

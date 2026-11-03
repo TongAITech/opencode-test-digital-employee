@@ -24,7 +24,7 @@ from .truth_overlay import install_rc7_truth_overlay
 
 _KIND = 'rc72_n7_evidence_bundle'
 _EVENT = 'RC72_N7_EVIDENCE_BUNDLE_UPSERTED'
-_GAPS = ['FULL_TARGET_IDENTITY_BINDING_REQUIRED', 'APPROVED_RUNNER_RECEIPT_REQUIRED']
+_GAPS = ['FULL_TARGET_IDENTITY_BINDING_REQUIRED', 'APPROVED_RUNNER_RECEIPT_REQUIRED', 'NATIVE_API_HTTP_ATTESTATION_REQUIRED', 'NATIVE_ORACLE_TOOL_PROVENANCE_REQUIRED']
 _CRITERIA = ['COMPLETE_CASE_DENOMINATOR', 'CURRENT_APPROVED_SOURCES', 'EXACT_ATTEMPT_LINEAGE',
              'BUSINESS_ORACLE', 'CLEANUP_AND_RESOURCE_RELEASE', 'REQUIRED_EVIDENCE_BYTES',
              'FULL_TARGET_IDENTITY', 'APPROVED_RUNNER_RECEIPT']
@@ -219,13 +219,19 @@ class ExecutionEvidenceReviewService:
                     or not isinstance(declared.get('sha256'), str) or len(declared['sha256']) != 64
                     or any(ch not in '0123456789abcdef' for ch in declared['sha256'])):
                 raise EvidenceReviewError('N7_REQUIRED_EVIDENCE_BINDING_INVALID')
+        formal_gaps=[] if formal else list(_GAPS[:2])
+        if c['tool_route']['family']=='API' and (not formal or formal.get('native_http_protocol')!='RC72_NATIVE_API_HTTP_V1'):
+            formal_gaps.append('NATIVE_API_HTTP_ATTESTATION_REQUIRED')
+        if c['tool_route']['family']=='API' and any(str(check.get('type','')).upper() not in
+                {'API_RESPONSE','BUSINESS_RULE'} for check in c['oracles']):
+            formal_gaps.append('NATIVE_ORACLE_TOOL_PROVENANCE_REQUIRED')
         return dict(case_id=p['case_id'], workitem_id=p['workitem_id'], preparation_id=p['preparation_id'],
             attempt_id=p['attempt_id'], worker_id=p['worker_id'], session_id=p['session_id'],
             contract_id=c['contract_id'], contract_sha256=c['contract_sha256'], dispatch_id=dispatch['dispatch_id'],
             receipt_sha256=dispatch['receipt_sha256'], assertion_ref=attempt['assertion_ref'],
             observation_evidence_refs=attempt.get('observation_evidence_refs', attempt['evidence_refs']), cleanup_evidence_ref=proof_id,
             formal_runner_receipt_ref=formal['runner_receipt_id'] if formal else None,
-            formal_proof_gaps=[] if formal else list(_GAPS),
+            formal_proof_gaps=formal_gaps,
             evidence_declarations=sorted(declarations, key=lambda row: row['requirement']))
 
     def _file_bytes(self, declared):

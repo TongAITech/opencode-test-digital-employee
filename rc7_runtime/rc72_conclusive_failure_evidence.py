@@ -40,6 +40,13 @@ class ConclusiveAssertionFailureEvidence:
         snapshot = self.review._case_snapshot(plan,items[0],cases,p,allow_business_failure=True)
         if snapshot['formal_proof_gaps']:
             raise ContractError('CONCLUSIVE_FAILURE_FORMAL_RUNNER_REQUIRED')
+        from .rc72_formal_runner import verified_formal_receipt
+        from .rc72_native_http_gate import PROTOCOL,verify_receipt
+        formal = verified_formal_receipt(self.preparation,p,c,dispatch['raw_result'])
+        if c['tool_route']['family']!='API' or formal.get('native_http_protocol')!=PROTOCOL:
+            raise ContractError('CONCLUSIVE_FAILURE_NATIVE_TOOL_ATTESTATION_REQUIRED')
+        native = verify_receipt(self.preparation,p,c,formal['native_http_call_id'],formal['native_http_transport'],
+            {k:v for k,v in dispatch['raw_result'].items() if k not in {'evidence','runner_receipt_id'}})
         # Older unsigned cleanup history cannot be upgraded to a conclusive
         # business failure merely because its mutable status says RETURNED.
         calls = self.truth.query('rc72_n7_cleanup_call',preparation_id=preparation_id)
@@ -52,6 +59,7 @@ class ConclusiveAssertionFailureEvidence:
             full_plan_case_ids=sorted(cases), source_case_sha256=cases[p['case_id']]['source_case_sha256'],
             case_snapshot=snapshot, actual_result=deepcopy(dispatch['raw_result']),
             oracles=deepcopy(c['oracles']), oracle_result=deepcopy(oracle),
+            native_http_observation=native,native_http_transport=formal['native_http_transport'],
             oracle_context=dict(contract_sha256=c['contract_sha256'],dispatch_id=dispatch['dispatch_id'],
                 attempt_id=p['attempt_id'],receipt_sha256=dispatch['receipt_sha256']))
         return p,core

@@ -45,7 +45,8 @@ def test_all_cases_capture_actual_files_and_enter_fresh_review_without_pass(tmp_
     bundle = service.build(plan['plan_id'])
     assert len(bundle['case_results']) == len(plan['items']) > 1
     assert {case['case_id'] for case in bundle['case_results']} == {item['case_id'] for item in plan['items']}
-    assert bundle['known_gaps'] == ['FULL_TARGET_IDENTITY_BINDING_REQUIRED', 'APPROVED_RUNNER_RECEIPT_REQUIRED']
+    assert bundle['known_gaps'] == ['FULL_TARGET_IDENTITY_BINDING_REQUIRED', 'APPROVED_RUNNER_RECEIPT_REQUIRED',
+                                    'NATIVE_API_HTTP_ATTESTATION_REQUIRED']
     for case in bundle['case_results']:
         for row in case['captured_evidence']:
             path = Path(row['content_ref'][len('file://'):])

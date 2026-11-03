@@ -37,7 +37,7 @@ def ledger_lock(truth, *, busy='RC72_RESOURCE_LEDGER_BUSY', conflict=ContractErr
         except OSError as exc:
             raise conflict(busy) from exc
         try:
-            truth.rebuild_projection()
+            truth.rebuild_projection(include_snapshot=False)
             # Each JsonlEventStore caches its next sequence in-process. Refresh
             # that cursor under the same OS lock before any participating write.
             truth.store._next_seq = truth.store._scan_next_seq()

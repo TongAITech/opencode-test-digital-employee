@@ -71,10 +71,11 @@ def test_n7_pipeline_unknown_external_effect_is_held_without_replay_or_cleanup(t
         environment_adapter=LocalHTTPEnvironment(url,output),
         execution_env={'RC72_OUTPUT_ROOT':str(output)},timeout_seconds=30)
     pipeline=N7PipelineService(prep,runner=runner,capture_root=tmp_path/'captured')
+    run=runner.run_with_dispatch
     def interrupted(*args,**kwargs):
-        runner(*args,**kwargs)
+        run(*args,**kwargs)
         raise KeyboardInterrupt('actual process returned before dispatch receipt persisted')
-    pipeline.dispatch.adapters={name:interrupted for name in pipeline.dispatch.adapters}
+    monkeypatch.setattr(runner,'run_with_dispatch',interrupted)
     try:
         with pytest.raises(KeyboardInterrupt):
             pipeline.complete(release_batch_id=BATCH)

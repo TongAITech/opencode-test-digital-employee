@@ -71,9 +71,8 @@ def test_actual_http_target_and_real_runner_feed_the_same_signed_attempt_and_rev
         server.server_close()
 
 
-@pytest.mark.parametrize('mode', ['process_fail', 'missing_tool'])
-def test_partial_success_cannot_hide_runner_failure_or_missing_professional_tool(tmp_path, monkeypatch, mode):
-    truth, plan, prep, server, url = formal_setup(tmp_path, monkeypatch, fail=mode == 'process_fail', emit_tool=mode != 'missing_tool')
+def test_partial_success_cannot_hide_runner_process_failure(tmp_path, monkeypatch):
+    truth, plan, prep, server, url = formal_setup(tmp_path, monkeypatch, fail=True)
     try:
         output = tmp_path / 'actual-output'
         environment = LocalHTTPEnvironment(url, output)
@@ -84,9 +83,25 @@ def test_partial_success_cannot_hide_runner_failure_or_missing_professional_tool
         assert receipt['state'] == 'RETURNED'
         attempt = ExecutionEvidenceService(prep).record(p['preparation_id'])
         assert attempt['assertion_passed'] is True
-        assert attempt['reason'] == ('RUNNER_PROCESS_FAILED' if mode == 'process_fail' else 'RUNNER_TOOL_EVIDENCE_MISSING')
+        assert attempt['reason'] == 'RUNNER_PROCESS_FAILED'
         diagnosis = ExecutionEvidenceService(prep).begin_diagnosis(p['preparation_id'])
         assert diagnosis.worker_id != p['worker_id']
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_actual_parent_call_does_not_require_a_child_reported_tool_name(tmp_path,monkeypatch):
+    from rc7_runtime.rc72_n7_pipeline import N7PipelineService
+    truth,plan,prep,server,url=formal_setup(tmp_path,monkeypatch,emit_tool=False)
+    try:
+        output=tmp_path/'actual-output'
+        runner=FormalN7RunnerAdapter(prep,evidence_root=output,environment_adapter=LocalHTTPEnvironment(url,output),
+            execution_env={'RC72_OUTPUT_ROOT':str(output)},timeout_seconds=30)
+        result=N7PipelineService(prep,runner=runner,capture_root=tmp_path/'captured').complete(release_batch_id=plan['release_batch_id'])
+        assert result['state']=='N7_PASS' and len(server.calls)==len(plan['items'])
+        rows=truth.query('rc72_n7_formal_runner_receipt')
+        assert all(r['native_http_protocol']=='RC72_NATIVE_API_HTTP_V1' and r['required_tool_observed'] for r in rows)
+        assert all(not any(c['tool_id']=='api_http' for c in r['runner_result']['tool_calls']) for r in rows)
+    finally:
+        server.shutdown();server.server_close()
