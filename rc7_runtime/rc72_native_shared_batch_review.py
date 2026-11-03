@@ -218,10 +218,15 @@ class NativeSharedEvaluatorBatch:
                 "criticisms", "required_followups",
             }:
                 raise NativeBatchReviewError("BATCH_REVIEW_MEMBER_FIELDS_INVALID")
+            if any(
+                not isinstance(row.get(name), str) or not row[name].strip()
+                for name in ("workitem_id", "attempt_id")
+            ):
+                raise NativeBatchReviewError("BATCH_REVIEW_MEMBER_IDENTITY_INVALID")
             pair = (row["workitem_id"], row["attempt_id"])
             if pair not in expected or pair in matched:
                 raise NativeBatchReviewError("BATCH_REVIEW_MEMBER_IDENTITY_MISMATCH")
-            if row["evidence_adequacy"] not in {
+            if not isinstance(row.get("evidence_adequacy"), str) or row["evidence_adequacy"] not in {
                 "SUFFICIENT_CANDIDATE", "INSUFFICIENT", "UNKNOWN"
             }:
                 raise NativeBatchReviewError("BATCH_REVIEW_CANNOT_ASSERT_PASS")
