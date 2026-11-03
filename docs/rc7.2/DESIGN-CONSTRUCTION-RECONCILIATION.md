@@ -1,5 +1,36 @@
 # RC7.2 design/construction reconciliation — 2026-11-02
 
+## Owned native factory and run entry — 2026-11-03
+
+The native factory now assembles the implemented node services, original-scope
+provider, formal Runner and native mirror provider against one R1/release/source.
+Eleven exact professional roles require separate launcher instances and private
+state roots. Raw PASS objects, stage callbacks, mismatched scopes and wildcard
+tools cannot replace native composition. The CLI now supports run/continuation
+through typed approved host capabilities; package/source/batch checks precede
+host loading. The package MISSION.cmd fixes package Python/source/root, and
+identity checks require the factory, loader, CLI and command. Known contract
+holds return a safe code with exit 37, never private host error details or a
+terminal success claim. See NATIVE-MISSION-FACTORY-CONTRACT.md.
+
+Actual full original factory reconstruction -> HTTP/process/cleanup -> N9/N10
+qualification passed in 683.77s, preserving 28 Cases, 78 obligations and all seven
+original required levels. Exactly 28 business calls and one coverage collection
+occurred; continuation repeated neither. Missing levels correctly remain
+NOT_CONVERGED. The final fast entry/admission/package/controller regression
+passed 38 tests in 5.34s. These are engineering protocol fixtures and synthetic
+prior Field prerequisites, not actual bank DSH or L1-L7 Field proof.
+
+The first isolated Windows/Linux factory CI failed before testing because its
+temporary Python script lacked the source import root; the workflow was corrected
+without weakening gates. Exact d202d43 qualification 41618313278 is still live.
+Main a585b69 Q2 Windows and full physical portable preparation 41616435336 are
+now terminal SUCCESS; its all-source platform/construction checks remain live.
+The physical preparation is not the final user deliverable. Default package/host
+bindings, private DSH SDK/provider provisioning, all-role call-time physical
+fences, professional repair and native terminal/final closure remain OPEN.
+
+
 ## Native mirror receipt and mandatory Field admission — 2026-11-03
 
 NativeBankPipMirrorService now owns signed IN_FLIGHT intent, actual qualifier

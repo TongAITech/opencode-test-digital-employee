@@ -37,8 +37,8 @@ its arbitrary Python code is not a security boundary. Its return contract is
 capabilities only. Host exceptions are reduced to exception type so private
 configuration values are not printed by the loader. The native mirror provider
 must bind the same running package root. Existing per-batch controller locking
-and cold evidence audit remain in the native driver. Current run results return
-exit 37; no implemented terminal closure currently authorizes a success exit.
+and cold evidence audit remain in the native driver. Known contract failures expose only a safe reason code and current run results
+return exit 37; no implemented terminal closure currently authorizes a success exit.
 
 `packaging/rc7.2/MISSION.cmd` uses only the package Python, clears Python import
 injection, reads the package source automatically and fixes package/source flags

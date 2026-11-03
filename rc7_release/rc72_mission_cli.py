@@ -1,10 +1,12 @@
 """Canonical RC7.2 status and native run/continuation entry."""
 import argparse
 import json
+import re
 from pathlib import Path
 
 from rc6_runtime.truth import TruthRuntime
 from rc7_runtime.rc72_release_driver import release_batch_status
+from rc7_runtime.models import ContractError
 
 
 def main(argv=None):
@@ -38,14 +40,24 @@ def main(argv=None):
         from dataclasses import fields
         from rc7_release.rc72_mission_bindings import load_mission_bindings
         from rc7_runtime.rc72_mission_factory import create_mission_driver
-        bindings = load_mission_bindings(args.bindings_module, truth=truth,
-            release_id=args.release_id, source_commit=args.source_commit)
-        driver = create_mission_driver(truth, release_id=args.release_id, source_commit=args.source_commit,
-            evidence_root=Path(args.evidence_root).expanduser().resolve(),
-            **{f.name: getattr(bindings, f.name) for f in fields(bindings)})
-        if driver.bank_pip_mirror.root != root:
-            parser.error('native mirror provider must bind the running package')
-        result = driver.run(release_batch_id=args.release_batch)
+        try:
+            bindings = load_mission_bindings(args.bindings_module, truth=truth,
+                release_id=args.release_id, source_commit=args.source_commit)
+            driver = create_mission_driver(truth, release_id=args.release_id, source_commit=args.source_commit,
+                evidence_root=Path(args.evidence_root).expanduser().resolve(),
+                **{f.name: getattr(bindings, f.name) for f in fields(bindings)})
+            if driver.bank_pip_mirror.root != root:
+                raise ContractError('MISSION_RUNNING_PACKAGE_MIRROR_SCOPE_MISMATCH')
+            result = driver.run(release_batch_id=args.release_batch)
+        except ContractError as exc:
+            # Public run output carries only a contract code. Error details may
+            # include private host paths or credentials and are not receipts.
+            code = str(exc).split(':', 1)[0]
+            if not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', code):
+                code = 'MISSION_RUN_CONTRACT_HOLD'
+            result = dict(release_batch_id=args.release_batch, release_id=args.release_id,
+                source_commit=args.source_commit, status='HOLD', reason=code,
+                field_verified=False, bank_final=False)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0 if args.command == 'status' else 37
 

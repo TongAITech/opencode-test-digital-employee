@@ -1,5 +1,6 @@
 """Approved host loader and CLI refuse raw claims and wrong package scope."""
 import sys
+import json
 from types import ModuleType
 
 import pytest
@@ -72,7 +73,7 @@ def test_cli_checks_package_and_batch_before_importing_host(tmp_path, monkeypatc
     assert truth.store.path.read_bytes() == before
 
 
-def test_cli_run_composes_native_services_but_cannot_bypass_admission(tmp_path, monkeypatch):
+def test_cli_run_composes_native_services_but_cannot_bypass_admission(tmp_path, monkeypatch, capsys):
     truth, _ = _setup(tmp_path)
     start_n1(truth)
     admission = truth.query('rc72_q7_admission')[0]
@@ -90,8 +91,11 @@ def test_cli_run_composes_native_services_but_cannot_bypass_admission(tmp_path, 
     module.create_mission_bindings = create
     monkeypatch.setitem(sys.modules, module.__name__, module)
     before = truth.store.path.read_bytes()
-    with pytest.raises(ContractError, match='FIELD_MISSION_Q7_ADMISSION_HOLD'):
-        main(['run','--ledger',str(truth.store.path),'--source-commit',COMMIT,
-            '--release-batch',BATCH,'--release-id',RELEASE,'--bindings-module',module.__name__,
-            '--package-root',str(root),'--evidence-root',str(tmp_path/'evidence')])
+    code = main(['run','--ledger',str(truth.store.path),'--source-commit',COMMIT,
+        '--release-batch',BATCH,'--release-id',RELEASE,'--bindings-module',module.__name__,
+        '--package-root',str(root),'--evidence-root',str(tmp_path/'evidence')])
+    assert code == 37
+    result = json.loads(capsys.readouterr().out)
+    assert result['status'] == 'HOLD' and result['reason'] == 'FIELD_MISSION_Q7_ADMISSION_HOLD'
+    assert result['bank_final'] is result['field_verified'] is False
     assert truth.store.path.read_bytes() == before
