@@ -297,3 +297,57 @@ def test_bsk_dom_oracle_rejects_ambiguous_element_even_if_first_matches(tmp_path
         "rc72_journey_replay_step", replay_id="BSK-AMBIGUOUS"),
         key=lambda row: row["sequence"])
     assert rows[-1]["failure_code"] == "JOURNEY_BSK_ORACLE_ELEMENT_NOT_UNIQUE"
+
+
+@pytest.mark.parametrize("action,extra,expected_action", [
+    ("PRESS", {"key": "Enter"}, "press"),
+    ("HOVER", {}, "hover"),
+    ("SCROLL_TO", {}, "scroll-to"),
+    ("DRAG", {"target_ref": "css:#drop-zone"}, "drag"),
+])
+def test_bsk_native_executes_non_happy_path_keyboard_hover_scroll_drag(
+        tmp_path, action, extra, expected_action):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    runner = TestBSK()
+    adapter = _adapter(pool, tmp_path, runner)
+    step = dict(truth.query(
+        "rc72_journey_candidate", candidate_id="JC-1")[0]["steps"][0])
+    step.update(sequence=1, action_type=action, element_ref="css:#source")
+    step.update(extra)
+    outcome = adapter.execute_step(step, {
+        "replay_id": "BSK-ADVANCED-" + action, "mission_id": "M-1",
+        "workitem_id": "WI-R1", "attempt_id": "ATT-R1",
+        "worker_id": "WORKER-R1", "session_id": "SESSION-R1",
+        "browser_lease_id": lease.browser_lease_id})
+    assert outcome["status"] == "PASSED"
+    dispatched = [cmd for cmd in runner.calls if "step" in cmd]
+    assert len(dispatched) == 1
+    argv = dispatched[0]
+    assert argv[argv.index("--action") + 1] == expected_action
+    params = json.loads(argv[argv.index("--params") + 1])
+    if action == "PRESS":
+        assert params == {"selector": "#source", "key": "Enter"}
+    elif action == "DRAG":
+        assert params == {
+            "source": {"selector": "#source"},
+            "target": {"selector": "#drop-zone"}}
+    else:
+        assert params == {"selector": "#source"}
+
+
+def test_bsk_rejects_arbitrary_key_instead_of_typing_secret_with_press(tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    runner = TestBSK()
+    adapter = _adapter(pool, tmp_path, runner)
+    step = dict(truth.query(
+        "rc72_journey_candidate", candidate_id="JC-1")[0]["steps"][0])
+    step.update(action_type="PRESS", element_ref="css:#pin",
+                key="123456")
+    result = adapter.execute_step(step, {
+        "replay_id": "BSK-PRESS-SECRET", "mission_id": "M-1",
+        "workitem_id": "WI-R1", "attempt_id": "ATT-R1",
+        "worker_id": "WORKER-R1", "session_id": "SESSION-R1",
+        "browser_lease_id": lease.browser_lease_id})
+    assert result["status"] == "FAILED"
+    assert result["failure_code"] == "JOURNEY_BSK_PRESS_KEY_UNSAFE"
+    assert not any("step" in cmd for cmd in runner.calls)
