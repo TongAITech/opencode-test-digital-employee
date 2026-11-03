@@ -274,6 +274,10 @@ class OfficialJourneyExecutionService:
                 raise ContractError("OFFICIAL_JOURNEY_%s_REQUIRED" % name.upper())
         if self.truth.query(_EXECUTION, execution_id=execution_id):
             raise ContractError("OFFICIAL_JOURNEY_EXECUTION_ALREADY_EXISTS")
+        if any(row.get("official_asset_id") == official_asset_id
+               and row.get("attempt_id") == attempt_id
+               for row in self.truth.query(_EXECUTION)):
+            raise ContractError("OFFICIAL_JOURNEY_ATTEMPT_ALREADY_USED_DIAGNOSIS_REQUIRED")
         asset = self._one("rc72_official_journey_asset", official_asset_id=official_asset_id)
         if asset.get("status") != "OFFICIAL" or asset.get("official") is not True or asset.get("executable") is not True:
             raise ContractError("OFFICIAL_JOURNEY_ASSET_NOT_EXECUTABLE")
