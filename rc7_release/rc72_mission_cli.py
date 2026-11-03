@@ -113,6 +113,8 @@ def main(argv=None):
                     MODEL_USAGE_TOTAL_STATUS=economy_result.metrics.get('usage_total_status', 'UNKNOWN'),
                     ACTUAL_TOTAL_TOKENS=economy_result.metrics.get('actual_total_tokens'),
                     DSH_PROCESS_INVOCATIONS=economy_result.metrics.get('dsh_process_invocations'),
+                    DSH_PROCESS_INVOCATION_COUNT_STATUS=economy_result.metrics.get('dsh_process_invocation_count_status', 'UNKNOWN'),
+                    DSH_PROCESS_LAUNCH_ERROR_COUNT=economy_result.metrics.get('dsh_process_launch_error_count'),
                     PROVIDER_INFERENCE_CALL_COUNT=economy_result.metrics.get('provider_inference_call_count'),
                     PROVIDER_INFERENCE_CALL_COUNT_STATUS=economy_result.metrics.get('provider_inference_call_count_status', 'UNKNOWN'),
                 )
@@ -131,7 +133,10 @@ def main(argv=None):
                     MODEL_ECONOMY_STATUS='HOLD',
                     MODEL_ECONOMY_REASON='MISSION_RUN_NOT_COMPLETED',
                     MODEL_USAGE_TOTAL_STATUS='UNKNOWN', ACTUAL_TOTAL_TOKENS=None,
-                    DSH_PROCESS_INVOCATIONS=None, PROVIDER_INFERENCE_CALL_COUNT=None,
+                    DSH_PROCESS_INVOCATIONS=None,
+                    DSH_PROCESS_INVOCATION_COUNT_STATUS='UNKNOWN',
+                    DSH_PROCESS_LAUNCH_ERROR_COUNT=None,
+                    PROVIDER_INFERENCE_CALL_COUNT=None,
                     PROVIDER_INFERENCE_CALL_COUNT_STATUS='UNKNOWN')
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     if args.command == 'status':
