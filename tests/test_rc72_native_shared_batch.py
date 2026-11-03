@@ -599,3 +599,53 @@ def test_formal_n7_bridge_unit_contract_reconciles_only_canonical_audited_member
     assert truth.query("execution_attempt", release_id=RELEASE) == []
     assert truth.query("assertion", release_id=RELEASE) == []
     assert len(truth.query("rc72_token_call", mission_id=MISSION)) == 2
+
+
+
+def test_host_batch_composer_drives_native_producer_reviewer_then_formal_n7_hold(tmp_path):
+    """Actual two DSH command boundaries; N7 acceptance is a stub HOLD.
+
+    The resulting batch must not create a PASS, an Oracle or an accepted
+    SafeExecutionBatch member when the real formal workflow is incomplete.
+    """
+    from rc7_runtime.rc72_n7_pipeline import N7PipelineService
+    from rc7_runtime.rc72_native_shared_batch_composition import NativeBatchServices
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    invoked = []
+    pipeline = object.__new__(N7PipelineService)
+    pipeline.truth = truth
+    pipeline.release_id = RELEASE
+    pipeline.source_commit = "a" * 40
+
+    def formal_complete(*, release_batch_id):
+        invoked.append(release_batch_id)
+        return {"status": "HOLD", "reason": "N7_ORACLE_EVIDENCE_INCOMPLETE"}
+
+    pipeline.complete = formal_complete
+    composition = NativeBatchServices(
+        execution=NativeSharedExecutionBatch(truth, release_id=RELEASE, launcher=execution),
+        evaluator=NativeSharedEvaluatorBatch(truth, release_id=RELEASE, launcher=reviewer),
+    )
+
+    def approved_host_reviewer_factory(candidate):
+        assert candidate["raw_output_ref"].startswith("file://")
+        assert len(candidate["members"]) == 2
+        return _review_assignment(batch.batch_id, candidate["raw_output_ref"])
+
+    result = composition.drive_formal_n7(
+        batch=batch,
+        attempt_ids_by_workitem={"WI-1": "ATT-1", "WI-2": "ATT-2"},
+        execution_assignment=assignment,
+        approved_reviewer_assignment_factory=approved_host_reviewer_factory,
+        pipeline=pipeline,
+        release_batch_id="FORMAL-BATCH-1",
+    )
+    assert result["status"] == "HOLD"
+    assert result["reason"] == "NATIVE_BATCH_FORMAL_N7_NOT_ACCEPTED"
+    assert invoked == ["FORMAL-BATCH-1"]
+    assert execution.execute_count == reviewer.execute_count == 1
+    assert truth.query("rc72_execution_batch_receipt", batch_id=batch.batch_id)[0]["state"] == "ADMITTED"
+    assert truth.query("execution_attempt", release_id=RELEASE) == []
+    assert truth.query("assertion", release_id=RELEASE) == []
+    assert truth.query("rc72_node_gate", mission_id=MISSION) == []
