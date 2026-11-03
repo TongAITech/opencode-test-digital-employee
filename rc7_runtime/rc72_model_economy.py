@@ -31,6 +31,8 @@ from rc6_runtime import contracts as _contracts
 from rc6_runtime import truth as _truth
 from rc6_runtime.truth import TruthRuntime
 
+from .rc72_provider_usage_filter import is_tool_branch_key, is_tool_usage_node
+
 
 _TOKEN_BUDGET = "rc72_token_budget"
 _TOKEN_CALL = "rc72_token_call"
@@ -476,10 +478,14 @@ def _usage_candidate(mapping: Mapping[str, Any]) -> Optional[Tuple[int, int, int
 
 def _walk_usage(value: Any) -> Iterable[Tuple[int, int, int]]:
     if isinstance(value, Mapping):
+        if is_tool_usage_node(value):
+            return
         candidate = _usage_candidate(value)
         if candidate is not None:
             yield candidate
-        for child in value.values():
+        for key, child in value.items():
+            if is_tool_branch_key(key):
+                continue
             for found in _walk_usage(child):
                 yield found
     elif isinstance(value, list):
