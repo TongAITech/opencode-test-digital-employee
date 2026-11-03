@@ -144,11 +144,11 @@ def qualify(root, *, expected_source, dsh_relpath=None):
             or inventory.get("status") != "PASS" or inventory.get("field_verified") is not False
             or inventory.get("bank_final") is not False):
         raise QualificationError("INVENTORY_PRODUCT_IDENTITY_MISMATCH")
-    if manifest.get("source_commit", "").lower() != expected_source.lower():
+    if not isinstance(manifest.get("source_commit"), str) or manifest["source_commit"].lower() != expected_source.lower():
         raise QualificationError("MANIFEST_SOURCE_MISMATCH")
     if manifest.get("field_verified") is not False or manifest.get("bank_final") is not False:
         raise QualificationError("FALSE_FIELD_STATUS")
-    if inventory.get("source_commit", "").lower() != expected_source.lower():
+    if not isinstance(inventory.get("source_commit"), str) or inventory["source_commit"].lower() != expected_source.lower():
         raise QualificationError("INVENTORY_SOURCE_MISMATCH")
     if inventory.get("qualification_scope") != "PHYSICAL_INVENTORY_ONLY":
         raise QualificationError("INVENTORY_SCOPE_INVALID")
@@ -158,7 +158,9 @@ def qualify(root, *, expected_source, dsh_relpath=None):
 
     checksums = _checksum_rows(root)
     manifest_paths = set()
-    for item in manifest.get("files") or []:
+    if not isinstance(manifest.get("files"), list) or not manifest["files"]:
+        raise QualificationError("MANIFEST_FILES_REQUIRED")
+    for item in manifest["files"]:
         if not isinstance(item, dict) or not isinstance(item.get("path"), str):
             raise QualificationError("MANIFEST_FILE_INVALID")
         rel = item["path"]
@@ -168,7 +170,8 @@ def qualify(root, *, expected_source, dsh_relpath=None):
         path = _inside(root, rel)
         if not path.is_file() or rel not in checksums:
             raise QualificationError("MANIFEST_FILE_NOT_CHECKSUMMED:" + rel)
-        if item.get("sha256", "").lower() != checksums[rel] or item.get("size") != path.stat().st_size:
+        if (not isinstance(item.get("sha256"), str) or item["sha256"].lower() != checksums[rel]
+                or type(item.get("size")) is not int or item["size"] != path.stat().st_size):
             raise QualificationError("MANIFEST_BYTES_MISMATCH:" + rel)
 
     # The product packager lists every ordinary physical file in CHECKSUMS and
@@ -243,6 +246,17 @@ def qualify(root, *, expected_source, dsh_relpath=None):
     }
 
 
+def _report_destination(root, report):
+    """The verifier must never self-modify the payload it is auditing."""
+    package_root = Path(root).resolve()
+    dest = Path(report).resolve()
+    if os.path.commonpath([str(package_root), str(dest)]) == str(package_root):
+        raise QualificationError("AUDIT_REPORT_MUST_BE_OUTSIDE_PACKAGE")
+    if dest.exists():
+        raise QualificationError("AUDIT_REPORT_ALREADY_EXISTS")
+    return dest
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Fail-closed independent RC7.2 physical payload QA; never BANK_FINAL")
     parser.add_argument("--package-root", required=True)
@@ -250,14 +264,23 @@ def main(argv=None):
     parser.add_argument("--dsh-relpath", default=None, help="Path to a physically carried signed/checksummed DSH main binary")
     parser.add_argument("--report", default=None, help="JSON output, preferably outside the package root")
     options = parser.parse_args(argv)
+    report = None
     try:
+        if options.report:
+            report = _report_destination(options.package_root, options.report)
         result = qualify(options.package_root, expected_source=options.expected_source_commit, dsh_relpath=options.dsh_relpath)
     except (QualificationError, OSError, ValueError) as exc:
         result = {"schema": "RC72_QA_PHYSICAL_AUDIT_V1", "status": "FAIL", "reason": str(exc),
                   "field_verified": False, "bank_final": False}
     output = json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False) + chr(10)
-    if options.report:
-        Path(options.report).write_text(output, encoding="utf-8")
+    if report is not None:
+        try:
+            with report.open("x", encoding="utf-8") as dest:
+                dest.write(output)
+        except OSError as exc:
+            print(json.dumps({"status": "FAIL", "reason": "AUDIT_REPORT_WRITE_REFUSED:" + str(exc),
+                              "field_verified": False, "bank_final": False}))
+            return 1
     print(output)
     return 0 if result["status"] == "PHYSICAL_CANDIDATE_ONLY" else 1
 
