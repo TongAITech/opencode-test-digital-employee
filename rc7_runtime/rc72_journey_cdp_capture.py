@@ -38,8 +38,11 @@ _CAPTURE_SCRIPT = r"""
    const el = e.target;
    if (el && el.closest && el.closest('[data-rc72-no-record]')) return;
    const r = ref(el);
-   events.push({type, element_ref:r, tag:el && el.tagName || 'UNKNOWN',
-     url:location.origin + location.pathname, at:Date.now()});
+   const payload = {type, element_ref:r, tag:el && el.tagName || 'UNKNOWN',
+     url:location.origin + location.pathname, at:Date.now()};
+   if (typeof window.__rc72ReportEvent === 'function') {
+     Promise.resolve(window.__rc72ReportEvent(payload)).catch(() => events.push(payload));
+   } else events.push(payload);
  };
  document.addEventListener('click', e => push('CLICK', e), true);
  document.addEventListener('change', e => push(e.target && e.target.tagName === 'SELECT' ? 'SELECT' : 'INPUT', e), true);
@@ -82,6 +85,7 @@ class JourneyCDPTeachingRecorder:
         self.recording = None
         self.page = None
         self.responses: List[Dict[str, Any]] = []
+        self.events: List[Dict[str, Any]] = []
         self._response_listener = None
         self.last_url = ""
 
@@ -112,6 +116,9 @@ class JourneyCDPTeachingRecorder:
             if not endpoint.startswith(("http://127.0.0.1:", "http://localhost:", "ws://127.0.0.1:", "ws://localhost:")):
                 raise ContractError("JOURNEY_TEACHING_CDP_LOCAL_ENDPOINT_REQUIRED")
             page = self.browser._page(endpoint)
+            if callable(getattr(page.context, "expose_binding", None)):
+                page.context.expose_binding(
+                    "__rc72ReportEvent", lambda source, event: self.events.append(dict(event)))
             page.context.add_init_script(script=_CAPTURE_SCRIPT)
             page.evaluate(_CAPTURE_SCRIPT)
             self.page = page
@@ -193,9 +200,12 @@ class JourneyCDPTeachingRecorder:
         self._guard()
         if self.page is None:
             raise ContractError("JOURNEY_TEACHING_PAGE_UNAVAILABLE")
-        events = self.page.evaluate("() => window.__rc72Capture ? window.__rc72Capture.drain() : []")
-        if not isinstance(events, list):
+        buffered = list(self.events)
+        self.events.clear()
+        drained = self.page.evaluate("() => window.__rc72Capture ? window.__rc72Capture.drain() : []")
+        if not isinstance(drained, list):
             raise ContractError("JOURNEY_TEACHING_EVENTS_INVALID")
+        events = buffered + drained
         result = []
         current_url = _public_url(self.page.url)
         if current_url != self.last_url:
