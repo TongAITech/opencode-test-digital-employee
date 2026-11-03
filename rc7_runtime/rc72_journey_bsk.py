@@ -326,8 +326,18 @@ class JourneyBSKAdapter:
         if (result.get("ok") is not True or result.get("phase") != "observed"
                 or result.get("action_replayed") is not False
                 or not isinstance(result.get("post"), Mapping)
-                or not isinstance(result["post"].get("context_id"), str)):
+                or not isinstance(result["post"].get("context_id"), str)
+                or result["post"].get("tab_id") != self._tab_id):
             raise ContractError("JOURNEY_BSK_ACTION_UNKNOWN_OR_UNOBSERVED")
+        if action == "navigate":
+            # BSK step only proves the command was dispatched and the
+            # browser was observed. It does NOT prove the intended page was
+            # reached; a SSO redirect/login/error page is NOT a PASS.
+            self._guard(context)
+            state = self._page_read(
+                session, result["post"]["context_id"])
+            if state.get("url") != _public_url(step.get("url")):
+                raise ContractError("JOURNEY_BSK_NAVIGATION_TARGET_MISMATCH")
         return {"action": kind, "verified": True}
 
     def execute_step(self, step: Mapping[str, Any],
