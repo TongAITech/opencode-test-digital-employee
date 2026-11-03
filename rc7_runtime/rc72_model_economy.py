@@ -608,6 +608,14 @@ class TokenEconomyService:
         return {
             "mission_id": mission_id,
             "model_calls": len(model_calls),
+            # This counter is per native DSH subprocess invocation. A DSH
+            # session can make multiple provider inference calls; no bank-
+            # verified per-inference event contract exists yet.
+            "dsh_process_invocations": len(model_calls),
+            "provider_inference_call_count": None,
+            "provider_inference_call_count_status": (
+                "UNKNOWN" if model_calls else "NO_CALLS"
+            ),
             "blocked_calls": len(calls) - len(model_calls),
             "economy_warning_calls": len(warning_calls),
             "defer_recommended_calls": len(deferred_recommended),
@@ -841,6 +849,25 @@ class TokenEconomyService:
         elif metrics["retry_calls"] > int(budget["max_retry_calls"]):
             status, reason = "DEGRADED", "MODEL_ECONOMY_RETRY_CALL_TARGET_EXCEEDED"
         return TokenQualification(status, mission_id, reason, metrics)
+
+    def field_qualification(self, mission_id: str) -> TokenQualification:
+        """Strict Field Q7 qualification, distinct from source-only accounting.
+
+        A native DSH subprocess is not proof of the number of underlying
+        provider inference rounds. Until a real bank JSONL event contract can
+        attribute *each* inference, never promote simulated/subprocess counts
+        into an independently verified MODEL_ECONOMY_STATUS=PASS.
+        """
+        component = self.qualification(mission_id)
+        metrics = component.metrics
+        if (
+            component.status in {"PASS", "DEGRADED"}
+            and metrics.get("provider_inference_call_count_status") != "MEASURED"
+        ):
+            return TokenQualification(
+                "HOLD", mission_id, "PROVIDER_INFERENCE_CALL_COUNT_UNKNOWN", metrics,
+            )
+        return component
 
 
 MetadataResolver = Callable[[Any], Mapping[str, Any]]
