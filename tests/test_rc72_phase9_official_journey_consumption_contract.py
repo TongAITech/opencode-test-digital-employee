@@ -75,7 +75,7 @@ def _setup(tmp_path: Path, *, test_level="L5", adapter=None, trusted_field_adapt
     install_rc72_journey_promotion_overlay()
     truth.append_atomic("RC72_OFFICIAL_JOURNEY_ASSET_UPSERTED", {
         "official_asset_id": "JOURNEY-1", "mission_id": "M-1", "release_id": "RC7.2",
-        "release_batch_id": "RB-1", "requirement_id": "REQ-1", "sst_id": "SST-1", "obligation_id": "TO-1",
+        "release_batch_id": "RB-1", "requirement_id": "REQ-1", "sst_id": "SST-1", "obligation_id": "TO-1", "case_id": "TC-OJ",
         "source_candidate_id": "JC-1", "source_candidate_artifact_version": 3,
         "source_benchmark_id": "JB-1", "source_benchmark_artifact_version": 2,
         "human_review_id": "JREV-1", "approval_scope_digest": "sha256:approved",
@@ -175,6 +175,7 @@ def test_official_asset_is_immutable_across_execution(tmp_path: Path):
     after = truth.query("rc72_official_journey_asset", official_asset_id="JOURNEY-1")[0]
     assert after == before
     assert after["official"] is True and after["executable"] is True
+    assert after["case_id"] == "TC-OJ"
 
 
 def test_official_execution_truth_survives_r1_restart(tmp_path: Path):

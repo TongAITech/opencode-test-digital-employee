@@ -64,6 +64,8 @@ def _validate_candidate(payload: Dict[str, Any]) -> Dict[str, Any]:
         out["state"] = JourneyCandidateState(out["state"].upper()).value
     except ValueError as exc:
         raise _contracts.DomainValidationError("JOURNEY_CANDIDATE_STATE_INVALID") from exc
+    if "case_id" in out:
+        out["case_id"] = _required(out, "case_id")
     if out["asset_class"] != "CANDIDATE":
         raise _contracts.DomainValidationError("JOURNEY_CANDIDATE_ASSET_CLASS_INVALID")
     if out.get("executable") is not False:
@@ -94,12 +96,13 @@ def _validate_candidate(payload: Dict[str, Any]) -> Dict[str, Any]:
         _optional_string(step, "value_ref")
         _optional_string(step, "credential_ref")
         _optional_string(step, "oracle_ref")
+        _optional_string(step, "dialog_policy_ref")
         for list_name in ("network_refs", "evidence_refs"):
             refs = step.get(list_name)
             if not isinstance(refs, list) or not all(isinstance(ref, str) and ref.strip() for ref in refs):
                 raise _contracts.DomainValidationError("JOURNEY_CANDIDATE_STEP_%s_INVALID" % list_name.upper())
         action_type = str(step["action_type"]).upper()
-        if action_type == JourneyActionType.INPUT.value and not (step.get("value_ref") or step.get("credential_ref")):
+        if action_type in {JourneyActionType.INPUT.value, JourneyActionType.SELECT.value} and not (step.get("value_ref") or step.get("credential_ref")):
             raise _contracts.DomainValidationError("JOURNEY_INPUT_REFERENCE_REQUIRED")
         if action_type == JourneyActionType.ASSERT.value and not step.get("oracle_ref"):
             raise _contracts.DomainValidationError("JOURNEY_ASSERT_ORACLE_REQUIRED")
@@ -168,7 +171,7 @@ class JourneyCompiler:
             "wait_semantics": str(source["wait_semantics"]),
             "evidence_refs": list(source.get("evidence_refs") or []),
         }
-        if action_type == JourneyActionType.INPUT.value:
+        if action_type in {JourneyActionType.INPUT.value, JourneyActionType.SELECT.value}:
             value_ref = _metadata_ref(source, "value_ref")
             credential_ref = source.get("credential_ref")
             if isinstance(credential_ref, str):
@@ -184,6 +187,12 @@ class JourneyCompiler:
             if not oracle_ref:
                 raise ContractError("JOURNEY_ASSERT_ORACLE_REQUIRED")
             compiled["oracle_ref"] = oracle_ref
+        dialog_policy_ref = _metadata_ref(source, "dialog_policy_ref")
+        if dialog_policy_ref:
+            compiled["dialog_policy_ref"] = dialog_policy_ref
+        mapping_ref = _metadata_ref(source, "api_code_mapping_ref")
+        if mapping_ref:
+            compiled["api_code_mapping_ref"] = mapping_ref
         return compiled
 
     def compile(self, *, candidate_id: str, recording_id: str) -> JourneyCandidateResult:
@@ -211,6 +220,7 @@ class JourneyCompiler:
             "requirement_id": recording["requirement_id"],
             "sst_id": recording["sst_id"],
             "obligation_id": recording["obligation_id"],
+            **({"case_id": str(recording["case_id"])} if recording.get("case_id") else {}),
             "source_recording_id": recording_id,
             "state": JourneyCandidateState.COMPILED_CANDIDATE.value,
             "asset_class": "CANDIDATE",

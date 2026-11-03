@@ -77,6 +77,8 @@ def _validate_replay(payload: Dict[str, Any]) -> Dict[str, Any]:
         out[name] = _required(out, name)
     out["artifact_type"] = _REPLAY
     out["artifact_version"] = _contracts._artifact_version(out)
+    if out.get("case_id") is not None:
+        out["case_id"] = _required(out, "case_id")
     try:
         out["state"] = JourneyReplayState(out["state"].upper()).value
     except ValueError as exc:
@@ -242,35 +244,62 @@ class JourneyReplayService:
 
     def _adapter_outcome(self, step: Mapping[str, Any], context: Mapping[str, Any]) -> Dict[str, Any]:
         try:
+            # The service fences *every* adapter (including BSK/contract adapters),
+            # not merely the concrete Playwright implementation.
+            live_lease = self.browser_pool.assert_usable(
+                browser_lease_id=str(context["browser_lease_id"]),
+                mission_id=str(context["mission_id"]),
+                workitem_id=str(context["workitem_id"]),
+                attempt_id=str(context["attempt_id"]),
+                worker_id=str(context["worker_id"]),
+                access_mode=BrowserAccessMode.WRITE,
+            )
+            if str(live_lease.get("purpose") or "").upper() != "JOURNEY_REPLAY":
+                raise ContractError("JOURNEY_BROWSER_PURPOSE_CHANGED_DURING_ACTION")
             raw = self.adapter.execute_step(dict(step), dict(context))
-        except Exception as exc:  # adapter failures are replay failures, never PASS
+            # Revocation during a browser action must never produce a PASS.
+            live_lease = self.browser_pool.assert_usable(
+                browser_lease_id=str(context["browser_lease_id"]),
+                mission_id=str(context["mission_id"]),
+                workitem_id=str(context["workitem_id"]),
+                attempt_id=str(context["attempt_id"]),
+                worker_id=str(context["worker_id"]),
+                access_mode=BrowserAccessMode.WRITE,
+            )
+            if str(live_lease.get("purpose") or "").upper() != "JOURNEY_REPLAY":
+                raise ContractError("JOURNEY_BROWSER_PURPOSE_CHANGED_DURING_ACTION")
+            if not isinstance(raw, Mapping):
+                raise ContractError("JOURNEY_REPLAY_ADAPTER_RESULT_INVALID")
+            status = str(raw.get("status") or "").upper()
+            if status not in {"PASSED", "FAILED"}:
+                raise ContractError("JOURNEY_REPLAY_ADAPTER_STATUS_INVALID")
+            actual_refs = list(_clean_refs(raw.get("actual_refs"), "actual_refs"))
+            evidence_refs = list(_clean_refs(raw.get("evidence_refs"), "evidence_refs"))
+            failure_code = raw.get("failure_code")
+            if status == "FAILED":
+                if not isinstance(failure_code, str) or not failure_code.strip():
+                    failure_code = "STEP_FAILED"
+                else:
+                    failure_code = failure_code.strip()
+            else:
+                failure_code = None
+            return {
+                "status": status,
+                "actual_refs": actual_refs,
+                "evidence_refs": evidence_refs,
+                "failure_code": failure_code,
+            }
+        except Exception as exc:
+            # A malformed result can follow real browser I/O. Never leave a
+            # STARTED replay pretending it was a successful/known step.
+            from .rc72_journey_failure_receipt import adapter_exception_receipt
+            receipt = adapter_exception_receipt(self.truth, step=step, context=context, error=exc)
             return {
                 "status": "FAILED",
-                "actual_refs": ["adapter-error://%s" % step["sequence"]],
-                "evidence_refs": ["adapter-error://%s" % step["sequence"]],
-                "failure_code": "ADAPTER_EXCEPTION:%s" % exc.__class__.__name__,
+                "actual_refs": [receipt],
+                "evidence_refs": [receipt],
+                "failure_code": "ADAPTER_RUNTIME_EXCEPTION:%s" % exc.__class__.__name__,
             }
-        if not isinstance(raw, Mapping):
-            raise ContractError("JOURNEY_REPLAY_ADAPTER_RESULT_INVALID")
-        status = str(raw.get("status") or "").upper()
-        if status not in {"PASSED", "FAILED"}:
-            raise ContractError("JOURNEY_REPLAY_ADAPTER_STATUS_INVALID")
-        actual_refs = list(_clean_refs(raw.get("actual_refs"), "actual_refs"))
-        evidence_refs = list(_clean_refs(raw.get("evidence_refs"), "evidence_refs"))
-        failure_code = raw.get("failure_code")
-        if status == "FAILED":
-            if not isinstance(failure_code, str) or not failure_code.strip():
-                failure_code = "STEP_FAILED"
-            else:
-                failure_code = failure_code.strip()
-        else:
-            failure_code = None
-        return {
-            "status": status,
-            "actual_refs": actual_refs,
-            "evidence_refs": evidence_refs,
-            "failure_code": failure_code,
-        }
 
     def _update_candidate_replay_status(self, candidate: Mapping[str, Any], status: str) -> None:
         updated = dict(candidate)
@@ -300,6 +329,16 @@ class JourneyReplayService:
                 raise ContractError("%s_REQUIRED" % name.upper())
         if self.truth.query(_REPLAY, replay_id=replay_id):
             raise ContractError("JOURNEY_REPLAY_ALREADY_EXISTS")
+        # A crashed replay can have side effects not represented by a step
+        # receipt. Neither a new ID nor a different Attempt may bypass N8.
+        if any(row.get("state") == "STARTED"
+               for row in self.truth.query(_REPLAY, candidate_id=candidate_id)):
+            raise ContractError("JOURNEY_REPLAY_UNKNOWN_SIDE_EFFECTS_RECOVERY_REQUIRED")
+        # A separate replay ID is not permission to repeat business side effects.
+        # Benchmark replays require independent Attempt leases.
+        if any(row.get("candidate_id") == candidate_id and row.get("attempt_id") == attempt_id
+               for row in self.truth.query(_REPLAY)):
+            raise ContractError("JOURNEY_REPLAY_ATTEMPT_ALREADY_USED_DIAGNOSIS_REQUIRED")
         candidate = self._one("rc72_journey_candidate", candidate_id=candidate_id)
         if candidate.get("state") != JourneyCandidateState.COMPILED_CANDIDATE.value:
             raise ContractError("JOURNEY_REPLAY_REQUIRES_COMPILED_CANDIDATE")
@@ -309,11 +348,19 @@ class JourneyReplayService:
         if not steps:
             raise ContractError("JOURNEY_REPLAY_STEPS_REQUIRED")
         mission_id = str(candidate["mission_id"])
-        self._binding(
+        binding = self._binding(
             mission_id=mission_id, workitem_id=workitem_id, attempt_id=attempt_id,
             worker_id=worker_id, session_id=session_id,
         )
-        self.browser_pool.assert_usable(
+        etu = self._one("rc72_etu", etu_id=str(binding["etu_id"]))
+        if (etu.get("mission_id") != mission_id
+                or etu.get("release_batch_id") != candidate.get("release_batch_id")
+                or etu.get("obligation_id") != candidate.get("obligation_id")
+                or binding.get("case_id") not in list(etu.get("case_ids") or [])
+                or (candidate.get("case_id") is not None
+                    and binding.get("case_id") != candidate.get("case_id"))):
+            raise ContractError("JOURNEY_REPLAY_CANONICAL_CASE_MISMATCH")
+        lease = self.browser_pool.assert_usable(
             browser_lease_id=browser_lease_id,
             mission_id=mission_id,
             workitem_id=workitem_id,
@@ -321,6 +368,8 @@ class JourneyReplayService:
             worker_id=worker_id,
             access_mode=BrowserAccessMode.WRITE,
         )
+        if str(lease.get("purpose") or "").upper() != "JOURNEY_REPLAY":
+            raise ContractError("JOURNEY_REPLAY_BROWSER_PURPOSE_MISMATCH")
         field_verified = self._field_verified()
         started_at = _now()
         base = {
@@ -331,6 +380,7 @@ class JourneyReplayService:
             "requirement_id": candidate["requirement_id"],
             "sst_id": candidate["sst_id"],
             "obligation_id": candidate["obligation_id"],
+            "case_id": binding["case_id"],
             "workitem_id": workitem_id,
             "attempt_id": attempt_id,
             "worker_id": worker_id,
