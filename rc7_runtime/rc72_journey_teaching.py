@@ -360,6 +360,8 @@ class JourneyTeachingService:
         recording = self._one(_RECORDING, recording_id=recording_id)
         if recording.get("state") != JourneyRecordingState.CAPTURING.value:
             raise ContractError("JOURNEY_RECORDING_NOT_CAPTURING")
+        self._binding(recording)
+        self._assert_browser(recording)
         if int(recording.get("step_count") or 0) < 1:
             raise ContractError("JOURNEY_RECORDING_STEPS_REQUIRED")
         evidence = [str(ref).strip() for ref in evidence_refs if isinstance(ref, str) and str(ref).strip()]
