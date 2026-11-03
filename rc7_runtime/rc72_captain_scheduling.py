@@ -344,8 +344,11 @@ class CaptainFencedWorkItemScheduler:
             # this cold interpreter. Exactly ONE initial session event must
             # reference this new Worker; any additional reference is unknown
             # provenance and categorically blocks unattended re-admission.
+            # A connector may record only the Session ID and omit Worker ID.
+            # Both unique identities must be absent from every other event.
             references = [event for event in self.truth.store.iter_raw()
-                          if self._contains_worker_identity(event.get("payload"), worker_id)]
+                          if (self._contains_worker_identity(event.get("payload"), worker_id)
+                              or self._contains_worker_identity(event.get("payload"), session_id))]
             if (len(references) != 1
                     or references[0].get("event_type") != "RC72_WORKER_SESSION_UPSERTED"
                     or references[0].get("entity_id") != session_id
