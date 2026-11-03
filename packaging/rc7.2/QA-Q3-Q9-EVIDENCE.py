@@ -119,18 +119,136 @@ def export_evidence(root, output, *, source_commit, includes=(), r1_relpath="run
     return dict(report, archive_path=str(output), archive_sha256=_digest(output))
 
 
+
+
+def _strict_archive_relative(rel):
+    """Reject archive index traversal, noncanonical aliases and Windows escapes."""
+    if not isinstance(rel, str) or not rel or "\\" in rel:
+        raise ExportError("FIELD_EVIDENCE_ZIP_PATH_INVALID")
+    p = PurePosixPath(rel)
+    if (p.is_absolute() or ".." in p.parts or not p.parts or ":" in p.parts[0]
+            or p.as_posix() != rel):
+        raise ExportError("FIELD_EVIDENCE_ZIP_PATH_ESCAPE")
+    return rel
+
+
+def verify_evidence_export(archive_path, *, expected_source_commit):
+    """Independently check exported ZIP/receipt and every index file byte.
+
+    Byte-copy integrity only: does not validate business R1 semantics,
+    independent approvers, Field qualification or BANK_FINAL.
+    """
+    if not isinstance(expected_source_commit, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", expected_source_commit):
+        raise ExportError("FIELD_EVIDENCE_VERIFY_SOURCE_REQUIRED")
+    archive_path = Path(archive_path).resolve()
+    receipt_path = Path(str(archive_path) + ".sha256")
+    if not archive_path.is_file() or not receipt_path.is_file():
+        raise ExportError("FIELD_EVIDENCE_ZIP_OR_RECEIPT_MISSING")
+    receipt = receipt_path.read_text(encoding="utf-8").strip().split("  ", 1)
+    if (len(receipt) != 2 or not re.fullmatch(r"[0-9a-fA-F]{64}", receipt[0])
+            or receipt[1] != archive_path.name or receipt[0].lower() != _digest(archive_path)):
+        raise ExportError("FIELD_EVIDENCE_ZIP_RECEIPT_MISMATCH")
+    try:
+        with zipfile.ZipFile(str(archive_path), "r") as archive:
+            metadata = archive.infolist()
+            names = [item.filename for item in metadata]
+            if len(names) != len(set(names)) or "QA-EVIDENCE-INDEX.json" not in names:
+                raise ExportError("FIELD_EVIDENCE_ZIP_DUPLICATE_OR_MISSING_INDEX")
+            for entry in metadata:
+                if (entry.filename != "QA-EVIDENCE-INDEX.json"
+                        and (not entry.filename.startswith("payload/")
+                             or not _strict_archive_relative(entry.filename[len("payload/"):]))):
+                    raise ExportError("FIELD_EVIDENCE_ZIP_UNDECLARED_ENTRY")
+                if entry.filename.endswith("/") or (entry.external_attr >> 16) & 0o170000 == 0o120000:
+                    raise ExportError("FIELD_EVIDENCE_ZIP_SYMLINK_OR_DIRECTORY")
+            index_entry = archive.getinfo("QA-EVIDENCE-INDEX.json")
+            if index_entry.file_size > 10 * 1024 * 1024:
+                raise ExportError("FIELD_EVIDENCE_ZIP_INDEX_OVERSIZE")
+            try:
+                index = json.loads(archive.read(index_entry).decode("utf-8"))
+            except (ValueError, UnicodeError) as exc:
+                raise ExportError("FIELD_EVIDENCE_ZIP_INDEX_INVALID") from exc
+            if not isinstance(index, dict) or index.get("schema") != "RC72_QA_Q3_Q9_EVIDENCE_TRANSPORT_V1":
+                raise ExportError("FIELD_EVIDENCE_ZIP_SCHEMA_INVALID")
+            if index.get("source_commit") != expected_source_commit.lower():
+                raise ExportError("FIELD_EVIDENCE_ZIP_SOURCE_MISMATCH")
+            if (index.get("field_verified") is not False or index.get("bank_final") is not False
+                    or index.get("q9_bank_final") != "NOT_ADMITTED"
+                    or index.get("scope") != "EVIDENCE_COPY_ONLY_NOT_INDEPENDENT_VERIFICATION"
+                    or any(index.get("q" + str(n) + "_" + {
+                        3: "target_linux", 4: "offline", 5: "browserskill", 6: "human_approval",
+                        7: "releasebatch", 8: "failure_recovery",
+                    }[n]) != "PENDING_INDEPENDENT_VERIFICATION" for n in range(3, 9))):
+                raise ExportError("FIELD_EVIDENCE_ZIP_FALSE_FIELD_CLAIM")
+            rows = index.get("files")
+            if not isinstance(rows, list) or not rows:
+                raise ExportError("FIELD_EVIDENCE_ZIP_FILES_REQUIRED")
+            listed = {}
+            for row in rows:
+                if not isinstance(row, dict):
+                    raise ExportError("FIELD_EVIDENCE_ZIP_ROW_INVALID")
+                rel = _strict_archive_relative(row.get("path"))
+                if rel in listed or type(row.get("size")) is not int or row["size"] < 0:
+                    raise ExportError("FIELD_EVIDENCE_ZIP_ROW_INVALID")
+                if not isinstance(row.get("sha256"), str) or not re.fullmatch(r"[0-9a-fA-F]{64}", row["sha256"]):
+                    raise ExportError("FIELD_EVIDENCE_ZIP_HASH_INVALID")
+                listed[rel] = row
+            r1 = _strict_archive_relative(index.get("r1_event_stream"))
+            required = {"SOURCE_COMMIT", "BUILD_ID", "RELEASE_FAMILY", "PACKAGE_MANIFEST.json",
+                        "CHECKSUMS.sha256", "FULL-CAPABILITY-INVENTORY.json", r1}
+            if not required.issubset(listed):
+                raise ExportError("FIELD_EVIDENCE_ZIP_REQUIRED_EVIDENCE_MISSING")
+            expected_entries = {"QA-EVIDENCE-INDEX.json"} | {"payload/" + rel for rel in listed}
+            if set(names) != expected_entries:
+                raise ExportError("FIELD_EVIDENCE_ZIP_ENTRY_COVERAGE_MISMATCH")
+            for rel, row in listed.items():
+                info = archive.getinfo("payload/" + rel)
+                if info.file_size != row["size"]:
+                    raise ExportError("FIELD_EVIDENCE_ZIP_SIZE_MISMATCH:" + rel)
+                digest, count = hashlib.sha256(), 0
+                with archive.open(info, "r") as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                        count += len(chunk)
+                if count != row["size"] or digest.hexdigest() != row["sha256"].lower():
+                    raise ExportError("FIELD_EVIDENCE_ZIP_BYTES_MISMATCH:" + rel)
+            if listed[r1]["size"] == 0:
+                raise ExportError("FIELD_EVIDENCE_ZIP_EMPTY_R1")
+            if (archive.read("payload/SOURCE_COMMIT").decode("utf-8").strip().lower() != expected_source_commit.lower()
+                    or archive.read("payload/BUILD_ID").decode("utf-8").strip() != "RC7.2-" + expected_source_commit.lower()[:12]
+                    or archive.read("payload/RELEASE_FAMILY").decode("utf-8").strip() != "RC7.2"):
+                raise ExportError("FIELD_EVIDENCE_ZIP_IDENTITY_MISMATCH")
+    except zipfile.BadZipFile as exc:
+        raise ExportError("FIELD_EVIDENCE_ZIP_CORRUPTED") from exc
+    return {
+        "status": "EVIDENCE_COPY_INTEGRITY_ONLY",
+        "source_commit": expected_source_commit.lower(),
+        "archive_sha256": receipt[0].lower(),
+        "file_count": len(listed),
+        "field_verified": False, "bank_final": False, "q9_bank_final": "NOT_ADMITTED",
+    }
+
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Export named Q3-Q9 evidence; NEVER declares BANK_FINAL")
-    parser.add_argument("--package-root", required=True)
+    parser = argparse.ArgumentParser(description="Export or verify Q3-Q9 evidence bytes; NEVER declares BANK_FINAL")
+    parser.add_argument("--package-root", help="Package root for export")
     parser.add_argument("--expected-source-commit", required=True)
-    parser.add_argument("--output", required=True, help="New ZIP outside the package root")
+    parser.add_argument("--output", help="New ZIP outside the package root for export")
+    parser.add_argument("--verify-archive", help="Read-only verify an exported ZIP and its .sha256 receipt")
     parser.add_argument("--r1-relpath", default="runtime-state/r1/event-stream.jsonl")
     parser.add_argument("--include", action="append", default=[], help="Explicit relative evidence file; repeat for each attachment")
     args = parser.parse_args(argv)
     try:
+        if args.verify_archive:
+            if args.package_root or args.output or args.include:
+                raise ExportError("FIELD_EVIDENCE_VERIFY_EXPORT_OPTIONS_CONFLICT")
+            result = verify_evidence_export(args.verify_archive, expected_source_commit=args.expected_source_commit)
+            print(json.dumps(result, sort_keys=True))
+            return 0
+        if not args.package_root or not args.output:
+            raise ExportError("FIELD_EVIDENCE_EXPORT_ROOT_AND_OUTPUT_REQUIRED")
         result = export_evidence(args.package_root, args.output, source_commit=args.expected_source_commit,
                                  includes=args.include, r1_relpath=args.r1_relpath)
-    except (ExportError, OSError, ValueError) as exc:
+    except (ExportError, OSError, ValueError, UnicodeError) as exc:
         print(json.dumps({"status": "FAIL", "error": str(exc), "bank_final": False}, sort_keys=True))
         return 1
     print(json.dumps({"status": "EVIDENCE_COPY_ONLY", "archive_path": result["archive_path"],
