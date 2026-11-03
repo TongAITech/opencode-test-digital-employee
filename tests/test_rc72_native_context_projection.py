@@ -15,13 +15,24 @@ from rc7_runtime.rc72_model_economy import (
     ModelCallClass, TokenEconomyError, TokenEconomyService,
 )
 from rc7_runtime.rc72_retry_context import (
-    install_rc72_retry_context_overlay, _ensure_projection_bucket,
+    install_rc72_retry_context_overlay, _ensure_projection_bucket, _retry_delta_digest,
 )
+from rc7_runtime.rc72_context_economy import build_retry_delta
 
 
 MISSION = "M-C10-CONTEXT"
 RELEASE = "REL-C10-CONTEXT"
 WORKITEM = "WI-CTX-1"
+
+
+def _valid_retry_digest(reason=None):
+    return _retry_delta_digest(build_retry_delta(
+        previous_attempt_summary_ref="SUMMARY-PARENT",
+        explicit_gap_refs=("GAP-1",),
+        delta_evidence_refs=("EVD-NEW",),
+        changed_dependency_refs=("DEP-NEW",),
+        full_context_reason=reason,
+    ))
 
 
 def _canonical(tmp_path):
@@ -72,7 +83,7 @@ def _retry_receipt(truth, *, status="OBSERVED", mode="RETRY_DELTA"):
         "canonical_lineage_refs_not_in_delta": ["ART-UPSTREAM-1"] if has_delta else [],
         "previous_attempt_summary_ref": "SUMMARY-PARENT" if has_delta else None,
         "full_context_reason": None,
-        "retry_delta_sha256": "a" * 64 if has_delta else None,
+        "retry_delta_sha256": _valid_retry_digest() if has_delta else None,
         "recorded_at": 1,
         "artifact_version": 1,
     })
@@ -189,7 +200,7 @@ def test_full_context_retry_receipt_keeps_canonical_parent_refs(tmp_path):
         "canonical_lineage_refs_not_in_delta": [],
         "previous_attempt_summary_ref": "SUMMARY-PARENT",
         "full_context_reason": "UPSTREAM_DELIVERY_REVISION_INVALIDATED_PRIOR_PROJECTION",
-        "retry_delta_sha256": "b" * 64,
+        "retry_delta_sha256": _valid_retry_digest("UPSTREAM_DELIVERY_REVISION_INVALIDATED_PRIOR_PROJECTION"),
         "recorded_at": 1, "artifact_version": 1,
     })
     projected = _project(truth, task, _assignment(attempt_id="ATT-CHILD", inputs=()))
