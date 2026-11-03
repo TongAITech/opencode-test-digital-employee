@@ -61,6 +61,14 @@ Source: `05` §§3,8,12,14,15,17,18,19,21,22; `10` C06/C07.
 - Tool authority issuance, real DSH launch and observed Attempt are **not** side effects of this interface. Return state is explicitly `LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH`. Product entry must connect signed TaskLease/CapabilityLease + actual DSH WorkerInvocation before claiming the work executed.
 - Tests: `tests/test_rc72_captain_scheduling.py`: same-Mission two workers, Captain A→B, cross-process task competition, wrong Captain and weak capability/role rejection, N7 cross-ETU Case mismatch, missing planning snapshot, cross-Mission input artifact, crash before dispatch, cold orphan reconciliation and unknown R1 capability provenance. Tests simulate failures; they are NOT live DSH/field execution.
 
+### Slice C07-U04 — production N7 signed-preparation handoff
+
+- `CaptainFencedWorkItemScheduler.dispatch_etu` now accepts actual professional `L1_EXECUTE ... L7_EXECUTE` role profiles (besides generic synthetic test roles). After the **existing** scheduler leases the WorkItem, it emits additive, strictly validated `RC72_CAPTAIN_ETU_ADMITTED` → `rc72_captain_etu_admission` R1 truth with exact Mission/Team/Captain generation/ETU/WorkItem/Worker/Session; neither Captain tokens nor fake execution results are stored.
+- `ExecutionPreparationService.prepare(..., fenced_admission=dispatch)` now optionally consumes that **same R1-proven Fresh Worker and LEASED WorkItem** instead of creating another Worker or double leasing the Task. It verifies the original Captain lease is still the ACTIVE owner, role equals the canonical ETU's `Lx_EXECUTE`, the R1 admission record is exact and immutable, and WorkerSession canonical context matches the frozen N7 contract and DataRefs **before** signing a TaskLease. Signed Attempt/Capability/Data/Browser preparation continues through the inherited real N7 runtime.
+- The legacy `prepare(plan_id, workitem_id)` entry remains available for existing callers and regression compatibility; C07 is **not** closed until Session A wires the explicit fenced path to the formal product entry. No changes to `rc72_release_driver.py` or `rc72_mission_factory.py`.
+- `tests/test_rc72_fenced_n7_preparation.py` covers actual canonical N7 Plan + TaskScheduler → Captain admission → signed Worker/TaskLease/DataLease, R1 cold replay, fake admission ID, forged Worker/role/ETU/generation, and old Captain quiescence. It does not execute SUT/DSH or assert Case PASS.
+- If a process dies after the Task is leased but before its R1 admission is written, the WorkItem remains LEASED without an admission proof: signing is blocked and R1 needs independent safe reconciliation. This is an explicit fail-closed crash window, not a success claim.
+
 ### Slice C07-U03 — Provider failure and Fresh Worker failover fencing
 
 - `rc72_model_failover.py` now protects canonical readiness updates, provider failure recording and failover with the **same cross-process R1 ledger lock**. Two cold processes must not both create a fresh replacement Worker for one provider failure. This is the runtime's **model/provider namespace**, not a product SUT FAIL or Defect.
@@ -75,7 +83,7 @@ Source: `05` §§3,8,12,14,15,17,18,19,21,22; `10` C06/C07.
 
 - C06 and C07 are **NOT** closed. No change to `rc72_release_driver.py`, `rc72_mission_factory.py`, or global R1 core schema. The new scheduler's orphan recovery only covers the proven pre-lease phase; post-lease/possible-business-effect orphans require independent recovery and cannot be retried automatically.
 - `C06`: Tool boundary for BrowserSkill/4A, physical orphan process custody, multi-process end-to-end effects, real environment negative validation.
-- `C07`: All role dispatch and live Worker/Attempt/CapabilityLease/ModelAssignment in same production product entrypoint, resource-bound model failover, all-role Fresh Worker lifecycle, Captain fencing integration and true session-expiry probes.
+- `C07`: Actual production entry still has to call `CaptainFencedWorkItemScheduler.dispatch_etu` then `ExecutionPreparationService.prepare(..., fenced_admission=...)` for formal N7; other N1–N10 professional role dispatch, real DSH WorkerInvocation/Evidence, CapabilityBroker decisions in product path, model failover and true session-expiry probes remain incomplete.
 - No live DSH/BSK/4A/bank proof is claimed. No PASS, BANK_FINAL, Q3–Q9 evidence, or overall implementation percentage is asserted.
 - New tests are engineering-level. The matrix must **execute**, not just compile, `tests/test_rc72_captain_scheduling.py`. PR CI must finish on exact current head before `ENGINEERING_VERIFIED` can be considered; no CI result here is presumed. Attempted local clone for additional tests was blocked by outbound DNS, so it is not counted as test execution.
 
@@ -84,7 +92,7 @@ Source: `05` §§3,8,12,14,15,17,18,19,21,22; `10` C06/C07.
 1. Install `install_captain_dispatch_overlay()` before cold R1 replay (module import installs it).
 2. Use exactly one canonical `TruthRuntime` instance for `CaptainDispatchFencer` and `WorkerLifecycleService` for a scheduling transaction.
 3. Bind `release_id`, `mission_id`, `team_id`, and Captain session; never expose Captain credentials to a Worker.
-4. Call `CaptainFencedWorkItemScheduler.dispatch_etu` for actual product ETU admission; never call the inherited `TaskScheduler.lease_task` directly from an unfenced Captain path. Keep signed TaskLease/CapabilityLease issuance + real WorkerInvocation separate and mandatory before execution.
+4. For N7: call `CaptainFencedWorkItemScheduler.dispatch_etu` with `role=etu.test_level + '_EXECUTE'` and canonical N7 ETU/contract/data refs, then `ExecutionPreparationService.prepare(plan_id=..., workitem_id=..., fenced_admission=dispatch)` against the **same R1**; never directly call the inherited `TaskScheduler.lease_task` from an unfenced Captain path. A signed TaskLease/CapabilityLease plus real DSH WorkerInvocation/Attempt/Evidence is still required before claiming execution.
 5. Complete product scheduling/orchestrator integration, real DSH launch and Attempt/Evidence binding, provider/field qualification and all-role coverage prior to closure.
 
 ## Evidence verification
