@@ -69,6 +69,39 @@ class CaptainFencedWorkItemScheduler:
         self.lifecycle, self.scheduler = lifecycle, scheduler
         self.release_id, self.role_profiles = release_id, validated
 
+    def _assert_n7_planning_lineage(self, *, mission_id, batch, task, etu):
+        """Enforce exact canonical N7 Case -> ETU -> WorkItem mapping.
+
+        A matching Mission ID is *not* proof that a Case belongs to an ETU.
+        N7's production planner emits authoritative items; never guess this
+        relationship from a WorkItem objective or a string similarity.
+        """
+        if task.task_type != "RC72_CASE_EXECUTION":
+            return
+        # The actual N7 planning overlay may be imported after this adapter.
+        from .rc72_n7_execution_planning import install_rc72_n7_execution_planning_overlay
+
+        install_rc72_n7_execution_planning_overlay()
+        plans = self.truth.query("rc72_n7_execution_plan", mission_id=mission_id)
+        matches = [(plan, item) for plan in plans for item in plan.get("items", ())
+                   if item.get("workitem_id") == task.task_id]
+        if len(matches) != 1:
+            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_N7_PLAN_ITEM_NOT_UNIQUE")
+        plan, item = matches[0]
+        if (plan.get("release_id") != self.release_id
+                or plan.get("release_batch_id") != batch["release_batch_id"]
+                or plan.get("status") != "PLANNED"
+                or plan.get("snapshot_id") != etu.get("planning_snapshot_ref")
+                or item.get("etu_id") != etu["etu_id"]
+                or item.get("case_id") not in etu.get("case_ids", ())
+                or item.get("input_artifact_refs") != task.input_artifact_refs):
+            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_N7_CANONICAL_LINEAGE_MISMATCH")
+        snapshot = self.truth.query("rc72_decomposition_snapshot",
+                                    snapshot_id=plan["snapshot_id"])
+        if (len(snapshot) != 1 or snapshot[0].get("mission_id") != mission_id
+                or etu["etu_id"] not in snapshot[0].get("etu_ids", ())):
+            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_N7_SNAPSHOT_NOT_VERIFIED")
+
     def dispatch_etu(self, *, mission_id: str, team_id: str,
                      captain_session_id: str, captain_lease_id: str,
                      role: str, etu_id: str, workitem_id: str,
@@ -104,6 +137,8 @@ class CaptainFencedWorkItemScheduler:
             if (len(etus) != 1 or etus[0]["mission_id"] != mission_id
                     or etus[0]["release_batch_id"] != batch["release_batch_id"]):
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_ETU_MISMATCH")
+            self._assert_n7_planning_lineage(
+                mission_id=mission_id, batch=batch, task=task, etu=etus[0])
             existing = [s for s in self.truth.query("rc72_worker_session", mission_id=mission_id)
                         if s.get("workitem_id") == workitem_id]
             if existing and not (
