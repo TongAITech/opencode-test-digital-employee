@@ -156,7 +156,9 @@ def test_controller_with_repair_provider_still_refuses_ambiguous_mapping_without
     finally:server.shutdown();server.server_close();business.shutdown();business.server_close()
 
 
-def test_n10_structured_feedback_rejects_mutated_r1_snapshot_without_new_io(tmp_path,monkeypatch):
+@pytest.mark.parametrize('tamper', ['blockers', 'facts', 'manifest_id', 'scope_snapshot_id',
+    'proven_obligation_ids', 'coverage_observation_ids', 'created_at'])
+def test_n10_structured_feedback_rejects_mutated_r1_snapshot_without_new_io(tmp_path,monkeypatch,tamper):
     """An N10 issue must resolve to the independently calculated R1 snapshot."""
     from rc7_runtime.models import ContractError
     from rc7_runtime.rc72_n10_feedback import NativeN10FeedbackService
@@ -179,8 +181,19 @@ def test_n10_structured_feedback_rejects_mutated_r1_snapshot_without_new_io(tmp_
             coverage_observation_ids=row['coverage_observation_ids'],created_at=row['created_at'])
         service=NativeN10FeedbackService(truth,release_id=pipeline.release_id)
         assert service.derive(snapshot=snapshot)==result['issues']
-        truth.append_atomic('RC72_RELEASE_CONVERGENCE_SNAPSHOT_UPSERTED',dict(row,
-            blockers=['scope:missing-level:foreign:L1'],artifact_version=row['artifact_version']+1))
+        forged=dict(row)
+        if tamper=='facts':
+            forged['facts']=dict(row['facts'],incremental_coverage_met=not row['facts']['incremental_coverage_met'])
+        elif tamper in {'proven_obligation_ids', 'coverage_observation_ids'}:
+            forged[tamper]=list(row[tamper])+['FORGED-R1-PROOF']
+        elif tamper=='created_at':
+            forged[tamper]=int(row[tamper])+1
+        elif tamper=='blockers':
+            forged[tamper]=['scope:missing-level:foreign:L1']
+        else:
+            forged[tamper]='FOREIGN-RELEASE-SNAPSHOT'
+        forged['artifact_version']=row['artifact_version']+1
+        truth.append_atomic('RC72_RELEASE_CONVERGENCE_SNAPSHOT_UPSERTED',forged)
         before=truth.store.path.read_bytes()
         with pytest.raises(ContractError,match='N10_FEEDBACK_SNAPSHOT_CHANGED'):
             service.derive(snapshot=snapshot)
