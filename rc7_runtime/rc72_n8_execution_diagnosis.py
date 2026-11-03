@@ -1,7 +1,8 @@
 """Actual independent diagnostic process and evidence review for N7 failures.
 
-Only directly verified data/tool gaps are routed automatically. Unknown causality
-remains BLOCKED; no caller can provide a classification or approval flag.
+Directly verified data/tool gaps and complete frozen-contract discrepancies
+are routed automatically; a discrepancy is not product causality. Unknown
+causality stays BLOCKED; callers cannot supply a classification or approval flag.
 """
 from copy import deepcopy
 import hashlib
@@ -46,11 +47,17 @@ def install_rc72_n8_execution_diagnosis_overlay():
 
 
 class ExecutionDiagnosisService:
-    def __init__(self, preparation, *, evidence_root, timeout_seconds=30):
+    def __init__(self, preparation, *, evidence_root, timeout_seconds=30, failure_evidence=None):
         install_rc72_n8_execution_diagnosis_overlay()
         if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int) or not 1 <= timeout_seconds <= 60:
             raise ContractError('N8_PROCESS_TIMEOUT_INVALID')
         self.preparation, self.truth = preparation, preparation.truth
+        if failure_evidence is not None:
+            from .rc72_conclusive_failure_evidence import ConclusiveAssertionFailureEvidence
+            if (not isinstance(failure_evidence,ConclusiveAssertionFailureEvidence)
+                    or failure_evidence.preparation is not preparation):
+                raise ContractError('N8_NATIVE_FAILURE_EVIDENCE_REQUIRED')
+        self.failure_evidence = failure_evidence
         self.root, self.timeout = Path(evidence_root).resolve(), timeout_seconds
         self.runtime = RC72StateMachine(self.truth, release_id=preparation.release_id)
         self.evidence = ExecutionEvidenceService(preparation)
@@ -84,10 +91,17 @@ class ExecutionDiagnosisService:
             checks.append(check)
         from .rc72_formal_runner import verified_formal_receipt
         verified_formal_receipt(self.preparation, p, c, dispatch.get('raw_result') or {})
-        return p, dict(attempt_id=p['attempt_id'], workitem_id=p['workitem_id'], case_id=p['case_id'],
+        facts = dict(attempt_id=p['attempt_id'], workitem_id=p['workitem_id'], case_id=p['case_id'],
             mission_id=p['mission_id'], contract_id=c['contract_id'], contract_sha256=c['contract_sha256'],
             dispatch_sha256=_hash(dispatch), reason=attempt['reason'], checks=sorted(checks, key=lambda row: row['evidence_id']),
             evidence_refs=attempt['evidence_refs'])
+        if self.failure_evidence is not None and self.failure_evidence.rows(preparation_id):
+            admitted = self.failure_evidence.audit(preparation_id)
+            facts['conclusive_assertion_failure'] = admitted
+            facts['evidence_refs'] = list(dict.fromkeys(facts['evidence_refs'] + [admitted['evidence_id'],
+                admitted['proof']['case_snapshot']['cleanup_evidence_ref']] +
+                [r['evidence_id'] for r in admitted['proof']['captured_evidence']]))
+        return p,facts
 
     def _process(self, request, path):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -130,7 +144,12 @@ class ExecutionDiagnosisService:
         p, facts = self._facts(preparation_id)
         cases = self.truth.query('rc72_diagnosis_case', source_binding_id=p['binding_id'])
         if not cases:
-            self.evidence.begin_diagnosis(preparation_id)
+            if facts.get('conclusive_assertion_failure'):
+                self.orchestrator.begin_failure_diagnosis(mission_id=p['mission_id'],team_id='TEAM-'+p['mission_id'],
+                    source_binding_id=p['binding_id'],failure_evidence_refs=facts['evidence_refs'],
+                    executable_contract_refs=[p['contract_id']],reason=facts['reason'])
+            else:
+                self.evidence.begin_diagnosis(preparation_id)
         case = self._one('rc72_diagnosis_case', source_binding_id=p['binding_id'])
         if case['failure_evidence_refs'] != facts['evidence_refs'] or case['executable_contract_refs'] != [p['contract_id']]:
             raise ContractError('N8_DIAGNOSIS_INPUT_SCOPE_CHANGED')

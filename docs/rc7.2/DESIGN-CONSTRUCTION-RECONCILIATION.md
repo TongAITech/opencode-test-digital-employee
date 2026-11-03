@@ -1,5 +1,49 @@
 # RC7.2 design/construction reconciliation — 2026-11-02
 
+## Frozen-contract business discrepancy → independent N8 → N9 intake — 2026-11-03
+
+The concrete N7 pipeline now handles an actual successful approved Runner whose
+frozen business Oracle fails. `ConclusiveAssertionFailureEvidence` uses native
+historical source/identity/dispatch checks, all approved precondition/data checks,
+formal process/target proof, signed cleanup and released resources, and every
+required evidence file. It captures an immutable HMAC-signed proof as canonical
+Evidence, retaining the full original plan denominator and failed Case/Attempt.
+The ordinary positive N7 review and finalizer still require all Oracles PASS.
+
+The typed same-preparation N8 evidence service admits that proof; separate actual
+diagnostic/reviewer processes reread captured bytes and independently recompute
+all deterministic Oracle operators. A reviewed discrepancy routes only
+`VALID_TEST_FAILURE` to the actual N9 Gap/back-edge. It does not establish product
+causality or create a Defect, turn the failed Attempt/N7 into PASS, shrink pending
+Cases, or automatically replay business actions. Missing evidence holds before
+acceptance; forged product-defect output is rejected by the second process.
+General unexplained failures without this proof remain UNKNOWN as before.
+
+Cold continuation reuses original dispatch/cleanup/diagnosis receipts. Partial
+capture/proof canonical writes resume from identical signed bytes, repairing only
+the exact missing base Evidence pointer after authenticating the existing proof.
+Already stored diagnosis/review results complete acceptance without another
+process or restoring business authority. Process failure/absent tool observation
+now holds before automatic cleanup and records the actual blocked Attempt;
+unknown external effects retain original resources for diagnosis.
+
+Evidence: `conclusive-failure-integrated-final.log` 100 passed in 328.73s covering
+N7 review/finalization/cleanup, N8 existing/retry/member reuse, pipeline and native
+obligation audit. Final targeted `conclusive-failure-qualification-final.log`
+9 passed in 30.63s covers real HTTP, cold R1 restart, absent files, forged/rehashed
+signature, changed capture bytes, independently rejected product-defect claims,
+and interruptions after capture, failure proof or actual diagnosis fsync.
+
+Limits: this is a discrepancy under the current approved Script/Runner contract.
+The runner still derives its tool-observation list from generated-script traces;
+actual call-time native tool fencing/transport attestation remains C07 work and
+is required before final delivery. Local tests perform actual HTTP/process I/O,
+but are not bank DSH/physical-tool Field qualification. N9 professional defect
+qualification/RCA/fix/regression, other semantic C03 repair classes, upstream N8
+repair execution in the controller, actual N9/N10 driver/factory and complete
+RC7.1-equivalent transport remain OPEN. Overall goal remains ACTIVE / NO_DELIVERY.
+
+
 ## Native accepted execution → full obligation evidence rollup — 2026-11-03
 
 `AcceptedObligationExecutionProof` refreshes R1 under the shared ledger lock and

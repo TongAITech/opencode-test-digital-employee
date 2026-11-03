@@ -57,7 +57,13 @@
   已持久化调用和清理回执直接复核，不重新准备已释放资源；效果不明或失败调用
   保留诊断 HOLD，不自动重放业务动作。验收提交后中断可由原 Delivery 接续。
   成功只沿真实 N7→N9 FORWARD 边推进，N8 保持未启动，不伪造 N8 PASS。
-- 完成前缀后，N8 修复、N9/N10 等未接入节点明确返回 HOLD / NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED。
+- 对成功正式进程中的业务断言偏差，N7 先验证签名清理、资源释放和完整文件证据，
+  再封存冻结契约证明；实际独立 N8 诊断及复核进程重新计算 Oracle，接受后仅路由
+  VALID_TEST_FAILURE 至 N9 核查，明确 HOLD / N9_FAILURE_QUALIFICATION_REQUIRED。
+  不创建产品缺陷，不提升原失败 Attempt/N7，也不删减其余待测用例。冷启动复用
+  原证明和已保存诊断，不重新发业务请求。缺失/变更证据不能放行。
+  失败进程或缺少工具观察在自动清理前保留诊断 HOLD；原资源占用不自动解除。
+- 完成前缀后，N8 上游修复执行、N9/N10 等未接入节点明确返回 HOLD / NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED。
   全部节点标签 PASS 仍需正式发布收敛审计；推进器不自行宣布 Mission 完成。
 
 只读状态入口不需要工作进程配置或密钥：

@@ -167,7 +167,7 @@ class ExecutionEvidenceReviewService:
             result.append(self._case_snapshot(plan, item, cases, prepared[0], allow_finalized=allow_finalized))
         return plan, result
 
-    def _case_snapshot(self, plan, item, cases, prepared, *, allow_finalized=False, current_upstream=True, historical_task=None):
+    def _case_snapshot(self, plan, item, cases, prepared, *, allow_finalized=False, current_upstream=True, historical_task=None, allow_business_failure=False):
         p, c, binding, admission, dispatch, oracle = self.evidence.observation(prepared['preparation_id'])
         if (p['case_id'] != item['case_id'] or p['contract_id'] != item['contract_id']
                 or p['admission_id'] != item['admission_id'] or p['etu_id'] != item['etu_id']
@@ -180,7 +180,7 @@ class ExecutionEvidenceReviewService:
                 AutonomousMissionNode(parent['node_type']))
             if parent['digest'] != _hash(list(current)):
                 raise EvidenceReviewError('N7_REVIEW_UPSTREAM_CHANGED')
-        if dispatch['state'] != 'RETURNED' or not oracle or not oracle['passed']:
+        if dispatch['state'] != 'RETURNED' or not oracle or (not oracle['passed'] and not allow_business_failure):
             raise EvidenceReviewError('N7_REVIEW_BUSINESS_RESULT_NOT_PASSING')
         task = self._one('rc7_task', task_id=p['workitem_id']) if historical_task is None else historical_task
         allowed_tasks = {'RUNNING', 'OUTPUT_PRODUCED', 'EVALUATING', 'PASS'} if allow_finalized else {'RUNNING'}
@@ -197,7 +197,8 @@ class ExecutionEvidenceReviewService:
                 or assertion.get('details') != oracle['details']
                 or assertion.get('evidence_refs') != attempt.get('observation_evidence_refs', attempt['evidence_refs'])
                 or attempt.get('actual_result') != dispatch['raw_result'] or attempt.get('worker_id') != p['worker_id']
-                or assertion.get('attempt_id') != p['attempt_id'] or assertion.get('passed') is not True
+                or assertion.get('attempt_id') != p['attempt_id']
+                or assertion.get('passed') is not (oracle['passed'] if allow_business_failure else True)
                 or assertion.get('oracle_ref') != oracle['assertion_ref']):
             raise EvidenceReviewError('N7_REVIEW_ATTEMPT_ASSERTION_MISMATCH')
         from .rc72_formal_runner import verified_formal_receipt
