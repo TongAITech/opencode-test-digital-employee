@@ -71,6 +71,7 @@ def _digest_payload(candidate: Mapping[str, Any], benchmark: Mapping[str, Any]) 
             "requirement_id": candidate.get("requirement_id"),
             "sst_id": candidate.get("sst_id"),
             "obligation_id": candidate.get("obligation_id"),
+            "case_id": candidate.get("case_id"),
             "source_recording_id": candidate.get("source_recording_id"),
             "state": candidate.get("state"),
             "asset_class": candidate.get("asset_class"),
@@ -147,6 +148,13 @@ def _validate_official(payload: Dict[str, Any]) -> Dict[str, Any]:
         out[name] = _required(out, name)
     out["artifact_type"] = _OFFICIAL
     out["artifact_version"] = _contracts._artifact_version(out)
+    # An approved Journey is a version-one immutable executable. Revisions
+    # require a new Candidate, replay benchmark, human attestation and a new
+    # official_asset_id; a drift report is a distinct R1 artifact.
+    if out["artifact_version"] != 1:
+        raise _contracts.DomainValidationError("OFFICIAL_JOURNEY_ASSET_IMMUTABLE")
+    if "case_id" in out and out["case_id"] is not None:
+        out["case_id"] = _required(out, "case_id")
     if out["status"] != "OFFICIAL":
         raise _contracts.DomainValidationError("OFFICIAL_JOURNEY_STATUS_INVALID")
     if out.get("official") is not True or out.get("executable") is not True:
@@ -250,6 +258,7 @@ class JourneyPromotionService:
             "requirement_id": candidate.get("requirement_id"),
             "sst_id": candidate.get("sst_id"),
             "obligation_id": candidate.get("obligation_id"),
+            "case_id": candidate.get("case_id"),
             "candidate_artifact_version": candidate.get("artifact_version"),
             "benchmark_artifact_version": benchmark.get("artifact_version"),
             "scope_digest": approval_scope_digest(candidate, benchmark),
@@ -340,6 +349,13 @@ class JourneyPromotionService:
         benchmark = self._one("rc72_journey_benchmark", benchmark_id=benchmark_id)
         if benchmark.get("candidate_id") != candidate_id:
             raise ContractError("JOURNEY_PROMOTION_BENCHMARK_CANDIDATE_MISMATCH")
+        if not isinstance(candidate.get("case_id"), str) or not candidate["case_id"].strip():
+            raise ContractError("JOURNEY_PROMOTION_CANONICAL_CASE_REQUIRED")
+        if not any(step.get("action_type") == "ASSERT" and step.get("oracle_ref")
+                   for step in candidate.get("steps", [])):
+            raise ContractError("JOURNEY_PROMOTION_BUSINESS_ORACLE_REQUIRED")
+        if candidate.get("replay_status") != "PASSED":
+            raise ContractError("JOURNEY_PROMOTION_LATEST_REPLAY_PASS_REQUIRED")
         if candidate.get("benchmark_status") != "PASSED" or benchmark.get("state") != "PASSED":
             raise ContractError("JOURNEY_PROMOTION_BENCHMARK_PASS_REQUIRED")
         if benchmark.get("field_benchmark_verified") is not True:
@@ -368,6 +384,7 @@ class JourneyPromotionService:
             "requirement_id": candidate["requirement_id"],
             "sst_id": candidate["sst_id"],
             "obligation_id": candidate["obligation_id"],
+            "case_id": candidate.get("case_id"),
             "source_candidate_id": candidate["candidate_id"],
             "source_candidate_artifact_version": int(candidate["artifact_version"]),
             "source_benchmark_id": benchmark["benchmark_id"],

@@ -184,7 +184,18 @@ class JourneyBenchmarkService:
                 raise ContractError("JOURNEY_BENCHMARK_REPLAY_CANDIDATE_MISMATCH")
             if replay.get("state") not in {"PASSED", "FAILED"}:
                 raise ContractError("JOURNEY_BENCHMARK_REPLAY_NOT_TERMINAL")
+            for field in ("mission_id", "release_batch_id", "requirement_id", "sst_id", "obligation_id"):
+                if replay.get(field) != candidate.get(field):
+                    raise ContractError("JOURNEY_BENCHMARK_REPLAY_LINEAGE_MISMATCH:" + field)
+            if candidate.get("case_id") is not None and replay.get("case_id") != candidate.get("case_id"):
+                raise ContractError("JOURNEY_BENCHMARK_REPLAY_CASE_MISMATCH")
             replays.append(replay)
+        # Distinct receipt IDs do not prove distinct browser executions.
+        # One bank Attempt/WRITE lease must never inflate the benchmark count.
+        if len({row.get("attempt_id") for row in replays}) != len(replays):
+            raise ContractError("JOURNEY_BENCHMARK_ATTEMPT_REUSED")
+        if len({row.get("browser_lease_id") for row in replays}) != len(replays):
+            raise ContractError("JOURNEY_BENCHMARK_BROWSER_LEASE_REUSED")
 
         passed_count = sum(1 for row in replays if row.get("state") == "PASSED")
         failed_count = len(replays) - passed_count
