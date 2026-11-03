@@ -22,7 +22,7 @@ import json
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -115,6 +115,10 @@ class BankCostWindowConfig:
     discount_factor_millis: int = 100
     unlimited_after_discount: bool = True
     post_discount_factor_millis: int = 0
+    # Offline official bank calendar overrides: holidays may be weekdays,
+    # compensatory working days may fall on weekends. Never use host timezone.
+    non_working_dates: Tuple[str, ...] = ()
+    makeup_work_dates: Tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.timezone_name != _BANK_TZ_NAME:
@@ -139,6 +143,33 @@ class BankCostWindowConfig:
             raise TokenEconomyError("BANK_COST_WINDOW_UNLIMITED_FACTOR_MUST_BE_ZERO")
         if not self.unlimited_after_discount and self.post_discount_factor_millis == 0:
             raise TokenEconomyError("BANK_COST_WINDOW_LIMITED_FACTOR_REQUIRED")
+        for name in ("non_working_dates", "makeup_work_dates"):
+            raw = getattr(self, name)
+            if not isinstance(raw, (list, tuple)) or any(
+                not isinstance(v, str) or len(v) != 10
+                or v[4:5] != "-" or v[7:8] != "-"
+                for v in raw
+            ):
+                raise TokenEconomyError("BANK_COST_WINDOW_%s_INVALID" % name.upper())
+            try:
+                for item in raw:
+                    if date.fromisoformat(item).isoformat() != item:
+                        raise ValueError("noncanonical date")
+            except ValueError as exc:
+                raise TokenEconomyError("BANK_COST_WINDOW_%s_INVALID" % name.upper()) from exc
+            if len(set(raw)) != len(raw):
+                raise TokenEconomyError("BANK_COST_WINDOW_%s_DUPLICATE" % name.upper())
+            object.__setattr__(self, name, tuple(sorted(raw)))
+        if set(self.non_working_dates) & set(self.makeup_work_dates):
+            raise TokenEconomyError("BANK_COST_WINDOW_CALENDAR_DATE_CONFLICT")
+
+    def is_working_day(self, local_date: date) -> bool:
+        day = local_date.isoformat()
+        if day in self.makeup_work_dates:
+            return True
+        if day in self.non_working_dates:
+            return False
+        return local_date.weekday() < 5
 
     def as_mapping(self) -> Dict[str, Any]:
         return {
@@ -149,6 +180,8 @@ class BankCostWindowConfig:
             "discount_factor_millis": self.discount_factor_millis,
             "unlimited_after_discount": self.unlimited_after_discount,
             "post_discount_factor_millis": self.post_discount_factor_millis,
+            "non_working_dates": list(self.non_working_dates),
+            "makeup_work_dates": list(self.makeup_work_dates),
         }
 
     @classmethod
@@ -159,6 +192,7 @@ class BankCostWindowConfig:
             "timezone_name", "normal_end_hour", "discount_end_hour",
             "normal_factor_millis", "discount_factor_millis",
             "unlimited_after_discount", "post_discount_factor_millis",
+            "non_working_dates", "makeup_work_dates",
         }
         unknown = set(mapping) - allowed
         if unknown:
@@ -208,6 +242,12 @@ def classify_bank_cost_window(
     if current.tzinfo is None:
         raise TokenEconomyError("BANK_COST_WINDOW_REQUIRES_AWARE_DATETIME")
     local = current.astimezone(_BANK_TZ)
+    if not policy.is_working_day(local.date()):
+        # Whole non-working day: NO quota; includes weekends and explicitly
+        # configured public holidays. Adjusted weekend workdays are excluded.
+        return BankCostWindow(
+            "BANK_NON_WORKING_DAY_UNLIMITED", _BANK_TZ_NAME, False, 0
+        )
     standard = policy == BankCostWindowConfig()
     if local.hour >= policy.discount_end_hour:
         return BankCostWindow(
