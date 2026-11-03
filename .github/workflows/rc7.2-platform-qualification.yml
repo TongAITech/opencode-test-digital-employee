@@ -31,7 +31,9 @@ jobs:
           - os: windows-latest
             label: windows-engineering
             qualification_kind: WINDOWS_ENGINEERING
-          - os: ubuntu-latest
+          # ubuntu-latest moved to 26.04, which has no setup-python 3.8 build.
+          # Keep the required interpreter; this remains an engineering proxy.
+          - os: ubuntu-22.04
             label: linux-engineering-proxy
             qualification_kind: LINUX_ENGINEERING_PROXY
     runs-on: ${{ matrix.os }}

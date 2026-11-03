@@ -893,3 +893,15 @@ C06/C07 的基础组件可在不破坏上述依赖顺序的前提下插入修复
 证明必须包括真实本地业务运行、全部 Case 的独立证据审查、原失败历史保留和中断恢复；
 不能只造一个替换 binding。并发已完成成员的复用/排空由 C06 的明确策略处理，
 不得通过减少 Case 分母或重复未知业务 I/O 来绕过。
+
+
+## Python 3.8 engineering runner correction — 2026-11-03
+
+Run 41640484660 Linux job 125933108663 stopped at setup-python before any
+product test: ubuntu-latest resolved to Ubuntu 26.04, for which the action
+reported no Python 3.8 build. Pin the four RC7.2 workflows that require Linux
+Python 3.8 to Ubuntu 22.04. Retain the interpreter, Windows matrix, full test
+selection and existing finite test budgets. The summary-only job may continue
+on ubuntu-latest. This fixes an engineering host dependency; it does not
+qualify target bank Linux or authorize BANK_FINAL. Existing Windows and full
+portable-preparation runs are still observed through their terminal results.
