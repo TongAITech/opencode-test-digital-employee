@@ -243,6 +243,9 @@ class ReleaseBatchDriver:
 
     def _complete_gate(self, node_type, batch):
         if node_type=='N8_DIAGNOSIS_RECOVERY' and self.n8_pipeline is not None:
+            n7=self._one('rc72_mission_node',mission_id=batch['mission_id'],node_type='N7_EXECUTION')
+            if n7['state']=='PASS':
+                return self.n8_pipeline.audit(release_batch_id=batch['release_batch_id'])
             return self.n8_pipeline.complete(release_batch_id=batch['release_batch_id'])
         if node_type=='N10_RELEASE_CONVERGENCE' and self.n10_pipeline is not None:
             return self.n10_pipeline.complete(release_batch_id=batch['release_batch_id'])
@@ -323,6 +326,16 @@ class ReleaseBatchDriver:
                     pending = [n for n in pending if n['node_type']!='N8_DIAGNOSIS_RECOVERY']
 
                 if not pending:
+                    # N10 terminal PASS is admitted only by the production
+                    # native independent reviewer, then re-audited against
+                    # live original R1. A historical node label alone is not
+                    # a ReleaseBatch completion decision.
+                    if self.n10_pipeline is not None:
+                        terminal=self._complete_gate('N10_RELEASE_CONVERGENCE',batch)
+                        if terminal.get('status')=='PASS':
+                            return dict(self.status(release_batch_id=release_batch_id),**terminal)
+                        if terminal.get('status')=='HOLD':
+                            return dict(self.status(release_batch_id=release_batch_id),**terminal)
                     return dict(snapshot, status='HOLD', reason='RELEASE_CONVERGENCE_AUDIT_REQUIRED')
                 node = pending[0]
                 if node['state'] == 'REVIEW_PENDING':
