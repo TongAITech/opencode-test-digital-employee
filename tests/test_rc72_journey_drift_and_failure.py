@@ -281,3 +281,20 @@ def test_auth_keeper_browser_lease_cannot_be_reused_for_human_teaching(tmp_path)
     with pytest.raises(Exception, match="JOURNEY_TEACHING_BROWSER_PURPOSE_MISMATCH"):
         _start(service, auth.browser_lease_id)
     assert not truth.query("rc72_journey_recording")
+
+
+def test_replay_rejects_candidate_cross_case_attempt_scope_before_browser_io(tmp_path):
+    truth, pool, lease, adapter, service = replay_setup(tmp_path)
+    candidate = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]
+    updated = dict(candidate)
+    updated.pop("artifact_type", None)
+    updated["artifact_version"] += 1
+    updated["case_id"] = "TC-ANOTHER-CASE"
+    truth.append_atomic("RC72_JOURNEY_CANDIDATE_UPSERTED", updated)
+    with pytest.raises(Exception, match="JOURNEY_REPLAY_CANONICAL_CASE_MISMATCH"):
+        service.replay(
+            replay_id="JRP-CROSS-CASE", candidate_id="JC-1",
+            workitem_id="WI-R1", attempt_id="ATT-R1", worker_id="WORKER-R1",
+            session_id="SESSION-R1", browser_lease_id=lease.browser_lease_id)
+    assert not adapter.calls
+    assert not truth.query("rc72_journey_replay", replay_id="JRP-CROSS-CASE")
