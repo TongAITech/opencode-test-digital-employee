@@ -124,3 +124,32 @@ def test_bsk_live_rejects_cross_identity_before_debug_start(tmp_path):
     with pytest.raises(Exception, match="JOURNEY_BSK_LIVE_BROWSER_IDENTITY_MISMATCH"):
         client.start(capture_name="unsafe")
     assert cli.calls == []
+
+
+def test_bsk_live_fails_if_second_human_action_occurs_during_screenshot(tmp_path):
+    truth, client, original = _live(tmp_path)
+
+    class ConcurrentHuman:
+        def __init__(self, backing):
+            self.backing = backing
+            self.shot = False
+            self.calls = []
+
+        def __call__(self, argv):
+            self.calls.append(list(argv))
+            if "screenshot" in argv:
+                self.shot = True
+            if "debug" in argv and "operations" in argv and self.shot:
+                return {"returncode": 0, "stdout": json.dumps({
+                    "run": {"id": "debug-1"},
+                    "operations": self.backing.doc["operations"]})}
+            return self.backing(argv)
+
+    runner = ConcurrentHuman(original)
+    client.runner = runner
+    client.start(capture_name="concurrent-human")
+    with pytest.raises(Exception, match="JOURNEY_BSK_LIVE_CONCURRENT_ACTION_EVIDENCE_UNSAFE"):
+        client.capture_next(page_role="CONFIG")
+    assert client.evidence == {}
+    assert client.last_sequence == 0
+    assert not truth.query("rc72_journey_recording", recording_id="JR-LIVE")
