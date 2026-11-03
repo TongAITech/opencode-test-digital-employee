@@ -41,6 +41,7 @@ def _fixture(tmp_path):
         {"id": "operation-2", "run_id": "debug-1", "sequence": 2,
          "method": "tool.click", "source": "human", "state": "completed",
          "request_ids": ["request-1"], "truncated": False,
+         "before": {"state": "available", "url": "https://fat1.example/config"},
          "after": {"state": "available", "url": "https://fat1.example/config"}},
     ]
     doc = {
@@ -312,5 +313,44 @@ def test_bsk_import_refuses_unsupported_unbound_keyboard_or_drag(
     doc["operations"][1]["method"] = bsk_method
     export.write_text(json.dumps(doc))
     with pytest.raises(Exception, match=expected):
+        _invoke(importer, export, args, mapping)
+    assert not truth.query("rc72_journey_recording", recording_id="JR-BSK-1")
+
+
+def test_bsk_click_navigation_replays_on_old_page_and_oracle_on_new_page(tmp_path):
+    truth, importer, doc, export, args, mapping = _fixture(tmp_path)
+    doc["operations"][1]["before"]["url"] = "https://fat1.example/form"
+    doc["operations"][1]["after"]["url"] = (
+        "https://fat1.example/confirmation?token=must-not-leak")
+    export.write_text(json.dumps(doc))
+    _invoke(importer, export, args, mapping, assertions=[
+        {"source_operation_id": "operation-2",
+         "oracle_ref": "oracle://confirmation-business-state",
+         "locator_ref": "css:#approved"},
+    ])
+    steps = sorted(truth.query(
+        "rc72_journey_capture_step", recording_id="JR-BSK-1"),
+        key=lambda row: row["sequence"])
+    assert steps[1]["action_type"] == "CLICK"
+    assert steps[1]["url"] == "https://fat1.example/form"
+    assert steps[2]["action_type"] == "ASSERT"
+    assert steps[2]["url"] == "https://fat1.example/confirmation"
+    page = json.loads(Path(steps[1]["page_state_ref"][7:]).read_text())
+    assert page["url"] == "https://fat1.example/form"
+    assert page["post_action_url"] == "https://fat1.example/confirmation"
+    assert "must-not-leak" not in json.dumps(page)
+    JourneyCompiler(truth, release_id="RC7.2").compile(
+        candidate_id="JC-NAV-REPLAY", recording_id="JR-BSK-1")
+    compiled = truth.query(
+        "rc72_journey_candidate", candidate_id="JC-NAV-REPLAY")[0]["steps"]
+    assert [s["url"] for s in compiled[1:]] == [
+        "https://fat1.example/form", "https://fat1.example/confirmation"]
+
+
+def test_bsk_non_navigation_operation_requires_pre_action_page(tmp_path):
+    truth, importer, doc, export, args, mapping = _fixture(tmp_path)
+    doc["operations"][1].pop("before")
+    export.write_text(json.dumps(doc))
+    with pytest.raises(Exception, match="JOURNEY_BSK_SOURCE_PAGE_OBSERVATION_REQUIRED"):
         _invoke(importer, export, args, mapping)
     assert not truth.query("rc72_journey_recording", recording_id="JR-BSK-1")
