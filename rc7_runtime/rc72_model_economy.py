@@ -584,6 +584,20 @@ class TokenEconomyService:
             "pending_calls": len(pending),
             "unknown_usage_calls": len(unknown),
             "measured_calls": len(measured),
+            # Legacy measured_total_tokens is only the measured SUBTOTAL.
+            # Actual whole-Mission use is intentionally nullable: a partial
+            # sample must never be displayed as a complete zero/total.
+            "usage_total_status": (
+                "UNKNOWN" if unknown else
+                "PENDING" if pending else
+                "MEASURED" if measured else "NO_CALLS"
+            ),
+            "actual_total_tokens": (
+                measured_total if measured and not unknown and not pending else None
+            ),
+            "actual_quota_equivalent_tokens": (
+                measured_quota if measured and not unknown and not pending else None
+            ),
             "measured_total_tokens": measured_total,
             "pending_reserved_tokens": pending_reserved,
             "unknown_reserved_tokens": unknown_reserved,
