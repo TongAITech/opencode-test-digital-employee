@@ -41,11 +41,11 @@ The no-Git fixture uses the documented skip-Git mode; this does not certify
 project Git access or bank source binding. Actual native database/parser and
 resource-read results are required, not merely a successful `--version`.
 
-The current Codex tool inventory has no GitNexus MCP connector. The component
-probe therefore performs the context-resource check through the packaged stdio
-MCP process directly, following the [gitnexus-cli skill](https://github.com/abhigyanpatwari/GitNexus)
-CLI workflow without an npx or global-install fallback in the delivered runtime.
-The same execution probe is included in the full portable clean-extraction step.
+The context resource is read directly through the packaged stdio MCP server.
+The delivered probe invokes a known local CLI entry, with no npx or global-install
+fallback. The upstream [GitNexus CLI documentation](https://github.com/abhigyanpatwari/GitNexus)
+provides the analysis, status and context interfaces. The same execution probe
+is included in the full portable clean-extraction step.
 
 Local contract and actual Node preload tests passed; the Windows native component
 run is required before claiming its copied-platform graph capability. Component
