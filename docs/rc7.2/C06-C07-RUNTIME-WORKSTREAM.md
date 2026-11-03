@@ -34,6 +34,13 @@ Source: `05` §§3,8,12,14,15,17,18,19,21,22; `10` C06/C07.
 - CI first Windows 3.11 run (old SHA `0ca7aaf`) found 96 passed, 7 failed, due to the earlier overbroad UNKNOWN classification and one cold test ordering error; both were specifically corrected in follow-up commits. Final HEAD CI results must be verified independently.
 - IMPORTANT: This is an engineering failure-injection test, not proof of a real bank payment, DSH provider, or environment.
 
+### Slice C06-U02 — exact-second TTL and call-time authority gate
+
+- DataLease, BrowserLease and CapabilityLease use **exclusive** TTL end `now >= expires_at`; `rc72_authority.RC72AuthorityRuntime` likewise enforces the exact second at its HMAC-signed TaskLease tool gate, rather than inheriting RC6's one-second tolerance. Historical signature audit is permitted; execution authority is not revived.
+- At that same second, Data/Browser `_expire_due` classifies the lease `EXPIRED` but retains its exclusive custody until verifiable N8 physical/resource recovery. Normal `release` cannot bypass the expired-custody cleanup gate.
+- `CapabilityBroker.assert_capability_lease_usable` now serializes with capability grant/revocation under the shared OS/R1 lock, so a concurrent revoke cannot be ignored by an independent decision transaction.
+- Added boundary tests in `test_rc72_signed_authority_ttl.py`, `test_rc72_phase7_{data_lease,browser_lease,capability_broker}_contract.py`. Real browser/4A/DB tool invocation and post-authorization external I/O still require field validation.
+
 ### Slice C07-U01 — Captain dispatch leader fence
 
 - New `rc72_captain_dispatch_fencing.py` maintains mission-scoped exclusive Captain dispatch custody in R1.
