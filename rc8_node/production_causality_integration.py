@@ -11,6 +11,7 @@ from dataclasses import replace
 from rc8_center.single_node_truth_reader import ProductionCenterR1TruthReader
 
 from .production_causality_gate import ProductionCausalityGate
+from .single_node_full_loop_proof import FROZEN_N1_N10_STAGES
 from .single_node_integration_proof import (
     SingleNodeDurableIntegrationProof,
     SingleNodeDurableIntegrationProofRunner,
@@ -47,6 +48,24 @@ class ProductionCausalityIntegrationRunner:
         self.composed_runner = composed_runner
         self.gate = ProductionCausalityGate(production_constructor_verified=True)
 
+    @staticmethod
+    def _bootstrap_materialization_retained(proof: SingleNodeDurableIntegrationProof) -> bool:
+        """Retain the successful production bootstrap -> first Center claim fact.
+
+        The composed production runner has already compared the bootstrap WorkItem and
+        StageInstance identities with the first claimed item before it can return a
+        proof. Promotion still re-checks the observable denominator here instead of
+        manufacturing ``bootstrap_materialized=True`` at the gate boundary.
+        """
+        observed = proof.observed
+        return bool(
+            proof.production_components_verified
+            and tuple(observed.stages) == tuple(FROZEN_N1_N10_STAGES)
+            and observed.work_item_ids
+            and observed.stage_instance_ids
+            and observed.stages[0] == "SCOPE_INTAKE"
+        )
+
     def run(self, *, test_run_id: str) -> SingleNodeDurableIntegrationProof:
         proof = self.composed_runner.run(test_run_id=test_run_id)
         durable = proof.durable_truth
@@ -57,9 +76,10 @@ class ProductionCausalityIntegrationRunner:
             and len(durable.verified_r1_start_events) == len(proof.observed.attempt_ids)
             and len(durable.verified_r1_events) == len(proof.observed.attempt_ids)
         )
+        bootstrap_materialized = self._bootstrap_materialization_retained(proof)
         terminal_center_idle = bool(getattr(proof.observed, "terminal_center_idle", False))
         promotion = self.gate.evaluate(
-            bootstrap_materialized=True,
+            bootstrap_materialized=bootstrap_materialized,
             observed_stages=proof.observed.stages,
             work_item_ids=proof.observed.work_item_ids,
             lease_ids=proof.observed.lease_ids,
