@@ -209,11 +209,14 @@ class JourneyCDPTeachingRecorder:
         if self.page is None:
             raise ContractError("JOURNEY_TEACHING_PAGE_UNAVAILABLE")
         buffered = list(self.events)
-        self.events.clear()
         drained = self.page.evaluate("() => window.__rc72Capture ? window.__rc72Capture.drain() : []")
         if not isinstance(drained, list):
             raise ContractError("JOURNEY_TEACHING_EVENTS_INVALID")
+        # Keep all drained events until their R1 capture step is committed.
+        # A failed preflight or mid-batch screenshot must not silently drop
+        # the human action that may already have changed the bank SUT.
         events = buffered + drained
+        self.events = list(events)
         result = []
         current_url = _public_url(self.page.url)
         # Polling after a click-driven navigation cannot reconstruct the old
@@ -222,19 +225,31 @@ class JourneyCDPTeachingRecorder:
         if any(isinstance(e, dict) and isinstance(e.get("url"), str)
                and _public_url(e["url"]) != current_url for e in events):
             raise ContractError("JOURNEY_TEACHING_PRE_NAVIGATION_EVIDENCE_REQUIRED")
+        # Validate the entire pending batch before consuming any event.
+        # Otherwise a bad second event could leave an apparently complete,
+        # but only partially captured, business transaction.
         for event in events:
             if not isinstance(event, dict) or event.get("type") not in {"CLICK", "INPUT", "SELECT"}:
                 raise ContractError("JOURNEY_TEACHING_EVENT_INVALID")
             ref = event.get("element_ref")
-            if not ref:
+            if not isinstance(ref, str) or not ref:
                 raise ContractError("JOURNEY_TEACHING_ELEMENT_LOCATOR_REQUIRED")
             bound = (bindings or {}).get(ref, {})
             if not isinstance(bound, Mapping):
                 raise ContractError("JOURNEY_TEACHING_BINDING_INVALID")
+            if event["type"] in {"INPUT", "SELECT"} and not (
+                    bound.get("value_ref") or bound.get("credential_ref")):
+                raise ContractError("JOURNEY_TEACHING_VALUE_REFERENCE_REQUIRED")
+        for event in events:
+            ref = event["element_ref"]
+            bound = (bindings or {}).get(ref, {})
             result.append(self._step(
                 action_type=event["type"], element_ref=ref,
                 page_role=page_role, metadata=dict(bound),
                 event_url=event.get("url")))
+            # One event is acknowledged only after its actual evidence and
+            # sequential R1 record are persisted.
+            self.events.pop(0)
         # DOM event happened before the navigation it triggered; the IR order
         # must preserve CLICK -> NAVIGATE, not NAVIGATE -> CLICK.
         if current_url != self.last_url:
@@ -259,6 +274,16 @@ class JourneyCDPTeachingRecorder:
 
     def finish(self) -> Any:
         self._guard()
+        if self.page is None:
+            raise ContractError("JOURNEY_TEACHING_PAGE_UNAVAILABLE")
+        drained = self.page.evaluate("() => window.__rc72Capture ? window.__rc72Capture.drain() : []")
+        if not isinstance(drained, list):
+            raise ContractError("JOURNEY_TEACHING_EVENTS_INVALID")
+        self.events.extend(drained)
+        if self.events:
+            raise ContractError("JOURNEY_TEACHING_PENDING_ACTIONS_NOT_CAPTURED")
+        if _public_url(self.page.url) != self.last_url:
+            raise ContractError("JOURNEY_TEACHING_PENDING_NAVIGATION_NOT_CAPTURED")
         ref = _atomic_json(
             self.root / _safe_id(self.recording["recording_id"]) / "teaching-summary.json",
             {"recording_id": self.recording["recording_id"],
