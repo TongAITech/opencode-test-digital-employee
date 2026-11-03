@@ -50,7 +50,7 @@ jobs:
             exit 1
           fi
           echo "RC72_QA_EXACT_HEAD=$actual"
-          printf 'qa_source_commit=%s\\nqa_base_sha=%s\\n' "$actual" "$BASE_SOURCE_SHA" > qa-source-identity.txt
+          printf 'qa_source_commit=%s\nqa_base_sha=%s\n' "$actual" "$BASE_SOURCE_SHA" > qa-source-identity.txt
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
