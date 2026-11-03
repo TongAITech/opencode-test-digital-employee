@@ -472,6 +472,36 @@ class ExecutionPreparationService:
                 or existing_session.get('binding_id') != row['binding_id']):
             raise ExecutionPreparationError('N7_FENCED_EXISTING_WORKER_SCOPE_MISMATCH')
 
+    def _assert_captain_binding_locked(self, existing, fenced_admission=None):
+        """R1-derived Captain authority: caller already holds resource ledger."""
+        existing = self._one(_ARTIFACT, preparation_id=preparation_id)
+        proof_id = existing.get('captain_admission_id')
+        captain_leases = self.truth.query(
+            'rc72_captain_dispatch_lease', mission_id=existing['mission_id'])
+        if proof_id:
+            # Inferred from *canonical R1*, not from caller arguments:
+            # SignedToolDispatchService also uses this path without an
+            # explicit Captain object. Quiesce/takeover must revoke tool
+            # authorization even for an already PREPARED Attempt.
+            if fenced_admission is None:
+                from .rc72_captain_scheduling import GovernedFreshDispatch
+                proven = self.truth.query(
+                    'rc72_captain_etu_admission', admission_id=proof_id)
+                if len(proven) != 1:
+                    raise ExecutionPreparationError('N7_FENCED_ADMISSION_R1_REQUIRED')
+                row = proven[0]
+                fenced_admission = GovernedFreshDispatch(
+                    admission_id=row['admission_id'], mission_id=row['mission_id'],
+                    team_id=row['team_id'], workitem_id=row['workitem_id'],
+                    etu_id=row['etu_id'], role=row['role'],
+                    worker_id=row['worker_id'], session_id=row['session_id'],
+                    captain_generation=row['captain_generation'],
+                    captain_lease_id=row['captain_lease_id'],
+                    captain_session_id=row['captain_session_id'], state=row['state'])
+            self._verify_existing_fenced_admission(existing, fenced_admission)
+        elif fenced_admission is not None or captain_leases:
+            raise ExecutionPreparationError('N7_CAPTAIN_FENCED_ADMISSION_REQUIRED')
+
     def assert_current(self, preparation_id: str, *, fenced_admission=None) -> Dict[str, Any]:
         from .rc72_ledger_lock import ledger_lock
         # Existing signed suspension is already sufficient to deny permission,
@@ -482,32 +512,7 @@ class ExecutionPreparationService:
         # a gap between the last ownership check and authority restoration.
         with ledger_lock(self.truth, busy='N7_PREPARATION_LEDGER_BUSY', conflict=ExecutionPreparationError):
             existing = self._one(_ARTIFACT, preparation_id=preparation_id)
-            proof_id = existing.get('captain_admission_id')
-            captain_leases = self.truth.query(
-                'rc72_captain_dispatch_lease', mission_id=existing['mission_id'])
-            if proof_id:
-                # Inferred from *canonical R1*, not from caller arguments:
-                # SignedToolDispatchService also uses this path without an
-                # explicit Captain object. Quiesce/takeover must revoke tool
-                # authorization even for an already PREPARED Attempt.
-                if fenced_admission is None:
-                    from .rc72_captain_scheduling import GovernedFreshDispatch
-                    proven = self.truth.query(
-                        'rc72_captain_etu_admission', admission_id=proof_id)
-                    if len(proven) != 1:
-                        raise ExecutionPreparationError('N7_FENCED_ADMISSION_R1_REQUIRED')
-                    row = proven[0]
-                    fenced_admission = GovernedFreshDispatch(
-                        admission_id=row['admission_id'], mission_id=row['mission_id'],
-                        team_id=row['team_id'], workitem_id=row['workitem_id'],
-                        etu_id=row['etu_id'], role=row['role'],
-                        worker_id=row['worker_id'], session_id=row['session_id'],
-                        captain_generation=row['captain_generation'],
-                        captain_lease_id=row['captain_lease_id'],
-                        captain_session_id=row['captain_session_id'], state=row['state'])
-                self._verify_existing_fenced_admission(existing, fenced_admission)
-            elif fenced_admission is not None or captain_leases:
-                raise ExecutionPreparationError('N7_CAPTAIN_FENCED_ADMISSION_REQUIRED')
+            self._assert_captain_binding_locked(existing, fenced_admission)
             return self._assert_current_locked(preparation_id)
 
     def _assert_current_locked(self, preparation_id):
