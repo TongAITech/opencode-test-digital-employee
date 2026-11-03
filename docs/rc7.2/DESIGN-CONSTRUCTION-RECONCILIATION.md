@@ -38,9 +38,11 @@ probe are now included. The probe roundtrips DOCX/XLSX/PPTX/PDF and performs OCR
 inference, rejecting host modules/stale or cv2-only markers. Clean extraction
 reruns it. Contract tests: 18 passed in 0.37s. Local dependency acquisition failed
 through proxy/direct TLS paths, so no local actual OCR PASS is claimed. Dedicated
-Windows copied-runtime/clean-unpack component workflow 41595427225 was actually
-started for source90601b1 and is pending its actual result. That component test
-archive is not the complete user delivery. FULL-PYTHON-PAYLOAD-CONTRACT.md records
+Windows copied-runtime/clean-unpack component workflow 41595427225 at source90601b1 completed SUCCESS. Downloaded
+actual evidence confirms package-local clean-path interpreter, four document
+roundtrips, network denied, real OCR inference with one region and all eleven
+actual provider versions. Staging was deleted before probing. That component
+test archive is not the complete user delivery. FULL-PYTHON-PAYLOAD-CONTRACT.md records
 the scope; full product/complete-package qualification remains mandatory.
 
 ## Native observed-path diagnosis and N8 professional intake — 2026-11-03

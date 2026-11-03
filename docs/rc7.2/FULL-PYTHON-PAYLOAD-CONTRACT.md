@@ -31,3 +31,17 @@ No actual offline OCR PASS is claimed from that failed acquisition. The Windows
 component workflow and eventual full clean-package run must provide the actual
 matching-platform evidence. Contract tests only establish fail-closed behavior;
 they do not substitute for the real copied-runtime probe.
+
+## Actual Windows component qualification
+
+Workflow 41595427225 at source
+`90601b1dec5853c24718ba89d6ba1af018555296` completed successfully. The downloaded
+`actual-offline-capability.json` was inspected: copied interpreter under the
+clean-extraction path with spaces, network_allowed=false, all four format
+roundtrips, actual OCR inference with one recognized region, and all eleven
+provider distributions with actual versions. Staging was deleted before this
+probe. The boundary record explicitly has full_product_package=false and
+Field/BANK_FINAL=false. This is actual Windows component evidence; full final
+package clean-unpack qualification must still execute the same probe on its own
+resolved payload and source. Local TLS acquisition failure is not recast as a
+local successful run.
