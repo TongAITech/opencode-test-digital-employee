@@ -48,6 +48,11 @@ class SignedN7OfficialJourneyAdapter:
             raise ContractError("JOURNEY_N7_ASSET_NOT_APPROVED")
         if asset.get("field_benchmark_verified") is not True or asset.get("human_field_verified") is not True:
             raise ContractError("JOURNEY_N7_FIELD_APPROVAL_REQUIRED")
+        if asset.get("case_id") != contract.get("case_id"):
+            raise ContractError("JOURNEY_N7_OFFICIAL_CASE_MISMATCH")
+        if not any(step.get("action_type") == "ASSERT" and step.get("oracle_ref")
+                   for step in asset.get("steps", [])):
+            raise ContractError("JOURNEY_N7_BUSINESS_ORACLE_REQUIRED")
         if request.get("approval_scope_digest") != asset.get("approval_scope_digest"):
             raise ContractError("JOURNEY_N7_APPROVAL_DIGEST_MISMATCH")
         expected = {
