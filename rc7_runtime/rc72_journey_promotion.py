@@ -148,6 +148,11 @@ def _validate_official(payload: Dict[str, Any]) -> Dict[str, Any]:
         out[name] = _required(out, name)
     out["artifact_type"] = _OFFICIAL
     out["artifact_version"] = _contracts._artifact_version(out)
+    # An approved Journey is a version-one immutable executable. Revisions
+    # require a new Candidate, replay benchmark, human attestation and a new
+    # official_asset_id; a drift report is a distinct R1 artifact.
+    if out["artifact_version"] != 1:
+        raise _contracts.DomainValidationError("OFFICIAL_JOURNEY_ASSET_IMMUTABLE")
     if "case_id" in out and out["case_id"] is not None:
         out["case_id"] = _required(out, "case_id")
     if out["status"] != "OFFICIAL":
