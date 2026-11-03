@@ -493,3 +493,24 @@ def test_recovered_prelease_worker_cannot_change_professional_role(tmp_path, mon
             canonical_refs=_refs("ETU-1"))
     assert truth.query("rc7_task", task_id="WI-1")[0]["state"] == "READY"
     assert len(truth.query("rc72_worker_session", mission_id="M-1")) == 1
+
+
+
+def test_orphan_cannot_recover_if_raw_r1_records_session_only_external_reference(tmp_path, monkeypatch):
+    truth, captain, owner, _, bridge = _ready_fixture(tmp_path)
+    monkeypatch.setattr(bridge.scheduler, "lease_task",
+                        lambda *a, **kw: (_ for _ in ()).throw(KeyboardInterrupt()))
+    with pytest.raises(KeyboardInterrupt):
+        _admit(bridge, owner, "WI-1")
+    session = truth.query("rc72_worker_session", mission_id="M-1")[0]
+    # Simulate another registered subsystem that observed the Session but did
+    # not capture Worker ID. The R1 event is valid, not a fake projection row.
+    captain._replace(owner, observed_session_id=session["session_id"])
+    before = list(truth.store.iter_raw())
+    with pytest.raises(CaptainSchedulingError, match="R1_PROVENANCE_UNKNOWN"):
+        bridge.recover_unleased_orphan(
+            mission_id="M-1", team_id="TEAM-1",
+            captain_session_id="CAP-A", captain_lease_id=owner["lease_id"],
+            workitem_id="WI-1", session_id=session["session_id"])
+    assert list(truth.store.iter_raw()) == before
+    assert truth.query("rc72_worker_session", session_id=session["session_id"])[0]["state"] == "ACTIVE"
