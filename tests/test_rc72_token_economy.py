@@ -352,3 +352,15 @@ def test_metered_launcher_never_calls_delegate_for_hard_waste_guard(tmp_path: Pa
     with pytest.raises(TokenEconomyError, match="TOKEN_CALL_BLOCKED"):
         wrapper.execute(assignment, "do deterministic work")
     assert delegate.calls == 0
+
+
+def test_optional_budget_relaxation_cannot_turn_unknown_usage_into_q7_economy_pass(tmp_path: Path):
+    _, service = _service(tmp_path, measured=False)
+    admission = _admit(service, prompt="mandatory task with unavailable bank usage")
+    assert admission.admitted
+    service.complete_call(admission.call_id, DshTokenUsage.unknown("BANK_PROVIDER_COUNTERS_NOT_EXPOSED"))
+    status = service.qualification("MISSION-1")
+    assert status.status == "HOLD"
+    assert status.reason == "TOKEN_USAGE_UNKNOWN"
+    assert status.metrics["actual_total_tokens"] is None
+    assert status.metrics["usage_total_status"] == "UNKNOWN"
