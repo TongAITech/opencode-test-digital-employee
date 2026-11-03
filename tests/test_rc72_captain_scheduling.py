@@ -546,3 +546,40 @@ def test_crash_after_real_task_lease_before_captain_admission_is_fail_closed(tmp
     assert list(replay.store.iter_raw()) == before
     assert len(replay.query("rc72_worker_session", mission_id="M-1")) == 1
     assert replay.query("rc72_captain_etu_admission", mission_id="M-1") == []
+
+
+
+def test_independent_cold_python_process_bootstraps_captain_r1_without_importing_captain_modules(
+        tmp_path):
+    """A new interpreter must replay all C07 events after only package bootstrap."""
+    import json
+    import subprocess
+    import sys
+
+    truth, _, owner, _, bridge = _ready_fixture(tmp_path)
+    admission = _admit(bridge, owner, "WI-1")
+    source = """
+import json
+import sys
+import rc7_runtime
+from rc6_runtime.truth import TruthRuntime
+truth = TruthRuntime(sys.argv[1])
+owners = truth.query('rc72_captain_dispatch_lease', mission_id='M-1')
+admissions = truth.query('rc72_captain_etu_admission', mission_id='M-1')
+print(json.dumps({
+    'owners': len(owners), 'admissions': len(admissions),
+    'captain_lease': owners[0]['lease_id'],
+    'worker_id': admissions[0]['worker_id'],
+    'admission_id': admissions[0]['admission_id'],
+}))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", source, str(truth.store.path)],
+        capture_output=True, text=True, timeout=40, check=True)
+    cold = json.loads(result.stdout)
+    assert cold == {
+        "owners": 1, "admissions": 1,
+        "captain_lease": owner["lease_id"],
+        "worker_id": admission.worker_id,
+        "admission_id": admission.admission_id,
+    }
