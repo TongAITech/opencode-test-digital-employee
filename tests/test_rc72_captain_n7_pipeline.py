@@ -16,6 +16,29 @@ from rc72_n2_test_support import BATCH
 from rc72_formal_runner_support import formal_setup, LocalHTTPEnvironment
 
 
+def _cold_handoff_during_n7_io(path, mission_id, team_id, lease_id,
+                                captain_session_id, result_queue):
+    from rc6_runtime.truth import TruthRuntime
+    from rc7_runtime.rc72_captain_dispatch_fencing import CaptainDispatchFencer
+    from rc7_runtime.rc72_worker_lifecycle import WorkerLifecycleService
+    from rc7_runtime.models import ContractError
+
+    truth = TruthRuntime(path)
+    fencer = CaptainDispatchFencer(truth, release_id="RC7.2")
+    lifecycle = WorkerLifecycleService(truth, release_id="RC7.2")
+    try:
+        fencer.prepare_handoff(
+            mission_id=mission_id, team_id=team_id,
+            lease_id=lease_id, captain_session_id=captain_session_id,
+            lifecycle=lifecycle, current_node_refs=["N7_EXECUTION"],
+            latest_delivery_refs=[], latest_gate_refs=[],
+            next_workitem_ids=[])
+    except ContractError as exc:
+        result_queue.put(str(exc))
+    else:
+        result_queue.put("UNSAFE_HANDOFF_ALLOWED")
+
+
 def _governed_pipeline(truth, plan, prep, url, tmp_path):
     team_id = "TEAM-C07-ISOLATED-N7"
     captain_session_id = "CAPTAIN-C07-N7"
@@ -289,6 +312,43 @@ def test_captain_handoff_rejected_during_external_n7_cleanup_and_verification(
         assert result["state"] == "N7_PASS"
         assert "CLEANUP" in checked and "VERIFY" in checked
         assert fencer._latest(plan["mission_id"])["state"] == "ACTIVE"
+        assert len(server.calls) == len(plan["items"])
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+
+def test_independent_python_process_cannot_take_over_captain_during_live_n7_io(
+        tmp_path, monkeypatch):
+    """The R1 protection holds across interpreters, not Python thread globals."""
+    import multiprocessing
+
+    truth, plan, prep, server, url = formal_setup(tmp_path, monkeypatch)
+    try:
+        pipeline, _, _, owner = _governed_pipeline(
+            truth, plan, prep, url, tmp_path)
+        original_run = pipeline.runner.run_with_dispatch
+        observations = []
+        context = multiprocessing.get_context("spawn")
+        def competing_handoff(*, contract, context, dispatcher):
+            out = context.Queue()
+            child = context.Process(
+                target=_cold_handoff_during_n7_io,
+                args=(str(truth.store.path), plan["mission_id"],
+                      pipeline.team_id, owner["lease_id"],
+                      owner["captain_session_id"], out))
+            child.start()
+            child.join(timeout=30)
+            assert child.exitcode == 0
+            result = out.get(timeout=5)
+            assert "CAPTAIN_HANDOFF_ACTIVE_EXECUTION_RECONCILIATION_REQUIRED" in result
+            observations.append(result)
+            return original_run(
+                contract=contract, context=context, dispatcher=dispatcher)
+        monkeypatch.setattr(pipeline.runner, "run_with_dispatch", competing_handoff)
+        assert pipeline.complete(release_batch_id=BATCH)["state"] == "N7_PASS"
+        assert len(observations) == len(plan["items"])
         assert len(server.calls) == len(plan["items"])
     finally:
         server.shutdown()
