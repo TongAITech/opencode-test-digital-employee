@@ -97,3 +97,47 @@ def test_path_escape_refused_before_read_or_hash(tmp_path):
     manifest.write_text(json.dumps(document), encoding="utf-8")
     with pytest.raises(QualificationError, match="PATH_TRAVERSAL"):
         qualify(root, expected_source=COMMIT)
+
+
+def test_unlisted_physical_file_is_not_silently_accepted(tmp_path):
+    root = _make_fixture(tmp_path)
+    stray = root / "workspace-template/runtime/browser/unlisted-driver.bin"
+    stray.write_bytes(b"unregistered-real-byte")
+    with pytest.raises(QualificationError, match="PHYSICAL_CHECKSUM_COVERAGE_MISMATCH"):
+        qualify(root, expected_source=COMMIT, dsh_relpath="workspace-template/runtime/dsh/dsh.exe")
+
+
+def test_missing_manifest_member_fails_even_if_checksum_is_intact(tmp_path):
+    root = _make_fixture(tmp_path)
+    manifest = root / "PACKAGE_MANIFEST.json"
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    # The checksums still cover the file, but the manifest silently drops it.
+    data["files"] = [row for row in data["files"] if row["path"] != "SOURCE_COMMIT"]
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(QualificationError, match="MANIFEST_CHECKSUM_COVERAGE_MISMATCH"):
+        qualify(root, expected_source=COMMIT, dsh_relpath="workspace-template/runtime/dsh/dsh.exe")
+
+
+def test_forged_group_inventory_is_refused_even_with_consistent_hashes(tmp_path):
+    root = _make_fixture(tmp_path)
+    inv = root / "FULL-CAPABILITY-INVENTORY.json"
+    data = json.loads(inv.read_text(encoding="utf-8"))
+    data["groups"][0]["files"] += 1
+    inv.write_text(json.dumps(data), encoding="utf-8")
+    # Recalculate both attestation tables so the test reaches the independent
+    # actual-versus-claimed GROUP_FILES check, not an incidental checksum error.
+    manifest = root / "PACKAGE_MANIFEST.json"
+    rows = json.loads(manifest.read_text(encoding="utf-8"))
+    for row in rows["files"]:
+        if row["path"] == "FULL-CAPABILITY-INVENTORY.json":
+            row["sha256"] = hashlib.sha256(inv.read_bytes()).hexdigest()
+            row["size"] = inv.stat().st_size
+    manifest.write_text(json.dumps(rows), encoding="utf-8")
+    checksum_lines = []
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and path.name != "CHECKSUMS.sha256":
+            rel = path.relative_to(root).as_posix()
+            checksum_lines.append(hashlib.sha256(path.read_bytes()).hexdigest() + "  " + rel)
+    (root / "CHECKSUMS.sha256").write_text("\n".join(checksum_lines) + "\n", encoding="utf-8")
+    with pytest.raises(QualificationError, match="GROUP_INVENTORY_BYTES_MISMATCH:python"):
+        qualify(root, expected_source=COMMIT, dsh_relpath="workspace-template/runtime/dsh/dsh.exe")
