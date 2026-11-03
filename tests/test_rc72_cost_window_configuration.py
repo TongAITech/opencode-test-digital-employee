@@ -126,3 +126,57 @@ def test_scheduler_changes_only_ready_order_not_business_workitem_denominator():
     assert set(default.run_now_workitem_ids + default.deferred_workitem_ids) == {"WI-HIGH", "WI-DETERMINISTIC"}
     assert custom.run_now_workitem_ids == ("WI-HIGH", "WI-DETERMINISTIC")
     assert custom.deferred_workitem_ids == ()
+
+
+
+def test_real_control_plane_and_cold_resume_share_canonical_bank_window(tmp_path):
+    from rc7_runtime import ClosedLoopControlPlane
+    from rc7_runtime.models import Mission, Task
+
+    path = tmp_path / "r1.jsonl"
+    truth = TruthRuntime(path)
+    control = ClosedLoopControlPlane.bootstrap(
+        truth, Mission(mission_id="M-LIVE-WINDOW", release_id="REL-C10", goal="window from R1"),
+    )
+    control.register_task(Task(
+        task_id="WI-EXPENSIVE", mission_id="M-LIVE-WINDOW",
+        node="TEST_DESIGN", task_type="SEMANTIC", objective="mandatory semantic review",
+    ))
+    control.register_task(Task(
+        task_id="WI-TOOL", mission_id="M-LIVE-WINDOW",
+        node="TEST_DATA", task_type="DETERMINISTIC", objective="real DB query",
+    ))
+    control.schedule_semantics.record(
+        mission_id="M-LIVE-WINDOW", workitem_id="WI-EXPENSIVE",
+        execution_mode=ExecutionMode.SEMANTIC,
+        mission_criticality=MissionCriticality.NON_BLOCKING,
+        semantic_cost_class=SemanticCostClass.HIGH,
+        source_ref="plan://explicit/expensive",
+    )
+    control.schedule_semantics.record(
+        mission_id="M-LIVE-WINDOW", workitem_id="WI-TOOL",
+        execution_mode=ExecutionMode.DETERMINISTIC,
+        mission_criticality=MissionCriticality.BLOCKING,
+        semantic_cost_class=SemanticCostClass.LOW,
+        source_ref="plan://explicit/tool",
+    )
+
+    economy = TokenEconomyService(
+        truth, release_id="REL-C10", cost_window_config=_policy(),
+    )
+    economy.configure_budget(
+        mission_id="M-LIVE-WINDOW", max_total_tokens=1000,
+        max_model_calls=10, max_single_call_tokens=100,
+        max_retry_tokens=500, max_retry_calls=10,
+    )
+    # 17:30 China => 09:30 UTC: configurable policy is discount but fixed
+    # default would still classify daytime and defer WI-EXPENSIVE.
+    for current_truth in (truth, TruthRuntime(path)):
+        resumed = ClosedLoopControlPlane(current_truth, "REL-C10", "M-LIVE-WINDOW")
+        resumed.scheduler.clock = lambda: _utc(9, 30)
+        plan = resumed.scheduler.ready_tasks("M-LIVE-WINDOW")
+        assert {task.task_id for task in plan} == {"WI-EXPENSIVE", "WI-TOOL"}
+        assert resumed.economy_scheduler.last_plan is not None
+        assert resumed.economy_scheduler.last_plan.deferred_workitem_ids == ()
+        assert resumed.economy_scheduler.last_plan.cost_window.quota_cost_factor == 0.25
+        assert resumed.economy_scheduler.selector.cost_window_config == _policy()
