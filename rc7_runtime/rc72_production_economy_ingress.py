@@ -230,9 +230,21 @@ def bind_release_batch_model_economy(
     policy = dict(policy or {})
     if set(policy) - {"bank_cost_window", "soft_targets"}:
         raise ProductionEconomyBindingError("RC72_ECONOMY_POLICY_KEYS_INVALID")
-    window = BankCostWindowConfig.from_mapping(policy["bank_cost_window"]) if "bank_cost_window" in policy else BankCostWindowConfig()
-    economy = TokenEconomyService(truth, release_id=release_id, cost_window_config=window)
+    requested_window = (
+        BankCostWindowConfig.from_mapping(policy["bank_cost_window"])
+        if "bank_cost_window" in policy else BankCostWindowConfig()
+    )
     budget_rows = truth.query("rc72_token_budget", budget_id=mission_id)
+    # On restart without a new operator policy, the R1 budget wins. Never
+    # accidentally reset an authorized holiday calendar to weekend-only.
+    if (budget_rows and "bank_cost_window" not in policy
+            and budget_rows[0].get("bank_cost_window_config") is not None):
+        window = BankCostWindowConfig.from_mapping(
+            budget_rows[0]["bank_cost_window_config"]
+        )
+    else:
+        window = requested_window
+    economy = TokenEconomyService(truth, release_id=release_id, cost_window_config=window)
     if len(budget_rows) > 1:
         raise ProductionEconomyBindingError("RC72_ECONOMY_BUDGET_NOT_UNIQUE")
     if not budget_rows:
@@ -250,10 +262,20 @@ def bind_release_batch_model_economy(
                 mission_id=mission_id,
                 **{name: budget_rows[0][name] for name in _DEFAULT_TARGETS}
             )
-        elif persisted != window.as_mapping():
-            # Running provider accounting and Mission scheduling with different
-            # rates would make quota-equivalent reports non-reproducible.
-            raise ProductionEconomyBindingError("RC72_ECONOMY_BANK_SCHEDULE_DRIFT")
+        elif (
+            persisted != window.as_mapping()
+            or any(
+                budget_rows[0][name] != value
+                for name, value in (policy.get("soft_targets") or {}).items()
+            )
+        ):
+            # Calendar/quota policy changes are not permission to stop a
+            # required test. Persist a new R1 budget version for replay, while
+            # retaining all existing soft targets unless explicitly updated.
+            # Each model call keeps its own selected quota window for audit.
+            targets = {name: budget_rows[0][name] for name in _DEFAULT_TARGETS}
+            targets.update(policy.get("soft_targets") or {})
+            economy.configure_budget(mission_id=mission_id, **targets)
     # Install the R1 semantic projection even when the first production run
     # has not constructed an in-memory scheduling control plane.
     WorkScheduleSemanticsService(truth, release_id=release_id)
