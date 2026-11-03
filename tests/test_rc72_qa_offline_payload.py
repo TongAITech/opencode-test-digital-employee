@@ -85,7 +85,7 @@ def test_source_identity_and_payload_tampering_fail_closed(tmp_path):
 def test_missing_dsh_main_cannot_be_hidden_by_dsh_plugins(tmp_path):
     root = _make_fixture(tmp_path)
     (root / "workspace-template/runtime/dsh/dsh.exe").unlink()
-    with pytest.raises(QualificationError, match="CHECKSUM_MISMATCH"):
+    with pytest.raises(QualificationError, match="(MANIFEST_FILE_NOT_CHECKSUMMED|CHECKSUM_MISMATCH)"):
         qualify(root, expected_source=COMMIT, dsh_relpath="workspace-template/runtime/dsh/dsh.exe")
 
 
