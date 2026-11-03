@@ -1,0 +1,97 @@
+"""Approved host loader and CLI refuse raw claims and wrong package scope."""
+import sys
+from types import ModuleType
+
+import pytest
+from rc7_runtime.models import ContractError
+from rc7_runtime.rc72_mission_factory import MissionHostBindings
+from rc7_release.rc72_mission_bindings import load_mission_bindings
+from rc7_release.rc72_mission_cli import main
+from rc72_n2_test_support import BATCH, COMMIT, RELEASE, start_n1
+from test_rc72_mission_factory import _setup
+
+
+def test_host_loader_preserves_typed_capabilities_and_same_truth(tmp_path, monkeypatch):
+    truth, options = _setup(tmp_path)
+    capabilities = MissionHostBindings(**{k:v for k,v in options.items()
+        if k not in {'release_id','source_commit','evidence_root'}})
+    module = ModuleType('approved_factory_binding')
+    def create(**context):
+        assert context == dict(truth=truth, release_id=RELEASE, source_commit=COMMIT)
+        return capabilities
+    module.create_mission_bindings = create
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    assert load_mission_bindings(module.__name__, truth=truth,
+        release_id=RELEASE, source_commit=COMMIT) is capabilities
+
+
+@pytest.mark.parametrize('result', [{'status':'PASS'}, lambda: 'PASS', None])
+def test_host_loader_refuses_success_documents_and_driver_callbacks(tmp_path, monkeypatch, result):
+    truth, _ = _setup(tmp_path)
+    module = ModuleType('untyped_factory_binding')
+    module.create_mission_bindings = lambda **kwargs: result
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    with pytest.raises(ContractError, match='TYPED_CAPABILITIES_REQUIRED'):
+        load_mission_bindings(module.__name__, truth=truth, release_id=RELEASE, source_commit=COMMIT)
+
+
+def test_host_failure_does_not_expose_configuration_values(tmp_path, monkeypatch):
+    truth, _ = _setup(tmp_path)
+    module = ModuleType('failed_factory_binding')
+    def create(**kwargs):
+        raise RuntimeError('private credential value')
+    module.create_mission_bindings = create
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    with pytest.raises(ContractError) as error:
+        load_mission_bindings(module.__name__, truth=truth, release_id=RELEASE, source_commit=COMMIT)
+    assert str(error.value) == 'MISSION_BINDINGS_LOAD_FAILED:RuntimeError'
+
+
+@pytest.mark.parametrize('mutation', ['source', 'release', 'missing_options'])
+def test_cli_checks_package_and_batch_before_importing_host(tmp_path, monkeypatch, mutation):
+    truth, _ = _setup(tmp_path)
+    start_n1(truth)
+    root = tmp_path/'package'
+    root.mkdir()
+    (root/'SOURCE_COMMIT').write_text('f'*40 if mutation == 'source' else COMMIT)
+    module = ModuleType('must_not_load_binding')
+    def forbidden(**kwargs):
+        pytest.fail('invalid CLI context loaded host binding')
+    module.create_mission_bindings = forbidden
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    args = ['run', '--ledger', str(truth.store.path), '--source-commit', COMMIT,
+        '--release-batch', BATCH]
+    if mutation != 'missing_options':
+        args += ['--release-id', 'wrong-release' if mutation == 'release' else RELEASE,
+            '--bindings-module', module.__name__, '--package-root', str(root),
+            '--evidence-root', str(tmp_path/'evidence')]
+    before = truth.store.path.read_bytes()
+    with pytest.raises(SystemExit) as error:
+        main(args)
+    assert error.value.code == 2
+    assert truth.store.path.read_bytes() == before
+
+
+def test_cli_run_composes_native_services_but_cannot_bypass_admission(tmp_path, monkeypatch):
+    truth, _ = _setup(tmp_path)
+    start_n1(truth)
+    admission = truth.query('rc72_q7_admission')[0]
+    admission.update(status='HOLD', reason='engineering test admission withheld',
+        hold_reasons=['Q7 withheld'], artifact_version=admission['artifact_version']+1)
+    truth.append_atomic('RC72_Q7_ADMISSION_UPSERTED', admission)
+    root = tmp_path/'package'
+    root.mkdir()
+    (root/'SOURCE_COMMIT').write_text(COMMIT)
+    module = ModuleType('native_admission_binding')
+    def create(**context):
+        _, options = _setup(tmp_path, truth=context['truth'])
+        return MissionHostBindings(**{k:v for k,v in options.items()
+            if k not in {'release_id','source_commit','evidence_root'}})
+    module.create_mission_bindings = create
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    before = truth.store.path.read_bytes()
+    with pytest.raises(ContractError, match='FIELD_MISSION_Q7_ADMISSION_HOLD'):
+        main(['run','--ledger',str(truth.store.path),'--source-commit',COMMIT,
+            '--release-batch',BATCH,'--release-id',RELEASE,'--bindings-module',module.__name__,
+            '--package-root',str(root),'--evidence-root',str(tmp_path/'evidence')])
+    assert truth.store.path.read_bytes() == before

@@ -1,0 +1,47 @@
+name: RC7.2 Native Mission Factory Qualification
+
+on:
+  push:
+    branches: [work/rc7.2-mission-factory]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  owned-composition:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Bootstrap pinned engineering test runner
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Validate owned factory, CLI, admission and original denominator
+        shell: python
+        run: |
+          from rc7_release.rc72_bounded_pytest import run_files
+          files = [
+              'tests/test_rc72_mission_factory.py',
+              'tests/test_rc72_mission_bindings.py',
+              'tests/test_rc72_q2b_clean_runtime_contract.py',
+              'tests/test_rc72_release_driver.py',
+              'tests/test_rc72_release_driver_n10.py',
+          ]
+          raise SystemExit(run_files(files, timeout_seconds=180,
+              file_timeouts={'tests/test_rc72_release_driver_n10.py': 900},
+              junit_dir='mission-factory-evidence'))
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-mission-factory-${{ matrix.os }}-${{ github.sha }}
+          path: mission-factory-evidence/*.xml
+          retention-days: 30

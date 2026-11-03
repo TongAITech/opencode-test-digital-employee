@@ -85,16 +85,28 @@ def test_full_original_source_driver_enters_actual_n10_without_erasing_missing_l
         for case in design.cases:
             contract=next(c for c in contracts if c['case_id']==case['tc_id'])
             _qualify(tmp_path/'qualified'/case['tc_id'],case,contract)
-        output=tmp_path/'actual-output';environment=LocalHTTPEnvironment(url,output)
-        preparation=ExecutionPreparationService(truth,release_id=RELEASE,source_commit=COMMIT,
-            authority=RC72AuthorityRuntime(b'full-n10-real-execution-key'),tool_registry={'api_http':['api_http']})
-        driver.n7_pipeline=N7PipelineService(preparation,runner=FormalN7RunnerAdapter(preparation,evidence_root=output,
-            environment_adapter=environment,execution_env={'RC72_OUTPUT_ROOT':str(output)},timeout_seconds=30),capture_root=tmp_path/'n7-captured')
-        driver.n9_pipeline=AcceptedScopeN9Service(driver.n7_pipeline)
-        measurement=NativeLibraMeasurementService(driver.expected_scope,driver.n9_pipeline,capture_root=tmp_path/'libra-captured')
-        intake=NativeCoverageGapIntakeService(measurement)
-        diagnosis=NativeCoveragePathDiagnosisService(intake,evidence_root=tmp_path/'coverage-diagnosis')
-        driver.n10_pipeline=NativeN10ControlService(driver.expected_scope,driver.n9_pipeline,measurement,intake,diagnosis)
+        from rc7_runtime.rc72_mission_factory import MissionWorkerBinding,create_mission_driver
+        root=tmp_path/'factory-evidence';output=root/'runner'
+        environment=LocalHTTPEnvironment(url,output)
+        n3,n4,n5=driver.n3_pipeline,driver.n4_pipeline,driver.n5_pipeline
+        roles={
+            'reality':(driver.n1_launcher,driver.n1_tools),
+            'requirement':(driver.n2_launcher,driver.n2_tools),
+            'requirement_review':(driver.n2_evaluator.launcher,driver.n2_evaluator.allowed_tools),
+            'source':(n3.source_launcher,n3.source_tools),
+            'source_review':(n3.source_reviewer,n3.source_review_tools),
+            'code':(n3.code_launcher,n3.code_tools),
+            'code_review':(n3.code_evaluator.launcher,n3.code_evaluator.reviewer_allowed_tools),
+            'design':(n4.launcher,n4.tools),
+            'design_review':(n4.evaluator.launcher,n4.evaluator.reviewer_allowed_tools),
+            'data':(n5.launcher,n5.tools),
+            'data_verify':(n5.verifier,n5.verification_tools)}
+        driver=create_mission_driver(truth,release_id=RELEASE,source_commit=COMMIT,
+            workers={role:MissionWorkerBinding(worker,tuple(tools)) for role,(worker,tools) in roles.items()},
+            bank_pip_mirror=driver.bank_pip_mirror,
+            execution_authority=RC72AuthorityRuntime(b'full-n10-real-execution-key'),
+            execution_environment=environment,tool_registry={'api_http':('api_http',)},
+            evidence_root=root,execution_env={'RC72_OUTPUT_ROOT':str(output)})
         result=driver.run(release_batch_id=BATCH)
         assert result['reason']=='N10_RELEASE_NOT_CONVERGED' and result['convergence_result']=='NOT_CONVERGED'
         assert len(design.cases)==28 and len(business.calls)==len(design.cases)
