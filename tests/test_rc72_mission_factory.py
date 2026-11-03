@@ -12,6 +12,7 @@ from rc7_runtime.rc72_native_n1_read_gate import N1ReadResource, TOOL
 from rc7_runtime.rc72_mission_factory import ROLES, MissionWorkerBinding, create_mission_driver
 from rc7_runtime.rc72_native_coverage_repair import NativeCoverageRepairService
 from rc7_runtime.rc72_native_coverage_rerun import NativeCoverageRerunService, CoverageRerunPlanningService
+from rc7_runtime.rc72_n8_product_recovery import NativeN8ProductRecoveryService
 from rc72_n2_test_support import build_truth, RELEASE, COMMIT
 from rc7_runtime.rc72_bank_pip_mirror import NativeBankPipMirrorService
 from rc72_formal_runner_support import LocalHTTPEnvironment
@@ -54,6 +55,10 @@ def test_factory_owns_whole_native_chain_without_starting_work(tmp_path):
     assert driver.n3_pipeline.truth is driver.n4_pipeline.truth is driver.n5_pipeline.truth is truth
     assert driver.n7_pipeline.preparation.authority is options['execution_authority']
     assert driver.n9_pipeline.pipeline is driver.n7_pipeline
+    assert isinstance(driver.n8_pipeline, NativeN8ProductRecoveryService)
+    assert driver.n8_pipeline.n7 is driver.n7_pipeline
+    assert driver.n8_pipeline.diagnosis is driver.n7_pipeline.diagnosis
+    assert driver.n8_pipeline.continuation.diagnosis is driver.n7_pipeline.diagnosis
     assert driver.n10_pipeline.n9 is driver.n9_pipeline
     assert driver.n10_pipeline.expected_scope is driver.expected_scope
     # This must be the *product* chain, not a test-only N10 with no repair.
@@ -111,6 +116,9 @@ def test_factory_cold_reconstruction_keeps_repair_rerun_owned_and_side_effect_fr
     for _ in range(2):
         driver = create_mission_driver(truth, **options)
         assert driver.n10_pipeline.rerun.pipeline is driver.n7_pipeline
+        assert driver.n8_pipeline.n7 is driver.n7_pipeline
+        assert driver.n8_pipeline.boundary.preparation is driver.n7_pipeline.preparation
+        assert driver.n8_pipeline.continuation.preparation is driver.n7_pipeline.preparation
         assert driver.n10_pipeline.rerun.truth is truth
         assert driver.n10_pipeline.repair.truth is truth
         assert driver.n10_pipeline.rerun.source_commit == options['source_commit']
