@@ -114,7 +114,7 @@ service=[string](Get-Service MpsSvc).Status} | ConvertTo-Json -Compress
     return dict(proof,query_shell=shell)
 
 
-def qualify(package_root,evidence_root,*,require_windows_outbound_block=False):
+def qualify(package_root,evidence_root,*,require_windows_outbound_block=False,require_full_text_search=False):
     root=Path(package_root).resolve();evidence=Path(evidence_root).resolve();evidence.mkdir(parents=True,exist_ok=True)
     node=root/'workspace-template/runtime/node/node.exe'
     if node.is_symlink() or not node.is_file():raise RuntimeError('EXECUTION_COMPONENT_PACKAGE_NODE_REQUIRED')
@@ -129,6 +129,11 @@ def qualify(package_root,evidence_root,*,require_windows_outbound_block=False):
     env=scoped_process_environment(dict(CI='true',GITNEXUS_HOME=str(evidence/'home/.gitnexus'),
         NODE_OPTIONS='--require='+json.dumps(fence.as_posix()),HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1',
         GITNEXUS_LBUG_EXTENSION_INSTALL='load-only'),home=evidence/'home')
+    fts_manifest=None
+    if (execution/'fts-payload/FTS-PAYLOAD.json').is_file():
+        from .rc72_gitnexus_search_payload import restore
+        fts_manifest=restore(root,evidence/'home')
+    elif require_full_text_search:raise RuntimeError('EXECUTION_COMPONENT_FULL_TEXT_PAYLOAD_REQUIRED')
     firewall=_windows_outbound_proof(node,env,evidence) if require_windows_outbound_block else None
     fixture=evidence/'fixture';fixture.mkdir(exist_ok=True)
     (fixture/'math.ts').write_text('export function double(value: number): number { return value * 2; }\n')
@@ -156,6 +161,23 @@ def qualify(package_root,evidence_root,*,require_windows_outbound_block=False):
     calls=context.get('incoming',{}).get('calls',[])
     if not any(c.get('name')=='run' for c in calls):raise RuntimeError('EXECUTION_COMPONENT_ACTUAL_CALL_EDGE_REQUIRED')
     resource=_resource(node,cli,env,fixture,evidence)
+    search=None
+    if fts_manifest is not None:
+        code="""const assert=require('node:assert');
+const moduleValue=require('@ladybugdb/core');const lbug=moduleValue.default||moduleValue;
+(async()=>{const db=new lbug.Database(process.argv[1],67108864,false,false,1073741824);
+const conn=new lbug.Connection(db);
+try{await conn.query('LOAD EXTENSION fts');
+await conn.query('CREATE NODE TABLE Document(id INT64, text STRING, PRIMARY KEY(id))');
+await conn.query("CREATE (:Document {id:1,text:'rc72offline exact callable symbol'})");
+await conn.query("CREATE (:Document {id:2,text:'unrelated control content'})");
+await conn.query("CALL CREATE_FTS_INDEX('Document','rc72_search',['text'],stemmer := 'none')");
+const result=await conn.query("CALL QUERY_FTS_INDEX('Document','rc72_search','rc72offline') RETURN node.id AS id, score");
+const rows=await result.getAll();assert(rows.length===1&&String(rows[0].id)==='1'&&Number.isFinite(rows[0].score));
+console.log(JSON.stringify({native_fts_query:true,matched_id:String(rows[0].id),score:rows[0].score}));
+}finally{await conn.close();await db.close();}})().catch(error=>{console.error(error);process.exitCode=1});"""
+        search=_json_result(run('fulltext-query',[node,'-e',code,evidence/'fts-smoke.lbug'],execution))
+        if search.get('native_fts_query') is not True:raise RuntimeError('EXECUTION_COMPONENT_NATIVE_FTS_QUERY_REQUIRED')
     # Preserve the actual native extension load diagnosis from this same copied
     # runtime. It is diagnostic evidence, not authority for graph/search PASS.
     doctor=subprocess.run([str(node),str(cli),'doctor'],cwd=str(fixture),env=env,
@@ -164,7 +186,7 @@ def qualify(package_root,evidence_root,*,require_windows_outbound_block=False):
     (evidence/'doctor.stderr.log').write_text(doctor.stderr,encoding='utf-8')
     if (fixture/'AGENTS.md').exists() or (fixture/'CLAUDE.md').exists():raise RuntimeError('EXECUTION_COMPONENT_INDEX_ONLY_REQUIRED')
     return dict(schema='RC72_EXECUTION_NODE_COMPONENT_V1',status='PASS',node=node_version,gitnexus=metadata,gitnexus_cli=graph_version,
-        fts_search_qualified=False,embeddings_qualified=False,extension_policy='load-only',
+        fts_search_qualified=search is not None,fts_native_query=search,fts_payload=fts_manifest,embeddings_qualified=False,extension_policy='load-only',
         native_doctor_diagnostic_exit_code=doctor.returncode,
         playwright=_json_result(playwright),index_status=status,symbol_context=context,mcp_context=resource,
         node_javascript_network_calls_denied=True,windows_program_outbound_block=firewall,embeddings_requested=False,change_truth_authority=False,
@@ -173,9 +195,9 @@ def qualify(package_root,evidence_root,*,require_windows_outbound_block=False):
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--package-root',required=True);parser.add_argument('--evidence-root',required=True);parser.add_argument('--require-windows-outbound-block',action='store_true')
+    parser=argparse.ArgumentParser();parser.add_argument('--package-root',required=True);parser.add_argument('--evidence-root',required=True);parser.add_argument('--require-windows-outbound-block',action='store_true');parser.add_argument('--require-full-text-search',action='store_true')
     args=parser.parse_args();out=Path(args.evidence_root);out.mkdir(parents=True,exist_ok=True)
-    try:result=qualify(args.package_root,out,require_windows_outbound_block=args.require_windows_outbound_block)
+    try:result=qualify(args.package_root,out,require_windows_outbound_block=args.require_windows_outbound_block,require_full_text_search=args.require_full_text_search)
     except Exception as exc:result=dict(status='FAIL',error=str(exc),error_type=type(exc).__name__,field_verified=False,bank_final=False)
     (out/'execution-node-capability.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n',encoding='utf-8')
     print(json.dumps(result,sort_keys=True));return 0 if result['status']=='PASS' else 1

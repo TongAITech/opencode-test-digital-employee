@@ -8,6 +8,7 @@ on:
       - 'rc7_release/runtime_payload_materializer.py'
       - 'rc7_release/rc72_execution_node_qualification.py'
       - 'rc7_release/runtime_delivery_contract.py'
+      - 'rc7_release/rc72_gitnexus_search_payload.py'
   workflow_dispatch:
 
 permissions:
@@ -34,6 +35,8 @@ jobs:
           $env:RC72_EXECUTION_COMPONENT_STAGE = $stage
           python -c "import pathlib,os; from rc7_release.runtime_payload_materializer import _materialize_node,_materialize_playwright; p=pathlib.Path(os.environ['RC72_EXECUTION_COMPONENT_STAGE']); p.mkdir(parents=True,exist_ok=True); _materialize_node(p); _materialize_playwright(p)"
           if ($LASTEXITCODE -ne 0) { throw 'complete execution dependency acquisition failed' }
+          python -m rc7_release.rc72_gitnexus_search_payload --package-root $stage --evidence-root dist/execution-component-evidence
+          if ($LASTEXITCODE -ne 0) { throw 'native full-text extension acquisition failed' }
       - name: Clean extraction and actual offline native graph verification
         shell: pwsh
         run: |
@@ -47,7 +50,7 @@ jobs:
           Set-NetFirewallProfile -Profile Domain,Private,Public -Enabled True
           New-NetFirewallRule -Name 'RC72-Execution-Node-Offline' -DisplayName 'RC72 isolated component qualification' -Program $node -Direction Outbound -Action Block -Profile Any -Enabled True | Out-Null
           try {
-            python -m rc7_release.rc72_execution_node_qualification --package-root $clean --evidence-root dist/execution-component-evidence --require-windows-outbound-block
+            python -m rc7_release.rc72_execution_node_qualification --package-root $clean --evidence-root dist/execution-component-evidence --require-windows-outbound-block --require-full-text-search
             if ($LASTEXITCODE -ne 0) { throw 'actual offline clean execution component verification failed' }
           } finally {
             Remove-NetFirewallRule -Name 'RC72-Execution-Node-Offline'

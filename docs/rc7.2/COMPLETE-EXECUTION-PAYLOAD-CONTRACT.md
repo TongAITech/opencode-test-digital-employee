@@ -63,3 +63,27 @@ current registered analyzer, symbol/caller context and separate MCP resource
 read. The component uses copied Node v22.23.4 and GitNexus 1.6.12. Full-text
 search was disabled because FTS could not load. This result does not qualify
 FTS, embeddings, the whole toolchain or the complete product package.
+
+## Full-text extension construction
+
+The copied-runtime doctor run `41602670990` confirmed that LadybugDB 0.18.3
+loads its native module but has no FTS or VECTOR extension installed. The
+published GitNexus 1.6.12 loader differs from current upstream packaging. No
+current-upstream 0.22 artifact is substituted for that 0.18.3 native core.
+
+The dedicated execution component now invokes its own packaged native FTS
+installer at build time in a temporary private home. Only resulting native
+extension artifacts are carried, with their original home-relative paths,
+matching native core version and per-file hashes/sizes. The temporary build
+home is removed before archive extraction. Restoration into a fresh private
+worker home verifies every artifact before copying; no registry, credential,
+source index or arbitrary home file is restored.
+
+After clean extraction, the Node firewall and JavaScript network fence remain
+active and extension policy is explicitly `load-only`. Qualification requires
+an actual native FTS index over a two-document control fixture and an actual
+query selecting the correct record. Search capability is marked qualified only
+when that query succeeds. The dedicated job requires this payload; ordinary
+graph-only qualification still identifies search as unqualified when absent.
+This new construction path requires a successful Windows run before any claim
+of copied offline FTS capability. VECTOR/embedding capability remains separate.
