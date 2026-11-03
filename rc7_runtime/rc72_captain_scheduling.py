@@ -106,9 +106,12 @@ class CaptainFencedWorkItemScheduler:
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_ETU_MISMATCH")
             existing = [s for s in self.truth.query("rc72_worker_session", mission_id=mission_id)
                         if s.get("workitem_id") == workitem_id]
-            if existing:
-                # CLOSED also requires a signed new Attempt/retry decision. No
-                # silent restoration from a lost Session or partial dispatch.
+            if existing and not (
+                len(existing) == 1 and existing[0].get("state") == "CLOSED"
+                and existing[0].get("close_reason") == "ORPHAN_BEFORE_WORKITEM_LEASE_VERIFIED"
+                and row["state"] == TaskStatus.READY.value):
+                # CLOSED execution sessions and unknown orphans must never
+                # silently turn into another execution of the same WorkItem.
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_PRIOR_SESSION_RECOVERY_REQUIRED")
             if not isinstance(canonical_refs, Mapping):
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_CANONICAL_REFS_REQUIRED")
@@ -117,7 +120,8 @@ class CaptainFencedWorkItemScheduler:
             fresh = self.lifecycle.assign_fresh_worker(
                 mission_id=mission_id, team_id=team_id, role=role,
                 etu_id=etu_id, workitem_id=workitem_id,
-                canonical_refs=canonical_refs)
+                canonical_refs=canonical_refs,
+                parent_session_id=existing[0]["session_id"] if existing else None)
             leased = self.scheduler.lease_task(
                 mission_id, workitem_id, worker_ref=fresh.worker_id,
                 capabilities=capabilities)
@@ -128,3 +132,59 @@ class CaptainFencedWorkItemScheduler:
                 etu_id=etu_id, role=role, worker_id=fresh.worker_id,
                 session_id=fresh.session_id, captain_generation=owner["generation"],
                 captain_lease_id=owner["lease_id"], state="LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH")
+
+
+    def recover_unleased_orphan(self, *, mission_id: str, team_id: str,
+                                captain_session_id: str, captain_lease_id: str,
+                                workitem_id: str, session_id: str):
+        """Proof-bound reconciliation of admission crash *before* any Task lease.
+
+        Only a session with no signed authority, no DSH identity, no resources,
+        no Attempts and no observed external side effects can be closed by a
+        Captain and safely replaced by a new Fresh Worker. UNKNOWN stays blocked.
+        """
+        from rc6_runtime import truth as registry
+
+        with ledger_lock(self.truth):
+            self.fencer._batch(mission_id)
+            owner = self.fencer._owner(
+                mission_id, captain_lease_id, captain_session_id, int(time.time()))
+            if owner["team_id"] != team_id:
+                raise CaptainSchedulingError("CAPTAIN_SCHEDULER_TEAM_MISMATCH")
+            tasks = self.truth.query("rc7_task", task_id=workitem_id)
+            if (len(tasks) != 1 or tasks[0].get("mission_id") != mission_id
+                    or tasks[0].get("state") != TaskStatus.READY.value
+                    or tasks[0].get("lease_owner")):
+                raise CaptainSchedulingError("ORPHAN_RECOVERY_WORKITEM_ALREADY_DISPATCHED")
+            sessions = [row for row in self.truth.query("rc72_worker_session", mission_id=mission_id)
+                        if row.get("workitem_id") == workitem_id]
+            if len(sessions) != 1 or sessions[0]["session_id"] != session_id:
+                raise CaptainSchedulingError("ORPHAN_RECOVERY_SESSION_NOT_UNIQUE")
+            session = sessions[0]
+            if session.get("state") != "ACTIVE" or session.get("team_id") != team_id:
+                raise CaptainSchedulingError("ORPHAN_RECOVERY_SESSION_NOT_ACTIVE")
+            if any(session.get(key) for key in (
+                    "runtime_worker_id", "runtime_assignment_id", "task_lease_ref",
+                    "runtime_attempt_id", "dsh_session_id", "binding_id")):
+                raise CaptainSchedulingError("ORPHAN_RECOVERY_AUTHORITY_OR_DSH_OBSERVED")
+            worker_id = session["worker_id"]
+            for artifact_type in (
+                    "rc72_workitem_attempt_binding", "execution_attempt",
+                    "rc72_data_lease", "rc72_browser_lease", "rc72_capability_lease",
+                    "rc72_native_tool_call", "rc72_n7_http_call",
+                    "rc72_n7_tool_dispatch", "rc72_execution_process_heartbeat",
+                    "rc72_n7_formal_runner_receipt"):
+                if artifact_type not in registry.BUCKETS:
+                    continue
+                # A matching worker in ANY state or Mission blocks automatic
+                # recovery. An expired resource does not prove side-effect safety.
+                if self.truth.query(artifact_type, worker_id=worker_id):
+                    raise CaptainSchedulingError("ORPHAN_RECOVERY_RESOURCE_OR_EFFECT_OBSERVED")
+            if "rc7_evidence" in registry.BUCKETS:
+                for evidence in self.truth.query("rc7_evidence", mission_id=mission_id):
+                    if (worker_id in evidence.get("subject_refs", ())
+                            or evidence.get("source_ref") == worker_id):
+                        raise CaptainSchedulingError("ORPHAN_RECOVERY_EVIDENCE_OBSERVED")
+            checkpoint = self.lifecycle.checkpoint_and_close(
+                session_id, reason="ORPHAN_BEFORE_WORKITEM_LEASE_VERIFIED")
+            return checkpoint
