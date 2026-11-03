@@ -74,7 +74,7 @@ class NativeN10ControlService:
         n9=self.n9.complete(release_batch_id=release_batch_id)
         if n9.get('status')=='HOLD':return n9
         node=self.measurement._one('rc72_mission_node',mission_id=batch['mission_id'],node_type='N10_RELEASE_CONVERGENCE')
-        if node['state'] not in {'READY','RUNNING','REVIEW_PENDING','PASS'}:raise ContractError('N10_NATIVE_ACTIVE_NODE_REQUIRED')
+        if node['state'] not in {'READY','RUNNING','REVIEW_PENDING','PASS','STALE'}:raise ContractError('N10_NATIVE_ACTIVE_NODE_REQUIRED')
         measurements=[];intakes=[];investigations=[];repair_workitems=[];holds=[]
         for app in batch['application_ids']:
             repairs=active_repair_boundaries(self.truth,self.measurement.authority,release_id=self.release_id,
@@ -114,6 +114,22 @@ class NativeN10ControlService:
             coverage_repair=self.repair,replay_safe=True)
         snapshot=aggregator.aggregate(mission_id=batch['mission_id'])
         issues=NativeN10FeedbackService(self.truth,release_id=self.release_id).derive(snapshot=snapshot)
+        if snapshot.result.value!='CONVERGED' and node['state']=='PASS':
+            # A historical terminal Gate is not permanent authorization.
+            # A newly unproven Obligation, critical Defect, stale source or
+            # coverage regression invalidates its active PASS immediately.
+            # Keep the signed Gate as history, never as current release truth.
+            self.n9.runtime.mark_stale(node['mission_node_id'],
+                reason='actual ReleaseBatch source changed after N10 terminal Gate')
+            return dict(status='HOLD',reason='N10_TERMINAL_SCOPE_REGRESSED',
+                convergence_result=snapshot.result.value,
+                convergence_snapshot_id=snapshot.snapshot_id,
+                blockers=snapshot.blockers,issues=issues,
+                measurement_ids=measurements,intake_ids=intakes,
+                investigation_workitem_ids=investigations,
+                repair_workitem_ids=repair_workitems,
+                manifest_id=frozen['manifest_id'],
+                field_verified=False,bank_final=False,**extra)
         if snapshot.result.value=='CONVERGED':
             # Terminal PASS is not derived from the aggregator result alone.
             # A fresh, separate reviewer process and signed R1 evidence
