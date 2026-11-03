@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import asdict, fields
 from copy import deepcopy
 from datetime import datetime
+import time
 from typing import Any, Dict, Mapping, Optional, Sequence
 
 from rc6_runtime import contracts, truth as registry
