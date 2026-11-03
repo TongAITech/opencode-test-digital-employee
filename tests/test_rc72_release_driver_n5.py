@@ -16,8 +16,8 @@ from test_rc72_n5_data_verification_handoff import _v2_candidate
 from rc72_n2_test_support import BATCH, COMMIT, RELEASE
 
 
-def _n5_driver(tmp_path, *, negative=False, materialized=False):
-    truth, driver, calls = _n4_driver(tmp_path, compact=True, materialized=materialized)
+def _n5_driver(tmp_path, *, negative=False, materialized=False, runner_root=None):
+    truth, driver, calls = _n4_driver(tmp_path, compact=True, materialized=materialized, runner_root=runner_root)
     script = tmp_path / 'n5-protocol-worker.py'
     script.write_text('import sys,json,uuid\n'
         'print(json.dumps(dict(type="session",session_id="session-n5-product-"+uuid.uuid4().hex)))\n'

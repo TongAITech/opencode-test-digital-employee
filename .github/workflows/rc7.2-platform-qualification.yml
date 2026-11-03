@@ -36,7 +36,9 @@ jobs:
             qualification_kind: LINUX_ENGINEERING_PROXY
     runs-on: ${{ matrix.os }}
     # The full Windows suite exceeded 30m on b032924 (check run 125533816804).
-    # Per-file 180s worker bounds remain unchanged; allow the complete suite.
+    # Existing contract files retain 180s. The full N1..N7 integration drives
+    # all 28 approved Cases through actual processes, cleanup and cold audit;
+    # give only that explicit workload a separate finite 900s budget.
     timeout-minutes: 120
     steps:
       - name: Checkout exact RC7.2 source
@@ -64,6 +66,7 @@ jobs:
           python -m rc7_release.rc72_bounded_pytest
           --pattern "tests/test_rc72_*.py"
           --timeout-seconds 180
+          --file-timeout tests/test_rc72_release_driver_n7.py=900
           --junit-dir rc72-platform-junit
 
       - name: Run inherited RC7 regression with bounded file diagnostics

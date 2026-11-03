@@ -154,3 +154,34 @@ def test_n6_recompile_resumes_original_timestamp_while_n7_holds_its_own_leases(t
     assert list(truth.store.iter_raw()) == before
     assert truth.query('rc72_n6_executable_contract', contract_id=prepared['contract_id'])[0]['compiled_at'] == contract['compiled_at']
     assert {row['state'] for row in truth.query('rc72_data_lease')} == {'ACTIVE'}
+
+
+def test_authority_restoration_keeps_resource_decision_locked_until_complete(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+    from pathlib import Path
+    truth,plan=_setup(tmp_path,monkeypatch)
+    service=_service(truth)
+    prepared=service.prepare(plan_id=plan['plan_id'],workitem_id=plan['items'][0]['workitem_id'])
+    original=service.authority.restore_renewed_worker_lease
+    observations=[]
+    child_code='''import sys
+import rc7_runtime
+from rc6_runtime.truth import TruthRuntime
+from rc7_runtime.rc72_ledger_lock import ledger_lock
+from rc7_runtime.models import ContractError
+try:
+    with ledger_lock(TruthRuntime(sys.argv[1])):
+        print('ACQUIRED')
+except ContractError as exc:
+    print(str(exc))
+'''
+    def restore(*args,**kwargs):
+        child=subprocess.run([sys.executable,'-c',child_code,str(truth.store.path)],
+            cwd=str(Path(__file__).resolve().parents[1]),capture_output=True,text=True,timeout=15)
+        assert child.returncode==0,child.stderr
+        observations.append(child.stdout.strip())
+        return original(*args,**kwargs)
+    monkeypatch.setattr(service.authority,'restore_renewed_worker_lease',restore)
+    assert service.assert_current(prepared['preparation_id'])==prepared
+    assert observations==['RC72_RESOURCE_LEDGER_BUSY']

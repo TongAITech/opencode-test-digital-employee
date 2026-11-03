@@ -1,5 +1,52 @@
 # RC7.2 持续施工与最终搬运交付
 
+## Native formal N7 product route — 2026-11-03
+
+N7PipelineService connects the actual planning/preparation, signed dispatch,
+FormalN7RunnerAdapter child processes, environment cleanup/verification,
+immutable evidence capture and independent-process finalizer. Existing returned
+calls/cleanup proofs resume without restoring released business leases. Unknown
+external effects remain held without replay or cleanup. Review-pending and PASS
+resume the original active Delivery/bundle, whose full native proof is audited.
+A genuine accepted N7→N9 FORWARD edge skips dormant N8 scheduling; it never
+changes N8 into PASS. Local engineering tests include real HTTP/process I/O;
+initial approvals remain fixtures, not bank Field or production DSH proof.
+C08 remains incomplete: N8 repair/N9/N10, production factory/run command and
+broader semantic repair. Complete RC7.1-equivalent transport remains C12 OPEN.
+
+
+ExecutionPreparationService now checks the current identity/contract/task and
+all business resources under the same OS-held ledger decision lock through
+worker authority restoration. This removes the intervening projection refresh
+race and repeated per-resource full replays. Signed existing process suspension
+still denies a cold controller before lock acquisition and is checked again
+inside. Heartbeat lock contention retains the bounded existing retry semantics.
+This is a narrow C06 correctness/performance improvement; legacy writers,
+unknown-effect/orphan adjudication and all-role tool fences remain open.
+
+
+
+Validation for this checkpoint (local engineering, not Field):
+- Full N1..N7 product composition: 28 original approved Cases, real HTTP and
+  formal child processes, cleanup, independent acceptance and read-only replay;
+  1 passed in 789.79s under the explicit 900s whole-chain budget. Existing
+  contract-file budgets remain 180s; path normalization supports Windows.
+- Atomic preparation/process/renewal/expiry/resource exclusion and N7 pipeline:
+  56 passed in 126.49s. Includes actual external lock contention at authority
+  restoration, cold cleanup/review continuation, unknown effect no replay and
+  actual malformed independent reviewer process held without looping.
+- Windows candidate transport regression: 19 passed in 201.69s across files.
+  Prior exact 95be2cc Windows CI failed five files with WinError 206: large
+  fixture candidates were argv payloads. The protocol process now reads the
+  complete content-addressed candidate file, preserving native review content.
+  Actual production DSH's large-prompt transport still needs its supported host
+  protocol verified; fixture transport is not evidence of that host capability.
+- Previous N1/N4/N5 regression 21 passed in 63.82s; budget runner 4 passed.
+- Logs are release-driver-n7-full-final.log, release-driver-n7-atomic-authorization-final.log
+  and release-driver-windows-candidate-transport.log in ../evidence.
+- Prior 95be2cc Linux platform baseline passed; Windows failed as above. New
+  exact-source Windows/Linux qualification is required. No final package exists.
+
 ## Native N6 product route and canonical multi-obligation Cases — 2026-11-03
 
 The product driver now automatically uses N6PipelineService and the existing

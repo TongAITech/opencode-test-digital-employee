@@ -150,7 +150,7 @@ class ExecutionProcessHeartbeat:
             try:
                 self.preparation.assert_current(self.original['preparation_id'])
             except ContractError as exc:
-                if str(exc) in {'DATA_RESOURCE_CONFLICT:LEDGER_BUSY', 'RESOURCE_CONFLICT:LEDGER_BUSY'} and int(time.time()) < lease.expires_at:
+                if str(exc) in {'DATA_RESOURCE_CONFLICT:LEDGER_BUSY', 'RESOURCE_CONFLICT:LEDGER_BUSY', 'N7_PREPARATION_LEDGER_BUSY'} and int(time.time()) < lease.expires_at:
                     return row
                 raise
             return row

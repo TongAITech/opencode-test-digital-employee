@@ -15,13 +15,13 @@ from test_rc72_n4_test_design_handoff import _candidate
 from rc72_n2_test_support import BATCH, COMMIT, RELEASE
 
 
-def _n4_driver(tmp_path, *, incomplete_parent=False, explicit_gap=False, shallow=False, invalid_oracle=False, compact=False, materialized=False):
+def _n4_driver(tmp_path, *, incomplete_parent=False, explicit_gap=False, shallow=False, invalid_oracle=False, compact=False, materialized=False, runner_root=None):
     truth, driver, calls = _n3_driver(tmp_path, two_targets=True, runtime_family='API' if materialized else None)
     script = tmp_path / 'n4-protocol-worker.py'
-    script.write_text('import sys,json,uuid\n'
+    script.write_text('import sys,json,uuid\nfrom pathlib import Path\n'
         'print(json.dumps(dict(type="session",session_id="session-n4-product-"+uuid.uuid4().hex)))\n'
         'for name in ["filesystem","codegraph"]: print(json.dumps(dict(type="tool_call",tool_name=name)))\n'
-        'print(json.dumps(dict(type="final",text=sys.argv[1])))\n')
+        'print(json.dumps(dict(type="final",text=Path(sys.argv[1]).read_text(encoding="utf-8"))))\n')
     patch = tmp_path / 'n4-patch.json'
     patch.write_text('{}')
     def launcher(role):
@@ -79,6 +79,21 @@ def _n4_driver(tmp_path, *, incomplete_parent=False, explicit_gap=False, shallow
                             inputs=dict(fixture_input='explicit reviewed input'),
                             request=deepcopy(spec['request']), cleanup=deepcopy(spec['cleanup']),
                             authoritative_sources=[spec['request']['source_ref'],spec['cleanup']['source_ref']])
+                        if runner_root is not None:
+                            root=runner_root/case['tc_id']
+                            runner_source='approved-runner://'+case['tc_id']
+                            for check in case['oracle']['checks']:
+                                check.update(actual_path='http.status' if check['type']=='API_RESPONSE' else 'business.outcome',
+                                    expected=200 if check['type']=='API_RESPONSE' else 'APPROVED_FIXTURE_RESULT')
+                            case['execution']['cleanup'].update(tool='api_http',verification=dict(tool='api_http',
+                                source_ref=spec['cleanup']['source_ref'],checks=[dict(id='restored-data',type='DATA_STATE',
+                                    actual_path='restored',operator='EQ',expected=True)]))
+                            case['execution']['planning']=dict(primary_code_slice=case['code_trace'][0],auth_role='fixture-tester',
+                                browser_context='fixture-api-no-browser',data_domain='BLOAN_TEST_DATA',execution_tool='api_http')
+                            case['execution']['runner']=dict(script_result_ref='file://'+str(root/'qualification'/'result.json'),
+                                cwd=str(root),source_ref=runner_source)
+                            case['execution']['authoritative_sources'].append(runner_source)
+
                 if incomplete_parent:
                     # Same symbol ID appears in two reviewed repositories. An
                     # obligation for the other parent must not cover this one.
@@ -91,7 +106,10 @@ def _n4_driver(tmp_path, *, incomplete_parent=False, explicit_gap=False, shallow
             else:
                 candidate = dict(decision='PASS', gap_ids=[], summary='independent full design review')
             calls.append(role)
-            return subprocess.run([sys.executable, str(script), json.dumps(candidate)], **kwargs)
+            encoded = json.dumps(candidate)
+            candidate_path = tmp_path / ('n4-candidate-' + hashlib.sha256(encoded.encode('utf-8')).hexdigest()[:16] + '.json')
+            candidate_path.write_text(encoded, encoding='utf-8')
+            return subprocess.run([sys.executable, str(script), str(candidate_path)], **kwargs)
         return DshHeadlessWorkerLauncher(dsh_bin=sys.executable, patch_path=str(patch), cwd=str(tmp_path),
             truth=truth, authority=RC72AuthorityRuntime(('engineering-n4-key-'+role).encode()),
             coordinator_instance_id='n4-product-controller', release_id=RELEASE,

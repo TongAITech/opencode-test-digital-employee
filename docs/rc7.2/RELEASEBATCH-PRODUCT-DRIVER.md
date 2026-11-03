@@ -52,7 +52,12 @@
   N6 不占用 DataLease，不生成实际执行 Attempt 或 Case PASS。
 - 已提交候选的接续重查原始证据和规范候选，不重启分析工作进程。
   已验收的前缀调用原生 Gate 重新审计，不仅检查 PASS 标签。
-- 完成前缀后，N7 及以后未接入节点明确返回 HOLD / NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED。
+- N7：具体 `N7PipelineService` 接入原生完整执行计划、签名工具派发、正式
+  运行器的实际子进程、环境适配器清理与复核、不可变证据封存和独立进程验收。
+  已持久化调用和清理回执直接复核，不重新准备已释放资源；效果不明或失败调用
+  保留诊断 HOLD，不自动重放业务动作。验收提交后中断可由原 Delivery 接续。
+  成功只沿真实 N7→N9 FORWARD 边推进，N8 保持未启动，不伪造 N8 PASS。
+- 完成前缀后，N8 修复、N9/N10 等未接入节点明确返回 HOLD / NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED。
   全部节点标签 PASS 仍需正式发布收敛审计；推进器不自行宣布 Mission 完成。
 
 只读状态入口不需要工作进程配置或密钥：

@@ -61,3 +61,22 @@ def test_nonzero_pytest_exit_is_fail_closed(tmp_path, monkeypatch, capsys):
     output = capsys.readouterr().out
     assert result == 1
     assert "RC72_BOUNDED_PYTEST_FAIL::tests/test_rc72_fail.py::exit=3" in output
+
+
+def test_explicit_full_chain_budget_keeps_other_file_bounds(tmp_path, monkeypatch):
+    import pytest
+    calls=[]
+    class Result:
+        returncode=0
+    def run(command,timeout,check):
+        calls.append((command[-1],timeout))
+        return Result()
+    monkeypatch.setattr(bounded.subprocess,'run',run)
+    files=['tests/test_rc72_contract.py','tests/test_rc72_full_chain.py']
+    assert bounded.run_files(files,timeout_seconds=180,junit_dir=str(tmp_path),
+        file_timeouts={"./"+files[1]:900})==0
+    assert calls==[(files[0],180),(files[1],900)]
+    with pytest.raises(ValueError,match='selected file'):
+        bounded.run_files(files,timeout_seconds=180,junit_dir=str(tmp_path),file_timeouts={'typo.py':900})
+    with pytest.raises(ValueError,match='positive integer'):
+        bounded.run_files(files,timeout_seconds=180,junit_dir=str(tmp_path),file_timeouts={files[1]:True})
