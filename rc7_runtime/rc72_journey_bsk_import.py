@@ -216,12 +216,23 @@ class BSKJourneyTeachingImporter:
             used_dom.add(dom_ref)
             used_png.add(screenshot_ref)
             screenshot_proof = verify_png_file(shot)
-            page = op.get("after") or op.get("before")
-            if not isinstance(page, Mapping) or page.get("state") != "available":
-                raise ContractError("JOURNEY_BSK_PAGE_OBSERVATION_REQUIRED")
-            page_url = _public_url(page.get("url"))
+            # A click that navigates must replay on the *source* page, not
+            # the destination that BSK observed after the click. The
+            # post-action state belongs to subsequent ASSERT steps.
+            before, after = op.get("before"), op.get("after")
+            if kind == JourneyActionType.NAVIGATE:
+                source_page = after
+            else:
+                source_page = before
+            if (not isinstance(source_page, Mapping)
+                    or source_page.get("state") != "available"):
+                raise ContractError("JOURNEY_BSK_SOURCE_PAGE_OBSERVATION_REQUIRED")
+            page_url = _public_url(source_page.get("url"))
+            post_url = _public_url(after.get("url")) if isinstance(after, Mapping) else ""
             if not page_url.startswith(("http://", "https://")):
                 raise ContractError("JOURNEY_BSK_PAGE_URL_REQUIRED")
+            if not post_url.startswith(("http://", "https://")):
+                raise ContractError("JOURNEY_BSK_POST_ACTION_PAGE_REQUIRED")
             ref = step_info.get("locator_ref")
             if kind not in {JourneyActionType.NAVIGATE} and (
                     not isinstance(ref, str) or
@@ -270,6 +281,7 @@ class BSKJourneyTeachingImporter:
                 })
             prepared.append({
                 "kind": kind, "op": op, "page_url": page_url,
+                "post_url": post_url,
                 "page_role": str(step_info.get("page_role") or "BSK_PAGE"),
                 "element_ref": ref if kind != JourneyActionType.NAVIGATE else None,
                 "dom_ref": dom_ref, "screenshot_ref": screenshot_ref,
@@ -316,6 +328,7 @@ class BSKJourneyTeachingImporter:
                 folder / ("step-%04d-page.json" % sequence),
                 {"source": "BROWSER_SKILL_DEBUG",
                  "operation_id": step["op"]["id"], "url": step["page_url"],
+                 "post_action_url": step["post_url"],
                  "page_role": step["page_role"],
                  "value_source": "REDACTED_BSK_PAGE_OBSERVATION",
                  "screenshot_sha256": step["screenshot_sha256"]})
@@ -341,12 +354,12 @@ class BSKJourneyTeachingImporter:
                     folder / ("assert-%04d-page.json" % sequence),
                     {"source": "BROWSER_SKILL_VERIFIED_OPERATOR_ORACLE",
                      "source_operation_id": step["op"]["id"],
-                     "url": step["page_url"]})
+                     "url": step["post_url"]})
                 self.teaching.append_step(
                     recording_id=recording_id,
                     step_id="%s:%d" % (recording_id, sequence),
                     sequence=sequence, action_type=JourneyActionType.ASSERT,
-                    url=step["page_url"], page_role=step["page_role"],
+                    url=step["post_url"], page_role=step["page_role"],
                     element_ref=assertion.get("locator_ref"),
                     page_state_ref=assertion_page, dom_ref=step["dom_ref"],
                     network_refs=[], screenshot_ref=step["screenshot_ref"],
