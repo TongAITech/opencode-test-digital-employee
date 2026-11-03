@@ -52,7 +52,7 @@ def _validate(payload: Dict[str, Any]) -> Dict[str, Any]:
         "candidate_id", "release_id", "mission_id", "batch_id",
         "batch_receipt_id", "assignment_id", "attempt_id",
         "worker_instance_id", "dsh_session_id", "raw_output_ref",
-        "output_sha256", "status",
+        "output_sha256", "status", "token_call_id",
     ):
         out[name] = _contracts._require_str(out, name)
     if out["status"] != "UNVERIFIED":
@@ -256,7 +256,12 @@ class NativeSharedExecutionBatch:
         for refs in batch.context_envelope.workitem_refs.values():
             expected_refs.update(refs)
         actual_refs = getattr(assignment, "input_refs", None)
-        if not isinstance(actual_refs, (tuple, list)) or set(actual_refs) != expected_refs:
+        if (
+            not isinstance(actual_refs, (tuple, list))
+            or any(not isinstance(ref, str) or not ref for ref in actual_refs)
+            or len(set(actual_refs)) != len(actual_refs)
+            or set(actual_refs) != expected_refs
+        ):
             raise NativeSharedBatchError("NATIVE_BATCH_INPUT_LEASE_REFS_MISMATCH")
 
         receipt = self.safe_batch.admit(
@@ -271,6 +276,8 @@ class NativeSharedExecutionBatch:
             raise NativeSharedBatchError("NATIVE_BATCH_CANDIDATE_NOT_UNIQUE")
         if existing:
             return existing[0]
+        if receipt.get("state") != "ADMITTED":
+            raise NativeSharedBatchError("NATIVE_BATCH_PREVIOUS_FORMAL_RESULTS_MUST_NOT_BE_REPLACED")
         # A previous model attempt with no durable candidate must be retried
         # with a fresh (authorized) assignment, never silently respawned.
         if self.truth.query(
@@ -331,6 +338,16 @@ class NativeSharedExecutionBatch:
         if len(raw_refs) != 1:
             raise NativeSharedBatchError("NATIVE_BATCH_RAW_DSH_EVIDENCE_NOT_UNIQUE")
         members = self._member_candidates(output, receipt, invocation)
+        # One actual native DSH process/model-call receipt for the whole batch,
+        # never fabricate N measured calls from N business members.
+        metering = _one(
+            self.truth, "rc72_token_call",
+            mission_id=batch.mission_id,
+            workitem_id="EXECUTION_BATCH:" + batch.batch_id,
+            attempt_id=_required(getattr(assignment, "attempt_id", None), "attempt_id"),
+        )
+        if metering.get("process_outcome") != "RETURNED":
+            raise NativeSharedBatchError("NATIVE_BATCH_REAL_DSH_CALL_PROOF_REQUIRED")
         encoded = json.dumps(output, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         payload = {
             "candidate_id": candidate_id,
@@ -344,6 +361,7 @@ class NativeSharedExecutionBatch:
             "dsh_session_id": session,
             "raw_output_ref": raw_refs[0],
             "output_sha256": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
+            "token_call_id": metering["call_id"],
             "status": "UNVERIFIED",
             "members": members,
             "member_count": len(members),
