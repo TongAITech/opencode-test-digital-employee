@@ -32,7 +32,7 @@ jobs:
       - name: Prepare engineering test runner
         run: python -m pip install --disable-pip-version-check pytest
       - name: Actual copied Python, real Windows user config, owned mirror and negative checks
-        run: python -m pytest tests/test_rc72_bank_pc_pip_mirror.py tests/test_rc72_bank_pc_pip_mirror_windows.py tests/test_rc72_bank_pip_mirror_runtime.py -q --junitxml=dist/pip-mirror-evidence/public/windows-user-mirror.xml
+        run: python -m pytest tests/test_rc72_bank_pc_pip_mirror.py tests/test_rc72_bank_pc_pip_mirror_windows.py tests/test_rc72_bank_pip_mirror_runtime.py tests/test_rc72_q7_admission.py tests/test_rc72_field_mission_start.py tests/test_rc72_release_driver.py -q --junitxml=dist/pip-mirror-evidence/public/windows-user-mirror.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:

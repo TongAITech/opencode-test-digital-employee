@@ -1,4 +1,5 @@
 """N1-N4 concrete route; real child protocols are not bank tool-body proof."""
+from rc72_pip_field_test_support import provider as prior_field_provider
 from copy import deepcopy
 import hashlib
 import json
@@ -168,6 +169,7 @@ def test_n4_cold_resume_keeps_all_scopes_without_repeating_designer(tmp_path, mo
     monkeypatch.setattr(cls, method, original)
     cold = TruthRuntime(truth.store.path)
     driver.truth = cold
+    driver.bank_pip_mirror=prior_field_provider(cold,release_batch_id=BATCH,source_commit=driver.source_commit)
     driver.n3_pipeline.truth = driver.n4_pipeline.truth = cold
     for launcher in (driver.n1_launcher, driver.n2_launcher, driver.n2_evaluator.launcher) + driver.n3_pipeline.launchers + driver.n4_pipeline.launchers:
         launcher.truth = cold

@@ -1,4 +1,5 @@
 """Native N6 partial contract/delivery recovery on one complete product flow."""
+from rc72_pip_field_test_support import provider as prior_field_provider
 import pytest
 from rc6_runtime.truth import TruthRuntime
 from rc7_runtime.rc72_n6_executable_readiness import EVENT_N6_EXECUTABLE_CONTRACT_COMPILED
@@ -25,6 +26,7 @@ def test_n6_contract_and_delivery_interruptions_resume_without_upstream_workers(
     def cold_resume():
         cold=TruthRuntime(truth.store.path)
         driver.truth=cold
+        driver.bank_pip_mirror=prior_field_provider(cold,release_batch_id=BATCH,source_commit=driver.source_commit)
         for pipeline in (driver.n3_pipeline,driver.n4_pipeline,driver.n5_pipeline):
             pipeline.truth=cold
         for launcher in (driver.n1_launcher,driver.n2_launcher,driver.n2_evaluator.launcher)+driver.n3_pipeline.launchers+driver.n4_pipeline.launchers+driver.n5_pipeline.launchers:

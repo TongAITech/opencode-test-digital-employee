@@ -1,4 +1,5 @@
 """Native N1-N3 composition; child workers are engineering protocol adapters."""
+from rc72_pip_field_test_support import provider as prior_field_provider
 import json
 import subprocess
 import sys
@@ -118,6 +119,7 @@ def test_cold_resume_after_promotion_does_not_repeat_discovery_or_analysis(tmp_p
     monkeypatch.setattr(cls, method, original)
     cold = TruthRuntime(truth.store.path)
     driver.truth = cold
+    driver.bank_pip_mirror=prior_field_provider(cold,release_batch_id=BATCH,source_commit=driver.source_commit)
     driver.n3_pipeline.truth = cold
     for launcher in (driver.n1_launcher, driver.n2_launcher, driver.n2_evaluator.launcher) + driver.n3_pipeline.launchers:
         launcher.truth = cold

@@ -1,4 +1,5 @@
 """One full workflow interrupted at three separate durable native boundaries."""
+from rc72_pip_field_test_support import provider as prior_field_provider
 import pytest
 from rc6_runtime.truth import TruthRuntime
 from rc7_runtime.rc72_n5_workitem_acceptance import N5WorkItemFinalizer
@@ -26,6 +27,7 @@ def test_partial_finalization_replan_and_delivery_resume_without_repeating_worke
     def cold_resume():
         cold = TruthRuntime(driver.truth.store.path)
         driver.truth = cold
+        driver.bank_pip_mirror=prior_field_provider(cold,release_batch_id=BATCH,source_commit=driver.source_commit)
         for pipeline in (driver.n3_pipeline,driver.n4_pipeline,driver.n5_pipeline):
             pipeline.truth = cold
         for launcher in (driver.n1_launcher,driver.n2_launcher,driver.n2_evaluator.launcher)+driver.n3_pipeline.launchers+driver.n4_pipeline.launchers+driver.n5_pipeline.launchers:

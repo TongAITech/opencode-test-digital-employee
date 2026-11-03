@@ -27,7 +27,7 @@ def _setup(tmp_path,monkeypatch):
         files={name+'.'+suffix+'.log' for name in ('pip-version','provenance','config-debug','config-list','mirror-install','same-interpreter-import','provenance-after') for suffix in ('stdout','stderr')}|{'install-report.json'}
         for name in files:(private/name).write_text('unit protocol observation')
         return dict(gate='BANK_PC_PIP_MIRROR_GATE',schema='RC72_BANK_PC_PIP_MIRROR_V1',
-            qualification_scope='ENGINEERING_WINDOWS_USER_MIRROR_SIMULATION',status='PASS',source_commit=COMMIT,archive_sha256=hashlib.sha256(Path(archive).read_bytes()).hexdigest(),
+            qualification_scope='ENGINEERING_WINDOWS_USER_MIRROR_SIMULATION',python_version='3.11.0',pip_version='unit-fixture',platform_family='Windows',status='PASS',source_commit=COMMIT,archive_sha256=hashlib.sha256(Path(archive).read_bytes()).hexdigest(),
             package_root=str(root),discovery=dict(user_config_sha256=hashlib.sha256(user.read_bytes()).hexdigest()),
             bank_pc_mirror_field_fact=not kwargs['engineering'],bank_final=False,field_verified=False,
             private_evidence_sha256={name:hashlib.sha256((private/name).read_bytes()).hexdigest() for name in files})

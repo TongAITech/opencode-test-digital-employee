@@ -36,7 +36,7 @@ def test_real_copied_python_mirror_install_import_and_host_substitution_refusals
         with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=3) as zipped:
             for path in stage.rglob('*'):
                 if path.is_file():zipped.write(path,path.relative_to(stage).as_posix())
-        shutil.rmtree(stage);root=tmp_path/'clean package with spaces'
+        shutil.rmtree(stage);root=tmp_path/'clean package with spaces 中文'
         with zipfile.ZipFile(archive) as zipped:zipped.extractall(root)
     assert not stage.exists()
     wheel=_wheel(tmp_path/'mirror/packages');index=tmp_path/'mirror/simple/rc72-bank-mirror-fixture/index.html';index.parent.mkdir(parents=True)
