@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 
@@ -148,15 +149,18 @@ def _run(
     if not isinstance(timeout_seconds, int) or timeout_seconds < 1 or timeout_seconds > 300:
         raise ProfessionalToolError("TOOL_TIMEOUT_INVALID")
     try:
-        proc = subprocess.run(
-            list(command),
-            cwd=str(cwd),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout_seconds,
-            check=False,
-            shell=False,
-        )
+        from rc6_runtime.process_environment import scoped_process_environment
+        with TemporaryDirectory(prefix='rc72-professional-tool-') as home:
+            proc = subprocess.run(
+                list(command),
+                cwd=str(cwd),
+                env=scoped_process_environment(home=home),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=timeout_seconds,
+                check=False,
+                shell=False,
+            )
     except subprocess.TimeoutExpired as exc:
         stdout = _decode_tool_bytes(exc.stdout if isinstance(exc.stdout, bytes) else b"")
         stderr = _decode_tool_bytes(exc.stderr if isinstance(exc.stderr, bytes) else b"")
@@ -225,8 +229,8 @@ def git_diff(
     if not base_rev or not head_rev:
         raise ProfessionalToolError("GIT_REVISION_RESOLUTION_FAILED")
 
-    name_command = [git, "diff", "--no-ext-diff", "--name-only", base_rev, head_rev, "--"] + selected_paths
-    diff_command = [git, "diff", "--no-ext-diff", "--unified=3", base_rev, head_rev, "--"] + selected_paths
+    name_command = [git, "diff", "--no-ext-diff", "--no-textconv", "--name-only", base_rev, head_rev, "--"] + selected_paths
+    diff_command = [git, "diff", "--no-ext-diff", "--no-textconv", "--unified=3", base_rev, head_rev, "--"] + selected_paths
     changed = _run(name_command, cwd=repo, max_chars=min(max_chars, 100000))
     diff = _run(diff_command, cwd=repo, max_chars=max_chars)
     changed_files = [line.strip() for line in changed["stdout"]["text"].splitlines() if line.strip()]

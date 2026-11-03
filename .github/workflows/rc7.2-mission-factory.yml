@@ -39,6 +39,8 @@ jobs:
               'tests/test_rc72_batch_registration.py',
               'tests/test_rc72_worker_http_auth.py',
               'tests/test_rc72_code_tool_binding.py',
+              'tests/test_rc72_codegraph_process_environment.py',
+              'tests/test_rc7_professional_tools.py',
               'tests/test_rc72_controller_secret_paths.py',
               'tests/test_rc72_configured_mission.py',
               'tests/test_rc72_tool_environment.py',

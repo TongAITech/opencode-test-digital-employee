@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import os
+from contextlib import contextmanager
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Dict, List, Mapping, Optional
 
 from .mcp_stdio import JsonLineMcpClient, McpStdioError
@@ -60,10 +61,17 @@ def _tool_name_is_read_only(name: str) -> bool:
     return bool(tokens & _READ_HINTS)
 
 
-def _client(repo: Path, timeout_seconds: int) -> JsonLineMcpClient:
+@contextmanager
+def _client(repo: Path, timeout_seconds: int):
+    from rc6_runtime.process_environment import scoped_process_environment
     binary = _resolve_binary("PFC_CODEGRAPH_BIN")
-    env = os.environ.copy()
-    return JsonLineMcpClient([binary], cwd=repo, env=env, timeout_seconds=timeout_seconds)
+    # CodeGraph needs its repository and OS tool environment, never the model
+    # provider credentials or the parent's live native-tool capability token.
+    # Keep this home alive until the concrete MCP process is closed/reaped.
+    with TemporaryDirectory(prefix='rc72-codegraph-') as home:
+        env = scoped_process_environment(home=home)
+        with JsonLineMcpClient([binary], cwd=repo, env=env, timeout_seconds=timeout_seconds) as client:
+            yield client
 
 
 def list_codegraph_tools(*, repo_path: str = ".", timeout_seconds: int = 30) -> Dict[str, Any]:

@@ -978,3 +978,23 @@ No nodes, Q7 admission or Field fact are created by registration. Dedicated
 factory validation includes these new suites. Exact e8 factory run41642878655
 has now completed SUCCESS (all four jobs), including the Ubuntu22.04 fix.
 Exact f9 full preparation41643890193 and factory41643835445 remain live.
+
+
+## Code-tool child credentials and local Git read-only behavior — 2026-11-03
+
+CodeGraph MCP inherited os.environ.copy(), which could forward a Worker model
+credential and its live parent-gate capability into the graph process. The MCP
+client now uses the existing scoped tool-only environment and a temporary
+private home held until concrete client shutdown. Direct CodeGraph/Git command
+execution uses the same environment boundary. No ambient model/control/native
+capability credentials or user DSH profile are copied. Git name/content diffs
+also explicitly disable textconv alongside external diff, preserving raw source
+comparison without executing repository-configured converters.
+
+12 focused real child-process/local-Git tests PASS (1.89s), including MCP query,
+private-home lifetime/startup cleanup, credential omission and a real configured
+textconv counterexample. 19 inherited MCP/DSH/code/node-policy tests PASS (0.80s).
+See CODE-TOOL-PROCESS-SCOPE.md for evidence limits. This does not close approved
+repository/revision call-time fencing, real bank tools, SDK boot or generic
+orphan recovery. Exact f9 full preparation41643890193 has advanced to Clean
+extraction and package-local verification; retain observation through terminal.
