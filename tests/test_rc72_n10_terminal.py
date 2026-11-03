@@ -80,3 +80,64 @@ def test_n10_reviewer_evidence_root_confined_to_canonical_lifecycle_identity(
         with pytest.raises(ContractError,match='N10_TERMINAL_REVIEWER_PATH_INVALID'):
             service._safe_review_root(review_id)
     assert list(tmp_path.iterdir())==[]
+
+
+def test_actual_native_n10_refuses_terminal_on_100_percent_coverage_with_missing_l1_l7(
+        tmp_path,monkeypatch):
+    """Real native N1..N9, Libra read, signed scope and incomplete all-level batch.
+
+    Even if measured coverage is 100%, independent N10 may not spawn a
+    reviewer, create a Delivery, or apply a Gate for missing mandatory work.
+    """
+    from rc7_runtime.rc72_n10_control import NativeN10ControlService
+    from rc7_runtime.rc72_native_coverage_intake import NativeCoverageGapIntakeService
+    from rc7_runtime.rc72_native_coverage_diagnosis import NativeCoveragePathDiagnosisService
+    from rc7_runtime.rc72_obligation_execution_proof import AcceptedObligationExecutionProof
+    from rc7_runtime.rc72_release_convergence import ReleaseConvergenceSnapshot
+    from rc7_runtime.rc72_state_machine import ReleaseConvergenceFacts,ReleaseConvergenceResult
+    from test_rc72_libra_measurement import _setup
+    from rc72_n2_test_support import BATCH
+    def covered(row):
+        for unit in row['units']:
+            unit['covered']=True
+    truth,plan,pipeline,business,server,measurement=_setup(tmp_path,monkeypatch,covered)
+    try:
+        intake=NativeCoverageGapIntakeService(measurement)
+        diagnosis=NativeCoveragePathDiagnosisService(intake,evidence_root=tmp_path/'diagnosis')
+        control=NativeN10ControlService(measurement.expected_scope,measurement.n9,
+            measurement,intake,diagnosis)
+        result=control.complete(release_batch_id=BATCH)
+        assert result['convergence_result']=='NOT_CONVERGED'
+        assert any(v.startswith('scope:missing-level:') for v in result['blockers'])
+        row=truth.query('rc72_release_convergence_snapshot',
+            snapshot_id=result['convergence_snapshot_id'])[0]
+        snapshot=ReleaseConvergenceSnapshot(
+            snapshot_id=row['snapshot_id'],mission_id=row['mission_id'],
+            release_batch_id=row['release_batch_id'],manifest_id=row['manifest_id'],
+            scope_snapshot_id=row['scope_snapshot_id'],facts=ReleaseConvergenceFacts(**row['facts']),
+            result=ReleaseConvergenceResult(row['result']),blockers=row['blockers'],
+            proven_obligation_ids=row['proven_obligation_ids'],
+            unproven_obligation_ids=row['unproven_obligation_ids'],
+            coverage_observation_ids=row['coverage_observation_ids'],created_at=row['created_at'])
+        aggregator=ReleaseConvergenceAggregator(truth,release_id=pipeline.release_id,
+            runtime=measurement.n9.runtime,
+            execution_proof=AcceptedObligationExecutionProof(pipeline),
+            expected_scope=measurement.expected_scope,coverage_proof=measurement,
+            coverage_intake=intake,coverage_diagnosis=diagnosis,replay_safe=True)
+        terminal=NativeN10TerminalReviewService(aggregator,
+            authority=measurement.authority,source_commit=pipeline.source_commit,
+            review_root=tmp_path/'terminal-never-run',
+            lifecycle=pipeline.preparation.lifecycle)
+        before=truth.store.path.read_bytes()
+        before_calls=len(business.calls),len(server.calls)
+        with pytest.raises(ContractError,match='N10_TERMINAL_FULL_CONVERGENCE_REQUIRED'):
+            terminal.finalize(snapshot=snapshot)
+        assert truth.store.path.read_bytes()==before
+        assert not (tmp_path/'terminal-never-run').exists()
+        assert not truth.query('rc72_node_delivery',node_type='N10_RELEASE_CONVERGENCE')
+        assert not truth.query('rc72_node_gate',node_type='N10_RELEASE_CONVERGENCE')
+        assert not truth.query('rc72_n10_terminal_review')
+        assert (len(business.calls),len(server.calls))==before_calls
+    finally:
+        server.shutdown();server.server_close()
+        business.shutdown();business.server_close()
