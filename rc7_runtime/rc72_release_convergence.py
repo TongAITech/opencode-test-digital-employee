@@ -108,7 +108,7 @@ class ReleaseConvergenceAggregator:
     _DEFECT_ACCEPTABLE = {"CLOSED", "DUPLICATE", "NOT_A_DEFECT"}
     _HIGH_RISKS = {"HIGH", "CRITICAL", "BLOCKER"}
 
-    def __init__(self, truth: TruthRuntime, *, release_id: str, runtime: RC72StateMachine, execution_proof=None) -> None:
+    def __init__(self, truth: TruthRuntime, *, release_id: str, runtime: RC72StateMachine, execution_proof=None, expected_scope=None) -> None:
         install_rc72_release_convergence_overlay()
         _ensure_projection_bucket(truth)
         if not isinstance(release_id, str) or not release_id.strip():
@@ -123,6 +123,29 @@ class ReleaseConvergenceAggregator:
                     or execution_proof.truth is not truth or execution_proof.release_id != self.release_id):
                 raise ContractError('RELEASE_CONVERGENCE_NATIVE_EXECUTION_PROOF_SCOPE_REQUIRED')
         self.execution_proof = execution_proof
+        if expected_scope is not None:
+            from .rc72_expected_scope_input import ExpectedScopeInputService
+            if (not isinstance(expected_scope, ExpectedScopeInputService) or execution_proof is None
+                    or expected_scope.truth is not truth or expected_scope.source_commit != execution_proof.source_commit):
+                raise ContractError('RELEASE_CONVERGENCE_EXPECTED_SCOPE_PROVIDER_REQUIRED')
+        self.expected_scope = expected_scope
+        self._assert_inputs()
+
+    def _assert_inputs(self):
+        if (not isinstance(self.runtime, RC72StateMachine) or self.runtime.truth is not self.truth
+                or self.runtime.release_id != self.release_id):
+            raise ContractError('RELEASE_CONVERGENCE_NATIVE_RUNTIME_REQUIRED')
+        if self.execution_proof is not None:
+            from .rc72_obligation_execution_proof import AcceptedObligationExecutionProof
+            if (not isinstance(self.execution_proof, AcceptedObligationExecutionProof)
+                    or self.execution_proof.truth is not self.truth or self.execution_proof.release_id != self.release_id):
+                raise ContractError('RELEASE_CONVERGENCE_NATIVE_EXECUTION_PROOF_SCOPE_REQUIRED')
+        if self.expected_scope is not None:
+            from .rc72_expected_scope_input import ExpectedScopeInputService
+            if (not isinstance(self.expected_scope, ExpectedScopeInputService) or self.execution_proof is None
+                    or self.expected_scope.truth is not self.truth
+                    or self.expected_scope.source_commit != self.execution_proof.source_commit):
+                raise ContractError('RELEASE_CONVERGENCE_EXPECTED_SCOPE_PROVIDER_REQUIRED')
 
     def install_overlay(self) -> None:
         install_rc72_release_convergence_overlay()
@@ -280,16 +303,33 @@ class ReleaseConvergenceAggregator:
         return structurally_valid and not any(item.startswith("node:") for item in blockers), human_gate, runtime_blocked, blockers
 
     def aggregate(self, *, mission_id: str) -> ReleaseConvergenceSnapshot:
+        self._assert_inputs()
         batch = self._one_batch(mission_id)
-        manifest = self._one_manifest(mission_id, str(batch["release_batch_id"]))
         native_ids = None
         accepted_n7_gate_id = None
         if self.execution_proof is not None:
             audited = self.execution_proof.audit(release_batch_id=str(batch['release_batch_id']))
             native_ids = set(audited['verified_obligation_ids'])
             accepted_n7_gate_id = audited['n7_gate_id']
+        # Native completion needs the independently frozen original policy,
+        # not merely an arbitrary manifest shaped to fit accepted executions.
+        native_scope_history = self._safe_query('rc72_expected_scope_input',
+            mission_id=mission_id, release_batch_id=str(batch['release_batch_id']))
+        scope_verified = self.execution_proof is None and not native_scope_history  # inherited legacy path
+        frozen = None
+        if self.expected_scope is not None:
+            if (self.expected_scope.truth is not self.truth or self.execution_proof is None
+                    or self.expected_scope.source_commit != self.execution_proof.source_commit):
+                raise ContractError('RELEASE_CONVERGENCE_EXPECTED_SCOPE_PROVIDER_REQUIRED')
+            frozen = self.expected_scope.freeze(release_batch_id=str(batch['release_batch_id']))
+            scope_verified = True
+        manifest = self._one_manifest(mission_id, str(batch["release_batch_id"]))
+        if frozen is not None and frozen['manifest_id'] != manifest['manifest_id']:
+            raise ContractError('RELEASE_CONVERGENCE_EXPECTED_SCOPE_MANIFEST_MISMATCH')
         scope_snapshot = self.scope.evaluate_denominator(manifest_id=str(manifest["manifest_id"]))
-        blockers: List[str] = []
+        blockers: List[str] = [] if scope_verified else ['scope:EXPECTED_INPUT_PROOF_REQUIRED']
+        if native_scope_history and self.execution_proof is None:
+            blockers.append('execution:NATIVE_ACCEPTED_PROOF_REQUIRED')
         if not scope_snapshot.denominator_complete:
             blockers.extend("scope:missing-sst:%s" % sst for sst in scope_snapshot.missing_ssts)
             for sst, levels in sorted(scope_snapshot.missing_required_levels.items()):
@@ -324,10 +364,10 @@ class ReleaseConvergenceAggregator:
                     pair_proven[(sst_id, str(level).upper())] = bool(matching) and any(
                         str(row["obligation_id"]) in proven for row in matching
                     )
-        required_levels_complete = scope_snapshot.denominator_complete and bool(pair_proven) and all(pair_proven.values())
+        required_levels_complete = scope_verified and scope_snapshot.denominator_complete and bool(pair_proven) and all(pair_proven.values())
         sst_completion = required_levels_complete
         requirement_completion = required_levels_complete
-        obligation_completion = scope_snapshot.denominator_complete and bool(obligations) and not unproven
+        obligation_completion = scope_verified and scope_snapshot.denominator_complete and bool(obligations) and not unproven
         high_risk = [row for row in obligations if str(row.get("risk_level") or "").upper() in self._HIGH_RISKS]
         high_risk_completion = all(str(row["obligation_id"]) in proven for row in high_risk)
         evidence_complete = obligation_completion

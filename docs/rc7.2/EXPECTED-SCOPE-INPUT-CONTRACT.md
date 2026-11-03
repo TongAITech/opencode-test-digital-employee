@@ -82,3 +82,23 @@ This establishes the expected denominator only. Missing observed SSTs/levels,
 measured authoritative coverage, defects, unresolved gaps and other N10 criteria
 remain independently required. It creates neither TestObligations nor Cases,
 execution success, release convergence or bank acceptance.
+
+## Native N10 consumption
+
+Pass the same ExpectedScopeInputService as `expected_scope` to the native
+ReleaseConvergenceAggregator alongside AcceptedObligationExecutionProof. N10
+re-audits the original input and exact frozen manifest before deriving completion
+facts. A manually fitted manifest can still be compared for diagnostics, but it
+cannot establish native Requirement/SST/obligation completion without this proof.
+
+After native expected-scope history exists, dropping the provider cannot resume
+the controller through its inherited path. Dropping both native execution and
+scope verifiers also cannot make legacy aggregation trust that native history.
+The configured runtime, native execution proof and scope verifier are concrete,
+owned services rechecked at call time, not declared PASS callbacks.
+
+A test using actual N1 MCP reads, native formal HTTP execution/cleanup and
+independent N7 review consumes the original all-level policy in N10. Its L3-only
+fixture remains NOT_CONVERGED for missing levels and measured coverage; replacing
+the policy with L3-only rows is refused without another business call. This is
+engineering integration evidence, not bank-source or full-platform qualification.

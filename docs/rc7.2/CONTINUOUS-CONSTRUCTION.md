@@ -1,5 +1,34 @@
 # RC7.2 持续施工与最终搬运交付
 
+## Native N10 requires original scope provenance — 2026-11-03
+
+Native N10 aggregation now consumes ExpectedScopeInputService alongside the
+actual accepted-N7 proof. An unattested manifest cannot establish native
+Requirement, SST or obligation completion, even if it was reduced to match all
+observed Cases. Literal manifest comparisons remain diagnostic, not completion
+authority. A recorded native scope cannot be downgraded by omitting the provider
+on controller restart, or by selecting legacy aggregation without its verifiers.
+The concrete state machine and owned proof/provider types are rechecked at call
+time, preventing declared completion callbacks from replacing those inputs.
+
+Actual original N1 policy read -> native formal HTTP/process/cleanup -> separate
+independent N7 review -> N9 -> N10 scope verification passed. The test retains
+all seven expected levels and correctly remains NOT_CONVERGED with L3-only
+execution/missing coverage; reducing the frozen policy is rejected before writes
+or another business call. Final scope-input/N10/obligation/legacy-convergence
+qualification passed 31 tests in 73.61s, with one existing collection warning.
+The input/controller/environment qualification separately passed 87 in 45.67s.
+The full earlier 28-Case fixture's 78 obligations are all L3; that engineering
+run never proves all L1-L7 physical execution or bank Field acceptance.
+
+Parent 7d508117 platform qualification is now terminal SUCCESS on both Windows
+and Linux, as are its construction and Q2 runs. For isolated 6409e90, construction
+and Q2 are SUCCESS, while platform qualification remains live. These results do
+not qualify the newer expected-scope commits as final same-source C11 evidence.
+Measured authoritative coverage, professional failure qualification/recovery,
+production factory/CLI, remaining per-role fences and complete physical C12
+transport remain OPEN. No complete portable package has been delivered.
+
 ## Original expected-scope input and controller admission — 2026-11-03
 
 `ExpectedScopeInputService` now freezes the independent expected Requirement /

@@ -128,8 +128,11 @@ class ReleaseBatchDriver:
         self.expected_scope=expected_scope
         self._assert_expected_scope()
 
-    def _assert_expected_scope(self):
+    def _assert_expected_scope(self,release_batch_id=None):
         policy=self.expected_scope
+        if (policy is None and release_batch_id is not None
+                and self.truth.query('rc72_expected_scope_input',release_batch_id=release_batch_id)):
+            raise ContractError('RC72_RELEASE_DRIVER_EXPECTED_SCOPE_PROVIDER_REQUIRED')
         if policy is not None and (not isinstance(policy,ExpectedScopeInputService)
                 or policy.truth is not self.truth or policy.source_commit!=self.source_commit
                 or policy.pipeline.truth is not self.truth or policy.pipeline.source_commit!=self.source_commit
@@ -249,7 +252,7 @@ class ReleaseBatchDriver:
                     or self.n7_pipeline.source_commit!=self.source_commit or self.n7_pipeline.release_id!=batch['release_id']):
                 raise ContractError('RC72_RELEASE_DRIVER_N7_PIPELINE_SCOPE_MISMATCH')
             self._assert_n9_scope()
-            self._assert_expected_scope()
+            self._assert_expected_scope(release_batch_id=batch['release_batch_id'])
             # Admission is rechecked even when canonical nodes already exist.
             ReleaseBatchFieldMissionLauncher(self.truth, source_commit=self.source_commit).start(release_batch_id=release_batch_id)
             # Cold continuation audits accepted source bytes, not merely PASS labels.

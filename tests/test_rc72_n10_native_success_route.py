@@ -9,7 +9,7 @@ from rc7_runtime.rc72_obligation_execution_proof import AcceptedObligationExecut
 from rc7_runtime.rc72_state_machine import RC72StateMachine
 
 
-@pytest.mark.parametrize('negative',['no_native_proof','foreign_edge','active_blocked_n8'])
+@pytest.mark.parametrize('negative',['no_native_proof','foreign_edge','active_blocked_n8','fitted_manifest'])
 def test_native_n7_to_n9_success_is_not_an_unfinished_diagnosis(tmp_path,monkeypatch,negative):
     truth,plan,pipeline,server=_accepted(tmp_path,monkeypatch)
     try:
@@ -32,6 +32,21 @@ def test_native_n7_to_n9_success_is_not_an_unfinished_diagnosis(tmp_path,monkeyp
         assert snapshot.result.value=='NOT_CONVERGED'
         assert truth.query('rc72_mission_node',node_type='N8_DIAGNOSIS_RECOVERY')[0]['state']=='NOT_STARTED'
         assert not truth.query('rc72_node_gate',node_type='N8_DIAGNOSIS_RECOVERY')
+        assert 'scope:EXPECTED_INPUT_PROOF_REQUIRED' in snapshot.blockers
+        if negative=='fitted_manifest':
+            row=truth.query('rc72_release_scope_manifest')[0]
+            row['required_levels_by_sst']={sst:['L3'] for sst in row['required_levels_by_sst']}
+            row['artifact_version']+=1
+            truth.append_atomic('RC72_RELEASE_SCOPE_MANIFEST_UPSERTED',row)
+            snapshot=aggregator.aggregate(mission_id=MISSION)
+            declared=truth.query('rc72_scope_denominator_snapshot',snapshot_id=snapshot.scope_snapshot_id)[0]
+            assert declared['denominator_complete'] is True
+            assert snapshot.facts.requirement_completion is False
+            assert snapshot.facts.sst_completion is False
+            assert snapshot.facts.obligation_completion is False
+            assert 'scope:EXPECTED_INPUT_PROOF_REQUIRED' in snapshot.blockers
+            assert len(server.calls)==len(plan['items'])
+            return
         if negative=='no_native_proof':
             aggregator=ReleaseConvergenceAggregator(truth,release_id=pipeline.release_id,
                 runtime=RC72StateMachine(truth,release_id=pipeline.release_id))

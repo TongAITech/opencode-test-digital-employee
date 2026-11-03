@@ -156,6 +156,10 @@ def test_real_release_controller_freezes_policy_before_n2_and_rejects_changed_po
     before=truth.store.path.read_bytes()
     with pytest.raises(Exception,match='FROZEN_MANIFEST_CHANGED'):driver.run(release_batch_id=product.BATCH)
     assert truth.store.path.read_bytes()==before and len(count)==1
+    driver.expected_scope=None
+    with pytest.raises(Exception,match='EXPECTED_SCOPE_PROVIDER_REQUIRED'):
+        driver.run(release_batch_id=product.BATCH)
+    assert truth.store.path.read_bytes()==before and len(count)==1
 
 
 def test_partial_manifest_write_resumes_same_signed_original_input(tmp_path,monkeypatch):
