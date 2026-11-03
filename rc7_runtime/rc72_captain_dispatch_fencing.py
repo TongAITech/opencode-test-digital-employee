@@ -63,10 +63,15 @@ class CaptainDispatchFencer:
     Mission driver is integrated with the fencer, C07 is NOT product-closed.
     """
 
-    def __init__(self, truth, *, release_id):
+    def __init__(self, truth, *, release_id, authority=None):
         install_captain_dispatch_overlay()
+        if authority is not None:
+            from .rc72_authority import RC72AuthorityRuntime
+            if not isinstance(authority, RC72AuthorityRuntime):
+                raise ContractError("CAPTAIN_NO_EFFECT_TRUSTED_SIGNER_REQUIRED")
         self.truth = truth
         self.release_id = release_id
+        self.authority = authority
 
     def _rows(self, mission_id):
         return sorted(self.truth.query(_KIND, mission_id=mission_id),
@@ -146,6 +151,37 @@ class CaptainDispatchFencer:
             owner = self._owner(mission_id, lease_id, captain_session_id, _now())
             return self._replace(owner, expires_at=max(owner["expires_at"], _now() + ttl_seconds))
 
+    def _certified_safe_tool_failure(self, row):
+        """Recheck actual HMAC and captured bytes, not a caller's FAILED flag."""
+        if self.authority is None:
+            return False
+        refs = row.get("no_effect_evidence_refs")
+        if (row.get("verified_no_business_effect") is not True
+                or row.get("error_type") != "FormalRunnerError"
+                or not isinstance(refs, list) or not refs):
+            return False
+        prepared = self.truth.query(
+            "rc72_n7_execution_preparation",
+            preparation_id=row.get("preparation_id"))
+        if (len(prepared) != 1
+                or prepared[0].get("attempt_id") != row.get("attempt_id")
+                or prepared[0].get("worker_id") != row.get("worker_id")):
+            return False
+        from types import SimpleNamespace
+        from .rc72_formal_runner import FormalRunnerError
+        from .rc72_n7_no_effect_attestation import verified_no_external_business_effect
+
+        if all(ref.startswith("N7PROBE-") for ref in refs):
+            error = FormalRunnerError("FORMAL_EXECUTION_TOOL_PROBE_FAILED")
+        elif all(ref.startswith("N7CHECK-") for ref in refs):
+            error = FormalRunnerError("FORMAL_PREPARATION_NOT_SATISFIED:DATA_RECHECK")
+        else:
+            return False
+        proven = verified_no_external_business_effect(
+            SimpleNamespace(truth=self.truth, authority=self.authority),
+            prepared[0], error)
+        return bool(proven) and tuple(sorted(proven)) == tuple(sorted(refs))
+
     def _assert_execution_quiesced_locked(self, mission_id):
         """No handoff while an N7 business invocation or cleanup is live.
 
@@ -177,10 +213,7 @@ class CaptainDispatchFencer:
                     # effect. Cleanup FAILED is different: a remote cleanup
                     # may have partially committed and still requires custody.
                     safe_preflight = (kind == "rc72_n7_tool_dispatch"
-                        and row.get("verified_no_business_effect") is True
-                        and row.get("error_type") == "FormalRunnerError"
-                        and isinstance(row.get("no_effect_evidence_refs"), list)
-                        and bool(row.get("no_effect_evidence_refs")))
+                        and self._certified_safe_tool_failure(row))
                     if not safe_preflight:
                         raise ContractError("CAPTAIN_HANDOFF_UNRECONCILED_EXTERNAL_EFFECT")
 
