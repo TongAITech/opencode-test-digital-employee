@@ -10,12 +10,14 @@ on:
       - 'rc7_runtime/rc72_captain_scheduling.py'
       - 'rc7_runtime/rc72_n7_no_effect_attestation.py'
       - 'rc7_runtime/rc72_n7_execution_preparation.py'
+      - 'rc7_runtime/rc72_truth_bootstrap.py'
       - 'rc7_runtime/rc72_model_failover.py'
       - 'rc7_runtime/rc72_authority.py'
       - 'rc7_runtime/rc72_data_resources.py'
       - 'rc7_runtime/rc72_browser_resources.py'
       - 'rc7_runtime/rc72_capability_broker.py'
       - 'tests/test_rc72_n7_tool_dispatch.py'
+      - 'tests/test_rc72_n7_execution_preparation.py'
       - 'tests/test_rc72_captain_dispatch_fencing.py'
       - 'tests/test_rc72_captain_scheduling.py'
       - 'tests/test_rc72_fenced_n7_preparation.py'
@@ -53,7 +55,22 @@ jobs:
       - name: Install test runner
         run: python -m pip install --disable-pip-version-check pytest
       - name: Compile C06/C07 changes
-        run: python -m py_compile rc7_runtime/rc72_n7_tool_dispatch.py rc7_runtime/rc72_n7_execution_preparation.py rc7_runtime/rc72_n7_no_effect_attestation.py rc7_runtime/rc72_captain_dispatch_fencing.py rc7_runtime/rc72_captain_scheduling.py tests/test_rc72_n7_tool_dispatch.py tests/test_rc72_captain_dispatch_fencing.py
+        run: >-
+          python -m py_compile
+          rc7_runtime/rc72_truth_bootstrap.py
+          rc7_runtime/rc72_n7_tool_dispatch.py
+          rc7_runtime/rc72_n7_execution_preparation.py
+          rc7_runtime/rc72_n7_no_effect_attestation.py
+          rc7_runtime/rc72_captain_dispatch_fencing.py
+          rc7_runtime/rc72_captain_scheduling.py
+          rc7_runtime/rc72_authority.py
+          rc7_runtime/rc72_data_resources.py
+          rc7_runtime/rc72_browser_resources.py
+          rc7_runtime/rc72_capability_broker.py
+          rc7_runtime/rc72_model_failover.py
+          tests/test_rc72_n7_tool_dispatch.py
+          tests/test_rc72_n7_execution_preparation.py
+          tests/test_rc72_captain_dispatch_fencing.py
           tests/test_rc72_captain_scheduling.py
           tests/test_rc72_fenced_n7_preparation.py
           tests/test_rc72_signed_authority_ttl.py
@@ -61,6 +78,7 @@ jobs:
         run: >-
           python -m pytest -q
           tests/test_rc72_n7_tool_dispatch.py
+          tests/test_rc72_n7_execution_preparation.py
           tests/test_rc72_captain_dispatch_fencing.py
           tests/test_rc72_captain_scheduling.py
           tests/test_rc72_fenced_n7_preparation.py
