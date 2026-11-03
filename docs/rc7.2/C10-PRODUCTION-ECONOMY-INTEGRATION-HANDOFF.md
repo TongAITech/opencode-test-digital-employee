@@ -113,3 +113,29 @@ TestObligations, L1–L7 cases, Evidence, independent review, RCA, repair or
 regression. It does not prove a provider actually grants free quotas, nor does
 it authorize fictitious Token-savings percentages. Check bank provider billing
 against the configured dates in Field before declaring bank quota qualification.
+
+
+## 2026-11-04 follow-up: Q7 process-count truth and production ingress corrections
+
+Production \`rc72_mission_cli.py\` now retains the actual
+\`bind_release_batch_model_economy(...)\` service returned by the native
+ingress and uses it for the Q7 dual-status report. The earlier draft's missing
+assignment would have raised \`NameError\` at runtime; this is repaired with a
+real CLI integration regression. A syntactically invalid multiline
+same-WorkItem context guard was also corrected.
+
+Model-call admission is **not** proof of a launched DSH process. The
+C10-owned \`rc72_token_call\` receipt now records
+\`process_outcome=NOT_STARTED|RETURNED|RAISED|UNKNOWN\`, including R1 replay
+defaults for historical records. The native command runner records \`RETURNED\`
+only when it returns, and \`RAISED\` when it throws. Summary and CLI expose
+nullable \`DSH_PROCESS_INVOCATIONS\`, explicit
+\`DSH_PROCESS_INVOCATION_COUNT_STATUS\`, and a separate launch-error count.
+A direct/synthetic \`admit_call\` or historic R1 token row without native
+process truth yields \`UNKNOWN\`, not a fictitious launched process. This
+does **not** prove distinct provider inference rounds, which remain UNKNOWN
+pending actual in-bank DSH event contract and Q7 Field evidence.
+
+The above are committed engineering corrections, **not yet verified at the
+same source HEAD by queued CI**; do not upgrade C10 status until CI and
+negative/native recovery tests pass.
