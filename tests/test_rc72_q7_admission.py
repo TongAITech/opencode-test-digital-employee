@@ -1,3 +1,4 @@
+from rc72_pip_field_test_support import seed as seed_prior_field_mirror, provider as prior_field_provider
 from pathlib import Path
 
 from rc6_runtime.truth import TruthRuntime
@@ -172,12 +173,14 @@ def _qualifications(truth: TruthRuntime, *, gates=LEVELS[:0] + ["Q3", "Q4", "Q5"
 
 
 def _admit(truth, provenance, snapshot, receipts, *, source_commit: str = COMMIT):
-    return Q7AdmissionService(truth, release_id=RELEASE).evaluate(
+    provider,mirror=seed_prior_field_mirror(truth,release_batch_id=BATCH,source_commit=source_commit)
+    return Q7AdmissionService(truth, release_id=RELEASE,bank_pip_mirror=provider).evaluate(
         release_batch_id=BATCH,
         source_commit=source_commit,
         provenance_id=provenance["provenance_id"],
         scope_snapshot_id=snapshot.snapshot_id,
         qualification_receipt_ids=[row["qualification_receipt_id"] for row in receipts],
+        bank_pip_mirror_execution_id=mirror["execution_id"],
     )
 
 
@@ -258,13 +261,15 @@ def test_identical_q7_admission_is_idempotent(tmp_path: Path):
     provenance = _provenance(truth)
     snapshot = _scope(truth)
     receipts = _qualifications(truth)
-    service = Q7AdmissionService(truth, release_id=RELEASE)
+    provider,mirror=seed_prior_field_mirror(truth,release_batch_id=BATCH,source_commit=COMMIT)
+    service = Q7AdmissionService(truth, release_id=RELEASE,bank_pip_mirror=provider)
     kwargs = {
         "release_batch_id": BATCH,
         "source_commit": COMMIT,
         "provenance_id": provenance["provenance_id"],
         "scope_snapshot_id": snapshot.snapshot_id,
         "qualification_receipt_ids": [row["qualification_receipt_id"] for row in receipts],
+        "bank_pip_mirror_execution_id":mirror["execution_id"],
     }
 
     first = service.evaluate(**kwargs)
@@ -273,3 +278,26 @@ def test_identical_q7_admission_is_idempotent(tmp_path: Path):
     assert first == second
     assert first["artifact_version"] == 1
     assert len(truth.query("rc72_q7_admission", admission_id=first["admission_id"])) == 1
+
+
+
+def test_all_other_field_gates_cannot_omit_native_user_mirror_provider(tmp_path):
+    truth=_truth(tmp_path);_batch(truth);provenance=_provenance(truth);snapshot=_scope(truth);receipts=_qualifications(truth)
+    result=Q7AdmissionService(truth,release_id=RELEASE).evaluate(release_batch_id=BATCH,source_commit=COMMIT,
+        provenance_id=provenance['provenance_id'],scope_snapshot_id=snapshot.snapshot_id,
+        qualification_receipt_ids=[r['qualification_receipt_id'] for r in receipts])
+    assert result['status']=='HOLD' and 'BANK_PC_PIP_MIRROR_GATE_NATIVE_PROVIDER_REQUIRED' in result['hold_reasons']
+    assert result['bank_pip_mirror_proof'] is None
+
+
+def test_native_user_mirror_evidence_tamper_revokes_admission_without_node_writes(tmp_path):
+    truth=_truth(tmp_path);_batch(truth);provenance=_provenance(truth);snapshot=_scope(truth);receipts=_qualifications(truth)
+    passed=_admit(truth,provenance,snapshot,receipts)
+    assert passed['status']=='ADMITTED'
+    proof=passed['bank_pip_mirror_proof'];Path(proof['result_ref'][7:]).write_text('{"status":"PASS"}')
+    provider=prior_field_provider(truth,source_commit=COMMIT)
+    result=Q7AdmissionService(truth,release_id=RELEASE,bank_pip_mirror=provider).evaluate(release_batch_id=BATCH,source_commit=COMMIT,
+        provenance_id=provenance['provenance_id'],scope_snapshot_id=snapshot.snapshot_id,
+        qualification_receipt_ids=[r['qualification_receipt_id'] for r in receipts],bank_pip_mirror_execution_id=proof['execution_id'])
+    assert result['status']=='HOLD' and 'BANK_PC_PIP_MIRROR_GATE_NATIVE_FIELD_PROOF_INVALID' in result['hold_reasons']
+    assert not truth.query('rc72_mission_node')

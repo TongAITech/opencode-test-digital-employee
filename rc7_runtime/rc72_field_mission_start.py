@@ -7,6 +7,8 @@ are resolved from R1 and cannot be overridden by prompt/caller input.
 A Mission may bootstrap only when an exact-lineage rc72_q7_admission receipt for
 that Mission + ReleaseBatch + source commit is ADMITTED. HOLD, missing, stale,
 or cross-lineage admissions fail closed before any MissionNode side effect.
+The current native bank-pip-mirror proof must also match the admission. The
+check and bootstrap share the participating-writer ledger lock.
 
 Successful admission bootstraps the existing RC7.2 N1-N10 state machine and
 persists a canonical start receipt binding the bootstrap to the admission. The
@@ -24,6 +26,7 @@ from rc6_runtime import truth as _truth
 from rc6_runtime.truth import TruthRuntime
 
 from .models import ContractError
+from .rc72_ledger_lock import resource_guard
 from .rc72_domain import AutonomousMissionNode, ReleaseBatch
 from .rc72_q7_admission import install_rc72_q7_admission_overlay
 from .rc72_state_machine import RC72StateMachine
@@ -116,11 +119,12 @@ def _ensure_bucket(truth: TruthRuntime) -> None:
 class ReleaseBatchFieldMissionLauncher:
     """Bootstrap canonical N1-N10 only after exact Q7 admission."""
 
-    def __init__(self, truth: TruthRuntime, *, source_commit: str) -> None:
+    def __init__(self, truth: TruthRuntime, *, source_commit: str, bank_pip_mirror=None) -> None:
         install_rc72_field_mission_start_overlay()
         _ensure_bucket(truth)
         self.truth = truth
         self.source_commit = _required(source_commit, "source_commit")
+        self.bank_pip_mirror=bank_pip_mirror
 
     @staticmethod
     def _start_receipt_id(mission_id: str, release_batch_id: str, source_commit: str) -> str:
@@ -155,6 +159,19 @@ class ReleaseBatchFieldMissionLauncher:
         admission = exact[0]
         if admission.get("status") != "ADMITTED":
             raise FieldMissionStartError("FIELD_MISSION_Q7_ADMISSION_HOLD")
+        from .rc72_bank_pip_mirror import NativeBankPipMirrorService
+        provider=self.bank_pip_mirror
+        if (type(provider) is not NativeBankPipMirrorService or provider.truth is not self.truth
+                or provider.release_id!=release_id or provider.source_commit!=self.source_commit):
+            raise FieldMissionStartError('FIELD_MISSION_BANK_PIP_MIRROR_NATIVE_PROVIDER_REQUIRED')
+        execution_id=admission.get('bank_pip_mirror_execution_id')
+        if not isinstance(execution_id,str) or not execution_id:
+            raise FieldMissionStartError('FIELD_MISSION_BANK_PIP_MIRROR_EXECUTION_REQUIRED')
+        try:proof=provider._audit_locked(execution_id=execution_id,release_batch_id=release_batch_id,require_field=True)
+        except (ContractError,OSError,ValueError,KeyError) as exc:
+            raise FieldMissionStartError('FIELD_MISSION_BANK_PIP_MIRROR_NATIVE_PROOF_INVALID') from exc
+        if proof!=admission.get('bank_pip_mirror_proof'):
+            raise FieldMissionStartError('FIELD_MISSION_BANK_PIP_MIRROR_ADMISSION_PROOF_CHANGED')
         return admission
 
     @staticmethod
@@ -181,11 +198,14 @@ class ReleaseBatchFieldMissionLauncher:
             "release_batch_id": payload.get("release_batch_id"),
             "source_commit": payload.get("source_commit"),
             "q7_admission_id": payload.get("q7_admission_id"),
+            "bank_pip_mirror_execution_id": payload.get("bank_pip_mirror_execution_id"),
+            "bank_pip_mirror_proof": payload.get("bank_pip_mirror_proof"),
             "n1_mission_node_id": payload.get("n1_mission_node_id"),
             "mission_node_ids": list(payload.get("mission_node_ids") or []),
             "status": payload.get("status"),
         }
 
+    @resource_guard(busy="FIELD_MISSION_LEDGER_BUSY",conflict=FieldMissionStartError)
     def start(self, *, release_batch_id: str) -> Dict[str, Any]:
         # All fail-closed admission and preflight checks happen before MissionNode writes.
         batch = self._batch(release_batch_id)
@@ -220,6 +240,8 @@ class ReleaseBatchFieldMissionLauncher:
             "release_batch_id": str(batch["release_batch_id"]),
             "source_commit": self.source_commit,
             "q7_admission_id": str(admission["admission_id"]),
+            "bank_pip_mirror_execution_id": admission["bank_pip_mirror_execution_id"],
+            "bank_pip_mirror_proof": admission["bank_pip_mirror_proof"],
             "n1_mission_node_id": node_ids[0],
             "mission_node_ids": node_ids,
             "status": _STATUS,
@@ -245,6 +267,8 @@ class ReleaseBatchFieldMissionLauncher:
             "mission_id": mission_id,
             "source_commit": self.source_commit,
             "q7_admission_id": str(admission["admission_id"]),
+            "bank_pip_mirror_execution_id": admission["bank_pip_mirror_execution_id"],
+            "bank_pip_mirror_proof": admission["bank_pip_mirror_proof"],
             "start_receipt_id": str(receipt["start_receipt_id"]),
             "n1_mission_node_id": node_ids[0],
             "mission_node_ids": node_ids,
@@ -256,13 +280,19 @@ def start_release_batch_field_mission(
     r1_path: Path,
     release_batch_id: str,
     source_commit: str,
+    bank_pip_mirror=None,
 ) -> Dict[str, Any]:
     """File-backed governed entrypoint; Mission/release are never caller inputs."""
     install_rc72_field_mission_start_overlay()
-    truth = TruthRuntime(r1_path.resolve())
+    if bank_pip_mirror is not None:
+        from .rc72_bank_pip_mirror import NativeBankPipMirrorService
+        if type(bank_pip_mirror) is not NativeBankPipMirrorService or Path(bank_pip_mirror.truth.store.path).resolve()!=r1_path.resolve():
+            raise FieldMissionStartError('FIELD_MISSION_BANK_PIP_MIRROR_LEDGER_MISMATCH')
+        truth=bank_pip_mirror.truth
+    else:truth = TruthRuntime(r1_path.resolve())
     return ReleaseBatchFieldMissionLauncher(
         truth,
-        source_commit=source_commit,
+        source_commit=source_commit,bank_pip_mirror=bank_pip_mirror,
     ).start(release_batch_id=release_batch_id)
 
 

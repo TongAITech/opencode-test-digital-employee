@@ -1,3 +1,4 @@
+from rc72_pip_field_test_support import seed as seed_prior_field_mirror, provider as prior_field_provider
 import inspect
 from pathlib import Path
 
@@ -66,6 +67,7 @@ def _admission(
     status: str = "ADMITTED",
     suffix: str = "A",
 ) -> str:
+    _,mirror=seed_prior_field_mirror(truth,release_batch_id=batch_id,source_commit=source_commit)
     admission_id = "Q7ADM-%s-%s" % (batch_id, suffix)
     truth.append_atomic(
         "RC72_Q7_ADMISSION_UPSERTED",
@@ -79,6 +81,8 @@ def _admission(
             "reason": "FIELD_PREREQUISITES_COMPLETE" if status == "ADMITTED" else "FIELD_PREREQUISITES_INCOMPLETE",
             "provenance_id": "PROV-%s" % batch_id,
             "scope_snapshot_id": "SCOPE-%s" % batch_id,
+            "bank_pip_mirror_execution_id": mirror["execution_id"],
+            "bank_pip_mirror_proof": mirror,
             "qualification_receipt_ids": [
                 "QUAL-%s-Q3" % batch_id,
                 "QUAL-%s-Q4" % batch_id,
@@ -128,7 +132,7 @@ def test_generic_admitted_release_batch_bootstraps_canonical_n1_n10(
 
     result = ReleaseBatchFieldMissionLauncher(
         truth,
-        source_commit=COMMIT,
+        source_commit=COMMIT, bank_pip_mirror=prior_field_provider(truth,source_commit=COMMIT),
     ).start(release_batch_id=batch_id)
 
     assert result["status"] == "STARTED"
@@ -161,7 +165,7 @@ def test_missing_q7_admission_blocks_before_any_mission_node_side_effect(tmp_pat
     )
 
     with pytest.raises(FieldMissionStartError, match="Q7_ADMISSION_NOT_UNIQUE:0"):
-        ReleaseBatchFieldMissionLauncher(truth, source_commit=COMMIT).start(
+        ReleaseBatchFieldMissionLauncher(truth, source_commit=COMMIT, bank_pip_mirror=prior_field_provider(truth,source_commit=COMMIT)).start(
             release_batch_id="RB-ORDER-100"
         )
 
@@ -187,7 +191,7 @@ def test_hold_admission_blocks_before_bootstrap(tmp_path: Path):
     )
 
     with pytest.raises(FieldMissionStartError, match="Q7_ADMISSION_HOLD"):
-        ReleaseBatchFieldMissionLauncher(truth, source_commit=COMMIT).start(
+        ReleaseBatchFieldMissionLauncher(truth, source_commit=COMMIT, bank_pip_mirror=prior_field_provider(truth,source_commit=COMMIT)).start(
             release_batch_id="RB-LOAN-700"
         )
 
@@ -212,7 +216,7 @@ def test_stale_source_commit_admission_cannot_start_current_source(tmp_path: Pat
     )
 
     with pytest.raises(FieldMissionStartError, match="EXACT_SOURCE_COMMIT_ADMISSION_REQUIRED"):
-        ReleaseBatchFieldMissionLauncher(truth, source_commit=COMMIT).start(
+        ReleaseBatchFieldMissionLauncher(truth, source_commit=COMMIT, bank_pip_mirror=prior_field_provider(truth,source_commit=COMMIT)).start(
             release_batch_id="RB-CARD-310"
         )
 
@@ -243,7 +247,7 @@ def test_cross_batch_admission_cannot_be_reused(tmp_path: Path):
     )
 
     with pytest.raises(FieldMissionStartError, match="Q7_ADMISSION_NOT_UNIQUE:0"):
-        ReleaseBatchFieldMissionLauncher(truth, source_commit=COMMIT).start(
+        ReleaseBatchFieldMissionLauncher(truth, source_commit=COMMIT, bank_pip_mirror=prior_field_provider(truth,source_commit=COMMIT)).start(
             release_batch_id="RB-RISK-TARGET"
         )
 
@@ -275,7 +279,7 @@ def test_repeated_start_is_idempotent_and_resumes_same_canonical_nodes(tmp_path:
         mission_id="MISSION-DEP-520",
         batch_id="RB-DEP-520",
     )
-    launcher = ReleaseBatchFieldMissionLauncher(truth, source_commit=COMMIT)
+    launcher = ReleaseBatchFieldMissionLauncher(truth, source_commit=COMMIT, bank_pip_mirror=prior_field_provider(truth,source_commit=COMMIT))
 
     first = launcher.start(release_batch_id="RB-DEP-520")
     second = launcher.start(release_batch_id="RB-DEP-520")
@@ -309,7 +313,7 @@ def test_bootstrap_does_not_promote_q7_field_or_bank_final_status(tmp_path: Path
         batch_id="RB-CONFIG-661",
     )
 
-    result = ReleaseBatchFieldMissionLauncher(truth, source_commit=COMMIT).start(
+    result = ReleaseBatchFieldMissionLauncher(truth, source_commit=COMMIT, bank_pip_mirror=prior_field_provider(truth,source_commit=COMMIT)).start(
         release_batch_id="RB-CONFIG-661"
     )
     receipt = truth.query(
@@ -321,3 +325,24 @@ def test_bootstrap_does_not_promote_q7_field_or_bank_final_status(tmp_path: Path
         assert forbidden not in result
         assert forbidden not in receipt
     assert receipt["status"] == "BOOTSTRAPPED"
+
+
+
+def test_prior_admitted_label_without_live_native_mirror_provider_cannot_bootstrap(tmp_path):
+    truth=_truth(tmp_path);_batch(truth,release_id='R',mission_id='M',batch_id='B',name='APP-R')
+    _admission(truth,release_id='R',mission_id='M',batch_id='B')
+    before=truth.store.path.read_bytes()
+    with pytest.raises(FieldMissionStartError,match='BANK_PIP_MIRROR_NATIVE_PROVIDER_REQUIRED'):
+        ReleaseBatchFieldMissionLauncher(truth,source_commit=COMMIT).start(release_batch_id='B')
+    assert truth.store.path.read_bytes()==before and not truth.query('rc72_mission_node')
+
+
+def test_changed_native_mirror_result_blocks_even_existing_admitted_snapshot(tmp_path):
+    truth=_truth(tmp_path);_batch(truth,release_id='R',mission_id='M',batch_id='B',name='APP-R')
+    _admission(truth,release_id='R',mission_id='M',batch_id='B')
+    provider=prior_field_provider(truth,source_commit=COMMIT)
+    receipt=truth.query('rc72_q7_admission')[0];Path(receipt['bank_pip_mirror_proof']['result_ref'][7:]).write_text('{}')
+    before=truth.store.path.read_bytes()
+    with pytest.raises(FieldMissionStartError,match='BANK_PIP_MIRROR_NATIVE_PROOF_INVALID'):
+        ReleaseBatchFieldMissionLauncher(truth,source_commit=COMMIT,bank_pip_mirror=provider).start(release_batch_id='B')
+    assert truth.store.path.read_bytes()==before and not truth.query('rc72_mission_node')

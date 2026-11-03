@@ -90,7 +90,7 @@ def release_batch_status(truth, *, source_commit, release_batch_id):
 
 class ReleaseBatchDriver:
     def __init__(self, truth, *, source_commit, n1_launcher, n1_tools,
-                 n2_launcher, n2_tools, n2_evaluator, n3_pipeline=None, n4_pipeline=None, n5_pipeline=None, n7_pipeline=None, n9_pipeline=None, expected_scope=None, n10_pipeline=None):
+                 n2_launcher, n2_tools, n2_evaluator, n3_pipeline=None, n4_pipeline=None, n5_pipeline=None, n7_pipeline=None, n9_pipeline=None, expected_scope=None, n10_pipeline=None, bank_pip_mirror=None):
         if not isinstance(source_commit, str) or not re.fullmatch('[0-9a-f]{40}', source_commit):
             raise ContractError('RC72_RELEASE_DRIVER_EXACT_SOURCE_REQUIRED')
         if not isinstance(n2_evaluator, DshRequirementEvaluator):
@@ -100,6 +100,7 @@ class ReleaseBatchDriver:
                     or not isinstance(launcher.authority, RC72AuthorityRuntime)):
                 raise ContractError('RC72_RELEASE_DRIVER_NATIVE_WORKER_REQUIRED')
         self.truth, self.source_commit = truth, source_commit
+        self.bank_pip_mirror=bank_pip_mirror
         self.n1_launcher, self.n2_launcher = n1_launcher, n2_launcher
         if not isinstance(n1_tools, (list, tuple)) or not isinstance(n2_tools, (list, tuple)):
             raise ContractError('RC72_RELEASE_DRIVER_EXACT_TOOLS_REQUIRED')
@@ -272,7 +273,7 @@ class ReleaseBatchDriver:
             self._assert_n10_scope(release_batch_id=release_batch_id)
             self._assert_expected_scope(release_batch_id=batch['release_batch_id'])
             # Admission is rechecked even when canonical nodes already exist.
-            ReleaseBatchFieldMissionLauncher(self.truth, source_commit=self.source_commit).start(release_batch_id=release_batch_id)
+            ReleaseBatchFieldMissionLauncher(self.truth, source_commit=self.source_commit,bank_pip_mirror=self.bank_pip_mirror).start(release_batch_id=release_batch_id)
             # Cold continuation audits accepted source bytes, not merely PASS labels.
             prefix=self.status(release_batch_id=release_batch_id)['nodes']
             for node in prefix:

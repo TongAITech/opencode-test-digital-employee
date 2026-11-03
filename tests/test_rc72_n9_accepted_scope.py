@@ -1,4 +1,5 @@
 """Actual formal execution/review -> deterministic N9 clearance; not Field."""
+from rc72_pip_field_test_support import provider as prior_field_provider
 from pathlib import Path
 import pytest
 
@@ -114,7 +115,7 @@ def test_actual_n9_service_is_composable_with_controller_and_cannot_accept_scope
                 coordinator_instance_id='controller',release_id=pipeline.release_id,state_root=str(tmp_path/role),command_runner=never)
         n1,n2,review=launcher('n1'),launcher('n2'),launcher('review')
         n9=AcceptedScopeN9Service(pipeline)
-        driver=ReleaseBatchDriver(truth,source_commit=pipeline.source_commit,n1_launcher=n1,n1_tools=['field-probe'],
+        driver=ReleaseBatchDriver(truth,source_commit=pipeline.source_commit,bank_pip_mirror=prior_field_provider(truth,source_commit=pipeline.source_commit),n1_launcher=n1,n1_tools=['field-probe'],
             n2_launcher=n2,n2_tools=['requirement-probe'],n2_evaluator=DshRequirementEvaluator(review,allowed_tools=['review-probe']),
             n7_pipeline=pipeline,n9_pipeline=n9)
         # This small formal fixture intentionally lacks the full N4 parent

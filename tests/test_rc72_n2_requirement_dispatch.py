@@ -1,3 +1,4 @@
+from rc72_pip_field_test_support import seed as seed_prior_field_mirror, provider as prior_field_provider
 from pathlib import Path
 
 import pytest
@@ -71,6 +72,7 @@ def _start_n1(truth: TruthRuntime) -> dict:
             "artifact_version": 1,
         },
     )
+    _,mirror=seed_prior_field_mirror(truth,release_batch_id=BATCH,source_commit=COMMIT)
     truth.append_atomic(
         "RC72_Q7_ADMISSION_UPSERTED",
         {
@@ -83,6 +85,8 @@ def _start_n1(truth: TruthRuntime) -> dict:
             "reason": "FIELD_PREREQUISITES_COMPLETE",
             "provenance_id": "PROV-BLOAN-PF121",
             "scope_snapshot_id": "SCOPE-BLOAN-PF121",
+            "bank_pip_mirror_execution_id": mirror["execution_id"],
+            "bank_pip_mirror_proof": mirror,
             "qualification_receipt_ids": ["QUAL-Q3", "QUAL-Q4", "QUAL-Q5", "QUAL-Q6"],
             "hold_reasons": [],
             "input_digest": "a" * 64,
@@ -93,7 +97,7 @@ def _start_n1(truth: TruthRuntime) -> dict:
             "artifact_version": 1,
         },
     )
-    ReleaseBatchFieldMissionLauncher(truth, source_commit=COMMIT).start(
+    ReleaseBatchFieldMissionLauncher(truth, source_commit=COMMIT, bank_pip_mirror=prior_field_provider(truth,source_commit=COMMIT)).start(
         release_batch_id=BATCH
     )
     return N1AutonomousDispatchService(truth, source_commit=COMMIT).dispatch(

@@ -12,10 +12,13 @@ from .rc72_authority import RC72AuthorityRuntime
 from .rc72_ledger_lock import ledger_lock
 from .rc72_truth import install_rc72_truth_overlay
 from .truth_overlay import install_rc7_truth_overlay
-from .rc72_n7_execution_admission import _hash
 
 _KIND='rc72_bank_pip_mirror_execution';_EVENT='RC72_BANK_PIP_MIRROR_EXECUTION_UPSERTED'
 _PURPOSE='NATIVE_BANK_PC_PIP_MIRROR_EXECUTION'
+
+
+def _hash(value):
+    return hashlib.sha256(json.dumps(value,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
 
 
 def _file_sha(path):
@@ -109,6 +112,10 @@ class NativeBankPipMirrorService:
                 or proof.get('qualification_scope')!=('BANK_PC_USER_MIRROR_FIELD_FACT' if raw['mode']=='BANK_FIELD'
                     else 'ENGINEERING_WINDOWS_USER_MIRROR_SIMULATION')):
             raise ContractError('BANK_PIP_MIRROR_NATIVE_PROOF_PROTOCOL_INVALID')
+        if (not isinstance(proof.get('python_version'),str) or not proof['python_version']
+                or not isinstance(proof.get('pip_version'),str) or not proof['pip_version']
+                or proof.get('platform_family')!='Windows'):
+            raise ContractError('BANK_PIP_MIRROR_NATIVE_INTERPRETER_PLATFORM_PROOF_REQUIRED')
         expected=dict(source_commit=self.source_commit,archive_sha256=binding['archive_sha256'],package_root=binding['package_root'])
         if any(proof.get(k)!=v for k,v in expected.items()):raise ContractError('BANK_PIP_MIRROR_NATIVE_PROOF_CHANGED')
         if (proof.get('discovery',{}).get('user_config_sha256')!=binding['user_config_sha256']
@@ -136,12 +143,29 @@ class NativeBankPipMirrorService:
             mode=raw['mode'],full_package_verified=binding['full_package_verified'],archive_sha256=binding['archive_sha256'],
             result_ref='file://'+str(path),result_sha256=_file_sha(path),status='PASS',bank_pc_mirror_field_fact=expected_field)
 
+    def _history(self,row):
+        history=self.truth.projection.history(_KIND,row['execution_id'])
+        history=sorted(history,key=lambda r:r['artifact_version'])
+        if not history or history[0]['state']!='IN_FLIGHT' or history[0]['artifact_version']!=1:
+            raise ContractError('BANK_PIP_MIRROR_NATIVE_INTENT_REQUIRED')
+        state='IN_FLIGHT'
+        for version,observed in enumerate(history,1):
+            self._signed(observed)
+            if (observed['artifact_version']!=version or any(observed.get(key)!=row.get(key)
+                    for key in ('execution_id','binding_id','binding','mode','attempt','parent_execution_id','started_at'))):
+                raise ContractError('BANK_PIP_MIRROR_NATIVE_HISTORY_CHANGED')
+            following=observed['state']
+            if (state=='RETURNED' and following!='RETURNED') or (state=='UNKNOWN' and following=='IN_FLIGHT'):
+                raise ContractError('BANK_PIP_MIRROR_NATIVE_HISTORY_INVALID')
+            state=following
+        if history[-1]!=row:raise ContractError('BANK_PIP_MIRROR_NATIVE_CURRENT_HISTORY_REQUIRED')
+
     def _chain(self,rows,binding,bid):
         if [r['attempt'] for r in rows]!=list(range(1,len(rows)+1)):
             raise ContractError('BANK_PIP_MIRROR_ATTEMPT_CHAIN_INVALID')
         previous=None
         for index,row in enumerate(rows):
-            self._signed(row)
+            self._signed(row);self._history(row)
             if (row['binding']!=binding or row['binding_id']!=bid or row['mode']!=binding['mode']
                     or row['execution_id']!='PIP-EXEC-'+_hash([bid,row['attempt']])[:24]
                     or row.get('parent_execution_id')!=previous):
@@ -155,20 +179,23 @@ class NativeBankPipMirrorService:
     def audit(self,*,execution_id,release_batch_id,require_field=True):
         """Cold historical verification; does not invoke pip or revive a lease."""
         with ledger_lock(self.truth,busy='BANK_PIP_MIRROR_LEDGER_BUSY'):
-            row=self._one(_KIND,execution_id=execution_id);self._signed(row)
-            batch=self._one('rc72_release_batch',release_batch_id=release_batch_id)
-            if (row['release_id']!=self.release_id or row['source_commit']!=self.source_commit
-                    or row['release_batch_id']!=release_batch_id or row['mission_id']!=batch['mission_id']
-                    or batch['release_id']!=self.release_id or row['binding']['package_root']!=str(self.root)
-                    or row['binding']['archive_path']!=str(self.archive) or row['binding']['field_config_path']!=str(self.config)):
-                raise ContractError('BANK_PIP_MIRROR_AUDIT_SCOPE_CHANGED')
-            self._chain(sorted(self.truth.query(_KIND,binding_id=row['binding_id']),key=lambda r:r['attempt']),row['binding'],row['binding_id'])
-            if _file_sha(self.archive)!=row['binding']['archive_sha256'] or _file_sha(self.config)!=row['binding']['field_config_sha256']:
-                raise ContractError('BANK_PIP_MIRROR_CURRENT_PACKAGE_OR_POLICY_CHANGED')
-            if (self.root/'SOURCE_COMMIT').read_text(encoding='utf-8').strip()!=self.source_commit:
-                raise ContractError('BANK_PIP_MIRROR_CURRENT_SOURCE_CHANGED')
-            if row['state']!='RETURNED':raise ContractError('BANK_PIP_MIRROR_NATIVE_NOT_RETURNED')
-            return self._proof(row,require_field=require_field)
+            return self._audit_locked(execution_id=execution_id,release_batch_id=release_batch_id,require_field=require_field)
+
+    def _audit_locked(self,*,execution_id,release_batch_id,require_field=True):
+        row=self._one(_KIND,execution_id=execution_id);self._signed(row)
+        batch=self._one('rc72_release_batch',release_batch_id=release_batch_id)
+        if (row['release_id']!=self.release_id or row['source_commit']!=self.source_commit
+                or row['release_batch_id']!=release_batch_id or row['mission_id']!=batch['mission_id']
+                or batch['release_id']!=self.release_id or row['binding']['package_root']!=str(self.root)
+                or row['binding']['archive_path']!=str(self.archive) or row['binding']['field_config_path']!=str(self.config)):
+            raise ContractError('BANK_PIP_MIRROR_AUDIT_SCOPE_CHANGED')
+        self._chain(sorted(self.truth.query(_KIND,binding_id=row['binding_id']),key=lambda r:r['attempt']),row['binding'],row['binding_id'])
+        if _file_sha(self.archive)!=row['binding']['archive_sha256'] or _file_sha(self.config)!=row['binding']['field_config_sha256']:
+            raise ContractError('BANK_PIP_MIRROR_CURRENT_PACKAGE_OR_POLICY_CHANGED')
+        if (self.root/'SOURCE_COMMIT').read_text(encoding='utf-8').strip()!=self.source_commit:
+            raise ContractError('BANK_PIP_MIRROR_CURRENT_SOURCE_CHANGED')
+        if row['state']!='RETURNED':raise ContractError('BANK_PIP_MIRROR_NATIVE_NOT_RETURNED')
+        return self._proof(row,require_field=require_field)
 
     def run(self,*,release_batch_id,engineering=False,bridge_user_config=False,retry_returned_failure=False):
         from rc7_release.bank_pc_pip_mirror_probe import qualify

@@ -94,6 +94,8 @@ def test_real_copied_python_mirror_install_import_and_host_substitution_refusals
         monkeypatch.setenv('PIP_INDEX_URL','https://unapproved.invalid/simple')
         before=len(requests);refused('wrong-effective-index','EFFECTIVE_INDEX_MISMATCH');assert len(requests)==before
         monkeypatch.delenv('PIP_INDEX_URL')
+        monkeypatch.setenv('PIP_PYTHON',str(Path(sys.executable)))
+        refused('host-python-redirect','HOST_INTERPRETER_REDIRECT_FORBIDDEN');monkeypatch.delenv('PIP_PYTHON')
         refused('missing-mirror-dependency','COMMAND_FAILED:mirror-install',policy=dict(policy,spec='rc72_missing_from_mirror==1.0'))
         # A successful host pip command cannot stand in for broken package pip.
         host=tmp_path/'host bin';host.mkdir();hostpip=host/'pip.cmd';hostpip.write_text('@exit /b 0\n')
@@ -101,7 +103,7 @@ def test_real_copied_python_mirror_install_import_and_host_substitution_refusals
         monkeypatch.setenv('PATH',str(host)+os.pathsep+os.environ.get('PATH',''))
         pip=root/'workspace-template/runtime/python/Lib/site-packages/pip';backup=pip.with_name('pip-disabled-for-negative')
         pip.rename(backup)
-        try:refused('host-pip-success-package-pip-missing','COMMAND_FAILED:pip-version')
+        try:refused('host-pip-success-package-pip-missing','COMMAND_FAILED:provenance')
         finally:backup.rename(pip)
         # Even a matching target distribution label cannot bless a host module.
         target=tmp_path/'owned empty import target';target.mkdir();dist=target/'rc72_host_only-1.0.dist-info';dist.mkdir()

@@ -1,3 +1,4 @@
+from rc72_pip_field_test_support import seed as seed_prior_field_mirror, provider as prior_field_provider
 from pathlib import Path
 
 import pytest
@@ -61,6 +62,7 @@ def _batch_and_admission(
             "artifact_version": 1,
         },
     )
+    _,mirror=seed_prior_field_mirror(truth,release_batch_id=batch_id,source_commit=source_commit)
     truth.append_atomic(
         "RC72_Q7_ADMISSION_UPSERTED",
         {
@@ -73,6 +75,8 @@ def _batch_and_admission(
             "reason": "FIELD_PREREQUISITES_COMPLETE",
             "provenance_id": "PROV-%s" % batch_id,
             "scope_snapshot_id": "SCOPE-%s" % batch_id,
+            "bank_pip_mirror_execution_id": mirror["execution_id"],
+            "bank_pip_mirror_proof": mirror,
             "qualification_receipt_ids": [
                 "QUAL-%s-Q3" % batch_id,
                 "QUAL-%s-Q4" % batch_id,
@@ -107,7 +111,7 @@ def _started(
     )
     return ReleaseBatchFieldMissionLauncher(
         truth,
-        source_commit=source_commit,
+        source_commit=source_commit, bank_pip_mirror=prior_field_provider(truth,source_commit=source_commit),
     ).start(release_batch_id=batch_id)
 
 

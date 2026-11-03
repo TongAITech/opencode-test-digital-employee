@@ -1,4 +1,5 @@
 """Product route integration with real child protocol sessions (not Field proof)."""
+from rc72_pip_field_test_support import provider as prior_field_provider
 import json
 import subprocess
 import sys
@@ -52,7 +53,7 @@ def _driver(tmp_path, *, gap=False, runtime_family=None):
             coordinator_instance_id='product-controller', release_id=RELEASE,
             state_root=str(tmp_path / ('runtime-'+role)), command_runner=run)
     n1, n2, reviewer = launcher('n1'), launcher('n2'), launcher('review')
-    driver = ReleaseBatchDriver(truth, source_commit=COMMIT, n1_launcher=n1, n1_tools=['n1-probe'],
+    driver = ReleaseBatchDriver(truth, source_commit=COMMIT, bank_pip_mirror=prior_field_provider(truth,source_commit=COMMIT), n1_launcher=n1, n1_tools=['n1-probe'],
         n2_launcher=n2, n2_tools=['n2-probe'], n2_evaluator=DshRequirementEvaluator(reviewer, allowed_tools=['review-probe']))
     return truth, driver, calls
 
@@ -75,6 +76,7 @@ def test_release_driver_runs_strict_n1_then_every_requirement_and_independent_ga
     # session is launched merely to rediscover already governed decisions.
     cold = TruthRuntime(truth.store.path)
     driver.truth = cold
+    driver.bank_pip_mirror=prior_field_provider(cold,source_commit=COMMIT)
     for launcher in (driver.n1_launcher, driver.n2_launcher, driver.n2_evaluator.launcher):
         launcher.truth = cold
     assert driver.run(release_batch_id=BATCH) == result
@@ -156,6 +158,7 @@ def test_interrupted_before_review_resumes_promoted_requirement_without_second_a
     monkeypatch.setattr(N2RequirementReviewService, 'review_and_apply', original)
     cold = TruthRuntime(truth.store.path)
     driver.truth = cold
+    driver.bank_pip_mirror=prior_field_provider(cold,source_commit=COMMIT)
     for launcher in (driver.n1_launcher, driver.n2_launcher, driver.n2_evaluator.launcher):
         launcher.truth = cold
     result = driver.run(release_batch_id=BATCH)

@@ -3,7 +3,9 @@
 Admission is deliberately narrower than Q7 qualification. It proves only that
 Q7 is allowed to start: the ReleaseBatch has canonical FIELD provenance, its
 Requirement/SST/TestObligation denominator is complete, and Q3-Q6 each have an
-exact-lineage FIELD PASS receipt for the same source commit.
+exact-lineage FIELD PASS receipt for the same source commit. A controller-owned
+native bank user-pip-mirror execution is additionally mandatory and is audited
+from its signed R1 intent/history/result, never from a caller PASS label.
 
 This module never emits Q7 PASS, BANK_FINAL, or field_verified=true.
 """
@@ -19,6 +21,8 @@ from rc6_runtime import truth as _truth
 from rc6_runtime.truth import TruthRuntime
 
 from .models import ContractError
+from .rc72_bank_pip_mirror import NativeBankPipMirrorService
+from .rc72_ledger_lock import resource_guard
 from .rc72_field_qualification import install_rc72_field_qualification_overlay
 from .rc72_release_provenance import FIELD, install_rc72_release_provenance_overlay
 from .rc72_release_scope import install_rc72_release_scope_overlay
@@ -77,6 +81,12 @@ def validate_rc72_q7_admission(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise _contracts.DomainValidationError("Q7_ADMISSION_STATUS_INVALID")
     if len(out["input_digest"]) != 64:
         raise _contracts.DomainValidationError("Q7_ADMISSION_INPUT_DIGEST_INVALID")
+    execution_id=out.get('bank_pip_mirror_execution_id')
+    proof=out.get('bank_pip_mirror_proof')
+    if execution_id is not None and (not isinstance(execution_id,str) or not execution_id.strip()):
+        raise _contracts.DomainValidationError('Q7_ADMISSION_BANK_PIP_MIRROR_ID_INVALID')
+    if proof is not None and (not isinstance(proof,dict) or proof.get('execution_id')!=execution_id):
+        raise _contracts.DomainValidationError('Q7_ADMISSION_BANK_PIP_MIRROR_PROOF_INVALID')
     out["qualification_receipt_ids"] = _string_list(out.get("qualification_receipt_ids"), "qualification_receipt_ids")
     out["hold_reasons"] = _string_list(out.get("hold_reasons"), "hold_reasons")
     if not isinstance(out.get("field_verified"), bool) or out["field_verified"]:
@@ -125,11 +135,15 @@ def _ensure_bucket(truth: TruthRuntime) -> None:
 class Q7AdmissionService:
     """Evaluate and persist a fail-closed Q7 start decision."""
 
-    def __init__(self, truth: TruthRuntime, *, release_id: str) -> None:
+    def __init__(self, truth: TruthRuntime, *, release_id: str, bank_pip_mirror=None) -> None:
         install_rc72_q7_admission_overlay()
         _ensure_bucket(truth)
         self.truth = truth
         self.release_id = _required(release_id, "release_id")
+        if bank_pip_mirror is not None and (type(bank_pip_mirror) is not NativeBankPipMirrorService
+                or bank_pip_mirror.truth is not truth or bank_pip_mirror.release_id!=self.release_id):
+            raise ContractError('Q7_BANK_PIP_MIRROR_NATIVE_PROVIDER_REQUIRED')
+        self.bank_pip_mirror=bank_pip_mirror
 
     @staticmethod
     def _admission_id(mission_id: str, release_batch_id: str, source_commit: str) -> str:
@@ -162,10 +176,13 @@ class Q7AdmissionService:
             "qualification_receipt_ids": list(payload.get("qualification_receipt_ids") or []),
             "hold_reasons": list(payload.get("hold_reasons") or []),
             "input_digest": payload.get("input_digest"),
+            "bank_pip_mirror_execution_id": payload.get("bank_pip_mirror_execution_id"),
+            "bank_pip_mirror_proof": payload.get("bank_pip_mirror_proof"),
             "field_verified": payload.get("field_verified"),
             "bank_final": payload.get("bank_final"),
         }
 
+    @resource_guard(busy="Q7_ADMISSION_LEDGER_BUSY")
     def evaluate(
         self,
         *,
@@ -174,7 +191,10 @@ class Q7AdmissionService:
         provenance_id: str,
         scope_snapshot_id: str,
         qualification_receipt_ids: Sequence[str],
+        bank_pip_mirror_execution_id=None,
     ) -> Dict[str, Any]:
+        if bank_pip_mirror_execution_id is not None and not isinstance(bank_pip_mirror_execution_id,str):
+            raise ContractError('Q7_BANK_PIP_MIRROR_EXECUTION_ID_INVALID')
         release_batch_id = _required(release_batch_id, "release_batch_id")
         source_commit = _required(source_commit, "source_commit")
         provenance_id = _required(provenance_id, "provenance_id")
@@ -251,6 +271,19 @@ class Q7AdmissionService:
             if gate not in by_gate:
                 holds.append("QUALIFICATION_MISSING:%s" % gate)
 
+        mirror_proof=None
+        if type(self.bank_pip_mirror) is not NativeBankPipMirrorService:
+            holds.append('BANK_PC_PIP_MIRROR_GATE_NATIVE_PROVIDER_REQUIRED')
+        elif self.bank_pip_mirror.truth is not self.truth or self.bank_pip_mirror.release_id!=self.release_id or self.bank_pip_mirror.source_commit!=source_commit:
+            holds.append('BANK_PC_PIP_MIRROR_GATE_SOURCE_MISMATCH')
+        elif not isinstance(bank_pip_mirror_execution_id,str) or not bank_pip_mirror_execution_id:
+            holds.append('BANK_PC_PIP_MIRROR_GATE_EXECUTION_REQUIRED')
+        else:
+            try:
+                mirror_proof=self.bank_pip_mirror._audit_locked(execution_id=bank_pip_mirror_execution_id,
+                    release_batch_id=release_batch_id,require_field=True)
+            except (ContractError,OSError,ValueError,KeyError):
+                holds.append('BANK_PC_PIP_MIRROR_GATE_NATIVE_FIELD_PROOF_INVALID')
         holds = sorted(set(holds))
         status = "ADMITTED" if not holds else "HOLD"
         reason = REASON_ADMITTED if status == "ADMITTED" else REASON_HOLD
@@ -262,6 +295,8 @@ class Q7AdmissionService:
             "provenance_id": provenance_id,
             "scope_snapshot_id": scope_snapshot_id,
             "qualification_receipt_ids": sorted(receipt_ids),
+            "bank_pip_mirror_execution_id": bank_pip_mirror_execution_id,
+            "bank_pip_mirror_proof": mirror_proof,
             "hold_reasons": holds,
         })
         admission_id = self._admission_id(mission_id, release_batch_id, source_commit)
@@ -282,6 +317,8 @@ class Q7AdmissionService:
             "provenance_id": provenance_id,
             "scope_snapshot_id": scope_snapshot_id,
             "qualification_receipt_ids": sorted(set(receipt_ids)),
+            "bank_pip_mirror_execution_id": bank_pip_mirror_execution_id,
+            "bank_pip_mirror_proof": mirror_proof,
             "hold_reasons": holds,
             "input_digest": input_digest,
             "field_verified": False,

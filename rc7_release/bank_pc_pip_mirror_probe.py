@@ -1,6 +1,6 @@
 """Actual package-Python/user-config/mirror-install proof; never host pip proof."""
 from __future__ import annotations
-import argparse,configparser,ctypes,hashlib,json,os,re,subprocess,time,uuid,zipfile
+import argparse,ctypes,hashlib,json,os,re,subprocess,time,uuid,zipfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -31,7 +31,11 @@ def prepare_environment(real_appdata,ambient,*,bridge=False):
     """
     real_appdata=Path(real_appdata).resolve();config=real_appdata/'pip/pip.ini'
     if config.is_symlink() or not config.is_file():raise RuntimeError('PIP_MIRROR_REAL_USER_CONFIG_REQUIRED')
-    values=dict(ambient)
+    allowed={'PATH','SYSTEMROOT','WINDIR','COMSPEC','PATHEXT','TEMP','TMP','TMPDIR','LANG','LC_ALL','TZ',
+        'HOME','USERPROFILE','APPDATA','LOCALAPPDATA','HOMEDRIVE','HOMEPATH','PROGRAMDATA','ALLUSERSPROFILE',
+        'XDG_CONFIG_HOME','XDG_CONFIG_DIRS','SSL_CERT_FILE','SSL_CERT_DIR','REQUESTS_CA_BUNDLE','CURL_CA_BUNDLE',
+        'HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','NO_PROXY'}
+    values={key:value for key,value in ambient.items() if key.upper() in allowed or key.upper().startswith(('PIP_','KRB5_'))}
     actual=values.get('APPDATA')
     changed=not actual or Path(actual).resolve()!=real_appdata
     override=values.get('PIP_CONFIG_FILE')
@@ -43,17 +47,19 @@ def prepare_environment(real_appdata,ambient,*,bridge=False):
         values['PIP_CONFIG_FILE']=str(config)
     for key in tuple(values):
         if key.upper() in {'PYTHONHOME','PYTHONPATH','PYTHONSTARTUP','PYTHONINSPECT'}:values.pop(key)
-    values['PYTHONNOUSERSITE']='1';values['PYTHONDONTWRITEBYTECODE']='1'
+    values['PYTHONNOUSERSITE']='1';values['PYTHONDONTWRITEBYTECODE']='1';values['PYTHONIOENCODING']='utf-8'
     return values,config,dict(mode='EXPLICIT_REAL_USER_CONFIG_BRIDGE' if bridge else 'WINDOWS_USER_DISCOVERY',
         real_appdata=str(real_appdata),effective_appdata=actual,user_config=str(config),user_config_sha256=_sha(config))
 
 
-PROVENANCE=r'''import json,sys,pip
+PROVENANCE=r'''import json,sys,pip,platform
 from pathlib import Path
 from pip._internal.configuration import Configuration
 from pip._internal.commands import create_command
+from pip._internal.cli.main_parser import create_main_parser
 configuration=Configuration(isolated=False);configuration.load()
 options,arguments=create_command('install',isolated=False).parse_args([])
+general,ignored=create_main_parser().parse_args([])
 def loaded_values(parsers):
     values={}
     for filename,parser in parsers:
@@ -61,9 +67,12 @@ def loaded_values(parsers):
             for name,value in parser.items(section):values[section+'.'+name.lower().replace('_','-')]=value
     return values
 print(json.dumps(dict(executable=sys.executable,prefix=sys.prefix,base_prefix=sys.base_prefix,
+ python_version=platform.python_version(),platform_family=platform.system(),platform_release=platform.release(),architecture=platform.machine(),
  pip_version=pip.__version__,pip_module=str(Path(pip.__file__).resolve()),
  considered_files={str(k):[dict(path=f,exists=Path(f).is_file()) for f in files] for k,files in configuration.iter_config_files()},
  loaded_values={str(k):loaded_values(v) for k,v in configuration._parsers.items()},
+ loaded_file_values={str(k):{filename:loaded_values([(filename,parser)]) for filename,parser in parsers} for k,parsers in configuration._parsers.items()},
+ global_python_redirect=general.python,
  effective=dict(index_url=options.index_url,extra_index_urls=options.extra_index_urls,
  trusted_hosts=options.trusted_hosts,no_index=options.no_index,find_links=options.find_links))))
 '''
@@ -102,19 +111,28 @@ def _inside(path,root,error):
     except (ValueError,TypeError):raise RuntimeError(error) from None
 
 
+def _user_file_values(proof,config,bridge):
+    kind='env' if bridge else 'user'
+    records=proof.get('loaded_file_values',{}).get(kind,{})
+    matching=[value for name,value in records.items() if Path(name).resolve()==config.resolve()]
+    if len(matching)!=1 or not isinstance(matching[0],dict):raise RuntimeError('PIP_MIRROR_USER_CONFIG_NOT_CONSUMED')
+    return matching[0]
+
+
 def validate_provenance(proof,python,runtime,config,policy,bridge):
     if Path(proof.get('executable','')).resolve()!=python or Path(proof.get('prefix','')).resolve()!=runtime:
         raise RuntimeError('PIP_MIRROR_PACKAGE_INTERPRETER_REQUIRED')
     _inside(proof.get('pip_module'),runtime,'PIP_MIRROR_PACKAGE_PIP_REQUIRED')
-    parser=configparser.RawConfigParser();parser.read(str(config),encoding='utf-8-sig')
-    user_index=parser.get('install','index-url',fallback=parser.get('global','index-url',fallback=None))
+    if proof.get('global_python_redirect'):raise RuntimeError('PIP_MIRROR_HOST_INTERPRETER_REDIRECT_FORBIDDEN')
+    user_values=_user_file_values(proof,config,bridge)
+    user_index=user_values.get('install.index-url',user_values.get('global.index-url'))
     approved=policy['approved_index_url']
     if not user_index or user_index.rstrip('/')!=approved.rstrip('/'):
         raise RuntimeError('PIP_MIRROR_APPROVED_USER_INDEX_REQUIRED')
     effective=proof['effective']
     if effective.get('index_url','').rstrip('/')!=approved.rstrip('/') or effective.get('no_index') or effective.get('find_links'):
         raise RuntimeError('PIP_MIRROR_EFFECTIVE_INDEX_MISMATCH')
-    expected_extra=parser.get('install','extra-index-url',fallback=parser.get('global','extra-index-url',fallback='')).split()
+    expected_extra=user_values.get('install.extra-index-url',user_values.get('global.extra-index-url','')).split()
     if effective.get('extra_index_urls',[])!=expected_extra:
         raise RuntimeError('PIP_MIRROR_UNAPPROVED_EXTRA_INDEX')
     kind='env' if bridge else 'user'
@@ -124,7 +142,7 @@ def validate_provenance(proof,python,runtime,config,policy,bridge):
     loaded=proof.get('loaded_values',{}).get(kind,{})
     if loaded.get('install.index-url',loaded.get('global.index-url','')).rstrip('/')!=approved.rstrip('/'):
         raise RuntimeError('PIP_MIRROR_USER_CONFIG_NOT_CONSUMED')
-    trusted=parser.get('install','trusted-host',fallback=parser.get('global','trusted-host',fallback='')).split()
+    trusted=user_values.get('install.trusted-host',user_values.get('global.trusted-host','')).split()
     if effective.get('trusted_hosts',[])!=trusted:raise RuntimeError('PIP_MIRROR_TRUSTED_HOST_SETTINGS_CHANGED')
     _origin(approved)
     return effective
@@ -168,14 +186,6 @@ def qualify(package_root,archive,policy,evidence_root,*,bridge=False,engineering
         raise RuntimeError('PIP_MIRROR_FIELD_PACKAGE_POLICY_REQUIRED')
     expected_name=re.match(r'[A-Za-z0-9][A-Za-z0-9_.-]*',policy['spec']).group()
     env,config,discovery=prepare_environment(windows_user_appdata(),os.environ,bridge=bridge)
-    user_settings=configparser.RawConfigParser();user_settings.read(str(config),encoding='utf-8-sig')
-    existing_index=user_settings.get('install','index-url',fallback=user_settings.get('global','index-url',fallback=None))
-    approved=policy.get('approved_index_url',existing_index)
-    if not isinstance(approved,str) or not approved:raise RuntimeError('PIP_MIRROR_APPROVED_USER_INDEX_REQUIRED')
-    if policy.get('approved_index_sha256') and hashlib.sha256(approved.encode()).hexdigest()!=policy['approved_index_sha256']:
-        raise RuntimeError('PIP_MIRROR_APPROVED_INDEX_DIGEST_MISMATCH')
-    index_authority='FIELD_POLICY_AND_REAL_USER_CONFIG' if 'approved_index_url' in policy else 'EXISTING_REAL_WINDOWS_USER_CONFIG'
-    policy=dict(policy,approved_index_url=approved)
     evidence.mkdir(parents=True,exist_ok=True);private=evidence/'private';private.mkdir(mode=0o700,exist_ok=True)
     def run(name,args,timeout=90):
         try:completed=subprocess.run([str(python),'-s',*args],cwd=str(runtime),env=env,capture_output=True,text=True,encoding='utf-8',timeout=timeout)
@@ -184,8 +194,18 @@ def qualify(package_root,archive,policy,evidence_root,*,bridge=False,engineering
             path=private/(name+'.'+suffix+'.log');path.write_text(content,encoding='utf-8');path.chmod(0o600)
         if completed.returncode:raise RuntimeError('PIP_MIRROR_COMMAND_FAILED:'+name)
         return completed.stdout
+    before=_json(run('provenance',['-c',PROVENANCE]))
+    if before.get('global_python_redirect'):raise RuntimeError('PIP_MIRROR_HOST_INTERPRETER_REDIRECT_FORBIDDEN')
+    user_values=_user_file_values(before,config,bridge)
+    existing_index=user_values.get('install.index-url',user_values.get('global.index-url'))
+    approved=policy.get('approved_index_url',existing_index)
+    if not isinstance(approved,str) or not approved:raise RuntimeError('PIP_MIRROR_APPROVED_USER_INDEX_REQUIRED')
+    if policy.get('approved_index_sha256') and hashlib.sha256(approved.encode()).hexdigest()!=policy['approved_index_sha256']:
+        raise RuntimeError('PIP_MIRROR_APPROVED_INDEX_DIGEST_MISMATCH')
+    index_authority='FIELD_POLICY_AND_REAL_USER_CONFIG' if 'approved_index_url' in policy else 'EXISTING_REAL_WINDOWS_USER_CONFIG'
+    policy=dict(policy,approved_index_url=approved)
+    validate_provenance(before,python,runtime,config,policy,bridge)
     run('pip-version',['-m','pip','--version'])
-    before=_json(run('provenance',['-c',PROVENANCE]));validate_provenance(before,python,runtime,config,policy,bridge)
     archive_binding=verify_archive_binding(root,archive,python,Path(before['pip_module']))
     run('config-debug',['-m','pip','config','debug']);run('config-list',['-m','pip','config','list','-v'])
     if _sha(config)!=discovery['user_config_sha256']:raise RuntimeError('PIP_MIRROR_USER_CONFIG_CHANGED')
@@ -215,6 +235,7 @@ def qualify(package_root,archive,policy,evidence_root,*,bridge=False,engineering
     logs={p.name:_sha(p) for p in private.iterdir() if p.is_file()}
     return dict(gate=GATE,status='PASS',schema='RC72_BANK_PC_PIP_MIRROR_V1',source_commit=source,
         archive_sha256=_sha(archive),archive_binding=archive_binding,package_root=str(root),python_executable=str(python),python_prefix=before['prefix'],
+        python_version=before['python_version'],platform_family=before['platform_family'],platform_release=before['platform_release'],architecture=before['architecture'],
         pip_version=before['pip_version'],pip_module=before['pip_module'],discovery=discovery,
         approved_index_authority=index_authority,approved_index_sha256=hashlib.sha256(policy['approved_index_url'].encode()).hexdigest(),
         spec=policy['spec'],installation_target=str(target),import_proof=imported,

@@ -13,9 +13,10 @@ def _config(tmp_path):
 
 def test_preserve_real_user_discovery_and_enterprise_settings_without_copying(tmp_path):
     app,config=_config(tmp_path)
-    original=dict(APPDATA=str(app),USERPROFILE='real-user',PIP_CERT='enterprise.pem',PYTHONPATH='host-injection')
+    original=dict(APPDATA=str(app),USERPROFILE='real-user',PIP_CERT='enterprise.pem',PYTHONPATH='host-injection',OPENAI_API_KEY='unit-unrelated-secret',PFC_RC7_CAPTAIN_TOKEN='unit-unrelated-control')
     values,path,proof=prepare_environment(app,original)
     assert values['APPDATA']==str(app) and values['USERPROFILE']=='real-user' and values['PIP_CERT']=='enterprise.pem'
+    assert 'OPENAI_API_KEY' not in values and 'PFC_RC7_CAPTAIN_TOKEN' not in values
     assert 'PYTHONPATH' not in values and 'PIP_CONFIG_FILE' not in values and path==config
     assert proof['mode']=='WINDOWS_USER_DISCOVERY' and original['PYTHONPATH']=='host-injection'
 
@@ -34,11 +35,12 @@ def test_hidden_appdata_and_suppressing_config_fail_without_audited_bridge(tmp_p
 def _proof(tmp_path,config):
     runtime=tmp_path/'package/python';python=runtime/'python.exe'
     return python,runtime,dict(executable=str(python),prefix=str(runtime),pip_module=str(runtime/'Lib/site-packages/pip/__init__.py'),
+        global_python_redirect=None,loaded_file_values={'user':{str(config):{'global.index-url':'https://approved.invalid/simple','global.trusted-host':'approved.invalid'}}},
         considered_files={'user':[dict(path=str(config),exists=True)]},loaded_values={'user':{'global.index-url':'https://approved.invalid/simple'}},
         effective=dict(index_url='https://approved.invalid/simple',extra_index_urls=[],trusted_hosts=['approved.invalid'],no_index=False,find_links=[]))
 
 
-@pytest.mark.parametrize('change',['host-python','host-pip','wrong-index','public-fallback','no-user-discovery','no-user-consumption','trusted-host'])
+@pytest.mark.parametrize('change',['host-python','host-pip','wrong-index','public-fallback','no-user-discovery','no-user-consumption','trusted-host','python-redirect'])
 def test_host_pip_or_environment_success_cannot_replace_user_config_provenance(tmp_path,change):
     app,config=_config(tmp_path);python,runtime,proof=_proof(tmp_path,config)
     if change=='host-python':proof['executable']=str(tmp_path/'host/python.exe')
@@ -46,8 +48,9 @@ def test_host_pip_or_environment_success_cannot_replace_user_config_provenance(t
     elif change=='wrong-index':proof['effective']['index_url']='https://public.invalid/simple'
     elif change=='public-fallback':proof['effective']['extra_index_urls']=['https://public.invalid/simple']
     elif change=='no-user-discovery':proof['considered_files']['user']=[]
+    elif change=='python-redirect':proof['global_python_redirect']=str(tmp_path/'host/python.exe')
     elif change=='trusted-host':proof['effective']['trusted_hosts']=[]
-    else:proof['loaded_values']['user']={}
+    else:proof['loaded_values']['user']={};proof['loaded_file_values']['user']={}
     with pytest.raises(RuntimeError):validate_provenance(proof,python,runtime,config,{'approved_index_url':'https://approved.invalid/simple'},False)
 
 
