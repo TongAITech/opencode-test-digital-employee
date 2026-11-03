@@ -34,7 +34,7 @@ class JourneyBSKAdapter:
         browser_pool: BrowserPool,
         evidence_root: Path,
         bsk_executable: Path,
-        session_resolver: Callable[[Mapping[str, Any], Mapping[str, Any]], str],
+        session_resolver: Callable[[Mapping[str, Any], Mapping[str, Any]], Mapping[str, Any]],
         reference_resolver: Callable[[str, str, Mapping[str, Any]], Any],
         runner: Optional[Callable[[Any], Mapping[str, Any]]] = None,
         timeout_seconds: int = 45,
@@ -66,7 +66,7 @@ class JourneyBSKAdapter:
         self._run_id = self._attempt = self._session = self._fingerprint = None
 
     def _guard(self, context: Mapping[str, Any]) -> Dict[str, Any]:
-        for field in ("mission_id", "workitem_id", "attempt_id", "worker_id", "browser_lease_id"):
+        for field in ("mission_id", "workitem_id", "attempt_id", "worker_id", "session_id", "browser_lease_id"):
             if not isinstance(context.get(field), str) or not context[field]:
                 raise ContractError("JOURNEY_BSK_ATTEMPT_SCOPE_REQUIRED")
         expected = ("OFFICIAL_JOURNEY_EXECUTION" if context.get("execution_id")
@@ -90,9 +90,31 @@ class JourneyBSKAdapter:
             "bsk_endpoint", "auth_asset_ref"))
         if self._fingerprint is not None and fingerprint != self._fingerprint:
             raise ContractError("JOURNEY_BSK_BROWSER_INSTANCE_SWITCH_FORBIDDEN")
-        session = self.session_for(context, instance)
+        # The session resolver MUST return an authoritative B-group ownership
+        # receipt, not a caller-supplied arbitrary session id. Validate all
+        # lease/Attempt/4A/profile dimensions against the live BrowserPool.
+        ownership = self.session_for(context, instance)
+        if not isinstance(ownership, Mapping):
+            raise ContractError("JOURNEY_BSK_SESSION_OWNERSHIP_RECEIPT_REQUIRED")
+        session = ownership.get("bsk_session_id")
         if not isinstance(session, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", session):
             raise ContractError("JOURNEY_BSK_OWNED_SESSION_REQUIRED")
+        required = {
+            "browser_instance_id": instance["browser_instance_id"],
+            "profile_dir": instance["profile_dir"],
+            "bsk_endpoint": instance["bsk_endpoint"],
+            "auth_asset_ref": instance.get("auth_asset_ref"),
+            "browser_lease_id": context["browser_lease_id"],
+            "mission_id": context["mission_id"],
+            "workitem_id": context["workitem_id"],
+            "attempt_id": context["attempt_id"],
+            "worker_id": context["worker_id"],
+            "dsh_session_id": context.get("session_id"),
+        }
+        if any(ownership.get(key) != value for key, value in required.items()):
+            raise ContractError("JOURNEY_BSK_SESSION_RECEIPT_SCOPE_MISMATCH")
+        if ownership.get("state") != "ACTIVE" or not ownership.get("source_receipt_ref"):
+            raise ContractError("JOURNEY_BSK_SESSION_NOT_AUTHORIZED")
         if self._session is not None and self._session != session:
             raise ContractError("JOURNEY_BSK_SESSION_SWITCH_FORBIDDEN")
         return {"instance": instance, "fingerprint": fingerprint, "session": session}
