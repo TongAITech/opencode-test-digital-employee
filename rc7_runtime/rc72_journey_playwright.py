@@ -357,6 +357,8 @@ class JourneyPlaywrightAdapter:
                 masks = page.locator('input[type="password"],input[autocomplete="one-time-code"]')
                 dirname.mkdir(parents=True, exist_ok=True)
                 page.screenshot(path=str(screenshot_path), full_page=True, mask=[masks], timeout=self.timeout_ms)
+                if not screenshot_path.is_file() or screenshot_path.stat().st_size == 0:
+                    raise ContractError("JOURNEY_SCREENSHOT_EVIDENCE_MISSING")
                 evidence_refs.append(screenshot_path.resolve().as_uri())
             except Exception as exc:
                 if status == "PASSED":
