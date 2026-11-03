@@ -45,6 +45,7 @@ def _validate(payload: Dict[str, Any]) -> Dict[str, Any]:
         "batch_id", "assignment_id", "attempt_id", "worker_instance_id",
         "producer_worker_instance_id", "producer_session_id",
         "dsh_session_id", "raw_output_ref", "status", "output_sha256",
+        "token_call_id",
     ):
         out[name] = _contracts._require_str(out, name)
     if out["status"] != "UNVERIFIED_INDEPENDENT_REVIEW":
@@ -128,8 +129,11 @@ class NativeSharedEvaluatorBatch:
         if getattr(assignment, "attempt_id", None) == candidate["attempt_id"]:
             raise NativeBatchReviewError("BATCH_REVIEW_ATTEMPT_MUST_DIFFER")
         inputs = getattr(assignment, "input_refs", None)
-        if not isinstance(inputs, (tuple, list)) or candidate["raw_output_ref"] not in inputs:
-            raise NativeBatchReviewError("BATCH_REVIEW_RAW_PRODUCER_EVIDENCE_REQUIRED")
+        if (
+            not isinstance(inputs, (tuple, list))
+            or tuple(inputs) != (candidate["raw_output_ref"],)
+        ):
+            raise NativeBatchReviewError("BATCH_REVIEW_MINIMAL_PRODUCER_EVIDENCE_REQUIRED")
         review_id = "NATIVEBATCHREVIEW-" + hashlib.sha256(
             ("\x1f".join((self.release_id, candidate_id,
                          _required(getattr(assignment, "assignment_id", None), "assignment_id")))).encode()
@@ -230,6 +234,14 @@ class NativeSharedEvaluatorBatch:
             matched[(member["workitem_id"], member["attempt_id"])]
             for member in candidate["members"]
         ]
+        metering = _one(
+            self.truth, "rc72_token_call",
+            mission_id=candidate["mission_id"],
+            workitem_id="EVALUATOR_BATCH:" + candidate["batch_id"],
+            attempt_id=assignment.attempt_id,
+        )
+        if metering.get("process_outcome") != "RETURNED":
+            raise NativeBatchReviewError("BATCH_REVIEW_REAL_DSH_CALL_PROOF_REQUIRED")
         encoded = json.dumps(output, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         payload = {
             "review_id": review_id,
@@ -245,6 +257,7 @@ class NativeSharedEvaluatorBatch:
             "dsh_session_id": session,
             "raw_output_ref": raw[0],
             "output_sha256": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
+            "token_call_id": metering["call_id"],
             "status": "UNVERIFIED_INDEPENDENT_REVIEW",
             "members": ordered,
             "recorded_at": int(time.time()),
