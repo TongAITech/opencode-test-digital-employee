@@ -111,8 +111,9 @@ def test_bsk_native_replay_produces_real_png_and_oracle_receipts(tmp_path):
     assert result.state.value == "PASSED"
     assert len([c for c in cli.calls if "step" in c]) == 1
     eval_commands = [c for c in cli.calls if "evaluate" in c]
-    assert len(eval_commands) == 1
-    assert eval_commands[0][eval_commands[0].index("--context") + 1] == "ctx-live"
+    assert len(eval_commands) == 2  # post-NAVIGATE URL plus business Oracle
+    assert all(cmd[cmd.index("--context") + 1] == "ctx-live"
+               for cmd in eval_commands)
     actuals = sorted(truth.query(
         "rc72_journey_replay_step", replay_id="JRP-BSK"), key=lambda r: r["sequence"])
     assert [r["status"] for r in actuals] == ["PASSED", "PASSED"]
@@ -354,3 +355,32 @@ def test_bsk_rejects_arbitrary_key_instead_of_typing_secret_with_press(tmp_path)
     assert result["status"] == "FAILED"
     assert result["failure_code"] == "JOURNEY_BSK_PRESS_KEY_UNSAFE"
     assert not any("step" in cmd for cmd in runner.calls)
+
+
+def test_bsk_navigate_to_4a_login_instead_of_requested_sut_is_not_pass(tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+
+    class RedirectedBSK(TestBSK):
+        def __call__(self, argv):
+            result = super().__call__(argv)
+            if "evaluate" in argv:
+                data = json.loads(result["stdout"])
+                data["value"]["url"] = "https://fat1.example/4a-login"
+                result["stdout"] = json.dumps(data)
+            return result
+
+    runner = RedirectedBSK()
+    adapter = _adapter(pool, tmp_path, runner)
+    service = JourneyReplayService(
+        truth, release_id="RC7.2", browser_pool=pool, adapter=adapter)
+    result = service.replay(
+        replay_id="BSK-SSO-REDIRECT", candidate_id="JC-1",
+        workitem_id="WI-R1", attempt_id="ATT-R1",
+        worker_id="WORKER-R1", session_id="SESSION-R1",
+        browser_lease_id=lease.browser_lease_id)
+    assert result.state.value == "FAILED"
+    rows = truth.query(
+        "rc72_journey_replay_step", replay_id="BSK-SSO-REDIRECT")
+    assert len(rows) == 1
+    assert rows[0]["failure_code"] == "JOURNEY_BSK_NAVIGATION_TARGET_MISMATCH"
+    assert len([cmd for cmd in runner.calls if "step" in cmd]) == 1
