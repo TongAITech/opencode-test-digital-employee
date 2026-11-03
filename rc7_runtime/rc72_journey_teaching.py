@@ -113,6 +113,8 @@ def _validate_recording(payload: Dict[str, Any]) -> Dict[str, Any]:
         out["state"] = JourneyRecordingState(out["state"].upper()).value
     except ValueError as exc:
         raise _contracts.DomainValidationError("JOURNEY_RECORDING_STATE_INVALID") from exc
+    if "case_id" in out:
+        out["case_id"] = _required(out, "case_id")
     if out["asset_class"] != "CANDIDATE_SOURCE":
         raise _contracts.DomainValidationError("JOURNEY_RECORDING_ASSET_CLASS_INVALID")
     if out.get("executable") is not False:
@@ -292,7 +294,14 @@ class JourneyTeachingService:
             "asset_class": "CANDIDATE_SOURCE", "executable": False, "step_count": 0,
             "evidence_refs": [], "started_at": _now(), "completed_at": None,
         }
-        self._binding(candidate)
+        binding = self._binding(candidate)
+        etus = self.truth.query("rc72_etu", etu_id=str(binding["etu_id"]))
+        if (len(etus) != 1 or etus[0].get("mission_id") != mission_id
+                or etus[0].get("release_batch_id") != release_batch_id
+                or etus[0].get("obligation_id") != obligation_id
+                or binding.get("case_id") not in list(etus[0].get("case_ids") or [])):
+            raise ContractError("JOURNEY_TEACHING_CANONICAL_CASE_MISMATCH")
+        candidate["case_id"] = str(binding["case_id"])
         self._assert_browser(candidate)
         self._append("RC72_JOURNEY_RECORDING_UPSERTED", candidate)
         return JourneyRecordingResult(recording_id=recording_id, state=JourneyRecordingState.CAPTURING)
