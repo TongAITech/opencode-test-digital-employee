@@ -11,6 +11,7 @@ and evaluate's in-band "ok" must be checked, not merely shell exit status.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -226,7 +227,12 @@ class JourneyBSKAdapter:
         else:
             args["selector"] = self._selector(str(step.get("element_ref") or ""), context)
             if action in {"fill", "select"}:
-                value_ref = step.get("value_ref") or step.get("credential_ref")
+                # CLI argv is visible in process diagnostics. Never place 4A
+                # passwords/OTP or other CredentialRefs on a shell command
+                # line; B/DSH's native bsk_* tool handles credential input.
+                if step.get("credential_ref") and not step.get("value_ref"):
+                    raise ContractError("JOURNEY_BSK_CREDENTIAL_NATIVE_TOOL_REQUIRED")
+                value_ref = step.get("value_ref")
                 if not isinstance(value_ref, str) or not value_ref:
                     raise ContractError("JOURNEY_BSK_VALUE_REFERENCE_REQUIRED")
                 value = self.resolve(
@@ -291,7 +297,8 @@ class JourneyBSKAdapter:
             "status": status, "failure_code": failure,
             "source": "BROWSERSKILL_CLI", "field_verified": False,
             "bsk_session_fingerprint": (
-                str(hash(session)) if session is not None else None),
+                hashlib.sha256(session.encode("utf-8")).hexdigest()[:16]
+                if session is not None else None),
             "action_type": str(step.get("action_type") or ""),
             "source_step_id": step.get("source_step_id"),
             "started_at": started_at, "completed_at": int(time.time()),
