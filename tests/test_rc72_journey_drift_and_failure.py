@@ -96,3 +96,48 @@ def test_failed_latest_replay_blocks_old_benchmark_promotion(tmp_path):
             candidate_id="JC-1", benchmark_id="JB-1",
             attestation_ref=attestation["attestation_ref"])
     assert not truth.query("rc72_official_journey_asset")
+
+
+class MalformedReceiptAdapter:
+    adapter_kind = "ENGINEERING_TEST"
+    field_verified = False
+
+    def __init__(self):
+        self.calls = 0
+
+    def execute_step(self, step, context):
+        self.calls += 1
+        # Post-I/O adapter bug: no actual/evidence refs and no valid status.
+        return {"status": "PASSED", "actual_refs": [], "evidence_refs": []}
+
+
+def test_malformed_browser_return_is_failed_with_durable_runtime_receipt(tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    malformed = MalformedReceiptAdapter()
+    service = JourneyReplayService(
+        truth, release_id="RC7.2", browser_pool=pool, adapter=malformed)
+    result = service.replay(
+        replay_id="JRP-MALFORMED", candidate_id="JC-1", workitem_id="WI-R1",
+        attempt_id="ATT-R1", worker_id="WORKER-R1", session_id="SESSION-R1",
+        browser_lease_id=lease.browser_lease_id)
+    assert result.state.value == "FAILED"
+    assert malformed.calls == 1
+    step = truth.query("rc72_journey_replay_step", replay_id="JRP-MALFORMED")[0]
+    assert step["status"] == "FAILED"
+    evidence = Path(step["evidence_refs"][0][7:])
+    assert evidence.is_file()
+    assert "ADAPTER_RUNTIME_FAILURE_NOT_SUT_ASSERTION" in evidence.read_text()
+    with pytest.raises(Exception, match="JOURNEY_REPLAY_ATTEMPT_ALREADY_USED"):
+        service.replay(
+            replay_id="JRP-NEW-ID", candidate_id="JC-1", workitem_id="WI-R1",
+            attempt_id="ATT-R1", worker_id="WORKER-R1", session_id="SESSION-R1",
+            browser_lease_id=lease.browser_lease_id)
+    assert malformed.calls == 1
+
+
+def test_official_same_attempt_cannot_replay_with_a_different_execution_id(tmp_path):
+    truth, pool, lease, browser, service = official_setup(tmp_path)
+    assert _run(service, lease, execution_id="OJ-ONE").state.value == "PASSED"
+    with pytest.raises(Exception, match="OFFICIAL_JOURNEY_ATTEMPT_ALREADY_USED"):
+        _run(service, lease, execution_id="OJ-OTHER-ID")
+    assert len(browser.calls) == 2
