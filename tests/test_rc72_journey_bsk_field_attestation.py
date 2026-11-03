@@ -114,3 +114,26 @@ def test_non_allowlisted_field_adapter_cannot_self_authorize(tmp_path):
         "rc72_journey_replay", replay_id="JRP-BSK-CERTIFIED")[0]
     assert receipt["field_verified"] is False
     assert not runner.calls
+
+
+def test_bsk_field_attestation_expiring_mid_action_cannot_pass_replay(tmp_path):
+    truth, lease, service, runner = _certified(tmp_path)
+    original = service.adapter.runner
+
+    def expiring_runner(argv):
+        response = original(argv)
+        if "step" in argv:
+            service.adapter._proof_expires_at = 0
+        return response
+
+    service.adapter.runner = expiring_runner
+    result = _replay(service, lease)
+    assert result.state.value == "FAILED"
+    records = truth.query(
+        "rc72_journey_replay_step", replay_id="JRP-BSK-CERTIFIED")
+    assert len(records) == 1
+    assert records[0]["status"] == "FAILED"
+    assert records[0]["failure_code"] == "JOURNEY_BSK_FIELD_PROOF_EXPIRED_DURING_STEP"
+    actual = json.loads(Path(records[0]["actual_refs"][0][7:]).read_text())
+    assert actual["field_verified"] is False
+    assert actual["status"] == "FAILED"
