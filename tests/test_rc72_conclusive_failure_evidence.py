@@ -101,6 +101,8 @@ def test_runner_process_failure_does_not_automatically_cleanup_or_replay(tmp_pat
         assert not truth.query('rc72_n7_cleanup_call')
         attempt=truth.query('execution_attempt')[0]
         assert attempt['status']=='BLOCKED' and attempt['reason']=='RUNNER_PROCESS_FAILED'
+        assert not truth.query('rc7_task',task_type='DEFECT_REPRODUCTION')
+        assert not truth.query('rc7_defect')
         assert all(r['state']=='ACTIVE' for r in truth.query('rc72_data_lease'))
         before=truth.store.path.read_bytes()
         assert pipeline.complete(release_batch_id=BATCH)==result
