@@ -57,3 +57,40 @@ def test_qa_release_driver_has_an_owned_non_bypass_n8_product_execution_route():
         "P0: ReleaseBatchDriver.run lacks an owned non-bypass N8 execution/recovery "
         "branch; N8 failure must not end as NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED"
     )
+
+
+
+def test_qa_product_driver_cannot_unconditionally_hold_after_all_n1_to_n10_gates_pass():
+    """Necessary formal admission: terminal N10 must reach an actual outcome.
+
+    The released RC7.2 Mission must not call a fully audited N1-N10 chain
+    permanently HOLD just because no terminal routing was implemented.
+    This is a source-level necessary gate; actual final R1 and Field Q7/Q9
+    evidence remain separately mandatory.
+    """
+    import ast
+    import inspect
+    import textwrap
+    from rc7_runtime.rc72_release_driver import ReleaseBatchDriver
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(ReleaseBatchDriver.run)))
+    stalled = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        if not (isinstance(node.test, ast.UnaryOp) and isinstance(node.test.op, ast.Not)
+                and isinstance(node.test.operand, ast.Name)
+                and node.test.operand.id == "pending"):
+            continue
+        for branch in node.body:
+            if not isinstance(branch, ast.Return):
+                continue
+            if any(isinstance(term, ast.Constant)
+                   and term.value == "RELEASE_CONVERGENCE_AUDIT_REQUIRED"
+                   for term in ast.walk(branch.value)):
+                stalled.append(branch)
+    assert not stalled, (
+        "P0: after all formal N1-N10 PASS, ReleaseBatchDriver.run still "
+        "returns unconditional RELEASE_CONVERGENCE_AUDIT_REQUIRED HOLD "
+        "rather than deriving a terminal outcome from signed R1 N10 Gate"
+    )
