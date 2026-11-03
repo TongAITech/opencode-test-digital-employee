@@ -258,21 +258,7 @@ class JourneyCDPTeachingRecorder:
             self.last_url = current_url
         return result
 
-    def record_assertion(self, *, page_role: str, oracle_ref: str,
-                         element_ref: Optional[str] = None) -> str:
-        if not isinstance(oracle_ref, str) or not oracle_ref.strip():
-            raise ContractError("JOURNEY_TEACHING_ORACLE_REF_REQUIRED")
-        return self._step(action_type="ASSERT", element_ref=element_ref,
-                          page_role=page_role, metadata={"oracle_ref": oracle_ref})
-
-    def record_wait(self, *, page_role: str, wait_semantics: str,
-                    element_ref: Optional[str] = None) -> str:
-        if wait_semantics not in {"network-idle", "networkidle", "domcontentloaded", "load", "visible"}:
-            raise ContractError("JOURNEY_TEACHING_WAIT_SEMANTICS_INVALID")
-        return self._step(action_type="WAIT", element_ref=element_ref,
-                          page_role=page_role, metadata={"wait_semantics": wait_semantics})
-
-    def finish(self) -> Any:
+    def _require_flushed_actions(self) -> None:
         self._guard()
         if self.page is None:
             raise ContractError("JOURNEY_TEACHING_PAGE_UNAVAILABLE")
@@ -284,6 +270,26 @@ class JourneyCDPTeachingRecorder:
             raise ContractError("JOURNEY_TEACHING_PENDING_ACTIONS_NOT_CAPTURED")
         if _public_url(self.page.url) != self.last_url:
             raise ContractError("JOURNEY_TEACHING_PENDING_NAVIGATION_NOT_CAPTURED")
+
+    def record_assertion(self, *, page_role: str, oracle_ref: str,
+                         element_ref: Optional[str] = None) -> str:
+        if not isinstance(oracle_ref, str) or not oracle_ref.strip():
+            raise ContractError("JOURNEY_TEACHING_ORACLE_REF_REQUIRED")
+        # A business assertion cannot precede an unrecorded SUT action.
+        self._require_flushed_actions()
+        return self._step(action_type="ASSERT", element_ref=element_ref,
+                          page_role=page_role, metadata={"oracle_ref": oracle_ref})
+
+    def record_wait(self, *, page_role: str, wait_semantics: str,
+                    element_ref: Optional[str] = None) -> str:
+        if wait_semantics not in {"network-idle", "networkidle", "domcontentloaded", "load", "visible"}:
+            raise ContractError("JOURNEY_TEACHING_WAIT_SEMANTICS_INVALID")
+        self._require_flushed_actions()
+        return self._step(action_type="WAIT", element_ref=element_ref,
+                          page_role=page_role, metadata={"wait_semantics": wait_semantics})
+
+    def finish(self) -> Any:
+        self._require_flushed_actions()
         ref = _atomic_json(
             self.root / _safe_id(self.recording["recording_id"]) / "teaching-summary.json",
             {"recording_id": self.recording["recording_id"],
