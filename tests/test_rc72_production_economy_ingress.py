@@ -200,3 +200,66 @@ def test_operator_policy_file_and_strict_validation(tmp_path):
     path.write_text(json.dumps({"bank_cost_window": {"timezone_name": "America/Los_Angeles"}}))
     with pytest.raises(TokenEconomyError, match="TIMEZONE"):
         read_mission_economy_config(str(path))
+
+
+
+def test_existing_bank_schedule_drift_blocks_rebinding_before_any_model_call(tmp_path):
+    truth, _, workers = _fixtures(tmp_path)
+    first = bind_release_batch_model_economy(
+        truth, workers=workers, release_id="REL-C10", mission_id="MISSION-C10",
+    )
+    original = first._budget("MISSION-C10")
+    changed = {
+        "bank_cost_window": {
+            "timezone_name": "Asia/Shanghai",
+            "normal_end_hour": 17,
+            "discount_end_hour": 20,
+            "normal_factor_millis": 1000,
+            "discount_factor_millis": 250,
+            "unlimited_after_discount": True,
+            "post_discount_factor_millis": 0,
+        }
+    }
+    fresh = {
+        role: SimpleNamespace(launcher=_ProcessLauncher(truth, role, tmp_path / "fresh-drift"))
+        for role in _ROLE_NODE
+    }
+    with pytest.raises(ProductionEconomyBindingError, match="BANK_SCHEDULE_DRIFT"):
+        bind_release_batch_model_economy(
+            truth, workers=fresh, release_id="REL-C10",
+            mission_id="MISSION-C10", policy=changed,
+        )
+    assert all(not getattr(row.launcher, "_rc72_production_economy_bound", False)
+               for row in fresh.values())
+    assert first._budget("MISSION-C10") == original
+    assert truth.query("rc72_token_call", mission_id="MISSION-C10") == []
+
+
+def test_legacy_budget_upgrades_bank_window_without_changing_soft_targets(tmp_path):
+    truth, _, workers = _fixtures(tmp_path)
+    from rc7_runtime.rc72_model_economy import TokenEconomyService
+
+    economy = TokenEconomyService(truth, release_id="REL-C10")
+    original = economy.configure_budget(
+        mission_id="MISSION-C10", max_total_tokens=321, max_model_calls=9,
+        max_single_call_tokens=100, max_retry_tokens=55,
+        max_retry_calls=2, max_same_context_calls=3,
+    )
+    legacy = dict(original)
+    legacy.pop("artifact_type", None)
+    legacy.pop("bank_cost_window_config", None)
+    legacy["artifact_version"] += 1
+    truth.append_atomic("RC72_TOKEN_BUDGET_UPSERTED", legacy)
+    assert "bank_cost_window_config" not in truth.query(
+        "rc72_token_budget", budget_id="MISSION-C10"
+    )[0]
+    bind_release_batch_model_economy(
+        truth, workers=workers, release_id="REL-C10", mission_id="MISSION-C10",
+    )
+    migrated = economy._budget("MISSION-C10")
+    assert migrated["max_total_tokens"] == 321
+    assert migrated["max_model_calls"] == 9
+    assert migrated["max_retry_tokens"] == 55
+    assert migrated["max_same_context_calls"] == 3
+    assert migrated["bank_cost_window_config"]["timezone_name"] == "Asia/Shanghai"
+    assert migrated["artifact_version"] == legacy["artifact_version"] + 1
