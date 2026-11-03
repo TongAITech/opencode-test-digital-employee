@@ -138,6 +138,7 @@ def _strict_archive_relative(rel):
 def _verify_canonical_r1_jsonl(stream):
     """Structural truth check; business provenance still needs independent QA."""
     last_seq, count = 0, 0
+    event_ids = set()
     for line in stream:
         if not line.strip():
             continue
@@ -156,6 +157,17 @@ def _verify_canonical_r1_jsonl(stream):
         if (type(event.get("entity_version")) is not int or event["entity_version"] < 1
                 or not isinstance(event.get("payload"), dict)):
             raise ExportError("FIELD_EVIDENCE_ZIP_R1_EVENT_INVALID")
+        if event["event_id"] in event_ids:
+            raise ExportError("FIELD_EVIDENCE_ZIP_R1_EVENT_ID_REUSED")
+        event_ids.add(event["event_id"])
+        # R1 event headers must not contradict the original canonical
+        # artifact metadata where the source payload declares it.
+        payload = event["payload"]
+        if ("artifact_type" in payload and payload["artifact_type"] != event["entity_type"]):
+            raise ExportError("FIELD_EVIDENCE_ZIP_R1_PAYLOAD_ENTITY_MISMATCH")
+        if ("artifact_version" in payload and type(payload["artifact_version"]) is int
+                and payload["artifact_version"] != event["entity_version"]):
+            raise ExportError("FIELD_EVIDENCE_ZIP_R1_PAYLOAD_VERSION_MISMATCH")
         last_seq = seq
         count += 1
     if not count:
