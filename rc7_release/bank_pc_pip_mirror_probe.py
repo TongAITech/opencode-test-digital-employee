@@ -1,6 +1,6 @@
 """Actual package-Python/user-config/mirror-install proof; never host pip proof."""
 from __future__ import annotations
-import argparse,configparser,ctypes,hashlib,json,os,re,subprocess,time,uuid
+import argparse,configparser,ctypes,hashlib,json,os,re,subprocess,time,uuid,zipfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -54,10 +54,16 @@ from pip._internal.configuration import Configuration
 from pip._internal.commands import create_command
 configuration=Configuration(isolated=False);configuration.load()
 options,arguments=create_command('install',isolated=False).parse_args([])
+def loaded_values(parsers):
+    values={}
+    for filename,parser in parsers:
+        for section in parser.sections():
+            for name,value in parser.items(section):values[section+'.'+name.lower().replace('_','-')]=value
+    return values
 print(json.dumps(dict(executable=sys.executable,prefix=sys.prefix,base_prefix=sys.base_prefix,
  pip_version=pip.__version__,pip_module=str(Path(pip.__file__).resolve()),
  considered_files={str(k):[dict(path=f,exists=Path(f).is_file()) for f in files] for k,files in configuration.iter_config_files()},
- loaded_values={str(k):dict(v) for k,v in configuration._config.items()},
+ loaded_values={str(k):loaded_values(v) for k,v in configuration._parsers.items()},
  effective=dict(index_url=options.index_url,extra_index_urls=options.extra_index_urls,
  trusted_hosts=options.trusted_hosts,no_index=options.no_index,find_links=options.find_links))))
 '''
@@ -124,6 +130,29 @@ def validate_provenance(proof,python,runtime,config,policy,bridge):
     return effective
 
 
+def verify_archive_binding(root,archive,python,pip_module):
+    source=(root/'SOURCE_COMMIT').read_bytes()
+    relative=[python.relative_to(root).as_posix(),Path(pip_module).relative_to(root).as_posix(),
+        'rc7_release/bank_pc_pip_mirror_probe.py']
+    if _sha(root/relative[2])!=_sha(Path(__file__).resolve()):
+        raise RuntimeError('PIP_MIRROR_EXECUTED_PROBE_OUTSIDE_ARCHIVE_SOURCE')
+    with zipfile.ZipFile(archive) as zipped:
+        names=zipped.namelist()
+        prefixes=[name[:-len('SOURCE_COMMIT')] for name in names if name=='SOURCE_COMMIT' or name.endswith('/SOURCE_COMMIT')]
+        prefixes=[prefix for prefix in prefixes if all(prefix+name in names for name in relative)]
+        if len(prefixes)!=1:raise RuntimeError('PIP_MIRROR_ARCHIVE_PACKAGE_NOT_UNIQUE')
+        prefix=prefixes[0]
+        if zipped.read(prefix+'SOURCE_COMMIT')!=source:raise RuntimeError('PIP_MIRROR_ARCHIVE_SOURCE_CHANGED')
+        files={}
+        for name in relative:
+            digest=hashlib.sha256()
+            with zipped.open(prefix+name) as stream:
+                for block in iter(lambda:stream.read(1024*1024),b''):digest.update(block)
+            if digest.hexdigest()!=_sha(root/name):raise RuntimeError('PIP_MIRROR_ARCHIVE_RUNTIME_CHANGED')
+            files[name]=digest.hexdigest()
+    return dict(archive_prefix=prefix,source_commit=source.decode().strip(),files_sha256=files)
+
+
 def qualify(package_root,archive,policy,evidence_root,*,bridge=False,engineering=False):
     root=Path(package_root).resolve();archive=Path(archive).resolve();evidence=Path(evidence_root).resolve()
     python=root/RELATIVE_PYTHON;runtime=python.parent
@@ -149,6 +178,7 @@ def qualify(package_root,archive,policy,evidence_root,*,bridge=False,engineering
         return completed.stdout
     run('pip-version',['-m','pip','--version'])
     before=_json(run('provenance',['-c',PROVENANCE]));validate_provenance(before,python,runtime,config,policy,bridge)
+    archive_binding=verify_archive_binding(root,archive,python,Path(before['pip_module']))
     run('config-debug',['-m','pip','config','debug']);run('config-list',['-m','pip','config','list','-v'])
     if _sha(config)!=discovery['user_config_sha256']:raise RuntimeError('PIP_MIRROR_USER_CONFIG_CHANGED')
     target=root/'state/pip-mirror'/uuid.uuid4().hex
@@ -175,7 +205,7 @@ def qualify(package_root,archive,policy,evidence_root,*,bridge=False,engineering
     after=_json(run('provenance-after',['-c',PROVENANCE]));validate_provenance(after,python,runtime,config,policy,bridge)
     logs={p.name:_sha(p) for p in private.iterdir() if p.is_file()}
     return dict(gate=GATE,status='PASS',schema='RC72_BANK_PC_PIP_MIRROR_V1',source_commit=source,
-        archive_sha256=_sha(archive),package_root=str(root),python_executable=str(python),python_prefix=before['prefix'],
+        archive_sha256=_sha(archive),archive_binding=archive_binding,package_root=str(root),python_executable=str(python),python_prefix=before['prefix'],
         pip_version=before['pip_version'],pip_module=before['pip_module'],discovery=discovery,
         approved_index_sha256=hashlib.sha256(policy['approved_index_url'].encode()).hexdigest(),
         spec=policy['spec'],installation_target=str(target),import_proof=imported,

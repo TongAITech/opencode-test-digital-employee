@@ -54,3 +54,22 @@ def test_host_pip_or_environment_success_cannot_replace_user_config_provenance(t
 def test_missing_package_python_never_consults_host_pip(tmp_path,monkeypatch):
     monkeypatch.setenv('PATH',str(tmp_path/'successful-host-pip'))
     with pytest.raises(RuntimeError,match='PACKAGE_PYTHON_REQUIRED'):qualify(tmp_path/'package',tmp_path/'archive',{},tmp_path/'proof')
+
+
+@pytest.mark.parametrize('changed',[None,'source','python','pip','probe'])
+def test_archive_binding_refuses_other_source_or_replaced_runtime(tmp_path,changed):
+    import shutil,zipfile
+    from rc7_release import bank_pc_pip_mirror_probe as module
+    root=tmp_path/'package';python=root/module.RELATIVE_PYTHON;python.parent.mkdir(parents=True)
+    python.write_bytes(b'contract fixture only, no executable claim')
+    pip=python.parent/'Lib/site-packages/pip/__init__.py';pip.parent.mkdir(parents=True);pip.write_text('# fixture')
+    probe=root/'rc7_release/bank_pc_pip_mirror_probe.py';probe.parent.mkdir();shutil.copy2(module.__file__,probe)
+    (root/'SOURCE_COMMIT').write_text('1'*40)
+    archive=tmp_path/'package.zip'
+    with zipfile.ZipFile(archive,'w') as zipped:
+        for path in root.rglob('*'):
+            if path.is_file():zipped.write(path,'wrapped/'+path.relative_to(root).as_posix())
+    if changed:
+        target={'source':root/'SOURCE_COMMIT','python':python,'pip':pip,'probe':probe}[changed];target.write_text('changed')
+        with pytest.raises(RuntimeError):module.verify_archive_binding(root,archive,python,pip)
+    else:assert len(module.verify_archive_binding(root,archive,python,pip)['files_sha256'])==3
