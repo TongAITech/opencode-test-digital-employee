@@ -37,27 +37,13 @@ def test_qa_release_driver_has_an_owned_non_bypass_n8_product_execution_route():
     import textwrap
     from rc7_runtime.rc72_release_driver import ReleaseBatchDriver
 
-    tree = ast.parse(textwrap.dedent(inspect.getsource(ReleaseBatchDriver.run)))
-    owners = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.If):
-            continue
-        if not any(isinstance(k, ast.Constant) and k.value == "N8_DIAGNOSIS_RECOVERY"
-                   for k in ast.walk(node.test)):
-            continue
-        # Exclude the historical accepted-N7 bypass, which merely continues,
-        # and the N8-filtering branch, which removes it from pending work.
-        body_calls = [k for stmt in node.body for k in ast.walk(stmt)
-                      if isinstance(k, ast.Call)]
-        if any(isinstance(call.func, ast.Attribute)
-               and call.func.attr in {"complete", "run", "dispatch", "resume", "reconcile"}
-               for call in body_calls):
-            owners.append(node)
-    assert owners, (
-        "P0: ReleaseBatchDriver.run lacks an owned non-bypass N8 execution/recovery "
-        "branch; N8 failure must not end as NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED"
+    from tools.rc72_qa_product_route_ast import has_real_n8_branch
+    source = textwrap.dedent(inspect.getsource(ReleaseBatchDriver.run))
+    assert has_real_n8_branch(source), (
+        "P0: ReleaseBatchDriver.run must dispatch self.n8_pipeline.complete "
+        "inside the active N8_DIAGNOSIS_RECOVERY node branch; unrelated "
+        "complete/run callbacks or accepted-N7 bypass do not qualify"
     )
-
 
 
 def test_qa_product_driver_cannot_unconditionally_hold_after_all_n1_to_n10_gates_pass():
