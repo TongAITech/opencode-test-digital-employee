@@ -63,7 +63,7 @@ python packaging/rc7.2/QA-Q3-Q9-EVIDENCE.py \
   --include "runtime-state/field/q8-recovery.json"
 ```
 
-上述 `--include` 路径是现场事前约定的归档命名示例，必须先真实生成这些文件；**不存在会直接 FAIL，不会跳过或合成**。工具强制携带 canonical `runtime-state/r1/event-stream.jsonl`、`SOURCE_COMMIT` / `BUILD_ID` / `RELEASE_FAMILY` / `RELEASE_STATUS`、`RC72_RELEASE_IDENTITY.json`、Manifest/Checksum/Full Inventory，按字节记录 SHA256 和文件大小，输出外部 ZIP 及 `.sha256`。输出只能在包外，不能覆盖旧归档或从 symlink/外部路径搬运；输入 R1/证据不被修改。导出索引所有 Gate 均标 `PENDING_INDEPENDENT_VERIFICATION`，Q9 `NOT_ADMITTED`，**导出成功不表示现场验收成功**。
+上述 `--include` 路径是现场事前约定的归档命名示例，必须先真实生成这些文件；**不存在会直接 FAIL，不会跳过或合成**。默认 `--r1-relpath` 是强制的 canonical 路径 `runtime-state/r1/event-stream.jsonl`；不得改成普通附件、另一个旧会话的 R1 或伪造事件流。工具强制携带 canonical `runtime-state/r1/event-stream.jsonl`、`SOURCE_COMMIT` / `BUILD_ID` / `RELEASE_FAMILY` / `RELEASE_STATUS`、`RC72_RELEASE_IDENTITY.json`、Manifest/Checksum/Full Inventory，按字节记录 SHA256 和文件大小，输出外部 ZIP 及 `.sha256`。输出只能在包外，不能覆盖旧归档或从 symlink/外部路径搬运；输入 R1/证据不被修改。导出索引所有 Gate 均标 `PENDING_INDEPENDENT_VERIFICATION`，Q9 `NOT_ADMITTED`，**导出成功不表示现场验收成功**。
 
 ### 独立复核导出 ZIP（必须在另一验收位置执行）
 
