@@ -1,5 +1,48 @@
 # RC7.2 持续施工与最终搬运交付
 
+## Configured native entry and concrete Code tools — 2026-11-03
+
+Package-owned configuration now assembles all implemented Mission roles without
+operator-written Mission factory code. Canonical ledger/release/source scopes
+own cold-stable, distinct controller/role/execution/mirror authorities; no
+controller key or unrelated ambient credential is projected into Worker
+environments. Native mirror-check uses that same authority and actual observer,
+never a detached PASS document. Real Windows source896c082 qualification passed
+in 75.126s: actual copied-Python mirror install/import, all seven negative
+checks, configured native R1 CLI and cold re-entry with no repeated requests.
+Its scope is ENGINEERING/component, full_package_verified=false, bank fact and
+Field/BANK_FINAL false. The separate full a58 preparation proved the native
+observer on a full extraction; it does not qualify this later source as a final
+same-source user deliverable.
+
+Production Code bindings now use exact registered Git revision/diff and
+CodeGraph MCP catalogue/call tools. The old capability aliases were removed by
+the real DSH policy and could not serve as model-facing tools. Producer and
+independent reviewer retain Git and actual graph-query evidence requirements;
+probe/catalogue discovery cannot satisfy graph execution. The actual generated
+policy runs in Node for visibility/execution/missing-tool checks. Controller
+key paths are excluded from generic scoped reads and original N1 resources,
+including renamed symlinks. Per-target native result provenance and private SDK
+provider materialization remain C07 work; this is not full C07 completion.
+
+The composed policy/private-key/Code/entry regression passed 63 tests in11.34s;
+all 19 N3 component files passed 83 tests. Full original concrete-tool factory
+reconstruction passed in650.04s with28Cases/78obligations,28actualHTTPcalls,
+onecoveragecollection andall7originalrequiredlevelsretained. Continuation
+repeated neither business calls nor coverage collection; missing levels remain
+NOT_CONVERGED. Those product Workers/prior Field facts are engineering fixtures,
+not bank model sessions or physical execution of all seven levels.
+
+Dedicated factory d202d43 ande7b9d9e Windows/Linux jobs are terminalSUCCESS;
+896c082 configured factory/native-CLI jobs are also terminalSUCCESS. Exact7851a0c
+qualification41623468940 is live; its actual Windows configured-mirror component
+has passed, while Windows/Linux composed full-route jobs remain live. Maina58
+Construction is nowSUCCESS; its Linux platform job isSUCCESS andWindows remains
+live. Main staysfixeda58. Default SDK/provider binding, remaining physical
+call-time fences, professional repair/N9/N10terminal andfinalfulltransport
+closure remainOPEN. No final user transport package has been delivered.
+
+
 ## Owned native factory and run entry — 2026-11-03
 
 The native factory now assembles the implemented node services, original-scope

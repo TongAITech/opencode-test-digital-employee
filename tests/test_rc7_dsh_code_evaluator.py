@@ -317,3 +317,30 @@ def test_worker_claimed_git_and_codegraph_calls_cannot_pass_without_r1_events(tm
     ]
     assert repair_tasks
     assert all(row["state"] == "READY" for row in repair_tasks)
+
+
+def test_graph_catalogue_cannot_satisfy_java_analyzer_query_evidence(tmp_path) -> None:
+    truth, control = _runtime(tmp_path, actual_tool_events=False)
+    _append_worker_tool_event(truth,tool_name='git',call_ref='call://actual-git',suffix='git')
+    _append_worker_tool_event(truth,tool_name='mcp__pfc_aitest_rc7__codegraph_mcp_tools',
+        call_ref='call://catalogue-only',suffix='catalogue')
+    evaluated = DshCodeEvaluator(FakeCodeReviewerLauncher()).evaluate_and_apply(
+        control,TASK_ID,ARTIFACT_ID,target_id=TARGET)
+    assert evaluated.loop_result.evaluation.result == EvaluationResult.REPAIR_REQUIRED
+    assert 'CODEGRAPH_REAL_TOOL_EVIDENCE_MISSING' in evaluated.loop_result.evaluation.dimensions['reasons']
+    assert control.scheduler.task(TASK_ID).state == TaskStatus.REPAIR_REQUIRED
+
+
+def test_graph_catalogue_cannot_satisfy_independent_java_reviewer(tmp_path) -> None:
+    _truth, control = _runtime(tmp_path, actual_tool_events=True)
+    class CatalogueOnlyReviewer(FakeCodeReviewerLauncher):
+        def execute(self,*args,**kwargs):
+            invocation,result=super().execute(*args,**kwargs)
+            invocation.tool_calls=[dict(call,tool_name='mcp__pfc_aitest_rc7__codegraph_mcp_tools')
+                if call['tool_name']=='codegraph' else call for call in invocation.tool_calls]
+            return invocation,result
+    evaluated = DshCodeEvaluator(CatalogueOnlyReviewer()).evaluate_and_apply(
+        control,TASK_ID,ARTIFACT_ID,target_id=TARGET)
+    assert evaluated.loop_result.evaluation.result == EvaluationResult.REPAIR_REQUIRED
+    assert 'REVIEW_CODEGRAPH_REAL_TOOL_EVIDENCE_MISSING' in evaluated.review['gap_ids']
+    assert control.scheduler.task(TASK_ID).state == TaskStatus.REPAIR_REQUIRED
