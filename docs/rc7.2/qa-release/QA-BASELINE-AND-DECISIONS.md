@@ -113,3 +113,18 @@ packaging/rc7.2/QA-Q3-Q9-EVIDENCE.py：
 - 增加输入在预检查与复制间变化、既有回执不可覆盖的负面测试。
 
 **门禁依旧 HOLD**：上面是 QA 分支提交候选；未获新 QA HEAD 同源全平台 CI 实跑，未逐字节独立校验 1.45GB Artifact，也未获取行内机器真实证据。DSH 主程序真实包内物理路径尚未签收；C12、Q9、BANK_FINAL 不得放行。
+
+
+## 10. 同源 check-runs 独立刷新（2026-11-03 09:51 PST）
+
+再次直接查询 GitHub 当前 branch HEAD 与 **commit SHA 精确匹配**的 check-runs（不能用不同分支或旧 run 的成功替代）：
+
+- 主线 `work/rc7.2` = `7efb3c8aa62f22629e570e3381727969524bf598`；同 SHA `phase-contract-python-3.8` **FAILURE**、`phase-contract-python-3.11` **FAILURE**、`q1-linux-engineering-proxy-python-3.8` **FAILURE**；`q1-windows-engineering-python-3.8` **IN_PROGRESS**。
+- 同 SHA `inherited-rc7-regression-python-3.8`、`q2a-windows-clean-unpack-python-3.8`、`q2b-windows-r1-session-gitbash-python-3.8`、`portable-transport` 为 **SUCCESS**，仅各自受限工程范围有效。此处更正本文件第 2 节早期快照的 IN_PROGRESS 状态；主线整体仍 **FAIL**。
+- QA PR #9 的 head = `e68630d3dc3629f84cd70552255bd84b6b852026`，该 SHA 的 Windows 2022 / Ubuntu 22.04 × Python 3.8/3.11 QA checks 均 **QUEUED**；不能晋级独立 QA PASS。
+- 四个未合入的候选 head：core `83cbd795d4d1ecc8b2b1483219e87fa1446deec0`；runtime `d21f5606931f8027c9b350514439d1a1cd748513`；journey `0bc08d7f8a9693609a52a9c22a60040465a03073`；economy `e6b836ec9f455a758c15c7fd61f236f24d8ba482`。其 CI 在本次读取时仍排队，不可跨 SHA 采信。
+- P0 Issue #7 仍 **OPEN**；正式 N8/N10 生产接线缺口在主线仍成立。QA 不修改生产代码、不合并 PR、不消除红灯。
+
+**本轮门禁**：C01/C02 = BLOCKED_PRODUCT_INTEGRATION；C11 = BLOCKED_SAME_SHA_CI；C12 = HOLD_FIELD_AND_FULL_PAYLOAD; Q1 = FAIL；Q2 = ENGINEERING_VERIFIED_SCOPE_ONLY；Q3–Q9 = PENDING。95 项权重未冻结，不发布百分比；BANK_FINAL = NO。
+
+本段是同源 GitHub 检查的即时观察，不是银行现场 R1/Evidence 的新增签收。待当前 QA check-runs 完成后应按结果刷新，不得以 QUEUED 代替执行成功。
