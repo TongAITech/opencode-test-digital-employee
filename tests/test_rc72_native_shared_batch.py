@@ -49,13 +49,14 @@ class _NativeDshLauncher(DshHeadlessWorkerLauncher):
         self.session_id = session_id
         self.response = response
         self.execute_count = 0
+        self.emit_tools = True
         self.native_calls = []
         self.command_runner = self._runner
 
     def _runner(self, command, **kwargs):
         self.native_calls.append(tuple(command))
         events = [{"type": "session", "session_id": self.session_id}]
-        calls = 2 if "execution" in self.state_root.name else 1
+        calls = (2 if "execution" in self.state_root.name else 1) if self.emit_tools else 0
         for _ in range(calls):
             events.append({"type": "tool_call", "tool_name": "approved-real-tool"})
         events.append({
@@ -264,6 +265,7 @@ def test_two_real_native_batch_calls_keep_independent_case_attempts_and_review_s
     assert reviewer.execute_count == 1
     assert len(reviewer.native_calls) == 1
     assert reviewed["status"] == "UNVERIFIED_INDEPENDENT_REVIEW"
+    assert len(reviewed["review_tool_refs"]) >= 1
     assert reviewed["token_call_id"] == truth.query(
         "rc72_token_call", workitem_id="EVALUATOR_BATCH:" + batch.batch_id
     )[0]["call_id"]
@@ -649,3 +651,20 @@ def test_host_batch_composer_drives_native_producer_reviewer_then_formal_n7_hold
     assert truth.query("execution_attempt", release_id=RELEASE) == []
     assert truth.query("assertion", release_id=RELEASE) == []
     assert truth.query("rc72_node_gate", mission_id=MISSION) == []
+
+
+
+def test_evaluator_without_real_native_evidence_tool_call_cannot_pass_review(tmp_path):
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    candidate = _dispatch(truth, batch, execution, assignment)
+    reviewer.emit_tools = False
+    service = NativeSharedEvaluatorBatch(
+        truth, release_id=RELEASE, launcher=reviewer,
+    )
+    with pytest.raises(NativeBatchReviewError, match="REAL_NATIVE_TOOL_PROOF"):
+        service.review(
+            candidate_id=candidate["candidate_id"],
+            assignment=_review_assignment(batch.batch_id, candidate["raw_output_ref"]),
+        )
+    assert truth.query("rc72_native_batch_review", mission_id=MISSION) == []
+    assert truth.query("execution_attempt", release_id=RELEASE) == []
