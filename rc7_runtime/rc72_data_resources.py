@@ -191,7 +191,7 @@ class DataLeaseManager:
 
     def _expire_due(self, now: int) -> None:
         for row in self.truth.query(_DATA_LEASE):
-            if row.get("state") != "ACTIVE" or int(row.get("expires_at") or 0) >= now:
+            if row.get("state") != "ACTIVE" or int(row.get("expires_at") or 0) > now:
                 continue
             updated = dict(row)
             updated.pop("artifact_type", None)
@@ -352,7 +352,7 @@ class DataLeaseManager:
                     raise ContractError("DATA_LEASE_DATA_REF_MISMATCH")
                 raise ContractError("DATA_LEASE_%s_MISMATCH" % field.upper())
         current = _now() if now is None else int(now)
-        if current > int(row["expires_at"]):
+        if current >= int(row["expires_at"]):
             raise ContractError("DATA_LEASE_EXPIRED")
         self._binding(mission_id=mission_id, workitem_id=workitem_id, attempt_id=attempt_id, worker_id=worker_id)
         resource = self._one(_DATA_RESOURCE, data_ref=data_ref)
@@ -376,7 +376,7 @@ class DataLeaseManager:
         row = self.lease(data_lease_id)
         if row.get("state") not in {"ACTIVE", "EXPIRED"}:
             raise ContractError("DATA_LEASE_NOT_ACTIVE")
-        if row['state'] == 'EXPIRED' or _now() > int(row['expires_at']):
+        if row['state'] == 'EXPIRED' or _now() >= int(row['expires_at']):
             from .rc72_n8_repair_boundary import RepairBoundaryService
             if (not isinstance(recovery_authorizer, RepairBoundaryService)
                     or recovery_authorizer.truth is not self.truth

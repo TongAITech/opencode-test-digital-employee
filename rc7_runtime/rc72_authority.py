@@ -187,7 +187,14 @@ class RC72AuthorityRuntime(AuthorityRuntime):
     def _validate_lease(self, identity, lease, now):
         if lease.lease_id in getattr(self, "_revoked_lease_ids", set()):
             raise AuthorityError("LEASE_REVOKED")
-        return super()._validate_lease(identity, lease, now)
+        verified = super()._validate_lease(identity, lease, now)
+        # Legacy RC6 permits use at exactly expires_at. RC7.2 signed worker
+        # authority has an exclusive TTL end: [issued_at, expires_at).
+        # Preserve parent signature verification before the boundary check.
+        current = int(time.time()) if now is None else int(now)
+        if current >= lease.expires_at:
+            raise AuthorityError("LEASE_EXPIRED")
+        return verified
 
     def validate_historical_lease(self, identity, lease):
         """Authenticate past observations only; never restore revoked authority."""

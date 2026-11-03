@@ -131,14 +131,47 @@ class ExecutionCleanupService:
             request_sha256=digest, state='IN_FLIGHT', artifact_version=1)
         if recovery_grant is not None:
             row['recovery_grant_ref'] = recovery_grant
-        directory = Path(str(self.truth.store.path) + '.n7-dispatch-claims')
-        directory.mkdir(parents=True, exist_ok=True)
-        try:
-            claim = os.open(str(directory / call_id), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError as exc:
-            raise CleanupError('N7_CLEANUP_ALREADY_CLAIMED_DIAGNOSIS_REQUIRED') from exc
-        os.close(claim)
-        self.truth.append_atomic(_EVENT, row)
+        # Persist the external cleanup/verification intent under the same
+        # Captain ledger as handoff. Otherwise an owner could quiesce between
+        # the previous authorization check and the first cleanup byte.
+        # A trusted N8 repair boundary may authorize expired custody on its
+        # own, but still has to persist its I/O intent before calling out.
+        from .rc72_ledger_lock import ledger_lock
+        with ledger_lock(self.truth, busy='N7_CLEANUP_ADMISSION_LEDGER_BUSY',
+                         conflict=CleanupError):
+            if self.recovery_authorizer is None:
+                prepared = self.preparation._one(
+                    'rc72_n7_execution_preparation', preparation_id=p['preparation_id'])
+                self.preparation._assert_captain_binding_locked(prepared)
+                self.preparation._assert_current_locked(p['preparation_id'])
+                self.preparation.authority.authorize_tool(
+                    p['worker_id'], p['task_lease']['lease_id'], tool)
+            else:
+                # N8 repair uses a distinct, signed cleanup-only actor. The
+                # grant may be revoked or superseded after the initial check
+                # above; its exact state/scope must still be valid at the
+                # irreversible R1 external-I/O intent boundary.
+                boundary = self.recovery_authorizer
+                current_grant = boundary._signed(boundary._one(
+                    'rc72_n8_repair_boundary', preparation_id=p['preparation_id']))
+                if (current_grant.get('boundary_id') != recovery_grant
+                        or current_grant.get('state') != 'CLEANUP_AUTHORIZED'
+                        or current_grant.get('contract_sha256') != c['contract_sha256']
+                        or phase not in {'CLEANUP', 'VERIFY'}):
+                    raise CleanupError('N8_CLEANUP_GRANT_CHANGED_BEFORE_EXTERNAL_IO')
+                boundary._check_old_node_versions(p, current_grant)
+            if self.truth.query(_KIND, call_id=call_id):
+                raise CleanupError('N7_CLEANUP_CALL_ALREADY_DURABLE_NO_REPLAY')
+            directory = Path(str(self.truth.store.path) + '.n7-dispatch-claims')
+            directory.mkdir(parents=True, exist_ok=True)
+            try:
+                claim = os.open(str(directory / call_id),
+                                os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError as exc:
+                raise CleanupError(
+                    'N7_CLEANUP_ALREADY_CLAIMED_DIAGNOSIS_REQUIRED') from exc
+            os.close(claim)
+            self.truth.append_atomic(_EVENT, row)
         try:
             result = self.adapters[tool](contract=deepcopy(c), context=deepcopy(context))
             if not isinstance(result, dict) or not result:
