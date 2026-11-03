@@ -574,3 +574,33 @@ def test_teaching_does_not_commit_step_if_screenshot_bytes_missing(tmp_path):
     row = truth.query("rc72_journey_recording", recording_id="JR-NO-SHOT")[0]
     assert row["state"] == "CAPTURING"
     assert row["step_count"] == 0
+
+
+def test_playwright_connector_does_not_reuse_network_or_browser_session_across_attempts(tmp_path):
+    truth, pool, lease, page, adapter, service = make_replay(tmp_path)
+    assert run_replay(service, lease).state.value == "PASSED"
+    before = list(page.actions)
+    candidate = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]
+    step = candidate["steps"][0]
+    changed_context = {
+        "replay_id": "FRESH-ATTEMPT",
+        "candidate_id": "JC-1",
+        "mission_id": "M-1",
+        "workitem_id": "WI-R1",
+        "attempt_id": "ATT-R1",
+        "worker_id": "WORKER-R1",
+        "session_id": "SESSION-R1",
+        "browser_lease_id": lease.browser_lease_id,
+    }
+    rejected = adapter.execute_step(step, changed_context)
+    assert rejected["status"] == "FAILED"
+    assert rejected["failure_code"] == "JOURNEY_ADAPTER_ATTEMPT_SWITCH_REQUIRES_CLOSE"
+    assert page.actions == before
+    receipt = tmp_path / "evidence" / "FRESH-ATTEMPT" / "step-0001" / "actual.json"
+    assert receipt.is_file()
+    assert json.loads(receipt.read_text())["status"] == "FAILED"
+    adapter.close()
+    # Explicitly closed connector creates a fresh browser session. A B-group
+    # ownership/Attempt lease is still mandatory at the service boundary.
+    fresh = adapter.execute_step(step, changed_context)
+    assert fresh["status"] == "PASSED"
