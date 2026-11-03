@@ -113,3 +113,25 @@ N6 的 `tool_route.tool` 必须为 `journey_playwright`；`request` 最少包含
 | 完整 RC7.2 + N1–N10 工程设计对账 / 现场验收 | QA 组独立判定，不能由 C09 自行宣告 |
 
 禁止将 Fake Browser 成功回放当成真实业务 L4/L5，通过 `FIELD_VERIFIED` 或 `BANK_FINAL`。没有已经过 A/B 标准调度接线的生产真实 Case、真实截图/网络/断言和现场审批，C09 最多是工程候选。
+
+
+## 6. 2026-11-04 续施工：Case 谱系、动作中资源撤销、弹窗及崩溃恢复
+
+新增真实工程闭环测试：`tests/test_rc72_journey_full_chain_engineering.py`，从教学（包含事件、网络/页面/截图真实文件引用）→非正式候选→两个分别分配 WRITE 租约的真实适配器回放 Attempt→基准结果→真人 Field 审批拒绝关口。测试使用 CI Fake CDP Browser：它验证模块之间的**调用、状态和 R1 Evidence 链路**，而非证明行内 Chromium/BSK 执行成功。基准工程通过但 `field_benchmark_verified=False`，不能制造 Official Journey。
+
+落地约束继续收紧：
+
+- 教学时从 WorkItemAttemptBinding 和 ETU `case_ids` 决定 Case ID；新的录制、Candidate、Official Journey、Replay/Execution 收据完整携带，并在实际工作绑定时核对。读取历史缺少 `case_id` 的资产只为向后兼容，不赋予通过新 Case Gate 的权限。
+- `JourneyReplayService` 和 `OfficialJourneyExecutionService` 在**每一步业务动作之前和之后**确认 WRITE BrowserLease，不能因适配器（包括 CONTRACT_BROWSER）自报 PASS 而越过租约失效；截图也不得在所有权撤销后继续执行。
+- 4A/AuthKeeper、Teaching、Replay、Official L4/L5 通过 BrowserLease `purpose` 分离，身份/Attempt 恰好相同也不能借用其他业务用途租约。
+- 同一候选或正式资产如果存在 `STARTED` 且进程崩溃的回放/执行，视为副作用 `UNKNOWN`，**禁止更换 replay/execution ID 或 Attempt 偷偷重放**；交给 N8/B 组实证诊断、租约回收与新冻结契约后续执行。不能自行将中断记录改成 PASS。
+- `dialog_policy_ref` 从教学保留至不可变 Journey IR；期望 Confirm/Alert 等弹窗必须经显式引用解析批准。缺少策略的弹窗被关闭并记真实失败，不能默许继续业务流程。WAIT `visible` 缺少定位信息应失败而非 PASS。
+- `tests/test_rc72_journey_drift_and_failure.py` 新增中断冷恢复、Case 混绑、AuthKeeper 用途隔离以及通用模拟适配器中途撤销租约正反测试；`tests/test_rc72_journey_playwright_adapter.py` 增加弹窗/明确等待策略的可重复合同测试。
+
+仍未解决：
+
+1. 录制快速跨页面导航时，点击前 DOM/截图与跳转后页面可能错位。真实 BSK/Chromium 现场演练必须证明事件时间戳与截图一致，不能凭 CI FakePage 推断支持跨页动态教学。若现场不一致应标记 `JOURNEY_TEACHING_CAPTURE_INCONSISTENT` 并重新采集。
+2. N7 标准 Tool Dispatch 调用和其正式 Case Oracle/清理、N8 诊断的产品接线属于 A 组；本分支提供受控 Callable，并不自行改共享 Mission Factory。
+3. 行内真实 4A/BSK/CDP、Profile、弹窗、安全输入与多窗口页面控制，仍保持 `FIELD_PENDING`，需要 B 组和现场环境验证。
+4. Source HEAD 同 SHA Windows/Linux/Python3.8/3.11 CI 未全绿之前，C09 不可核销为 `CODE_COMPLETE_CI_PASS`。
+
