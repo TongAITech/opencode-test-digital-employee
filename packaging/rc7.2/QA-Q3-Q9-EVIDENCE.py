@@ -240,6 +240,35 @@ def verify_evidence_export(archive_path, *, expected_source_commit):
                         count += len(chunk)
                 if count != row["size"] or digest.hexdigest() != row["sha256"].lower():
                     raise ExportError("FIELD_EVIDENCE_ZIP_BYTES_MISMATCH:" + rel)
+            # Physical ZIP/receipt integrity is not enough if the included
+            # package identity documents refer to a different source or
+            # falsely claim bank approval. Read bounded metadata only.
+            metadata_docs = {}
+            for rel in ("PACKAGE_MANIFEST.json", "FULL-CAPABILITY-INVENTORY.json"):
+                info = archive.getinfo("payload/" + rel)
+                if info.file_size > 32 * 1024 * 1024:
+                    raise ExportError("FIELD_EVIDENCE_ZIP_IDENTITY_DOCUMENT_TOO_LARGE:" + rel)
+                try:
+                    metadata_docs[rel] = json.loads(archive.read(info).decode("utf-8"))
+                except (ValueError, UnicodeError) as exc:
+                    raise ExportError("FIELD_EVIDENCE_ZIP_IDENTITY_DOCUMENT_INVALID:" + rel) from exc
+                if not isinstance(metadata_docs[rel], dict):
+                    raise ExportError("FIELD_EVIDENCE_ZIP_IDENTITY_DOCUMENT_INVALID:" + rel)
+            manifest = metadata_docs["PACKAGE_MANIFEST.json"]
+            inventory = metadata_docs["FULL-CAPABILITY-INVENTORY.json"]
+            if (manifest.get("source_commit") != expected_source_commit.lower()
+                    or manifest.get("build_id") != "RC7.2-" + expected_source_commit.lower()[:12]
+                    or manifest.get("release_family") != "RC7.2"
+                    or manifest.get("field_verified") is not False
+                    or manifest.get("bank_final") is not False
+                    or any(manifest.get(k) is not False for k in
+                           ("real_mission_pass", "delivery_pass", "bank_field_pass"))):
+                raise ExportError("FIELD_EVIDENCE_ZIP_MANIFEST_IDENTITY_MISMATCH")
+            if (inventory.get("source_commit") != expected_source_commit.lower()
+                    or inventory.get("release_family") != "RC7.2"
+                    or inventory.get("field_verified") is not False
+                    or inventory.get("bank_final") is not False):
+                raise ExportError("FIELD_EVIDENCE_ZIP_INVENTORY_IDENTITY_MISMATCH")
             with archive.open("payload/" + r1, "r") as stream:
                 r1_event_count = _verify_canonical_r1_jsonl(stream)
             if (archive.read("payload/SOURCE_COMMIT").decode("utf-8").strip().lower() != expected_source_commit.lower()
