@@ -20,13 +20,7 @@ from .single_node_production_bootstrap import ProductionSingleNodeBootstrap
 
 
 class ProductionCausalityIntegrationRunner:
-    """Promote only a constructor-established production composed runner.
-
-    Do not trust the composed runner's private production boolean by itself: a unit
-    boundary double can be created with ``__new__`` and can mutate private fields.
-    Promotion therefore re-validates the concrete production authorities that the
-    normal composed-runner constructor establishes.
-    """
+    """Promote only a constructor-established production composed runner."""
 
     def __init__(self, *, composed_runner: SingleNodeDurableIntegrationProofRunner) -> None:
         if not isinstance(composed_runner, SingleNodeDurableIntegrationProofRunner):
@@ -63,6 +57,7 @@ class ProductionCausalityIntegrationRunner:
             and len(durable.verified_r1_start_events) == len(proof.observed.attempt_ids)
             and len(durable.verified_r1_events) == len(proof.observed.attempt_ids)
         )
+        terminal_center_idle = bool(getattr(proof.observed, "terminal_center_idle", False))
         promotion = self.gate.evaluate(
             bootstrap_materialized=True,
             observed_stages=proof.observed.stages,
@@ -71,9 +66,7 @@ class ProductionCausalityIntegrationRunner:
             attempt_ids=proof.observed.attempt_ids,
             evidence_refs=proof.observed.evidence_refs,
             durable_truth_verified=durable_truth_verified,
-            # SingleNodeFullLoopProofRunner has already required the post-denominator
-            # production Center claim to return provenance-backed IDLE.
-            terminal_center_idle=True,
+            terminal_center_idle=terminal_center_idle,
         )
         if not promotion.verified:
             raise RuntimeError("PRODUCTION_CAUSALITY_PROMOTION_REJECTED:%s" % promotion.status)
