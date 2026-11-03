@@ -138,10 +138,16 @@ class NativeCoverageRerunService:
     def _record(self,release_batch_id,repairs):
         gates={row['origin_n7_gate_id'] for row in repairs}
         if len(gates)!=1:return None
-        origin_gate=next(iter(gates));gate,delivery,bundle,review=self._historical_origin(origin_gate,audit_current=True)
-        origin_plan=self.planning.assert_current(bundle['plan_id'])
-        repair_ids=[row['repair_id'] for row in repairs]
+        origin_gate=next(iter(gates));repair_ids=[row['repair_id'] for row in repairs]
         rid='COV-RERUN-'+_hash([release_batch_id,origin_gate,repair_ids])[:24]
+        rows=self.truth.query(_KIND,rerun_id=rid)
+        if len(rows)>1:raise ContractError('COVERAGE_RERUN_BOUNDARY_NOT_UNIQUE')
+        # Recovery must authenticate the immutable historical origin but must not
+        # require it to remain the active N7 gate after a fresh rerun succeeded.
+        # Only the first durable rerun receipt is allowed to stale the then-current
+        # accepted N7 epoch, so creation performs the stronger current audit.
+        gate,delivery,bundle,review=self._historical_origin(origin_gate,audit_current=not bool(rows))
+        origin_plan=self.planning.assert_current(bundle['plan_id'])
         plan_id='N7COVPLAN-'+_hash([rid,origin_plan['input_digest']])[:24]
         scope=_hash([origin_plan['plan_id'],origin_plan['snapshot_id'],origin_plan['input_digest'],
                      [(item['case_id'],item['contract_id'],item['admission_id'],item['etu_id'],item['input_artifact_refs']) for item in origin_plan['items']]])
@@ -150,7 +156,6 @@ class NativeCoverageRerunService:
             repair_ids=repair_ids,origin_n7_gate_id=origin_gate,origin_delivery_id=delivery['delivery_id'],
             origin_n7_delivery_version=delivery['version'],origin_bundle_id=bundle['bundle_id'],origin_plan_id=origin_plan['plan_id'],
             rerun_plan_id=plan_id,plan_scope_sha256=scope,state='PLANNED')
-        rows=self.truth.query(_KIND,rerun_id=rid)
         if rows:
             row=self._signed(rows[0])
             for key,value in expected.items():
