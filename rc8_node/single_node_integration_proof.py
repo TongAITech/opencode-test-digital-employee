@@ -1,24 +1,16 @@
-"""Composition gate for RC8 SINGLE_NODE full-loop integration proof.
-
-This module deliberately owns no PASS/release authority. It composes the production
-AutonomousWorkerDispatcher traversal proof with the durable Center/R1 truth verifier
-so an observed worker result cannot be promoted unless the same TestRun/WorkItem/
-Attempt/Artifact identities exist in durable truth.
-"""
+"""Composition gate for RC8 SINGLE_NODE full-loop integration proof."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Sequence
 
 from rc8_center.single_node_truth_reader import ProductionCenterR1TruthReader
-
 from .autonomous_claim_client import AutonomousClaimClient
 from .autonomous_dispatcher import AutonomousWorkerDispatcher
 from .formal_agent import FormalNodeAgent
 from .single_node_full_loop_proof import FROZEN_N1_N10_STAGES, SingleNodeFullLoopProof, SingleNodeFullLoopProofRunner
 from .single_node_production_bootstrap import ProductionSingleNodeBootstrap
 from .single_node_truth import SingleNodeCenterTruthVerifier, SingleNodeTruthProof
-
 
 _PRODUCTION_WORKER_IDENTITIES = {
     "SCOPE_INTAKE": ("rc8_node.scope_intake_worker", "ScopeIntakeWorker"),
@@ -38,7 +30,6 @@ _PRODUCTION_WORKER_IDENTITIES = {
     "REPORT_RELEASE": ("rc8_node.report_release_observation_worker", "ReportReleaseObservationWorker"),
 }
 
-
 @dataclass(frozen=True)
 class SingleNodeDurableIntegrationProof:
     observed: SingleNodeFullLoopProof
@@ -48,17 +39,18 @@ class SingleNodeDurableIntegrationProof:
     status: str
     bank_reality_verified: bool = False
     release_status: str = "HOLD"
+    bootstrap_materialized: bool = False
+    bootstrap_work_item_id: str = ""
+    bootstrap_stage_instance_id: str = ""
 
 
 def assert_production_dispatcher_topology(dispatcher: AutonomousWorkerDispatcher, *, required_stages: Sequence[str] = FROZEN_N1_N10_STAGES) -> None:
-    """Reject production-shaped dispatchers that are not one coherent real node topology."""
     expected = tuple(sorted(str(stage).strip() for stage in required_stages))
     actual = tuple(sorted(dispatcher.supported_stages))
     if actual != expected:
         missing = tuple(stage for stage in expected if stage not in actual)
         extra = tuple(stage for stage in actual if stage not in expected)
         raise RuntimeError("FULL_LOOP_PRODUCTION_STAGE_TOPOLOGY_MISMATCH:missing=%s:extra=%s" % (",".join(missing), ",".join(extra)))
-
     claimant_node_id = str(dispatcher.claimant.node_id or "").strip()
     claimant_center = str(dispatcher.claimant.center_url or "").strip().rstrip("/")
     for stage in expected:
@@ -81,13 +73,6 @@ def assert_production_dispatcher_topology(dispatcher: AutonomousWorkerDispatcher
 
 
 class SingleNodeDurableIntegrationProofRunner:
-    """Run production bootstrap + dispatcher traversal, then verify durable truth.
-
-    Production mode is constructor-established and immutable. A boundary-double runner
-    must never be promoted after construction by mutating a public verification flag.
-    Production component identity is intentionally distinct from production causality.
-    """
-
     def __init__(self, *, dispatcher: Any, truth_reader: Any, required_stages: Sequence[str] = FROZEN_N1_N10_STAGES, require_production_components: bool = True, production_bootstrap: Any = None) -> None:
         expected_node_id = None
         production_mode = bool(require_production_components)
@@ -95,121 +80,68 @@ class SingleNodeDurableIntegrationProofRunner:
             requested_denominator = tuple(str(stage).strip() for stage in required_stages)
             if requested_denominator != tuple(FROZEN_N1_N10_STAGES):
                 raise RuntimeError("FULL_LOOP_PRODUCTION_DENOMINATOR_OVERRIDE_FORBIDDEN")
-            if not isinstance(dispatcher, AutonomousWorkerDispatcher):
-                raise RuntimeError("FULL_LOOP_PRODUCTION_DISPATCHER_REQUIRED")
-            if not isinstance(getattr(dispatcher, "claimant", None), AutonomousClaimClient):
-                raise RuntimeError("FULL_LOOP_PRODUCTION_CLAIM_CLIENT_REQUIRED")
+            if not isinstance(dispatcher, AutonomousWorkerDispatcher): raise RuntimeError("FULL_LOOP_PRODUCTION_DISPATCHER_REQUIRED")
+            if not isinstance(getattr(dispatcher, "claimant", None), AutonomousClaimClient): raise RuntimeError("FULL_LOOP_PRODUCTION_CLAIM_CLIENT_REQUIRED")
             assert_production_dispatcher_topology(dispatcher, required_stages=required_stages)
-            if not isinstance(truth_reader, ProductionCenterR1TruthReader):
-                raise RuntimeError("FULL_LOOP_PRODUCTION_TRUTH_READER_REQUIRED")
-            if not isinstance(production_bootstrap, ProductionSingleNodeBootstrap):
-                raise RuntimeError("FULL_LOOP_PRODUCTION_CENTER_BOOTSTRAP_REQUIRED")
-            if production_bootstrap.truth_reader is not truth_reader:
-                raise RuntimeError("FULL_LOOP_PRODUCTION_BOOTSTRAP_TRUTH_READER_MISMATCH")
+            if not isinstance(truth_reader, ProductionCenterR1TruthReader): raise RuntimeError("FULL_LOOP_PRODUCTION_TRUTH_READER_REQUIRED")
+            if not isinstance(production_bootstrap, ProductionSingleNodeBootstrap): raise RuntimeError("FULL_LOOP_PRODUCTION_CENTER_BOOTSTRAP_REQUIRED")
+            if production_bootstrap.truth_reader is not truth_reader: raise RuntimeError("FULL_LOOP_PRODUCTION_BOOTSTRAP_TRUTH_READER_MISMATCH")
             expected_node_id = str(dispatcher.claimant.node_id or "").strip()
-            if not expected_node_id:
-                raise RuntimeError("FULL_LOOP_PRODUCTION_NODE_ID_REQUIRED")
+            if not expected_node_id: raise RuntimeError("FULL_LOOP_PRODUCTION_NODE_ID_REQUIRED")
         self._production_components_verified = production_mode
         self.expected_node_id = expected_node_id
         self.truth_reader = truth_reader
         self.production_bootstrap = production_bootstrap
-        self.observer = SingleNodeFullLoopProofRunner(
-            dispatcher=dispatcher,
-            required_stages=required_stages,
-            require_center_claim_provenance=production_mode,
-        )
+        self.observer = SingleNodeFullLoopProofRunner(dispatcher=dispatcher, required_stages=required_stages, require_center_claim_provenance=production_mode)
         self.verifier = SingleNodeCenterTruthVerifier(truth_reader=truth_reader, expected_node_id=expected_node_id)
 
     @property
-    def production_components_verified(self) -> bool:
-        """Constructor-established production identity; intentionally read-only."""
-        return self._production_components_verified
+    def production_components_verified(self) -> bool: return self._production_components_verified
 
     def _assert_clean_production_preflight(self, test_run_id: str) -> None:
-        """Fail before the first Center claim if any worker-owned durable truth is dirty."""
         if isinstance(self.truth_reader, ProductionCenterR1TruthReader):
-            existing_work_items = tuple(
-                item.identity.work_item_id
-                for item in self.truth_reader.center_repository.list_work_items()
-                if item.identity.test_run_id == test_run_id
-            )
-            if existing_work_items:
-                raise RuntimeError(
-                    "PRODUCTION_CAUSALITY_PREFLIGHT_WORK_ITEM_ALREADY_EXISTS:%s"
-                    % ",".join(sorted(existing_work_items))
-                )
+            existing_work_items = tuple(item.identity.work_item_id for item in self.truth_reader.center_repository.list_work_items() if item.identity.test_run_id == test_run_id)
+            if existing_work_items: raise RuntimeError("PRODUCTION_CAUSALITY_PREFLIGHT_WORK_ITEM_ALREADY_EXISTS:%s" % ",".join(sorted(existing_work_items)))
         self.truth_reader.assert_no_attempts_for_test_run(test_run_id)
-        if isinstance(self.truth_reader, ProductionCenterR1TruthReader):
-            self.truth_reader.assert_no_artifacts_for_test_run(test_run_id)
+        if isinstance(self.truth_reader, ProductionCenterR1TruthReader): self.truth_reader.assert_no_artifacts_for_test_run(test_run_id)
         self.truth_reader.assert_no_r1_attempt_lifecycle_for_test_run(test_run_id)
 
     def run(self, *, test_run_id: str) -> SingleNodeDurableIntegrationProof:
         run_id = str(test_run_id or "").strip()
-        if not run_id:
-            raise RuntimeError("FULL_LOOP_TEST_RUN_ID_REQUIRED")
+        if not run_id: raise RuntimeError("FULL_LOOP_TEST_RUN_ID_REQUIRED")
         bootstrap_proof = None
         if self.production_components_verified:
             self._assert_clean_production_preflight(run_id)
-            # A legitimately constructed production runner always has this bridge.
-            # Internal guard-regression tests may force the private production flag on
-            # a boundary double; they intentionally do not acquire bootstrap authority.
             production_bootstrap = getattr(self, "production_bootstrap", None)
             if production_bootstrap is not None:
                 bootstrap_proof = production_bootstrap.materialize_initial_ready_work(test_run_id=run_id)
-                if bootstrap_proof.test_run_id != run_id or bootstrap_proof.stage != "SCOPE_INTAKE":
-                    raise RuntimeError("FULL_LOOP_PRODUCTION_BOOTSTRAP_IDENTITY_MISMATCH")
+                if bootstrap_proof.test_run_id != run_id or bootstrap_proof.stage != "SCOPE_INTAKE": raise RuntimeError("FULL_LOOP_PRODUCTION_BOOTSTRAP_IDENTITY_MISMATCH")
         observed = self.observer.run(test_run_id=run_id)
+        bootstrap_materialized = False
+        bootstrap_work_item_id = ""
+        bootstrap_stage_instance_id = ""
         if bootstrap_proof is not None:
-            if not observed.work_item_ids or observed.work_item_ids[0] != bootstrap_proof.work_item_id:
-                raise RuntimeError("FULL_LOOP_PRODUCTION_BOOTSTRAP_WORK_ITEM_NOT_FIRST_CLAIM")
-            if not observed.stage_instance_ids or observed.stage_instance_ids[0] != bootstrap_proof.stage_instance_id:
-                raise RuntimeError("FULL_LOOP_PRODUCTION_BOOTSTRAP_STAGE_INSTANCE_NOT_FIRST_CLAIM")
+            if not observed.work_item_ids or observed.work_item_ids[0] != bootstrap_proof.work_item_id: raise RuntimeError("FULL_LOOP_PRODUCTION_BOOTSTRAP_WORK_ITEM_NOT_FIRST_CLAIM")
+            if not observed.stage_instance_ids or observed.stage_instance_ids[0] != bootstrap_proof.stage_instance_id: raise RuntimeError("FULL_LOOP_PRODUCTION_BOOTSTRAP_STAGE_INSTANCE_NOT_FIRST_CLAIM")
+            bootstrap_materialized = True
+            bootstrap_work_item_id = bootstrap_proof.work_item_id
+            bootstrap_stage_instance_id = bootstrap_proof.stage_instance_id
         if self.production_components_verified:
-            self.truth_reader.assert_attempt_ids_match_observed_leases(
-                test_run_id=run_id,
-                observed_lease_ids=observed.lease_ids,
-            )
-            self.truth_reader.assert_worker_artifact_refs_match_observed_evidence(
-                test_run_id=run_id,
-                observed_evidence_refs=observed.evidence_refs,
-            )
-            self.truth_reader.assert_r1_attempt_lifecycle_matches_observed_leases(
-                test_run_id=run_id,
-                observed_lease_ids=observed.lease_ids,
-            )
+            self.truth_reader.assert_attempt_ids_match_observed_leases(test_run_id=run_id, observed_lease_ids=observed.lease_ids)
+            self.truth_reader.assert_worker_artifact_refs_match_observed_evidence(test_run_id=run_id, observed_evidence_refs=observed.evidence_refs)
+            self.truth_reader.assert_r1_attempt_lifecycle_matches_observed_leases(test_run_id=run_id, observed_lease_ids=observed.lease_ids)
         durable = self.verifier.verify(observed)
-        if durable.verified_work_items != observed.work_item_ids:
-            raise RuntimeError("FULL_LOOP_DURABLE_WORK_ITEM_IDENTITY_MISMATCH")
-        if durable.verified_attempts != observed.attempt_ids:
-            raise RuntimeError("FULL_LOOP_DURABLE_ATTEMPT_IDENTITY_MISMATCH")
+        if durable.verified_work_items != observed.work_item_ids: raise RuntimeError("FULL_LOOP_DURABLE_WORK_ITEM_IDENTITY_MISMATCH")
+        if durable.verified_attempts != observed.attempt_ids: raise RuntimeError("FULL_LOOP_DURABLE_ATTEMPT_IDENTITY_MISMATCH")
         if self.production_components_verified and self.expected_node_id:
-            if durable.verified_production_node_id != self.expected_node_id:
-                raise RuntimeError("FULL_LOOP_DURABLE_PRODUCTION_NODE_IDENTITY_MISMATCH")
-            start_events = tuple(durable.verified_r1_start_events)
-            completion_events = tuple(durable.verified_r1_events)
-            if len(start_events) != len(observed.attempt_ids):
-                raise RuntimeError("FULL_LOOP_DURABLE_START_EVENT_CARDINALITY_MISMATCH")
-            if len(completion_events) != len(observed.attempt_ids):
-                raise RuntimeError("FULL_LOOP_DURABLE_COMPLETION_EVENT_CARDINALITY_MISMATCH")
-            if len(set(start_events)) != len(start_events):
-                raise RuntimeError("FULL_LOOP_DURABLE_START_EVENT_IDENTITY_REUSED")
-            if len(set(completion_events)) != len(completion_events):
-                raise RuntimeError("FULL_LOOP_DURABLE_COMPLETION_EVENT_IDENTITY_REUSED")
-            if set(start_events).intersection(completion_events):
-                raise RuntimeError("FULL_LOOP_DURABLE_LIFECYCLE_EVENT_IDENTITY_COLLISION")
-        if durable.bank_reality_verified:
-            raise RuntimeError("CLOUD_INTEGRATION_MUST_NOT_ASSERT_BANK_REALITY")
-        if durable.release_status != "HOLD":
-            raise RuntimeError("INTEGRATION_PROOF_MUST_NOT_AUTHORIZE_RELEASE")
-        status = (
-            "PRODUCTION_COMPONENTS_DURABLE_TRUTH_MATCHED_CAUSALITY_NOT_PROVEN"
-            if self.production_components_verified
-            else "BOUNDARY_DOUBLE_VERIFIED_NOT_PRODUCTION_PROOF"
-        )
-        return SingleNodeDurableIntegrationProof(
-            observed=observed,
-            durable_truth=durable,
-            production_components_verified=self.production_components_verified,
-            production_causality_verified=False,
-            status=status,
-        )
+            if durable.verified_production_node_id != self.expected_node_id: raise RuntimeError("FULL_LOOP_DURABLE_PRODUCTION_NODE_IDENTITY_MISMATCH")
+            start_events, completion_events = tuple(durable.verified_r1_start_events), tuple(durable.verified_r1_events)
+            if len(start_events) != len(observed.attempt_ids): raise RuntimeError("FULL_LOOP_DURABLE_START_EVENT_CARDINALITY_MISMATCH")
+            if len(completion_events) != len(observed.attempt_ids): raise RuntimeError("FULL_LOOP_DURABLE_COMPLETION_EVENT_CARDINALITY_MISMATCH")
+            if len(set(start_events)) != len(start_events): raise RuntimeError("FULL_LOOP_DURABLE_START_EVENT_IDENTITY_REUSED")
+            if len(set(completion_events)) != len(completion_events): raise RuntimeError("FULL_LOOP_DURABLE_COMPLETION_EVENT_IDENTITY_REUSED")
+            if set(start_events).intersection(completion_events): raise RuntimeError("FULL_LOOP_DURABLE_LIFECYCLE_EVENT_IDENTITY_COLLISION")
+        if durable.bank_reality_verified: raise RuntimeError("CLOUD_INTEGRATION_MUST_NOT_ASSERT_BANK_REALITY")
+        if durable.release_status != "HOLD": raise RuntimeError("INTEGRATION_PROOF_MUST_NOT_AUTHORIZE_RELEASE")
+        status = "PRODUCTION_COMPONENTS_DURABLE_TRUTH_MATCHED_CAUSALITY_NOT_PROVEN" if self.production_components_verified else "BOUNDARY_DOUBLE_VERIFIED_NOT_PRODUCTION_PROOF"
+        return SingleNodeDurableIntegrationProof(observed=observed, durable_truth=durable, production_components_verified=self.production_components_verified, production_causality_verified=False, status=status, bootstrap_materialized=bootstrap_materialized, bootstrap_work_item_id=bootstrap_work_item_id, bootstrap_stage_instance_id=bootstrap_stage_instance_id)
