@@ -45,9 +45,18 @@ Source: `05` §§3,8,12,14,15,17,18,19,21,22; `10` C06/C07.
 - Tests: `test_rc72_captain_dispatch_fencing.py` covers R1 cold replay, two Captain contention, safe takeover, crash before checkpoint, expiry, multi-process race.
 - Intended product integration contract for Session A: call `assert_owner(mission_id,lease_id,captain_session_id)` before accepting new scheduling commands; route Captain checkpoint/takeover via `prepare_handoff`/`takeover`. To close the dispatch race fully, the production scheduler must also atomically persist per-WorkItem dispatch admission under the leader fence; the current fencer alone is **not** a C07 product-closure proof.
 
+### Slice C07-U02 — canonical TaskScheduler + Fresh Worker admission
+
+- New `rc72_captain_scheduling.py` calls the existing `TaskScheduler.lease_task` and `WorkerLifecycleService.assign_fresh_worker` under the **same** cross-process R1 ledger lock as Captain ownership checks.
+- Requires explicit Mission, Team, Captain session/lease, ETU/WorkItem lineage and trusted role-capability profile. It blocks Full Access, capability gaps and stale task/inputs *before* creating worker state.
+- Multiple independent ETUs in the same Mission receive different fresh Worker/Session identities. Lost Session state cannot authorize automatic duplicate WorkItem lease.
+- Crash after WorkerSession creation but before scheduler lease leaves an orphan. `recover_unleased_orphan` checks R1 for absence of signed authority, observed DSH identity, data/browser/capability leases, Attempts, tool effects and worker evidence, then checkpoints the orphan and authorizes a new fresh successor with `parent_session_id`. If any provenance exists, it fails closed.
+- Tool authority issuance, real DSH launch and observed Attempt are **not** side effects of this interface. Return state is explicitly `LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH`. Product entry must connect signed TaskLease/CapabilityLease + actual DSH WorkerInvocation before claiming the work executed.
+- Tests: `tests/test_rc72_captain_scheduling.py`: same-Mission two workers, Captain A→B, cross-process task competition, wrong Captain and weak capability rejection, crash before dispatch, cold orphan reconciliation, negative unknown authority/effect, no leaked Captain tokens. These are engineering-level R1 tests, not real DSH/field execution.
+
 ## Explicit remaining gaps / NO claims
 
-- C06 and C07 are **NOT** closed. No change to `rc72_release_driver.py`, `rc72_mission_factory.py`, or global R1 core schema.
+- C06 and C07 are **NOT** closed. No change to `rc72_release_driver.py`, `rc72_mission_factory.py`, or global R1 core schema. The new scheduler's orphan recovery only covers the proven pre-lease phase; post-lease/possible-business-effect orphans require independent recovery and cannot be retried automatically.
 - `C06`: Tool boundary for BrowserSkill/4A, physical orphan process custody, multi-process end-to-end effects, real environment negative validation.
 - `C07`: All role dispatch and live Worker/Attempt/CapabilityLease/ModelAssignment in same production product entrypoint, resource-bound model failover, all-role Fresh Worker lifecycle, Captain fencing integration and true session-expiry probes.
 - No live DSH/BSK/4A/bank proof is claimed. No PASS, BANK_FINAL, Q3–Q9 evidence, or overall implementation percentage is asserted.
@@ -66,7 +75,7 @@ Source: `05` §§3,8,12,14,15,17,18,19,21,22; `10` C06/C07.
 Run on exact PR HEAD (automated matrix in `.github/workflows/rc7.2-runtime-contracts.yml`):
 
 ```bash
-python -m pytest -q tests/test_rc72_n7_tool_dispatch.py tests/test_rc72_n7_pipeline.py tests/test_rc72_captain_dispatch_fencing.py tests/test_rc72_phase5_worker_lifecycle_contract.py tests/test_rc72_resource_process_exclusion.py tests/test_rc72_phase7_data_lease_contract.py tests/test_rc72_phase7_browser_lease_contract.py tests/test_rc72_phase7_capability_broker_contract.py tests/test_rc72_phase7_model_failover_contract.py
+python -m pytest -q tests/test_rc72_n7_tool_dispatch.py tests/test_rc72_n7_pipeline.py tests/test_rc72_captain_dispatch_fencing.py tests/test_rc72_captain_scheduling.py tests/test_rc72_phase5_worker_lifecycle_contract.py tests/test_rc72_resource_process_exclusion.py tests/test_rc72_phase7_data_lease_contract.py tests/test_rc72_phase7_browser_lease_contract.py tests/test_rc72_phase7_capability_broker_contract.py tests/test_rc72_phase7_model_failover_contract.py
 ```
 
 Record: commit SHA, per-job check-run conclusion, number of tests, failure logs, code-path integration, platform and field boundary. Do not call all green until exact HEAD CI is complete.
