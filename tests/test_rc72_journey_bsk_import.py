@@ -20,10 +20,17 @@ def _fixture(tmp_path):
     truth, teaching, pool, lease = _setup(tmp_path)
     folder = tmp_path / "bsk-origin"
     folder.mkdir(parents=True)
-    screenshot = folder / "screen.png"
-    screenshot.write_bytes(_PNG)
-    dom = folder / "observed-dom.json"
-    dom.write_text(json.dumps({"source": "BSK_OBSERVE", "element": "button#save"}))
+    screenshots = []
+    doms = []
+    for seq in (1, 2):
+        screenshot = folder / ("screen-%d.png" % seq)
+        screenshot.write_bytes(_PNG)
+        screenshots.append(screenshot)
+        dom = folder / ("observed-dom-%d.json" % seq)
+        dom.write_text(json.dumps({
+            "source": "BSK_OBSERVE", "operation_sequence": seq,
+            "element": "button#save"}))
+        doms.append(dom)
     operations = [
         {"id": "operation-1", "run_id": "debug-1", "sequence": 1,
          "method": "tool.navigate", "source": "agent", "state": "completed",
@@ -51,11 +58,11 @@ def _fixture(tmp_path):
     export = folder / "debug-export.json"
     export.write_text(json.dumps(doc), encoding="utf-8")
     evidence_map = {
-        "operation-1": {"dom_ref": dom.resolve().as_uri(),
-                        "screenshot_ref": screenshot.resolve().as_uri(),
+        "operation-1": {"dom_ref": doms[0].resolve().as_uri(),
+                        "screenshot_ref": screenshots[0].resolve().as_uri(),
                         "page_role": "CONFIG"},
-        "operation-2": {"dom_ref": dom.resolve().as_uri(),
-                        "screenshot_ref": screenshot.resolve().as_uri(),
+        "operation-2": {"dom_ref": doms[1].resolve().as_uri(),
+                        "screenshot_ref": screenshots[1].resolve().as_uri(),
                         "page_role": "CONFIG", "locator_ref": "css:#save"},
     }
     recording_args = dict(
@@ -65,7 +72,8 @@ def _fixture(tmp_path):
         session_id="SESSION-1", browser_lease_id=lease.browser_lease_id,
         human_operator_ref="human://operator", auth_asset_ref="auth://4a/session-asset")
     importer = BSKJourneyTeachingImporter(
-        teaching=teaching, evidence_root=tmp_path / "canonical-bsk")
+        teaching=teaching, evidence_root=tmp_path / "canonical-bsk",
+        authorized_capture_root=folder)
     return truth, importer, doc, export, recording_args, evidence_map
 
 
@@ -196,4 +204,27 @@ def test_bsk_import_requires_live_b_group_tab_4a_attempt_receipt(tmp_path, mutat
         receipt.pop("source_receipt_ref")
     with pytest.raises(Exception, match=error):
         _invoke(importer, export, args, mapping, receipt=receipt)
+    assert not truth.query("rc72_journey_recording", recording_id="JR-BSK-1")
+
+
+@pytest.mark.parametrize("mutation,error", [
+    ("outside_root", "JOURNEY_BSK_EVIDENCE_OUTSIDE_AUTHORIZED_CAPTURE_ROOT"),
+    ("same_dom", "JOURNEY_BSK_OPERATION_EVIDENCE_REUSED"),
+    ("same_png", "JOURNEY_BSK_OPERATION_EVIDENCE_REUSED"),
+    ("extra_operation", "JOURNEY_BSK_EVIDENCE_OPERATION_SET_MISMATCH"),
+])
+def test_bsk_evidence_is_per_operation_and_scoped_to_authorized_capture(tmp_path, mutation, error):
+    truth, importer, doc, export, args, mapping = _fixture(tmp_path)
+    if mutation == "outside_root":
+        outside = tmp_path / "outside.json"
+        outside.write_text('{"source":"wrong task"}')
+        mapping["operation-1"]["dom_ref"] = outside.resolve().as_uri()
+    elif mutation == "same_dom":
+        mapping["operation-2"]["dom_ref"] = mapping["operation-1"]["dom_ref"]
+    elif mutation == "same_png":
+        mapping["operation-2"]["screenshot_ref"] = mapping["operation-1"]["screenshot_ref"]
+    elif mutation == "extra_operation":
+        mapping["operation-not-in-BSK"] = dict(mapping["operation-1"])
+    with pytest.raises(Exception, match=error):
+        _invoke(importer, export, args, mapping)
     assert not truth.query("rc72_journey_recording", recording_id="JR-BSK-1")
