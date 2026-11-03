@@ -7,6 +7,7 @@ on:
       - '.github/workflows/rc7.2-qa-physical-transport.yml'
       - 'tools/rc72_qa_offline_audit.py'
       - 'tools/rc72_qa_source_provenance.py'
+      - 'tools/rc72_qa_zip_preflight.py'
   workflow_dispatch:
     inputs:
       target_main_sha:
@@ -98,6 +99,8 @@ jobs:
           if ($Matches[2] -ne $name) { throw 'C12_ZIP_SHA256_RECEIPT_NAME_MISMATCH' }
           $actual=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($actual -ne $expected) { throw 'C12_ZIP_SHA256_BYTES_MISMATCH' }
+          python tools/rc72_qa_zip_preflight.py --zip $archive --report qa-c12-zip-preflight.json
+          if ($LASTEXITCODE -ne 0) { throw 'C12_ZIP_PATH_TYPE_OR_DECOMPRESSION_PREFLIGHT_FAILED' }
           $clean=Join-Path $env:RUNNER_TEMP 'rc72-qa-c12-clean'
           if (Test-Path $clean) { Remove-Item $clean -Recurse -Force }
           Expand-Archive -LiteralPath $archive -DestinationPath $clean
@@ -114,6 +117,7 @@ jobs:
           path: |
             qa-source-provenance.json
             qa-c12-artifact-origin.json
+            qa-c12-zip-preflight.json
             qa-c12-physical-audit.json
           if-no-files-found: warn
           retention-days: 30
