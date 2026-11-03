@@ -31,7 +31,7 @@ jobs:
           - os: windows-latest
             label: windows-engineering
             qualification_kind: WINDOWS_ENGINEERING
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             label: linux-engineering-proxy
             qualification_kind: LINUX_ENGINEERING_PROXY
     runs-on: ${{ matrix.os }}
@@ -103,7 +103,7 @@ jobs:
   q1-summary:
     name: q1-source-platform-baseline
     needs: source-platform-baseline
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Q1 baseline decision
         run: |
