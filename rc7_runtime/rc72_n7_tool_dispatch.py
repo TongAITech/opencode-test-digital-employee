@@ -161,12 +161,23 @@ class SignedToolDispatchService:
             result = json.loads(json.dumps(result, allow_nan=False))
         except Exception as exc:
             # Exception text can contain credentials; persist the class only.
-            # An adapter exception after admission cannot prove whether the bank
-            # accepted a write. No automatic retry, even for timeout/network errors.
-            unknown = dict(row, state='UNKNOWN', error_type=type(exc).__name__,
-                           possible_external_effect=True, replay_prohibited=True,
-                           artifact_version=2)
-            self.truth.append_atomic(_EVENT, unknown)
+            # A trusted signed pre-execution negative check is a deterministic
+            # non-business failure. All other adapter errors retain UNKNOWN
+            # semantics: a remote write may have committed before response loss.
+            from .rc72_n7_no_effect_attestation import verified_no_external_business_effect
+            no_effect_refs = verified_no_external_business_effect(self.preparation, prepared, exc)
+            if no_effect_refs:
+                result_row = dict(row, state='FAILED',
+                                  error_type=type(exc).__name__,
+                                  verified_no_business_effect=True,
+                                  no_effect_evidence_refs=list(no_effect_refs),
+                                  artifact_version=2)
+            else:
+                result_row = dict(row, state='UNKNOWN',
+                                  error_type=type(exc).__name__,
+                                  possible_external_effect=True,
+                                  replay_prohibited=True, artifact_version=2)
+            self.truth.append_atomic(_EVENT, result_row)
             return self.truth.query(_KIND, dispatch_id=dispatch_id)[0]
         finally:
             self._live_invocations.discard(preparation_id)
