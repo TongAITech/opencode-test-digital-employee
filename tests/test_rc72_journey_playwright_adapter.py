@@ -600,7 +600,6 @@ def test_playwright_connector_does_not_reuse_network_or_browser_session_across_a
     assert receipt.is_file()
     assert json.loads(receipt.read_text())["status"] == "FAILED"
     adapter.close()
-    # Explicitly closed connector creates a fresh browser session. A B-group
-    # ownership/Attempt lease is still mandatory at the service boundary.
-    fresh = adapter.execute_step(step, changed_context)
-    assert fresh["status"] == "PASSED"
+    # The service, not the adapter, owns approval of a new Attempt. Never
+    # invoke the SUT twice with the same Case/Attempt after a failed receipt.
+    assert adapter._active_run_id is None
