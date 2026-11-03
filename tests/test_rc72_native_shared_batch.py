@@ -461,3 +461,141 @@ def test_evaluator_unhashable_member_adequacy_never_records_independent_approval
         )
     assert truth.query("rc72_native_batch_review", mission_id=MISSION) == []
     assert truth.query("assertion", release_id=RELEASE) == []
+
+
+
+def test_insufficient_independent_batch_review_cannot_record_formal_n7_results(tmp_path):
+    from rc7_runtime.rc72_n7_pipeline import N7PipelineService
+    from rc7_runtime.rc72_native_batch_formal_n7 import (
+        NativeBatchFormalN7Error, NativeBatchFormalN7Reconciler,
+    )
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    candidate = _dispatch(truth, batch, execution, assignment)
+    reviewed = NativeSharedEvaluatorBatch(
+        truth, release_id=RELEASE, launcher=reviewer,
+    ).review(
+        candidate_id=candidate["candidate_id"],
+        assignment=_review_assignment(batch.batch_id, candidate["raw_output_ref"]),
+    )
+    pipeline = object.__new__(N7PipelineService)
+    pipeline.truth = truth
+    pipeline.release_id = RELEASE
+    pipeline.source_commit = "a" * 40
+    with pytest.raises(NativeBatchFormalN7Error, match="MEMBER_OR_REVIEW_GAP"):
+        NativeBatchFormalN7Reconciler(pipeline).reconcile(
+            release_batch_id="B-FORMAL",
+            batch_receipt_id=candidate["batch_receipt_id"],
+            candidate_id=candidate["candidate_id"],
+            review_id=reviewed["review_id"],
+        )
+    assert truth.query(
+        "rc72_execution_batch_receipt", batch_receipt_id=candidate["batch_receipt_id"]
+    )[0]["state"] == "ADMITTED"
+    assert truth.query("execution_attempt", release_id=RELEASE) == []
+
+
+def test_formal_n7_bridge_unit_contract_reconciles_only_canonical_audited_member_proof(
+    tmp_path, monkeypatch,
+):
+    """Isolated adapter test. The accepted N7 audit is explicitly STUBBED.
+
+    Field or complete formal-N7 qualification must invoke the actual
+    AcceptedObligationExecutionProof, not this unit-test stub.
+    """
+    from rc7_runtime.rc72_n7_pipeline import N7PipelineService
+    import rc7_runtime.rc72_native_batch_formal_n7 as formal_module
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    candidate = _dispatch(truth, batch, execution, assignment)
+    result = _review_output()
+    result["members"][1]["evidence_adequacy"] = "SUFFICIENT_CANDIDATE"
+    result["members"][1]["required_followups"] = ["formal deterministic Oracle"]
+    reviewer.response = result
+    reviewed = NativeSharedEvaluatorBatch(
+        truth, release_id=RELEASE, launcher=reviewer,
+    ).review(
+        candidate_id=candidate["candidate_id"],
+        assignment=_review_assignment(batch.batch_id, candidate["raw_output_ref"]),
+    )
+
+    class _StubAcceptedAudit:
+        def __init__(self, pipeline):
+            self.pipeline = pipeline
+
+        def audit(self, *, release_batch_id):
+            assert release_batch_id == "B-FORMAL"
+            return {
+                "mission_id": MISSION,
+                "source_commit": "a" * 40,
+                "bundle_id": "BUNDLE-STUB-ACCEPTED-N7",
+            }
+
+    monkeypatch.setattr(
+        formal_module, "AcceptedObligationExecutionProof", _StubAcceptedAudit,
+    )
+    original_one = formal_module._one
+
+    def from_stub_or_real(ledger, kind, **filters):
+        if kind == "rc72_n7_evidence_bundle":
+            return {
+                "mission_id": MISSION,
+                "release_batch_id": "B-FORMAL",
+                "source_commit": "a" * 40,
+                "case_results": [{
+                    "workitem_id": "WI-1", "attempt_id": "ATT-1",
+                    "case_id": "CASE-WI-1", "dispatch_id": "N7DISPATCH-1",
+                    "assertion_ref": "N7ASSERT-1",
+                }, {
+                    "workitem_id": "WI-2", "attempt_id": "ATT-2",
+                    "case_id": "CASE-WI-2", "dispatch_id": "N7DISPATCH-2",
+                    "assertion_ref": "N7ASSERT-2",
+                }],
+            }
+        if kind == "execution_attempt":
+            attempt_id = filters["attempt_id"]
+            i = "1" if attempt_id == "ATT-1" else "2"
+            return {
+                "mission_id": MISSION,
+                "workitem_id": "WI-" + i,
+                "tc_id": "CASE-WI-" + i,
+                "status": "PASS", "assertion_ref": "N7ASSERT-" + i,
+                "tool_call_refs": ["N7DISPATCH-" + i],
+                "evidence_refs": ["N7REAL-EVIDENCE-" + i],
+            }
+        if kind == "assertion":
+            i = filters["id"][-1]
+            return {
+                "passed": True, "attempt_id": "ATT-" + i,
+                "tc_id": "CASE-WI-" + i,
+            }
+        return original_one(ledger, kind, **filters)
+
+    monkeypatch.setattr(formal_module, "_one", from_stub_or_real)
+    pipeline = object.__new__(N7PipelineService)
+    pipeline.truth = truth
+    pipeline.release_id = RELEASE
+    pipeline.source_commit = "a" * 40
+
+    bridge = formal_module.NativeBatchFormalN7Reconciler(pipeline)
+    result = bridge.reconcile(
+        release_batch_id="B-FORMAL",
+        batch_receipt_id=candidate["batch_receipt_id"],
+        candidate_id=candidate["candidate_id"],
+        review_id=reviewed["review_id"],
+    )
+    assert result["state"] == "RESULTS_RECORDED"
+    assert len(result["results"]) == 2
+    assert [r["actual_result_ref"] for r in result["results"]] == [
+        "r1://artifact/N7DISPATCH-1", "r1://artifact/N7DISPATCH-2",
+    ]
+    assert {r["assertion_result"] for r in result["results"]} == {"PASS"}
+    assert bridge.reconcile(
+        release_batch_id="B-FORMAL",
+        batch_receipt_id=candidate["batch_receipt_id"],
+        candidate_id=candidate["candidate_id"],
+        review_id=reviewed["review_id"],
+    ) == result
+    assert truth.query("execution_attempt", release_id=RELEASE) == []
+    assert truth.query("assertion", release_id=RELEASE) == []
+    assert len(truth.query("rc72_token_call", mission_id=MISSION)) == 2
