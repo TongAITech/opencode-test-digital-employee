@@ -329,3 +329,49 @@ Same-HEAD Python 3.8/3.11 + Ubuntu/Windows CI is still required; bank
 provider runtime, tool permission and equal-scope Token baseline
 measurements remain FIELD_PENDING. No schedule/date or token savings
 percentage can be justified from isolated contract tests alone.
+
+
+## 2026-11-04 C10 additional hardening — actual batch model evidence, tool-first, cold replay
+
+The model-batch services are now composed through
+\`rc72_native_shared_batch_composition.compose_native_batch_services\`:
+both native launchers and auditors are validated **before either is bound**,
+so a missing/incorrect reviewer cannot leave a half-instrumented execution
+worker. A real host-issued \`execution-batch:<batch_id>\` lease must cover
+EXACTLY the ContextEnvelope's shared and member refs. Every member must
+have an explicit R1 \`rc72_work_schedule_semantics.execution_mode=SEMANTIC\`;
+deterministic or hybrid work remains tool-first and is not silently
+merged into a model batch. The native batch execution candidate and
+independent reviewer each require exactly one corresponding
+\`rc72_token_call\` with \`process_outcome=RETURNED\` and persist
+\`token_call_id\` in R1, separate from the member WorkItem IDs.
+A model admission without a returned native process is NOT batch evidence.
+
+Per-member candidate tool refs must occur in the real DSH tool-call event
+stream and be disjoint across members. A forged/missing member, shared
+tool ref, wrong Attempt, unapproved scope, repeated prior model attempt
+or claimed PASS fails closed. Reviewer inputs are restricted to exactly
+the producer's real raw DSH JSONL evidence ref, and its worker/session
+must be fresh. Cold replay and duplicate assignment resume do not
+create another model call. The real canonical business N7
+\`execution_attempt\` and \`assertion\` entities remain completely
+untouched.
+
+**R1 replay before any new Mission dispatch:** additively install all
+C10 token-budget, TokenUsageAudit, cost schedule, N8 RetryContext,
+SafeExecutionBatch, native batch candidate/reviewer projection types
+before opening a previously used \`TruthRuntime(path)\`. The formal
+\`rc7_release.rc72_mission_cli\` now calls
+\`install_rc72_economy_replay_bindings()\` before opening the ledger, even
+for \`status\`. The historical UNKNOWN model usage stays UNKNOWN.
+
+**Integration / qualification remains OPEN:** A's actual formal N7
+ExecutionPreparation/NativeTool/DeterministicOracle/EvidenceReview
+pipeline must obtain the real host-issued batch and reviewer leases and
+call the C10 services, then independently consume each member evidence
+under the existing N7 case/ETU/Attempt gates. The services intentionally
+DO NOT turn semantic candidates or reviewer opinions into PASS. A must
+also drive actual N8 parent→child retries and N9/N10 convergence. An
+in-repo simulated native-command contract test demonstrates the one-call
+batch boundary but is NOT proof of a successful in-bank DSH model
+session. CI and Field evidence remain mandatory.
