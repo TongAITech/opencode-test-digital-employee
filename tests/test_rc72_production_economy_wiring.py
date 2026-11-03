@@ -225,3 +225,40 @@ def test_native_n1_launcher_type_is_preserved_without_changing_mission_factory_g
     ) is launcher
     assert isinstance(launcher, DshHeadlessWorkerLauncher)
     assert isinstance(launcher, NativeN1ReadDshLauncher)
+
+
+def test_native_tool_usage_must_not_be_recorded_as_provider_token_measurement(tmp_path):
+    stdout = "\n".join([
+        json.dumps({"type": "session", "session_id": "dsh-real-session"}),
+        json.dumps({"type": "tool_result", "tool_name": "CAT", "usage": {
+            "input_tokens": 900, "output_tokens": 100, "total_tokens": 1000,
+        }}),
+        json.dumps({"type": "final", "text": "{}"}),
+    ]) + "\n"
+    truth, economy, _, launcher, runner = _setup(tmp_path, stdout=stdout)
+    launcher.execute(_assignment(), "must keep tool evidence separate")
+    assert len(runner.calls) == 1
+    call = truth.query("rc72_token_call", mission_id="M-1")[0]
+    usage = truth.query("rc72_token_usage", mission_id="M-1")[0]
+    assert call["usage_status"] == "UNKNOWN"
+    assert usage["observation_status"] == "UNKNOWN"
+    assert usage["total_tokens"] is None
+    assert economy.summary("M-1")["actual_total_tokens"] is None
+
+
+def test_conflicting_model_usage_snapshots_hold_measured_economy_qualification(tmp_path):
+    stdout = "\n".join([
+        json.dumps({"type": "message", "usage": {
+            "input_tokens": 100, "output_tokens": 10, "total_tokens": 110,
+        }}),
+        json.dumps({"type": "final", "usage": {
+            "input_tokens": 200, "output_tokens": 20, "total_tokens": 220,
+        }}),
+    ]) + "\n"
+    truth, economy, _, launcher, runner = _setup(tmp_path, stdout=stdout)
+    launcher.execute(_assignment(), "ambiguous cumulative or delta usage")
+    call = truth.query("rc72_token_call", mission_id="M-1")[0]
+    observation = truth.query("rc72_token_usage", mission_id="M-1")[0]
+    assert call["usage_status"] == "UNKNOWN"
+    assert observation["observation_status"] == "UNKNOWN"
+    assert economy.qualification("M-1").status == "HOLD"
