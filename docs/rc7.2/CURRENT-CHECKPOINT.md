@@ -29,6 +29,14 @@ package/clean-unpack contracts passed 23 tests in 3.14s. Original full 28-Case
 regression is running on the integration source before the final historical
 scope/downgrade checks; those final checks are covered by the 65-test run.
 Final-source platform qualification remains required.
+The ReleaseBatch controller now also authenticates native N1 history in its
+accepted-prefix audit, before advancing any downstream node. A real native MCP
+N1 read followed by the actual N2/controller route is covered, including no-write
+replay and tampered-capture rejection. The combined driver/authority/handoff
+qualification passed 75 tests in 21.57s; final controller/N1 revision compatibility
+passed 32 tests in 20.45s. Legacy histories without native read records preserve
+their existing audit path; a recorded native gate cannot lose its proof checks
+by switching to a base launcher or dropping the runtime event marker.
 
 This is a concrete registered-file input reader, not proof that bank deployment,
 Browser, tools or identities have been independently probed. N1 semantic facts

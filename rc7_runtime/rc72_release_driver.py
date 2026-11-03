@@ -18,7 +18,7 @@ from .rc72_domain import AutonomousMissionNode
 from .rc72_field_mission_start import ReleaseBatchFieldMissionLauncher
 from .rc72_mission_node_dispatch import N1AutonomousDispatchService
 from .rc72_mission_node_assignment import N1AgentTeamsAssignmentService
-from .rc72_n1_strict_pipeline import N1StrictPipelineService
+from .rc72_n1_strict_pipeline import N1StrictPipelineService, N1StrictDshHandoffService
 from .rc72_n1_strict_reality_gate import N1StrictRealityGateService
 from .rc72_n2_requirement_dispatch import N2RequirementDispatchService
 from .rc72_n2_requirement_assignment import N2RequirementAssignmentService
@@ -174,6 +174,9 @@ class ReleaseBatchDriver:
             'N5_TEST_DATA': N5OwnedWorkItemGateService}
 
     def _complete_gate(self, node_type, batch):
+        if node_type=='N1_REALITY':
+            N1StrictDshHandoffService(self.truth, source_commit=self.source_commit, launcher=self.n1_launcher,
+                allowed_tools=self.n1_tools).audit_recorded_native_handoff(release_batch_id=batch['release_batch_id'])
         if node_type=='N7_EXECUTION' and self.n7_pipeline is not None:
             return self.n7_pipeline.complete(release_batch_id=batch['release_batch_id'])
         if node_type=='N6_EXECUTABLE_READINESS':

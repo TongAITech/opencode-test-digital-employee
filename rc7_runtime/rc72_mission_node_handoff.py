@@ -343,6 +343,11 @@ class N1DshHandoffService:
 
     def audit_recorded_native_handoff(self, *, release_batch_id):
         """Audit marked historical native reads after N1 closes, without live grants."""
+        from .rc72_native_n1_launcher import NativeN1ReadDshLauncher
+        native_rows = [row for row in self.truth.query('rc72_n1_native_read', kind='GATE')
+                       if row.get('scope_payload', {}).get('canonical_assignment', {}).get('release_batch_id') == release_batch_id]
+        if not native_rows and not isinstance(self.launcher, NativeN1ReadDshLauncher):
+            return
         assignments = self.truth.query('rc72_mission_node_worker_assignment', release_batch_id=release_batch_id, node_type=_NODE_TYPE, source_commit=self.source_commit)
         if len(assignments) != 1:
             raise MissionNodeHandoffError('RC72_HANDOFF_NATIVE_ASSIGNMENT_REQUIRED')

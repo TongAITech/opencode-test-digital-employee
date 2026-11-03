@@ -35,3 +35,8 @@ closed, including after strict N1 has already reached PASS. Captured document
 contents are observations, and the existing independent N1 evaluator remains
 responsible for semantic admission. This facility supplies neither Node PASS
 nor Field/BANK_FINAL authority and is not an operating-system sandbox.
+
+The ReleaseBatch driver re-audits native N1 read history while auditing its
+accepted prefix, before downstream continuation. Completed strict N1 and direct
+handoff replay use the same audit. Ledger-native history cannot be downgraded
+by dropping its event marker or selecting a legacy launcher for a cold audit.

@@ -235,3 +235,38 @@ def test_removed_native_event_marker_cannot_downgrade_cold_history_to_legacy(tmp
     cold=N1DshHandoffService(truth,source_commit=COMMIT,launcher=base,allowed_tools=[TOOL])
     with pytest.raises(Exception,match='GATE_REQUIRED'):
         cold._audit_native_read(assignment,event)
+
+
+def test_release_driver_reaudits_actual_native_n1_capture_before_continuation(tmp_path):
+    import test_rc72_release_driver as product
+    truth,driver,calls=product._driver(tmp_path)
+    candidate=product._good_candidate()
+    candidate['facts'].update(release_id=product.RELEASE,release_batch_id=product.BATCH,source_commit=product.COMMIT)
+    candidate['facts']['deployment_records'][0]['application_id']='BLOAN'
+    binding=product._binding()
+    binding.update(release_id=product.RELEASE,mission_id=product.MISSION,release_batch_id=product.BATCH,source_commit=product.COMMIT)
+    candidate['facts']['executable_bindings']=[binding]
+    source=tmp_path/'registered-input.json';source.write_text(json.dumps(candidate),encoding='utf-8')
+    script=tmp_path/'native-child.py'
+    child=CHILD.replace('release-batch://RB-PAY-942','release-batch://'+product.BATCH)
+    child=child.replace("dict(status='CANDIDATE',facts=[dict(observed=text)],unknowns=[],gaps=[])", 'json.loads(text)')
+    script.write_text(child,encoding='utf-8')
+    count=[]
+    def runner(command,**kwargs):
+        count.append(1)
+        return subprocess.run([sys.executable,str(script),str(Path(__file__).resolve().parents[1]),'normal'],**kwargs)
+    driver.n1_launcher=NativeN1ReadDshLauncher(resources=[N1ReadResource('release-batch://'+product.BATCH,source)],
+        dsh_bin=sys.executable,patch_path=str(tmp_path/'patch.json'),cwd=str(tmp_path),truth=truth,
+        authority=RC72AuthorityRuntime(b'native-n1-product-key'),coordinator_instance_id='coordinator',release_id=product.RELEASE,
+        state_root=str(tmp_path/'native-state'),command_runner=runner)
+    driver.n1_tools=[TOOL]
+    result=driver.run(release_batch_id=product.BATCH)
+    assert next(n for n in result['nodes'] if n['node_type']=='N1_REALITY')['state']=='PASS'
+    before=truth.store.path.read_bytes()
+    assert driver.run(release_batch_id=product.BATCH)==result
+    assert len(count)==1 and truth.store.path.read_bytes()==before
+    record=truth.query('rc72_n1_native_read',kind='CALL')[0]
+    Path(record['result']['content_ref'][7:]).write_text('tampered native history')
+    with pytest.raises(Exception,match='CAPTURE_CHANGED'):
+        driver.run(release_batch_id=product.BATCH)
+    assert len(count)==1
