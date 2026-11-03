@@ -227,3 +227,29 @@ def test_n10_structured_feedback_rejects_mutated_r1_snapshot_without_new_io(tmp_
         assert truth.store.path.read_bytes()==before
         assert len(server.calls)==1 and len(business.calls)==len(plan['items'])
     finally:server.shutdown();server.server_close();business.shutdown();business.server_close()
+
+
+def test_n10_historical_pass_is_staled_if_original_release_denominator_is_no_longer_met(tmp_path,monkeypatch):
+    """No historical N10 PASS can survive a freshly derived incomplete scope."""
+    def all_covered(row):
+        for unit in row['units']:unit['covered']=True
+    truth,plan,pipeline,business,server,measurement=_setup(tmp_path,monkeypatch,all_covered)
+    try:
+        control=_control(measurement,tmp_path)
+        result=control.complete(release_batch_id=BATCH)
+        assert result['convergence_result']=='NOT_CONVERGED'
+        n10=truth.query('rc72_mission_node',node_type='N10_RELEASE_CONVERGENCE')[0]
+        # Adversarial R1 mutation represents a stale/forged terminal label;
+        # it does not create an authentic independent reviewer or Gate.
+        truth.append_atomic('RC72_MISSION_NODE_UPSERTED',
+            dict(n10,state='PASS',artifact_version=n10['artifact_version']+1))
+        before_calls=(len(server.calls),len(business.calls))
+        rechecked=control.complete(release_batch_id=BATCH)
+        assert rechecked['status']=='HOLD' and rechecked['reason']=='N10_TERMINAL_SCOPE_REGRESSED'
+        assert rechecked['convergence_result']=='NOT_CONVERGED'
+        assert truth.query('rc72_mission_node',node_type='N10_RELEASE_CONVERGENCE')[0]['state']=='STALE'
+        assert not truth.query('rc72_n10_terminal_review')
+        assert not truth.query('rc72_node_gate',node_type='N10_RELEASE_CONVERGENCE')
+        assert (len(server.calls),len(business.calls))==before_calls
+    finally:
+        server.shutdown();server.server_close();business.shutdown();business.server_close()
