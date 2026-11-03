@@ -670,7 +670,13 @@ class TokenEconomyService:
         else:
             same_context = [
                 row for row in self._calls(mission_id)
-                if row.get("state") != "BLOCKED" and row.get("context_sha256") == digest
+                # Distinct canonical WorkItems may legitimately share the same
+                # bounded semantic prompt. Blocking them because of a mission-
+                # wide fingerprint collision would silently shrink test scope.
+                # A no-progress guard applies only within the same WorkItem.
+                if row.get("state") != "BLOCKED"
+                and row.get("workitem_id") == workitem_id
+                and row.get("context_sha256") == digest
             ]
             if len(same_context) >= int(budget["max_same_context_calls"]):
                 admitted = False
