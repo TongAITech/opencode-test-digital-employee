@@ -68,6 +68,8 @@ def _validate_execution(payload: Dict[str, Any]) -> Dict[str, Any]:
         out[name] = _required(out, name)
     out["artifact_type"] = _EXECUTION
     out["artifact_version"] = _contracts._artifact_version(out)
+    if out.get("case_id") is not None:
+        out["case_id"] = _required(out, "case_id")
     try:
         out["state"] = OfficialJourneyExecutionState(out["state"].upper()).value
     except ValueError as exc:
@@ -345,6 +347,7 @@ class OfficialJourneyExecutionService:
             "requirement_id": asset["requirement_id"],
             "sst_id": asset["sst_id"],
             "obligation_id": asset["obligation_id"],
+            "case_id": binding["case_id"],
             "etu_id": binding["etu_id"],
             "test_level": test_level,
             "workitem_id": workitem_id,
