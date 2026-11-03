@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/rc7.2-journey
+      - work/rc7.2-journey-closure
     paths:
       - 'rc7_runtime/rc72_journey_*.py'
       - 'rc7_runtime/rc72_official_journey_execution.py'
