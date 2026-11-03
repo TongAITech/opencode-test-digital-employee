@@ -178,7 +178,9 @@ class JourneyPlaywrightAdapter:
             page.wait_for_load_state("networkidle", timeout=self.timeout_ms)
         elif wait in {"domcontentloaded", "load"}:
             page.wait_for_load_state(wait, timeout=self.timeout_ms)
-        elif wait == "visible" and step.get("element_ref"):
+        elif wait == "visible":
+            if not step.get("element_ref"):
+                raise ContractError("JOURNEY_VISIBLE_WAIT_ELEMENT_REQUIRED")
             self._resolve_locator(page, str(step["element_ref"]), context).wait_for(
                 state="visible", timeout=self.timeout_ms)
         elif wait not in {"", "none", "visible", "explicit"}:
@@ -232,7 +234,7 @@ class JourneyPlaywrightAdapter:
                 else:
                     locator.select_option(value, timeout=self.timeout_ms)
         elif action == "WAIT":
-            if not step.get("wait_semantics"):
+            if str(step.get("wait_semantics") or "").lower() in {"", "none", "explicit"}:
                 raise ContractError("JOURNEY_WAIT_REQUIRED")
         elif action == "ASSERT":
             self._assert(page, step, context)
@@ -267,12 +269,44 @@ class JourneyPlaywrightAdapter:
                 except Exception:
                     pass
             page.on("response", on_response)
+            dialogs = []
+            dialog_policy_ref = step.get("dialog_policy_ref")
+            def on_dialog(dialog: Any) -> None:
+                # Default: dismiss unexpected prompts and FAIL. Never silently
+                # accept a SUT confirmation just because the browser can.
+                observed = {"type": str(dialog.type), "authorized": False}
+                dialogs.append(observed)
+                policy = (self.resolve(dialog_policy_ref, "dialog", context)
+                          if isinstance(dialog_policy_ref, str) and dialog_policy_ref else None)
+                if (isinstance(policy, Mapping)
+                        and policy.get("type") == observed["type"]
+                        and policy.get("action") in {"accept", "dismiss"}):
+                    observed["authorized"] = True
+                    if policy["action"] == "accept":
+                        prompt_ref = policy.get("prompt_value_ref")
+                        if prompt_ref:
+                            prompt_value = self.resolve(prompt_ref, "value", context)
+                            if not isinstance(prompt_value, str):
+                                raise ContractError("JOURNEY_DIALOG_PROMPT_VALUE_UNRESOLVED")
+                            dialog.accept(prompt_text=prompt_value)
+                        else:
+                            dialog.accept()
+                    else:
+                        dialog.dismiss()
+                else:
+                    dialog.dismiss()
+            page.on("dialog", on_dialog)
             try:
                 self._action(page, step, context)
+                if any(not d["authorized"] for d in dialogs):
+                    raise ContractError("JOURNEY_UNEXPECTED_DIALOG")
+                if dialog_policy_ref and not dialogs:
+                    raise ContractError("JOURNEY_EXPECTED_DIALOG_MISSING")
                 # Revoked/expired ownership after a long action cannot yield PASS.
                 self._guard(context)
             finally:
                 page.remove_listener("response", on_response)
+                page.remove_listener("dialog", on_dialog)
         except Exception as exc:
             status = "FAILED"
             failure_code = "JOURNEY_STEP_%s" % type(exc).__name__.upper()
