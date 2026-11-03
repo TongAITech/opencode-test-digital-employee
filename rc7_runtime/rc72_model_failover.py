@@ -234,6 +234,11 @@ class ModelFailoverManager:
         worker_lifecycle: WorkerLifecycleService,
     ) -> None:
         install_rc72_model_failover_overlay()
+        # Register the optional N7 intent projection *before* any guarded
+        # replay. Cold failover must not reason from an incomplete dispatch
+        # projection even when the CLI imported the model subsystem first.
+        from .rc72_n7_tool_dispatch import install_rc72_n7_tool_dispatch_overlay
+        install_rc72_n7_tool_dispatch_overlay()
         _ensure_projection_buckets(truth)
         if not isinstance(release_id, str) or not release_id.strip():
             raise ContractError("MODEL_FAILOVER_RELEASE_ID_REQUIRED")
