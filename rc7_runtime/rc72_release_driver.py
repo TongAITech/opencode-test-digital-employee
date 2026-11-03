@@ -14,6 +14,7 @@ from .models import ContractError
 from .closed_loop_control import ClosedLoopControlPlane
 from .dsh_requirement_evaluator import DshRequirementEvaluator
 from .rc72_authority import RC72AuthorityRuntime
+from .rc72_canonical_executable import CanonicalExecutableError, CanonicalExecutableService
 from .rc72_domain import AutonomousMissionNode
 from .rc72_field_mission_start import ReleaseBatchFieldMissionLauncher
 from .rc72_mission_node_dispatch import N1AutonomousDispatchService
@@ -32,6 +33,9 @@ from .rc72_n4_pipeline import N4PipelineService
 from .rc72_n4_parent_guard import N4ParentScopedDeliveryGateService
 from .rc72_n5_pipeline import N5PipelineService
 from .rc72_n5_workitem_acceptance import N5OwnedWorkItemGateService
+
+
+_N6_NODE = 'N6_EXECUTABLE_READINESS'
 
 
 @contextmanager
@@ -80,7 +84,6 @@ def release_batch_status(truth, *, source_commit, release_batch_id):
     nodes = [by_type[node.value] for node in AutonomousMissionNode.ordered() if node.value in by_type]
     return dict(release_batch_id=release_batch_id, mission_id=batch['mission_id'], release_id=batch['release_id'],
         source_commit=source_commit, nodes=nodes, field_verified=False, bank_final=False)
-
 
 
 class ReleaseBatchDriver:
@@ -161,13 +164,40 @@ class ReleaseBatchDriver:
             return dict(status='HOLD', reason='N2_REPAIR_OR_HUMAN_REVIEW_REQUIRED', workitem_ids=holds)
         return N2DeliveryGateService(self.truth, source_commit=self.source_commit).complete(release_batch_id=bid)
 
+    def _n6(self, batch):
+        """Compile only canonical approved N1/N4/N5 truth into the native N6 Gate."""
+        try:
+            return CanonicalExecutableService(
+                self.truth,
+                release_id=batch['release_id'],
+                source_commit=self.source_commit,
+            ).compile_batch(release_batch_id=batch['release_batch_id'])
+        except CanonicalExecutableError as exc:
+            # Legacy reviewed N4 Cases may predate explicit execution
+            # materialization. That is a construction HOLD, not permission to
+            # guess request/input/cleanup or synthesize a PASS contract.
+            if str(exc).startswith('N6_APPROVED_CASE_EXECUTION_SPEC_MISSING:N4'):
+                return dict(
+                    status='HOLD',
+                    reason='NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED',
+                    construction_gap='N6_EXECUTION_MATERIALIZATION_REQUIRED',
+                    detail=str(exc),
+                )
+            raise
+
     @staticmethod
     def _gate_types():
         return {'N1_REALITY': N1StrictRealityGateService, 'N2_REQUIREMENT': N2DeliveryGateService,
             'N3_CODE_ANALYSIS': N3DeliveryGateService, 'N4_TEST_DESIGN': N4ParentScopedDeliveryGateService,
             'N5_TEST_DATA': N5OwnedWorkItemGateService}
 
+    @classmethod
+    def _has_gate_route(cls, node_type):
+        return node_type == _N6_NODE or node_type in cls._gate_types()
+
     def _complete_gate(self, node_type, batch):
+        if node_type == _N6_NODE:
+            return self._n6(batch)
         options = dict(source_commit=self.source_commit)
         if node_type == 'N5_TEST_DATA':
             options['release_id'] = batch['release_id']
@@ -197,8 +227,10 @@ class ReleaseBatchDriver:
             for node in self.status(release_batch_id=release_batch_id)['nodes']:
                 if node['state'] != 'PASS':
                     break
-                if node['node_type'] in self._gate_types():
-                    self._complete_gate(node['node_type'], batch)
+                if self._has_gate_route(node['node_type']):
+                    result = self._complete_gate(node['node_type'], batch)
+                    if isinstance(result, dict) and result.get('status') == 'HOLD':
+                        return dict(self.status(release_batch_id=release_batch_id), **result)
             while True:
                 snapshot = self.status(release_batch_id=release_batch_id)
                 pending = [n for n in snapshot['nodes'] if n['state'] != 'PASS']
@@ -206,9 +238,11 @@ class ReleaseBatchDriver:
                     return dict(snapshot, status='HOLD', reason='RELEASE_CONVERGENCE_AUDIT_REQUIRED')
                 node = pending[0]
                 if node['state'] == 'REVIEW_PENDING':
-                    if node['node_type'] not in self._gate_types():
+                    if not self._has_gate_route(node['node_type']):
                         return dict(snapshot, status='HOLD', reason='NATIVE_GATE_ROUTE_NOT_IMPLEMENTED')
-                    self._complete_gate(node['node_type'], batch)
+                    result = self._complete_gate(node['node_type'], batch)
+                    if isinstance(result, dict) and result.get('status') == 'HOLD':
+                        return dict(self.status(release_batch_id=release_batch_id), **result)
                     if self._one('rc72_mission_node', mission_node_id=node['mission_node_id'])['state']=='PASS':
                         continue
                     return dict(self.status(release_batch_id=release_batch_id), status='HOLD', reason='NATIVE_NODE_GATE_NOT_PASS')
@@ -233,6 +267,10 @@ class ReleaseBatchDriver:
                         return dict(self.status(release_batch_id=release_batch_id), **result)
                 elif node['node_type'] == 'N5_TEST_DATA' and self.n5_pipeline is not None:
                     result = self.n5_pipeline.complete(release_batch_id=release_batch_id)
+                    if result.get('status') == 'HOLD':
+                        return dict(self.status(release_batch_id=release_batch_id), **result)
+                elif node['node_type'] == _N6_NODE:
+                    result = self._n6(batch)
                     if result.get('status') == 'HOLD':
                         return dict(self.status(release_batch_id=release_batch_id), **result)
                 else:
