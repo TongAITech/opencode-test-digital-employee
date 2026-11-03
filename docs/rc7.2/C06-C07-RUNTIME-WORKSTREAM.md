@@ -54,6 +54,16 @@ Source: `05` §§3,8,12,14,15,17,18,19,21,22; `10` C06/C07.
 - Tool authority issuance, real DSH launch and observed Attempt are **not** side effects of this interface. Return state is explicitly `LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH`. Product entry must connect signed TaskLease/CapabilityLease + actual DSH WorkerInvocation before claiming the work executed.
 - Tests: `tests/test_rc72_captain_scheduling.py`: same-Mission two workers, Captain A→B, cross-process task competition, wrong Captain and weak capability/role rejection, N7 cross-ETU Case mismatch, missing planning snapshot, cross-Mission input artifact, crash before dispatch, cold orphan reconciliation and unknown R1 capability provenance. Tests simulate failures; they are NOT live DSH/field execution.
 
+### Slice C07-U03 — Provider failure and Fresh Worker failover fencing
+
+- `rc72_model_failover.py` now protects canonical readiness updates, provider failure recording and failover with the **same cross-process R1 ledger lock**. Two cold processes must not both create a fresh replacement Worker for one provider failure. This is the runtime's **model/provider namespace**, not a product SUT FAIL or Defect.
+- On failover, raw R1 N7 intent/HTTP/native-tool/process/runner events and inherited `execution_attempt.tool_call_refs` or non-preexecution outcomes **block before any successor session**. Provider timeout after a potentially committed business operation requires independent effect reconciliation, never blind fresh-worker replay.
+- The N7 dispatch overlay is installed before the failover ledger-replay decision so a cold process cannot infer safety from an unloaded projection.
+- Atomic guard alone does **not** make a multi-event operation crash-atomic: a crash between checkpoints/attempt binding/model assignment remains a BLOCKED recovery case. The formal runtime must continue via R1 recovery / diagnostics rather than assuming automatic repeated failover is safe.
+- `tests/test_rc72_phase7_model_failover_contract.py`: concurrent cold processes compete for one provider failure, suspected N7 UNKNOWN effect, and prior canonical business tool-call all require no duplicate replacement worker.
+- Additional Captain dispatch guards recheck task dependencies are still PASS and ETU not STALE/BLOCKED/SPLIT_REQUIRED at the **actual lease boundary**; an old READY label cannot override new upstream invalidation.
+- CI matrix now emits per-platform JUnit XML artifacts, has `concurrency.cancel-in-progress` to reduce stale PR check accumulation, and **actually executes** the new Captain scheduler suite. This is an execution configuration, not a verification result.
+
 ## Explicit remaining gaps / NO claims
 
 - C06 and C07 are **NOT** closed. No change to `rc72_release_driver.py`, `rc72_mission_factory.py`, or global R1 core schema. The new scheduler's orphan recovery only covers the proven pre-lease phase; post-lease/possible-business-effect orphans require independent recovery and cannot be retried automatically.
