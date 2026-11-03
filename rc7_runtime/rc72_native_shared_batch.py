@@ -27,6 +27,7 @@ from .models import ContractError
 from .rc72_context_economy import ExecutionBatch
 from .rc72_safe_execution_batch import SafeExecutionBatchService
 from .rc72_truth import install_rc72_truth_overlay
+from .rc72_native_batch_raw_proof import attest_native_raw
 
 
 _ARTIFACT = "rc72_native_batch_candidate"
@@ -61,6 +62,12 @@ def _validate(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise _contracts.DomainValidationError("NATIVE_BATCH_RAW_DSH_EVIDENCE_REQUIRED")
     if len(out["output_sha256"]) != 64:
         raise _contracts.DomainValidationError("NATIVE_BATCH_OUTPUT_DIGEST_INVALID")
+    out.setdefault("raw_output_sha256", None)
+    if out["raw_output_sha256"] is not None and (
+        not isinstance(out["raw_output_sha256"], str)
+        or len(out["raw_output_sha256"]) != 64
+    ):
+        raise _contracts.DomainValidationError("NATIVE_BATCH_RAW_OUTPUT_DIGEST_INVALID")
     members = out.get("members")
     if not isinstance(members, list) or len(members) < 2:
         raise _contracts.DomainValidationError("NATIVE_BATCH_MULTI_MEMBER_REQUIRED")
@@ -362,6 +369,13 @@ class NativeSharedExecutionBatch:
         if len(raw_refs) != 1:
             raise NativeSharedBatchError("NATIVE_BATCH_RAW_DSH_EVIDENCE_NOT_UNIQUE")
         members = self._member_candidates(output, receipt, invocation)
+        actual_tool_refs = [
+            ref for member in members for ref in member["observed_tool_refs"]
+        ]
+        raw_proof = attest_native_raw(
+            self.launcher, raw_ref=raw_refs[0], session_id=session,
+            expected_tool_refs=actual_tool_refs,
+        )
         # One actual native DSH process/model-call receipt for the whole batch,
         # never fabricate N measured calls from N business members.
         metering = _one(
@@ -384,6 +398,7 @@ class NativeSharedExecutionBatch:
             "worker_instance_id": assignment.worker_instance_id,
             "dsh_session_id": session,
             "raw_output_ref": raw_refs[0],
+            "raw_output_sha256": raw_proof["raw_output_sha256"],
             "output_sha256": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
             "token_call_id": metering["call_id"],
             "status": "UNVERIFIED",
