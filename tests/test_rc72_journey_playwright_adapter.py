@@ -603,3 +603,51 @@ def test_playwright_connector_does_not_reuse_network_or_browser_session_across_a
     # The service, not the adapter, owns approval of a new Attempt. Never
     # invoke the SUT twice with the same Case/Attempt after a failed receipt.
     assert adapter._active_run_id is None
+
+
+def test_replay_rejects_mid_action_cdp_profile_identity_swap(tmp_path):
+    truth, pool, lease, page, adapter, service = make_replay(tmp_path)
+    navigate = page.goto
+    def navigate_then_switch_profile(url, **kwargs):
+        navigate(url, **kwargs)
+        instance = truth.query("rc72_browser_instance", browser_instance_id="BROWSER-R1")[0]
+        updated = dict(instance)
+        updated.pop("artifact_type", None)
+        updated["artifact_version"] += 1
+        updated["profile_dir"] = "profiles/other-worker"
+        updated["cdp_endpoint"] = "http://127.0.0.1:9551"
+        truth.append_atomic("RC72_BROWSER_INSTANCE_UPSERTED", updated)
+    page.goto = navigate_then_switch_profile
+    result = run_replay(service, lease)
+    assert result.state.value == "FAILED"
+    assert page.actions == [("goto", "https://fat1.example/config")]
+    actual = json.loads((tmp_path / "evidence" / "REAL-1" /
+                         "step-0001" / "actual.json").read_text())
+    assert actual["failure_code"] == "JOURNEY_BROWSER_INSTANCE_IDENTITY_CHANGED"
+    assert not (tmp_path / "evidence" / "REAL-1" / "step-0001" / "screen.png").exists()
+
+
+def test_teaching_rejects_cdp_identity_switch_mid_capture(tmp_path):
+    truth, teaching, pool, lease = teaching_fixture(tmp_path)
+    page = FakePage()
+    page.url = "https://fat1.example/config"
+    recorder = JourneyCDPTeachingRecorder(
+        teaching=teaching, evidence_root=tmp_path / "capture",
+        connector=lambda endpoint: FakeBrowser(page))
+    recorder.begin(
+        recording_id="JR-INSTANCE-SWITCH", mission_id="M-1", release_batch_id="RB-1",
+        requirement_id="REQ-1", sst_id="SST-1", obligation_id="TO-1",
+        workitem_id="WI-1", attempt_id="ATT-1", worker_id="WORKER-1",
+        session_id="SESSION-1", browser_lease_id=lease.browser_lease_id,
+        human_operator_ref="human://operator/001")
+    instance = truth.query("rc72_browser_instance", browser_instance_id="BROWSER-1")[0]
+    replaced = dict(instance)
+    replaced.pop("artifact_type", None)
+    replaced["artifact_version"] += 1
+    replaced["auth_asset_ref"] = "auth://other-person"
+    truth.append_atomic("RC72_BROWSER_INSTANCE_UPSERTED", replaced)
+    with pytest.raises(Exception, match="JOURNEY_TEACHING_BROWSER_INSTANCE_IDENTITY_CHANGED"):
+        recorder.poll(page_role="config")
+    recording = truth.query("rc72_journey_recording", recording_id="JR-INSTANCE-SWITCH")[0]
+    assert recording["state"] == "CAPTURING"
+    assert recording["step_count"] == 1
