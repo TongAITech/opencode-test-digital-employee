@@ -192,7 +192,8 @@ class JourneyBSKAdapter:
             return descriptor["css"]
         raise ContractError("JOURNEY_BSK_SELECTOR_DESCRIPTOR_UNSUPPORTED")
 
-    def _page_read(self, session: str, selector: Optional[str] = None,
+    def _page_read(self, session: str, control_context: str,
+                   selector: Optional[str] = None,
                    attribute: Optional[str] = None):
         # Only fixed, read-only page evaluation. Arbitrary supplied JS is
         # rejected; all dynamic values are JSON literals, not executable code.
@@ -210,13 +211,15 @@ class JourneyBSKAdapter:
         })()""" % (json.dumps(selector), json.dumps(attribute))
         reply = self._run([
             "evaluate", exp, "--session", session,
-            "--tab-id", str(self._tab_id), "--json"])
+            "--tab-id", str(self._tab_id),
+            "--context", control_context, "--json"])
         # IMPORTANT: BrowserSkill returns exit 0 for in-band evaluate ok=false.
         if reply.get("ok") is not True or not isinstance(reply.get("value"), Mapping):
             raise ContractError("JOURNEY_BSK_EVALUATE_UNVERIFIED")
         return reply["value"]
 
-    def _assert(self, step: Mapping[str, Any], context: Mapping[str, Any], session: str) -> None:
+    def _assert(self, step: Mapping[str, Any], context: Mapping[str, Any],
+                session: str, control_context: str) -> None:
         oracle_ref = step.get("oracle_ref")
         if not isinstance(oracle_ref, str) or not oracle_ref:
             raise ContractError("JOURNEY_BSK_BUSINESS_ORACLE_REQUIRED")
@@ -236,7 +239,7 @@ class JourneyBSKAdapter:
         elif kind != "url_equals":
             raise ContractError("JOURNEY_BSK_ORACLE_TYPE_UNSUPPORTED")
         values = self._page_read(
-            session, selector,
+            session, control_context, selector,
             str(oracle.get("attribute") or "") if kind == "attribute_equals" else None)
         if context.get("execution_id") and kind in {"url_equals", "visible"}:
             raise ContractError("JOURNEY_BSK_OFFICIAL_BUSINESS_ORACLE_TOO_WEAK")
@@ -257,7 +260,7 @@ class JourneyBSKAdapter:
                 session: str, control_context: str):
         kind = str(step.get("action_type") or "").upper()
         if kind == "ASSERT":
-            self._assert(step, context, session)
+            self._assert(step, context, session, control_context)
             return {"action": "ASSERT", "verified": True}
         if kind == "WAIT":
             if str(step.get("wait_semantics") or "") != "visible":
