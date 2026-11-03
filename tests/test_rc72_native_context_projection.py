@@ -163,3 +163,37 @@ def test_native_context_projection_r1_is_reference_only_never_claimed_savings(tm
             context_projection=tampered,
         )
     assert len(truth.query("rc72_token_call", mission_id=MISSION)) == 1
+    cold = TruthRuntime(tmp_path / "r1.jsonl")
+    recovered = cold.query("rc72_token_call", call_id=admitted.call_id)[0]
+    assert recovered["context_envelope_sha256"] == metadata["context_envelope_sha256"]
+    assert recovered["context_mode"] == "NORMAL"
+    assert recovered["context_projection_applied_to_prompt"] is False
+
+
+
+def test_full_context_retry_receipt_keeps_canonical_parent_refs(tmp_path):
+    truth, task = _canonical(tmp_path)
+    install_rc72_retry_context_overlay()
+    _ensure_projection_bucket(truth)
+    truth.append_atomic("RC72_RETRY_CONTEXT_COMPILED", {
+        "retry_context_id": "RETRY-FULL-C10",
+        "release_id": RELEASE, "mission_id": MISSION,
+        "workitem_id": WORKITEM, "attempt_id": "ATT-CHILD",
+        "parent_attempt_id": "ATT-PARENT", "assignment_id": "ASSIGN-CHILD",
+        "observation_status": "OBSERVED",
+        "context_mode": "FULL_CONTEXT_RETRY",
+        "canonical_gap_refs": ["GAP-1"],
+        "explicit_gap_refs": ["GAP-1"],
+        "delta_evidence_refs": ["EVD-NEW"],
+        "changed_dependency_refs": ["DEP-NEW"],
+        "canonical_lineage_refs_not_in_delta": [],
+        "previous_attempt_summary_ref": "SUMMARY-PARENT",
+        "full_context_reason": "UPSTREAM_DELIVERY_REVISION_INVALIDATED_PRIOR_PROJECTION",
+        "retry_delta_sha256": "b" * 64,
+        "recorded_at": 1, "artifact_version": 1,
+    })
+    projected = _project(truth, task, _assignment(attempt_id="ATT-CHILD", inputs=()))
+    assert projected["context_mode"] == "FULL_CONTEXT_RETRY"
+    assert projected["parent_attempt_id"] == "ATT-PARENT"
+    assert projected["context_unhydrated_lineage_ref_count"] == 0
+    assert projected["context_projection_applied_to_prompt"] is False
