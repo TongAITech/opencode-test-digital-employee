@@ -45,3 +45,15 @@ Field/BANK_FINAL=false. This is actual Windows component evidence; full final
 package clean-unpack qualification must still execute the same probe on its own
 resolved payload and source. Local TLS acquisition failure is not recast as a
 local successful run.
+
+## Mandatory bank Windows user-level pip mirror capability
+
+The offline capability above proves the copied interpreter and already-carried providers; it does **not** by itself prove that the final bank package can add a dependency through the bank pip mirror.
+
+RC7.2 therefore also adopts [BANK-PC-PIP-MIRROR-CONTRACT.md](BANK-PC-PIP-MIRROR-CONTRACT.md) as a mandatory implementation and qualification contract.
+
+On the target bank Windows PC the approved internal pip mirror is configured at Windows user level, normally `%APPDATA%\pip\pip.ini`. The final portable package must carry a working package-local `pip`, invoke it only through the package-local interpreter, preserve or explicitly bridge discovery of the real user-level pip configuration, perform a real bank-mirror install into an RC7.2-owned path, and prove same-interpreter import from that path.
+
+The existing `python_full_capability_probe.py -I` offline-provider check remains valid for its original purpose, but it is not a substitute for `BANK_PC_PIP_MIRROR_GATE`. The pip-mirror gate must not use pip isolation or environment rewriting that suppresses the approved Windows user-level configuration.
+
+Until the implementation, negative tests, final-package clean-unpack invocation and real bank Field evidence required by `BANK_PC_PIP_MIRROR_GATE` exist, C12 portable completion and BANK_FINAL remain fail-closed.
