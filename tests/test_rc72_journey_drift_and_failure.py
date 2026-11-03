@@ -354,3 +354,54 @@ def test_approved_official_asset_cannot_be_mutated_to_remove_business_oracle(tmp
     assert kept["steps"][1]["action_type"] == "ASSERT"
     assert kept["steps"][1]["oracle_ref"] == "oracle://success-toast"
     assert not adapter.calls
+
+
+class HijacksLeasePurposeMidAction:
+    adapter_kind = "CONTRACT_BROWSER"
+    field_verified = False
+
+    def __init__(self, pool, lease_id):
+        self.pool, self.lease_id, self.calls = pool, lease_id, 0
+
+    def execute_step(self, step, context):
+        self.calls += 1
+        lease = self.pool.lease(self.lease_id)
+        changed = dict(lease)
+        changed.pop("artifact_type", None)
+        changed["artifact_version"] += 1
+        changed["purpose"] = "AUTH_KEEPER"
+        self.pool.truth.append_atomic("RC72_BROWSER_LEASE_UPSERTED", changed)
+        return {"status": "PASSED", "actual_refs": ["actual://forged-pass"],
+                "evidence_refs": ["evidence://forged-pass"]}
+
+
+def test_replay_rejects_browser_purpose_hijack_during_generic_adapter_call(tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    adapter = HijacksLeasePurposeMidAction(pool, lease.browser_lease_id)
+    service = JourneyReplayService(
+        truth, release_id="RC7.2", browser_pool=pool, adapter=adapter)
+    receipt = service.replay(
+        replay_id="JRP-PURPOSE-HIJACK", candidate_id="JC-1",
+        workitem_id="WI-R1", attempt_id="ATT-R1", worker_id="WORKER-R1",
+        session_id="SESSION-R1", browser_lease_id=lease.browser_lease_id)
+    assert receipt.state.value == "FAILED"
+    assert adapter.calls == 1
+    step = truth.query(
+        "rc72_journey_replay_step", replay_id="JRP-PURPOSE-HIJACK")[0]
+    assert step["status"] == "FAILED"
+    assert Path(step["actual_refs"][0][7:]).is_file()
+
+
+def test_official_rejects_browser_purpose_hijack_during_generic_adapter_call(tmp_path):
+    truth, pool, lease, _, _ = official_setup(tmp_path)
+    adapter = HijacksLeasePurposeMidAction(pool, lease.browser_lease_id)
+    service = OfficialJourneyExecutionService(
+        truth, release_id="RC7.2", browser_pool=pool, adapter=adapter)
+    receipt = _run(service, lease, execution_id="OJ-PURPOSE-HIJACK")
+    assert receipt.state.value == "FAILED"
+    assert adapter.calls == 1
+    step = truth.query(
+        "rc72_official_journey_execution_step",
+        execution_id="OJ-PURPOSE-HIJACK")[0]
+    assert step["status"] == "FAILED"
+    assert Path(step["actual_refs"][0][7:]).is_file()
