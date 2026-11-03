@@ -252,7 +252,38 @@ class NativeCoveragePathDiagnosisService:
             if self.truth.store.path.read_bytes()!=before:raise ContractError('COVERAGE_DIAGNOSIS_AUDIT_MUST_BE_READONLY')
             return result
 
-    def _accept(self,row,facts):
+    def audit_historical(self,*,release_batch_id,application_id,gap_id):
+        """Read-only audit of the original accepted N8 proof after a real repair.
+
+        This does not classify or resolve anything; the caller separately
+        proves the signed CLOSED repair and fresh post-repair observation.
+        """
+        facts=self._facts(release_batch_id,application_id,gap_id,historical=True)
+        if facts is None:raise ContractError('COVERAGE_DIAGNOSIS_HISTORICAL_MAPPING_REQUIRED')
+        row=self.measurement._one(_KIND,gap_id=gap_id)
+        self._verify(row,facts)
+        if (row['release_batch_id']!=release_batch_id or row['measurement_id']!=facts['measurement_id']
+                or self.measurement._one('rc72_coverage_gap',gap_id=gap_id)['status']!='RESOLVED'):
+            raise ContractError('COVERAGE_DIAGNOSIS_HISTORICAL_REPAIR_REQUIRED')
+        did=row['diagnosis_id']
+        aid='COV-DIAG-ART-'+_hash(did)[:24]
+        eid='COV-DIAG-EV-'+_hash(did)[:24]
+        investigation='COV-PATH-WI-'+_hash(did)[:24]
+        if (self._task_scope(row,facts)['state']!='PASS'
+                or not self.truth.query('rc7_artifact',artifact_id=aid)
+                or not self.truth.query('rc7_evidence',evidence_id=eid)
+                or not self.truth.query('rc7_evaluation',evaluation_id='COV-DIAG-EVAL-'+_hash(did)[:24])
+                or not self.truth.query('rc7_task',task_id=investigation)):
+            raise ContractError('COVERAGE_DIAGNOSIS_HISTORICAL_ACCEPTED_PROOF_REQUIRED')
+        epoch=self.truth.store._next_seq
+        with ledger_lock(self.truth,busy='COVERAGE_DIAGNOSIS_HISTORICAL_AUDIT_BUSY'):
+            if self.truth.store._next_seq!=epoch:raise ContractError('COVERAGE_DIAGNOSIS_HISTORY_CHANGED_DURING_AUDIT')
+            before=self.truth.store.path.read_bytes()
+            result=self._accept(row,facts,historical=True)
+            if self.truth.store.path.read_bytes()!=before:raise ContractError('COVERAGE_DIAGNOSIS_HISTORY_AUDIT_MUST_BE_READONLY')
+            return result
+
+    def _accept(self,row,facts,*,historical=False):
         did=row['diagnosis_id'];aid='COV-DIAG-ART-'+_hash(did)[:24];eid='COV-DIAG-EV-'+_hash(did)[:24]
         control=ClosedLoopControlPlane(self.truth,self.release_id,row['mission_id'])
         task=self._task_scope(row,facts)
@@ -296,7 +327,7 @@ class NativeCoveragePathDiagnosisService:
             CoverageFeedbackService(self.truth,release_id=self.release_id).classify_gap(gap_id=row['gap_id'],gap_reason=CoverageGapReason.PATH_NOT_REACHED,
                 evidence_refs=list(dict.fromkeys(gap['evidence_refs']+[evidence_ref])),rationale=row['result']['rationale'])
         gap=self.measurement._one('rc72_coverage_gap',gap_id=row['gap_id'])
-        if (gap['gap_reason']!='PATH_NOT_REACHED' or gap['status']!='CLASSIFIED' or gap['responsible_nodes']!=['N8_DIAGNOSIS_RECOVERY']
+        if (gap['gap_reason']!='PATH_NOT_REACHED' or gap['status'] not in ({'CLASSIFIED','RESOLVED'} if historical else {'CLASSIFIED'}) or gap['responsible_nodes']!=['N8_DIAGNOSIS_RECOVERY']
                 or gap['action']!='DIAGNOSE_PATH' or evidence_ref not in gap['evidence_refs'] or gap['rationale']!=row['result']['rationale']):
             raise ContractError('COVERAGE_DIAGNOSIS_CLASSIFICATION_CHANGED')
         investigation='COV-PATH-WI-'+_hash(did)[:24]
