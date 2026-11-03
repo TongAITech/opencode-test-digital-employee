@@ -176,3 +176,60 @@ def test_native_n8_product_consumes_real_repaired_n5_gate_and_driver_admits_new_
         assert truth.store.path.read_bytes()==before and len(server.calls)==before_business
     finally:
         server.shutdown();server.server_close()
+
+
+@pytest.mark.parametrize('corrupt_recovery',[False,True])
+def test_second_real_n7_failure_retains_first_blocked_attempt_but_routes_only_new_generation(
+        tmp_path,monkeypatch,corrupt_recovery):
+    """A repaired N7 failure is historical truth, not a competing live failure."""
+    from test_rc72_n8_retry_continuation import _whole_inventory_repaired
+    from rc7_runtime.rc72_n8_retry_continuation import DataRepairContinuationService
+    from rc7_runtime.rc72_n7_tool_dispatch import SignedToolDispatchService
+    from rc7_runtime.rc72_n7_execution_evidence import ExecutionEvidenceService
+    values=_whole_inventory_repaired(tmp_path,monkeypatch)
+    truth,prep,server,original,_,data,_,_,_=values
+    try:
+        old=truth.query('execution_attempt',attempt_id=original['attempt_id'])[0]
+        retry=DataRepairContinuationService(data.boundary.diagnosis)
+        second=retry.prepare_replacement(original['preparation_id'])
+        assert second['attempt_generation']==original['attempt_generation']+1
+        server.allowed_data_refs.clear()  # a *second* observed physical failure
+        root=tmp_path/'second-n7-failure'
+        runner=FormalN7RunnerAdapter(prep,evidence_root=root,
+            environment_adapter=LocalHTTPEnvironment(
+                'http://127.0.0.1:%d'%server.server_address[1],root),
+            execution_env={'RC72_OUTPUT_ROOT':str(root)},timeout_seconds=30)
+        assert SignedToolDispatchService(prep,adapters={'api_http':runner}).dispatch(
+            second['preparation_id'])['state']=='FAILED'
+        fresh=ExecutionEvidenceService(prep).record(second['preparation_id'])
+        assert fresh['status']=='BLOCKED' and fresh['attempt_id']!=old['attempt_id']
+        assert truth.query('execution_attempt',attempt_id=old['attempt_id'])[0]==old
+        n7=N7PipelineService(prep,runner=runner,capture_root=tmp_path/'n8-second-captures')
+        product=NativeN8ProductRecoveryService(n7)
+        if corrupt_recovery:
+            recovered=truth.query('rc72_diagnosis_recovery')[0]
+            truth.append_atomic('RC72_DIAGNOSIS_RECOVERY_UPSERTED',
+                dict(recovered,replacement_attempt_id='N7ATT-unrelated',
+                    artifact_version=recovered['artifact_version']+1))
+            before=truth.store.path.read_bytes()
+            with pytest.raises(ContractError,match='N8_PRODUCT_HISTORICAL_FAILURE_UNRESOLVED'):
+                product.complete(release_batch_id=original['release_batch_id'])
+            assert truth.store.path.read_bytes()==before
+            assert not truth.query('rc72_n8_repair_boundary',preparation_id=second['preparation_id'])
+            assert not truth.query('rc7_defect')
+        else:
+            result=product.complete(release_batch_id=original['release_batch_id'])
+            assert result['reason']=='N8_VERIFIED_N5_REPAIR_REQUIRED'
+            assert result['preparation_id']==second['preparation_id']
+            assert result['failure_class']=='TEST_DATA_GAP'
+            assert len(truth.query('rc72_diagnosis_case'))==2
+            assert len(truth.query('execution_attempt'))==2
+            assert truth.query('execution_attempt',attempt_id=old['attempt_id'])[0]==old
+            assert truth.query('rc72_n8_repair_boundary',preparation_id=second['preparation_id'])[0]['state']=='REPAIR_OPEN'
+            before=truth.store.path.read_bytes()
+            assert product.complete(release_batch_id=original['release_batch_id'])==result
+            assert truth.store.path.read_bytes()==before
+            assert not truth.query('rc7_defect')
+        assert server.calls==[]
+    finally:
+        server.shutdown();server.server_close()
