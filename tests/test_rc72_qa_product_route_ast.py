@@ -32,7 +32,7 @@ import pytest
     # N7 PASS only skips diagnosis without ever entering N8 recovery.
     """def run(self):
     if node['node_type'] == 'N8_DIAGNOSIS_RECOVERY' and self._diagnosis_bypassed():
-        continue
+        return {'status': 'SKIPPED_BYPASS'}
 """,
 ])
 def test_qa_n8_gate_rejects_fake_or_unrelated_product_dispatch(source):
