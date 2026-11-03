@@ -32,6 +32,10 @@ _OPERATION_KINDS = {
     "click": JourneyActionType.CLICK,
     "fill": JourneyActionType.INPUT,
     "select": JourneyActionType.SELECT,
+    "press": JourneyActionType.PRESS,
+    "hover": JourneyActionType.HOVER,
+    "scroll-to": JourneyActionType.SCROLL_TO,
+    "drag": JourneyActionType.DRAG,
 }
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
@@ -224,6 +228,21 @@ class BSKJourneyTeachingImporter:
                     not ref.startswith(("css:", "testid:"))):
                 raise ContractError("JOURNEY_BSK_STABLE_LOCATOR_BINDING_REQUIRED")
             bound = {}
+            if kind == JourneyActionType.PRESS:
+                key = step_info.get("key")
+                if key not in {
+                    "Enter", "Tab", "Escape", "ArrowUp", "ArrowDown",
+                    "ArrowLeft", "ArrowRight", "Space", "Backspace",
+                    "Delete", "Home", "End", "PageUp", "PageDown",
+                }:
+                    raise ContractError("JOURNEY_BSK_PRESS_KEY_REQUIRED")
+                bound["key"] = key
+            if kind == JourneyActionType.DRAG:
+                target_ref = step_info.get("target_ref")
+                if not isinstance(target_ref, str) or not target_ref.startswith(
+                        ("css:", "testid:")):
+                    raise ContractError("JOURNEY_BSK_DRAG_TARGET_REQUIRED")
+                bound["target_ref"] = target_ref
             if kind in {JourneyActionType.INPUT, JourneyActionType.SELECT}:
                 refkey = step_info.get("value_ref") or step_info.get("credential_ref")
                 if not isinstance(refkey, str) or not refkey.strip():
