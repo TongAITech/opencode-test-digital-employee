@@ -17,6 +17,12 @@ import sys
 
 SOURCE = re.compile(r"^[0-9a-fA-F]{40}$")
 HEX = re.compile(r"^[0-9a-fA-F]{64}$")
+PACKAGE_NAME = "PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10"
+BUILD_STATUS = "ENGINEERING_CANDIDATE_NOT_BANK_FINAL"
+MANIFEST_SCHEMA = "pfc.aitest.rc7.2.package.v1"
+IDENTITY_SCHEMA = "pfc.aitest.rc7.2.release-identity.v1"
+INVENTORY_SCHEMA = "RC72_FULL_PHYSICAL_PAYLOAD_V1"
+
 GROUPS = (
     "python", "node", "node-execution", "browser", "code-intelligence",
     "java", "maven", "maven-repository", "allure", "k6", "zap", "ripgrep", "dsh-plugins",
@@ -24,6 +30,7 @@ GROUPS = (
 MANDATORY = (
     "SOURCE_COMMIT", "BUILD_ID", "RELEASE_FAMILY", "RELEASE_STATUS",
     "PACKAGE_MANIFEST.json", "CHECKSUMS.sha256", "FULL-CAPABILITY-INVENTORY.json",
+    "RC72_RELEASE_IDENTITY.json",
     "packaging/rc7.2/AITEST.sh", "packaging/rc7.2/MISSION.cmd",
     "packaging/rc7.2/Q3-TARGET-LINUX-PROBE.sh",
 )
@@ -63,7 +70,10 @@ def _sha256(path):
 
 def _json(path):
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        document = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(document, dict):
+            raise QualificationError("JSON_OBJECT_REQUIRED:" + path.name)
+        return document
     except (OSError, ValueError, UnicodeError) as exc:
         raise QualificationError("INVALID_JSON:" + path.name) from exc
 
@@ -105,11 +115,35 @@ def qualify(root, *, expected_source, dsh_relpath=None):
         raise QualificationError("SOURCE_COMMIT_MISMATCH")
     if _read(root / "RELEASE_FAMILY") != "RC7.2":
         raise QualificationError("RELEASE_FAMILY_MISMATCH")
-    if _read(root / "BUILD_ID") != "RC7.2-" + expected_source[:12]:
+    build_id = "RC7.2-" + expected_source.lower()[:12]
+    if _read(root / "BUILD_ID") != build_id:
         raise QualificationError("BUILD_ID_MISMATCH")
+    if _read(root / "RELEASE_STATUS") != BUILD_STATUS:
+        raise QualificationError("RELEASE_STATUS_MISMATCH")
 
     manifest = _json(root / "PACKAGE_MANIFEST.json")
     inventory = _json(root / "FULL-CAPABILITY-INVENTORY.json")
+    identity = _json(root / "RC72_RELEASE_IDENTITY.json")
+    if (identity.get("schema") != IDENTITY_SCHEMA or identity.get("release_family") != "RC7.2"
+            or identity.get("package_name") != PACKAGE_NAME or identity.get("source_commit") != expected_source.lower()
+            or identity.get("build_id") != build_id or identity.get("business_root") != "RELEASE_BATCH"
+            or identity.get("runtime_control_backbone") != "N1_N10_MISSION_GRAPH"):
+        raise QualificationError("RELEASE_IDENTITY_MISMATCH")
+    if identity.get("field_verified") is not False or identity.get("bank_final") is not False:
+        raise QualificationError("RELEASE_IDENTITY_FALSE_FIELD_STATUS")
+    if (manifest.get("schema_version") != MANIFEST_SCHEMA or manifest.get("status") != BUILD_STATUS
+            or manifest.get("release_family") != "RC7.2" or manifest.get("build_id") != build_id
+            or manifest.get("package_name") != PACKAGE_NAME
+            or manifest.get("business_root") != "RELEASE_BATCH"
+            or manifest.get("runtime_control_backbone") != "N1_N10_MISSION_GRAPH"):
+        raise QualificationError("MANIFEST_PRODUCT_IDENTITY_MISMATCH")
+    for forbidden in ("real_mission_pass", "delivery_pass", "bank_field_pass"):
+        if manifest.get(forbidden) is not False:
+            raise QualificationError("MANIFEST_FALSE_COMPLETION:" + forbidden)
+    if (inventory.get("schema") != INVENTORY_SCHEMA or inventory.get("release_family") != "RC7.2"
+            or inventory.get("status") != "PASS" or inventory.get("field_verified") is not False
+            or inventory.get("bank_final") is not False):
+        raise QualificationError("INVENTORY_PRODUCT_IDENTITY_MISMATCH")
     if manifest.get("source_commit", "").lower() != expected_source.lower():
         raise QualificationError("MANIFEST_SOURCE_MISMATCH")
     if manifest.get("field_verified") is not False or manifest.get("bank_final") is not False:
