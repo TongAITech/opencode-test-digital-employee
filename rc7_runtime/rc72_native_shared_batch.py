@@ -64,6 +64,8 @@ def _validate(payload: Dict[str, Any]) -> Dict[str, Any]:
     members = out.get("members")
     if not isinstance(members, list) or len(members) < 2:
         raise _contracts.DomainValidationError("NATIVE_BATCH_MULTI_MEMBER_REQUIRED")
+    if out.get("member_count") != len(members):
+        raise _contracts.DomainValidationError("NATIVE_BATCH_MEMBER_COUNT_MISMATCH")
     for member in members:
         if not isinstance(member, dict) or set(member) != {
             "workitem_id", "attempt_id", "observed_tool_refs",
