@@ -10,20 +10,6 @@ on:
       - 'tests/test_rc72_journey_*.py'
       - 'tests/test_rc72_phase9_*.py'
       - '.github/workflows/rc7.2-journey-ci.yml'
-  pull_request:
-    branches:
-      - work/rc7.2
-    paths:
-      - 'rc7_runtime/rc72_journey_*.py'
-      - 'rc7_runtime/rc72_official_journey_execution.py'
-      - 'tests/test_rc72_journey_*.py'
-      - 'tests/test_rc72_phase9_*.py'
-      - '.github/workflows/rc7.2-journey-ci.yml'
-
-concurrency:
-  group: rc72-c09-${{ github.ref }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
 
