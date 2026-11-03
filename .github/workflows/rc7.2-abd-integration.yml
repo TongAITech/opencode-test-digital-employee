@@ -1,0 +1,61 @@
+name: RC7.2 A/B/D Mission Runtime Integration Qualification
+
+on:
+  push:
+    branches: [work/rc7.2-abd-integration]
+    paths:
+      - 'rc7_runtime/**'
+      - 'rc7_release/rc72_mission_cli.py'
+      - 'tests/test_rc72_*.py'
+      - '.github/workflows/rc7.2-abd-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-abd-integration-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  actual-product-factory-and-economy:
+    name: abd-${{ matrix.os }}-python-${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python-version: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pinned qualification runner
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile production source
+        run: python -m compileall -q rc6_runtime rc7_runtime rc7_release
+      - name: Verify A/B fenced factory plus D real-model economy wiring
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_mission_factory.py
+          tests/test_rc72_captain_n7_pipeline.py
+          tests/test_rc72_fenced_n7_preparation.py
+          tests/test_rc72_mission_economy_cli_ingress.py
+          tests/test_rc72_production_economy_ingress.py
+          tests/test_rc72_production_economy_wiring.py
+          tests/test_rc72_native_shared_batch.py
+          tests/test_rc72_native_delta_prompt.py
+          tests/test_rc72_n8_product_recovery.py
+          tests/test_rc72_n10_terminal.py
+          --junitxml=rc72-abd-integration.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-abd-${{ matrix.os }}-py${{ matrix.python-version }}-${{ github.sha }}
+          path: rc72-abd-integration.xml
+          if-no-files-found: warn
+          retention-days: 14
