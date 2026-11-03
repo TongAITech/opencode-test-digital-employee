@@ -77,6 +77,31 @@ def test_controller_runs_actual_independent_diagnosis_and_returns_pending_origin
         assert len(truth.query('rc72_native_coverage_diagnosis'))==1 and len(server.calls)==1
         assert control.complete(release_batch_id=BATCH)['reason']=='N10_RELEASE_NOT_CONVERGED'
         assert len(truth.query('rc72_native_coverage_diagnosis'))==1 and len(server.calls)==1
+        from rc7_runtime.rc72_n10_feedback import NativeN10FeedbackService
+        from rc7_runtime.rc72_release_convergence import ReleaseConvergenceSnapshot
+        from rc7_runtime.rc72_state_machine import ReleaseConvergenceFacts, ReleaseConvergenceResult
+        from rc7_runtime.models import ContractError
+        saved=truth.query('rc72_release_convergence_snapshot',
+            snapshot_id=result['convergence_snapshot_id'])[0]
+        native_snapshot=ReleaseConvergenceSnapshot(
+            snapshot_id=saved['snapshot_id'],mission_id=saved['mission_id'],
+            release_batch_id=saved['release_batch_id'],manifest_id=saved['manifest_id'],
+            scope_snapshot_id=saved['scope_snapshot_id'],
+            facts=ReleaseConvergenceFacts(**saved['facts']),
+            result=ReleaseConvergenceResult(saved['result']),blockers=saved['blockers'],
+            proven_obligation_ids=saved['proven_obligation_ids'],
+            unproven_obligation_ids=saved['unproven_obligation_ids'],
+            coverage_observation_ids=saved['coverage_observation_ids'],created_at=saved['created_at'])
+        feedback=NativeN10FeedbackService(truth,release_id=pipeline.release_id)
+        assert feedback.derive(snapshot=native_snapshot)==result['issues']
+        original_gap=truth.query('rc72_coverage_gap',gap_id=gap)[0]
+        truth.append_atomic('RC72_COVERAGE_GAP_UPSERTED',dict(original_gap,
+            requirement_id='FORGED-REQUIREMENT-NOT-IN-BATCH',
+            artifact_version=original_gap['artifact_version']+1))
+        before_tamper=truth.store.path.read_bytes()
+        with pytest.raises(ContractError,match='N10_FEEDBACK_COVERAGE_OBLIGATION_LINEAGE_CHANGED'):
+            feedback.derive(snapshot=native_snapshot)
+        assert truth.store.path.read_bytes()==before_tamper and len(server.calls)==1
     finally:server.shutdown();server.server_close();business.shutdown();business.server_close()
 
 
