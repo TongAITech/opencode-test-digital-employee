@@ -338,7 +338,7 @@ def test_compiled_journey_without_case_lineage_cannot_be_official(tmp_path):
     assert not truth.query("rc72_official_journey_asset")
 
 
-def test_legacy_official_asset_with_missing_business_assertion_cannot_execute(tmp_path):
+def test_approved_official_asset_cannot_be_mutated_to_remove_business_oracle(tmp_path):
     truth, pool, lease, adapter, service = official_setup(tmp_path)
     asset = truth.query("rc72_official_journey_asset", official_asset_id="JOURNEY-1")[0]
     changed = dict(asset)
@@ -347,7 +347,10 @@ def test_legacy_official_asset_with_missing_business_assertion_cannot_execute(tm
     changed["steps"] = [dict(step) for step in changed["steps"]]
     changed["steps"][1]["action_type"] = "NAVIGATE"
     changed["steps"][1].pop("oracle_ref", None)
-    truth.append_atomic("RC72_OFFICIAL_JOURNEY_ASSET_UPSERTED", changed)
-    with pytest.raises(Exception, match="OFFICIAL_JOURNEY_BUSINESS_ORACLE_REQUIRED"):
-        _run(service, lease, execution_id="OJ-NO-ORACLE")
+    with pytest.raises(Exception, match="OFFICIAL_JOURNEY_ASSET_IMMUTABLE"):
+        truth.append_atomic("RC72_OFFICIAL_JOURNEY_ASSET_UPSERTED", changed)
+    kept = truth.query("rc72_official_journey_asset", official_asset_id="JOURNEY-1")[0]
+    assert kept["artifact_version"] == 1
+    assert kept["steps"][1]["action_type"] == "ASSERT"
+    assert kept["steps"][1]["oracle_ref"] == "oracle://success-toast"
     assert not adapter.calls
