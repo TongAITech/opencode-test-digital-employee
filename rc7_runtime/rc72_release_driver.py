@@ -34,6 +34,7 @@ from .rc72_n5_pipeline import N5PipelineService
 from .rc72_n5_workitem_acceptance import N5OwnedWorkItemGateService
 from .rc72_n6_pipeline import N6PipelineService
 from .rc72_n7_pipeline import N7PipelineService
+from .rc72_n8_product_recovery import NativeN8ProductRecoveryService
 from .rc72_n9_accepted_scope import AcceptedScopeN9Service
 from .rc72_expected_scope_input import ExpectedScopeInputService
 from .rc72_n10_control import NativeN10ControlService
@@ -90,7 +91,7 @@ def release_batch_status(truth, *, source_commit, release_batch_id):
 
 class ReleaseBatchDriver:
     def __init__(self, truth, *, source_commit, n1_launcher, n1_tools,
-                 n2_launcher, n2_tools, n2_evaluator, n3_pipeline=None, n4_pipeline=None, n5_pipeline=None, n7_pipeline=None, n9_pipeline=None, expected_scope=None, n10_pipeline=None, bank_pip_mirror=None):
+                 n2_launcher, n2_tools, n2_evaluator, n3_pipeline=None, n4_pipeline=None, n5_pipeline=None, n7_pipeline=None, n8_pipeline=None, n9_pipeline=None, expected_scope=None, n10_pipeline=None, bank_pip_mirror=None):
         if not isinstance(source_commit, str) or not re.fullmatch('[0-9a-f]{40}', source_commit):
             raise ContractError('RC72_RELEASE_DRIVER_EXACT_SOURCE_REQUIRED')
         if not isinstance(n2_evaluator, DshRequirementEvaluator):
@@ -125,6 +126,8 @@ class ReleaseBatchDriver:
                 or n7_pipeline.truth is not truth or n7_pipeline.source_commit!=source_commit):
             raise ContractError('RC72_RELEASE_DRIVER_N7_PIPELINE_SCOPE_MISMATCH')
         self.n7_pipeline=n7_pipeline
+        self.n8_pipeline=n8_pipeline
+        self._assert_n8_scope()
         self.n9_pipeline=n9_pipeline
         self._assert_n9_scope()
         self.expected_scope=expected_scope
@@ -155,6 +158,16 @@ class ReleaseBatchDriver:
                 or pipeline.n9.pipeline is not self.n7_pipeline):
             raise ContractError('RC72_RELEASE_DRIVER_N10_PIPELINE_SCOPE_MISMATCH')
 
+    def _assert_n8_scope(self):
+        n8=self.n8_pipeline
+        if n8 is not None and (not isinstance(n8,NativeN8ProductRecoveryService)
+                or self.n7_pipeline is None or n8.n7 is not self.n7_pipeline
+                or n8.diagnosis is not self.n7_pipeline.diagnosis
+                or n8.truth is not self.truth
+                or n8.source_commit!=self.source_commit
+                or n8.release_id!=self.n7_pipeline.release_id):
+            raise ContractError('RC72_RELEASE_DRIVER_N8_NATIVE_SCOPE_MISMATCH')
+
     def _assert_n9_scope(self):
         n9=self.n9_pipeline
         if n9 is not None and (not isinstance(n9,AcceptedScopeN9Service) or n9.pipeline is not self.n7_pipeline
@@ -164,6 +177,7 @@ class ReleaseBatchDriver:
     def _has_gate(self,node_type):
         return (node_type in self._gate_types() or node_type=='N6_EXECUTABLE_READINESS'
                 or node_type=='N7_EXECUTION' and self.n7_pipeline is not None
+                or node_type=='N8_DIAGNOSIS_RECOVERY' and self.n8_pipeline is not None
                 or node_type=='N9_DEFECT' and self.n9_pipeline is not None
                 or node_type=='N10_RELEASE_CONVERGENCE' and self.n10_pipeline is not None)
 
@@ -228,6 +242,8 @@ class ReleaseBatchDriver:
             'N5_TEST_DATA': N5OwnedWorkItemGateService}
 
     def _complete_gate(self, node_type, batch):
+        if node_type=='N8_DIAGNOSIS_RECOVERY' and self.n8_pipeline is not None:
+            return self.n8_pipeline.complete(release_batch_id=batch['release_batch_id'])
         if node_type=='N10_RELEASE_CONVERGENCE' and self.n10_pipeline is not None:
             return self.n10_pipeline.complete(release_batch_id=batch['release_batch_id'])
         if node_type=='N9_DEFECT' and self.n9_pipeline is not None:
@@ -269,6 +285,7 @@ class ReleaseBatchDriver:
             if self.n7_pipeline is not None and (self.n7_pipeline.truth is not self.truth
                     or self.n7_pipeline.source_commit!=self.source_commit or self.n7_pipeline.release_id!=batch['release_id']):
                 raise ContractError('RC72_RELEASE_DRIVER_N7_PIPELINE_SCOPE_MISMATCH')
+            self._assert_n8_scope()
             self._assert_n9_scope()
             self._assert_n10_scope(release_batch_id=release_batch_id)
             self._assert_expected_scope(release_batch_id=batch['release_batch_id'])
@@ -287,6 +304,20 @@ class ReleaseBatchDriver:
                         return dict(self.status(release_batch_id=release_batch_id), **audited)
             while True:
                 snapshot = self.status(release_batch_id=release_batch_id)
+                by_type={n['node_type']:n for n in snapshot['nodes']}
+                failed_n7=by_type['N7_EXECUTION']
+                active_n8=by_type['N8_DIAGNOSIS_RECOVERY']
+                # A genuine N7 failure suspends ordinary forward iteration:
+                # N8 must own its original failed Attempt and any N5 backedge
+                # before N5 normal completion or N7 can run again. In particular
+                # the first incomplete node is often N7 NEEDS_REVISION (before
+                # N8 READY), or N5 RUNNING (after N8 signed compensation).
+                if (self.n8_pipeline is not None and active_n8['state']!='NOT_STARTED'
+                        and failed_n7['state'] in {'NEEDS_REVISION','BLOCKED','STALE','NOT_STARTED'}):
+                    repaired=self.n8_pipeline.complete(release_batch_id=release_batch_id)
+                    if repaired.get('status')=='CONTINUE':
+                        continue
+                    return dict(self.status(release_batch_id=release_batch_id),**repaired)
                 pending = [n for n in snapshot['nodes'] if n['state'] != 'PASS']
                 if self._diagnosis_bypassed(snapshot['nodes'],batch['mission_id']):
                     pending = [n for n in pending if n['node_type']!='N8_DIAGNOSIS_RECOVERY']
@@ -338,7 +369,24 @@ class ReleaseBatchDriver:
                 elif node['node_type']=='N7_EXECUTION' and self.n7_pipeline is not None:
                     result = self.n7_pipeline.complete(release_batch_id=release_batch_id)
                     if result.get('status')=='HOLD':
+                        # N7 runner/process failures have already persisted
+                        # a real blocked Attempt, but may not yet have started
+                        # N8's first independent diagnosis process.
+                        if (self.n8_pipeline is not None
+                                and result.get('reason')=='N7_EXECUTION_DIAGNOSIS_REQUIRED'
+                                and result.get('preparation_id')):
+                            prepared=self._one('rc72_n7_execution_preparation',
+                                preparation_id=result['preparation_id'])
+                            attempts=self.truth.query('execution_attempt',attempt_id=prepared['attempt_id'])
+                            if len(attempts)==1 and attempts[0]['status']=='BLOCKED':
+                                recovery=self.n8_pipeline.complete(release_batch_id=release_batch_id)
+                                return dict(self.status(release_batch_id=release_batch_id),**recovery)
                         return dict(self.status(release_batch_id=release_batch_id), **result)
+                elif node['node_type']=='N8_DIAGNOSIS_RECOVERY' and self.n8_pipeline is not None:
+                    result=self.n8_pipeline.complete(release_batch_id=release_batch_id)
+                    if result.get('status')=='CONTINUE':
+                        continue
+                    return dict(self.status(release_batch_id=release_batch_id),**result)
                 elif node['node_type']=='N10_RELEASE_CONVERGENCE' and self.n10_pipeline is not None:
                     result=self.n10_pipeline.complete(release_batch_id=release_batch_id)
                     if result.get('status')=='HOLD':
