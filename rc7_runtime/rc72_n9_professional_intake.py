@@ -72,7 +72,7 @@ class NativeN9ProfessionalIntakeService:
         if (gap['mission_id']!=p['mission_id'] or gap['target_node']!='N9_DEFECT'
                 or gap['category']!='VALID_TEST_FAILURE'):
             raise ContractError('N9_PROFESSIONAL_ORIGINAL_GAP_REQUIRED')
-        wid='N9REPRO-'+_hash([p['mission_id'],p['attempt_id'],diagnosis_id])[:24]
+        wid='N9QUAL-'+_hash([p['mission_id'],p['attempt_id'],diagnosis_id])[:24]
         plan=self._one('rc72_n7_execution_plan',plan_id=p['plan_id'])
         members=[item for item in plan['items'] if item['workitem_id']==p['workitem_id']]
         if (len(members)!=1 or members[0]['case_id']!=p['case_id']
@@ -83,30 +83,37 @@ class NativeN9ProfessionalIntakeService:
         refs=list(members[0]['input_artifact_refs'])
         if not refs or any(not self.truth.query('rc7_artifact',artifact_id=ref) for ref in refs):
             raise ContractError('N9_PROFESSIONAL_APPROVED_CASE_ARTIFACT_REQUIRED')
+        # Existing RC7 DefectReproductionExecutionService requires
+        # EXECUTION / test_execution and a previously qualified PRODUCT_DEFECT
+        # Gap. N8 VALID_TEST_FAILURE proves only a frozen discrepancy, not
+        # product causality; it MUST NOT masquerade as that runnable service.
+        # Admit a real defect_analysis qualification task first. Only after
+        # independent RCA can the governed reproduction/fix path be selected.
         criteria=[
-            'New independent scoped execution with immutable original Case and business oracle',
-            'Reproduce source N8 diagnosis '+diagnosis_id+' and conclusive failure evidence '+failure['evidence_id'],
-            'Captured actual/expected discrepancy and complete R1 evidence',
-            'Professional causal review: no product defect without independent RCA',
-            'No reuse of the failed Attempt or its execution lease']
-        objective=('Independently reproduce approved business discrepancy for Case '+p['case_id']+
+            'Independently establish whether original assertion discrepancy is product-caused',
+            'Verify original N8 diagnosis '+diagnosis_id+' and conclusive failure evidence '+failure['evidence_id'],
+            'Preserve frozen Case, request/response, Oracle and complete original R1 evidence',
+            'Request genuinely new scoped reproduction Attempt; no old N7 execution lease reuse',
+            'No product Defect or fix/regression PASS until causal and lifecycle evidence exists']
+        objective=('Independently qualify original VALID_TEST_FAILURE for Case '+p['case_id']+
                    ' from original N7 Attempt '+p['attempt_id'])
-        expected=dict(mission_id=p['mission_id'],node='DEFECT',task_type='DEFECT_REPRODUCTION',
+        expected=dict(mission_id=p['mission_id'],node='DEFECT',
+            task_type='N9_DISCREPANCY_QUALIFICATION',
             objective=objective,acceptance_criteria=criteria,
-            required_capabilities=['defect_reproduction'],input_artifact_refs=refs,gap_refs=[gap['gap_id']])
+            required_capabilities=['defect_analysis'],input_artifact_refs=refs,gap_refs=[gap['gap_id']])
         existing=self.truth.query('rc7_task',task_id=wid)
         if len(existing)>1:raise ContractError('N9_PROFESSIONAL_REPRODUCTION_NOT_UNIQUE')
         if not existing:
             ClosedLoopControlPlane(self.truth,self.release_id,p['mission_id']).register_task(
                 Task(task_id=wid,mission_id=p['mission_id'],node='DEFECT',
-                     task_type='DEFECT_REPRODUCTION',objective=objective,
-                     required_capabilities=['defect_reproduction'],
+                     task_type='N9_DISCREPANCY_QUALIFICATION',objective=objective,
+                     required_capabilities=['defect_analysis'],
                      input_artifact_refs=refs,gap_refs=[gap['gap_id']],
                      acceptance_criteria=criteria,priority=0))
         task=self._one('rc7_task',task_id=wid)
         if any(task.get(key)!=value for key,value in expected.items()):
             raise ContractError('N9_PROFESSIONAL_REPRODUCTION_SCOPE_CHANGED')
-        return dict(status='HOLD',reason='N9_INDEPENDENT_REPRODUCTION_REQUIRED',
-            reproduction_workitem_id=wid,diagnosis_id=diagnosis_id,
+        return dict(status='HOLD',reason='N9_INDEPENDENT_QUALIFICATION_REQUIRED',
+            qualification_workitem_id=wid,diagnosis_id=diagnosis_id,
             original_attempt_id=p['attempt_id'],gap_id=gap['gap_id'],
             defect_confirmed=False)
