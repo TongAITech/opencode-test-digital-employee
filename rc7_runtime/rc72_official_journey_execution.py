@@ -212,7 +212,30 @@ class OfficialJourneyExecutionService:
     def _adapter_outcome(self, step: Mapping[str, Any], context: Mapping[str, Any]) -> Dict[str, Any]:
         try:
             raw = self.adapter.execute_step(dict(step), dict(context))
+            if not isinstance(raw, Mapping):
+                raise ContractError("OFFICIAL_JOURNEY_ADAPTER_RESULT_INVALID")
+            status = str(raw.get("status") or "").upper()
+            if status not in {"PASSED", "FAILED"}:
+                raise ContractError("OFFICIAL_JOURNEY_ADAPTER_STATUS_INVALID")
+            actual_refs = list(_clean_refs(raw.get("actual_refs"), "actual_refs"))
+            evidence_refs = list(_clean_refs(raw.get("evidence_refs"), "evidence_refs"))
+            failure_code = raw.get("failure_code")
+            if status == "FAILED":
+                if not isinstance(failure_code, str) or not failure_code.strip():
+                    failure_code = "STEP_FAILED"
+                else:
+                    failure_code = failure_code.strip()
+            else:
+                failure_code = None
+            return {
+                "status": status,
+                "actual_refs": actual_refs,
+                "evidence_refs": evidence_refs,
+                "failure_code": failure_code,
+            }
         except Exception as exc:
+            # A malformed result can follow real browser I/O. Never leave a
+            # STARTED replay pretending it was a successful/known step.
             from .rc72_journey_failure_receipt import adapter_exception_receipt
             receipt = adapter_exception_receipt(self.truth, step=step, context=context, error=exc)
             return {
@@ -221,27 +244,6 @@ class OfficialJourneyExecutionService:
                 "evidence_refs": [receipt],
                 "failure_code": "ADAPTER_RUNTIME_EXCEPTION:%s" % exc.__class__.__name__,
             }
-        if not isinstance(raw, Mapping):
-            raise ContractError("OFFICIAL_JOURNEY_ADAPTER_RESULT_INVALID")
-        status = str(raw.get("status") or "").upper()
-        if status not in {"PASSED", "FAILED"}:
-            raise ContractError("OFFICIAL_JOURNEY_ADAPTER_STATUS_INVALID")
-        actual_refs = list(_clean_refs(raw.get("actual_refs"), "actual_refs"))
-        evidence_refs = list(_clean_refs(raw.get("evidence_refs"), "evidence_refs"))
-        failure_code = raw.get("failure_code")
-        if status == "FAILED":
-            if not isinstance(failure_code, str) or not failure_code.strip():
-                failure_code = "STEP_FAILED"
-            else:
-                failure_code = failure_code.strip()
-        else:
-            failure_code = None
-        return {
-            "status": status,
-            "actual_refs": actual_refs,
-            "evidence_refs": evidence_refs,
-            "failure_code": failure_code,
-        }
 
     def _field_verified(self) -> bool:
         return self.adapter_kind in self.trusted_field_adapter_kinds and bool(getattr(self.adapter, "field_verified", False))
