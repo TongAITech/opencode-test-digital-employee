@@ -110,7 +110,9 @@ def test_bsk_native_replay_produces_real_png_and_oracle_receipts(tmp_path):
     result, truth, cli = _replay(tmp_path, TestBSK())
     assert result.state.value == "PASSED"
     assert len([c for c in cli.calls if "step" in c]) == 1
-    assert len([c for c in cli.calls if "evaluate" in c]) == 1
+    eval_commands = [c for c in cli.calls if "evaluate" in c]
+    assert len(eval_commands) == 1
+    assert eval_commands[0][eval_commands[0].index("--context") + 1] == "ctx-live"
     actuals = sorted(truth.query(
         "rc72_journey_replay_step", replay_id="JRP-BSK"), key=lambda r: r["sequence"])
     assert [r["status"] for r in actuals] == ["PASSED", "PASSED"]
