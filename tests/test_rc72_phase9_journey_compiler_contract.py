@@ -106,6 +106,7 @@ def test_compiled_candidate_preserves_business_lineage_and_step_provenance(tmp_p
     assert row["requirement_id"] == "REQ-1"
     assert row["sst_id"] == "SST-1"
     assert row["obligation_id"] == "TO-1"
+    assert row["case_id"] == "TC-1"
     assert row["source_recording_id"] == "JR-1"
     assert [step["source_step_id"] for step in row["steps"]] == ["S1", "S2", "S3"]
     assert [step["sequence"] for step in row["steps"]] == [1, 2, 3]
