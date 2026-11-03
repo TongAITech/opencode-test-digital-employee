@@ -381,6 +381,13 @@ class JourneyBSKAdapter:
                 raise ContractError("JOURNEY_BSK_SCREENSHOT_INVALID")
             self._guard(context)
             evidence_refs.append(screenshot.resolve().as_uri())
+            # A trusted bank session proof can expire during long browser
+            # I/O. A pass must remain authorized after the action as well
+            # as before it; do not let Replay's preflight Field marker
+            # overrule this per-step expiry check.
+            if (getattr(self, "_approved_run", None) is not None
+                    and int(time.time()) >= getattr(self, "_proof_expires_at", 0)):
+                raise ContractError("JOURNEY_BSK_FIELD_PROOF_EXPIRED_DURING_STEP")
         except Exception as exc:
             status = "FAILED"
             failure = (str(exc).split(":")[0][:100] if isinstance(exc, ContractError)
