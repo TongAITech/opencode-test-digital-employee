@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Dict, List, Mapping, Sequence, Set, Tuple
 
 from rc6_runtime import contracts as _contracts
@@ -108,7 +108,7 @@ class ReleaseConvergenceAggregator:
     _DEFECT_ACCEPTABLE = {"CLOSED", "DUPLICATE", "NOT_A_DEFECT"}
     _HIGH_RISKS = {"HIGH", "CRITICAL", "BLOCKER"}
 
-    def __init__(self, truth: TruthRuntime, *, release_id: str, runtime: RC72StateMachine, execution_proof=None, expected_scope=None, coverage_proof=None, coverage_intake=None, coverage_diagnosis=None, coverage_repair=None) -> None:
+    def __init__(self, truth: TruthRuntime, *, release_id: str, runtime: RC72StateMachine, execution_proof=None, expected_scope=None, coverage_proof=None, coverage_intake=None, coverage_diagnosis=None, coverage_repair=None, replay_safe=False) -> None:
         install_rc72_release_convergence_overlay()
         _ensure_projection_bucket(truth)
         if not isinstance(release_id, str) or not release_id.strip():
@@ -133,6 +133,9 @@ class ReleaseConvergenceAggregator:
         self.coverage_intake = coverage_intake
         self.coverage_diagnosis = coverage_diagnosis
         self.coverage_repair = coverage_repair
+        self.replay_safe = replay_safe
+        if type(replay_safe) is not bool:
+            raise ContractError('RELEASE_CONVERGENCE_REPLAY_POLICY_INVALID')
         self._assert_inputs()
 
     def _assert_inputs(self):
@@ -376,7 +379,8 @@ class ReleaseConvergenceAggregator:
         manifest = self._one_manifest(mission_id, str(batch["release_batch_id"]))
         if frozen is not None and frozen['manifest_id'] != manifest['manifest_id']:
             raise ContractError('RELEASE_CONVERGENCE_EXPECTED_SCOPE_MANIFEST_MISMATCH')
-        scope_snapshot = self.scope.evaluate_denominator(manifest_id=str(manifest["manifest_id"]))
+        scope_snapshot = self.scope.evaluate_denominator(manifest_id=str(manifest["manifest_id"]),
+            replay_safe=self.replay_safe)
         blockers: List[str] = [] if scope_verified else ['scope:EXPECTED_INPUT_PROOF_REQUIRED']
         if native_scope_history and self.execution_proof is None:
             blockers.append('execution:NATIVE_ACCEPTED_PROOF_REQUIRED')
@@ -548,6 +552,41 @@ class ReleaseConvergenceAggregator:
             blockers=sorted(set(blockers)), proven_obligation_ids=sorted(proven),
             unproven_obligation_ids=unproven, coverage_observation_ids=sorted(coverage_ids),
         )
+        if self.replay_safe:
+            # Every R1 source was audited above; reuse a receipt only when
+            # *all* derived dimensions, accepted obligations, coverage and
+            # blockers remain identical. No cached PASS can skip validation.
+            expected = {key: value for key, value in (
+                ("mission_id", snapshot.mission_id),
+                ("release_batch_id", snapshot.release_batch_id),
+                ("manifest_id", snapshot.manifest_id),
+                ("scope_snapshot_id", snapshot.scope_snapshot_id),
+                ("facts", asdict(snapshot.facts)),
+                ("result", snapshot.result.value),
+                ("blockers", snapshot.blockers),
+                ("proven_obligation_ids", snapshot.proven_obligation_ids),
+                ("unproven_obligation_ids", snapshot.unproven_obligation_ids),
+                ("coverage_observation_ids", snapshot.coverage_observation_ids))}
+            old = [row for row in self.truth.query(_CONVERGENCE_SNAPSHOT,
+                       release_batch_id=snapshot.release_batch_id)
+                   if all(row.get(key) == value for key, value in expected.items())
+                   and row.get("release_id") == self.release_id]
+            if old:
+                receipt = sorted(old, key=lambda row: (row["created_at"], row["snapshot_id"]))[-1]
+                return ReleaseConvergenceSnapshot(
+                    snapshot_id=receipt["snapshot_id"],
+                    mission_id=receipt["mission_id"],
+                    release_batch_id=receipt["release_batch_id"],
+                    manifest_id=receipt["manifest_id"],
+                    scope_snapshot_id=receipt["scope_snapshot_id"],
+                    facts=ReleaseConvergenceFacts(**receipt["facts"]),
+                    result=ReleaseConvergenceResult(receipt["result"]),
+                    blockers=list(receipt["blockers"]),
+                    proven_obligation_ids=list(receipt["proven_obligation_ids"]),
+                    unproven_obligation_ids=list(receipt["unproven_obligation_ids"]),
+                    coverage_observation_ids=list(receipt["coverage_observation_ids"]),
+                    created_at=receipt["created_at"],
+                )
         self.truth.append_atomic(
             _EVENT_TYPE,
             {
