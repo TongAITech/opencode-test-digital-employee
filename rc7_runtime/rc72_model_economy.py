@@ -498,58 +498,60 @@ _FINAL_EVENT_MARKERS = ("complete", "completed", "result", "final", "message_end
 
 
 def extract_dsh_token_usage(text: str) -> DshTokenUsage:
-    """Return MEASURED only for an unambiguous provider usage observation."""
-    candidates: List[Tuple[int, int, int]] = []
-    final_candidates: List[Tuple[int, int, int]] = []
-    for raw in text.splitlines():
-        raw = raw.strip()
-        if not raw:
-            continue
+    """Use the SAME provider observation semantics as the independent R1 audit.
+
+    A process may emit cumulative snapshots, conflicting token aliases or tool
+    counters. Calling the separate permissive parser here could mark a Mission
+    MEASURED while its R1 TokenUsageAudit is UNKNOWN. Never assert successful
+    provider accounting unless the canonical audit parser agrees.
+    """
+    if not isinstance(text, str):
+        return DshTokenUsage.unknown("DSH_OUTPUT_NOT_TEXT")
+    events: List[Dict[str, Any]] = []
+    for line in text.splitlines():
         try:
-            event = json.loads(raw)
+            event = json.loads(line)
         except (TypeError, ValueError):
             continue
-        if not isinstance(event, Mapping):
-            continue
-        # Tool/MCP resource usage belongs to a tool, not the DSH provider.
-        # Never charge it as measured model input even when it shares the
-        # usual usage/token key names.
-        kind = str(event.get("type") or event.get("event") or event.get("kind") or "").strip().lower()
-        role = str(event.get("role") or "").strip().lower()
-        if (kind in {"tool", "tool_call", "tool_result", "function_call", "function_result", "stderr", "session"}
-                or kind.startswith(("tool.", "tool_", "mcp.", "mcp_", "function."))
-                or role in {"tool", "user", "system"}):
-            continue
-        found = list(_walk_usage(event))
-        if not found:
-            continue
-        candidates.extend(found)
-        marker = " ".join(
-            str(event.get(key) or "").lower()
-            for key in ("type", "event", "event_type", "name", "status")
+        if isinstance(event, dict):
+            events.append(event)
+    # Import on call to preserve the established RC7.2 truth-bootstrap order.
+    from .rc72_model_usage import DshTokenUsageParser
+
+    parsed = DshTokenUsageParser.parse(events)
+    if parsed.observation_status != "OBSERVED":
+        return DshTokenUsage.unknown(
+            "DSH_PROVIDER_" + str(parsed.unknown_reason or "UNKNOWN")
         )
-        if any(item in marker for item in _FINAL_EVENT_MARKERS):
-            final_candidates.extend(found)
-    # Do not select a final snapshot over a conflicting earlier snapshot:
-    # without bank DSH evidence we cannot know per-call vs cumulative usage.
-    pool = candidates
-    if not pool:
-        return DshTokenUsage.unknown("DSH_USAGE_NOT_EMITTED")
-    unique: List[Tuple[int, int, int]] = []
-    for item in pool:
-        if item not in unique:
-            unique.append(item)
-    if len(unique) != 1:
-        return DshTokenUsage.unknown("DSH_USAGE_AMBIGUOUS_MULTIPLE_SNAPSHOTS")
-    input_tokens, output_tokens, total_tokens = unique[0]
+    supplied_input = parsed.input_tokens
+    supplied_output = parsed.output_tokens
+    supplied_total = parsed.total_tokens
+    if supplied_total is None:
+        if supplied_input is None or supplied_output is None:
+            return DshTokenUsage.unknown("DSH_PROVIDER_TOTAL_NOT_OBSERVED")
+        supplied_total = supplied_input + supplied_output
+    if supplied_total < 1:
+        return DshTokenUsage.unknown("DSH_PROVIDER_NONPOSITIVE_USAGE")
+    if supplied_input is None or supplied_output is None:
+        # Do not invent a zero input/output breakdown for a total-only DSH
+        # counter. It can be shown in the independent audit as a partial
+        # observation, not promoted into full Mission accounting.
+        return DshTokenUsage.unknown("DSH_PROVIDER_INPUT_OUTPUT_UNKNOWN")
+    if supplied_input + supplied_output != supplied_total:
+        return DshTokenUsage.unknown("DSH_PROVIDER_TOTAL_BREAKDOWN_CONFLICT")
+    final_markers = ("final", "complete", "completed", "message_end", "response_end")
+    final_seen = any(
+        any(marker in str(event.get("type") or event.get("event") or "").lower()
+            for marker in final_markers)
+        for event in events
+    )
     return DshTokenUsage(
         UsageStatus.MEASURED,
-        input_tokens,
-        output_tokens,
-        total_tokens,
-        "DSH_FINAL_USAGE" if final_candidates else "DSH_SINGLE_USAGE",
+        supplied_input,
+        supplied_output,
+        supplied_total,
+        "DSH_FINAL_USAGE" if final_seen else "DSH_SINGLE_USAGE",
     )
-
 
 Clock = Callable[[], datetime]
 
