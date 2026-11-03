@@ -118,21 +118,41 @@ class SignedToolDispatchService:
             contract_sha256=contract['contract_sha256'], tool=tool,
             request_sha256=_hash({'contract': contract, 'context': context}),
             state='IN_FLIGHT', artifact_version=1)
+        # The Captain handoff uses this SAME cross-process ledger gate.
+        # Revalidate R1 Captain/Worker/leases and append IN_FLIGHT while still
+        # owning it. Once intent is durable, handoff must refuse until the
+        # active work is independently checkpointed or diagnosed. This closes
+        # the previously unguarded check-to-external-I/O race.
+        from .rc72_ledger_lock import ledger_lock
         from .rc72_lease_renewal import execution_authorization_snapshot
-        row.update(authorization_protocol='TEMPORAL_LEASE_V1',
-                   execution_authorization=execution_authorization_snapshot(self.preparation, prepared))
-        # The durable intent precedes scheduler start too: a crash at either
-        # boundary may block progress, but can never trigger an automatic re-call.
-        claim_dir = Path(str(self.truth.store.path) + '.n7-dispatch-claims')
-        claim_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            claim = os.open(str(claim_dir / dispatch_id), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError as exc:
-            raise ToolDispatchError('N7_DISPATCH_ALREADY_CLAIMED_DIAGNOSIS_REQUIRED') from exc
-        # A claim is a permanent exclusion marker, never business truth. A crash
-        # before intent append blocks the attempt and requires diagnosis too.
-        os.close(claim)
-        self.truth.append_atomic(_EVENT, row)
+        with ledger_lock(self.truth, busy='N7_DISPATCH_ADMISSION_LEDGER_BUSY',
+                         conflict=ToolDispatchError):
+            current = self.preparation._one(
+                'rc72_n7_execution_preparation', preparation_id=preparation_id)
+            self.preparation._assert_captain_binding_locked(current)
+            current = self.preparation._assert_current_locked(preparation_id)
+            if (current['worker_id'] != prepared['worker_id']
+                    or current['attempt_id'] != prepared['attempt_id']
+                    or current['task_lease'] != prepared['task_lease']
+                    or current['status'] != 'PREPARED'):
+                raise ToolDispatchError('N7_DISPATCH_PREPARATION_CHANGED_DURING_ADMISSION')
+            if self.truth.query(_KIND, dispatch_id=dispatch_id):
+                raise ToolDispatchError('N7_DISPATCH_ALREADY_DURABLE_NO_REPLAY')
+            row.update(authorization_protocol='TEMPORAL_LEASE_V1',
+                       execution_authorization=execution_authorization_snapshot(
+                           self.preparation, current))
+            claim_dir = Path(str(self.truth.store.path) + '.n7-dispatch-claims')
+            claim_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                claim = os.open(str(claim_dir / dispatch_id),
+                                os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError as exc:
+                raise ToolDispatchError(
+                    'N7_DISPATCH_ALREADY_CLAIMED_DIAGNOSIS_REQUIRED') from exc
+            # A claim is a permanent exclusion marker, never business truth.
+            # If the process dies before appending, no automatic replay occurs.
+            os.close(claim)
+            self.truth.append_atomic(_EVENT, row)
         ClosedLoopControlPlane(self.truth, prepared['release_id'], prepared['mission_id']).start(
             prepared['workitem_id'], worker_ref=prepared['worker_id'])
         runtime = RC72StateMachine(self.truth, release_id=prepared['release_id'])
