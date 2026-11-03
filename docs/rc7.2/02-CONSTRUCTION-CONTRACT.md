@@ -455,3 +455,7 @@ Both are construction-contract violations.
 `09-MISSION-COMPLETION-FIRST-MODEL-ECONOMY-DESIGN.md` is the governing design baseline for model/token economy. Where the older `08-TOKEN-ECONOMY-Q7-ADMISSION.md` or existing code treats ordinary Mission budget exhaustion as a hard stop, construction MUST migrate that behavior to the mission-completion-first semantics defined here and in design 09.
 
 Hard blocking remains valid only for correctness/waste guards such as deterministic misuse, invalid lineage required for safe attribution, exact duplicate/no-progress loops, invalid provider/capability assignment, or other conditions where continuing the same call would not validly advance the Mission.
+
+## 14. Design implementation closure addendum
+
+Mandatory design-to-code reconciliation, current-head P0 failing CI gate, C01–C12 closure matrix, production integration and transport/field boundaries are governed by [10-DESIGN-IMPLEMENTATION-CLOSURE-CONTRACT.md](10-DESIGN-IMPLEMENTATION-CLOSURE-CONTRACT.md). It supplements the frozen contract without relaxing it. Current engineering status is DESIGN_INCOMPLETE / NO_FINAL_DELIVERY; unsupported subjective completion percentages are forbidden.
