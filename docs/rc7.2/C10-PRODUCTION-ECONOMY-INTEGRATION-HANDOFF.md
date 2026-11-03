@@ -100,8 +100,12 @@ execution period and update them on policy changes. Without those overrides,
 only the regular Saturday/Sunday weekend rule is known. The schema requires
 canonical \`YYYY-MM-DD\` dates, deduplicates by rejection, rejects conflicts
 between working/non-working overrides, serializes stable sorted lists, and
-persists the selected schedule in canonical R1. A conflicting schedule on a
-cold restart is rejected before model launch.
+persists the selected schedule in canonical R1. Cold recovery without a new
+operator policy reuses the exact approved R1 schedule, including holidays and
+adjusted workdays. An explicit, validated calendar update **version-increments**
+the R1 budget while preserving existing soft targets and every required test;
+it does not block Mission execution merely due to quota-policy drift. Invalid
+or contradictory date lists still fail validation before dispatch.
 
 **Acceptance truth:** this changes *only* quota-window classification and
 economic scheduling/admission telemetry. It must never remove WorkItems,
