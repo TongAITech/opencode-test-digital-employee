@@ -27,7 +27,7 @@ from .models import ContractError
 from .rc72_context_economy import ExecutionBatch
 from .rc72_safe_execution_batch import SafeExecutionBatchService
 from .rc72_truth import install_rc72_truth_overlay
-from .rc72_native_batch_raw_proof import attest_native_raw
+from .rc72_native_batch_raw_proof import attest_native_raw, verify_native_raw_digest
 
 
 _ARTIFACT = "rc72_native_batch_candidate"
@@ -306,6 +306,10 @@ class NativeSharedExecutionBatch:
         if len(existing) > 1:
             raise NativeSharedBatchError("NATIVE_BATCH_CANDIDATE_NOT_UNIQUE")
         if existing:
+            verify_native_raw_digest(
+                raw_ref=existing[0]["raw_output_ref"],
+                expected_sha256=existing[0].get("raw_output_sha256"),
+            )
             return existing[0]
         if receipt.get("state") != "ADMITTED":
             raise NativeSharedBatchError("NATIVE_BATCH_PREVIOUS_FORMAL_RESULTS_MUST_NOT_BE_REPLACED")
