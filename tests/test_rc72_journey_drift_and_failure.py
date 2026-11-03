@@ -298,3 +298,56 @@ def test_replay_rejects_candidate_cross_case_attempt_scope_before_browser_io(tmp
             session_id="SESSION-R1", browser_lease_id=lease.browser_lease_id)
     assert not adapter.calls
     assert not truth.query("rc72_journey_replay", replay_id="JRP-CROSS-CASE")
+
+
+def test_compiled_journey_without_business_oracle_cannot_be_official(tmp_path):
+    truth = _truth(tmp_path)
+    candidate = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]
+    changed = dict(candidate)
+    changed.pop("artifact_type", None)
+    changed["artifact_version"] += 1
+    changed["steps"] = [dict(step) for step in changed["steps"]]
+    changed["steps"][0]["action_type"] = "NAVIGATE"
+    changed["steps"][0].pop("oracle_ref", None)
+    truth.append_atomic("RC72_JOURNEY_CANDIDATE_UPSERTED", changed)
+    attestation = _attestation(truth, candidate_version=4)
+    service = _service(truth, attestation)
+    with pytest.raises(Exception, match="JOURNEY_PROMOTION_BUSINESS_ORACLE_REQUIRED"):
+        service.review_and_promote(
+            review_id="JREV-NO-ORACLE", official_asset_id="OJ-NO-ORACLE",
+            candidate_id="JC-1", benchmark_id="JB-1",
+            attestation_ref=attestation["attestation_ref"])
+    assert not truth.query("rc72_official_journey_asset")
+
+
+def test_compiled_journey_without_case_lineage_cannot_be_official(tmp_path):
+    truth = _truth(tmp_path)
+    candidate = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]
+    changed = dict(candidate)
+    changed.pop("artifact_type", None)
+    changed.pop("case_id", None)
+    changed["artifact_version"] += 1
+    truth.append_atomic("RC72_JOURNEY_CANDIDATE_UPSERTED", changed)
+    attestation = _attestation(truth, candidate_version=4)
+    service = _service(truth, attestation)
+    with pytest.raises(Exception, match="JOURNEY_PROMOTION_CANONICAL_CASE_REQUIRED"):
+        service.review_and_promote(
+            review_id="JREV-NO-CASE", official_asset_id="OJ-NO-CASE",
+            candidate_id="JC-1", benchmark_id="JB-1",
+            attestation_ref=attestation["attestation_ref"])
+    assert not truth.query("rc72_official_journey_asset")
+
+
+def test_legacy_official_asset_with_missing_business_assertion_cannot_execute(tmp_path):
+    truth, pool, lease, adapter, service = official_setup(tmp_path)
+    asset = truth.query("rc72_official_journey_asset", official_asset_id="JOURNEY-1")[0]
+    changed = dict(asset)
+    changed.pop("artifact_type", None)
+    changed["artifact_version"] += 1
+    changed["steps"] = [dict(step) for step in changed["steps"]]
+    changed["steps"][1]["action_type"] = "NAVIGATE"
+    changed["steps"][1].pop("oracle_ref", None)
+    truth.append_atomic("RC72_OFFICIAL_JOURNEY_ASSET_UPSERTED", changed)
+    with pytest.raises(Exception, match="OFFICIAL_JOURNEY_BUSINESS_ORACLE_REQUIRED"):
+        _run(service, lease, execution_id="OJ-NO-ORACLE")
+    assert not adapter.calls
