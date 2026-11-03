@@ -141,3 +141,43 @@ def test_materializer_refuses_non_windows_host(tmp_path: Path) -> None:
         pytest.skip("non-Windows contract")
     with pytest.raises(materializer.RuntimePayloadMaterializerError, match="WINDOWS_RUNTIME_MATERIALIZER_REQUIRES_WINDOWS"):
         materializer.materialize(tmp_path)
+
+
+def _python_payload_root(tmp_path):
+    python=tmp_path/materializer.PACKAGE_LOCAL_PYTHON
+    python.parent.mkdir(parents=True);python.write_bytes(b'unit-test-python-placeholder')
+    probe=tmp_path/'rc7_release/python_full_capability_probe.py';probe.parent.mkdir(parents=True);probe.write_text('# unit fixture')
+    marker=tmp_path/materializer.OCR_CV_MARKER;marker.parent.mkdir(parents=True);marker.write_text('{"status":"PASS"}')
+    return python,marker
+
+
+def test_failed_full_python_install_cannot_retain_prior_pass_marker(tmp_path,monkeypatch):
+    python,marker=_python_payload_root(tmp_path)
+    def fail(*args,**kwargs):raise materializer.RuntimePayloadMaterializerError('injected install failure')
+    monkeypatch.setattr(materializer,'_run',fail)
+    with pytest.raises(materializer.RuntimePayloadMaterializerError,match='install failure'):materializer._materialize_ocr_cv(tmp_path)
+    assert not marker.exists()
+
+
+def test_old_cv_pillow_marker_cannot_establish_complete_document_ocr_payload(tmp_path,monkeypatch):
+    python,marker=_python_payload_root(tmp_path);commands=[]
+    def old_probe(command,**kwargs):
+        commands.append(list(command))
+        if '--runtime-root' in command:marker.write_text(json.dumps(dict(status='PASS',versions=dict(opencv='4',pillow='10'))))
+        return ''
+    monkeypatch.setattr(materializer,'_run',old_probe)
+    with pytest.raises(materializer.RuntimePayloadMaterializerError,match='FULL_PYTHON_CAPABILITY_PROBE_NOT_ACCEPTED'):
+        materializer._materialize_ocr_cv(tmp_path)
+    assert all(package in commands[0] for package in ['python-docx','openpyxl','python-pptx','pypdf','rapidocr-onnxruntime'])
+    assert '-I' in commands[1]
+
+
+def test_full_python_probe_refuses_interpreter_outside_declared_package(tmp_path):
+    import subprocess,sys
+    script=Path(materializer.__file__).with_name('python_full_capability_probe.py')
+    output=tmp_path/'probe-result.json'
+    child=subprocess.run([sys.executable,'-I',str(script),'--runtime-root',str(tmp_path/'foreign-runtime'),'--output',str(output)],
+        capture_output=True,text=True,timeout=20)
+    assert child.returncode==1
+    result=json.loads(output.read_text())
+    assert result['status']=='FAIL' and result['error']=='FULL_PYTHON_PACKAGE_INTERPRETER_REQUIRED'

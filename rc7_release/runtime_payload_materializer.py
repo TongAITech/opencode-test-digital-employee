@@ -386,23 +386,35 @@ def _materialize_playwright(root: Path) -> Dict[str, Any]:
 
 def _materialize_ocr_cv(root: Path) -> Dict[str, Any]:
     python = root / PACKAGE_LOCAL_PYTHON
-    if not python.is_file():
-        raise RuntimePayloadMaterializerError("PACKAGE_LOCAL_PYTHON_REQUIRED_FOR_OCR_CV")
-    _run(
-        [str(python), "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "pillow", "opencv-python-headless"],
-        cwd=root,
-        timeout=900,
-    )
-    output = _run(
-        [str(python), "-c", "import cv2, PIL, json; print(json.dumps({'opencv':cv2.__version__,'pillow':PIL.__version__}))"],
-        cwd=root,
-        timeout=60,
-    ).strip().splitlines()[-1]
-    versions = json.loads(output)
     marker = root / OCR_CV_MARKER
     marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text(json.dumps({"status": "PASS", "versions": versions}, sort_keys=True) + "\n", encoding="utf-8")
-    return _record("local_ocr_cv", marker.parent.parent, version="opencv=%s,pillow=%s" % (versions["opencv"], versions["pillow"]), source="PYPI_BUILD_TIME_RESOLUTION", sha256=_sha256(marker))
+    marker.unlink(missing_ok=True)
+    if not python.is_file():
+        raise RuntimePayloadMaterializerError("PACKAGE_LOCAL_PYTHON_REQUIRED_FOR_OCR_CV")
+    probe = root / "rc7_release/python_full_capability_probe.py"
+    if not probe.is_file():
+        raise RuntimePayloadMaterializerError("FULL_PYTHON_PROBE_SOURCE_REQUIRED")
+    # Preserve the complete RC7.1 document/OCR capability set, not only cv2/PIL.
+    packages = ("pytest", "requests", "python-docx", "openpyxl", "python-pptx", "pypdf", "pillow",
+                "numpy<2", "onnxruntime<1.20", "opencv-python-headless<4.11", "rapidocr-onnxruntime")
+    _run([str(python), "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir"] + list(packages),
+         cwd=root, timeout=900)
+    _run([str(python), "-I", str(probe), "--runtime-root", str(python.parent), "--output", str(marker)],
+         cwd=root, timeout=180)
+    evidence = json.loads(marker.read_text(encoding="utf-8"))
+    required_distributions = {"pytest", "requests", "python-docx", "openpyxl", "python-pptx", "pypdf", "pillow",
+                              "numpy", "onnxruntime", "opencv-python-headless", "rapidocr-onnxruntime"}
+    versions = evidence.get("versions") or {}
+    if (evidence.get("schema") != "RC72_FULL_PYTHON_CAPABILITY_V1" or evidence.get("status") != "PASS"
+            or evidence.get("network_allowed") is not False or evidence.get("offline_ocr_inference_executed") is not True
+            or set(evidence.get("roundtrips") or []) != {"DOCX", "XLSX", "PPTX", "PDF"}
+            or set(versions) != required_distributions or any(not isinstance(v, str) or not v for v in versions.values())
+            or evidence.get("evidence_level") != "ACTUAL_PACKAGE_LOCAL_OFFLINE_EXECUTION"
+            or Path(str(evidence.get("runtime_root"))).resolve() != python.parent.resolve()
+            or Path(str(evidence.get("interpreter"))).resolve() != python.resolve()):
+        raise RuntimePayloadMaterializerError("FULL_PYTHON_CAPABILITY_PROBE_NOT_ACCEPTED")
+    return _record("local_ocr_cv", marker.parent.parent, version=json.dumps(versions, sort_keys=True),
+                   source="PYPI_BUILD_TIME_RESOLUTION_OFFLINE_PROBED", sha256=_sha256(marker))
 
 
 def _seed_maven_repository(root: Path) -> Dict[str, Any]:

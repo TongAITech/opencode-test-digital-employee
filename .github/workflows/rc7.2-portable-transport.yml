@@ -69,6 +69,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'package identity/checksums failed' }
             & $py -m rc7_release.runtime_delivery_contract --package-root $pkg | Tee-Object (Join-Path $evidence 'physical-payload-inventory.json')
             if ($LASTEXITCODE -ne 0) { throw 'offline payload inventory incomplete' }
+            & $py -I (Join-Path $pkg 'rc7_release/python_full_capability_probe.py') --runtime-root (Split-Path -Parent $py) --output (Join-Path $evidence 'full-python-offline.json')
+            if ($LASTEXITCODE -ne 0) { throw 'package-local offline document/OCR qualification failed' }
             & $py -m rc7_release.rc72_windows_clean_qualification --package-root $pkg --output (Join-Path $evidence 'clean-runtime.json') --require-pass
             if ($LASTEXITCODE -ne 0) { throw 'package-local R1/session continuity failed' }
           } finally { Pop-Location }

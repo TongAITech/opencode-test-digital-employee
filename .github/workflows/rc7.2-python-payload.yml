@@ -1,0 +1,59 @@
+name: RC7.2 Full Python Payload Component Qualification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  copied-python-clean-unpack:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prepare complete inherited document and OCR dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pytest requests python-docx openpyxl python-pptx pypdf pillow 'numpy<2' 'onnxruntime<1.20' 'opencv-python-headless<4.11' rapidocr-onnxruntime
+          if ($LASTEXITCODE -ne 0) { throw 'complete Python dependency acquisition failed' }
+      - name: Copy runtime, archive, remove staging, and clean extract
+        shell: pwsh
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP 'rc72-python-component-stage'
+          $archive = Join-Path $env:RUNNER_TEMP 'rc72-python-component.zip'
+          $clean = Join-Path $env:RUNNER_TEMP 'rc72 python clean unpack'
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          $env:RC72_PYTHON_COMPONENT_STAGE = $stage
+          python -c "import os,pathlib,shutil; from rc7_release.package import _bundle_current_windows_python; p=pathlib.Path(os.environ['RC72_PYTHON_COMPONENT_STAGE']); assert _bundle_current_windows_python(p); (p/'rc7_release').mkdir(exist_ok=True); shutil.copy2('rc7_release/python_full_capability_probe.py',p/'rc7_release/python_full_capability_probe.py')"
+          if ($LASTEXITCODE -ne 0) { throw 'Python component copy failed' }
+          Compress-Archive (Join-Path $stage '*') $archive
+          Remove-Item $stage -Recurse -Force
+          Expand-Archive $archive $clean
+          $evidence = New-Item -ItemType Directory -Force dist/python-component-evidence
+          $py = Join-Path $clean 'workspace-template/runtime/python/python.exe'
+          $env:PYTHONPATH = ''
+          & $py -I (Join-Path $clean 'rc7_release/python_full_capability_probe.py') --runtime-root (Split-Path -Parent $py) --output (Join-Path $evidence.FullName 'actual-offline-capability.json')
+          if ($LASTEXITCODE -ne 0) { throw 'clean extracted package-local offline document/OCR probe failed' }
+          @{
+            source_commit = '${{ github.sha }}'
+            qualification_scope = 'WINDOWS_PYTHON_COMPONENT_CLEAN_UNPACK_ONLY'
+            full_product_package = $false
+            field_verified = $false
+            bank_final = $false
+            component_archive_sha256 = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $evidence.FullName 'qualification-boundary.json')
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-full-python-component-evidence-${{ github.sha }}
+          path: dist/python-component-evidence/*
+          retention-days: 30
