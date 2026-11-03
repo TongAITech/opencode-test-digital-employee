@@ -670,11 +670,17 @@ class TokenEconomyService:
             for row in unknown
         )
         total_context_bytes = sum(int(row.get("context_bytes", 0)) for row in model_calls)
+        # Prepared/admitted calls may not have reached the native DSH runner.
+        # Only a returned real native subprocess command confirms actual
+        # prompt bytes transmitted through this runner boundary.
+        returned_calls = [
+            row for row in model_calls if row.get("process_outcome") == "RETURNED"
+        ]
         real_prompt_serialization_bytes_saved = sum(
-            int(row.get("prompt_serialization_saved_bytes", 0)) for row in model_calls
+            int(row.get("prompt_serialization_saved_bytes", 0)) for row in returned_calls
         )
         lossless_json_compacted_calls = sum(
-            row.get("prompt_compaction_status") == "LOSSLESS_JSON" for row in model_calls
+            row.get("prompt_compaction_status") == "LOSSLESS_JSON" for row in returned_calls
         )
         reference_projection_calls = sum(
             row.get("context_projection_status") == "REFERENCE_ONLY"
