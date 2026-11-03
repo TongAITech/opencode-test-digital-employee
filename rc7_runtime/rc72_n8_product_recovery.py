@@ -78,32 +78,67 @@ class NativeN8ProductRecoveryService:
             if len(pending)==1:
                 self.diagnosis.evidence.record(pending[0]['preparation_id'])
                 return self._failure(release_batch_id)
-        # Do not accidentally repair one failure while ignoring siblings.
+        # Historical BLOCKED Attempts remain immutable by design. A repaired
+        # failure cannot be deleted to make a second N7 failure appear unique:
+        # select only the strictly newest generation with a *complete*, signed
+        # repair -> new binding lineage for every earlier blocked Attempt.
+        if len(admitted)>1:
+            newest=max(p['attempt_generation'] for p,_ in admitted)
+            current=[member for member in admitted if member[0]['attempt_generation']==newest]
+            if len(current)!=1:
+                raise ContractError('N8_PRODUCT_CONCURRENT_FAILURE_SCOPE_AMBIGUOUS')
+            candidate=current[0][0]
+            by_attempt={row['attempt_id']:row for row in attempts}
+            for old,_ in admitted:
+                if old['attempt_id']==candidate['attempt_id']:
+                    continue
+                prior_case=self._one('rc72_diagnosis_case',source_binding_id=old['binding_id'])
+                repair=self._one('rc72_diagnosis_repair',diagnosis_id=prior_case['diagnosis_id'])
+                recovered=self._one('rc72_diagnosis_recovery',diagnosis_id=prior_case['diagnosis_id'])
+                successor=by_attempt.get(recovered['replacement_attempt_id'])
+                binding=self._one('rc72_workitem_attempt_binding',
+                    binding_id=recovered['replacement_binding_id'])
+                if (prior_case['source_attempt_id']!=old['attempt_id']
+                        or repair['original_attempt_id']!=old['attempt_id']
+                        or recovered['original_attempt_id']!=old['attempt_id']
+                        or successor is None
+                        or successor['attempt_id']!=binding['attempt_id']
+                        or successor['workitem_id']!=old['workitem_id']
+                        or successor['case_id']!=old['case_id']
+                        or successor['attempt_generation']!=old['attempt_generation']+1
+                        or binding['parent_attempt_id']!=old['attempt_id']):
+                    raise ContractError('N8_PRODUCT_HISTORICAL_FAILURE_UNRESOLVED')
+            # Every prior failed generation has a genuine replacement. No
+            # unrelated unresolved Case can be silently excluded.
+            admitted=current
         if len(admitted)!=1:
             raise ContractError('N8_PRODUCT_FAILED_ATTEMPT_NOT_UNIQUE')
         p,attempt=admitted[0]
         if p['mission_id']!=batch['mission_id'] or p['release_batch_id']!=release_batch_id:
             raise ContractError('N8_PRODUCT_ATTEMPT_SCOPE_CHANGED')
         diag=self.truth.query('rc72_diagnosis_case',source_binding_id=p['binding_id'])
-        if not edges:
-            # The native N7 runner can fail its process/tool checks before
-            # N7Pipeline calls N8. Recover only a *real* frozen failed Attempt.
-            # The diagnosis service itself creates an R1 DIAGNOSIS transition
-            # and independent reviewers. No caller passes a failure class.
-            if n7['state']!='RUNNING' or n8['state']!='NOT_STARTED' or diag:
+        if len(diag)>1:
+            raise ContractError('N8_PRODUCT_DIAGNOSIS_NOT_UNIQUE')
+        if not diag:
+            # Older N8 deliveries do not certify the new failed Attempt.
+            # Only a currently RUNNING N7 may issue the next independent
+            # process diagnosis and persist a fresh signed transition.
+            if (n7['state']!='RUNNING' or n8['state'] not in {'NOT_STARTED','PASS'}
+                    or attempt['status']!='BLOCKED'):
                 raise ContractError('N8_PRODUCT_ACCEPTED_N7_FAILURE_TRANSITION_REQUIRED')
             self.diagnosis.run(p['preparation_id'])
             return self._failure(release_batch_id)
-        if len(edges)!=1 or len(diag)!=1:
-            raise ContractError('N8_PRODUCT_ACCEPTED_N7_FAILURE_TRANSITION_REQUIRED')
         case=diag[0]
+        matched=[edge for edge in edges if edge['transition_id']==case['transition_id']]
+        if len(matched)!=1:
+            raise ContractError('N8_PRODUCT_ACCEPTED_N7_FAILURE_TRANSITION_REQUIRED')
+        edge=matched[0]
         if (case['mission_id']!=p['mission_id']
                 or case['source_attempt_id']!=p['attempt_id']
-                or case['transition_id']!=edges[0]['transition_id']
-                or case['failure_evidence_refs']!=edges[0]['evidence_refs']
-                or not set(attempt['evidence_refs']).issubset(set(edges[0]['evidence_refs']))):
+                or case['failure_evidence_refs']!=edge['evidence_refs']
+                or not set(attempt['evidence_refs']).issubset(set(edge['evidence_refs']))):
             raise ContractError('N8_PRODUCT_ORIGINAL_FAILURE_EVIDENCE_CHANGED')
-        for eid in edges[0]['evidence_refs']:
+        for eid in edge['evidence_refs']:
             ev=self._one('rc7_evidence',evidence_id=eid)
             if ev['mission_id']!=p['mission_id']:
                 raise ContractError('N8_PRODUCT_FOREIGN_FAILURE_EVIDENCE')
