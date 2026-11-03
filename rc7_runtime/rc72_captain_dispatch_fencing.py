@@ -136,6 +136,29 @@ class CaptainDispatchFencer:
             owner = self._owner(mission_id, lease_id, captain_session_id, _now())
             return self._replace(owner, expires_at=max(owner["expires_at"], _now() + ttl_seconds))
 
+    def _assert_execution_quiesced_locked(self, mission_id):
+        """No handoff while an N7 business invocation or cleanup is live.
+
+        Both the append-only R1 tool intent and the canonical Task state are
+        checked under the Captain's shared ledger lock. A crash after intent
+        but before completion is an UNKNOWN effect, not a safe checkpoint.
+        """
+        tasks = self.truth.query("rc7_task", mission_id=mission_id)
+        if any(row.get("state") == "RUNNING" for row in tasks):
+            raise ContractError("CAPTAIN_HANDOFF_ACTIVE_EXECUTION_RECONCILIATION_REQUIRED")
+        task_ids = {row["task_id"] for row in tasks}
+        for kind in ("rc72_n7_tool_dispatch", "rc72_n7_cleanup_call"):
+            for row in self.truth.query(kind):
+                if row.get("workitem_id") in task_ids:
+                    relevant = True
+                else:
+                    prepared = self.truth.query(
+                        "rc72_n7_execution_preparation",
+                        preparation_id=row.get("preparation_id"))
+                    relevant = len(prepared) == 1 and prepared[0].get("mission_id") == mission_id
+                if relevant and row.get("state") in {"IN_FLIGHT", "UNKNOWN", "FAILED"}:
+                    raise ContractError("CAPTAIN_HANDOFF_UNRECONCILED_EXTERNAL_EFFECT")
+
     def prepare_handoff(self, *, mission_id, lease_id, captain_session_id,
                         lifecycle, team_id, current_node_refs,
                         latest_delivery_refs, latest_gate_refs, next_workitem_ids):
@@ -150,6 +173,7 @@ class CaptainDispatchFencer:
             owner = self._owner(mission_id, lease_id, captain_session_id, _now())
             if owner["team_id"] != team_id:
                 raise ContractError("CAPTAIN_HANDOFF_TEAM_MISMATCH")
+            self._assert_execution_quiesced_locked(mission_id)
             self._replace(owner, state="QUIESCED", quiesced_at=_now())
             checkpoint = lifecycle.create_captain_handoff(
                 mission_id=mission_id, team_id=team_id,
