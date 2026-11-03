@@ -181,6 +181,19 @@ class CaptainFencedWorkItemScheduler:
                 captain_lease_id=owner["lease_id"], state="LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH")
 
 
+    @staticmethod
+    def _contains_worker_identity(value, worker_id):
+        """Search *raw* event payloads, even before all overlays are imported."""
+        if isinstance(value, str):
+            return value == worker_id
+        if isinstance(value, dict):
+            return any(CaptainFencedWorkItemScheduler._contains_worker_identity(
+                item, worker_id) for item in value.values())
+        if isinstance(value, (list, tuple)):
+            return any(CaptainFencedWorkItemScheduler._contains_worker_identity(
+                item, worker_id) for item in value)
+        return False
+
     def recover_unleased_orphan(self, *, mission_id: str, team_id: str,
                                 captain_session_id: str, captain_lease_id: str,
                                 workitem_id: str, session_id: str):
@@ -215,6 +228,19 @@ class CaptainFencedWorkItemScheduler:
                     "runtime_attempt_id", "dsh_session_id", "binding_id")):
                 raise CaptainSchedulingError("ORPHAN_RECOVERY_AUTHORITY_OR_DSH_OBSERVED")
             worker_id = session["worker_id"]
+            # R1 raw history, not just currently installed projections, is the
+            # authoritative fail-closed proof. A previous external invocation
+            # could have written an event whose overlay was not imported in
+            # this cold interpreter. Exactly ONE initial session event must
+            # reference this new Worker; any additional reference is unknown
+            # provenance and categorically blocks unattended re-admission.
+            references = [event for event in self.truth.store.iter_raw()
+                          if self._contains_worker_identity(event.get("payload"), worker_id)]
+            if (len(references) != 1
+                    or references[0].get("event_type") != "RC72_WORKER_SESSION_UPSERTED"
+                    or references[0].get("entity_id") != session_id
+                    or references[0].get("entity_version") != 1):
+                raise CaptainSchedulingError("ORPHAN_RECOVERY_R1_PROVENANCE_UNKNOWN")
             for artifact_type in (
                     "rc72_workitem_attempt_binding", "execution_attempt",
                     "rc72_data_lease", "rc72_browser_lease", "rc72_capability_lease",
