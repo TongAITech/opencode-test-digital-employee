@@ -195,7 +195,7 @@ def verified_formal_receipt(preparation, p, c, raw):
 
 class FormalN7RunnerAdapter:
     def __init__(self, preparation, *, evidence_root, timeout_seconds=300, execution_env=None, environment_adapter=None,
-                 heartbeat_interval_seconds=5, renew_before_seconds=30, renewal_ttl_seconds=None):
+                 heartbeat_interval_seconds=5, renew_before_seconds=30, renewal_ttl_seconds=None,http_auth_provider=None):
         install_rc72_formal_runner_overlay()
         self.preparation, self.truth = preparation, preparation.truth
         self.root = Path(evidence_root).resolve()
@@ -204,6 +204,11 @@ class FormalN7RunnerAdapter:
                                       renewal_ttl_seconds=renewal_ttl_seconds)
         self.execution_env = scoped_process_environment(execution_env, home=self.root / 'qualification-home')
         self.environment_adapter = environment_adapter
+        if http_auth_provider is not None:
+            from .rc72_worker_http_auth import WorkerHTTPAuthAssetProvider
+            if not isinstance(http_auth_provider,WorkerHTTPAuthAssetProvider) or http_auth_provider.preparation is not preparation:
+                raise FormalRunnerError('FORMAL_SCOPED_HTTP_AUTH_PROVIDER_REQUIRED')
+        self.http_auth_provider=http_auth_provider
         self.loader = StrictScriptExecutionBundleLoader(evidence_root=str(self.root / 'qualification'),
                                                        validation_timeout_seconds=timeout_seconds)
 
@@ -227,7 +232,9 @@ class FormalN7RunnerAdapter:
             raise FormalRunnerError('FORMAL_APPROVED_RUNNER_BINDING_REQUIRED:N4')
         if contract['tool_route'].get('family')=='API':
             from .rc72_native_http_gate import validate_transport
-            validate_transport(spec.get('transport'),contract)
+            transport=validate_transport(spec.get('transport'),contract)
+            if transport['auth_mode']=='WORKER_HEADER' and self.http_auth_provider is None:
+                raise FormalRunnerError('FORMAL_SCOPED_HTTP_AUTH_PROVIDER_REQUIRED')
         result_ref = spec.get('script_result_ref')
         cwd = spec.get('cwd')
         if not isinstance(result_ref, str) or not result_ref.startswith('file://') or not isinstance(cwd, str):
@@ -386,7 +393,7 @@ class FormalN7RunnerAdapter:
         if transport is not None:
             from .rc72_native_http_gate import NativeHTTPGate
             native_gate = NativeHTTPGate(self.preparation,p,contract,transport,dispatcher,
-                evidence_root=self.root.parent/(self.root.name+'.native-http'),timeout_seconds=self.timeout).open()
+                evidence_root=self.root.parent/(self.root.name+'.native-http'),timeout_seconds=self.timeout,auth_provider=self.http_auth_provider).open()
             env.update(native_gate.environment())
         try:
             result = runner.execute(spec=bundle.spec, script=bundle.script, validation=bundle.validation, cwd=cwd, env=env)

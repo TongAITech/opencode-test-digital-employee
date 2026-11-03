@@ -1,5 +1,66 @@
 # RC7.2 持续施工与最终搬运交付
 
+## Worker-owned authenticated HTTP execution — 2026-11-03
+
+`WorkerHTTPAuthAssetProvider` now reads one bank-host export bound to the exact
+Preparation/Release/source/Mission/WorkItem/Attempt/worker/contract. Frozen N4
+transport may select `WORKER_HEADER`; the selected approved N1 auth Fact must
+supply the exact principal, full role set, non-device-bound asset reference and
+same-origin identity probe. The original Case role remains authoritative.
+
+The parent performs real authenticated identity HTTP before business I/O and
+requires the actual account and complete role set to match N1. Extra privileged
+roles are rejected. Only the parent uses Authorization; the child gets the fixed
+native operation capability, with no secret argument or credential environment.
+Signed observation binds the original asset via domain-separated HMAC, actual
+identity response hash, original scope, frozen auth specification and time window.
+Historical review needs no old secret file and never restores live permission.
+
+Fresh live-dispatch/source/authority/resource/asset checks surround the effect.
+A signed identity observation is journaled before business dispatch, followed by
+another permission check. Rotation/expiry during business retains signed UNKNOWN,
+actual captured response and custody without automatic replay/cleanup. Authentication
+failures retain bounded runtime reason codes, not server bodies or header values.
+Missing providers fail preflight rather than silently switching to anonymous.
+
+Evidence: `worker-http-auth-final-integrated.log` 52 passed in 152.68s across auth,
+anonymous native HTTP, formal Runner, conclusive failures, pipeline and N4 handoff.
+`worker-http-auth-discrepancy.log` additionally passed a real authenticated business
+discrepancy through separate independent N8/reviewer processes to N9 intake only;
+no PRODUCT_DEFECT or N7 PASS was invented. Renewal/heartbeat/full repair-retry/obligation regressions for this new source
+passed 38 tests in 145.54s (`worker-http-auth-recovery-qualification.log`). The
+complete original 28-Case product regression is still running under its unchanged
+900-second limit; it is not yet a PASS for this new source.
+
+This concrete provider supports bank-exported, non-device-bound Authorization
+headers with same-origin identity probing. Actual bank AuthKeeper/4A automatic
+export/lifecycle wiring, device-bound Browser/Cookie/mTLS/other identity providers,
+authenticated preparation/cleanup provider composition and all-role DSH fences
+remain construction work. It does not establish bank Field qualification or close
+all of C07/C09. See [the exact host contract](NATIVE-HTTP-AUTH-ASSET-CONTRACT.md).
+N9 professional qualification/RCA/fix/regression, N10/controller and complete
+physical transport delivery remain OPEN; overall goal stays ACTIVE / NO_DELIVERY.
+
+## Full 28-Case native product-chain qualification
+
+Exact runtime source `f3ac2da4e11a6a4f16bde335a12ce74eca004309` passed the
+complete original 28-Case N1→N7 product flow in 622.11s under the unchanged
+900-second file budget (`native-http-plan-economy-product.log`). The test includes
+actual parent-owned HTTP/process execution, cleanup and released resources,
+independent N7 acceptance, primary/secondary obligation proof from the same
+original Attempts, and no-write driver replay. The final-source failure/repair/
+retry/pipeline/obligation regression also passed 28 tests in 129.07s
+(`native-http-plan-economy-recovery-final.log`). N9 remains READY: this does not
+claim N9/N10, Mission convergence, Field or final transport completion.
+
+Two earlier whole-chain runs remain recorded as TIMEOUT/FAIL at 900 seconds:
+the pre-replay-optimization source (`native-http-full-product.log`) and
+`e9b70d2` before fresh admission input reuse (`native-http-final-source-product.log`).
+The qualified improvement retains the original Case denominator and acceptance
+rules. For parent `f3ac2da`, construction and Linux engineering qualification are
+terminal SUCCESS while Windows engineering is still running; Q2 clean-unpack
+is terminal SUCCESS, which does not establish a complete package.
+
 ## Actual parent-owned HTTP execution and replay economy — 2026-11-03
 
 The N7 formal API Runner now uses `RC72_NATIVE_API_HTTP_V1`: an ephemeral local
@@ -20,12 +81,13 @@ and maps the actual native response before recomputing the frozen Oracles.
 An API result labeled as DB/CAT or another independent tool Oracle remains HOLD
 until that native provider supplies its own evidence.
 
-Current transport scope is anonymous HTTP(S), JSON input and frozen response
-projection only. Both the selected N1 authentication Fact and original Case must
-explicitly authorize ANONYMOUS. Authenticated bank APIs do not fall back to
-anonymous execution. Host credential providers, DB/CAT/Browser tool gates,
-all-role DSH enforcement and general process isolation remain OPEN under C07/C09.
-This is construction evidence, not bank Field qualification.
+At this earlier checkpoint the transport supported anonymous HTTP(S), JSON
+input and frozen response projection. The newer Worker-auth section above adds
+an explicit scoped Authorization provider; unsupported bank authentication modes
+still do not fall back to anonymous execution. Host credential providers, DB/CAT/Browser tool gates and all-role DSH
+enforcement remain OPEN under C07/C09. This gate does not establish general OS
+process isolation; such isolation is not added here as a new frozen-design
+delivery requirement. This is construction evidence, not bank Field qualification.
 
 Validation recorded so far: `native-http-integrated-final.log` 49 passed;
 `native-http-oracle-provenance-final.log` 1 passed;
@@ -33,8 +95,8 @@ Validation recorded so far: `native-http-integrated-final.log` 49 passed;
 24 passed. Recovery regression found 76 passes and three obsolete expectations;
 strict native evidence-gap requalification passed all 20 evidence tests, and
 renewal-denied/process-timeout requalification passed both fault tests while
-retaining blocked Attempts and custody. Full 28-Case product-chain results are
-pending; no final-source platform claim is made. Parent source `36f7d05` has
+retaining blocked Attempts and custody. The complete product-chain qualification is recorded in the latest section
+above; no final-source platform claim is made. Parent source `36f7d05` has
 terminal Windows/Linux platform, construction and clean-unpack CI success.
 
 Ledger replay still validates every native/legacy event and rebuilds from the
@@ -54,9 +116,9 @@ status stays ACTIVE / NO_DELIVERY; there is no complete portable package yet.
 
 A full 28-Case run on the earlier double-normalization source reached the
 unchanged 900-second limit before completion (`native-http-full-product.log`).
-It is a failed qualification, not a PASS. The committed replay optimization's
-whole-chain qualification is still running; the time budget and Case denominator
-are unchanged.
+It is a failed qualification, not a PASS. The subsequent replay-only source
+also timed out; the additional admission reuse below then passed the complete
+chain, as recorded above. The time budget and Case denominator are unchanged.
 
 A further measured duplication was removed: plan validation used to perform the
 same complete admission check twice per Case, first to authenticate the receipt

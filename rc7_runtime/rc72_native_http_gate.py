@@ -37,16 +37,20 @@ def _validate(payload):
         contracts._require_str(row,key)
     if row.get('purpose')!=PROTOCOL or row.get('state') not in {'IN_FLIGHT','RETURNED','UNKNOWN'}:
         raise contracts.DomainValidationError('N7_NATIVE_HTTP_CALL_INVALID')
-    if row['business_auth_role']!='ANONYMOUS' or not isinstance(row.get('authorization'),dict):
+    if (row.get('auth_mode','ANONYMOUS') not in {'ANONYMOUS','WORKER_HEADER'}
+            or row.get('auth_mode','ANONYMOUS')=='ANONYMOUS' and row['business_auth_role']!='ANONYMOUS'
+            or not isinstance(row.get('authorization'),dict)):
         raise contracts.DomainValidationError('N7_NATIVE_HTTP_AUTHORIZATION_REQUIRED')
     if row['state']=='RETURNED':
+        if row.get('auth_mode')=='WORKER_HEADER' and not isinstance(row.get('worker_auth_receipt'),dict):
+            raise contracts.DomainValidationError('N7_NATIVE_HTTP_WORKER_AUTH_RECEIPT_REQUIRED')
         for key in ('response_ref','response_sha256','result_sha256'):
             contracts._require_str(row,key)
         if (not isinstance(row.get('completed_authorization'),dict)
                 or not isinstance(row.get('status_code'),int) or isinstance(row.get('status_code'),bool)
                 or not 100<=row['status_code']<=599 or not isinstance(row.get('result'),dict) or not row['result']):
             raise contracts.DomainValidationError('N7_NATIVE_HTTP_RETURNED_OBSERVATION_REQUIRED')
-    if any(k in row for k in ('case_pass','field_verified','bank_final','token')):
+    if any(k in row for k in ('case_pass','field_verified','bank_final','token','headers','Authorization','Cookie')):
         raise contracts.DomainValidationError('N7_NATIVE_HTTP_CALL_CLAIM_OR_SECRET_FORBIDDEN')
     row.update(artifact_type=_KIND,artifact_version=contracts._artifact_version(row))
     return row
@@ -61,7 +65,7 @@ def install_overlay():
 
 def validate_mapping(transport,sources):
     if (not isinstance(transport,dict) or set(transport)!={'protocol','source_ref','result_mapping','auth_mode'}
-            or transport.get('protocol')!=PROTOCOL or transport.get('auth_mode')!='ANONYMOUS'
+            or transport.get('protocol')!=PROTOCOL or transport.get('auth_mode') not in {'ANONYMOUS','WORKER_HEADER'}
             or transport.get('source_ref') not in sources):
         raise ContractError('N7_NATIVE_HTTP_APPROVED_TRANSPORT_REQUIRED')
     mapping=transport['result_mapping']
@@ -79,8 +83,11 @@ def validate_transport(transport,contract):
     profile=contract['environment'].get('target_profile',{})
     auth_id=profile.get('selectors',{}).get('auth_fact_id')
     facts=[r for r in profile.get('facts',[]) if r.get('kind')=='auth' and r.get('id')==auth_id]
-    if len(facts)!=1 or facts[0].get('attributes',{}).get('authentication_mode')!='ANONYMOUS':
+    if len(facts)!=1 or facts[0].get('attributes',{}).get('authentication_mode')!=transport['auth_mode']:
         raise ContractError('N7_NATIVE_HTTP_AUTH_PROVIDER_REQUIRED:N1')
+    if transport['auth_mode']=='WORKER_HEADER':
+        from .rc72_worker_http_auth import auth_spec
+        auth_spec(contract)
     route=urlsplit(contract['endpoint']['url'])
     if route.scheme not in {'http','https'} or not route.netloc or route.username or route.password or route.fragment:
         raise ContractError('N7_NATIVE_HTTP_EXACT_HTTP_TARGET_REQUIRED')
@@ -108,8 +115,17 @@ def verify_receipt(preparation,p,contract,call_id,transport,actual):
     from .rc72_lease_renewal import verify_execution_authorization
     verify_execution_authorization(preparation,p,row.get('authorization'))
     verify_execution_authorization(preparation,p,row.get('completed_authorization'))
+    from .rc72_worker_http_auth import business_role,verify_auth_receipt
+    if transport['auth_mode']=='WORKER_HEADER':
+        auth=verify_auth_receipt(preparation,p,contract,row.get('worker_auth_receipt'))
+        if (any(not isinstance(row.get(k),int) or isinstance(row[k],bool) for k in ('started_at','finished_at'))
+                or not row['started_at']<=auth['observed_at']<=row['finished_at']<auth['expires_at']):
+            raise ContractError('N7_NATIVE_HTTP_AUTH_OBSERVATION_TIME_INVALID')
+    elif row.get('worker_auth_receipt') is not None:
+        raise ContractError('N7_NATIVE_HTTP_UNDECLARED_WORKER_AUTH')
     request=_request(contract)
-    if (row['state']!='RETURNED' or row.get('business_auth_role')!='ANONYMOUS' or row['call_id']!='N7HTTP-'+_hash([p['preparation_id'],contract['contract_sha256']])[:24]
+    if (row['state']!='RETURNED' or row.get('auth_mode','ANONYMOUS')!=transport['auth_mode']
+            or row.get('business_auth_role')!=business_role(preparation,p) or row['call_id']!='N7HTTP-'+_hash([p['preparation_id'],contract['contract_sha256']])[:24]
             or any(row.get(k)!=p[k] for k in ('preparation_id','release_id','source_commit','mission_id','workitem_id','attempt_id','worker_id','contract_id'))
             or row['contract_sha256']!=contract['contract_sha256'] or row['request_sha256']!=_hash(request)
             or row['transport_sha256']!=_hash(validate_transport(transport,contract))
@@ -140,11 +156,17 @@ class _NoRedirect(HTTPRedirectHandler):
 
 
 class NativeHTTPGate:
-    def __init__(self,preparation,p,contract,transport,dispatcher,*,evidence_root,timeout_seconds=30):
+    def __init__(self,preparation,p,contract,transport,dispatcher,*,evidence_root,timeout_seconds=30,auth_provider=None):
         install_overlay()
         self.preparation,self.truth,self.authority=preparation,preparation.truth,preparation.authority
         self.p,self.contract=deepcopy(p),deepcopy(contract)
         self.transport=validate_transport(transport,contract)
+        self.auth_provider=None
+        if self.transport['auth_mode']=='WORKER_HEADER':
+            from .rc72_worker_http_auth import WorkerHTTPAuthAssetProvider
+            if not isinstance(auth_provider,WorkerHTTPAuthAssetProvider) or auth_provider.preparation is not preparation:
+                raise ContractError('N7_NATIVE_HTTP_SCOPED_AUTH_PROVIDER_REQUIRED')
+            self.auth_provider=auth_provider
         self.dispatcher=dispatcher
         self.root=Path(evidence_root).resolve()
         if isinstance(timeout_seconds,bool) or not isinstance(timeout_seconds,(int,float)) or not timeout_seconds>0:
@@ -181,11 +203,13 @@ class NativeHTTPGate:
         current=self.preparation._assert_current_locked(pid)
         if current!=self.p or self.preparation._one('rc72_n6_executable_contract',contract_id=self.p['contract_id'])!=self.contract:
             raise ContractError('N7_NATIVE_HTTP_PREPARATION_CHANGED')
-        plan=self.preparation._one('rc72_n7_execution_plan',plan_id=self.p['plan_id'])
-        snapshot=self.preparation._one('rc72_decomposition_snapshot',snapshot_id=plan['snapshot_id'])
-        cases=[r for r in snapshot['planning_cases'] if r['case_id']==self.p['case_id']]
-        if len(cases)!=1 or cases[0]['auth_role']!='ANONYMOUS':
-            raise ContractError('N7_NATIVE_HTTP_AUTH_ROLE_NOT_SUPPORTED')
+        from .rc72_worker_http_auth import business_role
+        self.role=business_role(self.preparation,self.p)
+        if self.auth_provider is None:
+            if self.role!='ANONYMOUS':
+                raise ContractError('N7_NATIVE_HTTP_AUTH_ROLE_NOT_SUPPORTED')
+        else:
+            self.auth_provider.assert_live(self.p,self.contract)
         self.authority.authorize_tool(self.p['worker_id'],self.p['task_lease']['lease_id'],self.contract['tool_route']['tool'])
 
     def _persist(self,row):
@@ -255,11 +279,19 @@ class NativeHTTPGate:
                 row=self._persist(dict(purpose=PROTOCOL,call_id=self.call_id,state='IN_FLIGHT',
                     **{k:self.p[k] for k in ('preparation_id','release_id','source_commit','mission_id','workitem_id','attempt_id','worker_id','contract_id')},
                     contract_sha256=self.contract['contract_sha256'],request_sha256=_hash(request),transport_sha256=_hash(self.transport),
-                    business_auth_role='ANONYMOUS',authorization=execution_authorization_snapshot(self.preparation,self.p),started_at=int(time.time())))
+                    business_auth_role=self.role,auth_mode=self.transport['auth_mode'],authorization=execution_authorization_snapshot(self.preparation,self.p),started_at=int(time.time())))
             observed={}
             try:
                 data=None if request['body'] is None else json.dumps(request['body'],sort_keys=True,ensure_ascii=False,allow_nan=False,separators=(',',':')).encode()
-                req=Request(request['url'],data=data,headers={'Content-Type':'application/json'},method=request['method'])
+                headers={'Content-Type':'application/json'}
+                if self.auth_provider is not None:
+                    auth_headers,auth_receipt=self.auth_provider.observe(self)
+                    with self._decision():
+                        self._actor()
+                        row=self._persist(dict(row,worker_auth_receipt=auth_receipt))
+                        self._actor()
+                    headers.update(auth_headers)
+                req=Request(request['url'],data=data,headers=headers,method=request['method'])
                 opener=build_opener(ProxyHandler({}),_NoRedirect())
                 try:
                     response=opener.open(req,timeout=self.timeout)
@@ -295,10 +327,14 @@ class NativeHTTPGate:
                 with self._decision():
                     current=self.preparation._one(_KIND,call_id=self.call_id)
                     if current['state']!='RETURNED':
-                        self._persist(dict(row,state='UNKNOWN',**observed,error_type=type(exc).__name__,finished_at=int(time.time())))
+                        code=str(exc) if isinstance(exc,ContractError) and str(exc).startswith('WORKER_HTTP_AUTH_') else 'N7_NATIVE_HTTP_EFFECT_UNCERTAIN'
+                        self._persist(dict(current,state='UNKNOWN',**observed,error_type=type(exc).__name__,
+                            error_code=code,finished_at=int(time.time())))
                 raise
 
     def close(self):
+        if self.auth_provider is not None:
+            self.auth_provider.release(self.p)
         self.active=False
         self.token=''
         if self.server is not None:

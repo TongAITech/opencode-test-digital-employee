@@ -214,7 +214,7 @@ def test_formal_api():
     (folder / 'result.json').write_text(json.dumps(result), encoding='utf-8')
 
 
-def formal_setup(tmp_path, monkeypatch, *, fail=False, emit_tool=True, profile_mutator=None, design_mutator=None):
+def formal_setup(tmp_path, monkeypatch, *, fail=False, emit_tool=True, profile_mutator=None, design_mutator=None, auth_mode='ANONYMOUS', auth_role='ANONYMOUS'):
     import test_rc72_n1_executable_binding as n1
     import rc72_integrated_test_support as support
     import test_rc72_n4_test_design_handoff as n4
@@ -248,8 +248,8 @@ def formal_setup(tmp_path, monkeypatch, *, fail=False, emit_tool=True, profile_m
                 case['execution']['runner'] = dict(script_result_ref='file://' + str(root / 'qualification' / 'result.json'),
                     cwd=str(root), source_ref=source_ref)
                 case['execution']['authoritative_sources'].append(source_ref)
-                case['execution']['planning']['auth_role']='ANONYMOUS'
-                case['execution']['runner']['transport']=dict(protocol='RC72_NATIVE_API_HTTP_V1',source_ref=source_ref,auth_mode='ANONYMOUS',
+                case['execution']['planning']['auth_role']=auth_role
+                case['execution']['runner']['transport']=dict(protocol='RC72_NATIVE_API_HTTP_V1',source_ref=source_ref,auth_mode=auth_mode,
                     result_mapping={'http':'$http','business':'$json.business'})
             return value
         monkeypatch.setattr(n4, '_candidate', candidate)
