@@ -514,3 +514,35 @@ def test_orphan_cannot_recover_if_raw_r1_records_session_only_external_reference
             workitem_id="WI-1", session_id=session["session_id"])
     assert list(truth.store.iter_raw()) == before
     assert truth.query("rc72_worker_session", session_id=session["session_id"])[0]["state"] == "ACTIVE"
+
+
+
+def test_crash_after_real_task_lease_before_captain_admission_is_fail_closed(tmp_path, monkeypatch):
+    truth, _, owner, _, bridge = _ready_fixture(tmp_path)
+    original = truth.append_atomic
+
+    def crash_after_lease(event_type, payload):
+        if event_type == "RC72_CAPTAIN_ETU_ADMITTED":
+            raise KeyboardInterrupt("crash before durable Captain admission proof")
+        return original(event_type, payload)
+
+    monkeypatch.setattr(truth, "append_atomic", crash_after_lease)
+    with pytest.raises(KeyboardInterrupt):
+        _admit(bridge, owner, "WI-1")
+    assert truth.query("rc7_task", task_id="WI-1")[0]["state"] == "LEASED"
+    assert len(truth.query("rc72_worker_session", mission_id="M-1")) == 1
+    assert truth.query("rc72_captain_etu_admission", mission_id="M-1") == []
+
+    replay = TruthRuntime(truth.store.path)
+    resumed = CaptainFencedWorkItemScheduler(
+        truth=replay, release_id="RC7.2",
+        fencer=CaptainDispatchFencer(replay, release_id="RC7.2"),
+        lifecycle=WorkerLifecycleService(replay, release_id="RC7.2"),
+        scheduler=TaskScheduler(replay, "RC7.2"),
+        role_profiles={"test-executor": ["api", "tool:api"]})
+    before = list(replay.store.iter_raw())
+    with pytest.raises(CaptainSchedulingError, match="WORKITEM_NOT_READY"):
+        _admit(resumed, owner, "WI-1")
+    assert list(replay.store.iter_raw()) == before
+    assert len(replay.query("rc72_worker_session", mission_id="M-1")) == 1
+    assert replay.query("rc72_captain_etu_admission", mission_id="M-1") == []
