@@ -240,3 +240,34 @@ def test_formal_runner_error_without_signed_preexecution_evidence_remains_unknow
     with pytest.raises(ToolDispatchError, match='SIDE_EFFECTS_UNKNOWN'):
         dispatch.dispatch(row['preparation_id'])
     assert calls == [1]
+
+
+
+def test_signed_preflight_cannot_claim_no_effect_when_unloaded_overlay_has_raw_io_event(tmp_path, monkeypatch):
+    """R1 raw effect beats a valid signed negative preflight observation."""
+    from test_rc72_n8_execution_diagnosis import _failure
+    from rc7_runtime.rc72_formal_runner import FormalRunnerError
+    from rc7_runtime.rc72_n7_no_effect_attestation import verified_no_external_business_effect
+
+    truth, prep, server, prepared = _failure(tmp_path, monkeypatch, mode="data")
+    try:
+        error = FormalRunnerError("FORMAL_PREPARATION_NOT_SATISFIED:DATA_RECHECK")
+        verified = verified_no_external_business_effect(prep, prepared, error)
+        assert verified  # The fixture really wrote a signed negative check.
+        original_events = list(truth.store.iter_raw())
+        # An optional transport overlay is NOT required to be installed in a
+        # cold caller. Model this by adding its recorded event to raw history.
+        raw_io = {
+            "event_type": "RC72_N7_HTTP_CALL_UPSERTED",
+            "payload": {
+                "attempt_id": prepared["attempt_id"],
+                "preparation_id": prepared["preparation_id"],
+                "worker_id": prepared["worker_id"],
+            },
+        }
+        monkeypatch.setattr(truth.store, "iter_raw",
+                            lambda: iter(original_events + [raw_io]))
+        assert verified_no_external_business_effect(prep, prepared, error) == ()
+    finally:
+        server.shutdown()
+        server.server_close()
