@@ -1,0 +1,48 @@
+name: RC7.2 Core Production Loop Targeted Qualification
+
+on:
+  push:
+    branches:
+      - work/rc7.2-core
+    paths:
+      - 'rc7_runtime/**'
+      - 'tests/test_rc72_*.py'
+      - '.github/workflows/rc7.2-core-targeted.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-n10-repair-rerun:
+    name: core-n10-repair-rerun-python-${{ matrix.python-version }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pinned qualification runner
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile production source
+        run: python -m compileall -q rc7_runtime rc7_release
+      - name: Product composition, ambiguous mapping, fresh N7, cold recovery
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_mission_factory.py
+          tests/test_rc72_n10_control.py
+          tests/test_rc72_native_coverage_rerun.py
+          --junitxml=core-n10-${{ matrix.python-version }}.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-core-n10-${{ matrix.python-version }}-${{ github.sha }}
+          path: core-n10-${{ matrix.python-version }}.xml
+          retention-days: 14
