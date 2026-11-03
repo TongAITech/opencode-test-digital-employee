@@ -37,13 +37,13 @@
 在解压后 Windows Git Bash，B 组已给出授权 BSK session 与确切 tab 后：
 
 ```bash
-export PFC_RC72_BSK_BIN="/d/AI-Test-RC7.2/workspace-template/runtime/tools/bsk/bsk.exe"
+# BSK 可执行文件自动从 workspace-template/runtime/browser/browserskill 内定位唯一的 bsk.exe
 export PFC_RC72_BSK_SESSION_ID="<由 B 组实际签发的 BSK session>"
 export PFC_RC72_BSK_TAB_ID="<对应 tab 数字>"
 bash packaging/rc7.2/QUALIFY-JOURNEY-BSK.sh
 ```
 
-上述路径只是示例，实际二进制位置以完整包清单为准。不得从旧版本复制 BSK。运行输出位于 `runtime-state/field-qualification/c09-bsk-readonly/c09-bsk-probe.json` 与 `live-browser.png`，包括 SOURCE_COMMIT、BSK 二进制 SHA、PNG SHA/尺寸、实时 Extension capability 和合作控制状态。即使结果为 `READ_ONLY_BSK_PROBE_PASS`，也只是**真实环境只读工具探针**，绝不是 Field、业务测试或官方资产审批通过。若成功后需要重新执行，指定新的报告目录；禁止覆盖旧证据。
+BSK 二进制路径以整包清单为准；脚本自动定位 `workspace-template/runtime/browser/browserskill` 下唯一的 `bsk.exe`，多份或缺失都失败，不会调用 PATH 中其它版本。必要时可显式设置 `PFC_RC72_BSK_BIN`。不得从旧版本复制 BSK。运行输出位于 `runtime-state/field-qualification/c09-bsk-readonly/c09-bsk-probe.json` 与 `live-browser.png`，包括 SOURCE_COMMIT、BSK 二进制 SHA、PNG SHA/尺寸、实时 Extension capability 和合作控制状态。即使结果为 `READ_ONLY_BSK_PROBE_PASS`，也只是**真实环境只读工具探针**，绝不是 Field、业务测试或官方资产审批通过。若成功后需要重新执行，指定新的报告目录；禁止覆盖旧证据。
 
 ## 五、PCC/4A 正式 Field 路线
 
