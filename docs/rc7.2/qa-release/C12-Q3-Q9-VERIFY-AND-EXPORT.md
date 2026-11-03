@@ -65,6 +65,20 @@ python packaging/rc7.2/QA-Q3-Q9-EVIDENCE.py \
 
 上述 `--include` 路径是现场事前约定的归档命名示例，必须先真实生成这些文件；**不存在会直接 FAIL，不会跳过或合成**。工具强制携带 canonical `runtime-state/r1/event-stream.jsonl`、源/包身份、Manifest/Checksum/Full Inventory，按字节记录 SHA256 和文件大小，输出外部 ZIP 及 `.sha256`。输出只能在包外，不能覆盖旧归档或从 symlink/外部路径搬运；输入 R1/证据不被修改。导出索引所有 Gate 均标 `PENDING_INDEPENDENT_VERIFICATION`，Q9 `NOT_ADMITTED`，**导出成功不表示现场验收成功**。
 
+### 独立复核导出 ZIP（必须在另一验收位置执行）
+
+对导出的 ZIP 和同目录 .sha256，必须执行**第二次独立逐字节校验**，不得只相信导出程序自报成功：
+
+```bash
+python packaging/rc7.2/QA-Q3-Q9-EVIDENCE.py \
+  --verify-archive "/independent-evidence/RC72-Q3-Q9-RAW.zip" \
+  --expected-source-commit "<FINAL_40_HEX_SHA>"
+```
+
+校验器要求 ZIP SHA256 与外部回执匹配、目录内没有额外/重复/危险条目、索引声明与每个真实 ZIP 成员的 SHA256 和 size 一致、R1 非空、source/build/release 身份匹配。伪造 q3–q8 已验收或 q9 BANK_FINAL、篡改 R1、补写未登记文件、使用另一源 SHA 均必须报 FAIL；即使返回 EVIDENCE_COPY_INTEGRITY_ONLY，**也只说明证据拷贝完整，不表示 R1 事实可靠、现场 Gate 成立或 Q9 已获授权**。Q3–Q9 的业务真假和审批真实性仍要独立人工/系统复核。
+
+此验收导出工具使用 Python 3.8+ 标准库，QA 的正/负例通过同一独立测试矩阵运行；新工具只有同 HEAD 的 CI 实际成功才能算 QA 工具验收，不把组件测试视为行内 Field 通过。
+
 ## 5. QA 终态要求
 
 在 A/B/C/D 最终同源工程验收（各类正/负/恢复、Python 3.8/3.11、Windows、目标 Linux）、完整包真实解压与启动、真实 Q3–Q9 完成前，任何 `FINAL`、`FIELD_VERIFIED`、`BANK_FINAL` 宣称均判 **REJECTED**。C12 是不可压缩交付门禁，不允许只提供源码 ZIP。
