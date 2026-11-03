@@ -29,7 +29,7 @@ def _candidate(truth: TruthRuntime):
     truth.append_atomic("RC72_JOURNEY_CANDIDATE_UPSERTED", {
         "candidate_id": "JC-1", "mission_id": "M-1", "release_id": "RC7.2",
         "release_batch_id": "RB-1", "requirement_id": "REQ-1", "sst_id": "SST-1",
-        "obligation_id": "TO-1", "source_recording_id": "JR-1",
+        "obligation_id": "TO-1", "case_id": "TC-1", "source_recording_id": "JR-1",
         "state": "COMPILED_CANDIDATE", "asset_class": "CANDIDATE",
         "executable": False, "official": False, "replay_status": "PASSED",
         "benchmark_status": "PASSED", "review_status": "NOT_REVIEWED",
@@ -83,6 +83,7 @@ def _attestation(truth, *, decision="APPROVED", actor_type="HUMAN", field_verifi
         "requirement_id": "REQ-1",
         "sst_id": "SST-1",
         "obligation_id": "TO-1",
+        "case_id": "TC-1",
         "candidate_artifact_version": candidate_version,
         "benchmark_artifact_version": benchmark_version,
         "scope_digest": scope_digest or approval_scope_digest(candidate, benchmark),
@@ -180,6 +181,7 @@ def test_trusted_field_human_approval_creates_separate_official_asset(tmp_path: 
     assert official["requirement_id"] == "REQ-1"
     assert official["sst_id"] == "SST-1"
     assert official["obligation_id"] == "TO-1"
+    assert official["case_id"] == "TC-1"
     candidate = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]
     assert candidate["review_status"] == "APPROVED"
     assert candidate["asset_class"] == "CANDIDATE"

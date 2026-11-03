@@ -113,6 +113,8 @@ def _validate_recording(payload: Dict[str, Any]) -> Dict[str, Any]:
         out["state"] = JourneyRecordingState(out["state"].upper()).value
     except ValueError as exc:
         raise _contracts.DomainValidationError("JOURNEY_RECORDING_STATE_INVALID") from exc
+    if "case_id" in out:
+        out["case_id"] = _required(out, "case_id")
     if out["asset_class"] != "CANDIDATE_SOURCE":
         raise _contracts.DomainValidationError("JOURNEY_RECORDING_ASSET_CLASS_INVALID")
     if out.get("executable") is not False:
@@ -230,7 +232,7 @@ class JourneyTeachingService:
         return rows[0]
 
     def _assert_browser(self, recording: Mapping[str, Any]) -> Dict[str, Any]:
-        return self.browser_pool.assert_usable(
+        lease = self.browser_pool.assert_usable(
             browser_lease_id=str(recording["browser_lease_id"]),
             mission_id=str(recording["mission_id"]),
             workitem_id=str(recording["workitem_id"]),
@@ -238,6 +240,9 @@ class JourneyTeachingService:
             worker_id=str(recording["worker_id"]),
             access_mode=BrowserAccessMode.WRITE,
         )
+        if str(lease.get("purpose") or "").upper() != "JOURNEY_TEACHING":
+            raise ContractError("JOURNEY_TEACHING_BROWSER_PURPOSE_MISMATCH")
+        return lease
 
     def start_recording(
         self,
@@ -292,7 +297,14 @@ class JourneyTeachingService:
             "asset_class": "CANDIDATE_SOURCE", "executable": False, "step_count": 0,
             "evidence_refs": [], "started_at": _now(), "completed_at": None,
         }
-        self._binding(candidate)
+        binding = self._binding(candidate)
+        etus = self.truth.query("rc72_etu", etu_id=str(binding["etu_id"]))
+        if (len(etus) != 1 or etus[0].get("mission_id") != mission_id
+                or etus[0].get("release_batch_id") != release_batch_id
+                or etus[0].get("obligation_id") != obligation_id
+                or binding.get("case_id") not in list(etus[0].get("case_ids") or [])):
+            raise ContractError("JOURNEY_TEACHING_CANONICAL_CASE_MISMATCH")
+        candidate["case_id"] = str(binding["case_id"])
         self._assert_browser(candidate)
         self._append("RC72_JOURNEY_RECORDING_UPSERTED", candidate)
         return JourneyRecordingResult(recording_id=recording_id, state=JourneyRecordingState.CAPTURING)
@@ -351,6 +363,8 @@ class JourneyTeachingService:
         recording = self._one(_RECORDING, recording_id=recording_id)
         if recording.get("state") != JourneyRecordingState.CAPTURING.value:
             raise ContractError("JOURNEY_RECORDING_NOT_CAPTURING")
+        self._binding(recording)
+        self._assert_browser(recording)
         if int(recording.get("step_count") or 0) < 1:
             raise ContractError("JOURNEY_RECORDING_STEPS_REQUIRED")
         evidence = [str(ref).strip() for ref in evidence_refs if isinstance(ref, str) and str(ref).strip()]
