@@ -39,13 +39,13 @@ def test_full_native_discrepancy_is_independently_diagnosed_for_n9_without_produ
         assert receipt['diagnostic_process']['pid']!=receipt['review_process']['pid']
         assert receipt['diagnosis_worker_id']!=receipt['reviewer_worker_id']!=attempt['worker_id']
         assert not truth.query('rc7_defect')
-        reproduction=truth.query('rc7_task',task_type='DEFECT_REPRODUCTION')
-        assert len(reproduction)==1 and reproduction[0]['task_id']==result['reproduction_workitem_id']
+        reproduction=truth.query('rc7_task',task_type='N9_DISCREPANCY_QUALIFICATION')
+        assert len(reproduction)==1 and reproduction[0]['task_id']==result['qualification_workitem_id']
         assert reproduction[0]['state'] in {'REGISTERED','READY'}
         assert reproduction[0]['node']=='DEFECT'
-        assert reproduction[0]['required_capabilities']==['defect_reproduction']
+        assert reproduction[0]['required_capabilities']==['defect_analysis']
         assert reproduction[0]['gap_refs']==[truth.query('rc72_diagnosis_outcome')[0]['gap_id']]
-        assert result['defect_confirmed'] is False
+        assert result['defect_confirmed'] is False and result['reproduction_completed'] is False
         assert not truth.query('rc72_node_gate',node_type='N7_EXECUTION')
         assert len(truth.query('rc72_n7_execution_plan')[0]['items'])==len(plan['items'])
         before=truth.store.path.read_bytes()
@@ -101,7 +101,7 @@ def test_runner_process_failure_does_not_automatically_cleanup_or_replay(tmp_pat
         assert not truth.query('rc72_n7_cleanup_call')
         attempt=truth.query('execution_attempt')[0]
         assert attempt['status']=='BLOCKED' and attempt['reason']=='RUNNER_PROCESS_FAILED'
-        assert not truth.query('rc7_task',task_type='DEFECT_REPRODUCTION')
+        assert not truth.query('rc7_task',task_type='N9_DISCREPANCY_QUALIFICATION')
         assert not truth.query('rc7_defect')
         assert all(r['state']=='ACTIVE' for r in truth.query('rc72_data_lease'))
         before=truth.store.path.read_bytes()
@@ -235,17 +235,19 @@ def test_rehashed_failure_file_and_canonical_pointers_cannot_forge_runtime_signa
         server.shutdown();server.server_close()
 
 
-def test_n9_reproduction_workitem_is_schedulable_and_rejects_changed_scope(tmp_path,monkeypatch):
+def test_n9_qualification_workitem_is_schedulable_and_rejects_changed_scope(tmp_path,monkeypatch):
     """Only a real accepted N8 failure may create a pending N9 WorkItem."""
     truth,plan,prep,server,url,pipeline=_failed_business(tmp_path,monkeypatch)
     try:
         result=pipeline.complete(release_batch_id=BATCH)
         assert result['failure_class']=='VALID_TEST_FAILURE'
-        task=truth.query('rc7_task',task_id=result['reproduction_workitem_id'])[0]
+        task=truth.query('rc7_task',task_id=result['qualification_workitem_id'])[0]
         assert task['state']=='READY'
-        assert task['task_type']=='DEFECT_REPRODUCTION'
+        assert task['task_type']=='N9_DISCREPANCY_QUALIFICATION'
         assert all(truth.query('rc7_artifact',artifact_id=ref) for ref in task['input_artifact_refs'])
         assert not truth.query('rc7_defect')
+        assert not truth.query('rc7_task',task_type='DEFECT_REPRODUCTION')
+        assert task['required_capabilities']==['defect_analysis']
         before=truth.store.path.read_bytes()
         assert pipeline.complete(release_batch_id=BATCH)==result
         assert truth.store.path.read_bytes()==before and len(server.calls)==1
