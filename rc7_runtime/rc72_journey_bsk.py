@@ -387,7 +387,11 @@ class JourneyBSKAdapter:
                        else "JOURNEY_BSK_UNEXPECTED_FAILURE")
         receipt = _atomic_json(actual_path, {
             "status": status, "failure_code": failure,
-            "source": "BROWSERSKILL_CLI", "field_verified": False,
+            "source": "BROWSERSKILL_CLI",
+            "field_verified": (
+                getattr(self, "_approved_run", None) ==
+                (run_id, context.get("attempt_id"), context.get("browser_lease_id"))
+                and int(time.time()) < getattr(self, "_proof_expires_at", 0)),
             "bsk_session_fingerprint": (
                 hashlib.sha256(session.encode("utf-8")).hexdigest()[:16]
                 if session is not None else None),
