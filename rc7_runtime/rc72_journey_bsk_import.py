@@ -193,7 +193,18 @@ class BSKJourneyTeachingImporter:
             if not isinstance(step_info, Mapping):
                 raise ContractError("JOURNEY_BSK_OPERATION_EVIDENCE_BINDING_REQUIRED")
             dom_ref, screenshot_ref = step_info.get("dom_ref"), step_info.get("screenshot_ref")
-            _real_file(dom_ref, capture_root=self.capture_root)
+            dom_file = _real_file(dom_ref, suffix=".json",
+                                  capture_root=self.capture_root)
+            try:
+                observation = json.loads(dom_file.read_text(encoding="utf-8"))
+            except (ValueError, UnicodeError) as exc:
+                raise ContractError("JOURNEY_BSK_OBSERVATION_JSON_INVALID") from exc
+            if (not isinstance(observation, Mapping)
+                    or observation.get("session_id") != bsk_session_id
+                    or observation.get("tab_id") != bsk_session_receipt["tab_id"]
+                    or not isinstance(observation.get("context_id"), str)
+                    or not observation["context_id"]):
+                raise ContractError("JOURNEY_BSK_OBSERVATION_SCOPE_INVALID")
             shot = _real_file(screenshot_ref, suffix=".png",
                               capture_root=self.capture_root)
             if dom_ref in used_dom or screenshot_ref in used_png:
