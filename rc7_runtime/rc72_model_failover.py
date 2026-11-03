@@ -489,6 +489,7 @@ class ModelFailoverManager:
         A conflicting observation blocks *before* a new WorkerSession appears.
         """
         prohibited = frozenset({
+            "RC72_N7_TOOL_DISPATCH_UPSERTED",
             "RC72_N7_HTTP_CALL_UPSERTED",
             "RC72_EXECUTION_PROCESS_HEARTBEAT_UPSERTED",
             "RC72_N7_FORMAL_RUNNER_RECEIPT_UPSERTED",
