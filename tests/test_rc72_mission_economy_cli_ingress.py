@@ -116,3 +116,56 @@ def test_cli_rejects_economy_config_for_status_and_mirror_without_opening_model(
             "--economy-config", str(tmp_path / "untrusted.json"),
         ])
     assert e.value.code == 2
+
+
+
+def test_real_cli_status_cold_replays_legacy_unknown_token_usage_without_loss(tmp_path, monkeypatch, capsys):
+    from rc7_runtime.rc72_economy_replay_bootstrap import install_rc72_economy_replay_bindings
+    from rc7_runtime.rc72_model_economy import TokenEconomyService
+    from rc7_runtime.rc72_model_usage import TokenUsageAuditService
+    from rc7_runtime.rc72_native_shared_batch import install_native_batch_candidate_overlay
+    from rc7_runtime.rc72_native_shared_batch_review import install_native_batch_review_overlay
+    from rc6_runtime import truth as _truth
+
+    install_rc72_economy_replay_bindings()
+    assert "RC72_NATIVE_BATCH_CANDIDATE_RECORDED" in _truth.EVENT_TYPES
+    assert "RC72_NATIVE_BATCH_REVIEW_RECORDED" in _truth.EVENT_TYPES
+    assert "RC72_RETRY_CONTEXT_COMPILED" in _truth.EVENT_TYPES
+    assert "RC72_TOKEN_USAGE_OBSERVED" in _truth.EVENT_TYPES
+
+    ledger = tmp_path / "r1.jsonl"
+    initial = TruthRuntime(ledger)
+    economy = TokenEconomyService(initial, release_id="REL-C10")
+    economy.configure_budget(
+        mission_id="MISSION-C10",
+        max_total_tokens=1000, max_model_calls=10,
+        max_single_call_tokens=100, max_retry_tokens=500,
+        max_retry_calls=10,
+    )
+    TokenUsageAuditService(initial, release_id="REL-C10").observe(
+        mission_id="MISSION-C10", attempt_id="ATT-LEGACY",
+        assignment_id="AS-LEGACY",
+        raw_output_ref="file:///local/verified-prior-dsh-jsonl",
+        events=[{"type": "tool_result", "tool_name": "CAT", "usage": {
+            "input_tokens": 9999, "total_tokens": 9999,
+        }}],
+    )
+    checked = []
+
+    def validate_replayed(truth, **kwargs):
+        rows = truth.query("rc72_token_usage", mission_id="MISSION-C10")
+        assert len(rows) == 1
+        assert rows[0]["observation_status"] == "UNKNOWN"
+        assert rows[0]["total_tokens"] is None
+        assert truth.query("rc72_token_budget", budget_id="MISSION-C10")[0]["max_total_tokens"] == 1000
+        checked.append("R1_REPLAYED")
+        return {"status": "HOLD", "release_batch_id": "B-C10", "release_id": "REL-C10"}
+
+    monkeypatch.setattr(rc72_mission_cli, "release_batch_status", validate_replayed)
+    code = rc72_mission_cli.main([
+        "status", "--ledger", str(ledger), "--source-commit", "a" * 40,
+        "--release-batch", "B-C10",
+    ])
+    assert code == 0
+    assert checked == ["R1_REPLAYED"]
+    assert json.loads(capsys.readouterr().out)["status"] == "HOLD"
