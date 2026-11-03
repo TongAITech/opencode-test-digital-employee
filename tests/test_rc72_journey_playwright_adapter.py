@@ -21,6 +21,13 @@ class FakeLocator:
 
     def click(self, **kwargs):
         self.page.actions.append(("click", self.selector))
+        if self.selector == "css:#save":
+            from types import SimpleNamespace
+            response = SimpleNamespace(
+                url="https://fat1.example/api/config?token=never-persist",
+                status=200, request=SimpleNamespace(method="POST"))
+            for listener in list(self.page.handlers.get("response", [])):
+                listener(response)
 
     def fill(self, value, **kwargs):
         self.page.actions.append(("fill", self.selector, value))
@@ -354,3 +361,33 @@ def test_visible_wait_without_element_fails_closed_not_faked_as_pass(tmp_path):
     assert run_replay(service, lease).state.value == "FAILED"
     actual = json.loads((tmp_path / "evidence" / "REAL-1" / "step-0001" / "actual.json").read_text())
     assert actual["failure_code"] == "JOURNEY_VISIBLE_WAIT_ELEMENT_REQUIRED"
+
+
+@pytest.mark.parametrize("expected,status", [(200, "PASSED"), (201, "FAILED")])
+def test_business_network_oracle_reads_actual_observed_post_not_recording_ref(tmp_path, expected, status):
+    truth, pool, lease, page, adapter, service = make_replay(tmp_path)
+    candidate = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]
+    updated = dict(candidate)
+    updated.pop("artifact_type", None)
+    updated["artifact_version"] += 1
+    updated["steps"] = [dict(item) for item in candidate["steps"]]
+    updated["steps"][1]["oracle_ref"] = "oracle://save-network"
+    truth.append_atomic("RC72_JOURNEY_CANDIDATE_UPSERTED", updated)
+
+    def network_resolver(ref, kind, context):
+        if kind == "oracle" and ref == "oracle://save-network":
+            return {"type": "network_status", "method": "POST",
+                    "url": "https://fat1.example/api/config", "status": expected}
+        return resolver(ref, kind, context)
+
+    adapter.resolve = network_resolver
+    result = run_replay(service, lease)
+    assert result.state.value == status
+    click_actual = json.loads(
+        (tmp_path / "evidence" / "REAL-1" / "step-0002" / "actual.json").read_text())
+    assert click_actual["response_metadata"][0]["method"] == "POST"
+    assert click_actual["response_metadata"][0]["url"] == "https://fat1.example/api/config"
+    assert "never-persist" not in json.dumps(click_actual)
+    if status == "FAILED":
+        assert truth.query("rc72_journey_replay", replay_id="REAL-1")[0][
+            "failure_code"] == "JOURNEY_ASSERT_NETWORK_STATUS_MISMATCH"
