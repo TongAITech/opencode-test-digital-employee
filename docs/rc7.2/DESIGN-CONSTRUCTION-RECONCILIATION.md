@@ -1,5 +1,29 @@
 # RC7.2 design/construction reconciliation — 2026-11-02
 
+## Actual uncovered-unit gap intake and read-only N10 consumption — 2026-11-03
+
+Added concrete native coverage intake over the actual accepted measurement.
+Uncovered units are counted by exact captured code slice and mapped only to
+existing canonical obligation lineage. No match stays UNMAPPED; all ambiguous
+candidates are preserved; unique matches retain original Requirement/SST IDs.
+Signed BINDING/BOUND receipts permit metadata-only recovery and refuse unattested
+existing gaps, changed counts, signed wrong scope and lost evidence. No new
+Case/ETU/obligation/WorkItem is created. N10 now requires the same concrete intake
+provider and audits existing closures rather than generating gaps during audit.
+
+Final actual intake/native aggregation qualification: 6 passed in 61.32s,
+including partial recovery, cold read-only audit/refusal, complete candidate
+lineage and 75%/100% measurements with original missing L1..L7 still preventing
+convergence. Legacy feedback/N10/scope regressions: 36 passed in 36.51s (three
+existing collection warnings). Earlier three intake tests passed in 27.95s and
+actual canonical mapping passed in 9.26s. An invalid test-only projection name
+was corrected before these passes.
+
+This closes the actual-report-to-initial-gap bridge only. Native reason
+classification, repair dispatch/re-execution, approved exclusion, professional
+N9 defect workflow, complete N10 controller, factory and full portable package
+are still open. No Field/BANK_FINAL or whole RC7.2 completion is claimed.
+
 ## Actual incremental coverage bridge and native N10 proof — 2026-11-03
 
 Implemented original V2 per-Application metric/revision/threshold/fixed-URL policy,

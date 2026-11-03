@@ -84,3 +84,28 @@ A measured target cannot erase missing Requirement/SST/L1..L7 obligations,
 professional defects, unresolved gaps or runtime blockers. Engineering localhost
 fixtures verify this bridge only. Complete product/Field certification and the
 RC7.1-equivalent full portable package are separate outstanding deliverables.
+
+## Actual uncovered-unit intake
+
+`NativeCoverageGapIntakeService` consumes the concrete measurement's read-only
+accepted audit. It counts uncovered captured units by exact code_slice, preserving
+the full measured population, and uses the existing canonical mapping service.
+No match remains UNMAPPED (N2/N3 investigation); multiple matches remain
+AMBIGUOUS (N3/N10 investigation); a unique match copies its existing Requirement,
+SST and TestObligation and awaits reason classification. Intake creates no new
+Requirement, SST, TestObligation, Case, ETU or WorkItem, and cannot select a
+favorable candidate or invent a repair diagnosis.
+
+Signed BINDING/BOUND receipts bind original body/policy/N7 epoch, exact counts,
+all candidate identities, deterministic Gap IDs and actual evidence. Partial
+mapping can resume without another HTTP read. Unattested existing gaps are not
+adopted. Cold audit requires the full existing BOUND closure, checks immutable
+gap lineage and evidence, and never fills missing metadata. Classification and
+repair lifecycle retain their separate existing contracts; this intake alone
+never proves a repair or approved exclusion.
+
+Native N10 additionally requires this concrete intake provider over the same
+measurement instance. A measured percentage cannot hide gaps that were never
+entered. N10 audits both proofs without network or metadata repair. A 100%
+measurement with no uncovered units still cannot erase missing original L1..L7
+obligations; the engineering test remains NOT_CONVERGED in that case.

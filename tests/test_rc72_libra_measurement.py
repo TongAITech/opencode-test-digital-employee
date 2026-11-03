@@ -113,23 +113,30 @@ def test_cold_audit_is_readonly_and_rejects_reviewer_request_tampering(tmp_path,
     finally:server.shutdown();server.server_close();business.shutdown();business.server_close()
 
 
-def test_native_convergence_consumes_actual_counts_and_preserves_all_levels(tmp_path,monkeypatch):
+@pytest.mark.parametrize('all_covered',[False,True])
+def test_native_convergence_consumes_actual_counts_and_preserves_all_levels(tmp_path,monkeypatch,all_covered):
     from rc7_runtime.rc72_release_convergence import ReleaseConvergenceAggregator
     from rc7_runtime.rc72_obligation_execution_proof import AcceptedObligationExecutionProof
     from rc7_runtime.rc72_state_machine import RC72StateMachine
     from rc72_n2_test_support import RELEASE,MISSION
     truth,plan,pipeline,business,server,service=_setup(tmp_path,monkeypatch)
     try:
+        if all_covered:
+            server.mutate=lambda row:[unit.update(covered=True) for unit in row['units']]
         actual=service.collect(release_batch_id=BATCH,application_id=server.app)
+        from rc7_runtime.rc72_native_coverage_intake import NativeCoverageGapIntakeService
+        intake=NativeCoverageGapIntakeService(service)
+        intake.intake(release_batch_id=BATCH,application_id=server.app)
         aggregator=ReleaseConvergenceAggregator(truth,release_id=RELEASE,runtime=RC72StateMachine(truth,release_id=RELEASE),
-            execution_proof=AcceptedObligationExecutionProof(pipeline),expected_scope=service.expected_scope,coverage_proof=service)
+            execution_proof=AcceptedObligationExecutionProof(pipeline),expected_scope=service.expected_scope,coverage_proof=service,coverage_intake=intake)
         from rc7_runtime.rc72_coverage_convergence import CoverageFeedbackService
         CoverageFeedbackService(truth,release_id=RELEASE).record_observation(observation_id='UNATTESTED-PERCENT',
             mission_id=MISSION,release_batch_id=BATCH,application_id=server.app,source='CALLER',covered_units=100,
             total_units=100,target_ratio=.1,evidence_ref='unverified://caller')
         result=aggregator.aggregate(mission_id=MISSION)
-        assert result.facts.incremental_coverage_met is False
+        assert result.facts.incremental_coverage_met is all_covered
         assert result.facts.required_l1_l7_completion is False
+        assert result.result.value=='NOT_CONVERGED'
         assert result.coverage_observation_ids==[actual['observation_id']]
         legacy=ReleaseConvergenceAggregator(truth,release_id=RELEASE,runtime=RC72StateMachine(truth,release_id=RELEASE))
         downgraded=legacy.aggregate(mission_id=MISSION)
