@@ -64,6 +64,8 @@ jobs:
       - name: Provision actual matching Chromium on GitHub CI
         run: python -m playwright install --with-deps chromium
       - name: Real Chromium CDP HTTP business Oracle and evidence smoke
+        env:
+          RC72_C09_EVIDENCE_EXPORT_ROOT: rc72-c09-real-cdp-evidence
         run: >-
           python -m pytest -v
           --junitxml=rc72-c09-real-chromium.xml
@@ -73,5 +75,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rc72-c09-real-chromium
-          path: rc72-c09-real-chromium.xml
+          path: |
+            rc72-c09-real-chromium.xml
+            rc72-c09-real-cdp-evidence/
           if-no-files-found: warn
