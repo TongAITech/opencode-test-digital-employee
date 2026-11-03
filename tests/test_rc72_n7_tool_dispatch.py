@@ -196,7 +196,7 @@ def test_adapter_times_out_after_remote_commit_and_cold_resume_never_replays(tmp
     # Before the cold redispatch revokes the old worker lease, UNKNOWN cannot
     # be evaluated as a returned business receipt or a PASS.
     from rc6_runtime.authority import AuthorityError
-    with pytest.raises((ToolDispatchError, AuthorityError)):
+    with pytest.raises((ToolDispatchError, AuthorityError, ExecutionPreparationError)):
         resumed.evaluate(row['preparation_id'])
     assert 'oracle_result' not in cold.query('rc72_n7_tool_dispatch', preparation_id=row['preparation_id'])[0]
     with pytest.raises(ToolDispatchError, match='SIDE_EFFECTS_UNKNOWN'):
@@ -268,6 +268,57 @@ def test_signed_preflight_cannot_claim_no_effect_when_unloaded_overlay_has_raw_i
         monkeypatch.setattr(truth.store, "iter_raw",
                             lambda: iter(original_events + [raw_io]))
         assert verified_no_external_business_effect(prep, prepared, error) == ()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+
+def test_unknown_business_effect_revokes_preparation_authority_hot_and_after_cold_replay(tmp_path, monkeypatch):
+    """No alternate tool path may restore authority after the N7 UNKNOWN state."""
+    from rc6_runtime.authority import AuthorityError
+
+    truth, preparation, row = _prepared(tmp_path, monkeypatch)
+    invoked = []
+
+    def remote_may_have_committed(**_kwargs):
+        invoked.append("committed-unknown")
+        raise TimeoutError("response lost after possible remote commit")
+
+    result = SignedToolDispatchService(
+        preparation, adapters={"api_http": remote_may_have_committed},
+    ).dispatch(row["preparation_id"])
+    assert result["state"] == "UNKNOWN"
+    original_events = list(truth.store.iter_raw())
+
+    with pytest.raises(ExecutionPreparationError, match="UNKNOWN_EFFECT_RECONCILIATION_REQUIRED"):
+        preparation.assert_current(row["preparation_id"])
+    with pytest.raises(AuthorityError, match="LEASE_REVOKED"):
+        preparation.authority.authorize_tool(
+            row["worker_id"], row["task_lease"]["lease_id"], "api_http")
+    assert list(truth.store.iter_raw()) == original_events
+
+    replay = TruthRuntime(truth.store.path)
+    fresh_runtime = _service(replay)
+    with pytest.raises(ExecutionPreparationError, match="UNKNOWN_EFFECT_RECONCILIATION_REQUIRED"):
+        fresh_runtime.assert_current(row["preparation_id"])
+    with pytest.raises(AuthorityError, match="LEASE_REVOKED"):
+        fresh_runtime.authority.authorize_tool(
+            row["worker_id"], row["task_lease"]["lease_id"], "api_http")
+    assert replay.query("rc72_n7_tool_dispatch", attempt_id=row["attempt_id"])[0]["state"] == "UNKNOWN"
+    assert list(replay.store.iter_raw()) == original_events
+    assert invoked == ["committed-unknown"]
+
+
+def test_signed_precondition_failure_still_supports_n8_and_is_not_unknown(tmp_path, monkeypatch):
+    """UNKNOWN fencing must not erase verifiable pre-execution N8 failures."""
+    from test_rc72_n8_execution_diagnosis import _failure
+    truth, prep, server, prepared = _failure(tmp_path, monkeypatch, mode="data")
+    try:
+        row = truth.query("rc72_n7_tool_dispatch", attempt_id=prepared["attempt_id"])[0]
+        assert row["state"] == "FAILED"
+        assert row["verified_no_business_effect"] is True
+        assert row["no_effect_evidence_refs"]
     finally:
         server.shutdown()
         server.server_close()
