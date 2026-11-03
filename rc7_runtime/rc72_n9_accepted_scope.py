@@ -111,12 +111,18 @@ class AcceptedScopeN9Service:
                 if node['state'] not in {'READY','RUNNING'}:raise ContractError('N9_ACCEPTED_SCOPE_RECEIPT_REQUIRED')
                 self.truth.append_atomic(_EVENT,dict(expected,signature=self.authority._sign(expected),artifact_version=1))
             did='N9DEL-'+_hash(cid)[:24];gid='N9GATE-'+_hash(cid)[:24]
+            deliveries=self.truth.query('rc72_node_delivery',delivery_id=did)
+            if len(deliveries)>1:raise ContractError('N9_ACCEPTED_SCOPE_DELIVERY_NOT_UNIQUE')
+            if deliveries:
+                delivery_version=deliveries[0]['version']
+            else:
+                prior=self.truth.query('rc72_node_delivery',mission_node_id=node['mission_node_id'])
+                delivery_version=max([row['version'] for row in prior]+[0])+1
             delivery=NodeDelivery(delivery_id=did,mission_id=mission,mission_node_id=node['mission_node_id'],
-                node_type=Node.N9_DEFECT,version=1,producer_ref='rc72-native-accepted-scope-auditor',
+                node_type=Node.N9_DEFECT,version=delivery_version,producer_ref='rc72-native-accepted-scope-auditor',
                 input_refs=[proof['n7_gate_id'],proof['bundle_id']],artifact_refs=[cid],
                 evidence_refs=[proof['review_result_id']])
             d={k:v for k,v in asdict(delivery).items() if k!='created_at'};d['node_type']=Node.N9_DEFECT.value
-            deliveries=self.truth.query('rc72_node_delivery',delivery_id=did)
             if deliveries:self._check(deliveries[0],d,'N9_ACCEPTED_SCOPE_DELIVERY_CHANGED')
             if node['state']=='READY':
                 self.runtime.transition_state(node['mission_node_id'],State.RUNNING,reason='audit accepted N7 discrepancy inventory')
@@ -125,9 +131,9 @@ class AcceptedScopeN9Service:
                 if not deliveries:self.runtime.submit_delivery(delivery)
                 else:
                     self.runtime._persist_node_state(node,State.REVIEW_PENDING,reason='resume native N9 delivery',
-                        active_delivery_version=1,delivery_refs=list(dict.fromkeys(node['delivery_refs']+[did])))
+                        active_delivery_version=delivery_version,delivery_refs=list(dict.fromkeys(node['delivery_refs']+[did])))
                 node=self.runtime.node(node['mission_node_id'])
-            if node['active_delivery_version']!=1 or did not in node['delivery_refs']:
+            if node['active_delivery_version']!=delivery_version or did not in node['delivery_refs']:
                 raise ContractError('N9_ACCEPTED_SCOPE_ACTIVE_DELIVERY_CHANGED')
             # Recompute instead of trusting the producer's absence claim.
             checked,pending=self._snapshot(release_batch_id)
