@@ -323,6 +323,11 @@ class JourneyReplayService:
                 raise ContractError("%s_REQUIRED" % name.upper())
         if self.truth.query(_REPLAY, replay_id=replay_id):
             raise ContractError("JOURNEY_REPLAY_ALREADY_EXISTS")
+        # A crashed replay can have side effects not represented by a step
+        # receipt. Neither a new ID nor a different Attempt may bypass N8.
+        if any(row.get("state") == "STARTED"
+               for row in self.truth.query(_REPLAY, candidate_id=candidate_id)):
+            raise ContractError("JOURNEY_REPLAY_UNKNOWN_SIDE_EFFECTS_RECOVERY_REQUIRED")
         # A separate replay ID is not permission to repeat business side effects.
         # Benchmark replays require independent Attempt leases.
         if any(row.get("candidate_id") == candidate_id and row.get("attempt_id") == attempt_id
