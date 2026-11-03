@@ -26,6 +26,7 @@ from .rc72_model_economy import (
 )
 from .rc72_model_usage import TokenUsageAuditService
 from .rc72_model_usage_worker_bridge import Rc72TokenUsageLauncherProxy
+from .rc72_lossless_prompt_compaction import compact_native_prompt_json
 
 
 class ProductionEconomyBindingError(RuntimeError):
@@ -96,6 +97,13 @@ def bind_production_model_economy(
         ):
             raise ProductionEconomyBindingError("RC72_ECONOMY_FINAL_DSH_PROMPT_REQUIRED")
 
+        # The approved native launcher has already assembled its final DSH
+        # instruction/tool/auth preamble. Compact only validated terminal JSON
+        # serialization. Preserve every Context and RequiredShape key/value.
+        compression = compact_native_prompt_json(command[-1])
+        if compression.status == "LOSSLESS_JSON":
+            command = list(command)
+            command[-1] = compression.prompt
         metadata = metadata_resolver(assignment)
         if not isinstance(metadata, Mapping):
             raise ProductionEconomyBindingError("RC72_ECONOMY_METADATA_INVALID")
@@ -142,6 +150,8 @@ def bind_production_model_economy(
             mission_criticality=criticality,
             semantic_cost_class=cost,
             context_projection=context_projection or None,
+            original_prompt_bytes=compression.original_bytes,
+            prompt_compaction_status=compression.status,
         )
         if not admission.admitted:
             raise TokenEconomyError("TOKEN_CALL_BLOCKED:%s:%s" % (admission.call_id, admission.reason))
