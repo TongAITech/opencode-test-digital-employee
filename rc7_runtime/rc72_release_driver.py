@@ -35,6 +35,7 @@ from .rc72_n5_workitem_acceptance import N5OwnedWorkItemGateService
 from .rc72_n6_pipeline import N6PipelineService
 from .rc72_n7_pipeline import N7PipelineService
 from .rc72_n9_accepted_scope import AcceptedScopeN9Service
+from .rc72_expected_scope_input import ExpectedScopeInputService
 
 
 @contextmanager
@@ -88,7 +89,7 @@ def release_batch_status(truth, *, source_commit, release_batch_id):
 
 class ReleaseBatchDriver:
     def __init__(self, truth, *, source_commit, n1_launcher, n1_tools,
-                 n2_launcher, n2_tools, n2_evaluator, n3_pipeline=None, n4_pipeline=None, n5_pipeline=None, n7_pipeline=None, n9_pipeline=None):
+                 n2_launcher, n2_tools, n2_evaluator, n3_pipeline=None, n4_pipeline=None, n5_pipeline=None, n7_pipeline=None, n9_pipeline=None, expected_scope=None):
         if not isinstance(source_commit, str) or not re.fullmatch('[0-9a-f]{40}', source_commit):
             raise ContractError('RC72_RELEASE_DRIVER_EXACT_SOURCE_REQUIRED')
         if not isinstance(n2_evaluator, DshRequirementEvaluator):
@@ -124,6 +125,17 @@ class ReleaseBatchDriver:
         self.n7_pipeline=n7_pipeline
         self.n9_pipeline=n9_pipeline
         self._assert_n9_scope()
+        self.expected_scope=expected_scope
+        self._assert_expected_scope()
+
+    def _assert_expected_scope(self):
+        policy=self.expected_scope
+        if policy is not None and (not isinstance(policy,ExpectedScopeInputService)
+                or policy.truth is not self.truth or policy.source_commit!=self.source_commit
+                or policy.pipeline.truth is not self.truth or policy.pipeline.source_commit!=self.source_commit
+                or tuple(policy.pipeline.handoff_service.allowed_tools)!=self.n1_tools
+                or policy.pipeline.handoff_service.launcher is not self.n1_launcher):
+            raise ContractError('RC72_RELEASE_DRIVER_EXPECTED_SCOPE_MISMATCH')
 
     def _assert_n9_scope(self):
         n9=self.n9_pipeline
@@ -209,7 +221,11 @@ class ReleaseBatchDriver:
         options = dict(source_commit=self.source_commit)
         if node_type == 'N5_TEST_DATA':
             options['release_id'] = batch['release_id']
-        return self._gate_types()[node_type](self.truth, **options).complete(release_batch_id=batch['release_batch_id'])
+        result=self._gate_types()[node_type](self.truth, **options).complete(release_batch_id=batch['release_batch_id'])
+        if (node_type=='N1_REALITY' and self.expected_scope is not None
+                and self._one('rc72_mission_node',mission_id=batch['mission_id'],node_type='N1_REALITY')['state']=='PASS'):
+            self.expected_scope.freeze(release_batch_id=batch['release_batch_id'])
+        return result
 
     def run(self, *, release_batch_id):
         with _driver_lock(self.truth, release_batch_id):
@@ -233,6 +249,7 @@ class ReleaseBatchDriver:
                     or self.n7_pipeline.source_commit!=self.source_commit or self.n7_pipeline.release_id!=batch['release_id']):
                 raise ContractError('RC72_RELEASE_DRIVER_N7_PIPELINE_SCOPE_MISMATCH')
             self._assert_n9_scope()
+            self._assert_expected_scope()
             # Admission is rechecked even when canonical nodes already exist.
             ReleaseBatchFieldMissionLauncher(self.truth, source_commit=self.source_commit).start(release_batch_id=release_batch_id)
             # Cold continuation audits accepted source bytes, not merely PASS labels.
@@ -269,8 +286,13 @@ class ReleaseBatchDriver:
                 if node['node_type'] == 'N1_REALITY':
                     N1AutonomousDispatchService(self.truth, source_commit=self.source_commit).dispatch(release_batch_id=release_batch_id)
                     N1AgentTeamsAssignmentService(self.truth, source_commit=self.source_commit).assign(release_batch_id=release_batch_id)
-                    N1StrictPipelineService(self.truth, source_commit=self.source_commit, launcher=self.n1_launcher,
-                        allowed_tools=self.n1_tools).complete(release_batch_id=release_batch_id)
+                    n1 = (self.expected_scope.pipeline if self.expected_scope is not None else
+                        N1StrictPipelineService(self.truth, source_commit=self.source_commit, launcher=self.n1_launcher,
+                            allowed_tools=self.n1_tools))
+                    n1.complete(release_batch_id=release_batch_id)
+                    if (self.expected_scope is not None and
+                            self._one('rc72_mission_node',mission_id=batch['mission_id'],node_type='N1_REALITY')['state']=='PASS'):
+                        self.expected_scope.freeze(release_batch_id=release_batch_id)
                 elif node['node_type'] == 'N2_REQUIREMENT':
                     result = self._n2(batch)
                     if result.get('status') == 'HOLD':

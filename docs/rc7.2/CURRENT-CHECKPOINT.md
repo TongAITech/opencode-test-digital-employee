@@ -1,5 +1,61 @@
 # RC7.2 Current Construction Checkpoint
 
+## Original expected-scope input and controller admission — 2026-11-03
+
+`ExpectedScopeInputService` now freezes the independent expected Requirement /
+SST / required-level policy from the original registered ReleaseBatch input,
+using actual native N1 MCP read/capture evidence and the accepted strict N1 Gate.
+The controller composes that same N1 pipeline, supplies its provenance output
+contract, freezes before N2 and re-audits the frozen input during continuation.
+No observed Cases, successful Attempts or coverage counts define the denominator.
+Release/Mission/Batch/runtime-source, applications and versions must match;
+all original Requirement identities and unique SST ownership are retained.
+
+A signed receipt binds original input bytes, all identical read calls, original
+N1 Gate and exact canonical manifest. Duplicate JSON keys, foreign scopes,
+ambiguous changed catalogs and reduced/changed manifests are denied. Partial
+receipt/manifest writes recover without another worker/read, and a fresh
+controller can replay with the original file removed and no restored leases.
+The registered input is an operator trust boundary, not proof of bank origin or
+Field approval; actual bank-source connectors, broader controlled scope revision,
+N10 measured coverage and the complete production factory remain OPEN.
+
+Final composed native N1/scope/controller/cold-bootstrap/environment regression
+passed 87 tests in 45.67s after the owned-composition guards. See EXPECTED-SCOPE-INPUT-CONTRACT.md for exact input and
+composition; final complete-source platform qualification is still required.
+
+## Verified native N9 full-controller continuation — 2026-11-03
+
+Exact committed source `6409e90a25088ffb940441a5803509b49248e73c` passed the
+original full 28-Case controller integration in 669.07s under the unchanged
+900-second budget. The run retained actual native HTTP/process execution,
+cleanup, independent N7 acceptance, all approved primary/secondary obligation
+links and no-write replay; the concrete N9 route reached N10 READY without a
+new business call or Attempt. A final deliberately invalid N9 signature was
+rejected during whole-controller accepted-prefix replay, including the inactive
+N8 bypass. This is engineering fixture evidence, not bank Field acceptance.
+
+A read-only audit of the actual final journal found **64 PASS WorkItems,
+28 PASS Attempts and 78 canonical TestObligations** for this fixture source.
+N1-N7 and N9 are PASS, N8 correctly remains NOT_STARTED, and N10 is READY.
+Expected scope manifests and measured coverage observations are both absent;
+therefore N10 convergence remains unproven. Do not confuse `PF121` in fixture
+identifiers with a verified count of canonical obligations or invent an
+unfinished-WorkItem blocker: this actual journal has no non-PASS WorkItem.
+The preserved journal and scope audit are forensic test evidence; the final
+negative test intentionally corrupts its N9 signature. It must never be copied
+into a new bank package as valid runtime-state.
+
+The isolated N10 graph fix passed another 5 actual primary/secondary obligation
+and coverage regressions in 26.70s after its 11-test success-path/legacy run.
+It was fast-forwarded into the main worktree only AFTER the fixed 6409e90 full
+run finished. Current source includes that later N10 change; full 6409e90
+qualification must not be described as exact current-source platform evidence.
+Same-source platform/construction/clean-unpack runs for 6409e90 were dispatched
+on `work/rc7.2-qualification-6409e90`, preserving the live parent 7d Windows run.
+New Q2 clean-unpack is SUCCESS; the new platform/construction runs remain live.
+Final-source C11 and complete C12 physical transport remain OPEN.
+
 ## Native N10 success-path graph qualification — 2026-11-03
 
 The N10 aggregator previously demanded N8 PASS even on the canonical accepted

@@ -43,8 +43,16 @@ class N1StrictDshHandoffService(N1DshHandoffService):
             "input_refs": list(assignment.get("input_refs") or []),
             "authorized_tools": list(self.allowed_tools),
         }
+        expected_scope = ''
+        if getattr(self, 'expected_scope_input_schema', None) == 'RC72_EXPECTED_RELEASE_SCOPE_V1':
+            expected_scope = (
+                'The original release-batch:// input carries RC72_EXPECTED_RELEASE_SCOPE_V1 expected policy. '
+                'Read that original input through the registered native tool. Add facts.expected_scope_input '
+                'with exactly source_ref and sha256 copied from its actual tool result. '
+                'Do not derive expected SSTs or required levels from generated Cases or executed results. '
+                'Missing or changing policy is a gap; never invent its digest. ')
         return (
-            "You are the dsh-agent-teams REALITY_RECON_WORKER for canonical N1 Reality Recon. "
+            expected_scope + "You are the dsh-agent-teams REALITY_RECON_WORKER for canonical N1 Reality Recon. "
             "Use only authorized tools and inspect real deployment, environment, API route, tool route, "
             "capability and resource reality. Never guess or infer a route from naming conventions. "
             "facts.executable_bindings MUST be a non-empty list of runtime-owned bindings proven by tool evidence. "
