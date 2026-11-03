@@ -108,7 +108,7 @@ class ReleaseConvergenceAggregator:
     _DEFECT_ACCEPTABLE = {"CLOSED", "DUPLICATE", "NOT_A_DEFECT"}
     _HIGH_RISKS = {"HIGH", "CRITICAL", "BLOCKER"}
 
-    def __init__(self, truth: TruthRuntime, *, release_id: str, runtime: RC72StateMachine, execution_proof=None, expected_scope=None, coverage_proof=None, coverage_intake=None) -> None:
+    def __init__(self, truth: TruthRuntime, *, release_id: str, runtime: RC72StateMachine, execution_proof=None, expected_scope=None, coverage_proof=None, coverage_intake=None, coverage_diagnosis=None) -> None:
         install_rc72_release_convergence_overlay()
         _ensure_projection_bucket(truth)
         if not isinstance(release_id, str) or not release_id.strip():
@@ -131,6 +131,7 @@ class ReleaseConvergenceAggregator:
         self.expected_scope = expected_scope
         self.coverage_proof = coverage_proof
         self.coverage_intake = coverage_intake
+        self.coverage_diagnosis = coverage_diagnosis
         self._assert_inputs()
 
     def _assert_inputs(self):
@@ -163,6 +164,13 @@ class ReleaseConvergenceAggregator:
                     or self.coverage_intake.measurement is not self.coverage_proof
                     or self.coverage_intake.truth is not self.truth):
                 raise ContractError('RELEASE_CONVERGENCE_NATIVE_COVERAGE_INTAKE_REQUIRED')
+
+        if self.coverage_diagnosis is not None:
+            from .rc72_native_coverage_diagnosis import NativeCoveragePathDiagnosisService
+            if (not isinstance(self.coverage_diagnosis, NativeCoveragePathDiagnosisService)
+                    or self.coverage_diagnosis.intake is not self.coverage_intake
+                    or self.coverage_diagnosis.truth is not self.truth):
+                raise ContractError('RELEASE_CONVERGENCE_NATIVE_COVERAGE_DIAGNOSIS_REQUIRED')
 
     def install_overlay(self) -> None:
         install_rc72_release_convergence_overlay()
@@ -444,6 +452,19 @@ class ReleaseConvergenceAggregator:
             if state not in self._BACK_EDGE_TERMINAL:
                 no_unresolved_gaps = False
                 blockers.append("back-edge:%s:%s" % (edge.get("back_edge_id"), state))
+
+        native_diagnoses=self._safe_query('rc72_native_coverage_diagnosis',mission_id=mission_id,
+                                           release_batch_id=str(batch['release_batch_id']))
+        if native_diagnoses:
+            if self.coverage_diagnosis is None:
+                no_unresolved_gaps=False
+                blockers.append('coverage:NATIVE_DIAGNOSIS_PROOF_REQUIRED')
+            else:
+                for diagnosis in native_diagnoses:
+                    gap=self.truth.query('rc72_coverage_gap',gap_id=diagnosis['gap_id'])
+                    if len(gap)!=1:raise ContractError('RELEASE_CONVERGENCE_NATIVE_DIAGNOSIS_GAP_REQUIRED')
+                    self.coverage_diagnosis.audit(release_batch_id=str(batch['release_batch_id']),
+                        application_id=gap[0]['application_id'],gap_id=diagnosis['gap_id'])
 
         runtime_integrity, node_human, runtime_blocked, runtime_blockers = self._runtime_facts(mission_id, accepted_n7_gate_id=accepted_n7_gate_id)
         human_gate_required = human_gate_required or node_human

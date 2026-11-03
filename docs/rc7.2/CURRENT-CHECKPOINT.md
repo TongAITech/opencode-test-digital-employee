@@ -1,5 +1,39 @@
 # RC7.2 Current Construction Checkpoint
 
+## Native observed-path diagnosis and N8 professional intake — 2026-11-03
+
+Implemented independent actual diagnosis and review processes over the accepted
+captured coverage report plus every original primary/approved-secondary Case and
+Attempt for a uniquely mapped obligation. The evidence-supported classification
+PATH_NOT_REACHED records observed missing coverage after accepted execution;
+it does not establish a product defect, root cause or completed repair. Zero or
+ambiguous mappings retain investigation HOLD without invented diagnosis work.
+
+A canonical routing WorkItem closes through actual process Evidence, Artifact
+and independent Evaluation; a separate original-scope N8 path-investigation
+WorkItem remains pending. Signed process intent prevents unknown process replay;
+returned diagnosis supports metadata-only recovery. Cold read-only audit checks
+full scope/process/Task/Evaluation/artifact/classification/queued-work bindings.
+Native N10 requires the concrete provider when diagnosis history exists and
+refuses raw terminal-gap flags. No Case, obligation, ETU or business effect is
+created/replayed by this routing step.
+
+Qualification: 35 passed in 45.97s for actual diagnosis/review, cold audit,
+unknown/returned recovery, forged scope/reason, changed evidence, N10 history
+and legacy gap/convergence behavior (three existing collection warnings).
+Original-scope/native-intake/N10 regression: 11 passed in 83.42s. Final release
+scope/actual-child capture verification: 1 passed in 11.52s. A test expectation
+was corrected to recognize the earlier, stronger process-binding refusal.
+The fresh single-Requirement fixture fixes its original catalog before N1;
+no admitted production or test denominator was amended to get a passing path.
+
+Professional DSH investigation, bounded repair/re-execution, other causal gap
+reasons, post-repair coverage closure, approved exclusion and full native N10
+controller remain open. This is deterministic captured-evidence routing, not
+completion of all-role Worker tool/provider/session gates or Field acceptance.
+See NATIVE-COVERAGE-PATH-DIAGNOSIS-CONTRACT.md. Complete portable package remains
+outstanding and the full construction goal stays active.
+
 ## Actual uncovered-unit gap intake and read-only N10 consumption — 2026-11-03
 
 Added concrete native coverage intake over the actual accepted measurement.
