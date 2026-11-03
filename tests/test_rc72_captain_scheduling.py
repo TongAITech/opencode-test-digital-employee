@@ -31,7 +31,7 @@ def _ready_fixture(tmp_path):
     bridge = CaptainFencedWorkItemScheduler(
         truth=truth, release_id="RC7.2", fencer=fencer,
         lifecycle=lifecycle, scheduler=scheduler,
-        role_profiles={"test-executor": ["api"], "quality-reviewer": ["filesystem"]})
+        role_profiles={"test-executor": ["api", "tool:api"], "quality-reviewer": ["filesystem"]})
     return truth, fencer, owner, lifecycle, bridge
 
 
@@ -77,14 +77,36 @@ def test_wrong_captain_or_team_cannot_create_worker(tmp_path):
     assert truth.query("rc72_worker_session", mission_id="M-1") == []
 
 
-def test_insufficient_role_capability_is_deterministic_gap_without_session(tmp_path):
+def test_review_role_cannot_execute_etu_even_if_capability_profile_exists(tmp_path):
     truth, _, owner, _, bridge = _ready_fixture(tmp_path)
-    with pytest.raises(CaptainSchedulingError, match="CAPABILITY_GAP"):
+    with pytest.raises(CaptainSchedulingError, match="ROLE_CANNOT_EXECUTE_ETU"):
         bridge.dispatch_etu(
             mission_id="M-1", team_id="TEAM-1",
             captain_session_id="CAP-A", captain_lease_id=owner["lease_id"],
             role="quality-reviewer", etu_id="ETU-1", workitem_id="WI-1",
             canonical_refs=_refs("ETU-1"))
+    assert truth.query("rc72_worker_session", mission_id="M-1") == []
+
+
+def test_workitem_capability_not_present_in_role_profile_fails_before_worker(tmp_path):
+    truth, fencer, owner, lifecycle, _ = _ready_fixture(tmp_path)
+    bridge = CaptainFencedWorkItemScheduler(
+        truth=truth, release_id="RC7.2", fencer=fencer,
+        lifecycle=lifecycle, scheduler=TaskScheduler(truth, "RC7.2"),
+        role_profiles={"test-executor": ["tool:api"]})
+    with pytest.raises(CaptainSchedulingError, match="CAPABILITY_GAP"):
+        _admit(bridge, owner, "WI-1")
+    assert truth.query("rc72_worker_session", mission_id="M-1") == []
+
+
+def test_etu_capability_not_present_in_role_profile_fails_before_worker(tmp_path):
+    truth, fencer, owner, lifecycle, _ = _ready_fixture(tmp_path)
+    bridge = CaptainFencedWorkItemScheduler(
+        truth=truth, release_id="RC7.2", fencer=fencer,
+        lifecycle=lifecycle, scheduler=TaskScheduler(truth, "RC7.2"),
+        role_profiles={"test-executor": ["api"]})
+    with pytest.raises(CaptainSchedulingError, match="ETU_CAPABILITY_GAP"):
+        _admit(bridge, owner, "WI-1")
     assert truth.query("rc72_worker_session", mission_id="M-1") == []
 
 
@@ -113,7 +135,7 @@ def test_orphan_session_after_crash_blocks_duplicate_admission_after_cold_restar
         truth=replay, release_id="RC7.2", fencer=fencer,
         lifecycle=WorkerLifecycleService(replay, release_id="RC7.2"),
         scheduler=TaskScheduler(replay, "RC7.2"),
-        role_profiles={"test-executor": ["api"]})
+        role_profiles={"test-executor": ["api", "tool:api"]})
     with pytest.raises(CaptainSchedulingError, match="PRIOR_SESSION_RECOVERY_REQUIRED"):
         _admit(resumed, owner, "WI-1")
     assert len(replay.query("rc72_worker_session", mission_id="M-1")) == 1
@@ -156,7 +178,7 @@ def _competing_dispatch(path, owner, index):
         fencer=CaptainDispatchFencer(truth, release_id="RC7.2"),
         lifecycle=WorkerLifecycleService(truth, release_id="RC7.2"),
         scheduler=TaskScheduler(truth, "RC7.2"),
-        role_profiles={"test-executor": ["api"]})
+        role_profiles={"test-executor": ["api", "tool:api"]})
     try:
         _admit(bridge, owner, "WI-1")
         return "ADMITTED"
@@ -191,7 +213,7 @@ def test_orphan_without_any_authority_or_business_effect_can_be_recovered_from_r
         fencer=CaptainDispatchFencer(replay, release_id="RC7.2"),
         lifecycle=WorkerLifecycleService(replay, release_id="RC7.2"),
         scheduler=TaskScheduler(replay, "RC7.2"),
-        role_profiles={"test-executor": ["api"]})
+        role_profiles={"test-executor": ["api", "tool:api"]})
     checkpoint = recovered.recover_unleased_orphan(
         mission_id="M-1", team_id="TEAM-1",
         captain_session_id="CAP-A", captain_lease_id=owner["lease_id"],
@@ -320,3 +342,24 @@ def test_n7_case_canonical_plan_and_snapshot_allow_fresh_worker(tmp_path):
     assert admitted.state == "LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH"
     assert len(truth.query("rc72_worker_session", mission_id="M-1")) == 1
     assert truth.query("rc7_task", task_id="WI-1")[0]["lease_owner"] == admitted.worker_id
+
+
+
+def test_cross_mission_artifact_cannot_be_an_etu_dispatch_input(tmp_path):
+    from rc7_runtime.models import Artifact
+    from rc7_runtime.truth_overlay import append_entity
+
+    truth, _, owner, _, bridge = _ready_fixture(tmp_path)
+    append_entity(truth, Artifact(
+        artifact_id="FOREIGN-INPUT", mission_id="M-OTHER",
+        artifact_type="source-ref", producer_task_id="WI-OTHER",
+        content_ref="file://untrusted-other-mission"),
+        release_id="RC7.2")
+    scheduler = TaskScheduler(truth, "RC7.2")
+    row = truth.query("rc7_task", task_id="WI-1")[0]
+    task = scheduler._task_from_row(row)
+    task.input_artifact_refs = ["FOREIGN-INPUT"]
+    scheduler._persist_task(task, row["artifact_version"] + 1)
+    with pytest.raises(CaptainSchedulingError, match="INPUT_MISSION_MISMATCH"):
+        _admit(bridge, owner, "WI-1")
+    assert truth.query("rc72_worker_session", mission_id="M-1") == []
