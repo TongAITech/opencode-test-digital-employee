@@ -102,3 +102,14 @@ def test_unicode_model_payload_preserves_identical_strings_after_compaction():
     assert result.status == "LOSSLESS_JSON"
     assert json.loads(result.prompt.split("Context=", 1)[1]) == payload
     assert hashlib.sha256(result.prompt.encode("utf-8")).hexdigest() != hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+
+
+def test_ascii_escaped_invalid_unicode_surrogate_never_breaks_optional_compaction():
+    # The pre-existing native JSON source is valid UTF-8 ASCII but the parsed
+    # string contains a lone surrogate that cannot be encoded with
+    # ensure_ascii=False. Keep exact worker prompt unchanged.
+    prompt = 'Native N4 Context={"value": "\\ud800", "another": "rule"}'
+    result = compact_native_prompt_json(prompt)
+    assert result.prompt == prompt
+    assert result.status == "UNCHANGED"
+    assert result.saved_bytes == 0
