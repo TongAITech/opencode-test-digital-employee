@@ -246,3 +246,33 @@ def test_bsk_dom_observation_must_match_live_session_tab_context(tmp_path, field
     with pytest.raises(Exception, match="JOURNEY_BSK_OBSERVATION_SCOPE_INVALID"):
         _invoke(importer, export, args, mapping)
     assert not truth.query("rc72_journey_recording", recording_id="JR-BSK-1")
+
+
+def test_bsk_business_oracle_is_interleaved_at_exact_source_operation(tmp_path):
+    truth, importer, doc, export, args, mapping = _fixture(tmp_path)
+    _invoke(importer, export, args, mapping, assertions=[
+        {"source_operation_id": "operation-1",
+         "oracle_ref": "oracle://configuration-page-loaded",
+         "locator_ref": "css:#configuration"},
+        {"source_operation_id": "operation-2",
+         "oracle_ref": "oracle://configuration-saved",
+         "locator_ref": "css:#saved"},
+    ])
+    source = sorted(truth.query(
+        "rc72_journey_capture_step", recording_id="JR-BSK-1"),
+        key=lambda row: row["sequence"])
+    assert [row["action_type"] for row in source] == [
+        "NAVIGATE", "ASSERT", "CLICK", "ASSERT"]
+    assert [row["sequence"] for row in source] == [1, 2, 3, 4]
+    assert source[1]["capture_metadata"]["oracle_ref"] == (
+        "oracle://configuration-page-loaded")
+    assert source[3]["capture_metadata"]["oracle_ref"] == (
+        "oracle://configuration-saved")
+    assert source[1]["dom_ref"] == source[0]["dom_ref"]
+    assert source[3]["dom_ref"] == source[2]["dom_ref"]
+    compiled = JourneyCompiler(truth, release_id="RC7.2").compile(
+        candidate_id="JC-INTERLEAVED", recording_id="JR-BSK-1")
+    assert compiled.state.value == "COMPILED_CANDIDATE"
+    assert [row["action_type"] for row in truth.query(
+        "rc72_journey_candidate", candidate_id="JC-INTERLEAVED")[0]["steps"]
+           ] == ["NAVIGATE", "ASSERT", "CLICK", "ASSERT"]
