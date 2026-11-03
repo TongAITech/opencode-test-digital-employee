@@ -208,3 +208,21 @@ def test_full_context_retry_receipt_keeps_canonical_parent_refs(tmp_path):
     assert projected["parent_attempt_id"] == "ATT-PARENT"
     assert projected["context_unhydrated_lineage_ref_count"] == 0
     assert projected["context_projection_applied_to_prompt"] is False
+
+
+
+def test_tampered_observed_retry_digest_cannot_be_applied_to_native_context(tmp_path):
+    truth, task = _canonical(tmp_path)
+    _retry_receipt(truth)
+    saved = truth.query(
+        "rc72_retry_context", mission_id=MISSION,
+        workitem_id=WORKITEM, attempt_id="ATT-CHILD",
+    )[0]
+    # Deliberately bypass the high-level RetryContextAuditService to model
+    # corrupt/forged R1 journal data reaching the read side.
+    forged = dict(saved)
+    forged["artifact_version"] = int(saved["artifact_version"]) + 1
+    forged["retry_delta_sha256"] = "0" * 64
+    truth.append_atomic("RC72_RETRY_CONTEXT_COMPILED", forged)
+    with pytest.raises(NativeContextProjectionError, match="RETRY_DELTA_DIGEST_MISMATCH"):
+        _project(truth, task, _assignment(attempt_id="ATT-CHILD", inputs=()))
