@@ -172,3 +172,16 @@ QA 的 `tests/test_rc72_qa_product_wiring.py` 新增 **必要条件性质**的 `
 独立 `--verify-archive` 现同时解析 ZIP 内 `PACKAGE_MANIFEST.json` 和 `FULL-CAPABILITY-INVENTORY.json` 的限长 JSON，要求 source/build/release/status 与 ZIP 收据、索引、SOURCE_COMMIT 完全一致；虚假 `BANK_FINAL`、`real_mission_pass`、`delivery_pass`、`bank_field_pass` 必须被拒绝。增加 ZIP SHA 正确但内嵌 Manifest/Inventory 伪造源提交、状态的负面测试。该验证仍仅说明**拷贝字节与身份互相一致**，不等于 Field Gate 或 R1 业务真值成立。
 
 **当前验收判定不变：Q1=FAIL，C01/C02/C03/C11/C12=HOLD，Q3–Q9=NO FIELD EVIDENCE，BANK_FINAL=NO。** QA 本轮新增测试/工具仍需最新 QA HEAD CI 真正运行后逐项核销。
+
+## 13. 第五轮核查：Q1 双平台最终失败及证据回执必备身份（2026-11-04）
+
+独立复读 [主线 Q1 同 SHA 41679951422](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/41679951422) 的最终 check-runs：`q1-windows-engineering-python-3.8` 作业 `126071463528` **FAILURE**、`q1-linux-engineering-proxy-python-3.8` 作业 `126071464041` **FAILURE**；总 workflow 为 FAILURE，Q1 总结作业 SKIPPED。两端日志均出现 `test_rc72_n10_control.py` 1 failed / 4 passed，`test_rc72_native_coverage_rerun.py` 2 failed / 1 passed，即两个相同的失败测试文件、各三条失败测试。不能把 Q2 Windows package pass、主线独立 package 准备 PASS 当作 Q1 平台验收通过。两端都是 GitHub 工程 runner，**目标信创 Linux 仍未实测**。
+
+Q3–Q9 QA 证据导出器做了更强的**必备来源集合**与 **canonical R1** 校验：
+
+1. 新增 `RELEASE_STATUS`、`RC72_RELEASE_IDENTITY.json` 为强制出口文件，并由复核端从 ZIP 内解析；须对应同一 SHA/Build ID、固定 RC7.2 包名、ReleaseBatch 业务根、N1–N10 语义骨架，且 `field_verified=false`、`bank_final=false`。
+2. `--r1-relpath` 不得以现场附件冒充 R1；索引 `r1_event_stream` 必须等于 `runtime-state/r1/event-stream.jsonl`。R1 的连续事件序号与 JSONL 结构仍只是结构门禁，不能等价为业务真实性。
+3. 验证 INDEX 中 `R1_EVENT_STREAM`、`PACKAGE_IDENTITY`、`EXPLICIT_FIELD_ATTACHMENT` 与实际文件类别一致；对篡改后重算整个 ZIP SHA256 的负面用例同样拒绝。
+4. QA GitHub workflow 的 C12 工具套件与 C01/C02 产品测试套件现在不会因其中一个测试失败而跳过另一个测试，分别上传 JUnit 结果；明确 FAIL 的真实内容比错误的整体 PASS 重要。
+
+**当前结论：Q1=FAIL（Windows+Linux 工程代理均 FAIL），QA HEAD CI=AWAITING COMPLETION，C03/正式 N8 仍 BLOCKED_PRODUCT_INTEGRATION；Q3–Q9=FIELD_PENDING；BANK_FINAL=NO。** 不更新已冻结的 95 条权重成虚构百分比。
