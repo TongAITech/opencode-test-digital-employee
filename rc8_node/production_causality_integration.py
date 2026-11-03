@@ -8,23 +8,48 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from rc8_center.single_node_truth_reader import ProductionCenterR1TruthReader
+
 from .production_causality_gate import ProductionCausalityGate
 from .single_node_integration_proof import (
     SingleNodeDurableIntegrationProof,
     SingleNodeDurableIntegrationProofRunner,
+    assert_production_dispatcher_topology,
 )
+from .single_node_production_bootstrap import ProductionSingleNodeBootstrap
 
 
 class ProductionCausalityIntegrationRunner:
-    """Promote only a constructor-established production composed runner."""
+    """Promote only a constructor-established production composed runner.
+
+    Do not trust the composed runner's private production boolean by itself: a unit
+    boundary double can be created with ``__new__`` and can mutate private fields.
+    Promotion therefore re-validates the concrete production authorities that the
+    normal composed-runner constructor establishes.
+    """
 
     def __init__(self, *, composed_runner: SingleNodeDurableIntegrationProofRunner) -> None:
         if not isinstance(composed_runner, SingleNodeDurableIntegrationProofRunner):
             raise RuntimeError("PRODUCTION_CAUSALITY_COMPOSED_RUNNER_REQUIRED")
         if not composed_runner.production_components_verified:
             raise RuntimeError("PRODUCTION_CAUSALITY_PRODUCTION_RUNNER_REQUIRED")
-        if composed_runner.production_bootstrap is None:
+        truth_reader = getattr(composed_runner, "truth_reader", None)
+        if not isinstance(truth_reader, ProductionCenterR1TruthReader):
+            raise RuntimeError("PRODUCTION_CAUSALITY_PRODUCTION_TRUTH_READER_REQUIRED")
+        production_bootstrap = getattr(composed_runner, "production_bootstrap", None)
+        if not isinstance(production_bootstrap, ProductionSingleNodeBootstrap):
             raise RuntimeError("PRODUCTION_CAUSALITY_BOOTSTRAP_AUTHORITY_REQUIRED")
+        if production_bootstrap.truth_reader is not truth_reader:
+            raise RuntimeError("PRODUCTION_CAUSALITY_BOOTSTRAP_TRUTH_READER_MISMATCH")
+        observer = getattr(composed_runner, "observer", None)
+        dispatcher = getattr(observer, "dispatcher", None)
+        if dispatcher is None:
+            raise RuntimeError("PRODUCTION_CAUSALITY_DISPATCHER_AUTHORITY_REQUIRED")
+        assert_production_dispatcher_topology(dispatcher)
+        expected_node_id = str(getattr(composed_runner, "expected_node_id", "") or "").strip()
+        claimant_node_id = str(getattr(getattr(dispatcher, "claimant", None), "node_id", "") or "").strip()
+        if not expected_node_id or expected_node_id != claimant_node_id:
+            raise RuntimeError("PRODUCTION_CAUSALITY_NODE_AUTHORITY_MISMATCH")
         self.composed_runner = composed_runner
         self.gate = ProductionCausalityGate(production_constructor_verified=True)
 
