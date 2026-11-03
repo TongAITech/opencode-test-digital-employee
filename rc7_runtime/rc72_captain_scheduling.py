@@ -61,6 +61,7 @@ def install_captain_etu_admission_overlay():
 class GovernedFreshDispatch:
     admission_id: str
     mission_id: str
+    team_id: str
     workitem_id: str
     etu_id: str
     role: str
@@ -282,7 +283,7 @@ class CaptainFencedWorkItemScheduler:
                 state=_ADMITTED, artifact_version=1))
             return GovernedFreshDispatch(
                 admission_id=admission_id,
-                mission_id=mission_id, workitem_id=workitem_id,
+                mission_id=mission_id, team_id=team_id, workitem_id=workitem_id,
                 etu_id=etu_id, role=role, worker_id=fresh.worker_id,
                 session_id=fresh.session_id, captain_generation=owner["generation"],
                 captain_lease_id=owner["lease_id"],
