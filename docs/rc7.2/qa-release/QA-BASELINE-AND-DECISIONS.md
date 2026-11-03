@@ -196,3 +196,14 @@ Q3–Q9 QA 证据导出器做了更强的**必备来源集合**与 **canonical R
 - CI 优化：原先 QA 分支每个提交同时创建 `push` 与 `pull_request` 两个相同四平台矩阵，易造成重复排队与持续取消。QA 分支已有 draft PR #9，现统一使用 `pull_request` + 按需 `workflow_dispatch`，**每 SHA 只需一套 Windows/Ubuntu × Python3.8/3.11 的正式 QA 矩阵**，不减少测试维度。C12 工具测试与 C01/C02 产品测试分别执行和留存 JUnit，任何一组失败均阻断最终放行。
 
 实际 R1 业务断言、DSH 主程序启动、目标信创 Linux、真实 Q3–Q9 现场批准未核销，`BANK_FINAL=NO`。**QA CI 当前仍在排队，任何新增测试不能自行被标记 PASS**。
+
+## 15. 新主线精确同源 QA 同步与 N8 二阶段独立检查（2026-11-04）
+
+本节是**新快照**，不覆盖第 1–14 节针对旧 `7efb3c8a` 主线所记录的原始失败日志；旧失败无法自动推定新主线同 SHA 也失败，也不能自动判定修复成功。
+
+- 主线 `work/rc7.2` 更新到 `af701d69eb4111cb2b11ce915af845c07521a1f8`，相对旧基线 3 个提交，仅修改 `rc7_runtime/rc72_native_coverage_rerun.py`、`tests/test_rc72_n10_control.py`、`tests/test_rc72_native_coverage_rerun.py`；新主线 Construction/Q1 作业在初审时均 **QUEUED**，尚无同 SHA 合格报告。
+- 通过 GitHub Git Tree 的 3 个实际主线 blob SHA 重建了**无冲突合并树**，新增双父提交 `445c5d8b440f5eb58c6dd53f850cb105e9097287`，父提交依次为 QA `df5d461263b3fb8d3d0c0af38d7dd68ec6c30bc6` 与主线 `af701d69eb4111cb2b11ce915af845c07521a1f8`。通过 `update_ref(expected_sha=旧 QA HEAD, force=false)` CAS 方式前进 QA 分支，未强制推送、未覆盖 QA 文件。合并后的三个源/测试文件 Blob SHA 已与新主线逐字节对应，QA workflow/产品验收测试/证据出口文件仍保持旧 QA Blob SHA。
+- GitHub PR 的 `pull_request` 事件默认 checkout 可能落在临时 merge ref，而不是 PR head。QA 工作流现显式 checkout `github.event.pull_request.head.sha`，执行 `git rev-parse HEAD` 相等性断言，输出 `qa-source-identity.txt` 记录准确 QA HEAD 与触发时的 PR Base SHA，随分平台 JUnit 上传。**验证源一定要由真实 checkout 得出，不以 PR 可合并或 Actions RUN 有编号作为执行成功证明**。
+- A/core 在本轮先新增 `rc72_n8_product_recovery.py` 而未接入正式入口；随后其候选分支已将 `NativeN8ProductRecoveryService(n7)` 装入工厂，并在 `ReleaseBatchDriver.run` 增设 N8 非 bypass 路径。QA 添加两个必要检查：正式工厂必须拥有**具体原生 N8 类型**且与 N7、诊断、修复、R1 共享身份；正式 Driver 在 N8 不走 bypass 时必须调用原生服务。这是 **A 分支候选接线改善**，不等于主线集成、错误分类完整、真实 SUT 操作正确或 Q7/Q9 Field 通过。
+
+**本轮门禁：主线新 HEAD 工程 CI=QUEUED（不能用旧 `7efb3c8` 的 FAIL 或 Q2 PASS 冒名）；QA HEAD CI=QUEUED；C03=BRANCH_CANDIDATE_UNVERIFIED；C11/C12=HOLD；Q3–Q9=FIELD_PENDING；BANK_FINAL=NO。** 需要等独立 QA、A/B/C/D 产品 CI 同一源码及现场实证后再逐条对账。
