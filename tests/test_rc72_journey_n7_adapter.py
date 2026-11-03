@@ -50,7 +50,7 @@ def test_signed_n7_adapter_consumes_only_approved_l5_case_and_emits_raw_receipt(
 
 
 @pytest.mark.parametrize("field,value,error", [
-    ("case_id", "WRONG", "CASE_ATTEMPT_BINDING_MISMATCH"),
+    ("case_id", "WRONG", "OFFICIAL_CASE_MISMATCH"),
     ("obligation_id", "WRONG", "OBLIGATION_ID_MISMATCH"),
     ("sst_id", "WRONG", "SST_ID_MISMATCH"),
     ("requirement_id", "WRONG", "REQUIREMENT_ID_MISMATCH"),
