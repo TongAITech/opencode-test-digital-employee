@@ -750,3 +750,41 @@ def test_formal_n7_cannot_reconcile_when_native_batch_raw_evidence_changes_after
         )
     assert truth.query("rc72_execution_batch_receipt", batch_id=batch.batch_id)[0]["state"] == "ADMITTED"
     assert truth.query("execution_attempt", release_id=RELEASE) == []
+
+
+
+def test_idempotent_shared_batch_cold_resume_rechecks_original_native_file_digest(tmp_path):
+    from pathlib import Path
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    candidate = _dispatch(truth, batch, execution, assignment)
+    file = Path(candidate["raw_output_ref"][len("file://"):])
+    file.write_bytes(file.read_bytes() + b"\n{\"type\":\"tool_call\",\"tool_name\":\"post-hoc-forgery\"}\n")
+    with pytest.raises(ContractError, match="RAW_DIGEST_CHANGED"):
+        _dispatch(truth, batch, execution, assignment)
+    assert execution.execute_count == 1
+
+
+def test_idempotent_evaluator_replay_rechecks_own_raw_file_digest(tmp_path):
+    from pathlib import Path
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    candidate = _dispatch(truth, batch, execution, assignment)
+    service = NativeSharedEvaluatorBatch(
+        truth, release_id=RELEASE, launcher=reviewer,
+    )
+    reviewer_assignment = _review_assignment(
+        batch.batch_id, candidate["raw_output_ref"],
+    )
+    reviewed = service.review(
+        candidate_id=candidate["candidate_id"],
+        assignment=reviewer_assignment,
+    )
+    file = Path(reviewed["raw_output_ref"][len("file://"):])
+    file.write_bytes(file.read_bytes() + b"\n{\"type\":\"tool_call\",\"tool_name\":\"post-hoc-forgery\"}\n")
+    with pytest.raises(ContractError, match="RAW_DIGEST_CHANGED"):
+        service.review(
+            candidate_id=candidate["candidate_id"],
+            assignment=reviewer_assignment,
+        )
+    assert reviewer.execute_count == 1
