@@ -233,3 +233,31 @@ def test_rehashed_failure_file_and_canonical_pointers_cannot_forge_runtime_signa
         assert len(server.calls)==1
     finally:
         server.shutdown();server.server_close()
+
+
+def test_n9_reproduction_workitem_is_schedulable_and_rejects_changed_scope(tmp_path,monkeypatch):
+    """Only a real accepted N8 failure may create a pending N9 WorkItem."""
+    truth,plan,prep,server,url,pipeline=_failed_business(tmp_path,monkeypatch)
+    try:
+        result=pipeline.complete(release_batch_id=BATCH)
+        assert result['failure_class']=='VALID_TEST_FAILURE'
+        task=truth.query('rc7_task',task_id=result['reproduction_workitem_id'])[0]
+        assert task['state']=='READY'
+        assert task['task_type']=='DEFECT_REPRODUCTION'
+        assert all(truth.query('rc7_artifact',artifact_id=ref) for ref in task['input_artifact_refs'])
+        assert not truth.query('rc7_defect')
+        before=truth.store.path.read_bytes()
+        assert pipeline.complete(release_batch_id=BATCH)==result
+        assert truth.store.path.read_bytes()==before and len(server.calls)==1
+        # Altering the approved professional task after admission cannot
+        # produce a new diagnosis/defect or silently reuse the old authority.
+        truth.append_atomic('RC7_TASK_UPSERTED',dict(task,
+            objective='forged reproduction scope',artifact_version=task['artifact_version']+1))
+        tampered=truth.store.path.read_bytes()
+        with pytest.raises(ContractError,match='N9_PROFESSIONAL_REPRODUCTION_SCOPE_CHANGED'):
+            pipeline.complete(release_batch_id=BATCH)
+        assert truth.store.path.read_bytes()==tampered and len(server.calls)==1
+        assert not truth.query('rc7_defect')
+    finally:
+        server.shutdown()
+        server.server_close()
