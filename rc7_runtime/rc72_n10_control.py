@@ -9,13 +9,15 @@ from .rc72_n9_accepted_scope import AcceptedScopeN9Service
 from .rc72_libra_measurement import NativeLibraMeasurementService
 from .rc72_native_coverage_intake import NativeCoverageGapIntakeService
 from .rc72_native_coverage_diagnosis import NativeCoveragePathDiagnosisService
+from .rc72_native_coverage_repair import NativeCoverageRepairService,active_repair_boundaries
 from .rc72_release_convergence import ReleaseConvergenceAggregator
 from .rc72_obligation_execution_proof import AcceptedObligationExecutionProof
 
 
 class NativeN10ControlService:
-    def __init__(self,expected_scope,n9,measurement,intake,diagnosis):
+    def __init__(self,expected_scope,n9,measurement,intake,diagnosis,repair=None):
         self.expected_scope,self.n9,self.measurement,self.intake,self.diagnosis=expected_scope,n9,measurement,intake,diagnosis
+        self.repair=repair
         if not isinstance(n9,AcceptedScopeN9Service):raise ContractError('N10_NATIVE_N9_REQUIRED')
         self.truth,self.release_id,self.source_commit=n9.truth,n9.release_id,n9.source_commit
         self._assert_inputs()
@@ -30,6 +32,10 @@ class NativeN10ControlService:
                 or any(s.truth is not self.truth or s.source_commit!=self.source_commit
                        for s in (self.expected_scope,self.n9,self.measurement,self.intake,self.diagnosis))):
             raise ContractError('N10_NATIVE_OWNED_COMPOSITION_REQUIRED')
+        if self.repair is not None:
+            if (not isinstance(self.repair,NativeCoverageRepairService) or self.repair.diagnosis is not self.diagnosis
+                    or self.repair.truth is not self.truth or self.repair.source_commit!=self.source_commit):
+                raise ContractError('N10_NATIVE_REPAIR_COMPOSITION_REQUIRED')
 
     def complete(self,*,release_batch_id):
         self._assert_inputs()
@@ -42,10 +48,24 @@ class NativeN10ControlService:
         if node['state'] not in {'READY','RUNNING'}:raise ContractError('N10_NATIVE_ACTIVE_NODE_REQUIRED')
         measurements=[];intakes=[];investigations=[];holds=[]
         for app in batch['application_ids']:
+            repairs=active_repair_boundaries(self.truth,self.measurement.authority,release_id=self.release_id,
+                source_commit=self.source_commit,release_batch_id=release_batch_id,application_id=app)
+            if repairs:
+                _,current_proof=self.measurement._context(release_batch_id,audit_only=True)
+                if any(row['origin_n7_gate_id']==current_proof['n7_gate_id'] for row in repairs):
+                    holds.append(dict(application_id=app,reason='N10_POST_REPAIR_FRESH_N7_REQUIRED',
+                        repair_ids=[row['repair_id'] for row in repairs]));continue
             actual=self.measurement.collect(release_batch_id=release_batch_id,application_id=app)
             if actual.get('status')=='HOLD':
                 holds.append(dict(application_id=app,reason=actual['reason']));continue
             measurements.append(actual['measurement_id'])
+            if repairs:
+                if self.repair is None:
+                    holds.append(dict(application_id=app,reason='N10_NATIVE_COVERAGE_REPAIR_PROVIDER_REQUIRED',
+                        repair_ids=[row['repair_id'] for row in repairs]));continue
+                repaired=self.repair.reconcile_application(release_batch_id=release_batch_id,application_id=app)
+                if repaired.get('status')=='HOLD':
+                    holds.append(dict(application_id=app,reason=repaired['reason'],repair_ids=repaired.get('repair_ids',[])));continue
             admitted=self.intake.intake(release_batch_id=release_batch_id,application_id=app)
             intakes.append(admitted['intake_id'])
             for gap_id in admitted['gap_ids']:
