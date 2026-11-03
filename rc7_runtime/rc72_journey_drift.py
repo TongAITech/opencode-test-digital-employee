@@ -88,8 +88,9 @@ class JourneyDriftService:
         for ref in refs:
             if not isinstance(ref, str) or not ref.startswith("file://"):
                 raise ContractError("JOURNEY_DRIFT_REAL_FAILURE_EVIDENCE_REQUIRED")
-            from urllib.parse import unquote, urlsplit
-            if not Path(unquote(urlsplit(ref).path)).is_file():
+            from urllib.parse import urlsplit
+            from urllib.request import url2pathname
+            if not Path(url2pathname(urlsplit(ref).path)).is_file():
                 raise ContractError("JOURNEY_DRIFT_EVIDENCE_NOT_FOUND")
         payload = {
             "drift_id": drift_id, "official_asset_id": asset["official_asset_id"],
