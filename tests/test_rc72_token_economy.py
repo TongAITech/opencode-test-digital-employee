@@ -407,3 +407,30 @@ def test_model_admission_is_not_a_dsh_process_invocation(tmp_path: Path):
     assert summary["dsh_process_invocations"] is None
     assert summary["dsh_process_invocation_count_status"] == "UNKNOWN"
     assert truth.query("rc72_token_call", call_id=admitted.call_id)[0]["process_outcome"] == "NOT_STARTED"
+
+
+def test_nested_tool_resource_counters_inside_final_event_are_not_measured_provider_usage():
+    nested_only = json.dumps({
+        "type": "final",
+        "text": "actual native tool returned output",
+        "tool_result": {
+            "tool_name": "CAT",
+            "usage": {"input_tokens": 420, "output_tokens": 22, "total_tokens": 442},
+        },
+    })
+    parsed = extract_dsh_token_usage(nested_only)
+    assert parsed.status == UsageStatus.UNKNOWN
+    assert parsed.total_tokens == 0
+
+    mixed = json.dumps({
+        "type": "final",
+        "usage": {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120},
+        "tool_result": {
+            "tool_name": "CodeGraph",
+            "usage": {"input_tokens": 900, "output_tokens": 600, "total_tokens": 1500},
+        },
+    })
+    provider = extract_dsh_token_usage(mixed)
+    assert provider.status == UsageStatus.MEASURED
+    assert provider.total_tokens == 120
+    assert provider.input_tokens == 100
