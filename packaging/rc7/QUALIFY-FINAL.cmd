@@ -3,6 +3,13 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..\..") do set "ROOT=%%~fI"
+set "RC7_FINAL_RELEASE_FAMILY="
+if exist "%ROOT%\RELEASE_FAMILY" set /p RC7_FINAL_RELEASE_FAMILY=<"%ROOT%\RELEASE_FAMILY"
+if exist "%ROOT%\RC72_RELEASE_IDENTITY.json" set "RC7_FINAL_RELEASE_FAMILY=RC7.2"
+if /i "%RC7_FINAL_RELEASE_FAMILY%"=="RC7.2" (
+  echo {"status":"HOLD","reason":"RC72_NATIVE_RELEASE_FINAL_AND_BANK_PC_PIP_MIRROR_GATE_REQUIRED"} 1>&2
+  exit /b 37
+)
 if not defined PFC_PYTHON if exist "%ROOT%\workspace-template\runtime\python\python.exe" set "PFC_PYTHON=%ROOT%\workspace-template\runtime\python\python.exe"
 if not defined PFC_PYTHON set "PFC_PYTHON=python"
 if not defined PFC_AITEST_STATE_DIR set "PFC_AITEST_STATE_DIR=%ROOT%\runtime-state\rc7-final-qualification"

@@ -3,6 +3,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# RC7.2 has a distinct ReleaseBatch final boundary and mandatory native mirror gate.
+if [[ -f "$ROOT/RC72_RELEASE_IDENTITY.json" ]] || { [[ -f "$ROOT/RELEASE_FAMILY" ]] && [[ "$(tr -d '\r\n' < "$ROOT/RELEASE_FAMILY")" == 'RC7.2' ]]; }; then
+  printf '%s\n' '{"status":"HOLD","reason":"RC72_NATIVE_RELEASE_FINAL_AND_BANK_PC_PIP_MIRROR_GATE_REQUIRED"}' >&2
+  exit 37
+fi
 PYTHON_BIN="${PFC_PYTHON:-}"
 STATE="${PFC_AITEST_STATE_DIR:-$ROOT/runtime-state/rc7-final-qualification}"
 

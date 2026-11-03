@@ -146,6 +146,8 @@ def _validate_delivery(report: Optional[Dict[str, Any]], source_commit: str) -> 
 
     if not isinstance(report.get("package_name"), str) or not report.get("package_name", "").strip():
         errors.append("%s:PACKAGE_NAME_MISSING" % gate)
+    if ('RC7.2' in str(report.get('package_name','')).upper() or report.get('release_family')=='RC7.2'):
+        errors.append('DELIVERY_PASS:RC72_NATIVE_RELEASE_FINAL_AND_BANK_PC_PIP_MIRROR_GATE_REQUIRED')
     digest = report.get("package_sha256")
     if not isinstance(digest, str) or not re.match(r"^[0-9a-fA-F]{64}$", digest):
         errors.append("%s:PACKAGE_SHA256_INVALID" % gate)

@@ -184,6 +184,7 @@ def resolve_context(
 ) -> Dict[str, Any]:
     install_rc7_truth_overlay()
     root = _package_root(package_root)
+    if _is_rc72_package(root):raise BankFieldLauncherError('RC72_NATIVE_BANK_FINAL_AND_BANK_PC_PIP_MIRROR_GATE_REQUIRED')
     r1_paths = _r1_candidates(root, r1_path)
     requested_mission = mission_id or os.environ.get("PFC_RC7_MISSION_ID")
     requested_target = target_id or os.environ.get("PFC_RC7_BANK_TARGET_ID")
@@ -296,8 +297,15 @@ def _launcher_output(root: Path) -> Path:
     return state / "rc7-bank-field-launcher.json"
 
 
+def _is_rc72_package(root):
+    if (root/'RC72_RELEASE_IDENTITY.json').is_file():return True
+    family=root/'RELEASE_FAMILY'
+    return family.is_file() and family.read_text(encoding='utf-8').strip().upper()=='RC7.2'
+
+
 def run_bank_final(context: Mapping[str, Any]) -> int:
     root = Path(str(context["package_root"])).resolve()
+    if _is_rc72_package(root):return 37
     env = dict(os.environ)
     env["PFC_AITEST_HOME"] = str(root)
     env["PFC_RC7_R1_PATH"] = str(context["r1_path"])
