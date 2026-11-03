@@ -1,0 +1,48 @@
+name: RC7.2 Runtime C06-C07 Contract Qualification
+
+on:
+  pull_request:
+    branches:
+      - work/rc7.2
+    paths:
+      - 'rc7_runtime/rc72_n7_tool_dispatch.py'
+      - 'rc7_runtime/rc72_captain_dispatch_fencing.py'
+      - 'tests/test_rc72_n7_tool_dispatch.py'
+      - 'tests/test_rc72_captain_dispatch_fencing.py'
+      - '.github/workflows/rc7.2-runtime-contracts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-lease-and-handoff:
+    name: runtime-contract-${{ matrix.os }}-python-${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python-version: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install test runner
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile C06/C07 changes
+        run: python -m py_compile rc7_runtime/rc72_n7_tool_dispatch.py rc7_runtime/rc72_captain_dispatch_fencing.py tests/test_rc72_n7_tool_dispatch.py tests/test_rc72_captain_dispatch_fencing.py
+      - name: Run C06/C07 targeted and inherited resource contracts
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_n7_tool_dispatch.py
+          tests/test_rc72_captain_dispatch_fencing.py
+          tests/test_rc72_phase5_worker_lifecycle_contract.py
+          tests/test_rc72_phase7_data_lease_contract.py
+          tests/test_rc72_phase7_browser_lease_contract.py
+          tests/test_rc72_phase7_capability_broker_contract.py
+          tests/test_rc72_phase7_model_failover_contract.py
+          tests/test_rc72_resource_process_exclusion.py
+          tests/test_rc72_expired_resource_recovery.py
+          tests/test_rc72_n7_pipeline.py
