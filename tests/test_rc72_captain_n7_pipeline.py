@@ -132,3 +132,56 @@ def test_quiesced_captain_between_governed_n7_preparation_and_tool_execution_blo
     finally:
         server.shutdown()
         server.server_close()
+
+
+
+def test_legacy_pipeline_cannot_reenter_an_already_prepared_captain_workitem(tmp_path, monkeypatch):
+    """A current old Captain does not authorize unrelated caller entrypoints."""
+    truth, plan, prep, server, url = formal_setup(tmp_path, monkeypatch)
+    try:
+        governed, _, _, _ = _governed_pipeline(truth, plan, prep, url, tmp_path)
+        item = plan["items"][0]
+        prepared = governed._prepare_governed_item(plan, item)
+        assert prepared["captain_admission_id"]
+        runner = FormalN7RunnerAdapter(
+            prep, evidence_root=tmp_path / "legacy-output",
+            environment_adapter=LocalHTTPEnvironment(url, tmp_path / "legacy-output"),
+            execution_env={"RC72_OUTPUT_ROOT": str(tmp_path / "legacy-output")},
+            timeout_seconds=30)
+        legacy = N7PipelineService(
+            prep, runner=runner, capture_root=tmp_path / "legacy-captured")
+        before = truth.store.path.read_bytes()
+        with pytest.raises(ContractError, match="GOVERNED_ENTRY_REQUIRED"):
+            legacy._prepare_governed_item(plan, item)
+        assert truth.store.path.read_bytes() == before
+        assert server.calls == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_governed_pipeline_reentry_fences_foreign_captain_without_replaying_business(
+        tmp_path, monkeypatch):
+    truth, plan, prep, server, url = formal_setup(tmp_path, monkeypatch)
+    try:
+        governed, _, _, _ = _governed_pipeline(truth, plan, prep, url, tmp_path)
+        item = plan["items"][0]
+        prepared = governed._prepare_governed_item(plan, item)
+        before = truth.store.path.read_bytes()
+        foreign = N7PipelineService(
+            prep, runner=governed.runner,
+            capture_root=tmp_path / "foreign-captured",
+            captain_scheduler=governed.captain_scheduler,
+            captain_session_id="CAPTAIN-C07-UNAUTHORIZED",
+            captain_lease_id=governed.captain_lease_id,
+            team_id=governed.team_id)
+        with pytest.raises(ContractError, match="EXISTING_CAPTAIN_SCOPE_MISMATCH"):
+            foreign._prepare_governed_item(plan, item)
+        assert truth.store.path.read_bytes() == before
+        assert governed._prepare_governed_item(plan, item) == prepared
+        assert truth.store.path.read_bytes() == before
+        assert len(truth.query("rc72_worker_session", mission_id=plan["mission_id"])) == 1
+        assert server.calls == []
+    finally:
+        server.shutdown()
+        server.server_close()
