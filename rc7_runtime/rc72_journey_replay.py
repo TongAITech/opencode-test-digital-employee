@@ -244,11 +244,13 @@ class JourneyReplayService:
         try:
             raw = self.adapter.execute_step(dict(step), dict(context))
         except Exception as exc:  # adapter failures are replay failures, never PASS
+            from .rc72_journey_failure_receipt import adapter_exception_receipt
+            receipt = adapter_exception_receipt(self.truth, step=step, context=context, error=exc)
             return {
                 "status": "FAILED",
-                "actual_refs": ["adapter-error://%s" % step["sequence"]],
-                "evidence_refs": ["adapter-error://%s" % step["sequence"]],
-                "failure_code": "ADAPTER_EXCEPTION:%s" % exc.__class__.__name__,
+                "actual_refs": [receipt],
+                "evidence_refs": [receipt],
+                "failure_code": "ADAPTER_RUNTIME_EXCEPTION:%s" % exc.__class__.__name__,
             }
         if not isinstance(raw, Mapping):
             raise ContractError("JOURNEY_REPLAY_ADAPTER_RESULT_INVALID")
