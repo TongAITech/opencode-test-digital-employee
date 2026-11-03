@@ -102,6 +102,31 @@ def _checksum_rows(root):
     return rows
 
 
+def _native_dsh_executable(path, rel):
+    """Physical executable admission only; does not prove DSH can start."""
+    if rel not in ("workspace-template/runtime/dsh/dsh.exe", "workspace-template/runtime/dsh/dsh"):
+        return False
+    if not path.is_file() or path.stat().st_size < 4096:
+        return False
+    with path.open("rb") as stream:
+        signature = stream.read(4)
+        if rel.endswith(".exe"):
+            if not signature.startswith(b"MZ"):
+                return False
+            stream.seek(0x3c)
+            offset_raw = stream.read(4)
+            if len(offset_raw) != 4:
+                return False
+            offset = int.from_bytes(offset_raw, "little")
+            if offset < 64 or offset > min(path.stat().st_size - 4, 1024 * 1024):
+                return False
+            stream.seek(offset)
+            return stream.read(4) == b"PE\\x00\\x00".replace(b"\\x00", bytes((0,)))
+        # A native Linux binary needs ELF; sh or node wrappers are not enough
+        # to attest the physical DSH engine itself.
+        return signature == bytes((127, 69, 76, 70))
+
+
 def qualify(root, *, expected_source, dsh_relpath=None):
     root = Path(root).resolve()
     if not root.is_dir() or not SOURCE.fullmatch(expected_source or ""):
@@ -230,8 +255,10 @@ def qualify(root, *, expected_source, dsh_relpath=None):
         holds.append("DSH_MAIN_PHYSICAL_BINARY_NOT_ATTESTED")
     else:
         path = _inside(root, dsh_relpath)
-        if not path.is_file() or not path.stat().st_size or dsh_relpath not in checksums or dsh_relpath not in manifest_paths:
+        if dsh_relpath not in checksums or dsh_relpath not in manifest_paths or not path.is_file():
             holds.append("DSH_MAIN_NOT_CARRIED_AND_CHECKSUMMED")
+        elif not _native_dsh_executable(path, dsh_relpath):
+            holds.append("DSH_MAIN_NATIVE_EXECUTABLE_NOT_ATTESTED")
     return {
         "schema": "RC72_QA_PHYSICAL_AUDIT_V1", "source_commit": expected_source.lower(),
         "status": "HOLD" if holds else "PHYSICAL_CANDIDATE_ONLY",
