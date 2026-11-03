@@ -263,3 +263,37 @@ def test_n9_qualification_workitem_is_schedulable_and_rejects_changed_scope(tmp_
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_n9_qualification_does_not_improperly_enter_rc7_reproduction_runner(tmp_path,monkeypatch):
+    """Existing RC7 reproduction demands a qualified PRODUCT_DEFECT Gap.
+
+    N8 VALID_TEST_FAILURE cannot smuggle a product-defect claim by reusing
+    a runner intended for already-qualified product failures.
+    """
+    from rc7_runtime.closed_loop_control import ClosedLoopControlPlane
+    from rc7_runtime.defect_reproduction import DefectReproductionExecutionService
+    from rc7_runtime.runtime_execution import RuntimeExecutionError
+    truth,plan,prep,server,url,pipeline=_failed_business(tmp_path,monkeypatch)
+    try:
+        result=pipeline.complete(release_batch_id=BATCH)
+        task_id=result['qualification_workitem_id']
+        control=ClosedLoopControlPlane(truth,prep.release_id,
+            truth.query('rc72_release_batch',release_batch_id=BATCH)[0]['mission_id'])
+        before=truth.store.path.read_bytes()
+        with pytest.raises(RuntimeExecutionError,match='DEFECT_REPRODUCTION_EXECUTION_TASK_REQUIRED'):
+            DefectReproductionExecutionService(evidence_root=str(tmp_path/'repro')).execute_task(
+                control,task_id,source_product_gap_id=truth.query('rc72_diagnosis_outcome')[0]['gap_id'],
+                bundle=None,prepared=None,authority=None,tool_broker=None,cwd=str(tmp_path))
+        assert truth.store.path.read_bytes()==before and len(server.calls)==1
+        # But the *real* registered N9 qualification is schedulable to an
+        # existing defect_analysis worker and does not acquire a business
+        # execution lease or create a product Defect.
+        leased=control.scheduler.lease_task(control.mission_id,task_id,
+            worker_ref='independent-n9-analyst',capabilities=('defect_analysis',))
+        assert leased is not None and leased.task_id==task_id and leased.state.value=='LEASED'
+        assert not truth.query('rc7_defect')
+        assert len(server.calls)==1
+    finally:
+        server.shutdown()
+        server.server_close()
