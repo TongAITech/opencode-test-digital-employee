@@ -293,6 +293,9 @@ class OfficialJourneyExecutionService:
                 raise ContractError("OFFICIAL_JOURNEY_%s_REQUIRED" % name.upper())
         if self.truth.query(_EXECUTION, execution_id=execution_id):
             raise ContractError("OFFICIAL_JOURNEY_EXECUTION_ALREADY_EXISTS")
+        if any(row.get("state") == "STARTED"
+               for row in self.truth.query(_EXECUTION, official_asset_id=official_asset_id)):
+            raise ContractError("OFFICIAL_JOURNEY_UNKNOWN_SIDE_EFFECTS_RECOVERY_REQUIRED")
         if any(row.get("official_asset_id") == official_asset_id
                and row.get("attempt_id") == attempt_id
                for row in self.truth.query(_EXECUTION)):
