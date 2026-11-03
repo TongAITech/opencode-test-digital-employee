@@ -270,8 +270,13 @@ class OfficialJourneyExecutionService:
                 "failure_code": "ADAPTER_RUNTIME_EXCEPTION:%s" % exc.__class__.__name__,
             }
 
-    def _field_verified(self) -> bool:
-        return self.adapter_kind in self.trusted_field_adapter_kinds and bool(getattr(self.adapter, "field_verified", False))
+    def _field_verified(self, scope: Mapping[str, Any]) -> bool:
+        if self.adapter_kind not in self.trusted_field_adapter_kinds:
+            return False
+        if self.adapter_kind.startswith("BROWSERSKILL_"):
+            verifier = getattr(self.adapter, "verify_field_scope", None)
+            return verifier(scope) is True if callable(verifier) else False
+        return bool(getattr(self.adapter, "field_verified", False))
 
     def _append(self, event_type: str, payload: Dict[str, Any]) -> None:
         out = dict(payload)
@@ -343,7 +348,16 @@ class OfficialJourneyExecutionService:
         steps = list(asset.get("steps") or [])
         if not steps:
             raise ContractError("OFFICIAL_JOURNEY_STEPS_REQUIRED")
-        field_verified = self._field_verified()
+        field_scope = {
+            "execution_id": execution_id, "official_asset_id": official_asset_id,
+            "mission_id": mission_id, "release_batch_id": asset["release_batch_id"],
+            "requirement_id": asset["requirement_id"], "sst_id": asset["sst_id"],
+            "obligation_id": asset["obligation_id"], "case_id": binding["case_id"],
+            "workitem_id": workitem_id, "attempt_id": attempt_id,
+            "worker_id": worker_id, "session_id": session_id,
+            "browser_lease_id": browser_lease_id,
+        }
+        field_verified = self._field_verified(field_scope)
         started_at = _now()
         base = {
             "execution_id": execution_id.strip(),
