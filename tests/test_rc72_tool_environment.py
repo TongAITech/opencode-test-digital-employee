@@ -10,7 +10,7 @@ def _paths(root):
     root.mkdir(exist_ok=True)
     (root/'PACKAGE_MANIFEST.json').write_text('{}')
     runtime=root/'workspace-template/runtime'
-    for relative in list(FIXED_FILES.values())+['allure/version/bin/allure.bat','zap/version/zap.bat']:
+    for relative in list(FIXED_FILES.values())+['allure/version/bin/allure.bat','k6/k6-v-test/k6.exe','zap/version/zap.bat']:
         file=runtime/relative;file.parent.mkdir(parents=True,exist_ok=True);file.write_bytes(b'path-selection fixture')
     (runtime/'maven-repository').mkdir()
     settings=root/'packaging/rc7/maven-offline-settings.xml';settings.parent.mkdir(parents=True);settings.write_text('<settings/>')
@@ -21,6 +21,7 @@ def test_all_carried_tools_bind_to_current_extraction_and_precede_host_path(tmp_
     root=tmp_path/'package with spaces 中文';runtime=_paths(root)
     environment=package_tool_environment(root,ambient_path='approved-host-path')
     for name,relative in FIXED_FILES.items():assert environment[name]==str((runtime/relative).resolve())
+    assert environment['PFC_K6_BIN']==str((runtime/'k6/k6-v-test/k6.exe').resolve())
     assert environment['PATH'].split(os.pathsep)[0]==str(runtime/'node')
     assert environment['PATH'].split(os.pathsep)[-1]=='approved-host-path'
     assert environment['JAVA_HOME']==str(runtime/'java')

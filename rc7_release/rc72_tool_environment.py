@@ -18,9 +18,12 @@ FIXED_FILES = {
     'PFC_RIPGREP_BIN': 'ripgrep/rg.exe',
     'PFC_JAVA_BIN': 'java/bin/java.exe',
     'PFC_MAVEN_BIN': 'maven/bin/mvn.cmd',
-    'PFC_K6_BIN': 'k6/k6.exe',
 }
-DISCOVERED_FILES = {'PFC_ALLURE_BIN': ('allure', 'allure.bat'), 'PFC_ZAP_BIN': ('zap', 'zap.bat')}
+DISCOVERED_FILES = {
+    'PFC_ALLURE_BIN': ('allure', 'allure.bat'),
+    'PFC_K6_BIN': ('k6', 'k6.exe'),
+    'PFC_ZAP_BIN': ('zap', 'zap.bat'),
+}
 OWNED_NAMES = frozenset(FIXED_FILES) | frozenset(DISCOVERED_FILES) | {
     'PATH', 'JAVA_HOME', 'MAVEN_HOME', 'PFC_MAVEN_REPO', 'PFC_MAVEN_SETTINGS', 'MAVEN_ARGS'}
 
