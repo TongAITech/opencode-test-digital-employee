@@ -139,3 +139,40 @@ pending actual in-bank DSH event contract and Q7 Field evidence.
 The above are committed engineering corrections, **not yet verified at the
 same source HEAD by queued CI**; do not upgrade C10 status until CI and
 negative/native recovery tests pass.
+
+
+## 2026-11-04 production reference-envelope provenance (not context-saving proof)
+
+\`rc72_native_context_projection.py\` now composes a real
+\`ContextEnvelopeBuilder\` envelope from canonical R1 \`rc7_task\` parent refs,
+worker \`input_refs\` (important for independent reviewer candidates), and
+canonical Gap refs. The product ingress attaches the projection to native
+producer/reviewer metadata before the real final \`--json\` command is metered.
+
+When a real \`rc72_retry_context\` receipt exists for the exact
+WorkItem/Attempt, an \`OBSERVED\` \`RETRY_DELTA\` projection references the
+previous Attempt summary + explicit Gap + changed Evidence/dependencies;
+\`UNKNOWN\` retains the unchanged canonical refs instead of silently shrinking
+mandatory test context. Full-context retries must carry an explicit reason.
+No synthetic N8 parent Attempt or Gap is invented.
+
+The C10-owned \`rc72_token_call\` R1 record now carries
+\`context_envelope_id\`, \`context_envelope_sha256\`, \`context_mode\`, ref
+counts, parent Attempt ID and
+\`context_projection_status=REFERENCE_ONLY\`. Importantly
+\`context_projection_applied_to_prompt=false\` remains **false**: the
+source-approved N1–N5 native prompts are deliberately unchanged until the
+actual prompt composer is proven to consume the bounded projection without
+losing source/Oracle/negative-test/coverage requirements. Reference counts are
+not a measurement of savings. Token-summary
+\`verified_context_savings_bytes=null\` and
+\`native_minimal_prompt_proven_calls=0\` remain truthful. The previously named
+\`context_reuse_factor\` denotes *observed duplicate input bytes*, **not**
+saved tokens; the clearer \`context_duplication_factor\` is now also emitted.
+
+**Remaining owner integration:** A's real N8 and all live N2–N5 independent
+semantic prompt authors need to take these canonical refs as the *actual*
+prompt hydration source, and return real output/evidence per WorkItem. Batch
+shared model-call dispatch must still verify independence and raw evidence.
+No C10 full closure or economy savings claim is permitted until those product
+routes, same-HEAD CI, and Field evidence pass.
