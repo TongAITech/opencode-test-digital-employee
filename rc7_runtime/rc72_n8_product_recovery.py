@@ -42,7 +42,7 @@ class NativeN8ProductRecoveryService:
         n7=nodes.get('N7_EXECUTION');n8=nodes.get('N8_DIAGNOSIS_RECOVERY')
         if n7 is None or n8 is None:
             raise ContractError('N8_PRODUCT_NODE_DENOMINATOR_MISSING')
-        if n7['state'] not in {'NEEDS_REVISION','BLOCKED','STALE','READY'}:
+        if n7['state'] not in {'RUNNING','NEEDS_REVISION','BLOCKED','STALE','READY'}:
             raise ContractError('N8_PRODUCT_NOT_A_FAILED_N7')
         # A ready N8 node without its actual N7 failure transition is never
         # permission to touch N5 repair or classify a failure.
@@ -53,8 +53,6 @@ class NativeN8ProductRecoveryService:
                and e.get('from_mission_node_id')==n7['mission_node_id']
                and e.get('to_mission_node_id')==n8['mission_node_id']
                and e.get('evidence_refs')]
-        if len(edges)!=1:
-            raise ContractError('N8_PRODUCT_ACCEPTED_N7_FAILURE_TRANSITION_REQUIRED')
         attempts=self.truth.query('rc72_n7_execution_preparation',release_batch_id=release_batch_id)
         admitted=[]
         for p in attempts:
@@ -64,22 +62,36 @@ class NativeN8ProductRecoveryService:
             if len(current)>1:
                 raise ContractError('N8_PRODUCT_ATTEMPT_NOT_UNIQUE')
             if current and current[0]['status']=='BLOCKED' and current[0]['reason']!='CLEANUP_AND_EVIDENCE_CLOSURE_REQUIRED':
-                admitted.append(p)
+                admitted.append((p,current[0]))
         # Do not accidentally repair one failure while ignoring siblings.
         if len(admitted)!=1:
             raise ContractError('N8_PRODUCT_FAILED_ATTEMPT_NOT_UNIQUE')
-        p=admitted[0]
+        p,attempt=admitted[0]
         if p['mission_id']!=batch['mission_id'] or p['release_batch_id']!=release_batch_id:
             raise ContractError('N8_PRODUCT_ATTEMPT_SCOPE_CHANGED')
         diag=self.truth.query('rc72_diagnosis_case',source_binding_id=p['binding_id'])
-        if diag and (len(diag)!=1 or diag[0]['mission_id']!=p['mission_id']
-                     or diag[0]['source_attempt_id']!=p['attempt_id']):
-            raise ContractError('N8_PRODUCT_DIAGNOSIS_SCOPE_CHANGED')
-        # Failure transition refs must resolve to the original Attempt's
-        # signed Evidence; no gap fabricated from stale or foreign R1 labels.
-        evidence_refs=set(current[0]['evidence_refs'])
-        if not set(edges[0]['evidence_refs']).issubset(evidence_refs):
+        if not edges:
+            # The native N7 runner can fail its process/tool checks before
+            # N7Pipeline calls N8. Recover only a *real* frozen failed Attempt.
+            # The diagnosis service itself creates an R1 DIAGNOSIS transition
+            # and independent reviewers. No caller passes a failure class.
+            if n7['state']!='RUNNING' or n8['state']!='NOT_STARTED' or diag:
+                raise ContractError('N8_PRODUCT_ACCEPTED_N7_FAILURE_TRANSITION_REQUIRED')
+            self.diagnosis.run(p['preparation_id'])
+            return self._failure(release_batch_id)
+        if len(edges)!=1 or len(diag)!=1:
+            raise ContractError('N8_PRODUCT_ACCEPTED_N7_FAILURE_TRANSITION_REQUIRED')
+        case=diag[0]
+        if (case['mission_id']!=p['mission_id']
+                or case['source_attempt_id']!=p['attempt_id']
+                or case['transition_id']!=edges[0]['transition_id']
+                or case['failure_evidence_refs']!=edges[0]['evidence_refs']
+                or not set(attempt['evidence_refs']).issubset(set(edges[0]['evidence_refs']))):
             raise ContractError('N8_PRODUCT_ORIGINAL_FAILURE_EVIDENCE_CHANGED')
+        for eid in edges[0]['evidence_refs']:
+            ev=self._one('rc7_evidence',evidence_id=eid)
+            if ev['mission_id']!=p['mission_id']:
+                raise ContractError('N8_PRODUCT_FOREIGN_FAILURE_EVIDENCE')
         return batch,n7,n8,p
 
     def complete(self,*,release_batch_id):
