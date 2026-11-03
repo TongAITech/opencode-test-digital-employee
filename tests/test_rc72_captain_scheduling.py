@@ -31,16 +31,17 @@ def _ready_fixture(tmp_path):
     bridge = CaptainFencedWorkItemScheduler(
         truth=truth, release_id="RC7.2", fencer=fencer,
         lifecycle=lifecycle, scheduler=scheduler,
-        role_profiles={"test-executor": ["api", "tool:api"], "quality-reviewer": ["filesystem"]})
+        role_profiles={"test-executor": ["api", "tool:api"], "L3_EXECUTE": ["api", "tool:api"],
+                       "quality-reviewer": ["filesystem"]})
     return truth, fencer, owner, lifecycle, bridge
 
 
-def _admit(bridge, owner, task):
+def _admit(bridge, owner, task, *, role="test-executor"):
     return bridge.dispatch_etu(
         mission_id="M-1", team_id="TEAM-1",
         captain_session_id=owner["captain_session_id"],
         captain_lease_id=owner["lease_id"],
-        role="test-executor", etu_id=task.replace("WI-", "ETU-"),
+        role=role, etu_id=task.replace("WI-", "ETU-"),
         workitem_id=task, canonical_refs=_refs(task.replace("WI-", "ETU-")))
 
 
@@ -307,11 +308,21 @@ def _mark_n7_case_task(truth):
     scheduler._persist_task(task, row["artifact_version"] + 1)
 
 
+def test_formal_n7_rejects_generic_executor_role_before_creating_worker(tmp_path):
+    truth, _, owner, _, bridge = _ready_fixture(tmp_path)
+    _mark_n7_case_task(truth)
+    _seed_n7_plan(truth)
+    with pytest.raises(CaptainSchedulingError, match="N7_ROLE_SCOPE_MISMATCH"):
+        _admit(bridge, owner, "WI-1", role="test-executor")
+    assert truth.query("rc72_worker_session", mission_id="M-1") == []
+    assert truth.query("rc72_captain_etu_admission", mission_id="M-1") == []
+
+
 def test_n7_case_workitem_requires_canonical_planning_lineage(tmp_path):
     truth, _, owner, _, bridge = _ready_fixture(tmp_path)
     _mark_n7_case_task(truth)
     with pytest.raises(CaptainSchedulingError, match="N7_PLAN_ITEM_NOT_UNIQUE"):
-        _admit(bridge, owner, "WI-1")
+        _admit(bridge, owner, "WI-1", role="L3_EXECUTE")
     assert truth.query("rc72_worker_session", mission_id="M-1") == []
 
 
@@ -320,7 +331,7 @@ def test_n7_case_cannot_dispatch_using_wrong_etu_from_same_mission(tmp_path):
     _mark_n7_case_task(truth)
     _seed_n7_plan(truth, bound_etu="ETU-2")
     with pytest.raises(CaptainSchedulingError, match="N7_CANONICAL_LINEAGE_MISMATCH"):
-        _admit(bridge, owner, "WI-1")
+        _admit(bridge, owner, "WI-1", role="L3_EXECUTE")
     assert truth.query("rc7_task", task_id="WI-1")[0]["state"] == "READY"
     assert truth.query("rc72_worker_session", mission_id="M-1") == []
 
@@ -330,7 +341,7 @@ def test_n7_case_plan_snapshot_must_exist_before_worker_is_allocated(tmp_path):
     _mark_n7_case_task(truth)
     _seed_n7_plan(truth, create_snapshot=False)
     with pytest.raises(CaptainSchedulingError, match="N7_SNAPSHOT_NOT_VERIFIED"):
-        _admit(bridge, owner, "WI-1")
+        _admit(bridge, owner, "WI-1", role="L3_EXECUTE")
     assert truth.query("rc72_worker_session", mission_id="M-1") == []
 
 
@@ -338,7 +349,7 @@ def test_n7_case_canonical_plan_and_snapshot_allow_fresh_worker(tmp_path):
     truth, _, owner, _, bridge = _ready_fixture(tmp_path)
     _mark_n7_case_task(truth)
     _seed_n7_plan(truth)
-    admitted = _admit(bridge, owner, "WI-1")
+    admitted = _admit(bridge, owner, "WI-1", role="L3_EXECUTE")
     assert admitted.state == "LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH"
     assert len(truth.query("rc72_worker_session", mission_id="M-1")) == 1
     assert truth.query("rc7_task", task_id="WI-1")[0]["lease_owner"] == admitted.worker_id
