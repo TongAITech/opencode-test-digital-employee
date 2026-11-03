@@ -6,6 +6,8 @@ on:
     paths:
       - 'tests/test_rc72_qa_c01_c02_independent.py'
       - 'tests/test_rc72_qa_product_wiring.py'
+      - 'tests/test_rc72_qa_offline_payload.py'
+      - 'tools/rc72_qa_offline_audit.py'
       - 'docs/rc7.2/qa-release/**'
       - '.github/workflows/rc7.2-independent-qa.yml'
   pull_request:
@@ -14,9 +16,15 @@ on:
     paths:
       - 'tests/test_rc72_qa_c01_c02_independent.py'
       - 'tests/test_rc72_qa_product_wiring.py'
+      - 'tests/test_rc72_qa_offline_payload.py'
+      - 'tools/rc72_qa_offline_audit.py'
       - 'docs/rc7.2/qa-release/**'
       - '.github/workflows/rc7.2-independent-qa.yml'
   workflow_dispatch:
+
+concurrency:
+  group: rc72-independent-qa-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   independent-c01-c02:
@@ -36,13 +44,14 @@ jobs:
       - name: Install test harness
         run: python -m pip install --disable-pip-version-check pytest
       - name: Compile without importing production
-        run: python -m compileall -q tests/test_rc72_qa_c01_c02_independent.py tests/test_rc72_qa_product_wiring.py rc6_runtime rc7_runtime
+        run: python -m compileall -q tests/test_rc72_qa_c01_c02_independent.py tests/test_rc72_qa_product_wiring.py tests/test_rc72_qa_offline_payload.py tools/rc72_qa_offline_audit.py rc6_runtime rc7_runtime
       - name: Independent C01/C02 negative and recovery qualification
         run: >
           python -m pytest -q
           --junitxml=qa-c01-c02.xml
           tests/test_rc72_qa_c01_c02_independent.py
           tests/test_rc72_qa_product_wiring.py
+          tests/test_rc72_qa_offline_payload.py
           tests/test_rc72_n5_existing_data_repair.py
           tests/test_rc72_n5_reverification.py
           tests/test_rc72_n8_retry_continuation.py
