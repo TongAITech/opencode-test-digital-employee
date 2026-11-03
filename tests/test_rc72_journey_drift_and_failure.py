@@ -141,3 +141,60 @@ def test_official_same_attempt_cannot_replay_with_a_different_execution_id(tmp_p
     with pytest.raises(Exception, match="OFFICIAL_JOURNEY_ATTEMPT_ALREADY_USED"):
         _run(service, lease, execution_id="OJ-OTHER-ID")
     assert len(browser.calls) == 2
+
+
+class RevokesMidStep:
+    adapter_kind = "CONTRACT_BROWSER"
+    field_verified = False
+
+    def __init__(self):
+        self.pool = None
+        self.lease = None
+        self.calls = 0
+
+    def execute_step(self, step, context):
+        self.calls += 1
+        self.pool.release(self.lease.browser_lease_id, reason="handoff to other worker")
+        return {"status": "PASSED", "actual_refs": ["actual://claimed"],
+                "evidence_refs": ["evidence://claimed"]}
+
+
+def test_generic_replay_adapter_cannot_fake_pass_after_browser_lease_revoke(tmp_path):
+    adapter = RevokesMidStep()
+    truth, pool, lease, _, _ = replay_setup(tmp_path, adapter=adapter)
+    adapter.pool, adapter.lease = pool, lease
+    service = JourneyReplayService(
+        truth, release_id="RC7.2", browser_pool=pool, adapter=adapter)
+    result = service.replay(
+        replay_id="JRP-REVOKED", candidate_id="JC-1", workitem_id="WI-R1",
+        attempt_id="ATT-R1", worker_id="WORKER-R1", session_id="SESSION-R1",
+        browser_lease_id=lease.browser_lease_id)
+    assert result.state.value == "FAILED"
+    assert adapter.calls == 1
+    step = truth.query("rc72_journey_replay_step", replay_id="JRP-REVOKED")[0]
+    assert step["status"] == "FAILED"
+    assert step["evidence_refs"][0].startswith("file://")
+
+
+def test_generic_official_adapter_cannot_fake_pass_after_browser_lease_revoke(tmp_path):
+    adapter = RevokesMidStep()
+    truth, pool, lease, _, service = official_setup(tmp_path, adapter=adapter)
+    adapter.pool, adapter.lease = pool, lease
+    assert _run(service, lease, execution_id="OJ-REVOKED").state.value == "FAILED"
+    assert adapter.calls == 1
+    step = truth.query("rc72_official_journey_execution_step", execution_id="OJ-REVOKED")[0]
+    assert step["status"] == "FAILED"
+    assert Path(step["evidence_refs"][0][7:]).exists()
+
+
+def test_teaching_completion_rejects_revoked_browser_lease(tmp_path):
+    from test_rc72_phase9_journey_teaching_capture_contract import (
+        _setup as teaching_setup, _start, _step,
+    )
+    truth, teaching, pool, lease = teaching_setup(tmp_path)
+    _start(teaching, lease.browser_lease_id)
+    _step(teaching)
+    pool.release(lease.browser_lease_id, reason="teaching browser lost")
+    with pytest.raises(Exception, match="BROWSER_LEASE_NOT_ACTIVE"):
+        teaching.complete_recording(recording_id="JR-1", evidence_refs=["file://evidence"])
+    assert truth.query("rc72_journey_recording", recording_id="JR-1")[0]["state"] == "CAPTURING"
