@@ -1,5 +1,36 @@
 # RC7.2 design/construction reconciliation — 2026-11-02
 
+## Portable tool environment and Windows compatibility — 2026-11-03
+
+Native configured Workers and the formal Runner now receive carried tool paths
+resolved from the current extraction, including Node, CodeGraph, browser/BSK,
+ripgrep, Java/Maven, Allure, k6 and ZAP. Missing/escaped/ambiguous carried tools
+stop construction rather than selecting a host replacement. Model credential
+variables remain outside the Runner environment. Native CLI checks the current
+full manifest/inventory before host loading; historical full-package bindings
+prevent manifest deletion from silently selecting a component path.
+
+The entry/runtime/configuration/refusal regression passed 76 tests locally.
+Source f67acf7 dedicated Windows/Linux factory jobs, actual configured mirror
+CLI and Windows Python 3.8 compatibility jobs are all terminal SUCCESS.
+
+The earlier a58 all-source Windows run is terminal FAIL, not a qualified
+baseline: Python 3.8 raised WinError 87 while resolving NUL in the explicit pip
+bridge refusal path, and the complete Libra file exceeded its 180-second bound
+after 13 completed cases. The bridge now rejects null/empty overrides before
+resolution and translates invalid paths into the required refusal. Actual
+Windows Python 3.8 rerun passed all 20 pip-config cases and all 14 Libra cases
+(141.979s, no failures/errors/skips); local Libra passed all 14 in 120.17s. No
+case/context/assertion was removed. Only that file's all-source budget is raised
+to a finite 300 seconds; ordinary files remain at 180 seconds. A new complete
+same-source run is still required before calling the platform baseline PASS.
+
+The package paths are plumbing, not bank or physical execution acceptance.
+Default private SDK/model configuration, per-role MCP patch generation, remaining
+native target/tool provenance, professional repair and final convergence/seal
+remain OPEN. No final user package has been delivered.
+
+
 ## Configured native entry and concrete Code tools — 2026-11-03
 
 Package-owned configuration now assembles all implemented Mission roles without

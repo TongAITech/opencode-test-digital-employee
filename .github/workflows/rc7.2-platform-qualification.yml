@@ -62,12 +62,16 @@ jobs:
         run: python -m compileall -q rc6_runtime rc7_runtime rc7_release
 
       - name: Run RC7.2 contract suite with bounded file diagnostics
+        # Libra creates 14 independent actual N1/N7/N9/report contexts. a58
+        # completed 13 before the Windows 180s file limit. Isolated Windows
+        # rerun passed all 14 in 141.979s; retain every case with finite margin.
         run: >-
           python -m rc7_release.rc72_bounded_pytest
           --pattern "tests/test_rc72_*.py"
           --timeout-seconds 180
           --file-timeout tests/test_rc72_release_driver_n7.py=900
           --file-timeout tests/test_rc72_release_driver_n10.py=900
+          --file-timeout tests/test_rc72_libra_measurement.py=300
           --junit-dir rc72-platform-junit
 
       - name: Run inherited RC7 regression with bounded file diagnostics
