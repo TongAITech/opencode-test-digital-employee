@@ -149,3 +149,69 @@ def test_real_n7_signed_worker_supports_independent_agentteams_team_id(tmp_path,
     assert session["team_id"] == team_id
     assert session["context_bundle"]["team_id"] == team_id
     assert len(truth.query("rc72_worker_session", mission_id=MISSION)) == 1
+
+
+
+def test_fenced_idempotent_preparation_requires_identical_live_r1_admission(tmp_path, monkeypatch):
+    truth, plan, item, _, _, _, dispatch = _fenced(tmp_path, monkeypatch)
+    service = _service(truth)
+    original = service.prepare(
+        plan_id=plan["plan_id"], workitem_id=item["workitem_id"],
+        fenced_admission=dispatch)
+    before = list(truth.store.iter_raw())
+    result = service.prepare(
+        plan_id=plan["plan_id"], workitem_id=item["workitem_id"],
+        fenced_admission=dispatch)
+    assert result == original
+    assert list(truth.store.iter_raw()) == before
+    assert len(truth.query("rc72_worker_session", mission_id=MISSION)) == 1
+
+
+@pytest.mark.parametrize("change", [
+    {"admission_id": "CAPAD-UNTRUSTED-REPLAY"},
+    {"worker_id": "WRK-DIFFERENT-AFTER-PREPARATION"},
+    {"team_id": "TEAM-OTHER"},
+    {"captain_generation": 900},
+    {"captain_session_id": "CAPTAIN-SPOOF"},
+    {"captain_lease_id": "CAPF-UNTRUSTED"},
+    {"state": "EXECUTED_PASS"},
+])
+def test_existing_prepared_cannot_restore_authority_with_forged_captain_admission(
+        tmp_path, monkeypatch, change):
+    from dataclasses import replace
+
+    truth, plan, item, _, _, _, dispatch = _fenced(tmp_path, monkeypatch)
+    first = _service(truth).prepare(
+        plan_id=plan["plan_id"], workitem_id=item["workitem_id"],
+        fenced_admission=dispatch)
+    before = list(truth.store.iter_raw())
+    with pytest.raises(ContractError, match="FENCED_"):
+        _service(truth).prepare(
+            plan_id=plan["plan_id"], workitem_id=item["workitem_id"],
+            fenced_admission=replace(dispatch, **change))
+    assert list(truth.store.iter_raw()) == before
+    assert truth.query("rc72_n7_execution_preparation",
+                       preparation_id=first["preparation_id"])[0]["worker_id"] == dispatch.worker_id
+    assert len(truth.query("rc72_worker_session", mission_id=MISSION)) == 1
+
+
+def test_existing_prepared_cannot_restore_authority_after_captain_quiescence(
+        tmp_path, monkeypatch):
+    truth, plan, item, captain, lifecycle, owner, dispatch = _fenced(tmp_path, monkeypatch)
+    first = _service(truth).prepare(
+        plan_id=plan["plan_id"], workitem_id=item["workitem_id"],
+        fenced_admission=dispatch)
+    captain.prepare_handoff(
+        mission_id=MISSION, team_id=dispatch.team_id,
+        lease_id=owner["lease_id"], captain_session_id=owner["captain_session_id"],
+        lifecycle=lifecycle, current_node_refs=["N7_EXECUTION"],
+        latest_delivery_refs=[], latest_gate_refs=[],
+        next_workitem_ids=[item["workitem_id"]])
+    before = list(truth.store.iter_raw())
+    with pytest.raises(ContractError, match="CAPTAIN_DISPATCH_NOT_ACTIVE"):
+        _service(truth).prepare(
+            plan_id=plan["plan_id"], workitem_id=item["workitem_id"],
+            fenced_admission=dispatch)
+    assert list(truth.store.iter_raw()) == before
+    assert truth.query("rc72_n7_execution_preparation",
+                       preparation_id=first["preparation_id"])[0]["status"] == "PREPARED"
