@@ -54,6 +54,8 @@ def _validate(payload):
         raise contracts.DomainValidationError('N7_PREPARATION_GENERATION_INVALID')
     contracts._require_string_list(out, 'data_lease_ids')
     contracts._require_string_list(out, 'browser_lease_ids')
+    if out.get('captain_admission_id') is not None:
+        out['captain_admission_id'] = contracts._require_str(out, 'captain_admission_id')
     for key in ('actual_result', 'assertion_result', 'execution_result', 'field_verified', 'bank_final'):
         if key in out:
             raise contracts.DomainValidationError('N7_PREPARATION_RESULT_FORBIDDEN')
@@ -109,6 +111,16 @@ class ExecutionPreparationService:
         if len(items) != 1:
             raise ExecutionPreparationError('N7_WORKITEM_OUTSIDE_PLAN')
         item = items[0]
+        # Once Captain dispatch is governed for this Mission, no parallel
+        # legacy API may create a new unfenced Worker/TaskLease. Historical
+        # non-governed missions remain readable for compatibility.
+        captain_leases = self.truth.query('rc72_captain_dispatch_lease',
+                                          mission_id=plan['mission_id'])
+        if captain_leases and fenced_admission is None:
+            current_governed = self.truth.query(
+                _ARTIFACT, workitem_id=workitem_id, status='PREPARED')
+            if not current_governed or not current_governed[0].get('captain_admission_id'):
+                raise ExecutionPreparationError('N7_CAPTAIN_FENCED_ADMISSION_REQUIRED')
         if plan.get('recovery_id'):
             from .rc72_n8_retry_truth import assert_reconciled_plan
             reconciliation = assert_reconciled_plan(self.planning, plan)
@@ -267,6 +279,8 @@ class ExecutionPreparationService:
                 attempt_id=attempt_id, binding_id=binding.binding_id, worker_id=worker.worker_id, session_id=worker.session_id,
                 attempt_generation=generation, worker_identity=asdict(identity), task_lease=asdict(lease), data_lease_ids=acquired,
                 browser_lease_ids=browser_leases, status='PREPARED', artifact_version=1)
+            if fenced_admission is not None:
+                payload['captain_admission_id'] = fenced_admission.admission_id
             if fenced_admission is None:
                 self.truth.append_atomic(_EVENT, payload)
             else:
@@ -419,6 +433,8 @@ class ExecutionPreparationService:
         from .rc72_captain_dispatch_fencing import CaptainDispatchFencer
         if not isinstance(fenced_admission, GovernedFreshDispatch):
             raise ExecutionPreparationError('N7_FENCED_ADMISSION_TYPE_REQUIRED')
+        if row.get('captain_admission_id') != fenced_admission.admission_id:
+            raise ExecutionPreparationError('N7_FENCED_ADMISSION_ID_MISMATCH')
         proven = self.truth.query('rc72_captain_etu_admission',
                                   admission_id=fenced_admission.admission_id)
         if len(proven) != 1:
@@ -465,9 +481,33 @@ class ExecutionPreparationService:
         # decision lock. Per-resource refreshes followed by another replay left
         # a gap between the last ownership check and authority restoration.
         with ledger_lock(self.truth, busy='N7_PREPARATION_LEDGER_BUSY', conflict=ExecutionPreparationError):
-            if fenced_admission is not None:
-                existing = self._one(_ARTIFACT, preparation_id=preparation_id)
+            existing = self._one(_ARTIFACT, preparation_id=preparation_id)
+            proof_id = existing.get('captain_admission_id')
+            captain_leases = self.truth.query(
+                'rc72_captain_dispatch_lease', mission_id=existing['mission_id'])
+            if proof_id:
+                # Inferred from *canonical R1*, not from caller arguments:
+                # SignedToolDispatchService also uses this path without an
+                # explicit Captain object. Quiesce/takeover must revoke tool
+                # authorization even for an already PREPARED Attempt.
+                if fenced_admission is None:
+                    from .rc72_captain_scheduling import GovernedFreshDispatch
+                    proven = self.truth.query(
+                        'rc72_captain_etu_admission', admission_id=proof_id)
+                    if len(proven) != 1:
+                        raise ExecutionPreparationError('N7_FENCED_ADMISSION_R1_REQUIRED')
+                    row = proven[0]
+                    fenced_admission = GovernedFreshDispatch(
+                        admission_id=row['admission_id'], mission_id=row['mission_id'],
+                        team_id=row['team_id'], workitem_id=row['workitem_id'],
+                        etu_id=row['etu_id'], role=row['role'],
+                        worker_id=row['worker_id'], session_id=row['session_id'],
+                        captain_generation=row['captain_generation'],
+                        captain_lease_id=row['captain_lease_id'],
+                        captain_session_id=row['captain_session_id'], state=row['state'])
                 self._verify_existing_fenced_admission(existing, fenced_admission)
+            elif fenced_admission is not None or captain_leases:
+                raise ExecutionPreparationError('N7_CAPTAIN_FENCED_ADMISSION_REQUIRED')
             return self._assert_current_locked(preparation_id)
 
     def _assert_current_locked(self, preparation_id):
