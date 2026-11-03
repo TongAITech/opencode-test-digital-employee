@@ -118,3 +118,71 @@ def test_input_mutation_between_preflight_and_copy_cannot_forge_archive_index(tm
     assert row["sha256"] == hashlib.sha256(exported).hexdigest()
     assert row["size"] == len(exported)
     assert result["bank_final"] is False
+
+
+def _reseal_modified_archive(original, tmp_path, *, entry_name, change):
+    """Adversarial archive with a *new valid ZIP SHA256 receipt*, not a cheap damaged ZIP."""
+    alternative = tmp_path / "mutated-archive-bytes.zip"
+    with zipfile.ZipFile(str(original), "r") as src, zipfile.ZipFile(str(alternative), "w", compression=zipfile.ZIP_DEFLATED) as out:
+        for info in src.infolist():
+            value = src.read(info.filename)
+            if info.filename == entry_name:
+                value = change(value)
+            out.writestr(info.filename, value)
+    alternative.replace(original)
+    digest = hashlib.sha256(original.read_bytes()).hexdigest()
+    Path(str(original) + ".sha256").write_text(digest + "  " + original.name + "\n", encoding="utf-8")
+
+
+def test_exported_evidence_receipt_and_every_byte_can_be_independently_verified(tmp_path, capsys):
+    root = _root(tmp_path)
+    out = tmp_path / "qualified-copy.zip"
+    exporter.export_evidence(root, out, source_commit=COMMIT, includes=["field/q3-target-linux.json"])
+    verified = exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
+    assert verified["status"] == "EVIDENCE_COPY_INTEGRITY_ONLY"
+    assert verified["file_count"] == 8
+    assert verified["field_verified"] is False and verified["bank_final"] is False
+    assert verified["q9_bank_final"] == "NOT_ADMITTED"
+    assert exporter.main(["--verify-archive", str(out), "--expected-source-commit", COMMIT]) == 0
+    assert "EVIDENCE_COPY_INTEGRITY_ONLY" in capsys.readouterr().out
+
+
+def test_evidence_receipt_mutation_is_independently_rejected(tmp_path):
+    root = _root(tmp_path)
+    out = tmp_path / "modified.zip"
+    exporter.export_evidence(root, out, source_commit=COMMIT)
+    Path(str(out) + ".sha256").write_text("0" * 64 + "  modified.zip\n", encoding="utf-8")
+    with pytest.raises(exporter.ExportError, match="ZIP_RECEIPT_MISMATCH"):
+        exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
+
+
+def test_changed_zip_file_rejected_even_after_forger_reseals_archive_receipt(tmp_path):
+    root = _root(tmp_path)
+    out = tmp_path / "tampered-evidence.zip"
+    exporter.export_evidence(root, out, source_commit=COMMIT)
+    _reseal_modified_archive(out, tmp_path, entry_name="payload/runtime-state/r1/event-stream.jsonl",
+                             change=lambda data: data + b'{"injected":"unattested"}\n')
+    with pytest.raises(exporter.ExportError, match="ZIP_(SIZE|BYTES)_MISMATCH"):
+        exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
+
+
+def test_forged_field_pass_in_index_rejected_even_with_new_archive_receipt(tmp_path):
+    root = _root(tmp_path)
+    out = tmp_path / "false-bank-final.zip"
+    exporter.export_evidence(root, out, source_commit=COMMIT)
+    def forge(data):
+        index = json.loads(data)
+        index["field_verified"] = True
+        index["q9_bank_final"] = "BANK_FINAL"
+        return json.dumps(index).encode("utf-8")
+    _reseal_modified_archive(out, tmp_path, entry_name="QA-EVIDENCE-INDEX.json", change=forge)
+    with pytest.raises(exporter.ExportError, match="ZIP_FALSE_FIELD_CLAIM"):
+        exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
+
+
+def test_evidence_archive_source_must_match_exact_source_commit(tmp_path):
+    root = _root(tmp_path)
+    out = tmp_path / "other-source.zip"
+    exporter.export_evidence(root, out, source_commit=COMMIT)
+    with pytest.raises(exporter.ExportError, match="ZIP_SOURCE_MISMATCH"):
+        exporter.verify_evidence_export(out, expected_source_commit="c" * 40)
