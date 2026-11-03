@@ -58,3 +58,54 @@ Every new model/provider/Captain/Fresh Worker launcher needs a fresh binder call
 ## Truth boundary
 
 Repository CI cannot prove bank provider usage format, model quota, real token savings, an executed system test, N8/N9/N10 convergence or the offline install. Keep C10 at PRODUCT_INGRESS_CODED / ENGINEERING_VERIFICATION_PENDING until full same-HEAD regression and Field R1/Evidence establish the higher statuses. Never infer a saving percentage from simulated usage.
+
+
+## Working-day quota correction — 2026-11-04 (C10)
+
+**Quota limits apply only to Shanghai-calendar working days.** On non-working
+days, the entire 00:00–24:00 Asia/Shanghai local day is unrestricted:
+- Saturday/Sunday default to non-working days (no quota, cost factor 0).
+- A weekday listed in \`non_working_dates\` (e.g., an officially declared
+  statutory holiday) is unrestricted for the whole day.
+- A Saturday/Sunday listed in \`makeup_work_dates\` (officially adjusted
+  compensatory workday) is **working**, and follows the ordinary workday
+  schedule: before 18:00 full-rate quota; 18:00–21:00 10:1 quota; from 21:00
+  unrestricted.
+- Local date/time is always derived from an aware datetime converted to
+  Asia/Shanghai; the worker machine's local timezone must not be consulted.
+
+Bank administrators supply an *authoritative, current working calendar* in the
+existing trusted \`--economy-config\` JSON input, under \`bank_cost_window\`:
+
+\`\`\`json
+{
+  "bank_cost_window": {
+    "timezone_name": "Asia/Shanghai",
+    "normal_end_hour": 18,
+    "discount_end_hour": 21,
+    "normal_factor_millis": 1000,
+    "discount_factor_millis": 100,
+    "unlimited_after_discount": true,
+    "post_discount_factor_millis": 0,
+    "non_working_dates": ["2026-01-01"],
+    "makeup_work_dates": []
+  }
+}
+\`\`\`
+
+**The example is not a complete 2026 calendar.** The code does not guess
+official statutory holidays or adjusted workdays. Operators must maintain
+both lists from the approved bank / statutory calendar for the whole planned
+execution period and update them on policy changes. Without those overrides,
+only the regular Saturday/Sunday weekend rule is known. The schema requires
+canonical \`YYYY-MM-DD\` dates, deduplicates by rejection, rejects conflicts
+between working/non-working overrides, serializes stable sorted lists, and
+persists the selected schedule in canonical R1. A conflicting schedule on a
+cold restart is rejected before model launch.
+
+**Acceptance truth:** this changes *only* quota-window classification and
+economic scheduling/admission telemetry. It must never remove WorkItems,
+TestObligations, L1–L7 cases, Evidence, independent review, RCA, repair or
+regression. It does not prove a provider actually grants free quotas, nor does
+it authorize fictitious Token-savings percentages. Check bank provider billing
+against the configured dates in Field before declaring bank quota qualification.
