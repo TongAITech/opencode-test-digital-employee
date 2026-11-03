@@ -82,3 +82,39 @@ def test_export_does_not_write_into_package_or_overwrite_existing_receipt(tmp_pa
     with pytest.raises(exporter.ExportError, match="ALREADY_EXISTS"):
         exporter.export_evidence(root, out, source_commit=COMMIT)
     assert out.read_bytes() == b"do-not-overwrite"
+
+
+def test_existing_sha256_receipt_is_not_overwritten_or_deleted(tmp_path):
+    root = _root(tmp_path)
+    out = tmp_path / "receipt-protected.zip"
+    sidecar = Path(str(out) + ".sha256")
+    sidecar.write_bytes(b"existing-bank-receipt-immutable")
+    with pytest.raises(exporter.ExportError, match="ALREADY_EXISTS"):
+        exporter.export_evidence(root, out, source_commit=COMMIT)
+    assert not out.exists()
+    assert sidecar.read_bytes() == b"existing-bank-receipt-immutable"
+
+
+def test_input_mutation_between_preflight_and_copy_cannot_forge_archive_index(tmp_path, monkeypatch):
+    root = _root(tmp_path)
+    out = tmp_path / "mutated-before-copy.zip"
+    rel = "field/q3-target-linux.json"
+    old_checked = exporter._checked
+    calls = [0]
+    def changed_after_preflight(package_root, path):
+        if path == rel:
+            calls[0] += 1
+            if calls[0] == 2:
+                (root / rel).write_bytes(b'{"observed":"changed-after-preflight"}\n')
+        return old_checked(package_root, path)
+    monkeypatch.setattr(exporter, "_checked", changed_after_preflight)
+    result = exporter.export_evidence(root, out, source_commit=COMMIT, includes=[rel])
+    assert calls[0] >= 2
+    with zipfile.ZipFile(str(out)) as archive:
+        index = json.loads(archive.read("QA-EVIDENCE-INDEX.json"))
+        row = next(item for item in index["files"] if item["path"] == rel)
+        exported = archive.read("payload/" + rel)
+    assert exported == b'{"observed":"changed-after-preflight"}\n'
+    assert row["sha256"] == hashlib.sha256(exported).hexdigest()
+    assert row["size"] == len(exported)
+    assert result["bank_final"] is False
