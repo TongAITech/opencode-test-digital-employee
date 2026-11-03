@@ -198,16 +198,21 @@ class JourneyPlaywrightAdapter:
             method = oracle.get("method")
             url = oracle.get("url")
             status = oracle.get("status")
+            trigger_step_id = oracle.get("trigger_source_step_id")
             if (not isinstance(method, str) or not method.strip()
                     or not isinstance(url, str) or not url.startswith(("http://", "https://"))
-                    or not isinstance(status, int) or isinstance(status, bool)):
-                raise ContractError("JOURNEY_NETWORK_ORACLE_INVALID")
+                    or not isinstance(status, int) or isinstance(status, bool)
+                    or not isinstance(trigger_step_id, str) or not trigger_step_id.strip()
+                    or trigger_step_id == step.get("source_step_id")):
+                raise ContractError("JOURNEY_NETWORK_ORACLE_TRIGGER_STEP_REQUIRED")
             run_id = str(context.get("replay_id") or context.get("execution_id") or "")
             observations = self._network_observations.get(run_id, [])
             if not any(
                 row.get("method") == method.upper()
                 and row.get("url") == _public_url(url)
                 and row.get("status") == status
+                and row.get("source_step_id") == trigger_step_id
+                and row.get("action_type") in {"NAVIGATE", "CLICK", "INPUT", "SELECT", "WAIT"}
                 for row in observations
             ):
                 raise ContractError("JOURNEY_ASSERT_NETWORK_STATUS_MISMATCH")
@@ -333,7 +338,17 @@ class JourneyPlaywrightAdapter:
                 failure_code = str(exc).split(":")[0][:100]
         # Preserve observed responses across NAVIGATE/CLICK -> ASSERT steps of
         # the same signed replay or official execution, not across Attempts.
-        self._network_observations.setdefault(run_id, []).extend(responses)
+        # Source-step attribution prevents an earlier coincidental HTTP
+        # response from satisfying a later business action's network oracle.
+        attributed = [dict(r, source_step_id=str(step.get("source_step_id") or ""),
+                           action_type=str(step.get("action_type") or "").upper())
+                      for r in responses]
+        previous = self._network_observations.setdefault(run_id, [])
+        if len(previous) + len(attributed) > 1000:
+            status = "FAILED"
+            failure_code = "JOURNEY_NETWORK_OBSERVATION_LIMIT_EXCEEDED"
+        else:
+            previous.extend(attributed)
         evidence_refs = []
         if page is not None:
             try:
