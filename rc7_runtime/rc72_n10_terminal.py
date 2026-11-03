@@ -53,11 +53,10 @@ def install_overlay():
             raise contracts.DomainValidationError('N10_TERMINAL_BANK_CLAIM_FORBIDDEN')
         out.update(artifact_type=_KIND,artifact_version=contracts._artifact_version(out))
         return out
-    registry.VALIDATORS[_KIND]=validate
-    from rc6_runtime import truth
-    truth.EVENT_TYPES[_EVENT]=(_KIND,'review_result_id')
-    truth.IDENTITY_FIELDS[_KIND]='review_result_id'
-    truth.BUCKETS[_KIND]='rc72_n10_terminal_reviews'
+    contracts.VALIDATORS[_KIND]=validate
+    registry.EVENT_TYPES[_EVENT]=(_KIND,'review_result_id')
+    registry.IDENTITY_FIELDS[_KIND]='review_result_id'
+    registry.BUCKETS[_KIND]='rc72_n10_terminal_reviews'
 
 
 class NativeN10TerminalReviewService:
