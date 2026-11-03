@@ -460,3 +460,53 @@ def test_teaching_preflight_validation_is_atomic_and_retains_partial_batch(tmp_p
     assert [step["action_type"] for step in steps] == ["NAVIGATE", "CLICK", "INPUT", "ASSERT"]
     assert steps[2]["capture_metadata"]["value_ref"] == "var://approved-amount"
     assert "approved-amount" not in json.dumps(page.actions)
+
+
+def test_manual_assert_cannot_appear_before_unpolled_human_action(tmp_path):
+    truth, teaching, pool, lease = teaching_fixture(tmp_path)
+    page = FakePage()
+    page.url = "https://fat1.example/config"
+    recorder = JourneyCDPTeachingRecorder(
+        teaching=teaching, evidence_root=tmp_path / "capture",
+        connector=lambda endpoint: FakeBrowser(page))
+    recorder.begin(
+        recording_id="JR-ACTION-ORDER", mission_id="M-1", release_batch_id="RB-1",
+        requirement_id="REQ-1", sst_id="SST-1", obligation_id="TO-1",
+        workitem_id="WI-1", attempt_id="ATT-1", worker_id="WORKER-1",
+        session_id="SESSION-1", browser_lease_id=lease.browser_lease_id,
+        human_operator_ref="human://operator/001")
+    page.events = [{"type": "CLICK", "element_ref": "css:#save",
+                    "url": "https://fat1.example/config"}]
+    with pytest.raises(Exception, match="JOURNEY_TEACHING_PENDING_ACTIONS_NOT_CAPTURED"):
+        recorder.record_assertion(page_role="config", oracle_ref="oracle://success-toast")
+    assert truth.query("rc72_journey_recording", recording_id="JR-ACTION-ORDER")[0]["step_count"] == 1
+    assert recorder.poll(page_role="config") == ["JR-ACTION-ORDER:2"]
+    assert recorder.record_assertion(page_role="config",
+                                    oracle_ref="oracle://success-toast") == "JR-ACTION-ORDER:3"
+    assert recorder.finish().state.value == "CAPTURED"
+    steps = sorted(truth.query("rc72_journey_capture_step", recording_id="JR-ACTION-ORDER"),
+                   key=lambda x: x["sequence"])
+    assert [s["action_type"] for s in steps] == ["NAVIGATE", "CLICK", "ASSERT"]
+
+
+def test_manual_wait_cannot_skip_page_navigation_not_yet_captured(tmp_path):
+    truth, teaching, pool, lease = teaching_fixture(tmp_path)
+    page = FakePage()
+    page.url = "https://fat1.example/config"
+    recorder = JourneyCDPTeachingRecorder(
+        teaching=teaching, evidence_root=tmp_path / "capture",
+        connector=lambda endpoint: FakeBrowser(page))
+    recorder.begin(
+        recording_id="JR-WAIT-ORDER", mission_id="M-1", release_batch_id="RB-1",
+        requirement_id="REQ-1", sst_id="SST-1", obligation_id="TO-1",
+        workitem_id="WI-1", attempt_id="ATT-1", worker_id="WORKER-1",
+        session_id="SESSION-1", browser_lease_id=lease.browser_lease_id,
+        human_operator_ref="human://operator/001")
+    page.url = "https://fat1.example/new-page"
+    with pytest.raises(Exception, match="JOURNEY_TEACHING_PENDING_NAVIGATION_NOT_CAPTURED"):
+        recorder.record_wait(page_role="config", wait_semantics="domcontentloaded")
+    assert recorder.poll(page_role="config") == ["JR-WAIT-ORDER:2"]
+    assert recorder.record_wait(page_role="config",
+                                wait_semantics="domcontentloaded") == "JR-WAIT-ORDER:3"
+    recorder.record_assertion(page_role="config", oracle_ref="oracle://visible")
+    assert recorder.finish().state.value == "CAPTURED"
