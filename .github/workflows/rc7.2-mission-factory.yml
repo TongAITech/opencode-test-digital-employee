@@ -28,6 +28,8 @@ jobs:
       - name: Validate owned factory, CLI, admission and original denominator
         shell: python
         run: |
+          import os, sys
+          sys.path.insert(0, os.getcwd())
           from rc7_release.rc72_bounded_pytest import run_files
           files = [
               'tests/test_rc72_mission_factory.py',
