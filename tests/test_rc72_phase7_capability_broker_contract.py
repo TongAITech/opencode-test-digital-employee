@@ -563,3 +563,28 @@ def test_capability_grant_is_not_usable_at_exact_expiration_second(tmp_path):
             capability_lease_id=issued.capability_lease_id,
             mission_id="M-1", workitem_id="WI-1", attempt_id="ATT-1",
             worker_id=identity.worker_id, now=grant["expires_at"])
+
+
+
+def test_call_time_capability_authority_uses_same_atomic_ledger_as_revocation(tmp_path):
+    from rc7_runtime.rc72_ledger_lock import ledger_lock
+
+    truth, authority, identity, base, broker = _setup(tmp_path, native=True)
+    result = _request(broker, identity, base,
+                      "mcp__pfc_aitest_rc7__attempt_cat_query")
+    with ledger_lock(truth):
+        with pytest.raises(Exception, match="CAPABILITY_LEASE_LEDGER_BUSY"):
+            broker.assert_capability_lease_usable(
+                capability_lease_id=result.capability_lease_id,
+                mission_id="M-1", workitem_id="WI-1", attempt_id="ATT-1",
+                worker_id=identity.worker_id)
+    assert broker.assert_capability_lease_usable(
+        capability_lease_id=result.capability_lease_id,
+        mission_id="M-1", workitem_id="WI-1", attempt_id="ATT-1",
+        worker_id=identity.worker_id)["state"] == "ACTIVE"
+    broker.revoke(result.capability_lease_id, reason="complete scope")
+    with pytest.raises(Exception, match="CAPABILITY_LEASE_NOT_ACTIVE"):
+        broker.assert_capability_lease_usable(
+            capability_lease_id=result.capability_lease_id,
+            mission_id="M-1", workitem_id="WI-1", attempt_id="ATT-1",
+            worker_id=identity.worker_id)
