@@ -174,3 +174,70 @@ def test_multiprocess_same_workitem_contention_cannot_duplicate_worker(tmp_path)
     cold = TruthRuntime(truth.store.path)
     assert len(cold.query("rc72_worker_session", mission_id="M-1")) == 1
     assert cold.query("rc7_task", task_id="WI-1")[0]["state"] == "LEASED"
+
+
+
+def test_orphan_without_any_authority_or_business_effect_can_be_recovered_from_r1(tmp_path, monkeypatch):
+    truth, _, owner, _, bridge = _ready_fixture(tmp_path)
+    def crash(*args, **kwargs):
+        raise KeyboardInterrupt("simulated pre-lease crash")
+    monkeypatch.setattr(bridge.scheduler, "lease_task", crash)
+    with pytest.raises(KeyboardInterrupt):
+        _admit(bridge, owner, "WI-1")
+    old = truth.query("rc72_worker_session", mission_id="M-1")[0]
+    replay = TruthRuntime(truth.store.path)
+    recovered = CaptainFencedWorkItemScheduler(
+        truth=replay, release_id="RC7.2",
+        fencer=CaptainDispatchFencer(replay, release_id="RC7.2"),
+        lifecycle=WorkerLifecycleService(replay, release_id="RC7.2"),
+        scheduler=TaskScheduler(replay, "RC7.2"),
+        role_profiles={"test-executor": ["api"]})
+    checkpoint = recovered.recover_unleased_orphan(
+        mission_id="M-1", team_id="TEAM-1",
+        captain_session_id="CAP-A", captain_lease_id=owner["lease_id"],
+        workitem_id="WI-1", session_id=old["session_id"])
+    assert checkpoint.session_id == old["session_id"]
+    closed = replay.query("rc72_worker_session", session_id=old["session_id"])[0]
+    assert closed["state"] == "CLOSED"
+    assert closed["close_reason"] == "ORPHAN_BEFORE_WORKITEM_LEASE_VERIFIED"
+    successor = _admit(recovered, owner, "WI-1")
+    assert successor.session_id != old["session_id"]
+    assert successor.worker_id != old["worker_id"]
+    child = replay.query("rc72_worker_session", session_id=successor.session_id)[0]
+    assert child["parent_session_id"] == old["session_id"]
+    assert replay.query("rc7_task", task_id="WI-1")[0]["lease_owner"] == successor.worker_id
+
+
+def test_orphan_with_any_runtime_assignment_cannot_be_silently_recovered(tmp_path, monkeypatch):
+    truth, _, owner, lifecycle, bridge = _ready_fixture(tmp_path)
+    def crash(*args, **kwargs):
+        raise KeyboardInterrupt("simulated pre-lease crash")
+    monkeypatch.setattr(bridge.scheduler, "lease_task", crash)
+    with pytest.raises(KeyboardInterrupt):
+        _admit(bridge, owner, "WI-1")
+    session = truth.query("rc72_worker_session", mission_id="M-1")[0]
+    # Represents an unconsumed launch/authority signal. No orphan release can
+    # presume an external process did not perform business I/O.
+    lifecycle._update_session(session, runtime_assignment_id="DSH-UNRESOLVED")
+    with pytest.raises(CaptainSchedulingError, match="AUTHORITY_OR_DSH_OBSERVED"):
+        bridge.recover_unleased_orphan(
+            mission_id="M-1", team_id="TEAM-1",
+            captain_session_id="CAP-A", captain_lease_id=owner["lease_id"],
+            workitem_id="WI-1", session_id=session["session_id"])
+    assert truth.query("rc72_worker_session", session_id=session["session_id"])[0]["state"] == "ACTIVE"
+
+
+def test_orphan_recovery_rejects_wrong_captain_without_mutating_r1(tmp_path, monkeypatch):
+    truth, _, owner, _, bridge = _ready_fixture(tmp_path)
+    monkeypatch.setattr(bridge.scheduler, "lease_task",
+                        lambda *a, **kw: (_ for _ in ()).throw(KeyboardInterrupt()))
+    with pytest.raises(KeyboardInterrupt):
+        _admit(bridge, owner, "WI-1")
+    session = truth.query("rc72_worker_session", mission_id="M-1")[0]
+    before = truth.store.path.read_bytes()
+    with pytest.raises(ContractError, match="FENCED"):
+        bridge.recover_unleased_orphan(
+            mission_id="M-1", team_id="TEAM-1",
+            captain_session_id="CAP-OTHER", captain_lease_id=owner["lease_id"],
+            workitem_id="WI-1", session_id=session["session_id"])
+    assert truth.store.path.read_bytes() == before
