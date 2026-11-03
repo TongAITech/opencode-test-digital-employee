@@ -43,9 +43,13 @@ class QualificationError(RuntimeError):
 def _inside(root, rel):
     if not isinstance(rel, str) or not rel or chr(92) in rel:
         raise QualificationError("INVALID_RELATIVE_PATH")
-    parts = PurePosixPath(rel).parts
-    if rel.startswith("/") or ".." in parts or "." in parts or not parts or ":" in parts[0]:
+    canonical = PurePosixPath(rel)
+    parts = canonical.parts
+    if (rel.startswith("/") or ".." in parts or "." in parts or not parts
+            or ":" in parts[0]):
         raise QualificationError("PATH_TRAVERSAL:" + rel)
+    if canonical.as_posix() != rel or rel.startswith("./"):
+        raise QualificationError("NONCANONICAL_RELATIVE_PATH:" + rel)
     current = root
     for part in parts:
         current = current / part
