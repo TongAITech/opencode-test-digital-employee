@@ -191,6 +191,29 @@ class NativeCoverageRepairService:
             raise ContractError('NATIVE_COVERAGE_REPAIR_BOUNDARY_PROOF_CHANGED')
         return row
 
+    def _active_boundaries(self, *, release_batch_id, application_id):
+        """Read active fences and re-audit every frozen accepted repair proof."""
+        active = active_repair_boundaries(
+            self.truth,
+            self.authority,
+            release_id=self.release_id,
+            source_commit=self.source_commit,
+            release_batch_id=release_batch_id,
+            application_id=application_id,
+        )
+        audited = []
+        for row in active:
+            current = self._existing_boundary(
+                release_batch_id=release_batch_id,
+                application_id=application_id,
+                gap_id=row['gap_id'],
+            )
+            if (current is None or current['repair_id'] != row['repair_id']
+                    or current['state'] != 'FRESH_N7_REQUIRED'):
+                raise ContractError('NATIVE_COVERAGE_REPAIR_BOUNDARY_CHANGED')
+            audited.append(current)
+        return audited
+
     def prepare(self, *, release_batch_id, application_id, gap_id):
         diagnosed = self._diagnosed(release_batch_id, application_id, gap_id)
         if diagnosed is None:
@@ -296,9 +319,7 @@ class NativeCoverageRepairService:
 
     def reconcile_application(self, *, release_batch_id, application_id):
         self._composition()
-        active = active_repair_boundaries(self.truth, self.authority, release_id=self.release_id,
-                                          source_commit=self.source_commit, release_batch_id=release_batch_id,
-                                          application_id=application_id)
+        active = self._active_boundaries(release_batch_id=release_batch_id, application_id=application_id)
         if not active:
             return dict(status='NO_OPEN_COVERAGE_REPAIR')
         policy, proof = self.measurement._context(release_batch_id, audit_only=True)
@@ -321,6 +342,15 @@ class NativeCoverageRepairService:
         feedback = CoverageFeedbackService(self.truth, release_id=self.release_id)
         closed = []
         for row in active:
+            current = self._existing_boundary(
+                release_batch_id=release_batch_id,
+                application_id=application_id,
+                gap_id=row['gap_id'],
+            )
+            if (current is None or current['repair_id'] != row['repair_id']
+                    or current['state'] != 'FRESH_N7_REQUIRED'):
+                raise ContractError('NATIVE_COVERAGE_REPAIR_BOUNDARY_CHANGED')
+            row = current
             gap = self._one('rc72_coverage_gap', gap_id=row['gap_id'])
             if gap['status'] == 'RESOLVED':
                 raise ContractError('NATIVE_COVERAGE_REPAIR_UNATTESTED_RESOLUTION')

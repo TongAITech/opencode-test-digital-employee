@@ -10,7 +10,7 @@ from rc7_runtime.rc72_native_coverage_repair import NativeCoverageRepairService
 from rc7_runtime.truth_overlay import append_entity
 
 
-def test_reentry_rejects_changed_repair_evidence_without_replaying_stale_epoch(tmp_path, monkeypatch):
+def test_reentry_and_convergence_reject_changed_repair_evidence_without_replay(tmp_path, monkeypatch):
     truth, plan, pipeline, business, server, diagnosis, gap = _diagnosis(tmp_path, monkeypatch)
     try:
         diagnosed = diagnosis.run(release_batch_id=BATCH, application_id=server.app, gap_id=gap)
@@ -52,11 +52,16 @@ def test_reentry_rejects_changed_repair_evidence_without_replaying_stale_epoch(t
         before = truth.store.path.read_bytes()
         server_calls = len(server.calls)
         business_calls = len(business.calls)
-        with pytest.raises(ContractError, match='NATIVE_COVERAGE_REPAIR_BOUNDARY_PROOF_CHANGED'):
-            repair.activate(release_batch_id=BATCH, application_id=server.app, gap_id=gap)
-        assert truth.store.path.read_bytes() == before
-        assert len(server.calls) == server_calls
-        assert len(business.calls) == business_calls
+        actions = (
+            lambda: repair.activate(release_batch_id=BATCH, application_id=server.app, gap_id=gap),
+            lambda: repair.reconcile_application(release_batch_id=BATCH, application_id=server.app),
+        )
+        for action in actions:
+            with pytest.raises(ContractError, match='NATIVE_COVERAGE_REPAIR_BOUNDARY_PROOF_CHANGED'):
+                action()
+            assert truth.store.path.read_bytes() == before
+            assert len(server.calls) == server_calls
+            assert len(business.calls) == business_calls
     finally:
         server.shutdown()
         server.server_close()
