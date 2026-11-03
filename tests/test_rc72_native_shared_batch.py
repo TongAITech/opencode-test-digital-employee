@@ -26,6 +26,7 @@ from rc7_runtime.rc72_native_shared_batch_review import (
     NativeBatchReviewError, NativeSharedEvaluatorBatch,
     install_native_batch_review_overlay,
 )
+from rc7_runtime.rc72_schedule_semantics import WorkScheduleSemanticsService
 from rc7_runtime.rc72_safe_execution_batch import install_rc72_safe_execution_batch_overlay
 from rc7_runtime.rc72_truth import install_rc72_truth_overlay
 
@@ -168,6 +169,15 @@ def _fixture(tmp_path):
     truth = TruthRuntime(tmp_path / "r1.jsonl")
     _binding(truth, "WI-1", "ATT-1")
     _binding(truth, "WI-2", "ATT-2")
+    semantics = WorkScheduleSemanticsService(truth, release_id=RELEASE)
+    for workitem in ("WI-1", "WI-2"):
+        semantics.record(
+            mission_id=MISSION, workitem_id=workitem,
+            execution_mode=ExecutionMode.SEMANTIC,
+            mission_criticality=MissionCriticality.BLOCKING,
+            semantic_cost_class=SemanticCostClass.HIGH,
+            source_ref="r1://accepted/semantic-batch/" + workitem,
+        )
     plan = ExecutionBatchPlanner(max_batch_size=8).plan([
         _descriptor("WI-1"), _descriptor("WI-2")
     ])
@@ -376,3 +386,20 @@ def test_independent_evaluator_never_accepts_same_worker_session_or_model_pass(t
             ),
         )
     assert truth.query("rc72_native_batch_review", mission_id=MISSION) == []
+
+
+
+def test_deterministic_or_missing_semantic_truth_never_spawns_dsh_batch(tmp_path):
+    truth, _, batch, execution, _, assignment = _fixture(tmp_path)
+    WorkScheduleSemanticsService(truth, release_id=RELEASE).record(
+        mission_id=MISSION, workitem_id="WI-2",
+        execution_mode=ExecutionMode.DETERMINISTIC,
+        mission_criticality=MissionCriticality.BLOCKING,
+        semantic_cost_class=SemanticCostClass.LOW,
+        source_ref="r1://accepted/deterministic-tools-only/WI-2",
+    )
+    with pytest.raises(NativeSharedBatchError, match="DETERMINISTIC_OR_HYBRID_TOOL_FIRST"):
+        _dispatch(truth, batch, execution, assignment)
+    assert execution.execute_count == 0
+    assert truth.query("rc72_execution_batch_receipt", mission_id=MISSION) == []
+    assert truth.query("rc72_native_batch_candidate", mission_id=MISSION) == []
