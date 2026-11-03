@@ -474,7 +474,6 @@ class ExecutionPreparationService:
 
     def _assert_captain_binding_locked(self, existing, fenced_admission=None):
         """R1-derived Captain authority: caller already holds resource ledger."""
-        existing = self._one(_ARTIFACT, preparation_id=preparation_id)
         proof_id = existing.get('captain_admission_id')
         captain_leases = self.truth.query(
             'rc72_captain_dispatch_lease', mission_id=existing['mission_id'])
