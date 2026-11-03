@@ -222,6 +222,15 @@ class DshTokenUsageParser:
         for event_index, event in enumerate(events):
             if not isinstance(event, dict):
                 continue
+            # A native tool's resource counters are not provider model
+            # counters. Preserve UNKNOWN rather than attributing a tool call's
+            # token-like fields to DSH inference.
+            kind = str(event.get("type") or event.get("event") or event.get("kind") or "").strip().lower()
+            role = str(event.get("role") or "").strip().lower()
+            if (kind in {"tool", "tool_call", "tool_result", "function_call", "function_result", "stderr", "session"}
+                    or kind.startswith(("tool.", "tool_", "mcp.", "mcp_", "function."))
+                    or role in {"tool", "user", "system"}):
+                continue
             for path, mapping in _walk_mappings(event, "event[%d]" % event_index):
                 normalized, conflict = _normalize_mapping(mapping)
                 if conflict:
