@@ -317,12 +317,12 @@ def test_real_dsh_command_uses_lossless_json_compaction_before_metering_and_no_f
         + " RequiredShape="
         + json.dumps(shape, ensure_ascii=False, sort_keys=True)
     )
-    raw_native_prompt = "NATIVE_APPROVED_CONTEXT\\n" + native_body
+    raw_native_prompt = "NATIVE_APPROVED_CONTEXT\n" + native_body
     launcher.execute(_assignment(), native_body)
     assert len(runner.calls) == 1
     actual = runner.calls[0][0][-1]
     assert len(actual.encode("utf-8")) < len(raw_native_prompt.encode("utf-8"))
-    assert actual.startswith("NATIVE_APPROVED_CONTEXT\\n")
+    assert actual.startswith("NATIVE_APPROVED_CONTEXT\n")
     suffix = actual.split(" Context=", 1)[1]
     optimized_ctx, optimized_shape = suffix.split(" RequiredShape=", 1)
     assert json.loads(optimized_ctx) == ctx
@@ -347,7 +347,7 @@ def test_native_command_without_contract_json_remains_byte_identical(tmp_path):
     truth, economy, _, launcher, runner = _setup(tmp_path, stdout=_stdout())
     raw = "Mandatory source verification without a trailing Context JSON object"
     launcher.execute(_assignment(), raw)
-    assert runner.calls[0][0][-1] == "NATIVE_APPROVED_CONTEXT\\n" + raw
+    assert runner.calls[0][0][-1] == "NATIVE_APPROVED_CONTEXT\n" + raw
     call = truth.query("rc72_token_call", mission_id="M-1")[0]
     assert call["prompt_compaction_status"] == "UNCHANGED"
     assert call["prompt_original_bytes"] == call["context_bytes"]
