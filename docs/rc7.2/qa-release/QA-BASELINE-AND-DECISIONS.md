@@ -237,3 +237,20 @@ QA 新增 `tests/test_rc72_qa_c09_product_dispatch.py`，使用正式 `create_mi
 - `qa-product-wiring.xml`：正式 N8/N10 及新增 C09 L4/L5 Journey 产品入口；缺接线应保留真实 RED。
 
 截至写入检查，主线 C09 合入后的 Construction/Q1/Q2/portable workflows 均 **QUEUED**；最新 QA HEAD 的四环境 CI 也 **QUEUED**。A/B/C/D 未完成整体合入、行内 Q3–Q9 证据未获取，**C09=COMPONENT_MERGED_PRODUCT_DISPATCH_BLOCKED；C11/C12=HOLD；BANK_FINAL=NO**。
+
+
+## 17. 第八轮：N8 防假接线、R1 重放身份与真实大制品验收（2026-11-04）
+
+### N8 独立门禁防假阳性
+
+原有 QA 静态断言只确认某个 N8 条件块内存在任意 complete/run 调用，可能错误接受 N7 bypass、其他服务或模拟回调。新增 tools/rc72_qa_product_route_ast.py，只有活跃节点类型确切为 N8_DIAGNOSIS_RECOVERY 的正式分支调用 self.n8_pipeline.complete/run/resume/reconcile 才算满足入口必要条件；通过 tests/test_rc72_qa_product_route_ast.py 的绕过、伪造服务和真实调用正负例保护这项检查本身。形式入口通过并不代表实际 N8 诊断和 N7 新 Attempt 成功。
+
+### Q3–Q9 原始 R1 事件复核
+
+独立 ZIP 复核进一步拒绝重复 event_id、entity_type 与 payload.artifact_type 冲突、entity_version 与实际 payload 版本不一致。test_case 使用原生 case_version，而不是误把 artifact_version 当成版本事实。对应测试必须在 ZIP 字节和外部 SHA256 本身完全有效的情况下拒绝伪造事件。结构完整不等于业务 Oracle、Human Gate 或 Field 真实性。
+
+### C12 真实主线 Artifact 物理资格作业
+
+新增 .github/workflows/rc7.2-qa-physical-transport.yml，使用独立 Windows runner 检查 QA HEAD 包含目标主线 SHA 与冻结设计祖先，只从 GitHub Actions 的精确目标主线 SHA 选择已成功的 Portable Transport push 构建及未过期的唯一同源 Artifact。随后真实下载 Artifact 字节，要求内层 ZIP 与其 .sha256 侧车一致，干净解包，调用 QA 独立只读工具检查 Manifest、全部 13 个实物能力组及真实携带的 DSH 主程序。无成功构建、旧 SHA、未匹配 Artifact、源字节不一致、缺少 DSH 均拒绝放行。上传源码关系、Artifact 元数据和独立物理审计 JSON 留证；就算全部成功，结果至多 PHYSICAL_CANDIDATE_ONLY，仍非 BANK_FINAL。
+
+**历史证据与当前边界：** 旧主线 7efb3c8 的 Portable run #41679951113 曾显示成功，Artifact #13253451722 元数据标称大小 1,457,448,714 字节，但没有在此前完成独立真实字节下载验证；它不能替代新主线 4721bb57 的包。新主线当时的 portable run #41696110932 仍在排队，新 C12 实物 QA run #41698987310 也排队。所有工程能力必须等待同源实际 CI 和真实文件之后才能签收；Q3–Q9 现场证明缺失，BANK_FINAL=NO。
