@@ -369,6 +369,12 @@ def _validate_call(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     # Additive/backward-compatible fields. Older R1 events are projected with
     # safe defaults rather than becoming unreadable after this construction slice.
+    # Per-native-process proof is separate from admission: a call can be
+    # ADMITTED in R1 before any subprocess was actually launched. Older
+    # R1 events remain UNKNOWN, never a fabricated successful process.
+    out.setdefault("process_outcome", "UNKNOWN")
+    if out["process_outcome"] not in {"UNKNOWN", "NOT_STARTED", "RETURNED", "RAISED"}:
+        raise _contracts.DomainValidationError("DSH_PROCESS_OUTCOME_INVALID")
     out.setdefault("economy_signal", "NONE")
     out.setdefault("cost_window", "UNKNOWN")
     out.setdefault("bank_timezone", _BANK_TZ_NAME)
@@ -648,10 +654,23 @@ class TokenEconomyService:
         return {
             "mission_id": mission_id,
             "model_calls": len(model_calls),
-            # This counter is per native DSH subprocess invocation. A DSH
-            # session can make multiple provider inference calls; no bank-
-            # verified per-inference event contract exists yet.
-            "dsh_process_invocations": len(model_calls),
+            # An ADMITTED receipt is not evidence of a launched DSH process.
+            # Count successful process returns only when the production
+            # command boundary wrote an explicit outcome. Legacy direct
+            # model-call receipts stay UNKNOWN rather than claiming launches.
+            "dsh_process_invocations": (
+                sum(row.get("process_outcome") == "RETURNED" for row in model_calls)
+                if all(row.get("process_outcome") in {"RETURNED", "RAISED"} for row in model_calls)
+                else None
+            ),
+            "dsh_process_invocation_count_status": (
+                "MEASURED" if model_calls and all(
+                    row.get("process_outcome") in {"RETURNED", "RAISED"} for row in model_calls
+                ) else "UNKNOWN" if model_calls else "NO_CALLS"
+            ),
+            "dsh_process_launch_error_count": sum(
+                row.get("process_outcome") == "RAISED" for row in model_calls
+            ),
             "provider_inference_call_count": None,
             "provider_inference_call_count_status": (
                 "UNKNOWN" if model_calls else "NO_CALLS"
@@ -802,6 +821,7 @@ class TokenEconomyService:
             "state": "ADMITTED" if admitted else "BLOCKED",
             "usage_status": "PENDING",
             "usage_source": "AWAITING_DSH_USAGE" if admitted else "NOT_EXECUTED",
+            "process_outcome": "NOT_STARTED" if admitted else "UNKNOWN",
             "input_tokens": 0,
             "output_tokens": 0,
             "total_tokens": 0,
@@ -831,19 +851,24 @@ class TokenEconomyService:
             schedule_recommendation,
         )
 
-    def complete_call(self, call_id: str, usage: DshTokenUsage) -> Dict[str, Any]:
+    def complete_call(
+        self, call_id: str, usage: DshTokenUsage, *, process_outcome: str = "UNKNOWN"
+    ) -> Dict[str, Any]:
         rows = self.truth.query(_TOKEN_CALL, call_id=call_id)
         if len(rows) != 1:
             raise TokenEconomyError("TOKEN_CALL_NOT_FOUND:%s" % call_id)
         current = rows[0]
         if current.get("state") != "ADMITTED":
             raise TokenEconomyError("TOKEN_CALL_NOT_ADMITTED:%s" % call_id)
+        if process_outcome not in {"UNKNOWN", "RETURNED", "RAISED"}:
+            raise TokenEconomyError("DSH_PROCESS_OUTCOME_INVALID")
         if not isinstance(usage, DshTokenUsage):
             usage = DshTokenUsage.unknown("INVALID_USAGE_OBJECT")
         updated = dict(current)
         updated.pop("artifact_type", None)
         updated["artifact_version"] = int(current.get("artifact_version", 1)) + 1
         updated["updated_at"] = _now()
+        updated["process_outcome"] = process_outcome
         updated["usage_status"] = usage.status.value
         updated["usage_source"] = usage.source
         updated["input_tokens"] = int(usage.input_tokens)
