@@ -140,6 +140,17 @@ class BankCostWindowConfig:
         if not self.unlimited_after_discount and self.post_discount_factor_millis == 0:
             raise TokenEconomyError("BANK_COST_WINDOW_LIMITED_FACTOR_REQUIRED")
 
+    def as_mapping(self) -> Dict[str, Any]:
+        return {
+            "timezone_name": self.timezone_name,
+            "normal_end_hour": self.normal_end_hour,
+            "discount_end_hour": self.discount_end_hour,
+            "normal_factor_millis": self.normal_factor_millis,
+            "discount_factor_millis": self.discount_factor_millis,
+            "unlimited_after_discount": self.unlimited_after_discount,
+            "post_discount_factor_millis": self.post_discount_factor_millis,
+        }
+
     @classmethod
     def from_mapping(cls, mapping: Mapping[str, Any]) -> "BankCostWindowConfig":
         if not isinstance(mapping, Mapping):
@@ -273,6 +284,13 @@ def _validate_budget(payload: Dict[str, Any]) -> Dict[str, Any]:
         out[name] = _nonnegative_int(out, name)
     out["require_measured_usage"] = _boolean(out, "require_measured_usage")
     out["require_complete_lineage"] = _boolean(out, "require_complete_lineage")
+    if "bank_cost_window_config" in out:
+        try:
+            out["bank_cost_window_config"] = BankCostWindowConfig.from_mapping(
+                out["bank_cost_window_config"]
+            ).as_mapping()
+        except (TokenEconomyError, TypeError, ValueError) as exc:
+            raise _contracts.DomainValidationError("BANK_COST_WINDOW_CONFIG_INVALID") from exc
     out["created_at"] = _nonnegative_int(out, "created_at")
     out["updated_at"] = _nonnegative_int(out, "updated_at")
     return out
@@ -508,6 +526,7 @@ class TokenEconomyService:
             "max_same_context_calls": max_same_context_calls,
             "require_measured_usage": require_measured_usage,
             "require_complete_lineage": require_complete_lineage,
+            "bank_cost_window_config": self.cost_window_config.as_mapping(),
             "created_at": created_at,
             "updated_at": now,
             "artifact_version": version,
