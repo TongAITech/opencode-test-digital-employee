@@ -112,6 +112,11 @@ def test_qa_formal_factory_owns_non_bypass_n8_service_without_side_effects(tmp_p
         "C03 P0: formal create_mission_driver does not own an N8 "
         "non-bypass recovery service; module existence is not integration"
     )
+    from rc7_runtime.rc72_n8_product_recovery import NativeN8ProductRecoveryService
+    assert type(n8) is NativeN8ProductRecoveryService, (
+        "C03 formal N8 must be the actual native product recovery service, "
+        "not a mock callback or a generic PASS-shaped substitute"
+    )
     assert n8.truth is truth, "C03 N8 truth must be the canonical Mission R1"
     assert n8.n7 is driver.n7_pipeline, "C03 N8 must use the exact formal N7"
     assert n8.release_id == options["release_id"], "C03 N8 cross-release binding"
@@ -119,6 +124,8 @@ def test_qa_formal_factory_owns_non_bypass_n8_service_without_side_effects(tmp_p
     assert getattr(n8, "diagnosis", None) is driver.n7_pipeline.diagnosis, (
         "C03 N8 must not silently substitute its diagnosis evidence"
     )
+    assert n8.boundary.diagnosis is n8.diagnosis
+    assert n8.continuation.diagnosis is n8.diagnosis
     assert truth.store.path.read_bytes() == before, (
         "C03 factory wiring must not generate a synthetic PASS or mutate R1"
     )
