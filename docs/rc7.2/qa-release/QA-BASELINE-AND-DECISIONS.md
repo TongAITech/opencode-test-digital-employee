@@ -254,3 +254,23 @@ QA 新增 `tests/test_rc72_qa_c09_product_dispatch.py`，使用正式 `create_mi
 新增 .github/workflows/rc7.2-qa-physical-transport.yml，使用独立 Windows runner 检查 QA HEAD 包含目标主线 SHA 与冻结设计祖先，只从 GitHub Actions 的精确目标主线 SHA 选择已成功的 Portable Transport push 构建及未过期的唯一同源 Artifact。随后真实下载 Artifact 字节，要求内层 ZIP 与其 .sha256 侧车一致，干净解包，调用 QA 独立只读工具检查 Manifest、全部 13 个实物能力组及真实携带的 DSH 主程序。无成功构建、旧 SHA、未匹配 Artifact、源字节不一致、缺少 DSH 均拒绝放行。上传源码关系、Artifact 元数据和独立物理审计 JSON 留证；就算全部成功，结果至多 PHYSICAL_CANDIDATE_ONLY，仍非 BANK_FINAL。
 
 **历史证据与当前边界：** 旧主线 7efb3c8 的 Portable run #41679951113 曾显示成功，Artifact #13253451722 元数据标称大小 1,457,448,714 字节，但没有在此前完成独立真实字节下载验证；它不能替代新主线 4721bb57 的包。新主线当时的 portable run #41696110932 仍在排队，新 C12 实物 QA run #41698987310 也排队。所有工程能力必须等待同源实际 CI 和真实文件之后才能签收；Q3–Q9 现场证明缺失，BANK_FINAL=NO。
+
+
+## 18. 第九轮：CI 堆积抑制与 C12 不可信 ZIP 解包前安全检查（2026-11-04）
+
+### 已定位的继承回归运行资源问题
+
+GitHub Actions 近期 100 条运行中观察到 52 条 QUEUED、48 条 COMPLETED；另一次独立查询发现 16 条 IN_PROGRESS。进一步逐一核对至少四个旧提交的 RC7 Field Hardening run（例如 41686265053、41685956103、41685896067、41685841050）：Windows 与 Ubuntu source regression 已 success，但 RC7 source suite 仍 in_progress，卡在 Run RC7-focused source tests。原 .github/workflows/rc7-field-hardening.yml 的该套件未配置 timeout，整个 workflow 也缺少按 PR 取消过期提交的并发治理。该问题可能加重队列，不把它未经证明地宣告为唯一原因。
+
+QA CI-only 改动：为 RC7 Field Hardening 加入按 PR/branch 区分的 concurrency/cancel-in-progress，保证新 SHA 启动时后续重复旧 run 可被取消；为完整 RC7 source suite 加入 60 分钟明确超时。**没有删除、缩减或跳过任何原测试。** 超时必须以 FAILURE 形式留证，不能变成 PASS。新的配置不保证自动取消该配置生效前的老 run，也不代表所有排队都会立刻消失。
+
+### 真实 C12 ZIP 的安全前置检查
+
+新增 tools/rc72_qa_zip_preflight.py 与 tests/test_rc72_qa_zip_preflight.py；QA C12 物理 GitHub Artifact 工作流在实际 PowerShell Expand-Archive 之前先执行：
+
+- ZIP 中仅允许 PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10 为唯一正确的相对根；拒绝父目录、绝对路径、Windows 路径、ADS 冒号、点段与重复路径写法；
+- 禁止符号链接、重复 ZIP Entry、根目录冒充普通文件、空包、不合理大文件与累计超过 20 GiB 的解包体积；
+- 结构审计结果为 STRUCTURAL_PREFLIGHT_ONLY，单独存入 qa-c12-zip-preflight.json；必须再经真实内层 ZIP SHA、全部包内 Manifest/Checksum、DSH 主程序、真实冷启动，才能考虑更高级别资格；
+- 负例用真正 zipfile 构造恶意成员、符号链接与重复文件名，不依赖文档层提示。Windows/Ubuntu × Python3.8/3.11 均编译/运行相同 QA 工具合同，不以本地假包替代真实包。
+
+**当前仍为工程变更已提交、CI 结果未取得**。主线仍缺 C03/N8、C09 正式 L4/L5 工厂入口等完整验收，真实行内 Q3–Q9 未完成；BANK_FINAL=NO。
