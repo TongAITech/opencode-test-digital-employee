@@ -14,6 +14,7 @@ from .rc72_native_coverage_diagnosis import NativeCoveragePathDiagnosisService
 from .rc72_native_coverage_repair import NativeCoverageRepairService,active_repair_boundaries
 from .rc72_native_coverage_rerun import NativeCoverageRerunService
 from .rc72_release_convergence import ReleaseConvergenceAggregator
+from .rc72_n10_feedback import NativeN10FeedbackService
 from .rc72_obligation_execution_proof import AcceptedObligationExecutionProof
 
 
@@ -112,7 +113,9 @@ class NativeN10ControlService:
             coverage_proof=self.measurement,coverage_intake=self.intake,coverage_diagnosis=self.diagnosis,
             coverage_repair=self.repair,replay_safe=True)
         snapshot=aggregator.aggregate(mission_id=batch['mission_id'])
+        issues=NativeN10FeedbackService(self.truth,release_id=self.release_id).derive(snapshot=snapshot)
         return dict(status='HOLD',reason='N10_RELEASE_NOT_CONVERGED' if snapshot.result.value!='CONVERGED' else 'N10_TERMINAL_REVIEW_REQUIRED',
             convergence_result=snapshot.result.value,convergence_snapshot_id=snapshot.snapshot_id,blockers=snapshot.blockers,
+            issues=issues,
             measurement_ids=measurements,intake_ids=intakes,investigation_workitem_ids=investigations,repair_workitem_ids=repair_workitems,
             manifest_id=frozen['manifest_id'],field_verified=False,bank_final=False,**extra)
