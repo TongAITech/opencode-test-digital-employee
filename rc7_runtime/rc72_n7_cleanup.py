@@ -146,6 +146,20 @@ class ExecutionCleanupService:
                 self.preparation._assert_current_locked(p['preparation_id'])
                 self.preparation.authority.authorize_tool(
                     p['worker_id'], p['task_lease']['lease_id'], tool)
+            else:
+                # N8 repair uses a distinct, signed cleanup-only actor. The
+                # grant may be revoked or superseded after the initial check
+                # above; its exact state/scope must still be valid at the
+                # irreversible R1 external-I/O intent boundary.
+                boundary = self.recovery_authorizer
+                current_grant = boundary._signed(boundary._one(
+                    'rc72_n8_repair_boundary', preparation_id=p['preparation_id']))
+                if (current_grant.get('boundary_id') != recovery_grant
+                        or current_grant.get('state') != 'CLEANUP_AUTHORIZED'
+                        or current_grant.get('contract_sha256') != c['contract_sha256']
+                        or phase not in {'CLEANUP', 'VERIFY'}):
+                    raise CleanupError('N8_CLEANUP_GRANT_CHANGED_BEFORE_EXTERNAL_IO')
+                boundary._check_old_node_versions(p, current_grant)
             if self.truth.query(_KIND, call_id=call_id):
                 raise CleanupError('N7_CLEANUP_CALL_ALREADY_DURABLE_NO_REPLAY')
             directory = Path(str(self.truth.store.path) + '.n7-dispatch-claims')
