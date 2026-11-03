@@ -45,7 +45,8 @@ class TestBSK:
                 "ok": self.evaluate_ok,
                 "value": {
                     "url": "https://fat1.example/config",
-                    "exists": True, "visible": True, "text": self.business_text,
+                    "exists": True, "visible": True, "match_count": 1,
+                    "text": self.business_text,
                     "attribute": None,
                 } if self.evaluate_ok else None})}
         if "screenshot" in argv:
@@ -270,3 +271,29 @@ def test_bsk_duplicate_attempt_step_never_replays_or_overwrites_original_actual(
     assert Path(first["actual_refs"][0][7:]).read_bytes() == original_bytes
     assert Path(again["actual_refs"][0][7:]).is_file()
     assert first["actual_refs"] != again["actual_refs"]
+
+
+def test_bsk_dom_oracle_rejects_ambiguous_element_even_if_first_matches(tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    class Ambiguous(TestBSK):
+        def __call__(self, argv):
+            response = super().__call__(argv)
+            if "evaluate" in argv:
+                data = json.loads(response["stdout"])
+                data["value"]["match_count"] = 2
+                response["stdout"] = json.dumps(data)
+            return response
+
+    runner = Ambiguous()
+    adapter = _adapter(pool, tmp_path, runner)
+    service = JourneyReplayService(
+        truth, release_id="RC7.2", browser_pool=pool, adapter=adapter)
+    result = service.replay(
+        replay_id="BSK-AMBIGUOUS", candidate_id="JC-1",
+        workitem_id="WI-R1", attempt_id="ATT-R1", worker_id="WORKER-R1",
+        session_id="SESSION-R1", browser_lease_id=lease.browser_lease_id)
+    assert result.state.value == "FAILED"
+    rows = sorted(truth.query(
+        "rc72_journey_replay_step", replay_id="BSK-AMBIGUOUS"),
+        key=lambda row: row["sequence"])
+    assert rows[-1]["failure_code"] == "JOURNEY_BSK_ORACLE_ELEMENT_NOT_UNIQUE"
