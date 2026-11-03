@@ -186,6 +186,9 @@ class JourneyCompiler:
             if not oracle_ref:
                 raise ContractError("JOURNEY_ASSERT_ORACLE_REQUIRED")
             compiled["oracle_ref"] = oracle_ref
+        dialog_policy_ref = _metadata_ref(source, "dialog_policy_ref")
+        if dialog_policy_ref:
+            compiled["dialog_policy_ref"] = dialog_policy_ref
         mapping_ref = _metadata_ref(source, "api_code_mapping_ref")
         if mapping_ref:
             compiled["api_code_mapping_ref"] = mapping_ref
