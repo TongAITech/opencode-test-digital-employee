@@ -267,9 +267,25 @@ class NativeCoverageRerunService:
         result=self.pipeline.complete(release_batch_id=release_batch_id)
         if result.get('state')!='N7_PASS':return dict(status='HOLD',reason=result.get('reason','COVERAGE_RERUN_N7_NOT_ACCEPTED'),rerun_id=record['rerun_id'])
         if result['gate_id']==record['origin_n7_gate_id']:raise ContractError('COVERAGE_RERUN_OLD_N7_GATE_REUSE_FORBIDDEN')
+        # The N7 finalize response intentionally does not carry a bundle ID.
+        # Recover it only from the accepted canonical Gate -> Delivery, and
+        # independently audit the signed full-denominator N7 proof before
+        # sealing an R1 freshness receipt.  Never trust a response label.
+        gate=self._one('rc72_node_gate',gate_id=result['gate_id'])
+        if gate['node_type']!='N7_EXECUTION' or gate['mission_id']!=record['mission_id'] or gate['decision']!='PASS':
+            raise ContractError('COVERAGE_RERUN_FRESH_GATE_INVALID')
+        delivery=self._one('rc72_node_delivery',delivery_id=gate['delivery_id'])
+        bundles=[self._one('rc72_n7_evidence_bundle',bundle_id=ref) for ref in delivery['artifact_refs']
+                 if self.truth.query('rc72_n7_evidence_bundle',bundle_id=ref)]
+        if len(bundles)!=1 or bundles[0]['plan_id']!=record['rerun_plan_id']:
+            raise ContractError('COVERAGE_RERUN_FRESH_BUNDLE_NOT_UNIQUE')
+        verified=self.pipeline.finalization.audit(bundles[0]['bundle_id'])
+        if verified['gate_id']!=result['gate_id'] or verified['attempt_ids']!=result['attempt_ids']:
+            raise ContractError('COVERAGE_RERUN_FRESH_PROOF_CHANGED')
         current=self._one(_KIND,rerun_id=record['rerun_id'])
         if current['state']!='N7_PASS':
-            current=self._persist(dict(current,state='N7_PASS',fresh_n7_gate_id=result['gate_id'],fresh_bundle_id=result['bundle_id'],fresh_attempt_ids=result['attempt_ids']))
+            current=self._persist(dict(current,state='N7_PASS',fresh_n7_gate_id=verified['gate_id'],
+                fresh_bundle_id=verified['bundle_id'],fresh_attempt_ids=verified['attempt_ids']))
         return self._audit_pass(current)
 
 
