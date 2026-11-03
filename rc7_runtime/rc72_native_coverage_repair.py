@@ -166,6 +166,20 @@ class NativeCoverageRepairService:
         investigation = self._one('rc7_task', task_id=result['investigation_workitem_id'])
         return result, receipt, gap, investigation
 
+    def _existing_boundary(self, *, release_batch_id, application_id, gap_id):
+        """Return an already-signed repair boundary without replaying stale N7/Libra reads."""
+        self._composition()
+        rows = self.truth.query(_KIND, release_batch_id=release_batch_id,
+                                application_id=application_id, gap_id=gap_id)
+        if not rows:
+            return None
+        if len(rows) != 1:
+            raise ContractError('NATIVE_COVERAGE_REPAIR_BOUNDARY_NOT_UNIQUE')
+        row = _signed(rows[0], self.authority)
+        if row['release_id'] != self.release_id or row['source_commit'] != self.source_commit:
+            raise ContractError('NATIVE_COVERAGE_REPAIR_SOURCE_CHANGED')
+        return row
+
     def prepare(self, *, release_batch_id, application_id, gap_id):
         diagnosed = self._diagnosed(release_batch_id, application_id, gap_id)
         if diagnosed is None:
@@ -209,6 +223,13 @@ class NativeCoverageRepairService:
                     repair_workitem_state=repair_task['state'])
 
     def activate(self, *, release_batch_id, application_id, gap_id):
+        existing = self._existing_boundary(release_batch_id=release_batch_id,
+                                           application_id=application_id, gap_id=gap_id)
+        if existing is not None:
+            return dict(status='CLOSED' if existing['state'] == 'CLOSED' else 'FRESH_N7_REQUIRED',
+                        repair_id=existing['repair_id'], gap_id=gap_id,
+                        origin_n7_gate_id=existing['origin_n7_gate_id'],
+                        repair_workitem_id=existing['repair_workitem_id'])
         prepared = self.prepare(release_batch_id=release_batch_id, application_id=application_id, gap_id=gap_id)
         if prepared.get('status') == 'HOLD':
             return prepared
