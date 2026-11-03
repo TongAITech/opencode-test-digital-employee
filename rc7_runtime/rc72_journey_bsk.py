@@ -268,8 +268,12 @@ class JourneyBSKAdapter:
                 raise ContractError("JOURNEY_BSK_WAIT_CONDITION_NOT_MET")
             return {"action": kind, "verified": True}
         args = {}
-        action = {"NAVIGATE": "navigate", "CLICK": "click",
-                  "INPUT": "fill", "SELECT": "select"}.get(kind)
+        action = {
+            "NAVIGATE": "navigate", "CLICK": "click",
+            "INPUT": "fill", "SELECT": "select",
+            "PRESS": "press", "HOVER": "hover",
+            "SCROLL_TO": "scroll-to", "DRAG": "drag",
+        }.get(kind)
         if not action:
             raise ContractError("JOURNEY_BSK_ACTION_UNSUPPORTED")
         if action == "navigate":
@@ -277,8 +281,22 @@ class JourneyBSKAdapter:
             if not isinstance(url, str) or not url.startswith(("https://", "http://")):
                 raise ContractError("JOURNEY_BSK_NAVIGATION_URL_REQUIRED")
             args["url"] = url
+        elif action == "drag":
+            source = self._selector(str(step.get("element_ref") or ""), context)
+            target = self._selector(str(step.get("target_ref") or ""), context)
+            args["source"] = {"selector": source}
+            args["target"] = {"selector": target}
         else:
             args["selector"] = self._selector(str(step.get("element_ref") or ""), context)
+            if action == "press":
+                key = step.get("key")
+                if key not in {
+                    "Enter", "Tab", "Escape", "ArrowUp", "ArrowDown",
+                    "ArrowLeft", "ArrowRight", "Space", "Backspace",
+                    "Delete", "Home", "End", "PageUp", "PageDown",
+                }:
+                    raise ContractError("JOURNEY_BSK_PRESS_KEY_UNSAFE")
+                args["key"] = key
             if action in {"fill", "select"}:
                 # CLI argv is visible in process diagnostics. Never place 4A
                 # passwords/OTP or other CredentialRefs on a shell command
