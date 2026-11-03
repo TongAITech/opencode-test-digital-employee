@@ -3,6 +3,7 @@ name: RC7.2 C09 Journey Isolated Qualification
 on:
   push:
     branches:
+      - work/rc7.2
       - work/rc7.2-journey
       - work/rc7.2-journey-closure
     paths:
