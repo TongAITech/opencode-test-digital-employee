@@ -127,7 +127,8 @@ def qualify(package_root,evidence_root,*,require_windows_outbound_block=False):
     if not lock.is_file():raise RuntimeError('EXECUTION_COMPONENT_DEPENDENCY_LOCK_REQUIRED')
     fence=evidence/'network-fence.cjs';fence.write_text(FENCE,encoding='utf-8')
     env=scoped_process_environment(dict(CI='true',GITNEXUS_HOME=str(evidence/'home/.gitnexus'),
-        NODE_OPTIONS='--require='+json.dumps(fence.as_posix()),HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1'),home=evidence/'home')
+        NODE_OPTIONS='--require='+json.dumps(fence.as_posix()),HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1',
+        GITNEXUS_LBUG_EXTENSION_INSTALL='load-only'),home=evidence/'home')
     firewall=_windows_outbound_proof(node,env,evidence) if require_windows_outbound_block else None
     fixture=evidence/'fixture';fixture.mkdir(exist_ok=True)
     (fixture/'math.ts').write_text('export function double(value: number): number { return value * 2; }\n')
@@ -155,8 +156,16 @@ def qualify(package_root,evidence_root,*,require_windows_outbound_block=False):
     calls=context.get('incoming',{}).get('calls',[])
     if not any(c.get('name')=='run' for c in calls):raise RuntimeError('EXECUTION_COMPONENT_ACTUAL_CALL_EDGE_REQUIRED')
     resource=_resource(node,cli,env,fixture,evidence)
+    # Preserve the actual native extension load diagnosis from this same copied
+    # runtime. It is diagnostic evidence, not authority for graph/search PASS.
+    doctor=subprocess.run([str(node),str(cli),'doctor'],cwd=str(fixture),env=env,
+        capture_output=True,text=True,encoding='utf-8',timeout=180)
+    (evidence/'doctor.stdout.log').write_text(doctor.stdout,encoding='utf-8')
+    (evidence/'doctor.stderr.log').write_text(doctor.stderr,encoding='utf-8')
     if (fixture/'AGENTS.md').exists() or (fixture/'CLAUDE.md').exists():raise RuntimeError('EXECUTION_COMPONENT_INDEX_ONLY_REQUIRED')
     return dict(schema='RC72_EXECUTION_NODE_COMPONENT_V1',status='PASS',node=node_version,gitnexus=metadata,gitnexus_cli=graph_version,
+        fts_search_qualified=False,embeddings_qualified=False,extension_policy='load-only',
+        native_doctor_diagnostic_exit_code=doctor.returncode,
         playwright=_json_result(playwright),index_status=status,symbol_context=context,mcp_context=resource,
         node_javascript_network_calls_denied=True,windows_program_outbound_block=firewall,embeddings_requested=False,change_truth_authority=False,
         dependency_lockfile_sha256=hashlib.sha256(lock.read_bytes()).hexdigest(),
