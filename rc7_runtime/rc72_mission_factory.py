@@ -94,7 +94,7 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
         raise ContractError('MISSION_FACTORY_NATIVE_INPUT_READ_REQUIRED')
     if any(set(bindings[role].tools) != {'git', 'codegraph'} for role in ('code', 'code_review')):
         raise ContractError('MISSION_FACTORY_REQUIRED_CODE_TOOLS_CHANGED')
-    if (not isinstance(bank_pip_mirror, NativeBankPipMirrorService)
+    if (type(bank_pip_mirror) is not NativeBankPipMirrorService
             or bank_pip_mirror.truth is not truth or bank_pip_mirror.release_id != release_id
             or bank_pip_mirror.source_commit != source_commit):
         raise ContractError('MISSION_FACTORY_NATIVE_MIRROR_SCOPE_MISMATCH')

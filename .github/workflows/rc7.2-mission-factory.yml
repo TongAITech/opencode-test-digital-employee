@@ -33,6 +33,7 @@ jobs:
           from rc7_release.rc72_bounded_pytest import run_files
           files = [
               'tests/test_rc72_mission_factory.py',
+              'tests/test_rc72_configured_mission.py',
               'tests/test_rc72_mission_bindings.py',
               'tests/test_rc72_q2b_clean_runtime_contract.py',
               'tests/test_rc72_release_driver.py',
@@ -46,4 +47,29 @@ jobs:
         with:
           name: rc72-mission-factory-${{ matrix.os }}-${{ github.sha }}
           path: mission-factory-evidence/*.xml
+          retention-days: 30
+
+  configured-mirror-cli:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      RC72_PIP_MIRROR_COMPONENT: '1'
+      RC72_PIP_MIRROR_EVIDENCE: '${{ github.workspace }}/configured-mirror-public'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Bootstrap pinned engineering test runner
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Actual package Python mirror install and cold native CLI re-entry
+        run: python -m pytest -q tests/test_rc72_bank_pc_pip_mirror_windows.py --junitxml=configured-mirror-public/windows-native-cli.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-configured-mirror-cli-${{ github.sha }}
+          path: configured-mirror-public/*
           retention-days: 30

@@ -27,9 +27,10 @@ composition does not implement terminal review or BANK_FINAL.
 interface and requires no model/Worker/host binding configuration.
 
 `run` additionally requires `--release-id`, `--package-root`,
-`--bindings-module` and `--evidence-root`, alongside `--ledger`,
+`--evidence-root` and exactly one of `--mission-config` or
+`--bindings-module`, alongside `--ledger`,
 `--release-batch` and `--source-commit`. It checks the package SOURCE_COMMIT and
-canonical batch release before importing the host module. The approved local
+canonical batch release before importing the host module. The optional approved local
 module exports `create_mission_bindings(truth=..., release_id=...,
 source_commit=...)` and returns exactly `MissionHostBindings`. The module is a
 trusted installed integration, like the inherited execution environment module;

@@ -64,6 +64,7 @@ def test_factory_owns_whole_native_chain_without_starting_work(tmp_path):
     ('shared_worker','PRIVATE_ROLE_ROOT'), ('nested_root','PRIVATE_ROLE_ROOT'),
     ('wrong_release','WORKER_SCOPE'), ('wildcard','EXACT_TOOLS'),
     ('source','MIRROR_SCOPE'), ('bare_mirror','MIRROR_SCOPE'),
+    ('mirror_subclass','MIRROR_SCOPE'),
     ('environment','EXECUTION_ENVIRONMENT'), ('registry','EXACT_EXECUTION_TOOLS'),
     ('code_tools','REQUIRED_CODE_TOOLS'),
 ])
@@ -78,6 +79,11 @@ def test_factory_rejects_partial_or_cross_scope_binding_without_effects(tmp_path
     elif mutation == 'wildcard': workers['design'] = replace(workers['design'], tools=('*',))
     elif mutation == 'source': options['source_commit'] = 'f'*40
     elif mutation == 'bare_mirror': options['bank_pip_mirror'] = {'status':'PASS'}
+    elif mutation == 'mirror_subclass':
+        class SubstituteMirror(NativeBankPipMirrorService):
+            def run(self, **kwargs):
+                return dict(status='PASS',bank_pc_mirror_field_fact=True)
+        options['bank_pip_mirror'] = object.__new__(SubstituteMirror)
     elif mutation == 'environment': options['execution_environment'] = {'status':'PASS'}
     elif mutation == 'registry': options['tool_registry'] = {'api_http':('*',)}
     elif mutation == 'code_tools': workers['code_review'] = replace(workers['code_review'], tools=('git',))

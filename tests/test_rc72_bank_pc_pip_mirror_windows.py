@@ -22,7 +22,7 @@ def _wheel(directory):
     return target
 
 
-def test_real_copied_python_mirror_install_import_and_host_substitution_refusals(tmp_path,monkeypatch):
+def test_real_copied_python_mirror_install_import_and_host_substitution_refusals(tmp_path,monkeypatch,capsys):
     public=Path(os.environ['RC72_PIP_MIRROR_EVIDENCE']).resolve();public.mkdir(parents=True,exist_ok=True)
     provided=os.environ.get('RC72_PIP_MIRROR_PACKAGE_ROOT')
     if provided:
@@ -84,6 +84,41 @@ def test_real_copied_python_mirror_install_import_and_host_substitution_refusals
         with pytest.raises(ContractError,match='ENGINEERING_NOT_FIELD'):
             runtime.audit(execution_id=native['execution_id'],release_batch_id=BATCH)
         (public/'actual-native-r1-mirror.json').write_text(json.dumps(native,indent=2))
+        # Exercise the actual package-owned configuration + CLI against a fresh
+        # R1, with no producer callback or detached JSON receipt import.
+        from types import ModuleType
+        from rc72_formal_runner_support import LocalHTTPEnvironment
+        from rc7_runtime.rc72_mission_factory import ROLES
+        from rc7_runtime.rc72_native_n1_read_gate import TOOL
+        from rc7_release.rc72_configured_mission import SCHEMA
+        from rc7_release.rc72_mission_cli import main
+        module=ModuleType('owned_mirror_cli_environment')
+        module.create_execution_environment=lambda:LocalHTTPEnvironment('http://127.0.0.1:1',tmp_path/'unused-business-output')
+        monkeypatch.setitem(sys.modules,module.__name__,module)
+        monkeypatch.setenv('RUNNER_ENVIRONMENT','github-hosted')
+        cli_truth=TruthRuntime(tmp_path/'configured-native-r1/event-stream.jsonl');_batch(cli_truth)
+        patch=tmp_path/'unused-model-patch.yml';patch.write_text('[]')
+        config_path=tmp_path/'configured-mirror.json'
+        config_path.write_text(json.dumps(dict(schema=SCHEMA,release_id=RELEASE,source_commit=os.environ['GITHUB_SHA'],
+            package_root=str(root),state_root=str(tmp_path/'configured-native-state'),dsh_bin=sys.executable,patch_path=str(patch),
+            inputs=[dict(source_ref='release-batch://'+BATCH,path=str(field_config))],
+            role_tools={role:[TOOL] if role=='reality' else ['git','codegraph'] if role in ('code','code_review')
+                else ['scoped-tool'] for role in ROLES},tool_registry={'api_http':['api_http']},
+            environment_module=module.__name__,archive=str(archive),pip_field_config=str(field_config),model_environment_names=[])))
+        arguments=['mirror-check','--ledger',str(cli_truth.store.path),'--source-commit',os.environ['GITHUB_SHA'],
+            '--release-batch',BATCH,'--release-id',RELEASE,'--package-root',str(root),
+            '--evidence-root',str(tmp_path/'unused-mission-evidence'),'--mission-config',str(config_path)]
+        capsys.readouterr()
+        assert main(arguments)==37 # a real engineering result cannot be Field
+        configured=json.loads(capsys.readouterr().out)
+        assert configured['status']=='PASS' and configured['mode']=='ENGINEERING'
+        assert configured['bank_pc_mirror_field_fact'] is configured['bank_final'] is configured['field_verified'] is False
+        saved=cli_truth.store.path.read_bytes();request_count=len(requests)
+        assert main(arguments)==37
+        assert json.loads(capsys.readouterr().out)==configured
+        assert cli_truth.store.path.read_bytes()==saved and len(requests)==request_count
+        assert not cli_truth.query('rc72_mission_node_worker_attempt')
+        (public/'actual-configured-native-r1-mirror.json').write_text(json.dumps(configured,indent=2))
         monkeypatch.setenv('APPDATA',str(tmp_path/'isolated worker appdata'))
         refused('hidden-user-appdata','APPDATA_HIDDEN')
         bridge=qualify(root,archive,policy,private/'explicit-bridge',bridge=True,engineering=True)
@@ -114,7 +149,7 @@ def test_real_copied_python_mirror_install_import_and_host_substitution_refusals
         hostmodule.unlink()
         assert actual.returncode!=0 and 'ValueError' in actual.stderr;negatives.append('host-site-import-refused')
         (public/'actual-negative-summary.json').write_text(json.dumps(dict(status='PASS',negative_checks=negatives,
-            native_r1_receipt_qualified=True,actual_mirror_requests=len(requests),full_transport_extraction=bool(provided),original_staging_deleted=not stage.exists(),
+            native_r1_receipt_qualified=True,configured_native_cli_qualified=True,actual_mirror_requests=len(requests),full_transport_extraction=bool(provided),original_staging_deleted=not stage.exists(),
             source_commit=os.environ['GITHUB_SHA'],engineering_only=True,field_verified=False,bank_final=False),indent=2))
     finally:
         if original is None:config.unlink(missing_ok=True)
