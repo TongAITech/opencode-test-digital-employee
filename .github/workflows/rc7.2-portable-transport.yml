@@ -15,6 +15,12 @@ on:
 permissions:
   contents: read
 
+# Physical offline payload assembly is expensive. Preserve the running
+# package identity check, but keep only the newest queued SHA per branch.
+concurrency:
+  group: rc72-portable-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   portable-transport:
     runs-on: windows-latest
