@@ -218,3 +218,49 @@ def test_usage_receipt_identity_is_per_assignment_not_global_mission_counter():
     )
     assert first["token_usage_id"] != second["token_usage_id"]
     assert len(truth.events) == 2
+
+
+def test_provider_parser_excludes_nested_tool_usage_but_preserves_real_provider_snapshot():
+    tool_result = {
+        "type": "final",
+        "tool_results": [{
+            "tool_name": "CAT",
+            "usage": {"input_tokens": 900, "output_tokens": 300, "total_tokens": 1200},
+        }],
+        "text": "worker finished tool call",
+    }
+    unknown = DshTokenUsageParser.parse([tool_result])
+    assert unknown.observation_status == "UNKNOWN"
+    assert unknown.total_tokens is None
+    assert unknown.usage_candidate_count == 0
+
+    mixed = {
+        **tool_result,
+        "response": {"model": "bank-model", "usage": {
+            "input_tokens": 100, "output_tokens": 20, "total_tokens": 120,
+        }},
+    }
+    observed = DshTokenUsageParser.parse([mixed])
+    assert observed.observation_status == "OBSERVED"
+    assert observed.total_tokens == 120
+    assert observed.input_tokens == 100
+    assert observed.output_tokens == 20
+
+
+def test_model_signal_detection_ignores_tool_only_nested_counters():
+    from rc7_runtime.rc72_model_usage_worker_bridge import Rc72TokenUsageLauncherProxy
+
+    assert not Rc72TokenUsageLauncherProxy._has_model_call_signal([
+        {"type": "tool_result", "tool_name": "CodeGraph",
+         "usage": {"input_tokens": 10}},
+    ])
+    assert not Rc72TokenUsageLauncherProxy._has_model_call_signal([
+        {"type": "trace", "tool_result": {
+            "tool_name": "CAT", "usage": {"output_tokens": 33}
+        }},
+    ])
+    assert Rc72TokenUsageLauncherProxy._has_model_call_signal([
+        {"type": "response.completed", "response": {
+            "model": "bank-model", "usage": {"input_tokens": 25}
+        }},
+    ])
