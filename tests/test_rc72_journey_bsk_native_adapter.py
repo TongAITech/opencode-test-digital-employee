@@ -13,8 +13,8 @@ from test_rc72_phase9_official_journey_consumption_contract import _setup as off
 
 
 _PNG = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
-    "/x8AAwMCAO+/B5kAAAAASUVORK5CYII="
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4"
+    "nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
 )
 
 
