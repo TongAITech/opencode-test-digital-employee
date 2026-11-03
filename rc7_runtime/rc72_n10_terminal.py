@@ -296,6 +296,90 @@ class NativeN10TerminalReviewService:
         if verdict!='PASS':raise ContractError('N10_TERMINAL_REVIEW_NOT_ACCEPTED')
         return self._one(_KIND,review_result_id=raw['review_result_id'])
 
+    def audit(self,*,snapshot):
+        """Independent read-only cold acceptance: no reconstructed PASS writes.
+
+        Successful terminal metadata must be backed by the same native R1
+        convergence snapshot, complete accepted delivery/review/receipt, a
+        canonical review Evidence pair, fresh reviewer closure and active Gate.
+        This must work from a new service graph after a lost Agent session.
+        """
+        _,node,_=self._current(snapshot)
+        if node['state']!='PASS':
+            raise ContractError('N10_TERMINAL_GATE_NOT_ACTIVE')
+        delivery_id='N10DEL-'+_hash([snapshot.snapshot_id,snapshot.manifest_id])[:24]
+        delivery=self._one('rc72_node_delivery',delivery_id=delivery_id)
+        if (delivery['mission_id']!=snapshot.mission_id
+                or delivery['mission_node_id']!=node['mission_node_id']
+                or delivery['node_type']!='N10_RELEASE_CONVERGENCE'
+                or delivery['artifact_refs']!=[snapshot.snapshot_id]
+                or delivery['input_refs']!=[snapshot.manifest_id,snapshot.scope_snapshot_id]
+                or delivery['producer_ref']!='runtime://audited-native-n10-release-aggregation'
+                or delivery['known_gaps'] or delivery['created_by_workitems']
+                or delivery['evidence_refs']!=['r1://artifact/'+snapshot.snapshot_id]+[
+                    'r1://artifact/'+ref for ref in snapshot.coverage_observation_ids]
+                or delivery_id not in node['delivery_refs']
+                or delivery['version']!=node['active_delivery_version']):
+            raise ContractError('N10_TERMINAL_DELIVERY_CHANGED')
+        reviewer=self._one('rc72_reviewer_assignment',delivery_id=delivery_id)
+        session=self._one('rc72_worker_session',session_id=reviewer['session_id'])
+        context=dict(mission_id=snapshot.mission_id,
+            team_id='TEAM-'+snapshot.mission_id,
+            mission_node_id=node['mission_node_id'],delivery_id=delivery_id,
+            criteria=_CRITERIA,evidence_refs=delivery['evidence_refs'])
+        if (reviewer.get('context_bundle')!=context
+                or reviewer.get('criteria')!=_CRITERIA
+                or reviewer.get('evidence_refs')!=delivery['evidence_refs']
+                or reviewer.get('worker_id')!=session.get('worker_id')
+                or reviewer.get('mission_id')!=snapshot.mission_id
+                or session.get('context_bundle')!=context
+                or session.get('mission_id')!=snapshot.mission_id
+                or session.get('purpose')!='REVIEW'
+                or session.get('role')!='quality-reviewer'
+                or session.get('state')!='CLOSED'
+                or not session.get('checkpoint_id')):
+            raise ContractError('N10_TERMINAL_INDEPENDENT_REVIEWER_CLOSURE_REQUIRED')
+        checkpoint=self._one('rc72_worker_checkpoint',checkpoint_id=session['checkpoint_id'])
+        if (checkpoint['session_id']!=session['session_id']
+                or checkpoint['worker_id']!=reviewer['worker_id']
+                or checkpoint['purpose']!='REVIEW'
+                or checkpoint['mission_id']!=snapshot.mission_id):
+            raise ContractError('N10_TERMINAL_REVIEWER_CHECKPOINT_CHANGED')
+        receipt=self._one(_KIND,snapshot_id=snapshot.snapshot_id)
+        self._verify_receipt(receipt,snapshot,reviewer)
+        eid='N10EV-'+_hash([receipt['review_result_id'],receipt['stdout_sha256']])[:24]
+        ev=self._one('rc7_evidence',evidence_id=eid)
+        canonical=self._one('evidence',id=eid)
+        if (ev.get('release_id')!=self.release_id
+                or ev.get('mission_id')!=snapshot.mission_id
+                or ev.get('kind')!='N10_INDEPENDENT_PROCESS_REVIEW'
+                or ev.get('source_ref')!='r1://artifact/'+receipt['review_result_id']
+                or ev.get('content_ref')!=receipt['stdout_ref']
+                or ev.get('content_hash')!=receipt['stdout_sha256']
+                or ev.get('subject_refs')!=[snapshot.snapshot_id]
+                or canonical.get('release_id')!=self.release_id
+                or canonical.get('kind')!='N10_INDEPENDENT_PROCESS_REVIEW'
+                or canonical.get('ref')!=receipt['stdout_ref']
+                or canonical.get('source_artifact_ref')!=receipt['review_result_id']):
+            raise ContractError('N10_TERMINAL_CANONICAL_REVIEW_EVIDENCE_CHANGED')
+        gate_id='N10GATE-'+_hash([receipt['review_result_id'],delivery_id])[:24]
+        gate=self._one('rc72_node_gate',gate_id=gate_id)
+        if (gate_id not in node.get('gate_refs',[])
+                or gate.get('mission_id')!=snapshot.mission_id
+                or gate.get('mission_node_id')!=node['mission_node_id']
+                or gate.get('node_type')!='N10_RELEASE_CONVERGENCE'
+                or gate.get('delivery_id')!=delivery_id
+                or gate.get('decision')!='PASS'
+                or gate.get('reviewer_worker_id')!=reviewer['worker_id']
+                or gate.get('reviewer_session_id')!=reviewer['session_id']
+                or gate.get('criteria')!=_CRITERIA or gate.get('passed')!=_CRITERIA
+                or gate.get('failed') or gate.get('evidence_refs')!=[eid]):
+            raise ContractError('N10_TERMINAL_ACCEPTED_GATE_CHANGED')
+        return dict(status='PASS',reason='N10_INDEPENDENT_RELEASE_GATE_ACCEPTED',
+            convergence_snapshot_id=snapshot.snapshot_id,
+            terminal_gate_id=gate_id,terminal_review_id=receipt['review_result_id'],
+            manifest_id=snapshot.manifest_id,field_verified=False,bank_final=False)
+
     def finalize(self,*,snapshot):
         batch,node,_=self._current(snapshot)
         delivery=self._delivery(snapshot,node)
@@ -350,11 +434,9 @@ class NativeN10TerminalReviewService:
         if self._one('rc72_worker_session',session_id=reviewer['session_id'])['state']=='ACTIVE':
             self.lifecycle.checkpoint_and_close(reviewer['session_id'],
                 reason='N10 complete-batch independent terminal review accepted')
-        self._current(snapshot)
-        return dict(status='PASS',reason='N10_INDEPENDENT_RELEASE_GATE_ACCEPTED',
-            convergence_snapshot_id=snapshot.snapshot_id,
-            terminal_gate_id=gate_id,terminal_review_id=receipt['review_result_id'],
-            manifest_id=snapshot.manifest_id,field_verified=False,bank_final=False)
+        # Cold-ready source and Gate receipt audit is the final read barrier.
+        # No return PASS from just the worker's prose/process result.
+        return self.audit(snapshot=snapshot)
 
 
 install_overlay()
