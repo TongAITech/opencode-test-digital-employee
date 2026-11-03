@@ -243,7 +243,30 @@ class JourneyReplayService:
     def _adapter_outcome(self, step: Mapping[str, Any], context: Mapping[str, Any]) -> Dict[str, Any]:
         try:
             raw = self.adapter.execute_step(dict(step), dict(context))
-        except Exception as exc:  # adapter failures are replay failures, never PASS
+            if not isinstance(raw, Mapping):
+                raise ContractError("JOURNEY_REPLAY_ADAPTER_RESULT_INVALID")
+            status = str(raw.get("status") or "").upper()
+            if status not in {"PASSED", "FAILED"}:
+                raise ContractError("JOURNEY_REPLAY_ADAPTER_STATUS_INVALID")
+            actual_refs = list(_clean_refs(raw.get("actual_refs"), "actual_refs"))
+            evidence_refs = list(_clean_refs(raw.get("evidence_refs"), "evidence_refs"))
+            failure_code = raw.get("failure_code")
+            if status == "FAILED":
+                if not isinstance(failure_code, str) or not failure_code.strip():
+                    failure_code = "STEP_FAILED"
+                else:
+                    failure_code = failure_code.strip()
+            else:
+                failure_code = None
+            return {
+                "status": status,
+                "actual_refs": actual_refs,
+                "evidence_refs": evidence_refs,
+                "failure_code": failure_code,
+            }
+        except Exception as exc:
+            # A malformed result can follow real browser I/O. Never leave a
+            # STARTED replay pretending it was a successful/known step.
             from .rc72_journey_failure_receipt import adapter_exception_receipt
             receipt = adapter_exception_receipt(self.truth, step=step, context=context, error=exc)
             return {
@@ -252,27 +275,6 @@ class JourneyReplayService:
                 "evidence_refs": [receipt],
                 "failure_code": "ADAPTER_RUNTIME_EXCEPTION:%s" % exc.__class__.__name__,
             }
-        if not isinstance(raw, Mapping):
-            raise ContractError("JOURNEY_REPLAY_ADAPTER_RESULT_INVALID")
-        status = str(raw.get("status") or "").upper()
-        if status not in {"PASSED", "FAILED"}:
-            raise ContractError("JOURNEY_REPLAY_ADAPTER_STATUS_INVALID")
-        actual_refs = list(_clean_refs(raw.get("actual_refs"), "actual_refs"))
-        evidence_refs = list(_clean_refs(raw.get("evidence_refs"), "evidence_refs"))
-        failure_code = raw.get("failure_code")
-        if status == "FAILED":
-            if not isinstance(failure_code, str) or not failure_code.strip():
-                failure_code = "STEP_FAILED"
-            else:
-                failure_code = failure_code.strip()
-        else:
-            failure_code = None
-        return {
-            "status": status,
-            "actual_refs": actual_refs,
-            "evidence_refs": evidence_refs,
-            "failure_code": failure_code,
-        }
 
     def _update_candidate_replay_status(self, candidate: Mapping[str, Any], status: str) -> None:
         updated = dict(candidate)
