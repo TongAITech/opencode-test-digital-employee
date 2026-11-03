@@ -364,3 +364,31 @@ def test_optional_budget_relaxation_cannot_turn_unknown_usage_into_q7_economy_pa
     assert status.reason == "TOKEN_USAGE_UNKNOWN"
     assert status.metrics["actual_total_tokens"] is None
     assert status.metrics["usage_total_status"] == "UNKNOWN"
+
+
+
+def test_field_q7_does_not_conflate_dsh_process_invocations_with_provider_inferences(tmp_path: Path):
+    truth, service = _service(tmp_path, measured=True)
+    call = _admit(service, prompt="one native DSH headless invocation")
+    assert call.admitted
+    service.complete_call(
+        call.call_id, DshTokenUsage(UsageStatus.MEASURED, 120, 30, 150, "DSH_FINAL_USAGE"),
+    )
+    summary = service.summary("MISSION-1")
+    assert summary["dsh_process_invocations"] == 1
+    assert summary["provider_inference_call_count_status"] == "UNKNOWN"
+    assert summary["provider_inference_call_count"] is None
+    # Source-level token measurements may be valid, yet per-provider call
+    # counts have NOT been verified from actual bank DSH inference events.
+    component = service.qualification("MISSION-1")
+    assert component.status == "PASS"
+    field = service.field_qualification("MISSION-1")
+    assert field.status == "HOLD"
+    assert field.reason == "PROVIDER_INFERENCE_CALL_COUNT_UNKNOWN"
+    assert field.metrics["measured_total_tokens"] == 150
+
+
+def test_field_q7_missing_call_evidence_never_promotes_economy_pass(tmp_path: Path):
+    _, service = _service(tmp_path)
+    assert service.field_qualification("MISSION-1").status == "HOLD"
+    assert service.field_qualification("MISSION-1").reason == "TOKEN_USAGE_EVIDENCE_REQUIRED"
