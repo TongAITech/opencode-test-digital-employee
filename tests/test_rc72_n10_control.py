@@ -42,6 +42,12 @@ def test_full_measured_coverage_cannot_complete_original_missing_levels_through_
         result=control.complete(release_batch_id=BATCH)
         assert result['reason']=='N10_RELEASE_NOT_CONVERGED' and result['convergence_result']=='NOT_CONVERGED'
         assert any(b.startswith('scope:missing-level:') for b in result['blockers'])
+        missing=[issue for issue in result['issues'] if issue['gap_reason']=='REQUIRED_TEST_LEVEL_MISSING']
+        assert missing and all(issue['responsible_node']=='N4_TEST_DESIGN'
+            and issue['priority']=='P0' and any(ref.startswith('sst://') for ref in issue['scope_refs'])
+            and any(ref.startswith('test-level://L') for ref in issue['scope_refs'])
+            and any(ref.startswith('r1://artifact/') for ref in issue['evidence_refs'])
+            for issue in missing)
         assert not result['investigation_workitem_ids'] and len(server.calls)==1
         assert all(len(levels)==7 for levels in truth.query('rc72_release_scope_manifest')[0]['required_levels_by_sst'].values())
         assert not truth.query('rc72_node_gate',node_type='N10_RELEASE_CONVERGENCE')
@@ -62,6 +68,12 @@ def test_controller_runs_actual_independent_diagnosis_and_returns_pending_origin
         task=truth.query('rc7_task',task_id=result['investigation_workitem_ids'][0])[0]
         assert task['task_type']=='COVERAGE_PATH_INVESTIGATION' and task['state'] in {'REGISTERED','READY'}
         assert any(b.startswith('gap:') or b.startswith('coverage-gap:') for b in result['blockers'])
+        mapped=[issue for issue in result['issues'] if issue['blocker']=='coverage-gap:'+gap]
+        assert len(mapped)==1
+        assert mapped[0]['gap_reason']=='PATH_NOT_REACHED'
+        assert mapped[0]['responsible_node']=='N8_DIAGNOSIS_RECOVERY'
+        assert 'obligation://'+truth.query('rc72_coverage_gap',gap_id=gap)[0]['obligation_id'] in mapped[0]['scope_refs']
+        assert not truth.query('rc7_defect')
         assert len(truth.query('rc72_native_coverage_diagnosis'))==1 and len(server.calls)==1
         assert control.complete(release_batch_id=BATCH)['reason']=='N10_RELEASE_NOT_CONVERGED'
         assert len(truth.query('rc72_native_coverage_diagnosis'))==1 and len(server.calls)==1
