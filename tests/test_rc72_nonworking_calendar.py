@@ -155,7 +155,13 @@ def test_nonworking_schedule_may_advance_high_cost_work_without_deleting_workite
     assert holiday.cost_window.quota_limited is False
     normal = scheduler.plan(items, when=_shanghai("2026-11-06", 10))
     assert set(normal.run_now_workitem_ids + normal.deferred_workitem_ids) == {"WI-1", "WI-2"}
-    assert set(normal.deferred_workitem_ids) == {"WI-1", "WI-2"}
+    # Mission-first override runs one blocking dependency candidate even in
+    # an expensive window: economy cannot stall the entire ReleaseBatch.
+    assert len(normal.run_now_workitem_ids) == 1
+    assert len(normal.deferred_workitem_ids) == 1
+    assert normal.reasons[normal.run_now_workitem_ids[0]] == "MISSION_PROGRESS_OVERRIDE_DEFER"
     # The same policy honors a makeup Saturday as a limited working day.
     makeup = scheduler.plan(items, when=_shanghai("2026-11-07", 10))
-    assert set(makeup.deferred_workitem_ids) == {"WI-1", "WI-2"}
+    assert set(makeup.run_now_workitem_ids + makeup.deferred_workitem_ids) == {"WI-1", "WI-2"}
+    assert len(makeup.run_now_workitem_ids) == 1
+    assert len(makeup.deferred_workitem_ids) == 1
