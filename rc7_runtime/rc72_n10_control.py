@@ -2,6 +2,10 @@
 
 Terminal release review remains a separate required closure; this service never
 turns an incomplete original denominator or queued investigation into PASS.
+When a native coverage-repair provider is composed, N10 owns only the durable
+control-plane progression: accepted diagnosis -> investigation WorkItem ->
+repair WorkItem -> fresh-N7 fence.  It never fabricates worker execution or
+Evidence for either WorkItem.
 """
 from .models import ContractError
 from .rc72_expected_scope_input import ExpectedScopeInputService
@@ -37,6 +41,32 @@ class NativeN10ControlService:
                     or self.repair.truth is not self.truth or self.repair.source_commit!=self.source_commit):
                 raise ContractError('N10_NATIVE_REPAIR_COMPOSITION_REQUIRED')
 
+    def _advance_repair(self,*,release_batch_id,application_id,gap_id):
+        """Advance durable repair control only as far as accepted worker proof allows.
+
+        prepare()/activate() are deliberately idempotent and fail closed.  This
+        method never leases a worker, runs a repair tool, or synthesizes proof.
+        """
+        if self.repair is None:
+            return None
+        prepared=self.repair.prepare(release_batch_id=release_batch_id,application_id=application_id,gap_id=gap_id)
+        if prepared.get('status')=='HOLD':
+            return dict(status='HOLD',reason=prepared['reason'],gap_id=gap_id,
+                investigation_workitem_id=prepared.get('investigation_workitem_id'))
+        activated=self.repair.activate(release_batch_id=release_batch_id,application_id=application_id,gap_id=gap_id)
+        if activated.get('status')=='HOLD':
+            return dict(status='HOLD',reason=activated['reason'],gap_id=gap_id,
+                investigation_workitem_id=prepared.get('investigation_workitem_id'),
+                repair_workitem_id=prepared.get('repair_workitem_id'))
+        if activated.get('status')=='FRESH_N7_REQUIRED':
+            return dict(status='HOLD',reason='N10_POST_REPAIR_FRESH_N7_REQUIRED',gap_id=gap_id,
+                repair_id=activated['repair_id'],repair_workitem_id=activated['repair_workitem_id'],
+                origin_n7_gate_id=activated['origin_n7_gate_id'])
+        if activated.get('status')=='CLOSED':
+            return dict(status='CLOSED',gap_id=gap_id,repair_id=activated['repair_id'],
+                repair_workitem_id=activated['repair_workitem_id'])
+        raise ContractError('N10_NATIVE_REPAIR_ADVANCEMENT_STATE_INVALID')
+
     def complete(self,*,release_batch_id):
         self._assert_inputs()
         frozen=self.expected_scope.freeze(release_batch_id=release_batch_id)
@@ -46,7 +76,7 @@ class NativeN10ControlService:
         if batch['release_id']!=self.release_id:raise ContractError('N10_RELEASE_SCOPE_CHANGED')
         node=self.measurement._one('rc72_mission_node',mission_id=batch['mission_id'],node_type='N10_RELEASE_CONVERGENCE')
         if node['state'] not in {'READY','RUNNING'}:raise ContractError('N10_NATIVE_ACTIVE_NODE_REQUIRED')
-        measurements=[];intakes=[];investigations=[];holds=[]
+        measurements=[];intakes=[];investigations=[];repair_workitems=[];holds=[]
         for app in batch['application_ids']:
             repairs=active_repair_boundaries(self.truth,self.measurement.authority,release_id=self.release_id,
                 source_commit=self.source_commit,release_batch_id=release_batch_id,application_id=app)
@@ -73,12 +103,20 @@ class NativeN10ControlService:
                 except ContractError as exc:
                     if str(exc)!='COVERAGE_DIAGNOSIS_UNKNOWN_PROCESS_NO_REPLAY':raise
                     result=dict(status='HOLD',reason=str(exc))
-                if result.get('status')=='HOLD':holds.append(dict(application_id=app,gap_id=gap_id,reason=result['reason']))
-                else:investigations.append(result['investigation_workitem_id'])
+                if result.get('status')=='HOLD':
+                    holds.append(dict(application_id=app,gap_id=gap_id,reason=result['reason']));continue
+                investigations.append(result['investigation_workitem_id'])
+                advanced=self._advance_repair(release_batch_id=release_batch_id,application_id=app,gap_id=gap_id)
+                if advanced is not None:
+                    repair_workitem_id=advanced.get('repair_workitem_id')
+                    if repair_workitem_id and repair_workitem_id not in repair_workitems:
+                        repair_workitems.append(repair_workitem_id)
+                    if advanced['status']=='HOLD':
+                        holds.append(dict(application_id=app,**advanced));continue
         if holds:
             return dict(status='HOLD',reason='N10_COVERAGE_INVESTIGATION_REQUIRED',holds=holds,
                 measurement_ids=measurements,intake_ids=intakes,investigation_workitem_ids=investigations,
-                manifest_id=frozen['manifest_id'],field_verified=False,bank_final=False)
+                repair_workitem_ids=repair_workitems,manifest_id=frozen['manifest_id'],field_verified=False,bank_final=False)
         aggregator=ReleaseConvergenceAggregator(self.truth,release_id=self.release_id,runtime=self.n9.runtime,
             execution_proof=AcceptedObligationExecutionProof(self.n9.pipeline),expected_scope=self.expected_scope,
             coverage_proof=self.measurement,coverage_intake=self.intake,coverage_diagnosis=self.diagnosis)
@@ -86,4 +124,4 @@ class NativeN10ControlService:
         return dict(status='HOLD',reason='N10_RELEASE_NOT_CONVERGED' if snapshot.result.value!='CONVERGED' else 'N10_TERMINAL_REVIEW_REQUIRED',
             convergence_result=snapshot.result.value,convergence_snapshot_id=snapshot.snapshot_id,blockers=snapshot.blockers,
             measurement_ids=measurements,intake_ids=intakes,investigation_workitem_ids=investigations,
-            manifest_id=frozen['manifest_id'],field_verified=False,bank_final=False)
+            repair_workitem_ids=repair_workitems,manifest_id=frozen['manifest_id'],field_verified=False,bank_final=False)
