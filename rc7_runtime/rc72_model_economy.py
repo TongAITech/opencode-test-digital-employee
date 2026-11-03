@@ -741,9 +741,11 @@ class TokenEconomyService:
                 # bounded semantic prompt. Blocking them because of a mission-
                 # wide fingerprint collision would silently shrink test scope.
                 # A no-progress guard applies only within the same WorkItem.
-                if row.get("state") != "BLOCKED"
-                and row.get("workitem_id") == workitem_id
-                and row.get("context_sha256") == digest
+                if (
+                    row.get("state") != "BLOCKED"
+                    and row.get("workitem_id") == workitem_id
+                    and row.get("context_sha256") == digest
+                )
             ]
             if len(same_context) >= int(budget["max_same_context_calls"]):
                 admitted = False
