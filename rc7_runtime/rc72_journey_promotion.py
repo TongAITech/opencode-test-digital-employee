@@ -340,6 +340,8 @@ class JourneyPromotionService:
         benchmark = self._one("rc72_journey_benchmark", benchmark_id=benchmark_id)
         if benchmark.get("candidate_id") != candidate_id:
             raise ContractError("JOURNEY_PROMOTION_BENCHMARK_CANDIDATE_MISMATCH")
+        if candidate.get("replay_status") != "PASSED":
+            raise ContractError("JOURNEY_PROMOTION_LATEST_REPLAY_PASS_REQUIRED")
         if candidate.get("benchmark_status") != "PASSED" or benchmark.get("state") != "PASSED":
             raise ContractError("JOURNEY_PROMOTION_BENCHMARK_PASS_REQUIRED")
         if benchmark.get("field_benchmark_verified") is not True:
