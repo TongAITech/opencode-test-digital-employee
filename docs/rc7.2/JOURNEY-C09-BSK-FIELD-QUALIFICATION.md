@@ -61,3 +61,14 @@ bash packaging/rc7.2/QUALIFY-JOURNEY-BSK.sh
 **整包与现场**：会话 A 未交付本 PR 合入后的完整 SHA 对应包，现场 PCC/4A 真机验收未完成。以上缺口不能靠生成演示报告或手动改 `field_verified=true` 解决。
 
 当前交付状态：**C09 BSK-first ENGINEERING_CANDIDATE / PRODUCT_INTEGRATION_PENDING / FIELD_PENDING**。
+
+## 七、2026-11-04 后续增量（C09 编码收尾）
+
+- BrowserSkill 已扩展为原生 `NAVIGATE / CLICK / INPUT / SELECT / PRESS / HOVER / SCROLL_TO / DRAG`。键盘操作仅接受可审核的固定按键（Enter/Tab/Escape/方向键等），拖动必须有稳定目标引用；不支持的 iframe/Canvas/native 对话框或其他 BSK 操作必须 FAIL_CLOSED，不许无声跳过。输入凭证一律由 B 组原生受控工具处理，不能把 4A 密码/验证码放在 CLI 进程参数中。
+- 点击导致页面跳转时，Journey CLICK 使用 BSK operation.before 的**原始页面**定位，结果 Oracle 使用 operation.after 的**目标页面**。源页面缺失或操作数据不完整直接拒绝生成 Candidate；所有 URL 去掉查询参数后才保存 Evidence。UI 业务 Oracle 紧跟源操作，不能追加到 Journey 末尾。
+- 真实 PNG 必须经过 IHDR/IDAT/IEND、分块 CRC、尺寸和 SHA-256 校验；教学的 BSK 原生 DOM 快照、截图必须按操作独立留存，源文件位于 B 组授权的 capture root，不能跨会话借用或伪造路径。
+- `rc7_runtime/rc72_journey_bsk_field.py` 新增**外部受信任 Field 适配器**：标准 BSK 适配器永远不自称 Field。只有 A 在受信任的 adapter kind allowlist 注册、B 的签名验证器返回与 Case/Attempt/BrowserSession/Tab/4A/Lease 完全匹配且未过期的 Field 证明，才可能向 JourneyReplay/Official 报告 Field。任何跨 Scope、签名无效、过期、模拟适配器静态布尔值都不能通过。BSK 执行中如果 Field 证明过期，即使 UI 返回成功也必须 FAILED。
+- 工程级长链路测试 `tests/test_rc72_journey_bsk_full_chain_contract.py` 使用明确标为 **SIMULATED** 的 B 签名器与人类审批器，验证 BSK 导入→两次不同 Attempt 回放→Field Benchmark→审批合同→Official L5 的**状态机与代码连接**。模拟数据只属于 CI，绝不代表银行 Field 已验收；真实 Field 签名和现场 R1 需 A/B/E 验收。
+- 如 BSK DebugRecord 只包含不完整的操作前页面状态，或者一次 poll 有多项未消费操作，不能补猜操作或把最后一页截图冒充前一步 Evidence；应 BLOCK 并通过新 Attempt 重试，保留诊断记录。
+
+**最新尚未完成事项**：A 将 PR #13 合入正式 N6/N7 ToolDispatch、B 提供真实签名验证器与 4A Session/Tab 权威资产、E 验证最新集成 SHA 的 CI 与完整 Windows 离线包和真实 PCC Field。只有三方证据齐全才能把本文件的状态从 `PRODUCT_INTEGRATION_PENDING / FIELD_PENDING` 核销。
