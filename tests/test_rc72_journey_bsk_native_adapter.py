@@ -30,12 +30,16 @@ class TestBSK:
     def __call__(self, argv):
         argv = list(argv)
         self.calls.append(argv)
+        if "cooperate" in argv:
+            return {"returncode": 0, "stdout": json.dumps({
+                "context_id": "ctx-live", "tab_id": 37,
+                "session_id": "BSK-OWNED-SESSION"})}
         if "step" in argv:
             return {"returncode": 0, "stdout": json.dumps({
                 "ok": self.step_ok,
                 "phase": "observed" if self.step_ok else "needs_attention",
                 "action_replayed": False,
-                "post": {"context_id": "ctx-live"} if self.step_ok else {}})}
+                "post": {"context_id": "ctx-live", "tab_id": 37} if self.step_ok else {}})}
         if "evaluate" in argv:
             return {"returncode": 0, "stdout": json.dumps({
                 "ok": self.evaluate_ok,
@@ -51,7 +55,7 @@ class TestBSK:
             return {"returncode": 0, "stdout": json.dumps({
                 "path": str(path),
                 "byte_size": len(_PNG),
-                "format": "png"})}
+                "format": "png", "tab_id": 37})}
         raise AssertionError("Unexpected BrowserSkill command: " + repr(argv))
 
 
@@ -67,6 +71,7 @@ def _adapter(pool, tmp_path, runner):
     def owned_session(ctx, browser):
         return {
             "bsk_session_id": "BSK-OWNED-SESSION",
+            "tab_id": 37,
             "browser_instance_id": browser["browser_instance_id"],
             "profile_dir": browser["profile_dir"],
             "bsk_endpoint": browser["bsk_endpoint"],
