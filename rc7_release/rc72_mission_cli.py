@@ -89,7 +89,7 @@ def main(argv=None):
                 result = dict(result,field_verified=False,bank_final=False)
             else:
                 result = driver.run(release_batch_id=args.release_batch)
-                economy_result = economy.qualification(snapshot['mission_id'])
+                economy_result = economy.field_qualification(snapshot['mission_id'])
                 # Functional ReleaseBatch truth and model efficiency are
                 # independent. Never infer N10 convergence from low cost or
                 # an optimistic driver label without all canonical N-nodes.
@@ -112,6 +112,9 @@ def main(argv=None):
                     MODEL_ECONOMY_REASON=economy_result.reason,
                     MODEL_USAGE_TOTAL_STATUS=economy_result.metrics.get('usage_total_status', 'UNKNOWN'),
                     ACTUAL_TOTAL_TOKENS=economy_result.metrics.get('actual_total_tokens'),
+                    DSH_PROCESS_INVOCATIONS=economy_result.metrics.get('dsh_process_invocations'),
+                    PROVIDER_INFERENCE_CALL_COUNT=economy_result.metrics.get('provider_inference_call_count'),
+                    PROVIDER_INFERENCE_CALL_COUNT_STATUS=economy_result.metrics.get('provider_inference_call_count_status', 'UNKNOWN'),
                 )
         except (ContractError, RuntimeError, OSError, ValueError) as exc:
             # Public run output carries only a contract code. Error details may
@@ -127,7 +130,9 @@ def main(argv=None):
                 result.update(MISSION_COMPLETION_STATUS='HOLD',
                     MODEL_ECONOMY_STATUS='HOLD',
                     MODEL_ECONOMY_REASON='MISSION_RUN_NOT_COMPLETED',
-                    MODEL_USAGE_TOTAL_STATUS='UNKNOWN', ACTUAL_TOTAL_TOKENS=None)
+                    MODEL_USAGE_TOTAL_STATUS='UNKNOWN', ACTUAL_TOTAL_TOKENS=None,
+                    DSH_PROCESS_INVOCATIONS=None, PROVIDER_INFERENCE_CALL_COUNT=None,
+                    PROVIDER_INFERENCE_CALL_COUNT_STATUS='UNKNOWN')
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     if args.command == 'status':
         return 0
