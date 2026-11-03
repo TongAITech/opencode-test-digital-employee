@@ -64,11 +64,27 @@ def _adapter(pool, tmp_path, runner):
             return {"css": "#toast"}
         return None
 
+    def owned_session(ctx, browser):
+        return {
+            "bsk_session_id": "BSK-OWNED-SESSION",
+            "browser_instance_id": browser["browser_instance_id"],
+            "profile_dir": browser["profile_dir"],
+            "bsk_endpoint": browser["bsk_endpoint"],
+            "auth_asset_ref": browser.get("auth_asset_ref"),
+            "browser_lease_id": ctx["browser_lease_id"],
+            "mission_id": ctx["mission_id"],
+            "workitem_id": ctx["workitem_id"],
+            "attempt_id": ctx["attempt_id"],
+            "worker_id": ctx["worker_id"],
+            "dsh_session_id": ctx["session_id"],
+            "state": "ACTIVE",
+            "source_receipt_ref": "r1://bsk-session-binding",
+        }
     return JourneyBSKAdapter(
         browser_pool=pool, evidence_root=tmp_path / "bsk-evidence",
         bsk_executable=tmp_path / "bsk.exe",
         runner=runner,
-        session_resolver=lambda ctx, browser: "BSK-OWNED-SESSION",
+        session_resolver=owned_session,
         reference_resolver=resolver)
 
 
@@ -135,7 +151,7 @@ def test_bsk_replay_rejects_wrong_browser_purpose_without_dispatch(tmp_path):
     outcome = adapter.execute_step(step, {
         "replay_id": "REJECT-BSK", "mission_id": "M-1",
         "workitem_id": "WI-R1", "attempt_id": "ATT-R1",
-        "worker_id": "WORKER-R1",
+        "worker_id": "WORKER-R1", "session_id": "SESSION-R1",
         "browser_lease_id": lease.browser_lease_id})
     assert outcome["status"] == "FAILED"
     assert outcome["failure_code"] == "JOURNEY_BSK_BROWSER_PURPOSE_MISMATCH"
