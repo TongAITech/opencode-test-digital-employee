@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 from urllib.request import url2pathname
 
 from .models import ContractError
+from .rc72_browser_resources import BrowserAccessMode
 from .rc72_journey_playwright import _atomic_json, _public_url, _safe_id
 from .rc72_journey_teaching import JourneyActionType, JourneyTeachingService
 
@@ -93,6 +94,7 @@ class BSKJourneyTeachingImporter:
 
     def import_export(self, *, export_file: Path, bsk_session_id: str,
                       recording_args: Mapping[str, Any],
+                      bsk_session_receipt: Mapping[str, Any],
                       evidence_map: Mapping[str, Mapping[str, Any]],
                       assertions: Sequence[Mapping[str, Any]] = ()):
         if not isinstance(bsk_session_id, str) or not bsk_session_id.strip():
@@ -109,6 +111,42 @@ class BSKJourneyTeachingImporter:
         except (ValueError, UnicodeError) as exc:
             raise ContractError("JOURNEY_BSK_EXPORT_JSON_INVALID") from exc
         run = _check_recording(doc, bsk_session_id)
+        if not isinstance(bsk_session_receipt, Mapping):
+            raise ContractError("JOURNEY_BSK_TEACHING_SESSION_RECEIPT_REQUIRED")
+        if (bsk_session_receipt.get("bsk_session_id") != bsk_session_id
+                or bsk_session_receipt.get("tab_id") != run.get("tab_id")
+                or bsk_session_receipt.get("state") != "ACTIVE"
+                or not bsk_session_receipt.get("source_receipt_ref")):
+            raise ContractError("JOURNEY_BSK_TEACHING_SESSION_PROVENANCE_INVALID")
+        lease = self.teaching.browser_pool.assert_usable(
+            browser_lease_id=recording_args.get("browser_lease_id"),
+            mission_id=recording_args.get("mission_id"),
+            workitem_id=recording_args.get("workitem_id"),
+            attempt_id=recording_args.get("attempt_id"),
+            worker_id=recording_args.get("worker_id"),
+            access_mode=BrowserAccessMode.WRITE)
+        if str(lease.get("purpose") or "").upper() != "JOURNEY_TEACHING":
+            raise ContractError("JOURNEY_BSK_TEACHING_LEASE_PURPOSE_INVALID")
+        instances = self.teaching.truth.query(
+            "rc72_browser_instance", browser_instance_id=lease["browser_instance_id"])
+        if len(instances) != 1 or instances[0].get("state") != "READY":
+            raise ContractError("JOURNEY_BSK_TEACHING_INSTANCE_INVALID")
+        instance = instances[0]
+        required = {
+            "browser_instance_id": instance["browser_instance_id"],
+            "profile_dir": instance["profile_dir"],
+            "bsk_endpoint": instance["bsk_endpoint"],
+            "auth_asset_ref": instance.get("auth_asset_ref"),
+            "browser_lease_id": recording_args["browser_lease_id"],
+            "mission_id": recording_args["mission_id"],
+            "workitem_id": recording_args["workitem_id"],
+            "attempt_id": recording_args["attempt_id"],
+            "worker_id": recording_args["worker_id"],
+            "dsh_session_id": recording_args["session_id"],
+        }
+        if (any(bsk_session_receipt.get(key) != val for key, val in required.items())
+                or recording_args.get("auth_asset_ref") != instance.get("auth_asset_ref")):
+            raise ContractError("JOURNEY_BSK_TEACHING_SESSION_SCOPE_MISMATCH")
         if not isinstance(run.get("id"), str) or not run["id"]:
             raise ContractError("JOURNEY_BSK_RUN_ID_REQUIRED")
         if not isinstance(recording_args.get("recording_id"), str):
