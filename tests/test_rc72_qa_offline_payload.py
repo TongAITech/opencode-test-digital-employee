@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from tools.rc72_qa_offline_audit import GROUPS, QualificationError, qualify
+from tools.rc72_qa_offline_audit import GROUPS, QualificationError, qualify, main
 
 
 COMMIT = "a" * 40
@@ -186,3 +186,39 @@ def test_malformed_identity_document_fails_closed(tmp_path):
     (root / "RC72_RELEASE_IDENTITY.json").write_text("[]", encoding="utf-8")
     with pytest.raises(QualificationError, match="JSON_OBJECT_REQUIRED"):
         qualify(root, expected_source=COMMIT)
+
+
+@pytest.mark.parametrize("field,invalid", [
+    ("sha256", 12345), ("size", True),
+])
+def test_malformed_manifest_file_metadata_must_fail_as_qualification_error(tmp_path, field, invalid):
+    root = _make_fixture(tmp_path)
+    manifest = root / "PACKAGE_MANIFEST.json"
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data["files"][0][field] = invalid
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(QualificationError, match="MANIFEST_BYTES_MISMATCH"):
+        qualify(root, expected_source=COMMIT)
+
+
+def test_read_only_qa_report_cannot_mutate_payload(tmp_path, capsys):
+    root = _make_fixture(tmp_path)
+    before = (root / "CHECKSUMS.sha256").read_bytes()
+    forbidden = root / "qa-result.json"
+    rc = main(["--package-root", str(root), "--expected-source-commit", COMMIT,
+               "--report", str(forbidden)])
+    assert rc == 1
+    assert not forbidden.exists()
+    assert (root / "CHECKSUMS.sha256").read_bytes() == before
+    assert "AUDIT_REPORT_MUST_BE_OUTSIDE_PACKAGE" in capsys.readouterr().out
+
+
+def test_read_only_qa_report_refuses_existing_external_receipt(tmp_path, capsys):
+    root = _make_fixture(tmp_path)
+    receipt = tmp_path / "external-preexisting-qa-receipt.json"
+    receipt.write_bytes(b"immutable-receipt")
+    rc = main(["--package-root", str(root), "--expected-source-commit", COMMIT,
+               "--report", str(receipt)])
+    assert rc == 1
+    assert receipt.read_bytes() == b"immutable-receipt"
+    assert "AUDIT_REPORT_ALREADY_EXISTS" in capsys.readouterr().out
