@@ -39,6 +39,7 @@ jobs:
           tests/test_rc72_production_economy_ingress.py
           tests/test_rc72_mission_economy_cli_ingress.py
           tests/test_rc72_cost_window_configuration.py
+          tests/test_rc72_nonworking_calendar.py
           tests/test_rc72_token_economy.py
           tests/test_rc72_dsh_token_usage_wiring.py
           tests/test_rc72_context_worker_bridge.py
