@@ -64,6 +64,30 @@ def test_full_n1_to_n7_product_flow_uses_actual_process_http_cleanup_and_full_re
         count=len(calls)
         assert driver.run(release_batch_id=BATCH)==result
         assert truth.store.path.read_bytes()==before and len(calls)==count and len(server.calls)==len(design.cases)
+        # The same full original scope may clear deterministic N9 only when
+        # accepted proof and actual R1 intake contain no unresolved discrepancy.
+        from rc7_runtime.rc72_n9_accepted_scope import AcceptedScopeN9Service
+        driver.n9_pipeline=AcceptedScopeN9Service(driver.n7_pipeline)
+        continued=driver.run(release_batch_id=BATCH)
+        states={n['node_type']:n['state'] for n in continued['nodes']}
+        assert states['N9_DEFECT']=='PASS' and states['N10_RELEASE_CONVERGENCE']=='READY'
+        assert continued['reason']=='NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED'
+        assert continued['mission_node_id']==next(n['mission_node_id'] for n in continued['nodes'] if n['node_type']=='N10_RELEASE_CONVERGENCE')
+        assert len(server.calls)==len(design.cases) and len(calls)==count
+        assert len(truth.query('execution_attempt'))==len(design.cases)
+        assert not truth.query('rc7_defect')
+        # The inactive N8 branch must not prevent N9 from being reaudited
+        # during accepted-prefix continuation.
+        clearance=truth.query('rc72_n9_accepted_scope')[0]
+        clearance.update(signature='0'*64,artifact_version=clearance['artifact_version']+1)
+        truth.append_atomic('RC72_N9_ACCEPTED_SCOPE_UPSERTED',clearance)
+        import pytest
+        from rc7_runtime.models import ContractError
+        before=truth.store.path.read_bytes()
+        with pytest.raises(ContractError,match='N9_ACCEPTED_SCOPE_SIGNATURE_INVALID'):
+            driver.run(release_batch_id=BATCH)
+        assert truth.store.path.read_bytes()==before
+        assert len(server.calls)==len(design.cases) and len(calls)==count
     finally:
         server.shutdown()
         server.server_close()

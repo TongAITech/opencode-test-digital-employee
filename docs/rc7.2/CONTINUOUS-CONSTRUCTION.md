@@ -1,5 +1,49 @@
 # RC7.2 持续施工与最终搬运交付
 
+## Native N9 clearance of accepted discrepancy-free scope — 2026-11-03
+
+`AcceptedScopeN9Service` consumes a concrete native N7 pipeline and re-audits
+its actual independent process acceptance, original full Case/Attempt/primary
+and secondary obligation denominator, source bindings and captures. Under the
+same fresh R1 ledger lock it scans canonical gaps, defects and professional
+N9 WorkItems. Callers supply neither a PASS verdict nor an absence flag.
+An unresolved gap blocks clearance. Historical N9/business-discrepancy gaps,
+any DefectRecord and any professional defect task require the professional
+N9 disposition route even when metadata says RESOLVED/CLOSED/PASS; status
+labels alone cannot establish RCA, reproduction, fix or regression proof.
+
+For a proven accepted scope without professional intake, a signed immutable
+clearance freezes the original execution proof and exact intake inventory.
+A deterministic checker recomputes those facts before the canonical N9
+Delivery/Gate and original N9-to-N10 transition. Interrupted delivery/gate/
+node/forward journal writes resume the same receipt without another business
+call, worker Attempt or duplicated Gate. Completed replay audits actual N7
+captures and signed N9 scope again; new discrepancies or changed evidence
+cannot be concealed by an old N9 PASS label. No claim of product-wide defect
+absence, professional failure qualification, release convergence, Field or
+BANK_FINAL is produced.
+
+The typed optional N9 service is wired into ReleaseBatchDriver, with exact
+same-pipeline/truth/source checks at construction and each run. The accepted
+prefix audit now skips an inactive N8 only when the canonical N7-to-N9 edge
+and accepted N7 Gate justify the success path; it continues to audit N9,
+rather than stopping at NOT_STARTED N8 or manufacturing an N8 PASS.
+The actual small formal execution/cleanup/independent-review qualification
+passed 7 tests in 42.37s, including four interruptions. Initial driver and
+cold-bootstrap regression passed 17 tests in 16.95s. Final native N9/driver/cold-bootstrap integration passed 22 tests in 51.55s.
+The original complete 28-Case controller integration is being rerun on the
+final source, including refusal of a changed N9 signature during accepted-prefix
+continuation. The preceding local run loaded an older prefix walker and was
+explicitly interrupted because it could not verify that final correction;
+it is not counted as PASS, timeout or a new runtime failure.
+The small formal fixture intentionally lacks the full N4 parent denominator
+and cannot qualify the whole controller; that stronger gate was preserved.
+
+This closes only the deterministic no-professional-intake N9 branch. Actual
+failure qualification/RCA/reproduction/fix/regression and N10/controller
+convergence remain OPEN, as do the other C03/C06/C07/C09/C10/C11/C12 items.
+The complete RC7.1-equivalent physical package has not been delivered.
+
 ## Native N1 input reads at actual MCP call time — 2026-11-03
 
 `NativeN1ReadDshLauncher` now binds the original N1 handoff service, canonical
@@ -26,8 +70,11 @@ composition. Final focused qualification passed 65 tests in 16.58s, including
 all worker-environment checks and inherited N1 handoff/strict pipeline tests.
 Native N5/N1-to-N4 integration passed 44 tests in 86.21s; cold bootstrap and
 package/clean-unpack contracts passed 23 tests in 3.14s. Original full 28-Case
-regression is running on the integration source before the final historical
-scope/downgrade checks; those final checks are covered by the 65-test run.
+regression passed in 598.30s under its unchanged 900-second budget on the
+integration source before the final historical scope/downgrade checks and
+controller hook; those final changes are covered by the 65/75/32-test runs.
+The complete chain retained actual HTTP/process/cleanup, independent N7
+acceptance, original primary/secondary obligation denominator and no-write replay.
 Final-source platform qualification remains required.
 The ReleaseBatch controller now also authenticates native N1 history in its
 accepted-prefix audit, before advancing any downstream node. A real native MCP

@@ -34,6 +34,7 @@ from .rc72_n5_pipeline import N5PipelineService
 from .rc72_n5_workitem_acceptance import N5OwnedWorkItemGateService
 from .rc72_n6_pipeline import N6PipelineService
 from .rc72_n7_pipeline import N7PipelineService
+from .rc72_n9_accepted_scope import AcceptedScopeN9Service
 
 
 @contextmanager
@@ -87,7 +88,7 @@ def release_batch_status(truth, *, source_commit, release_batch_id):
 
 class ReleaseBatchDriver:
     def __init__(self, truth, *, source_commit, n1_launcher, n1_tools,
-                 n2_launcher, n2_tools, n2_evaluator, n3_pipeline=None, n4_pipeline=None, n5_pipeline=None, n7_pipeline=None):
+                 n2_launcher, n2_tools, n2_evaluator, n3_pipeline=None, n4_pipeline=None, n5_pipeline=None, n7_pipeline=None, n9_pipeline=None):
         if not isinstance(source_commit, str) or not re.fullmatch('[0-9a-f]{40}', source_commit):
             raise ContractError('RC72_RELEASE_DRIVER_EXACT_SOURCE_REQUIRED')
         if not isinstance(n2_evaluator, DshRequirementEvaluator):
@@ -121,6 +122,28 @@ class ReleaseBatchDriver:
                 or n7_pipeline.truth is not truth or n7_pipeline.source_commit!=source_commit):
             raise ContractError('RC72_RELEASE_DRIVER_N7_PIPELINE_SCOPE_MISMATCH')
         self.n7_pipeline=n7_pipeline
+        self.n9_pipeline=n9_pipeline
+        self._assert_n9_scope()
+
+    def _assert_n9_scope(self):
+        n9=self.n9_pipeline
+        if n9 is not None and (not isinstance(n9,AcceptedScopeN9Service) or n9.pipeline is not self.n7_pipeline
+                or n9.truth is not self.truth or n9.source_commit!=self.source_commit):
+            raise ContractError('RC72_RELEASE_DRIVER_N9_PIPELINE_SCOPE_MISMATCH')
+
+    def _has_gate(self,node_type):
+        return (node_type in self._gate_types() or node_type=='N6_EXECUTABLE_READINESS'
+                or node_type=='N7_EXECUTION' and self.n7_pipeline is not None
+                or node_type=='N9_DEFECT' and self.n9_pipeline is not None)
+
+    def _diagnosis_bypassed(self,nodes,mission_id):
+        by_type={n['node_type']:n for n in nodes}
+        n7,n8,n9=(by_type.get(k,{}) for k in ('N7_EXECUTION','N8_DIAGNOSIS_RECOVERY','N9_DEFECT'))
+        return (n7.get('state')=='PASS' and n8.get('state')=='NOT_STARTED'
+            and n9.get('state') not in {None,'NOT_STARTED'} and any(e['kind']=='FORWARD'
+                and e['from_node_type']=='N7_EXECUTION' and e['to_node_type']=='N9_DEFECT'
+                and e['source_gate_id'] in n7['gate_refs']
+                for e in self.truth.query('rc72_node_transition',mission_id=mission_id)))
 
     def _one(self, kind, **filters):
         rows = self.truth.query(kind, **filters)
@@ -174,6 +197,8 @@ class ReleaseBatchDriver:
             'N5_TEST_DATA': N5OwnedWorkItemGateService}
 
     def _complete_gate(self, node_type, batch):
+        if node_type=='N9_DEFECT' and self.n9_pipeline is not None:
+            return self.n9_pipeline.complete(release_batch_id=batch['release_batch_id'])
         if node_type=='N1_REALITY':
             N1StrictDshHandoffService(self.truth, source_commit=self.source_commit, launcher=self.n1_launcher,
                 allowed_tools=self.n1_tools).audit_recorded_native_handoff(release_batch_id=batch['release_batch_id'])
@@ -207,34 +232,31 @@ class ReleaseBatchDriver:
             if self.n7_pipeline is not None and (self.n7_pipeline.truth is not self.truth
                     or self.n7_pipeline.source_commit!=self.source_commit or self.n7_pipeline.release_id!=batch['release_id']):
                 raise ContractError('RC72_RELEASE_DRIVER_N7_PIPELINE_SCOPE_MISMATCH')
+            self._assert_n9_scope()
             # Admission is rechecked even when canonical nodes already exist.
             ReleaseBatchFieldMissionLauncher(self.truth, source_commit=self.source_commit).start(release_batch_id=release_batch_id)
             # Cold continuation audits accepted source bytes, not merely PASS labels.
-            for node in self.status(release_batch_id=release_batch_id)['nodes']:
+            prefix=self.status(release_batch_id=release_batch_id)['nodes']
+            for node in prefix:
+                if node['node_type']=='N8_DIAGNOSIS_RECOVERY' and self._diagnosis_bypassed(prefix,batch['mission_id']):
+                    continue
                 if node['state'] != 'PASS':
                     break
-                if node['node_type'] in self._gate_types() or node['node_type']=='N6_EXECUTABLE_READINESS' or (node['node_type']=='N7_EXECUTION' and self.n7_pipeline is not None):
+                if self._has_gate(node['node_type']):
                     audited = self._complete_gate(node['node_type'], batch)
                     if audited.get('status')=='HOLD':
                         return dict(self.status(release_batch_id=release_batch_id), **audited)
             while True:
                 snapshot = self.status(release_batch_id=release_batch_id)
                 pending = [n for n in snapshot['nodes'] if n['state'] != 'PASS']
-                by_type = {n['node_type']:n for n in snapshot['nodes']}
-                if (by_type.get('N7_EXECUTION',{}).get('state')=='PASS'
-                        and by_type.get('N8_DIAGNOSIS_RECOVERY',{}).get('state')=='NOT_STARTED'
-                        and by_type.get('N9_DEFECT',{}).get('state')!='NOT_STARTED'):
-                    edges = self.truth.query('rc72_node_transition', mission_id=batch['mission_id'])
-                    if any(e['kind']=='FORWARD' and e['from_node_type']=='N7_EXECUTION'
-                            and e['to_node_type']=='N9_DEFECT'
-                            and e['source_gate_id'] in by_type['N7_EXECUTION']['gate_refs'] for e in edges):
-                        pending = [n for n in pending if n['node_type']!='N8_DIAGNOSIS_RECOVERY']
+                if self._diagnosis_bypassed(snapshot['nodes'],batch['mission_id']):
+                    pending = [n for n in pending if n['node_type']!='N8_DIAGNOSIS_RECOVERY']
 
                 if not pending:
                     return dict(snapshot, status='HOLD', reason='RELEASE_CONVERGENCE_AUDIT_REQUIRED')
                 node = pending[0]
                 if node['state'] == 'REVIEW_PENDING':
-                    if node['node_type'] not in self._gate_types() and node['node_type']!='N6_EXECUTABLE_READINESS' and not (node['node_type']=='N7_EXECUTION' and self.n7_pipeline is not None):
+                    if not self._has_gate(node['node_type']):
                         return dict(snapshot, status='HOLD', reason='NATIVE_GATE_ROUTE_NOT_IMPLEMENTED')
                     audited = self._complete_gate(node['node_type'], batch)
                     if audited.get('status')=='HOLD':
@@ -271,6 +293,10 @@ class ReleaseBatchDriver:
                         return dict(self.status(release_batch_id=release_batch_id), **result)
                 elif node['node_type']=='N7_EXECUTION' and self.n7_pipeline is not None:
                     result = self.n7_pipeline.complete(release_batch_id=release_batch_id)
+                    if result.get('status')=='HOLD':
+                        return dict(self.status(release_batch_id=release_batch_id), **result)
+                elif node['node_type']=='N9_DEFECT' and self.n9_pipeline is not None:
+                    result=self.n9_pipeline.complete(release_batch_id=release_batch_id)
                     if result.get('status')=='HOLD':
                         return dict(self.status(release_batch_id=release_batch_id), **result)
                 else:
