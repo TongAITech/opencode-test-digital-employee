@@ -330,10 +330,10 @@ def test_independent_python_process_cannot_take_over_captain_during_live_n7_io(
             truth, plan, prep, url, tmp_path)
         original_run = pipeline.runner.run_with_dispatch
         observations = []
-        context = multiprocessing.get_context("spawn")
+        mp_ctx = multiprocessing.get_context("spawn")
         def competing_handoff(*, contract, context, dispatcher):
-            out = context.Queue()
-            child = context.Process(
+            out = mp_ctx.Queue()
+            child = mp_ctx.Process(
                 target=_cold_handoff_during_n7_io,
                 args=(str(truth.store.path), plan["mission_id"],
                       pipeline.team_id, owner["lease_id"],
