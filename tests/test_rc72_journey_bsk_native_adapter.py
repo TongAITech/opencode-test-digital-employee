@@ -323,6 +323,7 @@ def test_bsk_native_executes_non_happy_path_keyboard_hover_scroll_drag(
     dispatched = [cmd for cmd in runner.calls if "step" in cmd]
     assert len(dispatched) == 1
     argv = dispatched[0]
+    assert argv[argv.index("--context") + 1] == "ctx-live"
     assert argv[argv.index("--action") + 1] == expected_action
     params = json.loads(argv[argv.index("--params") + 1])
     if action == "PRESS":
