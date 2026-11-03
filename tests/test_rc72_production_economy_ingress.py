@@ -203,7 +203,7 @@ def test_operator_policy_file_and_strict_validation(tmp_path):
 
 
 
-def test_existing_bank_schedule_drift_blocks_rebinding_before_any_model_call(tmp_path):
+def test_authorized_calendar_update_versions_r1_without_blocking_required_work(tmp_path):
     truth, _, workers = _fixtures(tmp_path)
     first = bind_release_batch_model_economy(
         truth, workers=workers, release_id="REL-C10", mission_id="MISSION-C10",
@@ -212,27 +212,61 @@ def test_existing_bank_schedule_drift_blocks_rebinding_before_any_model_call(tmp
     changed = {
         "bank_cost_window": {
             "timezone_name": "Asia/Shanghai",
-            "normal_end_hour": 17,
-            "discount_end_hour": 20,
+            "normal_end_hour": 18,
+            "discount_end_hour": 21,
             "normal_factor_millis": 1000,
-            "discount_factor_millis": 250,
+            "discount_factor_millis": 100,
             "unlimited_after_discount": True,
             "post_discount_factor_millis": 0,
-        }
+            "non_working_dates": ["2026-11-05"],
+            "makeup_work_dates": ["2026-11-07"],
+        },
     }
     fresh = {
-        role: SimpleNamespace(launcher=_ProcessLauncher(truth, role, tmp_path / "fresh-drift"))
+        role: SimpleNamespace(launcher=_ProcessLauncher(truth, role, tmp_path / "fresh-update"))
         for role in _ROLE_NODE
     }
-    with pytest.raises(ProductionEconomyBindingError, match="BANK_SCHEDULE_DRIFT"):
-        bind_release_batch_model_economy(
-            truth, workers=fresh, release_id="REL-C10",
-            mission_id="MISSION-C10", policy=changed,
-        )
-    assert all(not getattr(row.launcher, "_rc72_production_economy_bound", False)
+    updated = bind_release_batch_model_economy(
+        truth, workers=fresh, release_id="REL-C10",
+        mission_id="MISSION-C10", policy=changed,
+    )
+    assert all(getattr(row.launcher, "_rc72_production_economy_bound", False)
                for row in fresh.values())
-    assert first._budget("MISSION-C10") == original
+    refreshed = updated._budget("MISSION-C10")
+    assert refreshed["artifact_version"] == original["artifact_version"] + 1
+    assert refreshed["bank_cost_window_config"]["non_working_dates"] == ["2026-11-05"]
+    assert refreshed["bank_cost_window_config"]["makeup_work_dates"] == ["2026-11-07"]
+    assert refreshed["max_total_tokens"] == original["max_total_tokens"]
+    assert refreshed["max_model_calls"] == original["max_model_calls"]
+    assert {row["task_id"] for row in truth.query("rc7_task", mission_id="MISSION-C10")} == {"WI-DESIGN"}
     assert truth.query("rc72_token_call", mission_id="MISSION-C10") == []
+
+
+def test_cold_rebind_without_new_config_retains_approved_holiday_calendar(tmp_path):
+    truth, _, workers = _fixtures(tmp_path)
+    policy = {"bank_cost_window": {
+        "non_working_dates": ["2026-11-05"],
+        "makeup_work_dates": ["2026-11-07"],
+    }}
+    first = bind_release_batch_model_economy(
+        truth, workers=workers, release_id="REL-C10",
+        mission_id="MISSION-C10", policy=policy,
+    )
+    previous = first._budget("MISSION-C10")
+    new_launchers = {
+        role: SimpleNamespace(launcher=_ProcessLauncher(truth, role, tmp_path / "cold"))
+        for role in _ROLE_NODE
+    }
+    recovered = bind_release_batch_model_economy(
+        truth, workers=new_launchers, release_id="REL-C10",
+        mission_id="MISSION-C10",
+    )
+    assert recovered.cost_window_config.non_working_dates == ("2026-11-05",)
+    assert recovered.cost_window_config.makeup_work_dates == ("2026-11-07",)
+    assert recovered._budget("MISSION-C10") == previous
+    assert all(getattr(row.launcher, "_rc72_production_economy_bound", False)
+               for row in new_launchers.values())
+
 
 
 def test_legacy_budget_upgrades_bank_window_without_changing_soft_targets(tmp_path):
