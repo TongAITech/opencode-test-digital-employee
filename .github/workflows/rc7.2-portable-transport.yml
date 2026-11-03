@@ -5,7 +5,11 @@ on:
     branches: [work/rc7.2, work/rc7.2-full-transport]
     paths:
       - '.github/workflows/rc7.2-portable-transport.yml'
-      - 'packaging/rc7.2/start-rc7.2.cmd'
+      - 'rc6_runtime/**'
+      - 'rc7_runtime/**'
+      - 'rc7_release/**'
+      - 'tests/test_rc72_bank_pc_pip_mirror_windows.py'
+      - 'packaging/rc7.2/**'
   workflow_dispatch:
 
 permissions:
@@ -85,6 +89,8 @@ jobs:
             }
             & $py -m rc7_release.rc72_windows_clean_qualification --package-root $pkg --output (Join-Path $evidence 'clean-runtime.json') --require-pass
             if ($LASTEXITCODE -ne 0) { throw 'package-local R1/session continuity failed' }
+            & $py -c "import json; from rc7_release.rc72_tool_environment import package_tool_environment; print(json.dumps(package_tool_environment(r'$pkg'), sort_keys=True))" | Tee-Object (Join-Path $evidence 'package-tool-environment.json')
+            if ($LASTEXITCODE -ne 0) { throw 'package-owned tool binding failed' }
           } finally { Pop-Location }
           $env:RC72_PIP_MIRROR_COMPONENT = '1'
           $env:RC72_PIP_MIRROR_PACKAGE_ROOT = $pkg
