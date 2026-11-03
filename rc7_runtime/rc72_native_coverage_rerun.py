@@ -267,9 +267,24 @@ class NativeCoverageRerunService:
         result=self.pipeline.complete(release_batch_id=release_batch_id)
         if result.get('state')!='N7_PASS':return dict(status='HOLD',reason=result.get('reason','COVERAGE_RERUN_N7_NOT_ACCEPTED'),rerun_id=record['rerun_id'])
         if result['gate_id']==record['origin_n7_gate_id']:raise ContractError('COVERAGE_RERUN_OLD_N7_GATE_REUSE_FORBIDDEN')
+        # The canonical N7 finalizer returns its accepted gate and Attempts, not
+        # a bundle_id. Resolve the bundle from that gate's signed delivery, then
+        # independently audit it before persisting a durable rerun PASS receipt.
+        gate=self._one('rc72_node_gate',gate_id=result['gate_id'])
+        delivery=self._one('rc72_node_delivery',delivery_id=gate['delivery_id'])
+        bundle_refs=[ref for ref in delivery['artifact_refs']
+                     if self.truth.query('rc72_n7_evidence_bundle',bundle_id=ref)]
+        if len(bundle_refs)!=1:
+            raise ContractError('COVERAGE_RERUN_FRESH_BUNDLE_NOT_UNIQUE')
+        accepted=self.pipeline.finalization.audit(bundle_refs[0])
+        if (accepted['gate_id']!=result['gate_id']
+                or accepted['attempt_ids']!=result['attempt_ids']
+                or accepted['bundle_id']!=bundle_refs[0]):
+            raise ContractError('COVERAGE_RERUN_FRESH_N7_CHANGED')
         current=self._one(_KIND,rerun_id=record['rerun_id'])
         if current['state']!='N7_PASS':
-            current=self._persist(dict(current,state='N7_PASS',fresh_n7_gate_id=result['gate_id'],fresh_bundle_id=result['bundle_id'],fresh_attempt_ids=result['attempt_ids']))
+            current=self._persist(dict(current,state='N7_PASS',fresh_n7_gate_id=accepted['gate_id'],
+                                       fresh_bundle_id=accepted['bundle_id'],fresh_attempt_ids=accepted['attempt_ids']))
         return self._audit_pass(current)
 
 
