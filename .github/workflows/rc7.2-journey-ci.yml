@@ -10,6 +10,7 @@ on:
       - 'tests/test_rc72_journey_*.py'
       - 'tests/test_rc72_phase9_*.py'
       - '.github/workflows/rc7.2-journey-ci.yml'
+      - 'docs/rc7.2/JOURNEY-C09-CONSTRUCTION-AND-A-B-INTEGRATION.md'
 concurrency:
   group: rc72-c09-${{ github.ref }}
   cancel-in-progress: true
