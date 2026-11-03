@@ -232,6 +232,11 @@ def verify_evidence_export(archive_path, *, expected_source_commit):
                         "CHECKSUMS.sha256", "FULL-CAPABILITY-INVENTORY.json", r1}
             if not required.issubset(listed):
                 raise ExportError("FIELD_EVIDENCE_ZIP_REQUIRED_EVIDENCE_MISSING")
+            for rel, row in listed.items():
+                expected_kind = ("R1_EVENT_STREAM" if rel == r1 else
+                                 "PACKAGE_IDENTITY" if rel in required else "EXPLICIT_FIELD_ATTACHMENT")
+                if row.get("kind") != expected_kind:
+                    raise ExportError("FIELD_EVIDENCE_ZIP_ROW_KIND_MISMATCH:" + rel)
             expected_entries = {"QA-EVIDENCE-INDEX.json"} | {"payload/" + rel for rel in listed}
             if set(names) != expected_entries:
                 raise ExportError("FIELD_EVIDENCE_ZIP_ENTRY_COVERAGE_MISMATCH")
