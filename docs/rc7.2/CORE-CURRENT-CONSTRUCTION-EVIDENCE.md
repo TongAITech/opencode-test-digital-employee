@@ -29,3 +29,29 @@
 ## Next acceptance gates
 
 Exact-HEAD Linux Python 3.8/3.11 targeted and full Construction are mandatory; investigate any failures without deleting tests or weakening business assertions. Only after passing and independent QA review is promotion from DRAFT to integration permissible. C03 generic N8, C04 professional N9, C05 full terminal N10, B/C/D dependency PR integration, Windows/target Linux Field and full offline/BANK_FINAL remain OPEN. This checkpoint is engineering-source evidence only; no bank Field truth or package sign-off is implied.
+
+
+## Continued core construction — 2026-11-04, exact source candidates only
+
+### P0 CI verified failure (no acceptance)
+- Baseline `7efb3c8` Construction `41679951672` completed FAIL, both Python 3.8 and 3.11: **3 failed, 1406 passed, 3 skipped** on each. The same three failures were N10 ambiguous-mapping no-R1-side-effect assertion and two post-repair fresh-N7 `KeyError: bundle_id`; inherited RC7 regression passed. Main remains RED / no integration.
+- Core initial targeted job `41682810634` (1f24b1e): 20 pass, 3 fail; second `41683489480` (06591b9): Python 3.11 21 pass, 2 fail, exposing historical N8 audit against current Libra epoch.
+- Later patches address observed P0 classes by deriving the new Bundle only from an accepted N7 R1 Gate/Delivery, verifying full fresh Attempt denominator and original historical diagnosis with signed N9/Libra/intake and CLOSED repair/fresh-verification proof. No same-HEAD green yet: latest HEAD must be rechecked against CI before claiming repair.
+
+### C05 / C08: replay-safe real N10 and business obligation feedback
+- `rc72_release_scope.py` and `rc72_release_convergence.py` add an *opt-in* `replay_safe` mode used by actual `NativeN10ControlService`. Every dimension and original denominator is recomputed from R1 before reusing a semantically identical historical snapshot; changed facts still append a new R1 event. This prevents duplicate, changing snapshot IDs under hot/cold continuation without caching an unverified PASS.
+- `rc72_n10_feedback.py` projects only the actual persisted convergence blockers into structured `gap_reason/responsible_node/scope_refs/priority/evidence_refs`. Missing SST and mandatory L1–L7 levels are derived from the frozen Manifest; uncovered code slices use the native Gap's actual Requirement/SST/Obligation lineage. Unknown causality is queued to N8 and is *not* silently claimed to be a product defect.
+- Product `N10` response now carries derived `issues` alongside real `blockers`. Source-snapshot mutation must fail closed. New and retained tests require all original seven levels even at 100% measured coverage, precise business feedback and read-only identical cold replay.
+- **Still OPEN:** an independently reviewed N10 terminal NodeDelivery/Gate, fully converged genuine mixed L1–L7 ReleaseBatch, in-bank Field evidence, and deployment qualification.
+
+### C04: real N9 discrepancy intake, not a false defect
+- `rc72_n9_professional_intake.py` is invoked from the production `N7PipelineService._diagnose_failure` only after `VALID_TEST_FAILURE` passes signed conclusive assertion evidence and an independently accepted N8 diagnosis/NodeGate. It binds a `DEFECT_REPRODUCTION` Task to the original approved N4 Case Artifacts and historical N8 Gap, Case, Attempt, process and review identities. Scheduler readiness uses real `rc7_artifact` references (no invented `r1://` lease inputs).
+- No business operation is replayed, no `rc7_defect` is created, and `defect_confirmed=False` is explicit. The original negative/failure classification and N9/Gap gate stay open until a separate professional reproduction, RCA and repair regression actually prove resolution. Altered task objective/evidence scope fails closed on recovery.
+- Added tests in `tests/test_rc72_conclusive_failure_evidence.py`: original valid discrepancy has exactly one independently governed reproduction WorkItem; inconclusive Runner failure has none; repeated/cold replay has no new R1 or business requests; altered WorkItem refuses acceptance.
+- **Still OPEN:** actual professional reproduction Agent/runner, independent RCA, defect record acceptance, genuine fix verification and full regression lifecycle.
+
+### Parallel PR integration reconciliation
+- Core PR #10 remains DRAFT. Runtime C06/C07 PR #6 changes `rc72_n7_tool_dispatch.py` and Captain execution; Journey C09 PR #11 owns journey-specific files; economy C10 PR #8 owns model economy + CLI; QA PR #9 owns independent contract/release acceptance. These branches have not been merged into `work/rc7.2`.
+- Before merge: verify exact updated main+PR SHAs, prerequisite product contracts, current HEAD 3.8/3.11 targeted+full Construction, Windows/Linux source baseline and independent QA; merge without force-push and do not overwrite another team's files. User packaging and Field remain separate C12 gates.
+
+**Latest known construction candidate before this document update:** `a24a90a9ea59d91d6e6994f2588b361d71224ac8`. On inspection its exact targeted/Construction CI `41687719160`/`41687719297` were queued, so **engineering acceptance pending**. Do not infer PASS from the presence of a run.
