@@ -296,6 +296,10 @@ class OfficialJourneyExecutionService:
             raise ContractError("OFFICIAL_JOURNEY_ETU_SCOPE_MISMATCH")
         if etu.get("obligation_id") != asset.get("obligation_id"):
             raise ContractError("OFFICIAL_JOURNEY_ETU_OBLIGATION_MISMATCH")
+        if (binding.get("case_id") not in list(etu.get("case_ids") or [])
+                or (asset.get("case_id") is not None
+                    and asset.get("case_id") != binding.get("case_id"))):
+            raise ContractError("OFFICIAL_JOURNEY_CANONICAL_CASE_MISMATCH")
         task = self._one("rc7_task", task_id=workitem_id)
         if task.get("mission_id") != mission_id or official_asset_id not in list(task.get("input_artifact_refs") or []):
             raise ContractError("OFFICIAL_JOURNEY_WORKITEM_SCOPE_MISMATCH")
