@@ -21,6 +21,7 @@ from rc6_runtime import contracts as _contracts
 from rc6_runtime import truth as _truth
 from rc6_runtime.truth import TruthRuntime
 
+from .rc72_provider_usage_filter import is_tool_branch_key, is_tool_usage_node
 from .models import ContractError
 from .truth_overlay import install_rc7_truth_overlay
 
@@ -166,8 +167,12 @@ def _normalize_mapping(mapping: Mapping[str, Any]) -> Tuple[Dict[str, Optional[i
 
 def _walk_mappings(value: Any, path: str) -> Iterable[Tuple[str, Mapping[str, Any]]]:
     if isinstance(value, dict):
+        if is_tool_usage_node(value):
+            return
         yield path, value
         for key, child in value.items():
+            if is_tool_branch_key(key):
+                continue
             child_path = "%s.%s" % (path, key)
             yield from _walk_mappings(child, child_path)
     elif isinstance(value, list):
