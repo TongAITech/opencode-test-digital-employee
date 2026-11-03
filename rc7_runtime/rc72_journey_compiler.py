@@ -216,7 +216,7 @@ class JourneyCompiler:
             "requirement_id": recording["requirement_id"],
             "sst_id": recording["sst_id"],
             "obligation_id": recording["obligation_id"],
-            "case_id": recording.get("case_id"),
+            **({"case_id": str(recording["case_id"])} if recording.get("case_id") else {}),
             "source_recording_id": recording_id,
             "state": JourneyCandidateState.COMPILED_CANDIDATE.value,
             "asset_class": "CANDIDATE",
