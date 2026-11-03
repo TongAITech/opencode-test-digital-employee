@@ -10,6 +10,8 @@ from rc7_runtime.rc72_authority import RC72AuthorityRuntime
 from rc7_runtime.rc72_native_n1_launcher import NativeN1ReadDshLauncher
 from rc7_runtime.rc72_native_n1_read_gate import N1ReadResource, TOOL
 from rc7_runtime.rc72_mission_factory import ROLES, MissionWorkerBinding, create_mission_driver
+from rc7_runtime.rc72_native_coverage_repair import NativeCoverageRepairService
+from rc7_runtime.rc72_native_coverage_rerun import NativeCoverageRerunService, CoverageRerunPlanningService
 from rc72_n2_test_support import build_truth, RELEASE, COMMIT
 from rc7_runtime.rc72_bank_pip_mirror import NativeBankPipMirrorService
 from rc72_formal_runner_support import LocalHTTPEnvironment
@@ -54,6 +56,14 @@ def test_factory_owns_whole_native_chain_without_starting_work(tmp_path):
     assert driver.n9_pipeline.pipeline is driver.n7_pipeline
     assert driver.n10_pipeline.n9 is driver.n9_pipeline
     assert driver.n10_pipeline.expected_scope is driver.expected_scope
+    # This must be the *product* chain, not a test-only N10 with no repair.
+    assert isinstance(driver.n10_pipeline.repair, NativeCoverageRepairService)
+    assert isinstance(driver.n10_pipeline.rerun, NativeCoverageRerunService)
+    assert driver.n10_pipeline.repair.diagnosis is driver.n10_pipeline.diagnosis
+    assert driver.n10_pipeline.rerun.repair is driver.n10_pipeline.repair
+    assert driver.n10_pipeline.rerun.pipeline is driver.n7_pipeline
+    assert isinstance(driver.n7_pipeline.preparation.planning, CoverageRerunPlanningService)
+    assert driver.n7_pipeline.preparation.planning.owner is driver.n10_pipeline.rerun
     assert driver.expected_scope.pipeline.handoff_service.launcher is driver.n1_launcher
     assert driver.bank_pip_mirror is options['bank_pip_mirror']
     assert driver.n7_pipeline.runner.environment_adapter is options['execution_environment']
@@ -91,4 +101,31 @@ def test_factory_rejects_partial_or_cross_scope_binding_without_effects(tmp_path
     before = truth.store.path.read_bytes()
     with pytest.raises(ContractError, match=reason):
         create_mission_driver(truth, **options)
+    assert truth.store.path.read_bytes() == before
+
+
+def test_factory_cold_reconstruction_keeps_repair_rerun_owned_and_side_effect_free(tmp_path):
+    """Rebuilding the public entry must preserve wiring without writing fake R1."""
+    truth, options = _setup(tmp_path)
+    before = truth.store.path.read_bytes()
+    for _ in range(2):
+        driver = create_mission_driver(truth, **options)
+        assert driver.n10_pipeline.rerun.pipeline is driver.n7_pipeline
+        assert driver.n10_pipeline.rerun.truth is truth
+        assert driver.n10_pipeline.repair.truth is truth
+        assert driver.n10_pipeline.rerun.source_commit == options['source_commit']
+        assert driver.n10_pipeline.rerun.release_id == options['release_id']
+        assert truth.store.path.read_bytes() == before
+    assert not truth.query('rc72_native_coverage_repair')
+    assert not truth.query('rc72_native_coverage_rerun')
+
+
+def test_factory_n10_rejects_detached_rerun_before_side_effect(tmp_path):
+    """A replacement repair object cannot stand in for the signed original."""
+    truth, options = _setup(tmp_path)
+    driver = create_mission_driver(truth, **options)
+    before = truth.store.path.read_bytes()
+    driver.n10_pipeline.rerun.repair = object()
+    with pytest.raises(ContractError, match='N10_NATIVE_RERUN_COMPOSITION_REQUIRED'):
+        driver.n10_pipeline._assert_inputs()
     assert truth.store.path.read_bytes() == before
