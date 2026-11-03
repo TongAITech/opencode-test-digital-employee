@@ -102,6 +102,20 @@ def _validate_candidate(payload: Dict[str, Any]) -> Dict[str, Any]:
             if not isinstance(refs, list) or not all(isinstance(ref, str) and ref.strip() for ref in refs):
                 raise _contracts.DomainValidationError("JOURNEY_CANDIDATE_STEP_%s_INVALID" % list_name.upper())
         action_type = str(step["action_type"]).upper()
+        try:
+            JourneyActionType(action_type)
+        except ValueError as exc:
+            raise _contracts.DomainValidationError("JOURNEY_CANDIDATE_ACTION_UNSUPPORTED") from exc
+        if action_type == JourneyActionType.PRESS.value and step.get("key") not in {
+            "Enter", "Tab", "Escape", "ArrowUp", "ArrowDown",
+            "ArrowLeft", "ArrowRight", "Space", "Backspace",
+            "Delete", "Home", "End", "PageUp", "PageDown",
+        }:
+            raise _contracts.DomainValidationError("JOURNEY_PRESS_KEY_INVALID")
+        if action_type == JourneyActionType.DRAG.value and not (
+                isinstance(step.get("target_ref"), str)
+                and step["target_ref"].startswith(("css:", "testid:"))):
+            raise _contracts.DomainValidationError("JOURNEY_DRAG_TARGET_REQUIRED")
         if action_type in {JourneyActionType.INPUT.value, JourneyActionType.SELECT.value} and not (step.get("value_ref") or step.get("credential_ref")):
             raise _contracts.DomainValidationError("JOURNEY_INPUT_REFERENCE_REQUIRED")
         if action_type == JourneyActionType.ASSERT.value and not step.get("oracle_ref"):
@@ -182,6 +196,21 @@ class JourneyCompiler:
                 compiled["value_ref"] = value_ref
             if credential_ref:
                 compiled["credential_ref"] = credential_ref
+        elif action_type == JourneyActionType.PRESS.value:
+            key = _metadata_ref(source, "key")
+            if key not in {
+                "Enter", "Tab", "Escape", "ArrowUp", "ArrowDown",
+                "ArrowLeft", "ArrowRight", "Space", "Backspace",
+                "Delete", "Home", "End", "PageUp", "PageDown",
+            }:
+                raise ContractError("JOURNEY_PRESS_KEY_INVALID")
+            compiled["key"] = key
+        elif action_type == JourneyActionType.DRAG.value:
+            target_ref = _metadata_ref(source, "target_ref")
+            if not isinstance(target_ref, str) or not target_ref.startswith(
+                    ("css:", "testid:")):
+                raise ContractError("JOURNEY_DRAG_TARGET_REQUIRED")
+            compiled["target_ref"] = target_ref
         elif action_type == JourneyActionType.ASSERT.value:
             oracle_ref = _metadata_ref(source, "oracle_ref")
             if not oracle_ref:
