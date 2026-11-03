@@ -136,6 +136,11 @@ class JourneyCDPTeachingRecorder:
             page.on("response", response_listener)
             self._response_listener = response_listener
             self.teaching.start_recording(**recording_args)
+            # A teaching run begun on an already-loaded application needs an
+            # initial navigation in its replayable IR, not a bare CLICK.
+            if self.last_url.startswith(("https://", "http://")):
+                self._step(action_type="NAVIGATE", element_ref=None,
+                           page_role="INITIAL_PAGE", metadata={"label": "initial navigation"})
         except Exception:
             self.stop()
             raise
@@ -147,6 +152,7 @@ class JourneyCDPTeachingRecorder:
         element_ref: Optional[str],
         page_role: str,
         metadata: Mapping[str, Any],
+        event_url: Optional[str] = None,
     ) -> str:
         self._guard()
         if self.page is None:
@@ -157,7 +163,7 @@ class JourneyCDPTeachingRecorder:
             raise ContractError("JOURNEY_TEACHING_RECORDING_NOT_ACTIVE")
         sequence = int(current[0]["step_count"]) + 1
         folder = self.root / recording_id / ("capture-%04d" % sequence)
-        url = _public_url(self.page.url)
+        url = _public_url(event_url or self.page.url)
         try:
             dom = self.page.evaluate(_DOM_SUMMARY_SCRIPT)
         except Exception as exc:
@@ -208,10 +214,6 @@ class JourneyCDPTeachingRecorder:
         events = buffered + drained
         result = []
         current_url = _public_url(self.page.url)
-        if current_url != self.last_url:
-            result.append(self._step(action_type="NAVIGATE", element_ref=None,
-                                     page_role=page_role, metadata={"label": "navigation"}))
-            self.last_url = current_url
         for event in events:
             if not isinstance(event, dict) or event.get("type") not in {"CLICK", "INPUT", "SELECT"}:
                 raise ContractError("JOURNEY_TEACHING_EVENT_INVALID")
@@ -223,7 +225,14 @@ class JourneyCDPTeachingRecorder:
                 raise ContractError("JOURNEY_TEACHING_BINDING_INVALID")
             result.append(self._step(
                 action_type=event["type"], element_ref=ref,
-                page_role=page_role, metadata=dict(bound)))
+                page_role=page_role, metadata=dict(bound),
+                event_url=event.get("url")))
+        # DOM event happened before the navigation it triggered; the IR order
+        # must preserve CLICK -> NAVIGATE, not NAVIGATE -> CLICK.
+        if current_url != self.last_url:
+            result.append(self._step(action_type="NAVIGATE", element_ref=None,
+                                     page_role=page_role, metadata={"label": "navigation"}))
+            self.last_url = current_url
         return result
 
     def record_assertion(self, *, page_role: str, oracle_ref: str,
@@ -232,6 +241,13 @@ class JourneyCDPTeachingRecorder:
             raise ContractError("JOURNEY_TEACHING_ORACLE_REF_REQUIRED")
         return self._step(action_type="ASSERT", element_ref=element_ref,
                           page_role=page_role, metadata={"oracle_ref": oracle_ref})
+
+    def record_wait(self, *, page_role: str, wait_semantics: str,
+                    element_ref: Optional[str] = None) -> str:
+        if wait_semantics not in {"network-idle", "networkidle", "domcontentloaded", "load", "visible"}:
+            raise ContractError("JOURNEY_TEACHING_WAIT_SEMANTICS_INVALID")
+        return self._step(action_type="WAIT", element_ref=element_ref,
+                          page_role=page_role, metadata={"wait_semantics": wait_semantics})
 
     def finish(self) -> Any:
         self._guard()
