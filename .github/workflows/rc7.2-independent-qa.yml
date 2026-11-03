@@ -1,0 +1,54 @@
+name: RC7.2 Independent QA C01 C02
+on:
+  push:
+    branches:
+      - work/rc7.2-qa-release
+    paths:
+      - 'tests/test_rc72_qa_c01_c02_independent.py'
+      - 'docs/rc7.2/qa-release/**'
+      - '.github/workflows/rc7.2-independent-qa.yml'
+  pull_request:
+    branches:
+      - work/rc7.2
+    paths:
+      - 'tests/test_rc72_qa_c01_c02_independent.py'
+      - 'docs/rc7.2/qa-release/**'
+      - '.github/workflows/rc7.2-independent-qa.yml'
+  workflow_dispatch:
+
+jobs:
+  independent-c01-c02:
+    name: qa-c01-c02-${{ matrix.os }}-py${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python-version: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install test harness
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile without importing production
+        run: python -m compileall -q tests/test_rc72_qa_c01_c02_independent.py rc6_runtime rc7_runtime
+      - name: Independent C01/C02 negative and recovery qualification
+        run: >
+          python -m pytest -q
+          --junitxml=qa-c01-c02.xml
+          tests/test_rc72_qa_c01_c02_independent.py
+          tests/test_rc72_n5_existing_data_repair.py
+          tests/test_rc72_n5_reverification.py
+          tests/test_rc72_n8_retry_continuation.py
+          tests/test_rc72_n8_multi_round.py
+      - name: Publish independently traceable results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-c01-c02-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: qa-c01-c02.xml
+          if-no-files-found: warn
+          retention-days: 14
