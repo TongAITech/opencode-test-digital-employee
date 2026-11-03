@@ -230,6 +230,8 @@ def test_capture_real_dom_events_and_network_metadata_without_input_values(tmp_p
     assert len(events) == 2
     assert events[0]["screenshot_ref"].startswith("file://")
     assert all("not-persisted" not in json.dumps(event) for event in events)
+    from rc7_runtime.rc72_journey_promotion import install_rc72_journey_promotion_overlay
+    install_rc72_journey_promotion_overlay()
     assert not truth.query("rc72_official_journey_asset")
 
 
