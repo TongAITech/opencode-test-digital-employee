@@ -27,6 +27,13 @@ def _make_fixture(tmp_path):
         "packaging/rc7.2/Q3-TARGET-LINUX-PROBE.sh": "echo command",
         "workspace-template/runtime/dsh/dsh.exe": "placeholder-test-binary",
     }
+    data["RC72_RELEASE_IDENTITY.json"] = json.dumps({
+        "schema": "pfc.aitest.rc7.2.release-identity.v1", "release_family": "RC7.2",
+        "package_name": "PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10",
+        "source_commit": COMMIT, "build_id": "RC7.2-" + COMMIT[:12],
+        "business_root": "RELEASE_BATCH", "runtime_control_backbone": "N1_N10_MISSION_GRAPH",
+        "field_verified": False, "bank_final": False,
+    })
     groups = []
     for name in GROUPS:
         rel = "workspace-template/runtime/" + name
@@ -39,7 +46,8 @@ def _make_fixture(tmp_path):
     for rel, value in data.items():
         write(rel, value)
     inventory = {
-        "schema": "RC72_FULL_PHYSICAL_PAYLOAD_V1",
+        "schema": "RC72_FULL_PHYSICAL_PAYLOAD_V1", "status": "PASS",
+        "release_family": "RC7.2", "field_verified": False, "bank_final": False,
         "source_commit": COMMIT, "qualification_scope": "PHYSICAL_INVENTORY_ONLY",
         "groups": groups,
     }
@@ -48,7 +56,16 @@ def _make_fixture(tmp_path):
     for rel in sorted(list(data) + ["FULL-CAPABILITY-INVENTORY.json"]):
         path = root / rel
         rows.append({"path": rel, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "size": path.stat().st_size})
-    write("PACKAGE_MANIFEST.json", json.dumps({"source_commit": COMMIT, "field_verified": False, "bank_final": False, "files": rows}))
+    write("PACKAGE_MANIFEST.json", json.dumps({
+        "schema_version": "pfc.aitest.rc7.2.package.v1",
+        "status": "ENGINEERING_CANDIDATE_NOT_BANK_FINAL",
+        "package_name": "PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10",
+        "release_family": "RC7.2", "source_commit": COMMIT, "build_id": "RC7.2-" + COMMIT[:12],
+        "business_root": "RELEASE_BATCH", "runtime_control_backbone": "N1_N10_MISSION_GRAPH",
+        "field_verified": False, "bank_final": False, "real_mission_pass": False,
+        "delivery_pass": False, "bank_field_pass": False,
+        "files": rows,
+    }))
     checksum_lines = []
     for path in sorted(root.rglob("*")):
         if path.is_file() and path.name != "CHECKSUMS.sha256":
@@ -141,3 +158,31 @@ def test_forged_group_inventory_is_refused_even_with_consistent_hashes(tmp_path)
     (root / "CHECKSUMS.sha256").write_text("\n".join(checksum_lines) + "\n", encoding="utf-8")
     with pytest.raises(QualificationError, match="GROUP_INVENTORY_BYTES_MISMATCH:python"):
         qualify(root, expected_source=COMMIT, dsh_relpath="workspace-template/runtime/dsh/dsh.exe")
+
+
+@pytest.mark.parametrize("path,key,value,error", [
+    ("RELEASE_STATUS", None, "BANK_FINAL", "RELEASE_STATUS_MISMATCH"),
+    ("RC72_RELEASE_IDENTITY.json", "bank_final", True, "RELEASE_IDENTITY_FALSE_FIELD_STATUS"),
+    ("RC72_RELEASE_IDENTITY.json", "runtime_control_backbone", "FAKE_PIPELINE", "RELEASE_IDENTITY_MISMATCH"),
+    ("PACKAGE_MANIFEST.json", "real_mission_pass", True, "MANIFEST_FALSE_COMPLETION"),
+    ("PACKAGE_MANIFEST.json", "build_id", "RC7.2-false", "MANIFEST_PRODUCT_IDENTITY_MISMATCH"),
+    ("FULL-CAPABILITY-INVENTORY.json", "bank_final", True, "INVENTORY_PRODUCT_IDENTITY_MISMATCH"),
+])
+def test_forged_identity_and_false_completion_refused_before_hashing(tmp_path, path, key, value, error):
+    root = _make_fixture(tmp_path)
+    target = root / path
+    if key is None:
+        target.write_text(value, encoding="utf-8")
+    else:
+        document = json.loads(target.read_text(encoding="utf-8"))
+        document[key] = value
+        target.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(QualificationError, match=error):
+        qualify(root, expected_source=COMMIT, dsh_relpath="workspace-template/runtime/dsh/dsh.exe")
+
+
+def test_malformed_identity_document_fails_closed(tmp_path):
+    root = _make_fixture(tmp_path)
+    (root / "RC72_RELEASE_IDENTITY.json").write_text("[]", encoding="utf-8")
+    with pytest.raises(QualificationError, match="JSON_OBJECT_REQUIRED"):
+        qualify(root, expected_source=COMMIT)
