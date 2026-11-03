@@ -85,8 +85,11 @@ def export_evidence(root, output, *, source_commit, includes=(), r1_relpath="run
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     sidecar = Path(str(output) + ".sha256")
+    created_output = False
+    created_sidecar = False
     try:
         with zipfile.ZipFile(str(output), "x", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
+            created_output = True
             for rel in selected:
                 # Hash precisely the bytes written to the archive, not a
                 # preflight snapshot which could change before ZipFile.write.
@@ -104,12 +107,13 @@ def export_evidence(root, output, *, source_commit, includes=(), r1_relpath="run
                 ))
             archive.writestr("QA-EVIDENCE-INDEX.json", json.dumps(report, sort_keys=True, ensure_ascii=False, indent=2) + "\n")
         with sidecar.open("x", encoding="utf-8") as receipt:
+            created_sidecar = True
             receipt.write(_digest(output) + "  " + output.name + "\n")
     except BaseException:
-        if output.exists():
+        if created_output and output.exists():
             output.unlink()
-        # Never replace or remove a receipt that existed before this export.
-        if sidecar.exists():
+        # A pre-existing receipt (including one racing with us) is immutable.
+        if created_sidecar and sidecar.exists():
             sidecar.unlink()
         raise
     return dict(report, archive_path=str(output), archive_sha256=_digest(output))
