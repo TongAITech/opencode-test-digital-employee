@@ -55,8 +55,11 @@ def test_invalid_receipt_blocks_completion_and_is_not_retried(tmp_path, monkeypa
         return bad
     service = SignedToolDispatchService(prep, adapters={'api_http': invoke})
     result = service.dispatch(row['preparation_id'])
-    assert result['state'] == 'FAILED'
-    assert service.dispatch(row['preparation_id']) == result
+    assert result['state'] == 'UNKNOWN'
+    assert result['possible_external_effect'] is True
+    assert result['replay_prohibited'] is True
+    with pytest.raises(ToolDispatchError, match='SIDE_EFFECTS_UNKNOWN'):
+        service.dispatch(row['preparation_id'])
     assert len(calls) == 1
 
 
@@ -167,3 +170,48 @@ assert len(rows) == 1 and rows[0]['state'] == 'RETURNED'
 '''
     subprocess.run([sys.executable, '-c', script, str(truth.store.path)], check=True,
                    capture_output=True, text=True)
+
+
+
+def test_adapter_times_out_after_remote_commit_and_cold_resume_never_replays(tmp_path, monkeypatch):
+    """A lost response is UNKNOWN, not a failed business operation or retry permission."""
+    truth, prep, row = _prepared(tmp_path, monkeypatch)
+    remote_operations = []
+
+    def commit_then_lose_response(**kwargs):
+        remote_operations.append({'business_reference': 'payment-001'})
+        raise TimeoutError('bank business response lost after commit: secret-do-not-persist')
+
+    first = SignedToolDispatchService(prep, adapters={'api_http': commit_then_lose_response})
+    unknown = first.dispatch(row['preparation_id'])
+    assert unknown['state'] == 'UNKNOWN'
+    assert unknown['error_type'] == 'TimeoutError'
+    assert unknown['replay_prohibited'] is True
+    assert 'secret-do-not-persist' not in truth.store.path.read_text()
+    assert len(remote_operations) == 1
+
+    cold = TruthRuntime(truth.store.path)
+    resumed = SignedToolDispatchService(_service(cold),
+                                        adapters={'api_http': commit_then_lose_response})
+    with pytest.raises(ToolDispatchError, match='SIDE_EFFECTS_UNKNOWN'):
+        resumed.dispatch(row['preparation_id'])
+    with pytest.raises(ToolDispatchError, match='RETURNED_RECEIPT_REQUIRED'):
+        resumed.evaluate(row['preparation_id'])
+    assert len(remote_operations) == 1
+    assert {lease['state'] for lease in cold.query('rc72_data_lease')} == {'ACTIVE'}
+
+
+def test_unknown_effect_cannot_be_reclassified_to_failed_for_unattended_retry(tmp_path, monkeypatch):
+    truth, prep, row = _prepared(tmp_path, monkeypatch)
+    calls = []
+    def remote(*, contract, context):
+        calls.append(context['attempt_id'])
+        raise ConnectionResetError('lost acknowledgement')
+    dispatch = SignedToolDispatchService(prep, adapters={'api_http': remote})
+    unknown = dispatch.dispatch(row['preparation_id'])
+    assert unknown['state'] == 'UNKNOWN'
+    assert unknown['attempt_id'] == row['attempt_id']
+    assert unknown['possible_external_effect'] is True
+    with pytest.raises(ToolDispatchError, match='SIDE_EFFECTS_UNKNOWN'):
+        dispatch.dispatch(row['preparation_id'])
+    assert calls == [row['attempt_id']]
