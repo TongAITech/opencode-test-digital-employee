@@ -12,6 +12,11 @@ on:
       - '.github/workflows/rc7.2-economy-c10.yml'
   workflow_dispatch:
 
+# Test the latest exact source SHA, not dozens of stale queued revisions.
+concurrency:
+  group: rc72-c10-economy-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -31,7 +36,7 @@ jobs:
       - name: Install test runner
         run: python -m pip install --disable-pip-version-check pytest
       - name: Compile inherited and new runtime
-        run: python -m compileall -q rc6_runtime rc7_runtime
+        run: python -m compileall -q rc6_runtime rc7_runtime rc7_release
       - name: Native DSH model-economy and adjacent regression
         run: >-
           python -m pytest -q
