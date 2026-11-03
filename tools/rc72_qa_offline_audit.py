@@ -137,6 +137,29 @@ def qualify(root, *, expected_source, dsh_relpath=None):
         if item.get("sha256", "").lower() != checksums[rel] or item.get("size") != path.stat().st_size:
             raise QualificationError("MANIFEST_BYTES_MISMATCH:" + rel)
 
+    # The product packager lists every ordinary physical file in CHECKSUMS and
+    # every file except PACKAGE_MANIFEST.json in manifest.files.  Independently
+    # compare those sets: a correctly hashed subset is NOT a complete payload.
+    if "PACKAGE_MANIFEST.json" not in checksums or manifest_paths != set(checksums) - {"PACKAGE_MANIFEST.json"}:
+        raise QualificationError("MANIFEST_CHECKSUM_COVERAGE_MISMATCH")
+    disk_files = set()
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            raise QualificationError("PHYSICAL_SYMLINK_FORBIDDEN:" + path.relative_to(root).as_posix())
+        if not path.is_file():
+            continue
+        relpath = path.relative_to(root)
+        if ("__pycache__" in relpath.parts or relpath.suffix in (".pyc", ".pyo")
+                or (relpath.parts and relpath.parts[0] in ("runtime-state", "state"))):
+            # Same exclusions as the upstream package writer: runtime output
+            # never becomes a claim of immutable transport-file integrity.
+            continue
+        rel = relpath.as_posix()
+        if rel != "CHECKSUMS.sha256":
+            disk_files.add(rel)
+    if disk_files != set(checksums):
+        raise QualificationError("PHYSICAL_CHECKSUM_COVERAGE_MISMATCH")
+
     total_bytes = 0
     for rel, digest in checksums.items():
         path = _inside(root, rel)
@@ -153,13 +176,17 @@ def qualify(root, *, expected_source, dsh_relpath=None):
         folder = _inside(root, rel)
         if not folder.is_dir():
             raise QualificationError("GROUP_MISSING:" + name)
-        present = [p for p in folder.rglob("*") if p.is_file() and not p.is_symlink()]
+        present = [p for p in folder.rglob("*")
+                   if p.is_file() and "__pycache__" not in p.relative_to(root).parts
+                   and p.suffix not in (".pyc", ".pyo")]
         if not present or not any(p.stat().st_size for p in present):
             raise QualificationError("GROUP_EMPTY:" + name)
-        for f in present:
-            if f.is_symlink():
-                raise QualificationError("GROUP_SYMLINK:" + name)
-        group_report.append({"group": name, "present_files": len(present), "physical_bytes": sum(p.stat().st_size for p in present)})
+        actual_count = len(present)
+        actual_bytes = sum(p.stat().st_size for p in present)
+        if (type(group.get("files")) is not int or type(group.get("bytes")) is not int
+                or group["files"] != actual_count or group["bytes"] != actual_bytes):
+            raise QualificationError("GROUP_INVENTORY_BYTES_MISMATCH:" + name)
+        group_report.append({"group": name, "present_files": actual_count, "physical_bytes": actual_bytes})
 
     holds = []
     if not dsh_relpath:
