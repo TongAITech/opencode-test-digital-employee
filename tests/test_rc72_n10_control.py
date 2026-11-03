@@ -124,9 +124,19 @@ def test_controller_with_repair_provider_still_refuses_ambiguous_mapping_without
         assert not truth.query('rc72_native_coverage_repair')
         assert not any(task['task_type']=='COVERAGE_PATH_REPAIR_EXECUTION' for task in truth.query('rc7_task'))
         assert not truth.query('rc7_defect')
-        # N10 may establish its RUNNING control state, but no coverage-repair side effect is created.
+        # The fixture already admitted N10; ambiguous mapping cannot even
+        # append another control event, let alone create repair or business I/O.
         after=truth.store.path.read_bytes()
         repeat=control.complete(release_batch_id=BATCH)
         assert repeat==result and truth.store.path.read_bytes()==after
-        assert before!=after and len(server.calls)==1
+        assert before==after and len(server.calls)==1
+        assert len(business.calls)==len(plan['items'])
+        assert not truth.query('rc72_native_coverage_rerun')
+        assert not truth.query('rc72_native_coverage_diagnosis')
+        # A new controller over the same R1 must make the same refusal,
+        # without replaying the actual Libra read or any business execution.
+        cold=NativeN10ControlService(diagnosis.measurement.expected_scope,diagnosis.measurement.n9,
+            diagnosis.measurement,diagnosis.intake,diagnosis,repair=NativeCoverageRepairService(diagnosis))
+        assert cold.complete(release_batch_id=BATCH)==result
+        assert truth.store.path.read_bytes()==before and len(server.calls)==1
     finally:server.shutdown();server.server_close();business.shutdown();business.server_close()
