@@ -1,5 +1,31 @@
 # RC7.2 Current Construction Checkpoint
 
+## Copied offline full-text search now qualified — 2026-11-03
+
+Actual doctor run `41602670990` proved the copied native database loaded but
+FTS was absent. The matching packaged installer now acquires FTS at build time
+in a disposable private home; a versioned hash inventory carries only extension
+artifacts. Restore verifies all paths/core identity/content before writing a
+fresh private home and never restores source indexes, credentials or registry.
+
+Exact `94ba7e5f16996a32a3a8240339a2ea2074d2aabe` run `41603576911`
+completed SUCCESS. Downloaded evidence confirms actual offline FTS indexing and
+query (record 1, score 0.5461987550191825), with full-text available in the native
+doctor, plus the earlier graph/context/MCP checks under copied-Node firewall
+blocking. The native installer selected compatibility path 0.18.1 for core
+0.18.3; acquisition preserves that observed path. VECTOR/embeddings were not
+qualified. Full RC7.2 materialization and full physical inventory now require
+this carried FTS payload, and clean extraction requires the actual query.
+Local integrated contract verification: **37 passed in 0.77s**.
+
+Full transport preparation `41604113855` at exact source
+`8bb77da3632690ed2df8b5674540ded1c6572254` has been queued on an isolated build
+branch. Main remains frozen at 120aca6 for its Platform/Construction/Portable
+qualification; Q2 Windows `41602655540` is already SUCCESS. A preparation archive
+still does not complete the frozen product design or replace final acceptance.
+Remaining C03–C12 design items retain their existing scope and completion rules.
+
+
 ## Complete execution payload construction and qualified c5 baseline — 2026-11-03
 
 Frozen baseline `c5ebeec86168827b4df9318393ab48f8a970e15d` now has
