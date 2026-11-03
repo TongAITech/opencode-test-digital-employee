@@ -296,3 +296,60 @@ def test_native_runner_error_records_unknown_usage_and_zero_confirmed_process_re
     assert call["process_outcome"] == "RAISED"
     assert call["usage_status"] == "UNKNOWN"
     assert economy.qualification("M-1").status == "HOLD"
+
+
+def test_real_dsh_command_uses_lossless_json_compaction_before_metering_and_no_fake_token_savings(tmp_path):
+    truth, economy, _, launcher, runner = _setup(tmp_path, stdout=_stdout())
+    ctx = {
+        "mission_id": "M-1",
+        "source_refs": ["ART-REAL", "SST-REAL", "EVD-ORACLE"],
+        "required_layers": ["L1", "L2", "L3", "L4", "L5", "L6", "L7"],
+    }
+    shape = {
+        "status": "CANDIDATE",
+        "steps": ["actual structured steps"],
+        "oracles": {"negative": True, "boundary": True, "state": True},
+        "evidence_refs": ["real evidence required"],
+    }
+    native_body = (
+        "Do not alter mandatory evidence or business oracles. Context="
+        + json.dumps(ctx, ensure_ascii=False, sort_keys=True)
+        + " RequiredShape="
+        + json.dumps(shape, ensure_ascii=False, sort_keys=True)
+    )
+    raw_native_prompt = "NATIVE_APPROVED_CONTEXT\\n" + native_body
+    launcher.execute(_assignment(), native_body)
+    assert len(runner.calls) == 1
+    actual = runner.calls[0][0][-1]
+    assert len(actual.encode("utf-8")) < len(raw_native_prompt.encode("utf-8"))
+    assert actual.startswith("NATIVE_APPROVED_CONTEXT\\n")
+    suffix = actual.split(" Context=", 1)[1]
+    optimized_ctx, optimized_shape = suffix.split(" RequiredShape=", 1)
+    assert json.loads(optimized_ctx) == ctx
+    assert json.loads(optimized_shape) == shape
+    token = truth.query("rc72_token_call", mission_id="M-1")[0]
+    assert token["context_sha256"] == hashlib.sha256(actual.encode("utf-8")).hexdigest()
+    assert token["prompt_original_bytes"] == len(raw_native_prompt.encode("utf-8"))
+    assert token["context_bytes"] == len(actual.encode("utf-8"))
+    assert token["prompt_serialization_saved_bytes"] > 0
+    assert token["prompt_compaction_status"] == "LOSSLESS_JSON"
+    assert token["context_projection_applied_to_prompt"] is False
+    summary = economy.summary("M-1")
+    assert summary["lossless_json_compacted_calls"] == 1
+    assert summary["verified_prompt_serialization_saved_bytes"] == token["prompt_serialization_saved_bytes"]
+    assert summary["verified_prompt_token_savings"] is None
+    assert summary["verified_context_savings_bytes"] is None
+    assert summary["measured_total_tokens"] == 120
+    assert summary["provider_inference_call_count_status"] == "UNKNOWN"
+
+
+def test_native_command_without_contract_json_remains_byte_identical(tmp_path):
+    truth, economy, _, launcher, runner = _setup(tmp_path, stdout=_stdout())
+    raw = "Mandatory source verification without a trailing Context JSON object"
+    launcher.execute(_assignment(), raw)
+    assert runner.calls[0][0][-1] == "NATIVE_APPROVED_CONTEXT\\n" + raw
+    call = truth.query("rc72_token_call", mission_id="M-1")[0]
+    assert call["prompt_compaction_status"] == "UNCHANGED"
+    assert call["prompt_original_bytes"] == call["context_bytes"]
+    assert call["prompt_serialization_saved_bytes"] == 0
+    assert economy.summary("M-1")["verified_prompt_serialization_saved_bytes"] == 0
