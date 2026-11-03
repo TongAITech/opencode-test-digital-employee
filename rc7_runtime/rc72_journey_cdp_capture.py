@@ -88,6 +88,7 @@ class JourneyCDPTeachingRecorder:
         self.events: List[Dict[str, Any]] = []
         self._response_listener = None
         self.last_url = ""
+        self._instance_fingerprint = None
 
     def _guard(self) -> Dict[str, Any]:
         if self.recording is None:
@@ -103,7 +104,14 @@ class JourneyCDPTeachingRecorder:
             "rc72_browser_instance", browser_instance_id=lease["browser_instance_id"])
         if len(rows) != 1 or rows[0].get("state") != "READY":
             raise ContractError("JOURNEY_TEACHING_BROWSER_INSTANCE_UNAVAILABLE")
-        return rows[0]
+        instance = rows[0]
+        identity = tuple(str(instance.get(k) or "") for k in (
+            "browser_instance_id", "profile_dir", "cdp_endpoint",
+            "bsk_endpoint", "auth_asset_ref"))
+        if self._instance_fingerprint is not None and identity != self._instance_fingerprint:
+            raise ContractError("JOURNEY_TEACHING_BROWSER_INSTANCE_IDENTITY_CHANGED")
+        self._instance_fingerprint = identity
+        return instance
 
     def begin(self, **recording_args: Any) -> None:
         if self.recording is not None:
@@ -315,4 +323,5 @@ class JourneyCDPTeachingRecorder:
         self.page = None
         self.recording = None
         self._response_listener = None
+        self._instance_fingerprint = None
         self.responses.clear()
