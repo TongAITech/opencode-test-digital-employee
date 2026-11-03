@@ -252,3 +252,44 @@ def test_captain_handoff_after_preflight_before_dispatch_intent_blocks_external_
     finally:
         server.shutdown()
         server.server_close()
+
+
+
+def test_captain_handoff_rejected_during_external_n7_cleanup_and_verification(
+        tmp_path, monkeypatch):
+    """Cleanup intent is durable and fenced, not only business execution intent."""
+    truth, plan, prep, server, url = formal_setup(tmp_path, monkeypatch)
+    try:
+        pipeline, fencer, lifecycle, owner = _governed_pipeline(
+            truth, plan, prep, url, tmp_path)
+        checked = []
+        for tool, actual_adapter in list(pipeline.cleanup.adapters.items()):
+            def guarded_cleanup(*, contract, context, original=actual_adapter):
+                matches = truth.query(
+                    "rc72_n7_cleanup_call",
+                    preparation_id=context["preparation_id"]) if "preparation_id" in context else [
+                        row for row in truth.query("rc72_n7_cleanup_call")
+                        if row["attempt_id"] == context["attempt_id"]]
+                assert len([r for r in matches if r["phase"] == context["phase"]
+                            and r["state"] == "IN_FLIGHT"]) == 1
+                with pytest.raises(
+                        ContractError,
+                        match="CAPTAIN_HANDOFF_ACTIVE_EXECUTION_RECONCILIATION_REQUIRED"):
+                    fencer.prepare_handoff(
+                        mission_id=plan["mission_id"], team_id=pipeline.team_id,
+                        lease_id=owner["lease_id"],
+                        captain_session_id=owner["captain_session_id"],
+                        lifecycle=lifecycle, current_node_refs=["N7_EXECUTION"],
+                        latest_delivery_refs=[], latest_gate_refs=[],
+                        next_workitem_ids=[])
+                checked.append(context["phase"])
+                return original(contract=contract, context=context)
+            pipeline.cleanup.adapters[tool] = guarded_cleanup
+        result = pipeline.complete(release_batch_id=BATCH)
+        assert result["state"] == "N7_PASS"
+        assert "CLEANUP" in checked and "VERIFY" in checked
+        assert fencer._latest(plan["mission_id"])["state"] == "ACTIVE"
+        assert len(server.calls) == len(plan["items"])
+    finally:
+        server.shutdown()
+        server.server_close()
