@@ -77,7 +77,7 @@ def test_signed_field_trust_contract_marks_only_attested_attempt(tmp_path):
     assert receipt["adapter_kind"] == "BROWSERSKILL_FIELD_ATTESTED"
     rows = truth.query(
         "rc72_journey_replay_step", replay_id="JRP-BSK-CERTIFIED")
-    assert rows and all(row["field_verified"] is True for row in rows)
+    assert rows and all(row["status"] == "PASSED" for row in rows)
     for row in rows:
         actual = json.loads(Path(row["actual_refs"][0][7:]).read_text())
         assert actual["field_verified"] is True
