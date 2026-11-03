@@ -14,6 +14,15 @@ from tools.rc72_qa_offline_audit import GROUPS, QualificationError, qualify, mai
 COMMIT = "a" * 40
 
 
+def _synthetic_pe_bytes():
+    # Bytes intentionally synthetic; they only exercise PE header recognition.
+    stub = bytearray(8192)
+    stub[:2] = b"MZ"
+    stub[0x3c:0x40] = (0x80).to_bytes(4, "little")
+    stub[0x80:0x84] = bytes((80, 69, 0, 0))
+    return bytes(stub)
+
+
 def _make_fixture(tmp_path):
     root = tmp_path / "clean payload"
     root.mkdir()
@@ -25,7 +34,7 @@ def _make_fixture(tmp_path):
         "packaging/rc7.2/AITEST.sh": "echo command",
         "packaging/rc7.2/MISSION.cmd": "echo command",
         "packaging/rc7.2/Q3-TARGET-LINUX-PROBE.sh": "echo command",
-        "workspace-template/runtime/dsh/dsh.exe": "placeholder-test-binary",
+        "workspace-template/runtime/dsh/dsh.exe": _synthetic_pe_bytes(),
     }
     data["RC72_RELEASE_IDENTITY.json"] = json.dumps({
         "schema": "pfc.aitest.rc7.2.release-identity.v1", "release_family": "RC7.2",
@@ -42,7 +51,10 @@ def _make_fixture(tmp_path):
     def write(rel, value):
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(value, encoding="utf-8")
+        if isinstance(value, bytes):
+            path.write_bytes(value)
+        else:
+            path.write_text(value, encoding="utf-8")
     for rel, value in data.items():
         write(rel, value)
     inventory = {
@@ -222,3 +234,34 @@ def test_read_only_qa_report_refuses_existing_external_receipt(tmp_path, capsys)
     assert rc == 1
     assert receipt.read_bytes() == b"immutable-receipt"
     assert "AUDIT_REPORT_ALREADY_EXISTS" in capsys.readouterr().out
+
+
+def test_non_dsh_file_cannot_be_misrepresented_as_main_program(tmp_path):
+    root = _make_fixture(tmp_path)
+    result = qualify(root, expected_source=COMMIT, dsh_relpath="workspace-template/runtime/browser/sample.dat")
+    assert result["status"] == "HOLD"
+    assert result["hold_reasons"] == ["DSH_MAIN_NATIVE_EXECUTABLE_NOT_ATTESTED"]
+
+
+def test_dsh_named_plain_text_cannot_be_misrepresented_as_real_executable(tmp_path):
+    root = _make_fixture(tmp_path)
+    target = root / "workspace-template/runtime/dsh/dsh.exe"
+    target.write_bytes(b"not-a-real-dsh-executable")
+    # Update the source metadata and checksum to bypass a mere SHA check, so
+    # the native executable gate must independently refuse the suspicious file.
+    manifest = root / "PACKAGE_MANIFEST.json"
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    for row in payload["files"]:
+        if row["path"] == "workspace-template/runtime/dsh/dsh.exe":
+            row["sha256"] = hashlib.sha256(target.read_bytes()).hexdigest()
+            row["size"] = target.stat().st_size
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    checksum_lines = []
+    for file in sorted(root.rglob("*")):
+        if file.is_file() and file.name != "CHECKSUMS.sha256":
+            rel = file.relative_to(root).as_posix()
+            checksum_lines.append(hashlib.sha256(file.read_bytes()).hexdigest() + "  " + rel)
+    (root / "CHECKSUMS.sha256").write_text("\n".join(checksum_lines) + "\n", encoding="utf-8")
+    result = qualify(root, expected_source=COMMIT, dsh_relpath="workspace-template/runtime/dsh/dsh.exe")
+    assert result["status"] == "HOLD"
+    assert result["hold_reasons"] == ["DSH_MAIN_NATIVE_EXECUTABLE_NOT_ATTESTED"]
