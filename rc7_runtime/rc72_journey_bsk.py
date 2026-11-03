@@ -58,12 +58,13 @@ class JourneyBSKAdapter:
         self._run_id = None
         self._attempt = None
         self._session = None
+        self._tab_id = None
         self._fingerprint = None
 
     def close(self) -> None:
         # B group owns the actual BSK session; this method only invalidates
         # the adapter's ownership cache, never kills a shared daemon.
-        self._run_id = self._attempt = self._session = self._fingerprint = None
+        self._run_id = self._attempt = self._session = self._tab_id = self._fingerprint = None
 
     def _guard(self, context: Mapping[str, Any]) -> Dict[str, Any]:
         for field in ("mission_id", "workitem_id", "attempt_id", "worker_id", "session_id", "browser_lease_id"):
@@ -97,6 +98,11 @@ class JourneyBSKAdapter:
         if not isinstance(ownership, Mapping):
             raise ContractError("JOURNEY_BSK_SESSION_OWNERSHIP_RECEIPT_REQUIRED")
         session = ownership.get("bsk_session_id")
+        tab_id = ownership.get("tab_id")
+        if type(tab_id) is not int or tab_id <= 0:
+            raise ContractError("JOURNEY_BSK_OWNED_TAB_REQUIRED")
+        if self._tab_id is not None and self._tab_id != tab_id:
+            raise ContractError("JOURNEY_BSK_TAB_SWITCH_FORBIDDEN")
         if not isinstance(session, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", session):
             raise ContractError("JOURNEY_BSK_OWNED_SESSION_REQUIRED")
         required = {
@@ -117,7 +123,8 @@ class JourneyBSKAdapter:
             raise ContractError("JOURNEY_BSK_SESSION_NOT_AUTHORIZED")
         if self._session is not None and self._session != session:
             raise ContractError("JOURNEY_BSK_SESSION_SWITCH_FORBIDDEN")
-        return {"instance": instance, "fingerprint": fingerprint, "session": session}
+        return {"instance": instance, "fingerprint": fingerprint,
+                "session": session, "tab_id": tab_id}
 
     def _run(self, args):
         command = [str(self.binary)] + list(args)
@@ -151,6 +158,19 @@ class JourneyBSKAdapter:
             raise ContractError("JOURNEY_BSK_CLI_RESULT_INVALID")
         return reply
 
+    def _sync(self, session: str, tab_id: int) -> None:
+        # BrowserSkill target/strict control requires a fresh cooperative
+        # sync and a positive usable action context. Human hold/borrowed
+        # ownership must not be bypassed by issuing the browser command.
+        reply = self._run([
+            "cooperate", "sync", "--session", session,
+            "--tab-id", str(tab_id), "--policy", "strict", "--json"])
+        if not isinstance(reply.get("context_id"), str) or not reply["context_id"]:
+            raise ContractError("JOURNEY_BSK_CONTROL_SYNC_NOT_GRANTED")
+        actual_tab = reply.get("tab_id")
+        if actual_tab is not None and actual_tab != tab_id:
+            raise ContractError("JOURNEY_BSK_CONTROL_TAB_MISMATCH")
+
     def _selector(self, raw_ref: str, context: Mapping[str, Any]) -> str:
         descriptor = self.resolve(raw_ref, "locator", context)
         if descriptor is None:
@@ -183,7 +203,9 @@ class JourneyBSKAdapter:
                   text: el ? el.innerText : null,
                   attribute: el && attribute ? el.getAttribute(attribute) : null};
         })()""" % (json.dumps(selector), json.dumps(attribute))
-        reply = self._run(["evaluate", exp, "--session", session, "--json"])
+        reply = self._run([
+            "evaluate", exp, "--session", session,
+            "--tab-id", str(self._tab_id), "--json"])
         # IMPORTANT: BrowserSkill returns exit 0 for in-band evaluate ok=false.
         if reply.get("ok") is not True or not isinstance(reply.get("value"), Mapping):
             raise ContractError("JOURNEY_BSK_EVALUATE_UNVERIFIED")
@@ -232,7 +254,8 @@ class JourneyBSKAdapter:
                 raise ContractError("JOURNEY_BSK_WAIT_UNSUPPORTED")
             selector = self._selector(str(step.get("element_ref") or ""), context)
             reply = self._run(["wait-for-element", selector, "--state", "visible",
-                               "--timeout", "15s", "--session", session, "--json"])
+                               "--timeout", "15s", "--session", session,
+                               "--tab-id", str(self._tab_id), "--json"])
             if reply.get("satisfied") is not True:
                 raise ContractError("JOURNEY_BSK_WAIT_CONDITION_NOT_MET")
             return {"action": kind, "verified": True}
@@ -266,9 +289,9 @@ class JourneyBSKAdapter:
                 else:
                     args["values"] = [value]
         result = self._run([
-            "step", "--session", session, "--policy", "strict",
-            "--action", action, "--params", json.dumps(args),
-            "--json"])
+            "step", "--session", session, "--tab-id", str(self._tab_id),
+            "--policy", "strict", "--action", action,
+            "--params", json.dumps(args), "--json"])
         if (result.get("ok") is not True or result.get("phase") != "observed"
                 or result.get("action_replayed") is not False
                 or not isinstance(result.get("post"), Mapping)
@@ -297,17 +320,23 @@ class JourneyBSKAdapter:
             self._run_id, self._attempt = run_id, context["attempt_id"]
             self._fingerprint = binding["fingerprint"]
             self._session = binding["session"]
+            self._tab_id = binding["tab_id"]
             session = binding["session"]
+            self._sync(session, binding["tab_id"])
+            self._guard(context)
             step_result = self._action(step, context, session)
             # BSK's session may be stopped/borrow ownership revoked during the
             # action; never issue screenshot or PASS without a fresh lease guard.
             self._guard(context)
             folder.mkdir(parents=True, exist_ok=True)
-            picture = self._run(["screenshot", "--session", session,
-                                 "--out", str(screenshot), "--json"])
+            picture = self._run([
+                "screenshot", "--session", session,
+                "--tab-id", str(binding["tab_id"]),
+                "--out", str(screenshot), "--json"])
             if (not screenshot.is_file() or screenshot.stat().st_size < 8
                     or screenshot.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n"
-                    or picture.get("byte_size") != screenshot.stat().st_size):
+                    or picture.get("byte_size") != screenshot.stat().st_size
+                    or picture.get("tab_id") != binding["tab_id"]):
                 raise ContractError("JOURNEY_BSK_SCREENSHOT_INVALID")
             self._guard(context)
             evidence_refs.append(screenshot.resolve().as_uri())
