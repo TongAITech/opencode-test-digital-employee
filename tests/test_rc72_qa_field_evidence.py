@@ -21,6 +21,14 @@ def _root(tmp_path):
         "SOURCE_COMMIT": COMMIT,
         "BUILD_ID": "RC7.2-" + COMMIT[:12],
         "RELEASE_FAMILY": "RC7.2",
+        "RELEASE_STATUS": "ENGINEERING_CANDIDATE_NOT_BANK_FINAL",
+        "RC72_RELEASE_IDENTITY.json": json.dumps({
+            "schema": "pfc.aitest.rc7.2.release-identity.v1",
+            "source_commit": COMMIT, "build_id": "RC7.2-" + COMMIT[:12],
+            "release_family": "RC7.2", "package_name": "PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10",
+            "business_root": "RELEASE_BATCH", "runtime_control_backbone": "N1_N10_MISSION_GRAPH",
+            "field_verified": False, "bank_final": False,
+        }),
         "PACKAGE_MANIFEST.json": json.dumps({
             "source_commit": COMMIT, "build_id": "RC7.2-" + COMMIT[:12],
             "release_family": "RC7.2", "field_verified": False,
@@ -53,7 +61,7 @@ def test_named_q3_q9_export_is_byte_pinned_and_never_calls_it_final(tmp_path):
         includes=["field/q3-target-linux.json"])
     assert result["field_verified"] is False and result["bank_final"] is False
     assert result["q9_bank_final"] == "NOT_ADMITTED"
-    assert len(result["files"]) == 8
+    assert len(result["files"]) == 10
     assert output.is_file()
     with zipfile.ZipFile(str(output)) as z:
         index = json.loads(z.read("QA-EVIDENCE-INDEX.json"))
@@ -152,7 +160,7 @@ def test_exported_evidence_receipt_and_every_byte_can_be_independently_verified(
     exporter.export_evidence(root, out, source_commit=COMMIT, includes=["field/q3-target-linux.json"])
     verified = exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
     assert verified["status"] == "EVIDENCE_COPY_INTEGRITY_ONLY"
-    assert verified["file_count"] == 8
+    assert verified["file_count"] == 10
     assert verified["r1_structural_event_count"] == 1
     assert verified["r1_validation_scope"] == "JSONL_SHAPE_AND_SEQUENCE_ONLY_NOT_BUSINESS_ORACLE"
     assert verified["field_verified"] is False and verified["bank_final"] is False
@@ -267,4 +275,41 @@ def test_matching_zip_receipt_cannot_hide_forged_package_identity(tmp_path, path
     out = tmp_path / "signed-but-false-source.zip"
     exporter.export_evidence(root, out, source_commit=COMMIT)
     with pytest.raises(exporter.ExportError, match=reason):
+        exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
+
+
+@pytest.mark.parametrize("path,field,value,reason", [
+    ("RC72_RELEASE_IDENTITY.json", "source_commit", "c" * 40, "ZIP_RELEASE_IDENTITY_MISMATCH"),
+    ("RC72_RELEASE_IDENTITY.json", "bank_final", True, "ZIP_RELEASE_IDENTITY_MISMATCH"),
+    ("RC72_RELEASE_IDENTITY.json", "runtime_control_backbone", "FAKE", "ZIP_RELEASE_IDENTITY_MISMATCH"),
+])
+def test_exported_rc72_release_identity_is_independently_bound(tmp_path, path, field, value, reason):
+    root = _root(tmp_path)
+    doc = root / path
+    obj = json.loads(doc.read_text(encoding="utf-8"))
+    obj[field] = value
+    doc.write_text(json.dumps(obj), encoding="utf-8")
+    out = tmp_path / "forged-rc72-identity.zip"
+    exporter.export_evidence(root, out, source_commit=COMMIT)
+    with pytest.raises(exporter.ExportError, match=reason):
+        exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
+
+
+def test_missing_release_status_or_identity_refuses_weak_export(tmp_path):
+    root = _root(tmp_path)
+    for rel in ("RC72_RELEASE_IDENTITY.json", "RELEASE_STATUS"):
+        path = root / rel
+        content = path.read_bytes()
+        path.unlink()
+        with pytest.raises(exporter.ExportError, match="FILE_MISSING"):
+            exporter.export_evidence(root, tmp_path / ("must-not-exist-" + rel + ".zip"), source_commit=COMMIT)
+        path.write_bytes(content)
+
+
+def test_packaged_release_status_cannot_be_forged_in_verified_zip(tmp_path):
+    root = _root(tmp_path)
+    (root / "RELEASE_STATUS").write_text("BANK_FINAL\n", encoding="utf-8")
+    out = tmp_path / "forged-release-status.zip"
+    exporter.export_evidence(root, out, source_commit=COMMIT)
+    with pytest.raises(exporter.ExportError, match="ZIP_IDENTITY_MISMATCH"):
         exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
