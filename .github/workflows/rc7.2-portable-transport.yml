@@ -2,7 +2,7 @@ name: RC7.2 Portable Transport Preparation
 
 on:
   push:
-    branches: [work/rc7.2]
+    branches: [work/rc7.2, work/rc7.2-full-transport]
     paths:
       - '.github/workflows/rc7.2-portable-transport.yml'
       - 'packaging/rc7.2/start-rc7.2.cmd'
@@ -77,7 +77,7 @@ jobs:
             Set-NetFirewallProfile -Profile Domain,Private,Public -Enabled True
             New-NetFirewallRule -Name 'RC72-Execution-Node-Offline' -DisplayName 'RC72 isolated component qualification' -Program $node -Direction Outbound -Action Block -Profile Any -Enabled True | Out-Null
             try {
-              & $py -m rc7_release.rc72_execution_node_qualification --package-root $pkg --evidence-root (Join-Path $evidence 'execution-node') --require-windows-outbound-block
+              & $py -m rc7_release.rc72_execution_node_qualification --package-root $pkg --evidence-root (Join-Path $evidence 'execution-node') --require-windows-outbound-block --require-full-text-search
               if ($LASTEXITCODE -ne 0) { throw 'package-local offline native execution tooling failed' }
             } finally {
               Remove-NetFirewallRule -Name 'RC72-Execution-Node-Offline'

@@ -541,6 +541,13 @@ def materialize(package_root: Path | str, zip_path: Optional[Path | str] = None)
     inventory.append(_materialize_k6(root))
     inventory.append(_materialize_zap(root))
 
+    family = root / "RELEASE_FAMILY"
+    if family.is_file() and family.read_text(encoding="utf-8").strip() == "RC7.2":
+        from .rc72_gitnexus_search_payload import acquire as acquire_native_fts
+        fts = acquire_native_fts(root, root / "qualification-evidence/fts-acquisition")
+        inventory.append(_record("gitnexus_fts", root / "workspace-template/runtime/node-execution/fts-payload",
+            version=fts["core_version"], source="PACKAGED_MATCHING_NATIVE_INSTALLER_AT_BUILD_TIME",
+            sha256=_sha256(root / "workspace-template/runtime/node-execution/fts-payload/FTS-PAYLOAD.json")))
     _write_inventory(root, inventory)
     _update_manifest(root, inventory)
     write_checksums(root)

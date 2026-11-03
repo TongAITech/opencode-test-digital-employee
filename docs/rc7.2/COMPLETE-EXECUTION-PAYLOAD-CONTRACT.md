@@ -87,3 +87,22 @@ when that query succeeds. The dedicated job requires this payload; ordinary
 graph-only qualification still identifies search as unqualified when absent.
 This new construction path requires a successful Windows run before any claim
 of copied offline FTS capability. VECTOR/embedding capability remains separate.
+
+
+### Actual matching FTS result
+
+Run `41603576911` at source `94ba7e5f16996a32a3a8240339a2ea2074d2aabe`
+completed SUCCESS. Downloaded evidence confirms native FTS query matched record
+`1` with score `0.5461987550191825`; copied-runtime doctor reports full-text
+search available under load-only policy. The native 0.18.3 installer selected
+its compatibility cache directory `0.18.1/win_amd64`; this path is preserved
+rather than guessed from the core version. The actual extension is 14,664,704
+bytes, SHA256 `01cf0d4debae1b0c7c182bf78747ee1b148a76667bbaa5bb0cb3cc848998028d`.
+
+The full RC7.2 materializer now invokes this build-time acquisition and includes
+its metadata in the physical inventory. Full portable clean extraction requires
+the actual FTS query as well as graph/context/MCP. Acquisition metadata itself
+continues to say offline execution is unqualified; the separate execution
+result is the authority for that claim. VECTOR/embedding qualification is not
+established by this FTS result. Whole-package and product qualification remain
+required before the user delivery.

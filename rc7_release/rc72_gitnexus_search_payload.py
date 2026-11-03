@@ -60,9 +60,10 @@ def acquire(root,evidence):
     return manifest
 
 
-def restore(root,home):
-    _,execution,payload=_paths(root);home=Path(home).resolve()
-    manifest=json.loads((payload/MANIFEST).read_text(encoding='utf-8'))
+def _validated(root):
+    _,execution,payload=_paths(root)
+    try:manifest=json.loads((payload/MANIFEST).read_text(encoding='utf-8'))
+    except (ValueError,OSError) as exc:raise RuntimeError('FTS_PAYLOAD_MANIFEST_REQUIRED') from exc
     if (manifest.get('schema')!='RC72_GITNEXUS_FTS_PAYLOAD_V1' or manifest.get('core_version')!=_core_version(execution)
             or not isinstance(manifest.get('files'),list) or not manifest['files']):
         raise RuntimeError('FTS_PAYLOAD_IDENTITY_INVALID')
@@ -73,16 +74,26 @@ def restore(root,home):
                 or relative.parts[0]!='home' or len(relative.parts)<2 or value in seen
                 or relative.suffix not in {'.lbug_extension','.kuzu_extension'}):
             raise RuntimeError('FTS_PAYLOAD_PATH_INVALID')
-        seen.add(value);source=payload/relative;target=home/Path(*relative.parts[1:])
+        seen.add(value);source=payload/relative
         if source.is_symlink() or not source.is_file() or not source.stat().st_size:
             raise RuntimeError('FTS_PAYLOAD_ARTIFACT_REQUIRED')
         source.resolve().relative_to(payload.resolve())
         if _sha(source)!=row.get('sha256') or source.stat().st_size!=row.get('bytes'):
             raise RuntimeError('FTS_PAYLOAD_ARTIFACT_CHANGED')
-        # Validate all source and destination paths before copying any file.
-        target.resolve().relative_to(home)
-        rows.append((source,target))
-    for source,target in rows:
+        rows.append((source,Path(*relative.parts[1:])))
+    return manifest,rows
+
+
+def validate_payload(root):
+    return _validated(root)[0]
+
+
+def restore(root,home):
+    manifest,rows=_validated(root);home=Path(home).resolve()
+    # Validate all source and destination paths before copying any file.
+    for source,relative in rows:(home/relative).resolve().relative_to(home)
+    for source,relative in rows:
+        target=home/relative
         target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,target)
     return manifest
 

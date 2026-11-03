@@ -26,6 +26,8 @@ def build_inventory(root):
     # Disabling runtime activation cannot silently turn a full package into lite.
     graph=verify_turnkey_npm_package(root/'workspace-template/runtime/node-execution/node_modules/gitnexus','gitnexus')
     if graph['status']!='PASS':raise RuntimeError('RC72_COMPLETE_GITNEXUS_REQUIRED:'+str(graph.get('reason')))
+    from .rc72_gitnexus_search_payload import validate_payload
+    fts_payload=validate_payload(root)
     bundles=[]
     for item in delivery['turnkey_bundles']:
         item=dict(item)
@@ -36,7 +38,7 @@ def build_inventory(root):
         independent_execution_qualification_required=True,durable_truth='R1_EVENT_STREAM',
         file_integrity_authority='PACKAGE_MANIFEST.json_AND_CHECKSUMS.sha256',groups=rows,
         gitnexus=dict(graph,runtime_required=False,default_enabled=False,physically_carried=True,change_truth_authority=False),
-        turnkey_optional_bundles=bundles)
+        native_fts_payload=fts_payload,turnkey_optional_bundles=bundles)
 
 
 def write_inventory(root):
