@@ -207,3 +207,33 @@ Q3–Q9 QA 证据导出器做了更强的**必备来源集合**与 **canonical R
 - A/core 在本轮先新增 `rc72_n8_product_recovery.py` 而未接入正式入口；随后其候选分支已将 `NativeN8ProductRecoveryService(n7)` 装入工厂，并在 `ReleaseBatchDriver.run` 增设 N8 非 bypass 路径。QA 添加两个必要检查：正式工厂必须拥有**具体原生 N8 类型**且与 N7、诊断、修复、R1 共享身份；正式 Driver 在 N8 不走 bypass 时必须调用原生服务。这是 **A 分支候选接线改善**，不等于主线集成、错误分类完整、真实 SUT 操作正确或 Q7/Q9 Field 通过。
 
 **本轮门禁：主线新 HEAD 工程 CI=QUEUED（不能用旧 `7efb3c8` 的 FAIL 或 Q2 PASS 冒名）；QA HEAD CI=QUEUED；C03=BRANCH_CANDIDATE_UNVERIFIED；C11/C12=HOLD；Q3–Q9=FIELD_PENDING；BANK_FINAL=NO。** 需要等独立 QA、A/B/C/D 产品 CI 同一源码及现场实证后再逐条对账。
+
+## 16. 第七轮：C09 首次合入后独立产品入口复核与真实 Git 源祖先门禁（2026-11-04）
+
+### 基线变化与无覆盖 QA 同步
+
+本轮核实主线新 HEAD `4721bb57f6a5de1fdf471000030a7b043ebe71c7`：从 `af701d69` 前进 1 个合入提交，新增/修改 23 个 Journey 模块、C09 测试、文档与独立 CI 文件。新 C09 提交与 QA 的 13 个专属改动路径 **零交集**。使用主线 23 个真实 Git Blob 合并至 QA 原树，创建双父合并提交 `2876d3a02125b253db3041a04741934995c010db`，父提交为原 QA `e33f8008d2a511ba499dcf6f7a4527c138b0347e` 与新主线 `4721bb57...`，通过 `update_ref(expected_sha=旧QA,force=false)` 前进，**未强制推送、未覆盖 QA 文件**。最新 QA HEAD 每次再查，不沿用这份文字里的旧 SHA。
+
+### QA 同源资格：不再将旧设计表当作当前 HEAD
+
+新增 `tools/rc72_qa_source_provenance.py` + `tests/test_rc72_qa_source_provenance.py`，实质验证：
+1. `git rev-parse HEAD` 等于 PR 明确声明的 QA Head SHA（不接受 GitHub PR 临时合并 SHA）；
+2. `git merge-base --is-ancestor <目标main SHA> HEAD` 为真，证明 QA 包含当前拟验收的目标主线；
+3. 历史 95 条设计分母 CSV 仅允许一个冻结来源 SHA，且其源码提交必须是**目标主线的祖先**，不能把历史快照误写成最新主线绿灯；
+4. 负面测试用本地临时 Git 仓库真实构造“伪造 HEAD、不同支线、台账旧基线不属于主线、分母丢失”等，全部必须拒绝。
+5. QA GitHub workflow 检出完整 Git 历史，并在跑产品或工具测试之前执行祖先门禁；每个 Windows/Ubuntu × Python3.8/3.11 作业将 `qa-source-identity.txt` 与 `qa-source-provenance.json` 和不同 JUnit 一起归档。手动运行须明确输入目标主线的 40 位 SHA。通过结果只表示 `SOURCE_SCOPE_VERIFIED_NOT_TEST_PASS`，**不等于任何 C01–C12 或 Q3–Q9 的 PASS**。
+
+### C09：文件合入不是 L4/L5 产品闭环
+
+C09 已合入主线 `rc72_journey_cdp_capture.py`、`rc72_journey_n7_adapter.py`、`rc72_official_journey_execution.py` 及真实 Chromium/CDP 工程测试，但现场 BSK/4A/BrowserLease 和真人审批仍缺。源码审计还确认：**正式 `rc72_mission_factory.py` + `rc72_n7_pipeline.py` 只将 `tool_registry` 的工具统一映射为 `FormalN7RunnerAdapter`；当前未将 `journey_playwright` 路由绑定到 `SignedN7OfficialJourneyAdapter`。** C09 自身施工文档第 3/5 节也把该接线列为 A 组待集成。
+
+QA 新增 `tests/test_rc72_qa_c09_product_dispatch.py`，使用正式 `create_mission_driver` 注入 `journey_playwright`，要求 N7 `dispatch.adapters` 中是实际 `SignedN7OfficialJourneyAdapter`，共享同一 Release/R1，不得通过通用 HTTP runner 或文本结果伪造 L4/L5 正式执行。**当前主线该门禁预期 RED**，并不否认 C09 已合入组件代码。修复后仍必须通过真实 N6 冻结契约、N7 Intent、Business Oracle、BrowserLease/人工审批、截图网络证据及 N8 冷恢复。
+
+### 独立矩阵拆分
+
+同一四环境 QA 作业拆成三套独立 JUnit，任何一套失败不遮蔽其他结果：
+- `qa-c12-tools.xml`：包字节审计、证据 ZIP 反向验证、95 条冻结台账和 Git 源祖先负面测试；
+- `qa-c01-c02.xml`：真实 local HTTP SUT N5 数据补偿、N6 再编译、新 N7 Attempt、故障证据/回滚；
+- `qa-product-wiring.xml`：正式 N8/N10 及新增 C09 L4/L5 Journey 产品入口；缺接线应保留真实 RED。
+
+截至写入检查，主线 C09 合入后的 Construction/Q1/Q2/portable workflows 均 **QUEUED**；最新 QA HEAD 的四环境 CI 也 **QUEUED**。A/B/C/D 未完成整体合入、行内 Q3–Q9 证据未获取，**C09=COMPONENT_MERGED_PRODUCT_DISPATCH_BLOCKED；C11/C12=HOLD；BANK_FINAL=NO**。
