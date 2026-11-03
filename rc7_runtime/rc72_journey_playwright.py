@@ -281,13 +281,17 @@ class JourneyPlaywrightAdapter:
         evidence_refs = []
         if page is not None:
             try:
+                # Do not screenshot an instance after ownership expires.
+                self._guard(context)
                 masks = page.locator('input[type="password"],input[autocomplete="one-time-code"]')
                 dirname.mkdir(parents=True, exist_ok=True)
                 page.screenshot(path=str(screenshot_path), full_page=True, mask=[masks], timeout=self.timeout_ms)
                 evidence_refs.append(screenshot_path.resolve().as_uri())
-            except Exception:
+            except Exception as exc:
                 if status == "PASSED":
                     status, failure_code = "FAILED", "JOURNEY_SCREENSHOT_EVIDENCE_FAILED"
+                if isinstance(exc, ContractError) and "BROWSER_LEASE" in str(exc):
+                    failure_code = str(exc).split(":")[0][:100]
         state = {"url": _public_url(getattr(page, "url", "") if page is not None else ""),
                  "started_at": started_at, "completed_at": int(time.time()),
                  "action_type": str(step.get("action_type") or ""),
