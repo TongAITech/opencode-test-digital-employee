@@ -7,11 +7,16 @@ on:
     paths:
       - 'rc7_runtime/**'
       - 'tests/test_rc72_*.py'
+      - 'docs/rc7.2/CORE-CURRENT-CONSTRUCTION-EVIDENCE.md'
       - '.github/workflows/rc7.2-core-targeted.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: rc72-core-targeted-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   native-n10-repair-rerun:
