@@ -359,3 +359,33 @@ def test_resealed_zip_cannot_misclassify_r1_or_package_identity(tmp_path, path, 
     _reseal_modified_archive(out, tmp_path, entry_name="QA-EVIDENCE-INDEX.json", change=forge)
     with pytest.raises(exporter.ExportError, match="ZIP_ROW_KIND_MISMATCH"):
         exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
+
+
+
+@pytest.mark.parametrize("mutation,expected", [
+    ("duplicate_event_id", "ZIP_R1_EVENT_ID_REUSED"),
+    ("mismatched_artifact_type", "ZIP_R1_PAYLOAD_ENTITY_MISMATCH"),
+    ("mismatched_artifact_version", "ZIP_R1_PAYLOAD_VERSION_MISMATCH"),
+    ("test_case_case_version_mismatch", "ZIP_R1_PAYLOAD_VERSION_MISMATCH"),
+])
+def test_evidence_r1_unique_events_and_canonical_headers_required(tmp_path, mutation, expected):
+    root = _root(tmp_path)
+    stream = root / "runtime-state/r1/event-stream.jsonl"
+    original = json.loads(stream.read_text(encoding="utf-8"))
+    if mutation == "duplicate_event_id":
+        second = dict(original, seq=2)
+        stream.write_text(json.dumps(original) + "\n" + json.dumps(second) + "\n", encoding="utf-8")
+    elif mutation == "mismatched_artifact_type":
+        original["payload"]["artifact_type"] = "forged_type"
+        stream.write_text(json.dumps(original) + "\n", encoding="utf-8")
+    elif mutation == "mismatched_artifact_version":
+        original["payload"]["artifact_version"] = 2
+        stream.write_text(json.dumps(original) + "\n", encoding="utf-8")
+    else:
+        original["entity_type"] = "test_case"
+        original["payload"]["case_version"] = 2
+        stream.write_text(json.dumps(original) + "\n", encoding="utf-8")
+    out = tmp_path / ("r1-" + mutation + ".zip")
+    exporter.export_evidence(root, out, source_commit=COMMIT)
+    with pytest.raises(exporter.ExportError, match=expected):
+        exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
