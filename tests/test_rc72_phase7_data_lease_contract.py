@@ -272,3 +272,30 @@ def test_data_resource_and_lease_truth_survive_r1_replay(tmp_path: Path):
     assert data["mutable"] is True
     assert persisted["data_ref"] == data["data_ref"]
     assert persisted["attempt_id"] == "ATT-A"
+
+
+
+def test_exact_ttl_boundary_disables_data_use_but_never_surrenders_exclusive_custody(tmp_path, monkeypatch):
+    import rc7_runtime.rc72_data_resources as data_module
+
+    truth, manager, a, b = _setup(tmp_path)
+    old = _acquire(manager, a, "data://subproject/SP-001", DataAccessMode.EXCLUSIVE_WRITE)
+    expires = manager.lease(old.data_lease_id)["expires_at"]
+    with pytest.raises(Exception, match="DATA_LEASE_EXPIRED"):
+        manager.assert_usable(
+            data_lease_id=old.data_lease_id,
+            mission_id="M-1", workitem_id="WI-A", attempt_id="ATT-A",
+            worker_id="WORKER-A", data_ref="data://subproject/SP-001",
+            now=expires)
+    with pytest.raises(DataResourceConflict, match="DATA_RESOURCE_CONFLICT"):
+        manager.acquire(
+            data_ref="data://subproject/SP-001", mission_id="M-1",
+            workitem_id="WI-B", attempt_id="ATT-B", worker_id="WORKER-B",
+            mode=DataAccessMode.EXCLUSIVE_WRITE, ttl_seconds=300,
+            cleanup_policy="release reservation", now=expires)
+    assert manager.lease(old.data_lease_id)["state"] == "EXPIRED"
+    monkeypatch.setattr(data_module, "_now", lambda: expires)
+    with pytest.raises(Exception, match="DATA_EXPIRED_CUSTODY_VERIFIED_RECOVERY_REQUIRED"):
+        manager.release(old.data_lease_id, cleanup_evidence_ref="fake-clean",
+                        reason="must not bypass physical cleanup")
+    assert manager.lease(old.data_lease_id)["state"] == "EXPIRED"
