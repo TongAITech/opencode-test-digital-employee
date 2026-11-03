@@ -42,7 +42,7 @@ class NativeN8ProductRecoveryService:
         n7=nodes.get('N7_EXECUTION');n8=nodes.get('N8_DIAGNOSIS_RECOVERY')
         if n7 is None or n8 is None:
             raise ContractError('N8_PRODUCT_NODE_DENOMINATOR_MISSING')
-        if n7['state'] not in {'RUNNING','NEEDS_REVISION','BLOCKED','STALE','READY'}:
+        if n7['state'] not in {'NOT_STARTED','RUNNING','NEEDS_REVISION','BLOCKED','STALE','READY'}:
             raise ContractError('N8_PRODUCT_NOT_A_FAILED_N7')
         # A ready N8 node without its actual N7 failure transition is never
         # permission to touch N5 repair or classify a failure.
