@@ -18,7 +18,7 @@ markers or mismatched interpreter/root evidence are refused. This is engineering
 payload capability evidence and grants no Field/BANK_FINAL authority.
 
 The full portable preparation also reruns the probe after clean extraction,
-writing evidence outside the sealed package. A separate manually dispatched
+writing evidence outside the sealed package. A separate dedicated-branch or manually dispatched
 Windows workflow copies the runtime, archives it, removes staging and validates
 clean extraction under a path with spaces. This smaller archive is an internal
 Python-component test fixture, never the user-requested complete product package.

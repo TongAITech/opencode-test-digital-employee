@@ -1,6 +1,12 @@
 name: RC7.2 Full Python Payload Component Qualification
 
 on:
+  push:
+    branches: [work/rc7.2-python-capability]
+    paths:
+      - '.github/workflows/rc7.2-python-payload.yml'
+      - 'rc7_release/python_full_capability_probe.py'
+      - 'rc7_release/runtime_payload_materializer.py'
   workflow_dispatch:
 
 permissions:
