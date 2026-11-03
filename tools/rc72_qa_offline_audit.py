@@ -121,7 +121,7 @@ def _native_dsh_executable(path, rel):
             if offset < 64 or offset > min(path.stat().st_size - 4, 1024 * 1024):
                 return False
             stream.seek(offset)
-            return stream.read(4) == b"PE\\x00\\x00".replace(b"\\x00", bytes((0,)))
+            return stream.read(4) == bytes((80, 69, 0, 0))
         # A native Linux binary needs ELF; sh or node wrappers are not enough
         # to attest the physical DSH engine itself.
         return signature == bytes((127, 69, 76, 70))
