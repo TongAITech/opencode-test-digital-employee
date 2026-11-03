@@ -59,7 +59,8 @@ def export_evidence(root, output, *, source_commit, includes=(), r1_relpath="run
         raise ExportError("FIELD_EVIDENCE_SOURCE_MISMATCH")
 
     required = [
-        "SOURCE_COMMIT", "BUILD_ID", "RELEASE_FAMILY", "PACKAGE_MANIFEST.json",
+        "SOURCE_COMMIT", "BUILD_ID", "RELEASE_FAMILY", "RELEASE_STATUS",
+        "RC72_RELEASE_IDENTITY.json", "PACKAGE_MANIFEST.json",
         "CHECKSUMS.sha256", "FULL-CAPABILITY-INVENTORY.json", r1_relpath,
     ]
     selected = sorted(set(required + list(includes)))
@@ -222,7 +223,8 @@ def verify_evidence_export(archive_path, *, expected_source_commit):
                     raise ExportError("FIELD_EVIDENCE_ZIP_HASH_INVALID")
                 listed[rel] = row
             r1 = _strict_archive_relative(index.get("r1_event_stream"))
-            required = {"SOURCE_COMMIT", "BUILD_ID", "RELEASE_FAMILY", "PACKAGE_MANIFEST.json",
+            required = {"SOURCE_COMMIT", "BUILD_ID", "RELEASE_FAMILY", "RELEASE_STATUS",
+                        "RC72_RELEASE_IDENTITY.json", "PACKAGE_MANIFEST.json",
                         "CHECKSUMS.sha256", "FULL-CAPABILITY-INVENTORY.json", r1}
             if not required.issubset(listed):
                 raise ExportError("FIELD_EVIDENCE_ZIP_REQUIRED_EVIDENCE_MISSING")
@@ -244,7 +246,7 @@ def verify_evidence_export(archive_path, *, expected_source_commit):
             # package identity documents refer to a different source or
             # falsely claim bank approval. Read bounded metadata only.
             metadata_docs = {}
-            for rel in ("PACKAGE_MANIFEST.json", "FULL-CAPABILITY-INVENTORY.json"):
+            for rel in ("RC72_RELEASE_IDENTITY.json", "PACKAGE_MANIFEST.json", "FULL-CAPABILITY-INVENTORY.json"):
                 info = archive.getinfo("payload/" + rel)
                 if info.file_size > 32 * 1024 * 1024:
                     raise ExportError("FIELD_EVIDENCE_ZIP_IDENTITY_DOCUMENT_TOO_LARGE:" + rel)
@@ -254,8 +256,19 @@ def verify_evidence_export(archive_path, *, expected_source_commit):
                     raise ExportError("FIELD_EVIDENCE_ZIP_IDENTITY_DOCUMENT_INVALID:" + rel) from exc
                 if not isinstance(metadata_docs[rel], dict):
                     raise ExportError("FIELD_EVIDENCE_ZIP_IDENTITY_DOCUMENT_INVALID:" + rel)
+            identity = metadata_docs["RC72_RELEASE_IDENTITY.json"]
             manifest = metadata_docs["PACKAGE_MANIFEST.json"]
             inventory = metadata_docs["FULL-CAPABILITY-INVENTORY.json"]
+            if (identity.get("schema") != "pfc.aitest.rc7.2.release-identity.v1"
+                    or identity.get("source_commit") != expected_source_commit.lower()
+                    or identity.get("build_id") != "RC7.2-" + expected_source_commit.lower()[:12]
+                    or identity.get("release_family") != "RC7.2"
+                    or identity.get("package_name") != "PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10"
+                    or identity.get("business_root") != "RELEASE_BATCH"
+                    or identity.get("runtime_control_backbone") != "N1_N10_MISSION_GRAPH"
+                    or identity.get("field_verified") is not False
+                    or identity.get("bank_final") is not False):
+                raise ExportError("FIELD_EVIDENCE_ZIP_RELEASE_IDENTITY_MISMATCH")
             if (manifest.get("source_commit") != expected_source_commit.lower()
                     or manifest.get("build_id") != "RC7.2-" + expected_source_commit.lower()[:12]
                     or manifest.get("release_family") != "RC7.2"
@@ -273,7 +286,8 @@ def verify_evidence_export(archive_path, *, expected_source_commit):
                 r1_event_count = _verify_canonical_r1_jsonl(stream)
             if (archive.read("payload/SOURCE_COMMIT").decode("utf-8").strip().lower() != expected_source_commit.lower()
                     or archive.read("payload/BUILD_ID").decode("utf-8").strip() != "RC7.2-" + expected_source_commit.lower()[:12]
-                    or archive.read("payload/RELEASE_FAMILY").decode("utf-8").strip() != "RC7.2"):
+                    or archive.read("payload/RELEASE_FAMILY").decode("utf-8").strip() != "RC7.2"
+                    or archive.read("payload/RELEASE_STATUS").decode("utf-8").strip() != "ENGINEERING_CANDIDATE_NOT_BANK_FINAL"):
                 raise ExportError("FIELD_EVIDENCE_ZIP_IDENTITY_MISMATCH")
     except zipfile.BadZipFile as exc:
         raise ExportError("FIELD_EVIDENCE_ZIP_CORRUPTED") from exc
