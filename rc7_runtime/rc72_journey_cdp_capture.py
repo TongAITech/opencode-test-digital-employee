@@ -187,7 +187,7 @@ class JourneyCDPTeachingRecorder:
         screenshot_ref = (folder / "screen.png").resolve().as_uri()
         # All inputs are ref-bound after capture, never copied from DOM events.
         allowed_metadata = {"label": str(metadata.get("label") or action_type)}
-        for key in ("value_ref", "oracle_ref", "api_code_mapping_ref"):
+        for key in ("value_ref", "oracle_ref", "dialog_policy_ref", "api_code_mapping_ref"):
             value = metadata.get(key)
             if isinstance(value, str) and value.strip():
                 allowed_metadata[key] = value.strip()
