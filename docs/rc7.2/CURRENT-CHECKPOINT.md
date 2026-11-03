@@ -1,5 +1,34 @@
 # RC7.2 Current Construction Checkpoint
 
+## Complete execution payload construction and qualified c5 baseline — 2026-11-03
+
+Frozen baseline `c5ebeec86168827b4df9318393ab48f8a970e15d` now has
+terminal successful Platform `41596150907` (Windows and Linux engineering),
+Construction `41596150999`, and Q2 Windows `41596150810` runs. Platform artifacts
+were downloaded and their exact-source structured records inspected. These are
+engineering qualifications; target Linux and bank Field remain separate.
+
+The transport materializer now carries the inherited GitNexus provider beside
+Playwright, including required native installation and the resolved dependency
+lock. The new thirteen-group physical inventory refuses missing groups even
+when a runtime lock marks a carried secondary provider optional. Archive filtering
+and checksum filtering share generated-state exclusions. See
+[complete execution payload contract](COMPLETE-EXECUTION-PAYLOAD-CONTRACT.md).
+
+The copied Windows component qualification reached actual graph analysis in run
+`41600923163` after successful copied Node/Playwright/CLI and effective firewall
+checks, then failed on an option absent from the published CLI. That option was
+removed. Run `41601701118` is still pending at this checkpoint. No native graph
+capability PASS is claimed. The structured-output reader also preserves complete
+pretty-printed CLI results and nested objects; the updated local contracts and
+actual Node network fence tests passed **30 tests**.
+
+Portable Preparation `41596150963` produced a physical artifact from c5 before
+these execution-payload changes. It is preparation evidence, not the complete
+RC7.2 delivery. C03–C12 remaining design work and full final package qualification
+remain open; the user will carry the finished package into the bank for Field.
+
+
 ## Concrete N10 advancement and full original-source product run — 2026-11-03
 
 Added NativeN10ControlService and typed ReleaseBatchDriver `n10_pipeline`

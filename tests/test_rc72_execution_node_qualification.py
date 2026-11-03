@@ -1,5 +1,5 @@
 """The actual Node preload denies connections and package-manager fallback."""
-import shutil,socket,subprocess
+import json,shutil,socket,subprocess
 import pytest
 from rc7_release.rc72_execution_node_qualification import FENCE,qualify
 
@@ -23,3 +23,11 @@ console.log('ACTUAL_FENCE_PASS');""".replace('PORT',str(server.getsockname()[1])
 
 def test_missing_packaged_node_cannot_fall_back_to_host_node(tmp_path):
     with pytest.raises(RuntimeError,match='PACKAGE_NODE_REQUIRED'):qualify(tmp_path/'empty package',tmp_path/'evidence')
+
+
+def test_published_cli_pretty_json_keeps_parent_and_last_complete_result():
+    from rc7_release.rc72_execution_node_qualification import _json_result
+    payload={'status':'registered','index':{'runnerIdentityStatus':'current','incompleteReasons':[]}}
+    assert _json_result('CLI diagnostic\n'+json.dumps(payload,indent=2)+'\n')==payload
+    assert _json_result('{diagnostic}\n'+json.dumps({'progress':1})+'\n'+json.dumps(payload,indent=2))==payload
+    with pytest.raises(RuntimeError,match='STRUCTURED_RESULT_REQUIRED'):_json_result('no result')

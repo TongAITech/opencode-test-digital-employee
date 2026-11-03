@@ -26,11 +26,17 @@ for(const key of ['spawn','spawnSync','exec','execSync','execFile','execFileSync
 
 
 def _json_result(text):
-    values=[]
-    for line in text.splitlines():
-        try:value=json.loads(line)
-        except ValueError:continue
+    # Published CLI commands emit both pretty JSON and diagnostic preambles.
+    # Consume whole objects so nested objects cannot replace their parent.
+    decoder=json.JSONDecoder();values=[];offset=0
+    while offset<len(text):
+        start=text.find('{',offset)
+        if start<0:break
+        try:value,length=decoder.raw_decode(text[start:])
+        except ValueError:
+            offset=start+1;continue
         if isinstance(value,dict):values.append(value)
+        offset=start+length
     if not values:raise RuntimeError('EXECUTION_COMPONENT_STRUCTURED_RESULT_REQUIRED')
     return values[-1]
 
