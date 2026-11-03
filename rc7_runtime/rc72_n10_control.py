@@ -109,7 +109,8 @@ class NativeN10ControlService:
             manifest_id=frozen['manifest_id'],field_verified=False,bank_final=False,**extra)
         aggregator=ReleaseConvergenceAggregator(self.truth,release_id=self.release_id,runtime=self.n9.runtime,
             execution_proof=AcceptedObligationExecutionProof(self.n9.pipeline),expected_scope=self.expected_scope,
-            coverage_proof=self.measurement,coverage_intake=self.intake,coverage_diagnosis=self.diagnosis)
+            coverage_proof=self.measurement,coverage_intake=self.intake,coverage_diagnosis=self.diagnosis,
+            coverage_repair=self.repair)
         snapshot=aggregator.aggregate(mission_id=batch['mission_id'])
         return dict(status='HOLD',reason='N10_RELEASE_NOT_CONVERGED' if snapshot.result.value!='CONVERGED' else 'N10_TERMINAL_REVIEW_REQUIRED',
             convergence_result=snapshot.result.value,convergence_snapshot_id=snapshot.snapshot_id,blockers=snapshot.blockers,
