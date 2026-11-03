@@ -397,3 +397,26 @@ def test_concurrent_cold_failover_only_creates_one_fresh_worker_and_attempt(tmp_
     child = cold.query("rc72_model_failover", failure_id="PF-1")[0]
     assert child["replacement_worker_id"] != original.worker_id
     assert child["replacement_attempt_id"] != "ATT-1"
+
+
+
+def test_provider_failover_cannot_ignore_existing_business_tool_call_evidence(tmp_path):
+    from rc7_runtime.models import ContractError
+
+    truth, _, _, manager, _ = _setup(tmp_path)
+    manager.record_provider_failure(
+        failure_id="PF-IO", assignment_id="MA-1",
+        failure_class=ProviderFailureClass.PROVIDER_QUOTA,
+        reason="quota observed after external action",
+        evidence_refs=["provider-evidence://quota-after-operation"])
+    original = truth.query("execution_attempt", attempt_id="ATT-1")[0]
+    updated = dict(original)
+    updated.pop("artifact_type", None)
+    updated["artifact_version"] = int(original["artifact_version"]) + 1
+    updated["tool_call_refs"] = ["business-operation://previously-invoked"]
+    truth.append_atomic("EXECUTION_ATTEMPT_UPSERTED", updated)
+    before = list(truth.store.iter_raw())
+    with pytest.raises(ContractError, match="ATTEMPT_OUTCOME_RECONCILIATION_REQUIRED"):
+        manager.failover(failure_id="PF-IO", reason="do not reexecute")
+    assert list(truth.store.iter_raw()) == before
+    assert len(truth.query("rc72_worker_session", mission_id="M-1")) == 1
