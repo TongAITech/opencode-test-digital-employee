@@ -478,7 +478,7 @@ class ReleaseConvergenceAggregator:
                         # It cannot be re-audited against today's intake, or
                         # silently discarded when post-repair coverage improves.
                         if self.coverage_repair is None:
-                            raise ContractError('RELEASE_CONVERGENCE_NATIVE_CLOSED_REPAIR_PROOF_REQUIRED')
+                            raise ContractError('RELEASE_CONVERGENCE_NATIVE_DIAGNOSIS_ACCEPTED_CLOSURE_REQUIRED:SIGNED_REPAIR_REQUIRED')
                         repaired=self.coverage_repair._existing_boundary(
                             release_batch_id=str(batch['release_batch_id']),
                             application_id=gap[0]['application_id'],gap_id=diagnosis['gap_id'])
