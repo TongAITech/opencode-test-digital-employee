@@ -365,7 +365,7 @@ def test_nested_mcp_token_counters_in_final_output_never_become_measured_model_u
                 "input_tokens": 800, "output_tokens": 200, "total_tokens": 1000,
             },
         }],
-    }) + "\\n"
+    }) + "\n"
     truth, economy, _, launcher, runner = _setup(tmp_path, stdout=stdout)
     launcher.execute(_assignment(), "native CAT evidence must remain distinct from model tokens")
     assert len(runner.calls) == 1
