@@ -97,15 +97,42 @@ class SignedN7OfficialJourneyAdapter:
         asset = self.execution.truth.query(
             "rc72_official_journey_asset", official_asset_id=scope["asset_id"])[0]
         JourneyDriftService(self.execution.truth, release_id=self.execution.release_id).assert_eligible(scope["asset_id"])
-        self.execution._binding(
+        # Complete deterministic validation *before* the shared N7 dispatcher
+        # persists IN_FLIGHT. An incorrect Case or AuthKeeper lease is a
+        # preflight rejection, not an unknown SUT side effect.
+        if any(row.get("state") == "STARTED"
+               for row in self.execution.truth.query(
+                   "rc72_official_journey_execution", official_asset_id=scope["asset_id"])):
+            raise ContractError("JOURNEY_N7_UNKNOWN_SIDE_EFFECTS_RECOVERY_REQUIRED")
+        if any(row.get("attempt_id") == scope["attempt_id"]
+               for row in self.execution.truth.query(
+                   "rc72_official_journey_execution", official_asset_id=scope["asset_id"])):
+            raise ContractError("JOURNEY_N7_ATTEMPT_ALREADY_USED_DIAGNOSIS_REQUIRED")
+        binding = self.execution._binding(
             mission_id=asset["mission_id"], workitem_id=scope["workitem_id"],
             attempt_id=scope["attempt_id"], worker_id=scope["worker_id"],
             session_id=scope["session_id"])
+        etus = self.execution.truth.query("rc72_etu", etu_id=binding["etu_id"])
+        if len(etus) != 1:
+            raise ContractError("JOURNEY_N7_ETU_NOT_UNIQUE")
+        etu = etus[0]
+        if (str(etu.get("test_level") or "").upper() not in {"L4", "L5"}
+                or etu.get("mission_id") != asset["mission_id"]
+                or etu.get("release_batch_id") != asset["release_batch_id"]
+                or etu.get("obligation_id") != asset["obligation_id"]
+                or scope["case_id"] not in list(etu.get("case_ids") or [])):
+            raise ContractError("JOURNEY_N7_ETU_CASE_SCOPE_MISMATCH")
+        tasks = self.execution.truth.query("rc7_task", task_id=scope["workitem_id"])
+        if (len(tasks) != 1 or tasks[0].get("mission_id") != asset["mission_id"]
+                or scope["asset_id"] not in list(tasks[0].get("input_artifact_refs") or [])):
+            raise ContractError("JOURNEY_N7_WORKITEM_ASSET_SCOPE_MISMATCH")
         # Reuse B's authoritative resource fence; no client-owned lease boolean.
-        self.execution.browser_pool.assert_usable(
+        lease = self.execution.browser_pool.assert_usable(
             browser_lease_id=scope["browser_lease_id"], mission_id=asset["mission_id"],
             workitem_id=scope["workitem_id"], attempt_id=scope["attempt_id"],
             worker_id=scope["worker_id"], access_mode=BrowserAccessMode.WRITE)
+        if str(lease.get("purpose") or "").upper() != "OFFICIAL_JOURNEY_EXECUTION":
+            raise ContractError("JOURNEY_N7_OFFICIAL_BROWSER_PURPOSE_MISMATCH")
 
     def __call__(self, *, contract: Mapping[str, Any], context: Mapping[str, Any]) -> Dict[str, Any]:
         self.preflight(contract=contract, context=context)
