@@ -998,3 +998,28 @@ See CODE-TOOL-PROCESS-SCOPE.md for evidence limits. This does not close approved
 repository/revision call-time fencing, real bank tools, SDK boot or generic
 orphan recovery. Exact f9 full preparation41643890193 has advanced to Clean
 extraction and package-local verification; retain observation through terminal.
+
+
+## Native SDK transport foundation and actual full-package proof — 2026-11-03
+
+New OwnedSDKWire implements the pinned native SDK initialize/prompt/wait/shutdown
+transport for explicit private Worker processes. Exact route goes before any
+prompt; native messageId and original ordered frames are preserved. No readiness,
+final candidate, tool usage or Worker PASS is synthesized. The client owns finite
+write/read/output bounds, denies fabricated host decisions and never replays an
+uncertain enqueue. Direct child shutdown/reaping is bounded. Mandatory package
+file and dedicated suite added. Final 73 transport/Worker-environment/Q2-boundary
+tests PASS in 7.70s. See NATIVE-SDK-WIRE-CONTRACT.md for required further native
+launcher/evidence/model/profile integration; no external model call occurred.
+
+Exact f9 full preparation 41643890193 completed SUCCESS. Actual artifact
+13235720886 is 1,457,416,889 bytes. Range inspection captured actual ZIP entries
+with CRC checks (8,678,073 network bytes); whole archive SHA256 was NOT locally
+verified. The actual Windows full-extraction configured CLI reports ENGINEERING
+PASS/full_package_verified=true, native_r1_receipt_qualified and
+configured_native_cli_qualified=true, and all seven negative checks. Actual
+13 payload groups contain 30,524 files / 3,452,036,389 bytes; full Python, package
+identity, execution-node and clean R1/session checks pass. Source remains f9,
+prior to dc/1760/new SDK transport. Field/BANK_FINAL are false. This is an older
+engineering preparation proof, not completion of all frozen design or final
+user transport. Retain the full objective and continue default runtime integration.
