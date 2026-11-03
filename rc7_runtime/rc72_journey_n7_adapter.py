@@ -91,6 +91,7 @@ class SignedN7OfficialJourneyAdapter:
         scope = self._scope(contract, context)
         asset = self.execution.truth.query(
             "rc72_official_journey_asset", official_asset_id=scope["asset_id"])[0]
+        JourneyDriftService(self.execution.truth, release_id=self.execution.release_id).assert_eligible(scope["asset_id"])
         self.execution._binding(
             mission_id=asset["mission_id"], workitem_id=scope["workitem_id"],
             attempt_id=scope["attempt_id"], worker_id=scope["worker_id"],
