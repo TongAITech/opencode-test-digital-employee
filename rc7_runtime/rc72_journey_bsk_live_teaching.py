@@ -105,7 +105,20 @@ class JourneyBSKLiveTeaching:
         }
         if any(owned.get(k) != v for k, v in expected.items()):
             raise ContractError("JOURNEY_BSK_LIVE_OWNERSHIP_SCOPE_MISMATCH")
-        self.importer.teaching._assert_browser(self.args)
+        lease = self.importer.teaching._assert_browser(self.args)
+        rows = self.importer.teaching.truth.query(
+            "rc72_browser_instance", browser_instance_id=lease["browser_instance_id"])
+        if len(rows) != 1 or rows[0].get("state") != "READY":
+            raise ContractError("JOURNEY_BSK_LIVE_BROWSER_INSTANCE_UNAVAILABLE")
+        instance = rows[0]
+        expected_instance = {
+            "browser_instance_id": instance["browser_instance_id"],
+            "profile_dir": instance["profile_dir"],
+            "bsk_endpoint": instance["bsk_endpoint"],
+            "auth_asset_ref": instance.get("auth_asset_ref"),
+        }
+        if any(owned.get(key) != value for key, value in expected_instance.items()):
+            raise ContractError("JOURNEY_BSK_LIVE_BROWSER_IDENTITY_MISMATCH")
         return ["--session", session, "--tab-id", str(tab)]
 
     def start(self, *, capture_name: str) -> str:
