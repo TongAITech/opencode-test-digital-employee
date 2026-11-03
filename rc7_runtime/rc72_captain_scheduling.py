@@ -7,6 +7,7 @@ spawn DSH or execute business I/O. Session A integrates it at product entry.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Mapping, Sequence
 
 from .control_plane import TaskScheduler
@@ -81,7 +82,7 @@ class CaptainFencedWorkItemScheduler:
             self.fencer._batch(mission_id)
             owner = self.fencer._owner(
                 mission_id, captain_lease_id, captain_session_id,
-                __import__("time").time().__int__())
+                int(time.time()))
             if owner["team_id"] != team_id:
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_TEAM_MISMATCH")
             capabilities = self.role_profiles.get(role)
