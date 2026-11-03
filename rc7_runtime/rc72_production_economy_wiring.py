@@ -22,7 +22,6 @@ from .rc72_model_economy import (
     SemanticCostClass,
     TokenEconomyError,
     TokenEconomyService,
-    UsageStatus,
     extract_dsh_token_usage,
 )
 from .rc72_model_usage import TokenUsageAuditService
@@ -113,9 +112,12 @@ def bind_production_model_economy(
         retry = metadata.get("retry", False)
         if not isinstance(retry, bool):
             raise ProductionEconomyBindingError("RC72_ECONOMY_RETRY_FLAG_INVALID")
-        call_class = ModelCallClass(str(metadata.get("call_class", ModelCallClass.LLM_REQUIRED.value)).upper())
-        criticality = MissionCriticality(str(metadata.get("mission_criticality", MissionCriticality.UNKNOWN.value)).upper())
-        cost = SemanticCostClass(str(metadata.get("semantic_cost_class", SemanticCostClass.UNKNOWN.value)).upper())
+        raw_class = metadata.get("call_class", ModelCallClass.LLM_REQUIRED)
+        raw_criticality = metadata.get("mission_criticality", MissionCriticality.UNKNOWN)
+        raw_cost = metadata.get("semantic_cost_class", SemanticCostClass.UNKNOWN)
+        call_class = raw_class if isinstance(raw_class, ModelCallClass) else ModelCallClass(str(raw_class).upper())
+        criticality = raw_criticality if isinstance(raw_criticality, MissionCriticality) else MissionCriticality(str(raw_criticality).upper())
+        cost = raw_cost if isinstance(raw_cost, SemanticCostClass) else SemanticCostClass(str(raw_cost).upper())
 
         admission = economy.admit_call(
             mission_id=mission_id,
