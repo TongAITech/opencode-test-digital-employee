@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence
@@ -35,13 +36,22 @@ _OPERATION_KINDS = {
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
-def _real_file(ref: Any, *, suffix: Optional[str] = None) -> Path:
+def _real_file(ref: Any, *, suffix: Optional[str] = None,
+               capture_root: Optional[Path] = None) -> Path:
     if not isinstance(ref, str) or not ref.startswith("file://"):
         raise ContractError("JOURNEY_BSK_LOCAL_EVIDENCE_REF_REQUIRED")
     parsed = urlsplit(ref)
     if parsed.netloc not in ("", "localhost") or parsed.query or parsed.fragment:
         raise ContractError("JOURNEY_BSK_LOCAL_EVIDENCE_REF_INVALID")
-    target = Path(url2pathname(parsed.path))
+    target = Path(url2pathname(parsed.path)).resolve()
+    if capture_root is not None:
+        try:
+            inside = os.path.commonpath(
+                [str(target), str(capture_root.resolve())]) == str(capture_root.resolve())
+        except ValueError:
+            inside = False
+        if not inside:
+            raise ContractError("JOURNEY_BSK_EVIDENCE_OUTSIDE_AUTHORIZED_CAPTURE_ROOT")
     if not target.is_file() or target.stat().st_size == 0:
         raise ContractError("JOURNEY_BSK_REAL_EVIDENCE_FILE_REQUIRED")
     if suffix is not None and target.suffix.lower() != suffix:
@@ -87,11 +97,15 @@ class BSKJourneyTeachingImporter:
     """
 
     def __init__(self, *, teaching: JourneyTeachingService,
-                 evidence_root: Path) -> None:
+                 evidence_root: Path,
+                 authorized_capture_root: Path) -> None:
         if not isinstance(teaching, JourneyTeachingService):
             raise ContractError("JOURNEY_BSK_TEACHING_SERVICE_REQUIRED")
         self.teaching = teaching
         self.root = Path(evidence_root).resolve()
+        self.capture_root = Path(authorized_capture_root).resolve()
+        if not self.capture_root.is_dir():
+            raise ContractError("JOURNEY_BSK_AUTHORIZED_CAPTURE_ROOT_REQUIRED")
 
     def import_export(self, *, export_file: Path, bsk_session_id: str,
                       recording_args: Mapping[str, Any],
@@ -159,6 +173,10 @@ class BSKJourneyTeachingImporter:
         reqs = {row["id"]: row for row in doc["requests"]
                 if isinstance(row, Mapping) and isinstance(row.get("id"), str)}
         prepared: List[Dict[str, Any]] = []
+        used_dom = set()
+        used_png = set()
+        if set(evidence_map) != {op["id"] for op in ops}:
+            raise ContractError("JOURNEY_BSK_EVIDENCE_OPERATION_SET_MISMATCH")
         for op in ops:
             if (not isinstance(op, Mapping) or
                     op.get("run_id") != run.get("id") or
@@ -175,8 +193,13 @@ class BSKJourneyTeachingImporter:
             if not isinstance(step_info, Mapping):
                 raise ContractError("JOURNEY_BSK_OPERATION_EVIDENCE_BINDING_REQUIRED")
             dom_ref, screenshot_ref = step_info.get("dom_ref"), step_info.get("screenshot_ref")
-            _real_file(dom_ref)
-            shot = _real_file(screenshot_ref, suffix=".png")
+            _real_file(dom_ref, capture_root=self.capture_root)
+            shot = _real_file(screenshot_ref, suffix=".png",
+                              capture_root=self.capture_root)
+            if dom_ref in used_dom or screenshot_ref in used_png:
+                raise ContractError("JOURNEY_BSK_OPERATION_EVIDENCE_REUSED")
+            used_dom.add(dom_ref)
+            used_png.add(screenshot_ref)
             screenshot_proof = verify_png_file(shot)
             page = op.get("after") or op.get("before")
             if not isinstance(page, Mapping) or page.get("state") != "available":
