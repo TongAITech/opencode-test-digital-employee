@@ -167,7 +167,7 @@ class NativeCoverageRepairService:
         return result, receipt, gap, investigation
 
     def _existing_boundary(self, *, release_batch_id, application_id, gap_id):
-        """Return an already-signed repair boundary without replaying stale N7/Libra reads."""
+        """Audit an existing repair fence without replaying stale N7/Libra reads."""
         self._composition()
         rows = self.truth.query(_KIND, release_batch_id=release_batch_id,
                                 application_id=application_id, gap_id=gap_id)
@@ -178,6 +178,17 @@ class NativeCoverageRepairService:
         row = _signed(rows[0], self.authority)
         if row['release_id'] != self.release_id or row['source_commit'] != self.source_commit:
             raise ContractError('NATIVE_COVERAGE_REPAIR_SOURCE_CHANGED')
+        accepted = self._accepted_task(row['repair_workitem_id'], task_type='COVERAGE_PATH_REPAIR_EXECUTION',
+                                       capability=_CAPABILITY, gap_id=gap_id)
+        if accepted is None:
+            raise ContractError('NATIVE_COVERAGE_REPAIR_ACCEPTED_PROOF_REQUIRED')
+        if accepted['task']['mission_id'] != row['mission_id']:
+            raise ContractError('NATIVE_COVERAGE_REPAIR_WORKITEM_SCOPE_CHANGED')
+        proof_hash = _hash([accepted['task'], accepted['evaluation'], accepted['artifacts'], accepted['evidences']])
+        if (accepted['artifact_refs'] != row['repair_artifact_refs']
+                or accepted['evidence_refs'] != row['repair_evidence_refs']
+                or proof_hash != row['repair_proof_sha256']):
+            raise ContractError('NATIVE_COVERAGE_REPAIR_BOUNDARY_PROOF_CHANGED')
         return row
 
     def prepare(self, *, release_batch_id, application_id, gap_id):
