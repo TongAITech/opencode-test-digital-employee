@@ -138,7 +138,10 @@ def bind_production_model_economy(
             proc = original_runner(command, **kwargs)
         except Exception:
             # A process exception cannot establish actual provider usage.
-            economy.complete_call(admission.call_id, DshTokenUsage.unknown("DSH_PROCESS_EXCEPTION_USAGE_UNKNOWN"))
+            economy.complete_call(
+                admission.call_id, DshTokenUsage.unknown("DSH_PROCESS_EXCEPTION_USAGE_UNKNOWN"),
+                process_outcome="RAISED",
+            )
             raise
         stdout = getattr(proc, "stdout", None)
         usage = (
@@ -146,7 +149,7 @@ def bind_production_model_economy(
             if isinstance(stdout, str)
             else DshTokenUsage.unknown("DSH_PROCESS_STDOUT_NOT_AVAILABLE")
         )
-        economy.complete_call(admission.call_id, usage)
+        economy.complete_call(admission.call_id, usage, process_outcome="RETURNED")
         return proc
 
     def persist(assignment: Any, stdout: str, stderr: str) -> str:
