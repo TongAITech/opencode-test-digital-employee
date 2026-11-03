@@ -337,3 +337,25 @@ def test_receipt_cannot_relabel_different_payload_as_canonical_r1(tmp_path):
                              change=substitute_index)
     with pytest.raises(exporter.ExportError, match="ZIP_CANONICAL_R1_REQUIRED"):
         exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
+
+
+
+@pytest.mark.parametrize("path,forged_kind", [
+    ("runtime-state/r1/event-stream.jsonl", "EXPLICIT_FIELD_ATTACHMENT"),
+    ("RC72_RELEASE_IDENTITY.json", "R1_EVENT_STREAM"),
+    ("field/q3-target-linux.json", "PACKAGE_IDENTITY"),
+])
+def test_resealed_zip_cannot_misclassify_r1_or_package_identity(tmp_path, path, forged_kind):
+    root = _root(tmp_path)
+    out = tmp_path / "false-evidence-kind.zip"
+    exporter.export_evidence(root, out, source_commit=COMMIT,
+                             includes=["field/q3-target-linux.json"])
+    def forge(data):
+        index = json.loads(data)
+        for row in index["files"]:
+            if row["path"] == path:
+                row["kind"] = forged_kind
+        return json.dumps(index).encode("utf-8")
+    _reseal_modified_archive(out, tmp_path, entry_name="QA-EVIDENCE-INDEX.json", change=forge)
+    with pytest.raises(exporter.ExportError, match="ZIP_ROW_KIND_MISMATCH"):
+        exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
