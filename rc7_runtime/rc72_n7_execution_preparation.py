@@ -167,7 +167,7 @@ class ExecutionPreparationService:
                 raise ExecutionPreparationError('N7_FENCED_ADMISSION_R1_REQUIRED')
             admission = admission_rows[0]
             expected = dict(release_id=self.release_id,
-                mission_id=plan['mission_id'], team_id='TEAM-' + plan['mission_id'],
+                mission_id=plan['mission_id'], team_id=fenced_admission.team_id,
                 captain_lease_id=fenced_admission.captain_lease_id,
                 captain_session_id=fenced_admission.captain_session_id,
                 captain_generation=fenced_admission.captain_generation,
@@ -182,7 +182,7 @@ class ExecutionPreparationService:
                 mission_id=plan['mission_id'], lease_id=fenced_admission.captain_lease_id,
                 captain_session_id=fenced_admission.captain_session_id)
             if (owner['generation'] != fenced_admission.captain_generation
-                    or owner['team_id'] != 'TEAM-' + plan['mission_id']):
+                    or owner['team_id'] != fenced_admission.team_id):
                 raise ExecutionPreparationError('N7_FENCED_CAPTAIN_GENERATION_OR_TEAM_MISMATCH')
             session = self._one('rc72_worker_session', session_id=fenced_admission.session_id)
             context = session.get('context_bundle') or {}
