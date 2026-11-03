@@ -146,3 +146,25 @@ def test_different_os_processes_cannot_acquire_two_captains(tmp_path):
     cold = CaptainDispatchFencer(TruthRuntime(truth.store.path), release_id="RC7.2")
     owners = cold._rows("M-1")
     assert len(owners) == 1 and owners[0]["state"] == "ACTIVE"
+
+
+
+def test_lease_expires_on_exact_ttl_boundary_not_after_one_extra_second(tmp_path, monkeypatch):
+    import rc7_runtime.rc72_captain_dispatch_fencing as fencing
+
+    truth, _, _ = _runtime(tmp_path)
+    gate = CaptainDispatchFencer(truth, release_id="RC7.2")
+    owner = gate.acquire_initial(
+        mission_id="M-1", team_id="TEAM-1",
+        captain_session_id="CAPTAIN-A", ttl_seconds=10)
+    monkeypatch.setattr(fencing, "_now", lambda: owner["expires_at"])
+    with pytest.raises(ContractError, match="LEASE_EXPIRED"):
+        gate.assert_owner(
+            mission_id="M-1", lease_id=owner["lease_id"],
+            captain_session_id="CAPTAIN-A")
+    cold = CaptainDispatchFencer(TruthRuntime(truth.store.path), release_id="RC7.2")
+    assert cold._latest("M-1")["state"] == "EXPIRED"
+    with pytest.raises(ContractError, match="NOT_ACTIVE"):
+        cold.assert_owner(
+            mission_id="M-1", lease_id=owner["lease_id"],
+            captain_session_id="CAPTAIN-A")
