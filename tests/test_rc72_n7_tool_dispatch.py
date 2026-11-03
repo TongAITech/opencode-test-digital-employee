@@ -217,3 +217,24 @@ def test_unknown_effect_cannot_be_reclassified_to_failed_for_unattended_retry(tm
     with pytest.raises(ToolDispatchError, match='SIDE_EFFECTS_UNKNOWN'):
         dispatch.dispatch(row['preparation_id'])
     assert calls == [row['attempt_id']]
+
+
+
+def test_formal_runner_error_without_signed_preexecution_evidence_remains_unknown(tmp_path, monkeypatch):
+    from rc7_runtime.rc72_formal_runner import FormalRunnerError
+    truth, prep, row = _prepared(tmp_path, monkeypatch)
+    calls = []
+
+    def forged_negative(**kwargs):
+        calls.append(1)
+        # A caller-supplied error string cannot attest a business-safe retry.
+        raise FormalRunnerError('FORMAL_PREPARATION_NOT_SATISFIED:PRECONDITION')
+
+    dispatch = SignedToolDispatchService(prep, adapters={'api_http': forged_negative})
+    receipt = dispatch.dispatch(row['preparation_id'])
+    assert receipt['state'] == 'UNKNOWN'
+    assert receipt['replay_prohibited'] is True
+    assert receipt['possible_external_effect'] is True
+    with pytest.raises(ToolDispatchError, match='SIDE_EFFECTS_UNKNOWN'):
+        dispatch.dispatch(row['preparation_id'])
+    assert calls == [1]
