@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/rc7.2
+      - work/rc7.2-core
     paths:
       - 'rc6_runtime/**'
       - 'rc7_runtime/**'
