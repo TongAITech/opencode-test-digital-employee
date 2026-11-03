@@ -325,11 +325,13 @@ class OfficialJourneyExecutionService:
         task = self._one("rc7_task", task_id=workitem_id)
         if task.get("mission_id") != mission_id or official_asset_id not in list(task.get("input_artifact_refs") or []):
             raise ContractError("OFFICIAL_JOURNEY_WORKITEM_SCOPE_MISMATCH")
-        self.browser_pool.assert_usable(
+        lease = self.browser_pool.assert_usable(
             browser_lease_id=browser_lease_id, mission_id=mission_id,
             workitem_id=workitem_id, attempt_id=attempt_id, worker_id=worker_id,
             access_mode=BrowserAccessMode.WRITE,
         )
+        if str(lease.get("purpose") or "").upper() != "OFFICIAL_JOURNEY_EXECUTION":
+            raise ContractError("OFFICIAL_JOURNEY_BROWSER_PURPOSE_MISMATCH")
         steps = list(asset.get("steps") or [])
         if not steps:
             raise ContractError("OFFICIAL_JOURNEY_STEPS_REQUIRED")
