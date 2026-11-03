@@ -120,6 +120,10 @@ class JourneyCDPTeachingRecorder:
         self.recording = dict(recording_args)
         try:
             instance = self._guard()
+            supplied_auth_ref = recording_args.get("auth_asset_ref")
+            if (supplied_auth_ref is not None and
+                    supplied_auth_ref != instance.get("auth_asset_ref")):
+                raise ContractError("JOURNEY_TEACHING_AUTH_ASSET_MISMATCH")
             endpoint = str(instance["cdp_endpoint"])
             if not endpoint.startswith(("http://127.0.0.1:", "http://localhost:", "ws://127.0.0.1:", "ws://localhost:")):
                 raise ContractError("JOURNEY_TEACHING_CDP_LOCAL_ENDPOINT_REQUIRED")
@@ -185,8 +189,11 @@ class JourneyCDPTeachingRecorder:
             "auth_asset_ref": self.recording.get("auth_asset_ref"),
         })
         dom_ref = _atomic_json(folder / "dom.json", dom)
-        network_ref = _atomic_json(folder / "network.json", {"responses": list(self.responses)})
-        self.responses.clear()
+        # Snapshot the network observations but only acknowledge them after
+        # screenshot + R1 append succeeded. A failed screenshot must not
+        # silently discard the response evidence needed for an honest retry.
+        pending_responses = list(self.responses)
+        network_ref = _atomic_json(folder / "network.json", {"responses": pending_responses})
         try:
             self._guard()
             folder.mkdir(parents=True, exist_ok=True)
@@ -217,6 +224,9 @@ class JourneyCDPTeachingRecorder:
             wait_semantics=wait, evidence_refs=[page_ref, dom_ref, network_ref, screenshot_ref],
             capture_metadata=allowed_metadata,
             credential_ref=metadata.get("credential_ref"))
+        # Responses emitted while screenshotting remain pending for the next
+        # captured action; do not clear a concurrently appended observation.
+        del self.responses[:len(pending_responses)]
         return "%s:%d" % (recording_id, sequence)
 
     def poll(self, *, page_role: str, bindings: Optional[Mapping[str, Mapping[str, Any]]] = None) -> List[str]:
@@ -325,3 +335,5 @@ class JourneyCDPTeachingRecorder:
         self._response_listener = None
         self._instance_fingerprint = None
         self.responses.clear()
+        self.events.clear()
+        self.last_url = ""
