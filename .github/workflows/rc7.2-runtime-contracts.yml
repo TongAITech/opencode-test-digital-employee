@@ -34,11 +34,12 @@ on:
 permissions:
   contents: read
 
-# Only the latest PR HEAD is a meaningful qualification identity. Avoid
-# accumulating misleading/stale checks while parallel workstreams are coding.
+# Preserve a legitimate running qualification while replacing only stale
+# pending runs for this specific PR/branch. Align with RC7.2 CI queue Issue #12
+# and the scoped branch workflow policy; never cancel running evidence.
 concurrency:
   group: rc72-c06-c07-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   runtime-lease-and-handoff:
