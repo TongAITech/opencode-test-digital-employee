@@ -243,11 +243,18 @@ class ExecutionAdmissionService:
         self.truth.append_atomic(_EVENT, payload)
         return self._one(_ARTIFACT, admission_id=payload['admission_id'])
 
-    def assert_current(self, admission_id: str) -> Dict[str, Any]:
+    def _current_input(self, admission_id: str):
+        # One complete current-source decision returns both the authenticated
+        # receipt and its freshly reconstructed inputs. Callers must not rebuild
+        # the identical whole-release inputs a second time just to obtain them.
         receipt = self._one(_ARTIFACT, admission_id=_required(admission_id, 'admission_id'))
         current = self._check(receipt['release_batch_id'], receipt['contract_id'])
         if receipt.get('status') != 'ADMITTED' or any(receipt.get(key) != value for key, value in current.items()):
             raise ExecutionAdmissionError('N7_ADMISSION_STALE')
+        return receipt, current
+
+    def assert_current(self, admission_id: str) -> Dict[str, Any]:
+        receipt, _current = self._current_input(admission_id)
         return receipt
 
     def assert_review_current(self, admission_id: str) -> Dict[str, Any]:

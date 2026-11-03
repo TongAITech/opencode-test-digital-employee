@@ -50,6 +50,28 @@ qualification/fix/regression, N10/controller completion and the complete RC7.1
 transport inventory. C01–C12 reconciliation remains authoritative. Overall
 status stays ACTIVE / NO_DELIVERY; there is no complete portable package yet.
 
+### Fresh admission input reuse within one plan decision
+
+A full 28-Case run on the earlier double-normalization source reached the
+unchanged 900-second limit before completion (`native-http-full-product.log`).
+It is a failed qualification, not a PASS. The committed replay optimization's
+whole-chain qualification is still running; the time budget and Case denominator
+are unchanged.
+
+A further measured duplication was removed: plan validation used to perform the
+same complete admission check twice per Case, first to authenticate the receipt
+and then to obtain its reconstructed input. The internal decision now returns
+both results from the same full check. Each new plan decision still reconstructs
+all original Cases, sources, Gates, runtime/data bindings and digests; it does not
+cache across decisions or trust caller-supplied readiness. The returned batch and
+contract are checked against the exact plan item before use.
+
+On an unchanged real 28-Case R1 copy, both paths returned identical plans without
+journal writes. Admission checks decreased from 56 to 28, and the measured plan
+validation decreased from 2.393s to 1.216s. `native-http-admission-economy.log`
+passed all 28 admission/planning/native-HTTP tests. This is a local decision cost
+reduction; full-chain completion remains mandatory before final qualification.
+
 ## Frozen-contract business discrepancy → independent N8 → N9 intake — 2026-11-03
 
 The concrete N7 pipeline now handles an actual successful approved Runner whose

@@ -207,8 +207,11 @@ class ExecutionPlanningService:
         snapshot = self._one('rc72_decomposition_snapshot', snapshot_id=plan['snapshot_id'])
         current_inputs, current_cases = [], []
         for item in plan['items']:
-            admission = self.admission.assert_current(item['admission_id'])
-            current_inputs.append(self.admission._check(plan['release_batch_id'], item['contract_id']))
+            admission, current_input = self.admission._current_input(item['admission_id'])
+            if (current_input['release_batch_id'] != plan['release_batch_id']
+                    or current_input['contract_id'] != item['contract_id']):
+                raise ExecutionPlanningError('N7_PLAN_LINEAGE_MISMATCH')
+            current_inputs.append(current_input)
             task = self._one('rc7_task', task_id=item['workitem_id'])
             etu = self._one('rc72_etu', etu_id=item['etu_id'])
             contract = self._one('rc72_n6_executable_contract', contract_id=item['contract_id'])
