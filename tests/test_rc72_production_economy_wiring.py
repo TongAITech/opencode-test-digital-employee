@@ -262,3 +262,37 @@ def test_conflicting_model_usage_snapshots_hold_measured_economy_qualification(t
     assert call["usage_status"] == "UNKNOWN"
     assert observation["observation_status"] == "UNKNOWN"
     assert economy.qualification("M-1").status == "HOLD"
+
+
+
+def test_native_runner_return_is_a_real_process_receipt_not_inference_count(tmp_path):
+    truth, economy, _, launcher, runner = _setup(tmp_path, stdout=_stdout(usage=True))
+    launcher.execute(_assignment(), "actual native runner")
+    summary = economy.summary("M-1")
+    assert len(runner.calls) == 1
+    assert summary["dsh_process_invocations"] == 1
+    assert summary["dsh_process_invocation_count_status"] == "MEASURED"
+    assert summary["dsh_process_launch_error_count"] == 0
+    assert summary["provider_inference_call_count"] is None
+    assert summary["provider_inference_call_count_status"] == "UNKNOWN"
+    call = truth.query("rc72_token_call", mission_id="M-1")[0]
+    assert call["process_outcome"] == "RETURNED"
+
+
+def test_native_runner_error_records_unknown_usage_and_zero_confirmed_process_returns(tmp_path):
+    failure = RuntimeError("BANK_PROVIDER_UNAVAILABLE")
+    truth, economy, _, launcher, runner = _setup(
+        tmp_path, stdout="", error=failure,
+    )
+    with pytest.raises(RuntimeError, match="BANK_PROVIDER_UNAVAILABLE"):
+        launcher.execute(_assignment(), "required task still pending")
+    assert len(runner.calls) == 1
+    summary = economy.summary("M-1")
+    assert summary["dsh_process_invocation_count_status"] == "MEASURED"
+    assert summary["dsh_process_invocations"] == 0
+    assert summary["dsh_process_launch_error_count"] == 1
+    assert summary["actual_total_tokens"] is None
+    call = truth.query("rc72_token_call", mission_id="M-1")[0]
+    assert call["process_outcome"] == "RAISED"
+    assert call["usage_status"] == "UNKNOWN"
+    assert economy.qualification("M-1").status == "HOLD"
