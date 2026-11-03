@@ -17,7 +17,7 @@ on:
 jobs:
   phase-contract:
     name: phase-contract-python-${{ matrix.python-version }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
@@ -44,7 +44,7 @@ jobs:
 
   rc7-regression:
     name: inherited-rc7-regression-python-3.8
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
