@@ -253,6 +253,7 @@ class JourneyPromotionService:
             "requirement_id": candidate.get("requirement_id"),
             "sst_id": candidate.get("sst_id"),
             "obligation_id": candidate.get("obligation_id"),
+            "case_id": candidate.get("case_id"),
             "candidate_artifact_version": candidate.get("artifact_version"),
             "benchmark_artifact_version": benchmark.get("artifact_version"),
             "scope_digest": approval_scope_digest(candidate, benchmark),
@@ -343,6 +344,11 @@ class JourneyPromotionService:
         benchmark = self._one("rc72_journey_benchmark", benchmark_id=benchmark_id)
         if benchmark.get("candidate_id") != candidate_id:
             raise ContractError("JOURNEY_PROMOTION_BENCHMARK_CANDIDATE_MISMATCH")
+        if not isinstance(candidate.get("case_id"), str) or not candidate["case_id"].strip():
+            raise ContractError("JOURNEY_PROMOTION_CANONICAL_CASE_REQUIRED")
+        if not any(step.get("action_type") == "ASSERT" and step.get("oracle_ref")
+                   for step in candidate.get("steps", [])):
+            raise ContractError("JOURNEY_PROMOTION_BUSINESS_ORACLE_REQUIRED")
         if candidate.get("replay_status") != "PASSED":
             raise ContractError("JOURNEY_PROMOTION_LATEST_REPLAY_PASS_REQUIRED")
         if candidate.get("benchmark_status") != "PASSED" or benchmark.get("state") != "PASSED":
