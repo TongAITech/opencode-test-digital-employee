@@ -363,3 +363,37 @@ def test_cross_mission_artifact_cannot_be_an_etu_dispatch_input(tmp_path):
     with pytest.raises(CaptainSchedulingError, match="INPUT_MISSION_MISMATCH"):
         _admit(bridge, owner, "WI-1")
     assert truth.query("rc72_worker_session", mission_id="M-1") == []
+
+
+
+def test_raw_r1_capability_event_blocks_orphan_recovery_even_without_tool_call(tmp_path, monkeypatch):
+    from rc7_runtime.rc72_capability_broker import install_rc72_capability_overlay
+
+    truth, _, owner, _, bridge = _ready_fixture(tmp_path)
+    monkeypatch.setattr(bridge.scheduler, "lease_task",
+                        lambda *a, **kw: (_ for _ in ()).throw(KeyboardInterrupt()))
+    with pytest.raises(KeyboardInterrupt):
+        _admit(bridge, owner, "WI-1")
+    session = truth.query("rc72_worker_session", mission_id="M-1")[0]
+    install_rc72_capability_overlay()
+    truth.append_atomic("RC72_CAPABILITY_REQUEST_UPSERTED", {
+        "request_id": "CAP-UNKNOWN-1", "release_id": "RC7.2",
+        "mission_id": "M-1", "workitem_id": "WI-1",
+        "attempt_id": "A-UNKNOWN", "worker_id": session["worker_id"],
+        "parent_task_lease_id": "TL-UNKNOWN",
+        "requested_capability": "db-write", "reason": "unknown external authority",
+        "state": "REQUESTED", "created_at": 1, "artifact_version": 1,
+    })
+    cold = TruthRuntime(truth.store.path)
+    bridge = CaptainFencedWorkItemScheduler(
+        truth=cold, release_id="RC7.2",
+        fencer=CaptainDispatchFencer(cold, release_id="RC7.2"),
+        lifecycle=WorkerLifecycleService(cold, release_id="RC7.2"),
+        scheduler=TaskScheduler(cold, "RC7.2"),
+        role_profiles={"test-executor": ["api", "tool:api"]})
+    with pytest.raises(CaptainSchedulingError, match="R1_PROVENANCE_UNKNOWN"):
+        bridge.recover_unleased_orphan(
+            mission_id="M-1", team_id="TEAM-1",
+            captain_session_id="CAP-A", captain_lease_id=owner["lease_id"],
+            workitem_id="WI-1", session_id=session["session_id"])
+    assert cold.query("rc72_worker_session", session_id=session["session_id"])[0]["state"] == "ACTIVE"
