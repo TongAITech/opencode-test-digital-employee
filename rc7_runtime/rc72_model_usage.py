@@ -33,9 +33,9 @@ _OBSERVED = "OBSERVED"
 _UNKNOWN = "UNKNOWN"
 
 _TOKEN_ALIASES = {
-    "input_tokens": ("input_tokens", "prompt_tokens", "input_token_count", "prompt_token_count"),
-    "output_tokens": ("output_tokens", "completion_tokens", "output_token_count", "completion_token_count"),
-    "total_tokens": ("total_tokens", "total_token_count"),
+    "input_tokens": ("input_tokens", "prompt_tokens", "input_token_count", "prompt_token_count", "inputtokens", "prompttokens"),
+    "output_tokens": ("output_tokens", "completion_tokens", "output_token_count", "completion_token_count", "outputtokens", "completiontokens"),
+    "total_tokens": ("total_tokens", "total_token_count", "totaltokens"),
     "cached_input_tokens": ("cached_input_tokens", "cached_prompt_tokens"),
     "cache_read_tokens": ("cache_read_tokens", "cache_read_input_tokens"),
     "cache_write_tokens": ("cache_write_tokens", "cache_creation_input_tokens"),
