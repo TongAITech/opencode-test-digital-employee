@@ -65,6 +65,33 @@ def _strings(items,*,allow_empty=False):
     return items
 
 
+def parse_expected_scope(text,batch,source_commit):
+    payload=json.loads(text,object_pairs_hook=_pairs,
+                       parse_constant=_invalid_constant)
+    if not isinstance(payload,dict) or set(payload)!=_FIELDS or payload['schema']!=_SCHEMA:
+        raise ContractError('EXPECTED_SCOPE_EXACT_POLICY_INPUT_REQUIRED')
+    for key in ('release_id','release_batch_id','mission_id'):
+        if payload[key]!=batch[key]:raise ContractError('EXPECTED_SCOPE_RELEASE_LINEAGE_MISMATCH')
+    if payload['source_commit']!=source_commit:raise ContractError('EXPECTED_SCOPE_SOURCE_MISMATCH')
+    if set(_strings(payload['application_ids']))!=set(batch['application_ids']):
+        raise ContractError('EXPECTED_SCOPE_APPLICATION_DENOMINATOR_MISMATCH')
+    if set(_strings(payload['version_ids'],allow_empty=True))!=set(batch.get('version_ids',[])):
+        raise ContractError('EXPECTED_SCOPE_VERSION_DENOMINATOR_MISMATCH')
+    mapping,levels=payload['requirement_ssts'],payload['required_levels_by_sst']
+    if (not isinstance(mapping,dict) or not isinstance(levels,dict)
+            or set(mapping)!=set(batch['requirement_ids'])):
+        raise ContractError('EXPECTED_SCOPE_REQUIREMENT_DENOMINATOR_MISMATCH')
+    all_ssts=[]
+    for req,values in mapping.items():all_ssts.extend(_strings(values))
+    if len(all_ssts)!=len(set(all_ssts)) or set(levels)!=set(all_ssts):
+        raise ContractError('EXPECTED_SCOPE_SST_DENOMINATOR_MISMATCH')
+    for values in levels.values():
+        if set(_strings(values))-{'L1','L2','L3','L4','L5','L6','L7'}:
+            raise ContractError('EXPECTED_SCOPE_REQUIRED_LEVELS_INVALID')
+    _strings(payload['source_refs'])
+    return payload
+
+
 class ExpectedScopeInputService:
     def __init__(self,pipeline):
         if not isinstance(pipeline,N1StrictPipelineService):raise ContractError('EXPECTED_SCOPE_NATIVE_N1_PIPELINE_REQUIRED')
@@ -107,29 +134,8 @@ class ExpectedScopeInputService:
             if len({row['sha256'] for row in observations})!=1:
                 raise ContractError('EXPECTED_SCOPE_ORIGINAL_INPUT_CHANGED_DURING_N1')
             call=calls[0];result=observations[0]
-            payload=json.loads(result['text'],object_pairs_hook=_pairs,
-                               parse_constant=_invalid_constant)
-            if not isinstance(payload,dict) or set(payload)!=_FIELDS or payload['schema']!=_SCHEMA:
-                raise ContractError('EXPECTED_SCOPE_EXACT_POLICY_INPUT_REQUIRED')
-            for key in ('release_id','release_batch_id','mission_id'):
-                if payload[key]!=batch[key]:raise ContractError('EXPECTED_SCOPE_RELEASE_LINEAGE_MISMATCH')
-            if payload['source_commit']!=self.source_commit:raise ContractError('EXPECTED_SCOPE_SOURCE_MISMATCH')
-            if set(_strings(payload['application_ids']))!=set(batch['application_ids']):
-                raise ContractError('EXPECTED_SCOPE_APPLICATION_DENOMINATOR_MISMATCH')
-            if set(_strings(payload['version_ids'],allow_empty=True))!=set(batch.get('version_ids',[])):
-                raise ContractError('EXPECTED_SCOPE_VERSION_DENOMINATOR_MISMATCH')
+            payload=parse_expected_scope(result['text'],batch,self.source_commit)
             mapping,levels=payload['requirement_ssts'],payload['required_levels_by_sst']
-            if (not isinstance(mapping,dict) or not isinstance(levels,dict)
-                    or set(mapping)!=set(batch['requirement_ids'])):
-                raise ContractError('EXPECTED_SCOPE_REQUIREMENT_DENOMINATOR_MISMATCH')
-            all_ssts=[]
-            for req,values in mapping.items():all_ssts.extend(_strings(values))
-            if len(all_ssts)!=len(set(all_ssts)) or set(levels)!=set(all_ssts):
-                raise ContractError('EXPECTED_SCOPE_SST_DENOMINATOR_MISMATCH')
-            for values in levels.values():
-                if set(_strings(values))-{'L1','L2','L3','L4','L5','L6','L7'}:
-                    raise ContractError('EXPECTED_SCOPE_REQUIRED_LEVELS_INVALID')
-            _strings(payload['source_refs'])
             # Bind the selected input to the actual returned N1 candidate, so a
             # read of an unrelated document cannot become an expected policy.
             raw_ref=next(ref for ref in event['evidence_refs'] if ref.startswith('file://'))

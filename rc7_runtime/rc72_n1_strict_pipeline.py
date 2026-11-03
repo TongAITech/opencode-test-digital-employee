@@ -49,6 +49,8 @@ class N1StrictDshHandoffService(N1DshHandoffService):
                 'The original release-batch:// input carries RC72_EXPECTED_RELEASE_SCOPE_V1 expected policy. '
                 'Read that original input through the registered native tool. Add facts.expected_scope_input '
                 'with exactly source_ref and sha256 copied from its actual tool result. '
+                'The native tool may return provenance/count metadata only; the runtime retains and validates '
+                'the entire original catalog. Do not request full policy text solely to echo it. '
                 'Do not derive expected SSTs or required levels from generated Cases or executed results. '
                 'Missing or changing policy is a gap; never invent its digest. ')
         return (

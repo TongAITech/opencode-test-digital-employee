@@ -102,3 +102,20 @@ independent N7 review consumes the original all-level policy in N10. Its L3-only
 fixture remains NOT_CONVERGED for missing levels and measured coverage; replacing
 the policy with L3-only rows is refused without another business call. This is
 engineering integration evidence, not bank-source or full-platform qualification.
+
+## Model-facing catalog projection
+
+For this composed N1 policy-read purpose, the native MCP result exposes the
+source/capture reference, original SHA256, byte size and independently validated
+expected-count metadata. The signed parent observation still retains the complete
+original text, and scope freezing parses that complete capture. Other registered
+N1 input reads retain their ordinary full-text output. Invalid policies return
+an explicit diagnostic; projection never turns them into valid manifests.
+
+An actual production-MCP protocol-child check with 320 expected SSTs measured
+34,121 bytes for the unprojected tool text and 534 bytes for the projected tool
+text. All 320 SSTs and 2,240 required level targets remained in the frozen policy.
+These are tool-content bytes, not provider tokens or billing: provider usage
+remains UNKNOWN. The existing input size bound remains unchanged; no catalog is
+truncated to meet a context budget. Complete production economy qualification,
+other role contexts and provider usage still require their own evidence.

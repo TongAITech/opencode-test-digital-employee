@@ -234,6 +234,27 @@ class NativeN1ReadGate:
             CONTEXT_ENV:json.dumps(dict(mission_id=self.base['mission_id'],task_id=self.base['workitem_id'],worker_id=self.base['worker_id'])),
             PROTOCOL_ENV:PROTOCOL}
 
+    def _child_result(self,row):
+        result=row['result']
+        if (getattr(self.service,'expected_scope_input_schema',None)=='RC72_EXPECTED_RELEASE_SCOPE_V1'
+                and row['source_ref']=='release-batch://'+self.canonical['release_batch_id']):
+            # N1 owns input provenance, not the full SST planning payload. Keep
+            # every original byte in the signed parent observation/capture;
+            # only the model-facing projection is reduced.
+            from .rc72_expected_scope_input import parse_expected_scope
+            view={key:result[key] for key in ('source_ref','content_ref','sha256','size_bytes')}
+            view['projection']='RC72_EXPECTED_SCOPE_METADATA_V1'
+            try:
+                batch=self.service._one('rc72_release_batch',release_batch_id=self.canonical['release_batch_id'])
+                payload=parse_expected_scope(result['text'],batch,self.service.source_commit)
+                view.update(expected_requirement_count=len(payload['requirement_ssts']),
+                    expected_sst_count=len(payload['required_levels_by_sst']),
+                    expected_required_level_count=sum(len(v) for v in payload['required_levels_by_sst'].values()))
+            except (ContractError,ValueError,TypeError) as exc:
+                view['policy_error']=str(exc) if isinstance(exc,ContractError) else 'EXPECTED_SCOPE_JSON_INVALID'
+            result=view
+        return dict(result=result,call_id=row['record_id'])
+
     def invoke(self,request_id,tool,arguments):
         if not isinstance(request_id,str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,96}',request_id):
             raise ContractError('N1_NATIVE_READ_REQUEST_ID_INVALID')
@@ -250,7 +271,7 @@ class NativeN1ReadGate:
                     if row['state']!='RETURNED':raise ContractError('N1_NATIVE_READ_UNKNOWN_EFFECT_NO_REPLAY')
                     if row['source_ref']!=arguments['source_ref']:raise ContractError('N1_NATIVE_READ_REQUEST_SCOPE_CHANGED')
                     _capture_result(row)
-                    return dict(result=row['result'],call_id=rid)
+                    return self._child_result(row)
                 row=self._persist(dict(self.base,record_id=rid,kind='CALL',request_id=request_id,tool=tool,
                     source_ref=arguments['source_ref'],arguments_sha256=_hash(arguments),state='IN_FLIGHT',started_at=int(time.time())))
             observed={}
@@ -270,7 +291,7 @@ class NativeN1ReadGate:
                 with ledger_lock(self.truth,busy='N1_NATIVE_READ_LEDGER_BUSY'):
                     self._actor()
                     row=self._persist(dict(row,state='RETURNED',**observed,finished_at=int(time.time())))
-                return dict(result=row['result'],call_id=rid)
+                return self._child_result(row)
             except BaseException as exc:
                 with ledger_lock(self.truth,busy='N1_NATIVE_READ_LEDGER_BUSY'):
                     current=self.truth.query(_KIND,record_id=rid)[0]

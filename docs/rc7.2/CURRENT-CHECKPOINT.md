@@ -1,5 +1,25 @@
 # RC7.2 Current Construction Checkpoint
 
+## Expected catalog model projection with full parent preservation — 2026-11-03
+
+Native N1 expected-policy reads now project only source/digest/size/count
+metadata to the model, while the signed parent observation and capture retain
+the complete original catalog. One shared strict parser validates both the
+projection diagnostics and scope import; ordinary non-policy N1 reads remain
+full text. Invalid policy diagnostics cannot suppress the importer's refusal.
+A temporary parser-local-variable error in the isolated worktree was caught and
+corrected before the final qualification; the stable main worktree was unaffected.
+
+Actual production-MCP protocol-child qualification preserved all 320 expected
+SSTs / 2,240 required level targets while reducing the tool-content payload from
+34,121 to 534 bytes. Provider token usage is UNKNOWN, not an inferred token/cost
+saving or zero. Final composed projection/input/N1/controller/native-proof/
+environment regression passed 85 tests in 50.21s. Full source/capture and manifest
+membership were checked; no mandatory denominator, Case or assertion was removed.
+This is one actual C10 context site, not completion of all production economy or
+bank Field qualification. Existing bounded input size and other construction
+gaps remain unchanged.
+
 ## Native N10 requires original scope provenance — 2026-11-03
 
 Native N10 aggregation now consumes ExpectedScopeInputService alongside the
