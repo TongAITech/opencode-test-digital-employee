@@ -27,6 +27,7 @@ from .rc72_model_economy import (
 from .rc72_model_usage import TokenUsageAuditService
 from .rc72_model_usage_worker_bridge import Rc72TokenUsageLauncherProxy
 from .rc72_lossless_prompt_compaction import compact_native_prompt_json
+from .rc72_native_delta_prompt import hydrate_native_retry_delta
 
 
 class ProductionEconomyBindingError(RuntimeError):
@@ -97,17 +98,25 @@ def bind_production_model_economy(
         ):
             raise ProductionEconomyBindingError("RC72_ECONOMY_FINAL_DSH_PROMPT_REQUIRED")
 
-        # The approved native launcher has already assembled its final DSH
-        # instruction/tool/auth preamble. Compact only validated terminal JSON
-        # serialization. Preserve every Context and RequiredShape key/value.
-        compression = compact_native_prompt_json(command[-1])
-        if compression.status == "LOSSLESS_JSON":
-            command = list(command)
-            command[-1] = compression.prompt
         metadata = metadata_resolver(assignment)
         if not isinstance(metadata, Mapping):
             raise ProductionEconomyBindingError("RC72_ECONOMY_METADATA_INVALID")
         metadata = dict(metadata)
+
+        # A REF-ONLY ContextEnvelope is not proof the native prompt has been
+        # hydrated. Only an OBSERVED, signed N8 RetryDelta for this exact
+        # child Attempt may replace task-scoped input_refs in the FINAL DSH
+        # command. Do not alter auth/tool/Oracle/RequiredShape instructions.
+        hydrated = hydrate_native_retry_delta(command[-1], metadata)
+        prompt_before_serialization = hydrated.prompt
+        compression = compact_native_prompt_json(prompt_before_serialization)
+        if hydrated.applied or compression.status == "LOSSLESS_JSON":
+            command = list(command)
+            command[-1] = compression.prompt
+        if hydrated.applied:
+            metadata["context_projection_status"] = "NATIVE_RETRY_DELTA_VERIFIED"
+            metadata["context_projection_applied_to_prompt"] = True
+            metadata["native_retry_delta_saved_bytes"] = hydrated.bytes_saved
         mission_id = _required(getattr(assignment, "mission_id", None), "mission_id")
         attempt_id = _required(getattr(assignment, "attempt_id", None), "attempt_id")
         agent_id = _required(getattr(assignment, "agent_id", None), "agent_id")
@@ -132,7 +141,7 @@ def bind_production_model_economy(
             "context_canonical_ref_count", "context_effective_ref_count",
             "context_unhydrated_lineage_ref_count",
             "context_projection_applied_to_prompt", "context_projection_status",
-            "parent_attempt_id",
+            "parent_attempt_id", "native_retry_delta_saved_bytes",
         )
         context_projection = {
             name: metadata[name] for name in native_context_fields if name in metadata
