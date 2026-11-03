@@ -73,25 +73,36 @@ class NativeN9ProfessionalIntakeService:
                 or gap['category']!='VALID_TEST_FAILURE'):
             raise ContractError('N9_PROFESSIONAL_ORIGINAL_GAP_REQUIRED')
         wid='N9REPRO-'+_hash([p['mission_id'],p['attempt_id'],diagnosis_id])[:24]
-        refs=['r1://artifact/'+p['contract_id'],'r1://artifact/'+diagnosis_id,
-              'r1://evidence/'+failure['evidence_id']]
+        plan=self._one('rc72_n7_execution_plan',plan_id=p['plan_id'])
+        members=[item for item in plan['items'] if item['workitem_id']==p['workitem_id']]
+        if (len(members)!=1 or members[0]['case_id']!=p['case_id']
+                or members[0]['contract_id']!=p['contract_id']):
+            raise ContractError('N9_PROFESSIONAL_FROZEN_CASE_REQUIRED')
+        # These are real, approved N4 Case Artifacts rather than invented
+        # r1:// pseudo-input schemes that the RC7 scheduler cannot lease.
+        refs=list(members[0]['input_artifact_refs'])
+        if not refs or any(not self.truth.query('rc7_artifact',artifact_id=ref) for ref in refs):
+            raise ContractError('N9_PROFESSIONAL_APPROVED_CASE_ARTIFACT_REQUIRED')
+        criteria=[
+            'New independent scoped execution with immutable original Case and business oracle',
+            'Reproduce source N8 diagnosis '+diagnosis_id+' and conclusive failure evidence '+failure['evidence_id'],
+            'Captured actual/expected discrepancy and complete R1 evidence',
+            'Professional causal review: no product defect without independent RCA',
+            'No reuse of the failed Attempt or its execution lease']
+        objective=('Independently reproduce approved business discrepancy for Case '+p['case_id']+
+                   ' from original N7 Attempt '+p['attempt_id'])
         expected=dict(mission_id=p['mission_id'],node='DEFECT',task_type='DEFECT_REPRODUCTION',
+            objective=objective,acceptance_criteria=criteria,
             required_capabilities=['defect_reproduction'],input_artifact_refs=refs,gap_refs=[gap['gap_id']])
         existing=self.truth.query('rc7_task',task_id=wid)
         if len(existing)>1:raise ContractError('N9_PROFESSIONAL_REPRODUCTION_NOT_UNIQUE')
         if not existing:
             ClosedLoopControlPlane(self.truth,self.release_id,p['mission_id']).register_task(
                 Task(task_id=wid,mission_id=p['mission_id'],node='DEFECT',
-                     task_type='DEFECT_REPRODUCTION',
-                     objective='Independently reproduce approved business discrepancy for Case '+p['case_id']+
-                        ' from original N7 Attempt '+p['attempt_id'],
+                     task_type='DEFECT_REPRODUCTION',objective=objective,
                      required_capabilities=['defect_reproduction'],
                      input_artifact_refs=refs,gap_refs=[gap['gap_id']],
-                     acceptance_criteria=[
-                         'New independent scoped execution with immutable original Case and business oracle',
-                         'Captured actual/expected discrepancy and complete R1 evidence',
-                         'Professional causal review: no product defect without independent RCA',
-                         'No reuse of the failed Attempt or its execution lease'],priority=0))
+                     acceptance_criteria=criteria,priority=0))
         task=self._one('rc7_task',task_id=wid)
         if any(task.get(key)!=value for key,value in expected.items()):
             raise ContractError('N9_PROFESSIONAL_REPRODUCTION_SCOPE_CHANGED')
