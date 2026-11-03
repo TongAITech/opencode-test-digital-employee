@@ -99,8 +99,12 @@ def native_context_projection(
     )
     retry = None
     mode = "NORMAL"
+    retry_observation_status = "NONE"
+    retry_native_authorized = False
+    previous_summary_ref = None
     if retry_rows:
         receipt = retry_rows[0]
+        retry_observation_status = str(receipt.get("observation_status") or "UNKNOWN")
         receipt_parent = str(receipt.get("parent_attempt_id") or "").strip()
         if not receipt_parent or (parent_id and receipt_parent != parent_id):
             raise NativeContextProjectionError("RC72_NATIVE_CONTEXT_RETRY_PARENT_MISMATCH")
@@ -119,6 +123,21 @@ def native_context_projection(
                 delta_evidence_refs=receipt.get("delta_evidence_refs") or (),
                 changed_dependency_refs=receipt.get("changed_dependency_refs") or (),
                 full_context_reason=receipt.get("full_context_reason"),
+            )
+            previous_summary_ref = retry.previous_attempt_summary_ref
+            # The source producer alone may swap prompt input_refs. A valid
+            # reviewer candidate must never be lost by reducing upstream
+            # source refs. Require an actual signed child assignment and
+            # resolved R1 parent Attempt lineage before applying.
+            binding = lineage_rows[0] if len(lineage_rows) == 1 else {}
+            retry_native_authorized = bool(
+                mode == "RETRY_DELTA"
+                and binding.get("release_id") == release_id
+                and binding.get("mission_node_lineage_status") == "RESOLVED"
+                and binding.get("parent_attempt_id") == receipt_parent
+                and receipt.get("assignment_id")
+                    == getattr(assignment, "assignment_id", None)
+                and receipt.get("attempt_id") == attempt_id
             )
         else:
             mode = "RETRY_DELTA_UNKNOWN"
@@ -158,4 +177,9 @@ def native_context_projection(
         "context_projection_applied_to_prompt": False,
         "context_projection_status": "REFERENCE_ONLY",
         "parent_attempt_id": parent_id or None,
+        "context_canonical_input_refs": combined_refs,
+        "context_effective_refs": effective,
+        "retry_context_observation_status": retry_observation_status,
+        "retry_delta_native_authorized": retry_native_authorized,
+        "retry_previous_summary_ref": previous_summary_ref,
     }
