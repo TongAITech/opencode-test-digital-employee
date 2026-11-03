@@ -211,3 +211,36 @@ This first safe lexical optimization does **not** prove the frozen
 does not batch independent WorkItems into one model inference, and does
 not replace R1 Attempt/Evidence/Defect authority. Those remain separate
 construction and qualification gates.
+
+
+## 2026-11-04 continuation: nested tool usage truth + executable compaction tests
+
+A nested CAT/MCP/CodeGraph tool result in a DSH final JSON event may
+carry counters named `input_tokens` or `total_tokens`. These are **not**
+model provider inference counters. All three source pathways now share
+`rc72_provider_usage_filter.py`: the direct native runner usage extractor,
+the independent R1 `TokenUsageAuditService` parser and the JSONL
+model-response signal detector. Tool/MCP subtrees are excluded even when
+embedded in a final response alongside real provider usage. Real provider
+usage outside those subtrees remains measurable; tool-only data must be
+UNKNOWN/no model signal, never fake MEASURED model tokens.
+
+Source tests now cover tool-only nested final output, mixed provider +
+tool events, native command metering, valid/invalid/duplicate/nonfinite
+JSON prompt suffixes, non-ASCII content, malformed Unicode surrogates and
+cold R1 replay of the optimized actual prompt SHA/byte telemetry.
+The workflow compiles `rc7_release` as well as runtime and uses a
+branch-scoped GitHub Actions concurrency key to cancel stale C10 checks.
+
+An **isolated, copied-algorithm smoke** was performed on a synthetic N4
+`Context`+`RequiredShape` example and confirmed JSON equality with
+18 fewer input bytes; this is NOT a same-HEAD source-suite CI result
+and does NOT imply a provider tokenizer saving percentage.
+
+Current release CLI output includes
+`LOSSLESS_JSON_COMPACTED_CALLS`,
+`VERIFIED_PROMPT_SERIALIZATION_SAVED_BYTES`,
+`VERIFIED_PROMPT_TOKEN_SAVINGS=null` for truthful Q7 reporting.
+The actual bank field comparison, ContextEnvelope-driven hydration,
+true single-call batch dispatch, N8/N9/N10 end-to-end execution and
+same-HEAD multi-platform acceptance remain open.
