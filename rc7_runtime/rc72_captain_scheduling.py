@@ -8,8 +8,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import time
+import uuid
 from typing import Mapping, Sequence
 
+from rc6_runtime import contracts, truth as registry
+from .truth_overlay import install_rc7_truth_overlay
 from .control_plane import TaskScheduler
 from .models import ContractError, TaskStatus
 from .rc72_captain_dispatch_fencing import CaptainDispatchFencer
@@ -21,8 +24,42 @@ class CaptainSchedulingError(ContractError):
     pass
 
 
+_ADMISSION_KIND = "rc72_captain_etu_admission"
+_ADMISSION_EVENT = "RC72_CAPTAIN_ETU_ADMITTED"
+_ADMITTED = "LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH"
+
+
+def _validate_admission(payload):
+    out = dict(payload)
+    for key in ("admission_id", "release_id", "mission_id", "team_id",
+                "captain_lease_id", "captain_session_id", "etu_id", "workitem_id",
+                "role", "worker_id", "session_id", "state"):
+        contracts._require_str(out, key)
+    generation = out.get("captain_generation")
+    if not isinstance(generation, int) or isinstance(generation, bool) or generation < 1:
+        raise contracts.DomainValidationError("CAPTAIN_ADMISSION_GENERATION_INVALID")
+    if out["state"] != _ADMITTED:
+        raise contracts.DomainValidationError("CAPTAIN_ADMISSION_CANNOT_CLAIM_EXECUTION")
+    if any(key in out for key in (
+            "captain_token", "signing_key", "full_access", "raw_result",
+            "execution_pass", "field_verified", "bank_final")):
+        raise contracts.DomainValidationError("CAPTAIN_ADMISSION_SECRET_OR_RESULT_FORBIDDEN")
+    out["artifact_type"] = _ADMISSION_KIND
+    out["artifact_version"] = contracts._artifact_version(out)
+    return out
+
+
+def install_captain_etu_admission_overlay():
+    install_rc7_truth_overlay()
+    contracts.VALIDATORS[_ADMISSION_KIND] = _validate_admission
+    registry.EVENT_TYPES[_ADMISSION_EVENT] = (_ADMISSION_KIND, "admission_id")
+    registry.BUCKETS[_ADMISSION_KIND] = "rc72_captain_etu_admissions"
+    registry.IDENTITY_FIELDS[_ADMISSION_KIND] = "admission_id"
+
+
 @dataclass(frozen=True)
 class GovernedFreshDispatch:
+    admission_id: str
     mission_id: str
     workitem_id: str
     etu_id: str
@@ -53,6 +90,7 @@ class CaptainFencedWorkItemScheduler:
     def __init__(self, *, truth, release_id: str, fencer: CaptainDispatchFencer,
                  lifecycle: WorkerLifecycleService, scheduler: TaskScheduler,
                  role_profiles: Mapping[str, Sequence[str]]):
+        install_captain_etu_admission_overlay()
         if (fencer.truth is not truth or lifecycle.truth is not truth
                 or scheduler.truth is not truth or fencer.release_id != release_id
                 or lifecycle.release_id != release_id or scheduler.release_id != release_id):
@@ -229,13 +267,24 @@ class CaptainFencedWorkItemScheduler:
                 capabilities=capabilities)
             if leased is None or leased.lease_owner != fresh.worker_id:
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_PARTIAL_DISPATCH_RECONCILIATION_REQUIRED")
+            admission_id = "CAPAD-" + uuid.uuid4().hex
+            self.truth.append_atomic(_ADMISSION_EVENT, dict(
+                admission_id=admission_id, release_id=self.release_id,
+                mission_id=mission_id, team_id=team_id,
+                captain_lease_id=owner["lease_id"],
+                captain_session_id=owner["captain_session_id"],
+                captain_generation=owner["generation"], etu_id=etu_id,
+                workitem_id=workitem_id, role=role,
+                worker_id=fresh.worker_id, session_id=fresh.session_id,
+                state=_ADMITTED, artifact_version=1))
             return GovernedFreshDispatch(
+                admission_id=admission_id,
                 mission_id=mission_id, workitem_id=workitem_id,
                 etu_id=etu_id, role=role, worker_id=fresh.worker_id,
                 session_id=fresh.session_id, captain_generation=owner["generation"],
                 captain_lease_id=owner["lease_id"],
                 captain_session_id=owner["captain_session_id"],
-                state="LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH")
+                state=_ADMITTED)
 
 
     @staticmethod
@@ -318,3 +367,6 @@ class CaptainFencedWorkItemScheduler:
             checkpoint = self.lifecycle.checkpoint_and_close(
                 session_id, reason="ORPHAN_BEFORE_WORKITEM_LEASE_VERIFIED")
             return checkpoint
+
+
+install_captain_etu_admission_overlay()
