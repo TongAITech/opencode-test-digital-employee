@@ -67,14 +67,65 @@ and pip settings and invokes clean-package qualification plus the actual mirror
 subgate. A Field request with missing configuration fails before qualification.
 Overall Field/BANK_FINAL flags remain false because other Field gates are separate.
 
-## Still open
+## Native R1 execution and mandatory admission
 
-Canonical Field/R1 admission and final BANK_FINAL aggregation still need the
-native mirror gate's result as a mandatory verified input. Clean extraction
-wiring alone does not close that requirement. Real bank PC evidence must come
-from the bank's existing approved mirror and chosen qualification dependency.
-No CI fixture result is bank Field evidence. C12 portable-completion and
-BANK_FINAL claims remain blocked until the full contract is satisfied.
+`NativeBankPipMirrorService` now records signed source/package/archive/policy/
+user-config intent before invoking the fixed native qualifier. The controller
+keeps the signing authority; it is never passed to pip. The returned result is
+signed separately and binds all private command/report hashes. Cold audit checks
+both signatures, the original IN_FLIGHT history, immutable input bindings,
+contiguous versions/attempts, current archive/policy/source and retained evidence.
+An unobserved or unsigned result cannot become PASS. Authenticated returned
+results support metadata-only recovery without another install; unknown work
+never replays. Only explicitly requested retries of returned failures may create
+new attempts, bounded to three. Changed inputs are failures before success signing.
+
+Pip subprocesses preserve Windows user/config/proxy/certificate settings while
+excluding unrelated controller/model credentials. The actual pip main parser is
+checked before any pip CLI command, so `PIP_PYTHON`/configured interpreter
+redirection cannot invoke host Python. File-specific pip parsers preserve its
+native configuration encoding. Output uses UTF-8 and records Python/pip/platform
+versions; no user-level mirror settings are recreated.
+
+Q7 admission and Field Mission start now require this exact native provider and
+an audited BANK_FIELD execution from the same release/source/ledger. The proof
+must match the admission. Missing providers, detached PASS labels, engineering
+receipts, changed evidence and wrong contexts fail before MissionNode effects.
+Admission and bootstrap hold the participating ledger lock while verifying.
+The driver passes this owned provider through; cold reconstruction must rebind
+all services to the same fresh TruthRuntime. Read-only status needs no provider
+or Worker configuration and registers the new receipt schema before R1 replay.
+
+Legacy RC7/RC7.1 final launchers and report formats explicitly refuse RC7.2
+packages. They cannot bypass the native ReleaseBatch final boundary or the user
+pip mirror gate. The native RC7.2 terminal/final aggregation remains separate
+product construction; this refusal is not a completed final implementation.
+
+## Updated verification and remaining work
+
+Windows run `41613462379` at exact source
+`8c4530344e9dda4ae73878a626a093ab82fd7c2c` completed SUCCESS: 60 tests, no failures
+or skips. Downloaded proof confirms Chinese/spaced extraction paths, actual
+Python 3.11.9/pip 26.2.2, seven real negative checks (including host-interpreter
+redirection), an actual native R1 execution receipt, and read-only reentry with
+no repeated mirror request. Generic hosted execution remains ENGINEERING and
+cannot satisfy BANK_FIELD. The whole-package verification flag is false for
+that component fixture; it is not complete-package acceptance.
+
+Local native-admission checks passed 80 tests. The original full product route
+also passed (707.52 seconds): 28 original Cases, 78 L3 obligations, original
+seven-level expectations retained and no repeated business effects on reentry.
+That is engineering route evidence with synthetic trusted prior Field
+prerequisites, not actual bank Field evidence. Those prerequisite fixtures are
+excluded from the portable package and introduce no production bypass switch.
+Cold downstream recovery checks separately passed 20 tests in 105.83 seconds.
+
+The current bank command measures capability from the extracted package. The
+production runtime factory must bind the native observer/controller authority
+and surface its canonical execution to the unified ReleaseBatch entry; this
+user flow and terminal/final release aggregation remain open with the other
+frozen design items. Real bank PC evidence must use the bank's approved mirror
+and selected dependency after transfer. C12/BANK_FINAL closure is not claimed.
 
 References: [pip configuration](https://pip.pypa.io/en/stable/topics/configuration/),
 [pip installation](https://pip.pypa.io/en/stable/cli/pip_install/).

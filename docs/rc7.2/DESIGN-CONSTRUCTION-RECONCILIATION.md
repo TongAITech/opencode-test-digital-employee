@@ -1,5 +1,35 @@
 # RC7.2 design/construction reconciliation — 2026-11-02
 
+## Native mirror receipt and mandatory Field admission — 2026-11-03
+
+NativeBankPipMirrorService now owns signed IN_FLIGHT intent, actual qualifier
+execution, signed returned evidence, cold historical audit, no-replay UNKNOWN
+and bounded explicit returned-failure retries. Q7/Field Mission bootstrap require
+its exact release/source/ledger proof under the participating ledger lock.
+Detached PASS labels and engineering receipts cannot substitute; read-only cold
+status remains configuration-free. Runtime reconstruction rebinds the native
+provider to the same fresh TruthRuntime as the controller.
+
+Windows component `41613462379`, exact 8c45303: **60 passed, zero skips/failures**.
+Downloaded actual proof confirms Chinese/spaced extraction, Python 3.11.9/pip
+26.2.2, seven negative checks including host-Python redirection, actual owned R1
+receipt and no repeated mirror request on reentry. This is ENGINEERING/component
+scope, not bank Field. All unrelated model/controller env credentials are excluded
+from pip while actual Windows user mirror configuration remains discoverable.
+
+Local admission/authority checks: 80 passed. Full original product route: one
+passed in 707.52s, preserving 28 Cases/78 L3 obligations and all seven original
+expected levels, with no repeated business effect. Cold N3/N4/N5/N6 recovery:
+20 passed in 105.83s. Prior cold-fixture failures were fixed by reconstructing
+the new owned provider as well; the strict context guard was preserved.
+
+Legacy final acceptance paths are now fenced from RC7.2 to prevent old-contract
+certification. The native production factory and terminal/final aggregation
+remain open alongside the frozen design backlog. See
+BANK-PC-PIP-MIRROR-IMPLEMENTATION.md. No complete user delivery or C12/BANK_FINAL
+closure is claimed by these checks.
+
+
 ## Windows user pip mirror path constructed and natively qualified — 2026-11-03
 
 Remote mandatory user-mirror contract commits ede8bb5 and 8d02074 were preserved
