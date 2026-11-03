@@ -45,7 +45,7 @@ def test_signed_n7_adapter_consumes_only_approved_l5_case_and_emits_raw_receipt(
     assert "passed" not in raw and "field_verified" not in raw
     assert truth.query("rc72_official_journey_execution")[0]["field_verified"] is False
     # New service object may not silently replay a side-effecting signed Attempt.
-    with pytest.raises(Exception, match="OFFICIAL_JOURNEY_EXECUTION_ALREADY_EXISTS"):
+    with pytest.raises(Exception, match="JOURNEY_N7_ATTEMPT_ALREADY_USED_DIAGNOSIS_REQUIRED"):
         adapter(contract=_contract(), context=_context(lease))
 
 
@@ -92,6 +92,43 @@ def test_n7_cold_reentry_does_not_duplicate_business_actions(tmp_path):
     reloaded = OfficialJourneyExecutionService(
         restarted, release_id="RC7.2",
         browser_pool=BrowserPool(restarted, release_id="RC7.2"), adapter=browser)
-    with pytest.raises(Exception, match="OFFICIAL_JOURNEY_EXECUTION_ALREADY_EXISTS"):
+    with pytest.raises(Exception, match="JOURNEY_N7_ATTEMPT_ALREADY_USED_DIAGNOSIS_REQUIRED"):
         SignedN7OfficialJourneyAdapter(reloaded)(contract=_contract(), context=_context(lease))
     assert len(browser.calls) == 2
+
+
+def test_n7_preflight_rejects_authkeeper_lease_without_dispatch_side_effects(tmp_path):
+    from rc7_runtime.rc72_browser_resources import BrowserAccessMode
+    truth, pool, lease, browser, service = _setup(tmp_path)
+    pool.release(lease.browser_lease_id, reason="auth-only")
+    auth = pool.acquire(
+        mission_id="M-1", workitem_id="WI-OJ", attempt_id="ATT-OJ",
+        worker_id="WORKER-OJ", access_mode=BrowserAccessMode.WRITE,
+        purpose="AUTH_KEEPER", ttl_seconds=300)
+    signed = SignedN7OfficialJourneyAdapter(service)
+    with pytest.raises(Exception, match="JOURNEY_N7_OFFICIAL_BROWSER_PURPOSE_MISMATCH"):
+        signed.preflight(contract=_contract(), context=_context(auth))
+    assert not browser.calls
+    assert not truth.query("rc72_official_journey_execution")
+
+
+def test_n7_preflight_rejects_workitem_missing_authorized_official_asset(tmp_path):
+    truth, pool, lease, browser, service = _setup(tmp_path)
+    task = truth.query("rc7_task", task_id="WI-OJ")[0]
+    # Truth projection overwrite simulates a canonical replan that revoked
+    # this WorkItem's official source. No browser action may survive it.
+    from rc7_runtime.models import Task
+    from rc7_runtime.truth_overlay import append_entity
+    new_task = Task(
+        task_id="WI-OJ", mission_id="M-1", node="N7_EXECUTION",
+        task_type="OFFICIAL_JOURNEY_EXECUTION",
+        objective="replanned and no longer owns the official asset",
+        required_capabilities=["browser:write"],
+        input_artifact_refs=["ETU-OJ"],
+        acceptance_criteria=["report mismatch"])
+    append_entity(truth, new_task, release_id="RC7.2")
+    with pytest.raises(Exception, match="JOURNEY_N7_WORKITEM_ASSET_SCOPE_MISMATCH"):
+        SignedN7OfficialJourneyAdapter(service).preflight(
+            contract=_contract(), context=_context(lease))
+    assert not browser.calls
+    assert not truth.query("rc72_official_journey_execution")
