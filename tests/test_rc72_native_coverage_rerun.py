@@ -48,6 +48,13 @@ def test_n10_runs_fresh_full_n7_then_fresh_libra_and_closes_original_gap(tmp_pat
         before_fresh_plan_audit=truth.store.path.read_bytes()
         assert rerun.planning.assert_current(rerun_row['rerun_plan_id'],review_only=True)['plan_id']==rerun_row['rerun_plan_id']
         assert truth.store.path.read_bytes()==before_fresh_plan_audit
+        fresh_gate=truth.query('rc72_node_gate',gate_id=rerun_row['fresh_n7_gate_id'])[0]
+        fresh_delivery=truth.query('rc72_node_delivery',delivery_id=fresh_gate['delivery_id'])[0]
+        # Retain the latest main source-strengthening test unchanged: the
+        # accepted delivery must own this exact new bundle and be a new epoch.
+        assert fresh_gate['decision']=='PASS'
+        assert fresh_delivery['artifact_refs']==[fresh_bundle['bundle_id']]
+        assert fresh_delivery['version']>boundary['origin_n7_delivery_version']
         assert all(case['workitem_id'].startswith('N7COVWI-') for case in fresh_bundle['case_results'])
         n7=truth.query('rc72_mission_node',mission_id=rerun_row['mission_id'],node_type='N7_EXECUTION')[0]
         assert n7['state']=='PASS' and n7['active_delivery_version']>boundary['origin_n7_delivery_version']
