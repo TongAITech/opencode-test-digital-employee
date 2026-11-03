@@ -12,6 +12,7 @@ on:
       - 'rc7_runtime/rc72_economy_scheduler.py'
       - 'tests/test_rc72_production_economy_wiring.py'
       - 'tests/test_rc72_production_economy_ingress.py'
+      - 'tests/test_rc72_mission_economy_cli_ingress.py'
       - 'tests/test_rc72_cost_window_configuration.py'
       - 'docs/rc7.2/C10-PRODUCTION-ECONOMY-INTEGRATION-HANDOFF.md'
       - '.github/workflows/rc7.2-economy-c10.yml'
@@ -42,6 +43,7 @@ jobs:
           python -m pytest -q
           tests/test_rc72_production_economy_wiring.py
           tests/test_rc72_production_economy_ingress.py
+          tests/test_rc72_mission_economy_cli_ingress.py
           tests/test_rc72_cost_window_configuration.py
           tests/test_rc72_token_economy.py
           tests/test_rc72_dsh_token_usage_wiring.py
