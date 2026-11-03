@@ -8,22 +8,22 @@ import ast
 
 
 def _n8_condition(node):
-    """A branch must explicitly compare the active node type to native N8."""
-    for item in ast.walk(node):
-        if not isinstance(item, ast.Compare):
-            continue
-        if not any(isinstance(value, ast.Constant) and value.value == "N8_DIAGNOSIS_RECOVERY"
-                   for value in list(item.comparators) + [item.left]):
-            continue
-        other = (item.left if not (isinstance(item.left, ast.Constant)
-                 and item.left.value == "N8_DIAGNOSIS_RECOVERY")
-                 else item.comparators[0])
-        if (isinstance(other, ast.Name) and other.id in {"node_type", "current_node_type"}
-                or isinstance(other, ast.Subscript)
-                and isinstance(other.slice, ast.Constant)
-                and other.slice.value == "node_type"):
-            return True
-    return False
+    """Only equality/conjunction genuinely constrain the active node to N8."""
+    if isinstance(node, ast.BoolOp):
+        # OR admits non-N8 nodes and is not a sufficient fenced dispatch route.
+        return isinstance(node.op, ast.And) and any(_n8_condition(value) for value in node.values)
+    if not isinstance(node, ast.Compare) or len(node.ops) != 1 or not isinstance(node.ops[0], ast.Eq):
+        return False
+    if len(node.comparators) != 1:
+        return False
+    left, right = node.left, node.comparators[0]
+    if isinstance(left, ast.Constant) and left.value == "N8_DIAGNOSIS_RECOVERY":
+        left, right = right, left
+    if not isinstance(right, ast.Constant) or right.value != "N8_DIAGNOSIS_RECOVERY":
+        return False
+    return (isinstance(left, ast.Name) and left.id in {"node_type", "current_node_type"}
+            or isinstance(left, ast.Subscript) and isinstance(left.slice, ast.Constant)
+            and left.slice.value == "node_type")
 
 
 def _owned_n8_call(statement):
