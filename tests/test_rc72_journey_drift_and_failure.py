@@ -249,3 +249,35 @@ def test_official_cold_crash_holds_unknown_side_effects_without_duplicate_browse
         _run(recovered, lease, execution_id="OJ-NEW")
     assert crashed.calls == 1
     assert not reloaded.query("rc72_official_journey_execution", execution_id="OJ-NEW")
+
+
+def test_auth_keeper_browser_lease_cannot_be_reused_for_official_l5(tmp_path):
+    from rc7_runtime.rc72_browser_resources import BrowserAccessMode
+    truth, pool, lease, browser, service = official_setup(tmp_path)
+    pool.release(lease.browser_lease_id, reason="switch actor")
+    auth = pool.acquire(
+        mission_id="M-1", workitem_id="WI-OJ", attempt_id="ATT-OJ",
+        worker_id="WORKER-OJ", access_mode=BrowserAccessMode.WRITE,
+        purpose="AUTH_KEEPER", ttl_seconds=300)
+    with pytest.raises(Exception, match="OFFICIAL_JOURNEY_BROWSER_PURPOSE_MISMATCH"):
+        service.execute(
+            execution_id="OJ-AUTH-OWNERSHIP", official_asset_id="JOURNEY-1",
+            workitem_id="WI-OJ", attempt_id="ATT-OJ", worker_id="WORKER-OJ",
+            session_id="SESSION-OJ", browser_lease_id=auth.browser_lease_id)
+    assert not browser.calls
+
+
+def test_auth_keeper_browser_lease_cannot_be_reused_for_human_teaching(tmp_path):
+    from rc7_runtime.rc72_browser_resources import BrowserAccessMode
+    from test_rc72_phase9_journey_teaching_capture_contract import (
+        _setup as teaching_setup, _start,
+    )
+    truth, service, pool, lease = teaching_setup(tmp_path)
+    pool.release(lease.browser_lease_id, reason="switch actor")
+    auth = pool.acquire(
+        mission_id="M-1", workitem_id="WI-1", attempt_id="ATT-1",
+        worker_id="WORKER-1", access_mode=BrowserAccessMode.WRITE,
+        purpose="AUTH_KEEPER", ttl_seconds=300)
+    with pytest.raises(Exception, match="JOURNEY_TEACHING_BROWSER_PURPOSE_MISMATCH"):
+        _start(service, auth.browser_lease_id)
+    assert not truth.query("rc72_journey_recording")
