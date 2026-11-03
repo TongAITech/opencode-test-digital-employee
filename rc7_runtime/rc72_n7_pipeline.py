@@ -107,8 +107,8 @@ class N7PipelineService:
             from .rc72_n9_professional_intake import NativeN9ProfessionalIntakeService
             queued = NativeN9ProfessionalIntakeService(self).queue_reproduction(
                 preparation_id=preparation_id, diagnosis_id=result['diagnosis_id'])
-            professional = dict(reproduction_workitem_id=queued['reproduction_workitem_id'],
-                                defect_confirmed=False)
+            professional = dict(qualification_workitem_id=queued['qualification_workitem_id'],
+                                defect_confirmed=False, reproduction_completed=False)
         return dict(status='HOLD',reason='N9_FAILURE_QUALIFICATION_REQUIRED' if result['failure_class']=='VALID_TEST_FAILURE'
                     else 'N7_EXECUTION_DIAGNOSIS_REQUIRED',preparation_id=preparation_id,
                     diagnosis_id=result['diagnosis_id'],failure_class=result['failure_class'],
