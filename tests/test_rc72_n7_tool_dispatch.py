@@ -193,10 +193,12 @@ def test_adapter_times_out_after_remote_commit_and_cold_resume_never_replays(tmp
     cold = TruthRuntime(truth.store.path)
     resumed = SignedToolDispatchService(_service(cold),
                                         adapters={'api_http': commit_then_lose_response})
-    with pytest.raises(ToolDispatchError, match='SIDE_EFFECTS_UNKNOWN'):
-        resumed.dispatch(row['preparation_id'])
+    # Before the cold redispatch revokes the old worker lease, UNKNOWN cannot
+    # be evaluated as a returned business receipt or a PASS.
     with pytest.raises(ToolDispatchError, match='RETURNED_RECEIPT_REQUIRED'):
         resumed.evaluate(row['preparation_id'])
+    with pytest.raises(ToolDispatchError, match='SIDE_EFFECTS_UNKNOWN'):
+        resumed.dispatch(row['preparation_id'])
     assert len(remote_operations) == 1
     assert {lease['state'] for lease in cold.query('rc72_data_lease')} == {'ACTIVE'}
 
