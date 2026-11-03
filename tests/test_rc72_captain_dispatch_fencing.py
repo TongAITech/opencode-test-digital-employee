@@ -62,12 +62,16 @@ def test_handoff_quiesces_old_captain_and_fences_old_generation(tmp_path):
             mission_id="M-1", lease_id=first["lease_id"],
             captain_session_id="CAPTAIN-A")
 
-    restarted = CaptainDispatchFencer(TruthRuntime(truth.store.path), release_id="RC7.2")
+    restarted_truth = TruthRuntime(truth.store.path)
+    restarted = CaptainDispatchFencer(restarted_truth, release_id="RC7.2")
+    from rc7_runtime.rc72_worker_lifecycle import WorkerLifecycleService
+    restarted_lifecycle = WorkerLifecycleService(restarted_truth, release_id="RC7.2",
+                                                  policy=lifecycle.policy)
     successor = restarted.takeover(
         mission_id="M-1", team_id="TEAM-1",
         checkpoint_id=checkpoint.checkpoint_id,
         new_captain_session_id="CAPTAIN-B",
-        lifecycle=lifecycle)
+        lifecycle=restarted_lifecycle)
     assert successor["generation"] == 2
     assert successor["parent_lease_id"] == first["lease_id"]
     assert successor["captain_session_id"] == "CAPTAIN-B"
@@ -82,7 +86,7 @@ def test_handoff_quiesces_old_captain_and_fences_old_generation(tmp_path):
         restarted.takeover(
             mission_id="M-1", team_id="TEAM-1",
             checkpoint_id=checkpoint.checkpoint_id,
-            new_captain_session_id="CAPTAIN-C", lifecycle=lifecycle)
+            new_captain_session_id="CAPTAIN-C", lifecycle=restarted_lifecycle)
 
 
 def test_crash_during_handoff_fails_closed_without_dispatch(tmp_path, monkeypatch):
