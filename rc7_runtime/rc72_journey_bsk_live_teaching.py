@@ -190,6 +190,21 @@ class JourneyBSKLiveTeaching:
         png = verify_png_file(screenshot)
         if screen.get("tab_id") != self.receipt["tab_id"] or screen.get("byte_size") != png["bytes"]:
             raise ContractError("JOURNEY_BSK_LIVE_SCREENSHOT_UNVERIFIED")
+        # Human/browser operations can arrive while snapshot and PNG are
+        # written. Re-read native debug state: a later operation must not
+        # reuse the previous operation's final-page evidence.
+        stable = self._call([
+            "debug", "operations", *scope, "--since", str(self.last_sequence),
+            "--limit", "10", "--json"])
+        observed = stable.get("operations")
+        if (not isinstance(stable.get("run"), Mapping)
+                or stable["run"].get("id") != self.run_id
+                or not isinstance(observed, list)
+                or len(observed) != 1
+                or observed[0].get("id") != op["id"]
+                or observed[0].get("sequence") != seq
+                or observed[0].get("state") != "completed"):
+            raise ContractError("JOURNEY_BSK_LIVE_CONCURRENT_ACTION_EVIDENCE_UNSAFE")
         self._scope()
         binding: Dict[str, Any] = {
             "dom_ref": dom.resolve().as_uri(),
