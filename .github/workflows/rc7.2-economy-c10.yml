@@ -5,16 +5,10 @@ on:
     branches:
       - work/rc7.2-economy
     paths:
-      - 'rc7_runtime/rc72_production_economy_wiring.py'
-      - 'rc7_runtime/rc72_production_economy_ingress.py'
+      - 'rc7_runtime/rc72_*.py'
       - 'rc7_release/rc72_mission_cli.py'
-      - 'rc7_runtime/rc72_model_economy.py'
-      - 'rc7_runtime/rc72_economy_scheduler.py'
-      - 'tests/test_rc72_production_economy_wiring.py'
-      - 'tests/test_rc72_production_economy_ingress.py'
-      - 'tests/test_rc72_mission_economy_cli_ingress.py'
-      - 'tests/test_rc72_cost_window_configuration.py'
-      - 'docs/rc7.2/C10-PRODUCTION-ECONOMY-INTEGRATION-HANDOFF.md'
+      - 'tests/test_rc72_*.py'
+      - 'docs/rc7.2/C10-*.md'
       - '.github/workflows/rc7.2-economy-c10.yml'
   workflow_dispatch:
 
@@ -52,3 +46,11 @@ jobs:
           tests/test_rc72_economy_scheduler.py
           tests/test_rc72_critical_path_no_delay.py
           tests/test_rc72_q7_admission.py
+          tests/test_rc72_token_usage.py
+          tests/test_rc72_truth_replay_economy.py
+          tests/test_rc72_token_economy_qualification_contract.py
+          tests/test_rc72_retry_context.py
+          tests/test_rc72_context_repetition.py
+          tests/test_rc72_evaluator_amplification_contract.py
+          tests/test_rc72_cost_window_product_wiring.py
+          tests/test_rc72_phase7_model_failover_contract.py
