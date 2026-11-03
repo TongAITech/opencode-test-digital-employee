@@ -297,7 +297,7 @@ def test_native_batch_cold_resume_is_idempotent_without_second_model_call(tmp_pa
     ("FORGED_ATTEMPT", "LINEAGE"),
     ("SHARED_TOOL_REF", "TOOL_PROOF"),
     ("FAKE_TOOL_REF", "TOOL_PROOF"),
-    ("MODEL_ASSERTS_PASS", "STRICT_OUTPUT"),
+    ("MODEL_ASSERTS_PASS", "MODEL_CANNOT_ASSERT_PASS"),
 ])
 def test_native_batch_never_persists_fabricated_or_incomplete_member_evidence(tmp_path, mutation, expected):
     truth, _, batch, execution, _, assignment = _fixture(tmp_path)
