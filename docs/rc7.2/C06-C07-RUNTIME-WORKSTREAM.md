@@ -69,6 +69,13 @@ Source: `05` §§3,8,12,14,15,17,18,19,21,22; `10` C06/C07.
 - `tests/test_rc72_fenced_n7_preparation.py` covers actual canonical N7 Plan + TaskScheduler → Captain admission → signed Worker/TaskLease/DataLease, R1 cold replay, missing admission record, forged Worker/Team/role/ETU/generation, arbitrary real AgentTeams Team ID, and old Captain quiescence. `tests/test_rc72_captain_scheduling.py` additionally injects a process crash **after Task lease and before R1 admission** to prove cold replay cannot silently reassign or sign work. It does not execute SUT/DSH or assert Case PASS.
 - If a process dies after the Task is leased but before its R1 admission is written, the WorkItem remains LEASED without an admission proof: signing is blocked and R1 needs independent safe reconciliation. This is an explicit fail-closed crash window, not a success claim.
 
+### Slice C07-U05 — cold bootstrap and idempotent authority admission
+
+- The RC7.2 package's explicit `rc72_truth_bootstrap._INSTALLERS` now includes both `rc72_captain_dispatch_lease` and `rc72_captain_etu_admission` overlays. These are **additive** event types; no `rc6_runtime.truth` global core schema was changed. A fresh Python interpreter that imports only `rc7_runtime` can replay a previous Captain lease and preleased ETU admission rather than failing `UNSUPPORTED_EVENT_TYPE`.
+- Formal `ExecutionPreparationService.prepare(..., fenced_admission=...)` also revalidates the **same immutable R1 Captain admission and current Captain generation inside the execution resource ledger lock** when a `PREPARED` record already exists. Previously its early idempotent return could skip all caller fence checks and restore scoped TaskLease authority with a forged/stale dispatch object.
+- Added a separate-process cold-replay regression and a valid-idempotence / forged admission / quiesced Captain suite. True DSH/Provider/browser/4A validation still remains FIELD_PENDING. 
+- With `concurrency.cancel-in-progress` enabled, every new PR commit cancels older queued CI jobs. Only the exact final HEAD's completed checks qualify; prior queued/cancelled statuses are never counted as passing evidence.
+
 ### Slice C07-U03 — Provider failure and Fresh Worker failover fencing
 
 - `rc72_model_failover.py` now protects canonical readiness updates, provider failure recording and failover with the **same cross-process R1 ledger lock**. Two cold processes must not both create a fresh replacement Worker for one provider failure. This is the runtime's **model/provider namespace**, not a product SUT FAIL or Defect.
