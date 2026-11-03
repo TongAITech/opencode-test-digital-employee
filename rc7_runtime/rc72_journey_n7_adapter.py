@@ -100,8 +100,7 @@ class SignedN7OfficialJourneyAdapter:
         self.execution.browser_pool.assert_usable(
             browser_lease_id=scope["browser_lease_id"], mission_id=asset["mission_id"],
             workitem_id=scope["workitem_id"], attempt_id=scope["attempt_id"],
-            worker_id=scope["worker_id"], access_mode=__import__(
-                "rc7_runtime.rc72_browser_resources", fromlist=["BrowserAccessMode"]).BrowserAccessMode.WRITE)
+            worker_id=scope["worker_id"], access_mode=BrowserAccessMode.WRITE)
 
     def __call__(self, *, contract: Mapping[str, Any], context: Mapping[str, Any]) -> Dict[str, Any]:
         self.preflight(contract=contract, context=context)
