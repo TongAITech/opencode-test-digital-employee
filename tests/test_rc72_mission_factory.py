@@ -155,3 +155,77 @@ def test_factory_driver_refuses_n8_detached_native_recovery_before_any_r1_effect
     assert truth.store.path.read_bytes()==before
     assert not truth.query('rc72_n8_repair_boundary')
     assert not truth.query('rc72_n8_process_diagnosis')
+
+
+def _real_captain_binding(truth):
+    """Actual B-group scheduler objects, with no leased/forged authority."""
+    from rc7_runtime.control_plane import TaskScheduler
+    from rc7_runtime.rc72_captain_dispatch_fencing import CaptainDispatchFencer
+    from rc7_runtime.rc72_captain_scheduling import CaptainFencedWorkItemScheduler
+    from rc7_runtime.rc72_worker_lifecycle import WorkerLifecycleService
+    from rc7_runtime.rc72_mission_factory import MissionCaptainBinding
+
+    governed = CaptainFencedWorkItemScheduler(
+        truth=truth, release_id=RELEASE,
+        fencer=CaptainDispatchFencer(truth, release_id=RELEASE),
+        lifecycle=WorkerLifecycleService(truth, release_id=RELEASE),
+        scheduler=TaskScheduler(truth, release_id=RELEASE),
+        role_profiles={'L3_EXECUTE': ('api_http',)})
+    return MissionCaptainBinding(governed, 'captain-session', 'signed-captain-lease', 'real-team')
+
+
+def test_factory_binds_governed_b_captain_into_actual_a_product_n7(tmp_path):
+    """A's real MissionFactory must not discard B's fenced scheduler."""
+    from rc7_runtime.rc72_mission_factory import MissionCaptainBinding
+    truth, options = _setup(tmp_path)
+    binding = _real_captain_binding(truth)
+    before = truth.store.path.read_bytes()
+    options['captain_binding'] = binding
+    driver = create_mission_driver(truth, **options)
+    n7 = driver.n7_pipeline
+    assert n7.captain_scheduler is binding.scheduler
+    assert n7.captain_lease_id == binding.captain_lease_id
+    assert n7.captain_session_id == binding.captain_session_id
+    assert n7.team_id == binding.team_id
+    assert driver.n8_pipeline.n7 is n7
+    assert driver.n9_pipeline.pipeline is n7
+    assert driver.n10_pipeline.rerun.pipeline is n7
+    assert isinstance(binding, MissionCaptainBinding)
+    # Composition must not create Captain/Worker/Attempt/PASS, nor call DSH.
+    assert truth.store.path.read_bytes() == before
+    assert not truth.query('rc72_captain_dispatch_lease')
+    assert not truth.query('rc72_captain_etu_admission')
+
+
+@pytest.mark.parametrize('mutation,reason', [
+    ('bare', 'TYPED_CAPTAIN_BINDING'),
+    ('no_team', 'CAPTAIN_SCOPE'),
+    ('no_captain_lease', 'CAPTAIN_SCOPE'),
+    ('foreign_release', 'CAPTAIN_CANONICAL_RUNTIME'),
+    ('foreign_fencer', 'CAPTAIN_CANONICAL_RUNTIME'),
+    ('foreign_scheduler', 'CAPTAIN_CANONICAL_RUNTIME'),
+])
+def test_factory_denies_unowned_or_partial_captain_without_r1_effects(tmp_path, mutation, reason):
+    from rc7_runtime.rc72_mission_factory import MissionCaptainBinding
+    truth, options = _setup(tmp_path)
+    binding = _real_captain_binding(truth)
+    scheduler = binding.scheduler
+    if mutation == 'bare':
+        binding = {'scheduler': scheduler, 'status': 'PASS'}
+    elif mutation == 'no_team':
+        binding = replace(binding, team_id='')
+    elif mutation == 'no_captain_lease':
+        binding = replace(binding, captain_lease_id='')
+    elif mutation == 'foreign_release':
+        scheduler.release_id = 'foreign-release'
+    elif mutation == 'foreign_fencer':
+        scheduler.fencer.release_id = 'foreign-release'
+    elif mutation == 'foreign_scheduler':
+        scheduler.scheduler.release_id = 'foreign-release'
+    assert mutation == 'bare' or isinstance(binding, MissionCaptainBinding)
+    options['captain_binding'] = binding
+    before = truth.store.path.read_bytes()
+    with pytest.raises(ContractError, match='MISSION_FACTORY_' + reason):
+        create_mission_driver(truth, **options)
+    assert truth.store.path.read_bytes() == before
+    assert not truth.query('execution_attempt')
