@@ -54,6 +54,7 @@ jobs:
       - name: Clean extraction and package-local verification
         shell: pwsh
         run: |
+          $checkout = (Get-Location).Path
           $zip = (Get-ChildItem dist/RC72-PORTABLE-WIN10-*.zip).FullName
           Remove-Item dist/PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10 -Recurse -Force
           $clean = Join-Path $env:RUNNER_TEMP 'rc72-portable-clean'
@@ -85,6 +86,14 @@ jobs:
             & $py -m rc7_release.rc72_windows_clean_qualification --package-root $pkg --output (Join-Path $evidence 'clean-runtime.json') --require-pass
             if ($LASTEXITCODE -ne 0) { throw 'package-local R1/session continuity failed' }
           } finally { Pop-Location }
+          $env:RC72_PIP_MIRROR_COMPONENT = '1'
+          $env:RC72_PIP_MIRROR_PACKAGE_ROOT = $pkg
+          $env:RC72_PIP_MIRROR_PACKAGE_ARCHIVE = $zip
+          $env:RC72_PIP_MIRROR_ORIGINAL_STAGE = Join-Path $checkout 'dist/PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10'
+          $env:RC72_PIP_MIRROR_EVIDENCE = Join-Path $evidence 'pip-mirror-public'
+          $junit = Join-Path $evidence 'pip-mirror-windows.xml'
+          & $py -m pytest (Join-Path $checkout 'tests/test_rc72_bank_pc_pip_mirror_windows.py') -q "--junitxml=$junit"
+          if ($LASTEXITCODE -ne 0) { throw 'final extracted package user-config mirror qualification failed' }
           'Preparation only: Q3/Q4/Field/BANK_FINAL qualification remains pending.' | Set-Content (Join-Path $evidence 'QUALIFICATION-BOUNDARY.txt')
       - name: Upload complete portable transport and engineering evidence
         uses: actions/upload-artifact@v4

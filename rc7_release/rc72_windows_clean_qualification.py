@@ -17,7 +17,13 @@ RELEASE_PREFIX = "RC72-CLEAN-TRANSPORT"
 GOAL = "Qualify freshly extracted RC7.2 Windows package R1 durability and Session A-B-C continuity"
 
 
-def qualify(package_root: Path) -> Dict[str, object]:
+def qualify(package_root: Path, *, bank_field=False, bank_pip_field_config=None, archive=None,
+            pip_evidence_root=None, bridge_user_config=False) -> Dict[str, object]:
+    requested_field=bool(bank_field or bank_pip_field_config or archive or pip_evidence_root or bridge_user_config)
+    if requested_field and not all((bank_pip_field_config,archive,pip_evidence_root)):
+        return dict(status='FAIL',qualification=QUALIFICATION_NAME,release_family=RELEASE_FAMILY,
+            reason='BANK_PC_PIP_MIRROR_GATE_CONFIGURATION_REQUIRED',
+            bank_pc_pip_mirror_gate=dict(status='NOT_RUN'),field_verified=False,bank_final=False)
     result = dict(
         qualify_with_contract(
             Path(package_root),
@@ -42,6 +48,17 @@ def qualify(package_root: Path) -> Dict[str, object]:
             "bank_field_pass": False,
         }
     )
+    if requested_field:
+        from .bank_pc_pip_mirror_probe import qualify as qualify_mirror
+        if result.get('status')!='PASS':
+            result['bank_pc_pip_mirror_gate']=dict(status='NOT_RUN',reason='CLEAN_PACKAGE_NOT_PASS')
+            return result
+        mirror=qualify_mirror(package_root,archive,json.loads(Path(bank_pip_field_config).read_text(encoding='utf-8')),
+            pip_evidence_root,bridge=bridge_user_config)
+        result['bank_pc_pip_mirror_gate']=mirror
+        if mirror.get('status')!='PASS' or mirror.get('bank_pc_mirror_field_fact') is not True:
+            result.update(status='FAIL',reason='BANK_PC_PIP_MIRROR_GATE_NOT_FIELD_PASS')
+        result['qualification_scope']='Q2B_WINDOWS_CLEAN_PLUS_BANK_PC_PIP_MIRROR_FACT'
     return result
 
 
@@ -50,13 +67,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--package-root", required=True)
     parser.add_argument("--output")
     parser.add_argument("--require-pass", action="store_true")
+    parser.add_argument('--bank-field',action='store_true')
+    parser.add_argument('--bank-pip-field-config')
+    parser.add_argument('--archive')
+    parser.add_argument('--pip-evidence-root')
+    parser.add_argument('--bridge-user-config',action='store_true')
     return parser
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(list(argv) if argv is not None else None)
     try:
-        result = qualify(Path(args.package_root))
+        result = qualify(Path(args.package_root),bank_field=args.bank_field,bank_pip_field_config=args.bank_pip_field_config,
+            archive=args.archive,pip_evidence_root=args.pip_evidence_root,bridge_user_config=args.bridge_user_config)
     except Exception as exc:
         result = {
             "status": "FAIL",

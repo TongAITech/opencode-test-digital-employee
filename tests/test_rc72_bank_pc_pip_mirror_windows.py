@@ -24,15 +24,20 @@ def _wheel(directory):
 
 def test_real_copied_python_mirror_install_import_and_host_substitution_refusals(tmp_path,monkeypatch):
     public=Path(os.environ['RC72_PIP_MIRROR_EVIDENCE']).resolve();public.mkdir(parents=True,exist_ok=True)
-    stage=tmp_path/'original stage';stage.mkdir();assert _bundle_current_windows_python(stage)
-    (stage/'SOURCE_COMMIT').write_text(os.environ['GITHUB_SHA'])
-    code=stage/'rc7_release/bank_pc_pip_mirror_probe.py';code.parent.mkdir();shutil.copy2('rc7_release/bank_pc_pip_mirror_probe.py',code)
-    archive=tmp_path/'copied-python.zip'
-    with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=3) as zipped:
-        for path in stage.rglob('*'):
-            if path.is_file():zipped.write(path,path.relative_to(stage).as_posix())
-    shutil.rmtree(stage);root=tmp_path/'clean package with spaces'
-    with zipfile.ZipFile(archive) as zipped:zipped.extractall(root)
+    provided=os.environ.get('RC72_PIP_MIRROR_PACKAGE_ROOT')
+    if provided:
+        root=Path(provided).resolve();archive=Path(os.environ['RC72_PIP_MIRROR_PACKAGE_ARCHIVE']).resolve()
+        stage=Path(os.environ['RC72_PIP_MIRROR_ORIGINAL_STAGE']).resolve()
+    else:
+        stage=tmp_path/'original stage';stage.mkdir();assert _bundle_current_windows_python(stage)
+        (stage/'SOURCE_COMMIT').write_text(os.environ['GITHUB_SHA'])
+        code=stage/'rc7_release/bank_pc_pip_mirror_probe.py';code.parent.mkdir();shutil.copy2('rc7_release/bank_pc_pip_mirror_probe.py',code)
+        archive=tmp_path/'copied-python.zip'
+        with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=3) as zipped:
+            for path in stage.rglob('*'):
+                if path.is_file():zipped.write(path,path.relative_to(stage).as_posix())
+        shutil.rmtree(stage);root=tmp_path/'clean package with spaces'
+        with zipfile.ZipFile(archive) as zipped:zipped.extractall(root)
     assert not stage.exists()
     wheel=_wheel(tmp_path/'mirror/packages');index=tmp_path/'mirror/simple/rc72-bank-mirror-fixture/index.html';index.parent.mkdir(parents=True)
     index.write_text('<a href="/packages/'+wheel.name+'#sha256='+hashlib.sha256(wheel.read_bytes()).hexdigest()+'">fixture</a>')
@@ -48,7 +53,7 @@ def test_real_copied_python_mirror_install_import_and_host_substitution_refusals
         if key.startswith('PIP_'):monkeypatch.delenv(key)
     monkeypatch.setenv('APPDATA',str(appdata));url='http://127.0.0.1:'+str(server.server_port)+'/simple'
     config.write_text('[global]\nindex-url = '+url+'\ntrusted-host = 127.0.0.1\n',encoding='utf-8')
-    policy=dict(spec='rc72_bank_mirror_fixture==1.0',module='rc72_bank_mirror_fixture',approved_index_url=url)
+    policy=dict(spec='rc72_bank_mirror_fixture==1.0',module='rc72_bank_mirror_fixture')
     private=tmp_path/'private field proof';negatives=[]
     def refused(name,pattern,**kwargs):
         with pytest.raises(RuntimeError,match=pattern):qualify(root,archive,kwargs.get('policy',policy),private/name,engineering=True)
@@ -84,9 +89,10 @@ def test_real_copied_python_mirror_install_import_and_host_substitution_refusals
         hostmodule=root/'workspace-template/runtime/python/Lib/site-packages/rc72_host_only.py';hostmodule.write_text('HOST_ONLY=True\n')
         executable=root/'workspace-template/runtime/python/python.exe'
         actual=subprocess.run([str(executable),'-s','-c',IMPORT,str(target),'rc72_host_only','rc72_host_only'],capture_output=True,text=True)
+        hostmodule.unlink()
         assert actual.returncode!=0 and 'ValueError' in actual.stderr;negatives.append('host-site-import-refused')
         (public/'actual-negative-summary.json').write_text(json.dumps(dict(status='PASS',negative_checks=negatives,
-            actual_mirror_requests=len(requests),original_staging_deleted=not stage.exists(),
+            actual_mirror_requests=len(requests),full_transport_extraction=bool(provided),original_staging_deleted=not stage.exists(),
             source_commit=os.environ['GITHUB_SHA'],engineering_only=True,field_verified=False,bank_final=False),indent=2))
     finally:
         if original is None:config.unlink(missing_ok=True)

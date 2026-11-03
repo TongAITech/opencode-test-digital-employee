@@ -164,10 +164,18 @@ def qualify(package_root,archive,policy,evidence_root,*,bridge=False,engineering
     if (not isinstance(policy,dict) or not isinstance(policy.get('spec'),str)
             or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*(?:\[[A-Za-z0-9_,.-]+\])?(?:[<>=!~0-9A-Za-z*.,+-]+)?',policy['spec'])
             or not re.fullmatch(r'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*',policy.get('module',''))
-            or not isinstance(policy.get('approved_index_url'),str)):
+):
         raise RuntimeError('PIP_MIRROR_FIELD_PACKAGE_POLICY_REQUIRED')
     expected_name=re.match(r'[A-Za-z0-9][A-Za-z0-9_.-]*',policy['spec']).group()
     env,config,discovery=prepare_environment(windows_user_appdata(),os.environ,bridge=bridge)
+    user_settings=configparser.RawConfigParser();user_settings.read(str(config),encoding='utf-8-sig')
+    existing_index=user_settings.get('install','index-url',fallback=user_settings.get('global','index-url',fallback=None))
+    approved=policy.get('approved_index_url',existing_index)
+    if not isinstance(approved,str) or not approved:raise RuntimeError('PIP_MIRROR_APPROVED_USER_INDEX_REQUIRED')
+    if policy.get('approved_index_sha256') and hashlib.sha256(approved.encode()).hexdigest()!=policy['approved_index_sha256']:
+        raise RuntimeError('PIP_MIRROR_APPROVED_INDEX_DIGEST_MISMATCH')
+    index_authority='FIELD_POLICY_AND_REAL_USER_CONFIG' if 'approved_index_url' in policy else 'EXISTING_REAL_WINDOWS_USER_CONFIG'
+    policy=dict(policy,approved_index_url=approved)
     evidence.mkdir(parents=True,exist_ok=True);private=evidence/'private';private.mkdir(mode=0o700,exist_ok=True)
     def run(name,args,timeout=90):
         try:completed=subprocess.run([str(python),'-s',*args],cwd=str(runtime),env=env,capture_output=True,text=True,encoding='utf-8',timeout=timeout)
@@ -192,6 +200,7 @@ def qualify(package_root,archive,policy,evidence_root,*,bridge=False,engineering
     if not installs or not any(canonical(i.get('metadata',{}).get('name',''))==canonical(expected_name) for i in installs):
         raise RuntimeError('PIP_MIRROR_FRESH_DISTRIBUTION_REQUIRED')
     origins={_origin(policy['approved_index_url'])}
+    origins.update(_origin(v) for v in before['effective'].get('extra_index_urls',[]))
     origins.update(_origin(v) for v in policy.get('approved_download_origins',[]))
     for item in installs:
         if _origin(item.get('download_info',{}).get('url','')) not in origins:
@@ -207,7 +216,7 @@ def qualify(package_root,archive,policy,evidence_root,*,bridge=False,engineering
     return dict(gate=GATE,status='PASS',schema='RC72_BANK_PC_PIP_MIRROR_V1',source_commit=source,
         archive_sha256=_sha(archive),archive_binding=archive_binding,package_root=str(root),python_executable=str(python),python_prefix=before['prefix'],
         pip_version=before['pip_version'],pip_module=before['pip_module'],discovery=discovery,
-        approved_index_sha256=hashlib.sha256(policy['approved_index_url'].encode()).hexdigest(),
+        approved_index_authority=index_authority,approved_index_sha256=hashlib.sha256(policy['approved_index_url'].encode()).hexdigest(),
         spec=policy['spec'],installation_target=str(target),import_proof=imported,
         resolved=[dict(name=i['metadata']['name'],version=i['metadata']['version']) for i in installs],
         private_evidence_sha256=logs,observed_at=int(time.time()),

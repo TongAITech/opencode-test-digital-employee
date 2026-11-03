@@ -73,3 +73,11 @@ def test_archive_binding_refuses_other_source_or_replaced_runtime(tmp_path,chang
         target={'source':root/'SOURCE_COMMIT','python':python,'pip':pip,'probe':probe}[changed];target.write_text('changed')
         with pytest.raises(RuntimeError):module.verify_archive_binding(root,archive,python,pip)
     else:assert len(module.verify_archive_binding(root,archive,python,pip)['files_sha256'])==3
+
+
+@pytest.mark.parametrize('inputs',[dict(bank_field=True),dict(archive='transport.zip'),dict(bank_pip_field_config='field.json')])
+def test_clean_unpack_field_request_cannot_omit_mirror_gate_configuration(tmp_path,inputs):
+    from rc7_release.rc72_windows_clean_qualification import qualify
+    result=qualify(tmp_path,**inputs)
+    assert result['status']=='FAIL' and result['reason']=='BANK_PC_PIP_MIRROR_GATE_CONFIGURATION_REQUIRED'
+    assert result['bank_pc_pip_mirror_gate']['status']=='NOT_RUN' and result['field_verified'] is False
