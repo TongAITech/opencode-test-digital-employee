@@ -184,6 +184,8 @@ def test_lease_revoked_during_browser_action_cannot_emit_pass(tmp_path):
         pool.release(lease.browser_lease_id, reason="revoked during navigation")
 
     page.goto = goto_and_revoke
+    screenshot_calls = []
+    page.screenshot = lambda **kwargs: screenshot_calls.append(kwargs)
     result = run_replay(service, lease)
     assert result.state.value == "FAILED"
     failure = json.loads((tmp_path / "evidence" / "REAL-1" / "step-0001" / "actual.json").read_text())
