@@ -13,7 +13,7 @@ from rc7_runtime.rc72_mission_factory import ROLES, MissionWorkerBinding, create
 from rc7_runtime.rc72_native_coverage_repair import NativeCoverageRepairService
 from rc7_runtime.rc72_native_coverage_rerun import NativeCoverageRerunService, CoverageRerunPlanningService
 from rc7_runtime.rc72_n8_product_recovery import NativeN8ProductRecoveryService
-from rc72_n2_test_support import build_truth, RELEASE, COMMIT
+from rc72_n2_test_support import build_truth, RELEASE, COMMIT, BATCH
 from rc7_runtime.rc72_bank_pip_mirror import NativeBankPipMirrorService
 from rc72_formal_runner_support import LocalHTTPEnvironment
 
@@ -245,6 +245,10 @@ def test_release_product_entry_blocks_legacy_n7_if_captain_exists(tmp_path, monk
         before = truth.store.path.read_bytes()
         with pytest.raises(ContractError, match='RELEASE_DRIVER_CAPTAIN_CONTEXT_REQUIRED'):
             driver._assert_captain_product_entry(plan['mission_id'])
+        # The real public product entry, not only the helper, must reject
+        # an unfenced Captain Mission before dispatching any Node or tool.
+        with pytest.raises(ContractError, match='RELEASE_DRIVER_CAPTAIN_CONTEXT_REQUIRED'):
+            driver.run(release_batch_id=BATCH)
         assert truth.store.path.read_bytes() == before
         assert server.calls == []
         assert not truth.query('rc72_n7_execution_preparation')
