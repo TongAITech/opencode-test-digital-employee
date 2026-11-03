@@ -25,6 +25,13 @@ _EFFECT_TYPES = (
     "rc72_native_tool_call",
 )
 
+_EFFECT_EVENTS = frozenset({
+    "RC72_N7_HTTP_CALL_UPSERTED",
+    "RC72_EXECUTION_PROCESS_HEARTBEAT_UPSERTED",
+    "RC72_N7_FORMAL_RUNNER_RECEIPT_UPSERTED",
+    "RC72_NATIVE_TOOL_CALL_UPSERTED",
+})
+
 
 def verified_no_external_business_effect(preparation, prepared, error):
     """Return verified R1 evidence IDs, or empty tuple if effects are unknown.
@@ -43,6 +50,18 @@ def verified_no_external_business_effect(preparation, prepared, error):
         return ()
     truth = preparation.truth
     attempt_id = prepared["attempt_id"]
+    # The append-only event stream is the final authority. A cold interpreter
+    # may not have imported every optional native HTTP/process/tool overlay;
+    # absence from an incomplete projection is NOT proof of no effect.
+    for event in truth.store.iter_raw():
+        if event.get("event_type") not in _EFFECT_EVENTS:
+            continue
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            return ()
+        if any(payload.get(key) == prepared.get(key) for key in
+               ("attempt_id", "preparation_id", "worker_id")):
+            return ()
     for artifact_type in _EFFECT_TYPES:
         if artifact_type in registry.BUCKETS and truth.query(artifact_type, attempt_id=attempt_id):
             return ()
