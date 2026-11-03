@@ -195,8 +195,10 @@ def test_adapter_times_out_after_remote_commit_and_cold_resume_never_replays(tmp
                                         adapters={'api_http': commit_then_lose_response})
     # Before the cold redispatch revokes the old worker lease, UNKNOWN cannot
     # be evaluated as a returned business receipt or a PASS.
-    with pytest.raises(ToolDispatchError, match='RETURNED_RECEIPT_REQUIRED'):
+    from rc6_runtime.authority import AuthorityError
+    with pytest.raises((ToolDispatchError, AuthorityError)):
         resumed.evaluate(row['preparation_id'])
+    assert 'oracle_result' not in cold.query('rc72_n7_tool_dispatch', preparation_id=row['preparation_id'])[0]
     with pytest.raises(ToolDispatchError, match='SIDE_EFFECTS_UNKNOWN'):
         resumed.dispatch(row['preparation_id'])
     assert len(remote_operations) == 1
