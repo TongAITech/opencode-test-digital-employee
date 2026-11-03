@@ -21,6 +21,10 @@ The real command-line ReleaseBatch Mission entry in rc7_release/rc72_mission_cli
 
 The command-line run output now separates MISSION_COMPLETION_STATUS and MODEL_ECONOMY_STATUS and keeps ACTUAL_TOTAL_TOKENS null if usage is not fully observed. This is source integration, not Field evidence or proven token savings.
 
+The same explicit bank-local policy is now validated and persisted in the canonical rc72_token_budget R1 artifact. Every RC72EconomyClosedLoopControlPlane instance reads it on construction, including cold replay. A legacy budget lacking this field is version-migrated without rewriting its existing soft token targets; an explicit contradictory operator policy fails closed before any provider launcher is bound. Context-loop hard guards are now scoped to the same canonical WorkItem; unrelated mandatory WorkItems sharing a context fingerprint remain executable.
+
+A DSH process launch is **not** one confirmed provider inference. Accounting now distinguishes dsh_process_invocations from nullable provider_inference_call_count, with provider_inference_call_count_status=UNKNOWN until the bank DSH JSONL event grammar proves every inference. The real CLI Q7 view invokes field_qualification; it remains HOLD while this count is UNKNOWN even when a source-level measured-token fixture reports PASS. This is an intentional non-fabrication boundary, not a hard budget stop for required test work.
+
 ## A group — exact formal integration interface
 
 At the native host worker-composition stage, before any assignment is launched:
@@ -48,7 +52,7 @@ Every new model/provider/Captain/Fresh Worker launcher needs a fresh binder call
 3. Wire SafeExecutionBatchService and independent EvaluatorBatch where compatibility is proven, without collapsing per-WorkItem Attempt, oracle, evidence, gap or TestObligation denominator.
 4. Propagate the same explicit bank policy into the live Scheduler and model ledger. Critical-path semantic work must continue at full price when mandatory.
 5. Integrate quota/auth/timeout, model switching and Fresh Worker recovery with C07; no-progress loops must hard-block and replan without synthetic PASS.
-6. Show separate Q7 MISSION_COMPLETION_STATUS and MODEL_ECONOMY_STATUS. UNKNOWN token usage must never become zero measured tokens.
+6. The CLI now shows separate Q7 MISSION_COMPLETION_STATUS and MODEL_ECONOMY_STATUS. Provider inference counts remain UNKNOWN; obtain actual bank DSH per-inference events before granting economy PASS. UNKNOWN token usage never becomes measured zero.
 7. Carry out same-scope ReleaseBatch baseline and optimized field trials with actual DSH usage, negative/positive testing, L1–L7, RCA/repair/regression, N8/N9/N10 and independent Evidence.
 
 ## Truth boundary
