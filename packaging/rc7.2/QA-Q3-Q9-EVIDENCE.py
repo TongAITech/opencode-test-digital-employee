@@ -52,7 +52,7 @@ def export_evidence(root, output, *, source_commit, includes=(), r1_relpath="run
         raise ExportError("FIELD_EVIDENCE_ROOT_AND_SOURCE_REQUIRED")
     if os.path.commonpath([str(root), str(output)]) == str(root):
         raise ExportError("FIELD_EVIDENCE_OUTPUT_MUST_BE_OUTSIDE_PACKAGE")
-    if output.exists():
+    if output.exists() or Path(str(output) + ".sha256").exists():
         raise ExportError("FIELD_EVIDENCE_OUTPUT_ALREADY_EXISTS")
     actual = _checked(root, "SOURCE_COMMIT").read_text(encoding="utf-8").strip()
     if actual.lower() != source_commit.lower():
@@ -63,12 +63,11 @@ def export_evidence(root, output, *, source_commit, includes=(), r1_relpath="run
         "CHECKSUMS.sha256", "FULL-CAPABILITY-INVENTORY.json", r1_relpath,
     ]
     selected = sorted(set(required + list(includes)))
-    files = []
+    # Check all named inputs before creating anything; collection remains a
+    # byte transport, not evidence validation or Field acceptance.
     for rel in selected:
-        path = _checked(root, rel)
-        files.append(dict(path=rel, size=path.stat().st_size, sha256=_digest(path),
-                          kind="R1_EVENT_STREAM" if rel == r1_relpath else
-                               "PACKAGE_IDENTITY" if rel in required else "EXPLICIT_FIELD_ATTACHMENT"))
+        _checked(root, rel)
+    files = []
     report = {
         "schema": "RC72_QA_Q3_Q9_EVIDENCE_TRANSPORT_V1",
         "source_commit": source_commit.lower(),
@@ -85,16 +84,33 @@ def export_evidence(root, output, *, source_commit, includes=(), r1_relpath="run
         "field_verified": False, "bank_final": False,
     }
     output.parent.mkdir(parents=True, exist_ok=True)
+    sidecar = Path(str(output) + ".sha256")
     try:
-        with zipfile.ZipFile(str(output), "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
-            for item in files:
-                archive.write(str(_checked(root, item["path"])), "payload/" + item["path"])
+        with zipfile.ZipFile(str(output), "x", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
+            for rel in selected:
+                # Hash precisely the bytes written to the archive, not a
+                # preflight snapshot which could change before ZipFile.write.
+                digest = hashlib.sha256()
+                count = 0
+                with _checked(root, rel).open("rb") as source, archive.open("payload/" + rel, "w", force_zip64=True) as destination:
+                    for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                        destination.write(chunk)
+                        digest.update(chunk)
+                        count += len(chunk)
+                files.append(dict(
+                    path=rel, size=count, sha256=digest.hexdigest(),
+                    kind="R1_EVENT_STREAM" if rel == r1_relpath else
+                         "PACKAGE_IDENTITY" if rel in required else "EXPLICIT_FIELD_ATTACHMENT",
+                ))
             archive.writestr("QA-EVIDENCE-INDEX.json", json.dumps(report, sort_keys=True, ensure_ascii=False, indent=2) + "\n")
-        sidecar = Path(str(output) + ".sha256")
-        sidecar.write_text(_digest(output) + "  " + output.name + "\n", encoding="utf-8")
+        with sidecar.open("x", encoding="utf-8") as receipt:
+            receipt.write(_digest(output) + "  " + output.name + "\n")
     except BaseException:
         if output.exists():
             output.unlink()
+        # Never replace or remove a receipt that existed before this export.
+        if sidecar.exists():
+            sidecar.unlink()
         raise
     return dict(report, archive_path=str(output), archive_sha256=_digest(output))
 
