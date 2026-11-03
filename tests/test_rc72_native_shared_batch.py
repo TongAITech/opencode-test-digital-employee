@@ -431,3 +431,33 @@ def test_batch_composer_rejects_nonindependent_or_prebound_workers_before_partia
         )
     assert not getattr(clone, "_rc72_production_economy_bound", False)
     assert truth.query("rc72_token_call", mission_id=MISSION) == []
+
+
+
+def test_malformed_model_tool_ref_or_unhashable_member_id_cannot_create_batch_proof(tmp_path):
+    truth, _, batch, execution, _, assignment = _fixture(tmp_path)
+    malformed = _execution_output()
+    malformed["members"][0]["observed_tool_refs"] = [{"fake": "tool-proof"}]
+    execution.response = malformed
+    with pytest.raises(NativeSharedBatchError, match="TOOL_PROOF"):
+        _dispatch(truth, batch, execution, assignment)
+    assert truth.query("rc72_native_batch_candidate", mission_id=MISSION) == []
+    assert truth.query("execution_attempt", release_id=RELEASE) == []
+
+
+def test_evaluator_unhashable_member_adequacy_never_records_independent_approval(tmp_path):
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    candidate = _dispatch(truth, batch, execution, assignment)
+    malformed = _review_output()
+    malformed["members"][0]["evidence_adequacy"] = {"pass": True}
+    reviewer.response = malformed
+    service = NativeSharedEvaluatorBatch(
+        truth, release_id=RELEASE, launcher=reviewer,
+    )
+    with pytest.raises(NativeBatchReviewError, match="CANNOT_ASSERT_PASS"):
+        service.review(
+            candidate_id=candidate["candidate_id"],
+            assignment=_review_assignment(batch.batch_id, candidate["raw_output_ref"]),
+        )
+    assert truth.query("rc72_native_batch_review", mission_id=MISSION) == []
+    assert truth.query("assertion", release_id=RELEASE) == []
