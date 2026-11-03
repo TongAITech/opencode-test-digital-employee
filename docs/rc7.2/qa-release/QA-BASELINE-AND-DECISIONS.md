@@ -76,3 +76,40 @@ Python/Node/Java/Maven/Chromium/BSK/CodeGraph/k6/ZAP/Allure/rg 的工程日志�
 - [现场操作书](C12-Q3-Q9-VERIFY-AND-EXPORT.md)：明确完整包核验与真实目标环境、失败注入、可信审批、证据导出步骤。
 
 此处新工具及测试须等 QA 分支同源 CI 完成才能算 **QA 工具合格**。截至本次更新，多个 PR/push QA runs 仍排队，当前 QA 明确不声称绿灯。
+
+## 9. 第二轮独立审计：实测 CI 失败与 C12 安全补强（2026-11-04）
+
+重新读取六个分支最新 HEAD（本快照不得替代后续实时审计）：
+
+| 分支 | 本轮观察 SHA | 判定 |
+|---|---|---|
+| 主线 | 7efb3c8aa62f22629e570e3381727969524bf598 | 四组候选尚未合入 |
+| A/core | 8bbf7a5ed251aa49d3860cabb1a635643a40f5aa | 已组合 N10 Repair/Rerun；通用 N8、专业 N9、终态 N10 仍未闭环 |
+| B/runtime | f40187568b1aae320e205e67c798b95e152aa08a | 同源 CI 尚未核销 |
+| C/journey | eec3c0eca2f55f3be05d43ebd1a082d4fa595d9a | 无完整同源工程/银行回放核销 |
+| D/economy | d531923f3056c1408289197dd4664c024c628971 | 同源 CI 尚未核销 |
+
+### 主线同 SHA Construction 作业确切失败
+
+[run 41679951672](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/41679951672) 的 Python 3.8 job 126070654139 与 Python 3.11 job 126070654398 均获得原始日志。两套环境均报告 **1406 passed / 3 failed / 3 skipped**，不能因 workflow 外层状态刷新延迟误称 PASS。
+
+三个失败：
+1. tests/test_rc72_n10_control.py::test_controller_with_repair_provider_still_refuses_ambiguous_mapping_without_side_effect：拒绝歧义覆盖映射时发生额外 R1 写入，违反无副作用契约。
+2. tests/test_rc72_native_coverage_rerun.py::test_n10_runs_fresh_full_n7_then_fresh_libra_and_closes_original_gap：KeyError: 'bundle_id'。
+3. tests/test_rc72_native_coverage_rerun.py::test_cold_resume_after_fresh_n7_before_libra_never_reexecutes_business：KeyError: 'bundle_id'。
+
+A 组候选代码已尝试修复；不同 SHA 的修复不能反推失败主线 PASS。须等待 A 组同 SHA 工程 CI、合并及新主线重新验收。QA PR 被取消/排队也不视为成功。
+
+### C12 工具补强
+
+tools/rc72_qa_offline_audit.py：
+- Manifest 文件集合与 Checksums 集合（除 Manifest 自身）严格匹配，解压目录所有普通文件也必须在校验表里；拒绝“只对一个正确子集散列”的错误。
+- 13 个目录组真实文件数、真实字节数逐组与 Inventory 声明相等；拒绝未登记驱动、虚报文件数、符号链接。依据上游打包器豁免 runtime-state、state、__pycache__、pyc、pyo 运行态文件。
+- 新负面测试包含未登记文件、Manifest 隐藏文件、Inventory 伪造但重新计算全部 SHA 的情况。
+
+packaging/rc7.2/QA-Q3-Q9-EVIDENCE.py：
+- 流式拷贝时同步计算文件 SHA256/size，索引必对应 ZIP 中实际写入字节，不依赖复制前的过时摘要。
+- ZIP 和 SHA256 回执排他创建，只清理自己创建的输出；拒绝覆盖已有回执。
+- 增加输入在预检查与复制间变化、既有回执不可覆盖的负面测试。
+
+**门禁依旧 HOLD**：上面是 QA 分支提交候选；未获新 QA HEAD 同源全平台 CI 实跑，未逐字节独立校验 1.45GB Artifact，也未获取行内机器真实证据。DSH 主程序真实包内物理路径尚未签收；C12、Q9、BANK_FINAL 不得放行。
