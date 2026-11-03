@@ -136,7 +136,9 @@ def qualify(package_root,evidence_root,*,require_windows_outbound_block=False):
     graph_version=run('gitnexus-version',[node,cli,'--version'],execution).strip()
     playwright=run('playwright',[node,'-e',"console.log(JSON.stringify({version:require('playwright/package.json').version,available:!!require('playwright').chromium}))"],execution)
     if _json_result(playwright).get('available') is not True:raise RuntimeError('EXECUTION_COMPONENT_PLAYWRIGHT_REQUIRED')
-    run('analyze',[node,cli,'analyze',fixture,'--skip-git','--index-only','--name',ALIAS,'--workers','1','--memory-budget','1024'],fixture,300)
+    run('analyze-help',[node,cli,'analyze','--help'],fixture)
+    run('status-help',[node,cli,'status','--help'],fixture)
+    run('analyze',[node,cli,'analyze',fixture,'--skip-git','--index-only','--name',ALIAS,'--workers','1'],fixture,300)
     status=_json_result(run('status',[node,cli,'status','--repo',ALIAS,'--json'],fixture))
     if (status.get('error') or status.get('status')!='registered' or status.get('sourceAvailable') is not True
             or status.get('index',{}).get('runnerIdentityStatus')!='current' or status.get('index',{}).get('incompleteReasons')):
