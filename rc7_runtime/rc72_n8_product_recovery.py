@@ -109,6 +109,44 @@ class NativeN8ProductRecoveryService:
                 raise ContractError('N8_PRODUCT_FOREIGN_FAILURE_EVIDENCE')
         return batch,n7,n8,p
 
+    def audit(self,*,release_batch_id):
+        """Read-only historical N8 admission after fresh N7 became PASS.
+
+        An N8 PASS is an accepted diagnosis, not permission to reuse the
+        original N7 Attempt. Reopen only the independent original proof on
+        cold recovery and leave repaired N5/N6/N7 deliveries untouched.
+        """
+        batch=self._one('rc72_release_batch',release_batch_id=release_batch_id)
+        if batch.get('release_id')!=self.release_id:
+            raise ContractError('N8_PRODUCT_HISTORICAL_RELEASE_CHANGED')
+        n7=self._one('rc72_mission_node',mission_id=batch['mission_id'],node_type='N7_EXECUTION')
+        n8=self._one('rc72_mission_node',mission_id=batch['mission_id'],node_type='N8_DIAGNOSIS_RECOVERY')
+        if n7['state']!='PASS' or n8['state']!='PASS' or not n8['gate_refs']:
+            raise ContractError('N8_PRODUCT_HISTORICAL_GATE_REQUIRED')
+        cases=self.truth.query('rc72_diagnosis_case',mission_id=batch['mission_id'])
+        if not cases:
+            raise ContractError('N8_PRODUCT_HISTORICAL_DIAGNOSIS_REQUIRED')
+        # This cold/re-entry check must not create new events. R1 already
+        # contains a complete and independently reviewed N8 receipt for
+        # every affected source Attempt; the original source is re-read.
+        before=self.truth.store.path.read_bytes()
+        verified=[]
+        for case in cases:
+            p=self._one('rc72_n7_execution_preparation',binding_id=case['source_binding_id'])
+            if p['release_batch_id']!=release_batch_id or p['source_commit']!=self.source_commit:
+                raise ContractError('N8_PRODUCT_HISTORICAL_SOURCE_CHANGED')
+            receipt=self.diagnosis._verify(self._one('rc72_n8_process_diagnosis',diagnosis_id=case['diagnosis_id']))
+            if receipt['preparation_id']!=p['preparation_id'] or receipt['result']['failure_class']=='UNKNOWN':
+                raise ContractError('N8_PRODUCT_HISTORICAL_PROOF_CHANGED')
+            result=self.diagnosis.run(p['preparation_id'])
+            if result.get('diagnosis_id')!=case['diagnosis_id']:
+                raise ContractError('N8_PRODUCT_HISTORICAL_ACCEPTANCE_CHANGED')
+            verified.append(case['diagnosis_id'])
+        if self.truth.store.path.read_bytes()!=before:
+            raise ContractError('N8_PRODUCT_HISTORICAL_AUDIT_MUST_BE_READONLY')
+        return dict(status='AUDITED',reason='N8_ACCEPTED_HISTORICAL_DIAGNOSIS_VERIFIED',
+            diagnosis_ids=sorted(verified),field_verified=False,bank_final=False)
+
     def complete(self,*,release_batch_id):
         batch,n7,n8,p=self._failure(release_batch_id)
         result=self.diagnosis.run(p['preparation_id'])
