@@ -216,6 +216,12 @@ class JourneyCDPTeachingRecorder:
         events = buffered + drained
         result = []
         current_url = _public_url(self.page.url)
+        # Polling after a click-driven navigation cannot reconstruct the old
+        # DOM/screenshot. Reject rather than attaching new-page evidence to
+        # an old-page click; BSK must supply pre-navigation capture receipts.
+        if any(isinstance(e, dict) and isinstance(e.get("url"), str)
+               and _public_url(e["url"]) != current_url for e in events):
+            raise ContractError("JOURNEY_TEACHING_PRE_NAVIGATION_EVIDENCE_REQUIRED")
         for event in events:
             if not isinstance(event, dict) or event.get("type") not in {"CLICK", "INPUT", "SELECT"}:
                 raise ContractError("JOURNEY_TEACHING_EVENT_INVALID")
