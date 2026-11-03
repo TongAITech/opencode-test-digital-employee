@@ -24,12 +24,14 @@ Source: `05` §§3,8,12,14,15,17,18,19,21,22; `10` C06/C07.
 
 ### Slice C06-U01 — indeterminate external effect
 
-- N7 adapter errors after admission persist `UNKNOWN`, only exception class (never exception text).
+- N7 adapter errors after admission persist `UNKNOWN`, only exception class (never exception text), **unless** the trusted FormalN7Runner supplies cryptographically verified pre-execution negative evidence (no observed process/business call). That deterministic no-business-effect subset retains `FAILED` and the N8 failure-diagnosis contract.
 - Retain side-effect custody `possible_external_effect=true` and `replay_prohibited=true`.
 - Cold/hot redispatch refuses UNKNOWN instead of returning a FAILED result that might be misinterpreted as harmless.
 - The R1 intent still precedes external I/O; original permanent OS claim is retained.
 - Existing preflight failures remain before business I/O, and returned receipts remain independently evaluated.
-- Tests: `test_rc72_n7_tool_dispatch.py` now verifies timeout **after simulated remote commit**, cold resume, error redaction, no additional call, retained DataLease.
+- `rc72_n7_no_effect_attestation.py` verifies signed N7 precondition/probe failure and captured evidence SHA256, rejects unsigned/fabricated error claims, and rejects any observed business process/native call.
+- Tests: `test_rc72_n7_tool_dispatch.py` now verifies timeout **after simulated remote commit**, cold resume, error redaction, no additional call, retained DataLease, and forged failure-class refusal.
+- CI first Windows 3.11 run (old SHA `0ca7aaf`) found 96 passed, 7 failed, due to the earlier overbroad UNKNOWN classification and one cold test ordering error; both were specifically corrected in follow-up commits. Final HEAD CI results must be verified independently.
 - IMPORTANT: This is an engineering failure-injection test, not proof of a real bank payment, DSH provider, or environment.
 
 ### Slice C07-U01 — Captain dispatch leader fence
@@ -61,7 +63,7 @@ Source: `05` §§3,8,12,14,15,17,18,19,21,22; `10` C06/C07.
 
 ## Evidence verification
 
-Run on exact PR HEAD:
+Run on exact PR HEAD (automated matrix in `.github/workflows/rc7.2-runtime-contracts.yml`):
 
 ```bash
 python -m pytest -q tests/test_rc72_n7_tool_dispatch.py tests/test_rc72_n7_pipeline.py tests/test_rc72_captain_dispatch_fencing.py tests/test_rc72_phase5_worker_lifecycle_contract.py tests/test_rc72_resource_process_exclusion.py tests/test_rc72_phase7_data_lease_contract.py tests/test_rc72_phase7_browser_lease_contract.py tests/test_rc72_phase7_capability_broker_contract.py tests/test_rc72_phase7_model_failover_contract.py
