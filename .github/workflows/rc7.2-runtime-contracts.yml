@@ -10,6 +10,7 @@ on:
       - 'rc7_runtime/rc72_captain_scheduling.py'
       - 'rc7_runtime/rc72_n7_no_effect_attestation.py'
       - 'rc7_runtime/rc72_n7_execution_preparation.py'
+      - 'rc7_runtime/rc72_n7_pipeline.py'
       - 'rc7_runtime/rc72_truth_bootstrap.py'
       - 'rc7_runtime/rc72_model_failover.py'
       - 'rc7_runtime/rc72_authority.py'
@@ -21,6 +22,7 @@ on:
       - 'tests/test_rc72_captain_dispatch_fencing.py'
       - 'tests/test_rc72_captain_scheduling.py'
       - 'tests/test_rc72_fenced_n7_preparation.py'
+      - 'tests/test_rc72_captain_n7_pipeline.py'
       - 'tests/test_rc72_signed_authority_ttl.py'
       - 'tests/test_rc72_phase7_model_failover_contract.py'
       - 'tests/test_rc72_phase7_data_lease_contract.py'
@@ -60,6 +62,7 @@ jobs:
           rc7_runtime/rc72_truth_bootstrap.py
           rc7_runtime/rc72_n7_tool_dispatch.py
           rc7_runtime/rc72_n7_execution_preparation.py
+          rc7_runtime/rc72_n7_pipeline.py
           rc7_runtime/rc72_n7_no_effect_attestation.py
           rc7_runtime/rc72_captain_dispatch_fencing.py
           rc7_runtime/rc72_captain_scheduling.py
@@ -73,6 +76,7 @@ jobs:
           tests/test_rc72_captain_dispatch_fencing.py
           tests/test_rc72_captain_scheduling.py
           tests/test_rc72_fenced_n7_preparation.py
+          tests/test_rc72_captain_n7_pipeline.py
           tests/test_rc72_signed_authority_ttl.py
       - name: Run C06/C07 targeted and inherited resource contracts
         run: >-
@@ -82,6 +86,7 @@ jobs:
           tests/test_rc72_captain_dispatch_fencing.py
           tests/test_rc72_captain_scheduling.py
           tests/test_rc72_fenced_n7_preparation.py
+          tests/test_rc72_captain_n7_pipeline.py
           tests/test_rc72_signed_authority_ttl.py
           tests/test_rc72_phase5_worker_lifecycle_contract.py
           tests/test_rc72_phase7_data_lease_contract.py
