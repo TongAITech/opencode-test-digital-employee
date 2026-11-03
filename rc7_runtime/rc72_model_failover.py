@@ -22,6 +22,7 @@ from .models import ContractError
 from .rc72_linkage import WorkItemAttemptBinding, WorkItemAttemptState
 from .rc72_repository import CanonicalRC72Repository
 from .rc72_worker_lifecycle import WorkerLifecycleService
+from .rc72_ledger_lock import resource_guard
 from .truth_overlay import install_rc7_truth_overlay
 
 
@@ -293,6 +294,7 @@ class ModelFailoverManager:
             raise ContractError("MODEL_FALLBACK_FORMAT_INVALID")
         return provider, model
 
+    @resource_guard(busy="MODEL_READINESS_LEDGER_BUSY", conflict=ContractError)
     def set_provider_readiness(
         self,
         *,
@@ -375,6 +377,7 @@ class ModelFailoverManager:
             },
         )
 
+    @resource_guard(busy="MODEL_FAILURE_LEDGER_BUSY", conflict=ContractError)
     def record_provider_failure(
         self,
         *,
@@ -473,6 +476,44 @@ class ModelFailoverManager:
         )
         return {key: list(context.get(key) or []) for key in keys}
 
+    @staticmethod
+    def _effect_event_matches_attempt(payload: Any, attempt_id: str) -> bool:
+        return isinstance(payload, dict) and payload.get("attempt_id") == attempt_id
+
+    def _assert_safe_provider_failover_boundary(self, attempt_id: str) -> None:
+        """Never replay a business Attempt just to recover a failed provider.
+
+        A model/LLM failure is not proof that a previously launched HTTP or
+        runner operation had no external effect. Read the raw append-only R1,
+        not only optional projections that may be absent after cold restart.
+        A conflicting observation blocks *before* a new WorkerSession appears.
+        """
+        prohibited = frozenset({
+            "RC72_N7_HTTP_CALL_UPSERTED",
+            "RC72_EXECUTION_PROCESS_HEARTBEAT_UPSERTED",
+            "RC72_N7_FORMAL_RUNNER_RECEIPT_UPSERTED",
+            "RC72_NATIVE_TOOL_CALL_UPSERTED",
+        })
+        for event in self.truth.store.iter_raw():
+            if event.get("event_type") not in prohibited:
+                continue
+            if self._effect_event_matches_attempt(event.get("payload"), attempt_id):
+                raise ContractError("PROVIDER_FAILOVER_BUSINESS_EFFECT_RECONCILIATION_REQUIRED")
+        # The canonical dispatch intent is itself a possible-I/O boundary:
+        # it is persisted before invoking an adapter, including after crashes.
+        from .rc72_n7_tool_dispatch import install_rc72_n7_tool_dispatch_overlay
+
+        install_rc72_n7_tool_dispatch_overlay()
+        if self.truth.query("rc72_n7_tool_dispatch", attempt_id=attempt_id):
+            raise ContractError("PROVIDER_FAILOVER_BUSINESS_EFFECT_RECONCILIATION_REQUIRED")
+        attempts = self.truth.query("execution_attempt", attempt_id=attempt_id)
+        if len(attempts) > 1:
+            raise ContractError("PROVIDER_FAILOVER_ATTEMPT_NOT_UNIQUE")
+        if attempts and (attempts[0].get("tool_call_refs")
+                         or attempts[0].get("status") not in {"NOT_RUN", "BLOCKED"}):
+            raise ContractError("PROVIDER_FAILOVER_ATTEMPT_OUTCOME_RECONCILIATION_REQUIRED")
+
+    @resource_guard(busy="MODEL_FAILOVER_LEDGER_BUSY", conflict=ContractError)
     def failover(self, *, failure_id: str, reason: str) -> ModelFailoverResult:
         failure = self._one(_PROVIDER_FAILURE, failure_id=failure_id)
         if failure.get("state") != "BLOCKED_PROVIDER":
@@ -485,6 +526,7 @@ class ModelFailoverManager:
             )
             raise ContractError("PROVIDER_CONFIG_INVALID_REQUIRES_OPERATOR_REPAIR")
         assignment = self._one(_MODEL_ASSIGNMENT, assignment_id=str(failure["assignment_id"]))
+        self._assert_safe_provider_failover_boundary(str(assignment["attempt_id"]))
         provider, model = self._select_fallback(assignment)
         binding = self._binding(
             mission_id=str(assignment["mission_id"]),
