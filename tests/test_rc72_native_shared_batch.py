@@ -715,3 +715,38 @@ def test_invocation_forged_tool_ref_not_present_in_raw_dsh_file_blocks_batch(tmp
         _dispatch(truth, batch, execution, assignment)
     assert truth.query("rc72_native_batch_candidate", mission_id=MISSION) == []
     assert truth.query("execution_attempt", release_id=RELEASE) == []
+
+
+
+def test_formal_n7_cannot_reconcile_when_native_batch_raw_evidence_changes_after_review(tmp_path):
+    from pathlib import Path
+    from rc7_runtime.rc72_n7_pipeline import N7PipelineService
+    from rc7_runtime.rc72_native_batch_formal_n7 import NativeBatchFormalN7Reconciler
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    candidate = _dispatch(truth, batch, execution, assignment)
+    revised = _review_output()
+    revised["members"][1]["evidence_adequacy"] = "SUFFICIENT_CANDIDATE"
+    reviewer.response = revised
+    reviewed = NativeSharedEvaluatorBatch(
+        truth, release_id=RELEASE, launcher=reviewer,
+    ).review(
+        candidate_id=candidate["candidate_id"],
+        assignment=_review_assignment(batch.batch_id, candidate["raw_output_ref"]),
+    )
+    file = Path(reviewed["raw_output_ref"][len("file://"):])
+    file.write_bytes(file.read_bytes() + b"\n{\"type\":\"tool_call\",\"tool_name\":\"forged-after-review\"}\n")
+
+    pipeline = object.__new__(N7PipelineService)
+    pipeline.truth = truth
+    pipeline.release_id = RELEASE
+    pipeline.source_commit = "a" * 40
+    with pytest.raises(ContractError, match="RAW_DIGEST_CHANGED"):
+        NativeBatchFormalN7Reconciler(pipeline).reconcile(
+            release_batch_id="B-REAL-EXPECTED",
+            batch_receipt_id=candidate["batch_receipt_id"],
+            candidate_id=candidate["candidate_id"],
+            review_id=reviewed["review_id"],
+        )
+    assert truth.query("rc72_execution_batch_receipt", batch_id=batch.batch_id)[0]["state"] == "ADMITTED"
+    assert truth.query("execution_attempt", release_id=RELEASE) == []
