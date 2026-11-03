@@ -10,7 +10,7 @@ def _paths(root):
     root.mkdir(exist_ok=True)
     (root/'PACKAGE_MANIFEST.json').write_text('{}')
     runtime=root/'workspace-template/runtime'
-    for relative in list(FIXED_FILES.values())+['allure/version/bin/allure.bat','zap/version/zap.bat']:
+    for relative in list(FIXED_FILES.values())+['allure/version/bin/allure.bat','zap/version/zap.bat','k6/k6-v2.3.0-windows-amd64/k6.exe']:
         file=runtime/relative;file.parent.mkdir(parents=True,exist_ok=True);file.write_bytes(b'path-selection fixture')
     (runtime/'maven-repository').mkdir()
     settings=root/'packaging/rc7/maven-offline-settings.xml';settings.parent.mkdir(parents=True);settings.write_text('<settings/>')
@@ -23,6 +23,8 @@ def test_all_carried_tools_bind_to_current_extraction_and_precede_host_path(tmp_
     for name,relative in FIXED_FILES.items():assert environment[name]==str((runtime/relative).resolve())
     assert environment['PATH'].split(os.pathsep)[0]==str(runtime/'node')
     assert environment['PATH'].split(os.pathsep)[-1]=='approved-host-path'
+    assert environment['PFC_K6_BIN']==str(runtime/'k6/k6-v2.3.0-windows-amd64/k6.exe')
+    assert str(runtime/'k6/k6-v2.3.0-windows-amd64') in environment['PATH'].split(os.pathsep)
     assert environment['JAVA_HOME']==str(runtime/'java')
     assert '-o -s "'+str(root/'packaging/rc7/maven-offline-settings.xml')+'"' in environment['MAVEN_ARGS']
     assert str(runtime/'maven-repository') in environment['MAVEN_ARGS']
@@ -49,3 +51,14 @@ def test_carried_tool_cannot_escape_through_parent_directory_symlink(tmp_path):
 
 def test_component_has_no_implied_full_runtime_projection(tmp_path):
     assert package_tool_environment(tmp_path)=={}
+
+
+@pytest.mark.parametrize('mutation',['missing','second-version'])
+def test_versioned_carried_k6_never_falls_back_or_chooses_an_ambiguous_version(tmp_path,mutation):
+    root=tmp_path/'package';runtime=_paths(root)
+    if mutation=='missing':(runtime/'k6/k6-v2.3.0-windows-amd64/k6.exe').unlink()
+    else:
+        other=runtime/'k6/k6-v9-windows-amd64/k6.exe'
+        other.parent.mkdir();other.write_bytes(b'conflicting version')
+    with pytest.raises(ContractError,match='TOOL_NOT_UNIQUE'):
+        package_tool_environment(root,ambient_path='host-k6-path')

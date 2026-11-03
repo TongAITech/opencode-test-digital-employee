@@ -36,6 +36,8 @@ jobs:
           from rc7_release.rc72_bounded_pytest import run_files
           files = [
               'tests/test_rc72_mission_factory.py',
+              'tests/test_rc72_batch_registration.py',
+              'tests/test_rc72_worker_http_auth.py',
               'tests/test_rc72_code_tool_binding.py',
               'tests/test_rc72_controller_secret_paths.py',
               'tests/test_rc72_configured_mission.py',

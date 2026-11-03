@@ -926,3 +926,32 @@ integration fixture used the wrong output directory, so evidence review correctl
 refused it; align the fixture to the factory-owned runner directory and retain
 all original evidence checks. These are local engineering proofs, not real bank
 identity/4A/model/Field qualification. Full final portable delivery remains open.
+
+
+## Fresh batch ingress and actual full-extraction path correction — 2026-11-03
+
+Native register accepts only original metadata, binds exact source/input bytes
+in the same canonical batch event, supports a fresh ledger and cold no-write
+retry, and does not bootstrap N1..N10 or create admission/evidence. Conflicting
+input bytes, identity and denominator are refused. CLI source/status continuation
+checks the recorded package source. Registration tests: 60 PASS with existing
+entry/driver suites (5.86s); package eligibility suite 35 PASS (0.49s); final
+registration suite 19 PASS (0.49s), including preserving later canonical state.
+
+Full preparation 41640642103 exact ff2 terminated FAILURE at the actual clean
+extraction configured mirror CLI: HOLD rather than ENGINEERING PASS. Preserve
+../evidence/ff2-portable-preparation-failure.log and downloaded failure artifact
+13234560064. Physical inventory/execution-node checks succeeded earlier in that
+run; that does not qualify the failed whole entry. The actual archived layout
+has k6/k6-v2.3.0-windows-amd64/k6.exe; materializer preserves release archive
+folders, while Mission tool selection wrongly required k6/k6.exe. Fix native
+selection to uniquely discover the carried k6 binary, retaining containment and
+missing/multiple refusal. This is a demonstrated path defect; full extraction
+must still rerun to establish it is the only failure. 59 local tool/config/
+factory/loader tests PASS (1.36s), including actual versioned layout and missing/
+second-version negatives. No host fallback. Persist safe configured CLI result
+before its assertion so future full-package failures retain the HOLD code.
+
+Dedicated factory matrix now includes actual worker HTTP auth and original
+batch registration suites. Ubuntu22.04 setup succeeded in e8 run41642878655;
+its long full-driver jobs remain live. No final package or Field claim.

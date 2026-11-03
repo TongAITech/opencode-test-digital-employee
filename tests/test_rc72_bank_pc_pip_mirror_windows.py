@@ -112,7 +112,8 @@ def test_real_copied_python_mirror_install_import_and_host_substitution_refusals
         capsys.readouterr()
         assert main(arguments)==37 # a real engineering result cannot be Field
         configured=json.loads(capsys.readouterr().out)
-        assert configured['status']=='PASS' and configured['mode']=='ENGINEERING'
+        (public/'configured-native-cli-result.json').write_text(json.dumps(configured,indent=2))
+        assert configured['status']=='PASS' and configured['mode']=='ENGINEERING', configured
         assert configured['bank_pc_mirror_field_fact'] is configured['bank_final'] is configured['field_verified'] is False
         saved=cli_truth.store.path.read_bytes();request_count=len(requests)
         assert main(arguments)==37
