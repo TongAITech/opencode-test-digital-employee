@@ -7,6 +7,7 @@ provides real authorities, approved scopes, real leases and tool capabilities.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Callable, Dict, Mapping
 
 from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
 from rc6_runtime.truth import TruthRuntime
@@ -27,6 +28,67 @@ from .rc72_native_batch_formal_n7 import NativeBatchFormalN7Reconciler
 class NativeBatchServices:
     execution: NativeSharedExecutionBatch
     evaluator: NativeSharedEvaluatorBatch
+
+    def drive_formal_n7(
+        self, *, batch, attempt_ids_by_workitem: Mapping[str, str],
+        execution_assignment: Any,
+        approved_reviewer_assignment_factory: Callable[[Dict[str, Any]], Any],
+        pipeline, release_batch_id: str,
+    ) -> Dict[str, Any]:
+        """One real producer + one independent reviewer; then A's full N7.
+
+        Never create reviewer authorization locally: a host-side, approved
+        factory receives the actual producer candidate with raw evidence and
+        must return a new independently scoped WorkerAssignment. No model
+        response can become business PASS; only pipeline.complete and its
+        accepted full N7 obligation audit can reconcile members.
+        """
+        if not callable(approved_reviewer_assignment_factory):
+            raise ProductionEconomyBindingError(
+                "NATIVE_BATCH_APPROVED_REVIEWER_ASSIGNMENT_FACTORY_REQUIRED"
+            )
+        if pipeline.truth is not self.execution.truth:
+            raise ProductionEconomyBindingError("NATIVE_BATCH_FORMAL_LEDGER_MISMATCH")
+        if pipeline.release_id != self.execution.release_id:
+            raise ProductionEconomyBindingError("NATIVE_BATCH_FORMAL_RELEASE_MISMATCH")
+        candidate = self.execution.dispatch(
+            batch,
+            attempt_ids_by_workitem=attempt_ids_by_workitem,
+            assignment=execution_assignment,
+        )
+        reviewer_assignment = approved_reviewer_assignment_factory(dict(candidate))
+        reviewed = self.evaluator.review(
+            candidate_id=candidate["candidate_id"],
+            assignment=reviewer_assignment,
+        )
+        # The business runner operates on original formal Case/ETU/Attempt
+        # contracts, not model-generated candidate steps. It may stay HOLD.
+        formal = pipeline.complete(release_batch_id=release_batch_id)
+        if formal.get("state") != "N7_PASS":
+            return {
+                "status": "HOLD",
+                "reason": "NATIVE_BATCH_FORMAL_N7_NOT_ACCEPTED",
+                "batch_receipt_id": candidate["batch_receipt_id"],
+                "candidate_id": candidate["candidate_id"],
+                "review_id": reviewed["review_id"],
+                "formal_n7_state": formal.get("state", formal.get("status", "UNKNOWN")),
+            }
+        reconciled = self.reconcile_accepted_n7(
+            pipeline,
+            release_batch_id=release_batch_id,
+            batch_receipt_id=candidate["batch_receipt_id"],
+            candidate_id=candidate["candidate_id"],
+            review_id=reviewed["review_id"],
+        )
+        return {
+            "status": "N7_BATCH_RESULTS_RECONCILED",
+            "batch_receipt_id": reconciled["batch_receipt_id"],
+            "member_count": reconciled["member_count"],
+            "candidate_id": candidate["candidate_id"],
+            "review_id": reviewed["review_id"],
+            "formal_n7_state": "N7_PASS",
+            "bank_final": False,
+        }
 
     def reconcile_accepted_n7(
         self, pipeline, *, release_batch_id: str,
