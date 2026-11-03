@@ -23,6 +23,7 @@ on:
       - 'tests/test_rc8_single_node_production_preflight.py'
       - 'tests/test_rc8_single_node_production_denominator.py'
       - 'tests/test_rc8_production_causality_gate.py'
+      - 'tests/test_rc8_production_causality_integration.py'
       - '.github/workflows/rc8-single-node-full-loop-proof.yml'
   workflow_dispatch:
 
@@ -87,3 +88,6 @@ jobs:
       - name: production causality promotion gate
         if: always()
         run: python -m pytest -q tests/test_rc8_production_causality_gate.py
+      - name: composed production causality promotion
+        if: always()
+        run: python -m pytest -q tests/test_rc8_production_causality_integration.py
