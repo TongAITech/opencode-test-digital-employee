@@ -39,6 +39,13 @@ def test_full_native_discrepancy_is_independently_diagnosed_for_n9_without_produ
         assert receipt['diagnostic_process']['pid']!=receipt['review_process']['pid']
         assert receipt['diagnosis_worker_id']!=receipt['reviewer_worker_id']!=attempt['worker_id']
         assert not truth.query('rc7_defect')
+        reproduction=truth.query('rc7_task',task_type='DEFECT_REPRODUCTION')
+        assert len(reproduction)==1 and reproduction[0]['task_id']==result['reproduction_workitem_id']
+        assert reproduction[0]['state'] in {'REGISTERED','READY'}
+        assert reproduction[0]['node']=='DEFECT'
+        assert reproduction[0]['required_capabilities']==['defect_reproduction']
+        assert reproduction[0]['gap_refs']==[truth.query('rc72_diagnosis_outcome')[0]['gap_id']]
+        assert result['defect_confirmed'] is False
         assert not truth.query('rc72_node_gate',node_type='N7_EXECUTION')
         assert len(truth.query('rc72_n7_execution_plan')[0]['items'])==len(plan['items'])
         before=truth.store.path.read_bytes()
