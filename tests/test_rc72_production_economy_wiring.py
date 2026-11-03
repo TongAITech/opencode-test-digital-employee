@@ -137,6 +137,8 @@ def test_real_command_boundary_tracks_native_augmented_prompt_and_measured_usage
     assert usage["provider"] == "bank-provider"
     assert usage["dsh_session_id"] == "dsh-real-session"
     assert economy.summary("M-1")["measured_total_tokens"] == 120
+    assert economy.summary("M-1")["actual_total_tokens"] == 120
+    assert economy.summary("M-1")["usage_total_status"] == "MEASURED"
 
 
 def test_unknown_usage_never_becomes_measured_zero_or_blocks_required_next_call(tmp_path):
@@ -147,6 +149,8 @@ def test_unknown_usage_never_becomes_measured_zero_or_blocks_required_next_call(
     assert len(calls) == 2 and len(runner.calls) == 2
     assert all(item["usage_status"] == "UNKNOWN" for item in calls)
     assert economy.summary("M-1")["unknown_usage_calls"] == 2
+    assert economy.summary("M-1")["actual_total_tokens"] is None
+    assert economy.summary("M-1")["usage_total_status"] == "UNKNOWN"
     assert economy.qualification("M-1").status == "HOLD"
     observations = truth.query("rc72_token_usage", mission_id="M-1")
     assert len(observations) == 2
