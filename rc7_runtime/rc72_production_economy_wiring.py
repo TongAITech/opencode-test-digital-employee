@@ -119,6 +119,16 @@ def bind_production_model_economy(
         criticality = raw_criticality if isinstance(raw_criticality, MissionCriticality) else MissionCriticality(str(raw_criticality).upper())
         cost = raw_cost if isinstance(raw_cost, SemanticCostClass) else SemanticCostClass(str(raw_cost).upper())
 
+        native_context_fields = (
+            "context_envelope_id", "context_envelope_sha256", "context_mode",
+            "context_canonical_ref_count", "context_effective_ref_count",
+            "context_unhydrated_lineage_ref_count",
+            "context_projection_applied_to_prompt", "context_projection_status",
+            "parent_attempt_id",
+        )
+        context_projection = {
+            name: metadata[name] for name in native_context_fields if name in metadata
+        }
         admission = economy.admit_call(
             mission_id=mission_id,
             node=node,
@@ -131,6 +141,7 @@ def bind_production_model_economy(
             prompt=command[-1],
             mission_criticality=criticality,
             semantic_cost_class=cost,
+            context_projection=context_projection or None,
         )
         if not admission.admitted:
             raise TokenEconomyError("TOKEN_CALL_BLOCKED:%s:%s" % (admission.call_id, admission.reason))
