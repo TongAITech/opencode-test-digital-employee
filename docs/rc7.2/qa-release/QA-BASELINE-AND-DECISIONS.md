@@ -185,3 +185,14 @@ Q3–Q9 QA 证据导出器做了更强的**必备来源集合**与 **canonical R
 4. QA GitHub workflow 的 C12 工具套件与 C01/C02 产品测试套件现在不会因其中一个测试失败而跳过另一个测试，分别上传 JUnit 结果；明确 FAIL 的真实内容比错误的整体 PASS 重要。
 
 **当前结论：Q1=FAIL（Windows+Linux 工程代理均 FAIL），QA HEAD CI=AWAITING COMPLETION，C03/正式 N8 仍 BLOCKED_PRODUCT_INTEGRATION；Q3–Q9=FIELD_PENDING；BANK_FINAL=NO。** 不更新已冻结的 95 条权重成虚构百分比。
+
+## 14. 第六轮：证据身份完整集合、R1 防替换与 CI 去重
+
+最新 QA 施工收窄了 Q3–Q9 原始 Evidence 的导出边界，全部限定为 **证据拷贝/结构审计**，不改变被测产品代码：
+
+- 现场证据必须包含 `SOURCE_COMMIT`、`BUILD_ID`、`RELEASE_FAMILY`、`RELEASE_STATUS`、`RC72_RELEASE_IDENTITY.json`、`PACKAGE_MANIFEST.json`、`CHECKSUMS.sha256`、`FULL-CAPABILITY-INVENTORY.json` 和真正的 canonical `runtime-state/r1/event-stream.jsonl`；若包身份、业务根、R1 索引、Manifest 或 Inventory 不一致，反向验证必须失败。
+- ZIP INDEX 的 `kind` 必须与 R1/包身份/现场附件真实类别一致；即使有人修改 ZIP 并生成一张新 SHA256 回执，也不能使被重新标记的附件自动成为 R1。
+- 独立 QA 产品入口增加 **N10 全 PASS 后不可无条件返回 `RELEASE_CONVERGENCE_AUDIT_REQUIRED` HOLD** 的必要条件测试；同时保留非 bypass N8 真实服务入口测试。二者只是阻止缺口被误报完成的静态门禁，并非端到端执行合格证明。
+- CI 优化：原先 QA 分支每个提交同时创建 `push` 与 `pull_request` 两个相同四平台矩阵，易造成重复排队与持续取消。QA 分支已有 draft PR #9，现统一使用 `pull_request` + 按需 `workflow_dispatch`，**每 SHA 只需一套 Windows/Ubuntu × Python3.8/3.11 的正式 QA 矩阵**，不减少测试维度。C12 工具测试与 C01/C02 产品测试分别执行和留存 JUnit，任何一组失败均阻断最终放行。
+
+实际 R1 业务断言、DSH 主程序启动、目标信创 Linux、真实 Q3–Q9 现场批准未核销，`BANK_FINAL=NO`。**QA CI 当前仍在排队，任何新增测试不能自行被标记 PASS**。
