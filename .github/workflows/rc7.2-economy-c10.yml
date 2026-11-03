@@ -6,7 +6,10 @@ on:
       - work/rc7.2-economy
     paths:
       - 'rc7_runtime/rc72_production_economy_wiring.py'
+      - 'rc7_runtime/rc72_model_economy.py'
+      - 'rc7_runtime/rc72_economy_scheduler.py'
       - 'tests/test_rc72_production_economy_wiring.py'
+      - 'tests/test_rc72_cost_window_configuration.py'
       - '.github/workflows/rc7.2-economy-c10.yml'
   workflow_dispatch:
 
@@ -34,6 +37,7 @@ jobs:
         run: >-
           python -m pytest -q
           tests/test_rc72_production_economy_wiring.py
+          tests/test_rc72_cost_window_configuration.py
           tests/test_rc72_token_economy.py
           tests/test_rc72_dsh_token_usage_wiring.py
           tests/test_rc72_context_worker_bridge.py
