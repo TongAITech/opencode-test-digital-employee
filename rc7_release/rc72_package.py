@@ -21,7 +21,7 @@ RC72_ARCHITECTURE = "RELEASE_BATCH_N1_N10_AUTONOMOUS_TEST_RUNTIME"
 RC72_IDENTITY_FILE = "RC72_RELEASE_IDENTITY.json"
 RC72_Q2B_REQUIRED_FILES = (
     "rc7_release/rc72_tool_environment.py",
-    "rc7_runtime/rc72_controller_secrets.py",
+    "rc7_runtime/rc72_control_file_guard.py",
     "rc7_runtime/rc72_code_tool_binding.py",
     "rc7_release/rc72_configured_mission.py",
     "rc7_runtime/rc72_mission_factory.py",

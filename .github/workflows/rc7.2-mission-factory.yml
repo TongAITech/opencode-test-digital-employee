@@ -42,6 +42,7 @@ jobs:
               'tests/test_rc72_tool_environment.py',
               'tests/test_rc72_mission_bindings.py',
               'tests/test_rc72_q2b_clean_runtime_contract.py',
+              'tests/test_rc72_windows_clean_unpack_contract.py',
               'tests/test_rc72_release_driver.py',
               'tests/test_rc7_dsh_proof.py',
               'tests/test_rc7_dsh_code_evaluator.py',

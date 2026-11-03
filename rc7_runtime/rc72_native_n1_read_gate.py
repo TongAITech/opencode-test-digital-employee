@@ -12,7 +12,7 @@ from pathlib import Path
 
 from rc6_runtime import contracts,truth as registry
 from .models import ContractError
-from .rc72_controller_secrets import is_controller_secret_path
+from .rc72_control_file_guard import is_controller_secret_path
 from .rc72_ledger_lock import ledger_lock
 from .rc72_n7_execution_admission import _hash
 from .rc72_native_n5_tool_gate import URL_ENV,TOKEN_ENV,CONTEXT_ENV

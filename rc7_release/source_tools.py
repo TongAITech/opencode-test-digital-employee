@@ -4,7 +4,7 @@ import hashlib
 import os
 from pathlib import Path
 from typing import Any, Dict
-from rc7_runtime.rc72_controller_secrets import is_controller_secret_path
+from rc7_runtime.rc72_control_file_guard import is_controller_secret_path
 
 
 class SourceToolError(RuntimeError):
