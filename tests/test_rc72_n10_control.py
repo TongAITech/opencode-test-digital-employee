@@ -45,7 +45,9 @@ def test_full_measured_coverage_cannot_complete_original_missing_levels_through_
         assert not result['investigation_workitem_ids'] and len(server.calls)==1
         assert all(len(levels)==7 for levels in truth.query('rc72_release_scope_manifest')[0]['required_levels_by_sst'].values())
         assert not truth.query('rc72_node_gate',node_type='N10_RELEASE_CONVERGENCE')
-        assert control.complete(release_batch_id=BATCH)['convergence_result']=='NOT_CONVERGED'
+        before_repeat=truth.store.path.read_bytes()
+        assert control.complete(release_batch_id=BATCH)==result
+        assert truth.store.path.read_bytes()==before_repeat
         assert len(server.calls)==1 and len(business.calls)==len(plan['items'])
     finally:server.shutdown();server.server_close();business.shutdown();business.server_close()
 
