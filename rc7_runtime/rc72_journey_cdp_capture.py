@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -24,8 +25,11 @@ from .rc72_journey_teaching import JourneyActionType, JourneyTeachingService
 
 _CAPTURE_SCRIPT = r"""
 (() => {
- if (window.__rc72Capture) return;
+ if (window.__rc72Capture && typeof window.__rc72Capture.stop === 'function') {
+   window.__rc72Capture.stop();
+ }
  const events = [];
+ const reportBinding = __RC72_REPORT_BINDING_JSON__;
  const ref = el => {
    if (!el || !el.tagName) return null;
    if (el.getAttribute('data-testid')) return 'testid:' + el.getAttribute('data-testid');
@@ -40,13 +44,22 @@ _CAPTURE_SCRIPT = r"""
    const r = ref(el);
    const payload = {type, element_ref:r, tag:el && el.tagName || 'UNKNOWN',
      url:location.origin + location.pathname, at:Date.now()};
-   if (typeof window.__rc72ReportEvent === 'function') {
-     Promise.resolve(window.__rc72ReportEvent(payload)).catch(() => events.push(payload));
+   if (typeof window[reportBinding] === 'function') {
+     Promise.resolve(window[reportBinding](payload)).catch(() => events.push(payload));
    } else events.push(payload);
  };
- document.addEventListener('click', e => push('CLICK', e), true);
- document.addEventListener('change', e => push(e.target && e.target.tagName === 'SELECT' ? 'SELECT' : 'INPUT', e), true);
- window.__rc72Capture = {drain: () => events.splice(0)};
+ const onClick = e => push('CLICK', e);
+ const onChange = e => push(e.target && e.target.tagName === 'SELECT' ? 'SELECT' : 'INPUT', e);
+ document.addEventListener('click', onClick, true);
+ document.addEventListener('change', onChange, true);
+ window.__rc72Capture = {
+   binding: reportBinding, drain: () => events.splice(0),
+   stop: () => {
+     document.removeEventListener('click', onClick, true);
+     document.removeEventListener('change', onChange, true);
+     events.length = 0;
+   }
+ };
 })()
 """
 
@@ -89,6 +102,7 @@ class JourneyCDPTeachingRecorder:
         self._response_listener = None
         self.last_url = ""
         self._instance_fingerprint = None
+        self._capture_binding = None
 
     def _guard(self) -> Dict[str, Any]:
         if self.recording is None:
@@ -128,11 +142,21 @@ class JourneyCDPTeachingRecorder:
             if not endpoint.startswith(("http://127.0.0.1:", "http://localhost:", "ws://127.0.0.1:", "ws://localhost:")):
                 raise ContractError("JOURNEY_TEACHING_CDP_LOCAL_ENDPOINT_REQUIRED")
             page = self.browser._page(endpoint)
+            # BrowserContext.expose_binding is not removable. A unique, local
+            # transport binding per teaching recording prevents replaying a
+            # stale callback after stopping or reconnecting to the same CDP.
+            binding = "__rc72ReportEvent_" + uuid.uuid4().hex
+            script = _CAPTURE_SCRIPT.replace(
+                "__RC72_REPORT_BINDING_JSON__", json.dumps(binding))
+            self._capture_binding = binding
             if callable(getattr(page.context, "expose_binding", None)):
-                page.context.expose_binding(
-                    "__rc72ReportEvent", lambda source, event: self.events.append(dict(event)))
-            page.context.add_init_script(script=_CAPTURE_SCRIPT)
-            page.evaluate(_CAPTURE_SCRIPT)
+                def on_browser_event(source: Any, event: Any) -> None:
+                    if (self.recording is not None and self._capture_binding == binding
+                            and isinstance(event, Mapping)):
+                        self.events.append(dict(event))
+                page.context.expose_binding(binding, on_browser_event)
+            page.context.add_init_script(script=script)
+            page.evaluate(script)
             self.page = page
             self.last_url = _public_url(page.url)
             def response_listener(response: Any) -> None:
@@ -324,6 +348,16 @@ class JourneyCDPTeachingRecorder:
         return result
 
     def stop(self) -> None:
+        if self.page is not None and self._capture_binding is not None:
+            try:
+                # Detach only our own DOM listeners, never another worker's
+                # later recording on a reused B-owned browser context.
+                self.page.evaluate(
+                    "(binding) => { const c = window.__rc72Capture; "
+                    "if (c && c.binding === binding) c.stop(); }",
+                    self._capture_binding)
+            except Exception:
+                pass
         if self.page is not None and self._response_listener is not None:
             try:
                 self.page.remove_listener("response", self._response_listener)
@@ -334,6 +368,7 @@ class JourneyCDPTeachingRecorder:
         self.recording = None
         self._response_listener = None
         self._instance_fingerprint = None
+        self._capture_binding = None
         self.responses.clear()
         self.events.clear()
         self.last_url = ""
