@@ -168,6 +168,10 @@ class JourneyCDPTeachingRecorder:
             dom = self.page.evaluate(_DOM_SUMMARY_SCRIPT)
         except Exception as exc:
             raise ContractError("JOURNEY_TEACHING_DOM_CAPTURE_FAILED") from exc
+        if (not isinstance(dom, Mapping)
+                or not isinstance(dom.get("ready_state"), str)
+                or not isinstance(dom.get("elements"), list)):
+            raise ContractError("JOURNEY_TEACHING_DOM_EVIDENCE_INVALID")
         page_ref = _atomic_json(folder / "page.json", {
             "url": url, "role": page_role, "captured_at": int(time.time()),
             "auth_asset_ref": self.recording.get("auth_asset_ref"),
@@ -182,6 +186,9 @@ class JourneyCDPTeachingRecorder:
                 path=str(folder / "screen.png"), full_page=True,
                 mask=[self.page.locator('input[type="password"],input[autocomplete="one-time-code"]')],
                 timeout=self.browser.timeout_ms)
+            shot_path = folder / "screen.png"
+            if not shot_path.is_file() or shot_path.stat().st_size == 0:
+                raise ContractError("JOURNEY_TEACHING_SCREENSHOT_BYTES_REQUIRED")
         except Exception as exc:
             raise ContractError("JOURNEY_TEACHING_SCREENSHOT_REQUIRED") from exc
         screenshot_ref = (folder / "screen.png").resolve().as_uri()
