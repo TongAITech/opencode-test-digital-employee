@@ -57,3 +57,22 @@ Python/Node/Java/Maven/Chromium/BSK/CodeGraph/k6/ZAP/Allure/rg 的工程日志�
 5. QA：独立复跑 A–D 新 HEAD，核对完整分母/权重；验收 Q1/Q2、准备 Q3–Q9 所需验收和证据导出工具；同源全部通过之前，不宣布最终包，亦不把此 PR 当作 release authorization。
 
 **当前决定：DESIGN_INCOMPLETE / C01_C02_NOT_CLOSED / Q9_NO / BANK_FINAL_NO / NO_FINAL_DELIVERY。**
+
+## 7. 四施工分支新提交初审（与主分支验收严格分开）
+
+本轮读取到的相对 `7efb3c8` 的分支专属差异：
+- **A/core** `dd3da3530cb5`，领先 15 commits。已新增正式 N10 repair/rerun 装配与真实候选测试；但是 `ReleaseBatchDriver.run` 仍缺通用 N8 非 bypass 处理。A 提供的 [证据页](https://github.com/TongAITech/opencode-test-digital-employee/blob/dd3da3530cb5/docs/rc7.2/CORE-CURRENT-CONSTRUCTION-EVIDENCE.md) 明示同源 CI 待完成及 C03/C04/C05 未闭环。Issue #7 已补充独立评论；不能提前关闭。
+- **B/runtime** `8bec8aac65a7`，领先 14 commits。新增 `rc72_captain_dispatch_fencing.py`、`rc72_n7_no_effect_attestation.py` 以及权限/UNKNOWN 副作用负面测试；当时同源 Windows/Linux Python3.8/3.11 CI 均 queued。
+- **C/journey** `9dd17b9caa8b`，领先 30 commits。新增 CDP 采集、Playwright 真实适配、N7 Journey Adapter、漂移/失败证据；当时相关 CI queued，未获 Q5 真银行回放/批准事实。
+- **D/economy** `a39448b40879`，领先 15 commits。新增 `rc72_production_economy_ingress.py`、`rc72_production_economy_wiring.py` 与正式 CLI 接入；当时同源 source regression queued，不能声称真实 token 节省。
+
+这些是**代码变更审计**而非工程通过判决。它们尚未合入受审主分支；QA 重新评估时需以最终主分支 HEAD 复测，不得把四组各自 PASS 直接相加当作主干全绿。
+
+## 8. 新增 QA 交付工具（仅资格与证据导出，不改变被测生产入口）
+
+- `tools/rc72_qa_offline_audit.py`：第三方独立的物理 Manifest/Checksum/SHA256 与 13 组载荷核对；DSH 主程序未由真实包内路径+清单+校验和证明时 HOLD。即便通过也只认证 PHYSICAL_CANDIDATE_ONLY。
+- `packaging/rc7.2/QA-Q3-Q9-EVIDENCE.py`：跨 Windows/Linux、Python3.8+ 的明确路径 R1 原始证据打包，所有 Q3–Q9 保持 PENDING，输出 ZIP 和 SHA256，不会产生 Field PASS。
+- `tests/test_rc72_qa_offline_payload.py`、`tests/test_rc72_qa_field_evidence.py`：测试 QA 工具本身的身份、篡改、路径逃逸、缺失 R1/DSH、重复导出保护；这些是 synthetic utility tests，不代表物理最终包的验收。
+- [现场操作书](C12-Q3-Q9-VERIFY-AND-EXPORT.md)：明确完整包核验与真实目标环境、失败注入、可信审批、证据导出步骤。
+
+此处新工具及测试须等 QA 分支同源 CI 完成才能算 **QA 工具合格**。截至本次更新，多个 PR/push QA runs 仍排队，当前 QA 明确不声称绿灯。
