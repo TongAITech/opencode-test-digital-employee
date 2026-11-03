@@ -128,5 +128,6 @@ def test_controller_with_repair_provider_still_refuses_ambiguous_mapping_without
         after=truth.store.path.read_bytes()
         repeat=control.complete(release_batch_id=BATCH)
         assert repeat==result and truth.store.path.read_bytes()==after
-        assert before!=after and len(server.calls)==1
+        # Ambiguous mapping must not mutate R1 or trigger any additional coverage read.
+        assert before==after and len(server.calls)==1
     finally:server.shutdown();server.server_close();business.shutdown();business.server_close()
