@@ -194,3 +194,37 @@ def test_first_captain_must_not_adopt_legacy_worker_with_active_uncheckpointed_w
             captain_session_id="CAPTAIN-NEW")
     assert list(truth.store.iter_raw()) == before
     assert truth.query("rc72_captain_dispatch_lease", mission_id="M-1") == []
+
+
+
+def test_historical_signed_preflight_failed_requires_independent_hmac_file_proof(
+        tmp_path, monkeypatch):
+    """A row's boolean is never enough to permit Captain handoff."""
+    from test_rc72_n8_execution_diagnosis import _failure
+
+    truth, preparation, server, prepared = _failure(
+        tmp_path, monkeypatch, mode="data")
+    try:
+        call = truth.query("rc72_n7_tool_dispatch",
+                           attempt_id=prepared["attempt_id"])[0]
+        assert call["state"] == "FAILED"
+        trusted = CaptainDispatchFencer(
+            truth, release_id="RC7.2", authority=preparation.authority)
+        unbound = CaptainDispatchFencer(truth, release_id="RC7.2")
+        assert trusted._certified_safe_tool_failure(call) is True
+        assert unbound._certified_safe_tool_failure(call) is False
+        forged = dict(call, no_effect_evidence_refs=["N7CHECK-FAKE"])
+        assert trusted._certified_safe_tool_failure(forged) is False
+        mismatched = dict(call, worker_id="WORKER-IMPOSTER")
+        assert trusted._certified_safe_tool_failure(mismatched) is False
+        original_events = list(truth.store.iter_raw())
+        seen_effect = dict(
+            event_type="RC72_N7_HTTP_CALL_UPSERTED",
+            payload={"attempt_id": prepared["attempt_id"]})
+        monkeypatch.setattr(
+            truth.store, "iter_raw",
+            lambda: iter(original_events + [seen_effect]))
+        assert trusted._certified_safe_tool_failure(call) is False
+    finally:
+        server.shutdown()
+        server.server_close()
