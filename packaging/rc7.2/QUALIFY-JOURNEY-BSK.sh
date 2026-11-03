@@ -8,7 +8,18 @@ PY="$ROOT/workspace-template/runtime/python/python.exe"
 [[ -f "$PY" ]] || { echo "[C09] package-local Python missing: $PY" >&2; exit 2; }
 [[ -f "$ROOT/SOURCE_COMMIT" ]] || { echo "[C09] SOURCE_COMMIT missing" >&2; exit 2; }
 
-: "${PFC_RC72_BSK_BIN:?Set PFC_RC72_BSK_BIN to the exact BSK executable inside the extracted RC7.2 package}"
+if [[ -z "${PFC_RC72_BSK_BIN:-}" ]]; then
+  BSK_ROOT_UNIX="$(cd "$(dirname "$0")/../.." && pwd)/workspace-template/runtime/browser/browserskill"
+  [[ -d "$BSK_ROOT_UNIX" ]] || { echo "[C09] package BrowserSkill directory missing: $BSK_ROOT_UNIX" >&2; exit 2; }
+  mapfile -t BSK_FOUND < <(find "$BSK_ROOT_UNIX" -type f -name bsk.exe)
+  [[ "${#BSK_FOUND[@]}" -eq 1 ]] || { echo "[C09] expected exactly one package-local bsk.exe; found ${#BSK_FOUND[@]}" >&2; exit 2; }
+  if command -v cygpath >/dev/null 2>&1; then
+    PFC_RC72_BSK_BIN="$(cygpath -m "${BSK_FOUND[0]}")"
+  else
+    PFC_RC72_BSK_BIN="${BSK_FOUND[0]}"
+  fi
+fi
+[[ -f "$PFC_RC72_BSK_BIN" ]] || { echo "[C09] package-local BSK binary missing: $PFC_RC72_BSK_BIN" >&2; exit 2; }
 : "${PFC_RC72_BSK_SESSION_ID:?Set PFC_RC72_BSK_SESSION_ID to a B-issued, already active BrowserSkill session}"
 : "${PFC_RC72_BSK_TAB_ID:?Set PFC_RC72_BSK_TAB_ID to the exact B-issued tab id}"
 
