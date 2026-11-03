@@ -422,3 +422,63 @@ def test_stale_etu_blocks_ready_workitem_even_when_role_has_all_capabilities(tmp
     with pytest.raises(CaptainSchedulingError, match="ETU_NOT_EXECUTABLE"):
         _admit(bridge, owner, "WI-1")
     assert truth.query("rc72_worker_session", mission_id="M-1") == []
+
+
+
+def test_two_consecutive_prelease_process_crashes_can_recover_as_linear_fresh_worker_chain(tmp_path, monkeypatch):
+    truth, _, owner, _, bridge = _ready_fixture(tmp_path)
+    original_lease = bridge.scheduler.lease_task
+    def fail_before_task_lease(*args, **kwargs):
+        raise KeyboardInterrupt("process crash before any TaskLease")
+    monkeypatch.setattr(bridge.scheduler, "lease_task", fail_before_task_lease)
+    old_sessions = []
+    for generation in range(2):
+        with pytest.raises(KeyboardInterrupt):
+            _admit(bridge, owner, "WI-1")
+        current = [s for s in truth.query("rc72_worker_session", mission_id="M-1")
+                   if s["state"] == "ACTIVE"]
+        assert len(current) == 1
+        old_sessions.append(current[0])
+        checkpoint = bridge.recover_unleased_orphan(
+            mission_id="M-1", team_id="TEAM-1",
+            captain_session_id="CAP-A", captain_lease_id=owner["lease_id"],
+            workitem_id="WI-1", session_id=current[0]["session_id"])
+        assert checkpoint.session_id == current[0]["session_id"]
+        assert truth.query("rc7_task", task_id="WI-1")[0]["state"] == "READY"
+    monkeypatch.setattr(bridge.scheduler, "lease_task", original_lease)
+    admitted = _admit(bridge, owner, "WI-1")
+    chain = {s["session_id"]: s for s in truth.query("rc72_worker_session", mission_id="M-1")}
+    assert len(chain) == 3
+    assert admitted.session_id not in {s["session_id"] for s in old_sessions}
+    assert chain[admitted.session_id]["parent_session_id"] == old_sessions[1]["session_id"]
+    assert chain[old_sessions[1]["session_id"]]["parent_session_id"] == old_sessions[0]["session_id"]
+    assert chain[old_sessions[0]["session_id"]]["parent_session_id"] is None
+    assert len([s for s in chain.values() if s["state"] == "ACTIVE"]) == 1
+
+
+def test_recovered_prelease_worker_cannot_change_professional_role(tmp_path, monkeypatch):
+    truth, fencer, owner, lifecycle, bridge = _ready_fixture(tmp_path)
+    monkeypatch.setattr(bridge.scheduler, "lease_task",
+                        lambda *a, **kw: (_ for _ in ()).throw(KeyboardInterrupt()))
+    with pytest.raises(KeyboardInterrupt):
+        _admit(bridge, owner, "WI-1")
+    session = truth.query("rc72_worker_session", mission_id="M-1")[0]
+    bridge.recover_unleased_orphan(
+        mission_id="M-1", team_id="TEAM-1",
+        captain_session_id="CAP-A", captain_lease_id=owner["lease_id"],
+        workitem_id="WI-1", session_id=session["session_id"])
+    altered = CaptainFencedWorkItemScheduler(
+        truth=truth, release_id="RC7.2", fencer=fencer,
+        lifecycle=lifecycle, scheduler=TaskScheduler(truth, "RC7.2"),
+        role_profiles={
+            "test-executor": ["api", "tool:api"],
+            "performance-executor": ["api", "tool:api"],
+        })
+    with pytest.raises(CaptainSchedulingError, match="RECOVERY_SCOPE_DRIFT"):
+        altered.dispatch_etu(
+            mission_id="M-1", team_id="TEAM-1",
+            captain_session_id="CAP-A", captain_lease_id=owner["lease_id"],
+            role="performance-executor", etu_id="ETU-1", workitem_id="WI-1",
+            canonical_refs=_refs("ETU-1"))
+    assert truth.query("rc7_task", task_id="WI-1")[0]["state"] == "READY"
+    assert len(truth.query("rc72_worker_session", mission_id="M-1")) == 1
