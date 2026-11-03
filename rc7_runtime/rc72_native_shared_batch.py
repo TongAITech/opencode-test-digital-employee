@@ -246,6 +246,21 @@ class NativeSharedExecutionBatch:
             raise NativeSharedBatchError("NATIVE_BATCH_MISSION_SCOPE_MISMATCH")
         if getattr(assignment, "scope", None) != "execution-batch:" + batch.batch_id:
             raise NativeSharedBatchError("NATIVE_BATCH_SCOPED_LEASE_REQUIRED")
+        # Every member requires an explicit R1 semantic-only classification.
+        # A model batch must NEVER swallow a deterministic WorkItem or infer
+        # from a planner label that DSH is permitted for a source case.
+        for workitem_id in batch.workitem_ids:
+            semantic_rows = self.truth.query(
+                "rc72_work_schedule_semantics",
+                mission_id=batch.mission_id, workitem_id=workitem_id,
+            )
+            if len(semantic_rows) != 1:
+                raise NativeSharedBatchError("NATIVE_BATCH_R1_SEMANTIC_PROOF_REQUIRED:%s" % workitem_id)
+            semantic = semantic_rows[0]
+            if semantic.get("release_id") != self.release_id:
+                raise NativeSharedBatchError("NATIVE_BATCH_SEMANTIC_RELEASE_MISMATCH")
+            if semantic.get("execution_mode") != "SEMANTIC":
+                raise NativeSharedBatchError("NATIVE_BATCH_DETERMINISTIC_OR_HYBRID_TOOL_FIRST:%s" % workitem_id)
         if getattr(assignment, "attempt_id", None) in set(attempt_ids_by_workitem.values()):
             raise NativeSharedBatchError("NATIVE_BATCH_MODEL_ATTEMPT_CANNOT_REPLACE_BUSINESS_ATTEMPT")
         authorized = getattr(assignment, "allowed_tools", None)
