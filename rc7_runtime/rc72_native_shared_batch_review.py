@@ -56,6 +56,17 @@ def _validate(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise _contracts.DomainValidationError("BATCH_REVIEW_WORKER_NOT_INDEPENDENT")
     if not out["raw_output_ref"].startswith("file://") or len(out["output_sha256"]) != 64:
         raise _contracts.DomainValidationError("BATCH_REVIEW_EVIDENCE_INVALID")
+    reviewer_tool_refs = out.get("review_tool_refs")
+    if (
+        not isinstance(reviewer_tool_refs, list)
+        or not reviewer_tool_refs
+        or any(
+            not isinstance(ref, str) or not ref.startswith("dsh-event://tool-call/")
+            for ref in reviewer_tool_refs
+        )
+        or len(reviewer_tool_refs) != len(set(reviewer_tool_refs))
+    ):
+        raise _contracts.DomainValidationError("BATCH_REVIEW_NATIVE_TOOL_PROOF_REQUIRED")
     members = out.get("members")
     if not isinstance(members, list) or len(members) < 2:
         raise _contracts.DomainValidationError("BATCH_REVIEW_MEMBER_DENOMINATOR_INVALID")
@@ -194,6 +205,14 @@ class NativeSharedEvaluatorBatch:
         session = _required(getattr(invocation, "dsh_session_id", None), "dsh_session_id")
         if session == candidate["dsh_session_id"]:
             raise NativeBatchReviewError("BATCH_REVIEW_SESSION_NOT_FRESH")
+        reviewer_tool_refs = [
+            row["call_ref"] for row in getattr(invocation, "tool_calls", ())
+            if isinstance(row, dict)
+            and isinstance(row.get("call_ref"), str)
+            and row["call_ref"].startswith("dsh-event://tool-call/")
+        ]
+        if not reviewer_tool_refs or len(set(reviewer_tool_refs)) != len(reviewer_tool_refs):
+            raise NativeBatchReviewError("BATCH_REVIEW_REAL_NATIVE_TOOL_PROOF_REQUIRED")
         raw = [
             ref for ref in getattr(invocation, "evidence_refs", ())
             if isinstance(ref, str) and ref.startswith("file://")
@@ -261,6 +280,7 @@ class NativeSharedEvaluatorBatch:
             "producer_session_id": candidate["dsh_session_id"],
             "dsh_session_id": session,
             "raw_output_ref": raw[0],
+            "review_tool_refs": reviewer_tool_refs,
             "output_sha256": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
             "token_call_id": metering["call_id"],
             "status": "UNVERIFIED_INDEPENDENT_REVIEW",
