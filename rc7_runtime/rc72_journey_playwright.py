@@ -82,6 +82,8 @@ class JourneyPlaywrightAdapter:
         self._playwright = None
         self._browser = None
         self._endpoint = None
+        self._active_run_id = None
+        self._active_attempt_id = None
         self._network_observations = {}
 
     def close(self) -> None:
@@ -91,6 +93,8 @@ class JourneyPlaywrightAdapter:
         self._playwright = None
         self._browser = None
         self._endpoint = None
+        self._active_run_id = None
+        self._active_attempt_id = None
         self._network_observations.clear()
 
     def _guard(self, context: Mapping[str, Any]) -> Dict[str, Any]:
@@ -282,6 +286,15 @@ class JourneyPlaywrightAdapter:
         started_at = int(time.time())
         try:
             binding = self._guard(context)
+            # A worker may not reuse a CDP connection (or cached network
+            # observations) as a fresh benchmark / N7 Attempt. Explicit
+            # close() and a new adapter are required to cross ownership.
+            if self._active_run_id is not None and (
+                    self._active_run_id != run_id
+                    or self._active_attempt_id != context["attempt_id"]):
+                raise ContractError("JOURNEY_ADAPTER_ATTEMPT_SWITCH_REQUIRES_CLOSE")
+            self._active_run_id = run_id
+            self._active_attempt_id = context["attempt_id"]
             page = self._page(binding["endpoint"])
             def on_response(response: Any) -> None:
                 try:
