@@ -6,6 +6,8 @@ HTTP POST, DOM business Oracle, PNG bytes and canonical R1 replay receipts.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import socket
 import subprocess
 import threading
@@ -65,6 +67,22 @@ def _reserved_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
+
+
+def _export_ci_evidence(tmp_path: Path, label: str) -> None:
+    """Ship auditable local-CI R1+actual PNG/JSON, never Chrome profile/cookies."""
+    root = os.environ.get("RC72_C09_EVIDENCE_EXPORT_ROOT")
+    if not root:
+        return
+    destination = Path(root) / label
+    destination.mkdir(parents=True, exist_ok=True)
+    truth_file = tmp_path / "r1.jsonl"
+    if truth_file.is_file():
+        shutil.copy2(str(truth_file), str(destination / "r1.jsonl"))
+    for name in ("actual-browser-evidence", "real-teaching-evidence"):
+        source = tmp_path / name
+        if source.is_dir():
+            shutil.copytree(str(source), str(destination / name), dirs_exist_ok=True)
 
 
 def test_real_chromium_cdp_journey_replay_and_business_oracles(tmp_path: Path):
@@ -181,6 +199,7 @@ def test_real_chromium_cdp_journey_replay_and_business_oracles(tmp_path: Path):
         assert "never-leak" not in json.dumps(observed)
         assert (tmp_path / "r1.jsonl").is_file()
     finally:
+        _export_ci_evidence(tmp_path, "real-browser-replay")
         if adapter is not None:
             adapter.close()
         if process is not None:
@@ -311,6 +330,7 @@ def test_real_chromium_cdp_teaching_captures_dom_event_network_and_png(tmp_path:
         assert candidate["executable"] is False
         assert not truth.query("rc72_official_journey_asset")
     finally:
+        _export_ci_evidence(tmp_path, "real-browser-teaching")
         if recorder is not None:
             recorder.stop()
         if process is not None:
