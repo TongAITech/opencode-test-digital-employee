@@ -135,3 +135,23 @@ N6 的 `tool_route.tool` 必须为 `journey_playwright`；`request` 最少包含
 3. 行内真实 4A/BSK/CDP、Profile、弹窗、安全输入与多窗口页面控制，仍保持 `FIELD_PENDING`，需要 B 组和现场环境验证。
 4. Source HEAD 同 SHA Windows/Linux/Python3.8/3.11 CI 未全绿之前，C09 不可核销为 `CODE_COMPLETE_CI_PASS`。
 
+
+
+## 7. 2026-11-04 定向可靠性加固（续施工）
+
+### 工程证明与核销界限
+
+本分支完成以下真实代码改造和定向失败注入测试；**截至本条记录，最新 SHA 的 GitHub Actions 尚未获得完成结论，以下仅代表“已提交待运行”，不代表测试通过**：
+
+1. **教学操作事件不丢失**：`JourneyCDPTeachingRecorder.poll()` 保留 Playwright binding 和 DOM 队列中的全部动作直至对应 R1 记录成功提交；每批执行前一次性验证类型、元素定位、INPUT/SELECT 引用，后续任何截图/绑定错误都不得被吞掉。 `record_assertion`、`record_wait` 和 `finish` 若检测到未消费事件或页面跳转先拒绝提交，维护真实 `CLICK→WAIT→ASSERT` 语义顺序。
+2. **N7 入场前完整验证**：`SignedN7OfficialJourneyAdapter.preflight()` 在共享 `SignedToolDispatchService` 写入 `IN_FLIGHT` 前完成 BrowserLease Purpose=OFFICIAL_JOURNEY_EXECUTION 的 ACTIVE WRITE 检查、ETU/Case/WorkItem/Official Asset 线性校验、相同 Attempt 禁重入、历史 `STARTED` 副作用 UNKNOWN 的恢复阻断。
+3. **正式资产不可原地篡改**：`rc72_official_journey_asset` 只允许 `artifact_version=1`；改 Oracle、Locator、Steps、审批标识，不能通过 `version=2` 伪装新审批。合法变更须再次进行 Candidate→Replay→Field Benchmark→Human Review，再铸造**新 Official Asset ID**；漂移报告独立 R1 实体，不重写既有审批资产。
+4. **CI 失败注入覆盖**：包含未消费点击就完成教学、批量事件后项缺少 ValueRef、人工 ASSERT 越过点击、导航未被观测就插 WAIT、N7 错误浏览器用途/WorkItem、审批资产 Oracle 修改等测试。
+
+### 最新 C09 放行所需客观证据
+
+- 最新 Journey HEAD 的隔离 CI Python 3.8/3.11 双绿，和 Windows/Linux RC7 继承回归在同 SHA PASS（不得使用历史 SHA 结果）。
+- A 组标准产品运行器接入 `journey_playwright` 路由，使用冻结 N6 Contract+真实 N7 ToolDispatch，提供合法和越权的反向日志、正式 Case Oracle 结果与 Evidence。
+- B 组真实隔离浏览器/CDP/BSK/4A、人工教学的跨页事件与截图顺序、Token 不泄漏、租约中途失效，以及 Win10/目标信创 Linux 双平台离线 smoke Evidence。
+- 现场正式 Benchmark 的独立两次以上真实 PASS、真人审批签批与范围 Hash；只有这样的资产才可从 `FIELD_PENDING` 升级，不能使用 FakeBrowser/CONTRACT_BROWSER 测试身份冒充 Field。
+
