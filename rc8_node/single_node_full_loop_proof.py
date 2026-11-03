@@ -38,6 +38,7 @@ class SingleNodeFullLoopProof:
     stage_instance_ids: Tuple[str, ...]
     attempt_ids: Tuple[str, ...]
     evidence_refs: Tuple[str, ...]
+    terminal_center_idle: bool = False
     status: str = "OBSERVED_NOT_AUTHORIZED"
     bank_reality_verified: bool = False
     release_status: str = "HOLD"
@@ -46,13 +47,7 @@ class SingleNodeFullLoopProof:
 class SingleNodeFullLoopProofRunner:
     """Observe a real dispatcher traversal without becoming a PASS authority."""
 
-    def __init__(
-        self,
-        *,
-        dispatcher: Any,
-        required_stages: Sequence[str] = FROZEN_N1_N10_STAGES,
-        require_center_claim_provenance: bool = False,
-    ) -> None:
+    def __init__(self, *, dispatcher: Any, required_stages: Sequence[str] = FROZEN_N1_N10_STAGES, require_center_claim_provenance: bool = False) -> None:
         stages = tuple(str(v or "").strip() for v in required_stages)
         if not stages or any(not v for v in stages) or len(set(stages)) != len(stages):
             raise SingleNodeFullLoopProofError("FULL_LOOP_STAGE_DENOMINATOR_INVALID")
@@ -139,4 +134,5 @@ class SingleNodeFullLoopProofRunner:
             stage_instance_ids=tuple(stage_instances),
             attempt_ids=tuple(attempts),
             evidence_refs=tuple(evidence),
+            terminal_center_idle=True,
         )
