@@ -66,16 +66,23 @@ class ProductionCausalityIntegrationRunner:
 
         The composed verifier already validates each Artifact/R1 edge. Promotion repeats
         the denominator binding here so a future proof transformation cannot replace
-        worker evidence with a same-sized stale/different durable Artifact set.
+        worker evidence with a same-sized stale/different durable Artifact set or collapse
+        the retained R1 lifecycle identities while preserving only their cardinality.
         """
         durable = proof.durable_truth
         observed = proof.observed
+        start_events = tuple(durable.verified_r1_start_events)
+        completion_events = tuple(durable.verified_r1_events)
+        attempt_count = len(observed.attempt_ids)
         return bool(
             durable.verified_work_items == observed.work_item_ids
             and durable.verified_attempts == observed.attempt_ids
             and durable.verified_artifacts == observed.evidence_refs
-            and len(durable.verified_r1_start_events) == len(observed.attempt_ids)
-            and len(durable.verified_r1_events) == len(observed.attempt_ids)
+            and len(start_events) == attempt_count
+            and len(completion_events) == attempt_count
+            and len(set(start_events)) == len(start_events)
+            and len(set(completion_events)) == len(completion_events)
+            and not set(start_events).intersection(completion_events)
         )
 
     def run(self, *, test_run_id: str) -> SingleNodeDurableIntegrationProof:
