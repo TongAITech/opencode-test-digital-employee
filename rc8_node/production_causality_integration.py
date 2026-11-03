@@ -50,13 +50,7 @@ class ProductionCausalityIntegrationRunner:
 
     @staticmethod
     def _bootstrap_materialization_retained(proof: SingleNodeDurableIntegrationProof) -> bool:
-        """Retain the successful production bootstrap -> first Center claim fact.
-
-        The composed production runner has already compared the bootstrap WorkItem and
-        StageInstance identities with the first claimed item before it can return a
-        proof. Promotion still re-checks the observable denominator here instead of
-        manufacturing ``bootstrap_materialized=True`` at the gate boundary.
-        """
+        """Retain the successful production bootstrap -> first Center claim fact."""
         observed = proof.observed
         return bool(
             proof.production_components_verified
@@ -66,16 +60,28 @@ class ProductionCausalityIntegrationRunner:
             and observed.stages[0] == "SCOPE_INTAKE"
         )
 
+    @staticmethod
+    def _durable_truth_verified(proof: SingleNodeDurableIntegrationProof) -> bool:
+        """Require exact durable identity continuity, never cardinality-only evidence.
+
+        The composed verifier already validates each Artifact/R1 edge. Promotion repeats
+        the denominator binding here so a future proof transformation cannot replace
+        worker evidence with a same-sized stale/different durable Artifact set.
+        """
+        durable = proof.durable_truth
+        observed = proof.observed
+        return bool(
+            durable.verified_work_items == observed.work_item_ids
+            and durable.verified_attempts == observed.attempt_ids
+            and durable.verified_artifacts == observed.evidence_refs
+            and len(durable.verified_r1_start_events) == len(observed.attempt_ids)
+            and len(durable.verified_r1_events) == len(observed.attempt_ids)
+        )
+
     def run(self, *, test_run_id: str) -> SingleNodeDurableIntegrationProof:
         proof = self.composed_runner.run(test_run_id=test_run_id)
         durable = proof.durable_truth
-        durable_truth_verified = (
-            durable.verified_work_items == proof.observed.work_item_ids
-            and durable.verified_attempts == proof.observed.attempt_ids
-            and len(durable.verified_artifacts) == len(proof.observed.evidence_refs)
-            and len(durable.verified_r1_start_events) == len(proof.observed.attempt_ids)
-            and len(durable.verified_r1_events) == len(proof.observed.attempt_ids)
-        )
+        durable_truth_verified = self._durable_truth_verified(proof)
         bootstrap_materialized = self._bootstrap_materialization_retained(proof)
         terminal_center_idle = bool(getattr(proof.observed, "terminal_center_idle", False))
         promotion = self.gate.evaluate(
