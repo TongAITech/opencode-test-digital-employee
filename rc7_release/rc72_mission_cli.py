@@ -20,14 +20,21 @@ def main(argv=None):
     parser.add_argument('--mission-config')
     parser.add_argument('--package-root')
     parser.add_argument('--evidence-root')
+    parser.add_argument('--economy-config', help='trusted JSON for bank cost windows and soft mission economy targets')
     parser.add_argument('--bridge-user-config', action='store_true')
     parser.add_argument('--retry-returned-failure', action='store_true')
     args = parser.parse_args(argv)
+    if args.command != 'run' and args.economy_config:
+        parser.error('economy-config is only valid for run')
     if args.command != 'mirror-check' and (args.bridge_user_config or args.retry_returned_failure):
         parser.error('mirror options require mirror-check')
     path = Path(args.ledger).expanduser().resolve()
     if not path.is_file():
         parser.error('existing canonical ledger required')
+    # Register all C10-owned events BEFORE TruthRuntime replays a historical
+    # R1 ledger, including UNKNOWN provider usage and shared batch evidence.
+    from rc7_runtime.rc72_economy_replay_bootstrap import install_rc72_economy_replay_bindings
+    install_rc72_economy_replay_bindings()
     truth = TruthRuntime(path)
     if args.command == 'status':
         result = release_batch_status(truth, source_commit=args.source_commit, release_batch_id=args.release_batch)
@@ -63,6 +70,18 @@ def main(argv=None):
             else:
                 bindings = load_mission_bindings(args.bindings_module, truth=truth,
                     release_id=args.release_id, source_commit=args.source_commit)
+            if args.command == 'run':
+                # C10: bind actual native model process boundaries before Factory
+                # dispatch, preserving its exact worker-type/authority guards.
+                # Mirror-check has no LLM and must not create economy receipts.
+                from rc7_runtime.rc72_production_economy_ingress import (
+                    bind_release_batch_model_economy, read_mission_economy_config,
+                )
+                economy = bind_release_batch_model_economy(
+                    truth, workers=bindings.workers, release_id=args.release_id,
+                    mission_id=snapshot['mission_id'],
+                    policy=read_mission_economy_config(args.economy_config),
+                )
             driver = create_mission_driver(truth, release_id=args.release_id, source_commit=args.source_commit,
                 evidence_root=Path(args.evidence_root).expanduser().resolve(),
                 **{f.name: getattr(bindings, f.name) for f in fields(bindings)})
@@ -74,6 +93,38 @@ def main(argv=None):
                 result = dict(result,field_verified=False,bank_final=False)
             else:
                 result = driver.run(release_batch_id=args.release_batch)
+                economy_result = economy.field_qualification(snapshot['mission_id'])
+                # Functional ReleaseBatch truth and model efficiency are
+                # independent. Never infer N10 convergence from low cost or
+                # an optimistic driver label without all canonical N-nodes.
+                node_rows = truth.query('rc72_mission_node', mission_id=snapshot['mission_id'])
+                n10_pass = any(
+                    row.get('node_type') == 'N10_RELEASE_CONVERGENCE'
+                    and row.get('state') == 'PASS'
+                    for row in node_rows
+                )
+                all_nodes_pass = bool(node_rows) and all(
+                    row.get('state') == 'PASS' for row in node_rows
+                )
+                mission_complete = (
+                    result.get('status') == 'PASS' and n10_pass and all_nodes_pass
+                )
+                result = dict(
+                    result,
+                    MISSION_COMPLETION_STATUS='PASS' if mission_complete else 'HOLD',
+                    MODEL_ECONOMY_STATUS=economy_result.status,
+                    MODEL_ECONOMY_REASON=economy_result.reason,
+                    MODEL_USAGE_TOTAL_STATUS=economy_result.metrics.get('usage_total_status', 'UNKNOWN'),
+                    ACTUAL_TOTAL_TOKENS=economy_result.metrics.get('actual_total_tokens'),
+                    DSH_PROCESS_INVOCATIONS=economy_result.metrics.get('dsh_process_invocations'),
+                    DSH_PROCESS_INVOCATION_COUNT_STATUS=economy_result.metrics.get('dsh_process_invocation_count_status', 'UNKNOWN'),
+                    DSH_PROCESS_LAUNCH_ERROR_COUNT=economy_result.metrics.get('dsh_process_launch_error_count'),
+                    PROVIDER_INFERENCE_CALL_COUNT=economy_result.metrics.get('provider_inference_call_count'),
+                    PROVIDER_INFERENCE_CALL_COUNT_STATUS=economy_result.metrics.get('provider_inference_call_count_status', 'UNKNOWN'),
+                    LOSSLESS_JSON_COMPACTED_CALLS=economy_result.metrics.get('lossless_json_compacted_calls', 0),
+                    VERIFIED_PROMPT_SERIALIZATION_SAVED_BYTES=economy_result.metrics.get('verified_prompt_serialization_saved_bytes', 0),
+                    VERIFIED_PROMPT_TOKEN_SAVINGS=economy_result.metrics.get('verified_prompt_token_savings'),
+                )
         except (ContractError, RuntimeError, OSError, ValueError) as exc:
             # Public run output carries only a contract code. Error details may
             # include private host paths or credentials and are not receipts.
@@ -84,6 +135,19 @@ def main(argv=None):
             result = dict(release_batch_id=args.release_batch, release_id=args.release_id,
                 source_commit=args.source_commit, status='HOLD', reason=code,
                 field_verified=False, bank_final=False)
+            if args.command == 'run':
+                result.update(MISSION_COMPLETION_STATUS='HOLD',
+                    MODEL_ECONOMY_STATUS='HOLD',
+                    MODEL_ECONOMY_REASON='MISSION_RUN_NOT_COMPLETED',
+                    MODEL_USAGE_TOTAL_STATUS='UNKNOWN', ACTUAL_TOTAL_TOKENS=None,
+                    DSH_PROCESS_INVOCATIONS=None,
+                    DSH_PROCESS_INVOCATION_COUNT_STATUS='UNKNOWN',
+                    DSH_PROCESS_LAUNCH_ERROR_COUNT=None,
+                    PROVIDER_INFERENCE_CALL_COUNT=None,
+                    PROVIDER_INFERENCE_CALL_COUNT_STATUS='UNKNOWN',
+                    LOSSLESS_JSON_COMPACTED_CALLS=None,
+                    VERIFIED_PROMPT_SERIALIZATION_SAVED_BYTES=None,
+                    VERIFIED_PROMPT_TOKEN_SAVINGS=None)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     if args.command == 'status':
         return 0
