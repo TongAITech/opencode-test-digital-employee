@@ -327,8 +327,12 @@ class NativeCoveragePathDiagnosisService:
             CoverageFeedbackService(self.truth,release_id=self.release_id).classify_gap(gap_id=row['gap_id'],gap_reason=CoverageGapReason.PATH_NOT_REACHED,
                 evidence_refs=list(dict.fromkeys(gap['evidence_refs']+[evidence_ref])),rationale=row['result']['rationale'])
         gap=self.measurement._one('rc72_coverage_gap',gap_id=row['gap_id'])
-        if (gap['gap_reason']!='PATH_NOT_REACHED' or gap['status'] not in ({'CLASSIFIED','RESOLVED'} if historical else {'CLASSIFIED'}) or gap['responsible_nodes']!=['N8_DIAGNOSIS_RECOVERY']
-                or gap['action']!='DIAGNOSE_PATH' or evidence_ref not in gap['evidence_refs'] or gap['rationale']!=row['result']['rationale']):
+        classified=(gap['status']=='CLASSIFIED' and gap['responsible_nodes']==['N8_DIAGNOSIS_RECOVERY']
+                    and gap['action']=='DIAGNOSE_PATH')
+        closed=(historical and gap['status']=='RESOLVED' and gap['responsible_nodes']==[]
+                and gap['action']=='CLOSED_BY_POST_REPAIR_VERIFICATION')
+        if (gap['gap_reason']!='PATH_NOT_REACHED' or not (classified or closed)
+                or evidence_ref not in gap['evidence_refs'] or gap['rationale']!=row['result']['rationale']):
             raise ContractError('COVERAGE_DIAGNOSIS_CLASSIFICATION_CHANGED')
         investigation='COV-PATH-WI-'+_hash(did)[:24]
         if not self.truth.query('rc7_task',task_id=investigation):
