@@ -372,6 +372,34 @@ def _validate_call(payload: Dict[str, Any]) -> Dict[str, Any]:
     # Per-native-process proof is separate from admission: a call can be
     # ADMITTED in R1 before any subprocess was actually launched. Older
     # R1 events remain UNKNOWN, never a fabricated successful process.
+    # Projection describes *canonical references*, not whether the native
+    # prompt actually consumed fewer tokens. Proof of prompt reduction must
+    # come from native final prompt bytes, never from an inferred ref count.
+    out.setdefault("context_projection_status", "NOT_BOUND")
+    if out["context_projection_status"] not in {"NOT_BOUND", "REFERENCE_ONLY"}:
+        raise _contracts.DomainValidationError("TOKEN_CONTEXT_PROJECTION_STATUS_INVALID")
+    out.setdefault("context_projection_applied_to_prompt", False)
+    if out["context_projection_applied_to_prompt"] is not False:
+        raise _contracts.DomainValidationError("TOKEN_CONTEXT_SAVINGS_UNPROVEN")
+    for name in (
+        "context_canonical_ref_count", "context_effective_ref_count",
+        "context_unhydrated_lineage_ref_count",
+    ):
+        out.setdefault(name, 0)
+        out[name] = _nonnegative_int(out, name)
+    if out["context_projection_status"] == "REFERENCE_ONLY":
+        for name in ("context_envelope_id", "context_envelope_sha256", "context_mode"):
+            out[name] = _required(out, name)
+        if len(out["context_envelope_sha256"]) != 64:
+            raise _contracts.DomainValidationError("TOKEN_CONTEXT_ENVELOPE_DIGEST_INVALID")
+        if out["context_mode"] not in {"NORMAL", "RETRY_DELTA", "FULL_CONTEXT_RETRY", "RETRY_DELTA_UNKNOWN"}:
+            raise _contracts.DomainValidationError("TOKEN_CONTEXT_PROJECTION_MODE_INVALID")
+    out.setdefault("context_envelope_id", None)
+    out.setdefault("context_envelope_sha256", None)
+    out.setdefault("context_mode", "UNKNOWN")
+    parent_attempt_id = out.get("parent_attempt_id")
+    if parent_attempt_id is not None and (not isinstance(parent_attempt_id, str) or not parent_attempt_id.strip()):
+        raise _contracts.DomainValidationError("TOKEN_CONTEXT_PARENT_ATTEMPT_INVALID")
     out.setdefault("process_outcome", "UNKNOWN")
     if out["process_outcome"] not in {"UNKNOWN", "NOT_STARTED", "RETURNED", "RAISED"}:
         raise _contracts.DomainValidationError("DSH_PROCESS_OUTCOME_INVALID")
@@ -729,6 +757,7 @@ class TokenEconomyService:
         prompt: str,
         mission_criticality: Any = MissionCriticality.UNKNOWN,
         semantic_cost_class: Any = SemanticCostClass.UNKNOWN,
+        context_projection: Optional[Mapping[str, Any]] = None,
         when: Optional[datetime] = None,
     ) -> TokenAdmission:
         budget = self._budget(mission_id)
@@ -739,6 +768,20 @@ class TokenEconomyService:
         if not isinstance(semantic_cost_class, SemanticCostClass):
             semantic_cost_class = SemanticCostClass(str(semantic_cost_class).upper())
 
+        if context_projection is not None and not isinstance(context_projection, Mapping):
+            raise TokenEconomyError("TOKEN_CONTEXT_PROJECTION_INVALID")
+        projection = dict(context_projection or {})
+        accepted_projection = {
+            "context_envelope_id", "context_envelope_sha256", "context_mode",
+            "context_canonical_ref_count", "context_effective_ref_count",
+            "context_unhydrated_lineage_ref_count",
+            "context_projection_applied_to_prompt", "context_projection_status",
+            "parent_attempt_id",
+        }
+        if set(projection) - accepted_projection:
+            raise TokenEconomyError("TOKEN_CONTEXT_PROJECTION_FIELDS_INVALID")
+        if projection and projection.get("context_projection_applied_to_prompt") is not False:
+            raise TokenEconomyError("TOKEN_CONTEXT_SAVINGS_UNPROVEN")
         prompt_bytes = prompt.encode("utf-8")
         digest = hashlib.sha256(prompt_bytes).hexdigest()
         summary = self.summary(mission_id)
@@ -822,6 +865,7 @@ class TokenEconomyService:
             "usage_status": "PENDING",
             "usage_source": "AWAITING_DSH_USAGE" if admitted else "NOT_EXECUTED",
             "process_outcome": "NOT_STARTED" if admitted else "UNKNOWN",
+            **projection,
             "input_tokens": 0,
             "output_tokens": 0,
             "total_tokens": 0,
