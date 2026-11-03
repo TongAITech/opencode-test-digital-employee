@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 
 from . import contracts as _contracts
 from . import truth as _truth
-from .authority import AuthorityRuntime, TaskLease, WorkerIdentity
+from .authority import AuthorityError, AuthorityRuntime, TaskLease, WorkerIdentity
 from .intelligence import GateResult, RequirementSufficiencyEvaluator
 
 
@@ -367,6 +367,13 @@ class DshHeadlessWorkerLauncher:
             input_refs=list(assignment.input_refs),
             started_at=int(time.time()),
         )
+        try:
+            run_env = self.authority.worker_process_environment(
+                identity=assignment.identity, lease=assignment.lease, worker_instance_id=assignment.worker_instance_id, mission_id=assignment.mission_id, scope=assignment.scope,
+                explicit=self.env, home=self.state_root / 'worker-home')
+        except (AuthorityError, ValueError) as exc:
+            self._emit_routing_fail(assignment.mission_id, 'WORKER_PROCESS_ADMISSION_DENIED')
+            raise AgentRuntimeError('ROUTING_INTEGRITY_FAIL:WORKER_PROCESS_ADMISSION_DENIED') from exc
         self._emit("WORKER_STARTED", invocation)
         command = [
             self.dsh_bin,
@@ -375,8 +382,6 @@ class DshHeadlessWorkerLauncher:
             "--json",
             prompt,
         ]
-        run_env = os.environ.copy()
-        run_env.update(self.env)
         try:
             proc = self.command_runner(
                 command,

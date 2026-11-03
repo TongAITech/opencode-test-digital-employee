@@ -1,5 +1,44 @@
 # RC7.2 持续施工与最终搬运交付
 
+## Native worker process environment and launch admission — 2026-11-03
+
+The shared DSH launcher now delegates process-environment projection to its
+concrete authority before emitting WORKER_STARTED or launching a child. Legacy
+RC6/RC7 authority retains its previous environment behavior. RC7.2 authority
+requires the current exact signed identity/lease/worker/scope, rejects revoked,
+expired or not-yet-issued grants, and supplies a private home/profile keyed by
+worker, session, lease and scope. Native workers do not inherit the Captain's
+ambient environment or DSH home; explicit scoped provider configuration remains
+available to the worker.
+
+Explicit control credentials, external home/profile paths, interactive-control
+mode, broader/duplicate tool projections and mismatching caller projections are
+rejected before a process or WORKER_STARTED record. Protected environment keys
+are canonicalized to prevent case-insensitive Windows aliases from bypassing the
+checks. Tool order may differ when exact membership is unchanged. Every native
+worker receives LEASE_BOUND_WORKER mode; absent downstream MCP configuration
+cannot fall back to Field interactive authority.
+
+A real child-process canary changed from parent-marker/profile visibility to
+neither being visible. Tests exercise eight professional roles, distinct grants,
+explicit provider configuration, startup TTL/revocation/scope rejection and
+Windows-style aliases. Initial native N1→N5/launch regression passed 57 tests;
+inherited RC7 regression passed 492 tests with 1 existing skip and 7 collection
+warnings. Final caller-projection/environment/native-N5/N1-N2 checks passed 53
+in 21.70s. An earlier launch-fence revision completed the original full 28-Case
+product chain in 615.43s; final grant/profile/caller hardening is covered by the
+targeted tests and still requires exact committed-source whole-chain/platform
+qualification. The unchanged file budget is 900 seconds.
+
+This is environment/profile projection and launch-time authority admission, not
+an OS filesystem sandbox or proof of all tool-call authorization. Native per-role
+DSH profile/provider materialization, complete MCP task projection and actual
+call-time gates remain C07/C08 work. N1 already owns a canonical rc7_task; its
+WorkerAssignment scope is mission-node://..., which the inherited task resolver
+does not map to that task. Reuse the real workitem/assignment lineage when wiring
+that bridge; do not create placeholder Tasks or permit interactive fallback.
+The broader frozen design, N9/N10/controller and complete transport remain OPEN.
+
 ## Worker-owned authenticated HTTP execution — 2026-11-03
 
 `WorkerHTTPAuthAssetProvider` now reads one bank-host export bound to the exact
@@ -29,8 +68,9 @@ anonymous native HTTP, formal Runner, conclusive failures, pipeline and N4 hando
 discrepancy through separate independent N8/reviewer processes to N9 intake only;
 no PRODUCT_DEFECT or N7 PASS was invented. Renewal/heartbeat/full repair-retry/obligation regressions for this new source
 passed 38 tests in 145.54s (`worker-http-auth-recovery-qualification.log`). The
-complete original 28-Case product regression is still running under its unchanged
-900-second limit; it is not yet a PASS for this new source.
+complete original 28-Case product regression passed in 645.41s under its unchanged
+900-second limit (`worker-http-auth-product.log`) on runtime source `f318f945`.
+No Case, original Attempt evidence or obligation denominator was removed.
 
 This concrete provider supports bank-exported, non-device-bound Authorization
 headers with same-origin identity probing. Actual bank AuthKeeper/4A automatic

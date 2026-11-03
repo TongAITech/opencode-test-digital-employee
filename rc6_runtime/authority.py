@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import os
 import hashlib
 import json
 import time
@@ -92,6 +93,12 @@ class AuthorityRuntime:
         self._key = signing_key
         self._identities: Dict[str, WorkerIdentity] = {}
         self._leases: Dict[str, TaskLease] = {}
+
+    def worker_process_environment(self, *, identity, lease, worker_instance_id, mission_id, scope, explicit, home):
+        """Legacy process policy; native authority versions may narrow projection."""
+        environment = os.environ.copy()
+        environment.update(explicit)
+        return environment
 
     def issue_identity(self, role: str, phase: str, layer: Optional[str], generation: int, session_id: str) -> WorkerIdentity:
         if role not in self._ROLE_ARTIFACTS:

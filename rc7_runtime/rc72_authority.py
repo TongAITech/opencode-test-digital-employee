@@ -11,6 +11,11 @@ must still be observed separately before MissionNode Attempt truth is admitted.
 """
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
+import time
+
 from typing import Iterable, Optional
 
 from rc6_runtime.authority import AuthorityError, AuthorityRuntime, TaskLease, WorkerIdentity
@@ -52,6 +57,70 @@ class RC72AuthorityRuntime(AuthorityRuntime):
     # producer. It can observe through leased tools but cannot self-register a
     # verified DataRef, binding, lease, node PASS, or downstream release.
     _ROLE_ARTIFACTS[DATA_VERIFIER] = set()
+
+    def worker_process_environment(self, *, identity, lease, worker_instance_id, mission_id, scope, explicit, home):
+        """Project a live native worker's environment, never the Captain's home."""
+        from rc6_runtime.process_environment import scoped_process_environment
+        if (worker_instance_id != identity.worker_id or self._require_identity(identity.worker_id) != identity
+                or self._require_lease(lease.lease_id) != lease or lease.scope_ref != scope):
+            raise AuthorityError('WORKER_PROCESS_IDENTITY_OR_SCOPE_MISMATCH')
+        self._validate_lease(identity, lease, None)
+        if int(time.time()) < lease.issued_at:
+            raise AuthorityError('WORKER_PROCESS_LEASE_NOT_ISSUED')
+        values = dict(explicit)
+        if any(not isinstance(key, str) or not isinstance(value, str) or '\0' in value for key, value in values.items()):
+            raise AuthorityError('WORKER_PROCESS_ENVIRONMENT_INVALID')
+        if any(not isinstance(key, str) or any(word in key.upper() for word in
+               ('CAPTAIN', 'COORDINATOR', 'SIGNING_KEY', 'AUTHORITY_KEY', 'RUNTIME_HMAC_KEY')) for key in values):
+            raise AuthorityError('WORKER_PROCESS_CONTROL_CREDENTIAL_FORBIDDEN')
+        # Windows environment names are case-insensitive. Canonicalize the
+        # protected projection before validation so aliases cannot bypass it.
+        protected = {'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'DSH_HOME',
+                     'XDG_CONFIG_HOME', 'PFC_RC7_DSH_SESSION_MODE', 'PFC_RC7_DSH_ALLOWED_TOOLS',
+                     'PFC_RC7_MCP_MISSION_ID', 'PFC_RC7_MCP_WORKER_ID', 'PFC_RC7_MCP_LEASE_ID',
+                     'PFC_RC7_MCP_SCOPE_REF', 'PFC_RC7_MCP_TASK_ID'}
+        normalized = {}
+        for key, value in values.items():
+            name = key.upper() if key.upper() in protected else key
+            if name in normalized and normalized[name] != value:
+                raise AuthorityError('WORKER_PROCESS_AMBIGUOUS_ENVIRONMENT')
+            normalized[name] = value
+        values = normalized
+        binding = {'PFC_RC7_MCP_MISSION_ID': mission_id, 'PFC_RC7_MCP_WORKER_ID': identity.worker_id,
+                   'PFC_RC7_MCP_LEASE_ID': lease.lease_id, 'PFC_RC7_MCP_SCOPE_REF': scope}
+        if scope.startswith('task:'):
+            binding['PFC_RC7_MCP_TASK_ID'] = scope[len('task:'):].split('/attempt:', 1)[0]
+        if any(key in values and values[key] != value for key, value in binding.items()):
+            raise AuthorityError('WORKER_PROCESS_CALLER_PROJECTION_MISMATCH')
+        if values.get('PFC_RC7_DSH_SESSION_MODE', 'LEASE_BOUND_WORKER') != 'LEASE_BOUND_WORKER':
+            raise AuthorityError('WORKER_PROCESS_INTERACTIVE_CONTROL_FORBIDDEN')
+        if 'PFC_RC7_DSH_ALLOWED_TOOLS' in values:
+            try:
+                projected = json.loads(values['PFC_RC7_DSH_ALLOWED_TOOLS'])
+            except ValueError:
+                raise AuthorityError('WORKER_PROCESS_TOOL_PROJECTION_INVALID') from None
+            if (not isinstance(projected, list) or any(not isinstance(tool, str) for tool in projected)
+                    or len(set(projected)) != len(projected) or set(projected) != set(lease.allowed_tools)):
+                raise AuthorityError('WORKER_PROCESS_TOOL_PROJECTION_MISMATCH')
+        identifier = hashlib.sha256(json.dumps([identity.worker_id, identity.session_id, lease.lease_id, scope],
+            ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()[:32]
+        private = Path(home).resolve() / identifier
+        expected = dict(HOME=private, USERPROFILE=private, APPDATA=private/'AppData'/'Roaming',
+                        LOCALAPPDATA=private/'AppData'/'Local')
+        for key, value in values.items():
+            upper = key.upper()
+            if upper in expected and Path(value).expanduser().resolve() != expected[upper]:
+                raise AuthorityError('WORKER_PROCESS_PRIVATE_HOME_REQUIRED')
+            if upper in {'DSH_HOME', 'XDG_CONFIG_HOME'}:
+                try:
+                    Path(value).expanduser().resolve().relative_to(private)
+                except ValueError:
+                    raise AuthorityError('WORKER_PROCESS_PRIVATE_PROFILE_REQUIRED') from None
+        environment = scoped_process_environment(values, home=private)
+        environment['PFC_RC7_DSH_SESSION_MODE'] = 'LEASE_BOUND_WORKER'
+        environment.setdefault('DSH_HOME', str(private/'.dsh'))
+        environment.setdefault('XDG_CONFIG_HOME', str(private/'.config'))
+        return environment
 
     def adopt_identity(
         self,
