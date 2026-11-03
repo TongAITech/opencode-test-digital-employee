@@ -313,3 +313,27 @@ def test_packaged_release_status_cannot_be_forged_in_verified_zip(tmp_path):
     exporter.export_evidence(root, out, source_commit=COMMIT)
     with pytest.raises(exporter.ExportError, match="ZIP_IDENTITY_MISMATCH"):
         exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
+
+
+
+def test_cannot_substitute_noncanonical_r1_file_for_final_receipt(tmp_path):
+    root = _root(tmp_path)
+    alternative = "field/q3-target-linux.json"
+    with pytest.raises(exporter.ExportError, match="CANONICAL_R1_REQUIRED"):
+        exporter.export_evidence(root, tmp_path / "wrong-r1.zip", source_commit=COMMIT,
+                                 r1_relpath=alternative)
+    assert not (tmp_path / "wrong-r1.zip").exists()
+
+
+def test_receipt_cannot_relabel_different_payload_as_canonical_r1(tmp_path):
+    root = _root(tmp_path)
+    out = tmp_path / "relabeled-r1.zip"
+    exporter.export_evidence(root, out, source_commit=COMMIT)
+    def substitute_index(data):
+        index = json.loads(data)
+        index["r1_event_stream"] = "SOURCE_COMMIT"
+        return json.dumps(index).encode("utf-8")
+    _reseal_modified_archive(out, tmp_path, entry_name="QA-EVIDENCE-INDEX.json",
+                             change=substitute_index)
+    with pytest.raises(exporter.ExportError, match="ZIP_CANONICAL_R1_REQUIRED"):
+        exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
