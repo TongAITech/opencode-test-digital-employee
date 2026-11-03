@@ -198,7 +198,9 @@ def test_captain_cannot_handoff_during_durable_in_flight_n7_business_invocation(
         original_run = pipeline.runner.run_with_dispatch
         blocked = []
         def observe_handoff_during_inflight(*, contract, context, dispatcher):
-            assert truth.query("rc72_n7_tool_dispatch")[0]["state"] == "IN_FLIGHT"
+            active = truth.query(
+                "rc72_n7_tool_dispatch", attempt_id=context["attempt_id"])
+            assert len(active) == 1 and active[0]["state"] == "IN_FLIGHT"
             with pytest.raises(ContractError, match="CAPTAIN_HANDOFF_ACTIVE_EXECUTION_RECONCILIATION_REQUIRED"):
                 fencer.prepare_handoff(
                     mission_id=plan["mission_id"], team_id=pipeline.team_id,
