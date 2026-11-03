@@ -228,6 +228,14 @@ class ExecutionPreparationService:
                 self.authority.revoke_worker_lease(row['task_lease']['lease_id'])
                 raise ExecutionPreparationError('N7_EXECUTION_PROCESS_RECOVERY_REQUIRED')
         calls = self.truth.query('rc72_n7_tool_dispatch', preparation_id=row['preparation_id'])
+        # UNKNOWN means external I/O might already have committed. No caller,
+        # including a different adapter or cold runtime, may restore the signed
+        # TaskLease merely because the original IN_FLIGHT owner has exited.
+        # FAILED is permitted only with the separately verified no-effect proof
+        # and remains for independent N8 diagnosis, not unattended replay.
+        if any(call['state'] == 'UNKNOWN' for call in calls):
+            self.authority.revoke_worker_lease(row['task_lease']['lease_id'])
+            raise ExecutionPreparationError('N7_EXECUTION_UNKNOWN_EFFECT_RECONCILIATION_REQUIRED')
         if any(call['state'] == 'IN_FLIGHT' for call in calls) and row['preparation_id'] not in self._active_dispatches:
             self.authority.revoke_worker_lease(row['task_lease']['lease_id'])
             raise ExecutionPreparationError('N7_EXECUTION_CONTROLLER_RECOVERY_REQUIRED')
