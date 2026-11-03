@@ -22,15 +22,16 @@ from .rc72_model_economy import (
     ModelCallClass, MissionCriticality, SemanticCostClass,
 )
 from .rc72_model_usage import TokenUsageAuditService
+from .rc72_schedule_semantics import WorkScheduleSemanticsService
 from .rc72_production_economy_wiring import (
     ProductionEconomyBindingError, bind_production_model_economy,
 )
 
 
 _ROLE_NODE = {
-    "reality": "N1_ENVIRONMENT",
-    "requirement": "N2_REQUIREMENT_ANALYSIS",
-    "requirement_review": "N2_REQUIREMENT_ANALYSIS",
+    "reality": "N1_REALITY",
+    "requirement": "N2_REQUIREMENT",
+    "requirement_review": "N2_REQUIREMENT",
     "source": "N3_CODE_ANALYSIS",
     "source_review": "N3_CODE_ANALYSIS",
     "code": "N3_CODE_ANALYSIS",
@@ -240,6 +241,9 @@ def bind_release_batch_model_economy(
         economy.configure_budget(mission_id=mission_id, **targets)
     elif budget_rows[0].get("state") != "ACTIVE":
         raise ProductionEconomyBindingError("RC72_ECONOMY_BUDGET_RETIRED")
+    # Install the R1 semantic projection even when the first production run
+    # has not constructed an in-memory scheduling control plane.
+    WorkScheduleSemanticsService(truth, release_id=release_id)
     audit = TokenUsageAuditService(truth, release_id=release_id)
     for role in _ROLE_NODE:
         bind_production_model_economy(
