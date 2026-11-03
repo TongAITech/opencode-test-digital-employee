@@ -26,6 +26,7 @@ on:
       - 'tests/test_rc8_production_causality_integration.py'
       - 'tests/test_rc8_terminal_center_idle_proof_surface.py'
       - 'tests/test_rc8_bootstrap_materialization_retention.py'
+      - 'tests/test_rc8_production_causality_exact_evidence_binding.py'
       - '.github/workflows/rc8-single-node-full-loop-proof.yml'
   workflow_dispatch:
 
@@ -99,3 +100,6 @@ jobs:
       - name: retained bootstrap materialization proof
         if: always()
         run: python -m pytest -q tests/test_rc8_bootstrap_materialization_retention.py
+      - name: exact promotion evidence identity binding
+        if: always()
+        run: python -m pytest -q tests/test_rc8_production_causality_exact_evidence_binding.py
