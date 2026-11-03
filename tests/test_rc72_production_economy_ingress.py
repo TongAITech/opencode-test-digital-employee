@@ -310,6 +310,8 @@ def test_signed_observed_n8_retry_actually_rehydrates_dsh_prompt_and_replays_r1(
     import hashlib
     from rc7_runtime.rc72_truth import install_rc72_truth_overlay
     from rc7_runtime.rc72_retry_context import install_rc72_retry_context_overlay
+    from rc7_runtime.rc72_retry_context import _retry_delta_digest
+    from rc7_runtime.rc72_context_economy import build_retry_delta
     from rc7_runtime.rc72_production_economy_ingress import canonical_role_metadata_resolver
 
     install_rc72_truth_overlay()
@@ -361,7 +363,13 @@ def test_signed_observed_n8_retry_actually_rehydrates_dsh_prompt_and_replays_r1(
         "canonical_lineage_refs_not_in_delta": old_refs,
         "previous_attempt_summary_ref": "PREVIOUS-ATTEMPT-SUMMARY",
         "full_context_reason": None,
-        "retry_delta_sha256": "a" * 64,
+        "retry_delta_sha256": _retry_delta_digest(build_retry_delta(
+            previous_attempt_summary_ref="PREVIOUS-ATTEMPT-SUMMARY",
+            explicit_gap_refs=(),
+            delta_evidence_refs=("EVD-FIXED",),
+            changed_dependency_refs=("DEP-NEW",),
+            full_context_reason=None,
+        )),
         "recorded_at": 1,
         "artifact_version": 1,
     })
