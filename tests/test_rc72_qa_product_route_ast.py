@@ -4,6 +4,16 @@ import pytest
 
 
 @pytest.mark.parametrize("source", [
+    # A negative N8 comparison cannot grant execution of N8 service.
+    """def run(self):
+    if node['node_type'] != 'N8_DIAGNOSIS_RECOVERY':
+        self.n8_pipeline.complete(release_batch_id=batch_id)
+""",
+    # A disjunction also admits non-N8 node execution.
+    """def run(self):
+    if node['node_type'] == 'N8_DIAGNOSIS_RECOVERY' or self.force_route:
+        self.n8_pipeline.complete(release_batch_id=batch_id)
+""",
     # A bypass branch invoking a different N7 component must not satisfy C03.
     """def run(self):
     if node['node_type'] == 'N8_DIAGNOSIS_RECOVERY':
