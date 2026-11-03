@@ -24,12 +24,14 @@ def test_preserve_real_user_discovery_and_enterprise_settings_without_copying(tm
 def test_hidden_appdata_and_suppressing_config_fail_without_audited_bridge(tmp_path):
     app,config=_config(tmp_path)
     with pytest.raises(RuntimeError,match='APPDATA_HIDDEN'):prepare_environment(app,dict(APPDATA=str(tmp_path/'worker')))
-    for value in ['NUL',str(tmp_path/'empty.ini'),str(config)]:
+    for value in ['', 'NUL',str(tmp_path/'empty.ini'),str(config)]:
         with pytest.raises(RuntimeError,match='CONFIG_OVERRIDE'):prepare_environment(app,dict(APPDATA=str(app),PIP_CONFIG_FILE=value))
     values,path,proof=prepare_environment(app,dict(APPDATA=str(tmp_path/'worker')),bridge=True)
     assert values['PIP_CONFIG_FILE']==str(config) and proof['mode']=='EXPLICIT_REAL_USER_CONFIG_BRIDGE'
     with pytest.raises(RuntimeError,match='UNAPPROVED_CONFIG_OVERRIDE'):
         prepare_environment(app,dict(APPDATA=str(app),PIP_CONFIG_FILE='NUL'),bridge=True)
+    with pytest.raises(RuntimeError,match='UNAPPROVED_CONFIG_OVERRIDE'):
+        prepare_environment(app,dict(APPDATA=str(app),PIP_CONFIG_FILE=''),bridge=True)
 
 
 def _proof(tmp_path,config):

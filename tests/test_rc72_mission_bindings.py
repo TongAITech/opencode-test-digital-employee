@@ -99,3 +99,26 @@ def test_cli_run_composes_native_services_but_cannot_bypass_admission(tmp_path, 
     assert result['status'] == 'HOLD' and result['reason'] == 'FIELD_MISSION_Q7_ADMISSION_HOLD'
     assert result['bank_final'] is result['field_verified'] is False
     assert truth.store.path.read_bytes() == before
+
+
+@pytest.mark.parametrize('manifest',['missing','invalid'])
+def test_deleted_full_manifest_cannot_downgrade_cli_to_component_before_host_loading(tmp_path,monkeypatch,capsys,manifest):
+    from rc72_pip_field_test_support import provider
+    truth,_=_setup(tmp_path)
+    start_n1(truth)
+    # Trusted prior Field fixture claims a full package, but deliberately has
+    # no live full manifest. The CLI must refuse it before any host callback.
+    root=provider(truth,source_commit=COMMIT).root
+    if manifest=='invalid':(root/'PACKAGE_MANIFEST.json').write_text('{}')
+    module=ModuleType('must_not_load_for_missing_full_manifest')
+    def forbidden(**kwargs):pytest.fail('missing full manifest loaded host')
+    module.create_mission_bindings=forbidden
+    monkeypatch.setitem(sys.modules,module.__name__,module)
+    before=truth.store.path.read_bytes()
+    code=main(['run','--ledger',str(truth.store.path),'--source-commit',COMMIT,
+        '--release-batch',BATCH,'--release-id',RELEASE,'--bindings-module',module.__name__,
+        '--package-root',str(root),'--evidence-root',str(tmp_path/'evidence')])
+    result=json.loads(capsys.readouterr().out)
+    assert code==37 and result['status']=='HOLD'
+    assert result['field_verified'] is result['bank_final'] is False
+    assert truth.store.path.read_bytes()==before

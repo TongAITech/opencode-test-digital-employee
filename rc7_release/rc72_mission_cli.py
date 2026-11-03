@@ -46,6 +46,16 @@ def main(argv=None):
         from rc7_release.rc72_mission_bindings import load_mission_bindings
         from rc7_runtime.rc72_mission_factory import create_mission_driver
         try:
+            # Removing a manifest cannot downgrade a historically full package
+            # into the component engineering path before host/model loading.
+            prior_full = any(row.get('binding',{}).get('package_root') == str(root)
+                and row.get('binding',{}).get('full_package_verified') is True
+                for row in truth.query('rc72_bank_pip_mirror_execution',release_batch_id=args.release_batch))
+            if (root/'PACKAGE_MANIFEST.json').is_file() or prior_full:
+                from rc7_release.rc72_package import verify_package
+                from rc7_release.rc72_complete_payload_inventory import verify_inventory
+                verify_package(root,expected_source_commit=args.source_commit)
+                verify_inventory(root)
             if args.mission_config:
                 from rc7_release.rc72_configured_mission import configured_mission_bindings
                 bindings = configured_mission_bindings(truth, release_id=args.release_id,

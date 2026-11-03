@@ -39,6 +39,7 @@ jobs:
               'tests/test_rc72_code_tool_binding.py',
               'tests/test_rc72_controller_secret_paths.py',
               'tests/test_rc72_configured_mission.py',
+              'tests/test_rc72_tool_environment.py',
               'tests/test_rc72_mission_bindings.py',
               'tests/test_rc72_q2b_clean_runtime_contract.py',
               'tests/test_rc72_release_driver.py',
@@ -79,4 +80,31 @@ jobs:
         with:
           name: rc72-configured-mirror-cli-${{ github.sha }}
           path: configured-mirror-public/*
+          retention-days: 30
+
+  windows-38-compatibility:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Bootstrap pinned engineering test runner
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Windows reserved config paths remain explicit refusals
+        run: python -m pytest -q tests/test_rc72_bank_pc_pip_mirror.py --junitxml=compatibility-evidence/pip-config-windows-38.xml
+      - name: Diagnose complete actual Libra workload with a finite budget
+        run: >-
+          python -m rc7_release.rc72_bounded_pytest
+          --pattern "tests/test_rc72_libra_measurement.py"
+          --timeout-seconds 360
+          --junit-dir compatibility-evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-windows-38-compatibility-${{ github.sha }}
+          path: compatibility-evidence/*.xml
           retention-days: 30

@@ -47,12 +47,32 @@ location. Corrupt keys and symlinks fail closed rather than being replaced.
 Active ledger relocation requires explicit authority migration; the initial
 transport contains no activated key or execution state.
 
+For a full package, the configuration builder derives Python, Node, CodeGraph,
+Chromium, BSK, ripgrep, Java, Maven, Allure, k6 and ZAP paths from the current
+extraction. Missing, escaped or ambiguous carried tools refuse construction;
+they do not fall back to an ambient executable. Packaged executable directories
+precede the inherited host PATH, and offline Maven settings/repository match the
+mature launcher. Bank Git remains the existing approved host prerequisite.
+Selected model variables cannot replace these owned bindings. Worker launchers
+receive the tool environment; the formal Runner receives tool bindings without
+model credential variables. This is path selection, not an execution or Field
+qualification claim. Component fixtures have no implied full-runtime binding.
+
+Native CLI run/mirror-check also re-verifies a full manifest and physical
+inventory before loading host/model capabilities. A matching historical full
+mirror binding keeps those checks mandatory if the manifest is deleted; absence
+cannot silently downgrade the entry to component behavior. Status remains
+read-only without requiring runtime/model configuration. Per-role MCP patch
+materialization and native target-bound tool provenance remain separate work.
+
 Construction and cold reconstruction launch no model or business process and
 append no R1 event. Neither a successful configuration read nor key creation is
 evidence of SDK/provider readiness, Field qualification, node completion or
 BANK_FINAL. The selected DSH patch/provider provisioning and every physical
-role/tool fence remain separate required construction. Code roles now require the four registered Git/CodeGraph MCP tools defined in
+role/tool fence remain separate required construction. Code roles now require
+the four registered Git/CodeGraph MCP tools defined in
 CONCRETE-CODE-TOOL-BINDING-CONTRACT.md. Capability-only aliases are refused by
 production factories; per-target native call-time provenance is still required.
-No tool-policy relaxation is authorized by this configuration layer. A bank turnkey claim remains premature until these
+No tool-policy relaxation is authorized by this configuration layer. A bank
+turnkey claim remains premature until these
 integrations, professional repair and terminal closure are implemented.

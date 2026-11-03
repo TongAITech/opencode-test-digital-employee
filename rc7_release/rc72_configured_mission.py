@@ -22,6 +22,7 @@ from rc7_runtime.rc72_mission_factory import ROLES, MissionWorkerBinding, Missio
 from rc7_runtime.rc72_native_n1_launcher import NativeN1ReadDshLauncher
 from rc7_runtime.rc72_native_n1_read_gate import N1ReadResource
 from .execution_environment import ExecutionEnvironmentLoader, ExecutionEnvironmentLoadError
+from .rc72_tool_environment import package_tool_environment, OWNED_NAMES
 
 SCHEMA = 'RC72_MISSION_CAPABILITIES_V1'
 _FIELDS = {'schema', 'release_id', 'source_commit', 'package_root', 'state_root',
@@ -126,12 +127,14 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
         raise ContractError('MISSION_CONFIG_EXPLICIT_MODEL_ENVIRONMENT_REQUIRED')
     environment = {}
     for name in names:
-        if (not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', name) or name.upper() in _FORBIDDEN_ENV
+        if (not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', name) or name.upper() in _FORBIDDEN_ENV or name.upper() in OWNED_NAMES
                 or any(t in name.upper() for t in ('CAPTAIN','COORDINATOR','SIGNING_KEY','AUTHORITY_KEY','HMAC_KEY'))):
             raise ContractError('MISSION_CONFIG_CONTROL_ENVIRONMENT_FORBIDDEN')
         if not os.environ.get(name):
             raise ContractError('MISSION_CONFIG_SELECTED_MODEL_ENVIRONMENT_MISSING')
         environment[name] = os.environ[name]
+    tools_environment = package_tool_environment(root)
+    environment.update(tools_environment)
     try:
         adapter = ExecutionEnvironmentLoader.load(config['environment_module']).adapter
     except ExecutionEnvironmentLoadError:
@@ -158,7 +161,7 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
     mirror = NativeBankPipMirrorService(truth, release_id=release_id, source_commit=source_commit,
         authority=authority('bank-pip-mirror'), package_root=root, archive=archive,
         field_config=field, evidence_root=owned/'pip-mirror')
-    return MissionHostBindings(workers, mirror, execution, adapter, registry)
+    return MissionHostBindings(workers, mirror, execution, adapter, registry, tools_environment or None)
 
 
 def create_mission_bindings(*, truth, release_id, source_commit):

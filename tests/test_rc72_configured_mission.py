@@ -100,6 +100,23 @@ def test_invalid_config_fails_before_creating_authority_or_launching_workers(tmp
     assert truth.store.path.read_bytes()==before
 
 
+def test_full_carried_environment_is_owned_and_model_credentials_do_not_enter_runner(tmp_path,monkeypatch):
+    from test_rc72_tool_environment import _paths
+    from rc7_release.rc72_tool_environment import package_tool_environment
+    truth,_,path=_setup(tmp_path,monkeypatch)
+    _paths(tmp_path/'package') # path-selection fixture, not package qualification
+    before=truth.store.path.read_bytes()
+    bindings=configured_mission_bindings(truth,release_id=RELEASE,source_commit=COMMIT,config_path=path)
+    selected=package_tool_environment(tmp_path/'package')
+    assert bindings.execution_env==selected
+    assert 'APPROVED_MODEL_API_KEY' not in bindings.execution_env
+    for binding in bindings.workers.values():
+        assert binding.launcher.env['PFC_PYTHON']==selected['PFC_PYTHON']
+        assert binding.launcher.env['PFC_CODEGRAPH_BIN']==selected['PFC_CODEGRAPH_BIN']
+        assert binding.launcher.env['APPROVED_MODEL_API_KEY']=='private-model-sentinel'
+    assert truth.store.path.read_bytes()==before
+
+
 def test_corrupt_owned_key_is_not_silently_replaced(tmp_path,monkeypatch):
     truth,_,path=_setup(tmp_path,monkeypatch)
     configured_mission_bindings(truth,release_id=RELEASE,source_commit=COMMIT,config_path=path)

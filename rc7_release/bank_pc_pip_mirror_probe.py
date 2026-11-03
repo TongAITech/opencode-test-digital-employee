@@ -40,10 +40,16 @@ def prepare_environment(real_appdata,ambient,*,bridge=False):
     changed=not actual or Path(actual).resolve()!=real_appdata
     override=values.get('PIP_CONFIG_FILE')
     if not bridge and changed:raise RuntimeError('PIP_MIRROR_USER_APPDATA_HIDDEN')
-    if not bridge and override:raise RuntimeError('PIP_MIRROR_CONFIG_OVERRIDE_FORBIDDEN')
+    if not bridge and 'PIP_CONFIG_FILE' in values:raise RuntimeError('PIP_MIRROR_CONFIG_OVERRIDE_FORBIDDEN')
     if bridge:
-        if override and Path(override).resolve()!=config.resolve():
-            raise RuntimeError('PIP_MIRROR_UNAPPROVED_CONFIG_OVERRIDE')
+        if 'PIP_CONFIG_FILE' in values:
+            if not isinstance(override,str) or not override.strip() or override.strip().casefold() in {'nul','nul:','/dev/null'}:
+                raise RuntimeError('PIP_MIRROR_UNAPPROVED_CONFIG_OVERRIDE')
+            try:
+                approved=Path(override).resolve()==config.resolve()
+            except (OSError,ValueError,RuntimeError):
+                approved=False
+            if not approved:raise RuntimeError('PIP_MIRROR_UNAPPROVED_CONFIG_OVERRIDE')
         values['PIP_CONFIG_FILE']=str(config)
     for key in tuple(values):
         if key.upper() in {'PYTHONHOME','PYTHONPATH','PYTHONSTARTUP','PYTHONINSPECT'}:values.pop(key)
