@@ -1,4 +1,5 @@
 """Real Windows copied-Python test, opt-in only on disposable component runner."""
+from rc7_runtime.rc72_code_tool_binding import NATIVE_CODE_TOOLS
 import base64,hashlib,http.server,json,os,shutil,subprocess,sys,threading,zipfile
 from pathlib import Path
 import pytest
@@ -102,7 +103,7 @@ def test_real_copied_python_mirror_install_import_and_host_substitution_refusals
         config_path.write_text(json.dumps(dict(schema=SCHEMA,release_id=RELEASE,source_commit=os.environ['GITHUB_SHA'],
             package_root=str(root),state_root=str(tmp_path/'configured-native-state'),dsh_bin=sys.executable,patch_path=str(patch),
             inputs=[dict(source_ref='release-batch://'+BATCH,path=str(field_config))],
-            role_tools={role:[TOOL] if role=='reality' else ['git','codegraph'] if role in ('code','code_review')
+            role_tools={role:[TOOL] if role=='reality' else list(NATIVE_CODE_TOOLS) if role in ('code','code_review')
                 else ['scoped-tool'] for role in ROLES},tool_registry={'api_http':['api_http']},
             environment_module=module.__name__,archive=str(archive),pip_field_config=str(field_config),model_environment_names=[])))
         arguments=['mirror-check','--ledger',str(cli_truth.store.path),'--source-commit',os.environ['GITHUB_SHA'],

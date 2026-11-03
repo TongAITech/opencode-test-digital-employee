@@ -29,6 +29,9 @@ def _event(event_id, mission, worker, tool_name, call_ref):
 
 
 def test_code_tool_category_does_not_confuse_gitnexus_with_git() -> None:
+    assert code_tool_category('mcp__pfc_aitest_rc7__codegraph_probe') == 'codegraph_discovery'
+    assert code_tool_category('mcp__pfc_aitest_rc7__codegraph_mcp_tools') == 'codegraph_discovery'
+    assert code_tool_category('mcp__pfc_aitest_rc7__codegraph_mcp_call') == 'codegraph'
     assert code_tool_category("git") == "git"
     assert code_tool_category("mcp__pfc__git_diff") == "git"
     assert code_tool_category("codegraph") == "codegraph"
@@ -45,6 +48,7 @@ def test_r1_proof_reader_scopes_real_calls_by_mission_and_worker() -> None:
             _event("evt-git", mission, worker, "mcp__pfc__git_diff", "call://git/1"),
             _event("evt-cg", mission, worker, "mcp__pfc__codegraph_callers", "call://cg/1"),
             _event("evt-gn", mission, worker, "gitnexus", "call://gn/1"),
+            _event('evt-catalogue', mission, worker, 'mcp__pfc_aitest_rc7__codegraph_mcp_tools', 'call://cg/catalogue'),
             _event("evt-other-mission", "MISSION-OTHER", worker, "git", "call://git/other"),
             _event("evt-other-worker", mission, "worker-other", "git", "call://git/other-worker"),
         ]
@@ -59,4 +63,4 @@ def test_r1_proof_reader_scopes_real_calls_by_mission_and_worker() -> None:
     assert [item.call_ref for item in grouped["git"]] == ["call://git/1"]
     assert [item.call_ref for item in grouped["codegraph"]] == ["call://cg/1"]
     assert [item.call_ref for item in grouped["gitnexus"]] == ["call://gn/1"]
-    assert grouped["other"] == ()
+    assert [item.call_ref for item in grouped['other']] == ['call://cg/catalogue']

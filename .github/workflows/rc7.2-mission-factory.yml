@@ -23,6 +23,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.8'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
       - name: Bootstrap pinned engineering test runner
         run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
       - name: Validate owned factory, CLI, admission and original denominator
@@ -33,10 +36,14 @@ jobs:
           from rc7_release.rc72_bounded_pytest import run_files
           files = [
               'tests/test_rc72_mission_factory.py',
+              'tests/test_rc72_code_tool_binding.py',
+              'tests/test_rc72_controller_secret_paths.py',
               'tests/test_rc72_configured_mission.py',
               'tests/test_rc72_mission_bindings.py',
               'tests/test_rc72_q2b_clean_runtime_contract.py',
               'tests/test_rc72_release_driver.py',
+              'tests/test_rc7_dsh_proof.py',
+              'tests/test_rc7_dsh_code_evaluator.py',
               'tests/test_rc72_release_driver_n10.py',
           ]
           raise SystemExit(run_files(files, timeout_seconds=180,

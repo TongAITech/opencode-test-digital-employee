@@ -13,6 +13,7 @@ from .models import ContractError
 from .execution_environment import ExecutionEnvironmentAdapter
 from .rc72_authority import RC72AuthorityRuntime
 from .rc72_bank_pip_mirror import NativeBankPipMirrorService
+from .rc72_code_tool_binding import canonical_code_tools
 from .rc72_native_n1_launcher import NativeN1ReadDshLauncher
 from .rc72_n1_strict_pipeline import N1StrictPipelineService
 from .dsh_requirement_evaluator import DshRequirementEvaluator
@@ -92,7 +93,10 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
         launchers.add(id(worker))
     if not isinstance(bindings['reality'].launcher, NativeN1ReadDshLauncher):
         raise ContractError('MISSION_FACTORY_NATIVE_INPUT_READ_REQUIRED')
-    if any(set(bindings[role].tools) != {'git', 'codegraph'} for role in ('code', 'code_review')):
+    try:
+        for role in ('code','code_review'):
+            canonical_code_tools(bindings[role].tools,allow_legacy=False)
+    except ValueError:
         raise ContractError('MISSION_FACTORY_REQUIRED_CODE_TOOLS_CHANGED')
     if (type(bank_pip_mirror) is not NativeBankPipMirrorService
             or bank_pip_mirror.truth is not truth or bank_pip_mirror.release_id != release_id

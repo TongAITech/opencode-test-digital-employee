@@ -7,6 +7,7 @@ import re
 
 from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
 from .models import ContractError
+from .rc72_code_tool_binding import canonical_code_tools
 from .closed_loop_control import ClosedLoopControlPlane
 from .dsh_code_evaluator import DshCodeEvaluator
 from .rc72_authority import RC72AuthorityRuntime
@@ -44,7 +45,9 @@ class N3PipelineService:
                     or any(not isinstance(t, str) or not t.strip() or '*' in t for t in tools)
                     or len(set(tools)) != len(tools)):
                 raise ContractError('RC72_N3_PIPELINE_EXACT_TOOLS_REQUIRED')
-        if set(code_tools) != {'git', 'codegraph'}:
+        try:
+            code_tools = canonical_code_tools(code_tools)
+        except ValueError:
             raise ContractError('RC72_N3_PIPELINE_REQUIRED_CODE_TOOLS_CHANGED')
         self.source_tools, self.source_review_tools, self.code_tools = tuple(source_tools), tuple(source_review_tools), tuple(code_tools)
 
@@ -112,7 +115,7 @@ class N3PipelineService:
         if any(self._one('rc7_task', task_id=tid)['state'] == 'READY' for tid in code['workitem_ids']):
             N3CodeAnalysisAssignmentService(self.truth, source_commit=self.source_commit).assign_all(release_batch_id=release_batch_id)
         handoff = N3CodeAnalysisDshHandoffService(self.truth, source_commit=self.source_commit,
-            launcher=self.code_launcher)
+            launcher=self.code_launcher, allowed_tools=self.code_tools)
         anchor = N3CodeAnalysisEvidenceAnchorService(self.truth, source_commit=self.source_commit,
             state_root=str(self.code_launcher.state_root))
         promotion = N3CodeAnalysisCandidatePromotionService(self.truth, state_root=str(self.code_launcher.state_root), **common)

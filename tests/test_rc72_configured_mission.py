@@ -1,4 +1,5 @@
 """Owned configuration assembly, cold authority continuity, no execution facts."""
+from rc7_runtime.rc72_code_tool_binding import NATIVE_CODE_TOOLS
 import json
 import os
 import sys
@@ -30,7 +31,7 @@ def _setup(tmp_path, monkeypatch):
         package_root='package', state_root='owned-state', dsh_bin=sys.executable,
         patch_path='patch.yml', archive='archive.zip', pip_field_config='pip-field.json',
         inputs=[dict(source_ref='release-batch://approved-input',path='original-input.json')],
-        role_tools={role: [TOOL] if role=='reality' else ['git','codegraph']
+        role_tools={role: [TOOL] if role=='reality' else list(NATIVE_CODE_TOOLS)
             if role in ('code','code_review') else ['scoped-tool'] for role in ROLES},
         tool_registry={'api_http':['api_http']}, environment_module=module.__name__,
         model_environment_names=['APPROVED_MODEL_API_KEY'])

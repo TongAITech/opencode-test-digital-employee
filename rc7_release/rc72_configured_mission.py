@@ -15,6 +15,7 @@ import secrets
 from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
 from rc7_runtime.models import ContractError
 from rc7_runtime.rc72_authority import RC72AuthorityRuntime
+from rc7_runtime.rc72_code_tool_binding import NATIVE_CODE_TOOLS
 from rc7_runtime.rc72_bank_pip_mirror import NativeBankPipMirrorService
 from rc7_runtime.rc72_ledger_lock import ledger_lock
 from rc7_runtime.rc72_mission_factory import ROLES, MissionWorkerBinding, MissionHostBindings
@@ -102,7 +103,7 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
     role_tools, registry = config['role_tools'], config['tool_registry']
     if (not isinstance(role_tools, dict) or set(role_tools) != set(ROLES)
             or any(not _tools(v) for v in role_tools.values())
-            or any(set(role_tools[r]) != {'git', 'codegraph'} for r in ('code','code_review'))):
+            or any(set(role_tools[r]) != set(NATIVE_CODE_TOOLS) for r in ('code','code_review'))):
         raise ContractError('MISSION_CONFIG_EXACT_ROLE_TOOLS_REQUIRED')
     if (not isinstance(registry, dict) or not registry
             or any(not isinstance(k, str) or not k.strip() or not _tools(v) for k,v in registry.items())):

@@ -23,6 +23,8 @@ from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher, WorkerAssignmen
 from rc6_runtime.truth import TruthRuntime
 
 from .models import ContractError
+from .dsh_proof import code_tool_category
+from .rc72_code_tool_binding import canonical_code_tools, has_codegraph_execution
 from .rc72_authority import CODE_ANALYSIS_WORKER, RC72AuthorityRuntime
 from .rc72_domain import AutonomousMissionNode, MissionNodeState
 from .rc72_n3_code_analysis_assignment import install_rc72_n3_code_analysis_assignment_overlay
@@ -170,7 +172,11 @@ def validate_rc72_n3_code_analysis_attempt(payload: Dict[str, Any]) -> Dict[str,
     out["authorized_tools"] = _strings(
         out.get("authorized_tools"), "authorized_tools", required=True
     )
-    if tuple(out["authorized_tools"]) != _REQUIRED_TOOLS:
+    try:
+        canonical = canonical_code_tools(out['authorized_tools'])
+    except ValueError:
+        canonical = None
+    if tuple(out["authorized_tools"]) != canonical:
         raise _contracts.DomainValidationError(
             "RC72_N3_CODE_HANDOFF_AUTHORIZED_TOOLS_INVALID"
         )
@@ -194,7 +200,7 @@ def validate_rc72_n3_code_analysis_attempt(payload: Dict[str, Any]) -> Dict[str,
         raise _contracts.DomainValidationError(
             "RC72_N3_CODE_HANDOFF_UNAUTHORIZED_TOOL_OBSERVED"
         )
-    if "git" not in observed:
+    if "git" not in {code_tool_category(name) for name in observed}:
         raise _contracts.DomainValidationError(
             "RC72_N3_CODE_HANDOFF_REAL_GIT_CALL_REQUIRED"
         )
@@ -264,13 +270,17 @@ class N3CodeAnalysisDshHandoffService:
         *,
         source_commit: str,
         launcher: DshHeadlessWorkerLauncher,
+        allowed_tools=None,
     ) -> None:
         install_rc72_n3_code_analysis_handoff_overlay()
         _ensure_bucket(truth)
         self.truth = truth
         self.source_commit = _required(source_commit, "source_commit")
         self.launcher = launcher
-        self.allowed_tools = _REQUIRED_TOOLS
+        try:
+            self.allowed_tools = canonical_code_tools(_REQUIRED_TOOLS if allowed_tools is None else allowed_tools)
+        except ValueError:
+            raise N3CodeAnalysisHandoffError('RC72_N3_CODE_HANDOFF_EXACT_TOOLS_REQUIRED') from None
         if not isinstance(self.launcher.authority, RC72AuthorityRuntime):
             raise N3CodeAnalysisHandoffError(
                 "RC72_N3_CODE_HANDOFF_RC72_AUTHORITY_REQUIRED"
@@ -670,7 +680,7 @@ class N3CodeAnalysisDshHandoffService:
                     "RC72_N3_CODE_HANDOFF_UNAUTHORIZED_TOOL:%s" % tool_name
                 )
             observed.append({"call_ref": call_ref, "tool_name": tool_name})
-            categories.add(tool_name)
+            categories.add(code_tool_category(tool_name))
         if "git" not in categories:
             raise N3CodeAnalysisHandoffError(
                 "RC72_N3_CODE_HANDOFF_REAL_GIT_CALL_REQUIRED"
@@ -679,7 +689,7 @@ class N3CodeAnalysisDshHandoffService:
             str(path).lower().endswith(".java")
             for path in list(candidate.get("changed_files") or [])
         )
-        if java_changed and "codegraph" not in categories:
+        if java_changed and not has_codegraph_execution({item['tool_name'] for item in observed}):
             raise N3CodeAnalysisHandoffError(
                 "RC72_N3_CODE_HANDOFF_JAVA_CODEGRAPH_CALL_REQUIRED"
             )

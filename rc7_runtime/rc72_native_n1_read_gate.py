@@ -12,6 +12,7 @@ from pathlib import Path
 
 from rc6_runtime import contracts,truth as registry
 from .models import ContractError
+from .rc72_controller_secrets import is_controller_secret_path
 from .rc72_ledger_lock import ledger_lock
 from .rc72_n7_execution_admission import _hash
 from .rc72_native_n5_tool_gate import URL_ENV,TOKEN_ENV,CONTEXT_ENV
@@ -63,6 +64,8 @@ class N1ReadResource:
         path=Path(self.path).expanduser()
         if path.is_symlink() or not path.is_file():
             raise ContractError('N1_NATIVE_READ_REAL_SOURCE_FILE_REQUIRED')
+        if is_controller_secret_path(path):
+            raise ContractError('N1_NATIVE_READ_CONTROL_SECRET_FORBIDDEN')
         object.__setattr__(self,'path',path.resolve())
 
 

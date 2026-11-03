@@ -51,8 +51,8 @@ Construction and cold reconstruction launch no model or business process and
 append no R1 event. Neither a successful configuration read nor key creation is
 evidence of SDK/provider readiness, Field qualification, node completion or
 BANK_FINAL. The selected DSH patch/provider provisioning and every physical
-role/tool fence remain separate required construction. Current N3's legacy
-Git/CodeGraph capability aliases must still be migrated to exact model-facing
-tools and native call-time gates; no tool-policy relaxation is authorized by
-this configuration layer. A bank turnkey claim remains premature until these
+role/tool fence remain separate required construction. Code roles now require the four registered Git/CodeGraph MCP tools defined in
+CONCRETE-CODE-TOOL-BINDING-CONTRACT.md. Capability-only aliases are refused by
+production factories; per-target native call-time provenance is still required.
+No tool-policy relaxation is authorized by this configuration layer. A bank turnkey claim remains premature until these
 integrations, professional repair and terminal closure are implemented.

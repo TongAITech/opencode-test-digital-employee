@@ -1,4 +1,5 @@
 """Native N1-N3 composition; child workers are engineering protocol adapters."""
+from rc7_runtime.rc72_code_tool_binding import NATIVE_CODE_TOOLS
 from rc72_pip_field_test_support import provider as prior_field_provider
 import json
 import subprocess
@@ -54,11 +55,11 @@ def _n3_driver(tmp_path, *, source_gap=False, two_targets=False, code_gap=False,
             state_root=str(tmp_path / ('runtime-'+role)), command_runner=run)
     source = launcher('source', ['source-target-probe'])
     source_review = launcher('source-review', ['source-target-probe'])
-    code = launcher('code', ['git', 'codegraph'])
-    evaluator = DshCodeEvaluator(launcher('code-review', ['git', 'codegraph']), reviewer_allowed_tools=['git', 'codegraph'])
+    code = launcher('code', list(NATIVE_CODE_TOOLS))
+    evaluator = DshCodeEvaluator(launcher('code-review', list(NATIVE_CODE_TOOLS)), reviewer_allowed_tools=list(NATIVE_CODE_TOOLS))
     driver.n3_pipeline = N3PipelineService(truth, source_commit=COMMIT,
         source_launcher=source, source_tools=['source-target-probe'], source_reviewer=source_review,
-        source_review_tools=['source-target-probe'], code_launcher=code, code_tools=['git', 'codegraph'], code_evaluator=evaluator)
+        source_review_tools=['source-target-probe'], code_launcher=code, code_tools=list(NATIVE_CODE_TOOLS), code_evaluator=evaluator)
     return truth, driver, calls
 
 

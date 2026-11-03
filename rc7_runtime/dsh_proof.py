@@ -36,6 +36,8 @@ def code_tool_category(tool_name: str) -> str:
     """Map a real DSH tool name to the deterministic Code gate category."""
     name = _normalized_tool_name(tool_name)
     if "codegraph" in name:
+        if name.endswith(('codegraph_probe', 'codegraph_mcp_tools')):
+            return "codegraph_discovery"
         return "codegraph"
     # GitNexus is a graph/index tool, not proof of a Git revision/diff command.
     # Do not let the substring "git" accidentally satisfy the Git evidence gate.
@@ -108,5 +110,8 @@ class DshR1ProofReader:
             mission_id=mission_id,
             worker_instance_id=worker_instance_id,
         ):
-            grouped[code_tool_category(proof.tool_name)].append(proof)
+            category = code_tool_category(proof.tool_name)
+            if category == 'codegraph_discovery':
+                category = 'other'
+            grouped[category].append(proof)
         return {key: tuple(value) for key, value in grouped.items()}

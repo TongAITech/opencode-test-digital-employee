@@ -1,4 +1,5 @@
 """Composition boundaries: no worker/process/bank qualification during wiring."""
+from rc7_runtime.rc72_code_tool_binding import NATIVE_CODE_TOOLS
 from dataclasses import replace
 import sys
 
@@ -33,7 +34,7 @@ def _setup(tmp_path, truth=None):
             tools = (TOOL,)
         else:
             worker = DshHeadlessWorkerLauncher(**options)
-            tools = ('git','codegraph') if role in ('code','code_review') else ('scoped-tool',)
+            tools = NATIVE_CODE_TOOLS if role in ('code','code_review') else ('scoped-tool',)
         workers[role] = MissionWorkerBinding(worker, tools)
     return truth, dict(release_id=RELEASE, source_commit=COMMIT, workers=workers,
         bank_pip_mirror=NativeBankPipMirrorService(truth, release_id=RELEASE, source_commit=COMMIT,
