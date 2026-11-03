@@ -46,7 +46,7 @@ class N1StrictDshHandoffService(N1DshHandoffService):
         expected_scope = ''
         if getattr(self, 'expected_scope_input_schema', None) == 'RC72_EXPECTED_RELEASE_SCOPE_V1':
             expected_scope = (
-                'The original release-batch:// input carries RC72_EXPECTED_RELEASE_SCOPE_V1 expected policy. '
+                'The original release-batch:// input carries RC72_EXPECTED_RELEASE_SCOPE_V1/V2 expected policy. '
                 'Read that original input through the registered native tool. Add facts.expected_scope_input '
                 'with exactly source_ref and sha256 copied from its actual tool result. '
                 'The native tool may return provenance/count metadata only; the runtime retains and validates '

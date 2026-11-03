@@ -249,3 +249,27 @@ def test_validly_signed_receipt_cannot_replace_the_actual_captured_scope(tmp_pat
     before=truth.store.path.read_bytes()
     with pytest.raises(Exception,match='INPUT_RECEIPT_CHANGED'):service.freeze(release_batch_id=original.BATCH)
     assert truth.store.path.read_bytes()==before and len(calls)==1
+
+
+@pytest.mark.parametrize('field,value,error',[
+    ('target_ratio',True,'TARGET_RATIO_INVALID'),
+    ('target_ratio',0,'TARGET_RATIO_INVALID'),
+    ('target_ratio',1.01,'TARGET_RATIO_INVALID'),
+    ('report_url','https://user:password@example.invalid/report','FIXED_REPORT_URL_REQUIRED'),
+    ('report_url','https://example.invalid/report#unbound','FIXED_REPORT_URL_REQUIRED'),
+    ('target_revision','base-a','DISTINCT_REVISIONS_REQUIRED'),
+    ('auth_mode','IMPLICIT','TARGET_MODE_INVALID'),
+])
+def test_v2_original_coverage_policy_rejects_ambiguous_targets(tmp_path,field,value,error):
+    from rc7_runtime.rc72_expected_scope_input import parse_expected_scope
+    truth=original._truth(tmp_path);original._seed(truth)
+    batch=truth.query('rc72_release_batch')[0]
+    target=dict(metric='LINE',base_revision='base-a',target_revision='target-b',target_ratio=.9,
+        report_url='https://example.invalid/report',auth_mode='WORKER_HEADER',source_ref='catalog://coverage/v1')
+    target[field]=value
+    policy=dict(schema='RC72_EXPECTED_RELEASE_SCOPE_V2',release_id=batch['release_id'],release_batch_id=original.BATCH,
+        mission_id=original.MISSION,source_commit=original.COMMIT,application_ids=batch['application_ids'],version_ids=batch.get('version_ids',[]),
+        requirement_ssts={r:['SST-'+r] for r in batch['requirement_ids']},
+        required_levels_by_sst={'SST-'+r:['L1','L2','L3','L4','L5','L6','L7'] for r in batch['requirement_ids']},
+        source_refs=['catalog://original/v1'],coverage_targets={app:target for app in batch['application_ids']})
+    with pytest.raises(Exception,match=error):parse_expected_scope(json.dumps(policy),batch,original.COMMIT)

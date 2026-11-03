@@ -1,5 +1,32 @@
 # RC7.2 design/construction reconciliation — 2026-11-02
 
+## Actual incremental coverage bridge and native N10 proof — 2026-11-03
+
+Implemented original V2 per-Application metric/revision/threshold/fixed-URL policy,
+actual leased HTTP read with durable body capture, independent review subprocess,
+and canonical measurement WorkItem/Artifact/Evidence/Evaluation closure. Counts
+come from unique captured units; original target and measured timestamp remain
+bound to the accepted N7 epoch. Native N10 reaudits this proof and cannot accept
+unattested percentages, or regain that path by removing providers after restart.
+A valid below-target report closes only its measurement Task, never release
+convergence or missing original L1..L7 scope.
+
+Actual source/policy/HTTP/process tests cover wrong scope/revision/nonce, stale
+report, duplicate units, lost post-read lease (UNKNOWN/no replay), cold readonly
+audit, review-request/Task tampering, partial metadata recovery without authority
+restoration, and worker-header HOLD before I/O. Corrected owned qualification:
+11 passed in 94.60s. Final HTTP response-path qualification: 4 passed in 37.49s;
+redirect/error capture and no-followup: 2 passed in 18.15s. Scope/N10 policy
+regression: 26 passed in 57.61s. Legacy feedback/lifecycle plus prior scope
+regression: 43 passed in 24.66s. A reserved artifact metadata field mismatch was
+caught in the expanded closure checks and corrected before these final passes.
+
+This is the normalized engineering bridge contract, not a guessed vendor API or
+bank Field approval. WORKER_HEADER provider binding, full N10 controller and gap
+repair dispatch, broader C03/C04/C06..C12 work and complete RC7.1-equivalent
+portable package remain open. See NATIVE-LIBRA-MEASUREMENT-CONTRACT.md. No complete
+package is delivered yet; user performs bank Field after transfer.
+
 ## Expected catalog model projection with full parent preservation — 2026-11-03
 
 Native N1 expected-policy reads now project only source/digest/size/count

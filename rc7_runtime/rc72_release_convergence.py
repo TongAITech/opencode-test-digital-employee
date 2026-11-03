@@ -108,7 +108,7 @@ class ReleaseConvergenceAggregator:
     _DEFECT_ACCEPTABLE = {"CLOSED", "DUPLICATE", "NOT_A_DEFECT"}
     _HIGH_RISKS = {"HIGH", "CRITICAL", "BLOCKER"}
 
-    def __init__(self, truth: TruthRuntime, *, release_id: str, runtime: RC72StateMachine, execution_proof=None, expected_scope=None) -> None:
+    def __init__(self, truth: TruthRuntime, *, release_id: str, runtime: RC72StateMachine, execution_proof=None, expected_scope=None, coverage_proof=None) -> None:
         install_rc72_release_convergence_overlay()
         _ensure_projection_bucket(truth)
         if not isinstance(release_id, str) or not release_id.strip():
@@ -129,6 +129,7 @@ class ReleaseConvergenceAggregator:
                     or expected_scope.truth is not truth or expected_scope.source_commit != execution_proof.source_commit):
                 raise ContractError('RELEASE_CONVERGENCE_EXPECTED_SCOPE_PROVIDER_REQUIRED')
         self.expected_scope = expected_scope
+        self.coverage_proof = coverage_proof
         self._assert_inputs()
 
     def _assert_inputs(self):
@@ -146,6 +147,14 @@ class ReleaseConvergenceAggregator:
                     or self.expected_scope.truth is not self.truth
                     or self.expected_scope.source_commit != self.execution_proof.source_commit):
                 raise ContractError('RELEASE_CONVERGENCE_EXPECTED_SCOPE_PROVIDER_REQUIRED')
+
+        if self.coverage_proof is not None:
+            from .rc72_libra_measurement import NativeLibraMeasurementService
+            if (not isinstance(self.coverage_proof, NativeLibraMeasurementService) or self.expected_scope is None
+                    or self.execution_proof is None or self.coverage_proof.expected_scope is not self.expected_scope
+                    or self.coverage_proof.n9.pipeline is not self.execution_proof.pipeline
+                    or self.coverage_proof.truth is not self.truth or self.coverage_proof.source_commit != self.execution_proof.source_commit):
+                raise ContractError('RELEASE_CONVERGENCE_NATIVE_COVERAGE_PROOF_REQUIRED')
 
     def install_overlay(self) -> None:
         install_rc72_release_convergence_overlay()
@@ -237,6 +246,19 @@ class ReleaseConvergenceAggregator:
     def _coverage_met(self, batch: Mapping[str, Any]) -> Tuple[bool, List[str], List[str]]:
         blockers: List[str] = []
         selected: List[str] = []
+        native_history = self._safe_query('rc72_expected_scope_input', mission_id=str(batch['mission_id']),
+                                          release_batch_id=str(batch['release_batch_id']))
+        if self.execution_proof is not None or native_history:
+            if self.execution_proof is None or self.coverage_proof is None:
+                return False, [], ['coverage:NATIVE_LIBRA_PROOF_REQUIRED']
+            for application_id in list(batch.get('application_ids') or []):
+                measured=self.coverage_proof.audit(release_batch_id=str(batch['release_batch_id']),application_id=application_id)
+                if measured is None:
+                    blockers.append('coverage:'+application_id+':NATIVE_MEASUREMENT_REQUIRED')
+                else:
+                    selected.append(measured['observation_id'])
+                    if not measured['coverage_met']:blockers.append('coverage:'+application_id+':NATIVE_TARGET_NOT_MET')
+            return not blockers, selected, blockers
         all_rows = self._safe_query("rc72_coverage_observation", mission_id=str(batch["mission_id"]))
         for application_id in list(batch.get("application_ids") or []):
             rows = [

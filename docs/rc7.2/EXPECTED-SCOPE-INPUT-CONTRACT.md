@@ -119,3 +119,11 @@ These are tool-content bytes, not provider tokens or billing: provider usage
 remains UNKNOWN. The existing input size bound remains unchanged; no catalog is
 truncated to meet a context budget. Complete production economy qualification,
 other role contexts and provider usage still require their own evidence.
+
+## V2 original coverage policy
+
+V2 retains the full V1 catalog and adds an original per-Application
+`coverage_targets` map. It supplies normative metric, revisions, threshold and
+fixed bridge configuration, never measured counts. See
+[NATIVE-LIBRA-MEASUREMENT-CONTRACT.md](NATIVE-LIBRA-MEASUREMENT-CONTRACT.md).
+V1 captures/receipts remain compatible and do not acquire invented targets.

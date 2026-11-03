@@ -6,7 +6,8 @@ from N2 observations, Cases, successful executions or coverage percentages.
 This import does not certify the bank origin of a file or grant Field approval.
 """
 from dataclasses import asdict
-import hmac,json
+import hmac,json,math
+from urllib.parse import urlsplit
 from pathlib import Path
 
 from rc6_runtime import contracts,truth as registry
@@ -68,8 +69,10 @@ def _strings(items,*,allow_empty=False):
 def parse_expected_scope(text,batch,source_commit):
     payload=json.loads(text,object_pairs_hook=_pairs,
                        parse_constant=_invalid_constant)
-    if not isinstance(payload,dict) or set(payload)!=_FIELDS or payload['schema']!=_SCHEMA:
-        raise ContractError('EXPECTED_SCOPE_EXACT_POLICY_INPUT_REQUIRED')
+    if not isinstance(payload,dict):raise ContractError('EXPECTED_SCOPE_EXACT_POLICY_INPUT_REQUIRED')
+    version=payload.get('schema')
+    fields=_FIELDS if version==_SCHEMA else _FIELDS|{'coverage_targets'} if version=='RC72_EXPECTED_RELEASE_SCOPE_V2' else None
+    if fields is None or set(payload)!=fields:raise ContractError('EXPECTED_SCOPE_EXACT_POLICY_INPUT_REQUIRED')
     for key in ('release_id','release_batch_id','mission_id'):
         if payload[key]!=batch[key]:raise ContractError('EXPECTED_SCOPE_RELEASE_LINEAGE_MISMATCH')
     if payload['source_commit']!=source_commit:raise ContractError('EXPECTED_SCOPE_SOURCE_MISMATCH')
@@ -89,6 +92,23 @@ def parse_expected_scope(text,batch,source_commit):
         if set(_strings(values))-{'L1','L2','L3','L4','L5','L6','L7'}:
             raise ContractError('EXPECTED_SCOPE_REQUIRED_LEVELS_INVALID')
     _strings(payload['source_refs'])
+    if version=='RC72_EXPECTED_RELEASE_SCOPE_V2':
+        targets=payload['coverage_targets']
+        if not isinstance(targets,dict) or set(targets)!=set(batch['application_ids']):
+            raise ContractError('EXPECTED_COVERAGE_APPLICATION_DENOMINATOR_MISMATCH')
+        for target in targets.values():
+            if not isinstance(target,dict) or set(target)!={'metric','base_revision','target_revision','target_ratio','report_url','auth_mode','source_ref'}:
+                raise ContractError('EXPECTED_COVERAGE_TARGET_FIELDS_INVALID')
+            if target['metric'] not in {'LINE','BRANCH','METHOD'} or target['auth_mode'] not in {'ANONYMOUS','WORKER_HEADER'}:
+                raise ContractError('EXPECTED_COVERAGE_TARGET_MODE_INVALID')
+            for key in ('base_revision','target_revision','source_ref'):_strings([target[key]])
+            if target['base_revision']==target['target_revision']:raise ContractError('EXPECTED_COVERAGE_DISTINCT_REVISIONS_REQUIRED')
+            ratio=target['target_ratio']
+            if isinstance(ratio,bool) or not isinstance(ratio,(int,float)) or not math.isfinite(ratio) or not 0<ratio<=1:
+                raise ContractError('EXPECTED_COVERAGE_TARGET_RATIO_INVALID')
+            url=urlsplit(target['report_url']) if isinstance(target['report_url'],str) else None
+            if url is None or url.scheme not in {'http','https'} or not url.hostname or url.username or url.password or url.fragment:
+                raise ContractError('EXPECTED_COVERAGE_FIXED_REPORT_URL_REQUIRED')
     return payload
 
 
@@ -158,6 +178,7 @@ class ExpectedScopeInputService:
                 source_commit=self.source_commit,batch_scope={key:sorted(batch.get(key,[])) for key in
                     ('version_ids','application_ids','requirement_ids')},n1_gate_id=gates[0]['gate_id'],native_gate_id=event['native_n1_read_gate_id'],
                 native_call_id=call['record_id'],native_call_refs=[row['record_id'] for row in calls],input_sha256=result['sha256'],manifest_sha256=_hash(manifest_payload),manifest=manifest_payload)
+            if payload['schema']=='RC72_EXPECTED_RELEASE_SCOPE_V2':record['coverage_targets']=payload['coverage_targets']
             existing=self.truth.query(_KIND,input_id=record['input_id'])
             if existing:
                 row=existing[0];raw={k:v for k,v in row.items() if k not in {'signature','artifact_type','artifact_version'}}

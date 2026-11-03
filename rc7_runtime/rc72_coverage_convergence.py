@@ -273,6 +273,7 @@ class CoverageFeedbackService:
         total_units: int,
         target_ratio: float,
         evidence_ref: str,
+        observed_at: int | None = None,
     ) -> None:
         if self.truth.query(_COVERAGE_OBSERVATION, observation_id=observation_id):
             raise ContractError("COVERAGE_OBSERVATION_ALREADY_EXISTS")
@@ -293,7 +294,7 @@ class CoverageFeedbackService:
                 "total_units": total_units,
                 "target_ratio": target_ratio,
                 "evidence_ref": evidence_ref,
-                "observed_at": _now(),
+                "observed_at": _now() if observed_at is None else observed_at,
             },
         )
 

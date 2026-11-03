@@ -57,6 +57,7 @@ class RC72AuthorityRuntime(AuthorityRuntime):
     # producer. It can observe through leased tools but cannot self-register a
     # verified DataRef, binding, lease, node PASS, or downstream release.
     _ROLE_ARTIFACTS[DATA_VERIFIER] = set()
+    _ROLE_ARTIFACTS["RC72_COVERAGE_AUDITOR"] = set()
 
     def worker_process_environment(self, *, identity, lease, worker_instance_id, mission_id, scope, explicit, home):
         """Project a live native worker's environment, never the Captain's home."""

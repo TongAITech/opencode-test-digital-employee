@@ -17,7 +17,7 @@ from test_rc72_n9_accepted_scope import _accepted
 from rc7_runtime.rc72_n9_accepted_scope import AcceptedScopeN9Service
 
 
-def test_native_n1_original_policy_is_consumed_after_real_n7_and_cannot_be_reduced(tmp_path,monkeypatch):
+def _original_policy_execution(tmp_path,monkeypatch,policy_mutator=None):
     import rc72_integrated_test_support as support
     import rc72_n2_test_support as base
     import test_rc72_n1_executable_binding as binding_fixture
@@ -42,6 +42,7 @@ def test_native_n1_original_policy_is_consumed_after_real_n7_and_cannot_be_reduc
                 requirement_ssts={r:['SST-'+r] for r in batch['requirement_ids']},
                 required_levels_by_sst={'SST-'+r:['L1','L2','L3','L4','L5','L6','L7'] for r in batch['requirement_ids']},
                 source_refs=['catalog://independent-original-release-policy/v1'])
+            if policy_mutator:policy_mutator(policy)
             source=directory/'original-policy.json';source.write_text(json.dumps(policy))
             fixture=directory/'n1-candidate.json';fixture.write_text(json.dumps(candidate))
             script=directory/'n1-native-policy.py'
@@ -64,6 +65,11 @@ def test_native_n1_original_policy_is_consumed_after_real_n7_and_cannot_be_reduc
         mp.setattr(base,'complete_n1',native_n1)
     monkeypatch.setattr(support,'install_execution_sources',install)
     truth,plan,pipeline,server=_accepted(tmp_path,monkeypatch)
+    return truth,plan,pipeline,server,providers,workers
+
+
+def test_native_n1_original_policy_is_consumed_after_real_n7_and_cannot_be_reduced(tmp_path,monkeypatch):
+    truth,plan,pipeline,server,providers,workers=_original_policy_execution(tmp_path,monkeypatch)
     try:
         pipeline.complete(release_batch_id=BATCH)
         AcceptedScopeN9Service(pipeline).complete(release_batch_id=BATCH)
