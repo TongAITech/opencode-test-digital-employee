@@ -70,11 +70,15 @@ class CoverageRerunPlanningService(ExecutionPlanningService):
             if len(rows)!=1:raise ExecutionPlanningError('COVERAGE_RERUN_ACTIVE_PLAN_NOT_UNIQUE')
             return self.owner._ensure_plan(rows[0])
         return self.base.plan(release_batch_id=release_batch_id)
-    def assert_current(self,plan_id):
+    def assert_current(self,plan_id,*,review_only=False):
+        # Preserve the native planner's read-only review contract: N7
+        # finalization, admission and cold audit may request review_only=True.
+        # A decorator missing this keyword would crash the real fresh-N7
+        # path after some actual HTTP effects have already occurred.
         rows=self.truth.query('rc72_n7_execution_plan',plan_id=plan_id)
         if len(rows)==1 and rows[0].get('coverage_rerun_id'):
             return self.owner._assert_plan(rows[0])
-        return self.base.assert_current(plan_id)
+        return self.base.assert_current(plan_id,review_only=review_only)
 
 
 class NativeCoverageRerunService:
