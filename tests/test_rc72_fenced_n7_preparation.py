@@ -215,3 +215,40 @@ def test_existing_prepared_cannot_restore_authority_after_captain_quiescence(
     assert list(truth.store.iter_raw()) == before
     assert truth.query("rc72_n7_execution_preparation",
                        preparation_id=first["preparation_id"])[0]["status"] == "PREPARED"
+
+
+
+def test_captain_handoff_during_data_reservation_cannot_publish_signed_prepared_attempt(
+        tmp_path, monkeypatch):
+    """The last R1 PREPARED write must be fenced, not just the first check."""
+    truth, plan, item, captain, lifecycle, owner, dispatch = _fenced(tmp_path, monkeypatch)
+    service = _service(truth)
+    original_acquire = service.data.acquire
+    handoffs = []
+
+    def acquire_then_handoff(**kwargs):
+        grant = original_acquire(**kwargs)
+        handoff = captain.prepare_handoff(
+            mission_id=MISSION, team_id=dispatch.team_id,
+            lease_id=owner["lease_id"],
+            captain_session_id=owner["captain_session_id"],
+            lifecycle=lifecycle, current_node_refs=["N7_EXECUTION"],
+            latest_delivery_refs=[], latest_gate_refs=[],
+            next_workitem_ids=[item["workitem_id"]])
+        handoffs.append(handoff.checkpoint_id)
+        return grant
+
+    monkeypatch.setattr(service.data, "acquire", acquire_then_handoff)
+    with pytest.raises(ContractError, match="CAPTAIN_DISPATCH_NOT_ACTIVE"):
+        service.prepare(
+            plan_id=plan["plan_id"], workitem_id=item["workitem_id"],
+            fenced_admission=dispatch)
+
+    assert len(handoffs) == 1
+    assert truth.query("rc72_n7_execution_preparation", workitem_id=item["workitem_id"]) == []
+    assert truth.query("execution_attempt", mission_id=MISSION) == []
+    task = truth.query("rc7_task", task_id=item["workitem_id"])[0]
+    assert task["state"] == "READY" and task["lease_owner"] is None
+    assert all(row["state"] == "RELEASED" for row in truth.query("rc72_data_lease"))
+    assert all(row["state"] == "CLOSED" for row in truth.query("rc72_worker_session"))
+    assert truth.query("rc72_captain_dispatch_lease", mission_id=MISSION)[0]["state"] == "QUIESCED"
