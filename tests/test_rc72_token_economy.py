@@ -375,7 +375,10 @@ def test_field_q7_does_not_conflate_dsh_process_invocations_with_provider_infere
         call.call_id, DshTokenUsage(UsageStatus.MEASURED, 120, 30, 150, "DSH_FINAL_USAGE"),
     )
     summary = service.summary("MISSION-1")
-    assert summary["dsh_process_invocations"] == 1
+    # This fixture wrote model-call truth directly; no DSH process boundary
+    # was observed. Its process count must remain UNKNOWN, not an invented 1.
+    assert summary["dsh_process_invocations"] is None
+    assert summary["dsh_process_invocation_count_status"] == "UNKNOWN"
     assert summary["provider_inference_call_count_status"] == "UNKNOWN"
     assert summary["provider_inference_call_count"] is None
     # Source-level token measurements may be valid, yet per-provider call
@@ -392,3 +395,15 @@ def test_field_q7_missing_call_evidence_never_promotes_economy_pass(tmp_path: Pa
     _, service = _service(tmp_path)
     assert service.field_qualification("MISSION-1").status == "HOLD"
     assert service.field_qualification("MISSION-1").reason == "TOKEN_USAGE_EVIDENCE_REQUIRED"
+
+
+
+def test_model_admission_is_not_a_dsh_process_invocation(tmp_path: Path):
+    truth, service = _service(tmp_path)
+    admitted = _admit(service, prompt="awaiting an actual runner")
+    assert admitted.admitted
+    summary = service.summary("MISSION-1")
+    assert summary["model_calls"] == 1
+    assert summary["dsh_process_invocations"] is None
+    assert summary["dsh_process_invocation_count_status"] == "UNKNOWN"
+    assert truth.query("rc72_token_call", call_id=admitted.call_id)[0]["process_outcome"] == "NOT_STARTED"
