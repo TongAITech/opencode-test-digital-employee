@@ -353,3 +353,26 @@ def test_native_command_without_contract_json_remains_byte_identical(tmp_path):
     assert call["prompt_original_bytes"] == call["context_bytes"]
     assert call["prompt_serialization_saved_bytes"] == 0
     assert economy.summary("M-1")["verified_prompt_serialization_saved_bytes"] == 0
+
+
+def test_nested_mcp_token_counters_in_final_output_never_become_measured_model_use(tmp_path):
+    stdout = json.dumps({
+        "type": "final",
+        "text": "finished native tool traversal",
+        "tool_calls": [{
+            "tool_name": "CAT",
+            "usage": {
+                "input_tokens": 800, "output_tokens": 200, "total_tokens": 1000,
+            },
+        }],
+    }) + "\\n"
+    truth, economy, _, launcher, runner = _setup(tmp_path, stdout=stdout)
+    launcher.execute(_assignment(), "native CAT evidence must remain distinct from model tokens")
+    assert len(runner.calls) == 1
+    call = truth.query("rc72_token_call", mission_id="M-1")[0]
+    observed = truth.query("rc72_token_usage", mission_id="M-1")[0]
+    assert call["usage_status"] == "UNKNOWN"
+    assert observed["observation_status"] == "UNKNOWN"
+    assert observed["total_tokens"] is None
+    assert economy.summary("M-1")["actual_total_tokens"] is None
+    assert economy.qualification("M-1").status == "HOLD"
