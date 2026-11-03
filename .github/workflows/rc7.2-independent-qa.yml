@@ -42,6 +42,7 @@ jobs:
         shell: bash
         env:
           EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SOURCE_SHA: ${{ github.event.pull_request.base.sha || 'WORKFLOW_DISPATCH_NO_PR_BASE' }}
         run: |
           actual="$(git rev-parse HEAD)"
           if [ "$actual" != "$EXPECTED_SOURCE_SHA" ]; then
@@ -49,6 +50,7 @@ jobs:
             exit 1
           fi
           echo "RC72_QA_EXACT_HEAD=$actual"
+          printf 'qa_source_commit=%s\\nqa_base_sha=%s\\n' "$actual" "$BASE_SOURCE_SHA" > qa-source-identity.txt
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -83,6 +85,7 @@ jobs:
         with:
           name: qa-c01-c02-${{ matrix.os }}-py${{ matrix.python-version }}
           path: |
+            qa-source-identity.txt
             qa-c12-tools.xml
             qa-c01-c02.xml
           if-no-files-found: warn
