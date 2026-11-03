@@ -34,6 +34,13 @@ def test_qa_c01_c02_physical_repair_recompile_fresh_execution_preserves_history(
         assert truth.query('rc7_evidence', kind='N5_EXISTING_DATA_REVERIFICATION')
         repair_rows = truth.query('rc72_n5_existing_data_repair')
         assert repair_rows and all(row['state'] == 'VERIFIED' for row in repair_rows)
+        requested_refs = {row['data_ref'] for row in truth.query('rc72_n5_data_binding',
+            release_batch_id=failed_preparation['release_batch_id'])}
+        # Independently verify actual local SUT write observations, not merely
+        # a self-reported VERIFIED state on the N5 artifact.
+        assert requested_refs and set(server.repair_calls) == requested_refs
+        assert all(ref in server.allowed_data_refs for ref in requested_refs)
+        real_repair_calls = list(server.repair_calls)
         assert all(row.get('producer', {}).get('state') == 'PREPARED' for row in repair_rows)
         assert all(row['identity']['worker_id'] != row['producer']['identity']['worker_id'] for row in repair_rows)
         assert all(prep.authority.is_lease_revoked(row['lease']['lease_id']) for row in repair_rows)
@@ -72,6 +79,7 @@ def test_qa_c01_c02_physical_repair_recompile_fresh_execution_preserves_history(
         result = ExecutionFinalizationService(reviewer).finalize(bundle['bundle_id'])
         assert result['state'] == 'N7_PASS'
         assert len(server.calls) == len(new_plan['items'])
+        assert server.repair_calls == real_repair_calls  # no duplicate write on N7 retry
         assert prep._one('execution_attempt', attempt_id=failed_preparation['attempt_id']) == original_failure
 
         cold = _service(TruthRuntime(truth.store.path))
