@@ -287,6 +287,8 @@ class ReleaseBatchDriver:
             preparation_id=recovered['preparation_id'])
         if original['release_batch_id']!=batch['release_batch_id']:
             raise ContractError('RC72_RELEASE_DRIVER_N8_RETRY_BATCH_CHANGED')
+        if recovered['recovery_plan_id']==original['plan_id']:
+            raise ContractError('RC72_RELEASE_DRIVER_N8_FRESH_N7_NOT_ADMITTED')
         planned=self.n7_pipeline.preparation.planning.assert_current(
             recovered['recovery_plan_id'])
         node=self._one('rc72_mission_node',mission_id=batch['mission_id'],
