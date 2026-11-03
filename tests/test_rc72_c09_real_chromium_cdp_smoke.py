@@ -279,7 +279,7 @@ def test_real_chromium_cdp_teaching_captures_dom_event_network_and_png(tmp_path:
             workitem_id="WI-1", attempt_id="ATT-1", worker_id="WORKER-1",
             session_id="SESSION-1", browser_lease_id=lease.browser_lease_id,
             human_operator_ref="human://ci-scripted-click-not-bank-signature",
-            auth_asset_ref="auth://4a/asset",
+            auth_asset_ref="auth://4a/session-asset",
         )
         assert recorder.page is not None
         recorder.page.locator("#save").click(timeout=10000)
