@@ -21,7 +21,7 @@ class FakeLocator:
 
     def click(self, **kwargs):
         self.page.actions.append(("click", self.selector))
-        if self.selector == "css:#save":
+        if self.selector in {"#save", "css:#save"}:
             from types import SimpleNamespace
             response = SimpleNamespace(
                 url="https://fat1.example/api/config?token=never-persist",
