@@ -265,7 +265,12 @@ def test_real_chromium_cdp_teaching_captures_dom_event_network_and_png(tmp_path:
         assert recorder.page is not None
         recorder.page.locator("#save").click(timeout=10000)
         recorder.page.wait_for_load_state("networkidle", timeout=15000)
-        observed_events = recorder.poll(page_role="CONFIGURATION")
+        observed_events = []
+        for _ in range(30):
+            observed_events = recorder.poll(page_role="CONFIGURATION")
+            if observed_events:
+                break
+            time.sleep(0.05)
         assert observed_events == ["REAL-TEACHING-1:2"]
         recorder.record_assertion(
             page_role="CONFIGURATION", element_ref="css:#toast",
