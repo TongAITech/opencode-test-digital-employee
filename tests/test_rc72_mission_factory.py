@@ -229,3 +229,68 @@ def test_factory_denies_unowned_or_partial_captain_without_r1_effects(tmp_path, 
         create_mission_driver(truth, **options)
     assert truth.store.path.read_bytes() == before
     assert not truth.query('execution_attempt')
+
+
+def test_release_product_entry_blocks_legacy_n7_if_captain_exists(tmp_path, monkeypatch):
+    """A real persisted B Captain cannot be bypassed through A's driver."""
+    from rc7_runtime.rc72_captain_dispatch_fencing import CaptainDispatchFencer
+    from rc72_formal_runner_support import formal_setup
+    truth, plan, preparation, server, url = formal_setup(tmp_path, monkeypatch)
+    try:
+        owner = CaptainDispatchFencer(truth, release_id=RELEASE).acquire_initial(
+            mission_id=plan['mission_id'], team_id='TEAM-APPROVED',
+            captain_session_id='CAPTAIN-APPROVED')
+        _, options = _setup(tmp_path, truth)
+        driver = create_mission_driver(truth, **options)
+        before = truth.store.path.read_bytes()
+        with pytest.raises(ContractError, match='RELEASE_DRIVER_CAPTAIN_CONTEXT_REQUIRED'):
+            driver._assert_captain_product_entry(plan['mission_id'])
+        assert truth.store.path.read_bytes() == before
+        assert server.calls == []
+        assert not truth.query('rc72_n7_execution_preparation')
+        assert owner['state'] == 'ACTIVE'
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.parametrize('mutation,reason', [
+    ('valid', None),
+    ('wrong_team', 'RELEASE_DRIVER_CAPTAIN_SCOPE_MISMATCH'),
+    ('wrong_session', 'CAPTAIN_DISPATCH_FENCED'),
+    ('wrong_lease', 'CAPTAIN_DISPATCH_FENCED'),
+])
+def test_release_product_entry_requires_exact_live_captain_authority(
+        tmp_path, monkeypatch, mutation, reason):
+    from rc7_runtime.rc72_captain_dispatch_fencing import CaptainDispatchFencer
+    from rc72_formal_runner_support import formal_setup
+    truth, plan, preparation, server, url = formal_setup(tmp_path, monkeypatch)
+    try:
+        owner = CaptainDispatchFencer(truth, release_id=RELEASE).acquire_initial(
+            mission_id=plan['mission_id'], team_id='TEAM-GOVERNED',
+            captain_session_id='CAPTAIN-GOVERNED')
+        binding = replace(_real_captain_binding(truth),
+                          captain_session_id=owner['captain_session_id'],
+                          captain_lease_id=owner['lease_id'],
+                          team_id=owner['team_id'])
+        if mutation == 'wrong_team':
+            binding = replace(binding, team_id='TEAM-FOREIGN')
+        elif mutation == 'wrong_session':
+            binding = replace(binding, captain_session_id='CAPTAIN-FOREIGN')
+        elif mutation == 'wrong_lease':
+            binding = replace(binding, captain_lease_id='CAPF-FOREIGN')
+        _, options = _setup(tmp_path, truth)
+        options['captain_binding'] = binding
+        driver = create_mission_driver(truth, **options)
+        before = truth.store.path.read_bytes()
+        if reason:
+            with pytest.raises(ContractError, match=reason):
+                driver._assert_captain_product_entry(plan['mission_id'])
+        else:
+            assert driver._assert_captain_product_entry(plan['mission_id']) is None
+        assert truth.store.path.read_bytes() == before
+        assert server.calls == []
+        assert not truth.query('rc72_n7_execution_preparation')
+    finally:
+        server.shutdown()
+        server.server_close()
