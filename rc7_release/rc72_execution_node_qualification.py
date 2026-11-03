@@ -1,6 +1,6 @@
 """Actual copied Node/Playwright/GitNexus offline component qualification."""
 from __future__ import annotations
-import argparse,hashlib,json,os,queue,subprocess,threading,time
+import argparse,hashlib,json,os,queue,shutil,subprocess,threading,time
 from pathlib import Path
 from rc6_runtime.process_environment import scoped_process_environment
 from .runtime_delivery_contract import verify_turnkey_npm_package
@@ -79,7 +79,7 @@ def _resource(node,cli,env,fixture,evidence):
         (evidence/'mcp.stderr.log').write_text(''.join(stderr),encoding='utf-8')
 
 
-def _windows_outbound_proof(node,env):
+def _windows_outbound_proof(node,env,evidence):
     if os.name!='nt':raise RuntimeError('EXECUTION_COMPONENT_WINDOWS_FIREWALL_REQUIRED')
     script = """$ErrorActionPreference='Stop';
 $r=Get-NetFirewallRule -Name 'RC72-Execution-Node-Offline';
@@ -89,15 +89,23 @@ program=[string]$a.Program; profiles_enabled=@(Get-NetFirewallProfile | ForEach-
 service=[string](Get-Service MpsSvc).Status} | ConvertTo-Json -Compress
 """
     child_env=dict(env,RC72_COMPONENT_NODE=str(node))
-    completed=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',script],env=child_env,
-        capture_output=True,text=True,timeout=30)
+    # Match the actual workflow shell instead of starting legacy Windows
+    # PowerShell 5 in a newly isolated profile for this CIM query.
+    shell=shutil.which('pwsh.exe') or shutil.which('powershell.exe')
+    if not shell:raise RuntimeError('EXECUTION_COMPONENT_FIREWALL_QUERY_SHELL_REQUIRED')
+    for key in ('APPDATA','LOCALAPPDATA'):
+        Path(child_env[key]).mkdir(parents=True,exist_ok=True)
+    completed=subprocess.run([shell,'-NoProfile','-NonInteractive','-Command',script],env=child_env,
+        capture_output=True,text=True,timeout=60)
+    (evidence/'firewall-query.stdout.log').write_text(completed.stdout,encoding='utf-8')
+    (evidence/'firewall-query.stderr.log').write_text(completed.stderr,encoding='utf-8')
     if completed.returncode:raise RuntimeError('EXECUTION_COMPONENT_FIREWALL_QUERY_FAILED')
     proof=_json_result(completed.stdout)
     if (proof.get('action')!='Block' or proof.get('direction')!='Outbound' or proof.get('enabled')!='True'
             or Path(proof.get('program','')).resolve()!=node.resolve() or proof.get('service')!='Running'
             or len(proof.get('profiles_enabled',[]))!=3 or any(v!='True' for v in proof['profiles_enabled'])):
         raise RuntimeError('EXECUTION_COMPONENT_FIREWALL_NOT_EFFECTIVE')
-    return proof
+    return dict(proof,query_shell=shell)
 
 
 def qualify(package_root,evidence_root,*,require_windows_outbound_block=False):
@@ -114,7 +122,7 @@ def qualify(package_root,evidence_root,*,require_windows_outbound_block=False):
     fence=evidence/'network-fence.cjs';fence.write_text(FENCE,encoding='utf-8')
     env=scoped_process_environment(dict(CI='true',GITNEXUS_HOME=str(evidence/'home/.gitnexus'),
         NODE_OPTIONS='--require='+json.dumps(fence.as_posix()),HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1'),home=evidence/'home')
-    firewall=_windows_outbound_proof(node,env) if require_windows_outbound_block else None
+    firewall=_windows_outbound_proof(node,env,evidence) if require_windows_outbound_block else None
     fixture=evidence/'fixture';fixture.mkdir(exist_ok=True)
     (fixture/'math.ts').write_text('export function double(value: number): number { return value * 2; }\n')
     (fixture/'main.ts').write_text('import { double } from "./math";\nexport function run(): number { return double(2); }\n')
