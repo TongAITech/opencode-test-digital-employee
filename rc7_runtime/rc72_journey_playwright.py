@@ -82,6 +82,7 @@ class JourneyPlaywrightAdapter:
         self._playwright = None
         self._browser = None
         self._endpoint = None
+        self._network_observations = {}
 
     def close(self) -> None:
         # Stop the client connection; BrowserPool/B group owns browser lifetime.
@@ -90,6 +91,7 @@ class JourneyPlaywrightAdapter:
         self._playwright = None
         self._browser = None
         self._endpoint = None
+        self._network_observations.clear()
 
     def _guard(self, context: Mapping[str, Any]) -> Dict[str, Any]:
         required = ("mission_id", "workitem_id", "attempt_id", "worker_id", "browser_lease_id")
@@ -192,7 +194,24 @@ class JourneyPlaywrightAdapter:
         if not isinstance(oracle, Mapping):
             raise ContractError("JOURNEY_ORACLE_UNRESOLVED")
         kind = oracle.get("type")
-        if kind == "url_equals":
+        if kind == "network_status":
+            method = oracle.get("method")
+            url = oracle.get("url")
+            status = oracle.get("status")
+            if (not isinstance(method, str) or not method.strip()
+                    or not isinstance(url, str) or not url.startswith(("http://", "https://"))
+                    or not isinstance(status, int) or isinstance(status, bool)):
+                raise ContractError("JOURNEY_NETWORK_ORACLE_INVALID")
+            run_id = str(context.get("replay_id") or context.get("execution_id") or "")
+            observations = self._network_observations.get(run_id, [])
+            if not any(
+                row.get("method") == method.upper()
+                and row.get("url") == _public_url(url)
+                and row.get("status") == status
+                for row in observations
+            ):
+                raise ContractError("JOURNEY_ASSERT_NETWORK_STATUS_MISMATCH")
+        elif kind == "url_equals":
             if page.url != oracle.get("expected"):
                 raise ContractError("JOURNEY_ASSERT_URL_MISMATCH")
         elif kind in {"visible", "text_equals", "attribute_equals"}:
@@ -312,6 +331,9 @@ class JourneyPlaywrightAdapter:
             failure_code = "JOURNEY_STEP_%s" % type(exc).__name__.upper()
             if isinstance(exc, ContractError):
                 failure_code = str(exc).split(":")[0][:100]
+        # Preserve observed responses across NAVIGATE/CLICK -> ASSERT steps of
+        # the same signed replay or official execution, not across Attempts.
+        self._network_observations.setdefault(run_id, []).extend(responses)
         evidence_refs = []
         if page is not None:
             try:
