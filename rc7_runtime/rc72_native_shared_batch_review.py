@@ -67,7 +67,7 @@ def _validate(payload: Dict[str, Any]) -> Dict[str, Any]:
             raise _contracts.DomainValidationError("BATCH_REVIEW_MEMBER_FIELDS_INVALID")
         for name in ("workitem_id", "attempt_id", "evidence_adequacy"):
             _contracts._require_str(member, name)
-        if member["evidence_adequacy"] not in {
+        if not isinstance(member["evidence_adequacy"], str) or member["evidence_adequacy"] not in {
             "SUFFICIENT_CANDIDATE", "INSUFFICIENT", "UNKNOWN"
         }:
             raise _contracts.DomainValidationError("BATCH_REVIEW_CANNOT_DECLARE_PASS")
