@@ -176,6 +176,7 @@ class JourneyCDPTeachingRecorder:
         network_ref = _atomic_json(folder / "network.json", {"responses": list(self.responses)})
         self.responses.clear()
         try:
+            self._guard()
             folder.mkdir(parents=True, exist_ok=True)
             self.page.screenshot(
                 path=str(folder / "screen.png"), full_page=True,
@@ -191,6 +192,7 @@ class JourneyCDPTeachingRecorder:
             if isinstance(value, str) and value.strip():
                 allowed_metadata[key] = value.strip()
         wait = str(metadata.get("wait_semantics") or "domcontentloaded")
+        self._guard()
         self.teaching.append_step(
             recording_id=recording_id, step_id="%s:%d" % (recording_id, sequence),
             sequence=sequence, action_type=JourneyActionType(action_type),
