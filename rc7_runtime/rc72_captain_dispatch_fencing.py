@@ -144,6 +144,8 @@ class CaptainDispatchFencer:
         A crash between these steps blocks dispatch instead of risking two
         Captains. Recovery requires independent incident reconciliation.
         """
+        if getattr(lifecycle, "truth", None) is not self.truth:
+            raise ContractError("CAPTAIN_HANDOFF_R1_RUNTIME_MISMATCH")
         with ledger_lock(self.truth):
             owner = self._owner(mission_id, lease_id, captain_session_id, _now())
             if owner["team_id"] != team_id:
@@ -164,6 +166,8 @@ class CaptainDispatchFencer:
                  new_captain_session_id, lifecycle, ttl_seconds=300):
         if not isinstance(ttl_seconds, int) or isinstance(ttl_seconds, bool) or ttl_seconds < 1:
             raise ContractError("CAPTAIN_DISPATCH_TTL_INVALID")
+        if getattr(lifecycle, "truth", None) is not self.truth:
+            raise ContractError("CAPTAIN_TAKEOVER_R1_RUNTIME_MISMATCH")
         with ledger_lock(self.truth):
             old = self._latest(mission_id)
             if (old is None or old["state"] != "QUIESCED"
