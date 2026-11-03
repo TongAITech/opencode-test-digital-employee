@@ -179,6 +179,32 @@ class ReleaseBatchDriver:
                 or n9.truth is not self.truth or n9.source_commit!=self.source_commit):
             raise ContractError('RC72_RELEASE_DRIVER_N9_PIPELINE_SCOPE_MISMATCH')
 
+    def _assert_captain_product_entry(self, mission_id):
+        """Do not downgrade a Captain-governed Mission to legacy N7.
+
+        A Captain lease only authorizes one exact scope and generation. The
+        factory's optional wiring cannot be treated as permission to ignore
+        an existing canonical Captain, or to run without one.
+        """
+        leases = self.truth.query('rc72_captain_dispatch_lease', mission_id=mission_id)
+        n7 = self.n7_pipeline
+        scheduler = getattr(n7, 'captain_scheduler', None)
+        if leases and scheduler is None:
+            raise ContractError('RC72_RELEASE_DRIVER_CAPTAIN_CONTEXT_REQUIRED')
+        if scheduler is not None and not leases:
+            raise ContractError('RC72_RELEASE_DRIVER_CAPTAIN_LEASE_REQUIRED')
+        if scheduler is None:
+            return
+        lease = scheduler.fencer.assert_owner(
+            mission_id=mission_id,
+            lease_id=n7.captain_lease_id,
+            captain_session_id=n7.captain_session_id)
+        if (lease.get('mission_id') != mission_id or
+                lease.get('team_id') != n7.team_id or
+                lease.get('lease_id') != n7.captain_lease_id or
+                lease.get('captain_session_id') != n7.captain_session_id):
+            raise ContractError('RC72_RELEASE_DRIVER_CAPTAIN_SCOPE_MISMATCH')
+
     def _has_gate(self,node_type):
         return (node_type in self._gate_types() or node_type=='N6_EXECUTABLE_READINESS'
                 or node_type=='N7_EXECUTION' and self.n7_pipeline is not None
@@ -306,6 +332,7 @@ class ReleaseBatchDriver:
         with _driver_lock(self.truth, release_batch_id):
             self.truth.rebuild_projection()
             batch = self._one('rc72_release_batch', release_batch_id=release_batch_id)
+            self._assert_captain_product_entry(batch['mission_id'])
             if any(l.release_id != batch['release_id'] for l in (self.n1_launcher, self.n2_launcher, self.n2_evaluator.launcher)):
                 raise ContractError('RC72_RELEASE_DRIVER_WORKER_RELEASE_MISMATCH')
             if self.n3_pipeline is not None and (self.n3_pipeline.truth is not self.truth
