@@ -400,6 +400,19 @@ def _validate_call(payload: Dict[str, Any]) -> Dict[str, Any]:
     parent_attempt_id = out.get("parent_attempt_id")
     if parent_attempt_id is not None and (not isinstance(parent_attempt_id, str) or not parent_attempt_id.strip()):
         raise _contracts.DomainValidationError("TOKEN_CONTEXT_PARENT_ATTEMPT_INVALID")
+    out.setdefault("prompt_original_bytes", out["context_bytes"])
+    out.setdefault("prompt_serialization_saved_bytes", 0)
+    out.setdefault("prompt_compaction_status", "UNCHANGED")
+    out["prompt_original_bytes"] = _nonnegative_int(out, "prompt_original_bytes")
+    out["prompt_serialization_saved_bytes"] = _nonnegative_int(out, "prompt_serialization_saved_bytes")
+    if out["prompt_compaction_status"] not in {"UNCHANGED", "LOSSLESS_JSON"}:
+        raise _contracts.DomainValidationError("TOKEN_PROMPT_COMPACTION_STATUS_INVALID")
+    if out["prompt_original_bytes"] != out["context_bytes"] + out["prompt_serialization_saved_bytes"]:
+        raise _contracts.DomainValidationError("TOKEN_PROMPT_COMPACTION_BYTES_INCONSISTENT")
+    if (out["prompt_compaction_status"] == "LOSSLESS_JSON") != (
+        out["prompt_serialization_saved_bytes"] > 0
+    ):
+        raise _contracts.DomainValidationError("TOKEN_PROMPT_COMPACTION_STATUS_BYTES_MISMATCH")
     out.setdefault("process_outcome", "UNKNOWN")
     if out["process_outcome"] not in {"UNKNOWN", "NOT_STARTED", "RETURNED", "RAISED"}:
         raise _contracts.DomainValidationError("DSH_PROCESS_OUTCOME_INVALID")
@@ -657,6 +670,12 @@ class TokenEconomyService:
             for row in unknown
         )
         total_context_bytes = sum(int(row.get("context_bytes", 0)) for row in model_calls)
+        real_prompt_serialization_bytes_saved = sum(
+            int(row.get("prompt_serialization_saved_bytes", 0)) for row in model_calls
+        )
+        lossless_json_compacted_calls = sum(
+            row.get("prompt_compaction_status") == "LOSSLESS_JSON" for row in model_calls
+        )
         reference_projection_calls = sum(
             row.get("context_projection_status") == "REFERENCE_ONLY"
             for row in model_calls
@@ -750,6 +769,10 @@ class TokenEconomyService:
             "native_reference_projection_calls": reference_projection_calls,
             "native_minimal_prompt_proven_calls": 0,
             "verified_context_savings_bytes": None,
+            "lossless_json_compacted_calls": lossless_json_compacted_calls,
+            "verified_prompt_serialization_saved_bytes": real_prompt_serialization_bytes_saved,
+            # Saved bytes are not provider tokenizer measurements.
+            "verified_prompt_token_savings": None,
             "context_reuse_factor": (
                 float(total_context_bytes) / float(unique_context_bytes)
                 if unique_context_bytes else 0.0
@@ -772,6 +795,8 @@ class TokenEconomyService:
         mission_criticality: Any = MissionCriticality.UNKNOWN,
         semantic_cost_class: Any = SemanticCostClass.UNKNOWN,
         context_projection: Optional[Mapping[str, Any]] = None,
+        original_prompt_bytes: Optional[int] = None,
+        prompt_compaction_status: str = "UNCHANGED",
         when: Optional[datetime] = None,
     ) -> TokenAdmission:
         budget = self._budget(mission_id)
@@ -797,6 +822,21 @@ class TokenEconomyService:
         if projection and projection.get("context_projection_applied_to_prompt") is not False:
             raise TokenEconomyError("TOKEN_CONTEXT_SAVINGS_UNPROVEN")
         prompt_bytes = prompt.encode("utf-8")
+        actual_prompt_bytes = len(prompt_bytes)
+        if original_prompt_bytes is None:
+            original_prompt_bytes = actual_prompt_bytes
+        if (
+            isinstance(original_prompt_bytes, bool)
+            or not isinstance(original_prompt_bytes, int)
+            or original_prompt_bytes < actual_prompt_bytes
+        ):
+            raise TokenEconomyError("TOKEN_ORIGINAL_PROMPT_BYTES_INVALID")
+        serialization_saved = original_prompt_bytes - actual_prompt_bytes
+        if (
+            prompt_compaction_status not in {"UNCHANGED", "LOSSLESS_JSON"}
+            or (prompt_compaction_status == "LOSSLESS_JSON") != (serialization_saved > 0)
+        ):
+            raise TokenEconomyError("TOKEN_PROMPT_COMPACTION_PROOF_INVALID")
         digest = hashlib.sha256(prompt_bytes).hexdigest()
         summary = self.summary(mission_id)
         window = classify_bank_cost_window(when or self.clock(), config=self.cost_window_config)
@@ -873,7 +913,10 @@ class TokenEconomyService:
             "call_class": call_class.value,
             "retry": bool(retry),
             "context_sha256": digest,
-            "context_bytes": len(prompt_bytes),
+            "context_bytes": actual_prompt_bytes,
+            "prompt_original_bytes": original_prompt_bytes,
+            "prompt_serialization_saved_bytes": serialization_saved,
+            "prompt_compaction_status": prompt_compaction_status,
             "reserved_tokens": reserve if admitted else 0,
             "state": "ADMITTED" if admitted else "BLOCKED",
             "usage_status": "PENDING",
