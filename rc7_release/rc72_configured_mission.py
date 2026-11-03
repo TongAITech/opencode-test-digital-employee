@@ -21,6 +21,7 @@ from rc7_runtime.rc72_ledger_lock import ledger_lock
 from rc7_runtime.rc72_mission_factory import ROLES, MissionWorkerBinding, MissionHostBindings
 from rc7_runtime.rc72_native_n1_launcher import NativeN1ReadDshLauncher
 from rc7_runtime.rc72_native_n1_read_gate import N1ReadResource
+from rc7_runtime.rc72_worker_http_auth import validate_asset_root
 from .execution_environment import ExecutionEnvironmentLoader, ExecutionEnvironmentLoadError
 from .rc72_tool_environment import package_tool_environment, OWNED_NAMES
 
@@ -28,6 +29,7 @@ SCHEMA = 'RC72_MISSION_CAPABILITIES_V1'
 _FIELDS = {'schema', 'release_id', 'source_commit', 'package_root', 'state_root',
            'dsh_bin', 'patch_path', 'inputs', 'role_tools', 'tool_registry',
            'environment_module', 'archive', 'pip_field_config', 'model_environment_names'}
+_OPTIONAL_FIELDS = {'http_auth_asset_root'}
 _FORBIDDEN_ENV = {'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'DSH_HOME',
                   'XDG_CONFIG_HOME', 'PYTHONPATH', 'PYTHONHOME', 'NODE_OPTIONS'}
 
@@ -76,7 +78,7 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
         raise
     except (OSError, ValueError):
         raise ContractError('MISSION_CONFIG_READ_FAILED') from None
-    if (not isinstance(config, dict) or set(config) != _FIELDS or config.get('schema') != SCHEMA):
+    if (not isinstance(config, dict) or not _FIELDS <= set(config) or bool(set(config) - _FIELDS - _OPTIONAL_FIELDS) or config.get('schema') != SCHEMA):
         raise ContractError('MISSION_CONFIG_EXACT_CAPABILITY_FIELDS_REQUIRED')
     if (not isinstance(release_id,str) or not release_id.strip()
             or not isinstance(source_commit,str) or not re.fullmatch('[0-9a-f]{40}', source_commit) or config['source_commit'] != source_commit
@@ -97,6 +99,10 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
     if not (root/'SOURCE_COMMIT').is_file() or (root/'SOURCE_COMMIT').read_text().strip() != source_commit:
         raise ContractError('MISSION_CONFIG_EXACT_PACKAGE_SOURCE_REQUIRED')
     state = configured_path('state_root')
+    auth_root = None
+    if 'http_auth_asset_root' in config:
+        auth_root = validate_asset_root(configured_path('http_auth_asset_root'),
+            forbidden_roots=[root, state])
     dsh = configured_path('dsh_bin', file=True)
     patch = configured_path('patch_path', file=True)
     archive = configured_path('archive', file=True)
@@ -161,7 +167,7 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
     mirror = NativeBankPipMirrorService(truth, release_id=release_id, source_commit=source_commit,
         authority=authority('bank-pip-mirror'), package_root=root, archive=archive,
         field_config=field, evidence_root=owned/'pip-mirror')
-    return MissionHostBindings(workers, mirror, execution, adapter, registry, tools_environment or None)
+    return MissionHostBindings(workers, mirror, execution, adapter, registry, tools_environment or None, auth_root)
 
 
 def create_mission_bindings(*, truth, release_id, source_commit):

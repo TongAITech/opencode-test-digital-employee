@@ -24,6 +24,7 @@ from .rc72_n4_parent_guard import N4ParentScopedDesignEvaluator
 from .rc72_n5_pipeline import N5PipelineService
 from .rc72_n7_execution_preparation import ExecutionPreparationService
 from .rc72_formal_runner import FormalN7RunnerAdapter
+from .rc72_worker_http_auth import WorkerHTTPAuthAssetProvider, validate_asset_root
 from .rc72_n7_pipeline import N7PipelineService
 from .rc72_n9_accepted_scope import AcceptedScopeN9Service
 from .rc72_expected_scope_input import ExpectedScopeInputService
@@ -54,12 +55,13 @@ class MissionHostBindings:
     execution_environment: ExecutionEnvironmentAdapter
     tool_registry: dict
     execution_env: object = None
+    http_auth_asset_root: object = None
 
 
 def create_mission_driver(truth, *, release_id, source_commit, workers,
                           bank_pip_mirror, execution_authority,
                           execution_environment, tool_registry, evidence_root,
-                          execution_env=None):
+                          execution_env=None, http_auth_asset_root=None):
     """Compose all implemented native routes against one ledger/source/release.
 
     Missing roles fail before constructing pipelines or touching the ledger.
@@ -113,6 +115,11 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
                    for family, tools in tool_registry.items())):
         raise ContractError('MISSION_FACTORY_EXACT_EXECUTION_TOOLS_REQUIRED')
 
+    auth_root = None
+    if http_auth_asset_root is not None:
+        auth_root = validate_asset_root(http_auth_asset_root,
+            forbidden_roots=[bank_pip_mirror.root, Path(evidence_root).resolve(), *roots])
+
     def launcher(role):
         return bindings[role].launcher
 
@@ -135,7 +142,9 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
     preparation = ExecutionPreparationService(truth, release_id=release_id, source_commit=source_commit,
         authority=execution_authority, tool_registry={k: tuple(v) for k, v in tool_registry.items()})
     n7 = N7PipelineService(preparation, runner=FormalN7RunnerAdapter(preparation,
-        evidence_root=root/'runner', execution_env=execution_env, environment_adapter=execution_environment),
+        evidence_root=root/'runner', execution_env=execution_env, environment_adapter=execution_environment,
+        http_auth_provider=(WorkerHTTPAuthAssetProvider(preparation, asset_root=auth_root)
+                            if auth_root is not None else None)),
         capture_root=root/'execution-captures')
     n9 = AcceptedScopeN9Service(n7)
     measurement = NativeLibraMeasurementService(expected, n9, capture_root=root/'coverage-captures')

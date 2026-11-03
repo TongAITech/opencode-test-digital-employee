@@ -107,6 +107,23 @@ class _NoRedirect(HTTPRedirectHandler):
         return None
 
 
+def validate_asset_root(value, *, forbidden_roots):
+    """An explicit host export directory, disjoint from carried/Worker evidence.
+
+    Validation never reads credentials, creates directories or asserts readiness.
+    """
+    if not isinstance(value, (str, Path)) or not str(value).strip():
+        raise ContractError('MISSION_HTTP_AUTH_ASSET_ROOT_REQUIRED')
+    root = Path(value).expanduser().resolve()
+    if not root.is_dir():
+        raise ContractError('MISSION_HTTP_AUTH_ASSET_DIRECTORY_REQUIRED')
+    for item in forbidden_roots:
+        other = Path(item).resolve()
+        if root == other or root in other.parents or other in root.parents:
+            raise ContractError('MISSION_HTTP_AUTH_PRIVATE_HOST_DIRECTORY_REQUIRED')
+    return root
+
+
 class WorkerHTTPAuthAssetProvider:
     """Reads bank-owned worker exports; never accepts an Agent's secret argument.
 

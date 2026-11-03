@@ -92,3 +92,15 @@ def test_factory_rejects_partial_or_cross_scope_binding_without_effects(tmp_path
     with pytest.raises(ContractError, match=reason):
         create_mission_driver(truth, **options)
     assert truth.store.path.read_bytes() == before
+
+
+@pytest.mark.parametrize('location',['evidence','evidence/auth','worker-design','package/auth','.'])
+def test_host_auth_assets_cannot_share_transport_worker_or_evidence_roots(tmp_path,location):
+    truth,options=_setup(tmp_path)
+    root=tmp_path/location
+    root.mkdir(parents=True,exist_ok=True)
+    options['http_auth_asset_root']=root
+    before=truth.store.path.read_bytes()
+    with pytest.raises(ContractError,match='PRIVATE_HOST_DIRECTORY_REQUIRED'):
+        create_mission_driver(truth,**options)
+    assert truth.store.path.read_bytes()==before

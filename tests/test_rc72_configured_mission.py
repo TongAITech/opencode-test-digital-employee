@@ -177,3 +177,39 @@ def test_native_mirror_cli_refuses_unqualified_component_and_cannot_start_nodes(
     truth.rebuild_projection()
     assert truth.query('rc72_mission_node')==nodes
     assert not truth.query('rc72_mission_node_worker_attempt')
+
+
+def test_host_auth_directory_is_bound_without_reading_or_exporting_secrets(tmp_path,monkeypatch):
+    truth,config,path=_setup(tmp_path,monkeypatch)
+    root=tmp_path/'host-auth'
+    root.mkdir()
+    (root/'private.json').write_text('private-auth-sentinel')
+    config['http_auth_asset_root']='host-auth'
+    path.write_text(json.dumps(config))
+    before=truth.store.path.read_bytes()
+    bindings=configured_mission_bindings(truth,release_id=RELEASE,source_commit=COMMIT,config_path=path)
+    assert bindings.http_auth_asset_root==root
+    from dataclasses import fields
+    driver=create_mission_driver(truth,release_id=RELEASE,source_commit=COMMIT,
+        evidence_root=tmp_path/'evidence',**{f.name:getattr(bindings,f.name) for f in fields(bindings)})
+    provider=driver.n7_pipeline.runner.http_auth_provider
+    assert provider.root==root
+    assert provider.preparation is driver.n7_pipeline.preparation
+    assert truth.store.path.read_bytes()==before
+    for binding in bindings.workers.values():
+        assert str(root) not in json.dumps(binding.launcher.env)
+    assert 'private-auth-sentinel' not in truth.store.path.read_text()
+
+
+@pytest.mark.parametrize('location',['package/private-auth','owned-state/private-auth','.'])
+def test_auth_export_directory_cannot_overlap_package_or_worker_state(tmp_path,monkeypatch,location):
+    truth,config,path=_setup(tmp_path,monkeypatch)
+    root=tmp_path/location
+    root.mkdir(parents=True,exist_ok=True)
+    config['http_auth_asset_root']=location
+    path.write_text(json.dumps(config))
+    before=truth.store.path.read_bytes()
+    with pytest.raises(ContractError,match='PRIVATE_HOST_DIRECTORY_REQUIRED'):
+        configured_mission_bindings(truth,release_id=RELEASE,source_commit=COMMIT,config_path=path)
+    assert not list(tmp_path.rglob('controller.key'))
+    assert truth.store.path.read_bytes()==before

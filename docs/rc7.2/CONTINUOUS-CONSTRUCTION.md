@@ -905,3 +905,24 @@ selection and existing finite test budgets. The summary-only job may continue
 on ubuntu-latest. This fixes an engineering host dependency; it does not
 qualify target bank Linux or authorize BANK_FINAL. Existing Windows and full
 portable-preparation runs are still observed through their terminal results.
+
+
+## Owned Mission authenticated HTTP assembly — 2026-11-03
+
+The unified configured/typed Mission binding now accepts only an optional
+`http_auth_asset_root` path capability. The owned factory creates the existing
+native WorkerHTTPAuthAssetProvider against the same Preparation service used
+by its formal N7 Runner. It neither accepts caller auth PASS/headers nor reads
+exports during construction. The host directory must exist and be disjoint
+from package, Worker state and evidence roots; no implicit anonymous fallback.
+Real AuthKeeper/4A export and Browser lifecycle are still open integrations.
+
+Validation: 65 tests passed in 57.68s across owned factory/configuration/typed
+loading and HTTP auth. This includes a new factory-composed actual identity GET,
+business HTTP and pytest process route, credential absence from R1/env/evidence,
+and cold audit after export deletion. An additional factory directory-boundary
+suite passed 18 tests in 0.73s (five new overlap negatives). The first new
+integration fixture used the wrong output directory, so evidence review correctly
+refused it; align the fixture to the factory-owned runner directory and retain
+all original evidence checks. These are local engineering proofs, not real bank
+identity/4A/model/Field qualification. Full final portable delivery remains open.

@@ -1,7 +1,9 @@
 # RC7.2 Worker HTTP 认证材料与真实身份核验
 
 状态：已实现父进程认证材料读取、实际身份探测、受限业务 HTTP 及历史审计。
-宿主 AuthKeeper/4A 自动导出接线、其自身 Worker/Browser 生命周期和其余工具
+统一 Mission 配置现可通过 http_auth_asset_root 显式绑定外部导出目录，
+原生工厂将 Provider 绑定自身 Preparation 与 Runner。宿主 AuthKeeper/4A
+自动导出接线、其自身 Worker/Browser 生命周期和其余工具
 调用边界仍在施工。本文件不代表这些路径完成，也不代表银行现场验收通过。
 
 ## 执行边界

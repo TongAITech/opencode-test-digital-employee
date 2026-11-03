@@ -15,7 +15,7 @@ from rc72_n2_test_support import BATCH
 from test_rc72_n7_execution_preparation import _service
 
 
-def _setup(tmp_path,monkeypatch,*,mutation=None,actual_principal='bank-checker',actual_roles=None,provider=True,fail=False,spec_mutator=None,design_mutator=None):
+def _setup(tmp_path,monkeypatch,*,mutation=None,actual_principal='bank-checker',actual_roles=None,provider=True,fail=False,spec_mutator=None,design_mutator=None,factory=False):
     import rc72_formal_runner_support as support
     def profile(value):
         auth=next(x for x in value['facts'] if x['kind']=='auth')
@@ -30,6 +30,18 @@ def _setup(tmp_path,monkeypatch,*,mutation=None,actual_principal='bank-checker',
     truth,plan,prep,server,url=formal_setup(tmp_path,monkeypatch,profile_mutator=profile,
         auth_mode='WORKER_HEADER',auth_role='CHECKER',fail=fail,design_mutator=design_mutator)
     root=tmp_path/'worker-assets'
+    composed_pipeline = None
+    if factory:
+        from test_rc72_mission_factory import _setup as factory_setup
+        from rc7_runtime.rc72_mission_factory import create_mission_driver
+        _, options = factory_setup(tmp_path, truth=truth)
+        root.mkdir()
+        options.update(execution_authority=prep.authority, http_auth_asset_root=root,
+            execution_environment=LocalHTTPEnvironment(url,tmp_path/'actual'/'runner'),
+            execution_env={'RC72_OUTPUT_ROOT':str(tmp_path/'actual'/'runner')},
+            evidence_root=tmp_path/'actual')
+        composed_pipeline = create_mission_driver(truth, **options).n7_pipeline
+        prep = composed_pipeline.preparation
     secret_values=[]
     original_prepare=prep.prepare
     server.identity_calls=[];server.business_headers=[];server.auth_tokens=set()
@@ -64,7 +76,7 @@ def _setup(tmp_path,monkeypatch,*,mutation=None,actual_principal='bank-checker',
     auth=WorkerHTTPAuthAssetProvider(prep,asset_root=root)
     runner=FormalN7RunnerAdapter(prep,evidence_root=output,environment_adapter=LocalHTTPEnvironment(url,output),
         execution_env={'RC72_OUTPUT_ROOT':str(output)},timeout_seconds=30,http_auth_provider=auth if provider else None)
-    pipeline=N7PipelineService(prep,runner=runner,capture_root=tmp_path/'captured')
+    pipeline=composed_pipeline or N7PipelineService(prep,runner=runner,capture_root=tmp_path/'captured')
     return truth,plan,prep,server,pipeline,root,secret_values
 
 
@@ -72,8 +84,9 @@ def _close(server):
     server.shutdown();server.server_close()
 
 
-def test_exact_worker_asset_is_verified_by_real_identity_then_real_business_and_cold_audit_needs_no_secret(tmp_path,monkeypatch):
-    truth,plan,prep,server,pipeline,root,secrets_used=_setup(tmp_path,monkeypatch)
+@pytest.mark.parametrize('factory',[False,True],ids=['direct-runner','owned-mission-factory'])
+def test_exact_worker_asset_is_verified_by_real_identity_then_real_business_and_cold_audit_needs_no_secret(tmp_path,monkeypatch,factory):
+    truth,plan,prep,server,pipeline,root,secrets_used=_setup(tmp_path,monkeypatch,factory=factory)
     try:
         result=pipeline.complete(release_batch_id=BATCH)
         assert result['state']=='N7_PASS'
