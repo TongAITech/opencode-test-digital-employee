@@ -16,6 +16,13 @@ on:
 permissions:
   contents: read
 
+# One running and one latest pending check per PR (or push branch).
+# Avoid multiplying expensive Windows/Linux source regressions across
+# unrelated parallel RC7.2 construction PRs.
+concurrency:
+  group: rc7-field-hardening-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   field-hardening-source-regression:
     name: Source regression (${{ matrix.os }})
