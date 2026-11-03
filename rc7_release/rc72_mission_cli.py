@@ -73,7 +73,7 @@ def main(argv=None):
                 from rc7_runtime.rc72_production_economy_ingress import (
                     bind_release_batch_model_economy, read_mission_economy_config,
                 )
-                bind_release_batch_model_economy(
+                economy = bind_release_batch_model_economy(
                     truth, workers=bindings.workers, release_id=args.release_id,
                     mission_id=snapshot['mission_id'],
                     policy=read_mission_economy_config(args.economy_config),
