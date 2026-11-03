@@ -788,7 +788,9 @@ class TokenEconomyService:
             status, reason = "HOLD", "TOKEN_USAGE_EVIDENCE_REQUIRED"
         elif metrics["pending_calls"]:
             status, reason = "HOLD", "TOKEN_CALLS_PENDING"
-        elif bool(budget["require_measured_usage"]) and metrics["unknown_usage_calls"]:
+        elif metrics["unknown_usage_calls"]:
+            # UNKNOWN is never qualified as measured, even if an older optional
+            # budget switch disabled strict measurement for warning purposes.
             status, reason = "HOLD", "TOKEN_USAGE_UNKNOWN"
         elif bool(budget["require_complete_lineage"]) and metrics["unknown_lineage_call_ids"]:
             status, reason = "HOLD", "TOKEN_CALL_LINEAGE_INCOMPLETE"
