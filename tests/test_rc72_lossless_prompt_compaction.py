@@ -33,7 +33,7 @@ def _native_prompt(*, shape=True):
         "gaps": [], "unknowns": [],
     }
     prefix = (
-        "NATIVE_READ_GATE\\n"
+        "NATIVE_READ_GATE\n"
         "Use only approved real source reads; no invented oracle or PASS. "
         "Context="
     )
@@ -50,7 +50,7 @@ def test_real_n4_native_context_and_required_shape_compact_without_losing_fields
     assert compacted.saved_bytes > 0
     assert compacted.original_bytes == len(original.encode("utf-8"))
     assert compacted.compacted_bytes == len(compacted.prompt.encode("utf-8"))
-    assert compacted.prompt.startswith("NATIVE_READ_GATE\\nUse only approved real source reads; no invented oracle or PASS. Context=")
+    assert compacted.prompt.startswith("NATIVE_READ_GATE\nUse only approved real source reads; no invented oracle or PASS. Context=")
     projection = compacted.prompt.split("Context=", 1)[1]
     actual_body, actual_shape = projection.split(" RequiredShape=", 1)
     assert json.loads(actual_body) == body
