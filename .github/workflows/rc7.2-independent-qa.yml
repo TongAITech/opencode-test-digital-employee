@@ -16,8 +16,10 @@ on:
       - 'tests/test_rc72_qa_design_clause_ledger.py'
       - 'tests/test_rc72_qa_source_provenance.py'
       - 'tests/test_rc72_qa_product_route_ast.py'
+      - 'tests/test_rc72_qa_zip_preflight.py'
       - 'tools/rc72_qa_source_provenance.py'
       - 'tools/rc72_qa_product_route_ast.py'
+      - 'tools/rc72_qa_zip_preflight.py'
       - 'packaging/rc7.2/QA-Q3-Q9-EVIDENCE.py'
       - 'docs/rc7.2/qa-release/**'
       - '.github/workflows/rc7.2-independent-qa.yml'
@@ -76,7 +78,7 @@ jobs:
         id: test_harness
         run: python -m pip install --disable-pip-version-check pytest
       - name: Compile without importing production
-        run: python -m compileall -q tests/test_rc72_qa_c01_c02_independent.py tests/test_rc72_qa_product_wiring.py tests/test_rc72_qa_c09_product_dispatch.py tests/test_rc72_qa_offline_payload.py tests/test_rc72_qa_field_evidence.py tests/test_rc72_qa_design_clause_ledger.py tests/test_rc72_qa_source_provenance.py tests/test_rc72_qa_product_route_ast.py tools/rc72_qa_offline_audit.py tools/rc72_qa_source_provenance.py tools/rc72_qa_product_route_ast.py packaging/rc7.2/QA-Q3-Q9-EVIDENCE.py rc6_runtime rc7_runtime
+        run: python -m compileall -q tests/test_rc72_qa_c01_c02_independent.py tests/test_rc72_qa_product_wiring.py tests/test_rc72_qa_c09_product_dispatch.py tests/test_rc72_qa_offline_payload.py tests/test_rc72_qa_field_evidence.py tests/test_rc72_qa_design_clause_ledger.py tests/test_rc72_qa_source_provenance.py tests/test_rc72_qa_product_route_ast.py tools/rc72_qa_offline_audit.py tools/rc72_qa_source_provenance.py tools/rc72_qa_product_route_ast.py tools/rc72_qa_zip_preflight.py tests/test_rc72_qa_zip_preflight.py packaging/rc7.2/QA-Q3-Q9-EVIDENCE.py rc6_runtime rc7_runtime
       - name: Independently qualify physical-payload and field-evidence QA tools
         run: >
           python -m pytest -q
@@ -86,6 +88,7 @@ jobs:
           tests/test_rc72_qa_design_clause_ledger.py
           tests/test_rc72_qa_source_provenance.py
           tests/test_rc72_qa_product_route_ast.py
+          tests/test_rc72_qa_zip_preflight.py
       - name: Independent C01/C02 native process and product-entry qualification
         # The C12 tools and product paths are independent verdicts. A failure
         # in the first suite must not hide defects in the second suite.
