@@ -278,7 +278,7 @@ class CapabilityBroker:
                     raise ContractError("CAPABILITY_REQUEST_ATTEMPT_MISMATCH")
                 raise ContractError("CAPABILITY_LEASE_%s_MISMATCH" % field.upper())
         current = _now() if now is None else int(now)
-        if current > int(row["expires_at"]):
+        if current >= int(row["expires_at"]):
             raise ContractError("CAPABILITY_LEASE_EXPIRED")
         self._binding(
             mission_id=mission_id,
