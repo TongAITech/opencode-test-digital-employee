@@ -1,5 +1,29 @@
 # RC7.2 design/construction reconciliation — 2026-11-02
 
+## Complete execution payload and copied graph component — 2026-11-03
+
+The RC7.1-equivalent materializer now carries GitNexus beside Playwright and
+preserves native dependencies and the resolved lock. A thirteen-group physical
+inventory is independently rebuilt after relocation; optional runtime activation
+cannot silently omit a physically carried provider. Generated-state archive
+filtering matches checksum exclusions. Local verification: 30 tests passed.
+
+Exact b6bc99f component run **41602084608 SUCCESS** was downloaded and inspected:
+original staging deleted, clean extraction to a path with spaces, copied Node
+v22.23.4 with effective outbound firewall block, real graph analysis and current
+index, actual symbol/caller relationship, separate stdio MCP context read. Earlier
+failures exposed and corrected cross-step staging, legacy query-shell startup,
+an unpublished CLI option and pretty-JSON parsing; no failed run is counted PASS.
+
+The actual analysis reports unavailable FTS/full-text search. That capability
+remains open, as do full physical package qualification and the frozen design
+items already listed below. The component archive is not the user delivery.
+Frozen c5 baseline Platform41596150907, Construction41596150999 and
+Q2Windows41596150810 all completed SUCCESS; platform evidence was downloaded.
+New execution changes still require same-source integrated qualification.
+See COMPLETE-EXECUTION-PAYLOAD-CONTRACT.md.
+
+
 ## Concrete N10 advancement and full original-source product run — 2026-11-03
 
 Added NativeN10ControlService and typed ReleaseBatchDriver `n10_pipeline`

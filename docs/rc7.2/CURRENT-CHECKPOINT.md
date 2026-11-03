@@ -18,10 +18,19 @@ and checksum filtering share generated-state exclusions. See
 The copied Windows component qualification reached actual graph analysis in run
 `41600923163` after successful copied Node/Playwright/CLI and effective firewall
 checks, then failed on an option absent from the published CLI. That option was
-removed. Run `41601701118` is still pending at this checkpoint. No native graph
-capability PASS is claimed. The structured-output reader also preserves complete
-pretty-printed CLI results and nested objects; the updated local contracts and
-actual Node network fence tests passed **30 tests**.
+removed. Run `41601701118` then built the actual index and caller edge but failed
+on pretty-printed context output. The structured-output reader now preserves
+complete JSON objects and nested parents; local contracts and actual Node
+network fence tests passed **30 tests**.
+
+Exact source `b6bc99f02b05fba5702af42038ac6854b6e9478a` component run
+`41602084608` completed SUCCESS. Downloaded evidence confirms copied Node
+v22.23.4, GitNexus 1.6.12, real five-node/six-edge index, registered current
+analyzer, `double` with caller `run`, and actual MCP context read from a separate
+process, with effective outbound Windows blocking for the copied executable.
+This qualifies the copied graph/context component only. Actual analysis warns
+that the FTS extension is unavailable: offline full-text search remains an
+explicit capability gap to resolve before claiming the whole toolchain.
 
 Portable Preparation `41596150963` produced a physical artifact from c5 before
 these execution-payload changes. It is preparation evidence, not the complete

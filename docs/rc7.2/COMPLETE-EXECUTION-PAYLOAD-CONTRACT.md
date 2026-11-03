@@ -52,3 +52,14 @@ run is required before claiming its copied-platform graph capability. Component
 archive/evidence alone is not the complete product delivery. Native professional
 runtime, final all-source/product/package qualification and bank Field remain
 separate requirements of the full RC7.2 objective.
+
+
+## Observed copied Windows result
+
+Component run `41602084608` at exact source
+`b6bc99f02b05fba5702af42038ac6854b6e9478a` completed successfully. Downloaded
+results prove actual copied offline graph construction (five nodes/six edges),
+current registered analyzer, symbol/caller context and separate MCP resource
+read. The component uses copied Node v22.23.4 and GitNexus 1.6.12. Full-text
+search was disabled because FTS could not load. This result does not qualify
+FTS, embeddings, the whole toolchain or the complete product package.
