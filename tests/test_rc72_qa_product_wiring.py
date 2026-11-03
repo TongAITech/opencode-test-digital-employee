@@ -94,3 +94,31 @@ def test_qa_product_driver_cannot_unconditionally_hold_after_all_n1_to_n10_gates
         "returns unconditional RELEASE_CONVERGENCE_AUDIT_REQUIRED HOLD "
         "rather than deriving a terminal outcome from signed R1 N10 Gate"
     )
+
+
+
+def test_qa_formal_factory_owns_non_bypass_n8_service_without_side_effects(tmp_path):
+    """The real factory must not strand a native N8 service as an orphan module.
+
+    Checks only the product ownership/scope necessary to dispatch formal
+    failures. Native N7->N8 back-edge, classified root cause, fresh retry,
+    no duplicate business I/O and cold resume still require runtime evidence.
+    """
+    truth, options = _setup(tmp_path)
+    before = truth.store.path.read_bytes()
+    driver = create_mission_driver(truth, **options)
+    n8 = getattr(driver, "n8_pipeline", None)
+    assert n8 is not None, (
+        "C03 P0: formal create_mission_driver does not own an N8 "
+        "non-bypass recovery service; module existence is not integration"
+    )
+    assert n8.truth is truth, "C03 N8 truth must be the canonical Mission R1"
+    assert n8.n7 is driver.n7_pipeline, "C03 N8 must use the exact formal N7"
+    assert n8.release_id == options["release_id"], "C03 N8 cross-release binding"
+    assert n8.source_commit == options["source_commit"], "C03 N8 cross-source binding"
+    assert getattr(n8, "diagnosis", None) is driver.n7_pipeline.diagnosis, (
+        "C03 N8 must not silently substitute its diagnosis evidence"
+    )
+    assert truth.store.path.read_bytes() == before, (
+        "C03 factory wiring must not generate a synthetic PASS or mutate R1"
+    )
