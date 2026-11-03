@@ -23,7 +23,7 @@ from .rc72_browser_resources import BrowserPool, BrowserAccessMode
 from .rc72_data_resources import DataLeaseManager, DataAccessMode
 from .rc72_n7_execution_planning import ExecutionPlanningService
 from .rc72_n7_execution_admission import _hash
-from .rc72_worker_lifecycle import WorkerLifecycleService
+from .rc72_worker_lifecycle import WorkerLifecycleService, FreshWorkerAssignment
 from .rc72_linkage import WorkItemAttemptBinding, WorkItemAttemptState
 from .state_machine import transition_task
 from .truth_overlay import append_entity, install_rc7_truth_overlay
@@ -101,7 +101,8 @@ class ExecutionPreparationService:
             tools.update(names)
         return tuple(sorted(tools))
 
-    def prepare(self, *, plan_id: str, workitem_id: str) -> Dict[str, Any]:
+    def prepare(self, *, plan_id: str, workitem_id: str,
+                fenced_admission=None) -> Dict[str, Any]:
         plan = self.planning.assert_current(plan_id)
         items = [item for item in plan['items'] if item['workitem_id'] == workitem_id]
         if len(items) != 1:
@@ -128,15 +129,62 @@ class ExecutionPreparationService:
             raise ExecutionPreparationError('N7_PRIMARY_TOOL_NOT_IN_SCOPED_REGISTRY')
         control = ClosedLoopControlPlane(self.truth, self.release_id, plan['mission_id'])
         task = control.scheduler.task(workitem_id)
-        if task.state != TaskStatus.READY:
-            raise ExecutionPreparationError('N7_WORKITEM_NOT_READY')
-        worker = self.lifecycle.assign_fresh_worker(
-            mission_id=plan['mission_id'], team_id='TEAM-' + plan['mission_id'],
-            role=etu['test_level'] + '_EXECUTE', etu_id=item['etu_id'], workitem_id=workitem_id,
-            canonical_refs=dict(etu_refs=[item['etu_id']], executable_contract_refs=[item['contract_id']],
-                                data_refs=[ref['data_ref'] for ref in contract['data_refs']]),
-            parent_session_id=previous['session_id'] if previous else None,
-        )
+        if fenced_admission is None:
+            if task.state != TaskStatus.READY:
+                raise ExecutionPreparationError('N7_WORKITEM_NOT_READY')
+            worker = self.lifecycle.assign_fresh_worker(
+                mission_id=plan['mission_id'], team_id='TEAM-' + plan['mission_id'],
+                role=etu['test_level'] + '_EXECUTE', etu_id=item['etu_id'], workitem_id=workitem_id,
+                canonical_refs=dict(etu_refs=[item['etu_id']], executable_contract_refs=[item['contract_id']],
+                                    data_refs=[ref['data_ref'] for ref in contract['data_refs']]),
+                parent_session_id=previous['session_id'] if previous else None,
+            )
+        else:
+            # The Captain-fenced admission is a real TaskScheduler lease in R1.
+            # Reuse EXACTLY that Fresh Worker, not a second ungoverned session.
+            # This opt-in path lets Session A connect the actual N7 preparation
+            # to the governed AgentTeams scheduler without changing release driver.
+            from .rc72_captain_scheduling import GovernedFreshDispatch
+            from .rc72_captain_dispatch_fencing import CaptainDispatchFencer
+            if not isinstance(fenced_admission, GovernedFreshDispatch):
+                raise ExecutionPreparationError('N7_FENCED_ADMISSION_TYPE_REQUIRED')
+            if (fenced_admission.state != 'LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH'
+                    or fenced_admission.mission_id != plan['mission_id']
+                    or fenced_admission.workitem_id != workitem_id
+                    or fenced_admission.etu_id != item['etu_id']
+                    or fenced_admission.role != etu['test_level'] + '_EXECUTE'
+                    or task.state != TaskStatus.LEASED
+                    or task.lease_owner != fenced_admission.worker_id):
+                raise ExecutionPreparationError('N7_FENCED_ADMISSION_SCOPE_MISMATCH')
+            owner = CaptainDispatchFencer(self.truth, release_id=self.release_id).assert_owner(
+                mission_id=plan['mission_id'], lease_id=fenced_admission.captain_lease_id,
+                captain_session_id=fenced_admission.captain_session_id)
+            if (owner['generation'] != fenced_admission.captain_generation
+                    or owner['team_id'] != 'TEAM-' + plan['mission_id']):
+                raise ExecutionPreparationError('N7_FENCED_CAPTAIN_GENERATION_OR_TEAM_MISMATCH')
+            session = self._one('rc72_worker_session', session_id=fenced_admission.session_id)
+            context = session.get('context_bundle') or {}
+            if (session.get('state') != 'ACTIVE'
+                    or session.get('mission_id') != plan['mission_id']
+                    or session.get('workitem_id') != workitem_id
+                    or session.get('etu_id') != item['etu_id']
+                    or session.get('worker_id') != fenced_admission.worker_id
+                    or session.get('team_id') != owner['team_id']
+                    or session.get('role') != fenced_admission.role
+                    or session.get('purpose') != 'EXECUTION'
+                    or session.get('runtime_assignment_id')
+                    or session.get('task_lease_ref')
+                    or session.get('dsh_session_id')
+                    or session.get('binding_id')
+                    or context.get('etu_refs') != [item['etu_id']]
+                    or context.get('executable_contract_refs') != [item['contract_id']]
+                    or sorted(context.get('data_refs') or []) != sorted(
+                        ref['data_ref'] for ref in contract['data_refs'])
+                    or context.get('lease_refs')):
+                raise ExecutionPreparationError('N7_FENCED_FRESH_SESSION_PROOF_INVALID')
+            worker = FreshWorkerAssignment(
+                fenced_admission.worker_id, fenced_admission.session_id, dict(context))
+
         attempt_id = 'N7ATT-' + _hash([plan_id, workitem_id, worker.session_id])[:24]
         scope = 'task:%s/attempt:%s' % (workitem_id, attempt_id)
         identity = self.authority.adopt_identity(worker_id=worker.worker_id, role=etu['test_level'] + '_EXECUTE',
@@ -150,10 +198,18 @@ class ExecutionPreparationService:
         acquired, browser_leases = [], []
         binding = None
         try:
-            leased = control.scheduler.lease_task(plan['mission_id'], workitem_id,
-                worker_ref=worker.worker_id, capabilities=[value['name'] for value in contract['capabilities']])
-            if leased is None:
-                raise ExecutionPreparationError('N7_WORKITEM_SCHEDULING_DEFERRED')
+            if fenced_admission is None:
+                leased = control.scheduler.lease_task(plan['mission_id'], workitem_id,
+                    worker_ref=worker.worker_id, capabilities=[value['name'] for value in contract['capabilities']])
+                if leased is None:
+                    raise ExecutionPreparationError('N7_WORKITEM_SCHEDULING_DEFERRED')
+            else:
+                # Revalidate the exact pre-leased WorkItem before binding a
+                # signed TaskLease. NEVER grant a second scheduler lease.
+                current_task = control.scheduler.task(workitem_id)
+                if (current_task.state != TaskStatus.LEASED
+                        or current_task.lease_owner != worker.worker_id):
+                    raise ExecutionPreparationError('N7_FENCED_WORKITEM_LEASE_LOST')
             binding = self.lifecycle.bind_signed_runtime_assignment(lifecycle_session_id=worker.session_id,
                                                                      assignment=assignment, case_id=item['case_id'],
                                                                      parent_attempt_id=previous['attempt_id'] if previous else None)
