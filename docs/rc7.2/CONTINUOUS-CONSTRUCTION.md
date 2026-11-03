@@ -1,5 +1,43 @@
 # RC7.2 持续施工与最终搬运交付
 
+## Native N1 input reads at actual MCP call time — 2026-11-03
+
+`NativeN1ReadDshLauncher` now binds the original N1 handoff service, canonical
+WorkItem, assignment generation, worker, signed lease, MissionNode and original
+input_refs to a live parent-owned read gate. The production authorized MCP
+server exposes only `read_scoped_reality_source`; the child supplies an approved
+source_ref and its exact mission context, never a filesystem path or signing key.
+A parent registry supplies real fixed regular files. Each bounded actual UTF-8
+read is captured with SHA256 and a signed R1 observation; current source/task/
+identity/lease checks surround the read. Same live MCP message IDs return their
+original observation. Scope/authority loss after reading retains UNKNOWN and the
+actual capture, without admitting an Attempt or automatically restarting the
+original assignment under a fresh lease.
+
+The original handoff and strict N1 pipeline authenticate the complete signed
+read-call denominator, immutable raw DSH output, output hash and captured bytes.
+Cold replay needs no old input file and restores no authority. Completed strict
+N1 replay also audits native history rather than skipping it after Node PASS.
+Tests use an actual child process invoking the production MCP server against the
+live parent. They cover scoped reads, denied extra paths/foreign sources/spoofed
+identity, forged tool traces, revocation, post-read UNKNOWN, duplicate MCP IDs,
+cold replay, signed wrong-scope history, tampered captures and strict N1 Gate
+composition. Final focused qualification passed 65 tests in 16.58s, including
+all worker-environment checks and inherited N1 handoff/strict pipeline tests.
+Native N5/N1-to-N4 integration passed 44 tests in 86.21s; cold bootstrap and
+package/clean-unpack contracts passed 23 tests in 3.14s. Original full 28-Case
+regression is running on the integration source before the final historical
+scope/downgrade checks; those final checks are covered by the 65-test run.
+Final-source platform qualification remains required.
+
+This is a concrete registered-file input reader, not proof that bank deployment,
+Browser, tools or identities have been independently probed. N1 semantic facts
+still pass the existing separate strict evaluator. Actual per-role probe/tool
+registries, production profile/provider factory, remaining N2/N3/N4/N6 call-time
+gates, N9/N10/controller and complete physical transport remain OPEN. No Field
+or BANK_FINAL claim is produced. Parent 7d Q2 Windows clean unpack is SUCCESS;
+its platform and construction jobs remain live as last observed.
+
 ## Native worker process environment and launch admission — 2026-11-03
 
 The shared DSH launcher now delegates process-environment projection to its
@@ -27,8 +65,11 @@ inherited RC7 regression passed 492 tests with 1 existing skip and 7 collection
 warnings. Final caller-projection/environment/native-N5/N1-N2 checks passed 53
 in 21.70s. An earlier launch-fence revision completed the original full 28-Case
 product chain in 615.43s; final grant/profile/caller hardening is covered by the
-targeted tests and still requires exact committed-source whole-chain/platform
-qualification. The unchanged file budget is 900 seconds.
+targeted tests. Exact committed runtime `7d508117` subsequently passed the full
+original 28-Case chain in 574.55s (`worker-environment-final-source-product.log`)
+under the unchanged 900-second file budget. The new same-source platform,
+construction and clean-unpack CI jobs are running, not yet PASS. Parent `f3ac2da`
+platform (including Windows and Linux), construction and Q2 are terminal SUCCESS.
 
 This is environment/profile projection and launch-time authority admission, not
 an OS filesystem sandbox or proof of all tool-call authorization. Native per-role

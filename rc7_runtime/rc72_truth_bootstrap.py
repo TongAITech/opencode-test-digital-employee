@@ -11,6 +11,7 @@ _LOCK = RLock()
 _INSTALLED = False
 _INSTALLERS = (
     ('rc72_native_n5_tool_gate', 'install_rc72_native_tool_gate_overlay'),
+    ('rc72_native_n1_read_gate', 'install_overlay'),
     ('rc72_native_http_gate', 'install_overlay'),
     ('rc72_n7_member_drain', 'install_rc72_n7_member_drain_overlay'),
     ('rc72_execution_heartbeat', 'install_rc72_execution_heartbeat_overlay'),

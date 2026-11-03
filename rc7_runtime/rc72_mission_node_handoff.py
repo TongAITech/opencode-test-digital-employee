@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from rc6_runtime import contracts as _contracts
@@ -201,6 +202,9 @@ class N1DshHandoffService:
         self.allowed_tools = tuple(tools)
         if not isinstance(self.launcher.authority, RC72AuthorityRuntime):
             raise MissionNodeHandoffError("RC72_HANDOFF_RC72_AUTHORITY_REQUIRED")
+        from .rc72_native_n1_launcher import NativeN1ReadDshLauncher
+        if isinstance(self.launcher, NativeN1ReadDshLauncher):
+            self.launcher.bind_native_service(self)
 
     @staticmethod
     def _attempt_id(assignment_id: str) -> str:
@@ -318,6 +322,40 @@ class N1DshHandoffService:
         result["authorized_tools"] = list(payload.get("authorized_tools") or [])
         return result
 
+    def _audit_native_read(self, assignment, event):
+        from .rc72_native_n1_launcher import NativeN1ReadDshLauncher
+        runtime_assignment_id = self._runtime_assignment_id(assignment['assignment_id'])
+        recorded = self.truth.query('rc72_n1_native_read', assignment_id=runtime_assignment_id, kind='GATE')
+        if isinstance(self.launcher, NativeN1ReadDshLauncher) or recorded or event.get('native_n1_read_gate_id'):
+            refs = [ref for ref in event.get('evidence_refs', []) if ref.startswith('file://')]
+            if len(refs) != 1:
+                raise MissionNodeHandoffError('RC72_HANDOFF_NATIVE_RAW_EVIDENCE_REQUIRED')
+            path = Path(refs[0][7:])
+            if path.is_symlink() or not path.is_file():
+                raise MissionNodeHandoffError('RC72_HANDOFF_NATIVE_RAW_EVIDENCE_REQUIRED')
+            events = tuple(DshHeadlessWorkerLauncher._parse_json_lines(path.read_text(encoding='utf-8')))
+            output = DshHeadlessWorkerLauncher._final_json(events)
+            calls = DshHeadlessWorkerLauncher._tool_calls(events)
+            if calls != event.get('tool_calls'):
+                raise MissionNodeHandoffError('RC72_HANDOFF_NATIVE_OBSERVED_CALLS_CHANGED')
+            from .rc72_native_n1_read_gate import audit_native_handoff
+            audit_native_handoff(self, assignment, event, calls, output)
+
+    def audit_recorded_native_handoff(self, *, release_batch_id):
+        """Audit marked historical native reads after N1 closes, without live grants."""
+        assignments = self.truth.query('rc72_mission_node_worker_assignment', release_batch_id=release_batch_id, node_type=_NODE_TYPE, source_commit=self.source_commit)
+        if len(assignments) != 1:
+            raise MissionNodeHandoffError('RC72_HANDOFF_NATIVE_ASSIGNMENT_REQUIRED')
+        assignment = assignments[0]
+        events = self._handoff_events(str(assignment['mission_id']), self._runtime_assignment_id(assignment['assignment_id']))
+        from .rc72_native_n1_launcher import NativeN1ReadDshLauncher
+        recorded = self.truth.query('rc72_n1_native_read', assignment_id=self._runtime_assignment_id(assignment['assignment_id']), kind='GATE')
+        native = isinstance(self.launcher, NativeN1ReadDshLauncher) or recorded or any(event.get('native_n1_read_gate_id') for event in events)
+        if native:
+            if len(events) != 1 or assignment['source_commit'] != self.source_commit:
+                raise MissionNodeHandoffError('RC72_HANDOFF_NATIVE_EVENT_REQUIRED')
+            self._audit_native_read(assignment, events[0])
+
     def _persist_from_invocation(
         self,
         *,
@@ -329,6 +367,7 @@ class N1DshHandoffService:
         authority_lease_id: str,
         validate_live_authority: bool,
     ) -> Dict[str, Any]:
+        self._audit_native_read(assignment, runtime_event)
         worker_id = str(assignment["worker_instance_id"])
         mission_id = str(assignment["mission_id"])
         if invocation.worker_instance_id != worker_id or invocation.mission_id != mission_id:
@@ -407,6 +446,7 @@ class N1DshHandoffService:
             "handoff_status": _HANDOFF_STATUS,
             "process_outcome": _PROCESS_OUTCOME,
         }
+        from .rc72_native_n1_launcher import NativeN1ReadDshLauncher
         existing = self.truth.query(_ARTIFACT, attempt_id=attempt_id)
         if existing:
             if len(existing) != 1 or self._signature(existing[0]) != self._signature(payload):
@@ -480,8 +520,14 @@ class N1DshHandoffService:
         attempt_id = self._attempt_id(str(assignment["assignment_id"]))
         runtime_assignment_id = self._runtime_assignment_id(str(assignment["assignment_id"]))
 
+        from .rc72_native_n1_launcher import NativeN1ReadDshLauncher
         existing = self.truth.query(_ARTIFACT, attempt_id=attempt_id)
         if existing:
+            native_events = self._handoff_events(str(assignment['mission_id']), runtime_assignment_id)
+            if len(native_events) == 1:
+                self._audit_native_read(assignment, native_events[0])
+            elif isinstance(self.launcher, NativeN1ReadDshLauncher):
+                raise MissionNodeHandoffError('RC72_HANDOFF_NATIVE_EVENT_REQUIRED')
             if len(existing) != 1:
                 raise MissionNodeHandoffError("RC72_HANDOFF_ATTEMPT_NOT_UNIQUE")
             if existing[0].get("source_commit") != self.source_commit:

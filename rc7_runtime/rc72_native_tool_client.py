@@ -53,6 +53,14 @@ def handle_native_mcp_call(message):
 
 def native_tool_schemas():
     allowed = json.loads(os.environ.get('PFC_RC7_DSH_ALLOWED_TOOLS', '[]'))
+    if os.environ.get('PFC_RC72_TOOL_GATE_PROTOCOL') == 'RC72_NATIVE_N1_READ_V1':
+        context = dict(type='object', additionalProperties=False, required=['mission_id','task_id','worker_id'],
+                       properties={key:dict(type='string') for key in ('mission_id','task_id','worker_id')})
+        return [dict(name=name[len('mcp__pfc_aitest_rc7__'):],
+            description='Read an original approved N1 input through the live parent authority.',
+            inputSchema=dict(type='object',additionalProperties=False,required=['source_ref','mission_context'],
+                properties=dict(source_ref=dict(type='string'),mission_context=context)))
+            for name in allowed if name=='mcp__pfc_aitest_rc7__read_scoped_reality_source']
     return [dict(name=name[len('mcp__pfc_aitest_rc7__'):],
         description='Exact scoped N5 operation through the live parent authority; no canonical PASS authority.',
         inputSchema=dict(type='object', additionalProperties=False, required=['data_ref', 'precondition_refs', 'mission_context'],

@@ -119,6 +119,7 @@ class N1StrictPipelineService:
             handoff["evidence_anchor_id"] = anchor["anchor_id"]
             handoff["raw_output_sha256"] = anchor["raw_output_sha256"]
 
+        self.handoff_service.audit_recorded_native_handoff(release_batch_id=release_batch_id)
         completion = self.gate_service.complete(
             release_batch_id=release_batch_id
         )
