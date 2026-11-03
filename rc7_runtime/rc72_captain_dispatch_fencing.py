@@ -166,8 +166,23 @@ class CaptainDispatchFencer:
                         "rc72_n7_execution_preparation",
                         preparation_id=row.get("preparation_id"))
                     relevant = len(prepared) == 1 and prepared[0].get("mission_id") == mission_id
-                if relevant and row.get("state") in {"IN_FLIGHT", "UNKNOWN", "FAILED"}:
+                if not relevant:
+                    continue
+                state = row.get("state")
+                if state in {"IN_FLIGHT", "UNKNOWN"}:
                     raise ContractError("CAPTAIN_HANDOFF_UNRECONCILED_EXTERNAL_EFFECT")
+                if state == "FAILED":
+                    # The canonical N7 ToolDispatch only emits FAILED when a
+                    # signed pre-execution negative probe proved no business
+                    # effect. Cleanup FAILED is different: a remote cleanup
+                    # may have partially committed and still requires custody.
+                    safe_preflight = (kind == "rc72_n7_tool_dispatch"
+                        and row.get("verified_no_business_effect") is True
+                        and row.get("error_type") == "FormalRunnerError"
+                        and isinstance(row.get("no_effect_evidence_refs"), list)
+                        and bool(row.get("no_effect_evidence_refs")))
+                    if not safe_preflight:
+                        raise ContractError("CAPTAIN_HANDOFF_UNRECONCILED_EXTERNAL_EFFECT")
 
     def prepare_handoff(self, *, mission_id, lease_id, captain_session_id,
                         lifecycle, team_id, current_node_refs,
