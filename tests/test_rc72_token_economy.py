@@ -434,3 +434,50 @@ def test_nested_tool_resource_counters_inside_final_event_are_not_measured_provi
     assert provider.status == UsageStatus.MEASURED
     assert provider.total_tokens == 120
     assert provider.input_tokens == 100
+
+
+def test_canonical_usage_parser_rejects_conflicting_dsh_aliases_in_both_ledgers():
+    from rc7_runtime.rc72_model_usage import DshTokenUsageParser
+    lines = [
+        {"type": "final", "usage": {
+            "input_tokens": 100, "prompt_tokens": 120,
+            "output_tokens": 20, "total_tokens": 120,
+        }},
+        {"type": "final", "usage": {
+            "input_tokens": 100, "output_tokens": 20, "total_tokens": 121,
+        }},
+        {"type": "final", "usage": {
+            "total_tokens": 120,
+        }},
+        {"type": "final", "usage": {
+            "input_tokens": 100, "output_tokens": 20, "total_tokens": 119,
+        }},
+    ]
+    for event in lines:
+        parsed = DshTokenUsageParser.parse([event])
+        native = extract_dsh_token_usage(json.dumps(event))
+        assert native.status == UsageStatus.UNKNOWN
+        assert native.total_tokens == 0
+        assert parsed.observation_status in {"UNKNOWN", "OBSERVED"}
+    assert DshTokenUsageParser.parse([lines[0]]).observation_status == "UNKNOWN"
+    assert DshTokenUsageParser.parse([lines[1]]).observation_status == "OBSERVED"
+
+
+def test_identical_dsh_usage_snapshots_measured_once_with_strict_camelcase_aliases():
+    from rc7_runtime.rc72_model_usage import DshTokenUsageParser
+    event = {
+        "type": "final", "usage": {
+            "inputTokens": 100, "outputTokens": 20, "totalTokens": 120,
+        },
+    }
+    jsonl = json.dumps(event) + "\n" + json.dumps(event) + "\n"
+    observed = DshTokenUsageParser.parse([event, event])
+    native = extract_dsh_token_usage(jsonl)
+    assert observed.observation_status == "OBSERVED"
+    assert observed.total_tokens == 120
+    assert observed.usage_candidate_count == 2
+    assert native.status == UsageStatus.MEASURED
+    assert native.input_tokens == 100
+    assert native.output_tokens == 20
+    assert native.total_tokens == 120
+    assert native.source == "DSH_FINAL_USAGE"
