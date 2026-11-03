@@ -176,3 +176,38 @@ prompt hydration source, and return real output/evidence per WorkItem. Batch
 shared model-call dispatch must still verify independence and raw evidence.
 No C10 full closure or economy savings claim is permitted until those product
 routes, same-HEAD CI, and Field evidence pass.
+
+
+## 2026-11-04 actual lossless final-DSH-prompt optimization
+
+`rc72_lossless_prompt_compaction.py` is now executed inside the production
+DSH process wrapper, **after** the approved native launcher has assembled
+its final prompt (including source-read/auth prefix) and **before** the
+actual `command_runner` invocation and R1 prompt SHA metering.
+
+The transformer only rewrites a strict terminal
+`Context={...} [RequiredShape={...}]` JSON suffix that it can decode
+unambiguously as JSON *objects*, without duplicate keys, nonfinite
+values, trailing prompt text or altered business fields. It uses compact
+JSON separators while preserving insertion-ordered object fields, every
+string value, every required case/Oracle/Gap/source/tool ref, all array
+ordering, the native instruction prefix and the RequiredShape schema.
+Anything uncertain stays byte-identical, without an inference or omission.
+
+C10 token-call truth now stores:
+`prompt_original_bytes`, `context_bytes` (actual bytes passed to DSH),
+`prompt_serialization_saved_bytes`, `prompt_compaction_status`, and the
+SHA of the **actual compacted final prompt**. Summary records only byte
+reductions on native process calls that actually RETURNED; preflight
+admission alone does not prove model execution. The real observed output
+can establish **prompt serialization bytes reduced**, *not* saved
+provider Token counts: `verified_prompt_token_savings=null`, and
+`verified_context_savings_bytes=null` until a real
+baseline/optimized same-scope field measurement and true contextual
+hydration proof exist.
+
+This first safe lexical optimization does **not** prove the frozen
+`ContextEnvelope` is already the native prompt-hydration source,
+does not batch independent WorkItems into one model inference, and does
+not replace R1 Attempt/Evidence/Defect authority. Those remain separate
+construction and qualification gates.
