@@ -133,6 +133,12 @@ class CaptainFencedWorkItemScheduler:
             if row["state"] != TaskStatus.READY.value:
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_WORKITEM_NOT_READY")
             task = self.scheduler._task_from_row(row)
+            for dependency_id in task.dependency_task_ids:
+                dependency = self.truth.query("rc7_task", task_id=dependency_id)
+                if (len(dependency) != 1
+                        or dependency[0].get("mission_id") != mission_id
+                        or dependency[0].get("state") != TaskStatus.PASS.value):
+                    raise CaptainSchedulingError("CAPTAIN_SCHEDULER_DEPENDENCY_NOT_PASS")
             if not set(task.required_capabilities).issubset(capabilities):
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_CAPABILITY_GAP")
             if not self.scheduler._inputs_valid(task.input_artifact_refs):
@@ -147,6 +153,10 @@ class CaptainFencedWorkItemScheduler:
             if (len(etus) != 1 or etus[0]["mission_id"] != mission_id
                     or etus[0]["release_batch_id"] != batch["release_batch_id"]):
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_ETU_MISMATCH")
+            if etus[0].get("state") in {
+                    "PASS", "BLOCKED", "NEEDS_REVISION", "SPLIT_REQUIRED",
+                    "MERGED", "STALE"}:
+                raise CaptainSchedulingError("CAPTAIN_SCHEDULER_ETU_NOT_EXECUTABLE")
             if not set(etus[0].get("required_capabilities") or ()).issubset(capabilities):
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_ETU_CAPABILITY_GAP")
             self._assert_n7_planning_lineage(
