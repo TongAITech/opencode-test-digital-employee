@@ -64,9 +64,6 @@ jobs:
       - name: Provision actual matching Chromium on GitHub CI
         run: python -m playwright install --with-deps chromium
       - name: Real Chromium CDP HTTP business Oracle and evidence smoke
-        env:
-          NO_PROXY: localhost,127.0.0.1
-          no_proxy: localhost,127.0.0.1
         run: >-
           python -m pytest -v
           --junitxml=rc72-c09-real-chromium.xml
