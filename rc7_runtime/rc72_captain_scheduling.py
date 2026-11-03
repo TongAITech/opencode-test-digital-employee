@@ -105,6 +105,48 @@ class CaptainFencedWorkItemScheduler:
                 or etu["etu_id"] not in snapshot[0].get("etu_ids", ())):
             raise CaptainSchedulingError("CAPTAIN_SCHEDULER_N7_SNAPSHOT_NOT_VERIFIED")
 
+    @staticmethod
+    def _single_prelease_chain(sessions):
+        """Follow parent ids, never timestamp/order, and reject broken history.
+
+        All non-terminal sessions must be checkpointed as proven pre-TaskLease
+        orphans. A terminal may be ACTIVE only for explicit reconciliation;
+        unattended dispatch requires the terminal to be safely CLOSED.
+        """
+        if not sessions:
+            return None
+        indexed = {row["session_id"]: row for row in sessions}
+        if len(indexed) != len(sessions):
+            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_RECOVERY_CHAIN_NOT_UNIQUE")
+        parents = {row.get("parent_session_id") for row in sessions
+                   if row.get("parent_session_id")}
+        terminals = [row for row in sessions if row["session_id"] not in parents]
+        if len(terminals) != 1:
+            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_RECOVERY_CHAIN_NOT_LINEAR")
+        terminal = terminals[0]
+        seen = set()
+        current = terminal
+        while current is not None:
+            identity = current["session_id"]
+            if identity in seen:
+                raise CaptainSchedulingError("CAPTAIN_SCHEDULER_RECOVERY_CHAIN_CYCLE")
+            seen.add(identity)
+            if current is not terminal or current["state"] == "CLOSED":
+                if (current.get("state") != "CLOSED"
+                        or current.get("close_reason") != "ORPHAN_BEFORE_WORKITEM_LEASE_VERIFIED"
+                        or not current.get("checkpoint_id")):
+                    raise CaptainSchedulingError("CAPTAIN_SCHEDULER_RECOVERY_CHAIN_NOT_PROVEN")
+            if any(current.get(key) != terminal.get(key) for key in
+                   ("mission_id", "workitem_id", "etu_id", "team_id", "role")):
+                raise CaptainSchedulingError("CAPTAIN_SCHEDULER_RECOVERY_CHAIN_SCOPE_DRIFT")
+            parent = current.get("parent_session_id")
+            if parent and parent not in indexed:
+                raise CaptainSchedulingError("CAPTAIN_SCHEDULER_RECOVERY_CHAIN_PARENT_MISSING")
+            current = indexed[parent] if parent else None
+        if len(seen) != len(sessions):
+            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_RECOVERY_CHAIN_DISCONNECTED")
+        return terminal
+
     def dispatch_etu(self, *, mission_id: str, team_id: str,
                      captain_session_id: str, captain_lease_id: str,
                      role: str, etu_id: str, workitem_id: str,
@@ -163,12 +205,8 @@ class CaptainFencedWorkItemScheduler:
                 mission_id=mission_id, batch=batch, task=task, etu=etus[0])
             existing = [s for s in self.truth.query("rc72_worker_session", mission_id=mission_id)
                         if s.get("workitem_id") == workitem_id]
-            if existing and not (
-                len(existing) == 1 and existing[0].get("state") == "CLOSED"
-                and existing[0].get("close_reason") == "ORPHAN_BEFORE_WORKITEM_LEASE_VERIFIED"
-                and row["state"] == TaskStatus.READY.value):
-                # CLOSED execution sessions and unknown orphans must never
-                # silently turn into another execution of the same WorkItem.
+            terminal = self._single_prelease_chain(existing)
+            if terminal and terminal["state"] != "CLOSED":
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_PRIOR_SESSION_RECOVERY_REQUIRED")
             if not isinstance(canonical_refs, Mapping):
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_CANONICAL_REFS_REQUIRED")
@@ -178,7 +216,7 @@ class CaptainFencedWorkItemScheduler:
                 mission_id=mission_id, team_id=team_id, role=role,
                 etu_id=etu_id, workitem_id=workitem_id,
                 canonical_refs=canonical_refs,
-                parent_session_id=existing[0]["session_id"] if existing else None)
+                parent_session_id=terminal["session_id"] if terminal else None)
             leased = self.scheduler.lease_task(
                 mission_id, workitem_id, worker_ref=fresh.worker_id,
                 capabilities=capabilities)
@@ -228,9 +266,9 @@ class CaptainFencedWorkItemScheduler:
                 raise CaptainSchedulingError("ORPHAN_RECOVERY_WORKITEM_ALREADY_DISPATCHED")
             sessions = [row for row in self.truth.query("rc72_worker_session", mission_id=mission_id)
                         if row.get("workitem_id") == workitem_id]
-            if len(sessions) != 1 or sessions[0]["session_id"] != session_id:
+            session = self._single_prelease_chain(sessions)
+            if session is None or session["session_id"] != session_id:
                 raise CaptainSchedulingError("ORPHAN_RECOVERY_SESSION_NOT_UNIQUE")
-            session = sessions[0]
             if session.get("state") != "ACTIVE" or session.get("team_id") != team_id:
                 raise CaptainSchedulingError("ORPHAN_RECOVERY_SESSION_NOT_ACTIVE")
             if any(session.get(key) for key in (
