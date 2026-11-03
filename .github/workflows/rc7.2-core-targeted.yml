@@ -44,6 +44,8 @@ jobs:
           tests/test_rc72_mission_factory.py
           tests/test_rc72_n10_control.py
           tests/test_rc72_native_coverage_rerun.py
+          tests/test_rc72_conclusive_failure_evidence.py
+          tests/test_rc72_n9_accepted_scope.py
           --junitxml=core-n10-${{ matrix.python-version }}.xml
       - uses: actions/upload-artifact@v4
         if: always()
