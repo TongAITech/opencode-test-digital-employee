@@ -180,8 +180,16 @@ class NativeN10TerminalReviewService:
         reviewer=reviewers[0];session=self._one('rc72_worker_session',session_id=reviewer['session_id'])
         if (reviewer['context_bundle']!=context or reviewer['criteria']!=_CRITERIA
                 or reviewer['evidence_refs']!=delivery['evidence_refs']
+                or reviewer['mission_id']!=snapshot.mission_id
+                or reviewer['mission_node_id']!=node_id
+                or reviewer['delivery_id']!=delivery_id
+                or reviewer['team_id']!=context['team_id']
                 or reviewer['worker_id'] in workers or reviewer['session_id'] in excluded
                 or session['context_bundle']!=context or session['worker_id']!=reviewer['worker_id']
+                or session['mission_id']!=snapshot.mission_id
+                or session['mission_node_id']!=node_id
+                or session['delivery_id']!=delivery_id
+                or session['team_id']!=context['team_id']
                 or session['purpose']!='REVIEW' or session['role']!='quality-reviewer'
                 or session['state'] not in {'ACTIVE','CLOSED'}):
             raise ContractError('N10_TERMINAL_REVIEWER_CONTEXT_CHANGED')
