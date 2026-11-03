@@ -16,6 +16,12 @@ on:
 permissions:
   contents: read
 
+# Preserve the active Windows clean-unpack qualification and its Evidence.
+# Only the most recent pending source SHA is needed for the same branch.
+concurrency:
+  group: rc72-windows-unpack-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   q2a-windows-clean-unpack:
     name: q2a-windows-clean-unpack-python-3.8
