@@ -193,3 +193,128 @@ def test_real_chromium_cdp_journey_replay_and_business_oracles(tmp_path: Path):
         server.shutdown()
         server.server_close()
         thread.join(timeout=8)
+
+
+
+def test_real_chromium_cdp_teaching_captures_dom_event_network_and_png(tmp_path: Path):
+    """A scripted user click through live Chrome exercises the real recorder.
+
+    This is engineering CDP capture, NOT a human-in-bank or BSK Field proof.
+    """
+    from rc7_runtime.rc72_journey_cdp_capture import JourneyCDPTeachingRecorder
+    from rc7_runtime.rc72_journey_compiler import JourneyCompiler
+    from test_rc72_phase9_journey_teaching_capture_contract import _setup as teaching_setup
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), LocalSUT)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    origin = "http://127.0.0.1:%d" % server.server_address[1]
+    cdp_port = _reserved_port()
+    endpoint = "http://127.0.0.1:%d" % cdp_port
+    process = None
+    recorder = None
+    try:
+        with sync_playwright() as playwright:
+            binary = Path(playwright.chromium.executable_path)
+            assert binary.is_file(), "REAL_CHROMIUM_BINARY_REQUIRED"
+        process = subprocess.Popen([
+            str(binary), "--headless=new", "--no-sandbox",
+            "--disable-dev-shm-usage", "--disable-gpu",
+            "--no-first-run", "--no-default-browser-check",
+            "--remote-allow-origins=*", "--remote-debugging-port=%d" % cdp_port,
+            "--user-data-dir=%s" % (tmp_path / "teaching-chrome-profile"),
+            "--app=" + origin + "/config",
+        ], stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        ready = False
+        for _ in range(100):
+            if process.poll() is not None:
+                raise AssertionError("REAL_TEACHING_CHROMIUM_EXITED")
+            try:
+                with urlopen(endpoint + "/json/list", timeout=0.5) as response:
+                    targets = json.loads(response.read().decode("utf-8"))
+                ready = any(row.get("type") == "page"
+                            and row.get("url", "").startswith(origin + "/config")
+                            for row in targets)
+                if ready:
+                    break
+            except Exception:
+                pass
+            time.sleep(0.2)
+        assert ready, "REAL_TEACHING_CDP_PAGE_NOT_READY"
+
+        truth, teaching, pool, lease = teaching_setup(tmp_path)
+        instance = truth.query("rc72_browser_instance", browser_instance_id="BROWSER-1")[0]
+        revised = dict(instance)
+        revised.pop("artifact_type", None)
+        revised["artifact_version"] += 1
+        revised["cdp_endpoint"] = endpoint
+        truth.append_atomic("RC72_BROWSER_INSTANCE_UPSERTED", revised)
+
+        recorder = JourneyCDPTeachingRecorder(
+            teaching=teaching, evidence_root=tmp_path / "real-teaching-evidence")
+        recorder.begin(
+            recording_id="REAL-TEACHING-1",
+            mission_id="M-1", release_batch_id="RB-1",
+            requirement_id="REQ-1", sst_id="SST-1", obligation_id="TO-1",
+            workitem_id="WI-1", attempt_id="ATT-1", worker_id="WORKER-1",
+            session_id="SESSION-1", browser_lease_id=lease.browser_lease_id,
+            human_operator_ref="human://ci-scripted-click-not-bank-signature",
+            auth_asset_ref="auth://4a/asset",
+        )
+        assert recorder.page is not None
+        recorder.page.locator("#save").click(timeout=10000)
+        recorder.page.wait_for_load_state("networkidle", timeout=15000)
+        observed_events = recorder.poll(page_role="CONFIGURATION")
+        assert observed_events == ["REAL-TEACHING-1:2"]
+        recorder.record_assertion(
+            page_role="CONFIGURATION", element_ref="css:#toast",
+            oracle_ref="oracle://server-saved",
+        )
+        result = recorder.finish()
+        recorder = None
+        assert result.state.value == "CAPTURED"
+
+        steps = sorted(truth.query(
+            "rc72_journey_capture_step", recording_id="REAL-TEACHING-1"),
+            key=lambda row: row["sequence"])
+        assert [step["action_type"] for step in steps] == [
+            "NAVIGATE", "CLICK", "ASSERT"]
+        assert steps[1]["element_ref"] == "css:#save"
+        assert steps[1]["page_role"] == "CONFIGURATION"
+        for row in steps:
+            assert row["page_state_ref"].startswith("file://")
+            assert row["dom_ref"].startswith("file://")
+            assert row["screenshot_ref"].startswith("file://")
+            assert Path(row["screenshot_ref"][7:]).read_bytes().startswith(
+                b"\x89PNG\r\n\x1a\n")
+        response_path = Path(steps[1]["network_refs"][0][7:])
+        responses = json.loads(response_path.read_text())["responses"]
+        assert any(item["method"] == "POST" and
+                   item["url"] == origin + "/api/save" and
+                   item["status"] == 200 for item in responses)
+        assert "never-leak" not in response_path.read_text()
+
+        compiled = JourneyCompiler(truth, release_id="RC7.2").compile(
+            candidate_id="REAL-TEACHING-CANDIDATE",
+            recording_id="REAL-TEACHING-1")
+        assert compiled.state.value == "COMPILED_CANDIDATE"
+        candidate = truth.query(
+            "rc72_journey_candidate", candidate_id="REAL-TEACHING-CANDIDATE")[0]
+        assert candidate["case_id"] == "TC-1"
+        assert candidate["official"] is False
+        assert candidate["executable"] is False
+        assert not truth.query("rc72_official_journey_asset")
+    finally:
+        if recorder is not None:
+            recorder.stop()
+        if process is not None:
+            process.terminate()
+            try:
+                process.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=8)
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=8)
