@@ -61,6 +61,7 @@ class JourneyBSKAdapter:
         self._session = None
         self._tab_id = None
         self._fingerprint = None
+        self._seen_steps = set()
 
     def close(self) -> None:
         # B group owns the actual BSK session; this method only invalidates
@@ -308,6 +309,20 @@ class JourneyBSKAdapter:
             raise ContractError("JOURNEY_BSK_STEP_SEQUENCE_INVALID")
         folder = self.root / run_id / ("step-%04d" % seq)
         screenshot = folder / "screen.png"
+        actual_path = folder / "actual.json"
+        key = (run_id, seq)
+        if key in self._seen_steps or actual_path.exists() or screenshot.exists():
+            # Unknown side effects or existing Actual are never retried in a
+            # fresh invocation. Do not overwrite the original PASS/FAIL files.
+            rejected = _atomic_json(folder / "repeat-rejected.json", {
+                "status": "FAILED",
+                "failure_code": "JOURNEY_BSK_DUPLICATE_STEP_EFFECT_UNKNOWN",
+                "source_step_id": step.get("source_step_id"),
+                "replay_id": run_id, "sequence": seq, "field_verified": False})
+            return {
+                "status": "FAILED", "failure_code": "JOURNEY_BSK_DUPLICATE_STEP_EFFECT_UNKNOWN",
+                "actual_refs": [rejected], "evidence_refs": [rejected]}
+        self._seen_steps.add(key)
         status, failure = "PASSED", None
         session = None
         step_result: Dict[str, Any] = {}
@@ -346,7 +361,7 @@ class JourneyBSKAdapter:
             status = "FAILED"
             failure = (str(exc).split(":")[0][:100] if isinstance(exc, ContractError)
                        else "JOURNEY_BSK_UNEXPECTED_FAILURE")
-        receipt = _atomic_json(folder / "actual.json", {
+        receipt = _atomic_json(actual_path, {
             "status": status, "failure_code": failure,
             "source": "BROWSERSKILL_CLI", "field_verified": False,
             "bsk_session_fingerprint": (
