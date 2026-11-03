@@ -99,10 +99,20 @@ class N7PipelineService:
 
     def _diagnose_failure(self, preparation_id):
         result = self.diagnosis.run(preparation_id)
+        professional = {}
+        if result['failure_class'] == 'VALID_TEST_FAILURE':
+            # This is an accepted *business discrepancy*, not a confirmed
+            # product defect. Own the N9 reproduction queue in production and
+            # keep the original N7 Attempt immutable across cold re-entry.
+            from .rc72_n9_professional_intake import NativeN9ProfessionalIntakeService
+            queued = NativeN9ProfessionalIntakeService(self).queue_reproduction(
+                preparation_id=preparation_id, diagnosis_id=result['diagnosis_id'])
+            professional = dict(reproduction_workitem_id=queued['reproduction_workitem_id'],
+                                defect_confirmed=False)
         return dict(status='HOLD',reason='N9_FAILURE_QUALIFICATION_REQUIRED' if result['failure_class']=='VALID_TEST_FAILURE'
                     else 'N7_EXECUTION_DIAGNOSIS_REQUIRED',preparation_id=preparation_id,
                     diagnosis_id=result['diagnosis_id'],failure_class=result['failure_class'],
-                    next_node=result.get('responsible_node'))
+                    next_node=result.get('responsible_node'),**professional)
 
     def _finalize(self, bundle_id):
         result = self.finalization.finalize(bundle_id)
