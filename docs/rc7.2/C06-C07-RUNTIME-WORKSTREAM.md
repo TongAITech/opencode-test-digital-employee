@@ -93,6 +93,13 @@ Source: `05` §§3,8,12,14,15,17,18,19,21,22; `10` C06/C07.
 - `tests/test_rc72_captain_n7_pipeline.py` injects handoff **after preflight but before new R1 intent**, **during real HTTP/pytest business execution**, **during real cleanup/verification**, and from a **fresh Python subprocess**; the WorkItem/Attempt/HTTP evidence must remain tied to the original Captain or fail closed without a new I/O call. `tests/test_rc72_captain_dispatch_fencing.py` includes the initial legacy active-WorkItem rejection matrix.
 - These are committed engineering tests but **not verified until same-HEAD CI runs**. External HTTP transport timeout, live bank BrowserSkill/4A, remote process custody and provider compensation must additionally be field-validated. No BANK_FINAL is inferred from local tests.
 
+### Slice C06/C07-U08 — signed no-effect failure versus handoff liveness
+
+- A historical N7 `FAILED` state is *not* automatically an unknown business effect. `CaptainDispatchFencer` may distinguish it **only if constructed with the same trusted `RC72AuthorityRuntime` signing authority** and the recorded `no_effect_evidence_refs` can be freshly revalidated against the expected worker/attempt, original HMAC-signed `N7_FORMAL_*` check receipt, captured local file SHA256, and append-only R1 absence of matching HTTP/process/native tool effects.
+- If the trusted signer is missing or any proof is missing, changed or unverifiable, `FAILED` remains fail-closed for handoff. `UNKNOWN`, `IN_FLIGHT`, and `FAILED` cleanup calls always block. A historical negative preflight does **not** authorize automatic business replay; it only permits the Captain to hand off when the canonical Task is separately quiescent.
+- Added negative test for forged evidence reference, mismatched Worker ID, missing signer and raw R1 possible I/O introduced after the original signed negative check. No status label alone is treated as proof.
+- The product Captain construction path must supply the trusted runtime authority if it needs this safe-negative exception. Arbitrary generic Captain instances without signer deliberately cannot bypass the strict default.
+
 ### Slice C07-U03 — Provider failure and Fresh Worker failover fencing
 
 - `rc72_model_failover.py` now protects canonical readiness updates, provider failure recording and failover with the **same cross-process R1 ledger lock**. Two cold processes must not both create a fresh replacement Worker for one provider failure. This is the runtime's **model/provider namespace**, not a product SUT FAIL or Defect.
