@@ -197,10 +197,12 @@ class JourneyBSKAdapter:
         # rejected; all dynamic values are JSON literals, not executable code.
         exp = """(() => {
           const selector = %s, attribute = %s;
-          const el = selector ? document.querySelector(selector) : null;
+          const matches = selector ? document.querySelectorAll(selector) : [];
+          const el = matches.length === 1 ? matches[0] : null;
           const visible = !!el && !!(el.offsetWidth || el.offsetHeight ||
              el.getClientRects().length);
           return {url: location.origin + location.pathname,
+                  match_count: matches.length,
                   exists: !!el, visible: visible,
                   text: el ? el.innerText : null,
                   attribute: el && attribute ? el.getAttribute(attribute) : null};
@@ -235,6 +237,10 @@ class JourneyBSKAdapter:
         values = self._page_read(
             session, selector,
             str(oracle.get("attribute") or "") if kind == "attribute_equals" else None)
+        if context.get("execution_id") and kind in {"url_equals", "visible"}:
+            raise ContractError("JOURNEY_BSK_OFFICIAL_BUSINESS_ORACLE_TOO_WEAK")
+        if selector is not None and values.get("match_count") != 1:
+            raise ContractError("JOURNEY_BSK_ORACLE_ELEMENT_NOT_UNIQUE")
         if kind == "url_equals":
             passed = values.get("url") == _public_url(oracle.get("expected"))
         elif kind == "visible":
