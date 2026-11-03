@@ -99,6 +99,8 @@ def test_journey_teaching_compile_real_step_adapter_twice_benchmark_field_gate(t
             workitem_id=workitem, attempt_id=attempt, worker_id=worker,
             session_id=session, browser_lease_id=browser_lease.browser_lease_id)
         assert result.state.value == "PASSED"
+        assert truth.query(
+            "rc72_journey_replay", replay_id="JRP-E2E-%s" % index)[0]["case_id"] == "TC-1"
         assert len(truth.query(
             "rc72_journey_replay_step", replay_id="JRP-E2E-%s" % index)) == 3
         assert (tmp_path / "replay-evidence" /
