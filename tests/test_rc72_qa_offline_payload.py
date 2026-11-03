@@ -265,3 +265,38 @@ def test_dsh_named_plain_text_cannot_be_misrepresented_as_real_executable(tmp_pa
     result = qualify(root, expected_source=COMMIT, dsh_relpath="workspace-template/runtime/dsh/dsh.exe")
     assert result["status"] == "HOLD"
     assert result["hold_reasons"] == ["DSH_MAIN_NATIVE_EXECUTABLE_NOT_ATTESTED"]
+
+
+
+@pytest.mark.parametrize("alias", [
+    "./SOURCE_COMMIT",
+    "packaging//rc7.2/AITEST.sh",
+    "workspace-template/runtime/browser/./sample.dat",
+    "workspace-template/runtime/browser//sample.dat",
+])
+def test_manifest_rejects_noncanonical_aliases_of_existing_physical_bytes(tmp_path, alias):
+    root = _make_fixture(tmp_path)
+    manifest = root / "PACKAGE_MANIFEST.json"
+    document = json.loads(manifest.read_text(encoding="utf-8"))
+    if alias.startswith("./"):
+        target = "SOURCE_COMMIT"
+    elif "AITEST" in alias:
+        target = "packaging/rc7.2/AITEST.sh"
+    else:
+        target = "workspace-template/runtime/browser/sample.dat"
+    row = next(x for x in document["files"] if x["path"] == target)
+    row["path"] = alias
+    manifest.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(QualificationError, match="NONCANONICAL_RELATIVE_PATH"):
+        qualify(root, expected_source=COMMIT)
+
+
+def test_checksums_reject_duplicate_slash_alias_even_if_real_bytes_are_unchanged(tmp_path):
+    root = _make_fixture(tmp_path)
+    checksums = root / "CHECKSUMS.sha256"
+    lines = checksums.read_text(encoding="utf-8").splitlines()
+    line = next(x for x in lines if x.endswith("  SOURCE_COMMIT"))
+    lines.append(line.replace("  SOURCE_COMMIT", "  ./SOURCE_COMMIT"))
+    checksums.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with pytest.raises(QualificationError, match="NONCANONICAL_RELATIVE_PATH"):
+        qualify(root, expected_source=COMMIT)
