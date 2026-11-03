@@ -117,6 +117,16 @@ class CaptainDispatchFencer:
             self._batch(mission_id)
             if self._latest(mission_id) is not None:
                 raise ContractError("CAPTAIN_DISPATCH_EXISTING_OWNER_REQUIRES_HANDOFF")
+            # Starting governance halfway through an uncheckpointed legacy
+            # execution can leave one old Worker still performing external I/O
+            # while the new Captain believes it is the sole dispatcher.
+            active_states = {"LEASED", "RUNNING", "OUTPUT_PRODUCED"}
+            if any(task.get("state") in active_states for task in
+                   self.truth.query("rc7_task", mission_id=mission_id)):
+                raise ContractError("CAPTAIN_BOOTSTRAP_UNGOVERNED_ACTIVE_WORK_RECONCILIATION_REQUIRED")
+            if any(p.get("status") == "PREPARED" for p in
+                   self.truth.query("rc72_n7_execution_preparation", mission_id=mission_id)):
+                raise ContractError("CAPTAIN_BOOTSTRAP_EXISTING_PREPARATION_RECONCILIATION_REQUIRED")
             now = _now()
             return self._save(dict(
                 lease_id="CAPF-" + uuid.uuid4().hex, release_id=self.release_id,
