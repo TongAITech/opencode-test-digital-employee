@@ -1,5 +1,26 @@
 # RC7.2 持续施工与最终搬运交付
 
+## Native N10 success-path graph qualification — 2026-11-03
+
+The N10 aggregator previously demanded N8 PASS even on the canonical accepted
+N7-to-N9 success edge, where diagnosis is correctly NOT_STARTED. Native
+aggregation now carries the gate ID from the actual accepted N7 proof into its
+graph check. It bypasses only that inactive N8, requires N9 PASS and the exact
+mission/source/target transition, and never manufactures an N8 Delivery/Gate.
+Legacy aggregation without native execution proof retains its prior checks.
+An active/blocked N8, altered edge or missing native proof cannot use the bypass.
+
+Actual native formal execution, cleanup, independent N7 review and N9 clearance
+plus inherited N10 contracts passed 11 tests in 21.85s (one existing collection
+warning). The independent fixture policy still requires all seven levels; its
+L3-only execution and missing measured coverage remain NOT_CONVERGED. This
+change fixes the graph contradiction, not the remaining scope-policy ingestion,
+measured coverage, professional defect closure, gap routing or final N10
+controller. These remain construction work.
+
+This change was developed in the isolated rc72-next worktree so the fixed
+6409e90 N9/source qualification could continue without source mutation.
+
 ## Native N9 clearance of accepted discrepancy-free scope — 2026-11-03
 
 `AcceptedScopeN9Service` consumes a concrete native N7 pipeline and re-audits

@@ -234,7 +234,7 @@ class ReleaseConvergenceAggregator:
                 blockers.append("coverage:%s:%.6f<%.6f" % (application_id, ratio, target))
         return not blockers, selected, blockers
 
-    def _runtime_facts(self, mission_id: str) -> Tuple[bool, bool, bool, List[str]]:
+    def _runtime_facts(self, mission_id: str, *, accepted_n7_gate_id=None) -> Tuple[bool, bool, bool, List[str]]:
         blockers: List[str] = []
         nodes = self._safe_query("rc72_mission_node", mission_id=mission_id)
         by_type = {str(row.get("node_type")): row for row in nodes}
@@ -244,7 +244,22 @@ class ReleaseConvergenceAggregator:
             blockers.append("runtime:N1-N10_GRAPH_INVALID")
         human_gate = False
         runtime_blocked = False
+        # A successful native N7 is routed directly to N9. N8 remains inactive;
+        # asking for a fabricated N8 PASS would contradict the canonical edge.
+        n7 = by_type.get(AutonomousMissionNode.N7_EXECUTION.value, {})
+        n8 = by_type.get(AutonomousMissionNode.N8_DIAGNOSIS_RECOVERY.value, {})
+        n9 = by_type.get(AutonomousMissionNode.N9_DEFECT.value, {})
+        bypass = (accepted_n7_gate_id is not None and n7.get('state') == 'PASS'
+            and accepted_n7_gate_id in n7.get('gate_refs', []) and n8.get('state') == 'NOT_STARTED'
+            and n9.get('state') == 'PASS' and any(e['kind'] == 'FORWARD'
+                and e['from_node_type'] == 'N7_EXECUTION' and e['to_node_type'] == 'N9_DEFECT'
+                and e['source_gate_id'] == accepted_n7_gate_id
+                and e['from_mission_node_id'] == n7.get('mission_node_id')
+                and e['to_mission_node_id'] == n9.get('mission_node_id')
+                for e in self._safe_query('rc72_node_transition', mission_id=mission_id)))
         for node_type in expected_types[:-1]:
+            if node_type == AutonomousMissionNode.N8_DIAGNOSIS_RECOVERY.value and bypass:
+                continue
             row = by_type.get(node_type)
             state = str(row.get("state")) if row else "MISSING"
             if state != MissionNodeState.PASS.value:
@@ -268,9 +283,11 @@ class ReleaseConvergenceAggregator:
         batch = self._one_batch(mission_id)
         manifest = self._one_manifest(mission_id, str(batch["release_batch_id"]))
         native_ids = None
+        accepted_n7_gate_id = None
         if self.execution_proof is not None:
             audited = self.execution_proof.audit(release_batch_id=str(batch['release_batch_id']))
             native_ids = set(audited['verified_obligation_ids'])
+            accepted_n7_gate_id = audited['n7_gate_id']
         scope_snapshot = self.scope.evaluate_denominator(manifest_id=str(manifest["manifest_id"]))
         blockers: List[str] = []
         if not scope_snapshot.denominator_complete:
@@ -355,7 +372,7 @@ class ReleaseConvergenceAggregator:
                 no_unresolved_gaps = False
                 blockers.append("back-edge:%s:%s" % (edge.get("back_edge_id"), state))
 
-        runtime_integrity, node_human, runtime_blocked, runtime_blockers = self._runtime_facts(mission_id)
+        runtime_integrity, node_human, runtime_blocked, runtime_blockers = self._runtime_facts(mission_id, accepted_n7_gate_id=accepted_n7_gate_id)
         human_gate_required = human_gate_required or node_human
         blockers.extend(runtime_blockers)
         for failure in self._safe_query("rc72_provider_failure", mission_id=mission_id):
