@@ -231,6 +231,9 @@ def test_two_real_native_batch_calls_keep_independent_case_attempts_and_review_s
     candidate = _dispatch(truth, batch, execution, assignment)
     assert candidate["status"] == "UNVERIFIED"
     assert len(candidate["members"]) == 2
+    assert candidate["token_call_id"] == truth.query(
+        "rc72_token_call", workitem_id="EXECUTION_BATCH:" + batch.batch_id
+    )[0]["call_id"]
     assert candidate["members"][0]["observed_tool_refs"] != candidate["members"][1]["observed_tool_refs"]
     assert execution.execute_count == 1
     assert len(execution.native_calls) == 1
@@ -249,6 +252,9 @@ def test_two_real_native_batch_calls_keep_independent_case_attempts_and_review_s
     assert reviewer.execute_count == 1
     assert len(reviewer.native_calls) == 1
     assert reviewed["status"] == "UNVERIFIED_INDEPENDENT_REVIEW"
+    assert reviewed["token_call_id"] == truth.query(
+        "rc72_token_call", workitem_id="EVALUATOR_BATCH:" + batch.batch_id
+    )[0]["call_id"]
     assert reviewed["dsh_session_id"] != candidate["dsh_session_id"]
     assert reviewed["worker_instance_id"] != candidate["worker_instance_id"]
     assert {x["workitem_id"] for x in reviewed["members"]} == {"WI-1", "WI-2"}
