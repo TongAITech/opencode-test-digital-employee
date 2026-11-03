@@ -657,6 +657,10 @@ class TokenEconomyService:
             for row in unknown
         )
         total_context_bytes = sum(int(row.get("context_bytes", 0)) for row in model_calls)
+        reference_projection_calls = sum(
+            row.get("context_projection_status") == "REFERENCE_ONLY"
+            for row in model_calls
+        )
         seen: Dict[str, int] = {}
         for row in model_calls:
             digest = str(row.get("context_sha256") or "")
@@ -736,6 +740,16 @@ class TokenEconomyService:
             "retry_effective_tokens": retry_measured + retry_reserved,
             "total_context_bytes": total_context_bytes,
             "unique_context_bytes": unique_context_bytes,
+            # An identical prompt sent twice is duplicated input, not saved
+            # input. The old reuse_factor is retained only for compatibility
+            # and MUST NOT be presented as verified token savings.
+            "context_duplication_factor": (
+                float(total_context_bytes) / float(unique_context_bytes)
+                if unique_context_bytes else 0.0
+            ),
+            "native_reference_projection_calls": reference_projection_calls,
+            "native_minimal_prompt_proven_calls": 0,
+            "verified_context_savings_bytes": None,
             "context_reuse_factor": (
                 float(total_context_bytes) / float(unique_context_bytes)
                 if unique_context_bytes else 0.0
