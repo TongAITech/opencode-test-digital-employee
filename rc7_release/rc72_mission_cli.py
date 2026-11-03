@@ -31,6 +31,10 @@ def main(argv=None):
     path = Path(args.ledger).expanduser().resolve()
     if not path.is_file():
         parser.error('existing canonical ledger required')
+    # Register all C10-owned events BEFORE TruthRuntime replays a historical
+    # R1 ledger, including UNKNOWN provider usage and shared batch evidence.
+    from rc7_runtime.rc72_economy_replay_bootstrap import install_rc72_economy_replay_bindings
+    install_rc72_economy_replay_bindings()
     truth = TruthRuntime(path)
     if args.command == 'status':
         result = release_batch_status(truth, source_commit=args.source_commit, release_batch_id=args.release_batch)
