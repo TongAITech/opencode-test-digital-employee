@@ -41,6 +41,13 @@ def test_n10_runs_fresh_full_n7_then_fresh_libra_and_closes_original_gap(tmp_pat
         assert len(rerun_row['fresh_attempt_ids'])==len(plan['items']) and not (set(rerun_row['fresh_attempt_ids']) & original_attempts)
         fresh_bundle=truth.query('rc72_n7_evidence_bundle',bundle_id=rerun_row['fresh_bundle_id'])[0]
         assert fresh_bundle['plan_id']==rerun_row['rerun_plan_id']
+        fresh_gate=truth.query('rc72_node_gate',gate_id=rerun_row['fresh_n7_gate_id'])[0]
+        fresh_delivery=truth.query('rc72_node_delivery',delivery_id=fresh_gate['delivery_id'])[0]
+        # The durable rerun bundle must be the actual independently accepted
+        # N7 delivery artifact, not a caller-supplied or historical bundle ID.
+        assert fresh_gate['decision']=='PASS'
+        assert fresh_delivery['artifact_refs']==[fresh_bundle['bundle_id']]
+        assert fresh_delivery['version']>boundary['origin_n7_delivery_version']
         assert all(case['workitem_id'].startswith('N7COVWI-') for case in fresh_bundle['case_results'])
         n7=truth.query('rc72_mission_node',mission_id=rerun_row['mission_id'],node_type='N7_EXECUTION')[0]
         assert n7['state']=='PASS' and n7['active_delivery_version']>boundary['origin_n7_delivery_version']
