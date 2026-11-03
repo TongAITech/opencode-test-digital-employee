@@ -346,7 +346,7 @@ class JourneyReplayService:
             mission_id=mission_id, workitem_id=workitem_id, attempt_id=attempt_id,
             worker_id=worker_id, session_id=session_id,
         )
-        self.browser_pool.assert_usable(
+        lease = self.browser_pool.assert_usable(
             browser_lease_id=browser_lease_id,
             mission_id=mission_id,
             workitem_id=workitem_id,
@@ -354,6 +354,8 @@ class JourneyReplayService:
             worker_id=worker_id,
             access_mode=BrowserAccessMode.WRITE,
         )
+        if str(lease.get("purpose") or "").upper() != "JOURNEY_REPLAY":
+            raise ContractError("JOURNEY_REPLAY_BROWSER_PURPOSE_MISMATCH")
         field_verified = self._field_verified()
         started_at = _now()
         base = {
