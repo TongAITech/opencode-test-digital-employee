@@ -84,3 +84,48 @@ def test_n8_product_rejects_edited_r1_failure_edge_before_cleanup(tmp_path,monke
         assert server.calls==[]
     finally:
         server.shutdown();server.server_close()
+
+
+def test_n8_product_historical_repaired_n7_replay_reaudits_old_diagnosis_without_cleanup(tmp_path,monkeypatch):
+    """Accepted N5 repair→new N6→physical new N7 must preserve old N8 truth."""
+    from test_rc72_n8_retry_continuation import _whole_inventory_repaired
+    from rc7_runtime.rc72_n8_retry_continuation import DataRepairContinuationService
+    from rc7_runtime.rc72_n7_tool_dispatch import SignedToolDispatchService
+    from rc7_runtime.rc72_n7_cleanup import ExecutionCleanupService
+    from rc7_runtime.rc72_n7_evidence_review import ExecutionEvidenceReviewService
+    from rc7_runtime.rc72_n7_finalization import ExecutionFinalizationService
+    values=_whole_inventory_repaired(tmp_path,monkeypatch)
+    truth,prep,server,p,_,data,_,_,_=values
+    try:
+        replay=DataRepairContinuationService(data.boundary.diagnosis)
+        new=replay.prepare_replacement(p['preparation_id'])
+        plan=prep.planning.assert_current(new['plan_id'])
+        root=tmp_path/'n8-audited-retry'
+        env=LocalHTTPEnvironment('http://127.0.0.1:%d'%server.server_address[1],root)
+        runner=FormalN7RunnerAdapter(prep,evidence_root=root,environment_adapter=env,
+            execution_env={'RC72_OUTPUT_ROOT':str(root)},timeout_seconds=30)
+        for item in plan['items']:
+            prepared=prep.prepare(plan_id=plan['plan_id'],workitem_id=item['workitem_id'])
+            assert SignedToolDispatchService(prep,adapters={'api_http':runner}).dispatch(
+                prepared['preparation_id'])['state']=='RETURNED'
+            assert ExecutionCleanupService(prep,adapters={'api_http':env.cleanup}).run(
+                prepared['preparation_id'])['state']=='CLEANUP_VERIFIED'
+        review=ExecutionEvidenceReviewService(prep,adapter_output_root=root,
+            capture_root=tmp_path/'accepted-n7')
+        bundle=review.build(plan['plan_id'])
+        assert ExecutionFinalizationService(review).finalize(bundle['bundle_id'])['state']=='N7_PASS'
+        original=truth.query('execution_attempt',attempt_id=p['attempt_id'])[0]
+        pipeline=N7PipelineService(prep,runner=runner,capture_root=tmp_path/'native-n8')
+        service=NativeN8ProductRecoveryService(pipeline)
+        before=truth.store.path.read_bytes()
+        result=service.audit(release_batch_id=p['release_batch_id'])
+        assert result['status']=='AUDITED'
+        assert result['diagnosis_ids']==[truth.query('rc72_diagnosis_case')[0]['diagnosis_id']]
+        assert truth.store.path.read_bytes()==before
+        assert truth.query('execution_attempt',attempt_id=p['attempt_id'])[0]==original
+        assert len(server.calls)==len(plan['items'])
+        assert not truth.query('rc7_defect')
+        assert service.audit(release_batch_id=p['release_batch_id'])==result
+        assert truth.store.path.read_bytes()==before
+    finally:
+        server.shutdown();server.server_close()
