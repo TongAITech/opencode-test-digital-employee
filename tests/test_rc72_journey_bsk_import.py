@@ -276,3 +276,41 @@ def test_bsk_business_oracle_is_interleaved_at_exact_source_operation(tmp_path):
     assert [row["action_type"] for row in truth.query(
         "rc72_journey_candidate", candidate_id="JC-INTERLEAVED")[0]["steps"]
            ] == ["NAVIGATE", "ASSERT", "CLICK", "ASSERT"]
+
+
+@pytest.mark.parametrize("bsk_method,expected_action,extra,field,value", [
+    ("tool.press", "PRESS", {"key": "Enter"}, "key", "Enter"),
+    ("tool.hover", "HOVER", {}, None, None),
+    ("tool.scroll-to", "SCROLL_TO", {}, None, None),
+    ("tool.drag", "DRAG", {"target_ref": "css:#target"},
+     "target_ref", "css:#target"),
+])
+def test_bsk_import_compiles_full_native_keyboard_hover_scroll_drag(
+        tmp_path, bsk_method, expected_action, extra, field, value):
+    truth, importer, doc, export, args, mapping = _fixture(tmp_path)
+    doc["operations"][1]["method"] = bsk_method
+    mapping["operation-2"].update(extra)
+    export.write_text(json.dumps(doc))
+    _invoke(importer, export, args, mapping)
+    JourneyCompiler(truth, release_id="RC7.2").compile(
+        candidate_id="JC-BSK-ADVANCED", recording_id="JR-BSK-1")
+    steps = truth.query(
+        "rc72_journey_candidate", candidate_id="JC-BSK-ADVANCED")[0]["steps"]
+    assert [step["action_type"] for step in steps] == [
+        "NAVIGATE", expected_action]
+    if field is not None:
+        assert steps[1][field] == value
+
+
+@pytest.mark.parametrize("bsk_method,expected", [
+    ("tool.press", "JOURNEY_BSK_PRESS_KEY_REQUIRED"),
+    ("tool.drag", "JOURNEY_BSK_DRAG_TARGET_REQUIRED"),
+])
+def test_bsk_import_refuses_unsupported_unbound_keyboard_or_drag(
+        tmp_path, bsk_method, expected):
+    truth, importer, doc, export, args, mapping = _fixture(tmp_path)
+    doc["operations"][1]["method"] = bsk_method
+    export.write_text(json.dumps(doc))
+    with pytest.raises(Exception, match=expected):
+        _invoke(importer, export, args, mapping)
+    assert not truth.query("rc72_journey_recording", recording_id="JR-BSK-1")
