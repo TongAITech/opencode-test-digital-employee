@@ -190,7 +190,7 @@ class NativeN10TerminalReviewService:
     def _safe_review_root(self,review_id):
         # Reviewer IDs are controlled by native Lifecycle. Never permit a
         # persisted R1 label to become a path outside the evidence root.
-        if not re.fullmatch(r'(?:REV-[0-9a-f]{32}|N10REV-[0-9a-f]{24})',review_id):
+        if not re.fullmatch(r'(?:REV-[0-9a-f]{20}|N10REV-[0-9a-f]{24})',review_id):
             raise ContractError('N10_TERMINAL_REVIEWER_PATH_INVALID')
         root=self.root/review_id
         if root.is_symlink():
