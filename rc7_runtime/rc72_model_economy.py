@@ -102,6 +102,60 @@ class BankCostWindow:
 
 
 @dataclass(frozen=True)
+class BankCostWindowConfig:
+    """Bank-local *scheduling* configuration, not a mandatory-test kill switch.
+
+    Asia/Shanghai is deliberately fixed rather than inferred from the host.
+    Default 18:00-21:00 rate is 10:1; post-21:00 is quota-unlimited.
+    """
+    timezone_name: str = _BANK_TZ_NAME
+    normal_end_hour: int = 18
+    discount_end_hour: int = 21
+    normal_factor_millis: int = 1000
+    discount_factor_millis: int = 100
+    unlimited_after_discount: bool = True
+    post_discount_factor_millis: int = 0
+
+    def __post_init__(self) -> None:
+        if self.timezone_name != _BANK_TZ_NAME:
+            raise TokenEconomyError("BANK_COST_WINDOW_TIMEZONE_MUST_BE_ASIA_SHANGHAI")
+        if (
+            isinstance(self.normal_end_hour, bool)
+            or isinstance(self.discount_end_hour, bool)
+            or not isinstance(self.normal_end_hour, int)
+            or not isinstance(self.discount_end_hour, int)
+            or not (0 < self.normal_end_hour < self.discount_end_hour <= 23)
+        ):
+            raise TokenEconomyError("BANK_COST_WINDOW_HOURS_INVALID")
+        for name in ("normal_factor_millis", "discount_factor_millis", "post_discount_factor_millis"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or not (0 <= value <= 100000):
+                raise TokenEconomyError("BANK_COST_WINDOW_FACTOR_INVALID:%s" % name)
+        if self.normal_factor_millis == 0 or self.discount_factor_millis == 0:
+            raise TokenEconomyError("BANK_COST_WINDOW_LIMITED_FACTOR_REQUIRED")
+        if not isinstance(self.unlimited_after_discount, bool):
+            raise TokenEconomyError("BANK_COST_WINDOW_UNLIMITED_FLAG_INVALID")
+        if self.unlimited_after_discount and self.post_discount_factor_millis != 0:
+            raise TokenEconomyError("BANK_COST_WINDOW_UNLIMITED_FACTOR_MUST_BE_ZERO")
+        if not self.unlimited_after_discount and self.post_discount_factor_millis == 0:
+            raise TokenEconomyError("BANK_COST_WINDOW_LIMITED_FACTOR_REQUIRED")
+
+    @classmethod
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "BankCostWindowConfig":
+        if not isinstance(mapping, Mapping):
+            raise TokenEconomyError("BANK_COST_WINDOW_CONFIGURATION_REQUIRED")
+        allowed = {
+            "timezone_name", "normal_end_hour", "discount_end_hour",
+            "normal_factor_millis", "discount_factor_millis",
+            "unlimited_after_discount", "post_discount_factor_millis",
+        }
+        unknown = set(mapping) - allowed
+        if unknown:
+            raise TokenEconomyError("BANK_COST_WINDOW_UNKNOWN_CONFIGURATION_KEYS")
+        return cls(**dict(mapping))
+
+
+@dataclass(frozen=True)
 class TokenAdmission:
     admitted: bool
     call_id: str
@@ -130,27 +184,41 @@ def _new(prefix: str) -> str:
     return "%s-%s" % (prefix, uuid.uuid4().hex[:20])
 
 
-def classify_bank_cost_window(when: Optional[datetime] = None) -> BankCostWindow:
-    """Classify the explicit bank-local quota window.
-
-    Naive datetimes are rejected so tests/runtime cannot silently depend on the
-    host timezone. Asia/Shanghai is represented as fixed UTC+08:00, which is
-    sufficient for the current bank schedule and Python 3.8 portability.
-    """
+def classify_bank_cost_window(
+    when: Optional[datetime] = None,
+    *,
+    config: Optional[BankCostWindowConfig] = None,
+) -> BankCostWindow:
+    """Classify the bank-local window independently of the machine timezone."""
+    policy = config if config is not None else BankCostWindowConfig()
+    if not isinstance(policy, BankCostWindowConfig):
+        raise TokenEconomyError("BANK_COST_WINDOW_CONFIG_INVALID")
     current = when or datetime.now(timezone.utc)
     if current.tzinfo is None:
         raise TokenEconomyError("BANK_COST_WINDOW_REQUIRES_AWARE_DATETIME")
     local = current.astimezone(_BANK_TZ)
-    if local.hour >= 21:
+    standard = policy == BankCostWindowConfig()
+    if local.hour >= policy.discount_end_hour:
         return BankCostWindow(
-            "BANK_AFTER_21_UNLIMITED", _BANK_TZ_NAME, False, 0
+            ("BANK_AFTER_21_UNLIMITED" if standard else
+             "BANK_AFTER_DISCOUNT_UNLIMITED" if policy.unlimited_after_discount
+             else "BANK_AFTER_DISCOUNT_LIMITED"),
+            _BANK_TZ_NAME,
+            not policy.unlimited_after_discount,
+            policy.post_discount_factor_millis,
         )
-    if local.hour >= 18:
+    if local.hour >= policy.normal_end_hour:
         return BankCostWindow(
-            "BANK_18_21_TEN_TO_ONE", _BANK_TZ_NAME, True, 100
+            "BANK_18_21_TEN_TO_ONE" if standard else "BANK_CONFIGURED_DISCOUNT",
+            _BANK_TZ_NAME,
+            True,
+            policy.discount_factor_millis,
         )
     return BankCostWindow(
-        "BANK_DAYTIME_FULL_RATE", _BANK_TZ_NAME, True, 1000
+        "BANK_DAYTIME_FULL_RATE" if standard else "BANK_CONFIGURED_NORMAL",
+        _BANK_TZ_NAME,
+        True,
+        policy.normal_factor_millis,
     )
 
 
@@ -378,6 +446,7 @@ class TokenEconomyService:
         *,
         release_id: str,
         clock: Optional[Clock] = None,
+        cost_window_config: Optional[BankCostWindowConfig] = None,
     ) -> None:
         install_rc72_token_economy_overlay()
         _ensure_projection_buckets(truth)
@@ -386,6 +455,9 @@ class TokenEconomyService:
         self.truth = truth
         self.release_id = release_id.strip()
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.cost_window_config = cost_window_config if cost_window_config is not None else BankCostWindowConfig()
+        if not isinstance(self.cost_window_config, BankCostWindowConfig):
+            raise TokenEconomyError("BANK_COST_WINDOW_CONFIG_INVALID")
 
     def _append(self, event_type: str, payload: Dict[str, Any]) -> None:
         out = dict(payload)
@@ -559,7 +631,7 @@ class TokenEconomyService:
         prompt_bytes = prompt.encode("utf-8")
         digest = hashlib.sha256(prompt_bytes).hexdigest()
         summary = self.summary(mission_id)
-        window = classify_bank_cost_window(when or self.clock())
+        window = classify_bank_cost_window(when or self.clock(), config=self.cost_window_config)
         reserve = int(budget["max_single_call_tokens"])
         reserve_quota = self._quota_equivalent(reserve, window.quota_cost_factor_millis)
         warnings: List[str] = []
