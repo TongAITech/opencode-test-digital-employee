@@ -64,6 +64,26 @@ def test_real_copied_python_mirror_install_import_and_host_substitution_refusals
         assert positive['import_proof']['version']=='1.0'
         assert any(p.startswith('/packages/') for p in requests) and any(p.startswith('/simple/') for p in requests)
         (public/'actual-user-mirror-positive.json').write_text(json.dumps(positive,indent=2))
+        from rc6_runtime.truth import TruthRuntime
+        from rc7_runtime.rc72_authority import RC72AuthorityRuntime
+        from rc7_runtime.rc72_bank_pip_mirror import NativeBankPipMirrorService
+        from rc7_runtime.models import ContractError
+        from test_rc72_field_qualification import _batch,RELEASE,BATCH
+        runtime_truth=TruthRuntime(tmp_path/'native-r1/event-stream.jsonl')
+        field_config=tmp_path/'bank-local-field-policy.json';field_config.write_text(json.dumps(policy))
+        runtime=NativeBankPipMirrorService(runtime_truth,release_id=RELEASE,source_commit=os.environ['GITHUB_SHA'],
+            authority=RC72AuthorityRuntime(b'engineering-native-pip-mirror-authority'),package_root=root,archive=archive,
+            field_config=field_config,evidence_root=tmp_path/'native-runtime-evidence')
+        _batch(runtime_truth)
+        native=runtime.run(release_batch_id=BATCH,engineering=True)
+        assert native['status']=='PASS' and native['bank_pc_mirror_field_fact'] is False
+        saved=runtime_truth.store.path.read_bytes();request_count=len(requests)
+        assert runtime.audit(execution_id=native['execution_id'],release_batch_id=BATCH,require_field=False)==native
+        assert runtime.run(release_batch_id=BATCH,engineering=True)==native
+        assert runtime_truth.store.path.read_bytes()==saved and len(requests)==request_count
+        with pytest.raises(ContractError,match='ENGINEERING_NOT_FIELD'):
+            runtime.audit(execution_id=native['execution_id'],release_batch_id=BATCH)
+        (public/'actual-native-r1-mirror.json').write_text(json.dumps(native,indent=2))
         monkeypatch.setenv('APPDATA',str(tmp_path/'isolated worker appdata'))
         refused('hidden-user-appdata','APPDATA_HIDDEN')
         bridge=qualify(root,archive,policy,private/'explicit-bridge',bridge=True,engineering=True)
@@ -92,7 +112,7 @@ def test_real_copied_python_mirror_install_import_and_host_substitution_refusals
         hostmodule.unlink()
         assert actual.returncode!=0 and 'ValueError' in actual.stderr;negatives.append('host-site-import-refused')
         (public/'actual-negative-summary.json').write_text(json.dumps(dict(status='PASS',negative_checks=negatives,
-            actual_mirror_requests=len(requests),full_transport_extraction=bool(provided),original_staging_deleted=not stage.exists(),
+            native_r1_receipt_qualified=True,actual_mirror_requests=len(requests),full_transport_extraction=bool(provided),original_staging_deleted=not stage.exists(),
             source_commit=os.environ['GITHUB_SHA'],engineering_only=True,field_verified=False,bank_final=False),indent=2))
     finally:
         if original is None:config.unlink(missing_ok=True)
