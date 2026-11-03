@@ -50,6 +50,8 @@ def export_evidence(root, output, *, source_commit, includes=(), r1_relpath="run
     root, output = Path(root).resolve(), Path(output).resolve()
     if not root.is_dir() or not re.fullmatch(r"[0-9a-fA-F]{40}", source_commit or ""):
         raise ExportError("FIELD_EVIDENCE_ROOT_AND_SOURCE_REQUIRED")
+    if r1_relpath != "runtime-state/r1/event-stream.jsonl":
+        raise ExportError("FIELD_EVIDENCE_CANONICAL_R1_REQUIRED")
     if os.path.commonpath([str(root), str(output)]) == str(root):
         raise ExportError("FIELD_EVIDENCE_OUTPUT_MUST_BE_OUTSIDE_PACKAGE")
     if output.exists() or Path(str(output) + ".sha256").exists():
@@ -223,6 +225,8 @@ def verify_evidence_export(archive_path, *, expected_source_commit):
                     raise ExportError("FIELD_EVIDENCE_ZIP_HASH_INVALID")
                 listed[rel] = row
             r1 = _strict_archive_relative(index.get("r1_event_stream"))
+            if r1 != "runtime-state/r1/event-stream.jsonl":
+                raise ExportError("FIELD_EVIDENCE_ZIP_CANONICAL_R1_REQUIRED")
             required = {"SOURCE_COMMIT", "BUILD_ID", "RELEASE_FAMILY", "RELEASE_STATUS",
                         "RC72_RELEASE_IDENTITY.json", "PACKAGE_MANIFEST.json",
                         "CHECKSUMS.sha256", "FULL-CAPABILITY-INVENTORY.json", r1}
