@@ -130,7 +130,7 @@ def test_bsk_native_replay_produces_real_png_and_oracle_receipts(tmp_path):
     ({"step_ok": False}, "JOURNEY_BSK_ACTION_UNKNOWN_OR_UNOBSERVED"),
     ({"evaluate_ok": False}, "JOURNEY_BSK_EVALUATE_UNVERIFIED"),
     ({"business_text": "Business rejected"}, "JOURNEY_BSK_BUSINESS_ORACLE_FAILED"),
-    ({"screenshot": False}, "JOURNEY_BSK_SCREENSHOT_INVALID"),
+    ({"screenshot": False}, "JOURNEY_BSK_SCREENSHOT_FILE_MISSING"),
 ])
 def test_bsk_never_turns_cli_exit_zero_or_missing_picture_into_pass(tmp_path, settings, code):
     result, truth, runner = _replay(tmp_path, TestBSK(**settings))
@@ -176,3 +176,72 @@ def test_bsk_official_service_uses_same_owned_browser_backend(tmp_path):
         "rc72_official_journey_execution_step", execution_id="OJ-BSK-1")
     assert rows and all(row["status"] == "PASSED" for row in rows)
     assert truth.query("rc72_official_journey_execution", execution_id="OJ-BSK-1")[0]["field_verified"] is False
+
+
+def test_bsk_denies_wrong_tab_in_b_session_receipt_before_click(tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    runner = TestBSK()
+    adapter = _adapter(pool, tmp_path, runner)
+    original = adapter.session_for
+
+    def changed_tab(ctx, instance):
+        receipt = original(ctx, instance)
+        receipt["tab_id"] = 99
+        return receipt
+
+    adapter.session_for = changed_tab
+    candidate = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]
+    context = {
+        "replay_id": "WRONG-TAB", "mission_id": "M-1",
+        "workitem_id": "WI-R1", "attempt_id": "ATT-R1",
+        "worker_id": "WORKER-R1", "session_id": "SESSION-R1",
+        "browser_lease_id": lease.browser_lease_id}
+    # B group returned tab 99, while BSK cooperative sync resolves live tab 37.
+    outcome = adapter.execute_step(candidate["steps"][0], context)
+    assert outcome["status"] == "FAILED"
+    assert outcome["failure_code"] == "JOURNEY_BSK_CONTROL_TAB_MISMATCH"
+    assert not any("step" in cmd for cmd in runner.calls)
+
+
+def test_bsk_fail_closed_if_human_ownership_sync_has_no_context(tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    class HumanHold(TestBSK):
+        def __call__(self, argv):
+            if "cooperate" in argv:
+                self.calls.append(list(argv))
+                return {"returncode": 0, "stdout": '{"mode":"human_control"}'}
+            return super().__call__(argv)
+    runner = HumanHold()
+    adapter = _adapter(pool, tmp_path, runner)
+    candidate = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]
+    outcome = adapter.execute_step(candidate["steps"][0], {
+        "replay_id": "HUMAN-HOLD", "mission_id": "M-1",
+        "workitem_id": "WI-R1", "attempt_id": "ATT-R1",
+        "worker_id": "WORKER-R1", "session_id": "SESSION-R1",
+        "browser_lease_id": lease.browser_lease_id})
+    assert outcome["status"] == "FAILED"
+    assert outcome["failure_code"] == "JOURNEY_BSK_CONTROL_SYNC_NOT_GRANTED"
+    assert not any("step" in cmd for cmd in runner.calls)
+
+
+def test_bsk_denies_cross_attempt_and_cross_4a_session_binding(tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    for field, wrong in (("attempt_id", "ATT-SOMEONE"),
+                         ("auth_asset_ref", "auth://4a/other-user")):
+        runner = TestBSK()
+        adapter = _adapter(pool, tmp_path, runner)
+        original = adapter.session_for
+        def foreign(ctx, instance):
+            owned = original(ctx, instance)
+            owned[field] = wrong
+            return owned
+        adapter.session_for = foreign
+        candidate = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]
+        outcome = adapter.execute_step(candidate["steps"][0], {
+            "replay_id": "FOREIGN-" + field, "mission_id": "M-1",
+            "workitem_id": "WI-R1", "attempt_id": "ATT-R1",
+            "worker_id": "WORKER-R1", "session_id": "SESSION-R1",
+            "browser_lease_id": lease.browser_lease_id})
+        assert outcome["status"] == "FAILED"
+        assert outcome["failure_code"] == "JOURNEY_BSK_SESSION_RECEIPT_SCOPE_MISMATCH"
+        assert runner.calls == []
