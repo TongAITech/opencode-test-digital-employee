@@ -24,7 +24,11 @@ def _root(tmp_path):
         "PACKAGE_MANIFEST.json": "{}",
         "CHECKSUMS.sha256": "",
         "FULL-CAPABILITY-INVENTORY.json": "{}",
-        "runtime-state/r1/event-stream.jsonl": '{"kind":"ENGINEERING_TEST_ONLY"}\n',
+        "runtime-state/r1/event-stream.jsonl": json.dumps({
+            "seq": 1, "event_id": "qa-synthetic-0001", "event_type": "ENGINEERING_TEST_ONLY",
+            "entity_type": "qa_synthetic", "entity_id": "fixture-1",
+            "entity_version": 1, "payload": {"test_only": True},
+        }) + "\n",
         "field/q3-target-linux.json": '{"attestation":"fixture-not-bank"}',
     }.items():
         path = root / rel
@@ -141,6 +145,8 @@ def test_exported_evidence_receipt_and_every_byte_can_be_independently_verified(
     verified = exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
     assert verified["status"] == "EVIDENCE_COPY_INTEGRITY_ONLY"
     assert verified["file_count"] == 8
+    assert verified["r1_structural_event_count"] == 1
+    assert verified["r1_validation_scope"] == "JSONL_SHAPE_AND_SEQUENCE_ONLY_NOT_BUSINESS_ORACLE"
     assert verified["field_verified"] is False and verified["bank_final"] is False
     assert verified["q9_bank_final"] == "NOT_ADMITTED"
     assert exporter.main(["--verify-archive", str(out), "--expected-source-commit", COMMIT]) == 0
@@ -186,3 +192,24 @@ def test_evidence_archive_source_must_match_exact_source_commit(tmp_path):
     exporter.export_evidence(root, out, source_commit=COMMIT)
     with pytest.raises(exporter.ExportError, match="ZIP_SOURCE_MISMATCH"):
         exporter.verify_evidence_export(out, expected_source_commit="c" * 40)
+
+
+def test_noncanonical_r1_fixture_with_valid_zip_and_receipt_is_rejected(tmp_path):
+    root = _root(tmp_path)
+    (root / "runtime-state/r1/event-stream.jsonl").write_text('{"kind":"not-append-only"}\n', encoding="utf-8")
+    out = tmp_path / "bad-r1-event.zip"
+    exporter.export_evidence(root, out, source_commit=COMMIT)
+    with pytest.raises(exporter.ExportError, match="ZIP_R1_SEQUENCE_INVALID"):
+        exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
+
+
+def test_r1_missing_event_sequence_is_rejected_with_valid_sha(tmp_path):
+    root = _root(tmp_path)
+    stream = root / "runtime-state/r1/event-stream.jsonl"
+    first = json.loads(stream.read_text(encoding="utf-8"))
+    second = dict(first, seq=3, event_id="qa-synthetic-0003")
+    stream.write_text(json.dumps(first) + "\n" + json.dumps(second) + "\n", encoding="utf-8")
+    out = tmp_path / "r1-event-gap.zip"
+    exporter.export_evidence(root, out, source_commit=COMMIT)
+    with pytest.raises(exporter.ExportError, match="ZIP_R1_SEQUENCE_INVALID"):
+        exporter.verify_evidence_export(out, expected_source_commit=COMMIT)
