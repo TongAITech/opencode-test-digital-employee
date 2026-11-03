@@ -90,3 +90,28 @@ production factories; per-target native call-time provenance is still required.
 No tool-policy relaxation is authorized by this configuration layer. A bank
 turnkey claim remains premature until these
 integrations, professional repair and terminal closure are implemented.
+
+
+## Fresh original batch registration
+
+`MISSION.cmd register --ledger <external-state>/r1.jsonl --release-id <release>
+--release-batch <batch> --batch-input <approved-batch.json>` registers the
+original batch before mirror-check and Q7. MISSION.cmd fixes package root/source.
+It needs no model config, host module, evidence directory or existing ledger.
+The input is an exact JSON object with schema RC72_RELEASE_BATCH_INPUT_V1 and
+fields release_id, source_commit, release_batch_id, mission_id, name,
+planned_release_time (string or null), version_ids, application_ids and
+requirement_ids. All ID lists must be nonempty and contain unique original IDs.
+State/readiness, gate, evidence, auth, Field and PASS claims are not input fields.
+
+One canonical batch event records the initial REGISTERED/UNKNOWN metadata and
+a registration binding to exact input-byte SHA256, file source and package
+source commit. A cold identical retry appends nothing; different bytes,
+identity, denominator, release or source are refused, including whitespace-only
+input changes. Reuse the saved original input for continuation. Status/run
+refuse a different source for a natively registered batch. Registration creates
+no MissionNode, Worker, model call, business effect, Q7 admission or Field fact.
+An existing unregistered batch cannot be adopted through this command. The
+existing provenance/denominator/Q3-Q6/native mirror/Q7 gates remain required.
+This is initial metadata ingress; bank provider ingestion and full turnkey
+configuration/orchestration remain unfinished.

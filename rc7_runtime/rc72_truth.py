@@ -132,6 +132,9 @@ def _require_node(out: Dict[str, Any], field: str) -> None:
 
 def validate_release_batch(payload: Dict[str, Any]) -> Dict[str, Any]:
     out = _base(payload, "rc72_release_batch", "release_batch_id")
+    if 'registration' in out:
+        from .rc72_batch_registration import validate_registration
+        validate_registration(out['registration'])
     _required_fields(out, ("name", "state", "readiness"))
     for field in ("version_ids", "application_ids", "requirement_ids"):
         _list(out, field)

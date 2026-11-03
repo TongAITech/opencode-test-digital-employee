@@ -9,9 +9,20 @@ from rc7_runtime.rc72_release_driver import release_batch_status
 from rc7_runtime.models import ContractError
 
 
+def _public_hold(args, exc):
+    code = str(exc).split(':', 1)[0]
+    if (not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', code)
+            or not code.startswith(('MISSION_', 'RC72_', 'FIELD_MISSION_', 'BANK_PIP_MIRROR_', 'PIP_MIRROR_'))):
+        code = 'MISSION_RUN_CONTRACT_HOLD'
+    return dict(release_batch_id=args.release_batch, release_id=args.release_id,
+        source_commit=args.source_commit, status='HOLD', reason=code,
+        field_verified=False, bank_final=False)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description='RC7.2 ReleaseBatch mission')
-    parser.add_argument('command', choices=['status', 'run', 'mirror-check'])
+    parser.add_argument('command', choices=['register', 'status', 'run', 'mirror-check'])
+    parser.add_argument('--batch-input')
     parser.add_argument('--ledger', required=True)
     parser.add_argument('--source-commit', required=True)
     parser.add_argument('--release-batch', required=True)
@@ -26,6 +37,34 @@ def main(argv=None):
     if args.command != 'mirror-check' and (args.bridge_user_config or args.retry_returned_failure):
         parser.error('mirror options require mirror-check')
     path = Path(args.ledger).expanduser().resolve()
+    if args.command == 'register':
+        if (not all((args.batch_input, args.release_id, args.package_root))
+                or any((args.bindings_module, args.mission_config, args.evidence_root))):
+            parser.error('register requires batch-input, release-id and package-root without runtime bindings')
+        root = Path(args.package_root).expanduser().resolve()
+        source = root/'SOURCE_COMMIT'
+        if not source.is_file() or source.read_text(encoding='utf-8').strip() != args.source_commit:
+            parser.error('register requires the exact package source commit')
+        try:
+            if (root/'PACKAGE_MANIFEST.json').is_file():
+                from rc7_release.rc72_package import verify_package
+                from rc7_release.rc72_complete_payload_inventory import verify_inventory
+                verify_package(root, expected_source_commit=args.source_commit)
+                verify_inventory(root)
+            from rc7_runtime.rc72_batch_registration import read_batch_input, register_batch
+            from rc7_runtime.rc72_truth import install_rc72_truth_overlay
+            payload = read_batch_input(args.batch_input, release_id=args.release_id,
+                source_commit=args.source_commit, release_batch_id=args.release_batch)
+            install_rc72_truth_overlay()
+            result = register_batch(TruthRuntime(path), payload)
+        except (ContractError, RuntimeError, OSError, ValueError) as exc:
+            result = _public_hold(args, exc)
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            return 37
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+        return 0
+    if args.batch_input:
+        parser.error('batch-input requires register')
     if not path.is_file():
         parser.error('existing canonical ledger required')
     truth = TruthRuntime(path)
@@ -77,13 +116,7 @@ def main(argv=None):
         except (ContractError, RuntimeError, OSError, ValueError) as exc:
             # Public run output carries only a contract code. Error details may
             # include private host paths or credentials and are not receipts.
-            code = str(exc).split(':', 1)[0]
-            if (not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', code)
-                    or not code.startswith(('MISSION_', 'RC72_', 'FIELD_MISSION_', 'BANK_PIP_MIRROR_', 'PIP_MIRROR_'))):
-                code = 'MISSION_RUN_CONTRACT_HOLD'
-            result = dict(release_batch_id=args.release_batch, release_id=args.release_id,
-                source_commit=args.source_commit, status='HOLD', reason=code,
-                field_verified=False, bank_final=False)
+            result = _public_hold(args, exc)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     if args.command == 'status':
         return 0

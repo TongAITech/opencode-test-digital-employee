@@ -78,6 +78,9 @@ def release_batch_status(truth, *, source_commit, release_batch_id):
     if len(batches) != 1:
         raise ContractError('RC72_RELEASE_DRIVER_TRUTH_NOT_UNIQUE:rc72_release_batch')
     batch = batches[0]
+    registration = batch.get('registration')
+    if registration and registration['source_commit'] != source_commit:
+        raise ContractError('MISSION_BATCH_REGISTERED_SOURCE_MISMATCH')
     rows = truth.query('rc72_mission_node', mission_id=batch['mission_id'])
     by_type = {row['node_type']: row for row in rows}
     if len(by_type) != len(rows):
