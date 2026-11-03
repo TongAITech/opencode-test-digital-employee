@@ -18,8 +18,9 @@ from test_rc72_n7_execution_preparation import _setup, _service
 from rc72_n2_test_support import MISSION, RELEASE
 
 
-def _fenced(tmp_path, monkeypatch):
+def _fenced(tmp_path, monkeypatch, *, team_id=None):
     truth, plan = _setup(tmp_path, monkeypatch)
+    team_id = team_id or "TEAM-" + MISSION
     item = plan["items"][0]
     etu = truth.query("rc72_etu", etu_id=item["etu_id"])[0]
     contract = truth.query("rc72_n6_executable_contract", contract_id=item["contract_id"])[0]
@@ -29,14 +30,14 @@ def _fenced(tmp_path, monkeypatch):
     lifecycle = WorkerLifecycleService(truth, release_id=RELEASE)
     captain = CaptainDispatchFencer(truth, release_id=RELEASE)
     owner = captain.acquire_initial(
-        mission_id=MISSION, team_id="TEAM-" + MISSION,
+        mission_id=MISSION, team_id=team_id,
         captain_session_id="CAPTAIN-N7-A")
     scheduler = CaptainFencedWorkItemScheduler(
         truth=truth, release_id=RELEASE, fencer=captain,
         lifecycle=lifecycle, scheduler=TaskScheduler(truth, RELEASE),
         role_profiles={role: capabilities})
     dispatch = scheduler.dispatch_etu(
-        mission_id=MISSION, team_id="TEAM-" + MISSION,
+        mission_id=MISSION, team_id=team_id,
         captain_session_id="CAPTAIN-N7-A", captain_lease_id=owner["lease_id"],
         role=role, etu_id=item["etu_id"], workitem_id=item["workitem_id"],
         canonical_refs={
@@ -93,6 +94,7 @@ def test_cold_r1_fenced_worker_consumption_preserves_worker_identity(tmp_path, m
 
 
 @pytest.mark.parametrize("change", [
+    {"team_id": "TEAM-WRONG"},
     {"admission_id": "CAPAD-MISSING-R1-PROOF"},
     {"worker_id": "WRK-FORGED"},
     {"etu_id": "ETU-WRONG"},
@@ -128,3 +130,22 @@ def test_quiesced_captain_cannot_issue_new_signed_n7_preparation(tmp_path, monke
             fenced_admission=dispatch)
     assert list(truth.store.iter_raw()) == before
     assert truth.query("rc72_n7_execution_preparation") == []
+
+
+
+def test_real_n7_signed_worker_supports_independent_agentteams_team_id(tmp_path, monkeypatch):
+    team_id = "TEAM-AGENTTEAMS-ISOLATED-001"
+    truth, plan, item, _, _, _, dispatch = _fenced(
+        tmp_path, monkeypatch, team_id=team_id)
+    assert dispatch.team_id == team_id
+    recorded = truth.query(
+        "rc72_captain_etu_admission", admission_id=dispatch.admission_id)[0]
+    assert recorded["team_id"] == team_id
+    prepared = _service(truth).prepare(
+        plan_id=plan["plan_id"], workitem_id=item["workitem_id"],
+        fenced_admission=dispatch)
+    assert prepared["worker_id"] == dispatch.worker_id
+    session = truth.query("rc72_worker_session", session_id=dispatch.session_id)[0]
+    assert session["team_id"] == team_id
+    assert session["context_bundle"]["team_id"] == team_id
+    assert len(truth.query("rc72_worker_session", mission_id=MISSION)) == 1
