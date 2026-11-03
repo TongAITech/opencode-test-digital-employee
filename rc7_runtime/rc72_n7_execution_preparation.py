@@ -118,7 +118,11 @@ class ExecutionPreparationService:
         if current:
             if len(current) != 1 or current[0].get('plan_id') != plan_id:
                 raise ExecutionPreparationError('N7_PREPARATION_NOT_UNIQUE')
-            return self.assert_current(current[0]['preparation_id'])
+            # Existing PREPARED is not a shortcut around Captain custody:
+            # verify the caller's *current* exact R1 admission inside the
+            # same ledger lock used for restoring signed TaskLease authority.
+            return self.assert_current(current[0]['preparation_id'],
+                                       fenced_admission=fenced_admission)
         history = self.truth.query(_ARTIFACT, workitem_id=workitem_id)
         previous = max(history, key=lambda value: value['attempt_generation']) if history else None
         generation = int(previous['attempt_generation']) + 1 if previous else 1
@@ -375,7 +379,50 @@ class ExecutionPreparationService:
                 attempt_id=row['attempt_id'], worker_id=row['worker_id'], access_mode=BrowserAccessMode.WRITE,
                 auth_asset_ref=planned['browser_context'])
 
-    def assert_current(self, preparation_id: str) -> Dict[str, Any]:
+    def _verify_existing_fenced_admission(self, row, fenced_admission):
+        """Runs under the shared R1 decision lock; cannot mint new authority."""
+        from .rc72_captain_scheduling import GovernedFreshDispatch
+        from .rc72_captain_dispatch_fencing import CaptainDispatchFencer
+        if not isinstance(fenced_admission, GovernedFreshDispatch):
+            raise ExecutionPreparationError('N7_FENCED_ADMISSION_TYPE_REQUIRED')
+        proven = self.truth.query('rc72_captain_etu_admission',
+                                  admission_id=fenced_admission.admission_id)
+        if len(proven) != 1:
+            raise ExecutionPreparationError('N7_FENCED_ADMISSION_R1_REQUIRED')
+        proof = proven[0]
+        expected = {
+            'release_id': self.release_id,
+            'mission_id': row['mission_id'],
+            'team_id': fenced_admission.team_id,
+            'workitem_id': row['workitem_id'],
+            'etu_id': row['etu_id'],
+            'worker_id': row['worker_id'],
+            'session_id': row['session_id'],
+            'role': row['worker_identity']['role'],
+            'captain_lease_id': fenced_admission.captain_lease_id,
+            'captain_session_id': fenced_admission.captain_session_id,
+            'captain_generation': fenced_admission.captain_generation,
+            'state': 'LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH',
+        }
+        if (fenced_admission.state != expected['state']
+                or proof.get('artifact_version') != 1
+                or any(proof.get(key) != value for key, value in expected.items())
+                or any(getattr(fenced_admission, key) != value for key, value in
+                       expected.items() if key not in {'release_id'})):
+            raise ExecutionPreparationError('N7_FENCED_EXISTING_ADMISSION_MISMATCH')
+        owner = CaptainDispatchFencer(self.truth, release_id=self.release_id)._owner(
+            row['mission_id'], fenced_admission.captain_lease_id,
+            fenced_admission.captain_session_id, int(time.time()))
+        if owner['team_id'] != proof['team_id'] or owner['generation'] != proof['captain_generation']:
+            raise ExecutionPreparationError('N7_FENCED_EXISTING_CAPTAIN_FENCED')
+        existing_session = self._one('rc72_worker_session', session_id=row['session_id'])
+        if (existing_session.get('state') != 'ACTIVE'
+                or existing_session.get('team_id') != proof['team_id']
+                or existing_session.get('worker_id') != row['worker_id']
+                or existing_session.get('binding_id') != row['binding_id']):
+            raise ExecutionPreparationError('N7_FENCED_EXISTING_WORKER_SCOPE_MISMATCH')
+
+    def assert_current(self, preparation_id: str, *, fenced_admission=None) -> Dict[str, Any]:
         from .rc72_ledger_lock import ledger_lock
         # Existing signed suspension is already sufficient to deny permission,
         # even while its live owner holds the ledger lock. Recheck after refresh.
@@ -384,6 +431,9 @@ class ExecutionPreparationService:
         # decision lock. Per-resource refreshes followed by another replay left
         # a gap between the last ownership check and authority restoration.
         with ledger_lock(self.truth, busy='N7_PREPARATION_LEDGER_BUSY', conflict=ExecutionPreparationError):
+            if fenced_admission is not None:
+                existing = self._one(_ARTIFACT, preparation_id=preparation_id)
+                self._verify_existing_fenced_admission(existing, fenced_admission)
             return self._assert_current_locked(preparation_id)
 
     def _assert_current_locked(self, preparation_id):
