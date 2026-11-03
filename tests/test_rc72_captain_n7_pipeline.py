@@ -185,3 +185,68 @@ def test_governed_pipeline_reentry_fences_foreign_captain_without_replaying_busi
     finally:
         server.shutdown()
         server.server_close()
+
+
+
+def test_captain_cannot_handoff_during_durable_in_flight_n7_business_invocation(
+        tmp_path, monkeypatch):
+    """The shared R1 ledger refuses handoff after intent, before tool response."""
+    truth, plan, prep, server, url = formal_setup(tmp_path, monkeypatch)
+    try:
+        pipeline, fencer, lifecycle, owner = _governed_pipeline(
+            truth, plan, prep, url, tmp_path)
+        original_run = pipeline.runner.run_with_dispatch
+        blocked = []
+        def observe_handoff_during_inflight(*, contract, context, dispatcher):
+            assert truth.query("rc72_n7_tool_dispatch")[0]["state"] == "IN_FLIGHT"
+            with pytest.raises(ContractError, match="CAPTAIN_HANDOFF_ACTIVE_EXECUTION_RECONCILIATION_REQUIRED"):
+                fencer.prepare_handoff(
+                    mission_id=plan["mission_id"], team_id=pipeline.team_id,
+                    lease_id=owner["lease_id"],
+                    captain_session_id=owner["captain_session_id"],
+                    lifecycle=lifecycle, current_node_refs=["N7_EXECUTION"],
+                    latest_delivery_refs=[], latest_gate_refs=[],
+                    next_workitem_ids=[])
+            blocked.append(True)
+            return original_run(contract=contract, context=context, dispatcher=dispatcher)
+        monkeypatch.setattr(pipeline.runner, "run_with_dispatch",
+                            observe_handoff_during_inflight)
+        result = pipeline.complete(release_batch_id=BATCH)
+        assert result["state"] == "N7_PASS"
+        assert blocked and len(server.calls) == len(plan["items"])
+        assert fencer._latest(plan["mission_id"])["state"] == "ACTIVE"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_captain_handoff_after_preflight_before_dispatch_intent_blocks_external_io(
+        tmp_path, monkeypatch):
+    """The final shared-ledger check closes check -> intent TOCTOU."""
+    truth, plan, prep, server, url = formal_setup(tmp_path, monkeypatch)
+    try:
+        pipeline, fencer, lifecycle, owner = _governed_pipeline(
+            truth, plan, prep, url, tmp_path)
+        old_preflight = pipeline.runner.preflight
+        checkpoints = []
+        def handoff_during_preflight(*, contract, context):
+            old_preflight(contract=contract, context=context)
+            receipt = fencer.prepare_handoff(
+                mission_id=plan["mission_id"], team_id=pipeline.team_id,
+                lease_id=owner["lease_id"],
+                captain_session_id=owner["captain_session_id"],
+                lifecycle=lifecycle, current_node_refs=["N7_EXECUTION"],
+                latest_delivery_refs=[], latest_gate_refs=[],
+                next_workitem_ids=[])
+            checkpoints.append(receipt.checkpoint_id)
+        monkeypatch.setattr(pipeline.runner, "preflight",
+                            handoff_during_preflight)
+        with pytest.raises(ContractError, match="CAPTAIN_DISPATCH_NOT_ACTIVE"):
+            pipeline.complete(release_batch_id=BATCH)
+        assert len(checkpoints) == 1
+        assert server.calls == []
+        assert truth.query("rc72_n7_tool_dispatch") == []
+        assert fencer._latest(plan["mission_id"])["state"] == "QUIESCED"
+    finally:
+        server.shutdown()
+        server.server_close()
