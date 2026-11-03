@@ -127,7 +127,7 @@ def test_real_command_boundary_tracks_native_augmented_prompt_and_measured_usage
     assert call["total_tokens"] == 120
     assert call["context_sha256"] == hashlib.sha256(actual_prompt.encode("utf-8")).hexdigest()
     assert call["workitem_id"] == "WI-1"
-    assert "MISSION_QUOTA_EQUIVALENT_TARGET_EXCEEDED" in call["reason"]
+    assert "MISSION_QUOTA_EQUIVALENT_TARGET_EXCEEDED" in call["economy_signal"]
 
     usage = truth.query("rc72_token_usage", mission_id="M-1")[0]
     assert usage["observation_status"] == "OBSERVED"
@@ -174,7 +174,7 @@ def test_quota_pressure_only_warns_and_does_not_drop_mandatory_work(tmp_path):
     calls = truth.query("rc72_token_call", mission_id="M-1")
     assert {item["workitem_id"] for item in calls} == {"WI-1", "WI-2"}
     assert all(item["state"] == "COMPLETED" for item in calls)
-    assert any("MISSION_MODEL_CALL_TARGET_EXCEEDED" in item["reason"] for item in calls)
+    assert any("MISSION_MODEL_CALL_TARGET_EXCEEDED" in item["economy_signal"] for item in calls)
 
 
 def test_process_exception_retains_unknown_usage_and_does_not_fabricate_success(tmp_path):
