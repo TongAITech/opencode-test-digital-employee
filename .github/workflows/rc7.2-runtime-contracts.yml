@@ -18,6 +18,12 @@ on:
 permissions:
   contents: read
 
+# Only the latest PR HEAD is a meaningful qualification identity. Avoid
+# accumulating misleading/stale checks while parallel workstreams are coding.
+concurrency:
+  group: rc72-c06-c07-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   runtime-lease-and-handoff:
     name: runtime-contract-${{ matrix.os }}-python-${{ matrix.python-version }}
@@ -51,3 +57,12 @@ jobs:
           tests/test_rc72_resource_process_exclusion.py
           tests/test_rc72_expired_resource_recovery.py
           tests/test_rc72_n7_pipeline.py
+          --junitxml=rc72-c06-c07-results.xml
+      - name: Upload precise-HEAD contract test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc72-c06-c07-${{ matrix.os }}-python-${{ matrix.python-version }}
+          path: rc72-c06-c07-results.xml
+          if-no-files-found: warn
+          retention-days: 14
