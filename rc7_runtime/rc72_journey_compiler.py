@@ -96,6 +96,7 @@ def _validate_candidate(payload: Dict[str, Any]) -> Dict[str, Any]:
         _optional_string(step, "value_ref")
         _optional_string(step, "credential_ref")
         _optional_string(step, "oracle_ref")
+        _optional_string(step, "dialog_policy_ref")
         for list_name in ("network_refs", "evidence_refs"):
             refs = step.get(list_name)
             if not isinstance(refs, list) or not all(isinstance(ref, str) and ref.strip() for ref in refs):
