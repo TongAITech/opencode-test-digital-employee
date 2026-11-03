@@ -22,6 +22,7 @@ from .rc72_model_economy import (
     ModelCallClass, MissionCriticality, SemanticCostClass,
 )
 from .rc72_model_usage import TokenUsageAuditService
+from .rc72_native_context_projection import native_context_projection
 from .rc72_schedule_semantics import WorkScheduleSemanticsService
 from .rc72_production_economy_wiring import (
     ProductionEconomyBindingError, bind_production_model_economy,
@@ -150,7 +151,15 @@ def canonical_role_metadata_resolver(
         if len(bindings) > 1:
             raise ProductionEconomyBindingError("RC72_ECONOMY_ATTEMPT_LINEAGE_AMBIGUOUS")
         retry = bool(bindings and bindings[0].get("parent_attempt_id"))
+        context = native_context_projection(
+            truth, assignment=assignment, task=task, mission_id=mission_id,
+            release_id=str(task["release_id"]),
+            execution_mode=execution_mode,
+            mission_criticality=criticality,
+            semantic_cost_class=cost,
+        )
         return {
+            **context,
             "mission_id": mission_id,
             "workitem_id": workitem_id,
             "attempt_id": attempt_id,
