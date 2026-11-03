@@ -5,8 +5,9 @@ from rc72_n2_test_support import BATCH
 from test_rc72_native_coverage_diagnosis import _diagnosis
 from rc7_runtime.closed_loop_control import ClosedLoopControlPlane
 from rc7_runtime.control_plane import WorkerOutput
-from rc7_runtime.models import Artifact,Evidence,Evaluation,EvaluationResult
+from rc7_runtime.models import Artifact,Evidence,Evaluation,EvaluationResult,ContractError
 from rc7_runtime.truth_overlay import append_entity
+from rc7_runtime.rc72_libra_measurement import NativeLibraMeasurementService
 from rc7_runtime.rc72_native_coverage_repair import NativeCoverageRepairService
 from rc7_runtime.rc72_n10_control import NativeN10ControlService
 
@@ -63,6 +64,12 @@ def test_accepted_repair_opens_signed_fresh_n7_fence_and_n10_refuses_old_epoch(t
         assert boundary['state']=='FRESH_N7_REQUIRED'
         assert 'product_defect' not in boundary and not truth.query('rc7_defect')
         calls=len(server.calls);business_calls=len(business.calls);before=truth.store.path.read_bytes()
+        blocked=diagnosis.measurement.collect(release_batch_id=BATCH,application_id=server.app)
+        assert blocked['reason']=='LIBRA_POST_REPAIR_FRESH_N7_REQUIRED'
+        cold=NativeLibraMeasurementService(diagnosis.measurement.expected_scope,diagnosis.measurement.n9,capture_root=diagnosis.measurement.root)
+        with pytest.raises(ContractError,match='LIBRA_POST_REPAIR_FRESH_N7_REQUIRED'):
+            cold.audit(release_batch_id=BATCH,application_id=server.app)
+        assert truth.store.path.read_bytes()==before and len(server.calls)==calls and len(business.calls)==business_calls
         control=NativeN10ControlService(diagnosis.measurement.expected_scope,diagnosis.measurement.n9,
             diagnosis.measurement,diagnosis.intake,diagnosis,repair=repair)
         result=control.complete(release_batch_id=BATCH)

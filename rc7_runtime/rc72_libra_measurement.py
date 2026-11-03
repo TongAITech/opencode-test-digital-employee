@@ -22,6 +22,7 @@ from .rc72_n7_execution_admission import _hash
 from .rc72_ledger_lock import ledger_lock
 from .rc72_domain import AutonomousMissionNode, MissionNodeState
 from .rc72_libra_report_review import review
+from .rc72_native_coverage_repair import active_repair_boundaries
 
 _KIND='rc72_libra_measurement';_EVENT='RC72_LIBRA_MEASUREMENT_UPSERTED'
 _TOOL='libra_incremental_read';_ROLE='RC72_COVERAGE_AUDITOR'
@@ -102,6 +103,11 @@ class NativeLibraMeasurementService:
         clearance=self._one('rc72_n9_accepted_scope',clearance_id=accepted['clearance_id'])
         return policy,clearance['snapshot']['proof']
 
+    def _active_repair_fences(self,release_batch_id,application_id,n7_gate_id):
+        rows=active_repair_boundaries(self.truth,self.authority,release_id=self.release_id,source_commit=self.source_commit,
+            release_batch_id=release_batch_id,application_id=application_id)
+        return [row for row in rows if row['origin_n7_gate_id']==n7_gate_id]
+
     def _inputs(self,policy,proof):
         n1_gate=self._one('rc72_node_gate',gate_id=policy['n1_gate_id'])
         n1_delivery=self._one('rc72_node_delivery',delivery_id=n1_gate['delivery_id'])
@@ -125,6 +131,8 @@ class NativeLibraMeasurementService:
 
     def collect(self,*,release_batch_id,application_id):
         policy,proof=self._context(release_batch_id)
+        blocked=self._active_repair_fences(release_batch_id,application_id,proof['n7_gate_id'])
+        if blocked:return dict(status='HOLD',reason='LIBRA_POST_REPAIR_FRESH_N7_REQUIRED',repair_ids=[row['repair_id'] for row in blocked])
         epoch=self.truth.store._next_seq
         targets=policy.get('coverage_targets',{})
         if application_id not in targets:return dict(status='HOLD',reason='NATIVE_LIBRA_TARGET_POLICY_REQUIRED')
@@ -181,6 +189,8 @@ class NativeLibraMeasurementService:
                     self._actor(row,identity,lease)
                     if _hash(current)!=row['policy_sha256'] or current_proof['n7_gate_id']!=row['n7_gate_id']:
                         raise ContractError('LIBRA_MEASUREMENT_SOURCE_CHANGED_AFTER_READ')
+                    if self._active_repair_fences(release_batch_id,application_id,current_proof['n7_gate_id']):
+                        raise ContractError('LIBRA_POST_REPAIR_FRESH_N7_REQUIRED')
                     row=self._persist(dict(row,state='RETURNED',**observed))
                     self.authority.revoke_worker_lease(lease.lease_id)
             except BaseException as exc:
@@ -192,6 +202,8 @@ class NativeLibraMeasurementService:
 
     def audit(self,*,release_batch_id,application_id):
         policy,proof=self._context(release_batch_id,audit_only=True)
+        if self._active_repair_fences(release_batch_id,application_id,proof['n7_gate_id']):
+            raise ContractError('LIBRA_POST_REPAIR_FRESH_N7_REQUIRED')
         epoch=self.truth.store._next_seq
         if application_id not in policy.get('coverage_targets',{}):return None
         mid='LIBRA-'+_hash([policy['input_id'],policy['input_sha256'],proof['n7_gate_id'],application_id])[:24]
@@ -283,6 +295,8 @@ class NativeLibraMeasurementService:
         self._verify_review_process(row,proof)
         if row.get('review_exit_code')!=0 or result!=dict(valid=True,result=expected):raise ContractError('LIBRA_REVIEW_RESULT_MISMATCH')
         current,current_proof=self._context(row['release_batch_id'])
+        if self._active_repair_fences(row['release_batch_id'],row['application_id'],current_proof['n7_gate_id']):
+            raise ContractError('LIBRA_POST_REPAIR_FRESH_N7_REQUIRED')
         epoch=self.truth.store._next_seq
         with ledger_lock(self.truth,busy='LIBRA_ACCEPTANCE_LEDGER_BUSY'):
             if self.truth.store._next_seq!=epoch:raise ContractError('LIBRA_SOURCE_CHANGED_BEFORE_ACCEPTANCE')
