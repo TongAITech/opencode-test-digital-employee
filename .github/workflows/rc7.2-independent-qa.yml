@@ -1,18 +1,8 @@
 name: RC7.2 Independent QA C01 C02
 on:
-  push:
-    branches:
-      - work/rc7.2-qa-release
-    paths:
-      - 'tests/test_rc72_qa_c01_c02_independent.py'
-      - 'tests/test_rc72_qa_product_wiring.py'
-      - 'tests/test_rc72_qa_offline_payload.py'
-      - 'tools/rc72_qa_offline_audit.py'
-      - 'tests/test_rc72_qa_field_evidence.py'
-      - 'tests/test_rc72_qa_design_clause_ledger.py'
-      - 'packaging/rc7.2/QA-Q3-Q9-EVIDENCE.py'
-      - 'docs/rc7.2/qa-release/**'
-      - '.github/workflows/rc7.2-independent-qa.yml'
+  # The QA branch always has an open draft PR into work/rc7.2. Running
+  # both push and pull_request duplicates four full platform jobs per SHA
+  # and can starve actual same-HEAD qualification. Use one PR matrix.
   pull_request:
     branches:
       - work/rc7.2
