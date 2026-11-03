@@ -101,7 +101,7 @@ class CaptainDispatchFencer:
             raise ContractError("CAPTAIN_DISPATCH_FENCED")
         if lease["state"] != "ACTIVE":
             raise ContractError("CAPTAIN_DISPATCH_NOT_ACTIVE")
-        if now > lease["expires_at"]:
+        if now >= lease["expires_at"]:
             self._replace(lease, state="EXPIRED")
             raise ContractError("CAPTAIN_DISPATCH_LEASE_EXPIRED")
         return lease
