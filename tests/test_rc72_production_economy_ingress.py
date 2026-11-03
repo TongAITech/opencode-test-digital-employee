@@ -109,6 +109,11 @@ def test_real_all_role_binding_tracks_producer_and_independent_reviewer_as_disti
     assert {row["attempt_id"] for row in calls} == {"ATT-1", "ATT-REVIEW"}
     assert {row["state"] for row in calls} == {"COMPLETED"}
     assert {row["usage_status"] for row in calls} == {"MEASURED"}
+    assert {row["context_projection_status"] for row in calls} == {"REFERENCE_ONLY"}
+    assert {row["context_projection_applied_to_prompt"] for row in calls} == {False}
+    assert all(row["context_envelope_id"].startswith("CTX-") for row in calls)
+    assert budget.summary("MISSION-C10")["native_reference_projection_calls"] == 2
+    assert budget.summary("MISSION-C10")["verified_context_savings_bytes"] is None
     assert len(truth.query("rc72_token_usage", mission_id="MISSION-C10")) == 2
     assert budget.summary("MISSION-C10")["actual_total_tokens"] == 24
     assert {row["task_id"] for row in truth.query("rc7_task", mission_id="MISSION-C10")} == {"WI-DESIGN"}
