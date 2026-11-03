@@ -377,8 +377,12 @@ class ReleaseBatchDriver:
                                 and result.get('preparation_id')):
                             prepared=self._one('rc72_n7_execution_preparation',
                                 preparation_id=result['preparation_id'])
-                            attempts=self.truth.query('execution_attempt',attempt_id=prepared['attempt_id'])
-                            if len(attempts)==1 and attempts[0]['status']=='BLOCKED':
+                            dispatch=self.truth.query('rc72_n7_tool_dispatch',
+                                preparation_id=prepared['preparation_id'])
+                            if (len(dispatch)==1 and dispatch[0]['state'] in {'FAILED','RETURNED'}):
+                                # Native N8 first admits the original signed
+                                # Attempt if N7 failed before it was projected.
+                                # It cannot start another N7 business call.
                                 recovery=self.n8_pipeline.complete(release_batch_id=release_batch_id)
                                 return dict(self.status(release_batch_id=release_batch_id),**recovery)
                         return dict(self.status(release_batch_id=release_batch_id), **result)
