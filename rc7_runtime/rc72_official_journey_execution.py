@@ -68,6 +68,8 @@ def _validate_execution(payload: Dict[str, Any]) -> Dict[str, Any]:
         out[name] = _required(out, name)
     out["artifact_type"] = _EXECUTION
     out["artifact_version"] = _contracts._artifact_version(out)
+    if out.get("case_id") is not None:
+        out["case_id"] = _required(out, "case_id")
     try:
         out["state"] = OfficialJourneyExecutionState(out["state"].upper()).value
     except ValueError as exc:
@@ -211,35 +213,62 @@ class OfficialJourneyExecutionService:
 
     def _adapter_outcome(self, step: Mapping[str, Any], context: Mapping[str, Any]) -> Dict[str, Any]:
         try:
+            # The service fences *every* adapter (including BSK/contract adapters),
+            # not merely the concrete Playwright implementation.
+            live_lease = self.browser_pool.assert_usable(
+                browser_lease_id=str(context["browser_lease_id"]),
+                mission_id=str(context["mission_id"]),
+                workitem_id=str(context["workitem_id"]),
+                attempt_id=str(context["attempt_id"]),
+                worker_id=str(context["worker_id"]),
+                access_mode=BrowserAccessMode.WRITE,
+            )
+            if str(live_lease.get("purpose") or "").upper() != "OFFICIAL_JOURNEY_EXECUTION":
+                raise ContractError("JOURNEY_BROWSER_PURPOSE_CHANGED_DURING_ACTION")
             raw = self.adapter.execute_step(dict(step), dict(context))
+            # Revocation during a browser action must never produce a PASS.
+            live_lease = self.browser_pool.assert_usable(
+                browser_lease_id=str(context["browser_lease_id"]),
+                mission_id=str(context["mission_id"]),
+                workitem_id=str(context["workitem_id"]),
+                attempt_id=str(context["attempt_id"]),
+                worker_id=str(context["worker_id"]),
+                access_mode=BrowserAccessMode.WRITE,
+            )
+            if str(live_lease.get("purpose") or "").upper() != "OFFICIAL_JOURNEY_EXECUTION":
+                raise ContractError("JOURNEY_BROWSER_PURPOSE_CHANGED_DURING_ACTION")
+            if not isinstance(raw, Mapping):
+                raise ContractError("OFFICIAL_JOURNEY_ADAPTER_RESULT_INVALID")
+            status = str(raw.get("status") or "").upper()
+            if status not in {"PASSED", "FAILED"}:
+                raise ContractError("OFFICIAL_JOURNEY_ADAPTER_STATUS_INVALID")
+            actual_refs = list(_clean_refs(raw.get("actual_refs"), "actual_refs"))
+            evidence_refs = list(_clean_refs(raw.get("evidence_refs"), "evidence_refs"))
+            failure_code = raw.get("failure_code")
+            if status == "FAILED":
+                if not isinstance(failure_code, str) or not failure_code.strip():
+                    failure_code = "STEP_FAILED"
+                else:
+                    failure_code = failure_code.strip()
+            else:
+                failure_code = None
+            return {
+                "status": status,
+                "actual_refs": actual_refs,
+                "evidence_refs": evidence_refs,
+                "failure_code": failure_code,
+            }
         except Exception as exc:
+            # A malformed result can follow real browser I/O. Never leave a
+            # STARTED replay pretending it was a successful/known step.
+            from .rc72_journey_failure_receipt import adapter_exception_receipt
+            receipt = adapter_exception_receipt(self.truth, step=step, context=context, error=exc)
             return {
                 "status": "FAILED",
-                "actual_refs": ["adapter-error://%s" % step["sequence"]],
-                "evidence_refs": ["adapter-error://%s" % step["sequence"]],
-                "failure_code": "ADAPTER_EXCEPTION:%s" % exc.__class__.__name__,
+                "actual_refs": [receipt],
+                "evidence_refs": [receipt],
+                "failure_code": "ADAPTER_RUNTIME_EXCEPTION:%s" % exc.__class__.__name__,
             }
-        if not isinstance(raw, Mapping):
-            raise ContractError("OFFICIAL_JOURNEY_ADAPTER_RESULT_INVALID")
-        status = str(raw.get("status") or "").upper()
-        if status not in {"PASSED", "FAILED"}:
-            raise ContractError("OFFICIAL_JOURNEY_ADAPTER_STATUS_INVALID")
-        actual_refs = list(_clean_refs(raw.get("actual_refs"), "actual_refs"))
-        evidence_refs = list(_clean_refs(raw.get("evidence_refs"), "evidence_refs"))
-        failure_code = raw.get("failure_code")
-        if status == "FAILED":
-            if not isinstance(failure_code, str) or not failure_code.strip():
-                failure_code = "STEP_FAILED"
-            else:
-                failure_code = failure_code.strip()
-        else:
-            failure_code = None
-        return {
-            "status": status,
-            "actual_refs": actual_refs,
-            "evidence_refs": evidence_refs,
-            "failure_code": failure_code,
-        }
 
     def _field_verified(self) -> bool:
         return self.adapter_kind in self.trusted_field_adapter_kinds and bool(getattr(self.adapter, "field_verified", False))
@@ -270,9 +299,21 @@ class OfficialJourneyExecutionService:
                 raise ContractError("OFFICIAL_JOURNEY_%s_REQUIRED" % name.upper())
         if self.truth.query(_EXECUTION, execution_id=execution_id):
             raise ContractError("OFFICIAL_JOURNEY_EXECUTION_ALREADY_EXISTS")
+        if any(row.get("state") == "STARTED"
+               for row in self.truth.query(_EXECUTION, official_asset_id=official_asset_id)):
+            raise ContractError("OFFICIAL_JOURNEY_UNKNOWN_SIDE_EFFECTS_RECOVERY_REQUIRED")
+        if any(row.get("official_asset_id") == official_asset_id
+               and row.get("attempt_id") == attempt_id
+               for row in self.truth.query(_EXECUTION)):
+            raise ContractError("OFFICIAL_JOURNEY_ATTEMPT_ALREADY_USED_DIAGNOSIS_REQUIRED")
         asset = self._one("rc72_official_journey_asset", official_asset_id=official_asset_id)
         if asset.get("status") != "OFFICIAL" or asset.get("official") is not True or asset.get("executable") is not True:
             raise ContractError("OFFICIAL_JOURNEY_ASSET_NOT_EXECUTABLE")
+        if not any(step.get("action_type") == "ASSERT" and step.get("oracle_ref")
+                   for step in asset.get("steps", [])):
+            raise ContractError("OFFICIAL_JOURNEY_BUSINESS_ORACLE_REQUIRED")
+        from .rc72_journey_drift import JourneyDriftService
+        JourneyDriftService(self.truth, release_id=self.release_id).assert_eligible(official_asset_id)
         mission_id = str(asset["mission_id"])
         binding = self._binding(
             mission_id=mission_id, workitem_id=workitem_id, attempt_id=attempt_id,
@@ -286,14 +327,19 @@ class OfficialJourneyExecutionService:
             raise ContractError("OFFICIAL_JOURNEY_ETU_SCOPE_MISMATCH")
         if etu.get("obligation_id") != asset.get("obligation_id"):
             raise ContractError("OFFICIAL_JOURNEY_ETU_OBLIGATION_MISMATCH")
+        if (binding.get("case_id") not in list(etu.get("case_ids") or [])
+                or asset.get("case_id") != binding.get("case_id")):
+            raise ContractError("OFFICIAL_JOURNEY_CANONICAL_CASE_MISMATCH")
         task = self._one("rc7_task", task_id=workitem_id)
         if task.get("mission_id") != mission_id or official_asset_id not in list(task.get("input_artifact_refs") or []):
             raise ContractError("OFFICIAL_JOURNEY_WORKITEM_SCOPE_MISMATCH")
-        self.browser_pool.assert_usable(
+        lease = self.browser_pool.assert_usable(
             browser_lease_id=browser_lease_id, mission_id=mission_id,
             workitem_id=workitem_id, attempt_id=attempt_id, worker_id=worker_id,
             access_mode=BrowserAccessMode.WRITE,
         )
+        if str(lease.get("purpose") or "").upper() != "OFFICIAL_JOURNEY_EXECUTION":
+            raise ContractError("OFFICIAL_JOURNEY_BROWSER_PURPOSE_MISMATCH")
         steps = list(asset.get("steps") or [])
         if not steps:
             raise ContractError("OFFICIAL_JOURNEY_STEPS_REQUIRED")
@@ -307,6 +353,7 @@ class OfficialJourneyExecutionService:
             "requirement_id": asset["requirement_id"],
             "sst_id": asset["sst_id"],
             "obligation_id": asset["obligation_id"],
+            "case_id": binding["case_id"],
             "etu_id": binding["etu_id"],
             "test_level": test_level,
             "workitem_id": workitem_id,

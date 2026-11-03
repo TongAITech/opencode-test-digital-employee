@@ -171,6 +171,7 @@ def test_capture_truth_survives_r1_replay(tmp_path: Path):
     assert recording["requirement_id"] == "REQ-1"
     assert recording["sst_id"] == "SST-1"
     assert recording["obligation_id"] == "TO-1"
+    assert recording["case_id"] == "TC-1"
     assert recording["browser_lease_id"] == lease.browser_lease_id
     assert len(steps) == 1
     assert steps[0]["sequence"] == 1

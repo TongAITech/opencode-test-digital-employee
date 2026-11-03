@@ -164,3 +164,47 @@ def test_benchmark_policy_and_result_survive_r1_restart(tmp_path: Path):
     assert row["policy"]["min_replays"] == 2
     assert row["policy"]["min_field_verified_replays"] == 2
     assert row["field_benchmark_verified"] is True
+
+
+@pytest.mark.parametrize("field,value,error", [
+    ("attempt_id", "ATT-R1", "JOURNEY_BENCHMARK_ATTEMPT_REUSED"),
+    ("browser_lease_id", "BRLEASE-R1", "JOURNEY_BENCHMARK_BROWSER_LEASE_REUSED"),
+    ("release_batch_id", "RB-OTHER", "JOURNEY_BENCHMARK_REPLAY_LINEAGE_MISMATCH"),
+    ("obligation_id", "TO-OTHER", "JOURNEY_BENCHMARK_REPLAY_LINEAGE_MISMATCH"),
+])
+def test_benchmark_rejects_duplicate_or_cross_scope_browser_proof(tmp_path, field, value, error):
+    truth, service = _setup(tmp_path)
+    _replay(truth, "R1")
+    _replay(truth, "R2")
+    second = truth.query("rc72_journey_replay", replay_id="R2")[0]
+    changed = dict(second)
+    changed.pop("artifact_type", None)
+    changed["artifact_version"] += 1
+    changed[field] = value
+    truth.append_atomic("RC72_JOURNEY_REPLAY_UPSERTED", changed)
+    with pytest.raises(Exception, match=error):
+        service.evaluate(
+            benchmark_id="JB-DUPLICATE-PROOF", candidate_id="JC-1",
+            replay_ids=["R1", "R2"],
+            policy=JourneyBenchmarkPolicy(min_replays=2),
+        )
+    assert not truth.query("rc72_journey_benchmark")
+
+
+def test_benchmark_rejects_cross_case_replay_even_with_two_passes(tmp_path):
+    truth, service = _setup(tmp_path)
+    candidate = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]
+    new = dict(candidate)
+    new.pop("artifact_type", None)
+    new["artifact_version"] += 1
+    new["case_id"] = "TC-1"
+    truth.append_atomic("RC72_JOURNEY_CANDIDATE_UPSERTED", new)
+    _replay(truth, "R1")
+    _replay(truth, "R2")
+    with pytest.raises(Exception, match="JOURNEY_BENCHMARK_REPLAY_CASE_MISMATCH"):
+        service.evaluate(
+            benchmark_id="JB-CROSS-CASE", candidate_id="JC-1",
+            replay_ids=["R1", "R2"],
+            policy=JourneyBenchmarkPolicy(min_replays=2),
+        )
+    assert not truth.query("rc72_journey_benchmark")
