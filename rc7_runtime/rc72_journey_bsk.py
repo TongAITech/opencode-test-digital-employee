@@ -160,7 +160,7 @@ class JourneyBSKAdapter:
             raise ContractError("JOURNEY_BSK_CLI_RESULT_INVALID")
         return reply
 
-    def _sync(self, session: str, tab_id: int) -> None:
+    def _sync(self, session: str, tab_id: int) -> str:
         # BrowserSkill target/strict control requires a fresh cooperative
         # sync and a positive usable action context. Human hold/borrowed
         # ownership must not be bypassed by issuing the browser command.
@@ -172,6 +172,7 @@ class JourneyBSKAdapter:
         actual_tab = reply.get("tab_id")
         if actual_tab is not None and actual_tab != tab_id:
             raise ContractError("JOURNEY_BSK_CONTROL_TAB_MISMATCH")
+        return reply["context_id"]
 
     def _selector(self, raw_ref: str, context: Mapping[str, Any]) -> str:
         descriptor = self.resolve(raw_ref, "locator", context)
@@ -252,7 +253,8 @@ class JourneyBSKAdapter:
         if not passed:
             raise ContractError("JOURNEY_BSK_BUSINESS_ORACLE_FAILED")
 
-    def _action(self, step: Mapping[str, Any], context: Mapping[str, Any], session: str):
+    def _action(self, step: Mapping[str, Any], context: Mapping[str, Any],
+                session: str, control_context: str):
         kind = str(step.get("action_type") or "").upper()
         if kind == "ASSERT":
             self._assert(step, context, session)
@@ -316,7 +318,7 @@ class JourneyBSKAdapter:
                     args["values"] = [value]
         result = self._run([
             "step", "--session", session, "--tab-id", str(self._tab_id),
-            "--policy", "strict", "--action", action,
+            "--context", control_context, "--policy", "strict", "--action", action,
             "--params", json.dumps(args), "--json"])
         if (result.get("ok") is not True or result.get("phase") != "observed"
                 or result.get("action_replayed") is not False
@@ -363,9 +365,9 @@ class JourneyBSKAdapter:
             self._session = binding["session"]
             self._tab_id = binding["tab_id"]
             session = binding["session"]
-            self._sync(session, binding["tab_id"])
+            control_context = self._sync(session, binding["tab_id"])
             self._guard(context)
-            step_result = self._action(step, context, session)
+            step_result = self._action(step, context, session, control_context)
             # BSK's session may be stopped/borrow ownership revoked during the
             # action; never issue screenshot or PASS without a fresh lease guard.
             self._guard(context)
