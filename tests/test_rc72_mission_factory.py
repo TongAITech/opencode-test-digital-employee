@@ -137,3 +137,21 @@ def test_factory_n10_rejects_detached_rerun_before_side_effect(tmp_path):
     with pytest.raises(ContractError, match='N10_NATIVE_RERUN_COMPOSITION_REQUIRED'):
         driver.n10_pipeline._assert_inputs()
     assert truth.store.path.read_bytes() == before
+
+
+@pytest.mark.parametrize('mutation', ['cleanup_tool','diagnosis','continuation'])
+def test_factory_driver_refuses_n8_detached_native_recovery_before_any_r1_effect(tmp_path,mutation):
+    truth,options=_setup(tmp_path)
+    driver=create_mission_driver(truth,**options)
+    before=truth.store.path.read_bytes()
+    if mutation=='cleanup_tool':
+        driver.n8_pipeline.boundary.cleanup.adapters={'api_http':lambda **kwargs: {'fake':'cleanup'}}
+    elif mutation=='diagnosis':
+        driver.n8_pipeline.boundary.diagnosis=object()
+    else:
+        driver.n8_pipeline.continuation.diagnosis=object()
+    with pytest.raises(ContractError,match='RC72_RELEASE_DRIVER_N8_NATIVE_SCOPE_MISMATCH'):
+        driver._assert_n8_scope()
+    assert truth.store.path.read_bytes()==before
+    assert not truth.query('rc72_n8_repair_boundary')
+    assert not truth.query('rc72_n8_process_diagnosis')
