@@ -153,9 +153,17 @@ def test_pathological_same_context_runaway_remains_hard_guard(tmp_path: Path):
     _, service = _service(tmp_path, max_same_context_calls=1)
     _complete(service, suffix="RUNAWAY-1", prompt="same no-progress context")
 
-    blocked = _admit(
-        service,
-        suffix="RUNAWAY-2",
+    # Reusing the same canonical WorkItem without any contextual delta is
+    # a no-progress loop, even if the next Attempt identity changes.
+    blocked = service.admit_call(
+        mission_id=MISSION_ID,
+        node="N7",
+        stage="EXECUTION",
+        workitem_id="WI-RUNAWAY-1",
+        attempt_id="ATT-RUNAWAY-2",
+        agent_id="executor",
+        call_class=ModelCallClass.LLM_REQUIRED,
+        retry=True,
         prompt="same no-progress context",
     )
     assert not blocked.admitted
@@ -164,3 +172,15 @@ def test_pathological_same_context_runaway_remains_hard_guard(tmp_path: Path):
     qualification = service.qualification(MISSION_ID)
     assert qualification.status == "HOLD"
     assert qualification.reason == "MODEL_ECONOMY_WASTE_GUARD_TRIGGERED"
+
+
+def test_identical_context_across_distinct_required_workitems_does_not_trigger_waste_guard(tmp_path: Path):
+    truth, service = _service(tmp_path, max_same_context_calls=1)
+    first = _complete(service, suffix="SST-A", prompt="shared bounded semantic context")
+    second = _complete(service, suffix="SST-B", prompt="shared bounded semantic context")
+    assert first.admitted and second.admitted
+    rows = truth.query("rc72_token_call", mission_id=MISSION_ID)
+    assert len(rows) == 2
+    assert all(row["state"] == "COMPLETED" for row in rows)
+    assert {row["workitem_id"] for row in rows} == {"WI-SST-A", "WI-SST-B"}
+    assert service.summary(MISSION_ID)["blocked_calls"] == 0
