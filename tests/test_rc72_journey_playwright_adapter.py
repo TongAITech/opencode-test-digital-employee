@@ -515,3 +515,62 @@ def test_manual_wait_cannot_skip_page_navigation_not_yet_captured(tmp_path):
                                 wait_semantics="domcontentloaded") == "JR-WAIT-ORDER:3"
     recorder.record_assertion(page_role="config", oracle_ref="oracle://visible")
     assert recorder.finish().state.value == "CAPTURED"
+
+
+def test_replay_rejects_nonexistent_screenshot_as_real_browser_evidence(tmp_path):
+    truth, pool, lease, page, adapter, service = make_replay(tmp_path)
+    page.screenshot = lambda **kwargs: None  # API returned, no screenshot bytes
+    result = run_replay(service, lease)
+    assert result.state.value == "FAILED"
+    actual_file = tmp_path / "evidence" / "REAL-1" / "step-0001" / "actual.json"
+    assert actual_file.is_file()
+    actual = json.loads(actual_file.read_text())
+    assert actual["status"] == "FAILED"
+    assert actual["failure_code"] == "JOURNEY_SCREENSHOT_EVIDENCE_FAILED"
+    assert not (tmp_path / "evidence" / "REAL-1" / "step-0001" / "screen.png").exists()
+    assert truth.query("rc72_journey_replay", replay_id="REAL-1")[0]["field_verified"] is False
+
+
+def test_teaching_requires_valid_dom_projection_not_null_json(tmp_path):
+    truth, teaching, pool, lease = teaching_fixture(tmp_path)
+    page = FakePage()
+    page.url = "https://fat1.example/config"
+    original = page.evaluate
+    def invalid_dom(code):
+        if "document.querySelectorAll" in code:
+            return None
+        return original(code)
+    page.evaluate = invalid_dom
+    recorder = JourneyCDPTeachingRecorder(
+        teaching=teaching, evidence_root=tmp_path / "capture",
+        connector=lambda endpoint: FakeBrowser(page))
+    with pytest.raises(Exception, match="JOURNEY_TEACHING_DOM_EVIDENCE_INVALID"):
+        recorder.begin(
+            recording_id="JR-NO-DOM", mission_id="M-1", release_batch_id="RB-1",
+            requirement_id="REQ-1", sst_id="SST-1", obligation_id="TO-1",
+            workitem_id="WI-1", attempt_id="ATT-1", worker_id="WORKER-1",
+            session_id="SESSION-1", browser_lease_id=lease.browser_lease_id,
+            human_operator_ref="human://operator/001")
+    recording = truth.query("rc72_journey_recording", recording_id="JR-NO-DOM")[0]
+    assert recording["state"] == "CAPTURING"
+    assert recording["step_count"] == 0
+
+
+def test_teaching_does_not_commit_step_if_screenshot_bytes_missing(tmp_path):
+    truth, teaching, pool, lease = teaching_fixture(tmp_path)
+    page = FakePage()
+    page.url = "https://fat1.example/config"
+    page.screenshot = lambda **kwargs: None
+    recorder = JourneyCDPTeachingRecorder(
+        teaching=teaching, evidence_root=tmp_path / "capture",
+        connector=lambda endpoint: FakeBrowser(page))
+    with pytest.raises(Exception, match="JOURNEY_TEACHING_SCREENSHOT_REQUIRED"):
+        recorder.begin(
+            recording_id="JR-NO-SHOT", mission_id="M-1", release_batch_id="RB-1",
+            requirement_id="REQ-1", sst_id="SST-1", obligation_id="TO-1",
+            workitem_id="WI-1", attempt_id="ATT-1", worker_id="WORKER-1",
+            session_id="SESSION-1", browser_lease_id=lease.browser_lease_id,
+            human_operator_ref="human://operator/001")
+    row = truth.query("rc72_journey_recording", recording_id="JR-NO-SHOT")[0]
+    assert row["state"] == "CAPTURING"
+    assert row["step_count"] == 0
