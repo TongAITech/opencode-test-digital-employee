@@ -63,6 +63,7 @@ def _fixtures(tmp_path):
     control.register_task(Task(
         task_id="WI-DESIGN", mission_id="MISSION-C10",
         node="TEST_DESIGN", task_type="PRODUCE", objective="test obligations",
+        input_artifact_refs=['ART-VERY-LONG-REQUIREMENT-DOCUMENT-IDENTITY-001','ART-VERY-LONG-CODE-CHANGE-TRACE-IDENTITY-002','ART-VERY-LONG-DESIGN-OBLIGATION-EVIDENCE-003','ART-VERY-LONG-AUTHORIZED-PARENT-EVALUATION-004'],
     ))
     leased = control.scheduler.lease_task(
         "MISSION-C10", "WI-DESIGN", worker_ref="worker-design", capabilities=(),
@@ -302,3 +303,134 @@ def test_legacy_budget_upgrades_bank_window_without_changing_soft_targets(tmp_pa
     assert migrated["max_same_context_calls"] == 3
     assert migrated["bank_cost_window_config"]["timezone_name"] == "Asia/Shanghai"
     assert migrated["artifact_version"] == legacy["artifact_version"] + 1
+
+
+
+def test_signed_observed_n8_retry_actually_rehydrates_dsh_prompt_and_replays_r1(tmp_path):
+    import hashlib
+    from rc7_runtime.rc72_truth import install_rc72_truth_overlay
+    from rc7_runtime.rc72_retry_context import install_rc72_retry_context_overlay
+    from rc7_runtime.rc72_production_economy_ingress import canonical_role_metadata_resolver
+
+    install_rc72_truth_overlay()
+    truth, _, workers = _fixtures(tmp_path)
+    assignment = _assignment(
+        "task:WI-DESIGN", agent="designer",
+        attempt="ATT-CHILD", worker="worker-design",
+    )
+    task = truth.query("rc7_task", task_id="WI-DESIGN")[0]
+    old_refs = list(task["input_artifact_refs"])
+    truth.append_atomic("RC72_WORKITEM_ATTEMPT_BINDING_UPSERTED", {
+        "binding_id": "BIND-CHILD-N4",
+        "release_id": "REL-C10",
+        "mission_id": "MISSION-C10",
+        "etu_id": "ETU-DESIGN",
+        "workitem_id": "WI-DESIGN",
+        "case_id": "CASE-DESIGN",
+        "attempt_id": "ATT-CHILD",
+        "state": "RESERVED",
+        "worker_id": "worker-design",
+        "session_id": None,
+        "task_lease_ref": None,
+        "capability_lease_refs": [],
+        "resource_lease_refs": [],
+        "parent_attempt_id": "ATT-PARENT",
+        "mission_node_id": "MN-N4-REAL",
+        "mission_node_type": "N4_TEST_DESIGN",
+        "mission_node_lineage_status": "RESOLVED",
+        "mission_node_lineage_reason": None,
+        "created_at": 1,
+        "updated_at": 1,
+        "artifact_version": 1,
+    })
+    install_rc72_retry_context_overlay()
+    truth.append_atomic("RC72_RETRY_CONTEXT_COMPILED", {
+        "retry_context_id": "RETRY-N8-CHILD",
+        "release_id": "REL-C10",
+        "mission_id": "MISSION-C10",
+        "workitem_id": "WI-DESIGN",
+        "attempt_id": "ATT-CHILD",
+        "parent_attempt_id": "ATT-PARENT",
+        "assignment_id": assignment.assignment_id,
+        "observation_status": "OBSERVED",
+        "context_mode": "RETRY_DELTA",
+        "canonical_gap_refs": [],
+        "explicit_gap_refs": [],
+        "delta_evidence_refs": ["EVD-FIXED"],
+        "changed_dependency_refs": ["DEP-NEW"],
+        "canonical_lineage_refs_not_in_delta": old_refs,
+        "previous_attempt_summary_ref": "PREVIOUS-ATTEMPT-SUMMARY",
+        "full_context_reason": None,
+        "retry_delta_sha256": "a" * 64,
+        "recorded_at": 1,
+        "artifact_version": 1,
+    })
+    metadata = canonical_role_metadata_resolver(
+        truth, role="design", mission_id="MISSION-C10"
+    )(assignment)
+    assert metadata["retry_delta_native_authorized"] is True
+    assert metadata["context_mode"] == "RETRY_DELTA"
+
+    economy = bind_release_batch_model_economy(
+        truth, workers=workers, release_id="REL-C10", mission_id="MISSION-C10",
+    )
+    business = {
+        "mission_id": "MISSION-C10",
+        "workitem_id": "WI-DESIGN",
+        "input_refs": old_refs,
+        "required_obligations": ["negative", "boundary", "state", "regression"],
+        "required_oracles": ["DB", "API", "CAT"],
+    }
+    shape = {"status": "CANDIDATE", "cases": ["non-happy-path"], "gaps": []}
+    original_prompt = (
+        "Design the complete accepted requirement. Context="
+        + json.dumps(business, ensure_ascii=False, sort_keys=True)
+        + " RequiredShape=" + json.dumps(shape, ensure_ascii=False, sort_keys=True)
+    )
+    workers["design"].launcher.execute(assignment, original_prompt)
+    final_prompt = workers["design"].launcher.calls[0][-1]
+    assert len(final_prompt.encode()) < len(("NATIVE_BOUND\n" + original_prompt).encode())
+    updated_context, updated_shape = final_prompt.split(" Context=", 1)[1].split(" RequiredShape=", 1)
+    hydrated = json.loads(updated_context)
+    assert hydrated["input_refs"] == ["PREVIOUS-ATTEMPT-SUMMARY", "EVD-FIXED", "DEP-NEW"]
+    assert hydrated["required_obligations"] == business["required_obligations"]
+    assert hydrated["required_oracles"] == business["required_oracles"]
+    assert json.loads(updated_shape) == shape
+
+    call = truth.query("rc72_token_call", mission_id="MISSION-C10")[0]
+    assert call["context_projection_status"] == "NATIVE_RETRY_DELTA_VERIFIED"
+    assert call["context_projection_applied_to_prompt"] is True
+    assert call["context_mode"] == "RETRY_DELTA"
+    assert call["parent_attempt_id"] == "ATT-PARENT"
+    assert call["native_retry_delta_saved_bytes"] > 0
+    assert call["context_sha256"] == hashlib.sha256(final_prompt.encode()).hexdigest()
+    summary = economy.summary("MISSION-C10")
+    assert summary["native_minimal_prompt_proven_calls"] == 1
+    assert summary["observed_native_retry_delta_prompt_saved_bytes"] > 0
+    assert summary["verified_prompt_token_savings"] is None
+
+    replay = TruthRuntime(tmp_path / "r1" / "event-stream.jsonl")
+    observed = replay.query("rc72_token_call", call_id=call["call_id"])[0]
+    assert observed["native_retry_delta_saved_bytes"] == call["native_retry_delta_saved_bytes"]
+    assert replay.query("rc7_task", task_id="WI-DESIGN")[0]["input_artifact_refs"] == old_refs
+
+
+def test_unsigned_retry_observation_cannot_shrink_native_prompt(tmp_path):
+    truth, _, workers = _fixtures(tmp_path)
+    bind_release_batch_model_economy(
+        truth, workers=workers, release_id="REL-C10", mission_id="MISSION-C10",
+    )
+    assignment = _assignment("task:WI-DESIGN")
+    old_refs = truth.query("rc7_task", task_id="WI-DESIGN")[0]["input_artifact_refs"]
+    native = "Exact scope Context=" + json.dumps({
+        "mission_id": "MISSION-C10", "workitem_id": "WI-DESIGN",
+        "input_refs": old_refs,
+        "required_oracles": ["DB", "API", "CAT"],
+    })
+    workers["design"].launcher.execute(assignment, native)
+    actual = workers["design"].launcher.calls[0][-1]
+    assert json.loads(actual.split(" Context=", 1)[1])["input_refs"] == old_refs
+    call = truth.query("rc72_token_call", mission_id="MISSION-C10")[0]
+    assert call["context_projection_status"] == "REFERENCE_ONLY"
+    assert call["context_projection_applied_to_prompt"] is False
+    assert call["native_retry_delta_saved_bytes"] == 0
