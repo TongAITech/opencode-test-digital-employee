@@ -208,14 +208,13 @@ class JourneyCDPTeachingRecorder:
         self._guard()
         if self.page is None:
             raise ContractError("JOURNEY_TEACHING_PAGE_UNAVAILABLE")
-        buffered = list(self.events)
         drained = self.page.evaluate("() => window.__rc72Capture ? window.__rc72Capture.drain() : []")
         if not isinstance(drained, list):
             raise ContractError("JOURNEY_TEACHING_EVENTS_INVALID")
-        # Keep all drained events until their R1 capture step is committed.
-        # A failed preflight or mid-batch screenshot must not silently drop
-        # the human action that may already have changed the bank SUT.
-        events = buffered + drained
+        # The CDP binding may deliver additional events while evaluate() is
+        # resolving. Read self.events *after* the drain to retain those.
+        # A failed preflight or screenshot never acknowledges the action.
+        events = list(self.events) + drained
         self.events = list(events)
         result = []
         current_url = _public_url(self.page.url)
