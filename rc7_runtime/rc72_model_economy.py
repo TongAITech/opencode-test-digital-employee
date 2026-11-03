@@ -400,6 +400,15 @@ def extract_dsh_token_usage(text: str) -> DshTokenUsage:
             continue
         if not isinstance(event, Mapping):
             continue
+        # Tool/MCP resource usage belongs to a tool, not the DSH provider.
+        # Never charge it as measured model input even when it shares the
+        # usual usage/token key names.
+        kind = str(event.get("type") or event.get("event") or event.get("kind") or "").strip().lower()
+        role = str(event.get("role") or "").strip().lower()
+        if (kind in {"tool", "tool_call", "tool_result", "function_call", "function_result", "stderr", "session"}
+                or kind.startswith(("tool.", "tool_", "mcp.", "mcp_", "function."))
+                or role in {"tool", "user", "system"}):
+            continue
         found = list(_walk_usage(event))
         if not found:
             continue
@@ -410,7 +419,9 @@ def extract_dsh_token_usage(text: str) -> DshTokenUsage:
         )
         if any(item in marker for item in _FINAL_EVENT_MARKERS):
             final_candidates.extend(found)
-    pool = final_candidates or candidates
+    # Do not select a final snapshot over a conflicting earlier snapshot:
+    # without bank DSH evidence we cannot know per-call vs cumulative usage.
+    pool = candidates
     if not pool:
         return DshTokenUsage.unknown("DSH_USAGE_NOT_EMITTED")
     unique: List[Tuple[int, int, int]] = []
