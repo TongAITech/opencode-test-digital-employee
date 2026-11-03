@@ -252,3 +252,61 @@ def test_captain_handoff_during_data_reservation_cannot_publish_signed_prepared_
     assert all(row["state"] == "RELEASED" for row in truth.query("rc72_data_lease"))
     assert all(row["state"] == "CLOSED" for row in truth.query("rc72_worker_session"))
     assert truth.query("rc72_captain_dispatch_lease", mission_id=MISSION)[0]["state"] == "QUIESCED"
+
+
+
+def test_n7_tool_authorization_automatically_rechecks_captain_from_r1(tmp_path, monkeypatch):
+    """ToolDispatch calls assert_current without an explicit Captain object."""
+    truth, plan, item, _, _, _, dispatch = _fenced(tmp_path, monkeypatch)
+    service = _service(truth)
+    prepared = service.prepare(
+        plan_id=plan["plan_id"], workitem_id=item["workitem_id"],
+        fenced_admission=dispatch)
+    assert prepared["captain_admission_id"] == dispatch.admission_id
+    cold = TruthRuntime(truth.store.path)
+    reloaded = _service(cold)
+    assert reloaded.assert_current(prepared["preparation_id"]) == prepared
+    assert reloaded.prepare(
+        plan_id=plan["plan_id"], workitem_id=item["workitem_id"]) == prepared
+    assert len(cold.query("rc72_worker_session", mission_id=MISSION)) == 1
+
+
+def test_legacy_unfenced_prepare_forbidden_once_mission_has_a_captain(tmp_path, monkeypatch):
+    truth, plan, item, _, _, _, dispatch = _fenced(tmp_path, monkeypatch)
+    before = list(truth.store.iter_raw())
+    with pytest.raises(ContractError, match="CAPTAIN_FENCED_ADMISSION_REQUIRED"):
+        _service(truth).prepare(
+            plan_id=plan["plan_id"], workitem_id=item["workitem_id"])
+    assert list(truth.store.iter_raw()) == before
+    assert truth.query("rc72_n7_execution_preparation", mission_id=MISSION) == []
+    assert len(truth.query("rc72_worker_session", mission_id=MISSION)) == 1
+
+
+def test_quiesced_captain_blocks_all_n7_authorization_call_paths(tmp_path, monkeypatch):
+    from rc7_runtime.rc72_n7_tool_dispatch import SignedToolDispatchService
+    truth, plan, item, captain, lifecycle, owner, dispatch = _fenced(tmp_path, monkeypatch)
+    service = _service(truth)
+    prepared = service.prepare(
+        plan_id=plan["plan_id"], workitem_id=item["workitem_id"],
+        fenced_admission=dispatch)
+    captain.prepare_handoff(
+        mission_id=MISSION, team_id=dispatch.team_id,
+        lease_id=owner["lease_id"], captain_session_id=owner["captain_session_id"],
+        lifecycle=lifecycle, current_node_refs=["N7_EXECUTION"],
+        latest_delivery_refs=[], latest_gate_refs=[],
+        next_workitem_ids=[item["workitem_id"]])
+    cold = TruthRuntime(truth.store.path)
+    reloaded = _service(cold)
+    before = list(cold.store.iter_raw())
+    with pytest.raises(ContractError, match="CAPTAIN_DISPATCH_NOT_ACTIVE"):
+        reloaded.assert_current(prepared["preparation_id"])
+    with pytest.raises(ContractError, match="CAPTAIN_DISPATCH_NOT_ACTIVE"):
+        reloaded.prepare(
+            plan_id=plan["plan_id"], workitem_id=item["workitem_id"])
+    def forbidden_call(**_kwargs):
+        pytest.fail("Business adapter was invoked after Captain quiescence")
+    with pytest.raises(ContractError, match="CAPTAIN_DISPATCH_NOT_ACTIVE"):
+        SignedToolDispatchService(
+            reloaded, adapters={"api_http": forbidden_call},
+        ).dispatch(prepared["preparation_id"])
+    assert list(cold.store.iter_raw()) == before
