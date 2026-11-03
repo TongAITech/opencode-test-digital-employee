@@ -191,6 +191,7 @@ def test_lease_revoked_during_browser_action_cannot_emit_pass(tmp_path):
     failure = json.loads((tmp_path / "evidence" / "REAL-1" / "step-0001" / "actual.json").read_text())
     assert failure["failure_code"] == "BROWSER_LEASE_NOT_ACTIVE"
     assert failure["status"] == "FAILED"
+    assert screenshot_calls == []  # never inspect another owner's browser
 
 
 def test_cold_restart_reads_recorded_files_and_r1_without_replaying(tmp_path):
