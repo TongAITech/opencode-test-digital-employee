@@ -56,9 +56,38 @@ class N7PipelineService:
         if len(existing) > 1:
             raise ContractError('RC72_N7_PIPELINE_PREPARATION_NOT_UNIQUE')
         if existing:
-            if self.captain_scheduler is not None and not existing[0].get('captain_admission_id'):
-                raise ContractError('RC72_N7_PIPELINE_UNFENCED_PREPARATION_FORBIDDEN')
-            return existing[0]
+            current = existing[0]
+            captain_leases = self.truth.query(
+                'rc72_captain_dispatch_lease', mission_id=plan['mission_id'])
+            if captain_leases and self.captain_scheduler is None:
+                # A legacy N7Pipeline instance must not drive or replay a
+                # prepared WorkItem belonging to a Captain-governed Mission.
+                # Tool-level fencing alone would authenticate the *old* owner
+                # without authenticating this invoking pipeline's identity.
+                raise ContractError('RC72_N7_PIPELINE_GOVERNED_ENTRY_REQUIRED')
+            if self.captain_scheduler is not None:
+                if not current.get('captain_admission_id'):
+                    raise ContractError('RC72_N7_PIPELINE_UNFENCED_PREPARATION_FORBIDDEN')
+                admission = self.truth.query(
+                    'rc72_captain_etu_admission',
+                    admission_id=current['captain_admission_id'])
+                if (len(admission) != 1
+                        or admission[0].get('mission_id') != plan['mission_id']
+                        or admission[0].get('workitem_id') != workitem_id
+                        or admission[0].get('etu_id') != item['etu_id']
+                        or admission[0].get('worker_id') != current.get('worker_id')
+                        or admission[0].get('session_id') != current.get('session_id')
+                        or admission[0].get('team_id') != self.team_id
+                        or admission[0].get('captain_session_id') != self.captain_session_id
+                        or admission[0].get('captain_lease_id') != self.captain_lease_id):
+                    raise ContractError('RC72_N7_PIPELINE_EXISTING_CAPTAIN_SCOPE_MISMATCH')
+                # Recheck current owner; a matching historical record is not
+                # an authority to execute after handoff or TTL expiration.
+                self.captain_scheduler.fencer.assert_owner(
+                    mission_id=plan['mission_id'],
+                    lease_id=self.captain_lease_id,
+                    captain_session_id=self.captain_session_id)
+            return current
         if self.captain_scheduler is None:
             return self.preparation.prepare(
                 plan_id=plan['plan_id'], workitem_id=workitem_id)
