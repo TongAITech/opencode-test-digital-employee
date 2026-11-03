@@ -126,7 +126,7 @@ def test_n7_preflight_rejects_workitem_missing_authorized_official_asset(tmp_pat
         required_capabilities=["browser:write"],
         input_artifact_refs=["ETU-OJ"],
         acceptance_criteria=["report mismatch"])
-    append_entity(truth, new_task, release_id="RC7.2")
+    append_entity(truth, new_task, release_id="RC7.2", artifact_version=2)
     with pytest.raises(Exception, match="JOURNEY_N7_WORKITEM_ASSET_SCOPE_MISMATCH"):
         SignedN7OfficialJourneyAdapter(service).preflight(
             contract=_contract(), context=_context(lease))
