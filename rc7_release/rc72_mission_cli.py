@@ -117,6 +117,9 @@ def main(argv=None):
                     DSH_PROCESS_LAUNCH_ERROR_COUNT=economy_result.metrics.get('dsh_process_launch_error_count'),
                     PROVIDER_INFERENCE_CALL_COUNT=economy_result.metrics.get('provider_inference_call_count'),
                     PROVIDER_INFERENCE_CALL_COUNT_STATUS=economy_result.metrics.get('provider_inference_call_count_status', 'UNKNOWN'),
+                    LOSSLESS_JSON_COMPACTED_CALLS=economy_result.metrics.get('lossless_json_compacted_calls', 0),
+                    VERIFIED_PROMPT_SERIALIZATION_SAVED_BYTES=economy_result.metrics.get('verified_prompt_serialization_saved_bytes', 0),
+                    VERIFIED_PROMPT_TOKEN_SAVINGS=economy_result.metrics.get('verified_prompt_token_savings'),
                 )
         except (ContractError, RuntimeError, OSError, ValueError) as exc:
             # Public run output carries only a contract code. Error details may
@@ -137,7 +140,10 @@ def main(argv=None):
                     DSH_PROCESS_INVOCATION_COUNT_STATUS='UNKNOWN',
                     DSH_PROCESS_LAUNCH_ERROR_COUNT=None,
                     PROVIDER_INFERENCE_CALL_COUNT=None,
-                    PROVIDER_INFERENCE_CALL_COUNT_STATUS='UNKNOWN')
+                    PROVIDER_INFERENCE_CALL_COUNT_STATUS='UNKNOWN',
+                    LOSSLESS_JSON_COMPACTED_CALLS=None,
+                    VERIFIED_PROMPT_SERIALIZATION_SAVED_BYTES=None,
+                    VERIFIED_PROMPT_TOKEN_SAVINGS=None)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     if args.command == 'status':
         return 0
