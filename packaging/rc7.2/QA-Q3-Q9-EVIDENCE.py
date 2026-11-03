@@ -165,8 +165,9 @@ def _verify_canonical_r1_jsonl(stream):
         payload = event["payload"]
         if ("artifact_type" in payload and payload["artifact_type"] != event["entity_type"]):
             raise ExportError("FIELD_EVIDENCE_ZIP_R1_PAYLOAD_ENTITY_MISMATCH")
-        if ("artifact_version" in payload and type(payload["artifact_version"]) is int
-                and payload["artifact_version"] != event["entity_version"]):
+        version_key = "case_version" if event["entity_type"] == "test_case" else "artifact_version"
+        if (version_key in payload and (type(payload[version_key]) is not int
+                or payload[version_key] != event["entity_version"])):
             raise ExportError("FIELD_EVIDENCE_ZIP_R1_PAYLOAD_VERSION_MISMATCH")
         last_seq = seq
         count += 1
