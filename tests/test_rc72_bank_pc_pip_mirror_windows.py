@@ -85,8 +85,6 @@ def test_real_copied_python_mirror_install_import_and_host_substitution_refusals
         with pytest.raises(ContractError,match='ENGINEERING_NOT_FIELD'):
             runtime.audit(execution_id=native['execution_id'],release_batch_id=BATCH)
         (public/'actual-native-r1-mirror.json').write_text(json.dumps(native,indent=2))
-        # Exercise the actual package-owned configuration + CLI against a fresh
-        # R1, with no producer callback or detached JSON receipt import.
         from types import ModuleType
         from rc72_formal_runner_support import LocalHTTPEnvironment
         from rc7_runtime.rc72_mission_factory import ROLES
@@ -110,9 +108,10 @@ def test_real_copied_python_mirror_install_import_and_host_substitution_refusals
             '--release-batch',BATCH,'--release-id',RELEASE,'--package-root',str(root),
             '--evidence-root',str(tmp_path/'unused-mission-evidence'),'--mission-config',str(config_path)]
         capsys.readouterr()
-        assert main(arguments)==37 # a real engineering result cannot be Field
+        assert main(arguments)==37
         configured=json.loads(capsys.readouterr().out)
-        assert configured['status']=='PASS' and configured['mode']=='ENGINEERING'
+        (public/'actual-configured-native-r1-mirror-attempt.json').write_text(json.dumps(configured,indent=2))
+        assert configured['status']=='PASS' and configured['mode']=='ENGINEERING',configured
         assert configured['bank_pc_mirror_field_fact'] is configured['bank_final'] is configured['field_verified'] is False
         saved=cli_truth.store.path.read_bytes();request_count=len(requests)
         assert main(arguments)==37
@@ -133,7 +132,6 @@ def test_real_copied_python_mirror_install_import_and_host_substitution_refusals
         monkeypatch.setenv('PIP_PYTHON',str(Path(sys.executable)))
         refused('host-python-redirect','HOST_INTERPRETER_REDIRECT_FORBIDDEN');monkeypatch.delenv('PIP_PYTHON')
         refused('missing-mirror-dependency','COMMAND_FAILED:mirror-install',policy=dict(policy,spec='rc72_missing_from_mirror==1.0'))
-        # A successful host pip command cannot stand in for broken package pip.
         host=tmp_path/'host bin';host.mkdir();hostpip=host/'pip.cmd';hostpip.write_text('@exit /b 0\n')
         assert subprocess.run([os.environ['COMSPEC'],'/d','/c',str(hostpip)],capture_output=True).returncode==0
         monkeypatch.setenv('PATH',str(host)+os.pathsep+os.environ.get('PATH',''))
@@ -141,7 +139,6 @@ def test_real_copied_python_mirror_install_import_and_host_substitution_refusals
         pip.rename(backup)
         try:refused('host-pip-success-package-pip-missing','COMMAND_FAILED:provenance')
         finally:backup.rename(pip)
-        # Even a matching target distribution label cannot bless a host module.
         target=tmp_path/'owned empty import target';target.mkdir();dist=target/'rc72_host_only-1.0.dist-info';dist.mkdir()
         (dist/'METADATA').write_text('Metadata-Version: 2.1\nName: rc72_host_only\nVersion: 1.0\n')
         hostmodule=root/'workspace-template/runtime/python/Lib/site-packages/rc72_host_only.py';hostmodule.write_text('HOST_ONLY=True\n')
