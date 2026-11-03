@@ -206,6 +206,10 @@ class CaptainFencedWorkItemScheduler:
             existing = [s for s in self.truth.query("rc72_worker_session", mission_id=mission_id)
                         if s.get("workitem_id") == workitem_id]
             terminal = self._single_prelease_chain(existing)
+            if terminal and (terminal.get("team_id") != team_id
+                             or terminal.get("etu_id") != etu_id
+                             or terminal.get("role") != role):
+                raise CaptainSchedulingError("CAPTAIN_SCHEDULER_RECOVERY_SCOPE_DRIFT")
             if terminal and terminal["state"] != "CLOSED":
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_PRIOR_SESSION_RECOVERY_REQUIRED")
             if not isinstance(canonical_refs, Mapping):
