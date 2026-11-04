@@ -1,0 +1,17 @@
+{
+  "name": "RC7.2 CI queue rescue (one time only)",
+  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "customizations": {
+    "codespaces": {
+      "repositories": {
+        "TongAITech/opencode-test-digital-employee": {
+          "permissions": {
+            "actions": "write",
+            "contents": "read"
+          }
+        }
+      }
+    }
+  },
+  "postCreateCommand": "bash .github/scripts/rc72-cancel-ci.sh"
+}
