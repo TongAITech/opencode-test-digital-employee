@@ -143,6 +143,16 @@ def test_cross_mission_or_forged_task_ref_is_rejected(tmp_path):
 def test_native_context_projection_r1_is_reference_only_never_claimed_savings(tmp_path):
     truth, task = _canonical(tmp_path)
     metadata = _project(truth, task)
+    # The native composer needs richer source/retry metadata; the token R1
+    # ledger deliberately accepts only its explicit auditable projection.
+    metered_fields = (
+        "context_envelope_id", "context_envelope_sha256", "context_mode",
+        "context_canonical_ref_count", "context_effective_ref_count",
+        "context_unhydrated_lineage_ref_count",
+        "context_projection_applied_to_prompt", "context_projection_status",
+        "parent_attempt_id",
+    )
+    token_projection = {key: metadata[key] for key in metered_fields}
     economy = TokenEconomyService(truth, release_id=RELEASE)
     economy.configure_budget(
         mission_id=MISSION, max_total_tokens=1000, max_model_calls=10,
@@ -154,7 +164,7 @@ def test_native_context_projection_r1_is_reference_only_never_claimed_savings(tm
         workitem_id=WORKITEM, attempt_id="ATT-1", agent_id="designer",
         call_class=ModelCallClass.LLM_REQUIRED, retry=False,
         prompt="full native mandatory design prompt is unmodified",
-        context_projection=metadata,
+        context_projection=token_projection,
     )
     assert admitted.admitted
     row = truth.query("rc72_token_call", call_id=admitted.call_id)[0]
@@ -164,7 +174,7 @@ def test_native_context_projection_r1_is_reference_only_never_claimed_savings(tm
     assert row["context_bytes"] == len(
         "full native mandatory design prompt is unmodified".encode()
     )
-    tampered = dict(metadata, context_projection_applied_to_prompt=True)
+    tampered = dict(token_projection, context_projection_applied_to_prompt=True)
     with pytest.raises(TokenEconomyError, match="SAVINGS_UNPROVEN"):
         economy.admit_call(
             mission_id=MISSION, node="N4_TEST_DESIGN", stage="TEST_DESIGN",
