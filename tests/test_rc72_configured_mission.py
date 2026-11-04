@@ -177,3 +177,99 @@ def test_native_mirror_cli_refuses_unqualified_component_and_cannot_start_nodes(
     truth.rebuild_projection()
     assert truth.query('rc72_mission_node')==nodes
     assert not truth.query('rc72_mission_node_worker_attempt')
+
+
+def _n9_v2_config(tmp_path, monkeypatch):
+    from rc7_release.rc72_configured_mission import SCHEMA_V2
+
+    truth, config, path = _setup(tmp_path, monkeypatch)
+    config['schema'] = SCHEMA_V2
+    config['n9_read_only_tools'] = ['read_only_diagnostic']
+    path.write_text(json.dumps(config))
+    return truth, config, path
+
+
+def test_configured_v2_product_owns_real_independent_n9_dsh_and_no_r1_side_effects(
+        tmp_path, monkeypatch):
+    """C04 product ingress genuinely owns a separate DSH analyst, not a label."""
+    from dataclasses import fields
+    from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
+    from rc7_runtime.rc72_n9_professional_dsh import NativeN9ProfessionalDshAnalysisService
+
+    truth, config, path = _n9_v2_config(tmp_path, monkeypatch)
+    before = truth.store.path.read_bytes()
+    bindings = configured_mission_bindings(
+        truth, release_id=RELEASE, source_commit=COMMIT, config_path=path)
+    professional = bindings.professional_dsh_binding
+    assert professional is not None
+    assert type(professional.launcher) is DshHeadlessWorkerLauncher
+    assert professional.tools == ('read_only_diagnostic',)
+    assert professional.launcher.truth is truth
+    assert professional.launcher.release_id == RELEASE
+    assert professional.launcher.env['APPROVED_MODEL_API_KEY'] == 'private-model-sentinel'
+    assert all(professional.launcher is not w.launcher
+               for w in bindings.workers.values())
+    assert all(professional.launcher.state_root != w.launcher.state_root
+               for w in bindings.workers.values())
+    assert all(professional.launcher.authority is not w.launcher.authority
+               for w in bindings.workers.values())
+    driver = create_mission_driver(
+        truth, release_id=RELEASE, source_commit=COMMIT,
+        evidence_root=tmp_path / 'n9-independent-evidence',
+        **{field.name: getattr(bindings, field.name) for field in fields(bindings)})
+    assert type(driver.n8_pipeline.professional_dsh) is NativeN9ProfessionalDshAnalysisService
+    assert driver.n8_pipeline.professional_dsh.launcher is professional.launcher
+    assert driver.n8_pipeline.professional_dsh.pipeline is driver.n7_pipeline
+    assert driver.n8_pipeline.professional_dsh.allowed_tools == ('read_only_diagnostic',)
+    assert truth.store.path.read_bytes() == before
+    assert not truth.query('rc72_n9_professional_dsh_analysis')
+    assert not truth.query('rc7_defect')
+
+    cold = TruthRuntime(truth.store.path)
+    again = configured_mission_bindings(
+        cold, release_id=RELEASE, source_commit=COMMIT, config_path=path)
+    assert again.professional_dsh_binding.launcher.truth is cold
+    specimen = {'purpose': 'n9-review-private-authority'}
+    assert (again.professional_dsh_binding.launcher.authority._sign(specimen)
+            == professional.launcher.authority._sign(specimen))
+    assert (again.professional_dsh_binding.launcher.authority._sign(specimen)
+            != again.execution_authority._sign(specimen))
+    assert truth.store.path.read_bytes() == before
+
+
+@pytest.mark.parametrize('mutation,reason', [
+    ('missing', 'EXACT_CAPABILITY_FIELDS'),
+    ('v1_extra', 'EXACT_CAPABILITY_FIELDS'),
+    ('wildcard', 'N9_EXACT_READ_ONLY_TOOLS'),
+    ('api_write', 'N9_EXACT_READ_ONLY_TOOLS'),
+    ('empty', 'N9_EXACT_READ_ONLY_TOOLS'),
+    ('duplicate', 'N9_EXACT_READ_ONLY_TOOLS'),
+    ('overlap_registry', 'N9_EXACT_READ_ONLY_TOOLS'),
+    ('extra_secret', 'EXACT_CAPABILITY_FIELDS'),
+])
+def test_configured_v2_n9_denies_implicit_full_access_before_controller_key_or_r1(
+        tmp_path, monkeypatch, mutation, reason):
+    truth, config, path = _n9_v2_config(tmp_path, monkeypatch)
+    if mutation == 'missing':
+        config.pop('n9_read_only_tools')
+    elif mutation == 'v1_extra':
+        config['schema'] = SCHEMA
+    elif mutation == 'wildcard':
+        config['n9_read_only_tools'] = ['*']
+    elif mutation == 'api_write':
+        config['n9_read_only_tools'] = ['api_http']
+    elif mutation == 'empty':
+        config['n9_read_only_tools'] = []
+    elif mutation == 'duplicate':
+        config['n9_read_only_tools'] = ['read_only_diagnostic'] * 2
+    elif mutation == 'overlap_registry':
+        config['tool_registry']['diagnostic'] = ['read_only_diagnostic']
+    elif mutation == 'extra_secret':
+        config['n9_captain_token'] = 'invalid-unsafe-value'
+    path.write_text(json.dumps(config))
+    before = truth.store.path.read_bytes()
+    with pytest.raises(ContractError, match=reason):
+        configured_mission_bindings(
+            truth, release_id=RELEASE, source_commit=COMMIT, config_path=path)
+    assert truth.store.path.read_bytes() == before
+    assert not (tmp_path / 'owned-state').exists()
