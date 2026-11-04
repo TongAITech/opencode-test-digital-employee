@@ -59,6 +59,8 @@ def test_qa_ac_formal_n7_registers_signed_bsk_official_asset_dispatch(tmp_path):
     """A C09 merge must actually consume the BSK adapter under signed N7."""
     truth, options = _setup(tmp_path)
     options["tool_registry"]["journey_bsk"] = ("journey_bsk",)
+    from rc72_qa_c09_host import bind_native_bsk_host
+    bind_native_bsk_host(truth, options, tmp_path)
     before = truth.store.path.read_bytes()
     driver = create_mission_driver(truth, **options)
     adapters = driver.n7_pipeline.dispatch.adapters
