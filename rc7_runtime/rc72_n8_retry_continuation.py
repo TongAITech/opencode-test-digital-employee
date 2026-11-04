@@ -120,10 +120,48 @@ class DataRepairContinuationService:
         for row in rows:
             if row.get('state') != 'VERIFIED':
                 continue
+            # The ReleaseBatch inventory spans multiple Cases and multiple
+            # repair generations.  Every accepted re-verification retains its
+            # OWN failed N7 Preparation; it must not be rewritten to the
+            # current retry's Preparation ID.  Validate the historical
+            # Preparation against the same canonical batch, Case and source
+            # before any N8/N6 R1 side effect.
+            owners = self.truth.query(
+                'rc72_n7_execution_preparation',
+                preparation_id=row.get('preparation_id'))
+            # An accepted N5 repair may target any Case in the SAME frozen
+            # N7 plan: the owner Preparation is the failed Case, whereas the
+            # repaired DataRequirement can belong to a different Case.
+            # Equating those two case IDs falsely rejects whole-inventory
+            # repair (and every later N8 generation).
+            plan = (self.truth.query('rc72_n7_execution_plan',
+                    plan_id=owners[0].get('plan_id')) if len(owners) == 1 else [])
+            original = row.get('original_binding', {})
+            requirement = self.truth.query(
+                'rc72_n5_data_requirement',
+                data_requirement_id=row.get('data_requirement_id'))
             if (row.get('mission_id') != p['mission_id']
                     or row.get('release_id') != p['release_id']
                     or row.get('source_commit') != p['source_commit']
-                    or row.get('preparation_id') != p['preparation_id']):
+                    or len(owners) != 1 or len(plan) != 1
+                    or any(owners[0].get(k) != p[k] for k in
+                           ('mission_id', 'release_id', 'source_commit',
+                            'release_batch_id'))
+                    or any(plan[0].get(k) != p[k] for k in
+                           ('mission_id', 'release_id', 'source_commit',
+                            'release_batch_id'))
+                    or not any(item.get('case_id') == row.get('case_id')
+                               for item in plan[0].get('items', []))
+                    or original.get('data_requirement_id')
+                       != row.get('data_requirement_id')
+                    # Canonical N5DataBinding is keyed by requirement and
+                    # immutable Case digest; it intentionally has NO case_id.
+                    or original.get('source_case_sha256')
+                       != row.get('source_case_sha256')
+                    or len(requirement) != 1
+                    or requirement[0].get('case_id') != row.get('case_id')
+                    or requirement[0].get('source_case_sha256')
+                       != row.get('source_case_sha256')):
                 raise ContractError('N8_RETRY_N5_BATCH_REVERIFICATION_SCOPE_CHANGED')
             signed = {k: v for k, v in row.items()
                       if k not in {'signature', 'artifact_type', 'artifact_version'}}
@@ -145,7 +183,12 @@ class DataRepairContinuationService:
                     or evidence.get('mission_id') != p['mission_id']
                     or evidence.get('content_ref') != reference
                     or evidence.get('content_hash') != digest
-                    or evidence.get('evidence_id') != evidence_id):
+                    or evidence.get('evidence_id') != evidence_id
+                    or evidence.get('subject_refs') != [
+                        row.get('data_requirement_id'),
+                        row.get('original_binding', {}).get('binding_id'),
+                        row.get('verification_attempt_id'),
+                        row.get('repair_id')]):
                 raise ContractError('N8_RETRY_N5_BATCH_REVERIFICATION_EVIDENCE_CHANGED')
             path = Path(reference[len('file://'):])
             if (not path.is_file() or path.is_symlink()
