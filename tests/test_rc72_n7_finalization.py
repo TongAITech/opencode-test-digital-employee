@@ -105,9 +105,13 @@ def test_modified_script_is_caught_by_actual_qualification_loader_before_target_
                                       execution_env={'RC72_OUTPUT_ROOT': str(output)}, timeout_seconds=30)
         p = prep.prepare(plan_id=plan['plan_id'], workitem_id=item['workitem_id'])
         result = SignedToolDispatchService(prep, adapters={'api_http': runner}).dispatch(p['preparation_id'])
-        assert result['state'] == 'FAILED'
+        # A changed script was stopped before this fixture's HTTP request,
+        # but no signed pre-execution no-effect attestation was produced.
+        # Therefore it cannot be downgraded to a retryable FAILED outcome.
+        assert result['state'] == 'UNKNOWN' and result['replay_prohibited'] is True
         assert server.calls == []
         assert truth.query('rc72_n7_formal_runner_receipt') == []
+        assert all(row['state'] == 'ACTIVE' for row in truth.query('rc72_data_lease'))
     finally:
         server.shutdown()
         server.server_close()
