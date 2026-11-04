@@ -134,7 +134,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install --disable-pip-version-check 'playwright==1.62.1'
+          python -m pip install --disable-pip-version-check 'playwright==1.62.0'
           python -m playwright install --with-deps chromium
       - name: Run RC7-focused source tests
         shell: bash
