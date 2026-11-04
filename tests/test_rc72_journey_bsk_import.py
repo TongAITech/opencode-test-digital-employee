@@ -50,7 +50,8 @@ def _fixture(tmp_path):
                 "tab_id": 1, "name": "teaching", "url": "https://fat1.example/config",
                 "started_at": 1000, "stopped_at": 9000, "state": "stopped",
                 "coverage": [], "dropped_requests": 0,
-                "dropped_operations": 0, "dropped_console": 0},
+                "dropped_operations": 0, "dropped_console": 0,
+                "operations": 2, "requests": 1},
         "operations": operations,
         "requests": [{"id": "request-1", "run_id": "debug-1",
                       "sequence": 1, "method": "POST",
@@ -382,5 +383,29 @@ def test_bsk_wheel_rejects_noop_nonfinite_huge_or_boolean_deltas(tmp_path, delta
     mapping["operation-2"].update(deltas)
     export.write_text(json.dumps(doc))
     with pytest.raises(Exception, match="JOURNEY_BSK_WHEEL_DELTA_INVALID"):
+        _invoke(importer, export, args, mapping)
+    assert not truth.query("rc72_journey_recording", recording_id="JR-BSK-1")
+
+
+@pytest.mark.parametrize("mutation,code", [
+    ("missing_operation", "JOURNEY_BSK_EXPORT_CAPTURE_COUNT_MISMATCH"),
+    ("missing_request", "JOURNEY_BSK_EXPORT_CAPTURE_COUNT_MISMATCH"),
+    ("storage_dropped", "JOURNEY_BSK_EXPORT_STORAGE_DROPPED"),
+    ("limited_observation", "JOURNEY_BSK_OPERATION_INCOMPLETE"),
+])
+def test_bsk_native_debug_export_detects_missing_human_action_or_network_evidence(
+        tmp_path, mutation, code):
+    truth, importer, doc, export, args, mapping = _fixture(tmp_path)
+    if mutation == "missing_operation":
+        doc["run"]["operations"] = 3
+    elif mutation == "missing_request":
+        doc["run"]["requests"] = 2
+    elif mutation == "storage_dropped":
+        doc["run"]["storage"] = {
+            "requests": 1, "bytes": 256, "dropped": 1, "pins": 0}
+    elif mutation == "limited_observation":
+        doc["operations"][1]["observation_limited"] = True
+    export.write_text(json.dumps(doc))
+    with pytest.raises(Exception, match=code):
         _invoke(importer, export, args, mapping)
     assert not truth.query("rc72_journey_recording", recording_id="JR-BSK-1")
