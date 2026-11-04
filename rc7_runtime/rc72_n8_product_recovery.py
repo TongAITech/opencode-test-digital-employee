@@ -16,7 +16,7 @@ from .rc72_n8_retry_continuation import DataRepairContinuationService
 
 
 class NativeN8ProductRecoveryService:
-    def __init__(self, n7, *, capability_broker=None):
+    def __init__(self, n7, *, capability_broker=None, professional_dsh=None):
         if (not isinstance(n7, N7PipelineService)
                 or not isinstance(n7.diagnosis, ExecutionDiagnosisService)
                 or n7.diagnosis.preparation is not n7.preparation):
@@ -30,7 +30,16 @@ class NativeN8ProductRecoveryService:
                     or capability_broker.release_id != self.release_id
                     or capability_broker.authority is not n7.preparation.authority):
                 raise ContractError('N8_PRODUCT_CAPABILITY_BROKER_SCOPE_REQUIRED')
+        if professional_dsh is not None:
+            from .rc72_n9_professional_dsh import NativeN9ProfessionalDshAnalysisService
+            if (not isinstance(professional_dsh, NativeN9ProfessionalDshAnalysisService)
+                    or professional_dsh.pipeline is not n7
+                    or professional_dsh.truth is not self.truth
+                    or professional_dsh.release_id != self.release_id
+                    or professional_dsh.source_commit != self.source_commit):
+                raise ContractError('N8_PRODUCT_N9_INDEPENDENT_DSH_SCOPE_REQUIRED')
         self.capability_broker = capability_broker
+        self.professional_dsh = professional_dsh
         # Reuse the same exact cleanup adapter as N7, but only through the
         # separately signed N8 repair-authority boundary.
         self.boundary = RepairBoundaryService(self.diagnosis, cleanup_adapters=n7.cleanup.adapters)
@@ -198,6 +207,18 @@ class NativeN8ProductRecoveryService:
                 preparation_id=p['preparation_id'],diagnosis_id=result['diagnosis_id'],
                 failure_class='UNKNOWN')
         if result['failure_class']=='VALID_TEST_FAILURE':
+            if self.professional_dsh is not None:
+                qualified = self.professional_dsh.analyze(
+                    preparation_id=p['preparation_id'],
+                    diagnosis_id=result['diagnosis_id'])
+                # Actual DSH causal hypotheses are NOT a reproduced product
+                # defect, RCA acceptance or permission to rerun the old N7.
+                if qualified.get('status') != 'HOLD':
+                    raise ContractError('N8_PRODUCT_N9_ANALYSIS_PREMATURE_PASS_FORBIDDEN')
+                return dict(qualified,
+                    preparation_id=p['preparation_id'],
+                    failure_class='VALID_TEST_FAILURE',
+                    field_verified=False,bank_final=False)
             # Distinct N9 professional qualification needs real confirmed
             # independent RCA before product defect or fresh N7 execution.
             from .rc72_n9_professional_intake import NativeN9ProfessionalIntakeService

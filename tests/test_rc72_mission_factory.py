@@ -376,3 +376,74 @@ def test_release_product_entry_rejects_exact_expired_captain_after_cold_reconstr
     finally:
         server.shutdown()
         server.server_close()
+
+def test_factory_c04_binds_genuinely_independent_n9_dsh_analyst_without_fake_pass(
+        tmp_path):
+    from rc7_runtime.rc72_mission_factory import MissionProfessionalDshBinding
+    from rc7_runtime.rc72_n9_professional_dsh import NativeN9ProfessionalDshAnalysisService
+    truth, options = _setup(tmp_path)
+    def forbidden(*args, **kwargs):
+        pytest.fail("N9 construction must not launch a DSH worker")
+    worker = DshHeadlessWorkerLauncher(
+        dsh_bin=sys.executable,
+        patch_path=str(tmp_path/'patch.json'),
+        cwd=str(tmp_path),truth=truth,
+        authority=RC72AuthorityRuntime(b'factory-independent-n9-dsh-authority'),
+        coordinator_instance_id='factory-c04-independent',
+        release_id=RELEASE,state_root=str(tmp_path/'worker-n9-independent'),
+        command_runner=forbidden)
+    options['professional_dsh_binding'] = MissionProfessionalDshBinding(
+        worker, ('read_only_diagnostic',))
+    before=truth.store.path.read_bytes()
+    driver=create_mission_driver(truth, **options)
+    analyst=driver.n8_pipeline.professional_dsh
+    assert isinstance(analyst, NativeN9ProfessionalDshAnalysisService)
+    assert analyst.pipeline is driver.n7_pipeline
+    assert analyst.launcher is worker
+    assert analyst.launcher.authority is not options['execution_authority']
+    assert analyst.allowed_tools==('read_only_diagnostic',)
+    assert truth.store.path.read_bytes() == before
+    assert not truth.query('rc72_n9_professional_dsh_analysis')
+    assert not truth.query('rc7_defect')
+
+
+@pytest.mark.parametrize('mutation', ['wrong_type','same_worker','shared_root',
+                                     'execution_authority','write_tool',
+                                     'wildcard_tool','wrong_release','wrong_truth'])
+def test_factory_c04_rejects_untrusted_or_execution_tainted_n9_worker(
+        tmp_path,mutation):
+    from rc7_runtime.rc72_mission_factory import MissionProfessionalDshBinding
+    truth, options = _setup(tmp_path)
+    worker = DshHeadlessWorkerLauncher(
+        dsh_bin=sys.executable,
+        patch_path=str(tmp_path/'patch.json'), cwd=str(tmp_path),
+        truth=truth,
+        authority=RC72AuthorityRuntime(b'factory-independent-n9-dsh-authority'),
+        coordinator_instance_id='factory-c04-independent',
+        release_id=RELEASE, state_root=str(tmp_path/'worker-n9-independent'),
+        command_runner=lambda *args, **kwargs: pytest.fail("not a real worker"))
+    tools=('read_only_diagnostic',)
+    if mutation=='wrong_type':
+        binding={'launcher': worker, 'tools': tools}
+    else:
+        if mutation=='same_worker':
+            worker=options['workers']['design'].launcher
+        elif mutation=='shared_root':
+            worker.state_root=options['workers']['design'].launcher.state_root
+        elif mutation=='execution_authority':
+            worker.authority=options['execution_authority']
+        elif mutation=='write_tool':
+            tools=('api_http',)
+        elif mutation=='wildcard_tool':
+            tools=('*',)
+        elif mutation=='wrong_release':
+            worker.release_id='OTHER-RELEASE'
+        elif mutation=='wrong_truth':
+            worker.truth=object()
+        binding=MissionProfessionalDshBinding(worker,tools)
+    options['professional_dsh_binding']=binding
+    before=truth.store.path.read_bytes()
+    with pytest.raises(ContractError,match='MISSION_FACTORY_N9_'):
+        create_mission_driver(truth, **options)
+    assert truth.store.path.read_bytes()==before
+    assert not truth.query('rc7_defect')
