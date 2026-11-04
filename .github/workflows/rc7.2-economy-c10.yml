@@ -22,11 +22,12 @@ permissions:
 
 jobs:
   economy-contract:
-    name: c10-native-dsh-contract-python-${{ matrix.python-version }}
-    runs-on: ubuntu-22.04
+    name: c10-native-dsh-contract-${{ matrix.os }}-python-${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-22.04, windows-latest]
         python-version: ['3.8', '3.11']
     steps:
       - uses: actions/checkout@v4
@@ -90,4 +91,5 @@ jobs:
           test "${#tests[@]}" -gt 0
           printf 'Complete RC7 suite (%s files):\n' "${#tests[@]}"
           printf ' - %s\n' "${tests[@]}"
-          python -m pytest -q "${tests[@]}"
+          # Fail fast on a real regression; a green run still exercises every test.
+          python -m pytest -x -q "${tests[@]}"
