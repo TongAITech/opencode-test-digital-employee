@@ -230,3 +230,38 @@ def test_n10_accepted_coverage_repair_cannot_bypass_missing_native_repair_provid
         server.server_close()
         business.shutdown()
         business.server_close()
+
+
+def test_n10_rejects_history_when_accepted_fresh_n7_is_not_current(
+        tmp_path, monkeypatch):
+    truth, plan, pipeline, business, server, diagnosis, gap_id = _diagnosis(tmp_path, monkeypatch)
+    try:
+        measurement, repair, rerun, control = _advance_to_repair_fence(
+            truth, pipeline, diagnosis, server)
+        code = truth.query('rc72_coverage_gap', gap_id=gap_id)[0]['code_slice']
+        def covered(row):
+            for unit in row['units']:
+                unit['code_slice'] = code
+                unit['covered'] = True
+        server.mutate = covered
+        original = control.complete(release_batch_id=BATCH)
+        assert original['reason'] == 'N10_RELEASE_NOT_CONVERGED'
+        history = truth.query('rc72_native_coverage_rerun')
+        assert len(history) == 1 and history[0]['state'] == 'N7_PASS'
+        assert truth.query('rc72_native_coverage_repair')[0]['state'] == 'CLOSED'
+        before = truth.store.path.read_bytes()
+        calls = (len(business.calls), len(server.calls))
+        monkeypatch.setattr(rerun, '_active_n7_gate', lambda mission: 'N7-GATE-FOREIGN')
+        denied = control.complete(release_batch_id=BATCH)
+        assert denied['status'] == 'HOLD'
+        assert denied['reason'] == 'N10_HISTORICAL_RERUN_CURRENT_N7_CHANGED'
+        assert denied['historical_rerun_ids'] == [history[0]['rerun_id']]
+        assert denied['field_verified'] is denied['bank_final'] is False
+        assert control.complete(release_batch_id=BATCH) == denied
+        assert truth.store.path.read_bytes() == before
+        assert (len(business.calls), len(server.calls)) == calls
+    finally:
+        server.shutdown()
+        server.server_close()
+        business.shutdown()
+        business.server_close()
