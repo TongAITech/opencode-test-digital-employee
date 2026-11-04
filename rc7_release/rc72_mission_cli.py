@@ -6,7 +6,55 @@ from pathlib import Path
 
 from rc6_runtime.truth import TruthRuntime
 from rc7_runtime.rc72_release_driver import release_batch_status
+from rc7_runtime.rc72_domain import AutonomousMissionNode
 from rc7_runtime.models import ContractError
+
+
+def _accepted_ten_node_completion(node_rows, transitions=None):
+    """Admit the exact N1-N10 denominator, including the real N7->N9 route.
+
+    Normal successful N7 execution forwards directly to N9: N8 MUST stay
+    NOT_STARTED.  Never invent an N8 PASS merely to satisfy a CLI status
+    guard, and never bypass it without the exact accepted R1 FORWARD edge.
+    """
+    required = {node.value for node in AutonomousMissionNode.ordered()}
+    if (not isinstance(node_rows, list) or len(node_rows) != len(required)
+            or any(not isinstance(row, dict) for row in node_rows)):
+        return False
+    types = [row.get('node_type') for row in node_rows]
+    if set(types) != required or len(set(types)) != len(types):
+        return False
+    by_type = {row['node_type']: row for row in node_rows}
+    if all(row.get('state') == 'PASS' for row in node_rows):
+        return True
+    n8 = by_type['N8_DIAGNOSIS_RECOVERY']
+    if (n8.get('state') != 'NOT_STARTED'
+            or any(row.get('state') != 'PASS' for row in node_rows if row is not n8)
+            or n8.get('gate_refs') or n8.get('delivery_refs')
+            or n8.get('active_delivery_version') is not None
+            or not isinstance(transitions, list)):
+        return False
+    n7, n9 = by_type['N7_EXECUTION'], by_type['N9_DEFECT']
+    mission = n7.get('mission_id')
+    n7_id, n9_id = n7.get('mission_node_id'), n9.get('mission_node_id')
+    gate_refs = n7.get('gate_refs')
+    if (not isinstance(mission, str) or not mission
+            or n8.get('mission_id') != mission or n9.get('mission_id') != mission
+            or not isinstance(n7_id, str) or not n7_id
+            or not isinstance(n9_id, str) or not n9_id
+            or not isinstance(gate_refs, list) or not gate_refs):
+        return False
+    return any(
+        isinstance(edge, dict)
+        and edge.get('mission_id') == mission
+        and edge.get('kind') == 'FORWARD'
+        and edge.get('from_node_type') == 'N7_EXECUTION'
+        and edge.get('to_node_type') == 'N9_DEFECT'
+        and edge.get('from_mission_node_id') == n7_id
+        and edge.get('to_mission_node_id') == n9_id
+        and edge.get('source_gate_id') in gate_refs
+        for edge in transitions
+    )
 
 
 def main(argv=None):
@@ -111,9 +159,10 @@ def main(argv=None):
                     and row.get('state') == 'PASS'
                     for row in node_rows
                 )
-                all_nodes_pass = bool(node_rows) and all(
-                    row.get('state') == 'PASS' for row in node_rows
-                )
+                all_nodes_pass = _accepted_ten_node_completion(
+                    node_rows,
+                    transitions=truth.query('rc72_node_transition',
+                        mission_id=snapshot['mission_id']))
                 mission_complete = (
                     result.get('status') == 'PASS' and n10_pass and all_nodes_pass
                 )
