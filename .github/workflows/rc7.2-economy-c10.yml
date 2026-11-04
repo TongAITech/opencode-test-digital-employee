@@ -47,6 +47,7 @@ jobs:
           tests/test_rc72_native_context_projection.py
           tests/test_rc72_native_delta_prompt.py
           tests/test_rc72_native_shared_batch.py
+          tests/test_rc72_native_dsh_actual_launcher_batch.py
           tests/test_rc72_mission_economy_cli_ingress.py
           tests/test_rc72_cost_window_configuration.py
           tests/test_rc72_nonworking_calendar.py
