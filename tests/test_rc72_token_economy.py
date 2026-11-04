@@ -99,7 +99,9 @@ def test_extract_ambiguous_usage_fails_closed():
     usage = extract_dsh_token_usage(text)
     assert usage.status == UsageStatus.UNKNOWN
     assert usage.total_tokens == 0
-    assert usage.source == "DSH_USAGE_AMBIGUOUS_MULTIPLE_SNAPSHOTS"
+    # Native DSH usage and independent R1 audit intentionally share the
+    # strict provider parser; conflicting snapshots remain UNKNOWN.
+    assert usage.source == "DSH_PROVIDER_MULTIPLE_CONFLICTING_USAGE_SNAPSHOTS"
 
 
 def test_bank_cost_window_is_explicit_and_not_host_timezone_dependent():
