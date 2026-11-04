@@ -203,7 +203,7 @@ class BrowserPool:
 
     def _expire_due(self, now: int) -> None:
         for row in self.truth.query(_BROWSER_LEASE):
-            if row.get("state") != "ACTIVE" or int(row.get("expires_at") or 0) >= now:
+            if row.get("state") != "ACTIVE" or int(row.get("expires_at") or 0) > now:
                 continue
             updated = dict(row)
             updated.pop("artifact_type", None)
@@ -342,7 +342,7 @@ class BrowserPool:
         if row.get("access_mode") != mode.value:
             raise ContractError("BROWSER_LEASE_ACCESS_MODE_MISMATCH")
         current = _now() if now is None else int(now)
-        if current > int(row["expires_at"]):
+        if current >= int(row["expires_at"]):
             raise ContractError("BROWSER_LEASE_EXPIRED")
         instance = self._one(_BROWSER_INSTANCE, browser_instance_id=row["browser_instance_id"])
         if instance.get("state") != "READY":
@@ -359,7 +359,7 @@ class BrowserPool:
         row = self.lease(browser_lease_id)
         if row.get("state") not in {"ACTIVE", "EXPIRED"}:
             raise ContractError("BROWSER_LEASE_NOT_ACTIVE")
-        if row['state'] == 'EXPIRED' or _now() > int(row['expires_at']):
+        if row['state'] == 'EXPIRED' or _now() >= int(row['expires_at']):
             from .rc72_n8_repair_boundary import RepairBoundaryService
             if (not isinstance(recovery_authorizer, RepairBoundaryService)
                     or recovery_authorizer.truth is not self.truth

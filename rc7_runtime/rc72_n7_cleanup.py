@@ -131,14 +131,77 @@ class ExecutionCleanupService:
             request_sha256=digest, state='IN_FLIGHT', artifact_version=1)
         if recovery_grant is not None:
             row['recovery_grant_ref'] = recovery_grant
-        directory = Path(str(self.truth.store.path) + '.n7-dispatch-claims')
-        directory.mkdir(parents=True, exist_ok=True)
-        try:
-            claim = os.open(str(directory / call_id), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError as exc:
-            raise CleanupError('N7_CLEANUP_ALREADY_CLAIMED_DIAGNOSIS_REQUIRED') from exc
-        os.close(claim)
-        self.truth.append_atomic(_EVENT, row)
+        # Persist the external cleanup/verification intent under the same
+        # Captain ledger as handoff. Otherwise an owner could quiesce between
+        # the previous authorization check and the first cleanup byte.
+        # A trusted N8 repair boundary may authorize expired custody on its
+        # own, but still has to persist its I/O intent before calling out.
+        from .rc72_ledger_lock import ledger_lock
+        with ledger_lock(self.truth, busy='N7_CLEANUP_ADMISSION_LEDGER_BUSY',
+                         conflict=CleanupError):
+            if self.recovery_authorizer is None:
+                prepared = self.preparation._one(
+                    'rc72_n7_execution_preparation', preparation_id=p['preparation_id'])
+                self.preparation._assert_captain_binding_locked(prepared)
+                self.preparation._assert_current_locked(p['preparation_id'])
+                self.preparation.authority.authorize_tool(
+                    p['worker_id'], p['task_lease']['lease_id'], tool)
+            else:
+                # N8 repair uses a distinct, signed cleanup-only actor. The
+                # grant may be revoked or superseded after the initial check
+                # above; its exact state/scope must still be valid at the
+                # irreversible R1 external-I/O intent boundary.
+                boundary = self.recovery_authorizer
+                current_grant = boundary._signed(boundary._one(
+                    'rc72_n8_repair_boundary', preparation_id=p['preparation_id']))
+                if (current_grant.get('boundary_id') != recovery_grant
+                        or current_grant.get('state') != 'CLEANUP_AUTHORIZED'
+                        or current_grant.get('contract_sha256') != c['contract_sha256']
+                        or phase not in {'CLEANUP', 'VERIFY'}):
+                    raise CleanupError('N8_CLEANUP_GRANT_CHANGED_BEFORE_EXTERNAL_IO')
+                boundary._check_old_node_versions(p, current_grant)
+                # A still-signed grant is not a still-live permission.
+                # Revalidate the *cleanup actor's own* HMAC TaskLease at this
+                # exact moment, not the suspended original N7 worker lease.
+                from rc6_runtime.authority import TaskLease, WorkerIdentity
+                identity = WorkerIdentity(**current_grant['cleanup_identity'])
+                scoped = dict(current_grant['cleanup_lease'])
+                for key in ('allowed_artifact_types', 'allowed_tools'):
+                    scoped[key] = tuple(scoped[key])
+                signed = TaskLease(**scoped)
+                boundary.preparation.authority.restore_signed_worker_lease(
+                    identity, signed,
+                    expected_scope='cleanup:%s/%s' %
+                    (p['preparation_id'], c['contract_sha256']))
+                boundary.preparation.authority.authorize_tool(
+                    identity.worker_id, signed.lease_id, tool)
+                worker_session = self.preparation._one(
+                    'rc72_worker_session', session_id=identity.session_id)
+                if (worker_session.get('state') != 'ACTIVE'
+                        or worker_session.get('worker_id') != identity.worker_id):
+                    raise CleanupError('N8_CLEANUP_ACTOR_CHANGED_BEFORE_EXTERNAL_IO')
+                for kind, key, refs in (
+                        ('rc72_data_lease', 'data_lease_id', p['data_lease_ids']),
+                        ('rc72_browser_lease', 'browser_lease_id', p['browser_lease_ids'])):
+                    for ref in refs:
+                        custody = self.preparation._one(kind, **{key: ref})
+                        if (custody.get('state') not in {'ACTIVE', 'EXPIRED'}
+                                or any(custody.get(k) != p[k] for k in (
+                                    'mission_id', 'workitem_id',
+                                    'attempt_id', 'worker_id'))):
+                            raise CleanupError('N8_CLEANUP_CUSTODY_CHANGED_BEFORE_EXTERNAL_IO')
+            if self.truth.query(_KIND, call_id=call_id):
+                raise CleanupError('N7_CLEANUP_CALL_ALREADY_DURABLE_NO_REPLAY')
+            directory = Path(str(self.truth.store.path) + '.n7-dispatch-claims')
+            directory.mkdir(parents=True, exist_ok=True)
+            try:
+                claim = os.open(str(directory / call_id),
+                                os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError as exc:
+                raise CleanupError(
+                    'N7_CLEANUP_ALREADY_CLAIMED_DIAGNOSIS_REQUIRED') from exc
+            os.close(claim)
+            self.truth.append_atomic(_EVENT, row)
         try:
             result = self.adapters[tool](contract=deepcopy(c), context=deepcopy(context))
             if not isinstance(result, dict) or not result:

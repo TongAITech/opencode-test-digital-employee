@@ -130,9 +130,11 @@ jobs:
           python-version: '3.11'
       - name: Install test runner
         run: python -m pip install --disable-pip-version-check pytest
-      - name: Install actual Chromium and Playwright for C09 source smoke
+      - name: Install real C09 Chromium CDP smoke dependencies
+        shell: bash
         run: |
-          python -m pip install --disable-pip-version-check playwright==1.62.0
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check 'playwright==1.62.0'
           python -m playwright install --with-deps chromium
       - name: Run RC7-focused source tests
         shell: bash

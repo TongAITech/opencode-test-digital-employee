@@ -25,6 +25,9 @@ from .rc72_n5_pipeline import N5PipelineService
 from .rc72_n7_execution_preparation import ExecutionPreparationService
 from .rc72_formal_runner import FormalN7RunnerAdapter
 from .rc72_n7_pipeline import N7PipelineService
+from .rc72_official_journey_execution import OfficialJourneyExecutionService
+from .rc72_journey_n7_adapter import SignedN7OfficialBSKAdapter
+from .rc72_journey_bsk import JourneyBSKAdapter
 from .rc72_n8_product_recovery import NativeN8ProductRecoveryService
 from .rc72_capability_broker import CapabilityBroker, CapabilityPolicyRule
 from .rc72_n9_accepted_scope import AcceptedScopeN9Service
@@ -50,6 +53,20 @@ class MissionWorkerBinding:
 
 
 @dataclass(frozen=True)
+class MissionCaptainBinding:
+    """Scoped host-owned Captain lease; never an implicit Full Access grant.
+
+    The runtime scheduler validates its persisted Captain generation and
+    signed TaskLease at dispatch time. The factory only verifies ownership
+    and binds it into the real formal N7 pipeline.
+    """
+    scheduler: object
+    captain_session_id: str
+    captain_lease_id: str
+    team_id: str
+
+
+@dataclass(frozen=True)
 class MissionHostBindings:
     """Approved host capabilities; no stage/evaluation/completion callbacks."""
     workers: dict
@@ -58,13 +75,16 @@ class MissionHostBindings:
     execution_environment: ExecutionEnvironmentAdapter
     tool_registry: dict
     execution_env: object = None
+    captain_binding: object = None
     capability_policies: object = None
+    official_bsk_execution: object = None
 
 
 def create_mission_driver(truth, *, release_id, source_commit, workers,
                           bank_pip_mirror, execution_authority,
                           execution_environment, tool_registry, evidence_root,
-                          execution_env=None, capability_policies=None):
+                          execution_env=None, captain_binding=None, capability_policies=None,
+                          official_bsk_execution=None):
     """Compose all implemented native routes against one ledger/source/release.
 
     Missing roles fail before constructing pipelines or touching the ledger.
@@ -118,6 +138,29 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
                    for family, tools in tool_registry.items())):
         raise ContractError('MISSION_FACTORY_EXACT_EXECUTION_TOOLS_REQUIRED')
 
+    captain_kwargs = {}
+    if captain_binding is not None:
+        from .rc72_captain_scheduling import CaptainFencedWorkItemScheduler
+        from .rc72_captain_dispatch_fencing import CaptainDispatchFencer
+        if not isinstance(captain_binding, MissionCaptainBinding):
+            raise ContractError('MISSION_FACTORY_TYPED_CAPTAIN_BINDING_REQUIRED')
+        governed = captain_binding.scheduler
+        if (not isinstance(governed, CaptainFencedWorkItemScheduler)
+                or governed.truth is not truth or governed.release_id != release_id
+                or not isinstance(governed.fencer, CaptainDispatchFencer)
+                or governed.fencer.truth is not truth or governed.fencer.release_id != release_id
+                or governed.lifecycle.truth is not truth or governed.lifecycle.release_id != release_id
+                or governed.scheduler.truth is not truth or governed.scheduler.release_id != release_id):
+            raise ContractError('MISSION_FACTORY_CAPTAIN_CANONICAL_RUNTIME_REQUIRED')
+        if any(not isinstance(value, str) or not value.strip() for value in (
+                captain_binding.captain_session_id,
+                captain_binding.captain_lease_id, captain_binding.team_id)):
+            raise ContractError('MISSION_FACTORY_CAPTAIN_SCOPE_REQUIRED')
+        captain_kwargs = dict(captain_scheduler=governed,
+                              captain_session_id=captain_binding.captain_session_id,
+                              captain_lease_id=captain_binding.captain_lease_id,
+                              team_id=captain_binding.team_id)
+
     # Policy is host-owned and must select an exact tool in the N7 registry.
     # Missing policy deliberately maps to the native Broker DENY outcome;
     # never infer administrative permission or a physical tool restoration.
@@ -128,6 +171,24 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
                     or not isinstance(rule, CapabilityPolicyRule)
                     for tool, rule in capability_policies.items()))):
         raise ContractError('MISSION_FACTORY_EXACT_CAPABILITY_POLICY_REQUIRED')
+
+    # Do not infer a BrowserSkill session or full-access route from a name:
+    # the host must bind a B-owned pool and real BSK adapter for this release.
+    bsk_registered = 'journey_bsk' in allowed_execution_tools
+    if bsk_registered != (official_bsk_execution is not None):
+        raise ContractError('MISSION_FACTORY_BSK_APPROVED_TOOL_AND_EXECUTOR_REQUIRED')
+    official_journey_adapters = {}
+    if bsk_registered:
+        if (not isinstance(official_bsk_execution, OfficialJourneyExecutionService)
+                or official_bsk_execution.truth is not truth
+                or official_bsk_execution.release_id != release_id
+                or not isinstance(official_bsk_execution.adapter, JourneyBSKAdapter)
+                or official_bsk_execution.adapter.pool is not official_bsk_execution.browser_pool
+                or official_bsk_execution.browser_pool.truth is not truth
+                or official_bsk_execution.browser_pool.release_id != release_id):
+            raise ContractError('MISSION_FACTORY_BSK_NATIVE_HOST_OWNERSHIP_REQUIRED')
+        official_journey_adapters['journey_bsk'] = SignedN7OfficialBSKAdapter(
+            official_bsk_execution)
 
     def launcher(role):
         return bindings[role].launcher
@@ -152,7 +213,8 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
         authority=execution_authority, tool_registry={k: tuple(v) for k, v in tool_registry.items()})
     n7 = N7PipelineService(preparation, runner=FormalN7RunnerAdapter(preparation,
         evidence_root=root/'runner', execution_env=execution_env, environment_adapter=execution_environment),
-        capture_root=root/'execution-captures')
+        capture_root=root/'execution-captures',
+        official_journey_adapters=official_journey_adapters, **captain_kwargs)
     n8 = NativeN8ProductRecoveryService(n7, capability_broker=CapabilityBroker(
         truth, release_id=release_id, authority=execution_authority,
         policies=capability_policies or {}))

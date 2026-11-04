@@ -184,10 +184,29 @@ class RC72AuthorityRuntime(AuthorityRuntime):
         revoked.add(lease_id)
         self._leases.pop(lease_id, None)
 
+    def authorize_tool(self, worker_id, lease_id, tool_name, now=None):
+        """Never obscure an explicitly revoked lease with cold UNKNOWN_WORKER.
+
+        A restored execution Attempt after UNKNOWN side effects intentionally
+        does not adopt its old identity or mint its signed TaskLease. Explicit
+        revocation still takes precedence before inherited identity lookup,
+        including after a cold controller has observed the R1 suspension.
+        """
+        if self.is_lease_revoked(lease_id):
+            raise AuthorityError("LEASE_REVOKED")
+        return super().authorize_tool(worker_id, lease_id, tool_name, now=now)
+
     def _validate_lease(self, identity, lease, now):
         if lease.lease_id in getattr(self, "_revoked_lease_ids", set()):
             raise AuthorityError("LEASE_REVOKED")
-        return super()._validate_lease(identity, lease, now)
+        verified = super()._validate_lease(identity, lease, now)
+        # Legacy RC6 permits use at exactly expires_at. RC7.2 signed worker
+        # authority has an exclusive TTL end: [issued_at, expires_at).
+        # Preserve parent signature verification before the boundary check.
+        current = int(time.time()) if now is None else int(now)
+        if current >= lease.expires_at:
+            raise AuthorityError("LEASE_EXPIRED")
+        return verified
 
     def validate_historical_lease(self, identity, lease):
         """Authenticate past observations only; never restore revoked authority."""

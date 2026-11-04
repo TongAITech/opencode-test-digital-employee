@@ -320,3 +320,28 @@ def test_browser_use_revalidates_registered_auth_context(tmp_path):
     pool.assert_usable(auth_asset_ref='auth://shared-4a', **kwargs)
     with pytest.raises(Exception, match='BROWSER_INSTANCE_AUTH_CONTEXT_MISMATCH'):
         pool.assert_usable(auth_asset_ref='auth://different-role', **kwargs)
+
+
+
+def test_browser_write_control_expires_on_exact_ttl_boundary_and_requires_custody_recovery(tmp_path, monkeypatch):
+    import rc7_runtime.rc72_browser_resources as browser_module
+
+    truth, pool, ids = _setup(tmp_path, instance_count=1)
+    old = _acquire(pool, ids["L4"], purpose="L4_EXECUTION")
+    expires = pool.lease(old.browser_lease_id)["expires_at"]
+    with pytest.raises(Exception, match="BROWSER_LEASE_EXPIRED"):
+        pool.assert_usable(
+            browser_lease_id=old.browser_lease_id,
+            mission_id="M-1", workitem_id="WI-L4", attempt_id="ATT-L4",
+            worker_id="WORKER-L4", access_mode=BrowserAccessMode.WRITE,
+            now=expires)
+    with pytest.raises(BrowserResourceConflict, match="RESOURCE_CONFLICT"):
+        pool.acquire(
+            mission_id="M-1", workitem_id="WI-L5", attempt_id="ATT-L5",
+            worker_id="WORKER-L5", access_mode=BrowserAccessMode.WRITE,
+            purpose="L5_EXECUTION", ttl_seconds=300, now=expires)
+    assert pool.lease(old.browser_lease_id)["state"] == "EXPIRED"
+    monkeypatch.setattr(browser_module, "_now", lambda: expires)
+    with pytest.raises(Exception, match="BROWSER_EXPIRED_CUSTODY_VERIFIED_RECOVERY_REQUIRED"):
+        pool.release(old.browser_lease_id, reason="unverified reset")
+    assert pool.lease(old.browser_lease_id)["state"] == "EXPIRED"

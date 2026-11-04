@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import asdict, fields
 from copy import deepcopy
 from datetime import datetime
+import time
 from typing import Any, Dict, Mapping, Optional, Sequence
 
 from rc6_runtime import contracts, truth as registry
@@ -23,7 +24,7 @@ from .rc72_browser_resources import BrowserPool, BrowserAccessMode
 from .rc72_data_resources import DataLeaseManager, DataAccessMode
 from .rc72_n7_execution_planning import ExecutionPlanningService
 from .rc72_n7_execution_admission import _hash
-from .rc72_worker_lifecycle import WorkerLifecycleService
+from .rc72_worker_lifecycle import WorkerLifecycleService, FreshWorkerAssignment
 from .rc72_linkage import WorkItemAttemptBinding, WorkItemAttemptState
 from .state_machine import transition_task
 from .truth_overlay import append_entity, install_rc7_truth_overlay
@@ -53,6 +54,8 @@ def _validate(payload):
         raise contracts.DomainValidationError('N7_PREPARATION_GENERATION_INVALID')
     contracts._require_string_list(out, 'data_lease_ids')
     contracts._require_string_list(out, 'browser_lease_ids')
+    if out.get('captain_admission_id') is not None:
+        out['captain_admission_id'] = contracts._require_str(out, 'captain_admission_id')
     for key in ('actual_result', 'assertion_result', 'execution_result', 'field_verified', 'bank_final'):
         if key in out:
             raise contracts.DomainValidationError('N7_PREPARATION_RESULT_FORBIDDEN')
@@ -101,12 +104,23 @@ class ExecutionPreparationService:
             tools.update(names)
         return tuple(sorted(tools))
 
-    def prepare(self, *, plan_id: str, workitem_id: str) -> Dict[str, Any]:
+    def prepare(self, *, plan_id: str, workitem_id: str,
+                fenced_admission=None) -> Dict[str, Any]:
         plan = self.planning.assert_current(plan_id)
         items = [item for item in plan['items'] if item['workitem_id'] == workitem_id]
         if len(items) != 1:
             raise ExecutionPreparationError('N7_WORKITEM_OUTSIDE_PLAN')
         item = items[0]
+        # Once Captain dispatch is governed for this Mission, no parallel
+        # legacy API may create a new unfenced Worker/TaskLease. Historical
+        # non-governed missions remain readable for compatibility.
+        captain_leases = self.truth.query('rc72_captain_dispatch_lease',
+                                          mission_id=plan['mission_id'])
+        if captain_leases and fenced_admission is None:
+            current_governed = self.truth.query(
+                _ARTIFACT, workitem_id=workitem_id, status='PREPARED')
+            if not current_governed or not current_governed[0].get('captain_admission_id'):
+                raise ExecutionPreparationError('N7_CAPTAIN_FENCED_ADMISSION_REQUIRED')
         if plan.get('recovery_id'):
             from .rc72_n8_retry_truth import assert_reconciled_plan
             reconciliation = assert_reconciled_plan(self.planning, plan)
@@ -117,7 +131,11 @@ class ExecutionPreparationService:
         if current:
             if len(current) != 1 or current[0].get('plan_id') != plan_id:
                 raise ExecutionPreparationError('N7_PREPARATION_NOT_UNIQUE')
-            return self.assert_current(current[0]['preparation_id'])
+            # Existing PREPARED is not a shortcut around Captain custody:
+            # verify the caller's *current* exact R1 admission inside the
+            # same ledger lock used for restoring signed TaskLease authority.
+            return self.assert_current(current[0]['preparation_id'],
+                                       fenced_admission=fenced_admission)
         history = self.truth.query(_ARTIFACT, workitem_id=workitem_id)
         previous = max(history, key=lambda value: value['attempt_generation']) if history else None
         generation = int(previous['attempt_generation']) + 1 if previous else 1
@@ -128,15 +146,84 @@ class ExecutionPreparationService:
             raise ExecutionPreparationError('N7_PRIMARY_TOOL_NOT_IN_SCOPED_REGISTRY')
         control = ClosedLoopControlPlane(self.truth, self.release_id, plan['mission_id'])
         task = control.scheduler.task(workitem_id)
-        if task.state != TaskStatus.READY:
-            raise ExecutionPreparationError('N7_WORKITEM_NOT_READY')
-        worker = self.lifecycle.assign_fresh_worker(
-            mission_id=plan['mission_id'], team_id='TEAM-' + plan['mission_id'],
-            role=etu['test_level'] + '_EXECUTE', etu_id=item['etu_id'], workitem_id=workitem_id,
-            canonical_refs=dict(etu_refs=[item['etu_id']], executable_contract_refs=[item['contract_id']],
-                                data_refs=[ref['data_ref'] for ref in contract['data_refs']]),
-            parent_session_id=previous['session_id'] if previous else None,
-        )
+        if fenced_admission is None:
+            if task.state != TaskStatus.READY:
+                raise ExecutionPreparationError('N7_WORKITEM_NOT_READY')
+            worker = self.lifecycle.assign_fresh_worker(
+                mission_id=plan['mission_id'], team_id='TEAM-' + plan['mission_id'],
+                role=etu['test_level'] + '_EXECUTE', etu_id=item['etu_id'], workitem_id=workitem_id,
+                canonical_refs=dict(etu_refs=[item['etu_id']], executable_contract_refs=[item['contract_id']],
+                                    data_refs=[ref['data_ref'] for ref in contract['data_refs']]),
+                parent_session_id=previous['session_id'] if previous else None,
+            )
+        else:
+            # The Captain-fenced admission is a real TaskScheduler lease in R1.
+            # Reuse EXACTLY that Fresh Worker, not a second ungoverned session.
+            # This opt-in path lets Session A connect the actual N7 preparation
+            # to the governed AgentTeams scheduler without changing release driver.
+            from .rc72_captain_scheduling import GovernedFreshDispatch
+            from .rc72_captain_dispatch_fencing import CaptainDispatchFencer
+            if not isinstance(fenced_admission, GovernedFreshDispatch):
+                raise ExecutionPreparationError('N7_FENCED_ADMISSION_TYPE_REQUIRED')
+            if (fenced_admission.state != 'LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH'
+                    or fenced_admission.mission_id != plan['mission_id']
+                    or fenced_admission.workitem_id != workitem_id
+                    or fenced_admission.etu_id != item['etu_id']
+                    or fenced_admission.role != etu['test_level'] + '_EXECUTE'
+                    or task.state != TaskStatus.LEASED
+                    or task.lease_owner != fenced_admission.worker_id):
+                raise ExecutionPreparationError('N7_FENCED_ADMISSION_SCOPE_MISMATCH')
+            # A caller-provided dataclass is not authority: exact admission
+            # must have been durably written by the scoped scheduler in R1
+            # *after* that real WorkItem lease. Missing/mismatched records
+            # cannot mint a signed TaskLease or silently create a Worker.
+            admission_rows = self.truth.query(
+                'rc72_captain_etu_admission',
+                admission_id=fenced_admission.admission_id)
+            if len(admission_rows) != 1:
+                raise ExecutionPreparationError('N7_FENCED_ADMISSION_R1_REQUIRED')
+            admission = admission_rows[0]
+            expected = dict(release_id=self.release_id,
+                mission_id=plan['mission_id'], team_id=fenced_admission.team_id,
+                captain_lease_id=fenced_admission.captain_lease_id,
+                captain_session_id=fenced_admission.captain_session_id,
+                captain_generation=fenced_admission.captain_generation,
+                etu_id=item['etu_id'], workitem_id=workitem_id,
+                role=fenced_admission.role, worker_id=fenced_admission.worker_id,
+                session_id=fenced_admission.session_id,
+                state='LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH')
+            if admission.get('artifact_version') != 1 or any(
+                    admission.get(k) != v for k, v in expected.items()):
+                raise ExecutionPreparationError('N7_FENCED_ADMISSION_R1_MISMATCH')
+            owner = CaptainDispatchFencer(self.truth, release_id=self.release_id).assert_owner(
+                mission_id=plan['mission_id'], lease_id=fenced_admission.captain_lease_id,
+                captain_session_id=fenced_admission.captain_session_id)
+            if (owner['generation'] != fenced_admission.captain_generation
+                    or owner['team_id'] != fenced_admission.team_id):
+                raise ExecutionPreparationError('N7_FENCED_CAPTAIN_GENERATION_OR_TEAM_MISMATCH')
+            session = self._one('rc72_worker_session', session_id=fenced_admission.session_id)
+            context = session.get('context_bundle') or {}
+            if (session.get('state') != 'ACTIVE'
+                    or session.get('mission_id') != plan['mission_id']
+                    or session.get('workitem_id') != workitem_id
+                    or session.get('etu_id') != item['etu_id']
+                    or session.get('worker_id') != fenced_admission.worker_id
+                    or session.get('team_id') != owner['team_id']
+                    or session.get('role') != fenced_admission.role
+                    or session.get('purpose') != 'EXECUTION'
+                    or session.get('runtime_assignment_id')
+                    or session.get('task_lease_ref')
+                    or session.get('dsh_session_id')
+                    or session.get('binding_id')
+                    or context.get('etu_refs') != [item['etu_id']]
+                    or context.get('executable_contract_refs') != [item['contract_id']]
+                    or sorted(context.get('data_refs') or []) != sorted(
+                        ref['data_ref'] for ref in contract['data_refs'])
+                    or context.get('lease_refs')):
+                raise ExecutionPreparationError('N7_FENCED_FRESH_SESSION_PROOF_INVALID')
+            worker = FreshWorkerAssignment(
+                fenced_admission.worker_id, fenced_admission.session_id, dict(context))
+
         attempt_id = 'N7ATT-' + _hash([plan_id, workitem_id, worker.session_id])[:24]
         scope = 'task:%s/attempt:%s' % (workitem_id, attempt_id)
         identity = self.authority.adopt_identity(worker_id=worker.worker_id, role=etu['test_level'] + '_EXECUTE',
@@ -150,10 +237,18 @@ class ExecutionPreparationService:
         acquired, browser_leases = [], []
         binding = None
         try:
-            leased = control.scheduler.lease_task(plan['mission_id'], workitem_id,
-                worker_ref=worker.worker_id, capabilities=[value['name'] for value in contract['capabilities']])
-            if leased is None:
-                raise ExecutionPreparationError('N7_WORKITEM_SCHEDULING_DEFERRED')
+            if fenced_admission is None:
+                leased = control.scheduler.lease_task(plan['mission_id'], workitem_id,
+                    worker_ref=worker.worker_id, capabilities=[value['name'] for value in contract['capabilities']])
+                if leased is None:
+                    raise ExecutionPreparationError('N7_WORKITEM_SCHEDULING_DEFERRED')
+            else:
+                # Revalidate the exact pre-leased WorkItem before binding a
+                # signed TaskLease. NEVER grant a second scheduler lease.
+                current_task = control.scheduler.task(workitem_id)
+                if (current_task.state != TaskStatus.LEASED
+                        or current_task.lease_owner != worker.worker_id):
+                    raise ExecutionPreparationError('N7_FENCED_WORKITEM_LEASE_LOST')
             binding = self.lifecycle.bind_signed_runtime_assignment(lifecycle_session_id=worker.session_id,
                                                                      assignment=assignment, case_id=item['case_id'],
                                                                      parent_attempt_id=previous['attempt_id'] if previous else None)
@@ -184,7 +279,42 @@ class ExecutionPreparationService:
                 attempt_id=attempt_id, binding_id=binding.binding_id, worker_id=worker.worker_id, session_id=worker.session_id,
                 attempt_generation=generation, worker_identity=asdict(identity), task_lease=asdict(lease), data_lease_ids=acquired,
                 browser_lease_ids=browser_leases, status='PREPARED', artifact_version=1)
-            self.truth.append_atomic(_EVENT, payload)
+            if fenced_admission is not None:
+                payload['captain_admission_id'] = fenced_admission.admission_id
+            if fenced_admission is None:
+                self.truth.append_atomic(_EVENT, payload)
+            else:
+                # Final admission is the execution authority boundary. Resource
+                # acquisition can yield control to a new Captain, so repeat
+                # the R1 owner/generation check and persist PREPARED under the
+                # same cross-process lock. A raced handoff must not publish an
+                # executable attempt with an old Captain's credentials.
+                from .rc72_ledger_lock import ledger_lock
+                from .rc72_captain_dispatch_fencing import CaptainDispatchFencer
+                with ledger_lock(self.truth, busy='N7_FENCED_FINAL_ADMISSION_BUSY',
+                                 conflict=ExecutionPreparationError):
+                    owner = CaptainDispatchFencer(self.truth, release_id=self.release_id)._owner(
+                        plan['mission_id'], fenced_admission.captain_lease_id,
+                        fenced_admission.captain_session_id, int(time.time()))
+                    current_task = control.scheduler.task(workitem_id)
+                    current_session = self._one('rc72_worker_session', session_id=worker.session_id)
+                    current_admissions = self.truth.query(
+                        'rc72_captain_etu_admission',
+                        admission_id=fenced_admission.admission_id)
+                    if (owner['generation'] != fenced_admission.captain_generation
+                            or owner['team_id'] != fenced_admission.team_id
+                            or current_task.state != TaskStatus.LEASED
+                            or current_task.lease_owner != worker.worker_id
+                            or current_session['state'] != 'ACTIVE'
+                            or current_session.get('task_lease_ref') != lease.lease_id
+                            or current_session.get('runtime_attempt_id') != attempt_id
+                            or current_session.get('binding_id') != binding.binding_id
+                            or len(current_admissions) != 1
+                            or current_admissions[0].get('artifact_version') != 1
+                            or current_admissions[0].get('worker_id') != worker.worker_id
+                            or current_admissions[0].get('session_id') != worker.session_id):
+                        raise ExecutionPreparationError('N7_FENCED_FINAL_ADMISSION_STALE')
+                    self.truth.append_atomic(_EVENT, payload)
         except Exception:
             # No tool has been invoked by this service. Rollback releases only
             # reservations and records that control-plane fact, never fake SUT cleanup.
@@ -228,6 +358,14 @@ class ExecutionPreparationService:
                 self.authority.revoke_worker_lease(row['task_lease']['lease_id'])
                 raise ExecutionPreparationError('N7_EXECUTION_PROCESS_RECOVERY_REQUIRED')
         calls = self.truth.query('rc72_n7_tool_dispatch', preparation_id=row['preparation_id'])
+        # UNKNOWN means external I/O might already have committed. No caller,
+        # including a different adapter or cold runtime, may restore the signed
+        # TaskLease merely because the original IN_FLIGHT owner has exited.
+        # FAILED is permitted only with the separately verified no-effect proof
+        # and remains for independent N8 diagnosis, not unattended replay.
+        if any(call['state'] == 'UNKNOWN' for call in calls):
+            self.authority.revoke_worker_lease(row['task_lease']['lease_id'])
+            raise ExecutionPreparationError('N7_EXECUTION_UNKNOWN_EFFECT_RECONCILIATION_REQUIRED')
         if any(call['state'] == 'IN_FLIGHT' for call in calls) and row['preparation_id'] not in self._active_dispatches:
             self.authority.revoke_worker_lease(row['task_lease']['lease_id'])
             raise ExecutionPreparationError('N7_EXECUTION_CONTROLLER_RECOVERY_REQUIRED')
@@ -289,7 +427,81 @@ class ExecutionPreparationService:
                 attempt_id=row['attempt_id'], worker_id=row['worker_id'], access_mode=BrowserAccessMode.WRITE,
                 auth_asset_ref=planned['browser_context'])
 
-    def assert_current(self, preparation_id: str) -> Dict[str, Any]:
+    def _verify_existing_fenced_admission(self, row, fenced_admission):
+        """Runs under the shared R1 decision lock; cannot mint new authority."""
+        from .rc72_captain_scheduling import GovernedFreshDispatch
+        from .rc72_captain_dispatch_fencing import CaptainDispatchFencer
+        if not isinstance(fenced_admission, GovernedFreshDispatch):
+            raise ExecutionPreparationError('N7_FENCED_ADMISSION_TYPE_REQUIRED')
+        if row.get('captain_admission_id') != fenced_admission.admission_id:
+            raise ExecutionPreparationError('N7_FENCED_ADMISSION_ID_MISMATCH')
+        proven = self.truth.query('rc72_captain_etu_admission',
+                                  admission_id=fenced_admission.admission_id)
+        if len(proven) != 1:
+            raise ExecutionPreparationError('N7_FENCED_ADMISSION_R1_REQUIRED')
+        proof = proven[0]
+        expected = {
+            'release_id': self.release_id,
+            'mission_id': row['mission_id'],
+            'team_id': fenced_admission.team_id,
+            'workitem_id': row['workitem_id'],
+            'etu_id': row['etu_id'],
+            'worker_id': row['worker_id'],
+            'session_id': row['session_id'],
+            'role': row['worker_identity']['role'],
+            'captain_lease_id': fenced_admission.captain_lease_id,
+            'captain_session_id': fenced_admission.captain_session_id,
+            'captain_generation': fenced_admission.captain_generation,
+            'state': 'LEASED_AWAITING_SIGNED_AUTHORITY_AND_DSH',
+        }
+        if (fenced_admission.state != expected['state']
+                or proof.get('artifact_version') != 1
+                or any(proof.get(key) != value for key, value in expected.items())
+                or any(getattr(fenced_admission, key) != value for key, value in
+                       expected.items() if key not in {'release_id'})):
+            raise ExecutionPreparationError('N7_FENCED_EXISTING_ADMISSION_MISMATCH')
+        owner = CaptainDispatchFencer(self.truth, release_id=self.release_id)._owner(
+            row['mission_id'], fenced_admission.captain_lease_id,
+            fenced_admission.captain_session_id, int(time.time()))
+        if owner['team_id'] != proof['team_id'] or owner['generation'] != proof['captain_generation']:
+            raise ExecutionPreparationError('N7_FENCED_EXISTING_CAPTAIN_FENCED')
+        existing_session = self._one('rc72_worker_session', session_id=row['session_id'])
+        if (existing_session.get('state') != 'ACTIVE'
+                or existing_session.get('team_id') != proof['team_id']
+                or existing_session.get('worker_id') != row['worker_id']
+                or existing_session.get('binding_id') != row['binding_id']):
+            raise ExecutionPreparationError('N7_FENCED_EXISTING_WORKER_SCOPE_MISMATCH')
+
+    def _assert_captain_binding_locked(self, existing, fenced_admission=None):
+        """R1-derived Captain authority: caller already holds resource ledger."""
+        proof_id = existing.get('captain_admission_id')
+        captain_leases = self.truth.query(
+            'rc72_captain_dispatch_lease', mission_id=existing['mission_id'])
+        if proof_id:
+            # Inferred from *canonical R1*, not from caller arguments:
+            # SignedToolDispatchService also uses this path without an
+            # explicit Captain object. Quiesce/takeover must revoke tool
+            # authorization even for an already PREPARED Attempt.
+            if fenced_admission is None:
+                from .rc72_captain_scheduling import GovernedFreshDispatch
+                proven = self.truth.query(
+                    'rc72_captain_etu_admission', admission_id=proof_id)
+                if len(proven) != 1:
+                    raise ExecutionPreparationError('N7_FENCED_ADMISSION_R1_REQUIRED')
+                row = proven[0]
+                fenced_admission = GovernedFreshDispatch(
+                    admission_id=row['admission_id'], mission_id=row['mission_id'],
+                    team_id=row['team_id'], workitem_id=row['workitem_id'],
+                    etu_id=row['etu_id'], role=row['role'],
+                    worker_id=row['worker_id'], session_id=row['session_id'],
+                    captain_generation=row['captain_generation'],
+                    captain_lease_id=row['captain_lease_id'],
+                    captain_session_id=row['captain_session_id'], state=row['state'])
+            self._verify_existing_fenced_admission(existing, fenced_admission)
+        elif fenced_admission is not None or captain_leases:
+            raise ExecutionPreparationError('N7_CAPTAIN_FENCED_ADMISSION_REQUIRED')
+
+    def assert_current(self, preparation_id: str, *, fenced_admission=None) -> Dict[str, Any]:
         from .rc72_ledger_lock import ledger_lock
         # Existing signed suspension is already sufficient to deny permission,
         # even while its live owner holds the ledger lock. Recheck after refresh.
@@ -298,6 +510,8 @@ class ExecutionPreparationService:
         # decision lock. Per-resource refreshes followed by another replay left
         # a gap between the last ownership check and authority restoration.
         with ledger_lock(self.truth, busy='N7_PREPARATION_LEDGER_BUSY', conflict=ExecutionPreparationError):
+            existing = self._one(_ARTIFACT, preparation_id=preparation_id)
+            self._assert_captain_binding_locked(existing, fenced_admission)
             return self._assert_current_locked(preparation_id)
 
     def _assert_current_locked(self, preparation_id):

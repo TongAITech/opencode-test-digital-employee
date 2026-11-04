@@ -86,9 +86,24 @@ class JourneyPlaywrightAdapter:
         self._active_attempt_id = None
         self._instance_fingerprint = None
         self._network_observations = {}
+        self._network_request_origins = {}
+        self._network_response_origins = {}
+        self._network_page = None
+        self._network_handlers = None
+        self._active_source = None
+        self._network_overflow = set()
+        self._oracle_proofs = {}
 
     def close(self) -> None:
         # Stop the client connection; BrowserPool/B group owns browser lifetime.
+        if self._network_page is not None and self._network_handlers is not None:
+            for event, handler in self._network_handlers:
+                try:
+                    self._network_page.remove_listener(event, handler)
+                except Exception:
+                    pass
+        self._network_page = None
+        self._network_handlers = None
         if self._playwright is not None:
             self._playwright.stop()
         self._playwright = None
@@ -98,6 +113,11 @@ class JourneyPlaywrightAdapter:
         self._active_attempt_id = None
         self._instance_fingerprint = None
         self._network_observations.clear()
+        self._network_request_origins.clear()
+        self._network_response_origins.clear()
+        self._network_overflow.clear()
+        self._oracle_proofs.clear()
+        self._active_source = None
 
     def _guard(self, context: Mapping[str, Any]) -> Dict[str, Any]:
         required = ("mission_id", "workitem_id", "attempt_id", "worker_id", "browser_lease_id")
@@ -164,6 +184,46 @@ class JourneyPlaywrightAdapter:
             raise ContractError("JOURNEY_CDP_PAGE_AMBIGUOUS")
         return pages[0]
 
+    def _track_network(self, page: Any, run_id: str) -> None:
+        # SPA XHR/fetch responses can complete between Journey steps. A
+        # request must be attributed when it begins, not at response time;
+        # a later unrelated 200 must never satisfy the click Oracle.
+        if self._network_page is not None:
+            if self._network_page is not page:
+                raise ContractError("JOURNEY_CDP_TRACKED_PAGE_SWITCH_FORBIDDEN")
+            return
+
+        def on_request(request: Any) -> None:
+            if self._active_source is not None:
+                self._network_request_origins[id(request)] = dict(self._active_source)
+
+        def on_response(response: Any) -> None:
+            try:
+                origin = self._network_request_origins.pop(id(response.request), None)
+                if not origin:
+                    return
+                self._network_response_origins[id(response)] = dict(origin)
+                row = {
+                    "method": str(response.request.method),
+                    "url": _public_url(response.url),
+                    "status": int(response.status),
+                    "source_step_id": origin["source_step_id"],
+                    "action_type": origin["action_type"],
+                }
+                records = self._network_observations.setdefault(run_id, [])
+                if len(records) >= 1000:
+                    self._network_overflow.add(run_id)
+                else:
+                    records.append(row)
+            except Exception:
+                # Unknown request lineage is not proof of business success.
+                pass
+
+        page.on("request", on_request)
+        page.on("response", on_response)
+        self._network_page = page
+        self._network_handlers = [("request", on_request), ("response", on_response)]
+
     def _resolve_locator(self, page: Any, ref: str, context: Mapping[str, Any]) -> Any:
         if not ref:
             raise ContractError("JOURNEY_ELEMENT_REF_REQUIRED")
@@ -223,15 +283,18 @@ class JourneyPlaywrightAdapter:
                 raise ContractError("JOURNEY_NETWORK_ORACLE_TRIGGER_STEP_REQUIRED")
             run_id = str(context.get("replay_id") or context.get("execution_id") or "")
             observations = self._network_observations.get(run_id, [])
-            if not any(
-                row.get("method") == method.upper()
+            matching = next((
+                row for row in observations
+                if row.get("method") == method.upper()
                 and row.get("url") == _public_url(url)
                 and row.get("status") == status
                 and row.get("source_step_id") == trigger_step_id
                 and row.get("action_type") in {"NAVIGATE", "CLICK", "INPUT", "SELECT", "WAIT"}
-                for row in observations
-            ):
+            ), None)
+            if matching is None:
                 raise ContractError("JOURNEY_ASSERT_NETWORK_STATUS_MISMATCH")
+            self._oracle_proofs[
+                (run_id, str(step.get("source_step_id") or ""))] = dict(matching)
         elif kind == "url_equals":
             if page.url != oracle.get("expected"):
                 raise ContractError("JOURNEY_ASSERT_URL_MISMATCH")
@@ -280,6 +343,7 @@ class JourneyPlaywrightAdapter:
             self._assert(page, step, context)
         else:
             raise ContractError("JOURNEY_ACTION_UNSUPPORTED")
+        self._guard(context)
         self._wait(page, step, context)
 
     def execute_step(self, step: Mapping[str, Any], context: Mapping[str, Any]) -> Dict[str, Any]:
@@ -309,13 +373,22 @@ class JourneyPlaywrightAdapter:
             self._active_attempt_id = context["attempt_id"]
             self._instance_fingerprint = binding["fingerprint"]
             page = self._page(binding["endpoint"])
+            self._track_network(page, run_id)
+            self._active_source = {
+                "source_step_id": str(step.get("source_step_id") or ""),
+                "action_type": str(step.get("action_type") or "").upper(),
+            }
             def on_response(response: Any) -> None:
                 try:
-                    responses.append({
+                    origin = self._network_response_origins.get(id(response))
+                    record = {
                         "method": str(response.request.method),
                         "url": _public_url(response.url),
                         "status": int(response.status),
-                    })
+                    }
+                    if origin:
+                        record["origin_source_step_id"] = origin["source_step_id"]
+                    responses.append(record)
                 except Exception:
                     pass
             page.on("response", on_response)
@@ -366,15 +439,29 @@ class JourneyPlaywrightAdapter:
         # the same signed replay or official execution, not across Attempts.
         # Source-step attribution prevents an earlier coincidental HTTP
         # response from satisfying a later business action's network oracle.
-        attributed = [dict(r, source_step_id=str(step.get("source_step_id") or ""),
-                           action_type=str(step.get("action_type") or "").upper())
-                      for r in responses]
+        attributed = [
+            dict(row, source_step_id=row.get("origin_source_step_id")
+                 or str(step.get("source_step_id") or ""),
+                 action_type=str(step.get("action_type") or "").upper())
+            for row in responses]
         previous = self._network_observations.setdefault(run_id, [])
-        if len(previous) + len(attributed) > 1000:
+        # The persistent request listener may have already recorded a real
+        # response under its source action. Keep only unmatched legacy
+        # per-step records (e.g. older FakePage fixtures).
+        fresh = [
+            row for row in attributed
+            if not any(
+                old.get("method") == row["method"]
+                and old.get("url") == row["url"]
+                and old.get("status") == row["status"]
+                and old.get("source_step_id") == row["source_step_id"]
+                for old in previous)
+        ]
+        if run_id in self._network_overflow or len(previous) + len(fresh) > 1000:
             status = "FAILED"
             failure_code = "JOURNEY_NETWORK_OBSERVATION_LIMIT_EXCEEDED"
         else:
-            previous.extend(attributed)
+            previous.extend(fresh)
         evidence_refs = []
         if page is not None:
             try:
@@ -397,6 +484,8 @@ class JourneyPlaywrightAdapter:
                  "source_step_id": str(step.get("source_step_id") or ""),
                  "status": status, "failure_code": failure_code,
                  "response_metadata": responses,
+                 "network_oracle_proof": self._oracle_proofs.get((
+                     run_id, str(step.get("source_step_id") or ""))),
                  "browser_instance_id": (self.pool.lease(context["browser_lease_id"]).get("browser_instance_id")
                                          if isinstance(context.get("browser_lease_id"), str)
                                          and self.pool.truth.query("rc72_browser_lease", browser_lease_id=context["browser_lease_id"])
