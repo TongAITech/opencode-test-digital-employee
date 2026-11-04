@@ -76,6 +76,15 @@ def hydrate_native_retry_delta(prompt: str, metadata: Mapping[str, Any]) -> Nati
     if metadata["retry_previous_summary_ref"] not in new_refs:
         return unchanged
 
+    # Require signed change locators, not just a previous Attempt summary.
+    groups = (metadata.get("retry_explicit_gap_refs"), metadata.get("retry_delta_evidence_refs"), metadata.get("retry_changed_dependency_refs"))
+    if any(not isinstance(group, (tuple, list)) for group in groups):
+        return unchanged
+    changed = tuple(ref for group in groups for ref in group)
+    if (not changed or any(not isinstance(ref, str) or not ref for ref in changed)
+            or not set(changed).issubset(set(new_refs))):
+        return unchanged
+
     marker = "Context="
     offset = prompt.rfind(marker)
     if offset < 0 or not prompt[:offset].endswith((" ", "\n")):
