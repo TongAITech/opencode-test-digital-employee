@@ -24,6 +24,11 @@ class NativeN10ControlService:
         self.repair,self.rerun=repair,rerun
         if not isinstance(n9,AcceptedScopeN9Service):raise ContractError('N10_NATIVE_N9_REQUIRED')
         self.truth,self.release_id,self.source_commit=n9.truth,n9.release_id,n9.source_commit
+        # Register terminal-review R1 projections on every N10 service instance,
+        # including a blocked/non-converged release.  Lazy registration only on
+        # terminal PASS made read-only source audits raise UNKNOWN_PROJECTION_ARTIFACT.
+        from .rc72_n10_terminal import install_overlay as install_terminal_review_overlay
+        install_terminal_review_overlay()
         self._assert_inputs()
 
     def _assert_inputs(self):
