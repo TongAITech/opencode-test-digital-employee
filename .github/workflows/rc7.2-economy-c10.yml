@@ -77,7 +77,7 @@ jobs:
       - name: Install RC7 test runner and real C09 browser client
         run: >-
           python -m pip install --disable-pip-version-check
-          pytest playwright==1.62.1
+          pytest playwright==1.62.0
       - name: Install actual Chromium and required host dependencies
         run: python -m playwright install --with-deps chromium
       - name: Compile inherited and new RC7/C10 source
