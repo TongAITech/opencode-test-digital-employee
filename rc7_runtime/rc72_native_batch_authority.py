@@ -70,9 +70,13 @@ def require_signed_batch_authority(
             or authority._require_lease(lease.lease_id) != lease
         ):
             raise NativeBatchAuthorityError("NATIVE_BATCH_SIGNED_REGISTRY_MISMATCH")
-        authority._validate_lease(identity, lease)
+        authority._validate_lease(identity, lease, None)
         for tool in tools:
             authority.authorize_tool(worker_id, lease.lease_id, tool)
+    except NativeBatchAuthorityError:
+        # ContractError derives from ValueError; preserve exact fail-closed
+        # reason rather than accidentally rewriting our own diagnostic.
+        raise
     except (AuthorityError, ValueError) as exc:
         raise NativeBatchAuthorityError("NATIVE_BATCH_SIGNED_LEASE_DENIED") from exc
     return tuple(tools)
