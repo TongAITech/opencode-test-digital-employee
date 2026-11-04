@@ -37,8 +37,16 @@ jobs:
       - name: Install qualification dependency
         run: python -m pip install --disable-pip-version-check pytest
       - name: Install real Chromium CDP dependencies for mandatory C09 regressions
+        shell: bash
         run: |
-          python -m pip install --disable-pip-version-check playwright==1.62.0
+          set -euo pipefail
+          # Python 3.8 is bank-supported but Playwright >=1.49 dropped its wheels.
+          # Keep the actual CDP test; pin the last compatible Playwright instead.
+          if [[ "${{ matrix.python-version }}" == "3.8" ]]; then
+            python -m pip install --disable-pip-version-check playwright==1.48.0
+          else
+            python -m pip install --disable-pip-version-check playwright==1.62.0
+          fi
           python -m playwright install --with-deps chromium
       - name: Compile RC7 runtime
         run: python -m compileall -q rc7_runtime rc7_release
