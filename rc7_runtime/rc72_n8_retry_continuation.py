@@ -129,16 +129,36 @@ class DataRepairContinuationService:
             owners = self.truth.query(
                 'rc72_n7_execution_preparation',
                 preparation_id=row.get('preparation_id'))
+            # An accepted N5 repair may target any Case in the SAME frozen
+            # N7 plan: the owner Preparation is the failed Case, whereas the
+            # repaired DataRequirement can belong to a different Case.
+            # Equating those two case IDs falsely rejects whole-inventory
+            # repair (and every later N8 generation).
+            plan = (self.truth.query('rc72_n7_execution_plan',
+                    plan_id=owners[0].get('plan_id')) if len(owners) == 1 else [])
+            original = row.get('original_binding', {})
+            requirement = self.truth.query(
+                'rc72_n5_data_requirement',
+                data_requirement_id=row.get('data_requirement_id'))
             if (row.get('mission_id') != p['mission_id']
                     or row.get('release_id') != p['release_id']
                     or row.get('source_commit') != p['source_commit']
-                    or len(owners) != 1
+                    or len(owners) != 1 or len(plan) != 1
                     or any(owners[0].get(k) != p[k] for k in
                            ('mission_id', 'release_id', 'source_commit',
                             'release_batch_id'))
-                    or owners[0].get('case_id') != row.get('case_id')
-                    or row.get('original_binding', {}).get('data_requirement_id')
-                       != row.get('data_requirement_id')):
+                    or any(plan[0].get(k) != p[k] for k in
+                           ('mission_id', 'release_id', 'source_commit',
+                            'release_batch_id'))
+                    or not any(item.get('case_id') == row.get('case_id')
+                               for item in plan[0].get('items', []))
+                    or original.get('data_requirement_id')
+                       != row.get('data_requirement_id')
+                    or original.get('case_id') != row.get('case_id')
+                    or len(requirement) != 1
+                    or requirement[0].get('case_id') != row.get('case_id')
+                    or requirement[0].get('source_case_sha256')
+                       != row.get('source_case_sha256')):
                 raise ContractError('N8_RETRY_N5_BATCH_REVERIFICATION_SCOPE_CHANGED')
             signed = {k: v for k, v in row.items()
                       if k not in {'signature', 'artifact_type', 'artifact_version'}}
