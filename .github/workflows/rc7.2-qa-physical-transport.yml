@@ -1,0 +1,123 @@
+name: RC7.2 Independent C12 Physical Transport
+
+on:
+  pull_request:
+    branches: [work/rc7.2]
+    paths:
+      - '.github/workflows/rc7.2-qa-physical-transport.yml'
+      - 'tools/rc72_qa_offline_audit.py'
+      - 'tools/rc72_qa_source_provenance.py'
+      - 'tools/rc72_qa_zip_preflight.py'
+  workflow_dispatch:
+    inputs:
+      target_main_sha:
+        description: 'Exact 40-character work/rc7.2 main SHA with a successful portable build'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: rc72-c12-physical-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  independent-c12-actual-zip:
+    name: c12-independent-actual-win10-artifact
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_MAIN_SHA: ${{ github.event.pull_request.base.sha || inputs.target_main_sha }}
+      EXACT_QA_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact independent QA source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup independent Python only
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify Git SHA ancestry before touching purported release artifact
+        shell: pwsh
+        run: |
+          python tools/rc72_qa_source_provenance.py --repo-root . --expected-head $env:EXACT_QA_HEAD --expected-base $env:TARGET_MAIN_SHA --report qa-source-provenance.json
+          if ($LASTEXITCODE -ne 0) { throw 'C12_QA_SOURCE_PROVENANCE_NOT_ACCEPTED' }
+      - name: Locate exact-main successful portable build and download real bytes
+        shell: pwsh
+        run: |
+          if ($env:TARGET_MAIN_SHA -notmatch '^[0-9a-f]{40}$') { throw 'C12_EXACT_MAIN_SHA_REQUIRED' }
+          $runs = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs?head_sha=$env:TARGET_MAIN_SHA&per_page=100" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'C12_CANNOT_QUERY_PORTABLE_RUNS' }
+          $run = @($runs.workflow_runs | Where-Object {
+            $_.head_sha -eq $env:TARGET_MAIN_SHA -and
+            $_.name -eq 'RC7.2 Portable Transport Preparation' -and
+            $_.event -eq 'push' -and $_.status -eq 'completed' -and
+            $_.conclusion -eq 'success'
+          } | Sort-Object run_number -Descending | Select-Object -First 1)
+          if ($run.Count -ne 1) { throw 'C12_EXACT_MAIN_PORTABLE_BUILD_NOT_SUCCESSFUL' }
+          $artifacts = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($run[0].id)/artifacts?per_page=100" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'C12_CANNOT_QUERY_PORTABLE_ARTIFACT' }
+          $name = 'RC72-PORTABLE-WIN10-' + $env:TARGET_MAIN_SHA
+          $artifact = @($artifacts.artifacts | Where-Object {
+            $_.name -eq $name -and $_.expired -eq $false -and
+            $_.size_in_bytes -gt 0 -and $_.digest -match '^sha256:[0-9a-f]{64}$'
+          })
+          if ($artifact.Count -ne 1) { throw 'C12_EXACT_SHA_VALID_ARTIFACT_MISSING_OR_AMBIGUOUS' }
+          @{
+            schema='RC72_QA_ACTUAL_PORTABLE_ARTIFACT_SOURCE_V1'
+            status='SOURCE_ARTIFACT_SELECTED_NOT_QUALIFIED'
+            source_commit=$env:TARGET_MAIN_SHA
+            workflow_run_id=$run[0].id
+            artifact_id=$artifact[0].id
+            artifact_name=$name
+            artifact_bytes=$artifact[0].size_in_bytes
+            github_artifact_digest=$artifact[0].digest
+            bank_final=$false
+            field_verified=$false
+          } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 qa-c12-artifact-origin.json
+          gh run download $run[0].id --repo $env:GITHUB_REPOSITORY --name $name --dir qa-c12-actual-download
+          if ($LASTEXITCODE -ne 0) { throw 'C12_ARTIFACT_BYTE_DOWNLOAD_FAILED' }
+      - name: Check actual nested ZIP SHA receipt, clean unpack, independent audit
+        shell: pwsh
+        run: |
+          $shortSha=$env:TARGET_MAIN_SHA.Substring(0,12)
+          $name='RC72-PORTABLE-WIN10-'+$shortSha+'.zip'
+          $archives=@(Get-ChildItem qa-c12-actual-download -Recurse -File -Filter $name)
+          if ($archives.Count -ne 1) { throw 'C12_EXPECTED_EXACT_SOURCE_INNER_ZIP_NOT_UNIQUE' }
+          $archive=$archives[0].FullName
+          $sidecar=$archive+'.sha256'
+          if (-not (Test-Path -LiteralPath $sidecar -PathType Leaf)) { throw 'C12_ZIP_SHA256_RECEIPT_MISSING' }
+          $sidecarText=Get-Content -LiteralPath $sidecar -Raw
+          if ($sidecarText -notmatch '(?i)^([a-f0-9]{64})  ([^/\r\n]+)\s*$') { throw 'C12_ZIP_SHA256_RECEIPT_INVALID' }
+          $expected=$Matches[1].ToLowerInvariant()
+          if ($Matches[2] -ne $name) { throw 'C12_ZIP_SHA256_RECEIPT_NAME_MISMATCH' }
+          $actual=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw 'C12_ZIP_SHA256_BYTES_MISMATCH' }
+          python tools/rc72_qa_zip_preflight.py --zip $archive --report qa-c12-zip-preflight.json
+          if ($LASTEXITCODE -ne 0) { throw 'C12_ZIP_PATH_TYPE_OR_DECOMPRESSION_PREFLIGHT_FAILED' }
+          $clean=Join-Path $env:RUNNER_TEMP 'rc72-qa-c12-clean'
+          if (Test-Path $clean) { Remove-Item $clean -Recurse -Force }
+          Expand-Archive -LiteralPath $archive -DestinationPath $clean
+          $package=Join-Path $clean 'PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10'
+          if (-not (Test-Path $package -PathType Container)) { throw 'C12_EXPECTED_TURNKEY_ROOT_MISSING' }
+          python tools/rc72_qa_offline_audit.py --package-root $package --expected-source-commit $env:TARGET_MAIN_SHA --dsh-relpath workspace-template/runtime/dsh/dsh.exe --report qa-c12-physical-audit.json
+          if ($LASTEXITCODE -ne 0) { throw 'C12_INDEPENDENT_PAYLOAD_AUDIT_HOLD_OR_FAIL' }
+          Write-Output 'C12_PHYSICAL_CANDIDATE_ONLY: not Q3-Q9 Field and not BANK_FINAL'
+      - name: Upload independent PASS/HOLD/FAIL receipts, never BANK_FINAL
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc72-c12-physical-qa-${{ github.run_id }}
+          path: |
+            qa-source-provenance.json
+            qa-c12-artifact-origin.json
+            qa-c12-zip-preflight.json
+            qa-c12-physical-audit.json
+          if-no-files-found: warn
+          retention-days: 30

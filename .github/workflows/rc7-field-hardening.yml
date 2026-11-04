@@ -16,6 +16,12 @@ on:
 permissions:
   contents: read
 
+# Keep full RC7 regression, but only for the latest source commit of each PR.
+# Superseded PR revisions must not occupy source-suite runners indefinitely.
+concurrency:
+  group: rc7-field-hardening-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   field-hardening-source-regression:
     name: Source regression (${{ matrix.os }})
@@ -123,6 +129,9 @@ jobs:
   rc7-source-suite:
     name: RC7 source suite
     runs-on: ubuntu-latest
+    # Actual historical jobs spent >80 min in this step without a bound.
+    # Timeout is a red CI verdict, NEVER a successful test shortcut.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
