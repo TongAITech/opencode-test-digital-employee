@@ -130,3 +130,60 @@ def test_n9_qualification_cannot_bypass_n7_executors_role_admission(
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_n9_cold_resume_keeps_original_captain_admission_and_never_calls_business(
+        tmp_path, monkeypatch):
+    """A fresh Python R1 process cannot mint a second analyst or N7 Attempt."""
+    from rc6_runtime.truth import TruthRuntime
+    from rc7_runtime.rc72_authority import RC72AuthorityRuntime
+    from rc7_runtime.rc72_formal_runner import FormalN7RunnerAdapter
+    from rc7_runtime.rc72_n7_execution_preparation import ExecutionPreparationService
+    from rc72_formal_runner_support import LocalHTTPEnvironment
+
+    truth, plan, prep, server, pipeline, owner = _setup_fenced_business_failure(
+        tmp_path, monkeypatch)
+    try:
+        first = pipeline.complete(release_batch_id=BATCH)
+        assert first['qualification_admission_id']
+        assert len(server.calls) == 1
+        before = truth.store.path.read_bytes()
+
+        cold_truth = TruthRuntime(truth.store.path)
+        cold_preparation = ExecutionPreparationService(
+            cold_truth, release_id=prep.release_id,
+            source_commit=prep.source_commit,
+            authority=RC72AuthorityRuntime(prep.authority._key),
+            tool_registry=prep.tool_registry)
+        fresh_fencer = CaptainDispatchFencer(cold_truth, release_id=prep.release_id)
+        fresh_scheduler = CaptainFencedWorkItemScheduler(
+            truth=cold_truth, release_id=prep.release_id,
+            fencer=fresh_fencer,
+            lifecycle=WorkerLifecycleService(cold_truth, release_id=prep.release_id),
+            scheduler=TaskScheduler(cold_truth, prep.release_id),
+            role_profiles=pipeline.captain_scheduler.role_profiles)
+        output_root = pipeline.runner.root
+        url = 'http://127.0.0.1:%d' % server.server_address[1]
+        runner = FormalN7RunnerAdapter(
+            cold_preparation, evidence_root=output_root,
+            environment_adapter=LocalHTTPEnvironment(url, output_root),
+            execution_env={'RC72_OUTPUT_ROOT': str(output_root)},
+            timeout_seconds=30)
+        cold_pipeline = N7PipelineService(
+            cold_preparation, runner=runner,
+            capture_root=pipeline.review.capture_root,
+            captain_scheduler=fresh_scheduler,
+            captain_session_id=owner['captain_session_id'],
+            captain_lease_id=owner['lease_id'], team_id=owner['team_id'])
+        cold = cold_pipeline.complete(release_batch_id=BATCH)
+        assert cold['qualification_admission_id'] == first['qualification_admission_id']
+        assert cold['qualification_worker_id'] == first['qualification_worker_id']
+        assert cold['qualification_session_id'] == first['qualification_session_id']
+        assert cold['qualification_admission_reason'] == 'N9_CAPTAIN_ALREADY_ADMITTED_NO_REPLAY'
+        assert cold_truth.store.path.read_bytes() == before
+        assert len(server.calls) == 1
+        assert len(cold_truth.query('rc72_captain_etu_admission', role='N9_QUALIFY')) == 1
+        assert not cold_truth.query('rc7_defect')
+    finally:
+        server.shutdown()
+        server.server_close()
