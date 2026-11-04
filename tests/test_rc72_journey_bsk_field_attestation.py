@@ -47,6 +47,7 @@ def _certified(tmp_path, *, change=None, trusted=True):
         browser_pool=pool, evidence_root=tmp_path / "certified-bsk",
         bsk_executable=tmp_path / "bsk.exe",
         session_resolver=native.session_for,
+        session_receipt_verifier=native.verify_session,
         reference_resolver=native.resolve,
         runner=runner,
         field_attestation_verifier=external_b_group_verifier,
