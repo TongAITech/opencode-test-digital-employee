@@ -233,3 +233,103 @@ def test_second_real_n7_failure_retains_first_blocked_attempt_but_routes_only_ne
         assert server.calls==[]
     finally:
         server.shutdown();server.server_close()
+
+
+@pytest.mark.parametrize('policy', ['DENY', 'HUMAN_GATE', 'DELEGATE_TO_SPECIALIST'])
+def test_n8_product_routes_real_unavailable_executable_to_native_signed_capability_policy(
+        tmp_path, monkeypatch, policy):
+    """A physical missing executable never authorizes the original N7 business replay."""
+    from rc7_runtime.rc72_capability_broker import (
+        CapabilityBroker, CapabilityDecision, CapabilityPolicyRule)
+    from rc7_runtime.rc72_n7_tool_dispatch import SignedToolDispatchService
+    from rc7_runtime.rc72_n7_execution_evidence import ExecutionEvidenceService
+    from rc72_formal_runner_support import formal_setup
+    from test_rc72_n8_execution_diagnosis import _MissingExecutableEnvironment
+    truth, plan, prep, server, url = formal_setup(tmp_path, monkeypatch)
+    try:
+        server.tool_ready = False
+        root = tmp_path/'real-n8-missing-tool'
+        environment = _MissingExecutableEnvironment(url, root)
+        runner = FormalN7RunnerAdapter(
+            prep, evidence_root=root, environment_adapter=environment,
+            timeout_seconds=30)
+        p = prep.prepare(plan_id=plan['plan_id'], workitem_id=plan['items'][0]['workitem_id'])
+        dispatch = SignedToolDispatchService(prep, adapters={'api_http': runner}).dispatch(
+            p['preparation_id'])
+        assert dispatch['state'] == 'FAILED'
+        ExecutionEvidenceService(prep).record(p['preparation_id'])
+        rule = CapabilityPolicyRule(
+            CapabilityDecision(policy),
+            delegate_role='DATA_PREPARER' if policy == 'DELEGATE_TO_SPECIALIST' else None)
+        broker = CapabilityBroker(truth, release_id=prep.release_id,
+                                  authority=prep.authority, policies={'api_http': rule})
+        pipeline = N7PipelineService(prep, runner=runner, capture_root=root/'capture')
+        native = NativeN8ProductRecoveryService(pipeline, capability_broker=broker)
+        result = native.complete(release_batch_id=p['release_batch_id'])
+        assert result['status'] == 'HOLD'
+        assert result['reason'] == 'N8_CAPABILITY_DECISION_RECORDED_TOOL_REPROBE_REQUIRED'
+        assert result['capability_decision'] == policy
+        assert result['physical_restoration_verified'] is False
+        assert result['field_verified'] is result['bank_final'] is False
+        request = truth.query('rc72_capability_request')
+        decisions = truth.query('rc72_capability_decision')
+        assert len(request) == len(decisions) == 1
+        assert request[0]['attempt_id'] == p['attempt_id']
+        assert request[0]['workitem_id'] == p['workitem_id']
+        assert request[0]['requested_capability'] == 'api_http'
+        assert result['capability_request_id'] == request[0]['request_id']
+        assert not truth.query('rc72_capability_lease')
+        assert not truth.query('rc7_defect')
+        assert len(truth.query('execution_attempt')) == 1
+        assert server.calls == []
+        before = truth.store.path.read_bytes()
+        assert native.complete(release_batch_id=p['release_batch_id']) == result
+        assert truth.store.path.read_bytes() == before
+        assert server.calls == []
+        # Cold replay must authenticate the same original N8 diagnostic process,
+        # original R1 WorkItem/Attempt and broker receipt without new authority.
+        from rc6_runtime.truth import TruthRuntime
+        from rc7_runtime.rc72_authority import RC72AuthorityRuntime
+        from rc7_runtime.rc72_n7_execution_preparation import ExecutionPreparationService
+        cold_truth = TruthRuntime(truth.store.path)
+        cold_prep = ExecutionPreparationService(
+            cold_truth, release_id=prep.release_id, source_commit=prep.source_commit,
+            authority=RC72AuthorityRuntime(prep.authority._key),
+            tool_registry=prep.tool_registry)
+        cold_runner = FormalN7RunnerAdapter(
+            cold_prep, evidence_root=root,
+            environment_adapter=_MissingExecutableEnvironment(url, root),
+            timeout_seconds=30)
+        cold_broker = CapabilityBroker(
+            cold_truth, release_id=prep.release_id,
+            authority=cold_prep.authority, policies={'api_http': rule})
+        cold_pipeline = N7PipelineService(
+            cold_prep, runner=cold_runner, capture_root=root/'capture')
+        cold = NativeN8ProductRecoveryService(
+            cold_pipeline, capability_broker=cold_broker)
+        assert cold.complete(release_batch_id=p['release_batch_id']) == result
+        assert truth.store.path.read_bytes() == before
+        assert server.calls == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_n8_product_rejects_foreign_or_detached_capability_broker(tmp_path, monkeypatch):
+    from rc7_runtime.rc72_capability_broker import CapabilityBroker
+    from rc7_runtime.rc72_authority import RC72AuthorityRuntime
+    truth, p, server, native = _product(tmp_path, monkeypatch)
+    try:
+        foreign = CapabilityBroker(
+            truth, release_id=p['release_id'],
+            authority=RC72AuthorityRuntime(b'foreign-prohibited-authority'),
+            policies={})
+        before = truth.store.path.read_bytes()
+        with pytest.raises(ContractError, match='N8_PRODUCT_CAPABILITY_BROKER_SCOPE_REQUIRED'):
+            NativeN8ProductRecoveryService(native.n7, capability_broker=foreign)
+        assert truth.store.path.read_bytes() == before
+        assert not truth.query('rc72_capability_request')
+        assert server.calls == []
+    finally:
+        server.shutdown()
+        server.server_close()
