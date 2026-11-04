@@ -91,6 +91,7 @@ def test_valid_n7_forward_n9_must_not_require_synthetic_n8_pass():
 ])
 def test_n8_bypass_rejects_wrong_or_missing_signed_forward_route(corruption):
     rows, edge = _bypassed_n8()
+    proof = _current_n7_proof(rows)
     n8 = next(r for r in rows if r['node_type'] == 'N8_DIAGNOSIS_RECOVERY')
     n7 = next(r for r in rows if r['node_type'] == 'N7_EXECUTION')
     n9 = next(r for r in rows if r['node_type'] == 'N9_DEFECT')
@@ -118,7 +119,7 @@ def test_n8_bypass_rejects_wrong_or_missing_signed_forward_route(corruption):
         rows.remove(n8)
     elif corruption == 'untrusted_edge':
         edge = 'N7-N9'
-    assert _accepted_ten_node_completion(rows, transitions=[edge], **_current_n7_proof(rows)) is False
+    assert _accepted_ten_node_completion(rows, transitions=[edge], **proof) is False
 
 
 @pytest.mark.parametrize('broken', [
