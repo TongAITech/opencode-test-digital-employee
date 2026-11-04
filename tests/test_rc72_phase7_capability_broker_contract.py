@@ -549,3 +549,42 @@ def test_broker_uses_the_same_ledger_gate_as_data_and_browser_reservations(tmp_p
             _request(broker, identity, parent, capability)
     assert len(authority._leases) == 1 and truth.query('rc72_capability_resolution') == []
     assert _request(broker, identity, parent, capability).capability_lease_id
+
+
+
+def test_capability_grant_is_not_usable_at_exact_expiration_second(tmp_path):
+    truth, _, identity, base, broker = _setup(tmp_path)
+    issued = _request(
+        broker, identity, base, "mcp__pfc_aitest_rc7__attempt_cat_query")
+    grant = truth.query("rc72_capability_lease",
+                        capability_lease_id=issued.capability_lease_id)[0]
+    with pytest.raises(Exception, match="CAPABILITY_LEASE_EXPIRED"):
+        broker.assert_capability_lease_usable(
+            capability_lease_id=issued.capability_lease_id,
+            mission_id="M-1", workitem_id="WI-1", attempt_id="ATT-1",
+            worker_id=identity.worker_id, now=grant["expires_at"])
+
+
+
+def test_call_time_capability_authority_uses_same_atomic_ledger_as_revocation(tmp_path):
+    from rc7_runtime.rc72_ledger_lock import ledger_lock
+
+    truth, authority, identity, base, broker = _setup(tmp_path, native=True)
+    result = _request(broker, identity, base,
+                      "mcp__pfc_aitest_rc7__attempt_cat_query")
+    with ledger_lock(truth):
+        with pytest.raises(Exception, match="CAPABILITY_LEASE_LEDGER_BUSY"):
+            broker.assert_capability_lease_usable(
+                capability_lease_id=result.capability_lease_id,
+                mission_id="M-1", workitem_id="WI-1", attempt_id="ATT-1",
+                worker_id=identity.worker_id)
+    assert broker.assert_capability_lease_usable(
+        capability_lease_id=result.capability_lease_id,
+        mission_id="M-1", workitem_id="WI-1", attempt_id="ATT-1",
+        worker_id=identity.worker_id)["state"] == "ACTIVE"
+    broker.revoke(result.capability_lease_id, reason="complete scope")
+    with pytest.raises(Exception, match="CAPABILITY_LEASE_NOT_ACTIVE"):
+        broker.assert_capability_lease_usable(
+            capability_lease_id=result.capability_lease_id,
+            mission_id="M-1", workitem_id="WI-1", attempt_id="ATT-1",
+            worker_id=identity.worker_id)

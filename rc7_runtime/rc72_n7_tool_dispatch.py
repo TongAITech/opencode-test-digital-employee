@@ -31,15 +31,17 @@ def _validate(payload):
                 'workitem_id', 'attempt_id', 'worker_id', 'contract_id',
                 'contract_sha256', 'tool', 'request_sha256'):
         out[key] = contracts._require_str(out, key)
-    if out.get('state') not in {'IN_FLIGHT', 'RETURNED', 'FAILED'}:
+    if out.get('state') not in {'IN_FLIGHT', 'RETURNED', 'FAILED', 'UNKNOWN'}:
         raise contracts.DomainValidationError('N7_DISPATCH_STATE_INVALID')
     if out.get('state') == 'RETURNED':
         if not isinstance(out.get('raw_result'), dict) or not out['raw_result']:
             raise contracts.DomainValidationError('N7_RAW_RESULT_REQUIRED')
         if out.get('receipt_sha256') != _hash(out['raw_result']):
             raise contracts.DomainValidationError('N7_RECEIPT_HASH_MISMATCH')
-    if out.get('state') == 'FAILED':
+    if out.get('state') in {'FAILED', 'UNKNOWN'}:
         contracts._require_str(out, 'error_type')
+    if out.get('state') == 'UNKNOWN' and (out.get('replay_prohibited') is not True or out.get('possible_external_effect') is not True):
+        raise contracts.DomainValidationError('N7_UNKNOWN_EFFECT_MUST_BLOCK_REPLAY')
     for key in ('passed', 'field_verified', 'bank_final', 'cleanup_complete'):
         if key in out:
             raise contracts.DomainValidationError('N7_DISPATCH_PREMATURE_CLAIM')
@@ -75,7 +77,7 @@ class SignedToolDispatchService:
     def dispatch(self, preparation_id):
         self.truth.rebuild_projection()
         pending = self.truth.query(_KIND, preparation_id=preparation_id)
-        if any(row['state'] == 'IN_FLIGHT' for row in pending):
+        if any(row['state'] in {'IN_FLIGHT', 'UNKNOWN'} for row in pending):
             if preparation_id not in self.preparation._active_dispatches:
                 original = self.preparation._one('rc72_n7_execution_preparation', preparation_id=preparation_id)
                 self.preparation.authority.revoke_worker_lease(original['task_lease']['lease_id'])
@@ -100,7 +102,7 @@ class SignedToolDispatchService:
             if len(existing) != 1:
                 raise ToolDispatchError('N7_DISPATCH_NOT_UNIQUE')
             row = existing[0]
-            if row['state'] == 'IN_FLIGHT':
+            if row['state'] in {'IN_FLIGHT', 'UNKNOWN'}:
                 raise ToolDispatchError('N7_SIDE_EFFECTS_UNKNOWN_DIAGNOSIS_REQUIRED')
             return row
         context = {key: deepcopy(prepared[key]) for key in
@@ -116,21 +118,41 @@ class SignedToolDispatchService:
             contract_sha256=contract['contract_sha256'], tool=tool,
             request_sha256=_hash({'contract': contract, 'context': context}),
             state='IN_FLIGHT', artifact_version=1)
+        # The Captain handoff uses this SAME cross-process ledger gate.
+        # Revalidate R1 Captain/Worker/leases and append IN_FLIGHT while still
+        # owning it. Once intent is durable, handoff must refuse until the
+        # active work is independently checkpointed or diagnosed. This closes
+        # the previously unguarded check-to-external-I/O race.
+        from .rc72_ledger_lock import ledger_lock
         from .rc72_lease_renewal import execution_authorization_snapshot
-        row.update(authorization_protocol='TEMPORAL_LEASE_V1',
-                   execution_authorization=execution_authorization_snapshot(self.preparation, prepared))
-        # The durable intent precedes scheduler start too: a crash at either
-        # boundary may block progress, but can never trigger an automatic re-call.
-        claim_dir = Path(str(self.truth.store.path) + '.n7-dispatch-claims')
-        claim_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            claim = os.open(str(claim_dir / dispatch_id), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError as exc:
-            raise ToolDispatchError('N7_DISPATCH_ALREADY_CLAIMED_DIAGNOSIS_REQUIRED') from exc
-        # A claim is a permanent exclusion marker, never business truth. A crash
-        # before intent append blocks the attempt and requires diagnosis too.
-        os.close(claim)
-        self.truth.append_atomic(_EVENT, row)
+        with ledger_lock(self.truth, busy='N7_DISPATCH_ADMISSION_LEDGER_BUSY',
+                         conflict=ToolDispatchError):
+            current = self.preparation._one(
+                'rc72_n7_execution_preparation', preparation_id=preparation_id)
+            self.preparation._assert_captain_binding_locked(current)
+            current = self.preparation._assert_current_locked(preparation_id)
+            if (current['worker_id'] != prepared['worker_id']
+                    or current['attempt_id'] != prepared['attempt_id']
+                    or current['task_lease'] != prepared['task_lease']
+                    or current['status'] != 'PREPARED'):
+                raise ToolDispatchError('N7_DISPATCH_PREPARATION_CHANGED_DURING_ADMISSION')
+            if self.truth.query(_KIND, dispatch_id=dispatch_id):
+                raise ToolDispatchError('N7_DISPATCH_ALREADY_DURABLE_NO_REPLAY')
+            row.update(authorization_protocol='TEMPORAL_LEASE_V1',
+                       execution_authorization=execution_authorization_snapshot(
+                           self.preparation, current))
+            claim_dir = Path(str(self.truth.store.path) + '.n7-dispatch-claims')
+            claim_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                claim = os.open(str(claim_dir / dispatch_id),
+                                os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError as exc:
+                raise ToolDispatchError(
+                    'N7_DISPATCH_ALREADY_CLAIMED_DIAGNOSIS_REQUIRED') from exc
+            # A claim is a permanent exclusion marker, never business truth.
+            # If the process dies before appending, no automatic replay occurs.
+            os.close(claim)
+            self.truth.append_atomic(_EVENT, row)
         ClosedLoopControlPlane(self.truth, prepared['release_id'], prepared['mission_id']).start(
             prepared['workitem_id'], worker_ref=prepared['worker_id'])
         runtime = RC72StateMachine(self.truth, release_id=prepared['release_id'])
@@ -159,8 +181,23 @@ class SignedToolDispatchService:
             result = json.loads(json.dumps(result, allow_nan=False))
         except Exception as exc:
             # Exception text can contain credentials; persist the class only.
-            failed = dict(row, state='FAILED', error_type=type(exc).__name__, artifact_version=2)
-            self.truth.append_atomic(_EVENT, failed)
+            # A trusted signed pre-execution negative check is a deterministic
+            # non-business failure. All other adapter errors retain UNKNOWN
+            # semantics: a remote write may have committed before response loss.
+            from .rc72_n7_no_effect_attestation import verified_no_external_business_effect
+            no_effect_refs = verified_no_external_business_effect(self.preparation, prepared, exc)
+            if no_effect_refs:
+                result_row = dict(row, state='FAILED',
+                                  error_type=type(exc).__name__,
+                                  verified_no_business_effect=True,
+                                  no_effect_evidence_refs=list(no_effect_refs),
+                                  artifact_version=2)
+            else:
+                result_row = dict(row, state='UNKNOWN',
+                                  error_type=type(exc).__name__,
+                                  possible_external_effect=True,
+                                  replay_prohibited=True, artifact_version=2)
+            self.truth.append_atomic(_EVENT, result_row)
             return self.truth.query(_KIND, dispatch_id=dispatch_id)[0]
         finally:
             self._live_invocations.discard(preparation_id)

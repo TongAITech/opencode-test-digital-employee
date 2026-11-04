@@ -21,6 +21,7 @@ from rc6_runtime import contracts as _contracts
 from rc6_runtime import truth as _truth
 from rc6_runtime.truth import TruthRuntime
 
+from .rc72_provider_usage_filter import is_tool_branch_key, is_tool_usage_node
 from .models import ContractError
 from .truth_overlay import install_rc7_truth_overlay
 
@@ -32,9 +33,9 @@ _OBSERVED = "OBSERVED"
 _UNKNOWN = "UNKNOWN"
 
 _TOKEN_ALIASES = {
-    "input_tokens": ("input_tokens", "prompt_tokens", "input_token_count", "prompt_token_count"),
-    "output_tokens": ("output_tokens", "completion_tokens", "output_token_count", "completion_token_count"),
-    "total_tokens": ("total_tokens", "total_token_count"),
+    "input_tokens": ("input_tokens", "prompt_tokens", "input_token_count", "prompt_token_count", "inputtokens", "prompttokens"),
+    "output_tokens": ("output_tokens", "completion_tokens", "output_token_count", "completion_token_count", "outputtokens", "completiontokens"),
+    "total_tokens": ("total_tokens", "total_token_count", "totaltokens"),
     "cached_input_tokens": ("cached_input_tokens", "cached_prompt_tokens"),
     "cache_read_tokens": ("cache_read_tokens", "cache_read_input_tokens"),
     "cache_write_tokens": ("cache_write_tokens", "cache_creation_input_tokens"),
@@ -166,8 +167,12 @@ def _normalize_mapping(mapping: Mapping[str, Any]) -> Tuple[Dict[str, Optional[i
 
 def _walk_mappings(value: Any, path: str) -> Iterable[Tuple[str, Mapping[str, Any]]]:
     if isinstance(value, dict):
+        if is_tool_usage_node(value):
+            return
         yield path, value
         for key, child in value.items():
+            if is_tool_branch_key(key):
+                continue
             child_path = "%s.%s" % (path, key)
             yield from _walk_mappings(child, child_path)
     elif isinstance(value, list):
@@ -221,6 +226,15 @@ class DshTokenUsageParser:
         alias_conflict = False
         for event_index, event in enumerate(events):
             if not isinstance(event, dict):
+                continue
+            # A native tool's resource counters are not provider model
+            # counters. Preserve UNKNOWN rather than attributing a tool call's
+            # token-like fields to DSH inference.
+            kind = str(event.get("type") or event.get("event") or event.get("kind") or "").strip().lower()
+            role = str(event.get("role") or "").strip().lower()
+            if (kind in {"tool", "tool_call", "tool_result", "function_call", "function_result", "stderr", "session"}
+                    or kind.startswith(("tool.", "tool_", "mcp.", "mcp_", "function."))
+                    or role in {"tool", "user", "system"}):
                 continue
             for path, mapping in _walk_mappings(event, "event[%d]" % event_index):
                 normalized, conflict = _normalize_mapping(mapping)

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Dict, List, Mapping
 
 from rc6_runtime import contracts as _contracts
@@ -231,7 +231,7 @@ class ReleaseScopeService:
         }
         self._append("RC72_RELEASE_SCOPE_MANIFEST_UPSERTED", payload)
 
-    def evaluate_denominator(self, *, manifest_id: str) -> ScopeDenominatorSnapshot:
+    def evaluate_denominator(self, *, manifest_id: str, replay_safe: bool = False) -> ScopeDenominatorSnapshot:
         manifest = self._one(_SCOPE_MANIFEST, manifest_id=manifest_id)
         obligations = self.truth.query("rc72_test_obligation", mission_id=str(manifest["mission_id"]))
         obligations = [
@@ -275,6 +275,18 @@ class ReleaseScopeService:
             out_of_scope_obligation_ids=sorted(out_of_scope),
             denominator_complete=not missing_ssts and not missing_levels and not out_of_scope,
         )
+        if replay_safe:
+            # Recompute every denominator fact first.  Recovery may reuse only
+            # an R1 snapshot with the exact same manifest and derived facts.
+            # A different obligation/level outcome must produce a new receipt.
+            expected = {key: value for key, value in asdict(snapshot).items()
+                        if key not in {"snapshot_id", "created_at"}}
+            matches = [row for row in self.truth.query(_SCOPE_SNAPSHOT, manifest_id=manifest_id)
+                       if all(row.get(key) == value for key, value in expected.items())]
+            if matches:
+                prior = sorted(matches, key=lambda row: (row["created_at"], row["snapshot_id"]))[-1]
+                return ScopeDenominatorSnapshot(**{item.name: prior[item.name]
+                    for item in fields(ScopeDenominatorSnapshot)})
         self._append(
             "RC72_SCOPE_DENOMINATOR_SNAPSHOT_UPSERTED",
             asdict(snapshot),

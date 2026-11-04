@@ -25,11 +25,14 @@ from .rc72_n5_pipeline import N5PipelineService
 from .rc72_n7_execution_preparation import ExecutionPreparationService
 from .rc72_formal_runner import FormalN7RunnerAdapter
 from .rc72_n7_pipeline import N7PipelineService
+from .rc72_n8_product_recovery import NativeN8ProductRecoveryService
 from .rc72_n9_accepted_scope import AcceptedScopeN9Service
 from .rc72_expected_scope_input import ExpectedScopeInputService
 from .rc72_libra_measurement import NativeLibraMeasurementService
 from .rc72_native_coverage_intake import NativeCoverageGapIntakeService
 from .rc72_native_coverage_diagnosis import NativeCoveragePathDiagnosisService
+from .rc72_native_coverage_repair import NativeCoverageRepairService
+from .rc72_native_coverage_rerun import NativeCoverageRerunService
 from .rc72_n10_control import NativeN10ControlService
 from .rc72_release_driver import ReleaseBatchDriver
 
@@ -46,6 +49,20 @@ class MissionWorkerBinding:
 
 
 @dataclass(frozen=True)
+class MissionCaptainBinding:
+    """Scoped host-owned Captain lease; never an implicit Full Access grant.
+
+    The runtime scheduler validates its persisted Captain generation and
+    signed TaskLease at dispatch time. The factory only verifies ownership
+    and binds it into the real formal N7 pipeline.
+    """
+    scheduler: object
+    captain_session_id: str
+    captain_lease_id: str
+    team_id: str
+
+
+@dataclass(frozen=True)
 class MissionHostBindings:
     """Approved host capabilities; no stage/evaluation/completion callbacks."""
     workers: dict
@@ -54,12 +71,13 @@ class MissionHostBindings:
     execution_environment: ExecutionEnvironmentAdapter
     tool_registry: dict
     execution_env: object = None
+    captain_binding: object = None
 
 
 def create_mission_driver(truth, *, release_id, source_commit, workers,
                           bank_pip_mirror, execution_authority,
                           execution_environment, tool_registry, evidence_root,
-                          execution_env=None):
+                          execution_env=None, captain_binding=None):
     """Compose all implemented native routes against one ledger/source/release.
 
     Missing roles fail before constructing pipelines or touching the ledger.
@@ -113,6 +131,29 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
                    for family, tools in tool_registry.items())):
         raise ContractError('MISSION_FACTORY_EXACT_EXECUTION_TOOLS_REQUIRED')
 
+    captain_kwargs = {}
+    if captain_binding is not None:
+        from .rc72_captain_scheduling import CaptainFencedWorkItemScheduler
+        from .rc72_captain_dispatch_fencing import CaptainDispatchFencer
+        if not isinstance(captain_binding, MissionCaptainBinding):
+            raise ContractError('MISSION_FACTORY_TYPED_CAPTAIN_BINDING_REQUIRED')
+        governed = captain_binding.scheduler
+        if (not isinstance(governed, CaptainFencedWorkItemScheduler)
+                or governed.truth is not truth or governed.release_id != release_id
+                or not isinstance(governed.fencer, CaptainDispatchFencer)
+                or governed.fencer.truth is not truth or governed.fencer.release_id != release_id
+                or governed.lifecycle.truth is not truth or governed.lifecycle.release_id != release_id
+                or governed.scheduler.truth is not truth or governed.scheduler.release_id != release_id):
+            raise ContractError('MISSION_FACTORY_CAPTAIN_CANONICAL_RUNTIME_REQUIRED')
+        if any(not isinstance(value, str) or not value.strip() for value in (
+                captain_binding.captain_session_id,
+                captain_binding.captain_lease_id, captain_binding.team_id)):
+            raise ContractError('MISSION_FACTORY_CAPTAIN_SCOPE_REQUIRED')
+        captain_kwargs = dict(captain_scheduler=governed,
+                              captain_session_id=captain_binding.captain_session_id,
+                              captain_lease_id=captain_binding.captain_lease_id,
+                              team_id=captain_binding.team_id)
+
     def launcher(role):
         return bindings[role].launcher
 
@@ -136,15 +177,23 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
         authority=execution_authority, tool_registry={k: tuple(v) for k, v in tool_registry.items()})
     n7 = N7PipelineService(preparation, runner=FormalN7RunnerAdapter(preparation,
         evidence_root=root/'runner', execution_env=execution_env, environment_adapter=execution_environment),
-        capture_root=root/'execution-captures')
+        capture_root=root/'execution-captures', **captain_kwargs)
+    n8 = NativeN8ProductRecoveryService(n7)
     n9 = AcceptedScopeN9Service(n7)
     measurement = NativeLibraMeasurementService(expected, n9, capture_root=root/'coverage-captures')
     intake = NativeCoverageGapIntakeService(measurement)
     diagnosis = NativeCoveragePathDiagnosisService(intake, evidence_root=root/'coverage-diagnosis')
-    n10 = NativeN10ControlService(expected, n9, measurement, intake, diagnosis)
+    # Production N10 must own the accepted repair -> fresh physical N7 ->
+    # fresh Libra sequence; standalone component tests cannot substitute for
+    # the ReleaseBatch product entry.  All three services share this R1 truth.
+    repair = NativeCoverageRepairService(diagnosis)
+    rerun = NativeCoverageRerunService(repair)
+    n10 = NativeN10ControlService(expected, n9, measurement, intake, diagnosis,
+        repair=repair, rerun=rerun)
     return ReleaseBatchDriver(truth, source_commit=source_commit,
         n1_launcher=launcher('reality'), n1_tools=tools('reality'),
         n2_launcher=launcher('requirement'), n2_tools=tools('requirement'),
         n2_evaluator=DshRequirementEvaluator(launcher('requirement_review'), allowed_tools=tools('requirement_review')),
         n3_pipeline=n3, n4_pipeline=n4, n5_pipeline=n5, n7_pipeline=n7,
+        n8_pipeline=n8,
         n9_pipeline=n9, expected_scope=expected, n10_pipeline=n10, bank_pip_mirror=bank_pip_mirror)

@@ -14,6 +14,7 @@ from .rc72_native_coverage_diagnosis import NativeCoveragePathDiagnosisService
 from .rc72_native_coverage_repair import NativeCoverageRepairService,active_repair_boundaries
 from .rc72_native_coverage_rerun import NativeCoverageRerunService
 from .rc72_release_convergence import ReleaseConvergenceAggregator
+from .rc72_n10_feedback import NativeN10FeedbackService
 from .rc72_obligation_execution_proof import AcceptedObligationExecutionProof
 
 
@@ -73,7 +74,7 @@ class NativeN10ControlService:
         n9=self.n9.complete(release_batch_id=release_batch_id)
         if n9.get('status')=='HOLD':return n9
         node=self.measurement._one('rc72_mission_node',mission_id=batch['mission_id'],node_type='N10_RELEASE_CONVERGENCE')
-        if node['state'] not in {'READY','RUNNING'}:raise ContractError('N10_NATIVE_ACTIVE_NODE_REQUIRED')
+        if node['state'] not in {'READY','RUNNING','REVIEW_PENDING','PASS','STALE'}:raise ContractError('N10_NATIVE_ACTIVE_NODE_REQUIRED')
         measurements=[];intakes=[];investigations=[];repair_workitems=[];holds=[]
         for app in batch['application_ids']:
             repairs=active_repair_boundaries(self.truth,self.measurement.authority,release_id=self.release_id,
@@ -109,9 +110,41 @@ class NativeN10ControlService:
             manifest_id=frozen['manifest_id'],field_verified=False,bank_final=False,**extra)
         aggregator=ReleaseConvergenceAggregator(self.truth,release_id=self.release_id,runtime=self.n9.runtime,
             execution_proof=AcceptedObligationExecutionProof(self.n9.pipeline),expected_scope=self.expected_scope,
-            coverage_proof=self.measurement,coverage_intake=self.intake,coverage_diagnosis=self.diagnosis)
+            coverage_proof=self.measurement,coverage_intake=self.intake,coverage_diagnosis=self.diagnosis,
+            coverage_repair=self.repair,replay_safe=True)
         snapshot=aggregator.aggregate(mission_id=batch['mission_id'])
-        return dict(status='HOLD',reason='N10_RELEASE_NOT_CONVERGED' if snapshot.result.value!='CONVERGED' else 'N10_TERMINAL_REVIEW_REQUIRED',
+        issues=NativeN10FeedbackService(self.truth,release_id=self.release_id).derive(snapshot=snapshot)
+        if snapshot.result.value!='CONVERGED' and node['state']=='PASS':
+            # A historical terminal Gate is not permanent authorization.
+            # A newly unproven Obligation, critical Defect, stale source or
+            # coverage regression invalidates its active PASS immediately.
+            # Keep the signed Gate as history, never as current release truth.
+            self.n9.runtime.mark_stale(node['mission_node_id'],
+                reason='actual ReleaseBatch source changed after N10 terminal Gate')
+            return dict(status='HOLD',reason='N10_TERMINAL_SCOPE_REGRESSED',
+                convergence_result=snapshot.result.value,
+                convergence_snapshot_id=snapshot.snapshot_id,
+                blockers=snapshot.blockers,issues=issues,
+                measurement_ids=measurements,intake_ids=intakes,
+                investigation_workitem_ids=investigations,
+                repair_workitem_ids=repair_workitems,
+                manifest_id=frozen['manifest_id'],
+                field_verified=False,bank_final=False,**extra)
+        if snapshot.result.value=='CONVERGED':
+            # Terminal PASS is not derived from the aggregator result alone.
+            # A fresh, separate reviewer process and signed R1 evidence
+            # must apply the N10 Delivery/Gate through its ordinary lifecycle.
+            from .rc72_n10_terminal import NativeN10TerminalReviewService
+            terminal=NativeN10TerminalReviewService(aggregator,
+                authority=self.measurement.authority,source_commit=self.source_commit,
+                review_root=self.n9.pipeline.review.capture_root/'n10-terminal',
+                lifecycle=self.n9.pipeline.preparation.lifecycle).finalize(snapshot=snapshot)
+            return dict(terminal,convergence_result=snapshot.result.value,
+                blockers=snapshot.blockers,issues=issues,measurement_ids=measurements,
+                intake_ids=intakes,investigation_workitem_ids=investigations,
+                repair_workitem_ids=repair_workitems,**extra)
+        return dict(status='HOLD',reason='N10_RELEASE_NOT_CONVERGED',
             convergence_result=snapshot.result.value,convergence_snapshot_id=snapshot.snapshot_id,blockers=snapshot.blockers,
+            issues=issues,
             measurement_ids=measurements,intake_ids=intakes,investigation_workitem_ids=investigations,repair_workitem_ids=repair_workitems,
             manifest_id=frozen['manifest_id'],field_verified=False,bank_final=False,**extra)

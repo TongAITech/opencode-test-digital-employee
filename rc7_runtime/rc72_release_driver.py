@@ -34,6 +34,7 @@ from .rc72_n5_pipeline import N5PipelineService
 from .rc72_n5_workitem_acceptance import N5OwnedWorkItemGateService
 from .rc72_n6_pipeline import N6PipelineService
 from .rc72_n7_pipeline import N7PipelineService
+from .rc72_n8_product_recovery import NativeN8ProductRecoveryService
 from .rc72_n9_accepted_scope import AcceptedScopeN9Service
 from .rc72_expected_scope_input import ExpectedScopeInputService
 from .rc72_n10_control import NativeN10ControlService
@@ -90,7 +91,7 @@ def release_batch_status(truth, *, source_commit, release_batch_id):
 
 class ReleaseBatchDriver:
     def __init__(self, truth, *, source_commit, n1_launcher, n1_tools,
-                 n2_launcher, n2_tools, n2_evaluator, n3_pipeline=None, n4_pipeline=None, n5_pipeline=None, n7_pipeline=None, n9_pipeline=None, expected_scope=None, n10_pipeline=None, bank_pip_mirror=None):
+                 n2_launcher, n2_tools, n2_evaluator, n3_pipeline=None, n4_pipeline=None, n5_pipeline=None, n7_pipeline=None, n8_pipeline=None, n9_pipeline=None, expected_scope=None, n10_pipeline=None, bank_pip_mirror=None):
         if not isinstance(source_commit, str) or not re.fullmatch('[0-9a-f]{40}', source_commit):
             raise ContractError('RC72_RELEASE_DRIVER_EXACT_SOURCE_REQUIRED')
         if not isinstance(n2_evaluator, DshRequirementEvaluator):
@@ -125,6 +126,8 @@ class ReleaseBatchDriver:
                 or n7_pipeline.truth is not truth or n7_pipeline.source_commit!=source_commit):
             raise ContractError('RC72_RELEASE_DRIVER_N7_PIPELINE_SCOPE_MISMATCH')
         self.n7_pipeline=n7_pipeline
+        self.n8_pipeline=n8_pipeline
+        self._assert_n8_scope()
         self.n9_pipeline=n9_pipeline
         self._assert_n9_scope()
         self.expected_scope=expected_scope
@@ -155,15 +158,57 @@ class ReleaseBatchDriver:
                 or pipeline.n9.pipeline is not self.n7_pipeline):
             raise ContractError('RC72_RELEASE_DRIVER_N10_PIPELINE_SCOPE_MISMATCH')
 
+    def _assert_n8_scope(self):
+        n8=self.n8_pipeline
+        if n8 is not None and (not isinstance(n8,NativeN8ProductRecoveryService)
+                or self.n7_pipeline is None or n8.n7 is not self.n7_pipeline
+                or n8.diagnosis is not self.n7_pipeline.diagnosis
+                or n8.boundary.diagnosis is not n8.diagnosis
+                or n8.boundary.preparation is not self.n7_pipeline.preparation
+                or n8.boundary.cleanup.adapters!=self.n7_pipeline.cleanup.adapters
+                or n8.continuation.diagnosis is not n8.diagnosis
+                or n8.continuation.preparation is not self.n7_pipeline.preparation
+                or n8.truth is not self.truth
+                or n8.source_commit!=self.source_commit
+                or n8.release_id!=self.n7_pipeline.release_id):
+            raise ContractError('RC72_RELEASE_DRIVER_N8_NATIVE_SCOPE_MISMATCH')
+
     def _assert_n9_scope(self):
         n9=self.n9_pipeline
         if n9 is not None and (not isinstance(n9,AcceptedScopeN9Service) or n9.pipeline is not self.n7_pipeline
                 or n9.truth is not self.truth or n9.source_commit!=self.source_commit):
             raise ContractError('RC72_RELEASE_DRIVER_N9_PIPELINE_SCOPE_MISMATCH')
 
+    def _assert_captain_product_entry(self, mission_id):
+        """Do not downgrade a Captain-governed Mission to legacy N7.
+
+        A Captain lease only authorizes one exact scope and generation. The
+        factory's optional wiring cannot be treated as permission to ignore
+        an existing canonical Captain, or to run without one.
+        """
+        leases = self.truth.query('rc72_captain_dispatch_lease', mission_id=mission_id)
+        n7 = self.n7_pipeline
+        scheduler = getattr(n7, 'captain_scheduler', None)
+        if leases and scheduler is None:
+            raise ContractError('RC72_RELEASE_DRIVER_CAPTAIN_CONTEXT_REQUIRED')
+        if scheduler is not None and not leases:
+            raise ContractError('RC72_RELEASE_DRIVER_CAPTAIN_LEASE_REQUIRED')
+        if scheduler is None:
+            return
+        lease = scheduler.fencer.assert_owner(
+            mission_id=mission_id,
+            lease_id=n7.captain_lease_id,
+            captain_session_id=n7.captain_session_id)
+        if (lease.get('mission_id') != mission_id or
+                lease.get('team_id') != n7.team_id or
+                lease.get('lease_id') != n7.captain_lease_id or
+                lease.get('captain_session_id') != n7.captain_session_id):
+            raise ContractError('RC72_RELEASE_DRIVER_CAPTAIN_SCOPE_MISMATCH')
+
     def _has_gate(self,node_type):
         return (node_type in self._gate_types() or node_type=='N6_EXECUTABLE_READINESS'
                 or node_type=='N7_EXECUTION' and self.n7_pipeline is not None
+                or node_type=='N8_DIAGNOSIS_RECOVERY' and self.n8_pipeline is not None
                 or node_type=='N9_DEFECT' and self.n9_pipeline is not None
                 or node_type=='N10_RELEASE_CONVERGENCE' and self.n10_pipeline is not None)
 
@@ -228,6 +273,11 @@ class ReleaseBatchDriver:
             'N5_TEST_DATA': N5OwnedWorkItemGateService}
 
     def _complete_gate(self, node_type, batch):
+        if node_type=='N8_DIAGNOSIS_RECOVERY' and self.n8_pipeline is not None:
+            n7=self._one('rc72_mission_node',mission_id=batch['mission_id'],node_type='N7_EXECUTION')
+            if n7['state']=='PASS':
+                return self.n8_pipeline.audit(release_batch_id=batch['release_batch_id'])
+            return self.n8_pipeline.complete(release_batch_id=batch['release_batch_id'])
         if node_type=='N10_RELEASE_CONVERGENCE' and self.n10_pipeline is not None:
             return self.n10_pipeline.complete(release_batch_id=batch['release_batch_id'])
         if node_type=='N9_DEFECT' and self.n9_pipeline is not None:
@@ -248,10 +298,41 @@ class ReleaseBatchDriver:
             self.expected_scope.freeze(release_batch_id=batch['release_batch_id'])
         return result
 
+    def _validated_n8_continue(self, batch, recovered):
+        """Accept only a real new admitted N7 plan before another driver turn.
+
+        The retry planner owns all R1 restoration and N6 compilation. This
+        check prevents a replayed N8 CONTINUE response from spinning forever
+        while N7 is still NOT_STARTED, or from reusing an old signed Attempt.
+        """
+        if (recovered.get('status')!='CONTINUE'
+                or recovered.get('reason')!='N8_ACCEPTED_N5_REPAIR_N7_RETRY_READY'
+                or not recovered.get('recovery_plan_id')):
+            raise ContractError('RC72_RELEASE_DRIVER_UNVERIFIED_N8_CONTINUATION')
+        original=self._one('rc72_n7_execution_preparation',
+            preparation_id=recovered['preparation_id'])
+        if original['release_batch_id']!=batch['release_batch_id']:
+            raise ContractError('RC72_RELEASE_DRIVER_N8_RETRY_BATCH_CHANGED')
+        if recovered['recovery_plan_id']==original['plan_id']:
+            raise ContractError('RC72_RELEASE_DRIVER_N8_FRESH_N7_NOT_ADMITTED')
+        planned=self.n7_pipeline.preparation.planning.assert_current(
+            recovered['recovery_plan_id'])
+        node=self._one('rc72_mission_node',mission_id=batch['mission_id'],
+            node_type='N7_EXECUTION')
+        if (planned.get('recovery_id') is None
+                or planned['plan_id']==original['plan_id']
+                or planned['release_batch_id']!=batch['release_batch_id']
+                or planned['mission_id']!=batch['mission_id']
+                or node['state'] not in {'READY','RUNNING'}
+                or not self.truth.query('execution_attempt',attempt_id=original['attempt_id'])):
+            raise ContractError('RC72_RELEASE_DRIVER_N8_FRESH_N7_NOT_ADMITTED')
+        return planned
+
     def run(self, *, release_batch_id):
         with _driver_lock(self.truth, release_batch_id):
             self.truth.rebuild_projection()
             batch = self._one('rc72_release_batch', release_batch_id=release_batch_id)
+            self._assert_captain_product_entry(batch['mission_id'])
             if any(l.release_id != batch['release_id'] for l in (self.n1_launcher, self.n2_launcher, self.n2_evaluator.launcher)):
                 raise ContractError('RC72_RELEASE_DRIVER_WORKER_RELEASE_MISMATCH')
             if self.n3_pipeline is not None and (self.n3_pipeline.truth is not self.truth
@@ -269,6 +350,7 @@ class ReleaseBatchDriver:
             if self.n7_pipeline is not None and (self.n7_pipeline.truth is not self.truth
                     or self.n7_pipeline.source_commit!=self.source_commit or self.n7_pipeline.release_id!=batch['release_id']):
                 raise ContractError('RC72_RELEASE_DRIVER_N7_PIPELINE_SCOPE_MISMATCH')
+            self._assert_n8_scope()
             self._assert_n9_scope()
             self._assert_n10_scope(release_batch_id=release_batch_id)
             self._assert_expected_scope(release_batch_id=batch['release_batch_id'])
@@ -277,6 +359,10 @@ class ReleaseBatchDriver:
             # Cold continuation audits accepted source bytes, not merely PASS labels.
             prefix=self.status(release_batch_id=release_batch_id)['nodes']
             for node in prefix:
+                # A Captain might expire during a lengthy cold Evidence audit.
+                # Revalidate before invoking each native gate, not just once
+                # when ReleaseBatch.run was entered.
+                self._assert_captain_product_entry(batch['mission_id'])
                 if node['node_type']=='N8_DIAGNOSIS_RECOVERY' and self._diagnosis_bypassed(prefix,batch['mission_id']):
                     continue
                 if node['state'] != 'PASS':
@@ -286,12 +372,41 @@ class ReleaseBatchDriver:
                     if audited.get('status')=='HOLD':
                         return dict(self.status(release_batch_id=release_batch_id), **audited)
             while True:
+                # N1..N10 can outlive the Captain TTL. A replaced, expired
+                # or quiesced Captain is never allowed to schedule another
+                # node after a previous worker/evaluator returned.
+                self._assert_captain_product_entry(batch['mission_id'])
                 snapshot = self.status(release_batch_id=release_batch_id)
+                by_type={n['node_type']:n for n in snapshot['nodes']}
+                failed_n7=by_type['N7_EXECUTION']
+                active_n8=by_type['N8_DIAGNOSIS_RECOVERY']
+                # A genuine N7 failure suspends ordinary forward iteration:
+                # N8 must own its original failed Attempt and any N5 backedge
+                # before N5 normal completion or N7 can run again. In particular
+                # the first incomplete node is often N7 NEEDS_REVISION (before
+                # N8 READY), or N5 RUNNING (after N8 signed compensation).
+                if (self.n8_pipeline is not None and active_n8['state']!='NOT_STARTED'
+                        and failed_n7['state'] in {'NEEDS_REVISION','BLOCKED','STALE','NOT_STARTED'}):
+                    repaired=self.n8_pipeline.complete(release_batch_id=release_batch_id)
+                    if repaired.get('status')=='CONTINUE':
+                        self._validated_n8_continue(batch,repaired)
+                        continue
+                    return dict(self.status(release_batch_id=release_batch_id),**repaired)
                 pending = [n for n in snapshot['nodes'] if n['state'] != 'PASS']
                 if self._diagnosis_bypassed(snapshot['nodes'],batch['mission_id']):
                     pending = [n for n in pending if n['node_type']!='N8_DIAGNOSIS_RECOVERY']
 
                 if not pending:
+                    # N10 terminal PASS is admitted only by the production
+                    # native independent reviewer, then re-audited against
+                    # live original R1. A historical node label alone is not
+                    # a ReleaseBatch completion decision.
+                    if self.n10_pipeline is not None:
+                        terminal=self._complete_gate('N10_RELEASE_CONVERGENCE',batch)
+                        if terminal.get('status')=='PASS':
+                            return dict(self.status(release_batch_id=release_batch_id),**terminal)
+                        if terminal.get('status')=='HOLD':
+                            return dict(self.status(release_batch_id=release_batch_id),**terminal)
                     return dict(snapshot, status='HOLD', reason='RELEASE_CONVERGENCE_AUDIT_REQUIRED')
                 node = pending[0]
                 if node['state'] == 'REVIEW_PENDING':
@@ -338,7 +453,29 @@ class ReleaseBatchDriver:
                 elif node['node_type']=='N7_EXECUTION' and self.n7_pipeline is not None:
                     result = self.n7_pipeline.complete(release_batch_id=release_batch_id)
                     if result.get('status')=='HOLD':
+                        # N7 runner/process failures have already persisted
+                        # a real blocked Attempt, but may not yet have started
+                        # N8's first independent diagnosis process.
+                        if (self.n8_pipeline is not None
+                                and result.get('reason')=='N7_EXECUTION_DIAGNOSIS_REQUIRED'
+                                and result.get('preparation_id')):
+                            prepared=self._one('rc72_n7_execution_preparation',
+                                preparation_id=result['preparation_id'])
+                            dispatch=self.truth.query('rc72_n7_tool_dispatch',
+                                preparation_id=prepared['preparation_id'])
+                            if (len(dispatch)==1 and dispatch[0]['state'] in {'FAILED','RETURNED'}):
+                                # Native N8 first admits the original signed
+                                # Attempt if N7 failed before it was projected.
+                                # It cannot start another N7 business call.
+                                recovery=self.n8_pipeline.complete(release_batch_id=release_batch_id)
+                                return dict(self.status(release_batch_id=release_batch_id),**recovery)
                         return dict(self.status(release_batch_id=release_batch_id), **result)
+                elif node['node_type']=='N8_DIAGNOSIS_RECOVERY' and self.n8_pipeline is not None:
+                    result=self.n8_pipeline.complete(release_batch_id=release_batch_id)
+                    if result.get('status')=='CONTINUE':
+                        self._validated_n8_continue(batch,result)
+                        continue
+                    return dict(self.status(release_batch_id=release_batch_id),**result)
                 elif node['node_type']=='N10_RELEASE_CONVERGENCE' and self.n10_pipeline is not None:
                     result=self.n10_pipeline.complete(release_batch_id=release_batch_id)
                     if result.get('status')=='HOLD':

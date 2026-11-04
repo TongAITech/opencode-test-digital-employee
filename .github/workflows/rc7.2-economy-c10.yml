@@ -1,0 +1,66 @@
+name: RC7.2 C10 Economy Independent Qualification
+
+on:
+  push:
+    branches:
+      - work/rc7.2-economy
+    paths:
+      - 'rc7_runtime/rc72_*.py'
+      - 'rc7_release/rc72_mission_cli.py'
+      - 'tests/test_rc72_*.py'
+      - 'docs/rc7.2/C10-*.md'
+      - '.github/workflows/rc7.2-economy-c10.yml'
+  workflow_dispatch:
+
+# Test the latest exact source SHA, not dozens of stale queued revisions.
+concurrency:
+  group: rc72-c10-economy-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  economy-contract:
+    name: c10-native-dsh-contract-python-${{ matrix.python-version }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install test runner
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile inherited and new runtime
+        run: python -m compileall -q rc6_runtime rc7_runtime rc7_release
+      - name: Native DSH model-economy and adjacent regression
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_production_economy_wiring.py
+          tests/test_rc72_lossless_prompt_compaction.py
+          tests/test_rc72_production_economy_ingress.py
+          tests/test_rc72_native_context_projection.py
+          tests/test_rc72_native_delta_prompt.py
+          tests/test_rc72_native_shared_batch.py
+          tests/test_rc72_mission_economy_cli_ingress.py
+          tests/test_rc72_cost_window_configuration.py
+          tests/test_rc72_nonworking_calendar.py
+          tests/test_rc72_token_economy.py
+          tests/test_rc72_dsh_token_usage_wiring.py
+          tests/test_rc72_context_worker_bridge.py
+          tests/test_rc72_safe_execution_batch.py
+          tests/test_rc72_economy_scheduler.py
+          tests/test_rc72_critical_path_no_delay.py
+          tests/test_rc72_q7_admission.py
+          tests/test_rc72_token_usage.py
+          tests/test_rc72_truth_replay_economy.py
+          tests/test_rc72_token_economy_qualification_contract.py
+          tests/test_rc72_retry_context.py
+          tests/test_rc72_context_repetition.py
+          tests/test_rc72_evaluator_amplification_contract.py
+          tests/test_rc72_cost_window_product_wiring.py
+          tests/test_rc72_phase7_model_failover_contract.py

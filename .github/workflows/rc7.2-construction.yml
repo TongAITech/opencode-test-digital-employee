@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/rc7.2
+      - work/rc7.2-core
     paths:
       - 'rc6_runtime/**'
       - 'rc7_runtime/**'
@@ -13,6 +14,12 @@ on:
       - 'docs/rc7.2/**'
       - '.github/workflows/rc7.2-construction.yml'
   workflow_dispatch:
+
+# Older core commits must not consume the full 1,400+ test contract suite.
+# Integration/main remains non-cancelling and is qualified on its own SHA.
+concurrency:
+  group: rc72-construction-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/work/rc7.2-core' }}
 
 jobs:
   phase-contract:

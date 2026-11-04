@@ -1,0 +1,123 @@
+name: RC7.2 Independent QA Product and Transport
+on:
+  # The QA branch always has an open draft PR into work/rc7.2. Running
+  # both push and pull_request duplicates four full platform jobs per SHA
+  # and can starve actual same-HEAD qualification. Use one PR matrix.
+  pull_request:
+    branches:
+      - work/rc7.2
+    paths:
+      - 'tests/test_rc72_qa_c01_c02_independent.py'
+      - 'tests/test_rc72_qa_product_wiring.py'
+      - 'tests/test_rc72_qa_c09_product_dispatch.py'
+      - 'tests/test_rc72_qa_offline_payload.py'
+      - 'tools/rc72_qa_offline_audit.py'
+      - 'tests/test_rc72_qa_field_evidence.py'
+      - 'tests/test_rc72_qa_design_clause_ledger.py'
+      - 'tests/test_rc72_qa_source_provenance.py'
+      - 'tests/test_rc72_qa_product_route_ast.py'
+      - 'tests/test_rc72_qa_zip_preflight.py'
+      - 'tools/rc72_qa_source_provenance.py'
+      - 'tools/rc72_qa_product_route_ast.py'
+      - 'tools/rc72_qa_zip_preflight.py'
+      - 'packaging/rc7.2/QA-Q3-Q9-EVIDENCE.py'
+      - 'docs/rc7.2/qa-release/**'
+      - '.github/workflows/rc7.2-independent-qa.yml'
+  workflow_dispatch:
+    inputs:
+      target_main_sha:
+        description: 'Exact 40-character target main SHA for manual QA qualification'
+        required: true
+        type: string
+
+concurrency:
+  group: rc72-independent-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  independent-c01-c02:
+    name: qa-c01-c02-${{ matrix.os }}-py${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python-version: ['3.8', '3.11']
+    steps:
+      - name: Checkout exact QA source HEAD (not PR synthetic merge ref)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove exact checked out source identity
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SOURCE_SHA: ${{ github.event.pull_request.base.sha || inputs.target_main_sha }}
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$EXPECTED_SOURCE_SHA" ]; then
+            echo "RC72_QA_EXACT_HEAD_MISMATCH: actual=$actual expected=$EXPECTED_SOURCE_SHA" >&2
+            exit 1
+          fi
+          echo "RC72_QA_EXACT_HEAD=$actual"
+          printf 'qa_source_commit=%s\nqa_base_sha=%s\n' "$actual" "$BASE_SOURCE_SHA" > qa-source-identity.txt
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Require PR HEAD contains exact target main and frozen design ledger
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SOURCE_SHA: ${{ github.event.pull_request.base.sha || inputs.target_main_sha }}
+        run: |
+          python tools/rc72_qa_source_provenance.py --repo-root . --expected-head "$EXPECTED_SOURCE_SHA" --expected-base "$BASE_SOURCE_SHA" --report qa-source-provenance.json
+      - name: Install test harness
+        id: test_harness
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile without importing production
+        run: python -m compileall -q tests/test_rc72_qa_c01_c02_independent.py tests/test_rc72_qa_product_wiring.py tests/test_rc72_qa_c09_product_dispatch.py tests/test_rc72_qa_offline_payload.py tests/test_rc72_qa_field_evidence.py tests/test_rc72_qa_design_clause_ledger.py tests/test_rc72_qa_source_provenance.py tests/test_rc72_qa_product_route_ast.py tools/rc72_qa_offline_audit.py tools/rc72_qa_source_provenance.py tools/rc72_qa_product_route_ast.py tools/rc72_qa_zip_preflight.py tests/test_rc72_qa_zip_preflight.py packaging/rc7.2/QA-Q3-Q9-EVIDENCE.py rc6_runtime rc7_runtime
+      - name: Independently qualify physical-payload and field-evidence QA tools
+        run: >
+          python -m pytest -q
+          --junitxml=qa-c12-tools.xml
+          tests/test_rc72_qa_offline_payload.py
+          tests/test_rc72_qa_field_evidence.py
+          tests/test_rc72_qa_design_clause_ledger.py
+          tests/test_rc72_qa_source_provenance.py
+          tests/test_rc72_qa_product_route_ast.py
+          tests/test_rc72_qa_zip_preflight.py
+      - name: Independent C01/C02 native process and product-entry qualification
+        # The C12 tools and product paths are independent verdicts. A failure
+        # in the first suite must not hide defects in the second suite.
+        if: ${{ !cancelled() && steps.test_harness.outcome == 'success' }}
+        run: >
+          python -m pytest -q
+          --junitxml=qa-c01-c02.xml
+          tests/test_rc72_qa_c01_c02_independent.py
+          tests/test_rc72_n5_existing_data_repair.py
+          tests/test_rc72_n5_reverification.py
+          tests/test_rc72_n8_retry_continuation.py
+          tests/test_rc72_n8_multi_round.py
+      - name: Independently audit C03/C05/C08/C09 formal product wiring (expected RED until integrated)
+        if: ${{ !cancelled() && steps.test_harness.outcome == 'success' }}
+        run: >
+          python -m pytest -q
+          --junitxml=qa-product-wiring.xml
+          tests/test_rc72_qa_product_wiring.py
+          tests/test_rc72_qa_c09_product_dispatch.py
+      - name: Publish independently traceable results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-c01-c02-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: |
+            qa-source-identity.txt
+            qa-source-provenance.json
+            qa-c12-tools.xml
+            qa-c01-c02.xml
+            qa-product-wiring.xml
+          if-no-files-found: warn
+          retention-days: 14
