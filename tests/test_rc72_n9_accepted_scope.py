@@ -140,3 +140,51 @@ def test_actual_n9_service_is_composable_with_controller_and_cannot_accept_scope
         with pytest.raises(Exception,match='N9_PIPELINE_SCOPE_MISMATCH'):driver._assert_n9_scope()
         assert truth.store.path.read_bytes()==before
     finally:server.shutdown();server.server_close()
+
+
+def test_full_real_n7_to_n9_allows_genuinely_closed_product_defect_without_reexecution(
+        tmp_path, monkeypatch):
+    import test_rc7_defect_resolution_control as defects
+    from rc7_runtime.closed_loop_control import ClosedLoopControlPlane
+    truth, plan, pipeline, server = _accepted(tmp_path, monkeypatch)
+    try:
+        assert pipeline.complete(release_batch_id=BATCH)['state'] == 'N7_PASS'
+        original_calls = len(server.calls)
+        assert original_calls == len(plan['items'])
+        # Reuse this exact real N7/R1 Mission with the inherited formal
+        # DefectResolutionControl, not a parallel fake defect workspace.
+        monkeypatch.setattr(defects, 'MISSION', MISSION)
+        monkeypatch.setattr(defects, 'RELEASE', pipeline.release_id)
+        control = ClosedLoopControlPlane(truth, pipeline.release_id, MISSION)
+        defects._setup(tmp_path, existing_truth=truth, existing_control=control)
+        n9 = AcceptedScopeN9Service(pipeline)
+        assert n9.complete(release_batch_id=BATCH)['status'] == 'HOLD'
+        resolution, revision = defects._confirm_and_detect_fix(tmp_path, truth, control)
+        verification = defects._owned_execution(
+            tmp_path, control, artifact_id='ART-VERIFY-1',
+            attempt_id='ATT-VERIFY-1', tc_id=defects.ORIGINAL_TC,
+            passed=True, task_type=resolution.FIX_VERIFICATION_TASK_TYPE)
+        resolution.accept_fix_verification(
+            control, defects.DEFECT_ID,
+            verification_artifact_id=verification.artifact_id)
+        regression = defects._owned_execution(
+            tmp_path, control, artifact_id='ART-REGRESSION-1',
+            attempt_id='ATT-REGRESSION-1', tc_id='TC-IMPACT-REGRESSION',
+            passed=True, task_type=resolution.IMPACT_REGRESSION_TASK_TYPE)
+        resolution.close_after_verification(
+            control, defects.DEFECT_ID,
+            verification_artifact_id=verification.artifact_id,
+            regression_artifact_ids=[regression.artifact_id])
+        signed_before = truth.store.path.read_bytes()
+        accepted = n9.complete(release_batch_id=BATCH)
+        assert accepted['state'] == 'N9_PASS'
+        assert truth.query('rc72_mission_node', node_type='N9_DEFECT')[0]['state'] == 'PASS'
+        assert truth.query('rc72_mission_node', node_type='N10_RELEASE_CONVERGENCE')[0]['state'] == 'READY'
+        assert len(server.calls) == original_calls
+        repeat = truth.store.path.read_bytes()
+        assert n9.complete(release_batch_id=BATCH) == accepted
+        assert truth.store.path.read_bytes() == repeat
+        assert len(server.calls) == original_calls
+    finally:
+        server.shutdown()
+        server.server_close()

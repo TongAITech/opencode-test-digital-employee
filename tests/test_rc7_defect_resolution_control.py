@@ -38,16 +38,25 @@ DEFECT_ID = "DEFECT-RESOLUTION-1"
 ORIGINAL_TC = "TC-ORIGINAL-DEFECT"
 
 
-def _setup(tmp_path: Path):
-    truth = TruthRuntime(tmp_path / "r1.jsonl")
-    control = ClosedLoopControlPlane.bootstrap(
-        truth,
-        Mission(
-            mission_id=MISSION,
-            release_id=RELEASE,
-            goal="close a trusted product defect only after fix verification and impact regression",
-        ),
-    )
+def _setup(tmp_path: Path, *, existing_truth=None, existing_control=None):
+    # The actual N9 product path can feed its accepted native N7 R1 Mission
+    # into the inherited RC7 defect lifecycle: no second synthetic Mission.
+    if (existing_truth is None) != (existing_control is None):
+        raise ValueError("EXISTING_R1_AND_CONTROL_MUST_BE_PAIRED")
+    if existing_truth is None:
+        truth = TruthRuntime(tmp_path / "r1.jsonl")
+        control = ClosedLoopControlPlane.bootstrap(
+            truth,
+            Mission(
+                mission_id=MISSION,
+                release_id=RELEASE,
+                goal="close a trusted product defect only after fix verification and impact regression",
+            ),
+        )
+    else:
+        truth, control = existing_truth, existing_control
+        if control.truth is not truth or control.mission_id != MISSION or control.release_id != RELEASE:
+            raise ValueError("EXISTING_DEFECT_MISSION_SCOPE_CHANGED")
     qualification_eval = Evaluation(
         evaluation_id="EVAL-DEFECT-QUALIFIED",
         mission_id=MISSION,
