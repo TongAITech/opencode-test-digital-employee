@@ -57,6 +57,10 @@ jobs:
           $run = @($runs.workflow_runs | Where-Object {
             $_.head_sha -eq $env:TARGET_MAIN_SHA -and
             $_.name -eq 'RC7.2 Portable Transport Preparation' -and
+            $_.path -eq '.github/workflows/rc7.2-portable-transport.yml' -and
+            $_.head_branch -eq 'work/rc7.2' -and
+            $_.head_repository.full_name -eq $env:GITHUB_REPOSITORY -and
+            $_.repository.full_name -eq $env:GITHUB_REPOSITORY -and
             $_.event -eq 'push' -and $_.status -eq 'completed' -and
             $_.conclusion -eq 'success'
           } | Sort-Object run_number -Descending | Select-Object -First 1)
@@ -109,6 +113,20 @@ jobs:
           python tools/rc72_qa_offline_audit.py --package-root $package --expected-source-commit $env:TARGET_MAIN_SHA --dsh-relpath workspace-template/runtime/dsh/dsh.exe --report qa-c12-physical-audit.json
           if ($LASTEXITCODE -ne 0) { throw 'C12_INDEPENDENT_PAYLOAD_AUDIT_HOLD_OR_FAIL' }
           Write-Output 'C12_PHYSICAL_CANDIDATE_ONLY: not Q3-Q9 Field and not BANK_FINAL'
+      - name: Record independent C12 failure without forging a physical PASS
+        if: failure()
+        shell: pwsh
+        run: |
+          @{
+            schema='RC72_QA_C12_FAIL_CLOSED_V1'
+            status='HOLD_NO_PHYSICAL_QUALIFICATION'
+            source_commit=$env:TARGET_MAIN_SHA
+            qa_head=$env:EXACT_QA_HEAD
+            workflow_run_id=$env:GITHUB_RUN_ID
+            reason='REVIEW_FAILED_STEP_LOGS_AND_AVAILABLE_RECEIPTS'
+            field_verified=$false
+            bank_final=$false
+          } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 qa-c12-failed-step.json
       - name: Upload independent PASS/HOLD/FAIL receipts, never BANK_FINAL
         if: always()
         uses: actions/upload-artifact@v4
@@ -119,5 +137,6 @@ jobs:
             qa-c12-artifact-origin.json
             qa-c12-zip-preflight.json
             qa-c12-physical-audit.json
+            qa-c12-failed-step.json
           if-no-files-found: warn
           retention-days: 30

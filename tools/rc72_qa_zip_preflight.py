@@ -20,6 +20,9 @@ MAX_ENTRIES = 300000
 MAX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024 * 1024
 MAX_SINGLE_FILE_BYTES = 8 * 1024 * 1024 * 1024
 EXPECTED_ROOT = "PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10"
+WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL"} | {
+    prefix + str(num) for prefix in ("COM", "LPT") for num in range(1, 10)
+}
 
 
 def _entry_name(name):
@@ -32,6 +35,13 @@ def _entry_name(name):
     if (not bare or any(p in ("", ".", "..") or ":" in p for p in parts)
             or PurePosixPath(bare).as_posix() != bare):
         raise UnsafeArchiveError("C12_NONCANONICAL_ARCHIVE_PATH:" + name)
+    for part in parts:
+        # Expand-Archive runs on NTFS: reject aliases and reserved DOS device
+        # names before two distinct ZIP paths can overwrite the same file.
+        if (part.endswith((".", " ")) or len(part) > 255
+                or any(ord(char) < 32 or ord(char) == 127 for char in part)
+                or part.split(".", 1)[0].upper() in WINDOWS_RESERVED):
+            raise UnsafeArchiveError("C12_WINDOWS_UNSAFE_ARCHIVE_PATH:" + name)
     return parts, is_dir
 
 
@@ -47,6 +57,9 @@ def inspect_zip(source, *, expected_root=EXPECTED_ROOT):
             if not info or len(info) > MAX_ENTRIES:
                 raise UnsafeArchiveError("C12_ARCHIVE_ENTRY_COUNT_INVALID")
             seen = set()
+            windows_names = set()
+            file_paths = set()
+            parent_dirs = set()
             bytes_total = 0
             files = 0
             for member in info:
@@ -56,11 +69,25 @@ def inspect_zip(source, *, expected_root=EXPECTED_ROOT):
                 if member.filename in seen:
                     raise UnsafeArchiveError("C12_ARCHIVE_DUPLICATE_ENTRY:" + member.filename)
                 seen.add(member.filename)
-                if member.is_dir() != path_is_dir:
-                    raise UnsafeArchiveError("C12_ARCHIVE_DIRECTORY_TYPE_MISMATCH")
-                # A ZIP can carry Unix symlink mode even when decoded on Windows.
-                if (member.external_attr >> 16) & 0o170000 == 0o120000:
+                win_path = "/".join(parts).casefold()
+                if win_path in windows_names:
+                    raise UnsafeArchiveError("C12_WINDOWS_CASEFOLD_COLLISION:" + member.filename)
+                windows_names.add(win_path)
+                for count in range(1, len(parts)):
+                    parent_dirs.add("/".join(parts[:count]).casefold())
+                if not path_is_dir:
+                    file_paths.add(win_path)
+                # zipfile.ZipInfo.is_dir() only checks for a trailing slash;
+                # independent Unix type metadata must agree with the path.
+                mode = (member.external_attr >> 16) & 0o170000
+                if mode == 0o120000:
                     raise UnsafeArchiveError("C12_ARCHIVE_SYMLINK_FORBIDDEN")
+                if member.create_system == 3:
+                    if mode not in (0, 0o040000, 0o100000):
+                        raise UnsafeArchiveError("C12_ARCHIVE_SPECIAL_FILE_FORBIDDEN")
+                    if (path_is_dir and mode == 0o100000
+                            or not path_is_dir and mode == 0o040000):
+                        raise UnsafeArchiveError("C12_ARCHIVE_DIRECTORY_TYPE_MISMATCH")
                 if path_is_dir:
                     if member.file_size:
                         raise UnsafeArchiveError("C12_ARCHIVE_DIRECTORY_HAS_DATA")
@@ -73,6 +100,8 @@ def inspect_zip(source, *, expected_root=EXPECTED_ROOT):
                 if bytes_total > MAX_UNCOMPRESSED_BYTES:
                     raise UnsafeArchiveError("C12_ARCHIVE_TOTAL_BYTES_EXCEEDS_BUDGET")
                 files += 1
+            if file_paths & parent_dirs:
+                raise UnsafeArchiveError("C12_WINDOWS_FILE_DIRECTORY_COLLISION")
             if not files:
                 raise UnsafeArchiveError("C12_ARCHIVE_CONTAINS_NO_FILES")
     except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:

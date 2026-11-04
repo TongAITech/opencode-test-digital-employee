@@ -274,3 +274,23 @@ QA CI-only 改动：为 RC7 Field Hardening 加入按 PR/branch 区分的 concur
 - 负例用真正 zipfile 构造恶意成员、符号链接与重复文件名，不依赖文档层提示。Windows/Ubuntu × Python3.8/3.11 均编译/运行相同 QA 工具合同，不以本地假包替代真实包。
 
 **当前仍为工程变更已提交、CI 结果未取得**。主线仍缺 C03/N8、C09 正式 L4/L5 工厂入口等完整验收，真实行内 Q3–Q9 未完成；BANK_FINAL=NO。
+
+
+## 19. 第十轮：C12 NTFS 名称冲突及来源伪装的独立拒绝（2026-11-04）
+
+本轮独立获取 main/QA/A/B/C/D HEAD 和同 SHA CI。主线仍为 4721bb57f6a5de1fdf471000030a7b043ebe71c7，QA 分支在当前修改前为 29761a52a2ce1bcb2a11a26b36fdd025014b51ce；主线完整 Construction、Q1、Q2、Portable 仍为 QUEUED，QA 原三组 workfows 为 QUEUED/PENDING。旧的 GitHub Artifact #13253451722 属于过去的 7efb3c8 源码，只能证明当时存在构建制品，绝不代替最新主线 4721bb57 的物理复核。
+
+### 已提交的审计器更改
+
+- tools/rc72_qa_zip_preflight.py 在解压前拒绝 NTFS 无法区分的同名不同大小写路径，包括嵌套 Browser/Profile 等路径；不再只用 ZIP 里的完全一致文件名检测重复。
+- 拒绝 Windows 保留设备名（CON、NUL、AUX、PRN、COM1–COM9、LPT1–LPT9 及带扩展名版本）、末尾句点/空格、控制字符和过长路径组件。
+- 拒绝一个 ZIP 成员是文件、另一成员把它作为目录的路径冲突，含不同大小写路径的冲突。
+- ZIP 声称的 Unix 文件类型必须与文件名目录语义相符；拒绝 symlink、设备/FIFO、文件以目录属性或目录以普通文件属性的冲突。
+- tests/test_rc72_qa_zip_preflight.py 使用 zipfile 真实构造上述危险 ZIP 成员，在 Windows/Ubuntu Python3.8/3.11 四环境矩阵中运行，不允许通过代码阅读把它们默认为 PASS。
+
+### 已提交的物理 CI 更改
+
+- .github/workflows/rc7.2-qa-physical-transport.yml 必须从官方 .github/workflows/rc7.2-portable-transport.yml、work/rc7.2 精确主分支、同一仓库、确切 source SHA 的已 SUCCESS push 工作流选择唯一未过期制品。仅凭工作流显示名称相同不够，杜绝其他分支/同名工作流冒充。
+- 若目标源码没有符合条件的便携包，或者下载、sidecar、ZIP 安全、干净解包、DSH 实物审计任何一步未完成，额外输出 qa-c12-failed-step.json，状态固定 HOLD_NO_PHYSICAL_QUALIFICATION，绝不声称 Field 或 BANK_FINAL；同时保留 GitHub job 日志定位精确失败步骤。
+
+**核销纪律：** 这次提交属于 QA-only 审计器、测试与 workflow 可靠性加固。未见最新 QA HEAD 同 SHA CI 完成前，所有新测试均为 NOT_RUN；即便 C12 真实压缩包字节验证成功，也仅标记 PHYSICAL_CANDIDATE_ONLY。C03/C09、L1–L7 全链路、Q3–Q9 实地、银行总验收均不得因安全审计工作完成而升级。

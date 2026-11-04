@@ -20,6 +20,8 @@ from .rc72_captain_scheduling import (
 )
 from .rc72_n9_professional_intake import NativeN9ProfessionalIntakeService
 from .rc72_n7_pipeline import N7PipelineService
+from .rc72_n7_execution_admission import _hash
+from .rc72_domain import AutonomousMissionNode
 
 
 class NativeN9CaptainQualificationAdmission:
@@ -61,11 +63,36 @@ class NativeN9CaptainQualificationAdmission:
             raise ContractError('N9_CAPTAIN_ORIGINAL_CASE_ETU_NOT_UNIQUE')
         etu_id = members[0]['etu_id']
         with ledger_lock(self.truth, busy='N9_CAPTAIN_QUALIFICATION_LEDGER_BUSY'):
-            # Under the same R1/OS fence, re-authenticate the signed N8 gate
-            # before issuing even an analysis-only Worker lease.
-            same = self.intake.queue_reproduction(
-                preparation_id=preparation_id, diagnosis_id=diagnosis_id)
-            if same != queued:
+            # The original intake calls failure_evidence.audit(), which
+            # acquires its own OS lock. Do not call it recursively here:
+            # Windows byte-range locks are not reentrant. Under our existing
+            # lock, use the evidence auditor's _audit_locked primitive and
+            # recheck the signed N8 process, accepted R1 gate and original gap.
+            failure = self.pipeline.failure_evidence._audit_locked(preparation_id)
+            receipt = self.pipeline.diagnosis._verify(
+                self._one('rc72_n8_process_diagnosis', diagnosis_id=diagnosis_id))
+            outcome = self._one('rc72_diagnosis_outcome', diagnosis_id=diagnosis_id)
+            gate_id = 'N8GATE-' + _hash([diagnosis_id, receipt['input_sha256']])[:24]
+            gate = self._one('rc72_node_gate', gate_id=gate_id)
+            n8 = self.pipeline.diagnosis.runtime.node_by_type(
+                p['mission_id'], AutonomousMissionNode.N8_DIAGNOSIS_RECOVERY)
+            if (receipt['preparation_id'] != preparation_id
+                    or receipt['source_commit'] != self.pipeline.source_commit
+                    or receipt['release_id'] != self.pipeline.release_id
+                    or receipt['result'].get('failure_class') != 'VALID_TEST_FAILURE'
+                    or receipt['result'].get('confidence') != 'COMPLETE_FROZEN_CONTRACT_DISCREPANCY'
+                    or receipt['result'].get('affected_refs') != [p['case_id']]
+                    or outcome['source_attempt_id'] != p['attempt_id']
+                    or outcome['responsible_node'] != 'N9_DEFECT'
+                    or outcome.get('source_delivery_id') != receipt['delivery_id']
+                    or outcome['gap_id'] != queued['gap_id']
+                    or failure['evidence_id'] not in outcome['evidence_refs']
+                    or n8['state'] != 'PASS' or gate_id not in n8['gate_refs']
+                    or gate['decision'] != 'PASS'
+                    or gate['delivery_id'] != receipt['delivery_id']
+                    or gate['reviewer_worker_id'] != receipt['reviewer_worker_id']
+                    or gate['reviewer_session_id'] != receipt['reviewer_session_id']
+                    or failure['evidence_id'] not in gate['evidence_refs']):
                 raise ContractError('N9_CAPTAIN_ACCEPTED_DIAGNOSIS_CHANGED')
             fencer = self.scheduler.fencer
             owner = fencer._owner(
@@ -143,7 +170,7 @@ class NativeN9CaptainQualificationAdmission:
                     'etu_refs': [etu_id],
                     'executable_contract_refs': [p['contract_id']],
                     'gap_refs': [queued['gap_id']],
-                    'evidence_refs': [diagnosis_id],
+                    'evidence_refs': [failure['evidence_id']],
                 })
             leased = self.scheduler.scheduler.lease_task(
                 p['mission_id'], wid, worker_ref=fresh.worker_id,
