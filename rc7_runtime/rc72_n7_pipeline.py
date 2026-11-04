@@ -186,6 +186,21 @@ class N7PipelineService:
                 preparation_id=preparation_id, diagnosis_id=result['diagnosis_id'])
             professional = dict(qualification_workitem_id=queued['qualification_workitem_id'],
                                 defect_confirmed=False, reproduction_completed=False)
+            if (self.captain_scheduler is not None
+                    and 'N9_QUALIFY' in self.captain_scheduler.role_profiles):
+                # N9 analysis cannot borrow the blocked N7 ETU executor's
+                # authority. Independently lease a scoped qualification
+                # WorkItem after verifying the original signed N8 gate.
+                # This schedules DSH work; it does NOT execute, reproduce,
+                # confirm a Defect or close a professional N9 Gate.
+                from .rc72_n9_captain_qualification import NativeN9CaptainQualificationAdmission
+                admitted = NativeN9CaptainQualificationAdmission(self).admit(
+                    preparation_id=preparation_id, diagnosis_id=result['diagnosis_id'])
+                professional.update(
+                    qualification_admission_id=admitted['qualification_admission_id'],
+                    qualification_worker_id=admitted['worker_id'],
+                    qualification_session_id=admitted['session_id'],
+                    qualification_admission_reason=admitted['reason'])
         return dict(status='HOLD',reason='N9_FAILURE_QUALIFICATION_REQUIRED' if result['failure_class']=='VALID_TEST_FAILURE'
                     else 'N7_EXECUTION_DIAGNOSIS_REQUIRED',preparation_id=preparation_id,
                     diagnosis_id=result['diagnosis_id'],failure_class=result['failure_class'],
