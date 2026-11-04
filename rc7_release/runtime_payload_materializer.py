@@ -356,7 +356,7 @@ def _materialize_browserskill(root: Path) -> List[Dict[str, Any]]:
         raise RuntimePayloadMaterializerError("BROWSERSKILL_EXTENSION_MANIFEST_MISSING")
     return [
         _record("browserskill", target, version=version, source=str(cli_asset["browser_download_url"]), sha256=str(cli_asset["digest"])[len("sha256:"):]),
-        _record("browserskill_extension", ext_target, version=str(ext_release.get("tag_name") or "").removeprefix("ext-v"), source=str(ext_asset["browser_download_url"]), sha256=str(ext_asset["digest"])[len("sha256:"):]),
+        _record("browserskill_extension", ext_target, version=version, source=str(ext_asset["browser_download_url"]), sha256=str(ext_asset["digest"])[len("sha256:"):]),
     ]
 
 
