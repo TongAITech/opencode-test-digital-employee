@@ -1,0 +1,63 @@
+name: RC7.2 C09 Signed Playwright And BrowserSkill Product Binding
+
+on:
+  push:
+    branches: [work/rc7.2-a-c09-playwright-n7]
+    paths:
+      - 'rc7_runtime/rc72_mission_factory.py'
+      - 'rc7_runtime/rc72_n7_pipeline.py'
+      - 'tests/test_rc72_c09_playwright_product_binding.py'
+      - '.github/workflows/rc7.2-a-c09-product-binding.yml'
+  pull_request:
+    branches: [work/rc7.2-abd-integration, work/rc7.2]
+    paths:
+      - 'rc7_runtime/rc72_mission_factory.py'
+      - 'rc7_runtime/rc72_n7_pipeline.py'
+      - 'tests/test_rc72_c09_playwright_product_binding.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-c09-product-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  official-journey-n7:
+    name: c09-official-${{ matrix.os }}-python-${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Pinned qualification runner
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile full product source
+        run: python -m compileall -q rc6_runtime rc7_runtime rc7_release
+      - name: Test real factory and fail-closed browser tool binding
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_c09_playwright_product_binding.py
+          tests/test_rc72_c09_ab_product_binding.py
+          tests/test_rc72_mission_factory.py
+          tests/test_rc72_journey_playwright_adapter.py
+          tests/test_rc72_journey_bsk_native_adapter.py
+          tests/test_rc72_journey_bsk_full_chain_contract.py
+          --junitxml=rc72-c09-signed-product.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-c09-product-${{ matrix.os }}-python-${{ matrix.python }}-${{ github.sha }}
+          path: rc72-c09-signed-product.xml
+          retention-days: 14
+          if-no-files-found: warn
