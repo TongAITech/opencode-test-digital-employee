@@ -51,7 +51,9 @@ def test_actual_data_failure_independent_process_review_and_n5_back_edge(tmp_pat
             + [diagnostic_evidence[0]['evidence_id']])
         delivery = truth.query('rc72_node_delivery', delivery_id=receipt['delivery_id'])[0]
         gate = truth.query('rc72_node_gate', node_type='N8_DIAGNOSIS_RECOVERY')[0]
-        assert delivery['evidence_refs'] == expected_refs
+        # Reviewer's input is frozen at Delivery time; the post-review Gate
+        # additionally includes the signed N8 process Evidence.
+        assert delivery['evidence_refs'] == expected_refs[:-1]
         assert gate['evidence_refs'] == expected_refs
         assert server.calls == []
         assert truth.query('execution_attempt')[0]['status'] == 'BLOCKED'
@@ -65,21 +67,43 @@ def test_actual_data_failure_independent_process_review_and_n5_back_edge(tmp_pat
 
 
 
-def test_saved_n8_delivery_rejects_stripped_process_evidence_without_retry(tmp_path, monkeypatch):
+def test_saved_n8_gate_rejects_stripped_process_evidence_without_retry(tmp_path, monkeypatch):
     truth, prep, server, p = _failure(tmp_path, monkeypatch)
     try:
         service = ExecutionDiagnosisService(prep, evidence_root=tmp_path / 'diagnosis')
         assert service.run(p['preparation_id'])['state'] == 'REPAIR_REQUIRED'
         receipt = truth.query('rc72_n8_process_diagnosis')[0]
-        delivery = truth.query('rc72_node_delivery', delivery_id=receipt['delivery_id'])[0]
-        assert delivery['evidence_refs']
-        # A modified replayed delivery that drops the signed N8 process proof
-        # cannot be promoted by a previously accepted Gate.
-        truth.append_atomic('RC72_NODE_DELIVERY_UPSERTED',
-            dict(delivery, evidence_refs=delivery['evidence_refs'][:-1],
-                 artifact_version=delivery['artifact_version'] + 1))
+        gate = truth.query('rc72_node_gate', node_type='N8_DIAGNOSIS_RECOVERY')[0]
+        assert gate['evidence_refs']
+        # The N8 Gate is post-review and MUST include the process Evidence.
+        # Altering that evidence does not authorize replay or an old Gate PASS.
+        truth.append_atomic('RC72_NODE_GATE_UPSERTED',
+            dict(gate, evidence_refs=gate['evidence_refs'][:-1],
+                 artifact_version=gate['artifact_version'] + 1))
         before = truth.store.path.read_bytes()
-        with pytest.raises(ContractError, match='N8_ACTIVE_DELIVERY_CONFLICT'):
+        with pytest.raises(ContractError, match='N8_ACCEPTED_GATE_CONFLICT'):
+            service.run(p['preparation_id'])
+        assert truth.store.path.read_bytes() == before
+        assert server.calls == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_saved_n8_reviewer_identity_change_rejected_before_any_new_r1(tmp_path, monkeypatch):
+    truth, prep, server, p = _failure(tmp_path, monkeypatch)
+    try:
+        service = ExecutionDiagnosisService(prep, evidence_root=tmp_path / 'diagnosis')
+        assert service.run(p['preparation_id'])['state'] == 'REPAIR_REQUIRED'
+        receipt = truth.query('rc72_n8_process_diagnosis')[0]
+        reviewer = truth.query('rc72_reviewer_assignment', delivery_id=receipt['delivery_id'])[0]
+        # One modified R1 reviewer assignment cannot borrow the immutable
+        # signed process receipt or the existing N8 Gate on cold recovery.
+        truth.append_atomic('RC72_REVIEWER_ASSIGNMENT_UPSERTED',
+            dict(reviewer, worker_id='REVWRK-forged-reviewer',
+                 artifact_version=reviewer['artifact_version'] + 1))
+        before = truth.store.path.read_bytes()
+        with pytest.raises(ContractError, match='N8_ACCEPTED_REVIEWER_LINEAGE_CHANGED'):
             service.run(p['preparation_id'])
         assert truth.store.path.read_bytes() == before
         assert server.calls == []

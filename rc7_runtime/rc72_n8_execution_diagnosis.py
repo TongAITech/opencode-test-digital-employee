@@ -391,6 +391,27 @@ class ExecutionDiagnosisService:
     def _accept(self, p, case, facts, receipt):
         result = receipt['result']
         node = self.runtime.node_by_type(p['mission_id'], AutonomousMissionNode.N8_DIAGNOSIS_RECOVERY)
+        # A saved signed process receipt alone does not authorize a cold N8
+        # Gate. Re-bind it to the exact original fresh reviewer assignment and
+        # session even when the reviewer session was legitimately closed.
+        reviewer = self._one('rc72_reviewer_assignment', delivery_id=receipt['delivery_id'])
+        reviewer_session = self._one('rc72_worker_session', session_id=receipt['reviewer_session_id'])
+        expected_context = dict(
+            mission_id=p['mission_id'], team_id=case['team_id'],
+            mission_node_id=node['mission_node_id'], delivery_id=receipt['delivery_id'],
+            criteria=_CRITERIA, evidence_refs=facts['evidence_refs'])
+        if (reviewer.get('worker_id') != receipt['reviewer_worker_id']
+                or reviewer.get('session_id') != receipt['reviewer_session_id']
+                or reviewer.get('context_bundle') != expected_context
+                or reviewer.get('criteria') != _CRITERIA
+                or reviewer.get('evidence_refs') != facts['evidence_refs']
+                or reviewer_session.get('worker_id') != receipt['reviewer_worker_id']
+                or reviewer_session.get('mission_id') != p['mission_id']
+                or reviewer_session.get('role') != 'quality-reviewer'
+                or reviewer_session.get('purpose') != 'REVIEW'
+                or reviewer_session.get('context_bundle') != expected_context
+                or reviewer_session.get('state') not in {'ACTIVE', 'CLOSED'}):
+            raise ContractError('N8_ACCEPTED_REVIEWER_LINEAGE_CHANGED')
         evidence_id = 'N8EV-' + _hash([case['diagnosis_id'], receipt['input_sha256']])[:24]
         self.evidence._ensure('rc7_evidence', 'RC7_EVIDENCE_UPSERTED', 'evidence_id', dict(
             evidence_id=evidence_id, release_id=p['release_id'], mission_id=p['mission_id'], kind='N8_PROCESS_DIAGNOSIS',
@@ -406,9 +427,9 @@ class ExecutionDiagnosisService:
             if self._one('rc72_worker_session', session_id=receipt['reviewer_session_id'])['state'] == 'ACTIVE':
                 self.preparation.lifecycle.checkpoint_and_close(receipt['reviewer_session_id'], reason='review accepted unknown causality; diagnosis remains blocked')
             return dict(state='BLOCKED', diagnosis_id=case['diagnosis_id'], failure_class='UNKNOWN')
-        # The N8 delivery must bind the process proof as well as the frozen
-        # original N7 evidence. Comparing only the pre-diagnosis refs rejects
-        # legitimate cold recovery and can mask a stripped process receipt.
+        # The producer Delivery is frozen BEFORE the independent reviewer runs.
+        # Only the later signed Gate includes the process Evidence. Preserve
+        # this two-phase provenance, including on an interrupted cold resume.
         refs = facts['evidence_refs'] + [evidence_id]
         if node['state'] == 'READY':
             self.runtime.transition_state(node['mission_node_id'], MissionNodeState.RUNNING, reason='actual independent diagnosis ready')
@@ -427,7 +448,7 @@ class ExecutionDiagnosisService:
         delivery = self._one('rc72_node_delivery', delivery_id=receipt['delivery_id'])
         if (delivery['mission_id'] != p['mission_id'] or delivery['producer_ref'] != case['diagnosis_worker_id']
                 or delivery['artifact_refs'] != [case['diagnosis_id']] or delivery['input_refs'] != [p['contract_id']]
-                or delivery['evidence_refs'] != refs or delivery['known_gaps']
+                or delivery['evidence_refs'] != facts['evidence_refs'] or delivery['known_gaps']
                 or delivery['mission_node_id'] != node['mission_node_id']
                 or delivery['version'] != node['active_delivery_version'] or delivery['delivery_id'] not in node['delivery_refs']):
             raise ContractError('N8_ACTIVE_DELIVERY_CONFLICT')
