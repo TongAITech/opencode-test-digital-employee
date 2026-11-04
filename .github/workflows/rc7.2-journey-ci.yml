@@ -68,8 +68,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install pinned real CDP browser harness
-        run: python -m pip install --disable-pip-version-check pytest playwright==1.62.1
+      # Public PyPI publishes 1.62.0 but not 1.62.1. CI validates the
+      # supplemental CDP path only; bank BSK/Playwright 1.62.1 is not
+      # qualified by this job and must be validated from the offline bundle.
+      - name: Install published pinned real CDP browser harness
+        run: python -m pip install --disable-pip-version-check pytest playwright==1.62.0
       - name: Provision actual matching Chromium on GitHub CI
         run: python -m playwright install --with-deps chromium
       - name: Real Chromium CDP HTTP business Oracle and evidence smoke
