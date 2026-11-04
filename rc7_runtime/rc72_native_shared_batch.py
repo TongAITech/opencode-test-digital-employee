@@ -388,6 +388,7 @@ class NativeSharedExecutionBatch:
         raw_proof = attest_native_raw(
             self.launcher, raw_ref=raw_refs[0], session_id=session,
             expected_tool_refs=actual_tool_refs,
+            allowed_tools=authorized,
         )
         # One actual native DSH process/model-call receipt for the whole batch,
         # never fabricate N measured calls from N business members.
