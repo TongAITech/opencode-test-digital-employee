@@ -57,6 +57,7 @@ class FakeBSKRecordingCLI:
             dest.write_bytes(b"not-an-image" if self.bad_png else _PNG)
             return {"returncode": 0, "stdout": json.dumps({
                 "tab_id": 1, "format": "png",
+                "width": 1, "height": 1,
                 "byte_size": dest.stat().st_size})}
         raise AssertionError("unexpected BrowserSkill command %r" % argv)
 
@@ -161,4 +162,50 @@ def test_bsk_live_denied_by_external_b_authority_before_debug_start(tmp_path):
     with pytest.raises(Exception, match="JOURNEY_BSK_LIVE_EXTERNAL_AUTHORITY_REJECTED"):
         client.start(capture_name="not-authorized")
     assert cli.calls == []
+    assert not truth.query("rc72_journey_recording", recording_id="JR-LIVE")
+
+
+def test_bsk_live_refuses_export_from_other_debug_run_even_same_tab_and_session(tmp_path):
+    truth, client, cli = _live(tmp_path)
+    class SwappedRun:
+        def __init__(self, backing):
+            self.backing = backing
+            self.calls = []
+        def __call__(self, argv):
+            self.calls.append(list(argv))
+            if "debug" in argv and "export" in argv:
+                reply = self.backing(argv)
+                result = json.loads(reply["stdout"])
+                result["run_id"] = "debug-from-another-task"
+                reply["stdout"] = json.dumps(result)
+                return reply
+            return self.backing(argv)
+    swapped = SwappedRun(cli)
+    client.runner = swapped
+    client.start(capture_name="session-swapping")
+    client.capture_next(page_role="CONFIG")
+    client.capture_next(page_role="CONFIG", locator_ref="css:#save")
+    with pytest.raises(Exception, match="JOURNEY_BSK_LIVE_EXPORT_PROVENANCE_MISMATCH"):
+        client.finish()
+    assert not truth.query("rc72_journey_recording", recording_id="JR-LIVE")
+    assert client.stopped is True
+
+
+def test_bsk_live_refuses_lying_png_dimensions_from_native_capture(tmp_path):
+    truth, client, cli = _live(tmp_path)
+    class WrongDimensions:
+        def __init__(self, original):
+            self.original = original
+        def __call__(self, argv):
+            reply = self.original(argv)
+            if "screenshot" in argv:
+                payload = json.loads(reply["stdout"])
+                payload["width"] = 1024
+                reply["stdout"] = json.dumps(payload)
+            return reply
+    client.runner = WrongDimensions(cli)
+    client.start(capture_name="invalid-picture-provenance")
+    with pytest.raises(Exception, match="JOURNEY_BSK_LIVE_SCREENSHOT_UNVERIFIED"):
+        client.capture_next(page_role="CONFIG")
+    assert client.evidence == {}
     assert not truth.query("rc72_journey_recording", recording_id="JR-LIVE")
