@@ -127,7 +127,7 @@ def test_real_command_boundary_tracks_native_augmented_prompt_and_measured_usage
     assert call["total_tokens"] == 120
     assert call["context_sha256"] == hashlib.sha256(actual_prompt.encode("utf-8")).hexdigest()
     assert call["workitem_id"] == "WI-1"
-    assert "MISSION_QUOTA_EQUIVALENT_TARGET_EXCEEDED" in call["economy_signal"]
+    # Economy warnings are admission-time signals, not retroactive receipts.\n    # The first call had no measured usage before its native DSH return.\n    assert call["economy_signal"] == "NONE"\n    assert economy.summary("M-1")["effective_quota_equivalent_tokens"] == 120
 
     usage = truth.query("rc72_token_usage", mission_id="M-1")[0]
     assert usage["observation_status"] == "OBSERVED"
