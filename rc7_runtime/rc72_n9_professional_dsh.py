@@ -210,8 +210,12 @@ class NativeN9ProfessionalDshAnalysisService:
         # This performs the independent N8/process/Oracle audit. It owns its
         # own global R1 lock internally; never nest it inside our reservation
         # lock (Windows and Linux OS locks must fail BUSY on re-entry).
-        scope=self.intake.queue_reproduction(
-            preparation_id=preparation_id, diagnosis_id=diagnosis_id)
+        # The intake result carries the admitted WorkItem, Attempt and Gap
+        # but not its original preparation_id; bind that exact audited input
+        # rather than assuming an absent key in the DSH handoff.
+        scope=dict(self.intake.queue_reproduction(
+            preparation_id=preparation_id, diagnosis_id=diagnosis_id),
+            preparation_id=preparation_id)
         with ledger_lock(self.truth, busy="N9_DSH_PROFESSIONAL_LEDGER_BUSY"):
             wid=scope["qualification_workitem_id"]
             task=self._one("rc7_task",task_id=wid)
@@ -271,8 +275,9 @@ class NativeN9ProfessionalDshAnalysisService:
         # Full provenance re-audit must also occur *outside* the
         # reservation lock, because the independent failure evidence auditor
         # itself owns that lock and never accepts nested re-entry.
-        fresh_scope=self.intake.queue_reproduction(
-            preparation_id=preparation_id, diagnosis_id=diagnosis_id)
+        fresh_scope=dict(self.intake.queue_reproduction(
+            preparation_id=preparation_id, diagnosis_id=diagnosis_id),
+            preparation_id=preparation_id)
         with ledger_lock(self.truth, busy="N9_DSH_PROFESSIONAL_LEDGER_BUSY"):
             if fresh_scope!=scope:
                 raise ContractError("N9_DSH_ACCEPTED_SCOPE_CHANGED_DURING_WORKER")
