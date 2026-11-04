@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Mapping
 
 from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
+from rc6_runtime.authority import AuthorityRuntime
 from rc6_runtime.truth import TruthRuntime
 
 from .rc72_model_economy import TokenEconomyService
@@ -134,6 +135,7 @@ def compose_native_batch_services(
             not isinstance(launcher, DshHeadlessWorkerLauncher)
             or launcher.truth is not truth
             or launcher.release_id != release_id
+            or not isinstance(getattr(launcher, "authority", None), AuthorityRuntime)
             or not callable(getattr(launcher, "command_runner", None))
             or not callable(getattr(launcher, "execute", None))
             or not callable(getattr(launcher, "_persist_raw_worker_output", None))
