@@ -1,5 +1,6 @@
 """C09 production-adapter tests: real R1 lease + actual files; no fake Field PASS."""
 from pathlib import Path
+from rc72_file_uri_test_support import local_file_evidence_ref
 import json
 
 import pytest
@@ -153,7 +154,7 @@ def test_cdp_adapter_passes_with_durable_actual_and_screenshot(tmp_path):
     for step in rows:
         assert all(ref.startswith("file://") for ref in step["evidence_refs"])
         for ref in step["evidence_refs"]:
-            assert Path(ref[7:]).is_file()
+            assert local_file_evidence_ref(ref).is_file()
     actual = json.loads((tmp_path / "evidence" / "REAL-1" / "step-0001" / "actual.json").read_text())
     assert actual["status"] == "PASSED"
     assert actual["response_metadata"][0]["url"] == "https://fat1.example/config"
@@ -712,7 +713,7 @@ def test_teaching_failed_screenshot_does_not_lose_network_receipt_on_retry(tmp_p
     steps = truth.query("rc72_journey_capture_step", recording_id="JR-RETRY-NET")
     assert len(steps) == 2
     click = next(row for row in steps if row["sequence"] == 2)
-    actual = json.loads(Path(click["network_refs"][0][7:]).read_text())
+    actual = json.loads(local_file_evidence_ref(click["network_refs"][0]).read_text())
     assert actual["responses"] == [{
         "url": "https://fat1.example/api/save", "method": "POST",
         "status": 201, "captured_at": actual["responses"][0]["captured_at"]}]
