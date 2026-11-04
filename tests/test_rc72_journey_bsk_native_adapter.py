@@ -884,3 +884,48 @@ def test_bsk_mobile_no_b_authority_never_emulates_or_executes(tmp_path):
     assert result["status"] == "FAILED"
     assert result["failure_code"] == "JOURNEY_BSK_EXTERNAL_SESSION_AUTHORITY_REJECTED"
     assert not any("emulate" in c or "step" in c for c in runner.calls)
+
+
+def test_bsk_mobile_official_l5_execution_consumes_host_signed_phone_profile(
+        tmp_path):
+    """Typed official asset consumes BSK mobile simulation, not a generic CDP runner."""
+    truth, pool, lease, _, _ = official_setup(tmp_path)
+    runner = MobileBSK(device="pixel-7", orientation="portrait")
+    adapter = _adapter(pool, tmp_path, runner, mobile_device="pixel-7")
+    service = OfficialJourneyExecutionService(
+        truth, release_id="RC7.2", browser_pool=pool, adapter=adapter)
+    result = official_run(service, lease, execution_id="OJ-BSK-MOBILE-1")
+    assert result.state.value == "PASSED"
+    assert sum("emulate" in c for c in runner.calls) == 1
+    steps = truth.query("rc72_official_journey_execution_step",
+                        execution_id="OJ-BSK-MOBILE-1")
+    assert steps and all(s["status"] == "PASSED" for s in steps)
+    for row in steps:
+        receipt = json.loads(_local_file_evidence_ref(row["actual_refs"][0]).read_text())
+        assert receipt["mobile_emulation"]["device"] == "pixel-7"
+        assert receipt["mobile_emulation"]["viewport_css"] == [412, 915]
+        assert receipt["field_verified"] is False
+    official = truth.query("rc72_official_journey_execution",
+                           execution_id="OJ-BSK-MOBILE-1")
+    assert official[0]["field_verified"] is False
+
+
+def test_bsk_mobile_unresolved_first_effect_never_reapplies_on_same_attempt(
+        tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    runner = MobileBSK(failure="probe_wrong_viewport")
+    adapter = _adapter(pool, tmp_path, runner, mobile_device="iphone-14")
+    original = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]["steps"][0]
+    context = {
+        "replay_id": "MOBILE-UNRESOLVED", "mission_id": "M-1",
+        "workitem_id": "WI-R1", "attempt_id": "ATT-R1",
+        "worker_id": "WORKER-R1", "session_id": "SESSION-R1",
+        "browser_lease_id": lease.browser_lease_id,
+    }
+    failed = adapter.execute_step(original, context)
+    assert failed["status"] == "FAILED"
+    command_count = len(runner.calls)
+    repeated = adapter.execute_step(original, context)
+    assert repeated["failure_code"] == "JOURNEY_BSK_DUPLICATE_STEP_EFFECT_UNKNOWN"
+    assert len(runner.calls) == command_count
+    assert len([cmd for cmd in runner.calls if "emulate" in cmd]) == 1
