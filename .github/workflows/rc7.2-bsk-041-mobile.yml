@@ -3,8 +3,6 @@ name: RC7.2 BrowserSkill 0.4.1 Mobile H5 Qualification
 on:
   push:
     branches: [work/rc7.2-bsk-041-mobile]
-  pull_request:
-    branches: [work/rc7.2-abcd-v4-qualification, work/rc7.2]
   workflow_dispatch:
 
 permissions:
@@ -12,7 +10,7 @@ permissions:
 
 concurrency:
   group: rc72-bsk-041-mobile-${{ github.ref }}-${{ github.sha }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   signed-bsk-mobile-contracts:
