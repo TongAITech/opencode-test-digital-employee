@@ -442,3 +442,33 @@ def test_bsk_persists_intent_before_first_mutating_cli_and_keeps_it_on_success(t
     actual = json.loads(Path(outcome["actual_refs"][0][7:]).read_text())
     assert actual["dispatch_intent_ref"] == marker_path.resolve().as_uri()
     assert marker_path.resolve().as_uri() in outcome["evidence_refs"]
+
+
+def test_bsk_matching_session_receipt_is_not_enough_without_b_authority(tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    cli = TestBSK()
+    adapter = _adapter(pool, tmp_path, cli)
+    adapter.verify_session = lambda ownership, scope, instance: False
+    step = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]["steps"][0]
+    outcome = adapter.execute_step(step, {
+        "replay_id": "BSK-AUTHORITY-REJECTED",
+        "mission_id": "M-1", "workitem_id": "WI-R1",
+        "attempt_id": "ATT-R1", "worker_id": "WORKER-R1",
+        "session_id": "SESSION-R1",
+        "browser_lease_id": lease.browser_lease_id})
+    assert outcome["status"] == "FAILED"
+    assert outcome["failure_code"] == "JOURNEY_BSK_EXTERNAL_SESSION_AUTHORITY_REJECTED"
+    assert cli.calls == []
+
+
+def test_bsk_requires_external_session_authority_at_construction(tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    from rc7_runtime.rc72_journey_bsk import JourneyBSKAdapter
+    with pytest.raises(Exception, match="JOURNEY_BSK_EXTERNAL_SESSION_AUTHORITY_REQUIRED"):
+        JourneyBSKAdapter(
+            browser_pool=pool, evidence_root=tmp_path / "no-authority",
+            bsk_executable=tmp_path / "bsk.exe",
+            session_resolver=lambda ctx, instance: {},
+            session_receipt_verifier=None,
+            reference_resolver=lambda ref, kind, ctx: None,
+            runner=TestBSK())
