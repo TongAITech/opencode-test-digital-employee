@@ -10,7 +10,7 @@ from rc7_runtime.rc72_domain import AutonomousMissionNode
 from rc7_runtime.models import ContractError
 
 
-def _accepted_ten_node_completion(node_rows, transitions=None):
+def _accepted_ten_node_completion(node_rows, transitions=None, n7_gates=None, n7_deliveries=None):
     """Admit the exact N1-N10 denominator, including the real N7->N9 route.
 
     Normal successful N7 execution forwards directly to N9: N8 MUST stay
@@ -32,7 +32,9 @@ def _accepted_ten_node_completion(node_rows, transitions=None):
             or any(row.get('state') != 'PASS' for row in node_rows if row is not n8)
             or n8.get('gate_refs') or n8.get('delivery_refs')
             or n8.get('active_delivery_version') is not None
-            or not isinstance(transitions, list)):
+            or not isinstance(transitions, list)
+            or not isinstance(n7_gates, list)
+            or not isinstance(n7_deliveries, list)):
         return False
     n7, n9 = by_type['N7_EXECUTION'], by_type['N9_DEFECT']
     mission = n7.get('mission_id')
@@ -44,6 +46,28 @@ def _accepted_ten_node_completion(node_rows, transitions=None):
             or not isinstance(n9_id, str) or not n9_id
             or not isinstance(gate_refs, list) or not gate_refs):
         return False
+    # Historical gate_refs persist after a new N7 execution generation.
+    # Only the Gate of the currently active signed N7 Delivery can authorize
+    # bypass. A stale older PASS Gate is never sufficient.
+    if not isinstance(n7.get('active_delivery_version'), int):
+        return False
+    deliveries = [d for d in n7_deliveries if isinstance(d, dict)
+        and d.get('mission_id') == mission
+        and d.get('mission_node_id') == n7_id
+        and d.get('node_type') == 'N7_EXECUTION'
+        and d.get('version') == n7['active_delivery_version']
+        and d.get('delivery_id') in n7.get('delivery_refs', [])]
+    if len(deliveries) != 1:
+        return False
+    gates = [g for g in n7_gates if isinstance(g, dict)
+        and g.get('mission_id') == mission
+        and g.get('mission_node_id') == n7_id
+        and g.get('node_type') == 'N7_EXECUTION'
+        and g.get('decision') == 'PASS'
+        and g.get('delivery_id') == deliveries[0]['delivery_id']
+        and g.get('gate_id') in gate_refs]
+    if len(gates) != 1:
+        return False
     return any(
         isinstance(edge, dict)
         and edge.get('mission_id') == mission
@@ -52,7 +76,7 @@ def _accepted_ten_node_completion(node_rows, transitions=None):
         and edge.get('to_node_type') == 'N9_DEFECT'
         and edge.get('from_mission_node_id') == n7_id
         and edge.get('to_mission_node_id') == n9_id
-        and edge.get('source_gate_id') in gate_refs
+        and edge.get('source_gate_id') == gates[0]['gate_id']
         for edge in transitions
     )
 
@@ -162,6 +186,10 @@ def main(argv=None):
                 all_nodes_pass = _accepted_ten_node_completion(
                     node_rows,
                     transitions=truth.query('rc72_node_transition',
+                        mission_id=snapshot['mission_id']),
+                    n7_gates=truth.query('rc72_node_gate',
+                        mission_id=snapshot['mission_id']),
+                    n7_deliveries=truth.query('rc72_node_delivery',
                         mission_id=snapshot['mission_id']))
                 mission_complete = (
                     result.get('status') == 'PASS' and n10_pass and all_nodes_pass
