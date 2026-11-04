@@ -406,6 +406,9 @@ class ExecutionDiagnosisService:
             if self._one('rc72_worker_session', session_id=receipt['reviewer_session_id'])['state'] == 'ACTIVE':
                 self.preparation.lifecycle.checkpoint_and_close(receipt['reviewer_session_id'], reason='review accepted unknown causality; diagnosis remains blocked')
             return dict(state='BLOCKED', diagnosis_id=case['diagnosis_id'], failure_class='UNKNOWN')
+        # The N8 delivery must bind the process proof as well as the frozen
+        # original N7 evidence. Comparing only the pre-diagnosis refs rejects
+        # legitimate cold recovery and can mask a stripped process receipt.
         refs = facts['evidence_refs'] + [evidence_id]
         if node['state'] == 'READY':
             self.runtime.transition_state(node['mission_node_id'], MissionNodeState.RUNNING, reason='actual independent diagnosis ready')
@@ -424,7 +427,7 @@ class ExecutionDiagnosisService:
         delivery = self._one('rc72_node_delivery', delivery_id=receipt['delivery_id'])
         if (delivery['mission_id'] != p['mission_id'] or delivery['producer_ref'] != case['diagnosis_worker_id']
                 or delivery['artifact_refs'] != [case['diagnosis_id']] or delivery['input_refs'] != [p['contract_id']]
-                or delivery['evidence_refs'] != facts['evidence_refs'] or delivery['known_gaps']
+                or delivery['evidence_refs'] != refs or delivery['known_gaps']
                 or delivery['mission_node_id'] != node['mission_node_id']
                 or delivery['version'] != node['active_delivery_version'] or delivery['delivery_id'] not in node['delivery_refs']):
             raise ContractError('N8_ACTIVE_DELIVERY_CONFLICT')

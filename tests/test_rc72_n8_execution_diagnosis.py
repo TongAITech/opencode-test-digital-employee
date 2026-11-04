@@ -41,12 +41,48 @@ def test_actual_data_failure_independent_process_review_and_n5_back_edge(tmp_pat
         receipt = truth.query('rc72_n8_process_diagnosis')[0]
         assert receipt['diagnostic_process']['pid'] != receipt['review_process']['pid']
         assert receipt['diagnosis_worker_id'] != receipt['reviewer_worker_id'] != p['worker_id']
+
+        # The accepted delivery and independent Gate must both anchor the
+        # physical process evidence, not just the N7 failure's earlier refs.
+        diagnostic_evidence = [item for item in truth.query('rc7_evidence')
+            if item['kind'] == 'N8_PROCESS_DIAGNOSIS']
+        assert len(diagnostic_evidence) == 1
+        expected_refs = (truth.query('execution_attempt', attempt_id=p['attempt_id'])[0]['evidence_refs']
+            + [diagnostic_evidence[0]['evidence_id']])
+        delivery = truth.query('rc72_node_delivery', delivery_id=receipt['delivery_id'])[0]
+        gate = truth.query('rc72_node_gate', node_type='N8_DIAGNOSIS_RECOVERY')[0]
+        assert delivery['evidence_refs'] == expected_refs
+        assert gate['evidence_refs'] == expected_refs
         assert server.calls == []
         assert truth.query('execution_attempt')[0]['status'] == 'BLOCKED'
         assert truth.query('rc72_mission_node', node_type='N5_TEST_DATA')[0]['state'] == 'NEEDS_REVISION'
         before = list(truth.store.iter_raw())
         assert service.run(p['preparation_id']) == result
         assert list(truth.store.iter_raw()) == before
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+
+def test_saved_n8_delivery_rejects_stripped_process_evidence_without_retry(tmp_path, monkeypatch):
+    truth, prep, server, p = _failure(tmp_path, monkeypatch)
+    try:
+        service = ExecutionDiagnosisService(prep, evidence_root=tmp_path / 'diagnosis')
+        assert service.run(p['preparation_id'])['state'] == 'REPAIR_REQUIRED'
+        receipt = truth.query('rc72_n8_process_diagnosis')[0]
+        delivery = truth.query('rc72_node_delivery', delivery_id=receipt['delivery_id'])[0]
+        assert delivery['evidence_refs']
+        # A modified replayed delivery that drops the signed N8 process proof
+        # cannot be promoted by a previously accepted Gate.
+        truth.append_atomic('RC72_NODE_DELIVERY_UPSERTED',
+            dict(delivery, evidence_refs=delivery['evidence_refs'][:-1],
+                 artifact_version=delivery['artifact_version'] + 1))
+        before = truth.store.path.read_bytes()
+        with pytest.raises(ContractError, match='N8_ACTIVE_DELIVERY_CONFLICT'):
+            service.run(p['preparation_id'])
+        assert truth.store.path.read_bytes() == before
+        assert server.calls == []
     finally:
         server.shutdown()
         server.server_close()
