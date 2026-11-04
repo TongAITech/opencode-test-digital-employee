@@ -26,6 +26,19 @@ from .rc72_browser_resources import BrowserAccessMode, BrowserPool
 from .rc72_journey_playwright import _atomic_json, _public_url, _safe_id
 from .rc72_journey_png import verify_png_file
 
+
+# BrowserSkill 0.4.1 CLI built-in device presets, audited against upstream
+# Rust release. These are host-approved options, never read from a Journey step.
+_MOBILE_PRESETS = {
+    "iphone-14": (390, 844, 3.0, "iPhone"),
+    "iphone-14-pro-max": (430, 932, 3.0, "iPhone"),
+    "iphone-se": (375, 667, 2.0, "iPhone"),
+    "pixel-7": (412, 915, 2.625, "Pixel 7"),
+    "galaxy-s23": (360, 780, 3.0, "SM-S911B"),
+    "ipad-mini": (744, 1133, 2.0, "iPad"),
+    "galaxy-tab-s8": (800, 1280, 2.0, "SM-X700"),
+}
+
 class JourneyBSKAdapter:
     adapter_kind = "BROWSERSKILL_NATIVE"
     field_verified = False
@@ -44,6 +57,8 @@ class JourneyBSKAdapter:
         trusted_business_verifier_kinds: Sequence[str] = (),
         runner: Optional[Callable[[Any], Mapping[str, Any]]] = None,
         timeout_seconds: int = 45,
+        mobile_device: Optional[str] = None,
+        mobile_orientation: str = "portrait",
     ) -> None:
         if not isinstance(browser_pool, BrowserPool):
             raise ContractError("JOURNEY_BSK_BROWSER_POOL_REQUIRED")
@@ -56,6 +71,15 @@ class JourneyBSKAdapter:
             raise ContractError("JOURNEY_BSK_OFFLINE_EXECUTABLE_MISSING")
         if type(timeout_seconds) is not int or not 5 <= timeout_seconds <= 120:
             raise ContractError("JOURNEY_BSK_TIMEOUT_INVALID")
+        if mobile_device is not None and mobile_device not in _MOBILE_PRESETS:
+            raise ContractError("JOURNEY_BSK_MOBILE_DEVICE_NOT_APPROVED")
+        if mobile_orientation not in {"portrait", "landscape"}:
+            raise ContractError("JOURNEY_BSK_MOBILE_ORIENTATION_INVALID")
+        if mobile_device is None and mobile_orientation != "portrait":
+            raise ContractError("JOURNEY_BSK_MOBILE_DEVICE_REQUIRED")
+        self.mobile_device = mobile_device
+        self.mobile_orientation = mobile_orientation
+        self._mobile_key = None
         self.pool = browser_pool
         self.root = Path(evidence_root).resolve()
         self.binary = binary
@@ -80,6 +104,9 @@ class JourneyBSKAdapter:
         # B group owns the actual BSK session; this method only invalidates
         # the adapter's ownership cache, never kills a shared daemon.
         self._run_id = self._attempt = self._session = self._tab_id = self._fingerprint = None
+        # Browser/daemon belong to B group. Never forcibly turn off a shared
+        # tab's emulation during close; just invalidate local capability cache.
+        self._mobile_key = None
 
     def _guard(self, context: Mapping[str, Any]) -> Dict[str, Any]:
         for field in ("mission_id", "workitem_id", "attempt_id", "worker_id", "session_id", "browser_lease_id"):
