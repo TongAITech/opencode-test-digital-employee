@@ -19,7 +19,7 @@ import re
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Mapping, Optional
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
 from .models import ContractError
 from .rc72_browser_resources import BrowserAccessMode, BrowserPool
@@ -39,6 +39,9 @@ class JourneyBSKAdapter:
         session_resolver: Callable[[Mapping[str, Any], Mapping[str, Any]], Mapping[str, Any]],
         session_receipt_verifier: Callable[[Mapping[str, Any], Mapping[str, Any], Mapping[str, Any]], bool],
         reference_resolver: Callable[[str, str, Mapping[str, Any]], Any],
+        business_oracle_verifier: Optional[Callable[
+            [Mapping[str, Any], Mapping[str, Any]], Mapping[str, Any]]] = None,
+        trusted_business_verifier_kinds: Sequence[str] = (),
         runner: Optional[Callable[[Any], Mapping[str, Any]]] = None,
         timeout_seconds: int = 45,
     ) -> None:
@@ -59,6 +62,11 @@ class JourneyBSKAdapter:
         self.session_for = session_resolver
         self.verify_session = session_receipt_verifier
         self.resolve = reference_resolver
+        self.business_oracle_verifier = business_oracle_verifier
+        self.trusted_business_verifier_kinds = {
+            v.strip() for v in trusted_business_verifier_kinds
+            if isinstance(v, str) and v.strip()
+        }
         self.runner = runner
         self.timeout_seconds = timeout_seconds
         self._run_id = None
@@ -238,7 +246,7 @@ class JourneyBSKAdapter:
         return reply["value"]
 
     def _assert(self, step: Mapping[str, Any], context: Mapping[str, Any],
-                session: str, control_context: str) -> None:
+                session: str, control_context: str) -> Sequence[str]:
         oracle_ref = step.get("oracle_ref")
         if not isinstance(oracle_ref, str) or not oracle_ref:
             raise ContractError("JOURNEY_BSK_BUSINESS_ORACLE_REQUIRED")
@@ -246,6 +254,54 @@ class JourneyBSKAdapter:
         if not isinstance(oracle, Mapping):
             raise ContractError("JOURNEY_BSK_ORACLE_UNRESOLVED")
         kind = oracle.get("type")
+        if kind == "backend_state":
+            # Business truth comes from independent API/DB/CAT evidence, not
+            # a UI toast nor an unrelated BSK debug request-window HTTP 200.
+            verifier = self.business_oracle_verifier
+            if not callable(verifier) or not self.trusted_business_verifier_kinds:
+                raise ContractError("JOURNEY_BSK_BACKEND_BUSINESS_ORACLE_AUTHORITY_REQUIRED")
+            rule = oracle.get("business_rule_ref")
+            expected = oracle.get("expected")
+            if (not isinstance(rule, str) or not rule.strip()
+                    or not isinstance(expected, str) or not expected.strip()):
+                raise ContractError("JOURNEY_BSK_BACKEND_ORACLE_DEFINITION_INVALID")
+            try:
+                proof = verifier(dict(oracle), dict(context))
+            except Exception as exc:
+                raise ContractError("JOURNEY_BSK_BACKEND_ORACLE_CHECK_FAILED") from exc
+            if not isinstance(proof, Mapping):
+                raise ContractError("JOURNEY_BSK_BACKEND_ORACLE_RECEIPT_REQUIRED")
+            required = {
+                "oracle_ref": oracle_ref, "business_rule_ref": rule,
+                "mission_id": context.get("mission_id"),
+                "release_batch_id": context.get("release_batch_id"),
+                "requirement_id": context.get("requirement_id"),
+                "sst_id": context.get("sst_id"),
+                "obligation_id": context.get("obligation_id"),
+                "case_id": context.get("case_id"),
+                "attempt_id": context.get("attempt_id"),
+                "browser_lease_id": context.get("browser_lease_id"),
+            }
+            if (any(not isinstance(value, str) or not value for value in
+                    required.values())
+                    or any(proof.get(key) != value for key, value in required.items())):
+                raise ContractError("JOURNEY_BSK_BACKEND_ORACLE_SCOPE_MISMATCH")
+            if (proof.get("verifier_kind") not in self.trusted_business_verifier_kinds
+                    or proof.get("signature_verified") is not True
+                    or proof.get("source_kind") not in {
+                        "INDEPENDENT_API_STATE", "INDEPENDENT_DB_STATE",
+                        "INDEPENDENT_CAT_AND_DB_STATE"}):
+                raise ContractError("JOURNEY_BSK_BACKEND_ORACLE_AUTHORITY_UNTRUSTED")
+            if proof.get("observed_state") != expected or proof.get("matched") is not True:
+                raise ContractError("JOURNEY_BSK_BACKEND_BUSINESS_STATE_MISMATCH")
+            issued = proof.get("observed_at")
+            if (type(issued) is not int or abs(int(time.time()) - issued) > 120):
+                raise ContractError("JOURNEY_BSK_BACKEND_ORACLE_STALE")
+            evidence = proof.get("evidence_refs")
+            if (not isinstance(evidence, list) or not evidence
+                    or not all(isinstance(x, str) and x.strip() for x in evidence)):
+                raise ContractError("JOURNEY_BSK_BACKEND_ORACLE_EVIDENCE_REQUIRED")
+            return evidence
         if kind == "network_status":
             # Debug request/operation timing is correlation, not causation.
             # Do not fabricate a network PASS from any unrelated HTTP 200.
@@ -274,13 +330,15 @@ class JourneyBSKAdapter:
             passed = values.get("exists") is True and values.get("attribute") == oracle.get("expected")
         if not passed:
             raise ContractError("JOURNEY_BSK_BUSINESS_ORACLE_FAILED")
+        return []
 
     def _action(self, step: Mapping[str, Any], context: Mapping[str, Any],
                 session: str, control_context: str):
         kind = str(step.get("action_type") or "").upper()
         if kind == "ASSERT":
-            self._assert(step, context, session, control_context)
-            return {"action": "ASSERT", "verified": True}
+            evidence = self._assert(step, context, session, control_context)
+            return {"action": "ASSERT", "verified": True,
+                    "oracle_evidence_refs": list(evidence)}
         if kind == "WAIT":
             if str(step.get("wait_semantics") or "") != "visible":
                 raise ContractError("JOURNEY_BSK_WAIT_UNSUPPORTED")
@@ -454,6 +512,7 @@ class JourneyBSKAdapter:
                 raise ContractError("JOURNEY_BSK_SCREENSHOT_INVALID")
             self._guard(context)
             evidence_refs.append(screenshot.resolve().as_uri())
+            evidence_refs.extend(step_result.get("oracle_evidence_refs") or ())
             # A trusted bank session proof can expire during long browser
             # I/O. A pass must remain authorized after the action as well
             # as before it; do not let Replay's preflight Field marker
@@ -481,6 +540,8 @@ class JourneyBSKAdapter:
                 intent_path.resolve().as_uri() if intent_path.is_file() else None),
             "started_at": started_at, "completed_at": int(time.time()),
             "result_category": step_result.get("action"),
+            "business_oracle_evidence_refs": (
+                list(step_result.get("oracle_evidence_refs") or [])),
             "screenshot_sha256": png_proof["sha256"] if png_proof else None,
             "screenshot_dimensions": (
                 [png_proof["width"], png_proof["height"]]
