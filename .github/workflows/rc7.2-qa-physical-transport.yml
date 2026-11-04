@@ -1,19 +1,17 @@
 name: RC7.2 Independent C12 Physical Transport
 
 on:
-  pull_request:
-    branches: [work/rc7.2]
-    paths:
-      - '.github/workflows/rc7.2-qa-physical-transport.yml'
-      - 'tools/rc72_qa_offline_audit.py'
-      - 'tools/rc72_qa_source_provenance.py'
-      - 'tools/rc72_qa_zip_preflight.py'
   workflow_dispatch:
     inputs:
       target_main_sha:
-        description: 'Exact 40-character work/rc7.2 main SHA with a successful portable build'
+        description: 'Exact 40-character work/rc7.2 main SHA with successful final portable build'
         required: true
         type: string
+      final_qualification:
+        description: 'C12 final-only: verify existing genuine ZIP, never build another'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -25,6 +23,7 @@ concurrency:
 
 jobs:
   independent-c12-actual-zip:
+    if: github.event_name == 'workflow_dispatch' && inputs.final_qualification == true
     name: c12-independent-actual-win10-artifact
     runs-on: windows-2022
     timeout-minutes: 120
