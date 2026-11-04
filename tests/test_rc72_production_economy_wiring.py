@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -69,7 +70,13 @@ def _assignment(*, attempt="ATT-1", scope="WI-1"):
 
 def _setup(tmp_path, *, stdout, call_class="LLM_REQUIRED", error=None, max_calls=2):
     truth = TruthRuntime(tmp_path / "r1" / "event-stream.jsonl")
-    economy = TokenEconomyService(truth, release_id="REL-1")
+    # Bank quota warning is meaningful only inside the configured work window.
+    # The original wall-clock-dependent test became falsely red after hours.
+    # 2026-11-04 02:00 UTC is Wednesday 10:00 Asia/Shanghai.
+    economy = TokenEconomyService(
+        truth, release_id="REL-1",
+        clock=lambda: datetime(2026, 11, 4, 2, 0, tzinfo=timezone.utc),
+    )
     economy.configure_budget(
         mission_id="M-1", max_total_tokens=10, max_model_calls=max_calls,
         max_single_call_tokens=100, max_retry_tokens=100, max_retry_calls=1,

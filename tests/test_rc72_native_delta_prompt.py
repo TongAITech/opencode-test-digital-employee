@@ -31,6 +31,9 @@ def _metadata():
             "EVD-NEW",
         ),
         "retry_previous_summary_ref": "PREVIOUS-ATTEMPT-SUMMARY",
+        "retry_explicit_gap_refs": ("GAP-REMAINING",),
+        "retry_delta_evidence_refs": ("EVD-NEW",),
+        "retry_changed_dependency_refs": (),
     }
 
 
@@ -127,3 +130,20 @@ def test_semantic_retry_does_not_claim_savings_for_longer_delta_or_json_unparsab
     assert not result.applied
     assert result.prompt == raw
     assert not hydrate_native_retry_delta("NATIVE Context={broken", _metadata()).applied
+
+
+@pytest.mark.parametrize("change", [
+    {"retry_explicit_gap_refs": (), "retry_delta_evidence_refs": (), "retry_changed_dependency_refs": ()},
+    {"retry_explicit_gap_refs": ("GAP-FORGED",)},
+    {"retry_delta_evidence_refs": ("EVD-FORGED",)},
+    {"retry_explicit_gap_refs": None},
+    {"retry_changed_dependency_refs": ("DEPENDENCY-NOT-IN-DELTA",)},
+])
+def test_native_delta_rejects_missing_or_unbound_change_proof(change):
+    raw, *_ = _prompt()
+    metadata = _metadata()
+    metadata.update(change)
+    result = hydrate_native_retry_delta(raw, metadata)
+    assert result.prompt == raw
+    assert not result.applied
+    assert result.bytes_saved == 0
