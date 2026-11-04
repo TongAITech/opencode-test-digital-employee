@@ -29,6 +29,12 @@ def _route(tmp_path, monkeypatch, *, complete=True):
         json.dumps({"type":"tool_call","tool_name":"api_read_only"}),
         json.dumps({"type":"text","text":json.dumps(candidate)})])
     def command(args, **kwargs):
+        # A real DSH worker must not run while the coordinator holds the
+        # global R1 lease lock. Another independent worker must be able to
+        # register/inspect its own Task during a long analyst invocation.
+        from rc7_runtime.rc72_ledger_lock import ledger_lock
+        with ledger_lock(truth,busy="N9_DSH_IO_HELD_GLOBAL_LEDGER_LOCK"):
+            assert truth.query("rc72_release_batch",release_batch_id=BATCH)
         calls.append(dict(args=args,kwargs=kwargs))
         return subprocess.CompletedProcess(
             args=args,returncode=0 if complete else 2,
