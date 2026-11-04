@@ -356,3 +356,12 @@ def test_bsk_non_navigation_operation_requires_pre_action_page(tmp_path):
     with pytest.raises(Exception, match="JOURNEY_BSK_SOURCE_PAGE_OBSERVATION_REQUIRED"):
         _invoke(importer, export, args, mapping)
     assert not truth.query("rc72_journey_recording", recording_id="JR-BSK-1")
+
+
+def test_bsk_teaching_requires_independent_session_authority_before_r1(tmp_path):
+    truth, importer, doc, export, args, mapping = _fixture(tmp_path)
+    importer.verify_session = lambda ownership, scope, instance: False
+    with pytest.raises(Exception, match="JOURNEY_BSK_TEACHING_EXTERNAL_AUTHORITY_REJECTED"):
+        _invoke(importer, export, args, mapping)
+    assert not truth.query("rc72_journey_recording", recording_id="JR-BSK-1")
+    assert not truth.query("rc72_journey_capture_step", recording_id="JR-BSK-1")
