@@ -495,3 +495,42 @@ def test_bsk_wheel_does_not_dispatch_unsafe_unbounded_coordinates(tmp_path):
     assert actual["status"] == "FAILED"
     assert actual["failure_code"] == "JOURNEY_BSK_WHEEL_DELTA_INVALID"
     assert not any("step" in c for c in cli.calls)
+
+
+@pytest.mark.parametrize("phase,mutate,failure", [
+    ("step", lambda doc: doc["action"]["result"].update(tab_id=98),
+     "JOURNEY_BSK_ACTION_UNKNOWN_OR_UNOBSERVED"),
+    ("evaluate", lambda doc: doc.update(tab_id=98),
+     "JOURNEY_BSK_EVALUATE_TAB_MISMATCH"),
+    ("screenshot", lambda doc: doc.update(width=200),
+     "JOURNEY_BSK_SCREENSHOT_INVALID"),
+    ("screenshot", lambda doc: doc.update(capture_unavailable="blocked"),
+     "JOURNEY_BSK_SCREENSHOT_INVALID"),
+])
+def test_bsk_mismatched_action_oracle_or_png_provenance_cannot_pass(
+        tmp_path, phase, mutate, failure):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    class Mismatch(TestBSK):
+        def __call__(self, argv):
+            response = super().__call__(argv)
+            if phase in argv:
+                reply = json.loads(response["stdout"])
+                mutate(reply)
+                response["stdout"] = json.dumps(reply)
+            return response
+
+    runner = Mismatch()
+    adapter = _adapter(pool, tmp_path, runner)
+    result = JourneyReplayService(
+        truth, release_id="RC7.2",
+        browser_pool=pool, adapter=adapter).replay(
+        replay_id="BSK-PROVENANCE-" + phase,
+        candidate_id="JC-1", workitem_id="WI-R1",
+        attempt_id="ATT-R1", worker_id="WORKER-R1",
+        session_id="SESSION-R1",
+        browser_lease_id=lease.browser_lease_id)
+    assert result.state.value == "FAILED"
+    rows = sorted(truth.query(
+        "rc72_journey_replay_step", replay_id="BSK-PROVENANCE-" + phase),
+        key=lambda x: x["sequence"])
+    assert next(r for r in rows if r["status"] == "FAILED")["failure_code"] == failure
