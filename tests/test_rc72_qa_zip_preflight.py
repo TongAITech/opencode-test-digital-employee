@@ -74,3 +74,40 @@ def test_corrupt_zip_and_existing_receipt_cannot_be_admitted(tmp_path):
     existing.write_bytes(b"immutable-report")
     assert main(["--zip", str(archive), "--report", str(existing)]) == 1
     assert existing.read_bytes() == b"immutable-report"
+
+
+
+@pytest.mark.parametrize("first,second", [
+    ("tools/Driver.exe", "tools/driver.EXE"),
+    ("Browser/Profile/Session.JSON", "browser/profile/session.json"),
+    ("one", "ONE"),
+])
+def test_ntfs_case_insensitive_collisions_rejected_before_unpack(tmp_path, first, second):
+    archive = _make(tmp_path, [
+        (EXPECTED_ROOT + "/" + first, b"legitimate"),
+        (EXPECTED_ROOT + "/" + second, b"overwrite"),
+    ])
+    with pytest.raises(UnsafeArchiveError, match="WINDOWS_CASEFOLD_COLLISION"):
+        inspect_zip(archive)
+
+
+@pytest.mark.parametrize("unsafe", [
+    "CON", "con.txt", "AuX.JSON", "NUL", "prn",
+    "COM1", "com9.dll", "lpt1", "LPT9.out",
+    "trailing.", "trailing ", "payload/ending.",
+    "payload/ending ", "payload/control\x01char",
+])
+def test_ntfs_reserved_device_and_nonportable_file_names_refused(tmp_path, unsafe):
+    archive = _make(tmp_path, [(EXPECTED_ROOT + "/" + unsafe, b"binary")])
+    with pytest.raises(UnsafeArchiveError, match="WINDOWS_UNSAFE_ARCHIVE_PATH"):
+        inspect_zip(archive)
+
+
+@pytest.mark.parametrize("names", [
+    ["config", "config/child.json"],
+    ["browser/Runtime", "browser/runtime/chromium.bin"],
+])
+def test_zip_file_cannot_be_parent_of_another_path_on_windows(tmp_path, names):
+    archive = _make(tmp_path, [(EXPECTED_ROOT + "/" + name, b"data") for name in names])
+    with pytest.raises(UnsafeArchiveError, match="WINDOWS_FILE_DIRECTORY_COLLISION"):
+        inspect_zip(archive)
