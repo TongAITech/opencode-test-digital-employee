@@ -85,6 +85,10 @@ jobs:
         run: python -m compileall -q rc6_runtime rc7_runtime rc7_release
       - name: Run COMPLETE RC7 source suite (including real CDP), no skips by C10
         shell: bash
+        env:
+          # C09's own finally-clause exporter saves local test-SUT R1,
+          # PNG and sanitized JSON only; no bank profiles/cookies.
+          RC72_C09_EVIDENCE_EXPORT_ROOT: ${{ runner.temp }}/rc72-c09-local-cdp-evidence
         run: |
           set -euo pipefail
           mapfile -t tests < <(find tests -maxdepth 1 -type f -name 'test_rc7*.py' -print | sort)
@@ -93,3 +97,12 @@ jobs:
           printf ' - %s\n' "${tests[@]}"
           # Fail fast on a real regression; a green run still exercises every test.
           python -m pytest -x -q "${tests[@]}"
+
+      - name: Preserve real C09 local-SUT CDP failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c10-integration-c09-local-cdp-r1-evidence
+          path: ${{ runner.temp }}/rc72-c09-local-cdp-evidence/
+          if-no-files-found: warn
+          retention-days: 7
