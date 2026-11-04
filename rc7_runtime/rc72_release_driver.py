@@ -359,6 +359,10 @@ class ReleaseBatchDriver:
             # Cold continuation audits accepted source bytes, not merely PASS labels.
             prefix=self.status(release_batch_id=release_batch_id)['nodes']
             for node in prefix:
+                # A Captain might expire during a lengthy cold Evidence audit.
+                # Revalidate before invoking each native gate, not just once
+                # when ReleaseBatch.run was entered.
+                self._assert_captain_product_entry(batch['mission_id'])
                 if node['node_type']=='N8_DIAGNOSIS_RECOVERY' and self._diagnosis_bypassed(prefix,batch['mission_id']):
                     continue
                 if node['state'] != 'PASS':
@@ -368,6 +372,10 @@ class ReleaseBatchDriver:
                     if audited.get('status')=='HOLD':
                         return dict(self.status(release_batch_id=release_batch_id), **audited)
             while True:
+                # N1..N10 can outlive the Captain TTL. A replaced, expired
+                # or quiesced Captain is never allowed to schedule another
+                # node after a previous worker/evaluator returned.
+                self._assert_captain_product_entry(batch['mission_id'])
                 snapshot = self.status(release_batch_id=release_batch_id)
                 by_type={n['node_type']:n for n in snapshot['nodes']}
                 failed_n7=by_type['N7_EXECUTION']
