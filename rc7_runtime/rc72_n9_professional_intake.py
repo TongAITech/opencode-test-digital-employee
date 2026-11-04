@@ -6,6 +6,7 @@ mark defects, repair, RCA or regression complete. Cold re-entry reauthenticates
 signed process evidence and must not replay the business operation.
 """
 from .closed_loop_control import ClosedLoopControlPlane
+from .rc72_ledger_lock import ledger_lock
 from .models import ContractError, Task
 from .rc72_n7_execution_admission import _hash
 from .rc72_domain import AutonomousMissionNode
@@ -101,18 +102,23 @@ class NativeN9ProfessionalIntakeService:
             task_type='N9_DISCREPANCY_QUALIFICATION',
             objective=objective,acceptance_criteria=criteria,
             required_capabilities=['defect_analysis'],input_artifact_refs=refs,gap_refs=[gap['gap_id']])
-        existing=self.truth.query('rc7_task',task_id=wid)
-        if len(existing)>1:raise ContractError('N9_PROFESSIONAL_REPRODUCTION_NOT_UNIQUE')
-        if not existing:
-            ClosedLoopControlPlane(self.truth,self.release_id,p['mission_id']).register_task(
-                Task(task_id=wid,mission_id=p['mission_id'],node='DEFECT',
-                     task_type='N9_DISCREPANCY_QUALIFICATION',objective=objective,
-                     required_capabilities=['defect_analysis'],
-                     input_artifact_refs=refs,gap_refs=[gap['gap_id']],
-                     acceptance_criteria=criteria,priority=0))
-        task=self._one('rc7_task',task_id=wid)
-        if any(task.get(key)!=value for key,value in expected.items()):
-            raise ContractError('N9_PROFESSIONAL_REPRODUCTION_SCOPE_CHANGED')
+        # All expensive/recursive independent N8 proof audits have already
+        # completed. Serialize ONLY the new frozen N9 Task reservation here:
+        # a concurrent Captain/DSH Session cannot register two same-ID tasks.
+        # Do not call the conclusive failure auditor while holding this lock.
+        with ledger_lock(self.truth,busy='N9_PROFESSIONAL_TASK_LEDGER_BUSY'):
+            existing=self.truth.query('rc7_task',task_id=wid)
+            if len(existing)>1:raise ContractError('N9_PROFESSIONAL_REPRODUCTION_NOT_UNIQUE')
+            if not existing:
+                ClosedLoopControlPlane(self.truth,self.release_id,p['mission_id']).register_task(
+                    Task(task_id=wid,mission_id=p['mission_id'],node='DEFECT',
+                         task_type='N9_DISCREPANCY_QUALIFICATION',objective=objective,
+                         required_capabilities=['defect_analysis'],
+                         input_artifact_refs=refs,gap_refs=[gap['gap_id']],
+                         acceptance_criteria=criteria,priority=0))
+            task=self._one('rc7_task',task_id=wid)
+            if any(task.get(key)!=value for key,value in expected.items()):
+                raise ContractError('N9_PROFESSIONAL_REPRODUCTION_SCOPE_CHANGED')
         return dict(status='HOLD',reason='N9_INDEPENDENT_QUALIFICATION_REQUIRED',
             qualification_workitem_id=wid,diagnosis_id=diagnosis_id,
             original_attempt_id=p['attempt_id'],gap_id=gap['gap_id'],
