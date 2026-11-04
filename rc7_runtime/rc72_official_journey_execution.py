@@ -302,18 +302,21 @@ class OfficialJourneyExecutionService:
         if any(row.get("state") == "STARTED"
                for row in self.truth.query(_EXECUTION, official_asset_id=official_asset_id)):
             raise ContractError("OFFICIAL_JOURNEY_UNKNOWN_SIDE_EFFECTS_RECOVERY_REQUIRED")
+        # A previously confirmed drift is a permanent approval veto. Evaluate
+        # it before same-Attempt reuse so cold/repeated requests retain the
+        # actionable REAPPROVAL reason without touching a browser or R1.
+        asset = self._one("rc72_official_journey_asset", official_asset_id=official_asset_id)
+        from .rc72_journey_drift import JourneyDriftService
+        JourneyDriftService(self.truth, release_id=self.release_id).assert_eligible(official_asset_id)
         if any(row.get("official_asset_id") == official_asset_id
                and row.get("attempt_id") == attempt_id
                for row in self.truth.query(_EXECUTION)):
             raise ContractError("OFFICIAL_JOURNEY_ATTEMPT_ALREADY_USED_DIAGNOSIS_REQUIRED")
-        asset = self._one("rc72_official_journey_asset", official_asset_id=official_asset_id)
         if asset.get("status") != "OFFICIAL" or asset.get("official") is not True or asset.get("executable") is not True:
             raise ContractError("OFFICIAL_JOURNEY_ASSET_NOT_EXECUTABLE")
         if not any(step.get("action_type") == "ASSERT" and step.get("oracle_ref")
                    for step in asset.get("steps", [])):
             raise ContractError("OFFICIAL_JOURNEY_BUSINESS_ORACLE_REQUIRED")
-        from .rc72_journey_drift import JourneyDriftService
-        JourneyDriftService(self.truth, release_id=self.release_id).assert_eligible(official_asset_id)
         mission_id = str(asset["mission_id"])
         binding = self._binding(
             mission_id=mission_id, workitem_id=workitem_id, attempt_id=attempt_id,
