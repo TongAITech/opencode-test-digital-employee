@@ -2,6 +2,26 @@
 import base64
 import json
 from pathlib import Path
+from urllib.parse import urlsplit
+from urllib.request import url2pathname
+
+
+def _local_file_evidence_ref(uri):
+    """Round-trip real file URI evidence on Windows and POSIX.
+
+    Slicing an absolute URI string constructs invalid WindowsPath('/C:/...').
+    Keep original filesystem and URI identities exact, forbid remote and
+    fragment references.
+    """
+    parts = urlsplit(uri)
+    assert parts.scheme == "file" and not parts.netloc
+    assert not parts.query and not parts.fragment
+    candidate = Path(url2pathname(parts.path))
+    assert candidate.is_absolute()
+    assert candidate.resolve().as_uri() == uri
+    return candidate
+
+
 
 import pytest
 import time
@@ -126,8 +146,8 @@ def test_bsk_native_replay_produces_real_png_and_oracle_receipts(tmp_path):
                for r in actuals for ref in r["evidence_refs"])
     for row in actuals:
         for ref in row["evidence_refs"]:
-            assert Path(ref[7:]).is_file()
-    receipts = [json.loads(Path(r["actual_refs"][0][7:]).read_text())
+            assert _local_file_evidence_ref(ref).is_file()
+    receipts = [json.loads(_local_file_evidence_ref(r["actual_refs"][0]).read_text())
                 for r in actuals]
     assert [r["status"] for r in receipts] == ["PASSED", "PASSED"]
     assert all(r["field_verified"] is False for r in receipts)
@@ -147,7 +167,7 @@ def test_bsk_never_turns_cli_exit_zero_or_missing_picture_into_pass(tmp_path, se
     rows = sorted(truth.query(
         "rc72_journey_replay_step", replay_id="JRP-BSK"), key=lambda r: r["sequence"])
     failure = next(r for r in rows if r["status"] == "FAILED")
-    actual = json.loads(Path(failure["actual_refs"][0][7:]).read_text())
+    actual = json.loads(_local_file_evidence_ref(failure["actual_refs"][0]).read_text())
     assert actual["failure_code"] == code
 
 
@@ -269,15 +289,15 @@ def test_bsk_duplicate_attempt_step_never_replays_or_overwrites_original_actual(
         "browser_lease_id": lease.browser_lease_id}
     first = adapter.execute_step(step, context)
     assert first["status"] == "PASSED"
-    original_bytes = Path(first["actual_refs"][0][7:]).read_bytes()
+    original_bytes = _local_file_evidence_ref(first["actual_refs"][0]).read_bytes()
     before = sum(1 for cmd in runner.calls if "step" in cmd)
     assert before == 1
     again = adapter.execute_step(step, context)
     assert again["status"] == "FAILED"
     assert again["failure_code"] == "JOURNEY_BSK_DUPLICATE_STEP_EFFECT_UNKNOWN"
     assert sum(1 for cmd in runner.calls if "step" in cmd) == before
-    assert Path(first["actual_refs"][0][7:]).read_bytes() == original_bytes
-    assert Path(again["actual_refs"][0][7:]).is_file()
+    assert _local_file_evidence_ref(first["actual_refs"][0]).read_bytes() == original_bytes
+    assert _local_file_evidence_ref(again["actual_refs"][0]).is_file()
     assert first["actual_refs"] != again["actual_refs"]
 
 
@@ -445,7 +465,7 @@ def test_bsk_persists_intent_before_first_mutating_cli_and_keeps_it_on_success(t
     assert outcome["status"] == "PASSED"
     marker_path = evidence_root / "BSK-INTENT-ORDER" / "step-0001" / "dispatch-intent.json"
     assert marker_path.is_file()
-    actual = json.loads(Path(outcome["actual_refs"][0][7:]).read_text())
+    actual = json.loads(_local_file_evidence_ref(outcome["actual_refs"][0]).read_text())
     assert actual["dispatch_intent_ref"] == marker_path.resolve().as_uri()
     assert marker_path.resolve().as_uri() in outcome["evidence_refs"]
 
@@ -595,7 +615,7 @@ def test_bsk_backend_business_oracle_links_independent_db_evidence_to_actual(tmp
         key=lambda x: x["sequence"])
     assert len(rows) == 2
     assert "r1://test-bank-db-snapshot" in rows[1]["evidence_refs"]
-    actual = json.loads(Path(rows[1]["actual_refs"][0][7:]).read_text())
+    actual = json.loads(_local_file_evidence_ref(rows[1]["actual_refs"][0]).read_text())
     assert actual["business_oracle_evidence_refs"] == [
         "r1://test-bank-db-snapshot"]
     assert actual["status"] == "PASSED"
@@ -622,7 +642,7 @@ def test_bsk_independent_backend_oracle_rejects_fake_or_stale_business_receipt(
         "rc72_journey_replay_step", replay_id="BSK-BACKEND-BUSINESS"),
         key=lambda x: x["sequence"])
     assert rows[-1]["failure_code"] == error
-    actual = json.loads(Path(rows[-1]["actual_refs"][0][7:]).read_text())
+    actual = json.loads(_local_file_evidence_ref(rows[-1]["actual_refs"][0]).read_text())
     assert actual["status"] == "FAILED"
 
 
@@ -681,7 +701,21 @@ def test_official_n7_backend_business_oracle_requires_independent_api_db_evidenc
         key=lambda row: row["sequence"])
     assert rows and all(row["status"] == "PASSED" for row in rows)
     assert "r1://official-config-row-snapshot" in rows[1]["evidence_refs"]
-    actual = json.loads(Path(rows[1]["actual_refs"][0][7:]).read_text())
+    actual = json.loads(_local_file_evidence_ref(rows[1]["actual_refs"][0]).read_text())
     assert "r1://official-config-row-snapshot" in actual["business_oracle_evidence_refs"]
     assert truth.query("rc72_official_journey_execution",
                        execution_id="OJ-BSK-DB-ORACLE")[0]["field_verified"] is False
+
+
+def test_bsk_evidence_uri_decode_accepts_exact_local_bytes_and_rejects_nonlocal(tmp_path):
+    """Regression: Windows file:///C:/... must not become /C:/ in R1 readers."""
+    local = tmp_path / "actual-signed-evidence.json"
+    local.write_bytes(b'{"signed":true}')
+    uri = local.resolve().as_uri()
+    assert uri.startswith("file:///")
+    assert _local_file_evidence_ref(uri).read_bytes() == b'{"signed":true}'
+    for modified in (uri + "#fragment", uri + "?session=secret",
+                     "file://remote.invalid" + urlsplit(uri).path,
+                     "https://" + urlsplit(uri).path.lstrip("/")):
+        with pytest.raises(AssertionError):
+            _local_file_evidence_ref(modified)
