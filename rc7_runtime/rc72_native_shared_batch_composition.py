@@ -146,7 +146,7 @@ def compose_native_batch_services(
             launcher, economy=economy, usage_audit=usage_audit,
             metadata_resolver=canonical_batch_metadata_resolver(
                 truth, release_id=release_id, mission_id=mission_id,
-                review=review,
+                launcher=launcher, review=review,
             ),
         )
     return NativeBatchServices(
