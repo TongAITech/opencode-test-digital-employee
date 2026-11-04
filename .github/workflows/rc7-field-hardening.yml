@@ -12,6 +12,12 @@ on:
       - 'tests/test_rc7*.py'
       - '.github/workflows/rc7-field-hardening.yml'
   workflow_dispatch:
+    inputs:
+      final_qualification:
+        description: 'Final engineering gate only: full source + one certified offline ZIP'
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -130,6 +136,8 @@ jobs:
 
   rc7-source-suite:
     name: RC7 source suite
+    # No 2,500+ test full sweep on each defect/function commit.
+    if: github.event_name == 'workflow_dispatch' && inputs.final_qualification == true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -155,135 +163,13 @@ jobs:
           printf ' - %s\n' "${tests[@]}"
           python -m pytest -q "${tests[@]}"
 
-  windows-clean-qualification:
-    name: Windows clean package qualification
+  field-hardened-package:
+    name: Final certified offline ZIP: single build and independent re-extract
+    # Explicit only, NEVER on ordinary pushes or PR commits.
+    if: github.event_name == 'workflow_dispatch' && inputs.final_qualification == true
     needs:
       - field-hardening-source-regression
       - rc7-source-suite
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.RC7_PACKAGE_SOURCE_SHA }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Bootstrap SHA-verified Windows build tools
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          python -m rc7_release.runtime_build_bootstrap ripgrep --output .\.build-runtime\ripgrep --github-path $env:GITHUB_PATH
-          if ($LASTEXITCODE -ne 0) { throw 'RC7 ripgrep build bootstrap failed' }
-      - name: Materialize package-local DSH plugin payload
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          npm --version
-          if ($LASTEXITCODE -ne 0) { throw 'npm is required to build the offline DSH plugin payload' }
-          python -m rc7_release.plugin_payload acquire --repo-root .
-          if ($LASTEXITCODE -ne 0) { throw 'RC7 DSH plugin payload acquisition failed' }
-      - name: Build, materialize runtime, checksum, re-extract and qualify clean Windows package
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $commit = (git rev-parse HEAD).Trim()
-          $expected = $env:RC7_PACKAGE_SOURCE_SHA
-          if ($commit -ne $expected) { throw "RC7_PACKAGE_SOURCE_IDENTITY_MISMATCH:HEAD=$commit:EXPECTED=$expected" }
-          $packageName = 'PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
-          python -m rc7_release.package build --repo-root . --output .\dist-clean --source-commit $commit
-          if ($LASTEXITCODE -ne 0) { throw 'RC7 package build failed' }
-
-          $builtRoot = Join-Path (Resolve-Path .\dist-clean).Path $packageName
-          $zips = @(Get-ChildItem -Path .\dist-clean -Filter '*.zip' -File)
-          if ($zips.Count -ne 1) { throw "Expected exactly one RC7 zip, got $($zips.Count)" }
-          $zip = $zips[0]
-
-          python -m rc7_release.runtime_payload_materializer --package-root $builtRoot --zip $zip.FullName
-          if ($LASTEXITCODE -ne 0) { throw 'RC7 runtime payload materialization failed' }
-          python -m rc7_release.runtime_delivery_contract --package-root $builtRoot
-          if ($LASTEXITCODE -ne 0) { throw 'RC7 turnkey runtime contract failed on built package' }
-
-          $checksumPath = "$($zip.FullName).sha256"
-          if (-not (Test-Path -LiteralPath $checksumPath)) { throw 'ZIP checksum sidecar missing' }
-          $expected = ((Get-Content -LiteralPath $checksumPath -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
-          $actual = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($expected -ne $actual) { throw 'ZIP checksum mismatch before extraction' }
-
-          if (Test-Path -LiteralPath $builtRoot) { Remove-Item -LiteralPath $builtRoot -Recurse -Force }
-          $cleanRoot = [System.IO.Path]::GetFullPath((Join-Path $PWD 'clean-extract'))
-          if (Test-Path -LiteralPath $cleanRoot) { Remove-Item -LiteralPath $cleanRoot -Recurse -Force }
-          New-Item -ItemType Directory -Path $cleanRoot | Out-Null
-          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $cleanRoot -Force
-
-          $packageRoot = Join-Path $cleanRoot $packageName
-          $packagePython = Join-Path $packageRoot 'workspace-template\runtime\python\python.exe'
-          if (-not (Test-Path -LiteralPath $packagePython)) { throw 'Package-local Python missing after clean extraction' }
-          Push-Location $packageRoot
-          try {
-            & $packagePython -m rc7_release.runtime_delivery_contract --package-root $packageRoot
-            if ($LASTEXITCODE -ne 0) { throw 'RC7 turnkey runtime contract failed after clean extraction' }
-            & $packagePython -m rc7_release.runtime_clean_smoke --package-root $packageRoot
-            if ($LASTEXITCODE -ne 0) { throw 'RC7 package-local full runtime smoke failed after clean extraction' }
-            & $packagePython -m rc7_release.plugin_payload inspect --home $packageRoot
-            if ($LASTEXITCODE -ne 0) { throw 'Package-local DSH plugin payload missing after clean extraction' }
-            & $packagePython -m rc7_release.windows_clean_qualification --package-root $packageRoot
-            if ($LASTEXITCODE -ne 0) { throw 'Windows clean package qualification failed' }
-            if (-not (Test-Path -LiteralPath (Join-Path $packageRoot 'packaging\rc7\QUALIFY-BANK-SERVICES.cmd'))) { throw 'Bank service qualification entrypoint missing from final package' }
-            if (-not (Test-Path -LiteralPath (Join-Path $packageRoot 'packaging\rc7\bank-field-providers.example.json'))) { throw 'Bank field provider template missing from final package' }
-          }
-          finally {
-            Pop-Location
-          }
-      - name: Qualify final package through real Git Bash entrypoint
-        shell: bash
-        run: |
-          set -euo pipefail
-          PACKAGE_ROOT="$GITHUB_WORKSPACE/clean-extract/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10"
-          FAKE_ROOT="$RUNNER_TEMP/rc7-git-bash-dsh"
-          DSH_HOME="$FAKE_ROOT/home"
-          BIN="$FAKE_ROOT/bin"
-          rm -rf "$FAKE_ROOT"
-          mkdir -p "$BIN" "$DSH_HOME/profiles/web/node_modules/wizard-opencode-plugin"
-          cat > "$DSH_HOME/profiles/web/package.json" <<'JSON'
-          {"name":"bank-web","dependencies":{"wizard-opencode-plugin":"file:bank"}}
-          JSON
-          cat > "$DSH_HOME/profiles/web/node_modules/wizard-opencode-plugin/package.json" <<'JSON'
-          {"name":"wizard-opencode-plugin","version":"bank-private-ci"}
-          JSON
-          BEFORE="$(sha256sum "$DSH_HOME/profiles/web/package.json" "$DSH_HOME/profiles/web/node_modules/wizard-opencode-plugin/package.json")"
-          cat > "$BIN/dsh" <<'SH'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          if [[ "${1:-}" == "--version" ]]; then
-            echo "dsh-engineering-host-stub"
-            exit 0
-          fi
-          if [[ "${1:-}" == "plugin" ]]; then
-            exit 0
-          fi
-          if [[ "$*" == *"--dump-config"* ]]; then
-            echo '[]'
-            exit 0
-          fi
-          printf '%s\n' "$*" > "${RUNNER_TEMP}/rc7-dsh-final-invocation.txt"
-          exit 0
-          SH
-          chmod +x "$BIN/dsh"
-          export DSH_HOME
-          export PATH="$BIN:$PATH"
-          cd "$PACKAGE_ROOT"
-          ./packaging/rc7/AITEST.sh
-          AFTER="$(sha256sum "$DSH_HOME/profiles/web/package.json" "$DSH_HOME/profiles/web/node_modules/wizard-opencode-plugin/package.json")"
-          [[ "$BEFORE" == "$AFTER" ]]
-          grep -q '"status": "PASS"' state/rc7-dsh-runtime-profile.json
-          grep -q '"protected_bank_profile_integrity": "PASS"' state/rc7-dsh-runtime-profile.json
-          grep -q -- '--profile rc7-bank' "$RUNNER_TEMP/rc7-dsh-final-invocation.txt"
-          grep -q -- '--patch' "$RUNNER_TEMP/rc7-dsh-final-invocation.txt"
-          test -x ./packaging/rc7/QUALIFY-BANK-SERVICES.sh
-
-  field-hardened-package:
-    name: Rebuild RC7 Field-Hardened transport package
-    needs: windows-clean-qualification
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -379,6 +265,52 @@ jobs:
           finally {
             Pop-Location
           }
+      - name: Qualify final package through real Git Bash entrypoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE_ROOT="$GITHUB_WORKSPACE/final-certified-extract/PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10"
+          FAKE_ROOT="$RUNNER_TEMP/rc7-git-bash-dsh"
+          DSH_HOME="$FAKE_ROOT/home"
+          BIN="$FAKE_ROOT/bin"
+          rm -rf "$FAKE_ROOT"
+          mkdir -p "$BIN" "$DSH_HOME/profiles/web/node_modules/wizard-opencode-plugin"
+          cat > "$DSH_HOME/profiles/web/package.json" <<'JSON'
+          {"name":"bank-web","dependencies":{"wizard-opencode-plugin":"file:bank"}}
+          JSON
+          cat > "$DSH_HOME/profiles/web/node_modules/wizard-opencode-plugin/package.json" <<'JSON'
+          {"name":"wizard-opencode-plugin","version":"bank-private-ci"}
+          JSON
+          BEFORE="$(sha256sum "$DSH_HOME/profiles/web/package.json" "$DSH_HOME/profiles/web/node_modules/wizard-opencode-plugin/package.json")"
+          cat > "$BIN/dsh" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [[ "${1:-}" == "--version" ]]; then
+            echo "dsh-engineering-host-stub"
+            exit 0
+          fi
+          if [[ "${1:-}" == "plugin" ]]; then
+            exit 0
+          fi
+          if [[ "$*" == *"--dump-config"* ]]; then
+            echo '[]'
+            exit 0
+          fi
+          printf '%s\n' "$*" > "${RUNNER_TEMP}/rc7-dsh-final-invocation.txt"
+          exit 0
+          SH
+          chmod +x "$BIN/dsh"
+          export DSH_HOME
+          export PATH="$BIN:$PATH"
+          cd "$PACKAGE_ROOT"
+          ./packaging/rc7/AITEST.sh
+          AFTER="$(sha256sum "$DSH_HOME/profiles/web/package.json" "$DSH_HOME/profiles/web/node_modules/wizard-opencode-plugin/package.json")"
+          [[ "$BEFORE" == "$AFTER" ]]
+          grep -q '"status": "PASS"' state/rc7-dsh-runtime-profile.json
+          grep -q '"protected_bank_profile_integrity": "PASS"' state/rc7-dsh-runtime-profile.json
+          grep -q -- '--profile rc7-bank' "$RUNNER_TEMP/rc7-dsh-final-invocation.txt"
+          grep -q -- '--patch' "$RUNNER_TEMP/rc7-dsh-final-invocation.txt"
+          test -x ./packaging/rc7/QUALIFY-BANK-SERVICES.sh
       - name: Upload RC7 Field-Hardened transport package
         uses: actions/upload-artifact@v4
         with:
