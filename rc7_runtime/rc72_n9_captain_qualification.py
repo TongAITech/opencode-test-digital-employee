@@ -170,7 +170,7 @@ class NativeN9CaptainQualificationAdmission:
                     'etu_refs': [etu_id],
                     'executable_contract_refs': [p['contract_id']],
                     'gap_refs': [queued['gap_id']],
-                    'evidence_refs': [diagnosis_id],
+                    'evidence_refs': [failure['evidence_id']],
                 })
             leased = self.scheduler.scheduler.lease_task(
                 p['mission_id'], wid, worker_ref=fresh.worker_id,
