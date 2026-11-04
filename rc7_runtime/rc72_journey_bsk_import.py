@@ -17,7 +17,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 from urllib.parse import urlsplit
 from urllib.request import url2pathname
 
@@ -102,9 +102,13 @@ class BSKJourneyTeachingImporter:
 
     def __init__(self, *, teaching: JourneyTeachingService,
                  evidence_root: Path,
-                 authorized_capture_root: Path) -> None:
+                 authorized_capture_root: Path,
+                 session_receipt_verifier: Callable[[Mapping[str, Any], Mapping[str, Any], Mapping[str, Any]], bool]) -> None:
         if not isinstance(teaching, JourneyTeachingService):
             raise ContractError("JOURNEY_BSK_TEACHING_SERVICE_REQUIRED")
+        if not callable(session_receipt_verifier):
+            raise ContractError("JOURNEY_BSK_TEACHING_EXTERNAL_SESSION_AUTHORITY_REQUIRED")
+        self.verify_session = session_receipt_verifier
         self.teaching = teaching
         self.root = Path(evidence_root).resolve()
         self.capture_root = Path(authorized_capture_root).resolve()
@@ -166,6 +170,12 @@ class BSKJourneyTeachingImporter:
         if (any(bsk_session_receipt.get(key) != val for key, val in required.items())
                 or recording_args.get("auth_asset_ref") != instance.get("auth_asset_ref")):
             raise ContractError("JOURNEY_BSK_TEACHING_SESSION_SCOPE_MISMATCH")
+        try:
+            accepted = self.verify_session(bsk_session_receipt, recording_args, instance)
+        except Exception as exc:
+            raise ContractError("JOURNEY_BSK_TEACHING_EXTERNAL_AUTHORITY_REJECTED") from exc
+        if accepted is not True:
+            raise ContractError("JOURNEY_BSK_TEACHING_EXTERNAL_AUTHORITY_REJECTED")
         if not isinstance(run.get("id"), str) or not run["id"]:
             raise ContractError("JOURNEY_BSK_RUN_ID_REQUIRED")
         if not isinstance(recording_args.get("recording_id"), str):
