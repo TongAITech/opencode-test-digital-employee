@@ -26,6 +26,7 @@ from .rc72_n7_execution_preparation import ExecutionPreparationService
 from .rc72_formal_runner import FormalN7RunnerAdapter
 from .rc72_n7_pipeline import N7PipelineService
 from .rc72_n8_product_recovery import NativeN8ProductRecoveryService
+from .rc72_n9_professional_dsh import NativeN9ProfessionalDshAnalysisService
 from .rc72_capability_broker import CapabilityBroker, CapabilityPolicyRule
 from .rc72_n9_accepted_scope import AcceptedScopeN9Service
 from .rc72_expected_scope_input import ExpectedScopeInputService
@@ -50,6 +51,13 @@ class MissionWorkerBinding:
 
 
 @dataclass(frozen=True)
+class MissionProfessionalDshBinding:
+    """Separate host-owned, tool-limited N9 analyst; never an N7 retry worker."""
+    launcher: DshHeadlessWorkerLauncher
+    tools: tuple
+
+
+@dataclass(frozen=True)
 class MissionHostBindings:
     """Approved host capabilities; no stage/evaluation/completion callbacks."""
     workers: dict
@@ -59,12 +67,14 @@ class MissionHostBindings:
     tool_registry: dict
     execution_env: object = None
     capability_policies: object = None
+    professional_dsh_binding: object = None
 
 
 def create_mission_driver(truth, *, release_id, source_commit, workers,
                           bank_pip_mirror, execution_authority,
                           execution_environment, tool_registry, evidence_root,
-                          execution_env=None, capability_policies=None):
+                          execution_env=None, capability_policies=None,
+                          professional_dsh_binding=None):
     """Compose all implemented native routes against one ledger/source/release.
 
     Missing roles fail before constructing pipelines or touching the ledger.
@@ -129,6 +139,28 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
                     for tool, rule in capability_policies.items()))):
         raise ContractError('MISSION_FACTORY_EXACT_CAPABILITY_POLICY_REQUIRED')
 
+    specialist = None
+    if professional_dsh_binding is not None:
+        if not isinstance(professional_dsh_binding, MissionProfessionalDshBinding):
+            raise ContractError('MISSION_FACTORY_N9_TYPED_INDEPENDENT_BINDING_REQUIRED')
+        analyst = professional_dsh_binding.launcher
+        analyst_tools = professional_dsh_binding.tools
+        if (not isinstance(analyst, DshHeadlessWorkerLauncher)
+                or analyst.truth is not truth or analyst.release_id != release_id
+                or not isinstance(analyst.authority, RC72AuthorityRuntime)
+                or analyst.authority is execution_authority
+                or id(analyst) in launchers
+                or any(analyst.state_root.resolve() == old
+                       or analyst.state_root.resolve() in old.parents
+                       or old in analyst.state_root.resolve().parents
+                       for old in roots)
+                or not isinstance(analyst_tools, tuple) or not analyst_tools
+                or len(set(analyst_tools)) != len(analyst_tools)
+                or any(not isinstance(t, str) or not t.strip()
+                       or '*' in t for t in analyst_tools)
+                or set(analyst_tools) & allowed_execution_tools):
+            raise ContractError('MISSION_FACTORY_N9_READONLY_ISOLATION_REQUIRED')
+
     def launcher(role):
         return bindings[role].launcher
 
@@ -153,9 +185,13 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
     n7 = N7PipelineService(preparation, runner=FormalN7RunnerAdapter(preparation,
         evidence_root=root/'runner', execution_env=execution_env, environment_adapter=execution_environment),
         capture_root=root/'execution-captures')
+    if professional_dsh_binding is not None:
+        specialist = NativeN9ProfessionalDshAnalysisService(
+            n7, launcher=professional_dsh_binding.launcher,
+            allowed_tools=professional_dsh_binding.tools)
     n8 = NativeN8ProductRecoveryService(n7, capability_broker=CapabilityBroker(
         truth, release_id=release_id, authority=execution_authority,
-        policies=capability_policies or {}))
+        policies=capability_policies or {}), professional_dsh=specialist)
     n9 = AcceptedScopeN9Service(n7)
     measurement = NativeLibraMeasurementService(expected, n9, capture_root=root/'coverage-captures')
     intake = NativeCoverageGapIntakeService(measurement)
