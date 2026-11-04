@@ -307,10 +307,6 @@ class OfficialJourneyExecutionService:
         if any(row.get("state") == "STARTED"
                for row in self.truth.query(_EXECUTION, official_asset_id=official_asset_id)):
             raise ContractError("OFFICIAL_JOURNEY_UNKNOWN_SIDE_EFFECTS_RECOVERY_REQUIRED")
-        if any(row.get("official_asset_id") == official_asset_id
-               and row.get("attempt_id") == attempt_id
-               for row in self.truth.query(_EXECUTION)):
-            raise ContractError("OFFICIAL_JOURNEY_ATTEMPT_ALREADY_USED_DIAGNOSIS_REQUIRED")
         asset = self._one("rc72_official_journey_asset", official_asset_id=official_asset_id)
         if asset.get("status") != "OFFICIAL" or asset.get("official") is not True or asset.get("executable") is not True:
             raise ContractError("OFFICIAL_JOURNEY_ASSET_NOT_EXECUTABLE")
@@ -319,6 +315,13 @@ class OfficialJourneyExecutionService:
             raise ContractError("OFFICIAL_JOURNEY_BUSINESS_ORACLE_REQUIRED")
         from .rc72_journey_drift import JourneyDriftService
         JourneyDriftService(self.truth, release_id=self.release_id).assert_eligible(official_asset_id)
+        # Drift quarantine has higher precedence than reusing an old Attempt:
+        # report the reapproval gate immediately. Neither check authorizes any
+        # new SUT action; clean assets remain fenced against Attempt reuse.
+        if any(row.get("official_asset_id") == official_asset_id
+               and row.get("attempt_id") == attempt_id
+               for row in self.truth.query(_EXECUTION)):
+            raise ContractError("OFFICIAL_JOURNEY_ATTEMPT_ALREADY_USED_DIAGNOSIS_REQUIRED")
         mission_id = str(asset["mission_id"])
         binding = self._binding(
             mission_id=mission_id, workitem_id=workitem_id, attempt_id=attempt_id,
