@@ -83,6 +83,14 @@ def release_batch_status(truth, *, source_commit, release_batch_id):
     by_type = {row['node_type']: row for row in rows}
     if len(by_type) != len(rows):
         raise ContractError('RC72_RELEASE_DRIVER_DUPLICATE_NODE')
+    required = {node.value for node in AutonomousMissionNode.ordered()}
+    # A corrupted or partly recovered R1 projection must not hide a missing
+    # N8/N9/N10 node from the UI or let the driver silently skip a required
+    # stage.  No subset of ten nodes is an autonomous release mission.
+    # A truly not-yet-bootstrapped ReleaseBatch may still be inspected without
+    # treating its empty state as PASS.
+    if rows and set(by_type) != required:
+        raise ContractError('RC72_RELEASE_DRIVER_NODE_DENOMINATOR_INVALID')
     nodes = [by_type[node.value] for node in AutonomousMissionNode.ordered() if node.value in by_type]
     return dict(release_batch_id=release_batch_id, mission_id=batch['mission_id'], release_id=batch['release_id'],
         source_commit=source_commit, nodes=nodes, field_verified=False, bank_final=False)

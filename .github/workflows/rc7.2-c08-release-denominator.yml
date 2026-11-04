@@ -1,0 +1,57 @@
+name: RC7.2 C08 Mandatory N1-N10 Denominator Integrity
+
+on:
+  push:
+    branches: [work/rc7.2-c08-release-denominator]
+    paths:
+      - 'rc7_runtime/rc72_release_driver.py'
+      - 'tests/test_rc72_release_driver.py'
+      - '.github/workflows/rc7.2-c08-release-denominator.yml'
+  pull_request:
+    branches: [work/rc7.2-abcd-v5-bsk-mobile-qualification, work/rc7.2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-c08-denominator-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  c08-source:
+    name: c08-${{ matrix.os }}-py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install approved test dependencies
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile native product entry and tests
+        run: >-
+          python -m py_compile
+          rc7_runtime/rc72_release_driver.py
+          tests/test_rc72_release_driver.py
+      - name: Exercise real N1/N2 product route and cold R1 denominator rejection
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_release_driver.py
+          tests/test_rc72_release_driver_n10.py
+          --junitxml=rc72-c08-denominator.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-c08-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: rc72-c08-denominator.xml
+          retention-days: 14
+          if-no-files-found: warn
