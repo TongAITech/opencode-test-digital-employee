@@ -151,6 +151,8 @@ class JourneyBSKLiveTeaching:
                      credential_ref: Optional[str] = None,
                      press_key: Optional[str] = None,
                      drag_target_ref: Optional[str] = None,
+                     delta_x: Optional[float] = None,
+                     delta_y: Optional[float] = None,
                      wait_semantics: str = "domcontentloaded") -> str:
         if not self.started or self.stopped:
             raise ContractError("JOURNEY_BSK_LIVE_NOT_CAPTURING")
@@ -228,6 +230,10 @@ class JourneyBSKLiveTeaching:
             binding["key"] = press_key
         if drag_target_ref is not None:
             binding["target_ref"] = drag_target_ref
+        if delta_x is not None:
+            binding["delta_x"] = delta_x
+        if delta_y is not None:
+            binding["delta_y"] = delta_y
         self.evidence[op["id"]] = binding
         self.last_sequence = seq
         return op["id"]
