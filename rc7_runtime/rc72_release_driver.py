@@ -404,13 +404,17 @@ class ReleaseBatchDriver:
                     # native independent reviewer, then re-audited against
                     # live original R1. A historical node label alone is not
                     # a ReleaseBatch completion decision.
-                    if self.n10_pipeline is not None:
-                        terminal=self._complete_gate('N10_RELEASE_CONVERGENCE',batch)
-                        if terminal.get('status')=='PASS':
-                            return dict(self.status(release_batch_id=release_batch_id),**terminal)
-                        if terminal.get('status')=='HOLD':
-                            return dict(self.status(release_batch_id=release_batch_id),**terminal)
-                    return dict(snapshot, status='HOLD', reason='RELEASE_CONVERGENCE_AUDIT_REQUIRED')
+                    if self.n10_pipeline is None:
+                        # All node labels being PASS cannot excuse a detached
+                        # terminal reviewer. No synthetic HOLD/PASS or Mission
+                        # convergence may be returned from a missing provider.
+                        raise ContractError('RELEASE_DRIVER_N10_TERMINAL_PROVIDER_REQUIRED')
+                    terminal=self._complete_gate('N10_RELEASE_CONVERGENCE',batch)
+                    if terminal.get('status') in {'PASS','HOLD'}:
+                        return dict(self.status(release_batch_id=release_batch_id),**terminal)
+                    # Unknown terminal outcomes must be explicit contract
+                    # failures, never a generic audit-pending loop.
+                    raise ContractError('RELEASE_DRIVER_N10_TERMINAL_REVIEW_RESULT_INVALID')
                 node = pending[0]
                 if node['state'] == 'REVIEW_PENDING':
                     if not self._has_gate(node['node_type']):
