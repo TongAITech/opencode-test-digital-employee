@@ -60,10 +60,17 @@ def require_signed_batch_authority(
         or set(artifacts) != set(lease.allowed_artifact_types)
     ):
         raise NativeBatchAuthorityError("NATIVE_BATCH_SIGNED_CAPABILITY_SCOPE_MISMATCH")
-    # Public AuthorityRuntime checks issuer registry, immutable HMAC, phase,
-    # tool allowlist and expiration. Never re-sign or trust the text of a
-    # WorkerAssignment presented by a model or an untrusted adapter.
+    # IMPORTANT: authorize_tool() loads a lease by ID from its registry.
+    # Calling it alone does NOT prove that the caller-provided lease object
+    # was unmodified. Verify that *this exact signed value* is issuer-owned
+    # and HMAC-valid before relying on registry-based tool authorization.
     try:
+        if (
+            authority._require_identity(worker_id) != identity
+            or authority._require_lease(lease.lease_id) != lease
+        ):
+            raise NativeBatchAuthorityError("NATIVE_BATCH_SIGNED_REGISTRY_MISMATCH")
+        authority._validate_lease(identity, lease)
         for tool in tools:
             authority.authorize_tool(worker_id, lease.lease_id, tool)
     except (AuthorityError, ValueError) as exc:
