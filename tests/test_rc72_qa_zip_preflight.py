@@ -18,8 +18,8 @@ def _make(tmp_path, members):
     # headers, so this negative case exercises a real malicious ZIP entry
     # rather than Python's already-sanitized test fixture.
     for name, _ in members:
-        if "\\\\" in name:
-            normalized = name.replace("\\\\", "/").encode("utf-8")
+        if "\\" in name:
+            normalized = name.replace("\\", "/").encode("utf-8")
             malicious = name.encode("utf-8")
             raw = path.read_bytes()
             if normalized != malicious and normalized in raw:
