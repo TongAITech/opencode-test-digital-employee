@@ -153,3 +153,12 @@ def test_bsk_live_fails_if_second_human_action_occurs_during_screenshot(tmp_path
     assert client.evidence == {}
     assert client.last_sequence == 0
     assert not truth.query("rc72_journey_recording", recording_id="JR-LIVE")
+
+
+def test_bsk_live_denied_by_external_b_authority_before_debug_start(tmp_path):
+    truth, client, cli = _live(tmp_path)
+    client.importer.verify_session = lambda ownership, scope, instance: False
+    with pytest.raises(Exception, match="JOURNEY_BSK_LIVE_EXTERNAL_AUTHORITY_REJECTED"):
+        client.start(capture_name="not-authorized")
+    assert cli.calls == []
+    assert not truth.query("rc72_journey_recording", recording_id="JR-LIVE")
