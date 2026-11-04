@@ -184,8 +184,11 @@ class JourneyBSKAdapter:
         if not isinstance(reply.get("context_id"), str) or not reply["context_id"]:
             raise ContractError("JOURNEY_BSK_CONTROL_SYNC_NOT_GRANTED")
         actual_tab = reply.get("tab_id")
-        if actual_tab is not None and actual_tab != tab_id:
+        if actual_tab != tab_id:
             raise ContractError("JOURNEY_BSK_CONTROL_TAB_MISMATCH")
+        if (reply.get("session_id") is not None
+                and reply["session_id"] != session):
+            raise ContractError("JOURNEY_BSK_CONTROL_SESSION_MISMATCH")
         return reply["context_id"]
 
     def _selector(self, raw_ref: str, context: Mapping[str, Any]) -> str:
@@ -230,6 +233,8 @@ class JourneyBSKAdapter:
         # IMPORTANT: BrowserSkill returns exit 0 for in-band evaluate ok=false.
         if reply.get("ok") is not True or not isinstance(reply.get("value"), Mapping):
             raise ContractError("JOURNEY_BSK_EVALUATE_UNVERIFIED")
+        if reply.get("tab_id") != self._tab_id:
+            raise ContractError("JOURNEY_BSK_EVALUATE_TAB_MISMATCH")
         return reply["value"]
 
     def _assert(self, step: Mapping[str, Any], context: Mapping[str, Any],
@@ -350,7 +355,10 @@ class JourneyBSKAdapter:
                 or result.get("action_replayed") is not False
                 or not isinstance(result.get("post"), Mapping)
                 or not isinstance(result["post"].get("context_id"), str)
-                or result["post"].get("tab_id") != self._tab_id):
+                or result["post"].get("tab_id") != self._tab_id
+                or not isinstance(result.get("action"), Mapping)
+                or not isinstance(result["action"].get("result"), Mapping)
+                or result["action"]["result"].get("tab_id") != self._tab_id):
             raise ContractError("JOURNEY_BSK_ACTION_UNKNOWN_OR_UNOBSERVED")
         if action == "navigate":
             # BSK step only proves the command was dispatched and the
@@ -439,7 +447,10 @@ class JourneyBSKAdapter:
             png_proof = verify_png_file(screenshot)
             if (picture.get("byte_size") != png_proof["bytes"]
                     or picture.get("tab_id") != binding["tab_id"]
-                    or picture.get("format") != "png"):
+                    or picture.get("format") != "png"
+                    or picture.get("width") != png_proof["width"]
+                    or picture.get("height") != png_proof["height"]
+                    or picture.get("capture_unavailable") is not None):
                 raise ContractError("JOURNEY_BSK_SCREENSHOT_INVALID")
             self._guard(context)
             evidence_refs.append(screenshot.resolve().as_uri())
