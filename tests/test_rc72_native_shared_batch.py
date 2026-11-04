@@ -9,7 +9,8 @@ import pytest
 
 from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
 from rc6_runtime.truth import TruthRuntime
-from rc7_runtime.models import ContractError
+from rc7_runtime import ClosedLoopControlPlane
+from rc7_runtime.models import ContractError, Mission, Task
 from rc7_runtime.rc72_context_economy import (
     ContextAffinity, ExecutionBatchPlanner, ExecutionMode, SemanticWorkDescriptor,
 )
@@ -171,6 +172,19 @@ def _fixture(tmp_path):
     install_native_batch_candidate_overlay()
     install_native_batch_review_overlay()
     truth = TruthRuntime(tmp_path / "r1.jsonl")
+    control = ClosedLoopControlPlane.bootstrap(
+        truth, Mission(
+            mission_id=MISSION, release_id=RELEASE,
+            goal="independent semantic batch workitem truth",
+        ),
+    )
+    # Per-WorkItem scheduling semantics must derive from real canonical
+    # rc7_task rows. Never invent semantic labels without a Task.
+    for workitem in ("WI-1", "WI-2"):
+        control.register_task(Task(
+            task_id=workitem, mission_id=MISSION, node="EXECUTION",
+            task_type="BATCH_SEMANTIC", objective="independent case " + workitem,
+        ))
     _binding(truth, "WI-1", "ATT-1")
     _binding(truth, "WI-2", "ATT-2")
     semantics = WorkScheduleSemanticsService(truth, release_id=RELEASE)
