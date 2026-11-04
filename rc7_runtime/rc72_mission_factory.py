@@ -26,6 +26,7 @@ from .rc72_n7_execution_preparation import ExecutionPreparationService
 from .rc72_formal_runner import FormalN7RunnerAdapter
 from .rc72_n7_pipeline import N7PipelineService
 from .rc72_n8_product_recovery import NativeN8ProductRecoveryService
+from .rc72_capability_broker import CapabilityBroker, CapabilityPolicyRule
 from .rc72_n9_accepted_scope import AcceptedScopeN9Service
 from .rc72_expected_scope_input import ExpectedScopeInputService
 from .rc72_libra_measurement import NativeLibraMeasurementService
@@ -57,12 +58,13 @@ class MissionHostBindings:
     execution_environment: ExecutionEnvironmentAdapter
     tool_registry: dict
     execution_env: object = None
+    capability_policies: object = None
 
 
 def create_mission_driver(truth, *, release_id, source_commit, workers,
                           bank_pip_mirror, execution_authority,
                           execution_environment, tool_registry, evidence_root,
-                          execution_env=None):
+                          execution_env=None, capability_policies=None):
     """Compose all implemented native routes against one ledger/source/release.
 
     Missing roles fail before constructing pipelines or touching the ledger.
@@ -116,6 +118,17 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
                    for family, tools in tool_registry.items())):
         raise ContractError('MISSION_FACTORY_EXACT_EXECUTION_TOOLS_REQUIRED')
 
+    # Policy is host-owned and must select an exact tool in the N7 registry.
+    # Missing policy deliberately maps to the native Broker DENY outcome;
+    # never infer administrative permission or a physical tool restoration.
+    allowed_execution_tools = {t for group in tool_registry.values() for t in group}
+    if (capability_policies is not None and
+            (not isinstance(capability_policies, dict)
+             or any(not isinstance(tool, str) or tool not in allowed_execution_tools
+                    or not isinstance(rule, CapabilityPolicyRule)
+                    for tool, rule in capability_policies.items()))):
+        raise ContractError('MISSION_FACTORY_EXACT_CAPABILITY_POLICY_REQUIRED')
+
     def launcher(role):
         return bindings[role].launcher
 
@@ -140,7 +153,9 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
     n7 = N7PipelineService(preparation, runner=FormalN7RunnerAdapter(preparation,
         evidence_root=root/'runner', execution_env=execution_env, environment_adapter=execution_environment),
         capture_root=root/'execution-captures')
-    n8 = NativeN8ProductRecoveryService(n7)
+    n8 = NativeN8ProductRecoveryService(n7, capability_broker=CapabilityBroker(
+        truth, release_id=release_id, authority=execution_authority,
+        policies=capability_policies or {}))
     n9 = AcceptedScopeN9Service(n7)
     measurement = NativeLibraMeasurementService(expected, n9, capture_root=root/'coverage-captures')
     intake = NativeCoverageGapIntakeService(measurement)
