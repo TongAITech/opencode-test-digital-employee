@@ -193,3 +193,46 @@ def test_advanced_downstream_requires_the_original_canonical_forward_lineage(tmp
     with pytest.raises(ContractError, match='FORWARD_LINEAGE_REQUIRED'):
         driver.run(release_batch_id=BATCH)
     assert len(calls) == 5 and truth.store.path.read_bytes() == before
+
+
+@pytest.mark.parametrize('mutation', ['missing_n8', 'missing_n9', 'missing_n10', 'foreign_node'])
+def test_c08_status_rejects_corrupt_mission_denominator_without_worker_or_r1_writes(
+        tmp_path, monkeypatch, mutation):
+    truth, driver, calls = _driver(tmp_path)
+    original = truth.query
+    def broken(artifact_kind, **filters):
+        rows = original(artifact_kind, **filters)
+        if artifact_kind != 'rc72_mission_node' or 'mission_id' not in filters:
+            return rows
+        if mutation.startswith('missing_'):
+            missing = mutation.split('_')[1].upper()
+            return [row for row in rows if row['node_type'] != ('N8_DIAGNOSIS_RECOVERY' if missing == 'N8'
+                else 'N9_DEFECT' if missing == 'N9' else 'N10_RELEASE_CONVERGENCE')]
+        return rows + [dict(rows[0], node_type='N11_UNAUTHORIZED_EXTENSION',
+                                 mission_node_id='FOREIGN-N11')]
+    monkeypatch.setattr(truth, 'query', broken)
+    before = truth.store.path.read_bytes()
+    with pytest.raises(ContractError, match='RC72_RELEASE_DRIVER_NODE_DENOMINATOR_INVALID'):
+        driver.status(release_batch_id=BATCH)
+    assert not calls
+    assert truth.store.path.read_bytes() == before
+
+
+def test_c08_unbootstrapped_release_status_never_claims_node_pass(tmp_path):
+    from rc7_runtime.rc72_release_driver import release_batch_status
+    truth = build_truth(tmp_path)
+    truth.append_atomic('RC72_RELEASE_BATCH_UPSERTED', dict(
+        release_batch_id=BATCH, release_id=RELEASE, mission_id=MISSION,
+        name=RELEASE, version_ids=[RELEASE], application_ids=['BLOAN'],
+        requirement_ids=list(REQUIREMENTS), state='REGISTERED',
+        readiness='UNKNOWN', created_at=1, updated_at=1,
+        artifact_version=1))
+    # The projection of a registered-but-not-started ReleaseBatch must not
+    # manufacture ten PASS labels or launch a worker just to answer status.
+    assert not truth.query('rc72_mission_node', mission_id=MISSION)
+    before = truth.store.path.read_bytes()
+    response = release_batch_status(
+        truth, source_commit=COMMIT, release_batch_id=BATCH)
+    assert response['nodes'] == []
+    assert response['field_verified'] is response['bank_final'] is False
+    assert truth.store.path.read_bytes() == before
