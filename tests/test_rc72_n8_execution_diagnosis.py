@@ -334,3 +334,53 @@ def test_generic_failed_tool_health_probe_does_not_establish_capability_cause(tm
     finally:
         server.shutdown()
         server.server_close()
+
+
+@pytest.mark.parametrize("missing_kind", [
+    "rc7_gap", "rc72_back_edge", "rc72_node_transition",
+])
+def test_accepted_n8_cold_replay_refuses_missing_canonical_semantic_route(
+        tmp_path, monkeypatch, missing_kind):
+    truth, prep, server, p = _failure(tmp_path, monkeypatch)
+    try:
+        service = ExecutionDiagnosisService(prep, evidence_root=tmp_path / "diagnosis")
+        result = service.run(p["preparation_id"])
+        assert result["failure_class"] == "TEST_DATA_GAP"
+        assert truth.query("rc72_diagnosis_outcome")[0]["action"] == "SEMANTIC_BACK_EDGE"
+        assert truth.query(missing_kind)
+        original_query = truth.query
+
+        def missing_link(kind, **filters):
+            if kind == missing_kind:
+                return []
+            return original_query(kind, **filters)
+
+        monkeypatch.setattr(truth, "query", missing_link)
+        before = truth.store.path.read_bytes()
+        with pytest.raises(ContractError, match="DIAGNOSIS_CLASSIFICATION_REPLAY_ROUTE_INCOMPLETE"):
+            service.run(p["preparation_id"])
+        assert truth.store.path.read_bytes() == before
+        assert server.calls == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_accepted_n8_cold_replay_refuses_forged_outcome_action_without_side_effect(
+        tmp_path, monkeypatch):
+    truth, prep, server, p = _failure(tmp_path, monkeypatch)
+    try:
+        service = ExecutionDiagnosisService(prep, evidence_root=tmp_path / "diagnosis")
+        assert service.run(p["preparation_id"])["failure_class"] == "TEST_DATA_GAP"
+        outcome = truth.query("rc72_diagnosis_outcome")[0]
+        forged = dict(outcome, action="RUNTIME_RECOVERY",
+                      artifact_version=outcome["artifact_version"] + 1)
+        truth.append_atomic("RC72_DIAGNOSIS_OUTCOME_UPSERTED", forged)
+        before = truth.store.path.read_bytes()
+        with pytest.raises(ContractError, match="DIAGNOSIS_CLASSIFICATION_REPLAY_ROUTE_CONFLICT"):
+            service.run(p["preparation_id"])
+        assert truth.store.path.read_bytes() == before
+        assert server.calls == []
+    finally:
+        server.shutdown()
+        server.server_close()
