@@ -196,7 +196,12 @@ class JourneyBSKLiveTeaching:
         screen = self._call([
             "screenshot", *scope, "--out", str(screenshot), "--json"])
         png = verify_png_file(screenshot)
-        if screen.get("tab_id") != self.receipt["tab_id"] or screen.get("byte_size") != png["bytes"]:
+        if (screen.get("tab_id") != self.receipt["tab_id"]
+                or screen.get("byte_size") != png["bytes"]
+                or screen.get("width") != png["width"]
+                or screen.get("height") != png["height"]
+                or screen.get("format") != "png"
+                or screen.get("capture_unavailable") is not None):
             raise ContractError("JOURNEY_BSK_LIVE_SCREENSHOT_UNVERIFIED")
         # Human/browser operations can arrive while snapshot and PNG are
         # written. Re-read native debug state: a later operation must not
@@ -251,9 +256,22 @@ class JourneyBSKLiveTeaching:
         export = self.importer.capture_root / _safe_id(str(self.args["recording_id"])) / "bsk-debug-export.json"
         if export.exists():
             raise ContractError("JOURNEY_BSK_LIVE_EXPORT_ALREADY_EXISTS")
-        self._call(["debug", "export", *scope, "--output", str(export), "--json"])
+        exported = self._call([
+            "debug", "export", *scope, "--output", str(export), "--json"])
         if not export.is_file() or export.stat().st_size == 0:
             raise ContractError("JOURNEY_BSK_LIVE_EXPORT_MISSING")
+        if (exported.get("run_id") != self.run_id
+                or Path(str(exported.get("path") or "")).resolve() != export.resolve()
+                or exported.get("bytes") != export.stat().st_size):
+            raise ContractError("JOURNEY_BSK_LIVE_EXPORT_PROVENANCE_MISMATCH")
+        try:
+            raw_export = json.loads(export.read_text(encoding="utf-8"))
+        except (ValueError, UnicodeError) as exc:
+            raise ContractError("JOURNEY_BSK_LIVE_EXPORT_CONTENT_INVALID") from exc
+        if (not isinstance(raw_export, Mapping)
+                or not isinstance(raw_export.get("run"), Mapping)
+                or raw_export["run"].get("id") != self.run_id):
+            raise ContractError("JOURNEY_BSK_LIVE_EXPORT_RUN_SWITCH_FORBIDDEN")
         return self.importer.import_export(
             export_file=export,
             bsk_session_id=self.receipt["bsk_session_id"],
