@@ -103,6 +103,9 @@ def native_context_projection(
     retry_observation_status = "NONE"
     retry_native_authorized = False
     previous_summary_ref = None
+    retry_gap_refs = ()
+    retry_evidence_refs = ()
+    retry_dependency_refs = ()
     if retry_rows:
         receipt = retry_rows[0]
         retry_observation_status = str(receipt.get("observation_status") or "UNKNOWN")
@@ -128,6 +131,9 @@ def native_context_projection(
             if receipt.get("retry_delta_sha256") != _retry_delta_digest(retry):
                 raise NativeContextProjectionError("RC72_NATIVE_CONTEXT_RETRY_DELTA_DIGEST_MISMATCH")
             previous_summary_ref = retry.previous_attempt_summary_ref
+            retry_gap_refs = tuple(retry.explicit_gap_refs)
+            retry_evidence_refs = tuple(retry.delta_evidence_refs)
+            retry_dependency_refs = tuple(retry.changed_dependency_refs)
             # The source producer alone may swap prompt input_refs. A valid
             # reviewer candidate must never be lost by reducing upstream
             # source refs. Require an actual signed child assignment and
@@ -185,4 +191,7 @@ def native_context_projection(
         "retry_context_observation_status": retry_observation_status,
         "retry_delta_native_authorized": retry_native_authorized,
         "retry_previous_summary_ref": previous_summary_ref,
+        "retry_explicit_gap_refs": retry_gap_refs,
+        "retry_delta_evidence_refs": retry_evidence_refs,
+        "retry_changed_dependency_refs": retry_dependency_refs,
     }
