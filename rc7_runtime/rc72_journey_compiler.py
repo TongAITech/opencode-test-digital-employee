@@ -7,6 +7,7 @@ official=False. Official Journey is a separate promoted asset.
 """
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -112,6 +113,13 @@ def _validate_candidate(payload: Dict[str, Any]) -> Dict[str, Any]:
             "Delete", "Home", "End", "PageUp", "PageDown",
         }:
             raise _contracts.DomainValidationError("JOURNEY_PRESS_KEY_INVALID")
+        if action_type == JourneyActionType.WHEEL.value:
+            dx, dy = step.get("delta_x", 0), step.get("delta_y", 0)
+            if (type(dx) not in (int, float) or type(dy) not in (int, float)
+                    or not math.isfinite(dx) or not math.isfinite(dy)
+                    or (dx == 0 and dy == 0)
+                    or max(abs(dx), abs(dy)) > 2000):
+                raise _contracts.DomainValidationError("JOURNEY_WHEEL_DELTA_INVALID")
         if action_type == JourneyActionType.DRAG.value and not (
                 isinstance(step.get("target_ref"), str)
                 and step["target_ref"].startswith(("css:", "testid:"))):
@@ -205,6 +213,16 @@ class JourneyCompiler:
             }:
                 raise ContractError("JOURNEY_PRESS_KEY_INVALID")
             compiled["key"] = key
+        elif action_type == JourneyActionType.WHEEL.value:
+            meta = source.get("capture_metadata") or {}
+            dx, dy = meta.get("delta_x", 0), meta.get("delta_y", 0)
+            if (type(dx) not in (int, float) or type(dy) not in (int, float)
+                    or not math.isfinite(dx) or not math.isfinite(dy)
+                    or (dx == 0 and dy == 0)
+                    or max(abs(dx), abs(dy)) > 2000):
+                raise ContractError("JOURNEY_WHEEL_DELTA_INVALID")
+            compiled["delta_x"] = dx
+            compiled["delta_y"] = dy
         elif action_type == JourneyActionType.DRAG.value:
             target_ref = _metadata_ref(source, "target_ref")
             if not isinstance(target_ref, str) or not target_ref.startswith(
