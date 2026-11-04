@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+import time
 
 from rc7_runtime.rc72_journey_bsk import JourneyBSKAdapter
 from rc7_runtime.rc72_journey_replay import JourneyReplayService
@@ -534,3 +535,101 @@ def test_bsk_mismatched_action_oracle_or_png_provenance_cannot_pass(
         "rc72_journey_replay_step", replay_id="BSK-PROVENANCE-" + phase),
         key=lambda x: x["sequence"])
     assert next(r for r in rows if r["status"] == "FAILED")["failure_code"] == failure
+
+
+def _backend_oracle_replay(tmp_path, *, tamper=None, trust=True):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    cli = TestBSK()
+    adapter = _adapter(pool, tmp_path, cli)
+    normal = adapter.resolve
+    def resolve(ref, kind, context):
+        if kind == "oracle" and ref == "oracle://success-toast":
+            return {"type": "backend_state",
+                    "business_rule_ref": "pcc://configuration-saved",
+                    "expected": "SAVED_EFFECTIVE"}
+        return normal(ref, kind, context)
+    adapter.resolve = resolve
+
+    def independent_bank_oracle(oracle, context):
+        receipt = {
+            "oracle_ref": "oracle://success-toast",
+            "business_rule_ref": "pcc://configuration-saved",
+            "mission_id": context["mission_id"],
+            "release_batch_id": context["release_batch_id"],
+            "requirement_id": context["requirement_id"],
+            "sst_id": context["sst_id"],
+            "obligation_id": context["obligation_id"],
+            "case_id": context["case_id"],
+            "attempt_id": context["attempt_id"],
+            "browser_lease_id": context["browser_lease_id"],
+            "verifier_kind": "TEST_BANK_EXTERNAL_DATA_ORACLE",
+            "signature_verified": True,
+            "source_kind": "INDEPENDENT_DB_STATE",
+            "observed_state": "SAVED_EFFECTIVE",
+            "matched": True, "observed_at": int(time.time()),
+            "evidence_refs": ["r1://test-bank-db-snapshot"],
+        }
+        if tamper:
+            tamper(receipt)
+        return receipt
+
+    adapter.business_oracle_verifier = independent_bank_oracle
+    adapter.trusted_business_verifier_kinds = (
+        {"TEST_BANK_EXTERNAL_DATA_ORACLE"} if trust else set())
+    outcome = JourneyReplayService(
+        truth, release_id="RC7.2", browser_pool=pool,
+        adapter=adapter).replay(
+            replay_id="BSK-BACKEND-BUSINESS",
+            candidate_id="JC-1", workitem_id="WI-R1",
+            attempt_id="ATT-R1", worker_id="WORKER-R1",
+            session_id="SESSION-R1", browser_lease_id=lease.browser_lease_id)
+    return truth, outcome, cli
+
+
+def test_bsk_backend_business_oracle_links_independent_db_evidence_to_actual(tmp_path):
+    truth, outcome, cli = _backend_oracle_replay(tmp_path)
+    assert outcome.state.value == "PASSED"
+    assert any("step" in command for command in cli.calls)
+    rows = sorted(truth.query(
+        "rc72_journey_replay_step", replay_id="BSK-BACKEND-BUSINESS"),
+        key=lambda x: x["sequence"])
+    assert len(rows) == 2
+    assert "r1://test-bank-db-snapshot" in rows[1]["evidence_refs"]
+    actual = json.loads(Path(rows[1]["actual_refs"][0][7:]).read_text())
+    assert actual["business_oracle_evidence_refs"] == [
+        "r1://test-bank-db-snapshot"]
+    assert actual["status"] == "PASSED"
+    assert actual["field_verified"] is False
+
+
+@pytest.mark.parametrize("tamper,error", [
+    (lambda p: p.update(attempt_id="ATT-FORGED"),
+     "JOURNEY_BSK_BACKEND_ORACLE_SCOPE_MISMATCH"),
+    (lambda p: p.update(signature_verified=False),
+     "JOURNEY_BSK_BACKEND_ORACLE_AUTHORITY_UNTRUSTED"),
+    (lambda p: p.update(observed_state="NOT_SAVED"),
+     "JOURNEY_BSK_BACKEND_BUSINESS_STATE_MISMATCH"),
+    (lambda p: p.update(evidence_refs=[]),
+     "JOURNEY_BSK_BACKEND_ORACLE_EVIDENCE_REQUIRED"),
+    (lambda p: p.update(observed_at=0),
+     "JOURNEY_BSK_BACKEND_ORACLE_STALE"),
+])
+def test_bsk_independent_backend_oracle_rejects_fake_or_stale_business_receipt(
+        tmp_path, tamper, error):
+    truth, outcome, cli = _backend_oracle_replay(tmp_path, tamper=tamper)
+    assert outcome.state.value == "FAILED"
+    rows = sorted(truth.query(
+        "rc72_journey_replay_step", replay_id="BSK-BACKEND-BUSINESS"),
+        key=lambda x: x["sequence"])
+    assert rows[-1]["failure_code"] == error
+    actual = json.loads(Path(rows[-1]["actual_refs"][0][7:]).read_text())
+    assert actual["status"] == "FAILED"
+
+
+def test_bsk_backend_oracle_without_a_b_external_trust_cannot_pass(tmp_path):
+    truth, outcome, cli = _backend_oracle_replay(tmp_path, trust=False)
+    assert outcome.state.value == "FAILED"
+    rows = truth.query(
+        "rc72_journey_replay_step", replay_id="BSK-BACKEND-BUSINESS")
+    assert rows[-1]["failure_code"] == (
+        "JOURNEY_BSK_BACKEND_BUSINESS_ORACLE_AUTHORITY_REQUIRED")
