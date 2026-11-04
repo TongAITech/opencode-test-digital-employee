@@ -66,7 +66,22 @@ class NativeN10ControlService:
         for app in batch['application_ids']:
             active.extend(active_repair_boundaries(self.truth,self.measurement.authority,release_id=self.release_id,
                 source_commit=self.source_commit,release_batch_id=release_batch_id,application_id=app))
-        if active and self.rerun is not None:
+        if active and self.repair is None:
+            # Real accepted coverage repairs are present in canonical R1,
+            # but this instance has no authorized repair provider.  This is
+            # a terminal convergence blocker, not an optional helper.
+            return dict(status='HOLD',reason='N10_NATIVE_COVERAGE_REPAIR_PROVIDER_REQUIRED',
+                repair_ids=[row['repair_id'] for row in active],
+                manifest_id=frozen['manifest_id'],field_verified=False,bank_final=False)
+        if active and self.rerun is None:
+            # Never let N9 or fresh Libra advance an accepted repair when the
+            # formally composed N7 rerun provider is missing or detached.
+            # No old N7 gate, synthetic coverage sample or manual PASS may
+            # compensate for a missing physical fresh Attempt.
+            return dict(status='HOLD',reason='N10_NATIVE_COVERAGE_RERUN_PROVIDER_REQUIRED',
+                repair_ids=[row['repair_id'] for row in active],
+                manifest_id=frozen['manifest_id'],field_verified=False,bank_final=False)
+        if active:
             rerun_result=self.rerun.run(release_batch_id=release_batch_id)
             if rerun_result.get('status')=='HOLD':
                 return dict(status='HOLD',reason='N10_COVERAGE_RERUN_REQUIRED',rerun=rerun_result,
