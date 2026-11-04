@@ -165,9 +165,9 @@ def test_bsk_rejects_bad_capture_before_any_r1_mutation(tmp_path, mutation, erro
     elif mutation == "unbound_ref":
         mapping["operation-2"].pop("locator_ref")
     elif mutation == "missing_png":
-        mapping["operation-1"]["screenshot_ref"] = (tmp_path / "absent.png").as_uri()
+        mapping["operation-1"]["screenshot_ref"] = (export.parent / "absent.png").as_uri()
     elif mutation == "missing_dom":
-        mapping["operation-2"]["dom_ref"] = (tmp_path / "absent.json").as_uri()
+        mapping["operation-2"]["dom_ref"] = (export.parent / "absent.json").as_uri()
     export.write_text(json.dumps(doc), encoding="utf-8")
     with pytest.raises(Exception, match=error):
         _invoke(importer, export, args, mapping)
