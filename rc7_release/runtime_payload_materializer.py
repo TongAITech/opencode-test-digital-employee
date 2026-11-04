@@ -305,12 +305,31 @@ def _materialize_dsh_plugins(root: Path) -> Dict[str, Any]:
     return _record("dsh_plugins", target, version=",".join(versions), source="PACKAGE_VENDOR_ARCHIVE", sha256=_sha256(archive))
 
 
+# Qualified together on 2026-11-04. Never resolve moving `latest` on a bank
+# transport build: CLI, extension and DSH plugin share the same release series.
+BSK_LOCK_VERSION = "0.4.1"
+BSK_CLI_ARCHIVE_SHA256 = "f4a62af2dde31508188ea0c80feee11dbb62d9e7b7bf388f3f3a9856cfffb37d"
+BSK_EXTENSION_ARCHIVE_SHA256 = "75e38414e732679b7fe7616de9f3bb80dbb9cfcc55d9cab2566dbcebb4cd9b51"
+
+
 def _materialize_browserskill(root: Path) -> List[Dict[str, Any]]:
-    cli_release, cli_asset = _release_asset("Tencent/BrowserSkill", contains=("x86_64-pc-windows-msvc", ".zip"))
-    tag = str(cli_release.get("tag_name") or "")
-    version = tag.removeprefix("cli-v")
-    if not version:
-        raise RuntimePayloadMaterializerError("BROWSERSKILL_RELEASE_VERSION_INVALID")
+    version = BSK_LOCK_VERSION
+    cli_release, cli_asset = _release_asset(
+        "Tencent/BrowserSkill",
+        name="bsk-v%s-x86_64-pc-windows-msvc.zip" % version,
+        tag="cli-v%s" % version,
+    )
+    if (cli_release.get("tag_name") != "cli-v%s" % version
+            or cli_asset.get("digest") != "sha256:" + BSK_CLI_ARCHIVE_SHA256):
+        raise RuntimePayloadMaterializerError("BROWSERSKILL_CLI_PIN_OR_DIGEST_MISMATCH")
+    ext_release, ext_asset = _release_asset(
+        "Tencent/BrowserSkill",
+        name="browser-skill-extension-v%s-chrome.zip" % version,
+        tag="ext-v%s" % version,
+    )
+    if (ext_release.get("tag_name") != "ext-v%s" % version
+            or ext_asset.get("digest") != "sha256:" + BSK_EXTENSION_ARCHIVE_SHA256):
+        raise RuntimePayloadMaterializerError("BROWSERSKILL_EXTENSION_PIN_OR_DIGEST_MISMATCH")
     with tempfile.TemporaryDirectory(prefix="rc7-bsk-") as temp:
         archive = Path(temp) / str(cli_asset["name"])
         _download(str(cli_asset["browser_download_url"]), archive, str(cli_asset["digest"]))
@@ -321,9 +340,10 @@ def _materialize_browserskill(root: Path) -> List[Dict[str, Any]]:
     bsk = next(iter(target.rglob("bsk.exe")), None)
     if bsk is None:
         raise RuntimePayloadMaterializerError("BROWSERSKILL_BSK_EXE_MISSING")
-    _run([str(bsk), "--version"], cwd=root, timeout=30)
+    actual_cli_version = _run([str(bsk), "--version"], cwd=root, timeout=30)
+    if version not in actual_cli_version:
+        raise RuntimePayloadMaterializerError("BROWSERSKILL_CLI_BINARY_VERSION_MISMATCH")
 
-    ext_release, ext_asset = _release_asset("Tencent/BrowserSkill", contains=("chrome.zip",), tag="ext-v%s" % version)
     ext_target = root / "workspace-template/runtime/browser/browserskill-extension"
     with tempfile.TemporaryDirectory(prefix="rc7-bsk-ext-") as temp:
         archive = Path(temp) / str(ext_asset["name"])
