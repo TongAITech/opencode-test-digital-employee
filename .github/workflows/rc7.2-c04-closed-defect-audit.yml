@@ -1,0 +1,68 @@
+name: RC7.2 C04 Real Closed Defect RCA Fix and Regression Audit
+
+on:
+  push:
+    branches:
+      - work/rc7.2-c04-verified-defect-closure
+    paths:
+      - 'rc7_runtime/defect_resolution_control.py'
+      - 'rc7_runtime/rc72_n9_accepted_scope.py'
+      - 'tests/test_rc7_defect_resolution_control.py'
+      - '.github/workflows/rc7.2-c04-closed-defect-audit.yml'
+  pull_request:
+    branches:
+      - work/rc7.2-abcd-v5-bsk-mobile-qualification
+    paths:
+      - 'rc7_runtime/defect_resolution_control.py'
+      - 'rc7_runtime/rc72_n9_accepted_scope.py'
+      - 'tests/test_rc7_defect_resolution_control.py'
+      - '.github/workflows/rc7.2-c04-closed-defect-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-c04-real-defect-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  accepted-defect-closure:
+    name: c04-defect-${{ matrix.os }}-py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install approved test dependencies only
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile RCA defect and N9 production code
+        run: >-
+          python -m py_compile
+          rc7_runtime/defect_resolution_control.py
+          rc7_runtime/rc72_n9_accepted_scope.py
+          tests/test_rc7_defect_resolution_control.py
+          tests/test_rc72_n9_accepted_scope.py
+      - name: Validate formal execution files RCA final evaluation and N9 regression
+        run: >-
+          python -m pytest -q
+          tests/test_rc7_defect_resolution_control.py
+          tests/test_rc72_n9_accepted_scope.py
+          tests/test_rc7_product_defect_mission_e2e.py
+          --junitxml=rc72-c04-closed-defect.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-c04-real-defect-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: rc72-c04-closed-defect.xml
+          retention-days: 14
+          if-no-files-found: warn

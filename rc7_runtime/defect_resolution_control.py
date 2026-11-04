@@ -442,6 +442,98 @@ class DefectResolutionControl:
             updated_at=int(row.get("updated_at", 0)),
         )
 
+    def audit_closed(self, control: ClosedLoopControlPlane, defect_id: str):
+        """Read-only proof of an actually closed fix and distinct regression.
+
+        This is independent of the original producer's CLOSED label. Formal
+        execution files, source revision evidence, original Case verification,
+        follow-on regression and the final evaluation are revalidated from R1.
+        """
+        defect = self._defect(control, defect_id)
+        if defect.state != DefectStatus.CLOSED or not defect.fix_revision:
+            raise DefectResolutionControlError("DEFECT_CLOSED_PROOF_REQUIRED")
+        hypothesis = defect.root_cause_hypothesis
+        if (hypothesis is None or defect.reproduction_passes < 1
+                or defect.reproduction_attempts < defect.reproduction_passes):
+            raise DefectResolutionControlError("DEFECT_CLOSED_CAUSAL_HISTORY_REQUIRED")
+        gaps = control.truth.query("rc7_gap", gap_id=defect.source_gap_id)
+        if (len(gaps) != 1 or gaps[0].get("mission_id") != control.mission_id
+                or gaps[0].get("category") != "PRODUCT_DEFECT"
+                or gaps[0].get("state") != "RESOLVED"):
+            raise DefectResolutionControlError("DEFECT_CLOSED_PRODUCT_GAP_REQUIRED")
+        self._require_evidence_refs(control, hypothesis.evidence_refs,
+            defect_id=defect_id, required_kind=None)
+        confirmed = [e for e in control.truth.query("rc7_evaluation", mission_id=control.mission_id)
+            if e.get("evaluator_ref") == self.CONFIRM_EVALUATOR
+            and e.get("result") == "PASS"
+            and isinstance(e.get("dimensions"), dict)
+            and e["dimensions"].get("defect_id") == defect_id
+            and e["dimensions"].get("root_cause_hypothesis_id") == hypothesis.hypothesis_id
+            and set(hypothesis.evidence_refs).issubset(set(e.get("evidence_refs", [])))]
+        if len(confirmed) != 1:
+            raise DefectResolutionControlError("DEFECT_CLOSED_RCA_EVALUATION_REQUIRED")
+        fixes = [e["evidence_id"] for e in control.truth.query("rc7_evidence", mission_id=control.mission_id)
+            if e.get("evidence_id") in defect.evidence_refs
+            and e.get("kind") == "FIX_REVISION_EVIDENCE"
+            and defect_id in e.get("subject_refs", [])
+            and defect.fix_revision in e.get("subject_refs", [])]
+        if not fixes:
+            raise DefectResolutionControlError("DEFECT_CLOSED_FIX_REVISION_PROOF_REQUIRED")
+        self._require_evidence_refs(control, fixes, defect_id=defect_id,
+            required_kind="FIX_REVISION_EVIDENCE")
+        if (len(defect.verification_refs) != 1 or not defect.regression_refs
+                or len(set(defect.regression_refs)) != len(defect.regression_refs)
+                or defect.verification_refs[0] in defect.regression_refs):
+            raise DefectResolutionControlError("DEFECT_CLOSED_DISTINCT_REGRESSION_REQUIRED")
+        verify_id = defect.verification_refs[0]
+        verification, vrefs, verify_task = self._passing_execution(control, verify_id,
+            expected_task_type=self.FIX_VERIFICATION_TASK_TYPE, defect=defect)
+        if (verification.tc_id not in defect.test_case_ids
+                or verification.attempt_id in defect.execution_attempt_ids):
+            raise DefectResolutionControlError("DEFECT_CLOSED_FRESH_ORIGINAL_CASE_REQUIRED")
+        regression_cases, regression_evidence = [], []
+        for artifact_id in defect.regression_refs:
+            recorded, refs, task = self._passing_execution(control, artifact_id,
+                expected_task_type=self.IMPACT_REGRESSION_TASK_TYPE, defect=defect)
+            if verify_task.task_id not in task.dependency_task_ids:
+                raise DefectResolutionControlError("DEFECT_CLOSED_REGRESSION_DEPENDENCY_REQUIRED")
+            regression_cases.append(recorded.tc_id)
+            regression_evidence.extend(refs)
+        if not any(tc not in defect.test_case_ids for tc in regression_cases):
+            raise DefectResolutionControlError("DEFECT_CLOSED_IMPACT_CASE_REQUIRED")
+        owners = [task for task in control.truth.query("rc7_task", mission_id=control.mission_id)
+            if task.get("node") == "DEFECT" and task.get("task_type") == "QUALIFY_DEFECT"
+            and defect.source_gap_id in task.get("gap_refs", [])]
+        if (len(owners) != 1 or owners[0].get("state") != "PASS"
+                or owners[0].get("evaluation_id") != defect.latest_evaluation_id):
+            raise DefectResolutionControlError("DEFECT_CLOSED_OWNER_GATE_REQUIRED")
+        rows = control.truth.query("rc7_evaluation", evaluation_id=defect.latest_evaluation_id)
+        if len(rows) != 1:
+            raise DefectResolutionControlError("DEFECT_CLOSED_EVALUATION_MISSING")
+        evaluated = rows[0]
+        dim = evaluated.get("dimensions")
+        if (evaluated.get("mission_id") != control.mission_id
+                or evaluated.get("node") != "DEFECT"
+                or evaluated.get("result") != "PASS"
+                or evaluated.get("evaluator_ref") != self.CLOSE_EVALUATOR
+                or evaluated.get("artifact_refs") != owners[0].get("output_artifact_refs")
+                or not isinstance(dim, dict)
+                or dim.get("defect_id") != defect_id or dim.get("defect_state") != "CLOSED"
+                or dim.get("fix_revision") != defect.fix_revision
+                or dim.get("fix_verified") is not True
+                or dim.get("impact_regression_passed") is not True
+                or dim.get("verification_attempt_id") != verification.attempt_id
+                or dim.get("regression_case_ids") != regression_cases
+                or not set(vrefs).union(regression_evidence).issubset(
+                    set(evaluated.get("evidence_refs", [])))):
+            raise DefectResolutionControlError("DEFECT_CLOSED_FINAL_EVALUATION_CHANGED")
+        return dict(status="VERIFIED_CLOSED", defect_id=defect_id,
+            source_gap_id=defect.source_gap_id,
+            closure_evaluation_id=evaluated["evaluation_id"],
+            verification_artifact_id=verify_id,
+            regression_artifact_ids=list(defect.regression_refs))
+
+
     def _owner_task(self, control: ClosedLoopControlPlane, product_gap_id: str):
         tasks = [
             row
