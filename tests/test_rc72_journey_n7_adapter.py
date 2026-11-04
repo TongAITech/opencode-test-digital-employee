@@ -132,3 +132,45 @@ def test_n7_preflight_rejects_workitem_missing_authorized_official_asset(tmp_pat
             contract=_contract(), context=_context(lease))
     assert not browser.calls
     assert not truth.query("rc72_official_journey_execution")
+
+
+def test_signed_n7_bsk_native_route_uses_real_backend_and_original_preflight(tmp_path):
+    from rc7_runtime.rc72_journey_n7_adapter import SignedN7OfficialBSKAdapter
+    from rc7_runtime.rc72_official_journey_execution import OfficialJourneyExecutionService
+    from test_rc72_journey_bsk_native_adapter import TestBSK, _adapter
+    truth, pool, lease, _, _ = _setup(tmp_path)
+    cli = TestBSK()
+    browser = _adapter(pool, tmp_path, cli)
+    service = OfficialJourneyExecutionService(
+        truth, release_id="RC7.2", browser_pool=pool, adapter=browser)
+    signed = SignedN7OfficialBSKAdapter(service)
+    contract = _contract()
+    contract["tool_route"] = {"tool": "journey_bsk"}
+    signed.preflight(contract=contract, context=_context(lease))
+    receipt = signed(contract=contract, context=_context(lease))
+    assert receipt["journey"]["state"] == "PASSED"
+    assert receipt["journey"]["case_id"] == "TC-OJ"
+    assert len(receipt["journey"]["actual_refs"]) == 2
+    assert any("step" in cmd for cmd in cli.calls)
+    assert any("evaluate" in cmd for cmd in cli.calls)
+    assert "field_verified" not in receipt["journey"]
+    assert truth.query("rc72_official_journey_execution")[0]["field_verified"] is False
+    with pytest.raises(Exception, match="JOURNEY_N7_ATTEMPT_ALREADY_USED_DIAGNOSIS_REQUIRED"):
+        signed(contract=contract, context=_context(lease))
+
+
+def test_signed_n7_bsk_refuses_non_bsk_backend_and_old_tool_route(tmp_path):
+    from rc7_runtime.rc72_journey_n7_adapter import SignedN7OfficialBSKAdapter
+    from rc7_runtime.rc72_official_journey_execution import OfficialJourneyExecutionService
+    from test_rc72_journey_bsk_native_adapter import TestBSK, _adapter
+    truth, pool, lease, fake, service = _setup(tmp_path)
+    with pytest.raises(Exception, match="JOURNEY_N7_BSK_NATIVE_BACKEND_REQUIRED"):
+        SignedN7OfficialBSKAdapter(service)
+    cli = TestBSK()
+    real_backend = OfficialJourneyExecutionService(
+        truth, release_id="RC7.2", browser_pool=pool,
+        adapter=_adapter(pool, tmp_path, cli))
+    signed = SignedN7OfficialBSKAdapter(real_backend)
+    with pytest.raises(Exception, match="JOURNEY_N7_TOOL_ROUTE_MISMATCH"):
+        signed.preflight(contract=_contract(), context=_context(lease))
+    assert not cli.calls

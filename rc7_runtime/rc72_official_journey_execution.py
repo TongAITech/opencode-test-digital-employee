@@ -270,8 +270,13 @@ class OfficialJourneyExecutionService:
                 "failure_code": "ADAPTER_RUNTIME_EXCEPTION:%s" % exc.__class__.__name__,
             }
 
-    def _field_verified(self) -> bool:
-        return self.adapter_kind in self.trusted_field_adapter_kinds and bool(getattr(self.adapter, "field_verified", False))
+    def _field_verified(self, scope: Mapping[str, Any]) -> bool:
+        if self.adapter_kind not in self.trusted_field_adapter_kinds:
+            return False
+        if self.adapter_kind.startswith("BROWSERSKILL_"):
+            verifier = getattr(self.adapter, "verify_field_scope", None)
+            return verifier(scope) is True if callable(verifier) else False
+        return bool(getattr(self.adapter, "field_verified", False))
 
     def _append(self, event_type: str, payload: Dict[str, Any]) -> None:
         out = dict(payload)
@@ -302,10 +307,6 @@ class OfficialJourneyExecutionService:
         if any(row.get("state") == "STARTED"
                for row in self.truth.query(_EXECUTION, official_asset_id=official_asset_id)):
             raise ContractError("OFFICIAL_JOURNEY_UNKNOWN_SIDE_EFFECTS_RECOVERY_REQUIRED")
-        if any(row.get("official_asset_id") == official_asset_id
-               and row.get("attempt_id") == attempt_id
-               for row in self.truth.query(_EXECUTION)):
-            raise ContractError("OFFICIAL_JOURNEY_ATTEMPT_ALREADY_USED_DIAGNOSIS_REQUIRED")
         asset = self._one("rc72_official_journey_asset", official_asset_id=official_asset_id)
         if asset.get("status") != "OFFICIAL" or asset.get("official") is not True or asset.get("executable") is not True:
             raise ContractError("OFFICIAL_JOURNEY_ASSET_NOT_EXECUTABLE")
@@ -314,6 +315,13 @@ class OfficialJourneyExecutionService:
             raise ContractError("OFFICIAL_JOURNEY_BUSINESS_ORACLE_REQUIRED")
         from .rc72_journey_drift import JourneyDriftService
         JourneyDriftService(self.truth, release_id=self.release_id).assert_eligible(official_asset_id)
+        # Drift quarantine has higher precedence than reusing an old Attempt:
+        # report the reapproval gate immediately. Neither check authorizes any
+        # new SUT action; clean assets remain fenced against Attempt reuse.
+        if any(row.get("official_asset_id") == official_asset_id
+               and row.get("attempt_id") == attempt_id
+               for row in self.truth.query(_EXECUTION)):
+            raise ContractError("OFFICIAL_JOURNEY_ATTEMPT_ALREADY_USED_DIAGNOSIS_REQUIRED")
         mission_id = str(asset["mission_id"])
         binding = self._binding(
             mission_id=mission_id, workitem_id=workitem_id, attempt_id=attempt_id,
@@ -343,7 +351,16 @@ class OfficialJourneyExecutionService:
         steps = list(asset.get("steps") or [])
         if not steps:
             raise ContractError("OFFICIAL_JOURNEY_STEPS_REQUIRED")
-        field_verified = self._field_verified()
+        field_scope = {
+            "execution_id": execution_id, "official_asset_id": official_asset_id,
+            "mission_id": mission_id, "release_batch_id": asset["release_batch_id"],
+            "requirement_id": asset["requirement_id"], "sst_id": asset["sst_id"],
+            "obligation_id": asset["obligation_id"], "case_id": binding["case_id"],
+            "workitem_id": workitem_id, "attempt_id": attempt_id,
+            "worker_id": worker_id, "session_id": session_id,
+            "browser_lease_id": browser_lease_id,
+        }
+        field_verified = self._field_verified(field_scope)
         started_at = _now()
         base = {
             "execution_id": execution_id.strip(),
@@ -379,6 +396,11 @@ class OfficialJourneyExecutionService:
                 "execution_id": execution_id,
                 "official_asset_id": official_asset_id,
                 "mission_id": mission_id,
+                "release_batch_id": asset["release_batch_id"],
+                "requirement_id": asset["requirement_id"],
+                "sst_id": asset["sst_id"],
+                "obligation_id": asset["obligation_id"],
+                "case_id": binding["case_id"],
                 "workitem_id": workitem_id,
                 "attempt_id": attempt_id,
                 "worker_id": worker_id,

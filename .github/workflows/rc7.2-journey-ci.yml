@@ -3,7 +3,9 @@ name: RC7.2 C09 Journey Isolated Qualification
 on:
   push:
     branches:
+      - work/rc7.2
       - work/rc7.2-journey
+      - work/rc7.2-journey-closure
     paths:
       - 'rc7_runtime/rc72_journey_*.py'
       - 'rc7_runtime/rc72_official_journey_execution.py'
@@ -11,7 +13,11 @@ on:
       - 'tests/test_rc72_c09_real_chromium_cdp_smoke.py'
       - 'tests/test_rc72_phase9_*.py'
       - '.github/workflows/rc7.2-journey-ci.yml'
+      - '.github/workflows/rc7-field-hardening.yml'
       - 'docs/rc7.2/JOURNEY-C09-CONSTRUCTION-AND-A-B-INTEGRATION.md'
+      - 'docs/rc7.2/JOURNEY-C09-BSK-FIELD-QUALIFICATION.md'
+      - 'rc7_release/rc72_journey_bsk_qualify.py'
+      - 'packaging/rc7.2/QUALIFY-JOURNEY-BSK.sh'
 concurrency:
   group: rc72-c09-${{ github.ref }}
   cancel-in-progress: true
@@ -34,8 +40,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install engineering test harness only
         run: python -m pip install --disable-pip-version-check pytest
-      - name: Compile production modules
-        run: python -m compileall -q rc7_runtime
+      - name: Compile production modules and real bank BSK probe
+        run: >-
+          python -m compileall -q
+          rc7_runtime rc7_release/rc72_journey_bsk_qualify.py
+      - name: Check Windows Git Bash BSK field launcher syntax
+        run: bash -n packaging/rc7.2/QUALIFY-JOURNEY-BSK.sh
       - name: Run all original Phase 9 and new concrete adapter contracts
         run: >-
           python -m pytest -q
@@ -59,8 +69,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install pinned real CDP browser harness
-        run: python -m pip install --disable-pip-version-check pytest playwright==1.62.1
+      # Public PyPI publishes 1.62.0 but not 1.62.1. CI validates the
+      # supplemental CDP path only; bank BSK/Playwright 1.62.1 is not
+      # qualified by this job and must be validated from the offline bundle.
+      - name: Install published pinned real CDP browser harness
+        run: python -m pip install --disable-pip-version-check pytest playwright==1.62.0
       - name: Provision actual matching Chromium on GitHub CI
         run: python -m playwright install --with-deps chromium
       - name: Real Chromium CDP HTTP business Oracle and evidence smoke
