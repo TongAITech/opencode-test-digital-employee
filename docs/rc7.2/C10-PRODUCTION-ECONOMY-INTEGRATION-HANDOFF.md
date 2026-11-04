@@ -375,3 +375,43 @@ also drive actual N8 parent→child retries and N9/N10 convergence. An
 in-repo simulated native-command contract test demonstrates the one-call
 batch boundary but is NOT proof of a successful in-bank DSH model
 session. CI and Field evidence remain mandatory.
+
+
+## 2026-11-04 C10 formal N7 closure bridge (source implementation, not Field PASS)
+
+A new C10-only formal reconciliation module,
+rc72_native_batch_formal_n7.NativeBatchFormalN7Reconciler, accepts a
+REAL N7PipelineService instance, the source SafeExecutionBatch receipt,
+the single native producer candidate and the independent reviewer receipt.
+It performs a read-only A-owned
+AcceptedObligationExecutionProof(pipeline).audit(release_batch_id=...)
+before writing SafeExecutionBatch.RESULTS_RECORDED. That audit requires
+accepted N7 full source Case denominator, all canonical obligations,
+tool execution, independent N7 reviewer, captured evidence, cleanup,
+finalized Case/Attempt lifecycle and actual deterministic Oracle truth.
+The bridge then rechecks every original WorkItem+Attempt+Case identity
+against the accepted N7 evidence bundle; each execution_attempt PASS,
+assertion.passed, real tool_call_refs and evidence_refs must exist.
+Only the ORIGINAL canonical N7 dispatch artifact is used as each member's
+actual_result_ref: NEVER a native model candidate or a semantic opinion.
+If one member/reviewer/evidence fails, the entire C10 batch result
+reconciliation remains HOLD, with no invented N7 PASS.
+
+The existing production C10 NativeBatchServices composer exposes both
+reconcile_accepted_n7() and drive_formal_n7(). The latter invokes ONE
+approved native ExecutionBatch DSH call, asks the HOST (not the model)
+to issue a fresh reviewer WorkerAssignment after producer raw output
+exists, invokes ONE separate native EvaluatorBatch DSH call, then
+calls the REAL N7PipelineService.complete(release_batch_id=...) and
+reconciles only if that returns actual N7_PASS. Otherwise returns HOLD.
+The host remains responsible for real batch/reviewer lease authority,
+actual worker/tool configuration, fresh session, bank SUT readiness and
+N8→N9→N10 recovery. This adds an explicit callable integration
+path without editing A-owned Mission Factory, N7PipelineService,
+ReleaseBatchDriver, canonical TestObligations or the shared R1 schema.
+
+Tests include negative incomplete-review HOLD, two native DSH boundary
+calls followed by stubbed formal N7 HOLD, and a clearly labeled
+UNIT-ONLY accepted-audit stub to exercise member-wise result receipt
+logic. The stub is NOT evidence of an actual accepted N7 run. No
+component/CI-only result may be promoted to BANK_FINAL.

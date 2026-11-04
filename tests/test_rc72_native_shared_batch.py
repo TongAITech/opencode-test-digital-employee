@@ -49,13 +49,14 @@ class _NativeDshLauncher(DshHeadlessWorkerLauncher):
         self.session_id = session_id
         self.response = response
         self.execute_count = 0
+        self.emit_tools = True
         self.native_calls = []
         self.command_runner = self._runner
 
     def _runner(self, command, **kwargs):
         self.native_calls.append(tuple(command))
         events = [{"type": "session", "session_id": self.session_id}]
-        calls = 2 if "execution" in self.state_root.name else 1
+        calls = (2 if "execution" in self.state_root.name else 1) if self.emit_tools else 0
         for _ in range(calls):
             events.append({"type": "tool_call", "tool_name": "approved-real-tool"})
         events.append({
@@ -243,6 +244,7 @@ def test_two_real_native_batch_calls_keep_independent_case_attempts_and_review_s
     candidate = _dispatch(truth, batch, execution, assignment)
     assert candidate["status"] == "UNVERIFIED"
     assert len(candidate["members"]) == 2
+    assert len(candidate["raw_output_sha256"]) == 64
     assert candidate["token_call_id"] == truth.query(
         "rc72_token_call", workitem_id="EXECUTION_BATCH:" + batch.batch_id
     )[0]["call_id"]
@@ -264,6 +266,8 @@ def test_two_real_native_batch_calls_keep_independent_case_attempts_and_review_s
     assert reviewer.execute_count == 1
     assert len(reviewer.native_calls) == 1
     assert reviewed["status"] == "UNVERIFIED_INDEPENDENT_REVIEW"
+    assert len(reviewed["raw_output_sha256"]) == 64
+    assert len(reviewed["review_tool_refs"]) >= 1
     assert reviewed["token_call_id"] == truth.query(
         "rc72_token_call", workitem_id="EVALUATOR_BATCH:" + batch.batch_id
     )[0]["call_id"]
@@ -599,3 +603,188 @@ def test_formal_n7_bridge_unit_contract_reconciles_only_canonical_audited_member
     assert truth.query("execution_attempt", release_id=RELEASE) == []
     assert truth.query("assertion", release_id=RELEASE) == []
     assert len(truth.query("rc72_token_call", mission_id=MISSION)) == 2
+
+
+
+def test_host_batch_composer_drives_native_producer_reviewer_then_formal_n7_hold(tmp_path):
+    """Actual two DSH command boundaries; N7 acceptance is a stub HOLD.
+
+    The resulting batch must not create a PASS, an Oracle or an accepted
+    SafeExecutionBatch member when the real formal workflow is incomplete.
+    """
+    from rc7_runtime.rc72_n7_pipeline import N7PipelineService
+    from rc7_runtime.rc72_native_shared_batch_composition import NativeBatchServices
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    invoked = []
+    pipeline = object.__new__(N7PipelineService)
+    pipeline.truth = truth
+    pipeline.release_id = RELEASE
+    pipeline.source_commit = "a" * 40
+
+    def formal_complete(*, release_batch_id):
+        invoked.append(release_batch_id)
+        return {"status": "HOLD", "reason": "N7_ORACLE_EVIDENCE_INCOMPLETE"}
+
+    pipeline.complete = formal_complete
+    composition = NativeBatchServices(
+        execution=NativeSharedExecutionBatch(truth, release_id=RELEASE, launcher=execution),
+        evaluator=NativeSharedEvaluatorBatch(truth, release_id=RELEASE, launcher=reviewer),
+    )
+
+    def approved_host_reviewer_factory(candidate):
+        assert candidate["raw_output_ref"].startswith("file://")
+        assert len(candidate["members"]) == 2
+        return _review_assignment(batch.batch_id, candidate["raw_output_ref"])
+
+    result = composition.drive_formal_n7(
+        batch=batch,
+        attempt_ids_by_workitem={"WI-1": "ATT-1", "WI-2": "ATT-2"},
+        execution_assignment=assignment,
+        approved_reviewer_assignment_factory=approved_host_reviewer_factory,
+        pipeline=pipeline,
+        release_batch_id="FORMAL-BATCH-1",
+    )
+    assert result["status"] == "HOLD"
+    assert result["reason"] == "NATIVE_BATCH_FORMAL_N7_NOT_ACCEPTED"
+    assert invoked == ["FORMAL-BATCH-1"]
+    assert execution.execute_count == reviewer.execute_count == 1
+    assert truth.query("rc72_execution_batch_receipt", batch_id=batch.batch_id)[0]["state"] == "ADMITTED"
+    assert truth.query("execution_attempt", release_id=RELEASE) == []
+    assert truth.query("assertion", release_id=RELEASE) == []
+    assert truth.query("rc72_node_gate", mission_id=MISSION) == []
+
+
+
+def test_evaluator_without_real_native_evidence_tool_call_cannot_pass_review(tmp_path):
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    candidate = _dispatch(truth, batch, execution, assignment)
+    reviewer.emit_tools = False
+    service = NativeSharedEvaluatorBatch(
+        truth, release_id=RELEASE, launcher=reviewer,
+    )
+    with pytest.raises(NativeBatchReviewError, match="REAL_NATIVE_TOOL_PROOF"):
+        service.review(
+            candidate_id=candidate["candidate_id"],
+            assignment=_review_assignment(batch.batch_id, candidate["raw_output_ref"]),
+        )
+    assert truth.query("rc72_native_batch_review", mission_id=MISSION) == []
+    assert truth.query("execution_attempt", release_id=RELEASE) == []
+
+
+
+def test_changed_producer_raw_dsh_file_blocks_evaluator_before_model_call(tmp_path):
+    from pathlib import Path
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    candidate = _dispatch(truth, batch, execution, assignment)
+    path = Path(candidate["raw_output_ref"][len("file://"):])
+    original = path.read_text(encoding="utf-8")
+    path.write_text(original + "\n" + json.dumps({
+        "type": "tool_call", "tool_name": "forged-after-native",
+    }), encoding="utf-8")
+    service = NativeSharedEvaluatorBatch(
+        truth, release_id=RELEASE, launcher=reviewer,
+    )
+    with pytest.raises(ContractError, match="RAW_DIGEST_CHANGED"):
+        service.review(
+            candidate_id=candidate["candidate_id"],
+            assignment=_review_assignment(batch.batch_id, candidate["raw_output_ref"]),
+        )
+    assert reviewer.execute_count == 0
+    assert truth.query("rc72_native_batch_review", mission_id=MISSION) == []
+
+
+def test_invocation_forged_tool_ref_not_present_in_raw_dsh_file_blocks_batch(tmp_path):
+    truth, _, batch, execution, _, assignment = _fixture(tmp_path)
+    original = execution.execute
+
+    def forged(assignment, prompt):
+        invocation, result = original(assignment, prompt)
+        # An untrusted adapter fabricated a tool-call reference in memory.
+        # The actual JSONL file still has only the real event indexes.
+        invocation.tool_calls.append({
+            "call_ref": "dsh-event://tool-call/999",
+            "tool_name": "invented-by-adapter",
+        })
+        result["members"][1]["observed_tool_refs"] = ["dsh-event://tool-call/999"]
+        return invocation, result
+
+    execution.execute = forged
+    with pytest.raises(ContractError, match="RAW_TOOL_CALL_MISMATCH"):
+        _dispatch(truth, batch, execution, assignment)
+    assert truth.query("rc72_native_batch_candidate", mission_id=MISSION) == []
+    assert truth.query("execution_attempt", release_id=RELEASE) == []
+
+
+
+def test_formal_n7_cannot_reconcile_when_native_batch_raw_evidence_changes_after_review(tmp_path):
+    from pathlib import Path
+    from rc7_runtime.rc72_n7_pipeline import N7PipelineService
+    from rc7_runtime.rc72_native_batch_formal_n7 import NativeBatchFormalN7Reconciler
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    candidate = _dispatch(truth, batch, execution, assignment)
+    revised = _review_output()
+    revised["members"][1]["evidence_adequacy"] = "SUFFICIENT_CANDIDATE"
+    reviewer.response = revised
+    reviewed = NativeSharedEvaluatorBatch(
+        truth, release_id=RELEASE, launcher=reviewer,
+    ).review(
+        candidate_id=candidate["candidate_id"],
+        assignment=_review_assignment(batch.batch_id, candidate["raw_output_ref"]),
+    )
+    file = Path(reviewed["raw_output_ref"][len("file://"):])
+    file.write_bytes(file.read_bytes() + b"\n{\"type\":\"tool_call\",\"tool_name\":\"forged-after-review\"}\n")
+
+    pipeline = object.__new__(N7PipelineService)
+    pipeline.truth = truth
+    pipeline.release_id = RELEASE
+    pipeline.source_commit = "a" * 40
+    with pytest.raises(ContractError, match="RAW_DIGEST_CHANGED"):
+        NativeBatchFormalN7Reconciler(pipeline).reconcile(
+            release_batch_id="B-REAL-EXPECTED",
+            batch_receipt_id=candidate["batch_receipt_id"],
+            candidate_id=candidate["candidate_id"],
+            review_id=reviewed["review_id"],
+        )
+    assert truth.query("rc72_execution_batch_receipt", batch_id=batch.batch_id)[0]["state"] == "ADMITTED"
+    assert truth.query("execution_attempt", release_id=RELEASE) == []
+
+
+
+def test_idempotent_shared_batch_cold_resume_rechecks_original_native_file_digest(tmp_path):
+    from pathlib import Path
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    candidate = _dispatch(truth, batch, execution, assignment)
+    file = Path(candidate["raw_output_ref"][len("file://"):])
+    file.write_bytes(file.read_bytes() + b"\n{\"type\":\"tool_call\",\"tool_name\":\"post-hoc-forgery\"}\n")
+    with pytest.raises(ContractError, match="RAW_DIGEST_CHANGED"):
+        _dispatch(truth, batch, execution, assignment)
+    assert execution.execute_count == 1
+
+
+def test_idempotent_evaluator_replay_rechecks_own_raw_file_digest(tmp_path):
+    from pathlib import Path
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    candidate = _dispatch(truth, batch, execution, assignment)
+    service = NativeSharedEvaluatorBatch(
+        truth, release_id=RELEASE, launcher=reviewer,
+    )
+    reviewer_assignment = _review_assignment(
+        batch.batch_id, candidate["raw_output_ref"],
+    )
+    reviewed = service.review(
+        candidate_id=candidate["candidate_id"],
+        assignment=reviewer_assignment,
+    )
+    file = Path(reviewed["raw_output_ref"][len("file://"):])
+    file.write_bytes(file.read_bytes() + b"\n{\"type\":\"tool_call\",\"tool_name\":\"post-hoc-forgery\"}\n")
+    with pytest.raises(ContractError, match="RAW_DIGEST_CHANGED"):
+        service.review(
+            candidate_id=candidate["candidate_id"],
+            assignment=reviewer_assignment,
+        )
+    assert reviewer.execute_count == 1

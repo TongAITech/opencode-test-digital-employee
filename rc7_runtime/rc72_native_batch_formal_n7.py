@@ -14,6 +14,7 @@ from .rc72_obligation_execution_proof import AcceptedObligationExecutionProof
 from .rc72_safe_execution_batch import (
     ExecutionBatchMemberResult, SafeExecutionBatchService,
 )
+from .rc72_native_batch_raw_proof import verify_native_raw_digest
 
 
 class NativeBatchFormalN7Error(ContractError):
@@ -68,6 +69,17 @@ class NativeBatchFormalN7Reconciler:
             or review.get("status") != "UNVERIFIED_INDEPENDENT_REVIEW"
         ):
             raise NativeBatchFormalN7Error("NATIVE_BATCH_FORMAL_SOURCE_LINEAGE_MISMATCH")
+        # Re-read both native raw DSH files before trusting a historic R1
+        # candidate/reviewer. A replaced file cannot be used to reconcile
+        # any TestObligation to a formal member result.
+        verify_native_raw_digest(
+            raw_ref=candidate["raw_output_ref"],
+            expected_sha256=candidate.get("raw_output_sha256"),
+        )
+        verify_native_raw_digest(
+            raw_ref=review["raw_output_ref"],
+            expected_sha256=review.get("raw_output_sha256"),
+        )
         intended = {(m["workitem_id"], m["attempt_id"], m["case_id"])
                     for m in receipt["members"]}
         intended_pairs = {(w, a) for w, a, _ in intended}
