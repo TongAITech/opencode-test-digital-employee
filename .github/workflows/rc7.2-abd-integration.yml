@@ -1,4 +1,4 @@
-name: RC7.2 A/B/D Mission Runtime Integration Qualification
+name: RC7.2 A/B/C/D Unified Product Integration Qualification
 
 on:
   push:
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   actual-product-factory-and-economy:
-    name: abd-${{ matrix.os }}-python-${{ matrix.python-version }}
+    name: abcd-${{ matrix.os }}-python-${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -38,7 +38,7 @@ jobs:
         run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
       - name: Compile production source
         run: python -m compileall -q rc6_runtime rc7_runtime rc7_release
-      - name: Verify A/B fenced factory plus D real-model economy wiring
+      - name: Verify A/B fenced factory C BrowserSkill and D real-model economy wiring
         run: >-
           python -m pytest -q
           tests/test_rc72_mission_factory.py
@@ -65,5 +65,50 @@ jobs:
         with:
           name: rc72-abd-${{ matrix.os }}-py${{ matrix.python-version }}-${{ github.sha }}
           path: rc72-abd-integration.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+  complete-source-with-real-chromium:
+    name: abcd-ubuntu-python-3.11-complete-rc7-source
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install source qualification and real Chromium/CDP
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+          python -m pip install --disable-pip-version-check 'playwright==1.62.0'
+          python -m playwright install --with-deps chromium
+      - name: Compile unified production source
+        run: python -m compileall -q rc6_runtime rc7_runtime rc7_release
+      - name: Prove original three C09 regressions against actual browser and R1
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_c09_real_chromium_cdp_smoke.py
+          tests/test_rc72_journey_drift_and_failure.py
+          tests/test_rc72_journey_playwright_adapter.py
+          --junitxml=rc72-abcd-c09.xml
+      - name: Run complete inherited RC7/RC7.2 source contracts (no exclusion)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find tests -maxdepth 1 -type f -name 'test_rc7*.py' -print | sort)
+          test "${#tests[@]}" -gt 0
+          printf 'Running complete inherited suite of %s modules on %s\n' "${#tests[@]}" "${GITHUB_SHA}"
+          python -m pytest -q "${tests[@]}" --junitxml=rc72-abcd-full-source.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-abcd-full-source-${{ github.sha }}
+          path: |
+            rc72-abcd-c09.xml
+            rc72-abcd-full-source.xml
           if-no-files-found: warn
           retention-days: 14
