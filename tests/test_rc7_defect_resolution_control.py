@@ -336,6 +336,15 @@ def test_defect_closes_only_after_original_case_verification_and_distinct_regres
     assert evaluation["dimensions"]["impact_regression_passed"] is True
     assert control.scheduler.task(TASK_ID).state == TaskStatus.PASS
 
+    # No re-execution and no new R1 entries: durable proof is re-audited.
+    before = truth.store.path.read_bytes()
+    audited = resolution.audit_closed(control, DEFECT_ID)
+    assert audited["status"] == "VERIFIED_CLOSED"
+    assert audited["verification_artifact_id"] == verification.artifact_id
+    assert audited["regression_artifact_ids"] == [regression.artifact_id]
+    assert audited["closure_evaluation_id"] == result.evaluation_id
+    assert truth.store.path.read_bytes() == before
+
 
 def test_fix_revision_cannot_be_self_reported_without_matching_r1_evidence(tmp_path: Path):
     truth, control = _setup(tmp_path)
@@ -389,3 +398,19 @@ def test_failed_original_case_fix_verification_reopens_defect_and_keeps_product_
         if row.get("task_type") == resolution.IMPACT_REGRESSION_TASK_TYPE
     ]
     assert regression_tasks == []
+
+
+def test_unverified_closed_state_never_clears_defect_by_status_alone(
+        tmp_path: Path, monkeypatch):
+    truth, control = _setup(tmp_path)
+    query = truth.query
+    def forged(kind, **filters):
+        rows = query(kind, **filters)
+        if kind == "rc7_defect":
+            return [dict(row, state="CLOSED") for row in rows]
+        return rows
+    monkeypatch.setattr(truth, "query", forged)
+    before = truth.store.path.read_bytes()
+    with pytest.raises(DefectResolutionControlError, match="DEFECT_CLOSED"):
+        DefectResolutionControl().audit_closed(control, DEFECT_ID)
+    assert truth.store.path.read_bytes() == before
