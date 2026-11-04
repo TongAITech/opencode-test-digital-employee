@@ -122,7 +122,7 @@ def test_bsk_live_rejects_corrupt_image_without_recording_step(tmp_path):
 def test_bsk_live_rejects_cross_identity_before_debug_start(tmp_path):
     truth, client, cli = _live(tmp_path)
     client.receipt["auth_asset_ref"] = "auth://4a/unrelated"
-    with pytest.raises(Exception, match="JOURNEY_BSK_LIVE_BROWSER_IDENTITY_MISMATCH"):
+    with pytest.raises(Exception, match="JOURNEY_BSK_LIVE_OWNERSHIP_SCOPE_MISMATCH"):
         client.start(capture_name="unsafe")
     assert cli.calls == []
 
