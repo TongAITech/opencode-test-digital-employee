@@ -168,6 +168,10 @@ class ReleaseBatchDriver:
                 or n8.boundary.cleanup.adapters!=self.n7_pipeline.cleanup.adapters
                 or n8.continuation.diagnosis is not n8.diagnosis
                 or n8.continuation.preparation is not self.n7_pipeline.preparation
+                or (n8.capability_broker is not None and (
+                    n8.capability_broker.truth is not self.truth
+                    or n8.capability_broker.release_id != self.n7_pipeline.release_id
+                    or n8.capability_broker.authority is not self.n7_pipeline.preparation.authority))
                 or n8.truth is not self.truth
                 or n8.source_commit!=self.source_commit
                 or n8.release_id!=self.n7_pipeline.release_id):
