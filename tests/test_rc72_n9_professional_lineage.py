@@ -29,19 +29,19 @@ def test_real_n9_qualification_refuses_broken_n8_semantic_route_readonly(
         assert original('rc72_back_edge',back_edge_id=outcome['back_edge_id'])
         assert original('rc72_node_transition',transition_id=outcome['transition_id'])
 
-        def changed(kind, **filters):
-            rows = original(kind, **filters)
-            if kind == 'rc72_back_edge' and filters.get('back_edge_id') == outcome['back_edge_id']:
+        def changed(artifact_kind, **filters):
+            rows = original(artifact_kind, **filters)
+            if artifact_kind == 'rc72_back_edge' and filters.get('back_edge_id') == outcome['back_edge_id']:
                 if tamper == 'back_edge_missing':
                     return []
                 if tamper == 'back_edge_target':
                     return [dict(rows[0],return_node='N2_REQUIREMENT')]
-            if kind == 'rc72_node_transition' and filters.get('transition_id') == outcome['transition_id']:
+            if artifact_kind == 'rc72_node_transition' and filters.get('transition_id') == outcome['transition_id']:
                 if tamper == 'transition_missing':
                     return []
                 if tamper == 'transition_target':
                     return [dict(rows[0],to_mission_node_id='N9-FOREIGN-NODE')]
-            if kind == 'rc7_gap' and filters.get('gap_id') == outcome['gap_id']:
+            if artifact_kind == 'rc7_gap' and filters.get('gap_id') == outcome['gap_id']:
                 if tamper == 'gap_description':
                     return [dict(rows[0],description='Rewritten to bypass cause analysis')]
             return rows
