@@ -16,6 +16,11 @@ on:
 permissions:
   contents: read
 
+# PR Actions normally check out a synthetic refs/pull/*/merge SHA. An offline
+# transport artifact must instead attest the real proposed source HEAD.
+env:
+  RC7_PACKAGE_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
 jobs:
   field-hardening-source-regression:
     name: Source regression (${{ matrix.os }})
@@ -26,6 +31,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RC7_PACKAGE_SOURCE_SHA }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -86,6 +93,7 @@ jobs:
           tests/test_rc7_runtime_payload_materializer.py
           tests/test_rc7_runtime_build_bootstrap.py
           tests/test_rc7_field_hardening.py
+          tests/test_rc7_workflow_source_identity.py
           tests/test_rc7_plugin_payload.py
           tests/test_rc7_dsh_runtime_profile.py
           tests/test_rc7_dsh_plugin_qualification.py
@@ -125,6 +133,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RC7_PACKAGE_SOURCE_SHA }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -153,6 +163,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RC7_PACKAGE_SOURCE_SHA }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -175,6 +187,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $commit = (git rev-parse HEAD).Trim()
+          $expected = $env:RC7_PACKAGE_SOURCE_SHA
+          if ($commit -ne $expected) { throw "RC7_PACKAGE_SOURCE_IDENTITY_MISMATCH:HEAD=$commit:EXPECTED=$expected" }
           $packageName = 'PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
           python -m rc7_release.package build --repo-root . --output .\dist-clean --source-commit $commit
           if ($LASTEXITCODE -ne 0) { throw 'RC7 package build failed' }
@@ -273,6 +287,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RC7_PACKAGE_SOURCE_SHA }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -295,6 +311,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $commit = (git rev-parse HEAD).Trim()
+          $expected = $env:RC7_PACKAGE_SOURCE_SHA
+          if ($commit -ne $expected) { throw "RC7_PACKAGE_SOURCE_IDENTITY_MISMATCH:HEAD=$commit:EXPECTED=$expected" }
           $packageName = 'PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10'
           python -m rc7_release.package build --repo-root . --output .\dist --source-commit $commit
           if ($LASTEXITCODE -ne 0) { throw 'RC7 final transport package build failed' }
@@ -364,7 +382,7 @@ jobs:
       - name: Upload RC7 Field-Hardened transport package
         uses: actions/upload-artifact@v4
         with:
-          name: RC7-Field-Hardened-${{ github.sha }}
+          name: RC7-Field-Hardened-${{ env.RC7_PACKAGE_SOURCE_SHA }}
           if-no-files-found: error
           path: |
             dist/*.zip
