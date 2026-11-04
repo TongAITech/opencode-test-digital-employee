@@ -33,16 +33,17 @@ class TestBSK:
         if "cooperate" in argv:
             return {"returncode": 0, "stdout": json.dumps({
                 "context_id": "ctx-live", "tab_id": 37,
-                "session_id": "BSK-OWNED-SESSION"})}
+                "session_id": argv[argv.index("--session") + 1]})}
         if "step" in argv:
             return {"returncode": 0, "stdout": json.dumps({
                 "ok": self.step_ok,
                 "phase": "observed" if self.step_ok else "needs_attention",
                 "action_replayed": False,
+                "action": {"result": {"tab_id": 37}} if self.step_ok else {},
                 "post": {"context_id": "ctx-live", "tab_id": 37} if self.step_ok else {}})}
         if "evaluate" in argv:
             return {"returncode": 0, "stdout": json.dumps({
-                "ok": self.evaluate_ok,
+                "ok": self.evaluate_ok, "tab_id": 37,
                 "value": {
                     "url": "https://fat1.example/config",
                     "exists": True, "visible": True, "match_count": 1,
@@ -56,6 +57,7 @@ class TestBSK:
             return {"returncode": 0, "stdout": json.dumps({
                 "path": str(path),
                 "byte_size": len(_PNG),
+                "width": 1, "height": 1,
                 "format": "png", "tab_id": 37})}
         raise AssertionError("Unexpected BrowserSkill command: " + repr(argv))
 
