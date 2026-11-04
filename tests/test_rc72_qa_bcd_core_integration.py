@@ -115,3 +115,17 @@ def test_qa_ac_full_c09_join_preserves_network_lineage_and_after_action_authorit
         "current ReleaseBatch/Case/Attempt/Worker/Session/BrowserLease, "
         "never use unscoped _field_verified() after merge"
     )
+
+
+def test_qa_c09_bsk_registry_string_without_host_executor_is_no_privilege(tmp_path):
+    """The independent QA suite must never require an unsafe implicit BSK login."""
+    import pytest
+    from rc7_runtime.models import ContractError
+
+    truth, options = _setup(tmp_path)
+    options["tool_registry"]["journey_bsk"] = ("journey_bsk",)
+    before = truth.store.path.read_bytes()
+    with pytest.raises(ContractError, match="MISSION_FACTORY_BSK_APPROVED_TOOL_AND_EXECUTOR_REQUIRED"):
+        create_mission_driver(truth, **options)
+    assert truth.store.path.read_bytes() == before
+    assert not truth.query("rc72_official_journey_execution")
