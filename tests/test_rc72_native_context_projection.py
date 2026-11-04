@@ -175,7 +175,7 @@ def test_native_context_projection_r1_is_reference_only_never_claimed_savings(tm
         "full native mandatory design prompt is unmodified".encode()
     )
     tampered = dict(token_projection, context_projection_applied_to_prompt=True)
-    with pytest.raises(TokenEconomyError, match="SAVINGS_UNPROVEN"):
+    with pytest.raises(TokenEconomyError, match="NATIVE_RETRY_DELTA_PROOF_REQUIRED"):
         economy.admit_call(
             mission_id=MISSION, node="N4_TEST_DESIGN", stage="TEST_DESIGN",
             workitem_id=WORKITEM, attempt_id="ATT-2", agent_id="designer",
