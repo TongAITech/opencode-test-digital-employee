@@ -315,3 +315,14 @@ QA CI-only 改动：为 RC7 Field Hardening 加入按 PR/branch 区分的 concur
 
 QA 产品接线测试另有 7 个红灯，均反映 B Captain、C BSK/Playwright、A N8/N10 尚未全合主线。特别是当前 main 缺 SignedN7OfficialBSKAdapter 导致 ImportError，是未合入 C #13 的事实，而不是 QA 装错依赖。所有正式工程/Field/Q3–Q9/BANK_FINAL 继续 HOLD。
 
+
+
+## 2026-11-04 09:43 PST — 主线变化复核（独立 HOLD）
+
+- 主线最新 `work/rc7.2` = `4721bb57f6a5de1fdf471000030a7b043ebe71c7`，相对先前审计 `7efb3c8aa62f` 已发生变化：本次提交为 C09 Journey 教学/CDP/签名 N7 与证据的主线集成候选；**合入不等于 FIELD_VERIFIED**。
+- 本次 GitHub commit workflow-runs 查询返回空数组（接口只提供 PR 触发的首批运行）；combined statuses 同样为空。**这不是 CI 全绿证据**，也无法证明同 SHA Windows/Linux × Python3.8/3.11 完整覆盖。不得把上一 SHA 的 CI 结论移植到本 SHA。
+- 当前主线 `rc72_mission_factory.py` 仍创建 `NativeN10ControlService(expected,n9,measurement,intake,diagnosis)`，未注入 repair/rerun；`rc72_release_driver.py` 仍未发现正式 N8 非 bypass 处理分支。P0 #7 在当前主线依然成立；C01/C02/C05/C08 继续 BLOCKED。
+- 四分支与主线比较：core ahead 105 / behind 0；runtime ahead 132 / behind 4；journey ahead 115 / behind 4；economy ahead 178 / behind 0。ahead 计数不等于待合并独立功能数，分支存在共同提交与分叉；必须按实际 diff/主线复验。
+- QA PR #9 仍 OPEN/DRAFT，QA HEAD `8220a75ac2b3412df52a1061514abbdf99d8f0e2`；其 PR 描述仍引用旧主线 SHA，不能当作新 SHA 验收。
+- 本轮未取得同源真实银行 R1、目标信创 Linux 实机、DSH 主程序完整载荷和 Q3–Q9 证据。95 单元全部继续保留原严格准入结论，Q2 仅历史工程范围通过；**不发布百分比、BANK_FINAL=NO、C12=HOLD**。
+- 本次未创建重复 P0 Issue；#7 仍为现有责任追踪。下一次以完整 check-runs、正式 N8/N10 修复提交、同 SHA R1 为核销条件。
