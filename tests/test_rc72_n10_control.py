@@ -147,7 +147,10 @@ def test_controller_promotes_only_accepted_worker_proof_into_repair_fence(tmp_pa
         cold=NativeN10ControlService(measurement.expected_scope,measurement.n9,measurement,diagnosis.intake,diagnosis,repair=cold_repair)
         before=truth.store.path.read_bytes();calls=len(server.calls);business_calls=len(business.calls)
         blocked=cold.complete(release_batch_id=BATCH)
-        assert blocked['holds'][0]['reason']=='N10_POST_REPAIR_FRESH_N7_REQUIRED'
+        assert blocked['status']=='HOLD'
+        assert blocked['reason']=='N10_NATIVE_COVERAGE_RERUN_PROVIDER_REQUIRED'
+        assert blocked['repair_ids']==[boundary['repair_id']]
+        assert blocked['field_verified'] is blocked['bank_final'] is False
         assert truth.store.path.read_bytes()==before
         assert len(server.calls)==calls and len(business.calls)==business_calls
     finally:server.shutdown();server.server_close();business.shutdown();business.server_close()

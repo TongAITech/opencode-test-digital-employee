@@ -170,3 +170,63 @@ def test_current_r1_rerun_proof_mutation_fails_closed_without_reexecuting_busine
         assert not truth.query('rc7_defect')
     finally:
         server.shutdown();server.server_close();business.shutdown();business.server_close()
+
+
+def test_n10_accepted_coverage_repair_cannot_bypass_missing_native_rerun_provider(
+        tmp_path, monkeypatch):
+    truth, plan, pipeline, business, server, diagnosis, gap_id = _diagnosis(tmp_path, monkeypatch)
+    try:
+        measurement, repair, rerun, control = _advance_to_repair_fence(
+            truth, pipeline, diagnosis, server)
+        accepted = truth.query('rc72_native_coverage_repair')
+        assert len(accepted) == 1 and accepted[0]['state'] == 'FRESH_N7_REQUIRED'
+        missing = NativeN10ControlService(
+            measurement.expected_scope, measurement.n9, measurement,
+            diagnosis.intake, diagnosis, repair=repair)
+        before_r1 = truth.store.path.read_bytes()
+        original_business = len(business.calls)
+        original_libra = len(server.calls)
+        got = missing.complete(release_batch_id=BATCH)
+        assert got['status'] == 'HOLD'
+        assert got['reason'] == 'N10_NATIVE_COVERAGE_RERUN_PROVIDER_REQUIRED'
+        assert got['repair_ids'] == [accepted[0]['repair_id']]
+        assert got['field_verified'] is got['bank_final'] is False
+        assert truth.store.path.read_bytes() == before_r1
+        assert len(business.calls) == original_business
+        assert len(server.calls) == original_libra
+        assert not truth.query('rc72_native_coverage_rerun')
+        assert missing.complete(release_batch_id=BATCH) == got
+        assert truth.store.path.read_bytes() == before_r1
+    finally:
+        server.shutdown()
+        server.server_close()
+        business.shutdown()
+        business.server_close()
+
+
+def test_n10_accepted_coverage_repair_cannot_bypass_missing_native_repair_provider(
+        tmp_path, monkeypatch):
+    truth, plan, pipeline, business, server, diagnosis, gap_id = _diagnosis(tmp_path, monkeypatch)
+    try:
+        measurement, repair, rerun, control = _advance_to_repair_fence(
+            truth, pipeline, diagnosis, server)
+        missing = NativeN10ControlService(
+            measurement.expected_scope, measurement.n9, measurement,
+            diagnosis.intake, diagnosis)
+        before_r1 = truth.store.path.read_bytes()
+        calls = (len(business.calls), len(server.calls))
+        got = missing.complete(release_batch_id=BATCH)
+        assert got['status'] == 'HOLD'
+        assert got['reason'] == 'N10_NATIVE_COVERAGE_REPAIR_PROVIDER_REQUIRED'
+        assert len(got['repair_ids']) == 1
+        assert got['field_verified'] is got['bank_final'] is False
+        assert truth.store.path.read_bytes() == before_r1
+        assert (len(business.calls), len(server.calls)) == calls
+        assert not truth.query('rc72_native_coverage_rerun')
+        assert missing.complete(release_batch_id=BATCH) == got
+        assert truth.store.path.read_bytes() == before_r1
+    finally:
+        server.shutdown()
+        server.server_close()
+        business.shutdown()
+        business.server_close()
