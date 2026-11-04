@@ -280,6 +280,10 @@ class JourneyPlaywrightAdapter:
             self._assert(page, step, context)
         else:
             raise ContractError("JOURNEY_ACTION_UNSUPPORTED")
+        # A navigation/click can mutate the BrowserPool instance or revoke its
+        # lease before its optional post-action wait. Never issue another CDP
+        # command under a changed profile, endpoint, auth asset or WRITE owner.
+        self._guard(context)
         self._wait(page, step, context)
 
     def execute_step(self, step: Mapping[str, Any], context: Mapping[str, Any]) -> Dict[str, Any]:
