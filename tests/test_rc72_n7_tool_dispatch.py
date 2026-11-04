@@ -124,9 +124,13 @@ def test_oracle_refuses_missing_or_failed_receipt(tmp_path, monkeypatch):
     service = SignedToolDispatchService(prep, adapters={'api_http': lambda **kw: None})
     with pytest.raises(ToolDispatchError, match='RETURNED_RECEIPT_REQUIRED'):
         service.evaluate(row['preparation_id'])
-    service.dispatch(row['preparation_id'])
-    with pytest.raises(ToolDispatchError, match='RETURNED_RECEIPT_REQUIRED'):
+    receipt = service.dispatch(row['preparation_id'])
+    assert receipt['state'] == 'UNKNOWN' and receipt['replay_prohibited'] is True
+    with pytest.raises(ToolDispatchError, match='SIDE_EFFECTS_UNKNOWN_DIAGNOSIS_REQUIRED'):
         service.evaluate(row['preparation_id'])
+    assert 'oracle_result' not in truth.query(
+        'rc72_n7_tool_dispatch', preparation_id=row['preparation_id'])[0]
+    assert {lease['state'] for lease in truth.query('rc72_data_lease')} == {'ACTIVE'}
 
 
 def test_matching_oracle_is_assertion_evidence_not_case_completion(tmp_path, monkeypatch):
@@ -293,7 +297,8 @@ def test_unknown_business_effect_revokes_preparation_authority_hot_and_after_col
 
     with pytest.raises(ExecutionPreparationError, match="UNKNOWN_EFFECT_RECONCILIATION_REQUIRED"):
         preparation.assert_current(row["preparation_id"])
-    with pytest.raises(AuthorityError, match="LEASE_REVOKED"):
+    assert preparation.authority.is_lease_revoked(row["task_lease"]["lease_id"])
+    with pytest.raises(AuthorityError, match="LEASE_REVOKED|UNKNOWN_LEASE"):
         preparation.authority.authorize_tool(
             row["worker_id"], row["task_lease"]["lease_id"], "api_http")
     assert list(truth.store.iter_raw()) == original_events
@@ -302,7 +307,10 @@ def test_unknown_business_effect_revokes_preparation_authority_hot_and_after_col
     fresh_runtime = _service(replay)
     with pytest.raises(ExecutionPreparationError, match="UNKNOWN_EFFECT_RECONCILIATION_REQUIRED"):
         fresh_runtime.assert_current(row["preparation_id"])
-    with pytest.raises(AuthorityError, match="LEASE_REVOKED"):
+    assert fresh_runtime.authority.is_lease_revoked(row["task_lease"]["lease_id"])
+    # A cold manager must not mint the old lease merely to return LEASE_REVOKED.
+    # UNKNOWN_LEASE is equally a denial when the revocation marker is present.
+    with pytest.raises(AuthorityError, match="LEASE_REVOKED|UNKNOWN_LEASE"):
         fresh_runtime.authority.authorize_tool(
             row["worker_id"], row["task_lease"]["lease_id"], "api_http")
     assert replay.query("rc72_n7_tool_dispatch", attempt_id=row["attempt_id"])[0]["state"] == "UNKNOWN"
