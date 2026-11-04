@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -35,6 +36,8 @@ _OPERATION_KINDS = {
     "press": JourneyActionType.PRESS,
     "hover": JourneyActionType.HOVER,
     "scroll-to": JourneyActionType.SCROLL_TO,
+    "scroll_to": JourneyActionType.SCROLL_TO,
+    "wheel": JourneyActionType.WHEEL,
     "drag": JourneyActionType.DRAG,
 }
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -258,6 +261,15 @@ class BSKJourneyTeachingImporter:
                 }:
                     raise ContractError("JOURNEY_BSK_PRESS_KEY_REQUIRED")
                 bound["key"] = key
+            if kind == JourneyActionType.WHEEL:
+                dx, dy = step_info.get("delta_x", 0), step_info.get("delta_y", 0)
+                if (type(dx) not in (int, float) or type(dy) not in (int, float)
+                        or not math.isfinite(dx) or not math.isfinite(dy)
+                        or (dx == 0 and dy == 0)
+                        or max(abs(dx), abs(dy)) > 2000):
+                    raise ContractError("JOURNEY_BSK_WHEEL_DELTA_INVALID")
+                bound["delta_x"] = dx
+                bound["delta_y"] = dy
             if kind == JourneyActionType.DRAG:
                 target_ref = step_info.get("target_ref")
                 if not isinstance(target_ref, str) or not target_ref.startswith(
