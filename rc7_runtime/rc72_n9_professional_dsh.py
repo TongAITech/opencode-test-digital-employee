@@ -102,8 +102,14 @@ class NativeN9ProfessionalDshAnalysisService:
                     mission_id / (assignment_id + ".jsonl"))
         if expected.is_symlink() or not expected.is_file():
             raise ContractError("N9_DSH_NATIVE_RAW_FILE_REQUIRED")
-        path = Path(ref[7:])
-        if path.is_symlink() or path.resolve() != expected.resolve():
+        # The inherited RC6 DSH launcher currently emits file:// + the
+        # resolved POSIX representation. Windows has a drive-bearing URI:
+        # never slice file:// then accidentally turn C:/ into /C:/.
+        # Trust only the *exact* private launcher output path, not an
+        # arbitrary URI supplied by a worker or a remote file authority.
+        expected = expected.resolve()
+        valid_refs = {"file://" + expected.as_posix(), expected.as_uri()}
+        if ref not in valid_refs:
             raise ContractError("N9_DSH_NATIVE_RAW_PATH_CHANGED")
         content = expected.read_bytes()
         if not content or len(content) > 8 * 1024 * 1024:
@@ -119,7 +125,7 @@ class NativeN9ProfessionalDshAnalysisService:
     def _expected(self, scope, task, returned):
         if (returned.get("event_name") != "HANDOFF_RETURNED"
                 or returned.get("mission_id") != task["mission_id"]
-                or returned.get("scope") != scope
+                or returned.get("scope") != "task:" + scope["qualification_workitem_id"]
                 or returned.get("result") != "PASS"
                 or returned.get("exit_code") != 0
                 or not isinstance(returned.get("tool_calls"), list)
