@@ -242,6 +242,7 @@ class NativeSharedEvaluatorBatch:
         raw_proof = attest_native_raw(
             self.launcher, raw_ref=raw[0], session_id=session,
             expected_tool_refs=reviewer_tool_refs,
+            allowed_tools=assignment.allowed_tools,
         )
         if not isinstance(output, dict) or set(output) != {"status", "members"}:
             raise NativeBatchReviewError("BATCH_REVIEW_STRICT_OUTPUT_REQUIRED")
