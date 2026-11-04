@@ -251,7 +251,7 @@ def test_n8_product_routes_real_unavailable_executable_to_native_signed_capabili
         root = tmp_path/'real-n8-missing-tool'
         environment = _MissingExecutableEnvironment(url, root)
         runner = FormalN7RunnerAdapter(
-            prep, evidence_root=root, environment_adapter=environment,
+            prep, evidence_root=root/'runner', environment_adapter=environment,
             timeout_seconds=30)
         p = prep.prepare(plan_id=plan['plan_id'], workitem_id=plan['items'][0]['workitem_id'])
         dispatch = SignedToolDispatchService(prep, adapters={'api_http': runner}).dispatch(
@@ -297,7 +297,7 @@ def test_n8_product_routes_real_unavailable_executable_to_native_signed_capabili
             authority=RC72AuthorityRuntime(prep.authority._key),
             tool_registry=prep.tool_registry)
         cold_runner = FormalN7RunnerAdapter(
-            cold_prep, evidence_root=root,
+            cold_prep, evidence_root=root/'runner',
             environment_adapter=_MissingExecutableEnvironment(url, root),
             timeout_seconds=30)
         cold_broker = CapabilityBroker(

@@ -134,3 +134,39 @@ def test_accepted_origin_is_reviewable_without_reopening_n7_execution(tmp_path,m
         assert len(business.calls)==len(plan['items'])
     finally:
         server.shutdown();server.server_close();business.shutdown();business.server_close()
+
+
+
+def test_current_r1_rerun_proof_mutation_fails_closed_without_reexecuting_business(
+        tmp_path,monkeypatch):
+    """A signed historical R1 id must be audited, not copied into N10 blindly."""
+    import pytest
+    from rc7_runtime.models import ContractError
+    truth,plan,pipeline,business,server,diagnosis,gap_id=_diagnosis(tmp_path,monkeypatch)
+    try:
+        measurement,repair,rerun,control=_advance_to_repair_fence(
+            truth,pipeline,diagnosis,server)
+        code=truth.query('rc72_coverage_gap',gap_id=gap_id)[0]['code_slice']
+        def covered(row):
+            for unit in row['units']:
+                unit['code_slice']=code
+                unit['covered']=True
+        server.mutate=covered
+        result=control.complete(release_batch_id=BATCH)
+        assert result['coverage_rerun_id']
+        row=truth.query('rc72_native_coverage_rerun')[0]
+        assert row['state']=='N7_PASS'
+        forged=dict(row)
+        forged.pop('artifact_type',None)
+        forged['signature']='0'*64
+        forged['artifact_version']+=1
+        truth.append_atomic('RC72_NATIVE_COVERAGE_RERUN_UPSERTED',forged)
+        before=truth.store.path.read_bytes()
+        business_calls,libra_calls=len(business.calls),len(server.calls)
+        with pytest.raises(ContractError,match='COVERAGE_RERUN_SIGNATURE_INVALID'):
+            control.complete(release_batch_id=BATCH)
+        assert truth.store.path.read_bytes()==before
+        assert (len(business.calls),len(server.calls))==(business_calls,libra_calls)
+        assert not truth.query('rc7_defect')
+    finally:
+        server.shutdown();server.server_close();business.shutdown();business.server_close()
