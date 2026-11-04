@@ -2,6 +2,7 @@
 import base64
 import json
 from pathlib import Path
+from rc72_file_uri_test_support import local_file_evidence_ref
 
 import pytest
 
@@ -122,7 +123,7 @@ def test_bsk_human_click_source_produces_nonexecuting_compiled_candidate(tmp_pat
         key=lambda row: row["sequence"])
     assert [s["action_type"] for s in steps] == ["NAVIGATE", "CLICK", "ASSERT"]
     assert steps[1]["element_ref"] == "css:#save"
-    actual = json.loads(Path(steps[1]["network_refs"][0][7:]).read_text())
+    actual = json.loads(local_file_evidence_ref(steps[1]["network_refs"][0]).read_text())
     assert actual["responses"][0]["method"] == "POST"
     assert actual["responses"][0]["status"] == 200
     assert actual["responses"][0]["association"] == "BSK_OPERATION_WINDOW_NOT_CAUSAL_PROOF"
@@ -243,7 +244,7 @@ def test_bsk_evidence_is_per_operation_and_scoped_to_authorized_capture(tmp_path
 ])
 def test_bsk_dom_observation_must_match_live_session_tab_context(tmp_path, field, value):
     truth, importer, doc, export, args, mapping = _fixture(tmp_path)
-    dom = Path(mapping["operation-2"]["dom_ref"][7:])
+    dom = local_file_evidence_ref(mapping["operation-2"]["dom_ref"])
     evidence = json.loads(dom.read_text())
     evidence[field] = value
     dom.write_text(json.dumps(evidence))
@@ -341,7 +342,7 @@ def test_bsk_click_navigation_replays_on_old_page_and_oracle_on_new_page(tmp_pat
     assert steps[1]["url"] == "https://fat1.example/form"
     assert steps[2]["action_type"] == "ASSERT"
     assert steps[2]["url"] == "https://fat1.example/confirmation"
-    page = json.loads(Path(steps[1]["page_state_ref"][7:]).read_text())
+    page = json.loads(local_file_evidence_ref(steps[1]["page_state_ref"]).read_text())
     assert page["url"] == "https://fat1.example/form"
     assert page["post_action_url"] == "https://fat1.example/confirmation"
     assert "must-not-leak" not in json.dumps(page)

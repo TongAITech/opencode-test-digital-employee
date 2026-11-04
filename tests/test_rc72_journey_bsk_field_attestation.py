@@ -2,6 +2,7 @@
 import json
 import time
 from pathlib import Path
+from rc72_file_uri_test_support import local_file_evidence_ref
 
 import pytest
 
@@ -80,7 +81,7 @@ def test_signed_field_trust_contract_marks_only_attested_attempt(tmp_path):
         "rc72_journey_replay_step", replay_id="JRP-BSK-CERTIFIED")
     assert rows and all(row["status"] == "PASSED" for row in rows)
     for row in rows:
-        actual = json.loads(Path(row["actual_refs"][0][7:]).read_text())
+        actual = json.loads(local_file_evidence_ref(row["actual_refs"][0]).read_text())
         assert actual["field_verified"] is True
 
 
@@ -135,6 +136,6 @@ def test_bsk_field_attestation_expiring_mid_action_cannot_pass_replay(tmp_path):
     assert len(records) == 1
     assert records[0]["status"] == "FAILED"
     assert records[0]["failure_code"] == "JOURNEY_BSK_FIELD_PROOF_EXPIRED_DURING_STEP"
-    actual = json.loads(Path(records[0]["actual_refs"][0][7:]).read_text())
+    actual = json.loads(local_file_evidence_ref(records[0]["actual_refs"][0]).read_text())
     assert actual["field_verified"] is False
     assert actual["status"] == "FAILED"

@@ -1,6 +1,7 @@
 """BSK live capture lifecycle: debug start, one-action snapshot, stop/export, R1."""
 import json
 from pathlib import Path
+from rc72_file_uri_test_support import local_file_evidence_ref
 
 import pytest
 
@@ -92,8 +93,8 @@ def test_bsk_live_human_capture_to_compiled_candidate_without_playwright(tmp_pat
         key=lambda row: row["sequence"])
     assert [row["action_type"] for row in steps] == ["NAVIGATE", "CLICK", "ASSERT"]
     for step in steps[:2]:
-        assert Path(step["dom_ref"][7:]).is_file()
-        assert Path(step["screenshot_ref"][7:]).is_file()
+        assert local_file_evidence_ref(step["dom_ref"]).is_file()
+        assert local_file_evidence_ref(step["screenshot_ref"]).is_file()
     compiled = JourneyCompiler(truth, release_id="RC7.2").compile(
         candidate_id="JC-BSK-LIVE", recording_id="JR-LIVE")
     assert compiled.state.value == "COMPILED_CANDIDATE"
