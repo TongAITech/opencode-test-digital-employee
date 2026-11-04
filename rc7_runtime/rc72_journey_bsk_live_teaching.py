@@ -119,6 +119,12 @@ class JourneyBSKLiveTeaching:
         }
         if any(owned.get(key) != value for key, value in expected_instance.items()):
             raise ContractError("JOURNEY_BSK_LIVE_BROWSER_IDENTITY_MISMATCH")
+        try:
+            accepted = self.importer.verify_session(owned, self.args, instance)
+        except Exception as exc:
+            raise ContractError("JOURNEY_BSK_LIVE_EXTERNAL_AUTHORITY_REJECTED") from exc
+        if accepted is not True:
+            raise ContractError("JOURNEY_BSK_LIVE_EXTERNAL_AUTHORITY_REJECTED")
         return ["--session", session, "--tab-id", str(tab)]
 
     def start(self, *, capture_name: str) -> str:
