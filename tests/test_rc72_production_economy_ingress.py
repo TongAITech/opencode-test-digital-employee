@@ -65,6 +65,19 @@ def _fixtures(tmp_path):
         node="TEST_DESIGN", task_type="PRODUCE", objective="test obligations",
         input_artifact_refs=['ART-VERY-LONG-REQUIREMENT-DOCUMENT-IDENTITY-001','ART-VERY-LONG-CODE-CHANGE-TRACE-IDENTITY-002','ART-VERY-LONG-DESIGN-OBLIGATION-EVIDENCE-003','ART-VERY-LONG-AUTHORIZED-PARENT-EVALUATION-004'],
     ))
+    # Source refs are canonical R1 Artifacts, not implicit external URI
+    # shortcuts. The real TaskScheduler only promotes a registered Task to
+    # READY when *all* required input artifacts are VALID.
+    input_refs = truth.query("rc7_task", task_id="WI-DESIGN")[0]["input_artifact_refs"]
+    for ref in input_refs:
+        append_entity(truth, Artifact(
+            artifact_id=ref, mission_id="MISSION-C10",
+            artifact_type="upstream_evidence",
+            producer_task_id="WI-DESIGN",
+            content_ref="file://approved-source/" + ref,
+        ), release_id="REL-C10")
+    ready = control.scheduler.refresh_ready("MISSION-C10")
+    assert {task.task_id for task in ready} == {"WI-DESIGN"}
     leased = control.scheduler.lease_task(
         "MISSION-C10", "WI-DESIGN", worker_ref="worker-design", capabilities=(),
     )
