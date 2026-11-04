@@ -6,6 +6,7 @@ on:
       - work/rc7.2
     paths:
       - 'rc7_runtime/rc72_n7_tool_dispatch.py'
+      - 'rc7_runtime/rc72_n7_execution_evidence.py'
       - 'rc7_runtime/rc72_n7_cleanup.py'
       - 'rc7_runtime/rc72_captain_dispatch_fencing.py'
       - 'rc7_runtime/rc72_captain_scheduling.py'
@@ -19,6 +20,9 @@ on:
       - 'rc7_runtime/rc72_browser_resources.py'
       - 'rc7_runtime/rc72_capability_broker.py'
       - 'tests/test_rc72_n7_tool_dispatch.py'
+      - 'tests/test_rc72_n7_execution_evidence.py'
+      - 'tests/test_rc72_execution_process_heartbeat.py'
+      - 'tests/test_rc72_n7_finalization.py'
       - 'tests/test_rc72_n7_execution_preparation.py'
       - 'tests/test_rc72_n8_repair_boundary.py'
       - 'tests/test_rc72_captain_dispatch_fencing.py'
@@ -64,6 +68,7 @@ jobs:
           python -m py_compile
           rc7_runtime/rc72_truth_bootstrap.py
           rc7_runtime/rc72_n7_tool_dispatch.py
+          rc7_runtime/rc72_n7_execution_evidence.py
           rc7_runtime/rc72_n7_cleanup.py
           rc7_runtime/rc72_n7_execution_preparation.py
           rc7_runtime/rc72_n7_pipeline.py
@@ -76,6 +81,9 @@ jobs:
           rc7_runtime/rc72_capability_broker.py
           rc7_runtime/rc72_model_failover.py
           tests/test_rc72_n7_tool_dispatch.py
+          tests/test_rc72_n7_execution_evidence.py
+          tests/test_rc72_execution_process_heartbeat.py
+          tests/test_rc72_n7_finalization.py
           tests/test_rc72_n7_execution_preparation.py
           tests/test_rc72_n8_repair_boundary.py
           tests/test_rc72_captain_dispatch_fencing.py
@@ -87,6 +95,9 @@ jobs:
         run: >-
           python -m pytest -q
           tests/test_rc72_n7_tool_dispatch.py
+          tests/test_rc72_n7_execution_evidence.py
+          tests/test_rc72_execution_process_heartbeat.py
+          tests/test_rc72_n7_finalization.py
           tests/test_rc72_n7_execution_preparation.py
           tests/test_rc72_n8_repair_boundary.py
           tests/test_rc72_captain_dispatch_fencing.py

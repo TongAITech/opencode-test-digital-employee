@@ -254,3 +254,38 @@ def test_recalled_n8_compensation_grant_fails_closed_before_external_cleanup_io(
     finally:
         server.shutdown()
         server.server_close()
+
+
+
+def test_n8_cleanup_worker_ttl_expiry_between_precheck_and_io_is_denied(
+        tmp_path, monkeypatch):
+    """No compensation HTTP after cleanup-only TaskLease expires at its boundary."""
+    from rc6_runtime.authority import AuthorityError
+    import rc7_runtime.rc72_authority as scoped_authority
+
+    truth, prep, server, p, diagnosis, service, calls = _setup(
+        tmp_path, monkeypatch)
+    try:
+        original_authorize = service.authorize_cleanup
+        shifts = []
+        def expire_after_preflight(prepared, contract, phase, tool):
+            accepted = original_authorize(prepared, contract, phase, tool)
+            boundary = service._one(
+                'rc72_n8_repair_boundary',
+                preparation_id=prepared['preparation_id'])
+            expiry = boundary['cleanup_lease']['expires_at']
+            monkeypatch.setattr(scoped_authority.time, 'time',
+                                lambda: expiry)
+            shifts.append(expiry)
+            return accepted
+        monkeypatch.setattr(service, 'authorize_cleanup',
+                            expire_after_preflight)
+        with pytest.raises(AuthorityError, match='LEASE_EXPIRED'):
+            service.open(p['preparation_id'])
+        assert len(shifts) == 1
+        assert calls == [] and server.calls == []
+        assert truth.query('rc72_n7_cleanup_call') == []
+        assert {row['state'] for row in truth.query('rc72_data_lease')} == {'ACTIVE'}
+    finally:
+        server.shutdown()
+        server.server_close()

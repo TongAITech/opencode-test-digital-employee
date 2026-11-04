@@ -160,6 +160,36 @@ class ExecutionCleanupService:
                         or phase not in {'CLEANUP', 'VERIFY'}):
                     raise CleanupError('N8_CLEANUP_GRANT_CHANGED_BEFORE_EXTERNAL_IO')
                 boundary._check_old_node_versions(p, current_grant)
+                # A still-signed grant is not a still-live permission.
+                # Revalidate the *cleanup actor's own* HMAC TaskLease at this
+                # exact moment, not the suspended original N7 worker lease.
+                from rc6_runtime.authority import TaskLease, WorkerIdentity
+                identity = WorkerIdentity(**current_grant['cleanup_identity'])
+                scoped = dict(current_grant['cleanup_lease'])
+                for key in ('allowed_artifact_types', 'allowed_tools'):
+                    scoped[key] = tuple(scoped[key])
+                signed = TaskLease(**scoped)
+                boundary.preparation.authority.restore_signed_worker_lease(
+                    identity, signed,
+                    expected_scope='cleanup:%s/%s' %
+                    (p['preparation_id'], c['contract_sha256']))
+                boundary.preparation.authority.authorize_tool(
+                    identity.worker_id, signed.lease_id, tool)
+                worker_session = self.preparation._one(
+                    'rc72_worker_session', session_id=identity.session_id)
+                if (worker_session.get('state') != 'ACTIVE'
+                        or worker_session.get('worker_id') != identity.worker_id):
+                    raise CleanupError('N8_CLEANUP_ACTOR_CHANGED_BEFORE_EXTERNAL_IO')
+                for kind, key, refs in (
+                        ('rc72_data_lease', 'data_lease_id', p['data_lease_ids']),
+                        ('rc72_browser_lease', 'browser_lease_id', p['browser_lease_ids'])):
+                    for ref in refs:
+                        custody = self.preparation._one(kind, **{key: ref})
+                        if (custody.get('state') not in {'ACTIVE', 'EXPIRED'}
+                                or any(custody.get(k) != p[k] for k in (
+                                    'mission_id', 'workitem_id',
+                                    'attempt_id', 'worker_id'))):
+                            raise CleanupError('N8_CLEANUP_CUSTODY_CHANGED_BEFORE_EXTERNAL_IO')
             if self.truth.query(_KIND, call_id=call_id):
                 raise CleanupError('N7_CLEANUP_CALL_ALREADY_DURABLE_NO_REPLAY')
             directory = Path(str(self.truth.store.path) + '.n7-dispatch-claims')

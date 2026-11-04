@@ -16,13 +16,21 @@ from .rc72_n8_retry_continuation import DataRepairContinuationService
 
 
 class NativeN8ProductRecoveryService:
-    def __init__(self, n7):
+    def __init__(self, n7, *, capability_broker=None):
         if (not isinstance(n7, N7PipelineService)
                 or not isinstance(n7.diagnosis, ExecutionDiagnosisService)
                 or n7.diagnosis.preparation is not n7.preparation):
             raise ContractError('N8_PRODUCT_NATIVE_N7_AND_DIAGNOSIS_REQUIRED')
         self.n7, self.diagnosis, self.truth = n7, n7.diagnosis, n7.truth
         self.release_id, self.source_commit = n7.release_id, n7.source_commit
+        if capability_broker is not None:
+            from .rc72_capability_broker import CapabilityBroker
+            if (not isinstance(capability_broker, CapabilityBroker)
+                    or capability_broker.truth is not self.truth
+                    or capability_broker.release_id != self.release_id
+                    or capability_broker.authority is not n7.preparation.authority):
+                raise ContractError('N8_PRODUCT_CAPABILITY_BROKER_SCOPE_REQUIRED')
+        self.capability_broker = capability_broker
         # Reuse the same exact cleanup adapter as N7, but only through the
         # separately signed N8 repair-authority boundary.
         self.boundary = RepairBoundaryService(self.diagnosis, cleanup_adapters=n7.cleanup.adapters)
@@ -225,9 +233,24 @@ class NativeN8ProductRecoveryService:
                 preparation_id=p['preparation_id'],diagnosis_id=result['diagnosis_id'],
                 recovery_plan_id=plan['plan_id'],original_attempt_id=p['attempt_id'],
                 field_verified=False,bank_final=False)
-        # Capability/provider/flaky/other classification must be handled by
-        # an explicitly admitted, scoped provider. Never guess or fall through
-        # to N9, and never replay an original business operation.
+        if result['failure_class']=='CAPABILITY_GAP' and result.get('action')=='CAPABILITY_BROKER' and self.capability_broker is not None:
+            # A signed machine-proved absent executable is a specialist/approval
+            # request, NEVER an authorization to re-use the failed Worker.  The
+            # native Broker's replay-safe decision journal owns the exact
+            # Task/Attempt/Tool identity and forbids lease auto-grants that
+            # cannot physically install the tool.
+            decision=self.diagnosis.request_capability_recovery(
+                p['preparation_id'],broker=self.capability_broker)
+            return dict(status='HOLD',reason='N8_CAPABILITY_DECISION_RECORDED_TOOL_REPROBE_REQUIRED',
+                preparation_id=p['preparation_id'],diagnosis_id=result['diagnosis_id'],
+                failure_class='CAPABILITY_GAP',
+                capability_request_id=decision.request_id,
+                capability_decision=decision.decision.value,
+                delegate_role=decision.delegate_role,
+                physical_restoration_verified=False,
+                field_verified=False,bank_final=False)
+        # Provider/flaky/unknown capability policy needs a separate admitted
+        # native provider. Never guess and never replay the old business IO.
         return dict(status='HOLD',reason='N8_SCOPED_RECOVERY_PROVIDER_REQUIRED',
             preparation_id=p['preparation_id'],diagnosis_id=result['diagnosis_id'],
             failure_class=result['failure_class'],

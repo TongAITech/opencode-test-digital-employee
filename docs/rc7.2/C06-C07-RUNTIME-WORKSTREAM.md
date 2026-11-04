@@ -100,6 +100,14 @@ Source: `05` §§3,8,12,14,15,17,18,19,21,22; `10` C06/C07.
 - Added negative test for forged evidence reference, mismatched Worker ID, missing signer and raw R1 possible I/O introduced after the original signed negative check. No status label alone is treated as proof.
 - The product Captain construction path must supply the trusted runtime authority if it needs this safe-negative exception. Arbitrary generic Captain instances without signer deliberately cannot bypass the strict default.
 
+### Slice C06-U09 — N8 signed cleanup admission / permission expiry
+
+- `ExecutionCleanupService._call` now treats N8 signed cleanup as a separate scoped actor: after the original accepted `RepairBoundaryService.authorize_cleanup` preflight, the **last irreversible I/O admission** takes the shared OS/R1 ledger lock and rechecks the canonical same `boundary_id`, HMAC grant signature, `CLEANUP_AUTHORIZED` state, exact contract/phase and frozen N8 node versions.
+- Crucially, a still-signed boundary is not a still-valid Worker permission. The last check revalidates the **cleanup-only signed TaskLease at its exclusive `expires_at` boundary**, its exact `cleanup:<preparation>/<contract_sha256>` scope, live N8 cleanup WorkerSession, allowed tool, and unchanged ownership of all original Data/Browser leases (`ACTIVE` or recovery-held `EXPIRED`). The suspended original business TaskLease is **not** revived.
+- The R1 `IN_FLIGHT` intent is written under that same ledger lock. Permission changes after the precheck and before the intent stop the new HTTP/process call; a crash after intent remains an unknown-effect reconciliation case. This does not shorten the required N8 negative and repair process.
+- `tests/test_rc72_n8_repair_boundary.py` adds two controlled races: a signed recovery grant superseded between preflight and I/O, and a cleanup-only TaskLease expiring *at the exact second* before I/O. Both require **no cleanup HTTP invocation, no cleanup dispatch R1 receipt and no release of held test data**.
+- `.github/workflows/rc7.2-runtime-contracts.yml` now includes both the N7 cleanup production file and N8 repair boundary tests in trigger, compile and Windows/Linux Python3.8/3.11 actual pytest jobs. **Current status: TEST_SOURCE_COMMITTED / SAME_HEAD_CI_PENDING, not PASS or bank verified**.
+
 ### Slice C07-U03 — Provider failure and Fresh Worker failover fencing
 
 - `rc72_model_failover.py` now protects canonical readiness updates, provider failure recording and failover with the **same cross-process R1 ledger lock**. Two cold processes must not both create a fresh replacement Worker for one provider failure. This is the runtime's **model/provider namespace**, not a product SUT FAIL or Defect.

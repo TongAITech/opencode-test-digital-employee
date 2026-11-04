@@ -84,10 +84,22 @@ def test_real_formal_n7_pipeline_consumes_captain_fenced_fresh_worker_then_oracl
         sessions = truth.query("rc72_worker_session", mission_id=plan["mission_id"])
         admissions = truth.query("rc72_captain_etu_admission", mission_id=plan["mission_id"])
         preps = truth.query("rc72_n7_execution_preparation", mission_id=plan["mission_id"])
-        assert len(sessions) == len(plan["items"])
+        execution_sessions = [r for r in sessions if r.get("purpose") == "EXECUTION"]
+        review_sessions = [r for r in sessions if r.get("purpose") == "REVIEW"]
+        # Independent Evidence Review must have its own Worker/Session, so
+        # the total session denominator correctly exceeds the number of ETUs.
+        assert len(execution_sessions) == len(plan["items"])
+        assert len(review_sessions) == 1
+        assert len(sessions) == len(execution_sessions) + len(review_sessions)
         assert len(admissions) == len(plan["items"])
         assert len(preps) == len(plan["items"])
         assert len({r["session_id"] for r in admissions}) == len(admissions)
+        assert {r["session_id"] for r in execution_sessions} == {
+            a["session_id"] for a in admissions}
+        assert review_sessions[0]["session_id"] not in {
+            a["session_id"] for a in admissions}
+        assert review_sessions[0]["worker_id"] not in {
+            a["worker_id"] for a in admissions}
         for prep_row in preps:
             admission = next(x for x in admissions if x["admission_id"] == prep_row["captain_admission_id"])
             assert prep_row["worker_id"] == admission["worker_id"]
