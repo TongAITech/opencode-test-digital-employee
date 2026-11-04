@@ -56,6 +56,7 @@ class JourneyActionType(str, Enum):
     PRESS = "PRESS"
     HOVER = "HOVER"
     SCROLL_TO = "SCROLL_TO"
+    WHEEL = "WHEEL"
     DRAG = "DRAG"
     WAIT = "WAIT"
     ASSERT = "ASSERT"
