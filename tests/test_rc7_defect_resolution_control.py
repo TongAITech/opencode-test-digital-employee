@@ -38,16 +38,25 @@ DEFECT_ID = "DEFECT-RESOLUTION-1"
 ORIGINAL_TC = "TC-ORIGINAL-DEFECT"
 
 
-def _setup(tmp_path: Path):
-    truth = TruthRuntime(tmp_path / "r1.jsonl")
-    control = ClosedLoopControlPlane.bootstrap(
-        truth,
-        Mission(
-            mission_id=MISSION,
-            release_id=RELEASE,
-            goal="close a trusted product defect only after fix verification and impact regression",
-        ),
-    )
+def _setup(tmp_path: Path, *, existing_truth=None, existing_control=None):
+    # The actual N9 product path can feed its accepted native N7 R1 Mission
+    # into the inherited RC7 defect lifecycle: no second synthetic Mission.
+    if (existing_truth is None) != (existing_control is None):
+        raise ValueError("EXISTING_R1_AND_CONTROL_MUST_BE_PAIRED")
+    if existing_truth is None:
+        truth = TruthRuntime(tmp_path / "r1.jsonl")
+        control = ClosedLoopControlPlane.bootstrap(
+            truth,
+            Mission(
+                mission_id=MISSION,
+                release_id=RELEASE,
+                goal="close a trusted product defect only after fix verification and impact regression",
+            ),
+        )
+    else:
+        truth, control = existing_truth, existing_control
+        if control.truth is not truth or control.mission_id != MISSION or control.release_id != RELEASE:
+            raise ValueError("EXISTING_DEFECT_MISSION_SCOPE_CHANGED")
     qualification_eval = Evaluation(
         evaluation_id="EVAL-DEFECT-QUALIFIED",
         mission_id=MISSION,
@@ -336,6 +345,15 @@ def test_defect_closes_only_after_original_case_verification_and_distinct_regres
     assert evaluation["dimensions"]["impact_regression_passed"] is True
     assert control.scheduler.task(TASK_ID).state == TaskStatus.PASS
 
+    # No re-execution and no new R1 entries: durable proof is re-audited.
+    before = truth.store.path.read_bytes()
+    audited = resolution.audit_closed(control, DEFECT_ID)
+    assert audited["status"] == "VERIFIED_CLOSED"
+    assert audited["verification_artifact_id"] == verification.artifact_id
+    assert audited["regression_artifact_ids"] == [regression.artifact_id]
+    assert audited["closure_evaluation_id"] == result.evaluation_id
+    assert truth.store.path.read_bytes() == before
+
 
 def test_fix_revision_cannot_be_self_reported_without_matching_r1_evidence(tmp_path: Path):
     truth, control = _setup(tmp_path)
@@ -389,3 +407,71 @@ def test_failed_original_case_fix_verification_reopens_defect_and_keeps_product_
         if row.get("task_type") == resolution.IMPACT_REGRESSION_TASK_TYPE
     ]
     assert regression_tasks == []
+
+
+def test_unverified_closed_state_never_clears_defect_by_status_alone(
+        tmp_path: Path, monkeypatch):
+    truth, control = _setup(tmp_path)
+    query = truth.query
+    def forged(kind, **filters):
+        rows = query(kind, **filters)
+        if kind == "rc7_defect":
+            return [dict(row, state="CLOSED") for row in rows]
+        return rows
+    monkeypatch.setattr(truth, "query", forged)
+    before = truth.store.path.read_bytes()
+    with pytest.raises(DefectResolutionControlError, match="DEFECT_CLOSED"):
+        DefectResolutionControl().audit_closed(control, DEFECT_ID)
+    assert truth.store.path.read_bytes() == before
+
+
+@pytest.mark.parametrize("tamper", [
+    "gap_reopened", "closed_label_only", "missing_fix_revision_evidence",
+    "missing_confirmed_rca", "false_final_fix_verification",
+    "regression_evaluation_rewritten", "original_verification_attempt_reused",
+])
+def test_independent_closed_defect_audit_rejects_damaged_historical_r1(
+        tmp_path: Path, monkeypatch, tamper):
+    truth, control = _setup(tmp_path)
+    resolution, _ = _confirm_and_detect_fix(tmp_path, truth, control)
+    verification = _owned_execution(
+        tmp_path, control, artifact_id="ART-VERIFY-1",
+        attempt_id="ATT-VERIFY-1", tc_id=ORIGINAL_TC, passed=True,
+        task_type=resolution.FIX_VERIFICATION_TASK_TYPE)
+    resolution.accept_fix_verification(control, DEFECT_ID,
+                                      verification_artifact_id=verification.artifact_id)
+    regression = _owned_execution(
+        tmp_path, control, artifact_id="ART-REGRESSION-1",
+        attempt_id="ATT-REGRESSION-1", tc_id="TC-IMPACT-REGRESSION",
+        passed=True, task_type=resolution.IMPACT_REGRESSION_TASK_TYPE)
+    resolution.close_after_verification(
+        control, DEFECT_ID, verification_artifact_id=verification.artifact_id,
+        regression_artifact_ids=[regression.artifact_id])
+    before = truth.store.path.read_bytes()
+    assert resolution.audit_closed(control, DEFECT_ID)["status"] == "VERIFIED_CLOSED"
+    query = truth.query
+    def modified(kind, **filters):
+        rows = query(kind, **filters)
+        result = []
+        for row in rows:
+            current = dict(row)
+            if tamper == "gap_reopened" and kind == "rc7_gap" and row.get("gap_id") == GAP_ID:
+                current["state"] = "REPAIRING"
+            elif tamper == "closed_label_only" and kind == "rc7_defect":
+                current["root_cause_hypothesis"] = None
+            elif tamper == "missing_fix_revision_evidence" and kind == "rc7_evidence" and row.get("kind") == "FIX_REVISION_EVIDENCE":
+                continue
+            elif tamper == "missing_confirmed_rca" and kind == "rc7_evaluation" and row.get("evaluator_ref") == resolution.CONFIRM_EVALUATOR:
+                continue
+            elif tamper == "false_final_fix_verification" and kind == "rc7_evaluation" and row.get("evaluator_ref") == resolution.CLOSE_EVALUATOR:
+                current["dimensions"] = dict(row["dimensions"], fix_verified=False)
+            elif tamper == "regression_evaluation_rewritten" and kind == "rc7_evaluation" and row.get("evaluator_ref") == resolution.CLOSE_EVALUATOR:
+                current["dimensions"] = dict(row["dimensions"], regression_case_ids=[])
+            elif tamper == "original_verification_attempt_reused" and kind == "rc7_defect":
+                current["execution_attempt_ids"] = list(row["execution_attempt_ids"]) + ["ATT-VERIFY-1"]
+            result.append(current)
+        return result
+    monkeypatch.setattr(truth, "query", modified)
+    with pytest.raises(DefectResolutionControlError, match="DEFECT_CLOSED"):
+        resolution.audit_closed(control, DEFECT_ID)
+    assert truth.store.path.read_bytes() == before
