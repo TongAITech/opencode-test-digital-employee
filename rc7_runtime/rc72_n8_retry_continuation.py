@@ -154,7 +154,10 @@ class DataRepairContinuationService:
                                for item in plan[0].get('items', []))
                     or original.get('data_requirement_id')
                        != row.get('data_requirement_id')
-                    or original.get('case_id') != row.get('case_id')
+                    # Canonical N5DataBinding is keyed by requirement and
+                    # immutable Case digest; it intentionally has NO case_id.
+                    or original.get('source_case_sha256')
+                       != row.get('source_case_sha256')
                     or len(requirement) != 1
                     or requirement[0].get('case_id') != row.get('case_id')
                     or requirement[0].get('source_case_sha256')
