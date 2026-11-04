@@ -308,6 +308,7 @@ def test_bsk_dom_oracle_rejects_ambiguous_element_even_if_first_matches(tmp_path
     ("PRESS", {"key": "Enter"}, "press"),
     ("HOVER", {}, "hover"),
     ("SCROLL_TO", {}, "scroll-to"),
+    ("WHEEL", {"delta_x": -20, "delta_y": 500}, "wheel"),
     ("DRAG", {"target_ref": "css:#drop-zone"}, "drag"),
 ])
 def test_bsk_native_executes_non_happy_path_keyboard_hover_scroll_drag(
@@ -337,6 +338,8 @@ def test_bsk_native_executes_non_happy_path_keyboard_hover_scroll_drag(
         assert params == {
             "source": {"selector": "#source"},
             "target": {"selector": "#drop-zone"}}
+    elif action == "WHEEL":
+        assert params == {"selector": "#source", "delta_x": -20, "delta_y": 500}
     else:
         assert params == {"selector": "#source"}
 
@@ -472,3 +475,21 @@ def test_bsk_requires_external_session_authority_at_construction(tmp_path):
             session_receipt_verifier=None,
             reference_resolver=lambda ref, kind, ctx: None,
             runner=TestBSK())
+
+
+def test_bsk_wheel_does_not_dispatch_unsafe_unbounded_coordinates(tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    cli = TestBSK()
+    adapter = _adapter(pool, tmp_path, cli)
+    step = dict(truth.query(
+        "rc72_journey_candidate", candidate_id="JC-1")[0]["steps"][0])
+    step.update(action_type="WHEEL", element_ref="css:#panel",
+                delta_x=0, delta_y=500000)
+    actual = adapter.execute_step(step, {
+        "replay_id": "BSK-WHEEL-UNSAFE", "mission_id": "M-1",
+        "workitem_id": "WI-R1", "attempt_id": "ATT-R1",
+        "worker_id": "WORKER-R1", "session_id": "SESSION-R1",
+        "browser_lease_id": lease.browser_lease_id})
+    assert actual["status"] == "FAILED"
+    assert actual["failure_code"] == "JOURNEY_BSK_WHEEL_DELTA_INVALID"
+    assert not any("step" in c for c in cli.calls)
