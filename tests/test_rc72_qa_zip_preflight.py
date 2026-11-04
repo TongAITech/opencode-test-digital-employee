@@ -111,3 +111,22 @@ def test_zip_file_cannot_be_parent_of_another_path_on_windows(tmp_path, names):
     archive = _make(tmp_path, [(EXPECTED_ROOT + "/" + name, b"data") for name in names])
     with pytest.raises(UnsafeArchiveError, match="WINDOWS_FILE_DIRECTORY_COLLISION"):
         inspect_zip(archive)
+
+
+
+@pytest.mark.parametrize("entry_name,unix_mode,reason", [
+    ("device", stat.S_IFCHR | 0o600, "SPECIAL_FILE_FORBIDDEN"),
+    ("fifo", stat.S_IFIFO | 0o600, "SPECIAL_FILE_FORBIDDEN"),
+    ("dir-mode-on-file", stat.S_IFDIR | 0o700, "DIRECTORY_TYPE_MISMATCH"),
+    ("file-mode-on-dir/", stat.S_IFREG | 0o600, "DIRECTORY_TYPE_MISMATCH"),
+])
+def test_unix_special_types_and_conflicting_file_directory_modes_rejected(
+        tmp_path, entry_name, unix_mode, reason):
+    archive = tmp_path / "unsafe-unix-mode.zip"
+    entry = zipfile.ZipInfo(EXPECTED_ROOT + "/" + entry_name)
+    entry.create_system = 3
+    entry.external_attr = unix_mode << 16
+    with zipfile.ZipFile(str(archive), "w") as writer:
+        writer.writestr(entry, b"")
+    with pytest.raises(UnsafeArchiveError, match=reason):
+        inspect_zip(archive)
