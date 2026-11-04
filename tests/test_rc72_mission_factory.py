@@ -298,3 +298,44 @@ def test_release_product_entry_requires_exact_live_captain_authority(
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_release_product_entry_rejects_exact_expired_captain_after_cold_reconstruction(
+        tmp_path, monkeypatch):
+    """TTL expiry persists in R1; rebuilding the host cannot resurrect dispatch."""
+    from rc7_runtime.rc72_captain_dispatch_fencing import CaptainDispatchFencer
+    from rc72_formal_runner_support import formal_setup
+    truth, plan, preparation, server, url = formal_setup(tmp_path, monkeypatch)
+    try:
+        fencer = CaptainDispatchFencer(truth, release_id=RELEASE)
+        owner = fencer.acquire_initial(
+            mission_id=plan['mission_id'], team_id='TEAM-TTL-REAL',
+            captain_session_id='CAPTAIN-TTL-REAL', ttl_seconds=3)
+        binding = replace(
+            _real_captain_binding(truth),
+            captain_session_id=owner['captain_session_id'],
+            captain_lease_id=owner['lease_id'],
+            team_id=owner['team_id'])
+        _, options = _setup(tmp_path, truth)
+        options['captain_binding'] = binding
+        driver = create_mission_driver(truth, **options)
+        assert driver._assert_captain_product_entry(plan['mission_id']) is None
+        # The exact exclusive expiry second must not authorize more work.
+        monkeypatch.setattr(
+            'rc7_runtime.rc72_captain_dispatch_fencing._now',
+            lambda: owner['expires_at'])
+        with pytest.raises(ContractError, match='CAPTAIN_DISPATCH_LEASE_EXPIRED'):
+            driver._assert_captain_product_entry(plan['mission_id'])
+        assert not server.calls
+        latest = truth.query('rc72_captain_dispatch_lease', lease_id=owner['lease_id'])
+        assert len(latest) == 1 and latest[0]['state'] == 'EXPIRED'
+        before = truth.store.path.read_bytes()
+        rebuilt = create_mission_driver(truth, **options)
+        with pytest.raises(ContractError, match='CAPTAIN_DISPATCH_NOT_ACTIVE'):
+            rebuilt._assert_captain_product_entry(plan['mission_id'])
+        assert truth.store.path.read_bytes() == before
+        assert not truth.query('rc72_n7_execution_preparation')
+        assert not server.calls
+    finally:
+        server.shutdown()
+        server.server_close()
