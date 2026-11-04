@@ -71,6 +71,24 @@ class NativeN10ControlService:
             if rerun_result.get('status')=='HOLD':
                 return dict(status='HOLD',reason='N10_COVERAGE_RERUN_REQUIRED',rerun=rerun_result,
                     manifest_id=frozen['manifest_id'],field_verified=False,bank_final=False)
+        # After a successful physical N7 rerun and closure of its repair
+        # boundaries, subsequent hot/cold turns have no *active* repairs.
+        # Restore only the currently accepted, signed historical rerun proof:
+        # dropping its identifier would make an unchanged R1 mission response
+        # non-idempotent, while trusting an unsigned ID would be unsafe.
+        if not active and self.rerun is not None:
+            historical=self.truth.query('rc72_native_coverage_rerun',release_batch_id=release_batch_id)
+            if historical:
+                current_gate=self.rerun._active_n7_gate(batch['mission_id'])
+                matches=[row for row in historical if row.get('state')=='N7_PASS'
+                    and row.get('fresh_n7_gate_id')==current_gate]
+                if len(matches)>1:
+                    raise ContractError('N10_HISTORICAL_RERUN_NOT_UNIQUE')
+                if matches:
+                    accepted=self.rerun._audit_pass(self.rerun._signed(matches[0]))
+                    if accepted.get('gate_id')!=current_gate or accepted.get('rerun_id')!=matches[0]['rerun_id']:
+                        raise ContractError('N10_HISTORICAL_RERUN_PROOF_CHANGED')
+                    rerun_result=accepted
         n9=self.n9.complete(release_batch_id=release_batch_id)
         if n9.get('status')=='HOLD':return n9
         node=self.measurement._one('rc72_mission_node',mission_id=batch['mission_id'],node_type='N10_RELEASE_CONVERGENCE')
