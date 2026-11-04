@@ -83,7 +83,7 @@ class TestBSK:
         raise AssertionError("Unexpected BrowserSkill command: " + repr(argv))
 
 
-def _adapter(pool, tmp_path, runner):
+def _adapter(pool, tmp_path, runner, *, mobile_device=None, mobile_orientation='portrait'):
     def resolver(ref, kind, context):
         if kind == "oracle" and ref == "oracle://success-toast":
             return {"type": "text_equals", "element_ref": "css:#toast",
@@ -116,12 +116,14 @@ def _adapter(pool, tmp_path, runner):
         session_resolver=owned_session,
         session_receipt_verifier=lambda ownership, scope, instance: (
             ownership.get("source_receipt_ref") == "r1://bsk-session-binding"),
-        reference_resolver=resolver)
+        reference_resolver=resolver,
+        mobile_device=mobile_device, mobile_orientation=mobile_orientation)
 
 
-def _replay(tmp_path, runner):
+def _replay(tmp_path, runner, *, mobile_device=None, mobile_orientation='portrait'):
     truth, pool, lease, _, _ = replay_setup(tmp_path)
-    adapter = _adapter(pool, tmp_path, runner)
+    adapter = _adapter(pool, tmp_path, runner, mobile_device=mobile_device,
+                       mobile_orientation=mobile_orientation)
     service = JourneyReplayService(
         truth, release_id="RC7.2", browser_pool=pool, adapter=adapter)
     result = service.replay(
