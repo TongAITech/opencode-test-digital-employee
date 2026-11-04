@@ -72,3 +72,18 @@ BSK 二进制路径以整包清单为准；脚本自动定位 `workspace-templat
 - 如 BSK DebugRecord 只包含不完整的操作前页面状态，或者一次 poll 有多项未消费操作，不能补猜操作或把最后一页截图冒充前一步 Evidence；应 BLOCK 并通过新 Attempt 重试，保留诊断记录。
 
 **最新尚未完成事项**：A 将 PR #13 合入正式 N6/N7 ToolDispatch、B 提供真实签名验证器与 4A Session/Tab 权威资产、E 验证最新集成 SHA 的 CI 与完整 Windows 离线包和真实 PCC Field。只有三方证据齐全才能把本文件的状态从 `PRODUCT_INTEGRATION_PENDING / FIELD_PENDING` 核销。
+
+## 八、C09 收尾核销增量：原生 BSK 协议、授权与业务真值
+
+1. **真实 BrowserSkill 协议校对**：已按 Tencent BrowserSkill CLI 的 DebugRecording v1、`cooperate sync`、`step`、`evaluate`、`screenshot` 参数/回执收紧；严格协作产生的 `context_id` 必须真正随 `--context` 传给 `step/evaluate`，实际结果的 tab_id 不能和 B BrowserPool 绑定标签页不一致。导航后必须真实读取 URL，4A 重定向到登录页面不能判业务通过。截图必须匹配 PNG CRC/SHA、宽高、tab，禁止 capture_unavailable。
+2. **独立 B 组 Session Authority 强制接入**：`JourneyBSKAdapter` 与 `BSKJourneyTeachingImporter` 都要求 `session_receipt_verifier`，不能再拿调用方自填的 `source_receipt_ref` 和匹配字段作为授权真相。A/B 将此方法接到真实 B/DSH/BrowserPool R1 签名租约并核查吊销；CI lambda 只是测试替身。真人教学启动、每一次操作、截屏后、导入前均需完整校验，未接权威服务要失败。
+3. **断电/重启前置 Intent**：`JourneyBSKAdapter` 在 BSK 真实动作前用独占文件 `dispatch-intent.json` 写入+fsync；既有未决意图（即使无 Actual/PNG）一律不重执，同一 Attempt 冷重启进入副作用诊断并保留原文件。这是对正式 N7 原有 IN_FLIGHT/Claim 双重保护的补充，而不是替代 N7 全局 Fence。
+4. **原生 BSK 操作完整度**：IR 已包含 CLICK/NAVIGATE/FILL/SELECT/PRESS/HOVER/SCROLL_TO/DRAG/WHEEL，按 BSK 源码真实支持 `tool.scroll_to` 以及限定范围的 wheel Delta；按键受白名单限制，跨对象/页面的操作需稳定 selector。对 BSK 不可安全回放的原生手势明确 BLOCK，不编造动作。
+5. **业务 Oracle 不是 HTTP200**：`JourneyBSKAdapter` 新增外部 `business_oracle_verifier` + `trusted_business_verifier_kinds`。对于 `type=backend_state`，需使用独立 API/DB/CAT 业务状态查询，证明当前 Mission/ReleaseBatch/Requirement/SST/Obligation/Case/Attempt/BrowserLease/BusinessRule 与 `expected` 匹配，并返回 `source_kind`、已验签的 verifier_kind、有效 `observed_at`、真实 evidence_refs；原有仅有 BSK 请求时间窗/HTTP200 的 `network_status` 仍 FAIL_CLOSED。外部校验器由 A/B 绑定实际 PCC 系统与现有 CAT/TDSQL/接口路由技能，C09 合成测试不可冒充行内业务证据。
+6. **真实运行版本提醒**：A/B 打整包应与 `rc7_release/runtime_payload_materializer.py` 物料对应的 BSK CLI + Extension + DSH 插件配套版本执行原生 `debug capabilities` 实测；这份 C09 工程实现只基于公开 BrowserSkill 协议审计，必须以**打包版本在行内真实输出**为准。
+
+### 会话 A 的具体 N7 注入边界
+
+在 B 组 `rc7_runtime/rc72_n7_tool_dispatch.py` 现有 `N7ToolDispatch(preparation, adapters=...)` 初始化时，A 统一注册 `adapters["journey_bsk"] = SignedN7OfficialBSKAdapter(OfficialJourneyExecutionService(..., adapter=JourneyBSKCertifiedFieldAdapter(...)))`，并保证 C09 的 `journey_bsk` 在 N6 冻结合同、Worker allowed_tools、浏览器租约、清理/验证工具 allowlist 中存在。不得借用 `journey_playwright`，也不得绕开正式 N7 dispatcher 直接调用 Official service。必须调用 B 的真正 SessionResolver、外部 SessionVerifier、Field 证明校验器和 API/DB/CAT BusinessOracleVerifier；否则不给出 Field PASS。
+
+**工程测试**：`tests/test_rc72_journey_bsk_native_adapter.py` 新增后端独立业务证据和正式 N7 回归，`tests/test_rc72_journey_bsk_full_chain_contract.py` 保持模拟完整链验证，`tests/test_rc72_journey_bsk_field_attestation.py` 核实外部签名门槛。只有 PR #13 最新同 SHA CI 全绿、A/B 产品接线、E 独立现场验收才可从 ENGINEERING_CANDIDATE 提升为 CLOSED。
