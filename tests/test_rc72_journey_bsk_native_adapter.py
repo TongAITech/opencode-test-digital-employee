@@ -633,3 +633,55 @@ def test_bsk_backend_oracle_without_a_b_external_trust_cannot_pass(tmp_path):
         "rc72_journey_replay_step", replay_id="BSK-BACKEND-BUSINESS")
     assert rows[-1]["failure_code"] == (
         "JOURNEY_BSK_BACKEND_BUSINESS_ORACLE_AUTHORITY_REQUIRED")
+
+
+def test_official_n7_backend_business_oracle_requires_independent_api_db_evidence(tmp_path):
+    runner = TestBSK()
+    truth, pool, lease, _, _ = official_setup(tmp_path)
+    adapter = _adapter(pool, tmp_path, runner)
+    original = adapter.resolve
+
+    def resolver(ref, kind, ctx):
+        if kind == "oracle" and ref == "oracle://success-toast":
+            return {"type": "backend_state",
+                    "business_rule_ref": "pcc://saved-row-effective",
+                    "expected": "CONFIG_PERSISTED"}
+        return original(ref, kind, ctx)
+
+    def external_api_db(oracle, ctx):
+        return {
+            "oracle_ref": "oracle://success-toast",
+            "business_rule_ref": "pcc://saved-row-effective",
+            "mission_id": ctx["mission_id"],
+            "release_batch_id": ctx["release_batch_id"],
+            "requirement_id": ctx["requirement_id"],
+            "sst_id": ctx["sst_id"],
+            "obligation_id": ctx["obligation_id"],
+            "case_id": ctx["case_id"],
+            "attempt_id": ctx["attempt_id"],
+            "browser_lease_id": ctx["browser_lease_id"],
+            "verifier_kind": "TEST_BANK_INDEPENDENT_DB",
+            "signature_verified": True,
+            "source_kind": "INDEPENDENT_DB_STATE",
+            "observed_state": "CONFIG_PERSISTED",
+            "matched": True, "observed_at": int(time.time()),
+            "evidence_refs": ["r1://official-config-row-snapshot"],
+        }
+
+    adapter.resolve = resolver
+    adapter.business_oracle_verifier = external_api_db
+    adapter.trusted_business_verifier_kinds = {"TEST_BANK_INDEPENDENT_DB"}
+    service = OfficialJourneyExecutionService(
+        truth, release_id="RC7.2", browser_pool=pool, adapter=adapter)
+    result = official_run(service, lease, execution_id="OJ-BSK-DB-ORACLE")
+    assert result.state.value == "PASSED"
+    rows = sorted(truth.query(
+        "rc72_official_journey_execution_step",
+        execution_id="OJ-BSK-DB-ORACLE"),
+        key=lambda row: row["sequence"])
+    assert rows and all(row["status"] == "PASSED" for row in rows)
+    assert "r1://official-config-row-snapshot" in rows[1]["evidence_refs"]
+    actual = json.loads(Path(rows[1]["actual_refs"][0][7:]).read_text())
+    assert "r1://official-config-row-snapshot" in actual["business_oracle_evidence_refs"]
+    assert truth.query("rc72_official_journey_execution",
+                       execution_id="OJ-BSK-DB-ORACLE")[0]["field_verified"] is False
