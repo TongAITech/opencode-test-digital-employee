@@ -843,17 +843,32 @@ def test_forged_or_expired_real_lease_never_runs_shared_model_batch(tmp_path):
 
     truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
     signed = assignment.lease
+    real_identity = assignment.identity
+    real_worker = assignment.worker_instance_id
     assignment.lease = replace(signed, signature="0" * len(signed.signature))
-    with pytest.raises(NativeBatchAuthorityError, match="SIGNED_LEASE_DENIED"):
+    with pytest.raises(NativeBatchAuthorityError, match="SIGNED_REGISTRY_MISMATCH"):
         _dispatch(truth, batch, execution, assignment)
     assert execution.execute_count == 0
     assert truth.query("rc72_execution_batch_receipt", mission_id=MISSION) == []
 
-    assignment.lease = replace(signed, expires_at=1)
+    # Distinguish a REAL issuer-signed but genuinely expired lease from a
+    # forged timestamp. Both must fail, for independent reasons.
+    expired_identity = _TEST_AUTHORITY.issue_identity(
+        "L3_EXECUTE", "N7_EXECUTION", None, 0, "expired-worker-session",
+    )
+    expired_lease = _TEST_AUTHORITY.issue_lease(
+        expired_identity.worker_id, assignment.scope, (),
+        ("approved-real-tool",), ttl_seconds=-10,
+    )
+    assignment.identity = expired_identity
+    assignment.lease = expired_lease
+    assignment.worker_instance_id = expired_identity.worker_id
     with pytest.raises(NativeBatchAuthorityError, match="SIGNED_LEASE_DENIED"):
         _dispatch(truth, batch, execution, assignment)
     assert execution.execute_count == 0
 
+    assignment.identity = real_identity
+    assignment.worker_instance_id = real_worker
     assignment.lease = signed
     assignment.allowed_tools = ("approved-real-tool", "unauthorized-extra-tool")
     with pytest.raises(NativeBatchAuthorityError, match="SIGNED_CAPABILITY_SCOPE_MISMATCH"):
