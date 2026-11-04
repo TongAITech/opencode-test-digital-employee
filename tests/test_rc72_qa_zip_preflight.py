@@ -18,7 +18,7 @@ def _make(tmp_path, members):
     # adversarial names. Rebuild the local/central header bytes when needed.
     # This does not weaken the production preflight; it fixes the ZIP fixture.
     with zipfile.ZipFile(str(path), "r") as archive:
-        stored_names = archive.namelist()
+        stored_names = [entry.orig_filename for entry in archive.infolist()]
     assert len(stored_names) == len(members)
     raw = path.read_bytes()
     for (requested, _), observed in zip(members, stored_names):
@@ -31,7 +31,7 @@ def _make(tmp_path, members):
     if raw != path.read_bytes():
         path.write_bytes(raw)
     with zipfile.ZipFile(str(path), "r") as archive:
-        assert archive.namelist() == [name for name, _ in members], (
+        assert [entry.orig_filename for entry in archive.infolist()] == [name for name, _ in members], (
             "ZIP_TEST_DID_NOT_PRESERVE_ADVERSARIAL_MEMBER_NAMES"
         )
     return path

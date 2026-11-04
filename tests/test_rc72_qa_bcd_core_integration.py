@@ -75,3 +75,41 @@ def test_qa_ac_formal_n7_registers_signed_bsk_official_asset_dispatch(tmp_path):
     assert truth.store.path.read_bytes() == before, (
         "C09 product composition must not append fictitious PASS/field evidence"
     )
+
+
+
+def test_qa_ac_full_c09_join_preserves_network_lineage_and_after_action_authority():
+    """Both A's last-I/O lease fence and C's per-request provenance must survive."""
+    from rc7_runtime.rc72_journey_playwright import JourneyPlaywrightAdapter
+    from rc7_runtime.rc72_official_journey_execution import OfficialJourneyExecutionService
+
+    assert hasattr(JourneyPlaywrightAdapter, "_track_network"), (
+        "C09 A/C MERGE P0: persistent request-origin network proof was lost; "
+        "per-step 200 response can be falsely attributed to a different action"
+    )
+    executed = _calls_of(JourneyPlaywrightAdapter.execute_step)
+    assert _method_call(executed, "_track_network"), (
+        "C09 A/C MERGE P0: CDP replay never attaches the tracked-page request-origin listener"
+    )
+    action_calls = [
+        (node.lineno, node.func.attr)
+        for node in _calls_of(JourneyPlaywrightAdapter._action)
+        if isinstance(node.func, ast.Attribute) and node.func.attr in {"_guard", "_wait"}
+    ]
+    guards = [line for line, method in action_calls if method == "_guard"]
+    waits = [line for line, method in action_calls if method == "_wait"]
+    assert guards and waits and min(guards) < min(waits), (
+        "C09 A/C MERGE P0: BrowserPool lease/identity must be checked AFTER "
+        "the user action and BEFORE optional CDP networkidle wait or assertion"
+    )
+    official = _calls_of(OfficialJourneyExecutionService.execute)
+    assert any(
+        isinstance(call.func, ast.Attribute)
+        and call.func.attr == "_field_verified"
+        and any(isinstance(arg, ast.Name) and arg.id == "field_scope" for arg in call.args)
+        for call in official
+    ), (
+        "C09 A/C MERGE P0: official BSK field attestation must be scoped to "
+        "current ReleaseBatch/Case/Attempt/Worker/Session/BrowserLease, "
+        "never use unscoped _field_verified() after merge"
+    )

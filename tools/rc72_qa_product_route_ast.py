@@ -21,9 +21,15 @@ def _n8_condition(node):
         left, right = right, left
     if not isinstance(right, ast.Constant) or right.value != "N8_DIAGNOSIS_RECOVERY":
         return False
+    # Python 3.8 wraps Subscript.slice in ast.Index. Python 3.9+ uses
+    # ast.Constant directly. This is an AST schema difference, NOT a reason
+    # to weaken the active N8 equality or owned native N8 call checks.
+    subscript_index = left.slice if isinstance(left, ast.Subscript) else None
+    if isinstance(subscript_index, ast.Index):
+        subscript_index = subscript_index.value
     return (isinstance(left, ast.Name) and left.id in {"node_type", "current_node_type"}
-            or isinstance(left, ast.Subscript) and isinstance(left.slice, ast.Constant)
-            and left.slice.value == "node_type")
+            or isinstance(left, ast.Subscript) and isinstance(subscript_index, ast.Constant)
+            and subscript_index.value == "node_type")
 
 
 def _owned_n8_call(statement):
