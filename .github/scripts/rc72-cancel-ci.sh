@@ -7,7 +7,7 @@ log="/tmp/rc72-ci-cancel.log"
 exec > >(tee -a "$log") 2>&1
 echo "=== RC7.2 CI queue rescue ==="
 echo "Repository: $repo"
-echo "Scope: work/rc7.2 and work/rc7.2-* ONLY (never RC8 or main)"
+echo "Scope: work/rc7.2* plus obsolete main batch canceller ONLY (never RC8)"
 if ! command -v gh >/dev/null 2>&1; then
   echo "ERROR: GitHub CLI is unavailable in this Codespace"; exit 2
 fi
@@ -21,7 +21,7 @@ get_active() {
   : > "$target"
   for status in queued pending waiting requested in_progress; do
     echo "Scanning status: $status"
-    if ! gh api --paginate "repos/$repo/actions/runs?status=$status&per_page=100" --jq '.workflow_runs[] | select((.head_branch // "") | test("^work/rc7\\.2($|-)")) | .id' >> "$target"; then
+    if ! gh api --paginate "repos/$repo/actions/runs?status=$status&per_page=100" --jq '.workflow_runs[] | select(((.head_branch // "") | test("^work/rc7\\.2($|-)")) or ((.head_branch // "") == "main" and (.name // "") == "RC7.2 One-Time Batch Cancel")) | .id' >> "$target"; then
       echo "ERROR: API listing failed for status $status"; return 1
     fi
   done
