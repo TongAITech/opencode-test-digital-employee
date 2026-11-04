@@ -64,3 +64,30 @@ jobs:
           tests/test_rc72_evaluator_amplification_contract.py
           tests/test_rc72_cost_window_product_wiring.py
           tests/test_rc72_phase7_model_failover_contract.py
+
+  c10-integrated-rc7-source-with-chromium:
+    name: C10 integrated RC7 source + real Chromium CDP
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install RC7 test runner and real C09 browser client
+        run: >-
+          python -m pip install --disable-pip-version-check
+          pytest playwright==1.62.1
+      - name: Install actual Chromium and required host dependencies
+        run: python -m playwright install --with-deps chromium
+      - name: Compile inherited and new RC7/C10 source
+        run: python -m compileall -q rc6_runtime rc7_runtime rc7_release
+      - name: Run COMPLETE RC7 source suite (including real CDP), no skips by C10
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find tests -maxdepth 1 -type f -name 'test_rc7*.py' -print | sort)
+          test "${#tests[@]}" -gt 0
+          printf 'Complete RC7 suite (%s files):\n' "${#tests[@]}"
+          printf ' - %s\n' "${tests[@]}"
+          python -m pytest -q "${tests[@]}"
