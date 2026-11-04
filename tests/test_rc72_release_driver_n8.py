@@ -82,3 +82,71 @@ def test_release_driver_non_bypass_n8_uses_real_n7_failed_http_and_immutable_att
         assert truth.query('execution_attempt')==original_attempts
     finally:
         server.shutdown();server.server_close()
+
+
+def test_release_driver_routes_real_physical_tool_absence_through_signed_n8_policy_without_io(
+        tmp_path, monkeypatch):
+    """C03 product route: N1..N6 approved Case, real failed probe, N8 and broker."""
+    import test_rc72_release_driver as n1_source
+    from rc7_runtime.rc72_capability_broker import (
+        CapabilityBroker, CapabilityDecision, CapabilityPolicyRule)
+    from test_rc72_n8_execution_diagnosis import _MissingExecutableEnvironment
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), _Handler)
+    server.calls, server.restored, server.allowed_data_refs, server.precondition_ready = [], True, set(), True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = 'http://127.0.0.1:%d' % server.server_address[1]
+    original = n1_source._binding
+
+    def binding():
+        value = original()
+        value['endpoint']['url'] = url + '/config/query'
+        profile = _profile(url, value['environment'])
+        value['environment'].update(target_profile=profile, deployed_release_id=RELEASE)
+        value['authoritative_sources'] += [fact['source_ref'] for fact in profile['facts']]
+        return value
+
+    monkeypatch.setattr(n1_source, '_binding', binding)
+    try:
+        truth, driver, calls = _n5_driver(tmp_path, materialized=True, runner_root=tmp_path/'qualified')
+        staged = driver.run(release_batch_id=BATCH)
+        assert staged['reason'] == 'NATIVE_PRODUCT_ROUTE_NOT_IMPLEMENTED'
+        design = CanonicalDesignService(truth, release_id=RELEASE, source_commit=COMMIT).load(release_batch_id=BATCH)
+        contracts = truth.query('rc72_n6_executable_contract')
+        server.allowed_data_refs = {row['data_ref'] for contract in contracts for row in contract['data_refs']}
+        for case in design.cases:
+            contract = next(c for c in contracts if c['case_id'] == case['tc_id'])
+            _qualify(tmp_path/'qualified'/case['tc_id'], case, contract)
+        root = tmp_path/'actual-capability-proof'
+        authority = RC72AuthorityRuntime(b'product-capability-owner-original')
+        prep = ExecutionPreparationService(truth, release_id=RELEASE, source_commit=COMMIT,
+            authority=authority, tool_registry={'api_http': ['api_http']})
+        runner = FormalN7RunnerAdapter(prep, evidence_root=root,
+            environment_adapter=_MissingExecutableEnvironment(url, root),
+            execution_env={'RC72_OUTPUT_ROOT': str(root)}, timeout_seconds=30)
+        driver.n7_pipeline = N7PipelineService(prep, runner=runner,
+            capture_root=tmp_path/'capability-captured')
+        broker = CapabilityBroker(truth, release_id=RELEASE, authority=authority,
+            policies={'api_http': CapabilityPolicyRule(CapabilityDecision.HUMAN_GATE)})
+        driver.n8_pipeline = NativeN8ProductRecoveryService(
+            driver.n7_pipeline, capability_broker=broker)
+        result = driver.run(release_batch_id=BATCH)
+        assert result['status'] == 'HOLD'
+        assert result['reason'] == 'N8_CAPABILITY_DECISION_RECORDED_TOOL_REPROBE_REQUIRED'
+        assert result['capability_decision'] == 'HUMAN_GATE'
+        assert result['physical_restoration_verified'] is False
+        assert result['field_verified'] is result['bank_final'] is False
+        assert truth.query('rc72_diagnosis_outcome')[0]['failure_class'] == 'CAPABILITY_GAP'
+        assert truth.query('rc72_n8_process_diagnosis')[0]['result']['affected_refs'] == ['api_http']
+        assert len(truth.query('rc72_capability_request')) == 1
+        assert len(truth.query('execution_attempt')) == 1
+        assert not truth.query('rc72_capability_lease')
+        assert not truth.query('rc7_defect')
+        assert server.calls == []
+        before, old_calls = truth.store.path.read_bytes(), len(calls)
+        assert driver.run(release_batch_id=BATCH) == result
+        assert truth.store.path.read_bytes() == before
+        assert len(calls) == old_calls and server.calls == []
+    finally:
+        server.shutdown()
+        server.server_close()

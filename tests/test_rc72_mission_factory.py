@@ -230,6 +230,43 @@ def test_factory_denies_unowned_or_partial_captain_without_r1_effects(tmp_path, 
     assert truth.store.path.read_bytes() == before
     assert not truth.query('execution_attempt')
 
+def test_factory_c03_product_wires_native_capability_broker_without_grant(tmp_path):
+    from rc7_runtime.rc72_capability_broker import CapabilityBroker, CapabilityDecision, CapabilityPolicyRule
+    truth, options = _setup(tmp_path)
+    before = truth.store.path.read_bytes()
+    driver = create_mission_driver(truth, **options)
+    broker = driver.n8_pipeline.capability_broker
+    assert isinstance(broker, CapabilityBroker)
+    assert broker.truth is truth
+    assert broker.authority is options['execution_authority']
+    assert broker.policies == {}  # no policy means DENY, not Full Access
+    assert driver.n8_pipeline.n7 is driver.n7_pipeline
+    assert truth.store.path.read_bytes() == before
+    options['capability_policies'] = {
+        'api_http': CapabilityPolicyRule(CapabilityDecision.HUMAN_GATE)}
+    driver = create_mission_driver(truth, **options)
+    assert driver.n8_pipeline.capability_broker.policies == options['capability_policies']
+    assert truth.store.path.read_bytes() == before
+    assert not truth.query('rc72_capability_request')
+
+
+@pytest.mark.parametrize('mutation', ['untrusted_rule', 'unknown_tool', 'wildcard', 'string_policy'])
+def test_factory_c03_rejects_unapproved_capability_policy_without_r1_write(tmp_path, mutation):
+    from rc7_runtime.rc72_capability_broker import CapabilityDecision, CapabilityPolicyRule
+    truth, options = _setup(tmp_path)
+    rule = CapabilityPolicyRule(CapabilityDecision.DENY)
+    options['capability_policies'] = {
+        'api_http': {'decision':'DENY'} if mutation == 'untrusted_rule' else rule}
+    if mutation == 'unknown_tool':
+        options['capability_policies'] = {'unknown-tool': rule}
+    elif mutation == 'wildcard':
+        options['capability_policies'] = {'*': rule}
+    elif mutation == 'string_policy':
+        options['capability_policies'] = 'grant-everything'
+    before = truth.store.path.read_bytes()
+    with pytest.raises(ContractError, match='MISSION_FACTORY_EXACT_CAPABILITY_POLICY_REQUIRED'):
+        create_mission_driver(truth, **options)
+    assert truth.store.path.read_bytes() == before
 
 def test_release_product_entry_blocks_legacy_n7_if_captain_exists(tmp_path, monkeypatch):
     """A real persisted B Captain cannot be bypassed through A's driver."""

@@ -155,3 +155,30 @@ N6 的 `tool_route.tool` 必须为 `journey_playwright`；`request` 最少包含
 - B 组真实隔离浏览器/CDP/BSK/4A、人工教学的跨页事件与截图顺序、Token 不泄漏、租约中途失效，以及 Win10/目标信创 Linux 双平台离线 smoke Evidence。
 - 现场正式 Benchmark 的独立两次以上真实 PASS、真人审批签批与范围 Hash；只有这样的资产才可从 `FIELD_PENDING` 升级，不能使用 FakeBrowser/CONTRACT_BROWSER 测试身份冒充 Field。
 
+
+## 2026-11-04 C09 架构修订：BrowserSkill 原生优先
+
+用户指出：行内 RC7.2 已有 BrowserSkill（BSK），不能默认以自制 CDP/Playwright 取代浏览器主执行器。本修订不删除旧 CDP 诊断能力，但将它降为受控补充。绝不因为 BSK 操作失败就自动切 CDP 重试业务副作用。
+
+### BSK-first 实现及来源
+
+- rc7_runtime/rc72_journey_bsk_import.py：消费原生 BSK debug stop/export 的 DebugRecording v1，human/agent 操作按顺序导入 R1。要求录制已停止、无丢失与覆盖缺口、稳定 CSS/testid、逐操作 DOM/PNG 实物证据；请求窗口关联不是业务因果证明，不能从 HTTP 200 推断 Oracle PASS。输出 Candidate 不可直接执行。
+- rc7_runtime/rc72_journey_bsk.py：BSK-native Replay/Official 适配器；B 组提供 BrowserInstance、4A 和独占 BrowserLease 已绑定的 BSK Session，逐步调用 bsk step/evaluate/screenshot 并核对实际结果。命令退出 0 仍可能带 evaluate ok=false；失败/证据丢失/结果未知一律 FAILED，禁止自动重试；CredentialRef 不可通过 CLI argv 传播，应交 DSH 原生 bsk_* 工具。
+- rc7_runtime/rc72_journey_n7_adapter.py：SignedN7OfficialBSKAdapter（journey_bsk），沿用签名 N7、Human Field approval 和 ETU/Case/Attempt/Lease 门槛；A 组须将 journey_bsk 映射到正式产品工具路由，不可用测试回调代替。
+- rc72_journey_playwright.py 与 rc72_journey_cdp_capture.py：仅保留明确授权的补充诊断/证据场景；不应默认作为 BSK 替代执行器。
+
+### A / B / E 组交付契约
+
+1. A（唯一集成负责人）：从最新 work/rc7.2 HEAD 集成 C09 BSK 收尾 PR；在真正的 N6→N7 ToolDispatch adapters 注册 journey_bsk；保留单次执行、修复回边及 R1 Gate，按最终 SHA 构建完整 Windows 离线包。
+2. B（Browser/Session 负责人）：验证本地 bsk.exe、扩展及 DSH BrowserSkill 插件匹配；使用 bsk --version、bsk status、bsk doctor、DSH bsk_* 工具发现和实际 UI 调用多重实测。通过明确的 --browser 实例选择/SessionResolver 绑定 BrowserLease、4A、任务 Attempt。禁止把 bsk_endpoint 字符串当成已经授权的 Session。
+3. C（本会话）：BSK DebugRecording → R1 Candidate → Compiler 和 BSK step/evaluate/screenshot → Actual/PNG 的实现、正反测试、失败证据与移交。BSK Network Oracle 对请求时间窗口的错误因果归因暂 fail-closed，需通过 BSK native debug Operation/Request + 独立业务状态核验。
+4. E（独立 QA）：同 HEAD Python3.8/3.11、Windows/Linux、真 BSK + DSH 插件 / 4A / 人工审批、Case/ETU/Attempt、R1 PNG/Network/失败恢复、整包 SHA 与冷解压验收；既有 mock/Chromium/CDP 测试不得替代 BSK Field 证据。
+
+### 行内 BSK 教学验收操作顺序（仅用现有版本支持的命令）
+
+- 明确 BSK 浏览器实例，开启授权 Session；先做 cooperate sync，按 BSK 实际协议获得 Context/Observation；debug start 必须早于教学的导航或点击。
+- 在授权标签页真人/Agent 操作；按操作收集 observe/HTML/截图的物理证据；debug operations 能标明 human/agent source，debug export 不代表 Human Field 审批。
+- debug stop、debug export --output 路径，留存导出 JSON；转换器校验操作与截图，形成 Candidate；再经独立回放和 Benchmark 与真人审批后才允许正式 N7 消费。
+- BSK session stop 必须由拥有 Session 生命周期的 B 组控制器执行，且不能隐式复用别的 Worker 会话。
+
+状态仍为 ENGINEERING_CANDIDATE、PRODUCT_INTEGRATION_PENDING、FIELD_PENDING。用户要完整行内搬运包，应由 A 统一合入后构建；本 C09 PR 只交付责任范围代码与测试。

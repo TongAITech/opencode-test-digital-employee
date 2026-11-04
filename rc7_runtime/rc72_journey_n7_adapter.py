@@ -166,3 +166,18 @@ class SignedN7OfficialJourneyAdapter:
                 "step_count": len(events),
             }
         }
+
+
+class SignedN7OfficialBSKAdapter(SignedN7OfficialJourneyAdapter):
+    """BSK-primary N7 route; A group must register tool name journey_bsk.
+
+    The preflight, Field approval and BrowserLease ownership checks are
+    inherited unchanged. It is not a second independent execution path.
+    """
+    tool_name = "journey_bsk"
+
+    def __init__(self, execution: OfficialJourneyExecutionService) -> None:
+        super().__init__(execution)
+        from .rc72_journey_bsk import JourneyBSKAdapter
+        if not isinstance(execution.adapter, JourneyBSKAdapter):
+            raise ContractError("JOURNEY_N7_BSK_NATIVE_BACKEND_REQUIRED")

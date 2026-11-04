@@ -22,11 +22,12 @@ permissions:
 
 jobs:
   economy-contract:
-    name: c10-native-dsh-contract-python-${{ matrix.python-version }}
-    runs-on: ubuntu-22.04
+    name: c10-native-dsh-contract-${{ matrix.os }}-python-${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-22.04, windows-latest]
         python-version: ['3.8', '3.11']
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +47,7 @@ jobs:
           tests/test_rc72_native_context_projection.py
           tests/test_rc72_native_delta_prompt.py
           tests/test_rc72_native_shared_batch.py
+          tests/test_rc72_native_dsh_actual_launcher_batch.py
           tests/test_rc72_mission_economy_cli_ingress.py
           tests/test_rc72_cost_window_configuration.py
           tests/test_rc72_nonworking_calendar.py
@@ -64,3 +66,44 @@ jobs:
           tests/test_rc72_evaluator_amplification_contract.py
           tests/test_rc72_cost_window_product_wiring.py
           tests/test_rc72_phase7_model_failover_contract.py
+
+  c10-integrated-rc7-source-with-chromium:
+    name: C10 integrated RC7 source + real Chromium CDP
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install RC7 test runner and real C09 browser client
+        run: >-
+          python -m pip install --disable-pip-version-check
+          pytest playwright==1.62.0
+      - name: Install actual Chromium and required host dependencies
+        run: python -m playwright install --with-deps chromium
+      - name: Compile inherited and new RC7/C10 source
+        run: python -m compileall -q rc6_runtime rc7_runtime rc7_release
+      - name: Run COMPLETE RC7 source suite (including real CDP), no skips by C10
+        shell: bash
+        env:
+          # C09's own finally-clause exporter saves local test-SUT R1,
+          # PNG and sanitized JSON only; no bank profiles/cookies.
+          RC72_C09_EVIDENCE_EXPORT_ROOT: ${{ runner.temp }}/rc72-c09-local-cdp-evidence
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find tests -maxdepth 1 -type f -name 'test_rc7*.py' -print | sort)
+          test "${#tests[@]}" -gt 0
+          printf 'Complete RC7 suite (%s files):\n' "${#tests[@]}"
+          printf ' - %s\n' "${tests[@]}"
+          # Fail fast on a real regression; a green run still exercises every test.
+          python -m pytest -x -q "${tests[@]}"
+
+      - name: Preserve real C09 local-SUT CDP failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c10-integration-c09-local-cdp-r1-evidence
+          path: ${{ runner.temp }}/rc72-c09-local-cdp-evidence/
+          if-no-files-found: warn
+          retention-days: 7

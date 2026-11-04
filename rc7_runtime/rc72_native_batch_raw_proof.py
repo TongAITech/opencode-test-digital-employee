@@ -39,6 +39,7 @@ def _path(raw_ref: str, *, root: Path) -> Path:
 def attest_native_raw(
     launcher: DshHeadlessWorkerLauncher, *,
     raw_ref: str, session_id: str, expected_tool_refs: Iterable[str],
+    allowed_tools: Iterable[str],
 ) -> Dict[str, Any]:
     """Return SHA/tool-call refs only from the real native JSONL file.
 
@@ -73,6 +74,13 @@ def attest_native_raw(
     if actual_session != session_id:
         raise NativeRawProofError("NATIVE_BATCH_RAW_SESSION_MISMATCH")
     tools = DshHeadlessWorkerLauncher._tool_calls(events)
+    permitted = tuple(allowed_tools)
+    if (
+        not permitted
+        or any(not isinstance(tool, str) or not tool.strip() for tool in permitted)
+        or any(row.get("tool_name") not in permitted for row in tools)
+    ):
+        raise NativeRawProofError("NATIVE_BATCH_RAW_UNAUTHORIZED_TOOL_CALL")
     actual_refs: Set[str] = {
         tool["call_ref"] for tool in tools
         if isinstance(tool, dict) and isinstance(tool.get("call_ref"), str)

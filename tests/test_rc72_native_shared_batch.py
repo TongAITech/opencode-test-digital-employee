@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
+from rc6_runtime.authority import AuthorityRuntime
 from rc6_runtime.truth import TruthRuntime
-from rc7_runtime.models import ContractError
+from rc7_runtime import ClosedLoopControlPlane
+from rc7_runtime.models import ContractError, Mission, Task
 from rc7_runtime.rc72_context_economy import (
     ContextAffinity, ExecutionBatchPlanner, ExecutionMode, SemanticWorkDescriptor,
 )
@@ -37,6 +40,29 @@ from rc7_runtime.rc72_truth import install_rc72_truth_overlay
 MISSION = "M-REAL-SHARED"
 RELEASE = "REL-REAL-SHARED"
 
+# A real HMAC issuer for native command tests. No fake boolean
+# "signed=True" field or text-only permission bypass.
+_TEST_AUTHORITY = AuthorityRuntime(b"rc72-c10-native-batch-unit-signing-secret")
+
+
+def _signed_assignment(
+    *, scope, assignment_id, attempt_id, agent_id,
+    input_refs, allowed_tools, worker=None,
+):
+    identity = _TEST_AUTHORITY.issue_identity(
+        "L3_EXECUTE", "N7_EXECUTION", None, 0, "native-batch-test-session",
+    )
+    lease = _TEST_AUTHORITY.issue_lease(
+        identity.worker_id, scope, (), allowed_tools, ttl_seconds=3600,
+    )
+    return SimpleNamespace(
+        identity=identity, lease=lease, mission_id=MISSION,
+        scope=scope, assignment_id=assignment_id, attempt_id=attempt_id,
+        worker_instance_id=worker or identity.worker_id,
+        agent_id=agent_id, input_refs=tuple(input_refs),
+        allowed_artifact_types=(), allowed_tools=tuple(allowed_tools),
+    )
+
 
 class _NativeDshLauncher(DshHeadlessWorkerLauncher):
     """Uses the exact metered native command_runner and persisted JSONL boundaries."""
@@ -44,12 +70,14 @@ class _NativeDshLauncher(DshHeadlessWorkerLauncher):
     def __init__(self, truth, root, name, response, *, session_id):
         self.truth = truth
         self.release_id = RELEASE
+        self.authority = _TEST_AUTHORITY
         self.state_root = root / name
         self.state_root.mkdir(parents=True, exist_ok=True)
         self.session_id = session_id
         self.response = response
         self.execute_count = 0
         self.emit_tools = True
+        self.tool_name_override = None
         self.native_calls = []
         self.command_runner = self._runner
 
@@ -58,7 +86,13 @@ class _NativeDshLauncher(DshHeadlessWorkerLauncher):
         events = [{"type": "session", "session_id": self.session_id}]
         calls = (2 if "execution" in self.state_root.name else 1) if self.emit_tools else 0
         for _ in range(calls):
-            events.append({"type": "tool_call", "tool_name": "approved-real-tool"})
+            events.append({
+                "type": "tool_call",
+                "tool_name": self.tool_name_override or (
+                    "approved-real-tool"
+                    if "execution" in self.state_root.name else "read-evidence"
+                ),
+            })
         events.append({
             "type": "final",
             "provider": "bank-model",
@@ -171,6 +205,19 @@ def _fixture(tmp_path):
     install_native_batch_candidate_overlay()
     install_native_batch_review_overlay()
     truth = TruthRuntime(tmp_path / "r1.jsonl")
+    control = ClosedLoopControlPlane.bootstrap(
+        truth, Mission(
+            mission_id=MISSION, release_id=RELEASE,
+            goal="independent semantic batch workitem truth",
+        ),
+    )
+    # Per-WorkItem scheduling semantics must derive from real canonical
+    # rc7_task rows. Never invent semantic labels without a Task.
+    for workitem in ("WI-1", "WI-2"):
+        control.register_task(Task(
+            task_id=workitem, mission_id=MISSION, node="EXECUTION",
+            task_type="BATCH_SEMANTIC", objective="independent case " + workitem,
+        ))
     _binding(truth, "WI-1", "ATT-1")
     _binding(truth, "WI-2", "ATT-2")
     semantics = WorkScheduleSemanticsService(truth, release_id=RELEASE)
@@ -212,11 +259,11 @@ def _fixture(tmp_path):
     )
     assert isinstance(services.execution, NativeSharedExecutionBatch)
     assert isinstance(services.evaluator, NativeSharedEvaluatorBatch)
-    exec_assignment = SimpleNamespace(
-        mission_id=MISSION, scope="execution-batch:" + batch.batch_id,
+    exec_assignment = _signed_assignment(
+        scope="execution-batch:" + batch.batch_id,
         assignment_id="AS-BATCH-EXEC", attempt_id="ATT-BATCH-EXEC",
-        worker_instance_id="worker-execution", agent_id="shared-executor",
-        input_refs=tuple(sorted(refs)), allowed_tools=("approved-real-tool",),
+        agent_id="shared-executor", input_refs=tuple(sorted(refs)),
+        allowed_tools=("approved-real-tool",),
     )
     return truth, economy, batch, execution, reviewer, exec_assignment
 
@@ -230,11 +277,11 @@ def _dispatch(truth, batch, execution, assignment):
     )
 
 
-def _review_assignment(batch_id, raw, *, worker="worker-reviewer", session_attempt="ATT-BATCH-REVIEW"):
-    return SimpleNamespace(
-        mission_id=MISSION, scope="evaluation-batch:" + batch_id,
+def _review_assignment(batch_id, raw, *, worker=None, session_attempt="ATT-BATCH-REVIEW"):
+    return _signed_assignment(
+        scope="evaluation-batch:" + batch_id,
         assignment_id="AS-BATCH-REVIEW", attempt_id=session_attempt,
-        worker_instance_id=worker, agent_id="independent-batch-reviewer",
+        worker=worker, agent_id="independent-batch-reviewer",
         input_refs=(raw,), allowed_tools=("read-evidence",),
     )
 
@@ -788,3 +835,101 @@ def test_idempotent_evaluator_replay_rechecks_own_raw_file_digest(tmp_path):
             assignment=reviewer_assignment,
         )
     assert reviewer.execute_count == 1
+
+
+
+def test_forged_or_expired_real_lease_never_runs_shared_model_batch(tmp_path):
+    from rc7_runtime.rc72_native_batch_authority import NativeBatchAuthorityError
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    signed = assignment.lease
+    real_identity = assignment.identity
+    real_worker = assignment.worker_instance_id
+    assignment.lease = replace(signed, signature="0" * len(signed.signature))
+    with pytest.raises(NativeBatchAuthorityError, match="SIGNED_REGISTRY_MISMATCH"):
+        _dispatch(truth, batch, execution, assignment)
+    assert execution.execute_count == 0
+    assert truth.query("rc72_execution_batch_receipt", mission_id=MISSION) == []
+
+    # Distinguish a REAL issuer-signed but genuinely expired lease from a
+    # forged timestamp. Both must fail, for independent reasons.
+    expired_identity = _TEST_AUTHORITY.issue_identity(
+        "L3_EXECUTE", "N7_EXECUTION", None, 0, "expired-worker-session",
+    )
+    expired_lease = _TEST_AUTHORITY.issue_lease(
+        expired_identity.worker_id, assignment.scope, (),
+        ("approved-real-tool",), ttl_seconds=-10,
+    )
+    assignment.identity = expired_identity
+    assignment.lease = expired_lease
+    assignment.worker_instance_id = expired_identity.worker_id
+    with pytest.raises(NativeBatchAuthorityError, match="SIGNED_LEASE_DENIED"):
+        _dispatch(truth, batch, execution, assignment)
+    assert execution.execute_count == 0
+
+    assignment.identity = real_identity
+    assignment.worker_instance_id = real_worker
+    assignment.lease = signed
+    assignment.allowed_tools = ("approved-real-tool", "unauthorized-extra-tool")
+    with pytest.raises(NativeBatchAuthorityError, match="SIGNED_CAPABILITY_SCOPE_MISMATCH"):
+        _dispatch(truth, batch, execution, assignment)
+    assert execution.execute_count == 0
+
+    assignment.allowed_tools = ("approved-real-tool",)
+    assignment.worker_instance_id = "FORGED-WORKER-ID"
+    with pytest.raises(NativeBatchAuthorityError, match="SIGNED_WORKER_MISMATCH"):
+        _dispatch(truth, batch, execution, assignment)
+    assert execution.execute_count == 0
+
+
+def test_forged_independent_evaluator_lease_cannot_run_model(tmp_path):
+    from rc7_runtime.rc72_native_batch_authority import NativeBatchAuthorityError
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    candidate = _dispatch(truth, batch, execution, assignment)
+    reviewer_assignment = _review_assignment(
+        batch.batch_id, candidate["raw_output_ref"],
+    )
+    original = reviewer_assignment.lease
+    reviewer_assignment.lease = replace(
+        original, allowed_tools=("unapproved-tool",)
+    )
+    service = NativeSharedEvaluatorBatch(
+        truth, release_id=RELEASE, launcher=reviewer,
+    )
+    with pytest.raises(NativeBatchAuthorityError, match="SIGNED_CAPABILITY_SCOPE_MISMATCH"):
+        service.review(
+            candidate_id=candidate["candidate_id"],
+            assignment=reviewer_assignment,
+        )
+    assert reviewer.execute_count == 0
+    assert truth.query("rc72_native_batch_review", mission_id=MISSION) == []
+
+
+def test_real_native_tool_not_on_signed_allowlist_blocks_batch_candidate(tmp_path):
+    from rc7_runtime.rc72_native_batch_raw_proof import NativeRawProofError
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    execution.tool_name_override = "forbidden-adapter-plugin"
+    with pytest.raises(NativeRawProofError, match="RAW_UNAUTHORIZED_TOOL_CALL"):
+        _dispatch(truth, batch, execution, assignment)
+    assert execution.execute_count == 1
+    assert truth.query("rc72_native_batch_candidate", mission_id=MISSION) == []
+    assert truth.query("execution_attempt", release_id=RELEASE) == []
+
+
+def test_independent_evaluator_native_tool_outside_signed_lease_is_rejected(tmp_path):
+    from rc7_runtime.rc72_native_batch_raw_proof import NativeRawProofError
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    candidate = _dispatch(truth, batch, execution, assignment)
+    reviewer.tool_name_override = "forbidden-review-plugin"
+    with pytest.raises(NativeRawProofError, match="RAW_UNAUTHORIZED_TOOL_CALL"):
+        NativeSharedEvaluatorBatch(
+            truth, release_id=RELEASE, launcher=reviewer,
+        ).review(
+            candidate_id=candidate["candidate_id"],
+            assignment=_review_assignment(batch.batch_id, candidate["raw_output_ref"]),
+        )
+    assert reviewer.execute_count == 1
+    assert truth.query("rc72_native_batch_review", mission_id=MISSION) == []

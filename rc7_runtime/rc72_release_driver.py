@@ -168,6 +168,10 @@ class ReleaseBatchDriver:
                 or n8.boundary.cleanup.adapters!=self.n7_pipeline.cleanup.adapters
                 or n8.continuation.diagnosis is not n8.diagnosis
                 or n8.continuation.preparation is not self.n7_pipeline.preparation
+                or (n8.capability_broker is not None and (
+                    n8.capability_broker.truth is not self.truth
+                    or n8.capability_broker.release_id != self.n7_pipeline.release_id
+                    or n8.capability_broker.authority is not self.n7_pipeline.preparation.authority))
                 or n8.truth is not self.truth
                 or n8.source_commit!=self.source_commit
                 or n8.release_id!=self.n7_pipeline.release_id):
@@ -359,9 +363,6 @@ class ReleaseBatchDriver:
             # Cold continuation audits accepted source bytes, not merely PASS labels.
             prefix=self.status(release_batch_id=release_batch_id)['nodes']
             for node in prefix:
-                # A Captain might expire during a lengthy cold Evidence audit.
-                # Revalidate before invoking each native gate, not just once
-                # when ReleaseBatch.run was entered.
                 self._assert_captain_product_entry(batch['mission_id'])
                 if node['node_type']=='N8_DIAGNOSIS_RECOVERY' and self._diagnosis_bypassed(prefix,batch['mission_id']):
                     continue
@@ -372,9 +373,6 @@ class ReleaseBatchDriver:
                     if audited.get('status')=='HOLD':
                         return dict(self.status(release_batch_id=release_batch_id), **audited)
             while True:
-                # N1..N10 can outlive the Captain TTL. A replaced, expired
-                # or quiesced Captain is never allowed to schedule another
-                # node after a previous worker/evaluator returned.
                 self._assert_captain_product_entry(batch['mission_id'])
                 snapshot = self.status(release_batch_id=release_batch_id)
                 by_type={n['node_type']:n for n in snapshot['nodes']}

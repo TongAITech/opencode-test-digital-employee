@@ -26,6 +26,7 @@ from .rc72_native_shared_batch import (
     _one, _required, install_native_batch_candidate_overlay,
 )
 from .rc72_native_batch_raw_proof import attest_native_raw, verify_native_raw_digest
+from .rc72_native_batch_authority import require_signed_batch_authority
 
 
 _ARTIFACT = "rc72_native_batch_review"
@@ -150,6 +151,10 @@ class NativeSharedEvaluatorBatch:
             raise NativeBatchReviewError("BATCH_REVIEW_WORKER_MUST_DIFFER")
         if getattr(assignment, "attempt_id", None) == candidate["attempt_id"]:
             raise NativeBatchReviewError("BATCH_REVIEW_ATTEMPT_MUST_DIFFER")
+        require_signed_batch_authority(
+            self.launcher, assignment,
+            expected_scope="evaluation-batch:" + candidate["batch_id"],
+        )
         inputs = getattr(assignment, "input_refs", None)
         if (
             not isinstance(inputs, (tuple, list))
@@ -237,6 +242,7 @@ class NativeSharedEvaluatorBatch:
         raw_proof = attest_native_raw(
             self.launcher, raw_ref=raw[0], session_id=session,
             expected_tool_refs=reviewer_tool_refs,
+            allowed_tools=assignment.allowed_tools,
         )
         if not isinstance(output, dict) or set(output) != {"status", "members"}:
             raise NativeBatchReviewError("BATCH_REVIEW_STRICT_OUTPUT_REQUIRED")

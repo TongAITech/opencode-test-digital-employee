@@ -11,7 +11,7 @@ from .rc72_n7_finalization import ExecutionFinalizationService
 class N7PipelineService:
     def __init__(self, preparation, *, runner, capture_root,
                  captain_scheduler=None, captain_session_id=None,
-                 captain_lease_id=None, team_id=None):
+                 captain_lease_id=None, team_id=None, official_journey_adapters=None):
         if (not isinstance(preparation, ExecutionPreparationService)
                 or not isinstance(runner, FormalN7RunnerAdapter) or runner.preparation is not preparation):
             raise ContractError('RC72_N7_PIPELINE_FORMAL_RUNTIME_REQUIRED')
@@ -32,7 +32,26 @@ class N7PipelineService:
                         captain_session_id, captain_lease_id, team_id))):
                 raise ContractError('RC72_N7_PIPELINE_CAPTAIN_SCOPE_REQUIRED')
         tools = {t for values in preparation.tool_registry.values() for t in values}
-        self.dispatch = SignedToolDispatchService(preparation, adapters={t: runner for t in tools})
+        # An approved browser Journey is NOT a generic API runner.  The
+        # host must explicitly inject B's signed, WRITE-lease-fenced adapter.
+        from .rc72_journey_n7_adapter import SignedN7OfficialBSKAdapter
+        official = official_journey_adapters if official_journey_adapters is not None else {}
+        if (not isinstance(official, dict) or set(official) - {'journey_bsk'}
+                or any(not isinstance(a, SignedN7OfficialBSKAdapter)
+                       for a in official.values())):
+            raise ContractError('RC72_N7_EXACT_OFFICIAL_JOURNEY_ADAPTER_REQUIRED')
+        if 'journey_bsk' in tools and 'journey_bsk' not in official:
+            raise ContractError('RC72_N7_BSK_NATIVE_ADAPTER_REQUIRED')
+        if 'journey_bsk' in official and 'journey_bsk' not in tools:
+            raise ContractError('RC72_N7_BSK_TOOL_NOT_IN_APPROVED_REGISTRY')
+        for route, adapter in official.items():
+            if (adapter.tool_name != route or adapter.execution.truth is not self.truth
+                    or adapter.execution.release_id != self.release_id
+                    or adapter.execution.browser_pool.truth is not self.truth):
+                raise ContractError('RC72_N7_BSK_CANONICAL_SCOPE_CHANGED')
+        adapters = {t: runner for t in tools if t != 'journey_bsk'}
+        adapters.update(official)
+        self.dispatch = SignedToolDispatchService(preparation, adapters=adapters)
         self.cleanup = ExecutionCleanupService(preparation, adapters={t: runner.environment_adapter.cleanup for t in tools})
         self.review = ExecutionEvidenceReviewService(preparation, adapter_output_root=runner.root, capture_root=capture_root)
         self.finalization = ExecutionFinalizationService(self.review)
@@ -150,6 +169,17 @@ class N7PipelineService:
                     raise ContractError('RC72_N7_PIPELINE_DISPATCH_NOT_UNIQUE')
                 if result['state']!='RETURNED':
                     return dict(status='HOLD', reason='N7_EXECUTION_DIAGNOSIS_REQUIRED', preparation_id=p['preparation_id'])
+                if result['tool'] == 'journey_bsk':
+                    # A successful BrowserSkill call is *not* yet independently
+                    # accepted N7 evidence, cleanup, or business Oracle.
+                    # Persisted signed ToolDispatch results remain available,
+                    # and a resumed Mission never replays the browser write.
+                    return dict(status='HOLD',
+                        reason='N7_BSK_RETURNED_INDEPENDENT_REVIEW_PENDING',
+                        preparation_id=p['preparation_id'],
+                        dispatch_id=result['dispatch_id'],
+                        receipt_sha256=result['receipt_sha256'],
+                        field_verified=False,bank_final=False)
                 observed = self.review.evidence.observation(p['preparation_id'])
                 from .rc72_formal_runner import verified_formal_receipt
                 formal = verified_formal_receipt(self.preparation,observed[0],observed[1],result['raw_result'])

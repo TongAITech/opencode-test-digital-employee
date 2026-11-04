@@ -236,7 +236,15 @@ class JourneyReplayService:
             raise ContractError("JOURNEY_REPLAY_ATTEMPT_NOT_ACTIVE")
         return rows[0]
 
-    def _field_verified(self) -> bool:
+    def _field_verified(self, scope: Mapping[str, Any]) -> bool:
+        if self.adapter_kind not in self.trusted_field_adapter_kinds:
+            return False
+        # Native BSK Field never trusts a mutable adapter.field_verified
+        # boolean. A/B's signed external verifier must check this exact
+        # bank BrowserLease/Attempt/Case/4A scope before R1 STARTED.
+        if self.adapter_kind.startswith("BROWSERSKILL_"):
+            verifier = getattr(self.adapter, "verify_field_scope", None)
+            return verifier(scope) is True if callable(verifier) else False
         return (
             self.adapter_kind in self.trusted_field_adapter_kinds
             and bool(getattr(self.adapter, "field_verified", False))
@@ -370,7 +378,16 @@ class JourneyReplayService:
         )
         if str(lease.get("purpose") or "").upper() != "JOURNEY_REPLAY":
             raise ContractError("JOURNEY_REPLAY_BROWSER_PURPOSE_MISMATCH")
-        field_verified = self._field_verified()
+        field_scope = {
+            "replay_id": replay_id, "candidate_id": candidate_id,
+            "mission_id": mission_id, "release_batch_id": candidate["release_batch_id"],
+            "requirement_id": candidate["requirement_id"], "sst_id": candidate["sst_id"],
+            "obligation_id": candidate["obligation_id"], "case_id": binding["case_id"],
+            "workitem_id": workitem_id, "attempt_id": attempt_id,
+            "worker_id": worker_id, "session_id": session_id,
+            "browser_lease_id": browser_lease_id,
+        }
+        field_verified = self._field_verified(field_scope)
         started_at = _now()
         base = {
             "replay_id": replay_id,
@@ -405,6 +422,11 @@ class JourneyReplayService:
                 "replay_id": replay_id,
                 "candidate_id": candidate_id,
                 "mission_id": mission_id,
+                "release_batch_id": candidate["release_batch_id"],
+                "requirement_id": candidate["requirement_id"],
+                "sst_id": candidate["sst_id"],
+                "obligation_id": candidate["obligation_id"],
+                "case_id": binding["case_id"],
                 "workitem_id": workitem_id,
                 "attempt_id": attempt_id,
                 "worker_id": worker_id,

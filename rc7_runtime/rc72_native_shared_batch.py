@@ -28,6 +28,7 @@ from .rc72_context_economy import ExecutionBatch
 from .rc72_safe_execution_batch import SafeExecutionBatchService
 from .rc72_truth import install_rc72_truth_overlay
 from .rc72_native_batch_raw_proof import attest_native_raw, verify_native_raw_digest
+from .rc72_native_batch_authority import require_signed_batch_authority
 
 
 _ARTIFACT = "rc72_native_batch_candidate"
@@ -138,7 +139,8 @@ def _candidate_id(release_id: str, receipt_id: str, assignment_id: str) -> str:
 
 
 def canonical_batch_metadata_resolver(
-    truth: TruthRuntime, *, release_id: str, mission_id: str, review: bool = False,
+    truth: TruthRuntime, *, release_id: str, mission_id: str,
+    launcher: DshHeadlessWorkerLauncher, review: bool = False,
 ):
     """One native model billing receipt per BATCH, never per member as a proxy.
 
@@ -156,6 +158,9 @@ def canonical_batch_metadata_resolver(
         if not scope.startswith(scope_prefix):
             raise NativeSharedBatchError("NATIVE_BATCH_SCOPED_LEASE_REQUIRED")
         batch_id = _required(scope[len(scope_prefix):], "batch_id")
+        require_signed_batch_authority(
+            launcher, assignment, expected_scope=scope_prefix + batch_id,
+        )
         receipt = _one(
             truth, "rc72_execution_batch_receipt",
             release_id=release_id, mission_id=mission_id, batch_id=batch_id,
@@ -277,6 +282,10 @@ class NativeSharedExecutionBatch:
                 raise NativeSharedBatchError("NATIVE_BATCH_SEMANTIC_RELEASE_MISMATCH")
             if semantic.get("execution_mode") != "SEMANTIC":
                 raise NativeSharedBatchError("NATIVE_BATCH_DETERMINISTIC_OR_HYBRID_TOOL_FIRST:%s" % workitem_id)
+        require_signed_batch_authority(
+            self.launcher, assignment,
+            expected_scope="execution-batch:" + batch.batch_id,
+        )
         if getattr(assignment, "attempt_id", None) in set(attempt_ids_by_workitem.values()):
             raise NativeSharedBatchError("NATIVE_BATCH_MODEL_ATTEMPT_CANNOT_REPLACE_BUSINESS_ATTEMPT")
         authorized = getattr(assignment, "allowed_tools", None)
@@ -379,6 +388,7 @@ class NativeSharedExecutionBatch:
         raw_proof = attest_native_raw(
             self.launcher, raw_ref=raw_refs[0], session_id=session,
             expected_tool_refs=actual_tool_refs,
+            allowed_tools=authorized,
         )
         # One actual native DSH process/model-call receipt for the whole batch,
         # never fabricate N measured calls from N business members.

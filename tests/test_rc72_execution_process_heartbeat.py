@@ -61,7 +61,8 @@ def test_guardian_renewal_failure_stops_owned_child_and_cold_business_permission
         monkeypatch.setattr(ExecutionLeaseRenewalService, 'renew', denied)
         p = prep.prepare(plan_id=plan['plan_id'], workitem_id=plan['items'][0]['workitem_id'])
         dispatch = SignedToolDispatchService(prep, adapters={'api_http': runner}).dispatch(p['preparation_id'])
-        assert dispatch['state'] == 'FAILED'
+        assert dispatch['state'] == 'UNKNOWN'
+        assert dispatch['possible_external_effect'] is True and dispatch['replay_prohibited'] is True
         heartbeat = truth.query('rc72_execution_process_heartbeat')[0]
         assert heartbeat['state'] == 'FAILED' and heartbeat['observed_exit_code'] is not None
         assert heartbeat['runtime_exit_code'] == 125 and heartbeat['captured_files']
@@ -141,7 +142,7 @@ def test_timeout_reaps_owned_child_but_does_not_claim_remote_business_drain(tmp_
         runner.timeout = 2  # Keep source validation independent of the deliberately short process budget.
         p = prep.prepare(plan_id=plan['plan_id'], workitem_id=plan['items'][0]['workitem_id'])
         result = SignedToolDispatchService(prep, adapters={'api_http': runner}).dispatch(p['preparation_id'])
-        assert result['state'] == 'FAILED'
+        assert result['state'] == 'UNKNOWN' and result['replay_prohibited'] is True
         heartbeat = truth.query('rc72_execution_process_heartbeat')[0]
         assert heartbeat['state'] == 'FAILED' and heartbeat['failure_kind'] == 'PROCESS_TIMEOUT'
         assert heartbeat['runtime_exit_code'] == 124 and heartbeat['observed_exit_code'] is not None
@@ -192,7 +193,8 @@ def test_capture_failure_suspends_permissions_and_retains_custody_after_real_bus
             return write(path, *args, **kwargs)
         monkeypatch.setattr(Path, 'write_text', no_stdout)
         result = SignedToolDispatchService(prep, adapters={'api_http': runner}).dispatch(p['preparation_id'])
-        assert result['state'] == 'FAILED' and len(server.calls) == 1
+        assert result['state'] == 'UNKNOWN' and result['replay_prohibited'] is True
+        assert len(server.calls) == 1
         assert truth.query('rc72_execution_process_heartbeat')[0]['failure_kind'] == 'EVIDENCE_CAPTURE_FAILED'
         assert prep.authority.is_lease_revoked(p['task_lease']['lease_id'])
         assert all(row['state'] == 'ACTIVE' for row in truth.query('rc72_data_lease'))
@@ -242,7 +244,11 @@ def test_spawn_failure_does_not_fabricate_a_process_or_formal_receipt(tmp_path, 
         monkeypatch.setattr(heartbeat_module, 'subprocess', SimpleNamespace(Popen=no_process,
             TimeoutExpired=subprocess.TimeoutExpired, CompletedProcess=subprocess.CompletedProcess, PIPE=subprocess.PIPE))
         result = SignedToolDispatchService(prep, adapters={'api_http': runner}).dispatch(p['preparation_id'])
-        assert result['state'] == 'FAILED' and result['error_type'] == 'FileNotFoundError'
+        # The initial Popen failure has no signed pre-execution no-effect
+        # attestation. The HTTP absence in this isolated fixture is useful
+        # evidence, but is not permission to infer FAILED for bank execution.
+        assert result['state'] == 'UNKNOWN' and result['error_type'] == 'FileNotFoundError'
+        assert result['replay_prohibited'] is True
         assert truth.query('rc72_execution_process_heartbeat') == []
         assert truth.query('rc72_n7_formal_runner_receipt') == [] and server.calls == []
         assert all(row['state'] == 'ACTIVE' for row in truth.query('rc72_data_lease'))

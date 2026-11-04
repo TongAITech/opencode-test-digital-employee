@@ -651,3 +651,98 @@ def test_teaching_rejects_cdp_identity_switch_mid_capture(tmp_path):
     recording = truth.query("rc72_journey_recording", recording_id="JR-INSTANCE-SWITCH")[0]
     assert recording["state"] == "CAPTURING"
     assert recording["step_count"] == 1
+
+
+def test_teaching_refuses_foreign_4a_auth_asset_before_any_r1_recording(tmp_path):
+    truth, teaching, pool, lease = teaching_fixture(tmp_path)
+    page = FakePage()
+    page.url = "https://fat1.example/config"
+    recorder = JourneyCDPTeachingRecorder(
+        teaching=teaching, evidence_root=tmp_path / "capture",
+        connector=lambda endpoint: FakeBrowser(page))
+    with pytest.raises(Exception, match="JOURNEY_TEACHING_AUTH_ASSET_MISMATCH"):
+        recorder.begin(
+            recording_id="JR-FOREIGN-AUTH", mission_id="M-1",
+            release_batch_id="RB-1", requirement_id="REQ-1",
+            sst_id="SST-1", obligation_id="TO-1",
+            workitem_id="WI-1", attempt_id="ATT-1", worker_id="WORKER-1",
+            session_id="SESSION-1", browser_lease_id=lease.browser_lease_id,
+            human_operator_ref="human://operator/001",
+            auth_asset_ref="auth://4a/some-other-user")
+    assert not truth.query("rc72_journey_recording", recording_id="JR-FOREIGN-AUTH")
+    assert recorder.recording is None
+    assert recorder.page is None
+
+
+def test_teaching_failed_screenshot_does_not_lose_network_receipt_on_retry(tmp_path):
+    from types import SimpleNamespace
+
+    truth, teaching, pool, lease = teaching_fixture(tmp_path)
+    page = FakePage()
+    page.url = "https://fat1.example/config"
+    recorder = JourneyCDPTeachingRecorder(
+        teaching=teaching, evidence_root=tmp_path / "capture",
+        connector=lambda endpoint: FakeBrowser(page))
+    recorder.begin(
+        recording_id="JR-RETRY-NET", mission_id="M-1",
+        release_batch_id="RB-1", requirement_id="REQ-1",
+        sst_id="SST-1", obligation_id="TO-1",
+        workitem_id="WI-1", attempt_id="ATT-1", worker_id="WORKER-1",
+        session_id="SESSION-1", browser_lease_id=lease.browser_lease_id,
+        human_operator_ref="human://operator/001")
+    page.events = [{"type": "CLICK", "element_ref": "css:#save",
+                    "url": "https://fat1.example/config"}]
+    response = SimpleNamespace(
+        url="https://fat1.example/api/save?bearer=private",
+        status=201, request=SimpleNamespace(method="POST"))
+    for listener in list(page.handlers["response"]):
+        listener(response)
+    assert len(recorder.responses) == 1
+    original_screenshot = page.screenshot
+    page.screenshot = lambda **kwargs: (_ for _ in ()).throw(IOError("disk full"))
+    with pytest.raises(Exception, match="JOURNEY_TEACHING_SCREENSHOT_REQUIRED"):
+        recorder.poll(page_role="CONFIGURATION")
+    recording = truth.query("rc72_journey_recording", recording_id="JR-RETRY-NET")[0]
+    assert recording["step_count"] == 1
+    assert len(recorder.events) == 1
+    assert len(recorder.responses) == 1
+
+    page.screenshot = original_screenshot
+    assert recorder.poll(page_role="CONFIGURATION") == ["JR-RETRY-NET:2"]
+    steps = truth.query("rc72_journey_capture_step", recording_id="JR-RETRY-NET")
+    assert len(steps) == 2
+    click = next(row for row in steps if row["sequence"] == 2)
+    actual = json.loads(Path(click["network_refs"][0][7:]).read_text())
+    assert actual["responses"] == [{
+        "url": "https://fat1.example/api/save", "method": "POST",
+        "status": 201, "captured_at": actual["responses"][0]["captured_at"]}]
+    assert recorder.responses == []
+    assert recorder.events == []
+    recorder.stop()
+
+
+def test_teaching_stop_clears_unacknowledged_events_across_recordings(tmp_path):
+    truth, teaching, pool, lease = teaching_fixture(tmp_path)
+    page = FakePage()
+    page.url = "https://fat1.example/config"
+    recorder = JourneyCDPTeachingRecorder(
+        teaching=teaching, evidence_root=tmp_path / "capture",
+        connector=lambda endpoint: FakeBrowser(page))
+    recorder.begin(
+        recording_id="JR-FIRST", mission_id="M-1", release_batch_id="RB-1",
+        requirement_id="REQ-1", sst_id="SST-1", obligation_id="TO-1",
+        workitem_id="WI-1", attempt_id="ATT-1", worker_id="WORKER-1",
+        session_id="SESSION-1", browser_lease_id=lease.browser_lease_id,
+        human_operator_ref="human://operator/001")
+    recorder.events.append({
+        "type": "CLICK", "element_ref": "css:#stale-button",
+        "url": "https://fat1.example/config"})
+    recorder.responses.append({
+        "method": "POST", "url": "https://fat1.example/api/stale",
+        "status": 200})
+    recorder.stop()
+    assert recorder.events == []
+    assert recorder.responses == []
+    assert recorder.last_url == ""
+    assert recorder.recording is None
+    assert recorder._instance_fingerprint is None
