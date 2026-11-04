@@ -50,6 +50,8 @@ jobs:
           tests/test_rc72_native_shared_batch.py
           tests/test_rc72_native_delta_prompt.py
           tests/test_rc72_n8_product_recovery.py
+          tests/test_rc72_conclusive_failure_evidence.py
+          tests/test_rc72_n9_captain_qualification.py
           tests/test_rc72_n10_terminal.py
           --junitxml=rc72-abd-integration.xml
       - uses: actions/upload-artifact@v4
