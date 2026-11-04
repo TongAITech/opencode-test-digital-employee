@@ -63,7 +63,13 @@ def inspect_zip(source, *, expected_root=EXPECTED_ROOT):
             bytes_total = 0
             files = 0
             for member in info:
-                parts, path_is_dir = _entry_name(member.filename)
+                # On Windows ZipInfo.filename may silently normalize raw
+                # backslashes or truncate NUL. Validate the original stored
+                # archive header name, never only zipfile's display alias.
+                raw_name = member.orig_filename
+                parts, path_is_dir = _entry_name(raw_name)
+                if raw_name != member.filename:
+                    raise UnsafeArchiveError("C12_ZIP_ORIGINAL_NAME_SANITIZED:" + raw_name)
                 if parts[0] != expected_root:
                     raise UnsafeArchiveError("C12_ARCHIVE_WRONG_ROOT:" + member.filename)
                 if member.filename in seen:
