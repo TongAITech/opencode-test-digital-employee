@@ -413,7 +413,12 @@ def test_signed_observed_n8_retry_actually_rehydrates_dsh_prompt_and_replays_r1(
     assert len(final_prompt.encode()) < len(("NATIVE_BOUND\n" + original_prompt).encode())
     updated_context, updated_shape = final_prompt.split(" Context=", 1)[1].split(" RequiredShape=", 1)
     hydrated = json.loads(updated_context)
-    assert hydrated["input_refs"] == ["PREVIOUS-ATTEMPT-SUMMARY", "EVD-FIXED", "DEP-NEW"]
+    # ContextEnvelope canonicalizes reference ordering deterministically.
+    # Preserve the complete intended delta set, not a caller-specific order.
+    assert set(hydrated["input_refs"]) == {
+        "PREVIOUS-ATTEMPT-SUMMARY", "EVD-FIXED", "DEP-NEW",
+    }
+    assert len(hydrated["input_refs"]) == 3
     assert hydrated["required_obligations"] == business["required_obligations"]
     assert hydrated["required_oracles"] == business["required_oracles"]
     assert json.loads(updated_shape) == shape
