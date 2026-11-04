@@ -384,3 +384,59 @@ def test_bsk_navigate_to_4a_login_instead_of_requested_sut_is_not_pass(tmp_path)
     assert len(rows) == 1
     assert rows[0]["failure_code"] == "JOURNEY_BSK_NAVIGATION_TARGET_MISMATCH"
     assert len([cmd for cmd in runner.calls if "step" in cmd]) == 1
+
+
+def test_bsk_crash_after_dispatch_intent_never_reissues_sut_action_on_cold_restart(tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    cli = TestBSK()
+    adapter = _adapter(pool, tmp_path, cli)
+    candidate = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]
+    step = candidate["steps"][0]
+    context = {
+        "replay_id": "BSK-COLD-CRASH", "mission_id": "M-1",
+        "workitem_id": "WI-R1", "attempt_id": "ATT-R1",
+        "worker_id": "WORKER-R1", "session_id": "SESSION-R1",
+        "browser_lease_id": lease.browser_lease_id}
+    folder = tmp_path / "bsk-evidence" / "BSK-COLD-CRASH" / "step-0001"
+    folder.mkdir(parents=True)
+    intent = folder / "dispatch-intent.json"
+    original = '{"status":"EFFECT_UNKNOWN_UNTIL_ACTUAL","attempt_id":"ATT-R1"}'
+    intent.write_text(original)
+    assert not (folder / "actual.json").exists()
+    assert not (folder / "screen.png").exists()
+    # Simulate losing all in-process guard state; this adapter has never seen
+    # the step and only the pre-existing fsynced intent can protect SUT.
+    outcome = adapter.execute_step(step, context)
+    assert outcome["status"] == "FAILED"
+    assert outcome["failure_code"] == "JOURNEY_BSK_DUPLICATE_STEP_EFFECT_UNKNOWN"
+    assert intent.read_text() == original
+    assert cli.calls == []
+    assert not (folder / "screen.png").exists()
+
+
+def test_bsk_persists_intent_before_first_mutating_cli_and_keeps_it_on_success(tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    evidence_root = tmp_path / "bsk-evidence"
+    class CheckIntentBeforeAction(TestBSK):
+        def __call__(self, argv):
+            if "step" in argv:
+                intent = evidence_root / "BSK-INTENT-ORDER" / "step-0001" / "dispatch-intent.json"
+                assert intent.is_file()
+                marker = json.loads(intent.read_text())
+                assert marker["status"] == "EFFECT_UNKNOWN_UNTIL_ACTUAL"
+                assert marker["attempt_id"] == "ATT-R1"
+            return super().__call__(argv)
+    cli = CheckIntentBeforeAction()
+    adapter = _adapter(pool, tmp_path, cli)
+    step = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]["steps"][0]
+    outcome = adapter.execute_step(step, {
+        "replay_id": "BSK-INTENT-ORDER", "mission_id": "M-1",
+        "workitem_id": "WI-R1", "attempt_id": "ATT-R1",
+        "worker_id": "WORKER-R1", "session_id": "SESSION-R1",
+        "browser_lease_id": lease.browser_lease_id})
+    assert outcome["status"] == "PASSED"
+    marker_path = evidence_root / "BSK-INTENT-ORDER" / "step-0001" / "dispatch-intent.json"
+    assert marker_path.is_file()
+    actual = json.loads(Path(outcome["actual_refs"][0][7:]).read_text())
+    assert actual["dispatch_intent_ref"] == marker_path.resolve().as_uri()
+    assert marker_path.resolve().as_uri() in outcome["evidence_refs"]
