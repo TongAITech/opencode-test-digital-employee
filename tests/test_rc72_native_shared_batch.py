@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
+from rc6_runtime.authority import AuthorityRuntime
 from rc6_runtime.truth import TruthRuntime
 from rc7_runtime import ClosedLoopControlPlane
 from rc7_runtime.models import ContractError, Mission, Task
@@ -38,6 +39,29 @@ from rc7_runtime.rc72_truth import install_rc72_truth_overlay
 MISSION = "M-REAL-SHARED"
 RELEASE = "REL-REAL-SHARED"
 
+# A real HMAC issuer for native command tests. No fake boolean
+# "signed=True" field or text-only permission bypass.
+_TEST_AUTHORITY = AuthorityRuntime(b"rc72-c10-native-batch-unit-signing-secret")
+
+
+def _signed_assignment(
+    *, scope, assignment_id, attempt_id, agent_id,
+    input_refs, allowed_tools, worker=None,
+):
+    identity = _TEST_AUTHORITY.issue_identity(
+        "L3_EXECUTE", "N7_EXECUTION", None, 0, "native-batch-test-session",
+    )
+    lease = _TEST_AUTHORITY.issue_lease(
+        identity.worker_id, scope, (), allowed_tools, ttl_seconds=3600,
+    )
+    return SimpleNamespace(
+        identity=identity, lease=lease, mission_id=MISSION,
+        scope=scope, assignment_id=assignment_id, attempt_id=attempt_id,
+        worker_instance_id=worker or identity.worker_id,
+        agent_id=agent_id, input_refs=tuple(input_refs),
+        allowed_artifact_types=(), allowed_tools=tuple(allowed_tools),
+    )
+
 
 class _NativeDshLauncher(DshHeadlessWorkerLauncher):
     """Uses the exact metered native command_runner and persisted JSONL boundaries."""
@@ -45,6 +69,7 @@ class _NativeDshLauncher(DshHeadlessWorkerLauncher):
     def __init__(self, truth, root, name, response, *, session_id):
         self.truth = truth
         self.release_id = RELEASE
+        self.authority = _TEST_AUTHORITY
         self.state_root = root / name
         self.state_root.mkdir(parents=True, exist_ok=True)
         self.session_id = session_id
@@ -226,11 +251,11 @@ def _fixture(tmp_path):
     )
     assert isinstance(services.execution, NativeSharedExecutionBatch)
     assert isinstance(services.evaluator, NativeSharedEvaluatorBatch)
-    exec_assignment = SimpleNamespace(
-        mission_id=MISSION, scope="execution-batch:" + batch.batch_id,
+    exec_assignment = _signed_assignment(
+        scope="execution-batch:" + batch.batch_id,
         assignment_id="AS-BATCH-EXEC", attempt_id="ATT-BATCH-EXEC",
-        worker_instance_id="worker-execution", agent_id="shared-executor",
-        input_refs=tuple(sorted(refs)), allowed_tools=("approved-real-tool",),
+        agent_id="shared-executor", input_refs=tuple(sorted(refs)),
+        allowed_tools=("approved-real-tool",),
     )
     return truth, economy, batch, execution, reviewer, exec_assignment
 
@@ -244,11 +269,11 @@ def _dispatch(truth, batch, execution, assignment):
     )
 
 
-def _review_assignment(batch_id, raw, *, worker="worker-reviewer", session_attempt="ATT-BATCH-REVIEW"):
-    return SimpleNamespace(
-        mission_id=MISSION, scope="evaluation-batch:" + batch_id,
+def _review_assignment(batch_id, raw, *, worker=None, session_attempt="ATT-BATCH-REVIEW"):
+    return _signed_assignment(
+        scope="evaluation-batch:" + batch_id,
         assignment_id="AS-BATCH-REVIEW", attempt_id=session_attempt,
-        worker_instance_id=worker, agent_id="independent-batch-reviewer",
+        worker=worker, agent_id="independent-batch-reviewer",
         input_refs=(raw,), allowed_tools=("read-evidence",),
     )
 
