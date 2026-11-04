@@ -209,3 +209,81 @@ def test_execution_materializer_cannot_accept_playwright_without_full_graph_comp
         materializer._materialize_playwright(tmp_path)
     assert 'gitnexus@latest' in commands[0] and '--ignore-scripts' not in commands[0]
     assert '--package-lock=true' in commands[0]
+
+
+def test_bsk_041_packaging_pins_cli_extension_and_dsh_exact_release(tmp_path, monkeypatch):
+    assert materializer.BSK_LOCK_VERSION == "0.4.1"
+    versions = []
+    downloads = []
+
+    def release(repo, *, name=None, contains=(), tag=None):
+        assert repo == "Tencent/BrowserSkill"
+        versions.append((name, tag))
+        if tag == "cli-v0.4.1":
+            return {"tag_name": tag}, {
+                "name": name, "digest": "sha256:" +
+                    materializer.BSK_CLI_ARCHIVE_SHA256,
+                "browser_download_url": "https://example.test/bsk-cli.zip",
+            }
+        if tag == "ext-v0.4.1":
+            return {"tag_name": tag}, {
+                "name": name, "digest": "sha256:" +
+                    materializer.BSK_EXTENSION_ARCHIVE_SHA256,
+                "browser_download_url": "https://example.test/bsk-ext.zip",
+            }
+        raise AssertionError("Moving latest or wrong tag was requested")
+
+    def download(url, destination, expected_sha256):
+        downloads.append((url, expected_sha256))
+        with zipfile.ZipFile(destination, "w") as archive:
+            if url.endswith("bsk-cli.zip"):
+                archive.writestr("bsk.exe", "fake binary; never execute")
+            else:
+                archive.writestr("browser-extension/manifest.json", '{"version":"0.4.1"}')
+        return str(expected_sha256).replace("sha256:", "")
+
+    monkeypatch.setattr(materializer, "_release_asset", release)
+    monkeypatch.setattr(materializer, "_download", download)
+    monkeypatch.setattr(materializer, "_run", lambda *a, **k: "bsk 0.4.1")
+
+    rows = materializer._materialize_browserskill(tmp_path)
+    assert versions == [
+        ("bsk-v0.4.1-x86_64-pc-windows-msvc.zip", "cli-v0.4.1"),
+        ("browser-skill-extension-v0.4.1-chrome.zip", "ext-v0.4.1"),
+    ]
+    assert len(downloads) == 2
+    assert downloads[0][1] == "sha256:" + materializer.BSK_CLI_ARCHIVE_SHA256
+    assert downloads[1][1] == "sha256:" + materializer.BSK_EXTENSION_ARCHIVE_SHA256
+    assert [row["resolved_version"] for row in rows] == ["0.4.1", "0.4.1"]
+
+
+@pytest.mark.parametrize("bad", ["cli_digest", "cli_tag", "extension_digest", "extension_tag"])
+def test_bsk_041_packaging_rejects_unexpected_bytes_or_version_before_io(
+        tmp_path, monkeypatch, bad):
+    downloads = []
+
+    def release(repo, *, name=None, contains=(), tag=None):
+        if tag == "cli-v0.4.1":
+            return {"tag_name": "cli-v0.4.0" if bad == "cli_tag" else tag}, {
+                "name": name, "digest": "sha256:" +
+                    ("0" * 64 if bad == "cli_digest"
+                     else materializer.BSK_CLI_ARCHIVE_SHA256),
+                "browser_download_url": "https://example.test/cli",
+            }
+        if tag == "ext-v0.4.1":
+            return {"tag_name": "ext-v0.4.0" if bad == "extension_tag" else tag}, {
+                "name": name, "digest": "sha256:" +
+                    ("0" * 64 if bad == "extension_digest"
+                     else materializer.BSK_EXTENSION_ARCHIVE_SHA256),
+                "browser_download_url": "https://example.test/ext",
+            }
+        raise AssertionError("Unexpected latest request")
+
+    monkeypatch.setattr(materializer, "_release_asset", release)
+    monkeypatch.setattr(materializer, "_download",
+                        lambda *a, **k: downloads.append(a))
+    with pytest.raises(
+            materializer.RuntimePayloadMaterializerError,
+            match="BROWSERSKILL_(CLI|EXTENSION)_PIN_OR_DIGEST_MISMATCH"):
+        materializer._materialize_browserskill(tmp_path)
+    assert downloads == []
