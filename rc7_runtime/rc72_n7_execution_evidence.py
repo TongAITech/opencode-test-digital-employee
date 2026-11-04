@@ -127,7 +127,11 @@ class ExecutionEvidenceService:
                 evidence_refs=observation_refs, artifact_version=1))
         from .rc72_formal_runner import verified_formal_receipt
         formal = verified_formal_receipt(self.preparation, p, c, dispatch.get('raw_result') or {})
-        reason = ('TOOL_SIDE_EFFECTS_UNKNOWN' if dispatch['state'] == 'IN_FLIGHT' else
+        # An adapter exception after the durable external-I/O intent may have
+        # committed remotely even when no returned receipt exists. Its R1
+        # UNKNOWN status must remain incident evidence, not an inferred FAIL
+        # or an Oracle comparison against a missing result.
+        reason = ('TOOL_SIDE_EFFECTS_UNKNOWN' if dispatch['state'] in {'IN_FLIGHT', 'UNKNOWN'} else
                   'TOOL_INVOCATION_FAILED' if dispatch['state'] == 'FAILED' else
                   'RUNNER_PROCESS_FAILED' if formal and formal['runner_result']['exit_code'] != 0 else
                   'RUNNER_TOOL_EVIDENCE_MISSING' if formal and not formal['required_tool_observed'] else
