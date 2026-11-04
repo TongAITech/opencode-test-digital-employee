@@ -25,6 +25,9 @@ from .rc72_n5_pipeline import N5PipelineService
 from .rc72_n7_execution_preparation import ExecutionPreparationService
 from .rc72_formal_runner import FormalN7RunnerAdapter
 from .rc72_n7_pipeline import N7PipelineService
+from .rc72_official_journey_execution import OfficialJourneyExecutionService
+from .rc72_journey_n7_adapter import SignedN7OfficialBSKAdapter
+from .rc72_journey_bsk import JourneyBSKAdapter
 from .rc72_n8_product_recovery import NativeN8ProductRecoveryService
 from .rc72_capability_broker import CapabilityBroker, CapabilityPolicyRule
 from .rc72_n9_accepted_scope import AcceptedScopeN9Service
@@ -74,12 +77,14 @@ class MissionHostBindings:
     execution_env: object = None
     captain_binding: object = None
     capability_policies: object = None
+    official_bsk_execution: object = None
 
 
 def create_mission_driver(truth, *, release_id, source_commit, workers,
                           bank_pip_mirror, execution_authority,
                           execution_environment, tool_registry, evidence_root,
-                          execution_env=None, captain_binding=None, capability_policies=None):
+                          execution_env=None, captain_binding=None, capability_policies=None,
+                          official_bsk_execution=None):
     """Compose all implemented native routes against one ledger/source/release.
 
     Missing roles fail before constructing pipelines or touching the ledger.
@@ -167,6 +172,24 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
                     for tool, rule in capability_policies.items()))):
         raise ContractError('MISSION_FACTORY_EXACT_CAPABILITY_POLICY_REQUIRED')
 
+    # Do not infer a BrowserSkill session or full-access route from a name:
+    # the host must bind a B-owned pool and real BSK adapter for this release.
+    bsk_registered = 'journey_bsk' in allowed_execution_tools
+    if bsk_registered != (official_bsk_execution is not None):
+        raise ContractError('MISSION_FACTORY_BSK_APPROVED_TOOL_AND_EXECUTOR_REQUIRED')
+    official_journey_adapters = {}
+    if bsk_registered:
+        if (not isinstance(official_bsk_execution, OfficialJourneyExecutionService)
+                or official_bsk_execution.truth is not truth
+                or official_bsk_execution.release_id != release_id
+                or not isinstance(official_bsk_execution.adapter, JourneyBSKAdapter)
+                or official_bsk_execution.adapter.pool is not official_bsk_execution.browser_pool
+                or official_bsk_execution.browser_pool.truth is not truth
+                or official_bsk_execution.browser_pool.release_id != release_id):
+            raise ContractError('MISSION_FACTORY_BSK_NATIVE_HOST_OWNERSHIP_REQUIRED')
+        official_journey_adapters['journey_bsk'] = SignedN7OfficialBSKAdapter(
+            official_bsk_execution)
+
     def launcher(role):
         return bindings[role].launcher
 
@@ -190,7 +213,8 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
         authority=execution_authority, tool_registry={k: tuple(v) for k, v in tool_registry.items()})
     n7 = N7PipelineService(preparation, runner=FormalN7RunnerAdapter(preparation,
         evidence_root=root/'runner', execution_env=execution_env, environment_adapter=execution_environment),
-        capture_root=root/'execution-captures', **captain_kwargs)
+        capture_root=root/'execution-captures',
+        official_journey_adapters=official_journey_adapters, **captain_kwargs)
     n8 = NativeN8ProductRecoveryService(n7, capability_broker=CapabilityBroker(
         truth, release_id=release_id, authority=execution_authority,
         policies=capability_policies or {}))
