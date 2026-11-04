@@ -164,7 +164,7 @@ jobs:
           python -m pytest -q "${tests[@]}"
 
   field-hardened-package:
-    name: Final certified offline ZIP: single build and independent re-extract
+    name: "Final certified offline ZIP: single build and independent re-extract"
     # Explicit only, NEVER on ordinary pushes or PR commits.
     if: github.event_name == 'workflow_dispatch' && inputs.final_qualification == true
     needs:

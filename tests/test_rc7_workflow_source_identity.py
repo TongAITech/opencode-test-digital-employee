@@ -45,7 +45,7 @@ def test_rc7_iterative_commits_run_source_only_and_never_package():
     assert content.count(gate) == 2
     assert "windows-clean-qualification:" not in content
     assert content.count("python -m rc7_release.package build --repo-root . --output") == 1
-    assert "name: Final certified offline ZIP: single build and independent re-extract" in content
+    assert "name: "Final certified offline ZIP: single build and independent re-extract"" in content
 
 
 def test_rc7_final_one_zip_certification_retains_clean_smoke_and_bank_profile_protection():
