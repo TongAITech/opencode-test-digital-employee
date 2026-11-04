@@ -285,6 +285,9 @@ def test_bsk_business_oracle_is_interleaved_at_exact_source_operation(tmp_path):
     ("tool.press", "PRESS", {"key": "Enter"}, "key", "Enter"),
     ("tool.hover", "HOVER", {}, None, None),
     ("tool.scroll-to", "SCROLL_TO", {}, None, None),
+    ("tool.scroll_to", "SCROLL_TO", {}, None, None),
+    ("tool.wheel", "WHEEL", {"delta_x": 0, "delta_y": 450.0},
+     "delta_y", 450.0),
     ("tool.drag", "DRAG", {"target_ref": "css:#target"},
      "target_ref", "css:#target"),
 ])
@@ -365,3 +368,19 @@ def test_bsk_teaching_requires_independent_session_authority_before_r1(tmp_path)
         _invoke(importer, export, args, mapping)
     assert not truth.query("rc72_journey_recording", recording_id="JR-BSK-1")
     assert not truth.query("rc72_journey_capture_step", recording_id="JR-BSK-1")
+
+
+@pytest.mark.parametrize("deltas", [
+    {"delta_x": 0, "delta_y": 0},
+    {"delta_x": 0, "delta_y": float("inf")},
+    {"delta_x": 0, "delta_y": 500000},
+    {"delta_x": True, "delta_y": 100},
+])
+def test_bsk_wheel_rejects_noop_nonfinite_huge_or_boolean_deltas(tmp_path, deltas):
+    truth, importer, doc, export, args, mapping = _fixture(tmp_path)
+    doc["operations"][1]["method"] = "tool.wheel"
+    mapping["operation-2"].update(deltas)
+    export.write_text(json.dumps(doc))
+    with pytest.raises(Exception, match="JOURNEY_BSK_WHEEL_DELTA_INVALID"):
+        _invoke(importer, export, args, mapping)
+    assert not truth.query("rc72_journey_recording", recording_id="JR-BSK-1")
