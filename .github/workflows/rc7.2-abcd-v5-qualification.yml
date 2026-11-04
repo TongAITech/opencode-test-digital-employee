@@ -10,6 +10,12 @@ on:
       - 'tests/rc72_qa_c09_host.py'
       - '.github/workflows/rc7.2-abcd-v5-qualification.yml'
   workflow_dispatch:
+    inputs:
+      full_qualification:
+        description: 'Only at integration checkpoint: entire inherited suite + real Chromium'
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -79,6 +85,8 @@ jobs:
 
   complete-rc7-with-real-chromium:
     name: abcd-v5-ubuntu-3.11-complete-source-real-chromium
+    # Feature commits get only the 4-platform targeted gates above.
+    if: github.event_name == 'workflow_dispatch' && inputs.full_qualification == true
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     steps:
