@@ -294,3 +294,24 @@ QA CI-only 改动：为 RC7 Field Hardening 加入按 PR/branch 区分的 concur
 - 若目标源码没有符合条件的便携包，或者下载、sidecar、ZIP 安全、干净解包、DSH 实物审计任何一步未完成，额外输出 qa-c12-failed-step.json，状态固定 HOLD_NO_PHYSICAL_QUALIFICATION，绝不声称 Field 或 BANK_FINAL；同时保留 GitHub job 日志定位精确失败步骤。
 
 **核销纪律：** 这次提交属于 QA-only 审计器、测试与 workflow 可靠性加固。未见最新 QA HEAD 同 SHA CI 完成前，所有新测试均为 NOT_RUN；即便 C12 真实压缩包字节验证成功，也仅标记 PHYSICAL_CANDIDATE_ONLY。C03/C09、L1–L7 全链路、Q3–Q9 实地、银行总验收均不得因安全审计工作完成而升级。
+
+
+## 20. 第十一轮：已完成的 CI 真实失败分类与 QA 自纠（2026-11-04）
+
+本节基于实际完成的 GitHub Actions/pytest 日志，不将组件绿色推定为产品绿色：
+
+- 主线 main 4721bb57 的 Construction/Q1/Q2/Portable 四个原有作业全部 CANCELLED；所以 main 并无最新合格 Build/Field 证据。C12 独立实物 QA 41778057426 因主线 4721bb57 未存在成功同 SHA Portable Artifact 而有意拒绝使用旧包，FAIL 不是物理包 PASS。
+- A 核心 562b677c：targeted 41778073697 两 Python 环境成功；Construction 41778073664 两环境各 1515 passed、3 failed、3 skipped，均为实际 C09 浏览器/漂移/重放负例。仍非全量合格。
+- B 运行时 f4ca76b：41773853707 Win/Linux × 3.8/3.11 四环境专项成功；继承 RC7 41773853978 2055 passed、5 failed、4 skipped（C09 三项加 N10 coverage rerun 两项）。C06/C07 可交接候选，非整线签收。
+- C Journey ea63343：isolated C09 41776017281 三项成功含真实 Chromium；继承 RC7 41776022247 FAILED，不能用独立验收替代集成验收。
+- D Economy c829f2c：41777578986 的原生 C10 四环境专项全成功；同 SHA integrated RC7 + real Chromium FAILED，真 Chromium/CDP 测试报告 FAILED != PASSED；仍需与 C 修复整合行为。
+
+独立 QA 原同源 41778057451 的 C12 工具测试在 Ubuntu3.11 有 117 passed / 1 failed，在 Windows3.11 有 116 passed / 2 failed。两个仅属于 QA 测试自纠的问题已在 E 分支改正源代码（不是宣称改后 PASS）：
+
+1. 源码祖先负例使用不存在的全 f Git SHA 时，Git 正确报 QA_GIT_ANCESTRY_ERROR，不是“真实存在但属于别的支线”。现在精确接受错误原因，另补真正存在的 Git sibling + 95 条 ledger 负例，保持不可伪造验收。
+2. Windows Python zipfile 自动把 ZipInfo 测试输入反斜杠转成正斜杠。负例现在在生成 ZIP 后把 local/central 的文件名原始字节恢复成带反斜杠的危险成员，再要求 preflight 拒绝，不放松 Windows 危险路径约束。
+
+独立 C01/C02 真实红灯不调整：test_qa_c01_c02_changed_independent_verifier_bytes_stop_n6_before_any_new_attempt 发现独立 N5 复核附件被篡改时，Continuation.reconcile 抛 ContractError 之前仍向 R1 追加 seq454–457 四条（包括 task STALE/READY、N6 READY、N5→N6 RESUME）。源码 _restore 先写 R1，_compile 再写节点/transition，然后 compile_batch 认证物理证据。虽然没有新 business HTTP/Attempt，账本副作用仍是需要 A 修的产品缺口；绝不能直接删断言。已告知 A PR #10 并要求在修改之前先认证全部证据或实现可验证的原子恢复。
+
+QA 产品接线测试另有 7 个红灯，均反映 B Captain、C BSK/Playwright、A N8/N10 尚未全合主线。特别是当前 main 缺 SignedN7OfficialBSKAdapter 导致 ImportError，是未合入 C #13 的事实，而不是 QA 装错依赖。所有正式工程/Field/Q3–Q9/BANK_FINAL 继续 HOLD。
+
