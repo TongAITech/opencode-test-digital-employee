@@ -84,6 +84,16 @@ def _check_recording(doc: Mapping[str, Any], session_id: str) -> Dict[str, Any]:
     requests = doc.get("requests")
     if not isinstance(ops, list) or not ops or not isinstance(requests, list):
         raise ContractError("JOURNEY_BSK_EXPORT_OPERATIONS_REQUIRED")
+    # Native BSK DebugRun declares cumulative captured operation/request counts.
+    # A truncated export can have perfectly contiguous 1..N step IDs yet omit
+    # the last human click. Refuse it before writing any canonical R1 record.
+    if (type(run.get("operations")) is not int or run["operations"] != len(ops)
+            or type(run.get("requests")) is not int
+            or run["requests"] != len(requests)):
+        raise ContractError("JOURNEY_BSK_EXPORT_CAPTURE_COUNT_MISMATCH")
+    storage = run.get("storage")
+    if isinstance(storage, Mapping) and storage.get("dropped", 0):
+        raise ContractError("JOURNEY_BSK_EXPORT_STORAGE_DROPPED")
     if len({op.get("id") for op in ops if isinstance(op, Mapping)}) != len(ops):
         raise ContractError("JOURNEY_BSK_OPERATION_IDS_DUPLICATE")
     if len({r.get("id") for r in requests if isinstance(r, Mapping)}) != len(requests):
@@ -198,7 +208,8 @@ class BSKJourneyTeachingImporter:
             if (not isinstance(op, Mapping) or
                     op.get("run_id") != run.get("id") or
                     op.get("state") != "completed" or
-                    op.get("truncated") is True):
+                    op.get("truncated") is True
+                    or op.get("observation_limited") is True):
                 raise ContractError("JOURNEY_BSK_OPERATION_INCOMPLETE")
             method = str(op.get("method") or "").lower()
             if method.startswith("tool."):
