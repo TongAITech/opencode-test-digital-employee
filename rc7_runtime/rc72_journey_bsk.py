@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -290,7 +291,8 @@ class JourneyBSKAdapter:
             "NAVIGATE": "navigate", "CLICK": "click",
             "INPUT": "fill", "SELECT": "select",
             "PRESS": "press", "HOVER": "hover",
-            "SCROLL_TO": "scroll-to", "DRAG": "drag",
+            "SCROLL_TO": "scroll-to", "WHEEL": "wheel",
+            "DRAG": "drag",
         }.get(kind)
         if not action:
             raise ContractError("JOURNEY_BSK_ACTION_UNSUPPORTED")
@@ -306,6 +308,14 @@ class JourneyBSKAdapter:
             args["target"] = {"selector": target}
         else:
             args["selector"] = self._selector(str(step.get("element_ref") or ""), context)
+            if action == "wheel":
+                dx, dy = step.get("delta_x", 0), step.get("delta_y", 0)
+                if (type(dx) not in (int, float) or type(dy) not in (int, float)
+                        or not math.isfinite(dx) or not math.isfinite(dy)
+                        or (dx == 0 and dy == 0)
+                        or max(abs(dx), abs(dy)) > 2000):
+                    raise ContractError("JOURNEY_BSK_WHEEL_DELTA_INVALID")
+                args["delta_x"], args["delta_y"] = dx, dy
             if action == "press":
                 key = step.get("key")
                 if key not in {
