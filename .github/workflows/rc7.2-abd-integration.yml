@@ -57,6 +57,7 @@ jobs:
           tests/test_rc72_conclusive_failure_evidence.py
           tests/test_rc72_n9_captain_qualification.py
           tests/test_rc72_n9_professional_dsh_contract.py
+          tests/test_rc72_n9_professional_dsh_real_route.py
           tests/test_rc72_n10_terminal.py
           --junitxml=rc72-abd-integration.xml
       - uses: actions/upload-artifact@v4
