@@ -1,0 +1,88 @@
+name: RC7.2 A/B/C/D Real Product Integration Qualification
+
+on:
+  push:
+    branches:
+      - work/rc7.2-abcd-integration
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-abcd-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  four-platform-product-regressions:
+    name: abcd-native-${{ matrix.os }}-python-${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python-version: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pinned qualification runner and C09 import dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check pytest==8.3.5
+          if [[ "${{ matrix.python-version }}" == "3.8" ]]; then
+            python -m pip install --disable-pip-version-check playwright==1.48.0
+          else
+            python -m pip install --disable-pip-version-check playwright==1.62.0
+          fi
+      - name: Compile actual production routes
+        run: python -m compileall -q rc6_runtime rc7_runtime rc7_release
+      - name: Verify A N8-N10, B Captain fencing, C BrowserSkill, D native shared batch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            tests/test_rc72_mission_factory.py \
+            tests/test_rc72_n8_product_recovery.py \
+            tests/test_rc72_release_driver_n8.py \
+            tests/test_rc72_native_coverage_rerun.py \
+            tests/test_rc72_captain_n7_pipeline.py \
+            tests/test_rc72_journey_bsk_full_chain_contract.py \
+            tests/test_rc72_production_economy_wiring.py \
+            tests/test_rc72_native_shared_batch.py \
+            --junitxml="rc72-abcd-${{ matrix.os }}-${{ matrix.python-version }}.xml"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: abcd-r1-contract-${{ matrix.os }}-py-${{ matrix.python-version }}
+          path: rc72-abcd-*.xml
+          retention-days: 14
+
+  actual-chromium-cdp-smoke:
+    name: abcd-real-chromium-cdp
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install actual Playwright and Chromium
+        run: |
+          python -m pip install --disable-pip-version-check pytest==8.3.5 playwright==1.62.0
+          python -m playwright install --with-deps chromium
+      - name: Run actual C09 Chromium CDP and HTTP Oracle smoke
+        run: python -m pytest -q tests/test_rc72_c09_real_chromium_cdp_smoke.py --junitxml=rc72-abcd-c09-real-browser.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: abcd-c09-real-browser-r1
+          path: rc72-abcd-c09-real-browser.xml
+          retention-days: 14

@@ -16,6 +16,8 @@ from .closed_loop_control import ClosedLoopControlPlane as _BaseClosedLoopContro
 from .rc72_critical_path import CanonicalCriticalPathResolver
 from .rc72_schedule_semantics import WorkScheduleSemanticsService
 from .rc72_scheduler_integration import attach_economy_scheduler
+from .rc72_model_economy import BankCostWindowConfig
+from .rc72_economy_scheduler import EconomyAwareReadySelector
 
 
 class RC72EconomyClosedLoopControlPlane(_BaseClosedLoopControlPlane):
@@ -31,9 +33,22 @@ class RC72EconomyClosedLoopControlPlane(_BaseClosedLoopControlPlane):
             release_id=release_id,
             schedule_semantics=self.schedule_semantics,
         )
+        # The product CLI persists the same bank policy in the canonical R1
+        # soft budget BEFORE it constructs the Mission driver. Every fresh
+        # control-plane instance (including cold recovery) must honor that
+        # exact policy, not silently use a host-local/default cost window.
+        budget_rows = truth.query("rc72_token_budget", budget_id=mission_id)
+        if len(budget_rows) > 1:
+            raise RuntimeError("RC72_ECONOMY_BUDGET_NOT_UNIQUE")
+        schedule = (
+            BankCostWindowConfig.from_mapping(budget_rows[0]["bank_cost_window_config"])
+            if budget_rows and "bank_cost_window_config" in budget_rows[0]
+            else BankCostWindowConfig()
+        )
         self.economy_scheduler = attach_economy_scheduler(
             self,
             descriptor_resolver=self.critical_path.resolve,
+            selector=EconomyAwareReadySelector(cost_window_config=schedule),
         )
 
 

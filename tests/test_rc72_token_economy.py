@@ -99,7 +99,9 @@ def test_extract_ambiguous_usage_fails_closed():
     usage = extract_dsh_token_usage(text)
     assert usage.status == UsageStatus.UNKNOWN
     assert usage.total_tokens == 0
-    assert usage.source == "DSH_USAGE_AMBIGUOUS_MULTIPLE_SNAPSHOTS"
+    # Native DSH usage and independent R1 audit intentionally share the
+    # strict provider parser; conflicting snapshots remain UNKNOWN.
+    assert usage.source == "DSH_PROVIDER_MULTIPLE_CONFLICTING_USAGE_SNAPSHOTS"
 
 
 def test_bank_cost_window_is_explicit_and_not_host_timezone_dependent():
@@ -352,3 +354,132 @@ def test_metered_launcher_never_calls_delegate_for_hard_waste_guard(tmp_path: Pa
     with pytest.raises(TokenEconomyError, match="TOKEN_CALL_BLOCKED"):
         wrapper.execute(assignment, "do deterministic work")
     assert delegate.calls == 0
+
+
+def test_optional_budget_relaxation_cannot_turn_unknown_usage_into_q7_economy_pass(tmp_path: Path):
+    _, service = _service(tmp_path, measured=False)
+    admission = _admit(service, prompt="mandatory task with unavailable bank usage")
+    assert admission.admitted
+    service.complete_call(admission.call_id, DshTokenUsage.unknown("BANK_PROVIDER_COUNTERS_NOT_EXPOSED"))
+    status = service.qualification("MISSION-1")
+    assert status.status == "HOLD"
+    assert status.reason == "TOKEN_USAGE_UNKNOWN"
+    assert status.metrics["actual_total_tokens"] is None
+    assert status.metrics["usage_total_status"] == "UNKNOWN"
+
+
+
+def test_field_q7_does_not_conflate_dsh_process_invocations_with_provider_inferences(tmp_path: Path):
+    truth, service = _service(tmp_path, measured=True)
+    call = _admit(service, prompt="one native DSH headless invocation")
+    assert call.admitted
+    service.complete_call(
+        call.call_id, DshTokenUsage(UsageStatus.MEASURED, 120, 30, 150, "DSH_FINAL_USAGE"),
+    )
+    summary = service.summary("MISSION-1")
+    # This fixture wrote model-call truth directly; no DSH process boundary
+    # was observed. Its process count must remain UNKNOWN, not an invented 1.
+    assert summary["dsh_process_invocations"] is None
+    assert summary["dsh_process_invocation_count_status"] == "UNKNOWN"
+    assert summary["provider_inference_call_count_status"] == "UNKNOWN"
+    assert summary["provider_inference_call_count"] is None
+    # Source-level token measurements may be valid, yet per-provider call
+    # counts have NOT been verified from actual bank DSH inference events.
+    component = service.qualification("MISSION-1")
+    assert component.status == "PASS"
+    field = service.field_qualification("MISSION-1")
+    assert field.status == "HOLD"
+    assert field.reason == "PROVIDER_INFERENCE_CALL_COUNT_UNKNOWN"
+    assert field.metrics["measured_total_tokens"] == 150
+
+
+def test_field_q7_missing_call_evidence_never_promotes_economy_pass(tmp_path: Path):
+    _, service = _service(tmp_path)
+    assert service.field_qualification("MISSION-1").status == "HOLD"
+    assert service.field_qualification("MISSION-1").reason == "TOKEN_USAGE_EVIDENCE_REQUIRED"
+
+
+
+def test_model_admission_is_not_a_dsh_process_invocation(tmp_path: Path):
+    truth, service = _service(tmp_path)
+    admitted = _admit(service, prompt="awaiting an actual runner")
+    assert admitted.admitted
+    summary = service.summary("MISSION-1")
+    assert summary["model_calls"] == 1
+    assert summary["dsh_process_invocations"] is None
+    assert summary["dsh_process_invocation_count_status"] == "UNKNOWN"
+    assert truth.query("rc72_token_call", call_id=admitted.call_id)[0]["process_outcome"] == "NOT_STARTED"
+
+
+def test_nested_tool_resource_counters_inside_final_event_are_not_measured_provider_usage():
+    nested_only = json.dumps({
+        "type": "final",
+        "text": "actual native tool returned output",
+        "tool_result": {
+            "tool_name": "CAT",
+            "usage": {"input_tokens": 420, "output_tokens": 22, "total_tokens": 442},
+        },
+    })
+    parsed = extract_dsh_token_usage(nested_only)
+    assert parsed.status == UsageStatus.UNKNOWN
+    assert parsed.total_tokens == 0
+
+    mixed = json.dumps({
+        "type": "final",
+        "usage": {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120},
+        "tool_result": {
+            "tool_name": "CodeGraph",
+            "usage": {"input_tokens": 900, "output_tokens": 600, "total_tokens": 1500},
+        },
+    })
+    provider = extract_dsh_token_usage(mixed)
+    assert provider.status == UsageStatus.MEASURED
+    assert provider.total_tokens == 120
+    assert provider.input_tokens == 100
+
+
+def test_canonical_usage_parser_rejects_conflicting_dsh_aliases_in_both_ledgers():
+    from rc7_runtime.rc72_model_usage import DshTokenUsageParser
+    lines = [
+        {"type": "final", "usage": {
+            "input_tokens": 100, "prompt_tokens": 120,
+            "output_tokens": 20, "total_tokens": 120,
+        }},
+        {"type": "final", "usage": {
+            "input_tokens": 100, "output_tokens": 20, "total_tokens": 121,
+        }},
+        {"type": "final", "usage": {
+            "total_tokens": 120,
+        }},
+        {"type": "final", "usage": {
+            "input_tokens": 100, "output_tokens": 20, "total_tokens": 119,
+        }},
+    ]
+    for event in lines:
+        parsed = DshTokenUsageParser.parse([event])
+        native = extract_dsh_token_usage(json.dumps(event))
+        assert native.status == UsageStatus.UNKNOWN
+        assert native.total_tokens == 0
+        assert parsed.observation_status in {"UNKNOWN", "OBSERVED"}
+    assert DshTokenUsageParser.parse([lines[0]]).observation_status == "UNKNOWN"
+    assert DshTokenUsageParser.parse([lines[1]]).observation_status == "OBSERVED"
+
+
+def test_identical_dsh_usage_snapshots_measured_once_with_strict_camelcase_aliases():
+    from rc7_runtime.rc72_model_usage import DshTokenUsageParser
+    event = {
+        "type": "final", "usage": {
+            "inputTokens": 100, "outputTokens": 20, "totalTokens": 120,
+        },
+    }
+    jsonl = json.dumps(event) + "\n" + json.dumps(event) + "\n"
+    observed = DshTokenUsageParser.parse([event, event])
+    native = extract_dsh_token_usage(jsonl)
+    assert observed.observation_status == "OBSERVED"
+    assert observed.total_tokens == 120
+    assert observed.usage_candidate_count == 2
+    assert native.status == UsageStatus.MEASURED
+    assert native.input_tokens == 100
+    assert native.output_tokens == 20
+    assert native.total_tokens == 120
+    assert native.source == "DSH_FINAL_USAGE"
