@@ -16,7 +16,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.request import urlopen
 
-from playwright.sync_api import sync_playwright
+# The RC7 broad source suite intentionally does not install Chromium/Playwright.
+# A dedicated required C09 workflow installs both and runs these two *real*
+# browser tests. Mark the module as optional only in generic source collection;
+# never replace real browser assertions with a fake or "pass" receipt.
+import pytest
+sync_playwright = pytest.importorskip(
+    "playwright.sync_api", reason="real CDP smoke belongs to the dedicated C09 Chromium CI job"
+).sync_playwright
 
 from rc7_runtime.rc72_journey_playwright import JourneyPlaywrightAdapter
 from rc7_runtime.rc72_journey_replay import JourneyReplayService
