@@ -70,10 +70,23 @@ def main(argv=None):
             else:
                 bindings = load_mission_bindings(args.bindings_module, truth=truth,
                     release_id=args.release_id, source_commit=args.source_commit)
+            # Factory composition has no R1 effects.  In particular, do not
+            # allocate the first soft token budget while Q7 Field admission is
+            # HOLD: a refused Mission must leave the canonical ledger intact.
+            driver = create_mission_driver(truth, release_id=args.release_id, source_commit=args.source_commit,
+                evidence_root=Path(args.evidence_root).expanduser().resolve(),
+                **{f.name: getattr(bindings, f.name) for f in fields(bindings)})
+            if driver.bank_pip_mirror.root != root:
+                raise ContractError('MISSION_RUNNING_PACKAGE_MIRROR_SCOPE_MISMATCH')
             if args.command == 'run':
-                # C10: bind actual native model process boundaries before Factory
-                # dispatch, preserving its exact worker-type/authority guards.
-                # Mirror-check has no LLM and must not create economy receipts.
+                from rc7_runtime.rc72_field_mission_start import ReleaseBatchFieldMissionLauncher
+                admission = ReleaseBatchFieldMissionLauncher(
+                    truth, source_commit=args.source_commit,
+                    bank_pip_mirror=driver.bank_pip_mirror)
+                # This is the same exact batch + signed mirror admission as
+                # driver.start(), but READ-ONLY. It happens before C10 creates
+                # any budget, wraps any DSH launcher, or performs business I/O.
+                admission._admission(admission._batch(args.release_batch))
                 from rc7_runtime.rc72_production_economy_ingress import (
                     bind_release_batch_model_economy, read_mission_economy_config,
                 )
@@ -82,11 +95,6 @@ def main(argv=None):
                     mission_id=snapshot['mission_id'],
                     policy=read_mission_economy_config(args.economy_config),
                 )
-            driver = create_mission_driver(truth, release_id=args.release_id, source_commit=args.source_commit,
-                evidence_root=Path(args.evidence_root).expanduser().resolve(),
-                **{f.name: getattr(bindings, f.name) for f in fields(bindings)})
-            if driver.bank_pip_mirror.root != root:
-                raise ContractError('MISSION_RUNNING_PACKAGE_MIRROR_SCOPE_MISMATCH')
             if args.command == 'mirror-check':
                 result = driver.bank_pip_mirror.run(release_batch_id=args.release_batch,
                     bridge_user_config=args.bridge_user_config,retry_returned_failure=args.retry_returned_failure)
