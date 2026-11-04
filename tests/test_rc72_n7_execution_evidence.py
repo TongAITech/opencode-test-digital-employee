@@ -31,11 +31,11 @@ def test_receipt_enters_inherited_attempt_assertion_and_both_evidence_surfaces(t
     assert list(replay.store.iter_raw()) == before
 
 
-@pytest.mark.parametrize('state', ['FAILED', 'IN_FLIGHT', 'ORACLE_FAILED'])
+@pytest.mark.parametrize('state', ['UNKNOWN', 'IN_FLIGHT', 'ORACLE_FAILED'])
 def test_real_failure_or_unknown_side_effect_gets_blocked_attempt_and_evidence(tmp_path, monkeypatch, state):
     truth, prep, p = _prepared(tmp_path, monkeypatch)
     def invoke(**kw):
-        if state == 'FAILED':
+        if state == 'UNKNOWN':
             raise RuntimeError('never-persist-this-secret')
         if state == 'IN_FLIGHT':
             raise KeyboardInterrupt()
@@ -49,6 +49,11 @@ def test_real_failure_or_unknown_side_effect_gets_blocked_attempt_and_evidence(t
     attempt = ExecutionEvidenceService(prep).record(p['preparation_id'])
     assert attempt['status'] == 'BLOCKED'
     assert attempt['reason'] != 'CLEANUP_AND_EVIDENCE_CLOSURE_REQUIRED'
+    if state in {'UNKNOWN', 'IN_FLIGHT'}:
+        assert attempt['reason'] == 'TOOL_SIDE_EFFECTS_UNKNOWN'
+        assert attempt['assertion_passed'] is None
+        assert attempt['actual_result'] is None
+        assert all(row['state'] == 'ACTIVE' for row in truth.query('rc72_data_lease'))
     assert attempt['evidence_refs']
     assert 'never-persist-this-secret' not in truth.store.path.read_text()
 
@@ -152,3 +157,35 @@ def test_failure_routing_is_scoped_when_store_has_another_release_batch(tmp_path
     diagnosis = ExecutionEvidenceService(prep).begin_diagnosis(p['preparation_id'])
     assert diagnosis.context_bundle['mission_id'] == p['mission_id']
     assert truth.query('rc72_mission_node', mission_id='OTHER-MISSION') == other_before
+
+
+
+def test_unknown_business_effect_is_durable_in_attempt_and_stays_blocked_after_cold_replay(
+        tmp_path, monkeypatch):
+    from rc7_runtime.rc72_n7_execution_evidence import ExecutionEvidenceService
+    from test_rc72_n7_execution_preparation import _service
+
+    truth, prep, p = _prepared(tmp_path, monkeypatch)
+    invocations = []
+
+    def ambiguous_call(**kwargs):
+        invocations.append(kwargs['context']['attempt_id'])
+        raise TimeoutError('bank request may have committed: never-persist-private-token')
+
+    result = SignedToolDispatchService(
+        prep, adapters={'api_http': ambiguous_call}).dispatch(p['preparation_id'])
+    assert result['state'] == 'UNKNOWN' and result['replay_prohibited'] is True
+    first = ExecutionEvidenceService(prep).record(p['preparation_id'])
+    assert first['status'] == 'BLOCKED'
+    assert first['reason'] == 'TOOL_SIDE_EFFECTS_UNKNOWN'
+    assert first['assertion_ref'] is None and first['assertion_passed'] is None
+    assert first['evidence_refs']
+    assert 'never-persist-private-token' not in truth.store.path.read_text()
+
+    cold = TruthRuntime(truth.store.path)
+    before = cold.store.path.read_bytes()
+    restored = ExecutionEvidenceService(_service(cold)).record(p['preparation_id'])
+    assert restored == first
+    assert cold.store.path.read_bytes() == before
+    assert invocations == [p['attempt_id']]
+    assert {row['state'] for row in cold.query('rc72_data_lease')} == {'ACTIVE'}
