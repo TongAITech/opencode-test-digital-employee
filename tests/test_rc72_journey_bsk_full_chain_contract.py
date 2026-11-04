@@ -129,6 +129,9 @@ def _bsk_field_adapter(truth, pool, tmp_path):
         browser_pool=pool, evidence_root=tmp_path / "all-bsk-receipts",
         bsk_executable=tmp_path / "bsk.exe", runner=runner,
         session_resolver=owned, reference_resolver=resolve,
+        session_receipt_verifier=lambda ownership, scope, instance: (
+            ownership.get("source_receipt_ref") ==
+            "r1://B-SESSION-" + scope["attempt_id"]),
         field_attestation_verifier=signer,
         trusted_verifier_kinds=("SIMULATED_B_SIGNER_NOT_FIELD",))
     return adapter, runner
