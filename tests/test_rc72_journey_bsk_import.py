@@ -76,7 +76,9 @@ def _fixture(tmp_path):
         human_operator_ref="human://operator", auth_asset_ref="auth://4a/session-asset")
     importer = BSKJourneyTeachingImporter(
         teaching=teaching, evidence_root=tmp_path / "canonical-bsk",
-        authorized_capture_root=folder)
+        authorized_capture_root=folder,
+        session_receipt_verifier=lambda ownership, scope, instance: (
+            ownership.get("source_receipt_ref") == "r1://bsk-bound-session"))
     return truth, importer, doc, export, recording_args, evidence_map
 
 
