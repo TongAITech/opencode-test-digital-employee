@@ -83,7 +83,7 @@ class TestBSK:
         raise AssertionError("Unexpected BrowserSkill command: " + repr(argv))
 
 
-def _adapter(pool, tmp_path, runner):
+def _adapter(pool, tmp_path, runner, *, mobile_device=None, mobile_orientation='portrait'):
     def resolver(ref, kind, context):
         if kind == "oracle" and ref == "oracle://success-toast":
             return {"type": "text_equals", "element_ref": "css:#toast",
@@ -116,12 +116,14 @@ def _adapter(pool, tmp_path, runner):
         session_resolver=owned_session,
         session_receipt_verifier=lambda ownership, scope, instance: (
             ownership.get("source_receipt_ref") == "r1://bsk-session-binding"),
-        reference_resolver=resolver)
+        reference_resolver=resolver,
+        mobile_device=mobile_device, mobile_orientation=mobile_orientation)
 
 
-def _replay(tmp_path, runner):
+def _replay(tmp_path, runner, *, mobile_device=None, mobile_orientation='portrait'):
     truth, pool, lease, _, _ = replay_setup(tmp_path)
-    adapter = _adapter(pool, tmp_path, runner)
+    adapter = _adapter(pool, tmp_path, runner, mobile_device=mobile_device,
+                       mobile_orientation=mobile_orientation)
     service = JourneyReplayService(
         truth, release_id="RC7.2", browser_pool=pool, adapter=adapter)
     result = service.replay(
@@ -719,3 +721,211 @@ def test_bsk_evidence_uri_decode_accepts_exact_local_bytes_and_rejects_nonlocal(
                      "https://" + urlsplit(uri).path.lstrip("/")):
         with pytest.raises(AssertionError):
             _local_file_evidence_ref(modified)
+
+
+class MobileBSK(TestBSK):
+    """Explicit fake CLI for contract tests only; NEVER bank Field evidence."""
+
+    def __init__(self, *, device="iphone-14", orientation="portrait", failure=None):
+        super().__init__()
+        from rc7_runtime.rc72_journey_bsk import _MOBILE_PRESETS
+        self.device = device
+        self.orientation = orientation
+        self.failure = failure
+        self.profile = _MOBILE_PRESETS[device]
+
+    def __call__(self, argv):
+        argv = list(argv)
+        if "emulate" in argv:
+            self.calls.append(argv)
+            width, height, dpr, marker = self.profile
+            if self.orientation == "landscape":
+                width, height = height, width
+            assert argv[argv.index("--device") + 1] == self.device
+            assert argv[argv.index("--tab-id") + 1] == "37"
+            assert argv[argv.index("--session") + 1] == "BSK-OWNED-SESSION"
+            if self.orientation == "landscape":
+                assert argv[argv.index("--width") + 1] == str(width)
+                assert argv[argv.index("--height") + 1] == str(height)
+            applied = {
+                "width": width, "height": height, "device_scale_factor": dpr,
+                "mobile": True, "touch": True, "max_touch_points": 5,
+                "user_agent": "Mozilla/5.0 (" + marker + ") Mobile Safari",
+            }
+            if self.failure == "emulate_no_touch":
+                applied["touch"] = False
+            if self.failure == "emulate_wrong_dpr":
+                applied["device_scale_factor"] = 1.0
+            if self.failure == "emulate_wrong_ua":
+                applied["user_agent"] = "Desktop Chrome"
+            payload = {
+                "tab_id": 98 if self.failure == "emulate_other_tab" else 37,
+                "cleared": self.failure == "emulate_cleared",
+                "applied": applied, "note": "emulation overrides are per-tab",
+            }
+            return {"returncode": 0, "stdout": json.dumps(payload)}
+        if "evaluate" in argv and any(
+                "navigator.maxTouchPoints" in str(value) for value in argv):
+            self.calls.append(argv)
+            width, height, dpr, marker = self.profile
+            if self.orientation == "landscape":
+                width, height = height, width
+            state = {
+                "viewport_width": width, "viewport_height": height,
+                "device_pixel_ratio": dpr,
+                "user_agent": "Mozilla/5.0 (" + marker + ") Mobile Safari",
+                "max_touch_points": 5,
+            }
+            if self.failure == "probe_wrong_viewport":
+                state["viewport_width"] = 980
+            if self.failure == "probe_no_touch":
+                state["max_touch_points"] = 0
+            if self.failure == "probe_wrong_ua":
+                state["user_agent"] = "Desktop Chrome"
+            return {"returncode": 0, "stdout": json.dumps({
+                "ok": self.failure != "probe_not_ok",
+                "tab_id": 98 if self.failure == "probe_other_tab" else 37,
+                "value": state,
+            })}
+        return super().__call__(argv)
+
+
+@pytest.mark.parametrize("device,orientation,viewport", [
+    ("iphone-14", "portrait", [390, 844]),
+    ("pixel-7", "landscape", [915, 412]),
+    ("galaxy-s23", "portrait", [360, 780]),
+    ("ipad-mini", "portrait", [744, 1133]),
+])
+def test_bsk_mobile_h5_applies_once_and_verifies_actual_page_per_step(
+        tmp_path, device, orientation, viewport):
+    cli = MobileBSK(device=device, orientation=orientation)
+    outcome, truth, runner = _replay(
+        tmp_path, cli, mobile_device=device, mobile_orientation=orientation)
+    assert outcome.state.value == "PASSED"
+    emulations = [c for c in runner.calls if "emulate" in c]
+    assert len(emulations) == 1
+    probes = [c for c in runner.calls
+              if "evaluate" in c and any(
+                  "navigator.maxTouchPoints" in str(arg) for arg in c)]
+    assert len(probes) == 2
+    first_emulation = runner.calls.index(emulations[0])
+    first_business = next(i for i, call in enumerate(runner.calls)
+                          if "step" in call)
+    assert first_emulation < first_business
+    rows = sorted(truth.query(
+        "rc72_journey_replay_step", replay_id="JRP-BSK"),
+        key=lambda r: r["sequence"])
+    assert len(rows) == 2
+    for row in rows:
+        assert row["status"] == "PASSED"
+        actual = json.loads(_local_file_evidence_ref(row["actual_refs"][0]).read_text())
+        receipt = actual["mobile_emulation"]
+        assert receipt["device"] == device
+        assert receipt["orientation"] == orientation
+        assert receipt["viewport_css"] == viewport
+        assert receipt["touch_verified"] is True
+        assert receipt["user_agent_verified"] is True
+        assert receipt["tab_id"] == 37
+        assert actual["field_verified"] is False
+
+
+@pytest.mark.parametrize("failure,expected", [
+    ("emulate_other_tab", "JOURNEY_BSK_MOBILE_EMULATION_NOT_APPLIED"),
+    ("emulate_cleared", "JOURNEY_BSK_MOBILE_EMULATION_NOT_APPLIED"),
+    ("emulate_no_touch", "JOURNEY_BSK_MOBILE_EMULATION_NOT_APPLIED"),
+    ("emulate_wrong_dpr", "JOURNEY_BSK_MOBILE_EMULATION_NOT_APPLIED"),
+    ("emulate_wrong_ua", "JOURNEY_BSK_MOBILE_EMULATION_NOT_APPLIED"),
+    ("probe_wrong_viewport", "JOURNEY_BSK_MOBILE_LIVE_VIEWPORT_OR_TOUCH_MISMATCH"),
+    ("probe_no_touch", "JOURNEY_BSK_MOBILE_LIVE_VIEWPORT_OR_TOUCH_MISMATCH"),
+    ("probe_wrong_ua", "JOURNEY_BSK_MOBILE_LIVE_VIEWPORT_OR_TOUCH_MISMATCH"),
+    ("probe_not_ok", "JOURNEY_BSK_MOBILE_LIVE_PROBE_UNVERIFIED"),
+    ("probe_other_tab", "JOURNEY_BSK_MOBILE_LIVE_PROBE_UNVERIFIED"),
+])
+def test_bsk_mobile_mismatch_fails_before_mutating_any_h5_step(
+        tmp_path, failure, expected):
+    runner = MobileBSK(failure=failure)
+    outcome, truth, _ = _replay(
+        tmp_path, runner, mobile_device="iphone-14")
+    assert outcome.state.value == "FAILED"
+    assert not any("step" in call for call in runner.calls)
+    row = truth.query("rc72_journey_replay_step", replay_id="JRP-BSK")[0]
+    assert row["status"] == "FAILED"
+    assert row["failure_code"] == expected
+    actual = json.loads(_local_file_evidence_ref(row["actual_refs"][0]).read_text())
+    assert actual["field_verified"] is False
+    assert actual["failure_code"] == expected
+    assert actual["dispatch_intent_ref"].startswith("file://")
+
+
+@pytest.mark.parametrize("device,orientation,reason", [
+    ("unknown-device", "portrait", "JOURNEY_BSK_MOBILE_DEVICE_NOT_APPROVED"),
+    ("iphone-14", "reverse", "JOURNEY_BSK_MOBILE_ORIENTATION_INVALID"),
+    (None, "landscape", "JOURNEY_BSK_MOBILE_DEVICE_REQUIRED"),
+])
+def test_bsk_mobile_device_must_be_explicitly_approved_by_host(
+        tmp_path, device, orientation, reason):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    with pytest.raises(Exception, match=reason):
+        _adapter(pool, tmp_path, MobileBSK(),
+                 mobile_device=device, mobile_orientation=orientation)
+
+
+def test_bsk_mobile_no_b_authority_never_emulates_or_executes(tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    runner = MobileBSK()
+    adapter = _adapter(pool, tmp_path, runner, mobile_device="iphone-14")
+    adapter.verify_session = lambda ownership, scope, instance: False
+    step = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]["steps"][0]
+    result = adapter.execute_step(step, {
+        "replay_id": "BSK-MOBILE-DENIED", "mission_id": "M-1",
+        "workitem_id": "WI-R1", "attempt_id": "ATT-R1",
+        "worker_id": "WORKER-R1", "session_id": "SESSION-R1",
+        "browser_lease_id": lease.browser_lease_id})
+    assert result["status"] == "FAILED"
+    assert result["failure_code"] == "JOURNEY_BSK_EXTERNAL_SESSION_AUTHORITY_REJECTED"
+    assert not any("emulate" in c or "step" in c for c in runner.calls)
+
+
+def test_bsk_mobile_official_l5_execution_consumes_host_signed_phone_profile(
+        tmp_path):
+    """Typed official asset consumes BSK mobile simulation, not a generic CDP runner."""
+    truth, pool, lease, _, _ = official_setup(tmp_path)
+    runner = MobileBSK(device="pixel-7", orientation="portrait")
+    adapter = _adapter(pool, tmp_path, runner, mobile_device="pixel-7")
+    service = OfficialJourneyExecutionService(
+        truth, release_id="RC7.2", browser_pool=pool, adapter=adapter)
+    result = official_run(service, lease, execution_id="OJ-BSK-MOBILE-1")
+    assert result.state.value == "PASSED"
+    assert sum("emulate" in c for c in runner.calls) == 1
+    steps = truth.query("rc72_official_journey_execution_step",
+                        execution_id="OJ-BSK-MOBILE-1")
+    assert steps and all(s["status"] == "PASSED" for s in steps)
+    for row in steps:
+        receipt = json.loads(_local_file_evidence_ref(row["actual_refs"][0]).read_text())
+        assert receipt["mobile_emulation"]["device"] == "pixel-7"
+        assert receipt["mobile_emulation"]["viewport_css"] == [412, 915]
+        assert receipt["field_verified"] is False
+    official = truth.query("rc72_official_journey_execution",
+                           execution_id="OJ-BSK-MOBILE-1")
+    assert official[0]["field_verified"] is False
+
+
+def test_bsk_mobile_unresolved_first_effect_never_reapplies_on_same_attempt(
+        tmp_path):
+    truth, pool, lease, _, _ = replay_setup(tmp_path)
+    runner = MobileBSK(failure="probe_wrong_viewport")
+    adapter = _adapter(pool, tmp_path, runner, mobile_device="iphone-14")
+    original = truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]["steps"][0]
+    context = {
+        "replay_id": "MOBILE-UNRESOLVED", "mission_id": "M-1",
+        "workitem_id": "WI-R1", "attempt_id": "ATT-R1",
+        "worker_id": "WORKER-R1", "session_id": "SESSION-R1",
+        "browser_lease_id": lease.browser_lease_id,
+    }
+    failed = adapter.execute_step(original, context)
+    assert failed["status"] == "FAILED"
+    command_count = len(runner.calls)
+    repeated = adapter.execute_step(original, context)
+    assert repeated["failure_code"] == "JOURNEY_BSK_DUPLICATE_STEP_EFFECT_UNKNOWN"
+    assert len(runner.calls) == command_count
+    assert len([cmd for cmd in runner.calls if "emulate" in cmd]) == 1

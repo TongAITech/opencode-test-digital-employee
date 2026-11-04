@@ -205,6 +205,35 @@ class NativeN9ProfessionalDshAnalysisService:
         make progress. Its HANDOFF event or failed/started event prevents a
         new agent from replaying an unknown model/tool side effect.
         """
+        # C07: an ACTIVE/R1-registered Captain owns the only WorkItem lease.
+        # A professional DSH launcher cannot allocate a second Worker via the
+        # legacy scheduler or borrow the N7 execution lease. Until a native
+        # Captain -> signed DSH WorkerInvocation binding is implemented, the
+        # exact accepted N8 discrepancy may be admitted as a read-only
+        # Captain-owned N9 WorkItem, but the process MUST NOT be launched.
+        # This preflight precedes any N9 model/tool I/O or local task lease.
+        prepared = self._one("rc72_n7_execution_preparation",
+                             preparation_id=preparation_id)
+        owners = self.truth.query("rc72_captain_dispatch_lease",
+                                  mission_id=prepared["mission_id"])
+        governed = self.pipeline.captain_scheduler
+        if owners:
+            if governed is None:
+                raise ContractError("N9_DSH_EXISTING_CAPTAIN_UNFENCED_LEGACY_ROUTE")
+            from .rc72_n9_captain_qualification import NativeN9CaptainQualificationAdmission
+            admitted = NativeN9CaptainQualificationAdmission(self.pipeline).admit(
+                preparation_id=preparation_id, diagnosis_id=diagnosis_id)
+            return dict(admitted, status="HOLD",
+                        reason="N9_DSH_CAPTAIN_SIGNED_WORKER_BINDING_REQUIRED",
+                        diagnosis_id=diagnosis_id,
+                        original_attempt_id=prepared["attempt_id"],
+                        defect_confirmed=False, reproduction_completed=False,
+                        field_verified=False, bank_final=False)
+        if governed is not None:
+            # No real persisted Captain generation: never silently switch to
+            # unfenced/legacy DSH when a Host claimed AgentTeams governance.
+            raise ContractError("N9_DSH_CAPTAIN_LEASE_REQUIRED")
+
         assignment = None
         prompt = None
         # This performs the independent N8/process/Oracle audit. It owns its
