@@ -349,8 +349,10 @@ class JourneyBSKAdapter:
         folder = self.root / run_id / ("step-%04d" % seq)
         screenshot = folder / "screen.png"
         actual_path = folder / "actual.json"
+        intent_path = folder / "dispatch-intent.json"
         key = (run_id, seq)
-        if key in self._seen_steps or actual_path.exists() or screenshot.exists():
+        if (key in self._seen_steps or intent_path.exists()
+                or actual_path.exists() or screenshot.exists()):
             # Unknown side effects or existing Actual are never retried in a
             # fresh invocation. Do not overwrite the original PASS/FAIL files.
             rejected = _atomic_json(folder / "repeat-rejected.json", {
@@ -380,6 +382,28 @@ class JourneyBSKAdapter:
             session = binding["session"]
             control_context = self._sync(session, binding["tab_id"])
             self._guard(context)
+            # Durable write-ahead intent is mandatory before ANY BSK action,
+            # even if the process crashes after SUT I/O and before Actual/PNG.
+            # Exclusive creation fences distinct workers sharing the same R1
+            # Evidence root. Never remove intent on failure or cold restart.
+            folder.mkdir(parents=True, exist_ok=True)
+            try:
+                with intent_path.open("x", encoding="utf-8") as writer:
+                    json.dump({
+                        "schema": "rc72-c09-bsk-dispatch-intent-v1",
+                        "replay_id": run_id, "sequence": seq,
+                        "attempt_id": context["attempt_id"],
+                        "browser_lease_id": context["browser_lease_id"],
+                        "source_step_id": step.get("source_step_id"),
+                        "action_type": str(step.get("action_type") or ""),
+                        "status": "EFFECT_UNKNOWN_UNTIL_ACTUAL",
+                        "created_at": int(time.time()),
+                    }, writer, sort_keys=True)
+                    writer.flush()
+                    os.fsync(writer.fileno())
+            except FileExistsError as exc:
+                raise ContractError("JOURNEY_BSK_DUPLICATE_STEP_EFFECT_UNKNOWN") from exc
+            evidence_refs.append(intent_path.resolve().as_uri())
             step_result = self._action(step, context, session, control_context)
             # BSK's session may be stopped/borrow ownership revoked during the
             # action; never issue screenshot or PASS without a fresh lease guard.
@@ -419,6 +443,8 @@ class JourneyBSKAdapter:
                 if session is not None else None),
             "action_type": str(step.get("action_type") or ""),
             "source_step_id": step.get("source_step_id"),
+            "dispatch_intent_ref": (
+                intent_path.resolve().as_uri() if intent_path.is_file() else None),
             "started_at": started_at, "completed_at": int(time.time()),
             "result_category": step_result.get("action"),
             "screenshot_sha256": png_proof["sha256"] if png_proof else None,
