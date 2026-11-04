@@ -2,7 +2,7 @@ name: RC7.2 Portable Transport Preparation
 
 on:
   push:
-    branches: [work/rc7.2, work/rc7.2-full-transport]
+    branches: [work/rc7.2, work/rc7.2-full-transport, work/rc7.2-bsk-041-physical]
     paths:
       - '.github/workflows/rc7.2-portable-transport.yml'
       - 'rc6_runtime/**'
