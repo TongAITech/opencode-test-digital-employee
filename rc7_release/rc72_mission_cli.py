@@ -6,7 +6,24 @@ from pathlib import Path
 
 from rc6_runtime.truth import TruthRuntime
 from rc7_runtime.rc72_release_driver import release_batch_status
+from rc7_runtime.rc72_domain import AutonomousMissionNode
 from rc7_runtime.models import ContractError
+
+
+def _accepted_ten_node_completion(node_rows):
+    """Only the exact complete N1-N10 set can support a completion claim.
+
+    The CLI is an independent admission boundary. A lost N8/N9/N10 node,
+    duplicate type or foreign extension must never be treated as a fully
+    accepted mission even when a producer returns status=PASS.
+    """
+    required = {node.value for node in AutonomousMissionNode.ordered()}
+    if (not isinstance(node_rows, list) or len(node_rows) != len(required)
+            or any(not isinstance(row, dict) for row in node_rows)):
+        return False
+    types = [row.get('node_type') for row in node_rows]
+    return (set(types) == required and len(set(types)) == len(types)
+            and all(row.get('state') == 'PASS' for row in node_rows))
 
 
 def main(argv=None):
@@ -111,9 +128,7 @@ def main(argv=None):
                     and row.get('state') == 'PASS'
                     for row in node_rows
                 )
-                all_nodes_pass = bool(node_rows) and all(
-                    row.get('state') == 'PASS' for row in node_rows
-                )
+                all_nodes_pass = _accepted_ten_node_completion(node_rows)
                 mission_complete = (
                     result.get('status') == 'PASS' and n10_pass and all_nodes_pass
                 )

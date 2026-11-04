@@ -5,7 +5,9 @@ on:
     branches: [work/rc7.2-c08-release-denominator]
     paths:
       - 'rc7_runtime/rc72_release_driver.py'
+      - 'rc7_release/rc72_mission_cli.py'
       - 'tests/test_rc72_release_driver.py'
+      - 'tests/test_rc72_mission_completion_denominator.py'
       - '.github/workflows/rc7.2-c08-release-denominator.yml'
   pull_request:
     branches: [work/rc7.2-abcd-v5-bsk-mobile-qualification, work/rc7.2]
@@ -41,12 +43,14 @@ jobs:
         run: >-
           python -m py_compile
           rc7_runtime/rc72_release_driver.py
+          rc7_release/rc72_mission_cli.py
           tests/test_rc72_release_driver.py
       - name: Exercise real N1/N2 product route and cold R1 denominator rejection
         run: >-
           python -m pytest -q
           tests/test_rc72_release_driver.py
           tests/test_rc72_release_driver_n10.py
+          tests/test_rc72_mission_completion_denominator.py
           --junitxml=rc72-c08-denominator.xml
       - uses: actions/upload-artifact@v4
         if: always()
