@@ -188,14 +188,19 @@ def test_real_chromium_cdp_journey_replay_and_business_oracles(tmp_path: Path):
             folder = tmp_path / "actual-browser-evidence" / "REAL-CHROMIUM-1" / ("step-%04d" % seq)
             assert (folder / "screen.png").read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
             assert (folder / "actual.json").is_file()
+        # A SPA response can arrive after click() returned. The authoritative
+        # HTTP Oracle Actual stores the response under the source click's
+        # request-origin, not whatever later step happened to receive it.
         observed = json.loads(
             (tmp_path / "actual-browser-evidence" / "REAL-CHROMIUM-1" /
-             "step-0002" / "actual.json").read_text()
+             "step-0004" / "actual.json").read_text()
         )
-        assert any(row["method"] == "POST"
-                   and row["url"] == origin + "/api/save"
-                   and row["status"] == 200
-                   for row in observed["response_metadata"])
+        proof = observed["network_oracle_proof"]
+        assert proof["method"] == "POST"
+        assert proof["url"] == origin + "/api/save"
+        assert proof["status"] == 200
+        assert proof["source_step_id"] == "S-POST"
+        assert proof["action_type"] == "CLICK"
         assert "never-leak" not in json.dumps(observed)
         assert (tmp_path / "r1.jsonl").is_file()
     finally:
