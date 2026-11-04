@@ -198,7 +198,16 @@ class NativeN9ProfessionalDshAnalysisService:
         return row
 
     def analyze(self, *, preparation_id, diagnosis_id):
-        with ledger_lock(self.truth,busy="N9_DSH_PROFESSIONAL_LEDGER_BUSY"):
+        """Reserve one professional Worker first; never hold R1 lock over DSH I/O.
+
+        Reservation and task ownership are serialized by the shared R1 ledger.
+        DSH process execution is outside that lock, so other RC7.2 workers can
+        make progress. Its HANDOFF event or failed/started event prevents a
+        new agent from replaying an unknown model/tool side effect.
+        """
+        assignment = None
+        prompt = None
+        with ledger_lock(self.truth, busy="N9_DSH_PROFESSIONAL_LEDGER_BUSY"):
             scope=self.intake.queue_reproduction(
                 preparation_id=preparation_id, diagnosis_id=diagnosis_id)
             wid=scope["qualification_workitem_id"]
@@ -242,19 +251,46 @@ class NativeN9ProfessionalDshAnalysisService:
                 if leased is None:
                     return dict(result,reason="N9_DSH_GOVERNED_WORKITEM_NOT_LEASABLE")
                 control.scheduler.start(wid,worker_ref=assignment.worker_instance_id)
-                try:
-                    self.launcher.execute(assignment,self._prompt(scope,task))
-                except AgentRuntimeError:
-                    # DSH may already have produced external tool effects.
-                    # No automatic replay even when its process returned FAIL.
-                    return dict(result,reason="N9_DSH_UNKNOWN_PROCESS_NO_REPLAY")
-                task=self._one("rc7_task",task_id=wid)
-                events=self.truth.query("agent_runtime_event",mission_id=task["mission_id"],
-                                        scope=assignment_scope)
-                returned=[event for event in events if event.get("event_name")=="HANDOFF_RETURNED"]
-            if len(returned)!=1:
+                prompt=self._prompt(scope,task)
+            elif not returned:
+                # An assignment/start/failure event is a durable reservation,
+                # even if the process crashed before its return event.
                 return dict(result,reason="N9_DSH_INTERRUPTED_NO_REPLAY")
+
+        if assignment is not None:
+            try:
+                self.launcher.execute(assignment,prompt)
+            except AgentRuntimeError:
+                # The child may have called a tool before the process failed.
+                # Keep the exact R1 task fenced, never automatically relaunch.
+                return dict(result,reason="N9_DSH_UNKNOWN_PROCESS_NO_REPLAY")
+
+        with ledger_lock(self.truth, busy="N9_DSH_PROFESSIONAL_LEDGER_BUSY"):
+            # Another caller may have completed the same Worker handoff while
+            # this process was outside the ledger lock. Independently audit
+            # every original signed N8 / N9 input on the resumed turn.
+            fresh_scope=self.intake.queue_reproduction(
+                preparation_id=preparation_id, diagnosis_id=diagnosis_id)
+            if fresh_scope!=scope:
+                raise ContractError("N9_DSH_ACCEPTED_SCOPE_CHANGED_DURING_WORKER")
+            task=self._one("rc7_task",task_id=wid)
+            events=self.truth.query("agent_runtime_event",mission_id=task["mission_id"],
+                                    scope=assignment_scope)
+            returned=[event for event in events if event.get("event_name")=="HANDOFF_RETURNED"]
+            if len(returned)!=1:
+                if not returned:
+                    return dict(result,reason="N9_DSH_INTERRUPTED_NO_REPLAY")
+                raise ContractError("N9_DSH_DUPLICATE_HANDOFF_REJECTED")
             expected=self._expected(scope,task,returned[0])
+            receipts=self.truth.query(_KIND,qualification_workitem_id=wid)
+            if len(receipts)>1:
+                raise ContractError("N9_DSH_RECEIPT_NOT_UNIQUE")
+            if receipts:
+                receipt=self._receipt(receipts[0])
+                if any(receipt.get(k)!=v for k,v in expected.items()):
+                    raise ContractError("N9_DSH_RECEIPT_LINEAGE_CHANGED")
+                return dict(result,analysis_id=receipt["analysis_id"],
+                            cause_candidate_only=True)
             signed=dict(expected,signature=self.pipeline.preparation.authority._sign(expected),
                         artifact_version=1)
             self.truth.append_atomic(_EVENT,signed)
