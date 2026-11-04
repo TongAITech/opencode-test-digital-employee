@@ -91,6 +91,8 @@ def _adapter(pool, tmp_path, runner):
         bsk_executable=tmp_path / "bsk.exe",
         runner=runner,
         session_resolver=owned_session,
+        session_receipt_verifier=lambda ownership, scope, instance: (
+            ownership.get("source_receipt_ref") == "r1://bsk-session-binding"),
         reference_resolver=resolver)
 
 
