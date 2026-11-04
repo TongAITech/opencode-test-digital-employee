@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -76,6 +77,7 @@ class _NativeDshLauncher(DshHeadlessWorkerLauncher):
         self.response = response
         self.execute_count = 0
         self.emit_tools = True
+        self.tool_name_override = None
         self.native_calls = []
         self.command_runner = self._runner
 
@@ -86,7 +88,7 @@ class _NativeDshLauncher(DshHeadlessWorkerLauncher):
         for _ in range(calls):
             events.append({
                 "type": "tool_call",
-                "tool_name": (
+                "tool_name": self.tool_name_override or (
                     "approved-real-tool"
                     if "execution" in self.state_root.name else "read-evidence"
                 ),
@@ -833,3 +835,86 @@ def test_idempotent_evaluator_replay_rechecks_own_raw_file_digest(tmp_path):
             assignment=reviewer_assignment,
         )
     assert reviewer.execute_count == 1
+
+
+
+def test_forged_or_expired_real_lease_never_runs_shared_model_batch(tmp_path):
+    from rc7_runtime.rc72_native_batch_authority import NativeBatchAuthorityError
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    signed = assignment.lease
+    assignment.lease = replace(signed, signature="0" * len(signed.signature))
+    with pytest.raises(NativeBatchAuthorityError, match="SIGNED_LEASE_DENIED"):
+        _dispatch(truth, batch, execution, assignment)
+    assert execution.execute_count == 0
+    assert truth.query("rc72_execution_batch_receipt", mission_id=MISSION) == []
+
+    assignment.lease = replace(signed, expires_at=1)
+    with pytest.raises(NativeBatchAuthorityError, match="SIGNED_LEASE_DENIED"):
+        _dispatch(truth, batch, execution, assignment)
+    assert execution.execute_count == 0
+
+    assignment.lease = signed
+    assignment.allowed_tools = ("approved-real-tool", "unauthorized-extra-tool")
+    with pytest.raises(NativeBatchAuthorityError, match="SIGNED_CAPABILITY_SCOPE_MISMATCH"):
+        _dispatch(truth, batch, execution, assignment)
+    assert execution.execute_count == 0
+
+    assignment.allowed_tools = ("approved-real-tool",)
+    assignment.worker_instance_id = "FORGED-WORKER-ID"
+    with pytest.raises(NativeBatchAuthorityError, match="SIGNED_WORKER_MISMATCH"):
+        _dispatch(truth, batch, execution, assignment)
+    assert execution.execute_count == 0
+
+
+def test_forged_independent_evaluator_lease_cannot_run_model(tmp_path):
+    from rc7_runtime.rc72_native_batch_authority import NativeBatchAuthorityError
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    candidate = _dispatch(truth, batch, execution, assignment)
+    reviewer_assignment = _review_assignment(
+        batch.batch_id, candidate["raw_output_ref"],
+    )
+    original = reviewer_assignment.lease
+    reviewer_assignment.lease = replace(
+        original, allowed_tools=("unapproved-tool",)
+    )
+    service = NativeSharedEvaluatorBatch(
+        truth, release_id=RELEASE, launcher=reviewer,
+    )
+    with pytest.raises(NativeBatchAuthorityError, match="SIGNED_CAPABILITY_SCOPE_MISMATCH"):
+        service.review(
+            candidate_id=candidate["candidate_id"],
+            assignment=reviewer_assignment,
+        )
+    assert reviewer.execute_count == 0
+    assert truth.query("rc72_native_batch_review", mission_id=MISSION) == []
+
+
+def test_real_native_tool_not_on_signed_allowlist_blocks_batch_candidate(tmp_path):
+    from rc7_runtime.rc72_native_batch_raw_proof import NativeRawProofError
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    execution.tool_name_override = "forbidden-adapter-plugin"
+    with pytest.raises(NativeRawProofError, match="RAW_UNAUTHORIZED_TOOL_CALL"):
+        _dispatch(truth, batch, execution, assignment)
+    assert execution.execute_count == 1
+    assert truth.query("rc72_native_batch_candidate", mission_id=MISSION) == []
+    assert truth.query("execution_attempt", release_id=RELEASE) == []
+
+
+def test_independent_evaluator_native_tool_outside_signed_lease_is_rejected(tmp_path):
+    from rc7_runtime.rc72_native_batch_raw_proof import NativeRawProofError
+
+    truth, _, batch, execution, reviewer, assignment = _fixture(tmp_path)
+    candidate = _dispatch(truth, batch, execution, assignment)
+    reviewer.tool_name_override = "forbidden-review-plugin"
+    with pytest.raises(NativeRawProofError, match="RAW_UNAUTHORIZED_TOOL_CALL"):
+        NativeSharedEvaluatorBatch(
+            truth, release_id=RELEASE, launcher=reviewer,
+        ).review(
+            candidate_id=candidate["candidate_id"],
+            assignment=_review_assignment(batch.batch_id, candidate["raw_output_ref"]),
+        )
+    assert reviewer.execute_count == 1
+    assert truth.query("rc72_native_batch_review", mission_id=MISSION) == []
