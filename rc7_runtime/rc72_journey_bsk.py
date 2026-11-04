@@ -36,6 +36,7 @@ class JourneyBSKAdapter:
         evidence_root: Path,
         bsk_executable: Path,
         session_resolver: Callable[[Mapping[str, Any], Mapping[str, Any]], Mapping[str, Any]],
+        session_receipt_verifier: Callable[[Mapping[str, Any], Mapping[str, Any], Mapping[str, Any]], bool],
         reference_resolver: Callable[[str, str, Mapping[str, Any]], Any],
         runner: Optional[Callable[[Any], Mapping[str, Any]]] = None,
         timeout_seconds: int = 45,
@@ -44,6 +45,8 @@ class JourneyBSKAdapter:
             raise ContractError("JOURNEY_BSK_BROWSER_POOL_REQUIRED")
         if not callable(session_resolver) or not callable(reference_resolver):
             raise ContractError("JOURNEY_BSK_SESSION_AND_REFERENCE_RESOLVERS_REQUIRED")
+        if not callable(session_receipt_verifier):
+            raise ContractError("JOURNEY_BSK_EXTERNAL_SESSION_AUTHORITY_REQUIRED")
         binary = Path(bsk_executable).resolve()
         if runner is None and not binary.is_file():
             raise ContractError("JOURNEY_BSK_OFFLINE_EXECUTABLE_MISSING")
@@ -53,6 +56,7 @@ class JourneyBSKAdapter:
         self.root = Path(evidence_root).resolve()
         self.binary = binary
         self.session_for = session_resolver
+        self.verify_session = session_receipt_verifier
         self.resolve = reference_resolver
         self.runner = runner
         self.timeout_seconds = timeout_seconds
@@ -123,6 +127,15 @@ class JourneyBSKAdapter:
             raise ContractError("JOURNEY_BSK_SESSION_RECEIPT_SCOPE_MISMATCH")
         if ownership.get("state") != "ACTIVE" or not ownership.get("source_receipt_ref"):
             raise ContractError("JOURNEY_BSK_SESSION_NOT_AUTHORIZED")
+        # Exact-value comparisons prove only self-consistency. A B-issued
+        # R1/signed session authority must independently attest the receipt,
+        # at every step and after any potentially side-effectful browser I/O.
+        try:
+            accepted = self.verify_session(ownership, context, instance)
+        except Exception as exc:
+            raise ContractError("JOURNEY_BSK_EXTERNAL_SESSION_AUTHORITY_REJECTED") from exc
+        if accepted is not True:
+            raise ContractError("JOURNEY_BSK_EXTERNAL_SESSION_AUTHORITY_REJECTED")
         if self._session is not None and self._session != session:
             raise ContractError("JOURNEY_BSK_SESSION_SWITCH_FORBIDDEN")
         return {"instance": instance, "fingerprint": fingerprint,
