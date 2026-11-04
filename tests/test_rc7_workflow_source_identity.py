@@ -55,3 +55,15 @@ def test_rc7_final_one_zip_certification_retains_clean_smoke_and_bank_profile_pr
     assert "name: Qualify final package through real Git Bash entrypoint" in content
     assert "grep -q" in content and "protected_bank_profile_integrity" in content
     assert "name: RC7-Field-Hardened-${{ env.RC7_PACKAGE_SOURCE_SHA }}" in content
+
+
+def test_rc72_abcd_iterative_ci_defers_complete_chromium_and_full_source():
+    path = WORKFLOW.with_name("rc7.2-abcd-v5-qualification.yml")
+    content = path.read_text(encoding="utf-8")
+    assert "full_qualification:" in content
+    assert "default: false" in content
+    assert "if: github.event_name == 'workflow_dispatch' && inputs.full_qualification == true" in content
+    assert "c01-c10-engineering:" in content
+    assert "tests/test_rc72_mission_factory.py" in content
+    assert "Run every inherited RC7 and RC7.2 test module" in content
+    assert "python -m pytest -q" in content
