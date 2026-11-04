@@ -13,6 +13,18 @@ def _make(tmp_path, members):
     with zipfile.ZipFile(str(path), "w", compression=zipfile.ZIP_STORED) as archive:
         for name, data in members:
             archive.writestr(name, data)
+    # On Windows ZipInfo normalizes literal backslashes into forward slashes
+    # BEFORE writing the ZIP. Mutate ONLY the filename bytes in the two ZIP
+    # headers, so this negative case exercises a real malicious ZIP entry
+    # rather than Python's already-sanitized test fixture.
+    for name, _ in members:
+        if "\\\\" in name:
+            normalized = name.replace("\\\\", "/").encode("utf-8")
+            malicious = name.encode("utf-8")
+            raw = path.read_bytes()
+            if normalized != malicious and normalized in raw:
+                assert raw.count(normalized) == 2  # local + central headers
+                path.write_bytes(raw.replace(normalized, malicious))
     return path
 
 
