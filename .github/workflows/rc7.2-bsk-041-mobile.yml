@@ -1,0 +1,54 @@
+name: RC7.2 BrowserSkill 0.4.1 Mobile H5 Qualification
+
+on:
+  push:
+    branches: [work/rc7.2-bsk-041-mobile]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-bsk-041-mobile-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  signed-bsk-mobile-contracts:
+    name: bsk-041-mobile-${{ matrix.os }}-py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Bootstrap qualification harness
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile actual BSK and package source
+        run: python -m compileall -q rc7_runtime rc7_release tests
+      - name: BSK 0.4.1 signed mobile H5 replay, secure negative oracles, plugin and transport pins
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_journey_bsk_native_adapter.py
+          tests/test_rc72_journey_bsk_full_chain_contract.py
+          tests/test_rc72_journey_bsk_field_attestation.py
+          tests/test_rc72_journey_bsk_field_probe.py
+          tests/test_rc72_journey_n7_adapter.py
+          tests/test_rc7_plugin_payload.py
+          tests/test_rc7_runtime_payload_materializer.py
+          --junitxml=rc72-bsk-041-mobile-contracts.xml
+      - name: Upload same-SHA regression XML
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-bsk-041-mobile-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: rc72-bsk-041-mobile-contracts.xml
+          retention-days: 14
+          if-no-files-found: warn

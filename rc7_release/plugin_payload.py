@@ -15,11 +15,13 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 REQUIRED_PLUGIN_SPECS: Tuple[Tuple[str, str], ...] = (
     ("dsh-routing-suite", "dsh-routing-suite"),
-    ("@wxg-prc-cpg/browser-skill-dsh-plugin", "@wxg-prc-cpg/browser-skill-dsh-plugin"),
+    ("@wxg-prc-cpg/browser-skill-dsh-plugin", "@wxg-prc-cpg/browser-skill-dsh-plugin@0.4.1"),
     ("dsh-context", "dsh-context"),
     ("dsh-plugin-bridge", "dsh-plugin-bridge"),
     ("@nanmicoder/dsh-agent-teams", "@nanmicoder/dsh-agent-teams"),
 )
+BSK_DSH_PLUGIN_NAME = "@wxg-prc-cpg/browser-skill-dsh-plugin"
+BSK_DSH_PLUGIN_VERSION = "0.4.1"
 REQUIRED_PLUGIN_NAMES = tuple(name for name, _ in REQUIRED_PLUGIN_SPECS)
 PAYLOAD_ARCHIVE_RELATIVE = Path("rc7_release") / "vendor" / "dsh-plugins-payload.zip"
 PAYLOAD_MANIFEST_RELATIVE = Path("rc7_release") / "vendor" / "dsh-plugins-payload.manifest.json"
@@ -62,6 +64,9 @@ def _resolved_specs() -> Tuple[Tuple[str, str], ...]:
         value = overrides.get(name, default_spec)
         if not isinstance(value, str) or not value.strip():
             raise PluginPayloadError("PLUGIN_SPEC_OVERRIDE_INVALID:%s" % name)
+        if (name == BSK_DSH_PLUGIN_NAME
+                and value.strip() != BSK_DSH_PLUGIN_NAME + "@" + BSK_DSH_PLUGIN_VERSION):
+            raise PluginPayloadError("BSK_PLUGIN_VERSION_PIN_REQUIRED")
         rows.append((name, value.strip()))
     return tuple(rows)
 
@@ -126,6 +131,9 @@ def _pack_one(npm: str, expected_name: str, spec: str, vendor: Path, work: Path)
     actual_name = str(manifest.get("name") or "")
     if actual_name != expected_name:
         raise PluginPayloadError("PLUGIN_PACKAGE_NAME_MISMATCH:%s:%s" % (expected_name, actual_name or "<empty>"))
+    if (expected_name == BSK_DSH_PLUGIN_NAME
+            and str(manifest.get("version")) != BSK_DSH_PLUGIN_VERSION):
+        raise PluginPayloadError("BSK_PLUGIN_RESOLVED_VERSION_MISMATCH")
     dependencies = manifest.get("dependencies") or {}
     if dependencies:
         _run([npm, "install", "--omit=dev", "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund", "--package-lock=false"], cwd=target, timeout=300)
@@ -153,6 +161,10 @@ def inspect_vendor(vendor: Path) -> Dict[str, object]:
             rows[name] = {"bundled": False, "path": str(path)}
             continue
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if (name == BSK_DSH_PLUGIN_NAME
+                and (manifest.get("name") != name
+                     or manifest.get("version") != BSK_DSH_PLUGIN_VERSION)):
+            missing.append(name)
         rows[name] = {
             "bundled": True,
             "path": str(path),
@@ -180,7 +192,7 @@ def acquire(repo_root: Path, output_archive: Optional[Path] = None) -> Dict[str,
             raise PluginPayloadError("REQUIRED_PLUGIN_PAYLOAD_INCOMPLETE:%s" % ",".join(inspection.get("missing", [])))
         payload_manifest = {
             "schema_version": PAYLOAD_SCHEMA,
-            "version_policy": "CAPABILITY_BASED_NO_EXACT_VERSION_PIN",
+            "version_policy": "BROWSERSKILL_0_4_1_PINNED_OTHER_PLUGINS_CAPABILITY_BASED",
             "runtime_installation": "PACKAGE_LOCAL_FILE_PAYLOAD_NO_REGISTRY_REQUIRED",
             "required_plugins": list(REQUIRED_PLUGIN_NAMES),
             "resolved_plugins": resolved,
@@ -199,7 +211,7 @@ def acquire(repo_root: Path, output_archive: Optional[Path] = None) -> Dict[str,
         "archive_sha256": _sha256(archive),
         "archive_size": archive.stat().st_size,
         "schema_version": PAYLOAD_SCHEMA,
-        "version_policy": "CAPABILITY_BASED_NO_EXACT_VERSION_PIN",
+        "version_policy": "BROWSERSKILL_0_4_1_PINNED_OTHER_PLUGINS_CAPABILITY_BASED",
         "plugins": resolved,
     }
     manifest_sidecar.parent.mkdir(parents=True, exist_ok=True)

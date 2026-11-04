@@ -20,6 +20,7 @@ from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
 from rc7_runtime.rc72_journey_playwright import _atomic_json
 from rc7_runtime.rc72_journey_png import verify_png_file
+from rc7_release.runtime_payload_materializer import BSK_LOCK_VERSION
 
 
 def _sha256(path: Path) -> str:
@@ -115,8 +116,18 @@ def qualify_bsk(
             bsk_session_id.encode("utf-8")).hexdigest()[:16]
         report["tab_id"] = tab_id
         version = call(["--version"], expects_json=False)
-        check("bsk_cli_version", bool(version), "BSK_PROBE_VERSION_MISSING")
+        check("bsk_cli_version", BSK_LOCK_VERSION in version,
+              "BSK_PROBE_CLI_VERSION_NOT_PINNED")
         report["bsk_cli_version"] = version[:120]
+        # A previous bank daemon can keep running after CLI files are replaced.
+        # Protocol 1.8 + exact daemon/extension 0.4.1 must be proven live;
+        # installing a new CLI alone cannot establish the mobile capability.
+        daemon = call(["status", "--json"])
+        check("bsk_daemon_release",
+              daemon.get("daemon_version") == BSK_LOCK_VERSION
+              and daemon.get("protocol_version") == "1.8"
+              and daemon.get("version_skew_browsers") == [],
+              "BSK_PROBE_DAEMON_OR_PROTOCOL_VERSION_MISMATCH")
         scope = ["--session", bsk_session_id, "--tab-id", str(tab_id)]
         caps = call(["debug", "capabilities", *scope, "--json"])
         capability = caps.get("capabilities")
@@ -125,6 +136,20 @@ def qualify_bsk(
               and isinstance(capability.get("extension"), Mapping)
               and isinstance(capability.get("cli"), Mapping),
               "BSK_PROBE_LIVE_EXTENSION_NOT_VERIFIED")
+        component_cli = capability["cli"]
+        component_ext = capability["extension"]
+        check("bsk_live_protocol_and_extension_pin",
+              component_cli.get("version") == BSK_LOCK_VERSION
+              and str(component_cli.get("protocol_version")) == "1.8"
+              and component_ext.get("version") == BSK_LOCK_VERSION,
+              "BSK_PROBE_LIVE_EXTENSION_VERSION_MISMATCH")
+        report["bsk_component_versions"] = {
+            "required_version": BSK_LOCK_VERSION,
+            "cli": component_cli.get("version"),
+            "daemon": daemon.get("daemon_version"),
+            "extension": component_ext.get("version"),
+            "protocol_version": str(daemon.get("protocol_version")),
+        }
         sync = call([
             "cooperate", "sync", *scope, "--policy", "strict", "--json"])
         check("cooperation_context",
