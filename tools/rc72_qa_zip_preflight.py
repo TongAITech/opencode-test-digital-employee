@@ -77,11 +77,17 @@ def inspect_zip(source, *, expected_root=EXPECTED_ROOT):
                     parent_dirs.add("/".join(parts[:count]).casefold())
                 if not path_is_dir:
                     file_paths.add(win_path)
-                if member.is_dir() != path_is_dir:
-                    raise UnsafeArchiveError("C12_ARCHIVE_DIRECTORY_TYPE_MISMATCH")
-                # A ZIP can carry Unix symlink mode even when decoded on Windows.
-                if (member.external_attr >> 16) & 0o170000 == 0o120000:
+                # zipfile.ZipInfo.is_dir() only checks for a trailing slash;
+                # independent Unix type metadata must agree with the path.
+                mode = (member.external_attr >> 16) & 0o170000
+                if mode == 0o120000:
                     raise UnsafeArchiveError("C12_ARCHIVE_SYMLINK_FORBIDDEN")
+                if member.create_system == 3:
+                    if mode not in (0, 0o040000, 0o100000):
+                        raise UnsafeArchiveError("C12_ARCHIVE_SPECIAL_FILE_FORBIDDEN")
+                    if (path_is_dir and mode == 0o100000
+                            or not path_is_dir and mode == 0o040000):
+                        raise UnsafeArchiveError("C12_ARCHIVE_DIRECTORY_TYPE_MISMATCH")
                 if path_is_dir:
                     if member.file_size:
                         raise UnsafeArchiveError("C12_ARCHIVE_DIRECTORY_HAS_DATA")
