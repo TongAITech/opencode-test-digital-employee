@@ -84,7 +84,13 @@ class _NativeDshLauncher(DshHeadlessWorkerLauncher):
         events = [{"type": "session", "session_id": self.session_id}]
         calls = (2 if "execution" in self.state_root.name else 1) if self.emit_tools else 0
         for _ in range(calls):
-            events.append({"type": "tool_call", "tool_name": "approved-real-tool"})
+            events.append({
+                "type": "tool_call",
+                "tool_name": (
+                    "approved-real-tool"
+                    if "execution" in self.state_root.name else "read-evidence"
+                ),
+            })
         events.append({
             "type": "final",
             "provider": "bank-model",
