@@ -18,16 +18,20 @@ from rc7_runtime.rc72_authority import RC72AuthorityRuntime
 from rc7_runtime.rc72_code_tool_binding import NATIVE_CODE_TOOLS
 from rc7_runtime.rc72_bank_pip_mirror import NativeBankPipMirrorService
 from rc7_runtime.rc72_ledger_lock import ledger_lock
-from rc7_runtime.rc72_mission_factory import ROLES, MissionWorkerBinding, MissionHostBindings
+from rc7_runtime.rc72_mission_factory import (ROLES, MissionWorkerBinding,
+    MissionHostBindings, MissionProfessionalDshBinding)
 from rc7_runtime.rc72_native_n1_launcher import NativeN1ReadDshLauncher
 from rc7_runtime.rc72_native_n1_read_gate import N1ReadResource
 from .execution_environment import ExecutionEnvironmentLoader, ExecutionEnvironmentLoadError
 from .rc72_tool_environment import package_tool_environment, OWNED_NAMES
 
 SCHEMA = 'RC72_MISSION_CAPABILITIES_V1'
+SCHEMA_V2 = 'RC72_MISSION_CAPABILITIES_V2'
+_N9_DIAGNOSTIC_TOOLS = frozenset({'read_only_diagnostic'})
 _FIELDS = {'schema', 'release_id', 'source_commit', 'package_root', 'state_root',
            'dsh_bin', 'patch_path', 'inputs', 'role_tools', 'tool_registry',
            'environment_module', 'archive', 'pip_field_config', 'model_environment_names'}
+_FIELDS_V2 = _FIELDS | {'n9_read_only_tools'}
 _FORBIDDEN_ENV = {'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'DSH_HOME',
                   'XDG_CONFIG_HOME', 'PYTHONPATH', 'PYTHONHOME', 'NODE_OPTIONS'}
 
@@ -76,7 +80,9 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
         raise
     except (OSError, ValueError):
         raise ContractError('MISSION_CONFIG_READ_FAILED') from None
-    if (not isinstance(config, dict) or set(config) != _FIELDS or config.get('schema') != SCHEMA):
+    schema = config.get('schema') if isinstance(config, dict) else None
+    if (schema not in {SCHEMA, SCHEMA_V2}
+            or set(config) != (_FIELDS_V2 if schema == SCHEMA_V2 else _FIELDS)):
         raise ContractError('MISSION_CONFIG_EXACT_CAPABILITY_FIELDS_REQUIRED')
     if (not isinstance(release_id,str) or not release_id.strip()
             or not isinstance(source_commit,str) or not re.fullmatch('[0-9a-f]{40}', source_commit) or config['source_commit'] != source_commit
@@ -109,6 +115,19 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
     if (not isinstance(registry, dict) or not registry
             or any(not isinstance(k, str) or not k.strip() or not _tools(v) for k,v in registry.items())):
         raise ContractError('MISSION_CONFIG_EXACT_EXECUTION_TOOLS_REQUIRED')
+    # V2 is an explicit bank-owned, scoped professional diagnostic provider.
+    # V1 remains a strict schema and cannot implicitly inherit N7 business
+    # tools or mint N9 permissions. The only admitted V2 skill is the
+    # reviewed read-only diagnostic capability; no API write/BSK/4A replay.
+    n9_tools = None
+    if schema == SCHEMA_V2:
+        proposed = config['n9_read_only_tools']
+        if (not _tools(proposed)
+                or set(proposed) != _N9_DIAGNOSTIC_TOOLS
+                or set(proposed) & {tool for group in registry.values()
+                                   for tool in group}):
+            raise ContractError('MISSION_CONFIG_N9_EXACT_READ_ONLY_TOOLS_REQUIRED')
+        n9_tools = tuple(proposed)
     inputs = config['inputs']
     if not isinstance(inputs, list) or not inputs:
         raise ContractError('MISSION_CONFIG_ORIGINAL_INPUTS_REQUIRED')
@@ -161,7 +180,22 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
     mirror = NativeBankPipMirrorService(truth, release_id=release_id, source_commit=source_commit,
         authority=authority('bank-pip-mirror'), package_root=root, archive=archive,
         field_config=field, evidence_root=owned/'pip-mirror')
-    return MissionHostBindings(workers, mirror, execution, adapter, registry, tools_environment or None)
+    # A real, dedicated native DSH worker — not a callback that returns
+    # analysis PASS. Host-owned private authority/root prevent N7 process,
+    # task lease or execution environment credentials from being inherited.
+    # Only N8's accepted frozen discrepancy may trigger this analyst.
+    professional = None
+    if n9_tools is not None:
+        analyst = DshHeadlessWorkerLauncher(
+            dsh_bin=str(dsh), patch_path=str(patch), cwd=str(root), truth=truth,
+            authority=authority('worker:n9_professional'),
+            coordinator_instance_id='rc72-controller-'+scope[:24],
+            release_id=release_id, state_root=str(owned/'workers'/'n9-professional'),
+            env=environment)
+        professional = MissionProfessionalDshBinding(analyst, n9_tools)
+    return MissionHostBindings(
+        workers, mirror, execution, adapter, registry, tools_environment or None,
+        professional_dsh_binding=professional)
 
 
 def create_mission_bindings(*, truth, release_id, source_commit):
