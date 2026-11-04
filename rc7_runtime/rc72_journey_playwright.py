@@ -280,6 +280,7 @@ class JourneyPlaywrightAdapter:
             self._assert(page, step, context)
         else:
             raise ContractError("JOURNEY_ACTION_UNSUPPORTED")
+        self._guard(context)
         self._wait(page, step, context)
 
     def execute_step(self, step: Mapping[str, Any], context: Mapping[str, Any]) -> Dict[str, Any]:
