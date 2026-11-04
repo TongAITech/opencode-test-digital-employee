@@ -221,10 +221,15 @@ def test_c08_status_rejects_corrupt_mission_denominator_without_worker_or_r1_wri
 def test_c08_unbootstrapped_release_status_never_claims_node_pass(tmp_path):
     from rc7_runtime.rc72_release_driver import release_batch_status
     truth = build_truth(tmp_path)
+    truth.append_atomic('RC72_RELEASE_BATCH_UPSERTED', dict(
+        release_batch_id=BATCH, release_id=RELEASE, mission_id=MISSION,
+        name=RELEASE, version_ids=[RELEASE], application_ids=['BLOAN'],
+        requirement_ids=list(REQUIREMENTS), state='REGISTERED',
+        readiness='UNKNOWN', created_at=1, updated_at=1,
+        artifact_version=1))
     # The projection of a registered-but-not-started ReleaseBatch must not
     # manufacture ten PASS labels or launch a worker just to answer status.
-    if truth.query('rc72_mission_node', mission_id=MISSION):
-        pytest.skip('fixture seeds a fully bootstrapped release')
+    assert not truth.query('rc72_mission_node', mission_id=MISSION)
     before = truth.store.path.read_bytes()
     response = release_batch_status(
         truth, source_commit=COMMIT, release_batch_id=BATCH)
