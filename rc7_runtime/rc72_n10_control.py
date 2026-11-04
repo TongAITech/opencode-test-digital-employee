@@ -104,6 +104,11 @@ class NativeN10ControlService:
                     and row.get('fresh_n7_gate_id')==current_gate]
                 if len(matches)>1:
                     raise ContractError('N10_HISTORICAL_RERUN_NOT_UNIQUE')
+                if not matches:
+                    return dict(status='HOLD',reason='N10_HISTORICAL_RERUN_CURRENT_N7_CHANGED',
+                        historical_rerun_ids=sorted(row['rerun_id'] for row in historical),
+                        current_n7_gate_id=current_gate,manifest_id=frozen['manifest_id'],
+                        field_verified=False,bank_final=False)
                 if matches:
                     accepted=self.rerun._audit_pass(self.rerun._signed(matches[0]))
                     if accepted.get('gate_id')!=current_gate or accepted.get('rerun_id')!=matches[0]['rerun_id']:
