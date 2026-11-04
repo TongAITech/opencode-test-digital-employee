@@ -67,3 +67,24 @@ def test_rc72_abcd_iterative_ci_defers_complete_chromium_and_full_source():
     assert "tests/test_rc72_mission_factory.py" in content
     assert "Run every inherited RC7 and RC7.2 test module" in content
     assert "python -m pytest -q" in content
+
+
+def test_rc72_targeted_ci_pull_request_paths_match_changed_product_slice():
+    root = WORKFLOW.parents[2]
+    for name, changed in [
+        ("rc7.2-c04-professional-lineage.yml", [
+            "rc7_runtime/rc72_n9_professional_intake.py",
+            "tests/test_rc72_n9_professional_lineage.py",
+        ]),
+        ("rc7.2-c08-release-denominator.yml", [
+            "rc7_runtime/rc72_release_driver.py",
+            "rc7_release/rc72_mission_cli.py",
+            "tests/test_rc72_release_driver.py",
+        ]),
+    ]:
+        content = (root / ".github" / "workflows" / name).read_text(
+            encoding="utf-8")
+        pr = content.split("  pull_request:", 1)[1].split(
+            "  workflow_dispatch:", 1)[0]
+        assert "    paths:" in pr
+        assert all("'" + path + "'" in pr for path in changed)
