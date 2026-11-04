@@ -214,6 +214,14 @@ class SignedToolDispatchService:
         This is assertion evidence; cleanup, independent review and Case/Node
         completion are intentionally still required by the execution finalizer.
         """
+        self.truth.rebuild_projection()
+        observed = self.truth.query(_KIND, preparation_id=preparation_id)
+        if any(call['state'] in {'IN_FLIGHT', 'UNKNOWN'} for call in observed):
+            original = self.preparation._one(
+                'rc72_n7_execution_preparation', preparation_id=preparation_id)
+            self.preparation.authority.revoke_worker_lease(
+                original['task_lease']['lease_id'])
+            raise ToolDispatchError('N7_SIDE_EFFECTS_UNKNOWN_DIAGNOSIS_REQUIRED')
         prepared = self.preparation.assert_current(preparation_id)
         contract = self.preparation._one('rc72_n6_executable_contract',
                                          contract_id=prepared['contract_id'])
