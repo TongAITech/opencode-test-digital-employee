@@ -26,8 +26,9 @@ from .rc72_n7_execution_preparation import ExecutionPreparationService
 from .rc72_formal_runner import FormalN7RunnerAdapter
 from .rc72_n7_pipeline import N7PipelineService
 from .rc72_official_journey_execution import OfficialJourneyExecutionService
-from .rc72_journey_n7_adapter import SignedN7OfficialBSKAdapter
+from .rc72_journey_n7_adapter import SignedN7OfficialBSKAdapter, SignedN7OfficialJourneyAdapter
 from .rc72_journey_bsk import JourneyBSKAdapter
+from .rc72_journey_playwright import JourneyPlaywrightAdapter
 from .rc72_n8_product_recovery import NativeN8ProductRecoveryService
 from .rc72_n9_professional_dsh import NativeN9ProfessionalDshAnalysisService
 from .rc72_capability_broker import CapabilityBroker, CapabilityPolicyRule
@@ -86,6 +87,7 @@ class MissionHostBindings:
     captain_binding: object = None
     capability_policies: object = None
     official_bsk_execution: object = None
+    official_playwright_execution: object = None
     professional_dsh_binding: object = None
 
 
@@ -93,7 +95,8 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
                           bank_pip_mirror, execution_authority,
                           execution_environment, tool_registry, evidence_root,
                           execution_env=None, captain_binding=None, capability_policies=None,
-                          official_bsk_execution=None, professional_dsh_binding=None):
+                          official_bsk_execution=None, official_playwright_execution=None,
+                          professional_dsh_binding=None):
     """Compose all implemented native routes against one ledger/source/release.
 
     Missing roles fail before constructing pipelines or touching the ledger.
@@ -198,6 +201,27 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
             raise ContractError('MISSION_FACTORY_BSK_NATIVE_HOST_OWNERSHIP_REQUIRED')
         official_journey_adapters['journey_bsk'] = SignedN7OfficialBSKAdapter(
             official_bsk_execution)
+
+    # Playwright/CDP is an approved signed Journey, never the generic HTTP
+    # runner. A registry name cannot invent a B-owned browser or 4A identity.
+    playwright_registered = 'journey_playwright' in allowed_execution_tools
+    if playwright_registered != (official_playwright_execution is not None):
+        raise ContractError('MISSION_FACTORY_PLAYWRIGHT_APPROVED_TOOL_AND_EXECUTOR_REQUIRED')
+    if playwright_registered:
+        execution = official_playwright_execution
+        if (type(execution) is not OfficialJourneyExecutionService
+                or execution.truth is not truth
+                or execution.release_id != release_id
+                or type(execution.adapter) is not JourneyPlaywrightAdapter
+                or execution.adapter.pool is not execution.browser_pool
+                or execution.browser_pool.truth is not truth
+                or execution.browser_pool.release_id != release_id
+                or execution.adapter_kind != 'PLAYWRIGHT_CDP_LOCAL'
+                or execution.trusted_field_adapter_kinds
+                or execution.adapter.field_verified is not False):
+            raise ContractError('MISSION_FACTORY_PLAYWRIGHT_NATIVE_HOST_OWNERSHIP_REQUIRED')
+        official_journey_adapters['journey_playwright'] = SignedN7OfficialJourneyAdapter(
+            execution)
 
     specialist = None
     if professional_dsh_binding is not None:
