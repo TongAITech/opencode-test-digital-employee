@@ -96,10 +96,10 @@ def test_wrong_baseline_branch_cannot_pass_just_because_head_is_latest(tmp_path)
 def test_frozen_ledger_existing_commit_from_sibling_is_rejected_as_non_ancestor(tmp_path):
     root, frozen, base, head, ledger = _scope_fixture(tmp_path)
     _run(root, "checkout", "-b", "independent-ledger-source", frozen)
-    unrelated = _commit(root, "other-version.txt", "sibling design baseline\\n")
+    unrelated = _commit(root, "other-version.txt", "sibling design baseline\n")
     _run(root, "checkout", "--detach", head)
-    ledger.write_text("clause_id,source_sha\\n" +
-                      "".join("CLAUSE-%02d,%s\\n" % (n, unrelated) for n in range(95)),
+    ledger.write_text("clause_id,source_sha\n" +
+                      "".join("CLAUSE-%02d,%s\n" % (n, unrelated) for n in range(95)),
                       encoding="utf-8")
     with pytest.raises(ProvenanceError, match="QA_LEDGER_BASELINE_NOT_IN_TARGET_MAIN"):
         verify_source(root, expected_head=head, expected_base=base, ledger_path=ledger)
