@@ -100,6 +100,31 @@ def test_invalid_config_fails_before_creating_authority_or_launching_workers(tmp
     assert truth.store.path.read_bytes()==before
 
 
+def test_existing_captain_release_refuses_unfenced_config_before_controller_bootstrap(tmp_path, monkeypatch):
+    """C07: JSON cannot impersonate the DSH Captain or create an unfenced worker."""
+    from rc7_runtime.rc72_captain_dispatch_fencing import CaptainDispatchFencer
+    from rc72_n2_test_support import MISSION
+
+    truth, _, path = _setup(tmp_path, monkeypatch)
+    start_n1(truth)
+    fencer = CaptainDispatchFencer(truth, release_id=RELEASE)
+    fencer.acquire_initial(mission_id=MISSION, team_id='TEAM-CONFIG-DENY',
+                           captain_session_id='DSH-REAL-CAPTAIN-SESSION')
+    before = truth.store.path.read_bytes()
+    with pytest.raises(ContractError, match='MISSION_CONFIG_CAPTAIN_HOST_BINDING_REQUIRED'):
+        configured_mission_bindings(
+            truth, release_id=RELEASE, source_commit=COMMIT, config_path=path)
+    assert truth.store.path.read_bytes() == before
+    assert not (tmp_path / 'owned-state').exists()
+    # Cold recovery must not drop the Captain lease and silently downgrade.
+    cold = TruthRuntime(truth.store.path)
+    with pytest.raises(ContractError, match='MISSION_CONFIG_CAPTAIN_HOST_BINDING_REQUIRED'):
+        configured_mission_bindings(
+            cold, release_id=RELEASE, source_commit=COMMIT, config_path=path)
+    assert cold.store.path.read_bytes() == before
+    assert not (tmp_path / 'owned-state').exists()
+
+
 def test_full_carried_environment_is_owned_and_model_credentials_do_not_enter_runner(tmp_path,monkeypatch):
     from test_rc72_tool_environment import _paths
     from rc7_release.rc72_tool_environment import package_tool_environment
