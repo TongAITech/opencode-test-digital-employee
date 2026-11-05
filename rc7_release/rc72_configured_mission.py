@@ -88,6 +88,16 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
             or not isinstance(source_commit,str) or not re.fullmatch('[0-9a-f]{40}', source_commit) or config['source_commit'] != source_commit
             or config['release_id'] != release_id):
         raise ContractError('MISSION_CONFIG_RELEASE_SOURCE_MISMATCH')
+    # A capability JSON contains no authenticated DSH AgentTeams Captain
+    # identity or signed lease. If the canonical release already has a Captain
+    # generation, refusing here prevents an unfenced local controller key,
+    # DSH worker bootstrap, model budget, or later business I/O from starting.
+    # The trusted host module is the only supported Captain-bound entry.
+    from rc7_runtime.rc72_captain_dispatch_fencing import install_captain_dispatch_overlay
+    install_captain_dispatch_overlay()
+    if any(truth.query('rc72_captain_dispatch_lease', mission_id=batch['mission_id'])
+           for batch in truth.query('rc72_release_batch', release_id=release_id)):
+        raise ContractError('MISSION_CONFIG_CAPTAIN_HOST_BINDING_REQUIRED')
 
     def configured_path(name, *, file=False):
         value = config[name]
