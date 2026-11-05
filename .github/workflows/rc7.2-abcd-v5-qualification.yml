@@ -90,8 +90,12 @@ jobs:
 
   complete-rc7-with-real-chromium:
     name: abcd-v5-ubuntu-3.11-complete-source-real-chromium
-    # Feature commits get only the 4-platform targeted gates above.
-    if: github.event_name == 'workflow_dispatch' && inputs.full_qualification == true
+    # Full inherited Chromium is admitted only by an explicit manual request
+    # or a dedicated integration-checkpoint commit. Routine feature pushes
+    # retain their bounded four-platform gates and never repeat the full suite.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.full_qualification == true)
+      || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'qualify(rc7.2):'))
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     steps:
@@ -177,3 +181,25 @@ jobs:
           path: rc72-a6-c07-issue7.xml
           retention-days: 14
           if-no-files-found: error
+
+  checkpoint-full-gate:
+    name: full-inherited-real-chromium-must-pass-on-qualification-checkpoint
+    # A skipped browser/full-source job must NEVER certify the checkpoint.
+    # Keep this gate off routine pushes; otherwise every small fix would
+    # re-run the entire inherited suite.
+    if: ${{ always() && github.event_name == 'push' && startsWith(github.event.head_commit.message, 'qualify(rc7.2):') }}
+    needs: [complete-rc7-with-real-chromium]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Reject skipped, cancelled or failing full-source qualification
+        shell: bash
+        env:
+          FULL_JOB_RESULT: ${{ needs['complete-rc7-with-real-chromium'].result }}
+        run: |
+          set -euo pipefail
+          if [ "$FULL_JOB_RESULT" != "success" ]; then
+            echo "RC72_FULL_QUALIFICATION_NOT_PROVEN: full job was $FULL_JOB_RESULT" >&2
+            exit 1
+          fi
+          echo "RC72_FULL_QUALIFICATION_JOB_PASSED_ON_SAME_SHA=$GITHUB_SHA"
