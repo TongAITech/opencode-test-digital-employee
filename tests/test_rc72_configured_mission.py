@@ -467,7 +467,9 @@ def test_configured_host_denies_unverified_captain_or_escalation_before_controll
     elif mutation == "other_host":
         params["host_authority"] = RC72AuthorityRuntime(b"foreign-host-not-authorized")
     elif mutation == "other_batch":
-        params["observed_captain"] = replace(observed, release_batch_id="RB-OTHER")
+        changed = replace(observed, release_batch_id="RB-OTHER")
+        params["observed_captain"] = replace(
+            changed, signature=host._sign(changed.signed_fields()))
     elif mutation == "other_team":
         params["observed_captain"] = replace(observed, team_id="FOREIGN-TEAM")
     elif mutation == "role_escalation":
